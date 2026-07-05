@@ -1,0 +1,130 @@
+name: Integration Tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flutter-build:
+    name: Flutter build (end-to-end)
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      # stable channel bundles Dart >=3.6.0 required by pubspec.yaml
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Resolve Dart dependencies
+        run: dart pub get
+
+      - name: Restore Darwin SDK
+        uses: ./.github/actions/setup-darwin-sdk
+        with:
+          artifactbundle-url: ${{ secrets.DARWIN_ARTIFACTBUNDLE_URL }}
+
+      - name: Compile xcross
+        run: |
+          set -euo pipefail
+          echo "::group::dart compile xcross"
+          dart compile exe bin/xcross.dart -o /tmp/xcross
+          chmod +x /tmp/xcross
+          /tmp/xcross --version || true
+          echo "::endgroup::"
+
+      - name: Create Flutter sample app
+        run: |
+          set -euo pipefail
+          echo "::group::flutter create sample"
+          flutter create \
+            --platforms=ios \
+            --org com.example.xcrossci \
+            --project-name xcross_ci_sample \
+            /tmp/flutter_sample
+          echo "::endgroup::"
+          echo "::group::flutter pub get"
+          flutter pub get --directory /tmp/flutter_sample
+          echo "::endgroup::"
+
+      - name: Build Flutter iOS app via xcross
+        id: xcross-flutter-build
+        working-directory: /tmp/flutter_sample
+        run: |
+          set -euo pipefail
+          echo "::group::xcross flutter build"
+          /tmp/xcross flutter build --no-pub 2>&1 | tee /tmp/xcross-flutter-build.log
+          echo "::endgroup::"
+
+      - name: Assert .app output
+        working-directory: /tmp/flutter_sample
+        run: |
+          set -euo pipefail
+          echo "::group::Assert .app structure"
+
+          # Assert .app directory exists
+          APP=$(ls -d build/xtool-ios/*.app 2>/dev/null | head -1)
+          if [[ -z "$APP" ]]; then
+            echo "::error::No .app found under build/xtool-ios/"
+            ls -la build/xtool-ios/ || true
+            exit 1
+          fi
+          echo "Found .app: $APP"
+
+          # Assert Info.plist exists
+          if ! test -f "$APP/Info.plist"; then
+            echo "::error::Info.plist not found in $APP"
+            ls -la "$APP/" || true
+            exit 1
+          fi
+          echo "Info.plist OK"
+
+          # CFBundleExecutable is Runner (PlistDefaults.executable) for xcross
+          # Flutter builds — the .app dir is <appName>.app but the binary is Runner.
+          BINARY="$APP/Runner"
+          if ! test -f "$BINARY"; then
+            echo "::error::Runner binary not found at $BINARY"
+            ls -la "$APP/" || true
+            exit 1
+          fi
+          FILE_OUT=$(file "$BINARY")
+          echo "file output: $FILE_OUT"
+          if ! echo "$FILE_OUT" | grep -Eqi "arm64|aarch64"; then
+            echo "::error::Binary does not appear to be ARM64 Mach-O: $FILE_OUT"
+            exit 1
+          fi
+          echo "Runner binary is ARM64 Mach-O — OK"
+          echo "::endgroup::"
+
+      - name: Upload Flutter .app artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: flutter-sample-app
+          path: /tmp/flutter_sample/build/xtool-ios/
+          if-no-files-found: warn
+
+      - name: Upload xcross Flutter build log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: xcross-flutter-build-log
+          path: /tmp/xcross-flutter-build.log
+          if-no-files-found: warn

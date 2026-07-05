@@ -1,0 +1,77 @@
+name: Setup Darwin SDK
+description: >
+  Restore darwin.artifactbundle from cache, or download from the artifactbundle-url input.
+  Fails with an actionable message when neither is available.
+
+inputs:
+  artifactbundle-url:
+    description: >
+      URL to a darwin.artifactbundle .tar.gz (extracts to darwin.artifactbundle/ at root).
+      Pass the DARWIN_ARTIFACTBUNDLE_URL secret here. Optional when the cache is warm.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Restore Darwin SDK cache
+      id: darwin-cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.swiftpm/swift-sdks/darwin.artifactbundle
+        key: darwin-artifactbundle-v1
+        restore-keys: |
+          darwin-artifactbundle-
+
+    - name: Download Darwin SDK (cache miss)
+      if: steps.darwin-cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        DARWIN_ARTIFACTBUNDLE_URL: ${{ inputs.artifactbundle-url }}
+      run: |
+        set -euo pipefail
+        echo "::group::Download Darwin SDK"
+        if [[ -z "${DARWIN_ARTIFACTBUNDLE_URL:-}" ]]; then
+          echo "::error::Darwin SDK cache miss and DARWIN_ARTIFACTBUNDLE_URL is not set."
+          echo ""
+          echo "To fix, do ONE of the following:"
+          echo ""
+          echo "  Option A — warm the cache once (recommended):"
+          echo "    1. On a Linux host with the SDK in place, trigger the 'warm-darwin-sdk' workflow"
+          echo "       via workflow_dispatch from the Actions tab."
+          echo "    2. Set repo secret DARWIN_ARTIFACTBUNDLE_URL to a tarball (.tar.gz) URL that"
+          echo "       contains darwin.artifactbundle/ at its root."
+          echo ""
+          echo "  Option B — set repo secret:"
+          echo "    DARWIN_ARTIFACTBUNDLE_URL=https://<host>/darwin.artifactbundle.tar.gz"
+          echo "    The tarball must extract to darwin.artifactbundle/ (i.e. tar -tzf ... | head)"
+          echo ""
+          echo "  How to build the SDK locally:"
+          echo "    xtool sdk install /path/to/Xcode.xip"
+          echo "    # Produces ~/.swiftpm/swift-sdks/darwin.artifactbundle"
+          echo "    tar -czf darwin.artifactbundle.tar.gz -C ~/.swiftpm/swift-sdks darwin.artifactbundle"
+          echo "    # Upload the .tar.gz somewhere reachable; set DARWIN_ARTIFACTBUNDLE_URL to its URL."
+          exit 1
+        fi
+        echo "Downloading Darwin SDK from \$DARWIN_ARTIFACTBUNDLE_URL ..."
+        mkdir -p ~/.swiftpm/swift-sdks
+        curl -fSL "${DARWIN_ARTIFACTBUNDLE_URL}" -o /tmp/darwin.artifactbundle.tar.gz
+        echo "Extracting ..."
+        tar -xzf /tmp/darwin.artifactbundle.tar.gz -C ~/.swiftpm/swift-sdks/
+        rm /tmp/darwin.artifactbundle.tar.gz
+        echo "::endgroup::"
+
+    - name: Verify Darwin SDK
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "::group::Verify Darwin SDK"
+        if ! test -f "$HOME/.swiftpm/swift-sdks/darwin.artifactbundle/info.json"; then
+          echo "::error::darwin.artifactbundle/info.json not found after setup."
+          echo "Expected: $HOME/.swiftpm/swift-sdks/darwin.artifactbundle/info.json"
+          echo "Contents of swift-sdks dir:"
+          ls -la "$HOME/.swiftpm/swift-sdks/" || true
+          exit 1
+        fi
+        echo "Darwin SDK OK: $HOME/.swiftpm/swift-sdks/darwin.artifactbundle/info.json"
+        echo "::endgroup::"
