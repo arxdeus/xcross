@@ -1,0 +1,208 @@
+# xcross
+
+[![license: MIT](https://img.shields.io/badge/license-MIT-purple.svg)](https://opensource.org/licenses/MIT)
+[![platform: Linux](https://img.shields.io/badge/platform-Linux-blue.svg)](#requirements)
+[![Dart](https://img.shields.io/badge/dart-%5E3.6.0-0175C2.svg)](https://dart.dev)
+
+**Build, run, and hot-reload Flutter iOS apps from Linux — no Xcode, no macOS.**
+
+xcross is a Dart CLI. It reimplements the Flutter iOS build pipeline and iOS 17+ CoreDevice launch in pure Dart, and delegates signing, install, and device discovery to the [`xtool`](https://github.com/xtool-org/xtool) binary.
+
+Key properties:
+
+- 🐧 **Linux-native** — no Xcode, no macOS, no Rosetta shim for the build itself
+- 🔥 **Hot reload on device** — `r` reload, `R` restart, over the iOS 17+ CoreDevice/RSD tunnel
+- 📦 **Real signing & install** — handed off to `xtool` with your saved credentials
+- ⚙️ **Pure Dart pipeline** — `frontend_server` → `clang` → `ld64.lld` → `.app`/`.ipa`
+
+---
+
+## Overview
+
+xcross gives you a Linux path through the iOS build pipeline that normally requires a Mac.
+
+- **Flutter iOS** — debug/JIT `.app` or `.ipa`, hot reload on device
+- **Device launch** — iOS 17+ via RSD tunnel + GDB-remote, pre-17 via `xtool launch`
+- **Codesign + install** — real signing, delegated to `xtool` with your Apple credentials
+
+> xcross builds **debug only**. Release AOT still requires the macOS-only `flutter_tools assemble` path.
+
+---
+
+## Install
+
+Grab the latest prebuilt binary from GitHub Releases (Linux x64/arm64). The script detects your architecture, downloads the matching binary, installs it to `/usr/local/bin`, and makes it executable (uses `sudo` if needed):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/arxdeus/xcross/main/install.sh | sh
+```
+
+Pin a version or change the install dir:
+
+```sh
+XCROSS_VERSION=v1.2.3 INSTALL_DIR="$HOME/.local/bin" sh install.sh
+```
+
+Or build from source:
+
+```sh
+cd xcross
+dart pub get
+dart compile exe bin/xcross.dart -o /usr/local/bin/xcross
+```
+
+---
+
+## Quick start
+
+```sh
+# Flutter: build + install + hot reload on device
+cd my_flutter_app
+xcross flutter run -u <UDID>       # r = reload, R = restart, q = quit
+
+# Flutter: just build the .app
+xcross flutter build               # → build/xtool-ios/<AppName>.app
+```
+
+---
+
+## Requirements
+
+| Tool | Why |
+|------|-----|
+| `xtool` on PATH | sign, install, device discovery — run `xtool auth` first |
+| Darwin SDK | `xtool sdk install <Xcode.xip>` → `~/.swiftpm/swift-sdks/darwin.artifactbundle` |
+| Flutter SDK | on PATH, or `FLUTTER_ROOT`, or `.fvm/flutter_sdk` symlink |
+| `pymobiledevice3` | RSD tunnel for iOS 17+ (needs root) |
+| `zip` | only for `--ipa` |
+| Dart `^3.6.0` | to build xcross itself |
+
+---
+
+## Commands
+
+### `xcross flutter build`
+
+Builds a Flutter iOS `.app` (debug). Output: `build/xtool-ios/<AppName>.app`.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-t, --target` | `lib/main.dart` | App entrypoint |
+| `-D, --dart-define` | — | `KEY=VALUE` (repeatable) |
+| `--dart-define-from-file` | — | Defines from `.json`/`.env` |
+| `--[no-]pub` | `true` | Run `flutter pub get` first |
+| `--build-name` | — | `CFBundleShortVersionString` |
+| `--build-number` | — | `CFBundleVersion` |
+| `--flavor` | — | App flavor (limited) |
+| `-s, --sign` / `--codesign` | — | Mark for signing (actual sign at install) |
+| `-i, --ipa` | — | Output `.ipa` instead of `.app` |
+
+> `--sign` alone is a no-op: `xtool` has no standalone sign command. Signing runs at `xtool install`. Use `xcross flutter run` or `xtool install <app>` to sign.
+
+### `xcross flutter run`
+
+Build → sign + install (via `xtool`) → launch → hot reload.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-t, --target` | `lib/main.dart` | Entrypoint |
+| `-D, --dart-define` / `--dart-define-from-file` | — | Dart defines |
+| `--[no-]pub` | `true` | `flutter pub get` first |
+| `--flavor` | — | App flavor (limited) |
+| `-d, --device-id` | — | Device id/name (flutter-style) |
+| `-u, --udid` | — | Device UDID (xtool-style) |
+| `--usb` / `--wifi` | — | Restrict discovery |
+| `--device-connection` | `both` | `attached` \| `wireless` \| `both` |
+| `--route` | — | Initial route |
+| `-a, --dart-entrypoint-args` | — | Args to `main()` (repeatable) |
+| `-v, --verbose` | — | Verbose |
+
+Keys while running: `r` reload, `R` restart, `q`/Ctrl-C quit. `--udid` wins over `--device-id`. With multiple devices, a TTY shows a numbered picker; non-TTY (CI/piped) fails fast and asks for `--udid`.
+
+---
+
+## Configuration — `xtool.yml`
+
+Optional file at the project root (schema version 1). Without it, xcross defaults to the `com.example` org.
+
+```yaml
+version: 1
+orgID: com.example              # bundle = <orgID>.<appName>
+# bundleID: com.example.MyApp   # OR set a literal bundle id
+product: myApp                  # optional
+infoPath: ios/Runner/Info.plist # optional override
+entitlementsPath: ...           # optional
+iconPath: assets/icon.png       # optional; must be .png
+resources:                      # optional extra files
+  - assets/config.json
+```
+
+Set either `orgID` or `bundleID` (not both). `iconPath` must be `.png`.
+
+---
+
+## Environment variables
+
+| Var | Purpose | Default |
+|-----|---------|---------|
+| `FLUTTER_ROOT` | Flutter SDK location | parent of `which flutter` |
+| `XCROSS_LD64LLD` | `ld64.lld` path (x86_64) | `DarwinSdk.ld64lld` |
+
+---
+
+## How it works
+
+```
+xcross
+├── flutter build → FlutterPacker
+│     ├─ FlutterDebugBundler  frontend_server → App.framework (kernel + stub dylib)
+│     ├─ RunnerShim           clang / ld64.lld → ObjC Runner
+│     └─ Info.plist generation
+└── flutter run   → build → XtoolCli.install → CoreDeviceLauncher (iOS 17+, hot reload)
+                                             → DebugLauncher      (pre-17)
+```
+
+Key files: `bin/xcross.dart` (entrypoint), `lib/src/cli/runner.dart` (command wiring), `lib/src/build/flutter_packer.dart`, `lib/src/device/core_device_launcher.dart`, `lib/src/models/config/pack_schema.dart`.
+
+---
+
+## Gotchas
+
+- **Debug only.** Release / AOT needs the macOS `flutter_tools assemble` path.
+- **`--sign` alone does nothing** — signing happens at `xtool install`.
+- **iOS 17+ needs `pymobiledevice3` + root** for the RSD tunnel. Mount the DDI: `sudo pymobiledevice3 mounter auto-mount`.
+- **Install a Darwin SDK first:** `xtool sdk install <Xcode.xip>`.
+- **Multiple devices?** A TTY prompts with a numbered picker; CI/piped runs fail fast — pass `-u/--udid` or `-d`.
+- **JIT stays attached** — detaching kills the app (`CS_DEBUGGED`).
+
+---
+
+## Integration tests
+
+CI runs an end-to-end build job on every pull request and push to `main` (see [`.github/workflows/integration.yml`](.github/workflows/integration.yml)):
+
+| Job | Runner | What it tests |
+|-----|--------|---------------|
+| `flutter-build` | `ubuntu-24.04` | `xcross flutter build` on a fresh `flutter create` sample → asserts ARM64 Mach-O `.app` |
+
+The job requires the Darwin SDK (`~/.swiftpm/swift-sdks/darwin.artifactbundle`).
+
+**Providing the Darwin SDK to CI** — choose one:
+
+1. **Repo secret (simplest):** Set `DARWIN_ARTIFACTBUNDLE_URL` to a `.tar.gz` URL that contains `darwin.artifactbundle/` at its root. The setup action downloads and verifies it on each run.
+
+2. **Pre-warmed cache (faster):** Run the [Warm Darwin SDK cache](.github/workflows/warm-darwin-sdk.yml) workflow once via `workflow_dispatch` after setting the secret. Subsequent runs hit the cache (`darwin-artifactbundle-v1`) and skip the download.
+
+To build the tarball locally:
+```sh
+xtool sdk install /path/to/Xcode.xip
+tar -czf darwin.artifactbundle.tar.gz \
+  -C ~/.swiftpm/swift-sdks darwin.artifactbundle
+# Upload the .tar.gz; set DARWIN_ARTIFACTBUNDLE_URL repo secret to its URL.
+```
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
