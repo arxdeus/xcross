@@ -1,0 +1,78 @@
+name: Setup Compose Toolchain
+description: >
+  Install OS prerequisites for xcross compose build: JDK 21 headless, clang, lld,
+  build-essential, unzip, zip, xz-utils, file. Exports JAVA_HOME and XCROSS_LD64LLD
+  to GITHUB_ENV.
+
+runs:
+  using: composite
+  steps:
+    - name: Install compose toolchain packages
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "::group::apt-get install compose toolchain"
+        sudo apt-get update -qq
+        sudo apt-get install -y --no-install-recommends \
+          openjdk-21-jdk-headless \
+          clang \
+          lld \
+          build-essential \
+          unzip \
+          zip \
+          xz-utils \
+          file
+        echo "::endgroup::"
+
+    - name: Export JAVA_HOME
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "::group::Export JAVA_HOME"
+        JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+        if [[ ! -d "$JAVA_HOME" ]]; then
+          echo "::error::Expected JAVA_HOME=$JAVA_HOME not found. Check JDK install."
+          ls /usr/lib/jvm/ || true
+          exit 1
+        fi
+        echo "JAVA_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+        echo "Java: $("$JAVA_HOME/bin/java" -version 2>&1 | head -1)"
+        echo "::endgroup::"
+
+    - name: Locate and export ld64.lld
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "::group::Locate ld64.lld"
+        LD64LLD=""
+        # Search common LLVM versioned paths
+        for candidate in /usr/lib/llvm-*/bin/ld64.lld; do
+          if [[ -x "$candidate" ]]; then
+            LD64LLD="$candidate"
+            break
+          fi
+        done
+        # Fallback: any ld64.lld on PATH or /usr/bin
+        if [[ -z "$LD64LLD" ]]; then
+          LD64LLD="$(command -v ld64.lld 2>/dev/null || true)"
+        fi
+        if [[ -z "$LD64LLD" ]]; then
+          echo "::error::ld64.lld not found. Searched /usr/lib/llvm-*/bin/ld64.lld and PATH."
+          echo "Installed LLVM tools:"
+          find /usr/lib/llvm-* -name 'ld*' 2>/dev/null || true
+          exit 1
+        fi
+        echo "XCROSS_LD64LLD=$LD64LLD" >> "$GITHUB_ENV"
+        echo "Found ld64.lld: $LD64LLD"
+        "$LD64LLD" --version || true
+        echo "::endgroup::"
+
+    - name: Print toolchain versions
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "::group::Toolchain versions"
+        java -version 2>&1 || true
+        clang --version 2>&1 | head -1 || true
+        ld.lld --version 2>&1 | head -1 || true
+        echo "::endgroup::"

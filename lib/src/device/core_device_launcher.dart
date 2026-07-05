@@ -56,7 +56,7 @@ abstract final class CoreDeviceLauncher {
     // 4. Resolve debugproxy port. CoreDeviceLauncher.swift:138
     final debugproxyPort = await _resolveDebugproxyPort(tunnel);
 
-    // 5. Assemble launch args. CoreDeviceLauncher.swift:150
+    // 5. Compose launch args. CoreDeviceLauncher.swift:150
     final appArgs = _buildAppArgs(
       arguments: arguments,
       checkedMode: checkedMode,

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:completion/completion.dart';
 import 'package:xcross/src/cli/completion_command.dart';
+import 'package:xcross/src/cli/compose/compose_command.dart';
 import 'package:xcross/src/cli/flutter/flutter_command.dart';
 import 'package:xcross/src/util/errors.dart';
 
@@ -10,9 +11,10 @@ import 'package:xcross/src/util/errors.dart';
 CommandRunner<void> buildRunner() {
   return CommandRunner<void>(
     'xcross',
-    'Build, run, and hot-reload Flutter iOS apps from Linux without Xcode.',
+    'Build, run, and hot-reload Flutter/KMP iOS apps from Linux without Xcode.',
   )
     ..addCommand(FlutterCommand())
+    ..addCommand(ComposeCommand())
     ..addCommand(CompletionCommand());
 }
 

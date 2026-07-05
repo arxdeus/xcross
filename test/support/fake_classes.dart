@@ -1,0 +1,135 @@
+// Synthetic `.class` files and JAR builder used by patcher tests.
+import 'dart:typed_data';
+
+import 'package:archive/archive.dart';
+
+import 'class_file_builder.dart';
+
+// ── Synthetic HostManager class ───────────────────────────────────────────────
+//
+// Constant-pool layout (1-indexed):
+//   1  UTF8 "Code"
+//   2  UTF8 "StackMapTable"
+//   3  UTF8 "org/jetbrains/kotlin/konan/target/HostManager"
+//   4  Class(3)          ← HostManager
+//   5  UTF8 "java/lang/Object"
+//   6  Class(5)          ← Object (super)
+//   7  UTF8 "getTargetValues"
+//   8  UTF8 "()Ljava/util/List;"
+//   9  NameAndType(7,8)  ← getTargetValues descriptor
+//  10  Methodref(4,9)    ← HostManager.getTargetValues  ← key for patcher
+//  11  UTF8 "isEnabled"
+//  12  UTF8 "(Lorg/jetbrains/kotlin/konan/target/KonanTarget;)Z"
+//  13  UTF8 "getEnabled"
+//  14  Long(0,42)        ← occupies slots 14 AND 15 (double-slot test)
+//  [15 = null, second slot of Long]
+//  16  UTF8 "LineNumberTable"
+
+Uint8List buildFakeHostManagerClass() {
+  final cpEntries = [
+    cpUtf8('Code'), // 1
+    cpUtf8('StackMapTable'), // 2
+    cpUtf8('org/jetbrains/kotlin/konan/target/HostManager'), // 3
+    cpClass(3), // 4
+    cpUtf8('java/lang/Object'), // 5
+    cpClass(5), // 6
+    cpUtf8('getTargetValues'), // 7
+    cpUtf8('()Ljava/util/List;'), // 8
+    cpNameAndType(7, 8), // 9
+    cpMethodref(4, 9), // 10
+    cpUtf8('isEnabled'), // 11
+    cpUtf8('(Lorg/jetbrains/kotlin/konan/target/KonanTarget;)Z'), // 12
+    cpUtf8('getEnabled'), // 13
+    cpLong(0, 42), // 14  (Long → takes slots 14+15)
+    cpUtf8('LineNumberTable'), // 16
+  ];
+
+  // isEnabled Code:
+  //   code_length=10, 10×NOP
+  //   1 dummy exception entry (8 bytes) → tests that patcher clears it
+  //   inner attr: StackMapTable (name_idx=2) → tests that patcher strips it
+  final isEnabledBody = codeBody(
+    maxStack: 1,
+    maxLocals: 2,
+    code: List<int>.filled(10, 0),
+    exceptionCount: 1,
+    innerAttrs: [
+      (2, [0x00, 0x00, 0x00]),
+    ],
+  );
+
+  // getEnabled Code: plain 10×NOP, no exceptions, no inner attrs.
+  final getEnabledBody = codeBody(
+    maxStack: 1,
+    maxLocals: 1,
+    code: List<int>.filled(10, 0),
+  );
+
+  return Uint8List.fromList([
+    ...classFileHeader,
+    ...cpSection(cpEntries),
+    ...u2(0x0021), // ACC_PUBLIC | ACC_SUPER
+    ...u2(4), // this_class  = HostManager (CP#4)
+    ...u2(6), // super_class = Object      (CP#6)
+    ...u2(0), // interfaces_count = 0
+    ...u2(0), // fields_count = 0
+    ...u2(2), // methods_count = 2
+    ...member(nameIdx: 11, descIdx: 12, codeAttrBytes: codeAttr(isEnabledBody)),
+    ...member(nameIdx: 13, descIdx: 8, codeAttrBytes: codeAttr(getEnabledBody)),
+    ...u2(0), // class attributes_count = 0
+  ]);
+}
+
+// ── Synthetic ObjCExportKt class ──────────────────────────────────────────────
+//
+// Constant-pool layout (1-indexed):
+//   1  UTF8 "Code"
+//   2  UTF8 "StackMapTable"
+//   3  UTF8 "ObjCExportKt"
+//   4  Class(3)
+//   5  UTF8 "java/lang/Object"
+//   6  Class(5)
+//   7  UTF8 "generateWorkaroundForSwiftSR10177"
+//   8  UTF8 "(LObjCExportedInterface;)V"
+
+Uint8List buildFakeObjCExportClass() {
+  final cpEntries = [
+    cpUtf8('Code'), // 1
+    cpUtf8('StackMapTable'), // 2
+    cpUtf8('ObjCExportKt'), // 3
+    cpClass(3), // 4
+    cpUtf8('java/lang/Object'), // 5
+    cpClass(5), // 6
+    cpUtf8('generateWorkaroundForSwiftSR10177'), // 7
+    cpUtf8('(LObjCExportedInterface;)V'), // 8
+  ];
+
+  final methodBody = codeBody(
+    maxStack: 1,
+    maxLocals: 1,
+    code: List<int>.filled(5, 0),
+  );
+
+  return Uint8List.fromList([
+    ...classFileHeader,
+    ...cpSection(cpEntries),
+    ...u2(0x0021), // ACC_PUBLIC | ACC_SUPER
+    ...u2(4), // this  = ObjCExportKt
+    ...u2(6), // super = Object
+    ...u2(0), // interfaces
+    ...u2(0), // fields
+    ...u2(1), // 1 method
+    ...member(nameIdx: 7, descIdx: 8, codeAttrBytes: codeAttr(methodBody)),
+    ...u2(0), // class attrs
+  ]);
+}
+
+// ── In-memory JAR (ZIP) builder ───────────────────────────────────────────────
+
+Uint8List buildJar(Map<String, List<int>> entries) {
+  final archive = Archive();
+  for (final MapEntry(:key, :value) in entries.entries) {
+    archive.addFile(ArchiveFile(key, value.length, value));
+  }
+  return Uint8List.fromList(ZipEncoder().encode(archive));
+}

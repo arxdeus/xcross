@@ -128,3 +128,353 @@ jobs:
           name: xcross-flutter-build-log
           path: /tmp/xcross-flutter-build.log
           if-no-files-found: warn
+
+  compose-kmp-build:
+    name: Compose KMP build — runnableApp (example_kmp)
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Resolve Dart dependencies
+        run: dart pub get
+
+      - name: Setup Compose toolchain
+        uses: ./.github/actions/setup-compose-toolchain
+
+      - name: Restore Darwin SDK
+        uses: ./.github/actions/setup-darwin-sdk
+        with:
+          artifactbundle-url: ${{ secrets.DARWIN_ARTIFACTBUNDLE_URL }}
+
+      - name: Cache Kotlin/Native (2.4.0 — pinned by examples/example_kmp)
+        uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-kn-2.4.0-v1
+          restore-keys: |
+            konan-${{ runner.os }}-kn-2.4.0-
+
+      - name: Compile xcross
+        run: |
+          set -euo pipefail
+          echo "::group::dart compile xcross"
+          dart compile exe bin/xcross.dart -o /tmp/xcross
+          chmod +x /tmp/xcross
+          /tmp/xcross --version || true
+          echo "::endgroup::"
+
+      - name: Copy example_kmp to writable temp dir
+        run: |
+          set -euo pipefail
+          echo "::group::Copy examples/example_kmp"
+          cp -r examples/example_kmp /tmp/kmp
+          chmod +x /tmp/kmp/gradlew
+          ls -la /tmp/kmp/
+          echo "::endgroup::"
+
+      - name: Provision K/N toolchain (auto-detects Kotlin 2.4.0 from example_kmp)
+        working-directory: /tmp/kmp
+        run: |
+          set -euo pipefail
+          echo "::group::xcross compose setup"
+          /tmp/xcross compose setup
+          echo "::endgroup::"
+        env:
+          JAVA_HOME: ${{ env.JAVA_HOME }}
+          XCROSS_LD64LLD: ${{ env.XCROSS_LD64LLD }}
+          KONAN_DATA_DIR: /home/runner/.konan
+
+      - name: Build Compose KMP iOS app via xcross
+        working-directory: /tmp/kmp
+        run: |
+          set -euo pipefail
+          echo "::group::xcross compose build -c debug"
+          /tmp/xcross compose build -c debug 2>&1 | tee /tmp/xcross-kmp-build.log
+          echo "::endgroup::"
+        env:
+          JAVA_HOME: ${{ env.JAVA_HOME }}
+          XCROSS_LD64LLD: ${{ env.XCROSS_LD64LLD }}
+          KONAN_DATA_DIR: /home/runner/.konan
+          LX_KN: /home/runner/.konan/kotlin-native-prebuilt-linux-x86_64-2.4.0
+
+      - name: Assert .app output (runnableApp)
+        working-directory: /tmp/kmp
+        run: |
+          set -euo pipefail
+          echo "::group::Assert .app structure"
+
+          APP=$(ls -d build/xtool-ios/*.app 2>/dev/null | head -1)
+          if [[ -z "$APP" ]]; then
+            echo "::error::No .app found under build/xtool-ios/"
+            ls -la build/xtool-ios/ || true
+            exit 1
+          fi
+          echo "Found .app: $APP"
+
+          # Info.plist existence
+          if ! test -f "$APP/Info.plist"; then
+            echo "::error::Info.plist not found in $APP"
+            ls -la "$APP/" || true
+            exit 1
+          fi
+
+          # Info.plist key checks — python3 plistlib (PlistBuddy not on Linux).
+          # An existence-only check would false-green a broken bundle; assert actual values.
+          python3 - "$APP/Info.plist" << 'PYEOF'
+          import plistlib, sys
+          path = sys.argv[1]
+          with open(path, 'rb') as f:
+              d = plistlib.load(f)
+          exe = d.get('CFBundleExecutable', '')
+          bid = d.get('CFBundleIdentifier', '')
+          name = d.get('CFBundleName', '')
+          errors = []
+          if exe != 'Runner':
+              errors.append(f"CFBundleExecutable='{exe}' expected 'Runner'")
+          if not bid:
+              errors.append("CFBundleIdentifier is empty")
+          if not name:
+              errors.append("CFBundleName is empty")
+          if errors:
+              print("::error::Info.plist key check FAILED:")
+              for e in errors:
+                  print(f"  - {e}")
+              print("Full plist:", d)
+              sys.exit(1)
+          print(f"Info.plist OK: executable={exe!r} bundleId={bid!r} name={name!r}")
+          PYEOF
+
+          # Runner binary is arm64 Mach-O
+          BINARY="$APP/Runner"
+          if ! test -f "$BINARY"; then
+            echo "::error::Runner binary not found at $BINARY"
+            ls -la "$APP/" || true
+            exit 1
+          fi
+          FILE_OUT=$(file "$BINARY")
+          echo "file: $FILE_OUT"
+          if ! echo "$FILE_OUT" | grep -Eqi "arm64|aarch64"; then
+            echo "::error::Runner is not ARM64 Mach-O: $FILE_OUT"
+            exit 1
+          fi
+          echo "Runner binary ARM64 Mach-O — OK"
+
+          # Shared.framework embedded inside Frameworks/
+          FWK="$APP/Frameworks/Shared.framework/Shared"
+          if ! test -f "$FWK"; then
+            echo "::error::Shared.framework binary not found at $FWK"
+            ls -la "$APP/Frameworks/" || true
+            exit 1
+          fi
+          FWK_OUT=$(file "$FWK")
+          echo "file: $FWK_OUT"
+          if ! echo "$FWK_OUT" | grep -Eqi "arm64|aarch64"; then
+            echo "::error::Shared.framework binary is not ARM64 Mach-O: $FWK_OUT"
+            exit 1
+          fi
+          echo "Shared.framework ARM64 Mach-O — OK"
+          echo "::endgroup::"
+
+      - name: Upload KMP .app artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: compose-kmp-app
+          path: /tmp/kmp/build/xtool-ios/
+          if-no-files-found: warn
+
+      - name: Upload xcross KMP build log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: xcross-kmp-build-log
+          path: /tmp/xcross-kmp-build.log
+          if-no-files-found: warn
+
+  compose-cmp-build:
+    name: Compose CMP build — swiftApp (example_cmp)
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Resolve Dart dependencies
+        run: dart pub get
+
+      - name: Setup Compose toolchain (JDK 21, clang, lld)
+        uses: ./.github/actions/setup-compose-toolchain
+
+      - name: Restore Darwin SDK
+        uses: ./.github/actions/setup-darwin-sdk
+        with:
+          artifactbundle-url: ${{ secrets.DARWIN_ARTIFACTBUNDLE_URL }}
+
+      - name: Install Swift toolchain (swiftc needed for Swift iosApp runner)
+        # GitHub ubuntu-24.04 runners do not ship swiftc. swift-actions/setup-swift
+        # downloads the official swift.org toolchain and adds it to PATH.
+        # Swift 6.1 is the latest stable release with full iOS cross-compilation
+        # support matching the darwin.artifactbundle (built against Xcode 16+).
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.1"
+
+      - name: Cache Kotlin/Native (2.4.0 — pinned by examples/example_cmp)
+        uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-kn-2.4.0-v1
+          restore-keys: |
+            konan-${{ runner.os }}-kn-2.4.0-
+
+      - name: Compile xcross
+        run: |
+          set -euo pipefail
+          echo "::group::dart compile xcross"
+          dart compile exe bin/xcross.dart -o /tmp/xcross
+          chmod +x /tmp/xcross
+          /tmp/xcross --version || true
+          echo "::endgroup::"
+
+      - name: Copy example_cmp to writable temp dir
+        run: |
+          set -euo pipefail
+          echo "::group::Copy examples/example_cmp"
+          cp -r examples/example_cmp /tmp/cmp
+          chmod +x /tmp/cmp/gradlew
+          ls -la /tmp/cmp/
+          echo "::endgroup::"
+
+      - name: Provision K/N toolchain (auto-detects Kotlin 2.4.0 from example_cmp)
+        working-directory: /tmp/cmp
+        run: |
+          set -euo pipefail
+          echo "::group::xcross compose setup"
+          /tmp/xcross compose setup
+          echo "::endgroup::"
+        env:
+          JAVA_HOME: ${{ env.JAVA_HOME }}
+          XCROSS_LD64LLD: ${{ env.XCROSS_LD64LLD }}
+          KONAN_DATA_DIR: /home/runner/.konan
+
+      - name: Build Compose CMP iOS app via xcross
+        working-directory: /tmp/cmp
+        run: |
+          set -euo pipefail
+          echo "::group::xcross compose build -c debug"
+          /tmp/xcross compose build -c debug 2>&1 | tee /tmp/xcross-cmp-build.log
+          echo "::endgroup::"
+        env:
+          JAVA_HOME: ${{ env.JAVA_HOME }}
+          XCROSS_LD64LLD: ${{ env.XCROSS_LD64LLD }}
+          KONAN_DATA_DIR: /home/runner/.konan
+          LX_KN: /home/runner/.konan/kotlin-native-prebuilt-linux-x86_64-2.4.0
+
+      - name: Assert .app output (swiftApp)
+        working-directory: /tmp/cmp
+        run: |
+          set -euo pipefail
+          echo "::group::Assert .app structure"
+
+          APP=$(ls -d build/xtool-ios/*.app 2>/dev/null | head -1)
+          if [[ -z "$APP" ]]; then
+            echo "::error::No .app found under build/xtool-ios/"
+            ls -la build/xtool-ios/ || true
+            exit 1
+          fi
+          echo "Found .app: $APP"
+
+          # Info.plist existence
+          if ! test -f "$APP/Info.plist"; then
+            echo "::error::Info.plist not found in $APP"
+            ls -la "$APP/" || true
+            exit 1
+          fi
+
+          # Info.plist key checks via python3 plistlib — PlistBuddy not on Linux.
+          python3 - "$APP/Info.plist" << 'PYEOF'
+          import plistlib, sys
+          path = sys.argv[1]
+          with open(path, 'rb') as f:
+              d = plistlib.load(f)
+          exe = d.get('CFBundleExecutable', '')
+          bid = d.get('CFBundleIdentifier', '')
+          name = d.get('CFBundleName', '')
+          errors = []
+          if exe != 'Runner':
+              errors.append(f"CFBundleExecutable='{exe}' expected 'Runner'")
+          if not bid:
+              errors.append("CFBundleIdentifier is empty")
+          if not name:
+              errors.append("CFBundleName is empty")
+          if errors:
+              print("::error::Info.plist key check FAILED:")
+              for e in errors:
+                  print(f"  - {e}")
+              print("Full plist:", d)
+              sys.exit(1)
+          print(f"Info.plist OK: executable={exe!r} bundleId={bid!r} name={name!r}")
+          PYEOF
+
+          # Runner binary is arm64 Mach-O
+          BINARY="$APP/Runner"
+          if ! test -f "$BINARY"; then
+            echo "::error::Runner binary not found at $BINARY"
+            ls -la "$APP/" || true
+            exit 1
+          fi
+          FILE_OUT=$(file "$BINARY")
+          echo "file: $FILE_OUT"
+          if ! echo "$FILE_OUT" | grep -Eqi "arm64|aarch64"; then
+            echo "::error::Runner is not ARM64 Mach-O: $FILE_OUT"
+            exit 1
+          fi
+          echo "Runner binary ARM64 Mach-O — OK"
+
+          # SharedLogic.framework embedded inside Frameworks/
+          FWK="$APP/Frameworks/SharedLogic.framework/SharedLogic"
+          if ! test -f "$FWK"; then
+            echo "::error::SharedLogic.framework binary not found at $FWK"
+            ls -la "$APP/Frameworks/" || true
+            exit 1
+          fi
+          FWK_OUT=$(file "$FWK")
+          echo "file: $FWK_OUT"
+          if ! echo "$FWK_OUT" | grep -Eqi "arm64|aarch64"; then
+            echo "::error::SharedLogic.framework binary is not ARM64 Mach-O: $FWK_OUT"
+            exit 1
+          fi
+          echo "SharedLogic.framework ARM64 Mach-O — OK"
+          echo "::endgroup::"
+
+      - name: Upload CMP .app artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: compose-cmp-app
+          path: /tmp/cmp/build/xtool-ios/
+          if-no-files-found: warn
+
+      - name: Upload xcross CMP build log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: xcross-cmp-build-log
+          path: /tmp/xcross-cmp-build.log
+          if-no-files-found: warn

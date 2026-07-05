@@ -1,0 +1,129 @@
+name: Compose Build Spike (de-risk)
+# Manual only — this is an experiment, not a gating CI job.
+# Proves or disproves three cross-compilation unknowns for the xcross compose redesign.
+# Expected to possibly FAIL; it must fail LOUDLY with diagnostic output.
+#
+# Run from: Actions → "Compose Build Spike (de-risk)" → Run workflow
+# Read results from: the uploaded spike.log artifact and the step output.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  spike:
+    name: "Spike — compose cross-compile unknowns"
+    runs-on: ubuntu-24.04
+    # NOTE: DARWIN_ARTIFACTBUNDLE_URL is NOT set at job level — it is passed
+    # explicitly to the setup-darwin-sdk action via input so the action can report
+    # a clear error rather than silently using an empty env.
+    env:
+      # K/N version must match examples/example_kmp's kotlin = "2.4.0"
+      # in gradle/libs.versions.toml so setup provisions the right prebuilt.
+      KN_VERSION: "2.4.0"
+      KONAN_DATA_DIR: /home/runner/.konan
+      LX_KN: /home/runner/.konan/kotlin-native-prebuilt-linux-x86_64-2.4.0
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Resolve Dart dependencies
+        run: dart pub get
+
+      - name: Setup Compose toolchain (JDK 21, clang, lld, exports JAVA_HOME + XCROSS_LD64LLD)
+        uses: ./.github/actions/setup-compose-toolchain
+
+      - name: Setup Darwin SDK
+        uses: ./.github/actions/setup-darwin-sdk
+        with:
+          artifactbundle-url: ${{ secrets.DARWIN_ARTIFACTBUNDLE_URL }}
+
+      - name: Cache Kotlin/Native (2.4.0 — matches examples/example_kmp)
+        uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: konan-spike-kn-2.4.0-v1
+          restore-keys: |
+            konan-spike-kn-2.4.0-
+            konan-spike-kn-
+
+      - name: Compile xcross
+        run: |
+          set -euo pipefail
+          echo "::group::dart compile xcross"
+          dart compile exe bin/xcross.dart -o /tmp/xcross
+          chmod +x /tmp/xcross
+          /tmp/xcross --version || true
+          echo "::endgroup::"
+
+      - name: Provision K/N toolchain via xcross compose setup
+        # Run from examples/example_kmp so xcross auto-detects kotlin = 2.4.0
+        # from gradle/libs.versions.toml → provisions KN 2.4.0 + ios_arm64 overlay.
+        # KN_VERSION env is also set as explicit override for belt-and-suspenders.
+        working-directory: examples/example_kmp
+        run: |
+          set -euo pipefail
+          echo "::group::xcross compose setup (K/N 2.4.0 + ios_arm64 overlay)"
+          /tmp/xcross compose setup
+          echo "::endgroup::"
+        env:
+          JAVA_HOME: ${{ env.JAVA_HOME }}
+          XCROSS_LD64LLD: ${{ env.XCROSS_LD64LLD }}
+          KONAN_DATA_DIR: /home/runner/.konan
+          LX_KN: /home/runner/.konan/kotlin-native-prebuilt-linux-x86_64-2.4.0
+          KN_VERSION: "2.4.0"
+
+      - name: Run compose spike script
+        run: |
+          set -euo pipefail
+          bash scripts/compose-spike.sh 2>&1 | tee /tmp/spike.log
+        env:
+          JAVA_HOME: ${{ env.JAVA_HOME }}
+          XCROSS_LD64LLD: ${{ env.XCROSS_LD64LLD }}
+          KONAN_DATA_DIR: /home/runner/.konan
+          LX_KN: /home/runner/.konan/kotlin-native-prebuilt-linux-x86_64-2.4.0
+
+      - name: Assert no FAILs (makes job red when unknowns are not resolved)
+        if: always()
+        run: |
+          set -euo pipefail
+          echo "::group::Spike FAIL check"
+          if grep -qE "^(❌ FAIL|U-[A-Z-]+:.*FAIL)" /tmp/spike.log 2>/dev/null; then
+            echo "::error::One or more spike unknowns reported FAIL — see spike.log artifact."
+            echo "Lines matching FAIL:"
+            grep -E "FAIL" /tmp/spike.log || true
+            # Exit non-zero to mark the job red, but the artifacts are already uploaded.
+            exit 1
+          else
+            echo "No FAIL lines found — all unknowns PASS."
+          fi
+          echo "::endgroup::"
+
+      - name: Upload spike log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: spike-log
+          path: /tmp/spike.log
+          if-no-files-found: warn
+
+      - name: Upload Shared.framework headers (U-XINCLUDE evidence)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: spike-shared-framework
+          path: /tmp/out/Shared.framework/
+          if-no-files-found: warn
+
+      - name: Upload dep list (U-DEPS-ENUM evidence)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: spike-deps-txt
+          path: /tmp/deps.txt
+          if-no-files-found: warn

@@ -1,0 +1,202 @@
+# syntax=docker/dockerfile:1.7
+#
+# linux/amd64 container for `xcross compose run` (Kotlin Multiplatform / Compose
+# Multiplatform iOS builds) — run under Apple `container`'s Rosetta.
+#
+# WHY amd64 (not arm64): Kotlin/Native ships no linux-aarch64 prebuilt, so konanc
+# must be x86_64. On an arm64 guest the only way to run it is qemu-user, but
+# qemu-user cannot spawn subprocesses without binfmt (unavailable in the Apple
+# guest) — konanc's two-stage compile + linker spawn abort. Under `--arch amd64`
+# Apple provides Rosetta as a VM-level binfmt interpreter, so x86_64 userspace
+# (konanc + its child JVM + the linker) runs natively. This is the environment
+# xtool's original Compose pipeline used.
+#
+# Everything the build needs runs NATIVELY x86_64 in this one container:
+#   - konanc (linux x86_64 2.4.0), Gradle, JDK 21 — native.
+#   - ld64.lld — the swift image's own x86_64 /usr/bin/ld64.lld (konanc's linker
+#     + the Runner link; the darwin.artifactbundle's ld64.lld is aarch64 and is
+#     NOT used here).
+#   - clang — the swift image's x86_64 /usr/bin/clang (cross-targets arm64-ios).
+#   - the K/N HostManager jar is bytecode-patched at RUNTIME by the Dart binary
+#     (ComposePacker), so the baked K/N tree stays unpatched.
+#
+# Image tag: xcross-compose:amd64
+# Build (Rosetta on Apple Silicon):
+#   container build --arch amd64 -f Dockerfile.xcross-compose-amd64 \
+#     -t xcross-compose:amd64 .
+#
+# See scripts/xcross-compose-container.sh for the on-device run helper.
+
+ARG SWIFT_IMAGE=swift:6.3-noble
+
+# ===========================================================================
+# xadi-build: build libxadi.so (x86_64) FROM SOURCE with ldc.
+#   The prebuilt amd64-runtime-libs/libxadi.so fails to load Apple's arm64
+#   Android provisioning libs on x86_64 ("Unknown relocation type: 1027" =
+#   R_AARCH64_RELATIVE). A fresh build from upstream may include the missing
+#   relocation handling. This mirrors Dockerfile.xcross's build-xadi stage.
+# ===========================================================================
+FROM ${SWIFT_IMAGE} AS xadi-build
+RUN test "$(uname -m)" = "x86_64" || { echo "xadi-build must be amd64" >&2; exit 1; }
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ca-certificates curl build-essential git xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+RUN curl -fsS https://dlang.org/install.sh | bash -s ldc
+ADD --keep-git-dir=true https://github.com/xtool-org/xadi.git#main /xadi
+RUN cd /xadi \
+    && /bin/bash -c 'source $(/root/dlang/install.sh ldc -a) && dub build --build=release' \
+    && test -f bin/libxadi.so \
+    && echo "xadi built from source (amd64)"
+
+# ===========================================================================
+# runtime
+# ===========================================================================
+FROM ${SWIFT_IMAGE}
+
+LABEL org.opencontainers.image.title="xcross-compose" \
+      org.opencontainers.image.description="xcross + KMP/Compose Multiplatform iOS build (linux/amd64, Rosetta)"
+
+# This image is x86_64 only (Rosetta). Fail fast if built for the wrong arch.
+RUN test "$(uname -m)" = "x86_64" \
+    || { echo "ERROR: Dockerfile.xcross-compose-amd64 must be built --arch amd64. Got: $(uname -m)" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# 1. Base toolchain + device stack + native JDK.
+#    libimobiledevice-utils + usbmuxd + socat + iproute2 → iPhone over usbmuxd.
+#    openjdk-21 (amd64, native) → Gradle daemon + konanc JVM.
+# ---------------------------------------------------------------------------
+# NB: install `lld` (stock LLVM, iOS-capable ld64.lld). The swift image's own
+# /usr/bin/ld64.lld is stubbed for Apple platforms ("does not support linking
+# for platform iOS"); konanc's framework link + the Runner link need a real
+# Mach-O linker. clang (llvm-18) cross-compiles the ObjC Runner to arm64-ios.
+RUN DEBIAN_FRONTEND=noninteractive apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates build-essential clang lld git file \
+        curl zip unzip xz-utils \
+        python3-pip python3-venv usbmuxd libimobiledevice-utils socat iproute2 \
+        openjdk-21-jdk-headless \
+    && pip3 install --break-system-packages --no-cache-dir -U pymobiledevice3 \
+    && rm -rf /var/lib/apt/lists/* \
+    && test -x /usr/lib/llvm-18/bin/ld64.lld \
+    && test -x /usr/bin/clang
+
+ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+# konanc's framework link + the Runner link both use this x86_64 iOS-capable
+# ld64.lld (stock LLVM, NOT the swift image's Apple-stubbed lld).
+ENV XCROSS_LD64LLD=/usr/lib/llvm-18/bin/ld64.lld
+
+# ---------------------------------------------------------------------------
+# 2. xtool (prebuilt amd64) + its runtime libs. Signs + installs the .app.
+# ---------------------------------------------------------------------------
+COPY amd64-runtime-libs/ /usr/lib/
+COPY xtool-amd64 /usr/local/bin/xtool
+# Overwrite the (stale) prebuilt libxadi.so with the freshly built one.
+COPY --from=xadi-build /xadi/bin/libxadi.so /usr/lib/libxadi.so
+RUN chmod +x /usr/local/bin/xtool \
+    # xtool's runtime libs are built on jammy; its libxml2.so.2 / libcurl.so.4
+    # pull libicuuc.so.70 (absent on noble) and, dropped into /usr/lib, SHADOW
+    # the system copies that the swift toolchain's lld/clang link against —
+    # breaking konanc's linker spawn ("libicuuc.so.70 not found"). Remove those
+    # two duplicates; noble's system libxml2/libcurl satisfy xtool too. The
+    # device libs (libimobiledevice/libplist/libusbmuxd/libtatsu/libxadi) stay.
+    && rm -f /usr/lib/libxml2.so.2* /usr/lib/libcurl.so.4* \
+    && ldconfig \
+    && ldd /usr/local/bin/xtool | (grep -i "not found" && exit 1 || true) \
+    && xtool --help >/dev/null \
+    && /usr/lib/llvm-18/bin/ld64.lld --version >/dev/null \
+    && echo "xtool (amd64) OK; ld64.lld OK"
+
+# ---------------------------------------------------------------------------
+# 3. Dart SDK (x86_64) — to compile the xcross binary natively for this guest.
+# ---------------------------------------------------------------------------
+ARG DART_SDK_URL=https://storage.googleapis.com/dart-archive/channels/stable/release/latest/sdk/dartsdk-linux-x64-release.zip
+RUN curl -fsSL --retry 3 "$DART_SDK_URL" -o /tmp/dart.zip \
+    && unzip -q /tmp/dart.zip -d /opt \
+    && rm /tmp/dart.zip \
+    && test -x /opt/dart-sdk/bin/dart
+ENV PATH=/opt/dart-sdk/bin:${PATH}
+
+# ---------------------------------------------------------------------------
+# 4. Gradle 8.10.2 (native amd64; pinned to the example_kmp wrapper).
+# ---------------------------------------------------------------------------
+ARG GRADLE_VERSION=8.10.2
+RUN curl -fsSL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" \
+       -o /tmp/gradle.zip \
+    && unzip -q /tmp/gradle.zip -d /opt \
+    && ln -sf "/opt/gradle-${GRADLE_VERSION}/bin/gradle" /usr/local/bin/gradle \
+    && rm /tmp/gradle.zip \
+    && gradle --version | head -n 4
+
+# ---------------------------------------------------------------------------
+# 5. Kotlin/Native linux-x86_64 2.4.0 (UNPATCHED — ComposePacker patches the
+#    HostManager jar at runtime). KONAN_DATA_DIR keeps it out of /root so the
+#    xcross-home auth volume (mounted at /root) can't shadow it.
+#    2.4.0 matches the kotlin = "2.4.0" pin in examples/example_kmp and
+#    examples/example_cmp (gradle/libs.versions.toml).
+# ---------------------------------------------------------------------------
+ENV KONAN_DATA_DIR=/opt/konan
+ENV LX_KN=/opt/konan/kotlin-native-prebuilt-linux-x86_64-2.4.0
+ARG KN_LINUX_URL=https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-native-prebuilt/2.4.0/kotlin-native-prebuilt-2.4.0-linux-x86_64.tar.gz
+ARG KN_MACOS_URL=https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-native-prebuilt/2.4.0/kotlin-native-prebuilt-2.4.0-macos-x86_64.tar.gz
+
+# 5a. Download + extract K/N linux-x86_64 (~200 MB).
+RUN mkdir -p "$LX_KN" \
+    && curl -fsSL --retry 3 "$KN_LINUX_URL" -o /tmp/kn-linux.tar.gz \
+    && tar -xzf /tmp/kn-linux.tar.gz --strip-components=1 -C "$LX_KN" \
+    && rm /tmp/kn-linux.tar.gz \
+    && test -f "$LX_KN/bin/konanc" \
+    && echo "K/N linux-x86_64 extracted: $LX_KN"
+
+# 5b. ios_arm64 overlay from the macOS-x86_64 prebuilt (~250 MB): the linux tree
+#     ships no ios_arm64 target dir. Bitcode + platform klibs are platform-neutral.
+RUN curl -fsSL --retry 3 "$KN_MACOS_URL" -o /tmp/kn-macos.tar.gz \
+    && ROOT_PREFIX="$(tar -tzf /tmp/kn-macos.tar.gz | head -1 | cut -d/ -f1)" \
+    && mkdir -p "$LX_KN/konan/targets" "$LX_KN/klib/platform" \
+    && tar -xzf /tmp/kn-macos.tar.gz -C "$LX_KN" --strip-components=1 \
+         "${ROOT_PREFIX}/konan/targets/ios_arm64" \
+         "${ROOT_PREFIX}/klib/platform/ios_arm64" \
+    && rm /tmp/kn-macos.tar.gz \
+    && test -d "$LX_KN/konan/targets/ios_arm64" \
+    && echo "ios_arm64 overlay complete"
+
+# 5c. Warm konanc's native dependency cache (LLVM x86_64 ~174 MB, libffi) at
+#     image-build time via a throwaway linux_x64 compile (host target needs no
+#     HostManager patch). Otherwise every `--rm` run re-downloads them.
+RUN set -eux; \
+    printf 'fun main() {}\n' > /tmp/warm.kt; \
+    "$LX_KN/bin/konanc" -target linux_x64 -p program -o /tmp/warm /tmp/warm.kt 2>&1 | tail -3 || true; \
+    rm -f /tmp/warm.kt /tmp/warm.kexe; \
+    test -d /opt/konan/dependencies; \
+    echo "konan deps warmed"
+
+# ---------------------------------------------------------------------------
+# 6. Build xcross (native x86_64 Dart executable). The compose backend +
+#    HostManager patcher are pure Dart, so no shell/python is baked.
+# ---------------------------------------------------------------------------
+COPY xcross/ /opt/xcross-src/
+RUN cd /opt/xcross-src \
+    && dart pub get \
+    && dart compile exe bin/xcross.dart -o /usr/local/bin/xcross \
+    && chmod +x /usr/local/bin/xcross \
+    && xcross compose build --help >/dev/null \
+    && echo "xcross OK"
+
+# Physical-device access: usbmuxd socket forwarded from the macOS host over TCP.
+ENV USBMUXD_SOCKET_ADDRESS=host.docker.internal:27015
+
+# ---------------------------------------------------------------------------
+# 7. Entrypoint: preflight (usbmux / DDI / dev-mode / tunneld) then
+#    `xcross compose run` (build + install + launch).
+# ---------------------------------------------------------------------------
+COPY scripts/xcross-compose-run.sh /usr/local/bin/xcross-compose-run
+RUN chmod +x /usr/local/bin/xcross-compose-run
+
+WORKDIR /workspace
+
+# ENV CONTRACT consumed by `xcross compose run` at runtime:
+#   KMP_PROJECT   KMP project root (default /workspace/project via helper)
+#   DEVICE_UDID   target device UDID (optional)
+#   Darwin SDK    resolved by xcross from ~/.swiftpm/swift-sdks/darwin.artifactbundle
+#   Output        <KMP_PROJECT>/build/xtool-ios/<AppName>.app
+CMD ["xcross-compose-run"]

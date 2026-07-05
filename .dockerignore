@@ -23,7 +23,9 @@ DerivedData
 
 # Large non-source trees not needed by Dockerfile.xcross. NOTE: arm64-runtime-libs
 # and xtool-aarch64 ARE kept in context — the USE_PREBUILT_XTOOL=1 fast-path
-# copies them. xtool/limd/xadi (source path) are fetched over the network.
+# copies them. amd64-runtime-libs + xtool-amd64 are kept too — the
+# Dockerfile.xcross-compose-amd64 image copies them. xtool/limd/xadi (source
+# path) are fetched over the network.
 darwin.artifactbundle
 .build-macos
 .xtool-linux-build
