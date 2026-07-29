@@ -1,4 +1,3 @@
-// (gating iOS 17+ vs pre-17 based on ProductVersion from lockdown info).
 import 'dart:convert';
 
 import 'package:xcross/src/device/pymd.dart';

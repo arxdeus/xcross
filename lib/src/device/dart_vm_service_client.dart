@@ -6,7 +6,6 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:xcross/src/util/errors.dart';
 
 /// JSON-RPC 2.0 client for the Dart VM Service over WebSocket.
-/// DartVMServiceClient.swift:11
 class DartVmServiceClient {
   DartVmServiceClient();
 
@@ -32,6 +31,9 @@ class DartVmServiceClient {
   }
 
   /// Complete when a `streamNotify` event of [kind] arrives (up to [timeout]).
+  ///
+  /// Swallows the timeout: a device that never emits the event reports success
+  /// after [timeout] rather than throwing. Callers depend on that.
   Future<Map<String, dynamic>> waitForEvent(
     String kind, {
     Duration timeout = const Duration(seconds: 60),
@@ -42,7 +44,6 @@ class DartVmServiceClient {
   }
 
   /// Connect to the VM Service WebSocket at [url].
-  /// DartVMServiceClient.swift:38
   Future<void> connect(Uri url,
       {Duration timeout = const Duration(seconds: 30)}) async {
     try {
@@ -64,7 +65,6 @@ class DartVmServiceClient {
   }
 
   /// Perform a JSON-RPC call; returns the `result` map.
-  /// DartVMServiceClient.swift:84
   Future<Map<String, dynamic>> call(
     String method, {
     Map<String, dynamic> params = const {},
@@ -87,7 +87,7 @@ class DartVmServiceClient {
 
     // Arm a timeout — and KEEP the Timer so we can cancel it on reply. A live
     // Timer keeps the Dart event loop alive; leaking one per RPC is why the
-    // process wouldn't exit (Ctrl-C hang). DartVMServiceClient.swift:108
+    // process wouldn't exit (Ctrl-C hang).
     _timers[id] = Timer(timeout, () {
       _timers.remove(id);
       if (_pending.remove(id) != null && !c.isCompleted) {
@@ -98,7 +98,6 @@ class DartVmServiceClient {
     return c.future;
   }
 
-  // DartVMServiceClient.swift:130
   void _onMessage(dynamic raw) {
     Map<String, dynamic>? json;
     try {
@@ -107,10 +106,9 @@ class DartVmServiceClient {
       return;
     }
 
-    // Stream events carry no id — surface them for waiters. DartVMServiceClient.swift:135
+    // Stream events carry no id — surface them for waiters.
     final id = json['id'];
     if (id is! int) {
-      // Map pattern collapses three nested is-Map checks into one readable line.
       if (json
           case {
             'method': 'streamNotify',
@@ -136,7 +134,6 @@ class DartVmServiceClient {
     });
   }
 
-  // DartVMServiceClient.swift:149
   void _handleClose() {
     for (final t in _timers.values) {
       t.cancel();

@@ -28,8 +28,7 @@ abstract final class DevicePrepare {
   /// Mount DDI, ensure tunneld, and start a lockdown RSD tunnel in the
   /// background. Leaves long-lived processes running after return.
   static Future<void> prepare() async {
-    final pymdOk = await Pymd.ensureInstalled();
-    if (!pymdOk) {
+    if (!await Pymd.ensureInstalled()) {
       throw XcrossError(
         'pymobiledevice3 is required but could not be installed automatically.',
       );
@@ -98,6 +97,8 @@ abstract final class DevicePrepare {
 
     late Process proc;
     try {
+      // Piped (never inheritStdio): an inherited stdin steals `r`/`R`/`q` from
+      // the hot-reload keypress loop for the whole session.
       proc = await Process.start(
         argv.first,
         argv.sublist(1),
@@ -113,32 +114,29 @@ abstract final class DevicePrepare {
 
     final logSink = logFile.openWrite(mode: FileMode.append);
     final ready = Completer<void>();
-    var sawReady = false;
-    final lineBuffer = StringBuffer();
 
-    void onChunk(List<int> bytes) {
-      logSink.add(bytes);
-      lineBuffer.write(utf8.decode(bytes, allowMalformed: true));
-      final text = lineBuffer.toString();
-      final lines = const LineSplitter().convert(text);
-      final complete = text.endsWith('\n') || text.endsWith('\r');
-      lineBuffer.clear();
-      if (!complete && lines.isNotEmpty) {
-        lineBuffer.write(lines.removeLast());
-      }
-      for (final line in lines) {
-        final trimmed = line.trimRight();
-        if (trimmed.isEmpty) continue;
-        logStatus(trimmed);
-        if (!sawReady && _tunnelReadyPattern.hasMatch(trimmed)) {
-          sawReady = true;
-          if (!ready.isCompleted) ready.complete();
-        }
+    void onLine(String line) {
+      final trimmed = line.trimRight();
+      if (trimmed.isEmpty) return;
+      logStatus(trimmed);
+      if (!ready.isCompleted && _tunnelReadyPattern.hasMatch(trimmed)) {
+        ready.complete();
       }
     }
 
-    proc.stdout.listen(onChunk, onError: (_) {});
-    proc.stderr.listen(onChunk, onError: (_) {});
+    // Tee the raw bytes to the log file, then decode a separate view of the
+    // same broadcast stream into lines for the readiness match.
+    for (final raw in [proc.stdout, proc.stderr]) {
+      final stream = raw.asBroadcastStream();
+      stream.listen(logSink.add, onError: (_) {});
+      stream
+          // Lossy on purpose: pymobiledevice3 can emit non-UTF-8 bytes, and a
+          // strict decoder would drop the whole chunk — losing the ASCII
+          // readiness line with it and stalling until the timeout below.
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .transform(const LineSplitter())
+          .listen(onLine, onError: (_) {});
+    }
     unawaited(proc.exitCode.then((code) async {
       try {
         await logSink.flush();

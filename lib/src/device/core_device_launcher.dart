@@ -1,26 +1,22 @@
 import 'dart:async';
-import 'dart:io';
 
-import 'package:xcross/src/constants/device_constants.dart';
+import 'package:xcross/src/constants.dart';
 import 'package:xcross/src/device/dart_vm_service_client.dart';
 import 'package:xcross/src/device/gdb_remote_client.dart';
 import 'package:xcross/src/device/hot_reload_controller.dart'
     show HotReloadController;
 import 'package:xcross/src/device/pymd.dart';
+import 'package:xcross/src/device/session_console.dart';
 import 'package:xcross/src/device/tunnel_daemon.dart';
-import 'package:xcross/src/device/tunneld.dart';
+import 'package:xcross/src/device/tunnel_discovery.dart';
 import 'package:xcross/src/models/device/hot_reload_config.dart';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/logging.dart';
+import 'package:xcross/src/util/process.dart';
 
 /// Launches an installed app on an iOS 17+ device through a CoreDevice RSD
 /// tunnel. Blocks until the app exits or the user presses `q`/Ctrl-C.
-///
-/// CoreDeviceLauncher.swift:23
 abstract final class CoreDeviceLauncher {
-  // ── Entry point ───────────────────────────────────────────────────────────
-
-  /// CoreDeviceLauncher.swift:80
   static Future<void> launch({
     required String udid,
     required String bundleId,
@@ -29,15 +25,12 @@ abstract final class CoreDeviceLauncher {
     List<String> arguments = const [],
     HotReloadConfig? hotReload,
   }) async {
-    // 0. Ensure pymobiledevice3 is available. CoreDeviceLauncher.swift:88
-    final pymdOk = await Pymd.ensureInstalled();
-    if (!pymdOk) {
+    if (!await Pymd.ensureInstalled()) {
       throw XcrossError(
         'pymobiledevice3 is required for iOS 17+ but could not be installed automatically.',
       );
     }
 
-    // 1. Ensure RSD tunnel daemon. CoreDeviceLauncher.swift:119
     final tunnelDaemon = TunnelDaemon();
     try {
       await tunnelDaemon.ensureRunning();
@@ -45,28 +38,23 @@ abstract final class CoreDeviceLauncher {
       throw XcrossError('Failed to start tunneld: $e');
     }
 
-    // 2. Discover tunnel endpoint. CoreDeviceLauncher.swift:127
-    final tunnel = await Tunneld.discoverTunnel(udid: udid);
+    final tunnel = await TunnelDiscovery.discoverTunnel(udid: udid);
     logStatus('[xtool] connecting to RSD at ${tunnel.address}:${tunnel.port}');
 
-    // 3. Resolve team-prefixed bundle id. CoreDeviceLauncher.swift:132
     final resolvedBundleId = await _resolveBundleId(bundleId);
-
-    // 4. Resolve debugproxy port. CoreDeviceLauncher.swift:138
     final debugproxyPort = await _resolveDebugproxyPort(tunnel);
-
-    // 5. Assemble launch args. CoreDeviceLauncher.swift:150
     final appArgs = _buildAppArgs(
       arguments: arguments,
       checkedMode: checkedMode,
       hotReload: hotReload,
     );
 
-    // 6. Launch suspended via DVT ProcessControl. CoreDeviceLauncher.swift:168
     final pid = await _launchSuspended(
         tunnel: tunnel, bundleId: resolvedBundleId, appArgs: appArgs);
 
-    // 7. GDB-remote attach. CoreDeviceLauncher.swift:186
+    // ORDER MATTERS: connect -> start -> attach -> resume. The GDB client has a
+    // single-slot exchange completer, so an RPC issued after resume() can be
+    // hijacked by a stray stdout packet.
     final gdb = GdbRemoteClient(host: tunnel.address, port: debugproxyPort);
     try {
       await gdb.connect();
@@ -79,23 +67,20 @@ abstract final class CoreDeviceLauncher {
       throw XcrossError('Debugger attach failed: $e');
     }
 
-    // AOT / release: don't need to hold the connection. CoreDeviceLauncher.swift:198
+    // AOT / release: don't need to hold the connection.
     if (!keepAttached) {
       await gdb.close();
       tunnelDaemon.stop();
       return;
     }
 
-    // 8. Optional hot reload setup. CoreDeviceLauncher.swift:206
     final hotReloadController = await _trySpinUpHotReload(
       hotReload: hotReload,
       tunnelAddress: tunnel.address,
     );
 
-    // 9. Run keypress + drain loop. CoreDeviceLauncher.swift:229
-    await _runSession(gdb: gdb, hotReload: hotReloadController);
+    await SessionConsole(gdb: gdb, hotReload: hotReloadController).run();
 
-    // Cleanup. CoreDeviceLauncher.swift:235
     await hotReloadController?.close();
     await gdb.kill();
     await gdb.close();
@@ -115,7 +100,7 @@ abstract final class CoreDeviceLauncher {
       await TunnelDaemon().ensureRunning();
       // Best-effort only — don't burn the full 60s discovery before install
       // when tunneld has no device yet (common on first run / flaky usbipd).
-      final tunnel = await Tunneld.discoverTunnel(
+      final tunnel = await TunnelDiscovery.discoverTunnel(
         udid: udid,
         timeout: const Duration(seconds: 8),
         pollInterval: const Duration(milliseconds: 800),
@@ -136,10 +121,8 @@ abstract final class CoreDeviceLauncher {
     }
   }
 
-  // ── Launch helpers ────────────────────────────────────────────────────────
-
   /// Resolve team-prefixed bundle id from the installed-app list.
-  /// Returns [bundleId] unchanged on failure. CoreDeviceLauncher.swift:132
+  /// Returns [bundleId] unchanged on failure.
   static Future<String> _resolveBundleId(String bundleId) async {
     String resolved;
     try {
@@ -153,7 +136,7 @@ abstract final class CoreDeviceLauncher {
     return resolved;
   }
 
-  /// Look up the debugproxy port via RSD info. CoreDeviceLauncher.swift:138
+  /// Look up the debugproxy port via RSD info.
   static Future<int> _resolveDebugproxyPort(Tunnel tunnel) async {
     try {
       return await Pymd.rsdServicePort(
@@ -175,7 +158,7 @@ abstract final class CoreDeviceLauncher {
   }
 
   /// Build the launch-argument list, prepending VM Service and checked-mode
-  /// flags as required. CoreDeviceLauncher.swift:150
+  /// flags as required.
   static List<String> _buildAppArgs({
     required List<String> arguments,
     required bool checkedMode,
@@ -187,7 +170,6 @@ abstract final class CoreDeviceLauncher {
     }
     if (hotReload != null) {
       // VM Service must bind IPv6-any (::) — the RSD tunnel is IPv6.
-      // CoreDeviceLauncher.swift:160
       args.insertAll(0, [
         '--vm-service-host=::',
         '--vm-service-port=${DeviceConstants.vmServicePort}',
@@ -197,7 +179,7 @@ abstract final class CoreDeviceLauncher {
     return args;
   }
 
-  /// Launch the app suspended and return its device PID. CoreDeviceLauncher.swift:168
+  /// Launch the app suspended and return its device PID.
   static Future<int> _launchSuspended({
     required Tunnel tunnel,
     required String bundleId,
@@ -219,7 +201,7 @@ abstract final class CoreDeviceLauncher {
   }
 
   /// Spin up hot reload if [hotReload] config is provided; log and return null
-  /// on failure. CoreDeviceLauncher.swift:206
+  /// on failure.
   static Future<HotReloadController?> _trySpinUpHotReload({
     required HotReloadConfig? hotReload,
     required String tunnelAddress,
@@ -243,222 +225,14 @@ abstract final class CoreDeviceLauncher {
     }
   }
 
-  // ── Session loop ──────────────────────────────────────────────────────────
-  // CoreDeviceLauncher.swift:243
-
-  static Future<void> _runSession({
-    required GdbRemoteClient gdb,
-    required HotReloadController? hotReload,
-  }) async {
-    var stopped = false;
-
-    // Forward Ctrl-C cleanly; a second Ctrl-C hard-kills in case cleanup hangs.
-    // CoreDeviceLauncher.swift:249
-    ProcessSignal.sigint.watch().listen((_) {
-      if (stopped) exit(130);
-      stopped = true;
-    });
-
-    // Drain GDB-remote replies (stdout + exit notifications). CoreDeviceLauncher.swift:257
-    final drainFuture = _drainGdbReplies(
-        gdb: gdb, isStopped: () => stopped, setStopped: () => stopped = true);
-
-    // Keypress loop. CoreDeviceLauncher.swift:274
-    final keypressFuture = _runKeypressLoop(
-      hotReload: hotReload,
-      isStopped: () => stopped,
-      requestStop: () => stopped = true,
-    );
-
-    while (!stopped) {
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-    }
-    await drainFuture.timeout(const Duration(seconds: 2), onTimeout: () {});
-    await keypressFuture.timeout(const Duration(seconds: 1), onTimeout: () {});
-  }
-
-  /// Forward `O` (stdout) packets and stop on exit/termination.
-  /// CoreDeviceLauncher.swift:257
-  static Future<void> _drainGdbReplies({
-    required GdbRemoteClient gdb,
-    required bool Function() isStopped,
-    required void Function() setStopped,
-  }) async {
-    await for (final reply in gdb.replies) {
-      if (isStopped()) break;
-      switch (reply.type) {
-        case GdbReply.stdout:
-          stdout.add(reply.stdoutBytes);
-        case GdbReply.exited || GdbReply.terminated:
-          logStatus('[xtool] app exited (${reply.payload})');
-          setStopped();
-          return;
-        case GdbReply.stopped || GdbReply.other:
-          break;
-      }
-    }
-  }
-
-  // CoreDeviceLauncher.swift:285
-  static Future<void> _runKeypressLoop({
-    required HotReloadController? hotReload,
-    required bool Function() isStopped,
-    required void Function() requestStop,
-  }) async {
-    // Only run if stdin is a TTY. CoreDeviceLauncher.swift:291
-    if (!stdin.hasTerminal) {
-      logWarn(
-          "stdin is not a TTY — hot reload keys ('r'/'R') are unavailable");
-      return;
-    }
-
-    // Raw mode is required so a single keypress is delivered without Enter.
-    // lineMode first, then echoMode — some terminals reject the reverse order.
-    // Never swallow failures: silent cooked mode looks like "keys do nothing".
-    if (!_enableRawStdin()) {
-      logWarn(
-          "could not enable raw stdin — press Enter after 'r'/'R', or check TTY");
-    }
-
-    final done = Completer<void>();
-    void finish() {
-      if (!done.isCompleted) done.complete();
-    }
-
-    // prevents overlapping reload/restart
-    var busy = false;
-    final sub = stdin.listen(
-      (bytes) async {
-        await _handleKeyByte(
-          bytes: bytes,
-          hotReload: hotReload,
-          isStopped: isStopped,
-          requestStop: requestStop,
-          finish: finish,
-          getBusy: () => busy,
-          markBusy: () => busy = true,
-          clearBusy: () => busy = false,
-        );
-      },
-      onDone: finish,
-      onError: (_) => finish(),
-    );
-
-    // Break out promptly when stopped externally (e.g. SIGINT), since the stdin
-    // subscription otherwise keeps the event loop alive and blocks exit.
-    final poll = Timer.periodic(const Duration(milliseconds: 150), (t) {
-      if (isStopped()) {
-        t.cancel();
-        finish();
-      }
-    });
-
-    await done.future;
-    poll.cancel();
-    await sub.cancel();
-    _restoreCookedStdin();
-  }
-
-  /// Put stdin into cbreak/raw-ish mode for single-key hot reload. Returns
-  /// whether both mode flags were applied successfully.
-  ///
-  /// Order matches Flutter tools: echoMode then lineMode when enabling;
-  /// reverse when restoring (important on Windows / some PTYs).
-  static bool _enableRawStdin() {
-    try {
-      stdin.echoMode = false;
-      stdin.lineMode = false;
-      return true;
-    } on Object catch (e) {
-      logWarn('stdin raw mode failed: $e');
-      return false;
-    }
-  }
-
-  static void _restoreCookedStdin() {
-    try {
-      stdin.lineMode = true;
-      stdin.echoMode = true;
-    } on Object catch (_) {}
-  }
-
-  /// Handle a single raw [bytes] chunk from stdin inside [_runKeypressLoop].
-  /// Quit keys set stopped and complete [finish]; reload/restart keys are
-  /// dispatched only when [getBusy] returns false (no op in flight).
-  static Future<void> _handleKeyByte({
-    required List<int> bytes,
-    required HotReloadController? hotReload,
-    required bool Function() isStopped,
-    required void Function() requestStop,
-    required void Function() finish,
-    required bool Function() getBusy,
-    required void Function() markBusy,
-    required void Function() clearBusy,
-  }) async {
-    for (final ch in bytes) {
-      if (isStopped()) {
-        return finish();
-      }
-      if (ch == DeviceConstants.keyQ ||
-          ch == DeviceConstants.keyCtrlC ||
-          ch == DeviceConstants.keyCtrlD) {
-        requestStop();
-        return finish();
-      }
-      // Ignore reload/restart keys while one is already in flight so presses
-      // don't overlap and corrupt frontend_server state.
-      if (getBusy()) continue;
-      if (ch == DeviceConstants.keyR) {
-        markBusy();
-        await _handleHotReload(hotReload);
-        clearBusy();
-      } else if (ch == DeviceConstants.keyBigR) {
-        markBusy();
-        await _handleHotRestart(hotReload);
-        clearBusy();
-      }
-    }
-  }
-
-  static Future<void> _handleHotReload(HotReloadController? hotReload) async {
-    if (hotReload == null) return;
-    logStatus('[xtool] hot reload…');
-    try {
-      final ok = await hotReload.reload();
-      logStatus(ok
-          ? '[xtool] reloaded ✓'
-          : "[xtool] reload rejected (try 'R' to restart)");
-    } catch (e) {
-      logError('reload failed: $e');
-    }
-  }
-
-  static Future<void> _handleHotRestart(HotReloadController? hotReload) async {
-    if (hotReload == null) return;
-    logStatus('[xtool] hot restart…');
-    try {
-      await hotReload.restart();
-      logStatus('[xtool] restarted ✓');
-    } catch (e) {
-      logError('restart failed: $e');
-    }
-  }
-
-  // ── Hot-reload bootstrap ──────────────────────────────────────────────────
-  // CoreDeviceLauncher.swift:336
-
   static Future<HotReloadController> _spinUpHotReload({
     required HotReloadConfig config,
     required String tunnelAddress,
     required int vmServicePort,
   }) async {
-    final hostPart =
-        tunnelAddress.contains(':') ? '[$tunnelAddress]' : tunnelAddress;
-    final wsUri = Uri.parse('ws://$hostPart:$vmServicePort/ws');
-
+    final wsUri =
+        Uri.parse('ws://${bracketHost(tunnelAddress)}:$vmServicePort/ws');
     final vm = await _waitForVmService(wsUri);
-
-    // Spin up frontend_server + initial devFS upload. CoreDeviceLauncher.swift:365
     final controller = HotReloadController(
       config: config,
       vm: vm,
@@ -470,27 +244,27 @@ abstract final class CoreDeviceLauncher {
   }
 
   /// Poll until the VM Service WebSocket is accepting connections (up to 60 s).
-  /// CoreDeviceLauncher.swift:349
   static Future<DartVmServiceClient> _waitForVmService(Uri wsUri) async {
     final vm = DartVmServiceClient();
-    final deadline = DateTime.now().add(const Duration(seconds: 60));
-    dynamic lastError;
-    while (DateTime.now().isBefore(deadline)) {
-      try {
-        await vm.connect(wsUri, timeout: const Duration(seconds: 5));
-        return vm;
-      } on Object catch (e) {
-        lastError = e;
-        await Future<void>.delayed(const Duration(milliseconds: 800));
-      }
-    }
+    Object? lastError;
+    final connected = await pollUntil<DartVmServiceClient>(
+      timeout: const Duration(seconds: 60),
+      interval: const Duration(milliseconds: 800),
+      attempt: () async {
+        try {
+          await vm.connect(wsUri, timeout: const Duration(seconds: 5));
+          return vm;
+        } on Object catch (e) {
+          lastError = e;
+          rethrow;
+        }
+      },
+    );
+    if (connected != null) return connected;
     // ignore: only_throw_errors
     if (lastError case final Object error?) throw error;
     throw XcrossError('VM Service did not become available');
   }
-
-  // ── Bundle ID resolution ──────────────────────────────────────────────────
-  // CoreDeviceLauncher.swift:387
 
   static Future<String> _resolveInstalledBundleId(
       {required String requested}) async {
@@ -502,6 +276,8 @@ abstract final class CoreDeviceLauncher {
       if (dot >= 0) base = base.substring(dot + 1);
     }
     final suffix = '.$base';
+    // Shortest suffix match wins: on a device carrying several team-prefixed
+    // builds of the same app, the longest match resolves to the wrong one.
     final matches = ids
         .where((id) => id == base || id.endsWith(suffix))
         .toList()

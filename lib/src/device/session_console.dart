@@ -1,0 +1,173 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:xcross/src/constants.dart';
+import 'package:xcross/src/device/gdb_remote_client.dart';
+import 'package:xcross/src/device/hot_reload_controller.dart';
+import 'package:xcross/src/util/logging.dart';
+
+/// Interactive terminal session for an attached app: streams the app's stdout,
+/// dispatches `r`/`R`/`q` keypresses to hot reload, and stops on SIGINT or when
+/// the app exits.
+class SessionConsole {
+  SessionConsole({required this.gdb, required this.hotReload});
+
+  final GdbRemoteClient gdb;
+  final HotReloadController? hotReload;
+
+  bool _stopped = false;
+
+  /// Prevents overlapping reload/restart operations.
+  bool _busy = false;
+
+  Completer<void>? _done;
+
+  /// Run until the app exits or the user quits.
+  Future<void> run() async {
+    // Forward Ctrl-C cleanly; a second Ctrl-C hard-kills in case cleanup hangs.
+    ProcessSignal.sigint.watch().listen((_) {
+      if (_stopped) exit(130);
+      _stopped = true;
+    });
+
+    final drainFuture = _drainGdbReplies();
+    final keypressFuture = _runKeypressLoop();
+
+    while (!_stopped) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    await drainFuture.timeout(const Duration(seconds: 2), onTimeout: () {});
+    await keypressFuture.timeout(const Duration(seconds: 1), onTimeout: () {});
+  }
+
+  /// Forward `O` (stdout) packets and stop on exit/termination.
+  Future<void> _drainGdbReplies() async {
+    await for (final reply in gdb.replies) {
+      if (_stopped) break;
+      switch (reply.type) {
+        case GdbReply.stdout:
+          stdout.add(reply.stdoutBytes);
+        case GdbReply.exited || GdbReply.terminated:
+          logStatus('[xtool] app exited (${reply.payload})');
+          _stopped = true;
+          return;
+        case GdbReply.stopped || GdbReply.other:
+          break;
+      }
+    }
+  }
+
+  void _finish() {
+    final done = _done;
+    if (done != null && !done.isCompleted) done.complete();
+  }
+
+  Future<void> _runKeypressLoop() async {
+    if (!stdin.hasTerminal) {
+      logWarn("stdin is not a TTY — hot reload keys ('r'/'R') are unavailable");
+      return;
+    }
+
+    // Never swallow failures: silent cooked mode looks like "keys do nothing".
+    if (!_enableRawStdin()) {
+      logWarn(
+          "could not enable raw stdin — press Enter after 'r'/'R', or check TTY");
+    }
+
+    final done = _done = Completer<void>();
+    final sub = stdin.listen(
+      _handleKeyByte,
+      onDone: _finish,
+      onError: (_) => _finish(),
+    );
+
+    // Break out promptly when stopped externally (e.g. SIGINT), since the stdin
+    // subscription otherwise keeps the event loop alive and blocks exit.
+    final poll = Timer.periodic(const Duration(milliseconds: 150), (t) {
+      if (_stopped) {
+        t.cancel();
+        _finish();
+      }
+    });
+
+    await done.future;
+    poll.cancel();
+    await sub.cancel();
+    _restoreCookedStdin();
+  }
+
+  /// Put stdin into cbreak/raw-ish mode so a single keypress is delivered
+  /// without Enter. Returns whether both mode flags were applied successfully.
+  ///
+  /// Order matches Flutter tools: echoMode then lineMode when enabling;
+  /// reverse when restoring (important on Windows / some PTYs).
+  static bool _enableRawStdin() {
+    try {
+      stdin.echoMode = false;
+      stdin.lineMode = false;
+      return true;
+    } on Object catch (e) {
+      logWarn('stdin raw mode failed: $e');
+      return false;
+    }
+  }
+
+  static void _restoreCookedStdin() {
+    try {
+      stdin.lineMode = true;
+      stdin.echoMode = true;
+    } on Object catch (_) {}
+  }
+
+  /// Handle a single raw [bytes] chunk from stdin. Quit keys stop the session;
+  /// reload/restart keys are dispatched only when no op is already in flight.
+  Future<void> _handleKeyByte(List<int> bytes) async {
+    for (final ch in bytes) {
+      if (_stopped) return _finish();
+      if (ch == DeviceConstants.keyQ ||
+          ch == DeviceConstants.keyCtrlC ||
+          ch == DeviceConstants.keyCtrlD) {
+        _stopped = true;
+        return _finish();
+      }
+      // Ignore reload/restart keys while one is already in flight so presses
+      // don't overlap and corrupt frontend_server state.
+      if (_busy) continue;
+      if (ch == DeviceConstants.keyR) {
+        _busy = true;
+        await _handleHotReload();
+        _busy = false;
+      } else if (ch == DeviceConstants.keyBigR) {
+        _busy = true;
+        await _handleHotRestart();
+        _busy = false;
+      }
+    }
+  }
+
+  Future<void> _handleHotReload() async {
+    final controller = hotReload;
+    if (controller == null) return;
+    logStatus('[xtool] hot reload…');
+    try {
+      final ok = await controller.reload();
+      logStatus(ok
+          ? '[xtool] reloaded ✓'
+          : "[xtool] reload rejected (try 'R' to restart)");
+    } catch (e) {
+      logError('reload failed: $e');
+    }
+  }
+
+  Future<void> _handleHotRestart() async {
+    final controller = hotReload;
+    if (controller == null) return;
+    logStatus('[xtool] hot restart…');
+    try {
+      await controller.restart();
+      logStatus('[xtool] restarted ✓');
+    } catch (e) {
+      logError('restart failed: $e');
+    }
+  }
+}

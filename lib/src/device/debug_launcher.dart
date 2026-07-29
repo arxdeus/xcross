@@ -1,13 +1,10 @@
-//
-// The Swift DebugLauncher uses SwiftyMobileDevice (libimobiledevice debugserver)
-// which is NOT available in Dart. We delegate to the original `xtool` binary
-// instead, which already implements the pre-iOS-17 debugserver path.
 import 'package:xcross/src/util/logging.dart';
 import 'package:xcross/src/xtool/xtool_cli.dart';
 
 /// Pre-iOS-17 launch path. Delegates to `xtool launch`.
 ///
-/// DebugLauncher.swift:18
+/// There is no Dart binding for the libimobiledevice debugserver, so this path
+/// hands off to the `xtool` binary, which already implements it.
 abstract final class DebugLauncher {
   /// Launch [bundleId] on [udid] via the legacy xtool debugserver path.
   ///

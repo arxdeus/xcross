@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:xcross/src/constants.dart';
 import 'package:xcross/src/device/pymd.dart';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/logging.dart';
+import 'package:xcross/src/util/process.dart';
 import 'package:xcross/src/util/sudo.dart';
 
 /// Manages the `pymobiledevice3 remote tunneld` daemon lifecycle.
@@ -12,31 +14,20 @@ import 'package:xcross/src/util/sudo.dart';
 /// * Otherwise → start `[sudo] pymobiledevice3 remote tunneld` as background
 ///   child, wait up to 40 s for it to come up.
 /// * [stop] tears down only a daemon we started ourselves.
-///
-/// TunnelDaemon.swift:23
 class TunnelDaemon {
-  TunnelDaemon({
-    this.host = '127.0.0.1',
-    this.port = 49151,
-  });
-
-  final String host;
-  final int port;
-
   Process? _process;
+
+  /// Whether we started the daemon. When false, [stop] leaves the user's own
+  /// long-running tunneld alone instead of SIGTERMing it on exit.
   bool _ownsDaemon = false;
 
-  bool get isOwner => _ownsDaemon;
-
   /// Ensure a tunneld REST API is reachable; start one if needed.
-  /// TunnelDaemon.swift:64
   Future<void> ensureRunning() async {
     if (await _isReachable()) {
       logStatus('[xtool] RSD tunnel daemon already running (reusing it)');
       return;
     }
 
-    // Need to start it ourselves — requires root. TunnelDaemon.swift:71
     final inv = await Pymd.resolve();
     final sudo = await Sudo.resolve();
     final usbmux = Pymd.resolvedUsbmuxAddress();
@@ -72,7 +63,6 @@ class TunnelDaemon {
       '    ${argv.join(' ')}',
     );
 
-    // Log daemon output to \$TMPDIR/xtool-tunneld.log. TunnelDaemon.swift:90
     final tmpDir = Platform.environment['TMPDIR'] ?? '/tmp';
     final logPath = '$tmpDir/xtool-tunneld.log';
     final logFile = File(logPath);
@@ -106,14 +96,14 @@ class TunnelDaemon {
     _process = proc;
     _ownsDaemon = true;
 
-    // Wait up to 40 s for the REST API to come up. TunnelDaemon.swift:106
-    final deadline = DateTime.now().add(const Duration(seconds: 40));
-    while (DateTime.now().isBefore(deadline)) {
-      if (await _isReachable()) {
-        logStatus('[pymobiledevice3] RSD tunnel daemon is up');
-        return;
-      }
-      await Future<void>.delayed(const Duration(seconds: 1));
+    final up = await pollUntil<bool>(
+      timeout: const Duration(seconds: 40),
+      interval: const Duration(seconds: 1),
+      attempt: () async => await _isReachable() ? true : null,
+    );
+    if (up ?? false) {
+      logStatus('[pymobiledevice3] RSD tunnel daemon is up');
+      return;
     }
     throw XcrossError(
       'tunneld did not come up. Try starting it manually in another terminal:\n'
@@ -123,7 +113,6 @@ class TunnelDaemon {
   }
 
   /// Tear down only the daemon WE started. Safe to call multiple times.
-  /// TunnelDaemon.swift:122
   void stop() {
     if (!_ownsDaemon) return;
     final proc = _process;
@@ -133,7 +122,7 @@ class TunnelDaemon {
 
     logStatus('[xtool] stopping RSD tunnel daemon…');
 
-    // The daemon runs under sudo (root); escalate via sudo kill. TunnelDaemon.swift:135
+    // The daemon runs under sudo (root); escalate via sudo kill.
     Sudo.resolve().then((sudo) {
       if (sudo != null) {
         Process.run(sudo, ['kill', '-TERM', '${proc.pid}']);
@@ -145,13 +134,13 @@ class TunnelDaemon {
     proc.kill();
   }
 
-  // TunnelDaemon.swift:154
   Future<bool> _isReachable() async {
     try {
       final client = HttpClient()
         ..connectionTimeout = const Duration(seconds: 3);
       try {
-        final req = await client.getUrl(Uri.parse('http://$host:$port/'));
+        final req =
+            await client.getUrl(Uri.parse(DeviceConstants.tunneldUrl));
         final resp = await req.close();
         await resp.drain<void>();
         return resp.statusCode >= 200 && resp.statusCode < 300;

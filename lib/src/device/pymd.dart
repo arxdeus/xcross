@@ -4,9 +4,9 @@ import 'dart:io';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/logging.dart';
 import 'package:xcross/src/util/process.dart';
+import 'package:xcross/src/util/sudo.dart';
 
 /// Resolved pymobiledevice3 invocation — either the bare CLI or python3 -m.
-/// Pymd.swift:35
 class PymdInvocation {
   const PymdInvocation(this.executable, this.prefixArgs);
   final String executable;
@@ -17,7 +17,6 @@ class PymdInvocation {
 
 /// One-shot invocations of `pymobiledevice3` for DVT ProcessControl,
 /// RSD service discovery, and the installed-app list.
-/// Pymd.swift:10
 abstract final class Pymd {
   static final _processLaunchedPidPattern =
       RegExp(r'Process launched with pid (\d+)');
@@ -32,21 +31,18 @@ abstract final class Pymd {
       'Install it once on this machine, e.g.:\n'
       '    sudo pip3 install --break-system-packages pymobiledevice3';
 
-  // ── Resolution ─────────────────────────────────────────────────────────────
-
-  // Pymd.swift:48
   static Future<PymdInvocation> resolve() async {
     if (_cached != null) return _cached!;
 
     // Prefer the bare CLI when available.
-    final cli = await _which('pymobiledevice3');
+    final cli = await which('pymobiledevice3');
     if (cli != null) {
       _cached = PymdInvocation(cli, []);
       return _cached!;
     }
 
-    // Fallback: python3 -m pymobiledevice3. Pymd.swift:60
-    final py = await _which('python3') ?? await _which('python');
+    // Fallback: python3 -m pymobiledevice3.
+    final py = await which('python3') ?? await which('python');
     if (py == null) throw XcrossError(_notFoundMessage);
 
     final probe = await ProcessRunner.run(py, ['-c', 'import pymobiledevice3']);
@@ -57,8 +53,7 @@ abstract final class Pymd {
   }
 
   /// True if pymobiledevice3 is invocable (CLI on PATH or importable by python3).
-  /// Pymd.swift:81
-  static Future<bool> isInstalled() async {
+  static Future<bool> _isInstalled() async {
     try {
       await resolve();
       return true;
@@ -69,13 +64,12 @@ abstract final class Pymd {
 
   /// Ensure pymobiledevice3 is installed; install system-wide if missing.
   /// Returns true if available after the call.
-  /// Pymd.swift:88
   static Future<bool> ensureInstalled() async {
-    if (await isInstalled()) return true;
+    if (await _isInstalled()) return true;
 
     logStatus('[pymobiledevice3] not found — installing (one-time)…');
 
-    final py = await _which('python3') ?? await _which('python');
+    final py = await which('python3') ?? await which('python');
     if (py == null) {
       logError('no python3 found. Install Python 3 first.');
       return false;
@@ -86,13 +80,12 @@ abstract final class Pymd {
       final result = await Process.run(
         attempt[0],
         attempt.sublist(1),
-        // Forward pip output to stderr for visibility.
         stderrEncoding: utf8,
         stdoutEncoding: utf8,
       );
       if (result.exitCode == 0) {
-        _cached = null; // bust cache
-        if (await isInstalled()) {
+        _cached = null;
+        if (await _isInstalled()) {
           logStatus('[pymobiledevice3] installed ✓');
           return true;
         }
@@ -107,9 +100,8 @@ abstract final class Pymd {
   }
 
   /// Build the ordered list of install command vectors to try.
-  /// Pymd.swift:103
   static Future<List<List<String>>> _buildInstallAttempts(String py) async {
-    final sudo = await _which('sudo');
+    final sudo = await Sudo.resolve();
 
     // Base pip-install arg vectors (without a leading sudo/py prefix).
     // Tried in order: system-wide with --break-system-packages, then without,
@@ -140,9 +132,6 @@ abstract final class Pymd {
     ];
   }
 
-  // ── Op 1: launch suspended ────────────────────────────────────────────────
-  // Pymd.swift:142
-
   /// Launch [bundleId] suspended via DVT ProcessControl, returning the device PID.
   static Future<int> launchSuspended({
     required String rsdHost,
@@ -164,8 +153,8 @@ abstract final class Pymd {
       '--',
       joined,
     ];
-    final result = await _run(args);
-    // stdout line: "Process launched with pid 12345"  Pymd.swift:167
+    final result = await run(args);
+    // stdout line: "Process launched with pid 12345"
     final match = _processLaunchedPidPattern.firstMatch(result.stdout);
     if (match != null) {
       final pid = int.tryParse(match.group(1)!);
@@ -176,9 +165,6 @@ abstract final class Pymd {
       'got: ${result.stdout}',
     );
   }
-
-  // ── Op 2: list installed apps ─────────────────────────────────────────────
-  // Pymd.swift:182
 
   /// Return set of installed bundle identifiers.
   ///
@@ -192,7 +178,7 @@ abstract final class Pymd {
     ];
     for (final args in attempts) {
       try {
-        final result = await _run(args);
+        final result = await run(args);
         final dynamic json = jsonDecode(result.stdout);
         if (json is Map) return json.keys.cast<String>().toList();
       } on Object {
@@ -202,9 +188,6 @@ abstract final class Pymd {
     throw XcrossError('pymobiledevice3 apps list: could not list apps');
   }
 
-  // ── Op 3: RSD info → debugproxy port ──────────────────────────────────────
-  // Pymd.swift:195
-
   /// Query RSD peer info and return the port of [service].
   static Future<int> rsdServicePort({
     required String rsdHost,
@@ -212,7 +195,7 @@ abstract final class Pymd {
     required String service,
   }) async {
     final result =
-        await _run(['remote', 'rsd-info', '--rsd', rsdHost, '$rsdPort']);
+        await run(['remote', 'rsd-info', '--rsd', rsdHost, '$rsdPort']);
     final dynamic root = jsonDecode(result.stdout);
     if (root is! Map) throw XcrossError('rsd-info: expected JSON object');
     final services = root['Services'];
@@ -222,7 +205,7 @@ abstract final class Pymd {
     final entry = services[service];
     if (entry is! Map) throw XcrossError('rsd-info: Services.$service missing');
 
-    // Port can be String or int across pymobiledevice3 versions. Pymd.swift:214
+    // Port can be String or int across pymobiledevice3 versions.
     final port = switch (entry['Port']) {
       final int p => p,
       final String s => int.tryParse(s),
@@ -231,8 +214,6 @@ abstract final class Pymd {
     if (port != null) return port;
     throw XcrossError('rsd-info: Services.$service.Port unparseable');
   }
-
-  // ── Op 4: process control (detect + kill a running app) ───────────────────
 
   /// Return the device PID of [bundleId] if it is currently running, else null.
   /// Best-effort: returns null (rather than throwing) when the app isn't
@@ -244,7 +225,7 @@ abstract final class Pymd {
   }) async {
     final CapturedProcess result;
     try {
-      result = await _run([
+      result = await run([
         'developer',
         'dvt',
         'process-id-for-bundle-id',
@@ -268,18 +249,13 @@ abstract final class Pymd {
     required int rsdPort,
     required int pid,
   }) async {
-    await _run(
+    await run(
         ['developer', 'dvt', 'kill', '--rsd', rsdHost, '$rsdPort', '$pid']);
   }
 
-  // ── Subprocess plumbing ───────────────────────────────────────────────────
-  // Pymd.swift:223
-
   /// Run arbitrary pymobiledevice3 [args], returning captured output.
   /// Throws [XcrossError] on non-zero exit.
-  static Future<CapturedProcess> run(List<String> args) => _run(args);
-
-  static Future<CapturedProcess> _run(List<String> args) async {
+  static Future<CapturedProcess> run(List<String> args) async {
     final inv = await resolve();
     final executable = inv.executable;
     final arguments = inv.args(args);
@@ -321,18 +297,6 @@ abstract final class Pymd {
     if (fromEnv != null && fromEnv.isNotEmpty) return fromEnv;
     const unix = '/var/run/usbmuxd';
     if (File(unix).existsSync()) return unix;
-    return null;
-  }
-
-  // Pymd.swift:251
-  static Future<String?> _which(String name) async {
-    final pathEnv = Platform.environment['PATH'] ?? '';
-    for (final dir in pathEnv.split(':')) {
-      if (dir.isEmpty) continue;
-      final file = File('$dir/$name');
-      final fileExists = file.existsSync();
-      if (fileExists) return file.path;
-    }
     return null;
   }
 }

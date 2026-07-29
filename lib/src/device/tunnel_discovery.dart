@@ -1,18 +1,18 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:xcross/src/constants/device_constants.dart';
+import 'package:xcross/src/constants.dart';
 import 'package:xcross/src/models/device/tunnel.dart';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/logging.dart';
+import 'package:xcross/src/util/process.dart';
 
 export 'package:xcross/src/models/device/tunnel.dart';
 
-/// Reads tunnel endpoint(s) from the locally-running tunneld REST API
-/// (http://127.0.0.1:49151/). Polls until available; when empty, asks
-/// tunneld to create one via `GET /start-tunnel?udid=…`.
-/// Tunneld.swift:11
-abstract final class Tunneld {
+/// Stateless REST client for the locally-running tunneld HTTP API. Polls until
+/// a tunnel is available; when the list is empty, asks tunneld to create one
+/// via `GET /start-tunnel?udid=…`.
+abstract final class TunnelDiscovery {
   /// Find the tunnel endpoint for [udid] (or the first tunneled device when
   /// [udid] is null). Retries until [timeout], sleeping [pollInterval] between
   /// attempts. When [udid] is set and the tunnel list is empty, triggers
@@ -22,13 +22,14 @@ abstract final class Tunneld {
     Duration timeout = const Duration(seconds: 60),
     Duration pollInterval = const Duration(milliseconds: 1500),
   }) async {
-    final deadline = DateTime.now().add(timeout);
     var lastUnreachable = true;
     var requestedStart = false;
     var loggedWaiting = false;
 
-    while (DateTime.now().isBefore(deadline)) {
-      try {
+    final found = await pollUntil<Tunnel>(
+      timeout: timeout,
+      interval: pollInterval,
+      attempt: () async {
         final data = await _fetch(DeviceConstants.tunneldUrl);
         lastUnreachable = false;
         final tunnel = _parseTunnelList(data, udid);
@@ -41,20 +42,19 @@ abstract final class Tunneld {
             '[pymobiledevice3] no RSD tunnel yet — requesting '
             '/start-tunnel for $udid…',
           );
-          final started = await _requestStartTunnel(udid);
-          if (started != null) return started;
-        } else if (!loggedWaiting) {
+          return _requestStartTunnel(udid);
+        }
+        if (!loggedWaiting) {
           loggedWaiting = true;
           logStatus(
             '[pymobiledevice3] waiting for RSD tunnel'
             '${udid != null ? ' ($udid)' : ''}…',
           );
         }
-      } catch (_) {
-        // Keep retrying until deadline.
-      }
-      await Future<void>.delayed(pollInterval);
-    }
+        return null;
+      },
+    );
+    if (found != null) return found;
 
     if (lastUnreachable) {
       throw XcrossError(
@@ -89,18 +89,7 @@ abstract final class Tunneld {
     );
     try {
       final data = await _fetch(uri.toString());
-      final addrObj = data['address'] ?? data['tunnel-address'];
-      final portObj = data['port'] ?? data['tunnel-port'];
-      final addr = addrObj is String ? addrObj : null;
-      final port = switch (portObj) {
-        final int p => p,
-        final String p => int.tryParse(p),
-        _ => null,
-      };
-      if (addr != null && port != null) {
-        logStatus('[xtool] found RSD tunnel: $addr:$port');
-        return Tunnel(address: addr, port: port);
-      }
+      return _tunnelFromJson(data);
     } on Object catch (e) {
       logWarn('tunneld /start-tunnel failed: $e');
     }
@@ -149,22 +138,30 @@ abstract final class Tunneld {
       final first = value.first;
       if (first is! Map) continue;
 
-      final addrObj = first['tunnel-address'] ??
-          first['address'] ??
-          first['tunnel_address'];
-      final portObj = first['tunnel-port'] ?? first['port'];
-      final addr = addrObj is String ? addrObj : null;
-      final port = switch (portObj) {
-        final int p => p,
-        final String p => int.tryParse(p),
-        _ => null,
-      };
-
-      if (addr != null && port != null) {
-        logStatus('[xtool] found RSD tunnel: $addr:$port');
-        return Tunnel(address: addr, port: port);
-      }
+      final tunnel = _tunnelFromJson(first);
+      if (tunnel != null) return tunnel;
     }
     return null;
+  }
+
+  /// Coerce one `{address, port}` object into a [Tunnel], or null if either
+  /// field is missing/unparseable.
+  ///
+  /// Accepts the union of the key spellings seen from `GET /` and
+  /// `GET /start-tunnel`; the two endpoints do not agree on them across
+  /// pymobiledevice3 versions, and port arrives as int or String.
+  static Tunnel? _tunnelFromJson(Map<Object?, Object?> json) {
+    final addrObj =
+        json['tunnel-address'] ?? json['address'] ?? json['tunnel_address'];
+    final portObj = json['tunnel-port'] ?? json['port'] ?? json['tunnel_port'];
+    final addr = addrObj is String ? addrObj : null;
+    final port = switch (portObj) {
+      final int p => p,
+      final String p => int.tryParse(p),
+      _ => null,
+    };
+    if (addr == null || port == null) return null;
+    logStatus('[xtool] found RSD tunnel: $addr:$port');
+    return Tunnel(address: addr, port: port);
   }
 }
