@@ -1,10 +1,10 @@
-// Port of Sources/PackLib/FlutterDebugBundler.swift
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
 import 'package:xcross/src/build/ios_engine_cache.dart';
-import 'package:xcross/src/constants/ios_deployment_constants.dart';
+import 'package:xcross/src/constants.dart';
+import 'package:xcross/src/models/config/pubspec_info.dart';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/logging.dart';
 import 'package:xcross/src/util/process.dart';
@@ -50,10 +50,6 @@ class FlutterDebugBundler {
     this.flavor,
   });
 
-  // ---------------------------------------------------------------------------
-  // Manifest byte constants (FlutterDebugBundler.swift ~L214, ~L244)
-  // ---------------------------------------------------------------------------
-
   /// StandardMessageCodec empty map: tag 0x0d (Map) + 4-byte LE length 0.
   static const _emptyAssetManifestBytes = [0x0d, 0x00, 0x00, 0x00, 0x00];
 
@@ -64,12 +60,7 @@ class FlutterDebugBundler {
     0x78, 0x9c, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01, //
   ];
 
-  // ---------------------------------------------------------------------------
-  // FlutterDebugBundler.swift: build()
-  // ---------------------------------------------------------------------------
-
   /// Build `App.framework` inside [outputDir]. Returns the framework path.
-  /// (FlutterDebugBundler.swift: build())
   Future<String> build() async {
     final engineCache = IosEngineCache(flutterRoot: flutterRoot);
     logStatus('[xcross] ensuring Flutter iOS debug artifacts...');
@@ -84,34 +75,24 @@ class FlutterDebugBundler {
     final appFramework = p.join(outputDir, 'App.framework');
     final assetsDir = p.join(appFramework, 'flutter_assets');
 
-    // Clean any previous build artifact.
     final appDir = Directory(appFramework);
-    final appDirExists = appDir.existsSync();
-    if (appDirExists) await appDir.delete(recursive: true);
+    if (appDir.existsSync()) await appDir.delete(recursive: true);
     await Directory(assetsDir).create(recursive: true);
 
-    // Step 1: Dart kernel snapshot (JIT — no AOT flags).
     final appDill = await _runKernelSnapshot(engineCache);
 
-    // Step 2: Bundle flutter_assets/.
     logStatus('[xcross] bundling Flutter debug assets...');
     await _copyDataAssets(assetsDir, engineCache, appDill);
     await _copyMaterialFonts(assetsDir);
     _writeManifests(assetsDir);
 
-    // Step 3: App stub Mach-O dylib.
     await _buildAppStub(appFramework, toolchain);
 
-    // Step 4: App.framework/Info.plist.
     logStatus('[xcross] writing App.framework Info.plist...');
     _writeAppFrameworkInfoPlist(appFramework);
 
     return appFramework;
   }
-
-  // ---------------------------------------------------------------------------
-  // FlutterDebugBundler.swift: runKernelSnapshot()
-  // ---------------------------------------------------------------------------
 
   Future<String> _runKernelSnapshot(IosEngineCache engineCache) async {
     final snapshot = engineCache.frontendServer;
@@ -127,15 +108,13 @@ class FlutterDebugBundler {
     final scratch =
         p.join(projectRoot, 'build', 'xtool-flutter-debug', '.kernel');
     final scratchDir = Directory(scratch);
-    final scratchDirExists = scratchDir.existsSync();
-    if (scratchDirExists) await scratchDir.delete(recursive: true);
+    if (scratchDir.existsSync()) await scratchDir.delete(recursive: true);
     await scratchDir.create(recursive: true);
 
     final outputDill = p.join(scratch, 'app.dill');
     final packageConfig =
         p.join(projectRoot, '.dart_tool', 'package_config.json');
-    final packageConfigExists = File(packageConfig).existsSync();
-    if (!packageConfigExists) {
+    if (!File(packageConfig).existsSync()) {
       throw XcrossError(
         'FlutterDebugBundler: package_config.json missing at $packageConfig; '
         'run `dart pub get` first.',
@@ -146,9 +125,11 @@ class FlutterDebugBundler {
     final resolvedEntrypoint =
         p.isAbsolute(entrypoint) ? entrypoint : p.join(projectRoot, entrypoint);
 
-    // Build args — dartaotruntime takes <snapshot> as first arg;
-    // `dart` needs --disable-dart-dev first.
-    // (FlutterDebugBundler.swift: runKernelSnapshot() ~L143-162)
+    // ORDER MATTERS: dartaotruntime takes <snapshot> as its first arg, so
+    // `dart`'s --disable-dart-dev must precede it. --sdk-root needs its
+    // trailing slash: frontend_server resolves platform_strong.dill by string
+    // concatenation. The -Ddart.* / --track-widget-creation quartet is what
+    // makes the kernel hot-reloadable.
     final args = <String>[
       if (!isAot) '--disable-dart-dev',
       snapshot,
@@ -180,8 +161,7 @@ class FlutterDebugBundler {
       label: 'frontend_server',
     );
 
-    final outputDillExists = File(outputDill).existsSync();
-    if (!outputDillExists) {
+    if (!File(outputDill).existsSync()) {
       throw XcrossError(
           'FlutterDebugBundler: kernel snapshot did not produce $outputDill');
     }
@@ -195,21 +175,17 @@ class FlutterDebugBundler {
     String runtimeName,
     IosEngineCache engineCache,
   ) {
-    final snapshotExists = File(snapshot).existsSync();
-    if (!snapshotExists) {
+    if (!File(snapshot).existsSync()) {
       throw XcrossError(
         'FlutterDebugBundler: frontend_server snapshot missing at $snapshot.\n'
         'Run `<FLUTTER_ROOT>/bin/dart --version` once to materialize.',
       );
     }
-    final runtimeExists = File(runtime).existsSync();
-    if (!runtimeExists) {
+    if (!File(runtime).existsSync()) {
       throw XcrossError('FlutterDebugBundler: $runtimeName not at $runtime');
     }
-    final platformDillExists =
-        File(p.join(engineCache.patchedSdkRoot, 'platform_strong.dill'))
-            .existsSync();
-    if (!platformDillExists) {
+    if (!File(p.join(engineCache.patchedSdkRoot, 'platform_strong.dill'))
+        .existsSync()) {
       throw XcrossError(
         'FlutterDebugBundler: ${engineCache.patchedSdkRoot} is missing\n'
         'platform_strong.dill. Try deleting '
@@ -217,10 +193,6 @@ class FlutterDebugBundler {
       );
     }
   }
-
-  // ---------------------------------------------------------------------------
-  // FlutterDebugBundler.swift: copyDataAssets(), copyFonts(), writeManifests()
-  // ---------------------------------------------------------------------------
 
   Future<void> _copyDataAssets(
     String assetsDir,
@@ -238,24 +210,18 @@ class FlutterDebugBundler {
 
   /// Copy `MaterialIcons-Regular.otf` when the project uses material design.
   Future<void> _copyMaterialFonts(String assetsDir) async {
-    final pubspec = File(p.join(projectRoot, 'pubspec.yaml'));
-    final pubspecExists = pubspec.existsSync();
-    if (!pubspecExists) return;
-    final usesMaterial =
-        (await pubspec.readAsString()).contains('uses-material-design: true');
-    if (!usesMaterial) return;
+    if (!File(p.join(projectRoot, 'pubspec.yaml')).existsSync()) return;
+    if (!PubspecInfo.loadSync(projectRoot).usesMaterialDesign) return;
 
     final fontsDir = p.join(assetsDir, 'fonts');
     await Directory(fontsDir).create(recursive: true);
 
     final src = p.join(flutterRoot, 'bin', 'cache', 'artifacts',
         'material_fonts', 'MaterialIcons-Regular.otf');
-    final srcFontExists = File(src).existsSync();
-    if (!srcFontExists) return;
+    if (!File(src).existsSync()) return;
 
     final dst = p.join(fontsDir, 'MaterialIcons-Regular.otf');
-    final dstFontExists = File(dst).existsSync();
-    if (dstFontExists) await File(dst).delete();
+    if (File(dst).existsSync()) await File(dst).delete();
     await File(src).copy(dst);
   }
 
@@ -278,10 +244,6 @@ class FlutterDebugBundler {
     File(p.join(assetsDir, 'NOTICES.Z')).writeAsBytesSync(_emptyZlibBytes);
   }
 
-  // ---------------------------------------------------------------------------
-  // FlutterDebugBundler.swift: resolveToolchain() + Toolchain struct
-  // ---------------------------------------------------------------------------
-
   Future<_Toolchain> _resolveToolchain() async {
     final darwin = DarwinSdk.current();
     if (darwin != null) {
@@ -298,23 +260,18 @@ class FlutterDebugBundler {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // FlutterDebugBundler.swift: buildAppStub()
-  // ---------------------------------------------------------------------------
-
   Future<void> _buildAppStub(String appFramework, _Toolchain toolchain) async {
     logStatus('[clang] building App stub dylib...');
 
     final tmp = await Directory.systemTemp.createTemp('xtool-flutter-stub-');
     final stubSource = p.join(tmp.path, 'debug_app.c');
-    // Exact stub content emitted by flutter_tools. (FlutterDebugBundler.swift ~L308)
+    // Exact stub content emitted by flutter_tools.
     await File(stubSource).writeAsString('static const int Moo = 88;\n');
 
     await Directory(appFramework).create(recursive: true);
     final outputBinary = p.join(appFramework, 'App');
 
     // Flags mirror flutter_tools `_createStubAppFramework`.
-    // (FlutterDebugBundler.swift ~L314-334)
     final args = _appStubClangArgs(
       toolchain: toolchain,
       stubSource: stubSource,
@@ -328,8 +285,7 @@ class FlutterDebugBundler {
       label: 'clang',
     );
 
-    final outputBinaryExists = File(outputBinary).existsSync();
-    if (!outputBinaryExists) {
+    if (!File(outputBinary).existsSync()) {
       throw XcrossError(
           'FlutterDebugBundler: clang did not produce $outputBinary');
     }
@@ -338,7 +294,6 @@ class FlutterDebugBundler {
   }
 
   /// Build the clang argument list for the App stub dylib.
-  /// (FlutterDebugBundler.swift ~L314-334)
   static List<String> _appStubClangArgs({
     required _Toolchain toolchain,
     required String stubSource,
@@ -376,12 +331,7 @@ class FlutterDebugBundler {
     ];
   }
 
-  // ---------------------------------------------------------------------------
-  // FlutterDebugBundler.swift: writeAppFrameworkInfoPlist()
-  // ---------------------------------------------------------------------------
-
   void _writeAppFrameworkInfoPlist(String appFramework) {
-    // (FlutterDebugBundler.swift ~L349-368)
     const plist = '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"'
         ' "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
@@ -408,13 +358,12 @@ class FlutterDebugBundler {
         '\t<key>${IosDeploymentConstants.minimumOsVersionKey}</key>\n'
         '\t<string>${IosDeploymentConstants.minDeploymentTarget}</string>\n'
         '</dict>\n'
-        '</plist>\n'; // (FlutterDebugBundler.swift ~L349-368)
+        '</plist>\n';
     File(p.join(appFramework, 'Info.plist')).writeAsStringSync(plist);
   }
 }
 
 /// Resolved toolchain for the App.framework stub build.
-/// (FlutterDebugBundler.swift: Toolchain struct)
 class _Toolchain {
   const _Toolchain({
     required this.clang,

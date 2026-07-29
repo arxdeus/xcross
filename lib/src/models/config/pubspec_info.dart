@@ -17,13 +17,20 @@ class PubspecInfo {
   /// `MaterialIcons-Regular.otf`).
   final bool usesMaterialDesign;
 
-  static Future<PubspecInfo> load(String projectRoot) async {
+  /// Sync so it can be used from a constructor initializer list.
+  factory PubspecInfo.loadSync(String projectRoot) {
     final file = File(p.join(projectRoot, 'pubspec.yaml'));
-    final pubspecExists = file.existsSync();
-    if (!pubspecExists) {
+    if (!file.existsSync()) {
       throw XcrossError('pubspec.yaml not found in $projectRoot');
     }
-    final doc = loadYaml(await file.readAsString());
+    final Object? doc;
+    try {
+      doc = loadYaml(file.readAsStringSync());
+    } on Object catch (e) {
+      // YamlException is a FormatException, not an XcrossError — rethrow so
+      // the CLI reports `error: <msg>` instead of dying with a stack trace.
+      throw XcrossError('pubspec.yaml: $e');
+    }
     if (doc is! YamlMap) {
       throw XcrossError('pubspec.yaml: invalid document');
     }

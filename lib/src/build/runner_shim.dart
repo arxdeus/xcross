@@ -1,10 +1,7 @@
-// Port of Sources/PackLib/FlutterPacker.swift (compileRunnerViaObjC section ~L304-421)
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
-import 'package:posix/posix.dart' as posix;
-import 'package:xcross/src/build/ios_engine_cache.dart' show locateTool;
-import 'package:xcross/src/constants/ios_deployment_constants.dart';
+import 'package:xcross/src/constants.dart';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/logging.dart';
 import 'package:xcross/src/util/process.dart';
@@ -23,7 +20,6 @@ class RunnerShim {
   /// [outputDir]          — Directory where `Runner` binary is written.
   ///
   /// Returns path to the linked `Runner` executable.
-  /// (FlutterPacker.swift: compileRunnerViaObjC() ~L304)
   static Future<String> buildRunnerBinary({
     required String projectRoot,
     required DarwinSdk sdk,
@@ -45,7 +41,6 @@ class RunnerShim {
 
     await File(sourcePath).writeAsString(_runnerObjcSource);
 
-    // Compile: Runner.m → Runner.o (FlutterPacker.swift: compileArgs ~L370-380)
     await _compileObject(
       clang: clang,
       sourcePath: sourcePath,
@@ -55,9 +50,10 @@ class RunnerShim {
       flutterSlice: flutterSlice,
     );
 
-    // Link: Runner.o → Runner via ld64.lld (FlutterPacker.swift: linkArgs ~L389-404)
-    final sdkVersion =
-        _sdkVersion(iosSdk) ?? '26.5'; // fallback iOS SDK version
+    // _sdkVersion() returns null whenever the un-versioned iPhoneOS.sdk
+    // symlink is used (the standard install), so this fallback is what
+    // reaches ld64.lld's -platform_version and lands in LC_BUILD_VERSION.
+    final sdkVersion = _sdkVersion(iosSdk) ?? '26.5';
     await _linkBinary(
       ld64lld: sdk.ld64lld,
       objectPath: objectPath,
@@ -68,16 +64,12 @@ class RunnerShim {
       sdkVersion: sdkVersion,
     );
 
-    final outputExists = File(outputPath).existsSync();
-    if (!outputExists) {
+    if (!File(outputPath).existsSync()) {
       throw XcrossError(
           'RunnerShim: clang/ld64.lld did not produce Runner at $outputPath');
     }
 
-    // Make the Runner executable via libc chmod (FFI) — no subprocess.
-    if (posix.isPosixSupported) {
-      posix.chmod(outputPath, '0755');
-    } // (FlutterPacker.swift ~L416)
+    makeExecutable(outputPath);
     final size = await File(outputPath).length();
     logStatus(
         '[xcross] Runner binary produced: $outputPath (${size ~/ 1024} KB)');
@@ -85,12 +77,7 @@ class RunnerShim {
     return outputPath;
   }
 
-  // ---------------------------------------------------------------------------
-  // Private step helpers
-  // ---------------------------------------------------------------------------
-
   /// Compile [sourcePath] to [objectPath] via clang.
-  /// (FlutterPacker.swift: compileArgs ~L370-380)
   static Future<void> _compileObject({
     required String clang,
     required String sourcePath,
@@ -126,7 +113,6 @@ class RunnerShim {
   }
 
   /// Link [objectPath] to [outputPath] via ld64.lld.
-  /// (FlutterPacker.swift: linkArgs ~L389-404)
   static Future<void> _linkBinary({
     required String ld64lld,
     required String objectPath,
@@ -173,12 +159,7 @@ class RunnerShim {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
-
   /// Prefer the generic `iPhoneOS.sdk` symlink; fall back to the versioned SDK.
-  /// (FlutterPacker.swift: clangIPhoneOSSDK ~L423-430)
   static String _resolveIPhoneOsSDK(DarwinSdk sdk) {
     final generic = p.join(
       sdk.bundle,
@@ -189,18 +170,15 @@ class RunnerShim {
       'SDKs',
       'iPhoneOS.sdk',
     );
-    final genericSdkExists = Directory(generic).existsSync();
-    if (genericSdkExists) return generic;
+    if (Directory(generic).existsSync()) return generic;
     return sdk.iPhoneOSSdk();
   }
 
   /// Returns the `ios-arm64` slice directory inside [xcframework].
-  /// (FlutterPacker.swift: flutterDeviceSlice ~L432-439)
   static String _flutterDeviceSlice(String xcframework) {
     final slice = p.join(xcframework, 'ios-arm64');
     final framework = p.join(slice, 'Flutter.framework');
-    final frameworkExists = Directory(framework).existsSync();
-    if (!frameworkExists) {
+    if (!Directory(framework).existsSync()) {
       throw XcrossError(
           'RunnerShim: Flutter device slice not found at $framework');
     }
@@ -208,7 +186,6 @@ class RunnerShim {
   }
 
   /// Extract version number from SDK dir name, e.g. `iPhoneOS17.5.sdk` → `17.5`.
-  /// (FlutterPacker.swift: sdkVersion ~L441-446)
   static String? _sdkVersion(String sdkPath) {
     final name = p.basenameWithoutExtension(sdkPath);
     if (!name.startsWith('iPhoneOS')) return null;
@@ -216,12 +193,7 @@ class RunnerShim {
     return version.isEmpty ? null : version;
   }
 
-  // ---------------------------------------------------------------------------
-  // Runner.m source (FlutterPacker.swift ~L331-366)
-  // ---------------------------------------------------------------------------
-
   /// Minimal ObjC Runner that boots Flutter via FlutterAppDelegate.
-  /// Mirrors the synthesized source in the Swift port of compileRunnerViaObjC.
   static const _runnerObjcSource = '''
 #import <UIKit/UIKit.h>
 #import <Flutter/Flutter.h>
