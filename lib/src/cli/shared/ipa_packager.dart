@@ -15,8 +15,8 @@ Future<String> packageIpa(String appPath) async {
     p.dirname(appPath),
     '${p.basenameWithoutExtension(appPath)}.ipa',
   );
-  final ipaExists = File(ipaPath).existsSync();
-  if (ipaExists) File(ipaPath).deleteSync();
+  final ipaFile = File(ipaPath);
+  if (ipaFile.existsSync()) ipaFile.deleteSync();
 
   final archive = Archive();
   // list() follows symlinks by default → they resolve to real files/dirs.
@@ -31,6 +31,6 @@ Future<String> packageIpa(String appPath) async {
   }
 
   final zipBytes = ZipEncoder().encode(archive);
-  await File(ipaPath).writeAsBytes(zipBytes);
+  await ipaFile.writeAsBytes(zipBytes);
   return ipaPath;
 }

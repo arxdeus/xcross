@@ -7,7 +7,6 @@ import 'package:xcross/src/cli/flutter/flutter_command.dart';
 import 'package:xcross/src/cli/prepare_command.dart';
 import 'package:xcross/src/util/errors.dart';
 
-/// Build the top-level `xcross` command runner.
 CommandRunner<void> buildRunner() {
   return CommandRunner<void>(
     'xcross',
@@ -23,10 +22,18 @@ Future<int> runXcross(List<String> args) async {
   final runner = buildRunner();
 
   // Intercept the shell-driven `xcross completion -- ...` hook and print
-  // suggestions. On completion mode this calls `exit()` internally and never
+  // suggestions. In completion mode this calls `exit()` internally and never
   // returns. Otherwise the ArgResults it returns are discarded and normal
   // command dispatch continues below.
-  tryArgsCompletion(args, runner.argParser);
+  //
+  // Its parse throws on an unknown option, which would surface as a raw stack
+  // trace before dispatch ever runs. Swallow it so `runner.run` reports the
+  // bad flag as a proper UsageException.
+  try {
+    tryArgsCompletion(args, runner.argParser);
+  } on FormatException {
+    // Not our error to report — dispatch below produces the real message.
+  }
 
   try {
     await runner.run(args);

@@ -12,9 +12,6 @@ enum ConnectionType {
         ? ConnectionType.wifi
         : ConnectionType.usb;
   }
-
-  /// The `xtool` search flag that restricts to this connection type.
-  String get searchFlag => this == ConnectionType.wifi ? '--network' : '--usb';
 }
 
 /// A device as reported by `xtool devices`.

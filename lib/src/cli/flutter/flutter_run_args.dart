@@ -1,114 +1,16 @@
 import 'package:args/command_runner.dart';
-import 'package:build_cli_annotations/build_cli_annotations.dart';
-import 'package:xcross/src/cli/flutter/flutter_operations.dart';
+import 'package:xcross/src/build/flutter_pack_operation.dart';
+import 'package:xcross/src/build/hot_reload_setup.dart';
 import 'package:xcross/src/device/core_device_launcher.dart';
 import 'package:xcross/src/device/debug_launcher.dart';
 import 'package:xcross/src/device/os_version.dart';
-import 'package:xcross/src/models/cli/pack_result.dart';
 import 'package:xcross/src/models/device/device.dart';
+import 'package:xcross/src/models/flutter/flutter_build_options.dart';
 import 'package:xcross/src/util/logging.dart';
 import 'package:xcross/src/xtool/xtool_cli.dart';
 
-part 'flutter_run_args.g.dart';
-
+/// How `--device-connection` restricts device discovery.
 enum DeviceConnection { attached, wireless, both }
-
-@CliOptions(createCommand: true)
-class FlutterRunArgs {
-  const FlutterRunArgs({
-    this.target = 'lib/main.dart',
-    this.flavor,
-    this.dartDefine = const [],
-    this.dartDefineFromFile = const [],
-    this.pub = true,
-    this.deviceId,
-    this.udid,
-    this.usb = false,
-    this.wifi = false,
-    this.deviceConnection = DeviceConnection.both,
-    this.route,
-    this.dartEntrypointArgs = const [],
-    this.verbose = false,
-  });
-
-  @CliOption(
-    abbr: 't',
-    defaultsTo: 'lib/main.dart',
-    help: 'The main entry-point file of the application.',
-  )
-  final String target;
-
-  @CliOption(help: 'Build a custom app flavor (sets FLUTTER_APP_FLAVOR).')
-  final String? flavor;
-
-  @CliOption(
-    abbr: 'D',
-    name: 'dart-define',
-    help: 'Pass a KEY=VALUE define to the Dart compiler.',
-  )
-  final List<String> dartDefine;
-
-  @CliOption(
-    name: 'dart-define-from-file',
-    help: 'Load dart-defines from a .json or .env file.',
-  )
-  final List<String> dartDefineFromFile;
-
-  @CliOption(
-    defaultsTo: true,
-    help: 'Run "flutter pub get" before building.',
-  )
-  final bool pub;
-
-  @CliOption(
-    abbr: 'd',
-    name: 'device-id',
-    help: 'Target device id or name (flutter-style).',
-  )
-  final String? deviceId;
-
-  @CliOption(
-    abbr: 'u',
-    help: 'Target device UDID (xtool-style).',
-  )
-  final String? udid;
-
-  @CliOption(
-    negatable: false,
-    help: 'Search USB devices only.',
-  )
-  final bool usb;
-
-  @CliOption(
-    negatable: false,
-    help: 'Search Wi-Fi devices only.',
-  )
-  final bool wifi;
-
-  @CliOption(
-    name: 'device-connection',
-    defaultsTo: DeviceConnection.both,
-    help: 'Discovery: attached (USB), wireless (Wi-Fi), or both.',
-  )
-  final DeviceConnection deviceConnection;
-
-  @CliOption(help: 'Initial route the app navigates to on launch.')
-  final String? route;
-
-  @CliOption(
-    abbr: 'a',
-    name: 'dart-entrypoint-args',
-    help: 'Pass arguments to the app main() (repeatable).',
-  )
-  final List<String> dartEntrypointArgs;
-
-  @CliOption(
-    abbr: 'v',
-    negatable: false,
-    help: 'Verbose output.',
-  )
-  final bool verbose;
-}
 
 /// `xcross flutter run` — build, sign+install (via xtool), launch, and (for
 /// iOS 17+ debug builds) hot-reload a Flutter app on a connected device.
@@ -119,7 +21,76 @@ class FlutterRunArgs {
 /// `-d/--device-id`, `-D/--dart-define`, `--dart-define-from-file`,
 /// `--[no-]pub`, `--route`, `-a/--dart-entrypoint-args`, `--device-connection`,
 /// `--flavor`).
-class FlutterRunCommand extends _$FlutterRunArgsCommand<void> {
+class FlutterRunCommand extends Command<void> {
+  FlutterRunCommand() {
+    argParser
+      ..addOption(
+        'target',
+        abbr: 't',
+        help: 'The main entry-point file of the application.',
+        defaultsTo: 'lib/main.dart',
+      )
+      ..addOption(
+        'flavor',
+        help: 'Build a custom app flavor (sets FLUTTER_APP_FLAVOR).',
+      )
+      ..addMultiOption(
+        'dart-define',
+        abbr: 'D',
+        help: 'Pass a KEY=VALUE define to the Dart compiler.',
+      )
+      ..addMultiOption(
+        'dart-define-from-file',
+        help: 'Load dart-defines from a .json or .env file.',
+      )
+      ..addFlag(
+        'pub',
+        help: 'Run "flutter pub get" before building.',
+        defaultsTo: true,
+      )
+      ..addOption(
+        'device-id',
+        abbr: 'd',
+        help: 'Target device id or name (flutter-style).',
+      )
+      ..addOption(
+        'udid',
+        abbr: 'u',
+        help: 'Target device UDID (xtool-style).',
+      )
+      ..addFlag(
+        'usb',
+        help: 'Search USB devices only.',
+        negatable: false,
+      )
+      ..addFlag(
+        'wifi',
+        help: 'Search Wi-Fi devices only.',
+        negatable: false,
+      )
+      ..addOption(
+        'device-connection',
+        help: 'Discovery: attached (USB), wireless (Wi-Fi), or both.',
+        defaultsTo: DeviceConnection.both.name,
+        allowed: DeviceConnection.values.map((e) => e.name),
+      )
+      ..addOption(
+        'route',
+        help: 'Initial route the app navigates to on launch.',
+      )
+      ..addMultiOption(
+        'dart-entrypoint-args',
+        abbr: 'a',
+        help: 'Pass arguments to the app main() (repeatable).',
+      )
+      ..addFlag(
+        'verbose',
+        abbr: 'v',
+        help: 'Verbose output.',
+        negatable: false,
+      );
+  }
+
   @override
   String get name => 'run';
 
@@ -127,12 +98,28 @@ class FlutterRunCommand extends _$FlutterRunArgsCommand<void> {
   String get description =>
       'Build, install, and run a Flutter iOS app on a device.';
 
-  String? get deviceSelector => _options.udid ?? _options.deviceId;
+  String get _target => argResults!.option('target')!;
+  String? get _flavor => argResults!.option('flavor');
+  List<String> get _dartDefine => argResults!.multiOption('dart-define');
+  List<String> get _dartDefineFromFile =>
+      argResults!.multiOption('dart-define-from-file');
+  bool get _pub => argResults!.flag('pub');
+  String? get _route => argResults!.option('route');
+  List<String> get _dartEntrypointArgs =>
+      argResults!.multiOption('dart-entrypoint-args');
+  bool get _verbose => argResults!.flag('verbose');
 
-  DeviceSearchMode get searchMode {
-    if (_options.usb) return DeviceSearchMode.usb;
-    if (_options.wifi) return DeviceSearchMode.wifi;
-    return switch (_options.deviceConnection) {
+  String? get _deviceSelector =>
+      argResults!.option('udid') ?? argResults!.option('device-id');
+
+  /// `--usb`/`--wifi` win over `--device-connection`; changing that precedence
+  /// changes which device an existing user command line targets.
+  DeviceSearchMode get _searchMode {
+    if (argResults!.flag('usb')) return DeviceSearchMode.usb;
+    if (argResults!.flag('wifi')) return DeviceSearchMode.wifi;
+    final connection =
+        DeviceConnection.values.byName(argResults!.option('device-connection')!);
+    return switch (connection) {
       DeviceConnection.attached => DeviceSearchMode.usb,
       DeviceConnection.wireless => DeviceSearchMode.wifi,
       DeviceConnection.both => DeviceSearchMode.all,
@@ -141,31 +128,27 @@ class FlutterRunCommand extends _$FlutterRunArgsCommand<void> {
 
   /// App-level arguments passed to the launched binary (`--route`, then any
   /// `--dart-entrypoint-args`).
-  List<String> get appArguments {
-    final args = <String>[];
-    final route = _options.route;
-    if (route != null) args.add('--route=$route');
-    args.addAll(_options.dartEntrypointArgs);
-    return args;
-  }
+  List<String> get _appArguments => [
+        if (_route case final route?) '--route=$route',
+        ..._dartEntrypointArgs,
+      ];
 
   @override
   Future<void> run() async {
-    if (_options.verbose) setVerbose();
-    // 1. Build the Flutter iOS debug .app (JIT; always debug for hot reload).
-    final options = await resolveBuildOptions(
-      target: _options.target,
-      dartDefine: _options.dartDefine,
-      dartDefineFromFile: _options.dartDefineFromFile,
-      pub: _options.pub,
-      flavor: _options.flavor,
+    if (_verbose) setVerbose();
+
+    final options = await FlutterBuildOptions.resolve(
+      target: _target,
+      dartDefine: _dartDefine,
+      dartDefineFromFile: _dartDefineFromFile,
+      pub: _pub,
+      flavor: _flavor,
     );
     final pack = await flutterPack(options: options);
 
-    // 2. Resolve target device + sign/install via the original xtool.
     final xtool = XtoolCli();
     final device =
-        await xtool.resolveDevice(selector: deviceSelector, mode: searchMode);
+        await xtool.resolveDevice(selector: _deviceSelector, mode: _searchMode);
     logStatus(
         '[xtool] installing to device: ${device.name} (udid: ${device.udid})');
 
@@ -182,51 +165,47 @@ class FlutterRunCommand extends _$FlutterRunArgsCommand<void> {
           udid: device.udid, bundleId: pack.bundleId);
     }
 
-    await xtool.install(pack.appPath, udid: device.udid, mode: searchMode);
+    await xtool.install(pack.appPath, udid: device.udid, mode: _searchMode);
 
-    // Flutter debug runs the Dart VM in JIT mode, which only works while a
-    // debugger is attached (CS_DEBUGGED). run is always debug → stay attached.
-    const keepAttached = true;
-
-    // 3a. iOS 17+: CoreDevice/RSD tunnel — supports hot reload.
-    if (useCoreDevice) {
-      await _launchCoreDevice(
-        pack: pack,
-        device: device,
-        keepAttached: keepAttached,
-        target: _options.target,
-        dartDefines: options.dartDefines,
-      );
-      return;
-    }
-
-    // 3b. Pre-iOS-17: classic debugserver path (delegates to `xtool launch`).
-    logStatus('[xtool] launching ${pack.bundleId} (debug/JIT)...');
-    await DebugLauncher.launch(
-      udid: device.udid,
-      bundleId: pack.bundleId,
-      keepAttached: keepAttached,
+    await _launch(
+      pack: pack,
+      device: device,
+      useCoreDevice: useCoreDevice,
+      dartDefines: options.dartDefines,
       xtool: xtool,
     );
   }
 
-  /// Launch on iOS 17+ via CoreDevice/RSD, with hot reload when available.
-  ///
-  /// [xtool] is intentionally absent here — CoreDevice launch goes through
-  /// [CoreDeviceLauncher] directly; xtool is only needed for the pre-17 path.
-  Future<void> _launchCoreDevice({
+  /// Launch the freshly installed app: CoreDevice/RSD on iOS 17+ (with hot
+  /// reload when available), otherwise the classic debugserver path.
+  Future<void> _launch({
     required PackResult pack,
     required Device device,
-    required bool keepAttached,
-    required String target,
+    required bool useCoreDevice,
     required List<String> dartDefines,
+    required XtoolCli xtool,
   }) async {
+    // Flutter debug runs the Dart VM in JIT mode, which only works while a
+    // debugger is attached (CS_DEBUGGED). run is always debug → stay attached.
+    const keepAttached = true;
+
+    if (!useCoreDevice) {
+      logStatus('[xtool] launching ${pack.bundleId} (debug/JIT)...');
+      await DebugLauncher.launch(
+        udid: device.udid,
+        bundleId: pack.bundleId,
+        keepAttached: keepAttached,
+        xtool: xtool,
+      );
+      return;
+    }
+
     // Always hot reload (flutter default). Degrades to attach-only if a
     // frontend_server artifact is missing.
     final hotReload = await buildHotReloadConfig(
-      target: target,
+      target: _target,
       dartDefines: dartDefines,
-      verbose: _options.verbose,
+      verbose: _verbose,
     );
 
     final hint = hotReload != null
@@ -237,7 +216,7 @@ class FlutterRunCommand extends _$FlutterRunArgsCommand<void> {
     await CoreDeviceLauncher.launch(
       udid: device.udid,
       bundleId: pack.bundleId,
-      arguments: appArguments,
+      arguments: _appArguments,
       keepAttached: keepAttached,
       checkedMode: true,
       hotReload: hotReload,

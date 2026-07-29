@@ -1,10 +1,7 @@
 import 'package:meta/meta.dart';
 
-/// Paths needed to drive Flutter hot reload.
-///
-/// Unified from `HotReloadConfig` (CoreDeviceLauncher) and
-/// `HotReloadControllerConfig` (HotReloadController) — both structs carry
-/// identical fields. CoreDeviceLauncher.swift:69 / HotReloadController.swift:13
+/// Paths needed to drive Flutter hot reload, shared by [CoreDeviceLauncher]
+/// and [HotReloadController].
 @immutable
 class HotReloadConfig {
   const HotReloadConfig({

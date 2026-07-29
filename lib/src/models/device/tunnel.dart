@@ -1,7 +1,6 @@
 import 'package:meta/meta.dart';
 
 /// RSD tunnel endpoint for a device.
-/// Tunneld.swift:13
 @immutable
 class Tunnel {
   const Tunnel({required this.address, required this.port});
