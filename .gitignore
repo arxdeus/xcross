@@ -200,3 +200,4 @@ pubspec.lock
 .slim
 .fvmrc
 coverage
+example/
