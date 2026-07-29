@@ -1,14 +1,7 @@
 import 'dart:io';
 
-import 'package:path/path.dart' as p;
-import 'package:posix/posix.dart' as posix;
-import 'package:tar/tar.dart';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/logging.dart';
-
-/// Pure-Dart replacements for shell `curl`/`tar`: streaming HTTP download and
-/// streaming `.tar.gz` extraction with no external processes — aside from
-/// `chmod`, which restores unix exec bits that `dart:io` cannot set itself.
 
 /// Open [url] with retry, following redirects, throwing [XcrossError] on any
 /// non-2xx status. Returns the live, undrained response stream.
@@ -85,117 +78,6 @@ Future<void> downloadToFile(
   }
 }
 
-/// A symlink/hardlink to create once all regular files have been written.
-class _PendingLink {
-  const _PendingLink(this.path, this.target);
-
-  final String path;
-  final String target;
-}
-
-/// Stream-download [url] and extract its gzip-compressed tar into [dest]
-/// (pure Dart; replaces `curl -fsSL | tar -xz`).
-///
-/// [stripComponents] drops that many leading path segments (like
-/// `tar --strip-components`). [keep], if provided, receives each entry's
-/// stripped relative path and returns whether to extract it — used for
-/// selective subtree extraction. Unix modes carrying exec bits are restored
-/// via `chmod`; symlinks and hardlinks are recreated after all files exist.
-///
-/// A live download-progress line is shown on stdout while bytes are being
-/// pulled from the network (before gzip/tar decode). Pass [label] to override
-/// the display name; set [showProgress] to `false` to silence it.
-Future<void> downloadAndExtractTarGz({
-  required String url,
-  required Directory dest,
-  int stripComponents = 0,
-  bool Function(String relPath)? keep,
-  int maxAttempts = 4,
-  Duration retryDelay = const Duration(seconds: 2),
-  String? label,
-  bool showProgress = true,
-}) async {
-  final client = HttpClient();
-  final destRoot = p.normalize(dest.path);
-  final pendingLinks = <_PendingLink>[];
-  TarReader? reader;
-  _DownloadProgress? reporter;
-  try {
-    final response = await _openStream(
-      client,
-      url,
-      maxAttempts: maxAttempts,
-      retryDelay: retryDelay,
-    );
-    reporter = showProgress
-        ? _DownloadProgress(
-            label ?? _labelFromUrl(url),
-            response.contentLength,
-          )
-        : null;
-    reader = TarReader(
-      _withProgress(response, reporter).transform(gzip.decoder),
-    );
-    while (await reader.moveNext()) {
-      final entry = reader.current;
-      final header = entry.header;
-      final rel = _strip(header.name, stripComponents);
-      if (rel == null || rel.isEmpty || rel == '.') continue;
-      if (keep != null && !keep(rel)) continue;
-
-      final outPath = p.normalize(p.join(destRoot, rel));
-      // Path-traversal guard: never escape [dest].
-      if (outPath != destRoot && !p.isWithin(destRoot, outPath)) continue;
-
-      final type = entry.type;
-      if (type == TypeFlag.dir) {
-        await Directory(outPath).create(recursive: true);
-      } else if (type == TypeFlag.reg || type == TypeFlag.regA) {
-        await Directory(p.dirname(outPath)).create(recursive: true);
-        final sink = File(outPath).openWrite();
-        try {
-          await sink.addStream(entry.contents);
-          await sink.flush();
-        } finally {
-          await sink.close();
-        }
-        // Restore exec bits via libc chmod (FFI) — no subprocess. posix is a
-        // no-op stub on non-POSIX hosts, so guard with isPosixSupported.
-        final mode = header.mode;
-        if (mode != 0 && (mode & 0x49) != 0 && posix.isPosixSupported) {
-          posix.chmodWithMode(outPath, mode);
-        }
-      } else if (type == TypeFlag.symlink) {
-        final target = header.linkName;
-        if (target != null && target.isNotEmpty) {
-          pendingLinks.add(_PendingLink(outPath, target));
-        }
-      } else if (type == TypeFlag.link) {
-        final target = header.linkName;
-        if (target != null && target.isNotEmpty) {
-          final targetRel = _strip(target, stripComponents) ?? target;
-          pendingLinks.add(
-            _PendingLink(outPath, p.join(destRoot, targetRel)),
-          );
-        }
-      }
-      // Other entry types (PAX/GNU metadata) are consumed by the reader.
-    }
-
-    for (final link in pendingLinks) {
-      await Directory(p.dirname(link.path)).create(recursive: true);
-      final existing = Link(link.path);
-      final linkExists = existing.existsSync();
-      if (linkExists) existing.deleteSync();
-      await Link(link.path).create(link.target);
-    }
-    reporter?.finish();
-  } finally {
-    await reader?.cancel();
-    client.close(force: true);
-  }
-}
-
 /// Wrap [source] so [reporter] observes byte counts without changing the
 /// stream's contents. Returns the source unchanged when [reporter] is null.
 Stream<List<int>> _withProgress(
@@ -252,7 +134,7 @@ class _DownloadProgress {
       final percent = (_received * 100 ~/ total).clamp(0, 100);
       if (percent >= _lastLoggedPercent + 10) {
         _lastLoggedPercent = percent - (percent % 10);
-        logInfo(
+        logStatus(
           '  $label: $percent% (${_fmtBytes(_received)}'
           ' / ${_fmtBytes(total)})',
         );
@@ -268,7 +150,7 @@ class _DownloadProgress {
       _render(_stopwatch.elapsedMilliseconds);
       stdout.writeln();
     } else {
-      logInfo('  $label: done (${_fmtBytes(_received)})');
+      logStatus('  $label: done (${_fmtBytes(_received)})');
     }
   }
 
@@ -296,12 +178,4 @@ class _DownloadProgress {
     }
     return '${value.toStringAsFixed(value >= 100 ? 0 : 1)} ${units[unit]}';
   }
-}
-
-/// Drop the first [n] POSIX path segments from [name]; null if too few.
-String? _strip(String name, int n) {
-  if (n <= 0) return name;
-  final parts = p.posix.split(name.replaceAll(r'\', '/'));
-  if (parts.length <= n) return null;
-  return p.posix.joinAll(parts.sublist(n));
 }

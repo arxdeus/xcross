@@ -1,4 +1,3 @@
-// Port of Sources/PackLib/DarwinSDKLocator.swift
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -8,7 +7,6 @@ import 'package:xcross/src/util/errors.dart';
 /// Locates an installed xtool Darwin SDK on the local machine and exposes path
 /// accessors for the parts needed to drive clang/ld invocations directly
 /// (without `xcrun`).
-///
 class DarwinSdk {
   /// Bundle root, e.g. `~/.swiftpm/swift-sdks/darwin.artifactbundle`.
   final String bundle;
@@ -16,10 +14,6 @@ class DarwinSdk {
   static final RegExp _digitPattern = RegExp('[0-9]');
 
   DarwinSdk(this.bundle);
-
-  // ---------------------------------------------------------------------------
-  // DarwinSDKLocator.swift: searchRoots() + current()
-  // ---------------------------------------------------------------------------
 
   /// All locations xtool may install the Darwin SDK into. First match wins.
   static List<String> _searchRoots() {
@@ -37,7 +31,7 @@ class DarwinSdk {
   }
 
   /// Resolve the SDK installed by `xtool sdk install`. Returns null if not
-  /// installed. (DarwinSDKLocator.swift: current())
+  /// installed.
   static DarwinSdk? current() {
     for (final candidate in _searchRoots()) {
       if (_isValidBundle(candidate)) return DarwinSdk(candidate);
@@ -45,15 +39,14 @@ class DarwinSdk {
     return null;
   }
 
-  /// Returns true if [candidate] looks like a valid installed Darwin SDK bundle.
+  /// A version marker file, or the canonical SDK sub-tree, marks a valid
+  /// installed bundle.
   static bool _isValidBundle(String candidate) {
-    // Accept if version marker exists.
     final versionFileExists =
         File(p.join(candidate, 'darwin-sdk-version.txt')).existsSync();
     if (versionFileExists) {
       return true;
     }
-    // Or if the canonical SDK sub-tree exists.
     final sdksPath = p.join(
       candidate,
       'Developer',
@@ -65,22 +58,8 @@ class DarwinSdk {
     return Directory(sdksPath).existsSync();
   }
 
-  // ---------------------------------------------------------------------------
-  // DarwinSDKLocator.swift: toolset paths
-  // ---------------------------------------------------------------------------
-
   /// `<bundle>/toolset/bin/ld64.lld` — Apple-compatible linker on Linux.
   String get ld64lld => p.join(bundle, 'toolset', 'bin', 'ld64.lld');
-
-  /// `<bundle>/toolset/bin/dsymutil`.
-  String get dsymutil => p.join(bundle, 'toolset', 'bin', 'dsymutil');
-
-  /// `<bundle>/toolset/bin/libtool` (= llvm-libtool-darwin).
-  String get libtool => p.join(bundle, 'toolset', 'bin', 'libtool');
-
-  // ---------------------------------------------------------------------------
-  // DarwinSDKLocator.swift: iPhoneOSSDK() + firstSDK(in:prefix:)
-  // ---------------------------------------------------------------------------
 
   String _sdksDir(String platform) => p.join(
         bundle,
@@ -93,7 +72,6 @@ class DarwinSdk {
 
   /// First versioned iPhoneOSXX.X.sdk found, else first .sdk under the
   /// platform. Throws [XcrossError] if missing.
-  /// (DarwinSDKLocator.swift: iPhoneOSSDK())
   String iPhoneOSSdk() {
     final dir = _sdksDir('iPhoneOS');
     final pick = _firstSdk(dir, 'iPhoneOS');
@@ -108,14 +86,13 @@ class DarwinSdk {
 
   /// Returns the first matching `.sdk` directory under [dir] with the given
   /// [prefix], preferring versioned names (e.g. `iPhoneOS17.5.sdk`) over
-  /// unversioned symlinks. (DarwinSDKLocator.swift: firstSDK(in:prefix:))
+  /// unversioned symlinks.
   static String? _firstSdk(String dir, String prefix) {
     final sdkDirExists = Directory(dir).existsSync();
     if (!sdkDirExists) return null;
     final entries =
         Directory(dir).listSync().map((e) => p.basename(e.path)).toList();
 
-    // Prefer versioned (e.g. iPhoneOS17.5.sdk) over generic symlink.
     final versioned = entries
         .where(
           (e) =>

@@ -140,9 +140,6 @@ class XtoolCli {
     }
   }
 
-  // _tryGet and _trySet are intentionally separate: _tryGet<T> returns T?
-  // (null on error) while _trySet returns void (silently ignores errors).
-  // Different return shapes prevent a single generic helper.
   static T? _tryGet<T>(T Function() f) {
     try {
       return f();

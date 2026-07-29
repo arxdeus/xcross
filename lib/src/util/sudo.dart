@@ -2,11 +2,12 @@ import 'dart:io';
 
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/logging.dart';
+import 'package:xcross/src/util/process.dart';
 
 /// Thin helpers for interactive `sudo -v` and locating the `sudo` binary.
 abstract final class Sudo {
   /// Absolute path to `sudo`, or null if not on PATH.
-  static Future<String?> resolve() => _which('sudo');
+  static Future<String?> resolve() => which('sudo');
 
   /// Prompt once via `sudo -v` (inheritStdio) so later `sudo -n …` calls can
   /// run without holding the TTY open.
@@ -30,15 +31,5 @@ abstract final class Sudo {
       final hint = manualHint ?? 'Retry with an interactive sudo session.';
       throw XcrossError('sudo authentication failed (exit $code).\n$hint');
     }
-  }
-
-  static Future<String?> _which(String name) async {
-    final pathEnv = Platform.environment['PATH'] ?? '';
-    for (final dir in pathEnv.split(':')) {
-      if (dir.isEmpty) continue;
-      final file = File('$dir/$name');
-      if (file.existsSync()) return file.path;
-    }
-    return null;
   }
 }
