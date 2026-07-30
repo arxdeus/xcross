@@ -117,8 +117,8 @@ class FlutterRunCommand extends Command<void> {
   DeviceSearchMode get _searchMode {
     if (argResults!.flag('usb')) return DeviceSearchMode.usb;
     if (argResults!.flag('wifi')) return DeviceSearchMode.wifi;
-    final connection =
-        DeviceConnection.values.byName(argResults!.option('device-connection')!);
+    final connection = DeviceConnection.values
+        .byName(argResults!.option('device-connection')!);
     return switch (connection) {
       DeviceConnection.attached => DeviceSearchMode.usb,
       DeviceConnection.wireless => DeviceSearchMode.wifi,
@@ -149,8 +149,7 @@ class FlutterRunCommand extends Command<void> {
     final xtool = XtoolCli();
     final device =
         await xtool.resolveDevice(selector: _deviceSelector, mode: _searchMode);
-    logStatus(
-        '[xtool] installing to device: ${device.name} (udid: ${device.udid})');
+    logInfo('Device', '${device.name} ${ansi.subtle(device.udid)}');
 
     // iOS 17+ removed the classic lockdown debugserver: launch (and process
     // control) go through the CoreDevice/RSD tunnel. Determine this up front so
@@ -165,6 +164,7 @@ class FlutterRunCommand extends Command<void> {
           udid: device.udid, bundleId: pack.bundleId);
     }
 
+    // Renders its own spinner + grey log tail (see [XtoolCli.install]).
     await xtool.install(pack.appPath, udid: device.udid, mode: _searchMode);
 
     await _launch(
@@ -190,7 +190,7 @@ class FlutterRunCommand extends Command<void> {
     const keepAttached = true;
 
     if (!useCoreDevice) {
-      logStatus('[xtool] launching ${pack.bundleId} (debug/JIT)...');
+      logInfo('App', '${pack.bundleId} ${ansi.subtle('debug/JIT')}');
       await DebugLauncher.launch(
         udid: device.udid,
         bundleId: pack.bundleId,
@@ -208,10 +208,10 @@ class FlutterRunCommand extends Command<void> {
       verbose: _verbose,
     );
 
-    final hint = hotReload != null
-        ? " (debug/JIT — hot reload enabled; press 'r' to reload)"
-        : ' (debug/JIT — staying attached via CoreDevice)';
-    logStatus('[xcross] launching ${pack.bundleId}$hint...');
+    final mode = hotReload != null
+        ? 'debug/JIT, hot reload'
+        : 'debug/JIT, attached via CoreDevice';
+    logInfo('App', '${pack.bundleId} ${ansi.subtle(mode)}');
 
     await CoreDeviceLauncher.launch(
       udid: device.udid,

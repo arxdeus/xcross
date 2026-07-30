@@ -42,16 +42,16 @@ class FlutterPacker {
   /// Returns path to `<projectRoot>/build/xtool-ios/<appName>.app`.
   Future<String> pack() async {
     final flutterRoot = await resolveFlutterRoot(projectRoot: projectRoot);
-    logStatus('[xcross] Flutter SDK: $flutterRoot');
+    logTrace('Flutter SDK: $flutterRoot');
 
     if (options.pub) {
       await _runFlutterPubGet(flutterRoot);
     } else {
-      logStatus('[xcross] skipping flutter pub get (--no-pub).');
+      logTrace('skipping flutter pub get (--no-pub)');
     }
 
     if (options.flavor != null) {
-      logStatus('[xcross] building flavor "${options.flavor}"...');
+      logTrace('building flavor "${options.flavor}"');
     }
 
     final appFramework = await _buildAppFramework(flutterRoot);
@@ -85,26 +85,29 @@ class FlutterPacker {
 
   /// Run `flutter pub get`. Tolerates failures when `package_config.json`
   /// already exists (container builds with ephemeral pub caches).
-  Future<void> _runFlutterPubGet(String flutterRoot) async {
+  Future<void> _runFlutterPubGet(String flutterRoot) {
     final packageConfig =
         p.join(projectRoot, '.dart_tool', 'package_config.json');
-    logStatus('[flutter] pub get...');
-    try {
-      await ProcessRunner.runChecked(
-        p.join(flutterRoot, 'bin', 'flutter'),
-        ['pub', 'get'],
-        workingDirectory: projectRoot,
-        inheritStdio: true,
-        label: 'flutter',
-      );
-    } on XcrossError {
-      if (File(packageConfig).existsSync()) {
-        logWarn(
-            'Ignoring flutter pub get error because package_config.json exists.');
-        return;
+    return logStep('Resolving dependencies', () async {
+      try {
+        await ProcessRunner.runChecked(
+          p.join(flutterRoot, 'bin', 'flutter'),
+          ['pub', 'get'],
+          workingDirectory: projectRoot,
+          // `pub get` is non-interactive; inheriting fd1 would shred the
+          // spinner, so only inherit when verbose (no spinner then).
+          inheritStdio: isVerbose,
+          label: 'flutter',
+        );
+      } on XcrossError {
+        if (File(packageConfig).existsSync()) {
+          logWarn('Ignoring flutter pub get error because '
+              'package_config.json exists.');
+          return;
+        }
+        rethrow;
       }
-      rethrow;
-    }
+    });
   }
 
   /// Build `App.framework` via [FlutterDebugBundler].

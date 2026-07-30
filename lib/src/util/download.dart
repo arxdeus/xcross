@@ -109,7 +109,10 @@ String _labelFromUrl(String url) {
 class _DownloadProgress {
   _DownloadProgress(this.label, this.total)
       : _stopwatch = Stopwatch()..start(),
-        _isTty = stdout.hasTerminal;
+        _isTty = stdout.hasTerminal {
+    // We draw with raw `\r`; a live spinner on the same line would fight us.
+    stopStep();
+  }
 
   final String label;
   final int total;
@@ -134,10 +137,9 @@ class _DownloadProgress {
       final percent = (_received * 100 ~/ total).clamp(0, 100);
       if (percent >= _lastLoggedPercent + 10) {
         _lastLoggedPercent = percent - (percent % 10);
-        logStatus(
-          '  $label: $percent% (${_fmtBytes(_received)}'
-          ' / ${_fmtBytes(total)})',
-        );
+        logStatus('${Glyph.download} $label '
+            '${ansi.subtle('$percent%  ${_fmtBytes(_received)}'
+                ' / ${_fmtBytes(total)}')}');
       }
     }
   }
@@ -146,25 +148,28 @@ class _DownloadProgress {
     if (_done) return;
     _done = true;
     _stopwatch.stop();
-    if (_isTty) {
-      _render(_stopwatch.elapsedMilliseconds);
-      stdout.writeln();
-    } else {
-      logStatus('  $label: done (${_fmtBytes(_received)})');
-    }
+    if (_isTty) stdout.write('\r${' '.padRight(96)}\r');
+    logDone(label, _fmtBytes(_received));
   }
+
+  static const _barWidth = 24;
 
   void _render(int elapsedMs) {
     final rate = elapsedMs > 0 ? _received * 1000 / elapsedMs : 0.0;
-    final buf = StringBuffer('  $label: ${_fmtBytes(_received)}');
+    final buf = StringBuffer('${Glyph.download} ${label.padRight(24)}');
     if (total > 0) {
-      final percent =
-          (_received * 100 / total).clamp(0, 100).toStringAsFixed(1);
-      buf.write(' / ${_fmtBytes(total)} ($percent%)');
+      final fraction = (_received / total).clamp(0.0, 1.0);
+      final filled = (fraction * _barWidth).round();
+      buf.write('${ansi.cyan}${'━' * filled}${ansi.none}');
+      buf.write(ansi.subtle('━' * (_barWidth - filled)));
+      buf.write(' ${(fraction * 100).round()}%'.padLeft(5));
+      buf.write(ansi.subtle('  ${_fmtBytes(_received)} / ${_fmtBytes(total)}'));
+    } else {
+      buf.write(_fmtBytes(_received));
     }
-    buf.write(' @ ${_fmtBytes(rate.round())}/s');
+    buf.write(ansi.subtle('  ${_fmtBytes(rate.round())}/s'));
     // `\r` + right-pad so leftover chars from a longer prior line are erased.
-    stdout.write('\r${buf.toString().padRight(78)}');
+    stdout.write('\r${buf.toString().padRight(96)}');
   }
 
   static String _fmtBytes(int n) {

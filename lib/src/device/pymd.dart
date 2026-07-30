@@ -67,16 +67,17 @@ abstract final class Pymd {
   static Future<bool> ensureInstalled() async {
     if (await _isInstalled()) return true;
 
-    logStatus('[pymobiledevice3] not found — installing (one-time)…');
+    final step = beginStep('Installing pymobiledevice3 (one-time)');
 
     final py = await which('python3') ?? await which('python');
     if (py == null) {
+      step.fail();
       logError('no python3 found. Install Python 3 first.');
       return false;
     }
 
     for (final attempt in await _buildInstallAttempts(py)) {
-      logStatus('[python] running: ${attempt.join(' ')}');
+      logTrace('[python] running: ${attempt.join(' ')}');
       final result = await Process.run(
         attempt[0],
         attempt.sublist(1),
@@ -86,12 +87,13 @@ abstract final class Pymd {
       if (result.exitCode == 0) {
         _cached = null;
         if (await _isInstalled()) {
-          logStatus('[pymobiledevice3] installed ✓');
+          step.done();
           return true;
         }
       }
     }
 
+    step.fail();
     logError(
       'failed to install pymobiledevice3. Install it manually:\n'
       '    sudo pip3 install --break-system-packages pymobiledevice3',
@@ -259,8 +261,9 @@ abstract final class Pymd {
     final inv = await resolve();
     final executable = inv.executable;
     final arguments = inv.args(args);
-    logStatus(
-      '[pymobiledevice3] running: ${ProcessRunner.commandLine(executable, arguments)}',
+    logTrace(
+      '[pymobiledevice3] running: '
+      '${ProcessRunner.commandLine(executable, arguments)}',
     );
     final result = await ProcessRunner.run(
       executable,

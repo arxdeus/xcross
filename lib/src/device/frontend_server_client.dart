@@ -63,7 +63,7 @@ class FrontendServerClient {
     await Directory(File(config.outputDill).parent.path)
         .create(recursive: true);
 
-    logStatus('[frontend_server] running: ${config.dart} ${args.join(' ')}');
+    logTrace('[frontend_server] running: ${config.dart} ${args.join(' ')}');
     final proc = await Process.start(config.dart, args);
 
     _process = proc;

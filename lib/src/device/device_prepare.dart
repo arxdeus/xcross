@@ -44,55 +44,56 @@ abstract final class DevicePrepare {
     await TunnelDaemon().ensureRunning();
     await _ensureLockdownTunnel();
 
-    logStatus(
-      '[xcross] prepare done — DDI mounted, tunneld up, lockdown tunnel '
-      'running.\n'
-      '    You can now: xcross flutter run -u <UDID>',
-    );
+    logDone('Device ready '
+        '${ansi.subtle('— DDI mounted, tunneld and lockdown tunnel up')}');
+    logInfo('Next', ansi.subtle('xcross flutter run -u <UDID>'));
   }
 
   /// `sudo pymobiledevice3 mounter auto-mount` (one-shot).
   static Future<void> _autoMount() async {
     final argv = await _elevatedPymdArgs(['mounter', 'auto-mount']);
-    logStatus(
-      '[pymobiledevice3] mounting Developer Disk Image:\n'
-      '    ${argv.join(' ')}',
-    );
-    final proc = await Process.start(
-      argv.first,
-      argv.sublist(1),
-      environment: Pymd.usbmuxEnvironment(),
-      mode: ProcessStartMode.inheritStdio,
-    );
-    final code = await proc.exitCode;
-    if (code != 0) {
-      throw XcrossError(
-        'mounter auto-mount failed (exit $code).\n'
-        'Retry manually:\n'
-        '    sudo pymobiledevice3 mounter auto-mount',
+    logTrace('[pymobiledevice3] mounting DDI: ${argv.join(' ')}');
+    // Captured (not inheritStdio): a child writing to fd1 would shred the
+    // spinner. Runs under `sudo -n`, so there is no prompt to hide.
+    await logStep('Mounting Developer Disk Image', () async {
+      final result = await ProcessRunner.run(
+        argv.first,
+        argv.sublist(1),
+        environment: Pymd.usbmuxEnvironment(),
       );
-    }
-    logStatus('[pymobiledevice3] Developer Disk Image mounted ✓');
+      logTrace(result.stdout.trim());
+      if (result.exitCode != 0) {
+        throw XcrossError(
+          'mounter auto-mount failed (exit ${result.exitCode}).\n'
+          '${result.stderr.trim()}\n'
+          'Retry manually:\n'
+          '    sudo pymobiledevice3 mounter auto-mount',
+        );
+      }
+    });
   }
 
   /// Start `lockdown start-tunnel` in the background if one is not already
   /// producing an RSD tunnel. Leaves the process running after prepare exits.
   static Future<void> _ensureLockdownTunnel() async {
     if (await _lockdownTunnelLooksAlive()) {
-      logStatus('[pymobiledevice3] lockdown start-tunnel already running');
+      logTrace('lockdown start-tunnel already running');
       return;
     }
+    await logStep('Starting lockdown RSD tunnel', _startLockdownTunnel);
+  }
 
+  /// Spawn `lockdown start-tunnel` and wait for it to report an RSD tunnel.
+  static Future<void> _startLockdownTunnel() async {
     final argv = await _elevatedPymdArgs(['lockdown', 'start-tunnel']);
     final tmpDir = Platform.environment['TMPDIR'] ?? '/tmp';
     final logPath = '$tmpDir/xcross-start-tunnel.log';
     final logFile = File(logPath);
     if (!logFile.existsSync()) logFile.createSync(recursive: true);
 
-    logStatus(
+    logTrace(
       '[pymobiledevice3] starting lockdown RSD tunnel'
-      ' (background; log: $logPath):\n'
-      '    ${argv.join(' ')}',
+      ' (background; log: $logPath): ${argv.join(' ')}',
     );
 
     late Process proc;
@@ -118,7 +119,7 @@ abstract final class DevicePrepare {
     void onLine(String line) {
       final trimmed = line.trimRight();
       if (trimmed.isEmpty) return;
-      logStatus(trimmed);
+      logTrace(trimmed);
       if (!ready.isCompleted && _tunnelReadyPattern.hasMatch(trimmed)) {
         ready.complete();
       }
@@ -165,7 +166,7 @@ abstract final class DevicePrepare {
       rethrow;
     }
 
-    logStatus(
+    logTrace(
       '[pymobiledevice3] lockdown RSD tunnel is up '
       '(pid ${proc.pid}; leave it running)',
     );

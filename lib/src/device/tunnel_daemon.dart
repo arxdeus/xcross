@@ -24,7 +24,7 @@ class TunnelDaemon {
   /// Ensure a tunneld REST API is reachable; start one if needed.
   Future<void> ensureRunning() async {
     if (await isReachable()) {
-      logStatus('[xtool] RSD tunnel daemon already running (reusing it)');
+      logTrace('RSD tunnel daemon already running (reusing it)');
       return;
     }
 
@@ -57,12 +57,18 @@ class TunnelDaemon {
       'tunneld',
     ];
 
-    logStatus(
+    logTrace(
       '[pymobiledevice3] starting RSD tunnel daemon'
-      '${sudo != null ? ' (needs root)' : ''}:\n'
-      '    ${argv.join(' ')}',
+      '${sudo != null ? ' (needs root)' : ''}: ${argv.join(' ')}',
     );
 
+    // The sudo prompt above must never be hidden behind the spinner, so the
+    // step only covers the spawn + readiness poll.
+    await logStep('Starting RSD tunnel daemon', () => _startDaemon(argv));
+  }
+
+  /// Spawn tunneld with [argv] and poll until its REST API answers.
+  Future<void> _startDaemon(List<String> argv) async {
     final tmpDir = Platform.environment['TMPDIR'] ?? '/tmp';
     final logPath = '$tmpDir/xtool-tunneld.log';
     final logFile = File(logPath);
@@ -101,10 +107,7 @@ class TunnelDaemon {
       interval: const Duration(seconds: 1),
       attempt: () async => await isReachable() ? true : null,
     );
-    if (up ?? false) {
-      logStatus('[pymobiledevice3] RSD tunnel daemon is up');
-      return;
-    }
+    if (up ?? false) return;
     throw XcrossError(
       'tunneld did not come up. Try starting it manually in another terminal:\n'
       '    sudo pymobiledevice3 remote tunneld\n'
@@ -120,7 +123,7 @@ class TunnelDaemon {
     _ownsDaemon = false;
     if (proc == null) return;
 
-    logStatus('[xtool] stopping RSD tunnel daemon…');
+    logTrace('stopping RSD tunnel daemon…');
 
     // The daemon runs under sudo (root); escalate via sudo kill.
     Sudo.resolve().then((sudo) {

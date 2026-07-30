@@ -17,10 +17,8 @@ abstract final class Sudo {
     final sudo = await resolve();
     if (sudo == null) return;
 
-    logStatus(
-      '[sudo] confirming access '
-      '(you may be asked for your password once)…',
-    );
+    logInfo('Confirming sudo access '
+        '${ansi.subtle('— you may be asked for your password once')}');
     final proc = await Process.start(
       sudo,
       const ['-v'],

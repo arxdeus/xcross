@@ -33,26 +33,28 @@ class VscodeCommand extends Command<void> {
       // escaped too — jsonEncode does not.
       _shim.replaceAll('<XCROSS>', jsonEncode(exe).replaceAll(r'$', r'\$')),
     );
-    logStatus('wrote ${p.relative(shim.path)}');
+    logDone('Wrote ${p.relative(shim.path)}');
 
     // launch.json / settings.json are JSONC in the wild; a comment-preserving
     // merge is 200 lines of nothing, so print the snippet instead.
     await _writeIfAbsent(p.join(dir.path, 'launch.json'), _launchJson);
     await _writeIfAbsent(p.join(dir.path, 'settings.json'), _settingsJson);
 
-    logStatus('done — open the project in VS Code and press F5 '
-        "(then 'Hot Reload' / 'Restart' in the debug toolbar).");
+    logInfo(
+        'Next',
+        ansi.subtle('open the project in VS Code and press F5, '
+            "then 'Hot Reload' / 'Restart' in the debug toolbar"));
   }
 
   static Future<void> _writeIfAbsent(String path, String content) async {
     final file = File(path);
     if (file.existsSync()) {
-      logStatus('${p.relative(path)} already exists — merge this in yourself:\n'
+      logWarn('${p.relative(path)} already exists — merge this in yourself:\n'
           '$content');
       return;
     }
     await file.writeAsString(content);
-    logStatus('wrote ${p.relative(path)}');
+    logDone('Wrote ${p.relative(path)}');
   }
 }
 

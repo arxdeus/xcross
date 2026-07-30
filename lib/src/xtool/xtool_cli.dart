@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:xcross/src/models/device/device.dart';
 import 'package:xcross/src/util/errors.dart';
+import 'package:xcross/src/util/logging.dart';
 import 'package:xcross/src/util/process.dart';
 
 /// Which devices `xtool` should search for.
@@ -157,8 +158,9 @@ class XtoolCli {
   /// `xtool install <path> [--udid <udid>] [--usb|--wifi]`.
   ///
   /// Signs (using saved `xtool auth` credentials) and installs a `.app` or
-  /// `.ipa`. Inherits stdio so progress and interactive prompts (e.g.
-  /// certificate revocation confirmation) work.
+  /// `.ipa`. Runs under a spinner whose grey tail shows xtool's own progress;
+  /// stdin is forwarded so interactive prompts (e.g. certificate revocation)
+  /// still work.
   Future<void> install(
     String appOrIpaPath, {
     String? udid,
@@ -168,12 +170,20 @@ class XtoolCli {
     if (udid != null) args.addAll(['--udid', udid]);
     final flag = mode.flag;
     if (flag != null) args.add(flag);
-    await ProcessRunner.runChecked(
-      executable,
-      args,
-      inheritStdio: true,
-      label: 'xtool',
-    );
+
+    final step = beginStep('Signing and installing');
+    try {
+      await ProcessRunner.runChecked(
+        executable,
+        args,
+        label: 'xtool',
+        tail: step,
+      );
+      step.done();
+    } on Object {
+      step.fail();
+      rethrow;
+    }
   }
 
   /// `xtool launch <bundleID> [args...] [--udid <udid>]`.

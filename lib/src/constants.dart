@@ -17,9 +17,11 @@ abstract final class DeviceConstants {
   /// Name of the DevFS filesystem registered with the Dart VM.
   static const String devFsName = 'xtool';
 
-  /// Marker line printed when the on-device VM Service is live; the DAP
-  /// watches for it to emit `flutter.appStarted`.
-  static const String vmServiceMarker = '[xcross] vm-service ';
+  /// Marker printed when the on-device VM Service is live; the DAP scans child
+  /// stdout for it (by substring, so a line glyph may precede it) to emit
+  /// `flutter.appStarted`. Keep the colon — it is what stops a stray mention of
+  /// "vm-service" in the app's own output from being parsed as the URI line.
+  static const String vmServiceMarker = 'vm-service: ';
 
   /// Keycode for 'q' — quits the running session.
   static const int keyQ = 0x71;

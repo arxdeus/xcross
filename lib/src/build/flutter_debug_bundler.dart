@@ -63,13 +63,15 @@ class FlutterDebugBundler {
   /// Build `App.framework` inside [outputDir]. Returns the framework path.
   Future<String> build() async {
     final engineCache = IosEngineCache(flutterRoot: flutterRoot);
-    logStatus('[xcross] ensuring Flutter iOS debug artifacts...');
-    await engineCache.ensureArtifactsAvailable();
+    await logStep(
+      'Fetching Flutter engine artifacts',
+      engineCache.ensureArtifactsAvailable,
+    );
 
-    logStatus('[xcross] resolving iOS debug toolchain...');
+    logTrace('resolving iOS debug toolchain');
     final toolchain = await _resolveToolchain();
 
-    logStatus('[xcross] preparing App.framework output...');
+    logTrace('preparing App.framework output');
     await Directory(outputDir).create(recursive: true);
 
     final appFramework = p.join(outputDir, 'App.framework');
@@ -81,14 +83,15 @@ class FlutterDebugBundler {
 
     final appDill = await _runKernelSnapshot(engineCache);
 
-    logStatus('[xcross] bundling Flutter debug assets...');
-    await _copyDataAssets(assetsDir, engineCache, appDill);
-    await _copyMaterialFonts(assetsDir);
-    _writeManifests(assetsDir);
+    await logStep('Bundling assets', () async {
+      await _copyDataAssets(assetsDir, engineCache, appDill);
+      await _copyMaterialFonts(assetsDir);
+      _writeManifests(assetsDir);
+    });
 
     await _buildAppStub(appFramework, toolchain);
 
-    logStatus('[xcross] writing App.framework Info.plist...');
+    logTrace('writing App.framework Info.plist');
     _writeAppFrameworkInfoPlist(appFramework);
 
     return appFramework;
@@ -152,13 +155,17 @@ class FlutterDebugBundler {
       resolvedEntrypoint,
     ];
 
-    logStatus('[frontend_server] kernel snapshot (debug/JIT)...');
-    await ProcessRunner.runChecked(
-      runtime,
-      args,
-      workingDirectory: projectRoot,
-      inheritStdio: true,
-      label: 'frontend_server',
+    await logStep(
+      'Compiling Dart kernel',
+      () => ProcessRunner.runChecked(
+        runtime,
+        args,
+        workingDirectory: projectRoot,
+        // Inheriting fd1 while a spinner animates shreds the line; capture
+        // instead (the stderr is folded into the thrown error either way).
+        inheritStdio: isVerbose,
+        label: 'frontend_server',
+      ),
     );
 
     if (!File(outputDill).existsSync()) {
@@ -260,38 +267,38 @@ class FlutterDebugBundler {
     );
   }
 
-  Future<void> _buildAppStub(String appFramework, _Toolchain toolchain) async {
-    logStatus('[clang] building App stub dylib...');
+  Future<void> _buildAppStub(String appFramework, _Toolchain toolchain) =>
+      logStep('Building App.framework', () async {
+        final tmp =
+            await Directory.systemTemp.createTemp('xtool-flutter-stub-');
+        final stubSource = p.join(tmp.path, 'debug_app.c');
+        // Exact stub content emitted by flutter_tools.
+        await File(stubSource).writeAsString('static const int Moo = 88;\n');
 
-    final tmp = await Directory.systemTemp.createTemp('xtool-flutter-stub-');
-    final stubSource = p.join(tmp.path, 'debug_app.c');
-    // Exact stub content emitted by flutter_tools.
-    await File(stubSource).writeAsString('static const int Moo = 88;\n');
+        await Directory(appFramework).create(recursive: true);
+        final outputBinary = p.join(appFramework, 'App');
 
-    await Directory(appFramework).create(recursive: true);
-    final outputBinary = p.join(appFramework, 'App');
+        // Flags mirror flutter_tools `_createStubAppFramework`.
+        final args = _appStubClangArgs(
+          toolchain: toolchain,
+          stubSource: stubSource,
+          outputBinary: outputBinary,
+        );
 
-    // Flags mirror flutter_tools `_createStubAppFramework`.
-    final args = _appStubClangArgs(
-      toolchain: toolchain,
-      stubSource: stubSource,
-      outputBinary: outputBinary,
-    );
+        await ProcessRunner.runChecked(
+          toolchain.clang,
+          args,
+          inheritStdio: isVerbose,
+          label: 'clang',
+        );
 
-    await ProcessRunner.runChecked(
-      toolchain.clang,
-      args,
-      inheritStdio: true,
-      label: 'clang',
-    );
+        if (!File(outputBinary).existsSync()) {
+          throw XcrossError(
+              'FlutterDebugBundler: clang did not produce $outputBinary');
+        }
 
-    if (!File(outputBinary).existsSync()) {
-      throw XcrossError(
-          'FlutterDebugBundler: clang did not produce $outputBinary');
-    }
-
-    await tmp.delete(recursive: true);
-  }
+        await tmp.delete(recursive: true);
+      });
 
   /// Build the clang argument list for the App stub dylib.
   static List<String> _appStubClangArgs({

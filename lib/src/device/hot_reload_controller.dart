@@ -115,7 +115,7 @@ class HotReloadController {
     try {
       return await body();
     } finally {
-      logStatus('[timing] $label ${sw.elapsedMilliseconds}ms');
+      logTrace('[timing] $label ${sw.elapsedMilliseconds}ms');
     }
   }
 
@@ -128,7 +128,8 @@ class HotReloadController {
   Future<bool> reload() async {
     final changed = _sources.changedFileUris();
     if (changed.isEmpty) {
-      logStatus('[xtool] no source changes');
+      // The step's own `✓ Reloaded 0.0s` already tells the story.
+      logTrace('no source changes');
       return true;
     }
 
@@ -269,9 +270,7 @@ class HotReloadController {
     final targetUri = '$baseUri$fileName';
     final raw = await File(dillPath).readAsBytes();
     final gz = GZipCodec().encode(raw);
-    if (config.verbose) {
-      logStatus('[timing] devfs-bytes raw=${raw.length} gz=${gz.length}');
-    }
+    logTrace('[timing] devfs-bytes raw=${raw.length} gz=${gz.length}');
     final targetUriB64 = base64.encode(utf8.encode(targetUri));
 
     final client = HttpClient()

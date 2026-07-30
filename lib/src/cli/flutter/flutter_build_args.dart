@@ -85,7 +85,7 @@ class FlutterBuildCommand extends Command<void> {
       // install time. Fail before building rather than after.
       throw UsageException(
         'xcross cannot sign a .app: the original xtool has no standalone sign '
-        'command.',
+            'command.',
         'Use `xcross flutter run` or `xtool install <app>` to sign + install.',
       );
     }
@@ -102,8 +102,7 @@ class FlutterBuildCommand extends Command<void> {
 
     final result = await flutterPack(options: options);
 
-    final finalPath =
-        _ipa ? await packageIpa(result.appPath) : result.appPath;
-    logStatus('Wrote to $finalPath');
+    final finalPath = _ipa ? await packageIpa(result.appPath) : result.appPath;
+    logDone('Wrote $finalPath');
   }
 }

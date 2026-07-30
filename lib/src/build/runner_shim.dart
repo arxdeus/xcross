@@ -25,57 +25,55 @@ class RunnerShim {
     required DarwinSdk sdk,
     required String flutterXcframework,
     required String outputDir,
-  }) async {
-    logStatus(
-        '[xcross] compiling Runner via clang/ld64.lld Objective-C shim...');
+  }) =>
+      logStep('Compiling Runner', () async {
+        final clang = await locateTool('clang');
+        final iosSdk = _resolveIPhoneOsSDK(sdk);
+        final flutterSlice = _flutterDeviceSlice(flutterXcframework);
+        final subframeworks =
+            p.join(iosSdk, 'System', 'Library', 'SubFrameworks');
 
-    final clang = await locateTool('clang');
-    final iosSdk = _resolveIPhoneOsSDK(sdk);
-    final flutterSlice = _flutterDeviceSlice(flutterXcframework);
-    final subframeworks = p.join(iosSdk, 'System', 'Library', 'SubFrameworks');
+        await Directory(outputDir).create(recursive: true);
+        final sourcePath = p.join(outputDir, 'Runner.m');
+        final objectPath = p.join(outputDir, 'Runner.o');
+        final outputPath = p.join(outputDir, 'Runner');
 
-    await Directory(outputDir).create(recursive: true);
-    final sourcePath = p.join(outputDir, 'Runner.m');
-    final objectPath = p.join(outputDir, 'Runner.o');
-    final outputPath = p.join(outputDir, 'Runner');
+        await File(sourcePath).writeAsString(_runnerObjcSource);
 
-    await File(sourcePath).writeAsString(_runnerObjcSource);
+        await _compileObject(
+          clang: clang,
+          sourcePath: sourcePath,
+          objectPath: objectPath,
+          iosSdk: iosSdk,
+          subframeworks: subframeworks,
+          flutterSlice: flutterSlice,
+        );
 
-    await _compileObject(
-      clang: clang,
-      sourcePath: sourcePath,
-      objectPath: objectPath,
-      iosSdk: iosSdk,
-      subframeworks: subframeworks,
-      flutterSlice: flutterSlice,
-    );
+        // _sdkVersion() returns null whenever the un-versioned iPhoneOS.sdk
+        // symlink is used (the standard install), so this fallback is what
+        // reaches ld64.lld's -platform_version and lands in LC_BUILD_VERSION.
+        final sdkVersion = _sdkVersion(iosSdk) ?? '26.5';
+        await _linkBinary(
+          ld64lld: sdk.ld64lld,
+          objectPath: objectPath,
+          outputPath: outputPath,
+          iosSdk: iosSdk,
+          flutterSlice: flutterSlice,
+          subframeworks: subframeworks,
+          sdkVersion: sdkVersion,
+        );
 
-    // _sdkVersion() returns null whenever the un-versioned iPhoneOS.sdk
-    // symlink is used (the standard install), so this fallback is what
-    // reaches ld64.lld's -platform_version and lands in LC_BUILD_VERSION.
-    final sdkVersion = _sdkVersion(iosSdk) ?? '26.5';
-    await _linkBinary(
-      ld64lld: sdk.ld64lld,
-      objectPath: objectPath,
-      outputPath: outputPath,
-      iosSdk: iosSdk,
-      flutterSlice: flutterSlice,
-      subframeworks: subframeworks,
-      sdkVersion: sdkVersion,
-    );
+        if (!File(outputPath).existsSync()) {
+          throw XcrossError('RunnerShim: clang/ld64.lld did not produce '
+              'Runner at $outputPath');
+        }
 
-    if (!File(outputPath).existsSync()) {
-      throw XcrossError(
-          'RunnerShim: clang/ld64.lld did not produce Runner at $outputPath');
-    }
+        makeExecutable(outputPath);
+        final size = await File(outputPath).length();
+        logTrace('Runner binary produced: $outputPath (${size ~/ 1024} KB)');
 
-    makeExecutable(outputPath);
-    final size = await File(outputPath).length();
-    logStatus(
-        '[xcross] Runner binary produced: $outputPath (${size ~/ 1024} KB)');
-
-    return outputPath;
-  }
+        return outputPath;
+      });
 
   /// Compile [sourcePath] to [objectPath] via clang.
   static Future<void> _compileObject({
@@ -86,7 +84,7 @@ class RunnerShim {
     required String subframeworks,
     required String flutterSlice,
   }) async {
-    logStatus('[clang] compile Runner.m → Runner.o');
+    logTrace('[clang] compile Runner.m → Runner.o');
     await ProcessRunner.runChecked(
       clang,
       [
@@ -107,7 +105,7 @@ class RunnerShim {
         '-o',
         objectPath,
       ],
-      inheritStdio: true,
+      inheritStdio: isVerbose,
       label: 'clang',
     );
   }
@@ -122,7 +120,7 @@ class RunnerShim {
     required String subframeworks,
     required String sdkVersion,
   }) async {
-    logStatus('[ld64.lld] link Runner.o → Runner');
+    logTrace('[ld64.lld] link Runner.o → Runner');
     await ProcessRunner.runChecked(
       ld64lld,
       [
@@ -154,7 +152,7 @@ class RunnerShim {
         '-rpath',
         '@executable_path/Frameworks',
       ],
-      inheritStdio: true,
+      inheritStdio: isVerbose,
       label: 'ld64.lld',
     );
   }

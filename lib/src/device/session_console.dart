@@ -5,6 +5,7 @@ import 'package:xcross/src/constants.dart';
 import 'package:xcross/src/device/gdb_remote_client.dart';
 import 'package:xcross/src/device/hot_reload_controller.dart';
 import 'package:xcross/src/util/logging.dart';
+import 'package:xcross/src/util/process.dart';
 
 /// Interactive terminal session for an attached app: streams the app's stdout,
 /// dispatches `r`/`R`/`q` keypresses to hot reload, and stops on SIGINT or when
@@ -48,15 +49,34 @@ class SessionConsole {
     }
   }
 
+  /// App output that arrived while a reload spinner was on screen. Writing it
+  /// straight to fd1 would shred the spinner block, so it waits its turn.
+  final List<List<int>> _heldOutput = [];
+
+  void _writeAppOutput(List<int> bytes) {
+    if (_busy) {
+      _heldOutput.add(bytes);
+      return;
+    }
+    stdout.add(bytes);
+  }
+
+  void _flushAppOutput() {
+    for (final bytes in _heldOutput) {
+      stdout.add(bytes);
+    }
+    _heldOutput.clear();
+  }
+
   /// Forward `O` (stdout) packets and stop on exit/termination.
   Future<void> _drainGdbReplies() async {
     await for (final reply in gdb.replies) {
       if (_stopped) break;
       switch (reply.type) {
         case GdbReply.stdout:
-          stdout.add(reply.stdoutBytes);
+          _writeAppOutput(reply.stdoutBytes);
         case GdbReply.exited || GdbReply.terminated:
-          logStatus('[xtool] app exited (${reply.payload})');
+          logInfo('App exited ${ansi.subtle('(${reply.payload})')}');
           _stopped = true;
           return;
         case GdbReply.stopped || GdbReply.other:
@@ -88,7 +108,10 @@ class SessionConsole {
     // _stopped must flip BEFORE _finish(): run()'s `while (!_stopped)` loop
     // would otherwise spin forever when our stdin pipe closes, orphaning
     // frontend_server and the RSD tunnel.
-    final sub = stdin.listen(
+    // sharedStdin, not stdin: `xtool install` reads stdin too, and cancelling
+    // a raw stdin subscription leaves this listen dead on arrival — onDone
+    // fires at once and the session quits the moment the app launches.
+    final sub = sharedStdin.listen(
       _handleKeyByte,
       onDone: () {
         _stopped = true;
@@ -160,10 +183,12 @@ class SessionConsole {
         _busy = true;
         await _handleHotReload();
         _busy = false;
+        _flushAppOutput();
       } else if (ch == DeviceConstants.keyBigR) {
         _busy = true;
         await _handleHotRestart();
         _busy = false;
+        _flushAppOutput();
       }
     }
   }
@@ -171,26 +196,30 @@ class SessionConsole {
   Future<void> _handleHotReload() async {
     final controller = hotReload;
     if (controller == null) return;
-    logStatus('[xtool] hot reload…');
+    final step = beginStep('Hot reload');
     try {
       final ok = await controller.reload();
-      logStatus(ok
-          ? '[xtool] reloaded ✓'
-          : "[xtool] reload rejected (try 'R' to restart)");
+      if (ok) {
+        step.done('Reloaded');
+      } else {
+        step.fail("Reload rejected (try 'R' to restart)");
+      }
     } catch (e) {
-      logError('reload failed: $e');
+      step.fail('Hot reload failed');
+      logError('$e');
     }
   }
 
   Future<void> _handleHotRestart() async {
     final controller = hotReload;
     if (controller == null) return;
-    logStatus('[xtool] hot restart…');
+    final step = beginStep('Hot restart');
     try {
       await controller.restart();
-      logStatus('[xtool] restarted ✓');
+      step.done('Restarted');
     } catch (e) {
-      logError('restart failed: $e');
+      step.fail('Hot restart failed');
+      logError('$e');
     }
   }
 }

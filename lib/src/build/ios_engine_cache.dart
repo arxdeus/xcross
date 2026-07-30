@@ -26,7 +26,8 @@ class IosEngineCache {
   String get flutterXcframework => p.join(_engineDir, 'Flutter.xcframework');
 
   /// `vm_isolate_snapshot.bin` from the host engine cache.
-  String get vmSnapshotData => p.join(_hostEngineDir, 'vm_isolate_snapshot.bin');
+  String get vmSnapshotData =>
+      p.join(_hostEngineDir, 'vm_isolate_snapshot.bin');
 
   /// `isolate_snapshot.bin` from the host engine cache.
   String get isolateSnapshotData =>
@@ -105,23 +106,26 @@ class IosEngineCache {
     final hash = await _engineHash();
     final url =
         '$flutterArtifactBaseUrl/$hash/$_hostEngineCacheDir/artifacts.zip';
-    logStatus('[curl] downloading Flutter host engine artifacts from $url');
-    await _fetchAndExtract(url, _hostEngineDir, 'host-artifacts-');
+    logTrace('downloading Flutter host engine artifacts from $url');
+    await _fetchAndExtract(url, _hostEngineDir, 'host-artifacts-',
+        label: 'Flutter host engine');
   }
 
   Future<void> _downloadIosArtifacts() async {
     final hash = await _engineHash();
     final url = '$flutterArtifactBaseUrl/$hash/ios/artifacts.zip';
-    logStatus('[curl] downloading Flutter iOS engine artifacts from $url');
-    await _fetchAndExtract(url, _engineDir, 'ios-artifacts-');
+    logTrace('downloading Flutter iOS engine artifacts from $url');
+    await _fetchAndExtract(url, _engineDir, 'ios-artifacts-',
+        label: 'Flutter iOS engine');
   }
 
   Future<void> _downloadPatchedSdk() async {
     final hash = await _engineHash();
     final leaf = p.basename(patchedSdkRoot);
     final url = '$flutterArtifactBaseUrl/$hash/$leaf.zip';
-    logStatus('[curl] downloading Flutter patched SDK from $url');
-    await _fetchAndExtract(url, p.dirname(patchedSdkRoot), 'patched-sdk-');
+    logTrace('downloading Flutter patched SDK from $url');
+    await _fetchAndExtract(url, p.dirname(patchedSdkRoot), 'patched-sdk-',
+        label: 'Flutter patched SDK');
   }
 
   /// Download [url] into a temp directory, extract into [destDir], then
@@ -133,13 +137,18 @@ class IosEngineCache {
   static Future<void> _fetchAndExtract(
     String url,
     String destDir,
-    String tmpPrefix,
-  ) async {
+    String tmpPrefix, {
+    required String label,
+  }) async {
     await Directory(destDir).create(recursive: true);
     final tmp = await Directory.systemTemp.createTemp(tmpPrefix);
     final zipPath = p.join(tmp.path, 'artifacts.zip');
-    await downloadToFile(url, File(zipPath), maxAttempts: 5);
-    await extractFileToDisk(zipPath, destDir);
+    await downloadToFile(url, File(zipPath), maxAttempts: 5, label: label);
+    // Unzipping hundreds of MB is slow enough to look like a hang on its own.
+    await logStep(
+      'Extracting $label',
+      () => extractFileToDisk(zipPath, destDir),
+    );
     await tmp.delete(recursive: true);
   }
 

@@ -26,6 +26,7 @@ abstract final class TunnelDiscovery {
     var requestedStart = false;
     var loggedWaiting = false;
 
+    final step = beginStep('Waiting for RSD tunnel');
     final found = await pollUntil<Tunnel>(
       timeout: timeout,
       interval: pollInterval,
@@ -38,7 +39,7 @@ abstract final class TunnelDiscovery {
         // tunneld is up but has no tunnels yet — ask it to create one.
         if (udid != null && !requestedStart) {
           requestedStart = true;
-          logStatus(
+          logTrace(
             '[pymobiledevice3] no RSD tunnel yet — requesting '
             '/start-tunnel for $udid…',
           );
@@ -46,7 +47,7 @@ abstract final class TunnelDiscovery {
         }
         if (!loggedWaiting) {
           loggedWaiting = true;
-          logStatus(
+          logTrace(
             '[pymobiledevice3] waiting for RSD tunnel'
             '${udid != null ? ' ($udid)' : ''}…',
           );
@@ -54,7 +55,11 @@ abstract final class TunnelDiscovery {
         return null;
       },
     );
-    if (found != null) return found;
+    if (found != null) {
+      step.done();
+      return found;
+    }
+    step.fail();
 
     if (lastUnreachable) {
       throw XcrossError(
@@ -161,7 +166,7 @@ abstract final class TunnelDiscovery {
       _ => null,
     };
     if (addr == null || port == null) return null;
-    logStatus('[xtool] found RSD tunnel: $addr:$port');
+    logTrace('found RSD tunnel: $addr:$port');
     return Tunnel(address: addr, port: port);
   }
 }

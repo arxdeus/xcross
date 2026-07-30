@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:args/args.dart';
 import 'package:args/command_runner.dart';
 import 'package:completion/completion.dart';
 import 'package:xcross/src/cli/completion_command.dart';
@@ -8,9 +9,29 @@ import 'package:xcross/src/cli/ide/dap_command.dart';
 import 'package:xcross/src/cli/ide/vscode_command.dart';
 import 'package:xcross/src/cli/prepare_command.dart';
 import 'package:xcross/src/util/errors.dart';
+import 'package:xcross/src/util/logging.dart';
+
+/// Adds a global `-v` so every command can surface its trace output, not just
+/// `flutter run` (which keeps its own `-v` for `xcross flutter run -v`).
+class _XcrossRunner extends CommandRunner<void> {
+  _XcrossRunner(super.executableName, super.description) {
+    argParser.addFlag(
+      'verbose',
+      abbr: 'v',
+      help: 'Verbose output (show every command and tool line).',
+      negatable: false,
+    );
+  }
+
+  @override
+  Future<void> runCommand(ArgResults topLevelResults) {
+    if (topLevelResults.flag('verbose')) setVerbose();
+    return super.runCommand(topLevelResults);
+  }
+}
 
 CommandRunner<void> buildRunner() {
-  return CommandRunner<void>(
+  return _XcrossRunner(
     'xcross',
     'Build, run, and hot-reload Flutter iOS apps from Linux without Xcode.',
   )

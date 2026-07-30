@@ -41,7 +41,7 @@ abstract final class CoreDeviceLauncher {
     }
 
     final tunnel = await TunnelDiscovery.discoverTunnel(udid: udid);
-    logStatus('[xtool] connecting to RSD at ${tunnel.address}:${tunnel.port}');
+    logTrace('connecting to RSD at ${tunnel.address}:${tunnel.port}');
 
     final resolvedBundleId = await _resolveBundleId(bundleId);
     final debugproxyPort = await _resolveDebugproxyPort(tunnel);
@@ -63,7 +63,7 @@ abstract final class CoreDeviceLauncher {
       await gdb.start();
       await gdb.attach(pid);
       await gdb.resume();
-      logStatus('[xtool] debugger attached; app running');
+      logDone('Debugger attached');
     } catch (e) {
       tunnelDaemon.stop();
       throw XcrossError('Debugger attach failed: $e');
@@ -115,7 +115,7 @@ abstract final class CoreDeviceLauncher {
         deviceHost: tunnelAddress,
         devicePort: DeviceConstants.vmServicePort,
       );
-      logStatus('${DeviceConstants.vmServiceMarker}'
+      logInfo(DeviceConstants.vmServiceMarker,
           'ws://127.0.0.1:${forwarder.localPort}/ws');
       return forwarder;
     } on Object catch (e) {
@@ -149,8 +149,7 @@ abstract final class CoreDeviceLauncher {
         bundleId: resolved,
       );
       if (pid == null) return;
-      logStatus(
-          '[xtool] app already running (pid $pid); terminating before install…');
+      logTrace('app already running (pid $pid); terminating before install…');
       await Pymd.killPid(
           rsdHost: tunnel.address, rsdPort: tunnel.port, pid: pid);
     } on Object catch (e) {
@@ -168,7 +167,7 @@ abstract final class CoreDeviceLauncher {
       resolved = bundleId;
     }
     if (resolved != bundleId) {
-      logStatus('[xtool] resolved installed bundle id: $bundleId -> $resolved');
+      logTrace('resolved installed bundle id: $bundleId -> $resolved');
     }
     return resolved;
   }
@@ -233,7 +232,7 @@ abstract final class CoreDeviceLauncher {
     } catch (e) {
       throw XcrossError('Launch failed: $e');
     }
-    logStatus('[xtool] launched suspended pid=$pid');
+    logTrace('launched suspended pid=$pid');
     return pid;
   }
 
@@ -244,7 +243,7 @@ abstract final class CoreDeviceLauncher {
     required String tunnelAddress,
   }) async {
     if (hotReload == null) {
-      logStatus('[xtool] streaming app output (press Ctrl-C to stop)');
+      logInfo('Streaming app output ${ansi.subtle('— Ctrl-C to stop')}');
       return null;
     }
     try {
@@ -253,8 +252,8 @@ abstract final class CoreDeviceLauncher {
         tunnelAddress: tunnelAddress,
         vmServicePort: DeviceConstants.vmServicePort,
       );
-      logStatus(
-          "[xtool] hot reload ready ✓  (press 'r' to reload, 'R' to restart)");
+      logInfo('Hot reload ready '
+          '${ansi.subtle('— r reload  ·  R restart  ·  q quit')}');
       return controller;
     } catch (e) {
       logWarn('hot reload unavailable: $e');
