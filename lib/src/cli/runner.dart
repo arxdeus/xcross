@@ -25,49 +25,52 @@ class _XcrossRunner extends CommandRunner<void> {
 
   @override
   Future<void> runCommand(ArgResults topLevelResults) {
-    if (topLevelResults.flag('verbose')) setVerbose();
+    if (topLevelResults.flag('verbose')) Log.setVerbose();
     return super.runCommand(topLevelResults);
   }
 }
 
-CommandRunner<void> buildRunner() {
-  return _XcrossRunner(
-    'xcross',
-    'Build, run, and hot-reload Flutter iOS apps from Linux without Xcode.',
-  )
-    ..addCommand(FlutterCommand())
-    ..addCommand(PrepareCommand())
-    ..addCommand(DapCommand())
-    ..addCommand(VscodeCommand())
-    ..addCommand(CompletionCommand());
-}
-
-/// Entry point used by `bin/xcross.dart`.
-Future<int> runXcross(List<String> args) async {
-  final runner = buildRunner();
-
-  // Intercept the shell-driven `xcross completion -- ...` hook and print
-  // suggestions. In completion mode this calls `exit()` internally and never
-  // returns. Otherwise the ArgResults it returns are discarded and normal
-  // command dispatch continues below.
-  //
-  // Its parse throws on an unknown option, which would surface as a raw stack
-  // trace before dispatch ever runs. Swallow it so `runner.run` reports the
-  // bad flag as a proper UsageException.
-  try {
-    tryArgsCompletion(args, runner.argParser);
-  } on FormatException {
-    // Not our error to report — dispatch below produces the real message.
+/// Namespace for building and running the xcross CLI.
+abstract final class XcrossCli {
+  static CommandRunner<void> buildRunner() {
+    return _XcrossRunner(
+      'xcross',
+      'Build, run, and hot-reload Flutter iOS apps from Linux without Xcode.',
+    )
+      ..addCommand(FlutterCommand())
+      ..addCommand(PrepareCommand())
+      ..addCommand(DapCommand())
+      ..addCommand(VscodeCommand())
+      ..addCommand(CompletionCommand());
   }
 
-  try {
-    await runner.run(args);
-    return 0;
-  } on UsageException catch (e) {
-    stderr.writeln(e);
-    return 64;
-  } on XcrossError catch (e) {
-    stderr.writeln('error: ${e.message}');
-    return 1;
+  /// Entry point used by `bin/xcross.dart`.
+  static Future<int> run(List<String> args) async {
+    final runner = buildRunner();
+
+    // Intercept the shell-driven `xcross completion -- ...` hook and print
+    // suggestions. In completion mode this calls `exit()` internally and never
+    // returns. Otherwise the ArgResults it returns are discarded and normal
+    // command dispatch continues below.
+    //
+    // Its parse throws on an unknown option, which would surface as a raw stack
+    // trace before dispatch ever runs. Swallow it so `runner.run` reports the
+    // bad flag as a proper UsageException.
+    try {
+      tryArgsCompletion(args, runner.argParser);
+    } on FormatException {
+      // Not our error to report — dispatch below produces the real message.
+    }
+
+    try {
+      await runner.run(args);
+      return 0;
+    } on UsageException catch (e) {
+      stderr.writeln(e);
+      return 64;
+    } on XcrossError catch (e) {
+      stderr.writeln('error: ${e.message}');
+      return 1;
+    }
   }
 }

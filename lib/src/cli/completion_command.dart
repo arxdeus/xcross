@@ -15,8 +15,8 @@ import 'package:completion/completion.dart';
 /// Then restart your shell (or `source` the file) to enable tab-completion.
 ///
 /// The runtime `xcross completion -- ...` shell hook itself is handled
-/// earlier in [runXcross] via `tryArgsCompletion`, before the command runner
-/// parses args.
+/// earlier in [XcrossCli.run] via `tryArgsCompletion`, before the command
+/// runner parses args.
 class CompletionCommand extends Command<void> {
   @override
   String get name => 'completion';

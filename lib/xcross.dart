@@ -3,4 +3,4 @@
 /// install.
 library;
 
-export 'src/cli/runner.dart' show runXcross;
+export 'src/cli/runner.dart' show XcrossCli;
