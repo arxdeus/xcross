@@ -11,7 +11,7 @@ void main() {
   test('a second listener still receives events after the first cancels',
       () async {
     final source = StreamController<int>();
-    final shared = pausingBroadcast(source.stream);
+    final shared = ProcessRunner.pausingBroadcast(source.stream);
 
     final first = shared.listen((_) {});
     await first.cancel();
@@ -31,7 +31,7 @@ void main() {
 
   test('events sent between listeners are not lost', () async {
     final source = StreamController<int>();
-    final shared = pausingBroadcast(source.stream);
+    final shared = ProcessRunner.pausingBroadcast(source.stream);
 
     await shared.listen((_) {}).cancel();
     source.add(7); // nobody listening — must queue, not vanish
