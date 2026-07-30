@@ -25,19 +25,27 @@ class SessionConsole {
   /// Run until the app exits or the user quits.
   Future<void> run() async {
     // Forward Ctrl-C cleanly; a second Ctrl-C hard-kills in case cleanup hangs.
-    ProcessSignal.sigint.watch().listen((_) {
+    final signals = ProcessSignal.sigint.watch().listen((_) {
       if (_stopped) exit(130);
       _stopped = true;
     });
 
-    final drainFuture = _drainGdbReplies();
-    final keypressFuture = _runKeypressLoop();
+    try {
+      final drainFuture = _drainGdbReplies();
+      final keypressFuture = _runKeypressLoop();
 
-    while (!_stopped) {
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      while (!_stopped) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      await drainFuture.timeout(const Duration(seconds: 2), onTimeout: () {});
+      await keypressFuture.timeout(const Duration(seconds: 1),
+          onTimeout: () {});
+    } finally {
+      // An uncancelled signal subscription keeps the event loop alive forever;
+      // bin/xcross.dart only sets exitCode, so a clean 'q' would never return.
+      // In a finally so a gdb socket error still lets the caller clean up.
+      await signals.cancel();
     }
-    await drainFuture.timeout(const Duration(seconds: 2), onTimeout: () {});
-    await keypressFuture.timeout(const Duration(seconds: 1), onTimeout: () {});
   }
 
   /// Forward `O` (stdout) packets and stop on exit/termination.
@@ -62,11 +70,13 @@ class SessionConsole {
     if (done != null && !done.isCompleted) done.complete();
   }
 
+  /// Reads control keys from stdin. Deliberately does NOT require a TTY: the
+  /// DAP adapter drives the same `r`/`R`/`q` protocol over a pipe.
   Future<void> _runKeypressLoop() async {
-    if (!stdin.hasTerminal) {
-      logWarn("stdin is not a TTY — hot reload keys ('r'/'R') are unavailable");
-      return;
-    }
+    // EOF means "controller went away" only when the DAP owns our stdin pipe.
+    // Without any controller (CI, docker without -i, `< /dev/null`, nohup)
+    // stdin is at EOF from the start and must not stop the session.
+    if (!stdin.hasTerminal && Platform.environment['XCROSS_DAP'] != '1') return;
 
     // Never swallow failures: silent cooked mode looks like "keys do nothing".
     if (!_enableRawStdin()) {
@@ -75,10 +85,19 @@ class SessionConsole {
     }
 
     final done = _done = Completer<void>();
+    // _stopped must flip BEFORE _finish(): run()'s `while (!_stopped)` loop
+    // would otherwise spin forever when our stdin pipe closes, orphaning
+    // frontend_server and the RSD tunnel.
     final sub = stdin.listen(
       _handleKeyByte,
-      onDone: _finish,
-      onError: (_) => _finish(),
+      onDone: () {
+        _stopped = true;
+        _finish();
+      },
+      onError: (_) {
+        _stopped = true;
+        _finish();
+      },
     );
 
     // Break out promptly when stopped externally (e.g. SIGINT), since the stdin
@@ -102,6 +121,9 @@ class SessionConsole {
   /// Order matches Flutter tools: echoMode then lineMode when enabling;
   /// reverse when restoring (important on Windows / some PTYs).
   static bool _enableRawStdin() {
+    // A pipe already delivers bytes unbuffered, and setting the terminal modes
+    // on one throws — warning about it would be a warning for a non-problem.
+    if (!stdin.hasTerminal) return true;
     try {
       stdin.echoMode = false;
       stdin.lineMode = false;
@@ -113,6 +135,7 @@ class SessionConsole {
   }
 
   static void _restoreCookedStdin() {
+    if (!stdin.hasTerminal) return;
     try {
       stdin.lineMode = true;
       stdin.echoMode = true;
