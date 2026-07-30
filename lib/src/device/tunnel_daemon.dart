@@ -23,7 +23,7 @@ class TunnelDaemon {
 
   /// Ensure a tunneld REST API is reachable; start one if needed.
   Future<void> ensureRunning() async {
-    if (await _isReachable()) {
+    if (await isReachable()) {
       logStatus('[xtool] RSD tunnel daemon already running (reusing it)');
       return;
     }
@@ -99,7 +99,7 @@ class TunnelDaemon {
     final up = await pollUntil<bool>(
       timeout: const Duration(seconds: 40),
       interval: const Duration(seconds: 1),
-      attempt: () async => await _isReachable() ? true : null,
+      attempt: () async => await isReachable() ? true : null,
     );
     if (up ?? false) {
       logStatus('[pymobiledevice3] RSD tunnel daemon is up');
@@ -134,13 +134,14 @@ class TunnelDaemon {
     proc.kill();
   }
 
-  Future<bool> _isReachable() async {
+  /// Whether the tunneld REST API answers. Pure HTTP — never prompts for sudo,
+  /// so it is safe as a pre-flight check from stdio-sensitive callers (the DAP).
+  static Future<bool> isReachable() async {
     try {
       final client = HttpClient()
         ..connectionTimeout = const Duration(seconds: 3);
       try {
-        final req =
-            await client.getUrl(Uri.parse(DeviceConstants.tunneldUrl));
+        final req = await client.getUrl(Uri.parse(DeviceConstants.tunneldUrl));
         final resp = await req.close();
         await resp.drain<void>();
         return resp.statusCode >= 200 && resp.statusCode < 300;

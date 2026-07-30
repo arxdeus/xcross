@@ -4,6 +4,8 @@ import 'package:args/command_runner.dart';
 import 'package:completion/completion.dart';
 import 'package:xcross/src/cli/completion_command.dart';
 import 'package:xcross/src/cli/flutter/flutter_command.dart';
+import 'package:xcross/src/cli/ide/dap_command.dart';
+import 'package:xcross/src/cli/ide/vscode_command.dart';
 import 'package:xcross/src/cli/prepare_command.dart';
 import 'package:xcross/src/util/errors.dart';
 
@@ -14,6 +16,8 @@ CommandRunner<void> buildRunner() {
   )
     ..addCommand(FlutterCommand())
     ..addCommand(PrepareCommand())
+    ..addCommand(DapCommand())
+    ..addCommand(VscodeCommand())
     ..addCommand(CompletionCommand());
 }
 

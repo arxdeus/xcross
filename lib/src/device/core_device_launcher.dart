@@ -5,10 +5,12 @@ import 'package:xcross/src/device/dart_vm_service_client.dart';
 import 'package:xcross/src/device/gdb_remote_client.dart';
 import 'package:xcross/src/device/hot_reload_controller.dart'
     show HotReloadController;
+import 'package:xcross/src/device/port_forwarder.dart';
 import 'package:xcross/src/device/pymd.dart';
 import 'package:xcross/src/device/session_console.dart';
 import 'package:xcross/src/device/tunnel_daemon.dart';
 import 'package:xcross/src/device/tunnel_discovery.dart';
+import 'package:xcross/src/device/vm_service_output.dart';
 import 'package:xcross/src/models/device/hot_reload_config.dart';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/logging.dart';
@@ -79,12 +81,47 @@ abstract final class CoreDeviceLauncher {
       tunnelAddress: tunnel.address,
     );
 
-    await SessionConsole(gdb: gdb, hotReload: hotReloadController).run();
+    // Only advertised when hot reload is live: the VM Service flags are passed
+    // to the app only when hotReload != null, so there is nothing to connect to
+    // otherwise. Owned here rather than inside _trySpinUpHotReload because a
+    // listening socket must be closed on the way out.
+    final vmService = hotReloadController == null
+        ? null
+        : await _publishVmService(tunnelAddress: tunnel.address);
 
-    await hotReloadController?.close();
-    await gdb.kill();
-    await gdb.close();
-    tunnelDaemon.stop();
+    // In a finally: the forwarder holds a LISTENING socket, which keeps the
+    // Dart event loop alive. If the session throws (a gdb socket error when the
+    // cable is pulled), skipping this cleanup hangs the process instead of
+    // reporting the error.
+    try {
+      await SessionConsole(gdb: gdb, hotReload: hotReloadController).run();
+    } finally {
+      await vmService?.close();
+      await hotReloadController?.close();
+      await gdb.kill();
+      await gdb.close();
+      tunnelDaemon.stop();
+    }
+  }
+
+  /// Forward the device's VM Service onto loopback and print the marker line
+  /// the DAP watches for. Returns null (without the marker) if forwarding
+  /// fails, since an unreachable URI is worse than none.
+  static Future<PortForwarder?> _publishVmService({
+    required String tunnelAddress,
+  }) async {
+    try {
+      final forwarder = await PortForwarder.start(
+        deviceHost: tunnelAddress,
+        devicePort: DeviceConstants.vmServicePort,
+      );
+      logStatus('${DeviceConstants.vmServiceMarker}'
+          'ws://127.0.0.1:${forwarder.localPort}/ws');
+      return forwarder;
+    } on Object catch (e) {
+      logWarn('could not publish the VM Service on loopback: $e');
+      return null;
+    }
   }
 
   /// Best-effort: if [bundleId] is already running on the device, terminate it
@@ -233,6 +270,9 @@ abstract final class CoreDeviceLauncher {
     final wsUri =
         Uri.parse('ws://${bracketHost(tunnelAddress)}:$vmServicePort/ws');
     final vm = await _waitForVmService(wsUri);
+    // `print` and `log()` reach us only over these streams — the debugger
+    // attached to an already-launched process, so it owns no stdio for the app.
+    await forwardVmServiceOutput(vm);
     final controller = HotReloadController(
       config: config,
       vm: vm,
