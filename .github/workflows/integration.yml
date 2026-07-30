@@ -15,8 +15,6 @@ jobs:
   flutter-build:
     name: Flutter build (end-to-end)
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
 
     steps:
       - name: Checkout
@@ -36,10 +34,12 @@ jobs:
       - name: Resolve Dart dependencies
         run: dart pub get
 
-      - name: Restore Darwin SDK
+      # Cache-only: no URL fallback here, so CI never depends on a
+      # presigned URL that can expire (flaky 404s). Cache is seeded by
+      # the "Warm Darwin SDK cache" workflow_dispatch job; a cache miss
+      # fails fast with instructions to re-run it.
+      - name: Restore cached Darwin SDK
         uses: ./.github/actions/setup-darwin-sdk
-        with:
-          artifactbundle-url: ${{ secrets.DARWIN_ARTIFACTBUNDLE_URL }}
 
       - name: Compile xcross
         run: |
@@ -70,7 +70,8 @@ jobs:
         run: |
           set -euo pipefail
           echo "::group::xcross flutter build"
-          /tmp/xcross flutter build --no-pub 2>&1 | tee /tmp/xcross-flutter-build.log
+          /tmp/xcross flutter build --no-pub 2>&1 \
+            | tee /tmp/xcross-flutter-build.log
           echo "::endgroup::"
 
       - name: Assert .app output
@@ -96,8 +97,9 @@ jobs:
           fi
           echo "Info.plist OK"
 
-          # CFBundleExecutable is Runner (PlistDefaults.executable) for xcross
-          # Flutter builds — the .app dir is <appName>.app but the binary is Runner.
+          # CFBundleExecutable is Runner (PlistDefaults.executable) for
+          # xcross Flutter builds — the .app dir is <appName>.app but the
+          # binary is Runner.
           BINARY="$APP/Runner"
           if ! test -f "$BINARY"; then
             echo "::error::Runner binary not found at $BINARY"
