@@ -29,17 +29,16 @@ class XtoolCli {
   /// Path to (or name of) the `xtool` binary on PATH.
   final String executable;
 
-  /// `xtool devices [--usb|--wifi] [--wait|--no-wait]`.
+  /// `xtool devices [--usb|--wifi] --no-wait`.
   ///
   /// Output format is one device per line: `Name [usb]: <udid>`.
   Future<List<Device>> devices({
     DeviceSearchMode mode = DeviceSearchMode.all,
-    bool wait = false,
   }) async {
     final args = <String>['devices'];
     final flag = mode.flag;
     if (flag != null) args.add(flag);
-    args.add(wait ? '--wait' : '--no-wait');
+    args.add('--no-wait');
     final result = await ProcessRunner.run(executable, args);
     if (result.exitCode != 0) {
       throw XcrossError('`xtool devices` failed:\n${result.stderr}');
@@ -76,9 +75,8 @@ class XtoolCli {
   Future<Device> resolveDevice({
     String? selector,
     DeviceSearchMode mode = DeviceSearchMode.all,
-    bool wait = false,
   }) async {
-    final list = await devices(mode: mode, wait: wait);
+    final list = await devices(mode: mode);
     if (selector != null) {
       final match = list.where((d) => d.udid == selector || d.name == selector);
       if (match.isEmpty) {

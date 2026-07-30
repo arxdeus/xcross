@@ -4,15 +4,11 @@ import 'package:xcross/src/cli/shared/ipa_packager.dart';
 import 'package:xcross/src/models/flutter/flutter_build_options.dart';
 import 'package:xcross/src/util/logging.dart';
 
-/// `xcross flutter build` — build a Flutter iOS `.app` (optionally sign / ipa).
-///
-/// xcross is debug-only and cannot sign: the original xtool has no standalone
-/// sign command, so signing only happens at install time. Accepts the xtool
-/// `--ipa` flag plus the official `flutter build ios` flags (`-t/--target`,
-/// `-D/--dart-define`, `--dart-define-from-file`, `--[no-]pub`, `--build-name`,
-/// `--build-number`, `--flavor`).
-class FlutterBuildCommand extends Command<void> {
-  FlutterBuildCommand() {
+/// Shared `flutter build`/`flutter run` options: entry-point target, flavor,
+/// dart-defines, and `--pub`. Mixed into [FlutterBuildCommand] and
+/// `FlutterRunCommand` so both stay in sync.
+mixin CommonFlutterOptions on Command<void> {
+  void addCommonFlutterOptions() {
     argParser
       ..addOption(
         'target',
@@ -37,7 +33,28 @@ class FlutterBuildCommand extends Command<void> {
         'pub',
         help: 'Run "flutter pub get" before building.',
         defaultsTo: true,
-      )
+      );
+  }
+
+  String get target => argResults!.option('target')!;
+  String? get flavor => argResults!.option('flavor');
+  List<String> get dartDefine => argResults!.multiOption('dart-define');
+  List<String> get dartDefineFromFile =>
+      argResults!.multiOption('dart-define-from-file');
+  bool get pub => argResults!.flag('pub');
+}
+
+/// `xcross flutter build` — build a Flutter iOS `.app` (optionally sign / ipa).
+///
+/// xcross is debug-only and cannot sign: the original xtool has no standalone
+/// sign command, so signing only happens at install time. Accepts the xtool
+/// `--ipa` flag plus the official `flutter build ios` flags (`-t/--target`,
+/// `-D/--dart-define`, `--dart-define-from-file`, `--[no-]pub`, `--build-name`,
+/// `--build-number`, `--flavor`).
+class FlutterBuildCommand extends Command<void> with CommonFlutterOptions {
+  FlutterBuildCommand() {
+    addCommonFlutterOptions();
+    argParser
       ..addOption(
         'build-name',
         help: 'Version name (CFBundleShortVersionString).',
@@ -67,12 +84,6 @@ class FlutterBuildCommand extends Command<void> {
   String get description =>
       'Build a Flutter iOS .app from Linux without Xcode.';
 
-  String get _target => argResults!.option('target')!;
-  String? get _flavor => argResults!.option('flavor');
-  List<String> get _dartDefine => argResults!.multiOption('dart-define');
-  List<String> get _dartDefineFromFile =>
-      argResults!.multiOption('dart-define-from-file');
-  bool get _pub => argResults!.flag('pub');
   String? get _buildName => argResults!.option('build-name');
   String? get _buildNumber => argResults!.option('build-number');
   bool get _sign => argResults!.flag('sign');
@@ -91,13 +102,13 @@ class FlutterBuildCommand extends Command<void> {
     }
 
     final options = await FlutterBuildOptions.resolve(
-      target: _target,
-      dartDefine: _dartDefine,
-      dartDefineFromFile: _dartDefineFromFile,
-      pub: _pub,
+      target: target,
+      dartDefine: dartDefine,
+      dartDefineFromFile: dartDefineFromFile,
+      pub: pub,
       buildName: _buildName,
       buildNumber: _buildNumber,
-      flavor: _flavor,
+      flavor: flavor,
     );
 
     final result = await flutterPack(options: options);

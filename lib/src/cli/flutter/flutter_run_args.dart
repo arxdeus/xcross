@@ -1,6 +1,7 @@
 import 'package:args/command_runner.dart';
 import 'package:xcross/src/build/flutter_pack_operation.dart';
 import 'package:xcross/src/build/hot_reload_setup.dart';
+import 'package:xcross/src/cli/flutter/flutter_build_args.dart';
 import 'package:xcross/src/device/core_device_launcher.dart';
 import 'package:xcross/src/device/debug_launcher.dart';
 import 'package:xcross/src/device/os_version.dart';
@@ -21,33 +22,10 @@ enum DeviceConnection { attached, wireless, both }
 /// `-d/--device-id`, `-D/--dart-define`, `--dart-define-from-file`,
 /// `--[no-]pub`, `--route`, `-a/--dart-entrypoint-args`, `--device-connection`,
 /// `--flavor`).
-class FlutterRunCommand extends Command<void> {
+class FlutterRunCommand extends Command<void> with CommonFlutterOptions {
   FlutterRunCommand() {
+    addCommonFlutterOptions();
     argParser
-      ..addOption(
-        'target',
-        abbr: 't',
-        help: 'The main entry-point file of the application.',
-        defaultsTo: 'lib/main.dart',
-      )
-      ..addOption(
-        'flavor',
-        help: 'Build a custom app flavor (sets FLUTTER_APP_FLAVOR).',
-      )
-      ..addMultiOption(
-        'dart-define',
-        abbr: 'D',
-        help: 'Pass a KEY=VALUE define to the Dart compiler.',
-      )
-      ..addMultiOption(
-        'dart-define-from-file',
-        help: 'Load dart-defines from a .json or .env file.',
-      )
-      ..addFlag(
-        'pub',
-        help: 'Run "flutter pub get" before building.',
-        defaultsTo: true,
-      )
       ..addOption(
         'device-id',
         abbr: 'd',
@@ -98,12 +76,6 @@ class FlutterRunCommand extends Command<void> {
   String get description =>
       'Build, install, and run a Flutter iOS app on a device.';
 
-  String get _target => argResults!.option('target')!;
-  String? get _flavor => argResults!.option('flavor');
-  List<String> get _dartDefine => argResults!.multiOption('dart-define');
-  List<String> get _dartDefineFromFile =>
-      argResults!.multiOption('dart-define-from-file');
-  bool get _pub => argResults!.flag('pub');
   String? get _route => argResults!.option('route');
   List<String> get _dartEntrypointArgs =>
       argResults!.multiOption('dart-entrypoint-args');
@@ -138,11 +110,11 @@ class FlutterRunCommand extends Command<void> {
     if (_verbose) setVerbose();
 
     final options = await FlutterBuildOptions.resolve(
-      target: _target,
-      dartDefine: _dartDefine,
-      dartDefineFromFile: _dartDefineFromFile,
-      pub: _pub,
-      flavor: _flavor,
+      target: target,
+      dartDefine: dartDefine,
+      dartDefineFromFile: dartDefineFromFile,
+      pub: pub,
+      flavor: flavor,
     );
     final pack = await flutterPack(options: options);
 
@@ -187,14 +159,11 @@ class FlutterRunCommand extends Command<void> {
   }) async {
     // Flutter debug runs the Dart VM in JIT mode, which only works while a
     // debugger is attached (CS_DEBUGGED). run is always debug → stay attached.
-    const keepAttached = true;
-
     if (!useCoreDevice) {
       logInfo('App', '${pack.bundleId} ${ansi.subtle('debug/JIT')}');
       await DebugLauncher.launch(
         udid: device.udid,
         bundleId: pack.bundleId,
-        keepAttached: keepAttached,
         xtool: xtool,
       );
       return;
@@ -203,7 +172,7 @@ class FlutterRunCommand extends Command<void> {
     // Always hot reload (flutter default). Degrades to attach-only if a
     // frontend_server artifact is missing.
     final hotReload = await buildHotReloadConfig(
-      target: _target,
+      target: target,
       dartDefines: dartDefines,
       verbose: _verbose,
     );
@@ -217,8 +186,6 @@ class FlutterRunCommand extends Command<void> {
       udid: device.udid,
       bundleId: pack.bundleId,
       arguments: _appArguments,
-      keepAttached: keepAttached,
-      checkedMode: true,
       hotReload: hotReload,
     );
   }
