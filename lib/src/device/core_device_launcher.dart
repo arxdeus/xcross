@@ -39,7 +39,7 @@ abstract final class CoreDeviceLauncher {
     }
 
     final tunnel = await TunnelDiscovery.discoverTunnel(udid: udid);
-    logTrace('connecting to RSD at ${tunnel.address}:${tunnel.port}');
+    Log.logTrace('connecting to RSD at ${tunnel.address}:${tunnel.port}');
 
     final resolvedBundleId = await _resolveBundleId(bundleId);
     final debugproxyPort = await _resolveDebugproxyPort(tunnel);
@@ -60,7 +60,7 @@ abstract final class CoreDeviceLauncher {
       await gdb.start();
       await gdb.attach(pid);
       await gdb.resume();
-      logDone('Debugger attached');
+      Log.logDone('Debugger attached');
     } catch (e) {
       tunnelDaemon.stop();
       throw XcrossError('Debugger attach failed: $e');
@@ -105,11 +105,11 @@ abstract final class CoreDeviceLauncher {
         deviceHost: tunnelAddress,
         devicePort: DeviceConstants.vmServicePort,
       );
-      logInfo(DeviceConstants.vmServiceMarker,
+      Log.logInfo(DeviceConstants.vmServiceMarker,
           'ws://127.0.0.1:${forwarder.localPort}/ws');
       return forwarder;
     } on Object catch (e) {
-      logWarn('could not publish the VM Service on loopback: $e');
+      Log.logWarn('could not publish the VM Service on loopback: $e');
       return null;
     }
   }
@@ -139,11 +139,11 @@ abstract final class CoreDeviceLauncher {
         bundleId: resolved,
       );
       if (pid == null) return;
-      logTrace('app already running (pid $pid); terminating before install…');
+      Log.logTrace('app already running (pid $pid); terminating before install…');
       await Pymd.killPid(
           rsdHost: tunnel.address, rsdPort: tunnel.port, pid: pid);
     } on Object catch (e) {
-      logWarn('could not check/terminate running app: $e');
+      Log.logWarn('could not check/terminate running app: $e');
     }
   }
 
@@ -157,7 +157,7 @@ abstract final class CoreDeviceLauncher {
       resolved = bundleId;
     }
     if (resolved != bundleId) {
-      logTrace('resolved installed bundle id: $bundleId -> $resolved');
+      Log.logTrace('resolved installed bundle id: $bundleId -> $resolved');
     }
     return resolved;
   }
@@ -216,7 +216,7 @@ abstract final class CoreDeviceLauncher {
     } catch (e) {
       throw XcrossError('Launch failed: $e');
     }
-    logTrace('launched suspended pid=$pid');
+    Log.logTrace('launched suspended pid=$pid');
     return pid;
   }
 
@@ -227,7 +227,7 @@ abstract final class CoreDeviceLauncher {
     required String tunnelAddress,
   }) async {
     if (hotReload == null) {
-      logInfo('Streaming app output ${ansi.subtle('— Ctrl-C to stop')}');
+      Log.logInfo('Streaming app output ${Log.ansi.subtle('— Ctrl-C to stop')}');
       return null;
     }
     try {
@@ -236,11 +236,11 @@ abstract final class CoreDeviceLauncher {
         tunnelAddress: tunnelAddress,
         vmServicePort: DeviceConstants.vmServicePort,
       );
-      logInfo('Hot reload ready '
-          '${ansi.subtle('— r reload  ·  R restart  ·  q quit')}');
+      Log.logInfo('Hot reload ready '
+          '${Log.ansi.subtle('— r reload  ·  R restart  ·  q quit')}');
       return controller;
     } catch (e) {
-      logWarn('hot reload unavailable: $e');
+      Log.logWarn('hot reload unavailable: $e');
       return null;
     }
   }
@@ -250,12 +250,12 @@ abstract final class CoreDeviceLauncher {
     required String tunnelAddress,
     required int vmServicePort,
   }) async {
-    final wsUri =
-        Uri.parse('ws://${bracketHost(tunnelAddress)}:$vmServicePort/ws');
+    final wsUri = Uri.parse(
+        'ws://${ProcessRunner.bracketHost(tunnelAddress)}:$vmServicePort/ws');
     final vm = await _waitForVmService(wsUri);
     // `print` and `log()` reach us only over these streams — the debugger
     // attached to an already-launched process, so it owns no stdio for the app.
-    await forwardVmServiceOutput(vm);
+    await VmServiceOutput.forwardVmServiceOutput(vm);
     final controller = HotReloadController(
       config: config,
       vm: vm,
@@ -270,7 +270,7 @@ abstract final class CoreDeviceLauncher {
   static Future<DartVmServiceClient> _waitForVmService(Uri wsUri) async {
     final vm = DartVmServiceClient();
     Object? lastError;
-    final connected = await pollUntil<DartVmServiceClient>(
+    final connected = await ProcessRunner.pollUntil<DartVmServiceClient>(
       timeout: const Duration(seconds: 60),
       interval: const Duration(milliseconds: 800),
       attempt: () async {

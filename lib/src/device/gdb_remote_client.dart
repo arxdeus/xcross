@@ -31,7 +31,16 @@ class GdbReplyPacket {
   final String payload;
 
   /// For [GdbReply.stdout]: hex-decoded bytes of the `O` payload.
-  Uint8List get stdoutBytes => _gdbHexDecode(payload.substring(1));
+  Uint8List get stdoutBytes => _hexDecode(payload.substring(1));
+
+  static Uint8List _hexDecode(String hex) {
+    final out = <int>[];
+    for (var i = 0; i + 1 < hex.length; i += 2) {
+      final byte = int.tryParse(hex.substring(i, i + 2), radix: 16);
+      if (byte != null) out.add(byte);
+    }
+    return Uint8List.fromList(out);
+  }
 }
 
 /// Minimal GDB-remote client over raw TCP, enough to attach, resume, drain
@@ -68,7 +77,7 @@ class GdbRemoteClient {
   static const _checksumWidth = 2;
 
   Future<void> connect() async {
-    final rawHost = unbracketHost(host);
+    final rawHost = ProcessRunner.unbracketHost(host);
     try {
       _socket = await Socket.connect(rawHost, port);
     } catch (e) {
@@ -225,14 +234,4 @@ class GdbRemoteClient {
     }
     return sum;
   }
-}
-
-// Top-level so GdbReplyPacket can call it.
-Uint8List _gdbHexDecode(String hex) {
-  final out = <int>[];
-  for (var i = 0; i + 1 < hex.length; i += 2) {
-    final byte = int.tryParse(hex.substring(i, i + 2), radix: 16);
-    if (byte != null) out.add(byte);
-  }
-  return Uint8List.fromList(out);
 }

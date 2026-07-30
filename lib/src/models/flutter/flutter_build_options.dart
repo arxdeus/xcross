@@ -30,7 +30,8 @@ class FlutterBuildOptions {
   }) async =>
       FlutterBuildOptions(
         target: target,
-        dartDefines: await mergeDartDefines(dartDefineFromFile, dartDefine),
+        dartDefines:
+            await DartDefines.mergeDartDefines(dartDefineFromFile, dartDefine),
         pub: pub,
         buildName: buildName,
         buildNumber: buildNumber,
