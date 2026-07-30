@@ -111,9 +111,10 @@ class FlutterBuildCommand extends Command<void> with CommonFlutterOptions {
       flavor: flavor,
     );
 
-    final result = await flutterPack(options: options);
+    final result = await FlutterPackOperation.pack(options: options);
 
-    final finalPath = _ipa ? await packageIpa(result.appPath) : result.appPath;
-    logDone('Wrote $finalPath');
+    final finalPath =
+        _ipa ? await IpaPackager.package(result.appPath) : result.appPath;
+    Log.logDone('Wrote $finalPath');
   }
 }

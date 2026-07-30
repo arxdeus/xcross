@@ -106,7 +106,7 @@ class IosEngineCache {
     final hash = await _engineHash();
     final url =
         '$flutterArtifactBaseUrl/$hash/$_hostEngineCacheDir/artifacts.zip';
-    logTrace('downloading Flutter host engine artifacts from $url');
+    Log.logTrace('downloading Flutter host engine artifacts from $url');
     await _fetchAndExtract(url, _hostEngineDir, 'host-artifacts-',
         label: 'Flutter host engine');
   }
@@ -114,7 +114,7 @@ class IosEngineCache {
   Future<void> _downloadIosArtifacts() async {
     final hash = await _engineHash();
     final url = '$flutterArtifactBaseUrl/$hash/ios/artifacts.zip';
-    logTrace('downloading Flutter iOS engine artifacts from $url');
+    Log.logTrace('downloading Flutter iOS engine artifacts from $url');
     await _fetchAndExtract(url, _engineDir, 'ios-artifacts-',
         label: 'Flutter iOS engine');
   }
@@ -123,7 +123,7 @@ class IosEngineCache {
     final hash = await _engineHash();
     final leaf = p.basename(patchedSdkRoot);
     final url = '$flutterArtifactBaseUrl/$hash/$leaf.zip';
-    logTrace('downloading Flutter patched SDK from $url');
+    Log.logTrace('downloading Flutter patched SDK from $url');
     await _fetchAndExtract(url, p.dirname(patchedSdkRoot), 'patched-sdk-',
         label: 'Flutter patched SDK');
   }
@@ -143,9 +143,10 @@ class IosEngineCache {
     await Directory(destDir).create(recursive: true);
     final tmp = await Directory.systemTemp.createTemp(tmpPrefix);
     final zipPath = p.join(tmp.path, 'artifacts.zip');
-    await downloadToFile(url, File(zipPath), maxAttempts: 5, label: label);
+    await Downloader.downloadToFile(url, File(zipPath),
+        maxAttempts: 5, label: label);
     // Unzipping hundreds of MB is slow enough to look like a hang on its own.
-    await logStep(
+    await Log.logStep(
       'Extracting $label',
       () => extractFileToDisk(zipPath, destDir),
     );

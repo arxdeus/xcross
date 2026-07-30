@@ -8,20 +8,20 @@ import 'package:xcross/src/util/download.dart';
 import 'package:xcross/src/util/logging.dart';
 
 Future<void> main() async {
-  logInfo('Device', 'iPhone Mind ${ansi.subtle('00008030-000664292232802E')}');
+  Log.logInfo('Device', 'iPhone Mind ${Log.ansi.subtle('00008030-000664292232802E')}');
 
-  await logStep('Resolving dependencies', _work(600));
+  await Log.logStep('Resolving dependencies', _work(600));
 
   // A download inside a step: the bar takes over the line, the step still ✓s.
-  final fetch = beginStep('Fetching Flutter engine artifacts');
+  final fetch = Log.beginStep('Fetching Flutter engine artifacts');
   await _fakeDownload('Flutter iOS engine', 279 * 1024 * 1024);
   fetch.done();
 
-  await logStep('Compiling Dart kernel', _work(900));
-  await logStep('Building App.framework', _work(400));
+  await Log.logStep('Compiling Dart kernel', _work(900));
+  await Log.logStep('Building App.framework', _work(400));
 
   // A step with a collapsing grey log tail, like `xtool install`.
-  final install = beginStep('Signing and installing');
+  final install = Log.beginStep('Signing and installing');
   for (final line in const [
     'Fetching signing certificate',
     'Registering app id com.test.abra',
@@ -35,17 +35,17 @@ Future<void> main() async {
   }
   install.done();
 
-  await logStep('Waiting for RSD tunnel', _work(500));
-  await logStep('Debugger attached', _work(200));
-  logInfo('App', 'com.test.abra ${ansi.subtle('debug/JIT, hot reload')}');
-  logInfo(DeviceConstants.vmServiceMarker, 'ws://127.0.0.1:46269/ws');
-  logInfo('Hot reload ready '
-      '${ansi.subtle('— r reload  ·  R restart  ·  q quit')}');
+  await Log.logStep('Waiting for RSD tunnel', _work(500));
+  await Log.logStep('Debugger attached', _work(200));
+  Log.logInfo('App', 'com.test.abra ${Log.ansi.subtle('debug/JIT, hot reload')}');
+  Log.logInfo(DeviceConstants.vmServiceMarker, 'ws://127.0.0.1:46269/ws');
+  Log.logInfo('Hot reload ready '
+      '${Log.ansi.subtle('— r reload  ·  R restart  ·  q quit')}');
 
-  await logStep('Hot reload', _work(4400)).then((_) {});
-  logWarn('expression evaluation unavailable: no isolate');
+  await Log.logStep('Hot reload', _work(4400)).then((_) {});
+  Log.logWarn('expression evaluation unavailable: no isolate');
   try {
-    await logStep('Hot restart', () async => throw StateError('vm rejected'));
+    await Log.logStep('Hot restart', () async => throw StateError('vm rejected'));
   } catch (_) {}
 }
 
@@ -69,7 +69,8 @@ Future<void> _fakeDownload(String label, int total) async {
   }));
 
   final dest = File('${Directory.systemTemp.path}/xcross-tui-demo.bin');
-  await downloadToFile('http://127.0.0.1:${server.port}/artifacts.zip', dest,
+  await Downloader.downloadToFile(
+      'http://127.0.0.1:${server.port}/artifacts.zip', dest,
       label: label);
   await server.close(force: true);
   await dest.delete();

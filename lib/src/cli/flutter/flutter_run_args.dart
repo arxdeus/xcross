@@ -107,7 +107,7 @@ class FlutterRunCommand extends Command<void> with CommonFlutterOptions {
 
   @override
   Future<void> run() async {
-    if (_verbose) setVerbose();
+    if (_verbose) Log.setVerbose();
 
     final options = await FlutterBuildOptions.resolve(
       target: target,
@@ -116,17 +116,17 @@ class FlutterRunCommand extends Command<void> with CommonFlutterOptions {
       pub: pub,
       flavor: flavor,
     );
-    final pack = await flutterPack(options: options);
+    final pack = await FlutterPackOperation.pack(options: options);
 
     final xtool = XtoolCli();
     final device =
         await xtool.resolveDevice(selector: _deviceSelector, mode: _searchMode);
-    logInfo('Device', '${device.name} ${ansi.subtle(device.udid)}');
+    Log.logInfo('Device', '${device.name} ${Log.ansi.subtle(device.udid)}');
 
     // iOS 17+ removed the classic lockdown debugserver: launch (and process
     // control) go through the CoreDevice/RSD tunnel. Determine this up front so
     // we can close a still-running instance before installing.
-    final osMajor = await deviceOSMajorVersion(device.udid);
+    final osMajor = await OsVersion.deviceOSMajorVersion(device.udid);
     final useCoreDevice = osMajor != null && osMajor >= 17;
 
     // Close the app if it happens to be running at install time, so the install
@@ -160,7 +160,7 @@ class FlutterRunCommand extends Command<void> with CommonFlutterOptions {
     // Flutter debug runs the Dart VM in JIT mode, which only works while a
     // debugger is attached (CS_DEBUGGED). run is always debug → stay attached.
     if (!useCoreDevice) {
-      logInfo('App', '${pack.bundleId} ${ansi.subtle('debug/JIT')}');
+      Log.logInfo('App', '${pack.bundleId} ${Log.ansi.subtle('debug/JIT')}');
       await DebugLauncher.launch(
         udid: device.udid,
         bundleId: pack.bundleId,
@@ -171,7 +171,7 @@ class FlutterRunCommand extends Command<void> with CommonFlutterOptions {
 
     // Always hot reload (flutter default). Degrades to attach-only if a
     // frontend_server artifact is missing.
-    final hotReload = await buildHotReloadConfig(
+    final hotReload = await HotReloadSetup.buildHotReloadConfig(
       target: target,
       dartDefines: dartDefines,
       verbose: _verbose,
@@ -180,7 +180,7 @@ class FlutterRunCommand extends Command<void> with CommonFlutterOptions {
     final mode = hotReload != null
         ? 'debug/JIT, hot reload'
         : 'debug/JIT, attached via CoreDevice';
-    logInfo('App', '${pack.bundleId} ${ansi.subtle(mode)}');
+    Log.logInfo('App', '${pack.bundleId} ${Log.ansi.subtle(mode)}');
 
     await CoreDeviceLauncher.launch(
       udid: device.udid,
