@@ -22,7 +22,7 @@ void main() {
   // --verbose) a long step must still announce itself, or it looks like a hang.
   test('a step announces its start, then reports once', () {
     final lines = capture(() {
-      final step = beginStep('Building');
+      final step = Log.beginStep('Building');
       step.done();
       step.done(); // double-close must not double-report
     });
@@ -32,14 +32,14 @@ void main() {
   });
 
   test('failure reports ✗', () {
-    final lines = capture(() => beginStep('Building').fail());
+    final lines = capture(() => Log.beginStep('Building').fail());
     expect(lines.last, startsWith('✗ Building'));
   });
 
   test('an interrupting status line does not swallow the ✓', () {
     final lines = capture(() {
-      final step = beginStep('Building');
-      logInfo('vm-service:', 'ws://127.0.0.1:1234/ws');
+      final step = Log.beginStep('Building');
+      Log.logInfo('vm-service:', 'ws://127.0.0.1:1234/ws');
       step.done();
     });
     expect(lines, hasLength(3));
@@ -52,7 +52,7 @@ void main() {
     await runZoned(
       () async {
         await expectLater(
-          logStep<void>('Compiling', () async => throw StateError('boom')),
+          Log.logStep<void>('Compiling', () async => throw StateError('boom')),
           throwsStateError,
         );
       },
@@ -64,7 +64,7 @@ void main() {
   });
 
   test('trace output is suppressed until --verbose', () {
-    expect(capture(() => logTrace('clang -c foo.m')), isEmpty);
+    expect(capture(() => Log.logTrace('clang -c foo.m')), isEmpty);
   });
 
   group('renderBlock', () {

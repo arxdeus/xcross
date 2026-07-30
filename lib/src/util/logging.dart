@@ -3,136 +3,140 @@ import 'dart:io';
 
 import 'package:cli_util/cli_logging.dart';
 
-Logger _logger = Logger.standard();
+/// Global logging/status-line facilities for the CLI.
+abstract final class Log {
+  static Logger _logger = Logger.standard();
 
-/// Whether `--verbose` was passed. Trace output is only rendered when true.
-bool get isVerbose => _logger.isVerbose;
+  /// Whether `--verbose` was passed. Trace output is only rendered when true.
+  static bool get isVerbose => _logger.isVerbose;
 
-/// Switch global logger to verbose mode (shows trace output, no spinners).
-void setVerbose() {
-  _stopStep();
-  _logger = Logger.verbose();
+  /// Switch global logger to verbose mode (shows trace output, no spinners).
+  static void setVerbose() {
+    _stopStep();
+    _logger = Logger.verbose();
+  }
+
+  /// ANSI helpers (colors are stripped automatically on a non-TTY).
+  static Ansi get ansi => _logger.ansi;
+
+  static bool get _fancy => _logger.ansi.useAnsi && !_logger.isVerbose;
+
+  /// Column the dim right-hand detail (elapsed time, size) is padded out to.
+  static const _detailColumn = 38;
+
+  /// `message` padded so [detail] lines up with every other line's detail.
+  static String _withDetail(String message, String detail) {
+    final pad = message.length < _detailColumn
+        ? ' ' * (_detailColumn - message.length)
+        : ' ';
+    return '$message$pad${ansi.subtle(detail)}';
+  }
+
+  /// A user-facing fact: `› Device   iPhone 15 Pro`. Interrupts any spinner.
+  ///
+  /// With a [value], [message] becomes a padded label so consecutive facts
+  /// line up in a column.
+  static void logInfo(String message, [String? value]) => logStatus(
+        '${Glyph.info} '
+        '${value == null ? message : '${message.padRight(13)}$value'}',
+      );
+
+  /// A one-off completed action that had no [Step]: `✓ Flutter iOS engine 279 MB`.
+  static void logDone(String message, [String? detail]) => logStatus(
+        '${Glyph.ok} ${detail == null ? message : _withDetail(message, detail)}',
+      );
+
+  /// Print [message] verbatim (already carries its own marker). Interrupts any
+  /// running spinner so the two never fight over the same line.
+  static void logStatus(String message) {
+    _stopStep();
+    _logger.stdout(message);
+  }
+
+  /// A detail line — only shown with `--verbose`. Use this for command lines,
+  /// timings, and per-tool chatter that would otherwise flood the console.
+  static void logTrace(String message) => _logger.trace(message);
+
+  /// A warning on stderr.
+  static void logWarn(String message) {
+    _stopStep();
+    _logger.stderr('${Glyph.warn} $message');
+  }
+
+  /// An error on stderr.
+  static void logError(String message) {
+    _stopStep();
+    _logger.stderr('${Glyph.bad} $message');
+  }
+
+  // -------------------------------------------------------------------------
+  // Steps: one spinner line per phase, replaced in place by a ✓/✗ on
+  // completion.
+  // -------------------------------------------------------------------------
+
+  /// Run [body] under a spinner labelled [label]; prints `✓ label 1.2s` when
+  /// it returns, `✗ label` when it throws.
+  static Future<T> logStep<T>(String label, Future<T> Function() body) async {
+    final step = beginStep(label);
+    try {
+      final result = await body();
+      step.done();
+      return result;
+    } on Object {
+      step.fail();
+      rethrow;
+    }
+  }
+
+  /// Start a spinner for work that cannot be wrapped in a closure. The caller
+  /// must call [Step.done] or [Step.fail].
+  static Step beginStep(String label) {
+    _stopStep();
+    return _active = Step._(label);
+  }
+
+  /// Erase any running spinner — for code that writes to stdout directly
+  /// (e.g. the download progress bar).
+  static void stopStep() => _stopStep();
+
+  static Step? _active;
+
+  static void _stopStep() {
+    final step = _active;
+    _active = null;
+    step?._erase();
+  }
 }
-
-/// ANSI helpers (colors are stripped automatically on a non-TTY).
-Ansi get ansi => _logger.ansi;
-
-bool get _fancy => _logger.ansi.useAnsi && !_logger.isVerbose;
 
 /// Every line xcross prints starts with one of these markers, so output reads
 /// as one list instead of a mix of bare text and decorated lines.
 abstract final class Glyph {
   /// A fact, or a phase that has just started.
-  static String get info => '${ansi.cyan}›${ansi.none}';
+  static String get info => '${Log.ansi.cyan}›${Log.ansi.none}';
 
   /// A phase that finished.
-  static String get ok => '${ansi.green}✓${ansi.none}';
+  static String get ok => '${Log.ansi.green}✓${Log.ansi.none}';
 
   /// A phase that failed.
-  static String get bad => '${ansi.red}✗${ansi.none}';
+  static String get bad => '${Log.ansi.red}✗${Log.ansi.none}';
 
   /// Something worth knowing, but not fatal.
-  static String get warn => '${ansi.yellow}!${ansi.none}';
+  static String get warn => '${Log.ansi.yellow}!${Log.ansi.none}';
 
   /// A transfer in flight.
-  static String get download => '${ansi.cyan}↓${ansi.none}';
-}
-
-/// Column the dim right-hand detail (elapsed time, size) is padded out to.
-const _detailColumn = 38;
-
-/// `message` padded so [detail] lines up with every other line's detail.
-String _withDetail(String message, String detail) {
-  final pad = message.length < _detailColumn
-      ? ' ' * (_detailColumn - message.length)
-      : ' ';
-  return '$message$pad${ansi.subtle(detail)}';
-}
-
-/// A user-facing fact: `› Device   iPhone 15 Pro`. Interrupts any spinner.
-///
-/// With a [value], [message] becomes a padded label so consecutive facts line
-/// up in a column.
-void logInfo(String message, [String? value]) => logStatus(
-      '${Glyph.info} '
-      '${value == null ? message : '${message.padRight(13)}$value'}',
-    );
-
-/// A one-off completed action that had no [Step]: `✓ Flutter iOS engine 279 MB`.
-void logDone(String message, [String? detail]) => logStatus(
-      '${Glyph.ok} ${detail == null ? message : _withDetail(message, detail)}',
-    );
-
-/// Print [message] verbatim (already carries its own marker). Interrupts any
-/// running spinner so the two never fight over the same line.
-void logStatus(String message) {
-  _stopStep();
-  _logger.stdout(message);
-}
-
-/// A detail line — only shown with `--verbose`. Use this for command lines,
-/// timings, and per-tool chatter that would otherwise flood the console.
-void logTrace(String message) => _logger.trace(message);
-
-/// A warning on stderr.
-void logWarn(String message) {
-  _stopStep();
-  _logger.stderr('${Glyph.warn} $message');
-}
-
-/// An error on stderr.
-void logError(String message) {
-  _stopStep();
-  _logger.stderr('${Glyph.bad} $message');
-}
-
-// ---------------------------------------------------------------------------
-// Steps: one spinner line per phase, replaced in place by a ✓/✗ on completion.
-// ---------------------------------------------------------------------------
-
-/// Run [body] under a spinner labelled [label]; prints `✓ label 1.2s` when it
-/// returns, `✗ label` when it throws.
-Future<T> logStep<T>(String label, Future<T> Function() body) async {
-  final step = beginStep(label);
-  try {
-    final result = await body();
-    step.done();
-    return result;
-  } on Object {
-    step.fail();
-    rethrow;
-  }
-}
-
-/// Start a spinner for work that cannot be wrapped in a closure. The caller
-/// must call [Step.done] or [Step.fail].
-Step beginStep(String label) {
-  _stopStep();
-  return _active = Step._(label);
-}
-
-/// Erase any running spinner — for code that writes to stdout directly
-/// (e.g. the download progress bar).
-void stopStep() => _stopStep();
-
-Step? _active;
-
-void _stopStep() {
-  final step = _active;
-  _active = null;
-  step?._erase();
+  static String get download => '${Log.ansi.cyan}↓${Log.ansi.none}';
 }
 
 /// A single in-progress phase.
 class Step {
   Step._(this.label) : _watch = Stopwatch()..start() {
-    if (_fancy) {
+    if (Log._fancy) {
       _timer = Timer.periodic(const Duration(milliseconds: 80), (_) => _draw());
       _draw();
     } else {
       // No spinner to watch (piped output, a debug console, `--verbose`), so
       // announce the phase up front — otherwise long steps look like a hang.
-      _logger.stdout('${Glyph.info} $label…');
+      Log._logger.stdout('${Glyph.info} $label…');
     }
   }
 
@@ -165,14 +169,14 @@ class Step {
     final parts = _partial.split('\n');
     _partial = parts.removeLast();
     for (final line in parts) {
-      if (_fancy) {
+      if (Log._fancy) {
         _tail.add(line);
         if (_tail.length > _tailLines) _tail.removeAt(0);
       } else {
-        logTrace(line);
+        Log.logTrace(line);
       }
     }
-    if (_fancy) _draw();
+    if (Log._fancy) _draw();
   }
 
   /// Replace the spinner with a success line, discarding the tail.
@@ -189,8 +193,8 @@ class Step {
     _timer ??= Timer.periodic(const Duration(milliseconds: 80), (_) => _draw());
     final frame = _frames[_tick++ % _frames.length];
     final block = renderBlock(
-      head: '${ansi.cyan}$frame${ansi.none} $label',
-      tail: [for (final line in _visibleTail()) ansi.subtle(_fit(line))],
+      head: '${Log.ansi.cyan}$frame${Log.ansi.none} $label',
+      tail: [for (final line in _visibleTail()) Log.ansi.subtle(_fit(line))],
       previousRows: _drawn,
     );
     _drawn = 1 + _visibleTail().length;
@@ -242,7 +246,7 @@ class Step {
     if (_timer == null) return;
     _timer!.cancel();
     _timer = null;
-    if (!_fancy) return;
+    if (!Log._fancy) return;
     // Up to the top of the block, then clear everything below the cursor.
     stdout.write(_drawn > 0 ? '\r\x1B[${_drawn}A\x1B[J' : '\r\x1B[K');
     _drawn = 0;
@@ -251,10 +255,10 @@ class Step {
   void _close(String mark, String message, {bool timed = false}) {
     if (_closed) return;
     _closed = true;
-    if (_active == this) _active = null;
+    if (Log._active == this) Log._active = null;
     _erase();
-    _logger.stdout('$mark '
-        '${timed ? _withDetail(message, _fmtElapsed(_watch.elapsed)) : message}');
+    Log._logger.stdout('$mark '
+        '${timed ? Log._withDetail(message, _fmtElapsed(_watch.elapsed)) : message}');
   }
 
   static String _fmtElapsed(Duration d) {
