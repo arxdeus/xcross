@@ -24,7 +24,7 @@ class VscodeCommand extends Command<void> {
     // now so a changed PATH can't break the editor later.
     final exe = Platform.resolvedExecutable;
     if (p.basenameWithoutExtension(exe) != 'xcross') {
-      logWarn('embedding $exe — run `xcross vscode` from the installed '
+      Log.logWarn('embedding $exe — run `xcross vscode` from the installed '
           'binary, not `dart run`, or F5 will not work');
     }
     final shim = File(p.join(dir.path, 'xcross_dap.dart'));
@@ -33,28 +33,28 @@ class VscodeCommand extends Command<void> {
       // escaped too — jsonEncode does not.
       _shim.replaceAll('<XCROSS>', jsonEncode(exe).replaceAll(r'$', r'\$')),
     );
-    logDone('Wrote ${p.relative(shim.path)}');
+    Log.logDone('Wrote ${p.relative(shim.path)}');
 
     // launch.json / settings.json are JSONC in the wild; a comment-preserving
     // merge is 200 lines of nothing, so print the snippet instead.
     await _writeIfAbsent(p.join(dir.path, 'launch.json'), _launchJson);
     await _writeIfAbsent(p.join(dir.path, 'settings.json'), _settingsJson);
 
-    logInfo(
+    Log.logInfo(
         'Next',
-        ansi.subtle('open the project in VS Code and press F5, '
+        Log.ansi.subtle('open the project in VS Code and press F5, '
             "then 'Hot Reload' / 'Restart' in the debug toolbar"));
   }
 
   static Future<void> _writeIfAbsent(String path, String content) async {
     final file = File(path);
     if (file.existsSync()) {
-      logWarn('${p.relative(path)} already exists — merge this in yourself:\n'
+      Log.logWarn('${p.relative(path)} already exists — merge this in yourself:\n'
           '$content');
       return;
     }
     await file.writeAsString(content);
-    logDone('Wrote ${p.relative(path)}');
+    Log.logDone('Wrote ${p.relative(path)}');
   }
 }
 

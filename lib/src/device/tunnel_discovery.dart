@@ -26,8 +26,8 @@ abstract final class TunnelDiscovery {
     var requestedStart = false;
     var loggedWaiting = false;
 
-    final step = beginStep('Waiting for RSD tunnel');
-    final found = await pollUntil<Tunnel>(
+    final step = Log.beginStep('Waiting for RSD tunnel');
+    final found = await ProcessRunner.pollUntil<Tunnel>(
       timeout: timeout,
       interval: pollInterval,
       attempt: () async {
@@ -39,7 +39,7 @@ abstract final class TunnelDiscovery {
         // tunneld is up but has no tunnels yet — ask it to create one.
         if (udid != null && !requestedStart) {
           requestedStart = true;
-          logTrace(
+          Log.logTrace(
             '[pymobiledevice3] no RSD tunnel yet — requesting '
             '/start-tunnel for $udid…',
           );
@@ -47,7 +47,7 @@ abstract final class TunnelDiscovery {
         }
         if (!loggedWaiting) {
           loggedWaiting = true;
-          logTrace(
+          Log.logTrace(
             '[pymobiledevice3] waiting for RSD tunnel'
             '${udid != null ? ' ($udid)' : ''}…',
           );
@@ -96,7 +96,7 @@ abstract final class TunnelDiscovery {
       final data = await _fetch(uri.toString());
       return _tunnelFromJson(data);
     } on Object catch (e) {
-      logWarn('tunneld /start-tunnel failed: $e');
+      Log.logWarn('tunneld /start-tunnel failed: $e');
     }
     return null;
   }
@@ -166,7 +166,7 @@ abstract final class TunnelDiscovery {
       _ => null,
     };
     if (addr == null || port == null) return null;
-    logTrace('found RSD tunnel: $addr:$port');
+    Log.logTrace('found RSD tunnel: $addr:$port');
     return Tunnel(address: addr, port: port);
   }
 }

@@ -24,7 +24,7 @@ class TunnelDaemon {
   /// Ensure a tunneld REST API is reachable; start one if needed.
   Future<void> ensureRunning() async {
     if (await isReachable()) {
-      logTrace('RSD tunnel daemon already running (reusing it)');
+      Log.logTrace('RSD tunnel daemon already running (reusing it)');
       return;
     }
 
@@ -45,14 +45,14 @@ class TunnelDaemon {
     // timestamp (or we are already root / passwordless).
     final argv = await Pymd.elevatedArgs(['remote', 'tunneld']);
 
-    logTrace(
+    Log.logTrace(
       '[pymobiledevice3] starting RSD tunnel daemon'
       '${sudo != null ? ' (needs root)' : ''}: ${argv.join(' ')}',
     );
 
     // The sudo prompt above must never be hidden behind the spinner, so the
     // step only covers the spawn + readiness poll.
-    await logStep('Starting RSD tunnel daemon', () => _startDaemon(argv));
+    await Log.logStep('Starting RSD tunnel daemon', () => _startDaemon(argv));
   }
 
   /// Spawn tunneld with [argv] and poll until its REST API answers.
@@ -90,7 +90,7 @@ class TunnelDaemon {
     _process = proc;
     _ownsDaemon = true;
 
-    final up = await pollUntil<bool>(
+    final up = await ProcessRunner.pollUntil<bool>(
       timeout: const Duration(seconds: 40),
       interval: const Duration(seconds: 1),
       attempt: () async => await isReachable() ? true : null,
@@ -111,7 +111,7 @@ class TunnelDaemon {
     _ownsDaemon = false;
     if (proc == null) return;
 
-    logTrace('stopping RSD tunnel daemon…');
+    Log.logTrace('stopping RSD tunnel daemon…');
 
     // The daemon runs under sudo (root); escalate via sudo kill.
     Sudo.resolve().then((sudo) {

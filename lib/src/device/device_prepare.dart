@@ -44,24 +44,24 @@ abstract final class DevicePrepare {
     await TunnelDaemon().ensureRunning();
     await _ensureLockdownTunnel();
 
-    logDone('Device ready '
-        '${ansi.subtle('— DDI mounted, tunneld and lockdown tunnel up')}');
-    logInfo('Next', ansi.subtle('xcross flutter run -u <UDID>'));
+    Log.logDone('Device ready '
+        '${Log.ansi.subtle('— DDI mounted, tunneld and lockdown tunnel up')}');
+    Log.logInfo('Next', Log.ansi.subtle('xcross flutter run -u <UDID>'));
   }
 
   /// `sudo pymobiledevice3 mounter auto-mount` (one-shot).
   static Future<void> _autoMount() async {
     final argv = await Pymd.elevatedArgs(['mounter', 'auto-mount']);
-    logTrace('[pymobiledevice3] mounting DDI: ${argv.join(' ')}');
+    Log.logTrace('[pymobiledevice3] mounting DDI: ${argv.join(' ')}');
     // Captured (not inheritStdio): a child writing to fd1 would shred the
     // spinner. Runs under `sudo -n`, so there is no prompt to hide.
-    await logStep('Mounting Developer Disk Image', () async {
+    await Log.logStep('Mounting Developer Disk Image', () async {
       final result = await ProcessRunner.run(
         argv.first,
         argv.sublist(1),
         environment: Pymd.usbmuxEnvironment(),
       );
-      logTrace(result.stdout.trim());
+      Log.logTrace(result.stdout.trim());
       if (result.exitCode != 0) {
         throw XcrossError(
           'mounter auto-mount failed (exit ${result.exitCode}).\n'
@@ -77,10 +77,10 @@ abstract final class DevicePrepare {
   /// producing an RSD tunnel. Leaves the process running after prepare exits.
   static Future<void> _ensureLockdownTunnel() async {
     if (await _lockdownTunnelLooksAlive()) {
-      logTrace('lockdown start-tunnel already running');
+      Log.logTrace('lockdown start-tunnel already running');
       return;
     }
-    await logStep('Starting lockdown RSD tunnel', _startLockdownTunnel);
+    await Log.logStep('Starting lockdown RSD tunnel', _startLockdownTunnel);
   }
 
   /// Spawn `lockdown start-tunnel` and wait for it to report an RSD tunnel.
@@ -91,7 +91,7 @@ abstract final class DevicePrepare {
     final logFile = File(logPath);
     if (!logFile.existsSync()) logFile.createSync(recursive: true);
 
-    logTrace(
+    Log.logTrace(
       '[pymobiledevice3] starting lockdown RSD tunnel'
       ' (background; log: $logPath): ${argv.join(' ')}',
     );
@@ -119,7 +119,7 @@ abstract final class DevicePrepare {
     void onLine(String line) {
       final trimmed = line.trimRight();
       if (trimmed.isEmpty) return;
-      logTrace(trimmed);
+      Log.logTrace(trimmed);
       if (!ready.isCompleted && _tunnelReadyPattern.hasMatch(trimmed)) {
         ready.complete();
       }
@@ -166,7 +166,7 @@ abstract final class DevicePrepare {
       rethrow;
     }
 
-    logTrace(
+    Log.logTrace(
       '[pymobiledevice3] lockdown RSD tunnel is up '
       '(pid ${proc.pid}; leave it running)',
     );

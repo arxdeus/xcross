@@ -84,7 +84,7 @@ class SessionConsole {
         case GdbReply.stdout:
           _writeAppOutput(reply.stdoutBytes);
         case GdbReply.exited || GdbReply.terminated:
-          logInfo('App exited ${ansi.subtle('(${reply.payload})')}');
+          Log.logInfo('App exited ${Log.ansi.subtle('(${reply.payload})')}');
           _stop();
           return;
         case GdbReply.stopped || GdbReply.other:
@@ -108,7 +108,7 @@ class SessionConsole {
 
     // Never swallow failures: silent cooked mode looks like "keys do nothing".
     if (!_enableRawStdin()) {
-      logWarn(
+      Log.logWarn(
           "could not enable raw stdin — press Enter after 'r'/'R', or check TTY");
     }
 
@@ -116,10 +116,11 @@ class SessionConsole {
     // _stopped must flip BEFORE _finish(): run()'s `while (!_stopped)` loop
     // would otherwise spin forever when our stdin pipe closes, orphaning
     // frontend_server and the RSD tunnel.
-    // sharedStdin, not stdin: `xtool install` reads stdin too, and cancelling
-    // a raw stdin subscription leaves this listen dead on arrival — onDone
-    // fires at once and the session quits the moment the app launches.
-    final sub = sharedStdin.listen(
+    // ProcessRunner.sharedStdin, not stdin: `xtool install` reads stdin too,
+    // and cancelling a raw stdin subscription leaves this listen dead on
+    // arrival — onDone fires at once and the session quits the moment the
+    // app launches.
+    final sub = ProcessRunner.sharedStdin.listen(
       _handleKeyByte,
       onDone: () {
         _stop();
@@ -160,7 +161,7 @@ class SessionConsole {
       stdin.lineMode = false;
       return true;
     } on Object catch (e) {
-      logWarn('stdin raw mode failed: $e');
+      Log.logWarn('stdin raw mode failed: $e');
       return false;
     }
   }
@@ -204,7 +205,7 @@ class SessionConsole {
   Future<void> _handleHotReload() async {
     final controller = hotReload;
     if (controller == null) return;
-    final step = beginStep('Hot reload');
+    final step = Log.beginStep('Hot reload');
     try {
       final ok = await controller.reload();
       if (ok) {
@@ -214,20 +215,20 @@ class SessionConsole {
       }
     } catch (e) {
       step.fail('Hot reload failed');
-      logError('$e');
+      Log.logError('$e');
     }
   }
 
   Future<void> _handleHotRestart() async {
     final controller = hotReload;
     if (controller == null) return;
-    final step = beginStep('Hot restart');
+    final step = Log.beginStep('Hot restart');
     try {
       await controller.restart();
       step.done('Restarted');
     } catch (e) {
       step.fail('Hot restart failed');
-      logError('$e');
+      Log.logError('$e');
     }
   }
 }

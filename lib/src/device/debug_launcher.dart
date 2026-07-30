@@ -18,7 +18,7 @@ abstract final class DebugLauncher {
   }) async {
     final cli = xtool ?? XtoolCli();
 
-    logWarn(
+    Log.logWarn(
       'Pre-iOS-17 path: xtool launch detaches immediately after launch. '
       'Flutter JIT/debug apps may crash on detach because the '
       'CS_DEBUGGED flag is dropped when the debugger disconnects.\n'

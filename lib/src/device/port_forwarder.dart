@@ -38,9 +38,10 @@ class PortForwarder {
       try {
         // Socket.connect wants a bare address; a bracketed literal never
         // resolves. Callers pass tunnel.address raw today, so this is defensive.
-        device = await Socket.connect(unbracketHost(deviceHost), devicePort);
+        device = await Socket.connect(
+            ProcessRunner.unbracketHost(deviceHost), devicePort);
       } on Object catch (e) {
-        logWarn('vm-service forward failed: $e');
+        Log.logWarn('vm-service forward failed: $e');
         await client.close();
         return;
       }
@@ -72,7 +73,7 @@ class PortForwarder {
         client.destroy();
         device.destroy();
       }
-    }, onError: (Object e) => logWarn('vm-service forward error: $e'));
+    }, onError: (Object e) => Log.logWarn('vm-service forward error: $e'));
 
     return forwarder;
   }

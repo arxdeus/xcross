@@ -169,7 +169,7 @@ class XtoolCli {
     final flag = mode.flag;
     if (flag != null) args.add(flag);
 
-    final step = beginStep('Signing and installing');
+    final step = Log.beginStep('Signing and installing');
     try {
       await ProcessRunner.runChecked(
         executable,

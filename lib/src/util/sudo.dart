@@ -7,7 +7,7 @@ import 'package:xcross/src/util/process.dart';
 /// Thin helpers for interactive `sudo -v` and locating the `sudo` binary.
 abstract final class Sudo {
   /// Absolute path to `sudo`, or null if not on PATH.
-  static Future<String?> resolve() => which('sudo');
+  static Future<String?> resolve() => ProcessRunner.which('sudo');
 
   /// Prompt once via `sudo -v` (inheritStdio) so later `sudo -n …` calls can
   /// run without holding the TTY open.
@@ -17,8 +17,8 @@ abstract final class Sudo {
     final sudo = await resolve();
     if (sudo == null) return;
 
-    logInfo('Confirming sudo access '
-        '${ansi.subtle('— you may be asked for your password once')}');
+    Log.logInfo('Confirming sudo access '
+        '${Log.ansi.subtle('— you may be asked for your password once')}');
     final proc = await Process.start(
       sudo,
       const ['-v'],

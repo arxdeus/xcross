@@ -20,7 +20,8 @@ class HotReloadController {
     required this.vm,
     required this.tunnelAddress,
     required int vmServicePort,
-  })  : _httpBase = 'http://${bracketHost(tunnelAddress)}:$vmServicePort/',
+  })  : _httpBase =
+            'http://${ProcessRunner.bracketHost(tunnelAddress)}:$vmServicePort/',
         _frontend = FrontendServerClient(config),
         _sources = SourceWatcher(config);
 
@@ -89,7 +90,7 @@ class HotReloadController {
         };
       });
     } on Object catch (e) {
-      logWarn('expression evaluation unavailable: $e');
+      Log.logWarn('expression evaluation unavailable: $e');
     }
   }
 
@@ -115,7 +116,7 @@ class HotReloadController {
     try {
       return await body();
     } finally {
-      logTrace('[timing] $label ${sw.elapsedMilliseconds}ms');
+      Log.logTrace('[timing] $label ${sw.elapsedMilliseconds}ms');
     }
   }
 
@@ -129,7 +130,7 @@ class HotReloadController {
     final changed = _sources.changedFileUris();
     if (changed.isEmpty) {
       // The step's own `✓ Reloaded 0.0s` already tells the story.
-      logTrace('no source changes');
+      Log.logTrace('no source changes');
       return true;
     }
 
@@ -270,7 +271,7 @@ class HotReloadController {
     final targetUri = '$baseUri$fileName';
     final raw = await File(dillPath).readAsBytes();
     final gz = GZipCodec().encode(raw);
-    logTrace('[timing] devfs-bytes raw=${raw.length} gz=${gz.length}');
+    Log.logTrace('[timing] devfs-bytes raw=${raw.length} gz=${gz.length}');
     final targetUriB64 = base64.encode(utf8.encode(targetUri));
 
     final client = HttpClient()

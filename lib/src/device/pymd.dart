@@ -35,14 +35,15 @@ abstract final class Pymd {
     if (_cached != null) return _cached!;
 
     // Prefer the bare CLI when available.
-    final cli = await which('pymobiledevice3');
+    final cli = await ProcessRunner.which('pymobiledevice3');
     if (cli != null) {
       _cached = PymdInvocation(cli, []);
       return _cached!;
     }
 
     // Fallback: python3 -m pymobiledevice3.
-    final py = await which('python3') ?? await which('python');
+    final py = await ProcessRunner.which('python3') ??
+        await ProcessRunner.which('python');
     if (py == null) throw XcrossError(_notFoundMessage);
 
     final probe = await ProcessRunner.run(py, ['-c', 'import pymobiledevice3']);
@@ -67,17 +68,18 @@ abstract final class Pymd {
   static Future<bool> ensureInstalled() async {
     if (await _isInstalled()) return true;
 
-    final step = beginStep('Installing pymobiledevice3 (one-time)');
+    final step = Log.beginStep('Installing pymobiledevice3 (one-time)');
 
-    final py = await which('python3') ?? await which('python');
+    final py = await ProcessRunner.which('python3') ??
+        await ProcessRunner.which('python');
     if (py == null) {
       step.fail();
-      logError('no python3 found. Install Python 3 first.');
+      Log.logError('no python3 found. Install Python 3 first.');
       return false;
     }
 
     for (final attempt in await _buildInstallAttempts(py)) {
-      logTrace('[python] running: ${attempt.join(' ')}');
+      Log.logTrace('[python] running: ${attempt.join(' ')}');
       final result = await Process.run(
         attempt[0],
         attempt.sublist(1),
@@ -94,7 +96,7 @@ abstract final class Pymd {
     }
 
     step.fail();
-    logError(
+    Log.logError(
       'failed to install pymobiledevice3. Install it manually:\n'
       '    sudo pip3 install --break-system-packages pymobiledevice3',
     );
@@ -260,7 +262,7 @@ abstract final class Pymd {
     final inv = await resolve();
     final executable = inv.executable;
     final arguments = inv.args(args);
-    logTrace(
+    Log.logTrace(
       '[pymobiledevice3] running: '
       '${ProcessRunner.commandLine(executable, arguments)}',
     );

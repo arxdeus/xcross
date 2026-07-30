@@ -26,8 +26,8 @@ class RunnerShim {
     required String flutterXcframework,
     required String outputDir,
   }) =>
-      logStep('Compiling Runner', () async {
-        final clang = await locateTool('clang');
+      Log.logStep('Compiling Runner', () async {
+        final clang = await ProcessRunner.locateTool('clang');
         final iosSdk = _resolveIPhoneOsSDK(sdk);
         final flutterSlice = _flutterDeviceSlice(flutterXcframework);
         final subframeworks =
@@ -68,9 +68,9 @@ class RunnerShim {
               'Runner at $outputPath');
         }
 
-        makeExecutable(outputPath);
+        ProcessRunner.makeExecutable(outputPath);
         final size = await File(outputPath).length();
-        logTrace('Runner binary produced: $outputPath (${size ~/ 1024} KB)');
+        Log.logTrace('Runner binary produced: $outputPath (${size ~/ 1024} KB)');
 
         return outputPath;
       });
@@ -84,7 +84,7 @@ class RunnerShim {
     required String subframeworks,
     required String flutterSlice,
   }) async {
-    logTrace('[clang] compile Runner.m → Runner.o');
+    Log.logTrace('[clang] compile Runner.m → Runner.o');
     await ProcessRunner.runChecked(
       clang,
       [
@@ -105,7 +105,7 @@ class RunnerShim {
         '-o',
         objectPath,
       ],
-      inheritStdio: isVerbose,
+      inheritStdio: Log.isVerbose,
       label: 'clang',
     );
   }
@@ -120,7 +120,7 @@ class RunnerShim {
     required String subframeworks,
     required String sdkVersion,
   }) async {
-    logTrace('[ld64.lld] link Runner.o → Runner');
+    Log.logTrace('[ld64.lld] link Runner.o → Runner');
     await ProcessRunner.runChecked(
       ld64lld,
       [
@@ -152,7 +152,7 @@ class RunnerShim {
         '-rpath',
         '@executable_path/Frameworks',
       ],
-      inheritStdio: isVerbose,
+      inheritStdio: Log.isVerbose,
       label: 'ld64.lld',
     );
   }

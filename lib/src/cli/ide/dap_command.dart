@@ -1,7 +1,7 @@
 // STDOUT DISCIPLINE — invariants for everything in this file:
 //  1. [DapFraming.encode] via [XcrossDap._send] is the ONLY thing here that
 //     touches stdout. A stray byte desynchronises the frame stream for good.
-//  2. Never call logStatus() on the DAP code path — it writes to fd1. logWarn /
+//  2. Never call Log.logStatus() on the DAP code path — it writes to fd1. logWarn /
 //     logError go to fd2 and are safe, but an `output` event is better.
 //  3. Never start a child with ProcessStartMode.inheritStdio from this process.
 //     `xcross flutter run` spawns ~9 grandchildren that write straight to fd1,
