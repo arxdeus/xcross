@@ -20,6 +20,22 @@ class DartVmServiceClient {
   final _events = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get events => _events.stream;
 
+  /// Handlers for services we registered; the VM calls *into* us for these.
+  final Map<String, Future<Map<String, Object?>> Function(Map<String, Object?>)>
+      _services = {};
+
+  /// Register a service the VM can call back into, e.g. `compileExpression`.
+  ///
+  /// [handler] returns the reply body; throwing becomes an error response.
+  Future<void> registerService(
+    String service,
+    String alias,
+    Future<Map<String, Object?>> Function(Map<String, Object?> params) handler,
+  ) async {
+    _services[service] = handler;
+    await call('registerService', params: {'service': service, 'alias': alias});
+  }
+
   /// Subscribe to a VM Service event stream (idempotent — ignores
   /// "already subscribed").
   Future<void> streamListen(String streamId) async {
@@ -106,8 +122,13 @@ class DartVmServiceClient {
       return;
     }
 
-    // Stream events carry no id — surface them for waiters.
+    // Three shapes share this socket: a notification (method, no id), a request
+    // the VM makes OF US (method + id), and a reply to one of our calls.
     final id = json['id'];
+    if (json['method'] case final String method when id != null) {
+      unawaited(_handleServerRequest(id, method, json['params']));
+      return;
+    }
     if (id is! int) {
       if (json
           case {
@@ -143,6 +164,38 @@ class DartVmServiceClient {
       final Map<String, dynamic> result => result,
       _ => <String, dynamic>{},
     });
+  }
+
+  /// Answer a request the VM made of us. Always replies: a silent drop leaves
+  /// the VM waiting forever, and an `evaluate` that never returns reads as a
+  /// hang rather than an error.
+  Future<void> _handleServerRequest(
+      Object? id, String method, Object? rawParams) async {
+    Map<String, Object?> body;
+    final handler = _services[method];
+    if (handler == null) {
+      body = {
+        'error': {'code': -32601, 'message': "method not found '$method'"},
+      };
+    } else {
+      try {
+        body = await handler(switch (rawParams) {
+          final Map<String, Object?> params => params,
+          _ => const {},
+        });
+      } on Object catch (e) {
+        // 113 = kExpressionCompilationError. The VM forwards `details` to the
+        // caller, which is where a compile error belongs.
+        body = {
+          'error': {
+            'code': 113,
+            'message': 'Expression compilation error',
+            'data': {'details': '$e'},
+          },
+        };
+      }
+    }
+    _channel?.sink.add(jsonEncode({...body, 'id': id, 'jsonrpc': '2.0'}));
   }
 
   void _handleClose() {

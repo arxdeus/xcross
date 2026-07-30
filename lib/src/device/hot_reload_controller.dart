@@ -54,7 +54,52 @@ class HotReloadController {
     await _frontend.compile();
     await _frontend.accept();
     _sources.snapshot();
+    await _registerExpressionCompiler();
   }
+
+  /// Serve the VM Service `compileExpression` service from our frontend_server.
+  ///
+  /// The Flutter engine embeds no kernel compiler, so the VM delegates
+  /// expression compilation to a registered client. With nobody registered
+  /// every `evaluate` fails — which is also how DevTools decides an app is a
+  /// profile build (it probes with `Platform.isAndroid`), disabling the Flutter
+  /// Inspector and Debugger screens on a perfectly good debug build.
+  ///
+  /// Best effort: reload still works without it.
+  Future<void> _registerExpressionCompiler() async {
+    try {
+      await vm.registerService('compileExpression', 'xcross', (params) async {
+        final kernel = await _frontend.compileExpression(
+          expression: params['expression'] as String? ?? '',
+          definitions: _stringList(params['definitions']),
+          definitionTypes: _stringList(params['definitionTypes']),
+          typeDefinitions: _stringList(params['typeDefinitions']),
+          typeBounds: _stringList(params['typeBounds']),
+          typeDefaults: _stringList(params['typeDefaults']),
+          libraryUri: params['libraryUri'] as String? ?? '',
+          klass: params['klass'] as String?,
+          method: params['method'] as String?,
+          isStatic: params['isStatic'] == true,
+        );
+        // Shape mirrors flutter_tools' handler exactly; the VM reads
+        // `result.kernelBytes`.
+        return {
+          'type': 'Success',
+          'result': {'kernelBytes': base64Encode(kernel)},
+        };
+      });
+    } on Object catch (e) {
+      logWarn('expression evaluation unavailable: $e');
+    }
+  }
+
+  /// Tolerates a missing or differently-typed list: the parameter set has grown
+  /// over VM versions (`typeDefaults` is recent), and an absent one is empty,
+  /// not an error.
+  static List<String> _stringList(Object? value) => switch (value) {
+        final List<Object?> list => list.whereType<String>().toList(),
+        _ => const [],
+      };
 
   Future<void> close() async {
     await _frontend.close();

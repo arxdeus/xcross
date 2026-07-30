@@ -78,13 +78,31 @@ class FrontendServerClient {
         .listen((line) => stderr.writeln('[frontend_server] $line'));
   }
 
-  Future<String> compile() async {
-    final entrypointUri = Uri.file(config.entrypoint).toString();
-    await _send('compile $entrypointUri\n');
-    return _readResultBoundary();
+  /// Serializes everything that talks to the compiler over its stdin/stdout.
+  ///
+  /// A `compileExpression` from DevTools can arrive at any moment, and
+  /// interleaving it with a hot-reload recompile corrupts both the request
+  /// framing and the incremental state.
+  Future<void> _lock = Future<void>.value();
+
+  Future<T> _serialized<T>(Future<T> Function() body) {
+    final result = _lock.then((_) => body());
+    // Swallow the error on the chain only: one failure must not wedge every
+    // later request, but the caller still sees it.
+    _lock = result.then((_) {}, onError: (Object _) {});
+    return result;
   }
 
-  Future<String> recompile({required List<String> invalidated}) async {
+  Future<String> compile() => _serialized(() async {
+        final entrypointUri = Uri.file(config.entrypoint).toString();
+        await _send('compile $entrypointUri\n');
+        return _readResultBoundary();
+      });
+
+  Future<String> recompile({required List<String> invalidated}) =>
+      _serialized(() => _recompile(invalidated));
+
+  Future<String> _recompile(List<String> invalidated) async {
     final entrypointUri = Uri.file(config.entrypoint).toString();
     // Hex-encoded microsecond timestamp used as the boundary token that wraps
     // the invalidated-file list in the frontend_server recompile protocol.
@@ -107,12 +125,56 @@ class FrontendServerClient {
   /// Required before a hot restart: `_flutter.runInView` needs a complete
   /// program as `mainScript`. Handing it a delta leaves the new isolate unable
   /// to load, so it never becomes runnable and the restart hangs.
-  Future<void> reset() => _send('reset\n');
+  Future<void> reset() => _serialized(() => _send('reset\n'));
 
   /// Commit the latest output as the next incremental baseline.
-  Future<void> accept() => _send('accept\n');
+  Future<void> accept() => _serialized(() => _send('accept\n'));
 
-  Future<void> reject() => _send('reject\n');
+  Future<void> reject() => _serialized(() => _send('reject\n'));
+
+  /// Compile [expression] into an expression kernel and return its bytes.
+  ///
+  /// Serves the VM Service `compileExpression` service. The Flutter engine
+  /// embeds no kernel compiler, so the VM delegates expression compilation to a
+  /// client; with nobody registered every `evaluate` fails.
+  Future<List<int>> compileExpression({
+    required String expression,
+    required List<String> definitions,
+    required List<String> definitionTypes,
+    required List<String> typeDefinitions,
+    required List<String> typeBounds,
+    required List<String> typeDefaults,
+    required String libraryUri,
+    required String? klass,
+    required String? method,
+    required bool isStatic,
+  }) =>
+      _serialized(() async {
+        // Line protocol: the header, the expression, then five lists each
+        // terminated by the boundary token, then the context. Order and count
+        // are fixed — a missing terminator desynchronises the compiler.
+        final key = DateTime.now().microsecondsSinceEpoch.toRadixString(16);
+        final sb = StringBuffer()
+          ..writeln('compile-expression $key')
+          ..writeln(expression);
+        for (final list in [
+          definitions,
+          definitionTypes,
+          typeDefinitions,
+          typeBounds,
+          typeDefaults,
+        ]) {
+          list.forEach(sb.writeln);
+          sb.writeln(key);
+        }
+        sb
+          ..writeln(libraryUri)
+          ..writeln(klass ?? '')
+          ..writeln(method ?? '')
+          ..writeln(isStatic);
+        await _send(sb.toString());
+        return File(await _readResultBoundary()).readAsBytes();
+      });
 
   Future<void> close() async {
     // ORDER MATTERS: `quit` must be flushed before kill() or the write is

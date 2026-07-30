@@ -89,6 +89,8 @@ Once the app is up, xcross reports the on-device VM Service URI to the editor, s
 
 The VM Service lives on the phone behind an IPv6 RSD tunnel, and a bracketed IPv6 literal does not survive browsers, editor webviews or the editor's URI forwarding. So xcross forwards the port and publishes plain `ws://127.0.0.1:<port>/ws` instead — the same shape `flutter run` hands out.
 
+Expression evaluation works too, which matters more than it sounds: the Flutter engine embeds no kernel compiler, so the VM asks a registered client to compile expressions. xcross serves that from the `frontend_server` it already runs for hot reload. Without it, DevTools probes with `Platform.isAndroid`, sees the eval fail, concludes the app is a profile build, and disables the **Flutter Inspector** and **Debugger** screens on a perfectly good debug build.
+
 xcross runs no DDS in front of the VM Service, unlike `flutter run`, which has two consequences:
 
 - The **Logging** screen only shows events from the moment DevTools connects — there is no replay of earlier logs.
