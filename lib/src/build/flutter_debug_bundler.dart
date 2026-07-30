@@ -251,10 +251,11 @@ class FlutterDebugBundler {
     File(p.join(assetsDir, 'NOTICES.Z')).writeAsBytesSync(_emptyZlibBytes);
   }
 
-  Future<_Toolchain> _resolveToolchain() async {
+  Future<({String clang, String iosSDK, String? lldToolsetBin})>
+      _resolveToolchain() async {
     final darwin = DarwinSdk.current();
     if (darwin != null) {
-      return _Toolchain(
+      return (
         clang: await locateTool('clang'),
         iosSDK: darwin.iPhoneOSSdk(),
         lldToolsetBin: p.join(darwin.bundle, 'toolset', 'bin'),
@@ -267,7 +268,10 @@ class FlutterDebugBundler {
     );
   }
 
-  Future<void> _buildAppStub(String appFramework, _Toolchain toolchain) =>
+  Future<void> _buildAppStub(
+    String appFramework,
+    ({String clang, String iosSDK, String? lldToolsetBin}) toolchain,
+  ) =>
       logStep('Building App.framework', () async {
         final tmp =
             await Directory.systemTemp.createTemp('xtool-flutter-stub-');
@@ -302,7 +306,7 @@ class FlutterDebugBundler {
 
   /// Build the clang argument list for the App stub dylib.
   static List<String> _appStubClangArgs({
-    required _Toolchain toolchain,
+    required ({String clang, String iosSDK, String? lldToolsetBin}) toolchain,
     required String stubSource,
     required String outputBinary,
   }) {
@@ -368,20 +372,4 @@ class FlutterDebugBundler {
         '</plist>\n';
     File(p.join(appFramework, 'Info.plist')).writeAsStringSync(plist);
   }
-}
-
-/// Resolved toolchain for the App.framework stub build.
-class _Toolchain {
-  const _Toolchain({
-    required this.clang,
-    required this.iosSDK,
-    this.lldToolsetBin,
-  });
-
-  final String clang;
-  final String iosSDK;
-
-  /// Path to `toolset/bin/` containing `ld64.lld`. Null on macOS where the
-  /// host clang's default linker handles Mach-O.
-  final String? lldToolsetBin;
 }
