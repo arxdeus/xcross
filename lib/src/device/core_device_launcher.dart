@@ -22,8 +22,6 @@ abstract final class CoreDeviceLauncher {
   static Future<void> launch({
     required String udid,
     required String bundleId,
-    required bool keepAttached,
-    required bool checkedMode,
     List<String> arguments = const [],
     HotReloadConfig? hotReload,
   }) async {
@@ -47,7 +45,6 @@ abstract final class CoreDeviceLauncher {
     final debugproxyPort = await _resolveDebugproxyPort(tunnel);
     final appArgs = _buildAppArgs(
       arguments: arguments,
-      checkedMode: checkedMode,
       hotReload: hotReload,
     );
 
@@ -67,13 +64,6 @@ abstract final class CoreDeviceLauncher {
     } catch (e) {
       tunnelDaemon.stop();
       throw XcrossError('Debugger attach failed: $e');
-    }
-
-    // AOT / release: don't need to hold the connection.
-    if (!keepAttached) {
-      await gdb.close();
-      tunnelDaemon.stop();
-      return;
     }
 
     final hotReloadController = await _trySpinUpHotReload(
@@ -197,23 +187,17 @@ abstract final class CoreDeviceLauncher {
   /// flags as required.
   static List<String> _buildAppArgs({
     required List<String> arguments,
-    required bool checkedMode,
     required HotReloadConfig? hotReload,
-  }) {
-    final args = List<String>.from(arguments);
-    if (checkedMode) {
-      args.insertAll(0, ['--enable-checked-mode', '--verify-entry-points']);
-    }
-    if (hotReload != null) {
-      // VM Service must bind IPv6-any (::) — the RSD tunnel is IPv6.
-      args.insertAll(0, [
-        '--vm-service-host=::',
-        '--vm-service-port=${DeviceConstants.vmServicePort}',
-        '--disable-service-auth-codes',
-      ]);
-    }
-    return args;
-  }
+  }) =>
+      [
+        // VM Service must bind IPv6-any (::) — the RSD tunnel is IPv6.
+        if (hotReload != null) ...[
+          '--vm-service-host=::',
+          '--vm-service-port=${DeviceConstants.vmServicePort}',
+          '--disable-service-auth-codes',
+        ],
+        '--enable-checked-mode', '--verify-entry-points', ...arguments,
+      ];
 
   /// Launch the app suspended and return its device PID.
   static Future<int> _launchSuspended({

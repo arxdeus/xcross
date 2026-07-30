@@ -8,26 +8,22 @@ import 'package:xcross/src/xtool/xtool_cli.dart';
 abstract final class DebugLauncher {
   /// Launch [bundleId] on [udid] via the legacy xtool debugserver path.
   ///
-  /// [keepAttached]: If true, the JIT Dart VM requires CS_DEBUGGED to stay set.
-  /// xtool launch detaches after launch, so JIT debug apps **may** crash on
-  /// detach. Use iOS 17+ (CoreDeviceLauncher) for the full attached +
-  /// hot-reload experience.
+  /// The JIT Dart VM requires CS_DEBUGGED to stay set. xtool launch detaches
+  /// after launch, so JIT debug apps **may** crash on detach. Use iOS 17+
+  /// (CoreDeviceLauncher) for the full attached + hot-reload experience.
   static Future<void> launch({
     required String udid,
     required String bundleId,
-    required bool keepAttached,
     XtoolCli? xtool,
   }) async {
     final cli = xtool ?? XtoolCli();
 
-    if (keepAttached) {
-      logWarn(
-        'Pre-iOS-17 path: xtool launch detaches immediately after launch. '
-        'Flutter JIT/debug apps may crash on detach because the '
-        'CS_DEBUGGED flag is dropped when the debugger disconnects.\n'
-        'Recommend iOS 17+ for the full attached/hot-reload experience.',
-      );
-    }
+    logWarn(
+      'Pre-iOS-17 path: xtool launch detaches immediately after launch. '
+      'Flutter JIT/debug apps may crash on detach because the '
+      'CS_DEBUGGED flag is dropped when the debugger disconnects.\n'
+      'Recommend iOS 17+ for the full attached/hot-reload experience.',
+    );
 
     await cli.launch(bundleId, udid: udid);
   }

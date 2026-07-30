@@ -140,7 +140,6 @@ abstract final class Pymd {
     required int rsdPort,
     required String bundleId,
     required List<String> appArguments,
-    bool killExisting = true,
   }) async {
     final joined = ProcessRunner.commandLine(bundleId, appArguments);
     final args = [
@@ -151,7 +150,7 @@ abstract final class Pymd {
       rsdHost,
       '$rsdPort',
       '--suspended',
-      if (killExisting) '--kill-existing',
+      '--kill-existing',
       '--',
       joined,
     ];
@@ -292,6 +291,23 @@ abstract final class Pymd {
       env['USBMUXD_SOCKET_ADDRESS'] = unix;
     }
     return env;
+  }
+
+  /// `[sudo -n] [env USBMUXD_SOCKET_ADDRESS=…] <pymd> …args`.
+  static Future<List<String>> elevatedArgs(List<String> pymdArgs) async {
+    final inv = await resolve();
+    final sudo = await Sudo.resolve();
+    final usbmux = resolvedUsbmuxAddress();
+    return <String>[
+      if (sudo != null) ...[sudo, '-n'],
+      if (sudo != null && usbmux != null) ...[
+        'env',
+        'USBMUXD_SOCKET_ADDRESS=$usbmux',
+      ],
+      inv.executable,
+      ...inv.prefixArgs,
+      ...pymdArgs,
+    ];
   }
 
   /// Absolute usbmux address to pass through `sudo env …` (never empty).

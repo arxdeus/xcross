@@ -51,7 +51,7 @@ abstract final class DevicePrepare {
 
   /// `sudo pymobiledevice3 mounter auto-mount` (one-shot).
   static Future<void> _autoMount() async {
-    final argv = await _elevatedPymdArgs(['mounter', 'auto-mount']);
+    final argv = await Pymd.elevatedArgs(['mounter', 'auto-mount']);
     logTrace('[pymobiledevice3] mounting DDI: ${argv.join(' ')}');
     // Captured (not inheritStdio): a child writing to fd1 would shred the
     // spinner. Runs under `sudo -n`, so there is no prompt to hide.
@@ -85,7 +85,7 @@ abstract final class DevicePrepare {
 
   /// Spawn `lockdown start-tunnel` and wait for it to report an RSD tunnel.
   static Future<void> _startLockdownTunnel() async {
-    final argv = await _elevatedPymdArgs(['lockdown', 'start-tunnel']);
+    final argv = await Pymd.elevatedArgs(['lockdown', 'start-tunnel']);
     final tmpDir = Platform.environment['TMPDIR'] ?? '/tmp';
     final logPath = '$tmpDir/xcross-start-tunnel.log';
     final logFile = File(logPath);
@@ -184,22 +184,5 @@ abstract final class DevicePrepare {
     } on Object {
       return false;
     }
-  }
-
-  /// `[sudo -n] [env USBMUXD_SOCKET_ADDRESS=…] <pymd> …args`.
-  static Future<List<String>> _elevatedPymdArgs(List<String> pymdArgs) async {
-    final inv = await Pymd.resolve();
-    final sudo = await Sudo.resolve();
-    final usbmux = Pymd.resolvedUsbmuxAddress();
-    return <String>[
-      if (sudo != null) ...[sudo, '-n'],
-      if (sudo != null && usbmux != null) ...[
-        'env',
-        'USBMUXD_SOCKET_ADDRESS=$usbmux',
-      ],
-      inv.executable,
-      ...inv.prefixArgs,
-      ...pymdArgs,
-    ];
   }
 }

@@ -28,9 +28,7 @@ class TunnelDaemon {
       return;
     }
 
-    final inv = await Pymd.resolve();
     final sudo = await Sudo.resolve();
-    final usbmux = Pymd.resolvedUsbmuxAddress();
 
     // Cache sudo credentials interactively first, then start the long-lived
     // daemon with piped stdio (never inheritStdio — that steals `r`/`R`/`q`
@@ -45,17 +43,7 @@ class TunnelDaemon {
     // Linux pymobiledevice3 targets 127.0.0.1:27015 and fails under usbipd.
     // `-n` is safe here because `Sudo.cacheCredentials` just refreshed the
     // timestamp (or we are already root / passwordless).
-    final argv = <String>[
-      if (sudo != null) ...[sudo, '-n'],
-      if (sudo != null && usbmux != null) ...[
-        'env',
-        'USBMUXD_SOCKET_ADDRESS=$usbmux',
-      ],
-      inv.executable,
-      ...inv.prefixArgs,
-      'remote',
-      'tunneld',
-    ];
+    final argv = await Pymd.elevatedArgs(['remote', 'tunneld']);
 
     logTrace(
       '[pymobiledevice3] starting RSD tunnel daemon'

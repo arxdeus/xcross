@@ -18,26 +18,34 @@ class SessionConsole {
 
   bool _stopped = false;
 
+  /// Completes the moment [_stop] is first called; `run()` awaits this
+  /// instead of busy-polling [_stopped].
+  final Completer<void> _stoppedCompleter = Completer<void>();
+
   /// Prevents overlapping reload/restart operations.
   bool _busy = false;
 
   Completer<void>? _done;
+
+  /// Flip [_stopped] and complete [_stoppedCompleter] (idempotent).
+  void _stop() {
+    _stopped = true;
+    if (!_stoppedCompleter.isCompleted) _stoppedCompleter.complete();
+  }
 
   /// Run until the app exits or the user quits.
   Future<void> run() async {
     // Forward Ctrl-C cleanly; a second Ctrl-C hard-kills in case cleanup hangs.
     final signals = ProcessSignal.sigint.watch().listen((_) {
       if (_stopped) exit(130);
-      _stopped = true;
+      _stop();
     });
 
     try {
       final drainFuture = _drainGdbReplies();
       final keypressFuture = _runKeypressLoop();
 
-      while (!_stopped) {
-        await Future<void>.delayed(const Duration(milliseconds: 100));
-      }
+      await _stoppedCompleter.future;
       await drainFuture.timeout(const Duration(seconds: 2), onTimeout: () {});
       await keypressFuture.timeout(const Duration(seconds: 1),
           onTimeout: () {});
@@ -77,7 +85,7 @@ class SessionConsole {
           _writeAppOutput(reply.stdoutBytes);
         case GdbReply.exited || GdbReply.terminated:
           logInfo('App exited ${ansi.subtle('(${reply.payload})')}');
-          _stopped = true;
+          _stop();
           return;
         case GdbReply.stopped || GdbReply.other:
           break;
@@ -114,11 +122,11 @@ class SessionConsole {
     final sub = sharedStdin.listen(
       _handleKeyByte,
       onDone: () {
-        _stopped = true;
+        _stop();
         _finish();
       },
       onError: (_) {
-        _stopped = true;
+        _stop();
         _finish();
       },
     );
@@ -173,7 +181,7 @@ class SessionConsole {
       if (ch == DeviceConstants.keyQ ||
           ch == DeviceConstants.keyCtrlC ||
           ch == DeviceConstants.keyCtrlD) {
-        _stopped = true;
+        _stop();
         return _finish();
       }
       // Ignore reload/restart keys while one is already in flight so presses
