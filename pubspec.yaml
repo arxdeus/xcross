@@ -14,7 +14,7 @@ dependencies:
   args: ^2.7.0
   async: ^2.13.1
   completion: ^1.0.2
-  cli_util: ^0.5.1
+  cli_util: ^0.5.2
   meta: ^1.18.3
   path: ^1.9.1
   yaml: ^3.1.3
