@@ -5,15 +5,14 @@
 #   integration tests can run without hitting cold-start failures.
 #
 # USAGE:
-#   1. Set repo secret DARWIN_ARTIFACTBUNDLE_URL to a URL pointing at a
-#      .tar.gz that contains darwin.artifactbundle/ at its root:
+#   1. Build a .tar.gz that contains darwin.artifactbundle/ at its root:
 #
 #        tar -czf darwin.artifactbundle.tar.gz \
 #          -C ~/.swiftpm/swift-sdks darwin.artifactbundle
 #        # Upload to an accessible URL (e.g. private GCS bucket, release asset)
-#        # Set Actions secret: DARWIN_ARTIFACTBUNDLE_URL=https://<host>/...tar.gz
 #
-#   2. Go to Actions → "Warm Darwin SDK cache" → Run workflow.
+#   2. Go to Actions → "Warm Darwin SDK cache" → Run workflow, and paste the
+#      URL into the `darwin_artifactbundle_url` input.
 #
 #   3. After this job completes, the cache key `darwin-artifactbundle-v1` is
 #      warm and integration tests will hit it on every subsequent run.
@@ -27,28 +26,25 @@ name: Warm Darwin SDK cache
 
 on:
   workflow_dispatch:
+    inputs:
+      darwin_artifactbundle_url:
+        description: >-
+          URL of a .tar.gz containing darwin.artifactbundle/ at its
+          root
+        required: true
+        type: string
 
 jobs:
   warm-cache:
     name: Download and cache darwin.artifactbundle
     runs-on: ubuntu-24.04
     env:
-      DARWIN_ARTIFACTBUNDLE_URL: ${{ secrets.DARWIN_ARTIFACTBUNDLE_URL }}
+      DARWIN_ARTIFACTBUNDLE_URL: >-
+        ${{ inputs.darwin_artifactbundle_url }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-
-      - name: Validate secret is set
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -z "${DARWIN_ARTIFACTBUNDLE_URL:-}" ]]; then
-            echo "::error::Repo secret DARWIN_ARTIFACTBUNDLE_URL is not set."
-            echo "Set it to a .tar.gz URL containing darwin.artifactbundle/ at its root."
-            exit 1
-          fi
-          echo "DARWIN_ARTIFACTBUNDLE_URL is set (value redacted)."
 
       - name: Download darwin.artifactbundle
         shell: bash
@@ -56,14 +52,19 @@ jobs:
           set -euo pipefail
           echo "::group::Download darwin.artifactbundle"
           mkdir -p ~/.swiftpm/swift-sdks
-          curl -fSL "${DARWIN_ARTIFACTBUNDLE_URL}" -o /tmp/darwin.artifactbundle.tar.gz
+          cmd=(curl -fSL "${DARWIN_ARTIFACTBUNDLE_URL}" \
+            -o /tmp/darwin.artifactbundle.tar.gz)
+          echo "+ ${cmd[*]}"
+          "${cmd[@]}"
           echo "Download complete. Verifying archive ..."
-          tar -tzf /tmp/darwin.artifactbundle.tar.gz | grep "info.json" || {
-            echo "::error::Archive does not appear to contain darwin.artifactbundle/info.json"
+          tar -tzf /tmp/darwin.artifactbundle.tar.gz \
+            | grep "info.json" || {
+            echo "::error::Archive missing darwin.artifactbundle/info.json"
             exit 1
           }
           echo "Extracting ..."
-          tar -xzf /tmp/darwin.artifactbundle.tar.gz -C ~/.swiftpm/swift-sdks/
+          tar -xzf /tmp/darwin.artifactbundle.tar.gz \
+            -C ~/.swiftpm/swift-sdks/
           rm /tmp/darwin.artifactbundle.tar.gz
           echo "Extracted:"
           ls -la ~/.swiftpm/swift-sdks/darwin.artifactbundle/
@@ -73,7 +74,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -f "$HOME/.swiftpm/swift-sdks/darwin.artifactbundle/info.json" || {
+          bundle=~/.swiftpm/swift-sdks/darwin.artifactbundle
+          test -f "$bundle/info.json" || {
             echo "::error::info.json missing after extraction"
             exit 1
           }
