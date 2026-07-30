@@ -42,25 +42,25 @@ class FlutterPacker {
   /// Returns path to `<projectRoot>/build/xtool-ios/<appName>.app`.
   Future<String> pack() async {
     final flutterRoot = await resolveFlutterRoot(projectRoot: projectRoot);
-    logTrace('Flutter SDK: $flutterRoot');
+    Log.logTrace('Flutter SDK: $flutterRoot');
 
     if (options.pub) {
       await _runFlutterPubGet(flutterRoot);
     } else {
-      logTrace('skipping flutter pub get (--no-pub)');
+      Log.logTrace('skipping flutter pub get (--no-pub)');
     }
 
     if (options.flavor != null) {
-      logTrace('building flavor "${options.flavor}"');
+      Log.logTrace('building flavor "${options.flavor}"');
     }
 
     final appFramework = await _buildAppFramework(flutterRoot);
-    final (:xcframework, :runnerBinary) = await _buildRunnerBinary(flutterRoot);
+    final runnerResult = await _buildRunnerBinary(flutterRoot);
 
     return _assembleAndPersistBundle(
       appFramework: appFramework,
-      xcframework: xcframework,
-      runnerBinary: runnerBinary,
+      xcframework: runnerResult.xcframework,
+      runnerBinary: runnerResult.runnerBinary,
     );
   }
 
@@ -78,7 +78,7 @@ class FlutterPacker {
       return Link(fvmLink).resolveSymbolicLinksSync();
     }
 
-    final flutter = await locateTool('flutter');
+    final flutter = await ProcessRunner.locateTool('flutter');
     // The `flutter` script lives at <root>/bin/flutter.
     return p.dirname(p.dirname(File(flutter).resolveSymbolicLinksSync()));
   }
@@ -88,7 +88,7 @@ class FlutterPacker {
   Future<void> _runFlutterPubGet(String flutterRoot) {
     final packageConfig =
         p.join(projectRoot, '.dart_tool', 'package_config.json');
-    return logStep('Resolving dependencies', () async {
+    return Log.logStep('Resolving dependencies', () async {
       try {
         await ProcessRunner.runChecked(
           p.join(flutterRoot, 'bin', 'flutter'),
@@ -96,12 +96,12 @@ class FlutterPacker {
           workingDirectory: projectRoot,
           // `pub get` is non-interactive; inheriting fd1 would shred the
           // spinner, so only inherit when verbose (no spinner then).
-          inheritStdio: isVerbose,
+          inheritStdio: Log.isVerbose,
           label: 'flutter',
         );
       } on XcrossError {
         if (File(packageConfig).existsSync()) {
-          logWarn('Ignoring flutter pub get error because '
+          Log.logWarn('Ignoring flutter pub get error because '
               'package_config.json exists.');
           return;
         }
@@ -130,7 +130,7 @@ class FlutterPacker {
 
   /// Compile the ObjC Runner shim and return both the xcframework path and the
   /// linked Runner binary path.
-  Future<({String xcframework, String runnerBinary})> _buildRunnerBinary(
+  Future<RunnerBinaryResult> _buildRunnerBinary(
     String flutterRoot,
   ) async {
     final xcframework =
@@ -151,7 +151,8 @@ class FlutterPacker {
       outputDir: p.join(projectRoot, 'build', 'xtool-flutter-runner-bin'),
     );
 
-    return (xcframework: xcframework, runnerBinary: runnerBinary);
+    return RunnerBinaryResult(
+        xcframework: xcframework, runnerBinary: runnerBinary);
   }
 
   /// Copy all bundle contents into a temp directory, write `Info.plist`, then
@@ -172,7 +173,7 @@ class FlutterPacker {
     await Directory(frameworksDir).create(recursive: true);
 
     await File(runnerBinary).copy(p.join(bundleDir, 'Runner'));
-    makeExecutable(p.join(bundleDir, 'Runner'));
+    ProcessRunner.makeExecutable(p.join(bundleDir, 'Runner'));
 
     await _copyDirectory(
         flutterFramework, p.join(frameworksDir, 'Flutter.framework'));
@@ -289,4 +290,13 @@ class FlutterPacker {
       }
     }
   }
+}
+
+/// Result of building the ObjC Runner shim: the xcframework used and the
+/// linked Runner binary path.
+class RunnerBinaryResult {
+  const RunnerBinaryResult({required this.xcframework, required this.runnerBinary});
+
+  final String xcframework;
+  final String runnerBinary;
 }

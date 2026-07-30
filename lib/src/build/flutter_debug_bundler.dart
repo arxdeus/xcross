@@ -63,15 +63,15 @@ class FlutterDebugBundler {
   /// Build `App.framework` inside [outputDir]. Returns the framework path.
   Future<String> build() async {
     final engineCache = IosEngineCache(flutterRoot: flutterRoot);
-    await logStep(
+    await Log.logStep(
       'Fetching Flutter engine artifacts',
       engineCache.ensureArtifactsAvailable,
     );
 
-    logTrace('resolving iOS debug toolchain');
+    Log.logTrace('resolving iOS debug toolchain');
     final toolchain = await _resolveToolchain();
 
-    logTrace('preparing App.framework output');
+    Log.logTrace('preparing App.framework output');
     await Directory(outputDir).create(recursive: true);
 
     final appFramework = p.join(outputDir, 'App.framework');
@@ -83,7 +83,7 @@ class FlutterDebugBundler {
 
     final appDill = await _runKernelSnapshot(engineCache);
 
-    await logStep('Bundling assets', () async {
+    await Log.logStep('Bundling assets', () async {
       await _copyDataAssets(assetsDir, engineCache, appDill);
       await _copyMaterialFonts(assetsDir);
       _writeManifests(assetsDir);
@@ -91,7 +91,7 @@ class FlutterDebugBundler {
 
     await _buildAppStub(appFramework, toolchain);
 
-    logTrace('writing App.framework Info.plist');
+    Log.logTrace('writing App.framework Info.plist');
     _writeAppFrameworkInfoPlist(appFramework);
 
     return appFramework;
@@ -155,7 +155,7 @@ class FlutterDebugBundler {
       resolvedEntrypoint,
     ];
 
-    await logStep(
+    await Log.logStep(
       'Compiling Dart kernel',
       () => ProcessRunner.runChecked(
         runtime,
@@ -163,7 +163,7 @@ class FlutterDebugBundler {
         workingDirectory: projectRoot,
         // Inheriting fd1 while a spinner animates shreds the line; capture
         // instead (the stderr is folded into the thrown error either way).
-        inheritStdio: isVerbose,
+        inheritStdio: Log.isVerbose,
         label: 'frontend_server',
       ),
     );
@@ -251,12 +251,11 @@ class FlutterDebugBundler {
     File(p.join(assetsDir, 'NOTICES.Z')).writeAsBytesSync(_emptyZlibBytes);
   }
 
-  Future<({String clang, String iosSDK, String? lldToolsetBin})>
-      _resolveToolchain() async {
+  Future<Toolchain> _resolveToolchain() async {
     final darwin = DarwinSdk.current();
     if (darwin != null) {
-      return (
-        clang: await locateTool('clang'),
+      return Toolchain(
+        clang: await ProcessRunner.locateTool('clang'),
         iosSDK: darwin.iPhoneOSSdk(),
         lldToolsetBin: p.join(darwin.bundle, 'toolset', 'bin'),
       );
@@ -268,11 +267,8 @@ class FlutterDebugBundler {
     );
   }
 
-  Future<void> _buildAppStub(
-    String appFramework,
-    ({String clang, String iosSDK, String? lldToolsetBin}) toolchain,
-  ) =>
-      logStep('Building App.framework', () async {
+  Future<void> _buildAppStub(String appFramework, Toolchain toolchain) =>
+      Log.logStep('Building App.framework', () async {
         final tmp =
             await Directory.systemTemp.createTemp('xtool-flutter-stub-');
         final stubSource = p.join(tmp.path, 'debug_app.c');
@@ -292,7 +288,7 @@ class FlutterDebugBundler {
         await ProcessRunner.runChecked(
           toolchain.clang,
           args,
-          inheritStdio: isVerbose,
+          inheritStdio: Log.isVerbose,
           label: 'clang',
         );
 
@@ -306,7 +302,7 @@ class FlutterDebugBundler {
 
   /// Build the clang argument list for the App stub dylib.
   static List<String> _appStubClangArgs({
-    required ({String clang, String iosSDK, String? lldToolsetBin}) toolchain,
+    required Toolchain toolchain,
     required String stubSource,
     required String outputBinary,
   }) {
@@ -372,4 +368,20 @@ class FlutterDebugBundler {
         '</plist>\n';
     File(p.join(appFramework, 'Info.plist')).writeAsStringSync(plist);
   }
+}
+
+/// Resolved toolchain for the App.framework stub build.
+class Toolchain {
+  const Toolchain({
+    required this.clang,
+    required this.iosSDK,
+    this.lldToolsetBin,
+  });
+
+  final String clang;
+  final String iosSDK;
+
+  /// Path to `toolset/bin/` containing `ld64.lld`. Null on macOS where the
+  /// host clang's default linker handles Mach-O.
+  final String? lldToolsetBin;
 }
