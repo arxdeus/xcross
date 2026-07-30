@@ -77,7 +77,7 @@ abstract final class ProcessRunner {
     String? label,
     Step? tail,
   }) async {
-    final prefix = label ?? _labelForExecutable(executable);
+    final prefix = label ?? executable;
     logTrace('[$prefix] running: ${commandLine(executable, arguments)}');
 
     if (tail != null) {
@@ -196,13 +196,6 @@ abstract final class ProcessRunner {
   }
 
   static final _shellSpecialCharsPattern = RegExp(r'''[\s'"\\$`]''');
-
-  static String _labelForExecutable(String executable) {
-    final normalized = executable.replaceAll(r'\', '/');
-    final base = normalized.split('/').last;
-    if (base.isEmpty) return executable;
-    return base;
-  }
 
   /// Shell-like command rendering for logs and errors.
   static String commandLine(String executable, List<String> arguments) =>

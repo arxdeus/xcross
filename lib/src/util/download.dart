@@ -40,15 +40,13 @@ Future<HttpClientResponse> _openStream(
 /// Stream [url] to [dest] (pure Dart; replaces `curl -L --fail -o`).
 ///
 /// Shows a live download-progress line on stdout (bytes, percent, rate). Pass
-/// [label] to override the display name (defaults to the URL's file name);
-/// set [showProgress] to `false` to silence it.
+/// [label] to override the display name (defaults to the URL's file name).
 Future<void> downloadToFile(
   String url,
   File dest, {
   int maxAttempts = 4,
   Duration retryDelay = const Duration(seconds: 2),
   String? label,
-  bool showProgress = true,
 }) async {
   final client = HttpClient();
   try {
@@ -59,12 +57,10 @@ Future<void> downloadToFile(
       retryDelay: retryDelay,
     );
     await dest.parent.create(recursive: true);
-    final reporter = showProgress
-        ? _DownloadProgress(
-            label ?? _labelFromUrl(url),
-            response.contentLength,
-          )
-        : null;
+    final reporter = _DownloadProgress(
+      label ?? _labelFromUrl(url),
+      response.contentLength,
+    );
     final sink = dest.openWrite();
     try {
       await sink.addStream(_withProgress(response, reporter));
@@ -72,7 +68,7 @@ Future<void> downloadToFile(
     } finally {
       await sink.close();
     }
-    reporter?.finish();
+    reporter.finish();
   } finally {
     client.close(force: true);
   }
@@ -82,9 +78,8 @@ Future<void> downloadToFile(
 /// stream's contents. Returns the source unchanged when [reporter] is null.
 Stream<List<int>> _withProgress(
   Stream<List<int>> source,
-  _DownloadProgress? reporter,
+  _DownloadProgress reporter,
 ) {
-  if (reporter == null) return source;
   return source.map((chunk) {
     reporter.add(chunk.length);
     return chunk;
