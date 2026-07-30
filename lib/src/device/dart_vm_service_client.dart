@@ -112,9 +112,20 @@ class DartVmServiceClient {
       if (json
           case {
             'method': 'streamNotify',
-            'params': {'event': final Map<String, dynamic> event},
+            'params': final Map<String, dynamic> params,
           }) {
-        if (!_events.isClosed) _events.add(event);
+        if (params['event'] case final Map<String, dynamic> event) {
+          // On the wire `streamId` is a SIBLING of `event`, not a field of it.
+          // Fold it in: `Stdout` and `Stderr` both arrive as `WriteEvent`, so
+          // without it a listener cannot tell app stdout from app stderr.
+          if (!_events.isClosed) {
+            _events.add({
+              ...event,
+              if (params['streamId'] case final String streamId)
+                'streamId': streamId,
+            });
+          }
+        }
       }
       return;
     }
