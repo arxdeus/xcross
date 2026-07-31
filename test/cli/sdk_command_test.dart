@@ -11,13 +11,15 @@ void main() {
   test('filters a mixed CpioEntry list down to just SDK entries', () {
     final entries = [
       CpioEntry(
-        name: 'Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/'
+        name:
+            'Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/'
             'Developer/SDKs/iPhoneOS17.5.sdk/usr/include/stdio.h',
         mode: 0x81a4, // regular file, rw-r--r--
         data: Uint8List(0),
       ),
       CpioEntry(
-        name: 'Xcode.app/Contents/Developer/Platforms/MacOSX.platform/'
+        name:
+            'Xcode.app/Contents/Developer/Platforms/MacOSX.platform/'
             'Developer/SDKs/MacOSX14.sdk/usr/include/stdio.h',
         mode: 0x81a4,
         data: Uint8List(0),

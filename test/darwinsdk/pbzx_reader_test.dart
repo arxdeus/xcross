@@ -36,7 +36,7 @@ void main() {
       final plaintext = utf8.encode(
         'the quick brown fox jumps over the lazy dog',
       );
-      final xzBytes = await xzCompress(plaintext);
+      final xzBytes = xzCompress(plaintext);
       final pbzxBytes = buildPbzx([
         // decompressedSize < chunkSize marks this the (only, final) chunk.
         PbzxChunk(decompressedSize: plaintext.length, bytes: xzBytes),
@@ -65,15 +65,15 @@ void main() {
           // uses it to detect the final chunk.
           PbzxChunk(
             decompressedSize: _chunkSize,
-            bytes: await xzCompress(plain1),
+            bytes: xzCompress(plain1),
           ),
           PbzxChunk(
             decompressedSize: _chunkSize,
-            bytes: await xzCompress(plain2),
+            bytes: xzCompress(plain2),
           ),
           PbzxChunk(
             decompressedSize: plain3.length,
-            bytes: await xzCompress(plain3),
+            bytes: xzCompress(plain3),
           ),
         ]);
 
@@ -105,7 +105,7 @@ void main() {
           PbzxChunk(decompressedSize: _chunkSize, bytes: raw),
           PbzxChunk(
             decompressedSize: finalPlain.length,
-            bytes: await xzCompress(finalPlain),
+            bytes: xzCompress(finalPlain),
           ),
         ]);
 
@@ -133,7 +133,7 @@ void main() {
           PbzxChunk(decompressedSize: _chunkSize, bytes: notXz),
           PbzxChunk(
             decompressedSize: finalPlain.length,
-            bytes: await xzCompress(finalPlain),
+            bytes: xzCompress(finalPlain),
           ),
         ]);
 

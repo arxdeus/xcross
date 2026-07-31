@@ -5,8 +5,10 @@
 library;
 
 import 'dart:convert';
-import 'dart:io';
+import 'dart:io' show ZLibEncoder;
 import 'dart:typed_data';
+
+import 'package:archive/archive.dart' show XZEncoder;
 
 /// Builds a minimal, valid XAR file: 28-byte fixed header + zlib-compressed
 /// TOC XML + heap. [entries] maps entry name -> raw heap bytes; each gets a
@@ -63,9 +65,7 @@ Uint8List buildPbzx(List<PbzxChunk> chunks) {
     out.add(
       (ByteData(8)..setUint64(0, c.decompressedSize)).buffer.asUint8List(),
     );
-    out.add(
-      (ByteData(8)..setUint64(0, c.bytes.length)).buffer.asUint8List(),
-    );
+    out.add((ByteData(8)..setUint64(0, c.bytes.length)).buffer.asUint8List());
     out.add(c.bytes);
   }
   return out.takeBytes();
@@ -77,25 +77,12 @@ class PbzxChunk {
   final List<int> bytes;
 }
 
-/// Compresses [plaintext] into a real, standalone, valid `.xz` file by
-/// shelling out to the system `xz` binary — the pbzx reader under test
-/// insists on genuine `.xz` container framing (full magic + header/footer),
-/// not raw/headerless LZMA1, so a hand-rolled byte array would not exercise
-/// the real decode path.
-Future<Uint8List> xzCompress(List<int> plaintext) async {
-  final process = await Process.start('xz', ['--compress', '--stdout']);
-  final stdoutFuture = process.stdout.fold<BytesBuilder>(
-    BytesBuilder(),
-    (b, chunk) => b..add(chunk),
-  );
-  process.stdin.add(plaintext);
-  await process.stdin.close();
-  final exitCode = await process.exitCode;
-  if (exitCode != 0) {
-    throw StateError('xz --compress failed with exit code $exitCode');
-  }
-  return (await stdoutFuture).takeBytes();
-}
+/// Compresses [plaintext] into a real, standalone, valid `.xz` file via
+/// `package:archive`'s pure-Dart [XZEncoder] (no external `xz` binary) — the
+/// pbzx reader under test insists on genuine `.xz` container framing (full
+/// magic + header/footer), not raw/headerless LZMA1, so a hand-rolled byte
+/// array would not exercise the real decode path.
+Uint8List xzCompress(List<int> plaintext) => XZEncoder().encodeBytes(plaintext);
 
 /// Builds one classic POSIX portable-ASCII ("odc") cpio entry: 76-byte
 /// fixed-width octal header + NUL-terminated name + raw content, no padding.
@@ -106,10 +93,8 @@ Uint8List buildCpioEntry({
 }) {
   final nameBytes = ascii.encode(name);
   final namesize = nameBytes.length + 1; // + trailing NUL
-  String oct(int value, int width) => value.toRadixString(8).padLeft(
-    width,
-    '0',
-  );
+  String oct(int value, int width) =>
+      value.toRadixString(8).padLeft(width, '0');
   final header =
       '070707'
       '${oct(0, 6)}' // dev

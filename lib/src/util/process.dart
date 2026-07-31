@@ -241,10 +241,7 @@ abstract final class ProcessRunner {
       if (candidateExists) return candidate;
     }
     if (!Platform.isWindows) {
-      final result = await Process.run('/bin/sh', [
-        '-c',
-        "command -v '$name'",
-      ]);
+      final result = await Process.run('/bin/sh', ['-c', "command -v '$name'"]);
       final out = (result.stdout as String).trim();
       if (out.isNotEmpty) return out;
     }

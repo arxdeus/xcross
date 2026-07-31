@@ -92,10 +92,10 @@ class SdkInstallCommand extends Command<void> {
       );
     }
 
-    await File(
-      p.join(destDir, 'darwin-sdk-version.txt'),
-    ).writeAsString('xcross native (Xcode.xip extractor), extracted '
-        '${DateTime.now().toIso8601String()}\n');
+    await File(p.join(destDir, 'darwin-sdk-version.txt')).writeAsString(
+      'xcross native (Xcode.xip extractor), extracted '
+      '${DateTime.now().toIso8601String()}\n',
+    );
 
     Log.logDone('Extracted $written iPhoneOS SDK files to $destDir');
     Log.logWarn(

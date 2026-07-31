@@ -31,7 +31,7 @@ void main() {
         final pbzxBytes = buildPbzx([
           PbzxChunk(
             decompressedSize: cpioBytes.length,
-            bytes: await xzCompress(cpioBytes),
+            bytes: xzCompress(cpioBytes),
           ),
         ]);
 

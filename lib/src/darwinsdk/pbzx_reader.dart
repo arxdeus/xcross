@@ -1,7 +1,7 @@
-import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+
+import 'package:archive/archive.dart';
 
 import 'package:xcross/src/util/errors.dart';
 
@@ -18,15 +18,19 @@ const List<int> _xzMagic = [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00];
 /// yielding the fully decompressed payload — a raw cpio stream — as it
 /// becomes available.
 ///
-/// Strategy: consecutive xz-compressed chunks are concatenated and handed to
-/// a single `xz --decompress` subprocess per run, since `xz` decodes
-/// concatenated/multi-stream `.xz` data by default — this mirrors how
-/// Apple's own `pbzx.c` reference tool feeds chunks to liblzma with
-/// `LZMA_CONCATENATED`, and avoids spawning one subprocess per chunk (a real
-/// Xcode.xip has hundreds of them). A raw chunk (`compressedSize ==
+/// Each xz-compressed chunk is decoded independently via `package:archive`'s
+/// pure-Dart [XZDecoder] — no external `xz`/`7z` binary required. (An
+/// earlier version of this shelled out to a system `xz`, batching
+/// consecutive compressed chunks into one subprocess call since `xz` decodes
+/// concatenated multi-stream `.xz` data by default — but that meant xcross
+/// silently depended on `xz` being present on PATH, which isn't guaranteed
+/// on a end user's machine, especially Windows. `XZDecoder.decode` only
+/// consumes a single stream per call, not concatenated ones, so chunks are
+/// decoded one at a time instead of batched — fine now that there's no
+/// subprocess-spawn cost to amortize.) A raw chunk (`compressedSize ==
 /// 0x1000000`, or one that simply doesn't start with the xz magic bytes —
 /// belt-and-braces against a theoretical small incompressible final chunk)
-/// breaks that run and is copied through verbatim with no subprocess at all.
+/// is copied through verbatim with no decompression at all.
 Stream<List<int>> decodePbzx(
   RandomAccessFile file, {
   required int offset,
@@ -57,24 +61,19 @@ Stream<List<int>> decodePbzx(
   // on its own, so the value itself is read and discarded.
   await readExact(8);
 
-  final pendingXz = BytesBuilder(copy: false);
-
   while (pos < end) {
     final decompressedSize = _beUint64(await readExact(8));
     final compressedSize = _beUint64(await readExact(8));
     final chunk = await readExact(compressedSize);
 
     if (compressedSize == _pbzxChunkSize || !_looksLikeXz(chunk)) {
-      yield* _flushXz(pendingXz);
       yield chunk;
     } else {
-      pendingXz.add(chunk);
+      yield _xzDecompress(chunk);
     }
 
     if (decompressedSize < _pbzxChunkSize) break;
   }
-
-  yield* _flushXz(pendingXz);
 }
 
 bool _looksLikeXz(Uint8List chunk) {
@@ -87,46 +86,12 @@ bool _looksLikeXz(Uint8List chunk) {
 
 int _beUint64(Uint8List bytes) => ByteData.sublistView(bytes).getUint64(0);
 
-Stream<List<int>> _flushXz(BytesBuilder pending) async* {
-  if (pending.isEmpty) return;
-  yield* _xzDecompress(pending.takeBytes());
-}
-
-/// Decompresses one or more concatenated `.xz` streams by shelling out to
-/// the `xz` binary, streaming bytes in via stdin and out via stdout so a
-/// multi-chunk batch never needs to sit fully in memory as decompressed
-/// output.
-Stream<List<int>> _xzDecompress(Uint8List compressed) async* {
-  // A bare command name (no directory) is resolved by the OS's own PATH
-  // search in Process.start on every platform, so this doesn't need
-  // ProcessRunner.locateTool's PATH-scanning helper — which assumes a
-  // POSIX-style ':'-separated PATH and a `/bin/sh` fallback, neither of
-  // which holds on Windows.
-  Process process;
+/// Decompresses a single, complete `.xz` stream via `package:archive`'s
+/// pure-Dart [XZDecoder] — no subprocess, no external binary.
+Uint8List _xzDecompress(Uint8List compressed) {
   try {
-    process = await Process.start('xz', ['--decompress', '--stdout', '--quiet']);
-  } on ProcessException catch (e) {
-    throw XcrossError("Could not run 'xz' (required to decode Xcode.xip): $e");
-  }
-
-  // Write stdin without awaiting completion here: for a large batch, xz can
-  // start emitting decompressed output — filling the stdout pipe — before it
-  // has finished reading all of stdin, and awaiting the stdin write first
-  // would deadlock both sides on a full pipe buffer.
-  final stdinDone = process.stdin
-      .addStream(Stream.value(compressed))
-      .then((_) => process.stdin.close());
-  unawaited(stdinDone.catchError((Object _) {}));
-
-  // Drain stderr concurrently too, for the same reason: an error message
-  // sitting unread in the stderr pipe could otherwise block xz from exiting
-  // while we're still waiting on stdout below.
-  final stderrText = process.stderr.transform(utf8.decoder).join();
-
-  yield* process.stdout;
-
-  final exitCode = await process.exitCode;
-  if (exitCode != 0) {
-    throw XcrossError('xz exited with code $exitCode: ${await stderrText}');
+    return XZDecoder().decodeBytes(compressed);
+  } on Object catch (e) {
+    throw XcrossError('pbzx: failed to decode an xz-compressed chunk: $e');
   }
 }
