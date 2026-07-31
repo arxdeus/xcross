@@ -361,6 +361,21 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "6.5.2"
+  propertylistserialization:
+    dependency: "direct main"
+    description:
+      name: propertylistserialization
+      sha256: "8ebe5e73b912c080916895bff96af9dd026cf87c1867447894f84e4c9e51b4b8"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.5.0"
+  provision_dart:
+    dependency: "direct main"
+    description:
+      path: "../provision_dart"
+      relative: true
+    source: path
+    version: "0.1.0"
   pub_semver:
     dependency: transitive
     description:
