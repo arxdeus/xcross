@@ -176,7 +176,9 @@ class SrpClient {
     }
 
     // --- x = SRP password verifier exponent (Apple's custom s2k/s2k_fo) ---
-    final hashedPassword = Uint8List.fromList(crypto.sha256.convert(_utf8(password)).bytes);
+    final hashedPassword = Uint8List.fromList(
+      crypto.sha256.convert(_utf8(password)).bytes,
+    );
     final Uint8List pbkdfInput;
     if (isLegacyProtocol) {
       pbkdfInput = _utf8(_lowercaseHex(hashedPassword));
@@ -190,12 +192,10 @@ class SrpClient {
       derivedKeyLength: 32,
     );
     final x = _bytesToBigInt(
-      crypto.sha256
-          .convert([
-            ...salt,
-            ...crypto.sha256.convert([0x3a, ...passkey]).bytes, // ":" + passkey
-          ])
-          .bytes,
+      crypto.sha256.convert([
+        ...salt,
+        ...crypto.sha256.convert([0x3a, ...passkey]).bytes, // ":" + passkey
+      ]).bytes,
     );
 
     // --- standard SRP-6a math ---
@@ -210,26 +210,31 @@ class SrpClient {
     final s = base.modPow(_a + u * x, _n);
     sharedSecret = s;
 
-    final sessionKeyBytes = Uint8List.fromList(crypto.sha256.convert(_bigIntToBytes(s)).bytes);
+    final sessionKeyBytes = Uint8List.fromList(
+      crypto.sha256.convert(_bigIntToBytes(s)).bytes,
+    );
     _sessionKeyBytes = sessionKeyBytes;
 
     // --- M / hamk proof (RFC 5054-shaped: H(N) xor H(g), H(I), s, A, B, K) ---
     final aBytes = _bigIntToBytes(_bigA);
-    final gHash = crypto.sha256.convert(_padLeft(_bigIntToBytes(_g), _nByteLength)).bytes;
+    final gHash = crypto.sha256
+        .convert(_padLeft(_bigIntToBytes(_g), _nByteLength))
+        .bytes;
     final nHash = crypto.sha256.convert(_bigIntToBytes(_n)).bytes;
-    final xorHash = List<int>.generate(gHash.length, (i) => gHash[i] ^ nHash[i]);
+    final xorHash = List<int>.generate(
+      gHash.length,
+      (i) => gHash[i] ^ nHash[i],
+    );
     final hi = crypto.sha256.convert(_utf8(username)).bytes;
     final m = Uint8List.fromList(
-      crypto.sha256
-          .convert([
-            ...xorHash,
-            ...hi,
-            ...salt,
-            ...aBytes,
-            ...serverPublicKey,
-            ...sessionKeyBytes,
-          ])
-          .bytes,
+      crypto.sha256.convert([
+        ...xorHash,
+        ...hi,
+        ...salt,
+        ...aBytes,
+        ...serverPublicKey,
+        ...sessionKeyBytes,
+      ]).bytes,
     );
     _expectedHamk = Uint8List.fromList(
       crypto.sha256.convert([...aBytes, ...m, ...sessionKeyBytes]).bytes,
@@ -258,7 +263,10 @@ class SrpClient {
     final key = _sessionKeyBytes;
     if (key == null) return false;
     final digestHash = crypto.sha256.convert(_digestBuffer.toBytes()).bytes;
-    final mac = _hmacSha256(key: _sessionSubkey(key, 'HMAC key:'), message: digestHash);
+    final mac = _hmacSha256(
+      key: _sessionSubkey(key, 'HMAC key:'),
+      message: digestHash,
+    );
     return _constantTimeEquals(mac, negProto);
   }
 
@@ -284,11 +292,17 @@ class SrpClient {
     final aesKey = _sessionSubkey(key, 'extra data key:');
     final iv = _sessionSubkey(key, 'extra data iv:').sublist(0, 16);
 
-    final cipher = pc.PaddedBlockCipherImpl(pc.PKCS7Padding(), pc.CBCBlockCipher(pc.AESEngine()))
-      ..init(
-        false,
-        pc.PaddedBlockCipherParameters(pc.ParametersWithIV(pc.KeyParameter(aesKey), iv), null),
-      );
+    final cipher =
+        pc.PaddedBlockCipherImpl(
+          pc.PKCS7Padding(),
+          pc.CBCBlockCipher(pc.AESEngine()),
+        )..init(
+          false,
+          pc.PaddedBlockCipherParameters(
+            pc.ParametersWithIV(pc.KeyParameter(aesKey), iv),
+            null,
+          ),
+        );
     return cipher.process(ciphertext);
   }
 
@@ -329,7 +343,9 @@ Uint8List _pbkdf2HmacSha256({
 BigInt _randomBigInt(int bits) {
   final random = Random.secure();
   final byteLength = (bits + 7) ~/ 8;
-  final bytes = Uint8List.fromList(List<int>.generate(byteLength, (_) => random.nextInt(256)));
+  final bytes = Uint8List.fromList(
+    List<int>.generate(byteLength, (_) => random.nextInt(256)),
+  );
   return _bytesToBigInt(bytes);
 }
 
