@@ -6,11 +6,40 @@ import 'package:xcross/src/appstoreconnect/asc_jwt.dart';
 import 'package:xcross/src/appstoreconnect/asc_models.dart';
 import 'package:xcross/src/util/errors.dart';
 
+abstract class DevelopmentProvisioningClient {
+  Future<AscCertificate> createDevelopmentCertificate({required String csrPem});
+
+  Future<List<AscDevice>> listDevices();
+
+  Future<AscDevice> registerDevice({
+    required String udid,
+    required String name,
+  });
+
+  Future<AscDevice?> findDeviceByUdid(String udid);
+
+  Future<AscBundleId?> findBundleId(String identifier);
+
+  Future<AscBundleId> registerBundleId({
+    required String identifier,
+    required String name,
+  });
+
+  Future<AscProfile> createProfile({
+    required String name,
+    required String bundleIdResourceId,
+    required List<String> certificateResourceIds,
+    required List<String> deviceResourceIds,
+  });
+
+  void close();
+}
+
 /// Thin client for the subset of the App Store Connect API needed to
 /// provision iOS Development signing (certificates, devices, bundle ids,
 /// profiles) using only a Team-scoped API key - no interactive Apple ID
 /// login.
-class AscClient {
+class AscClient implements DevelopmentProvisioningClient {
   AscClient(this.credentials, {http.Client? httpClient})
     : _http = httpClient ?? http.Client();
 
@@ -36,7 +65,13 @@ class AscClient {
     return AscCertificate.fromJson((json['data'] as Map).cast());
   }
 
+  @override
+  Future<AscCertificate> createDevelopmentCertificate({
+    required String csrPem,
+  }) => createCertificate(certificateType: 'IOS_DEVELOPMENT', csrPem: csrPem);
+
   /// Lists all devices registered on the team.
+  @override
   Future<List<AscDevice>> listDevices() async {
     final json = await _get('/devices');
     return (json['data'] as List)
@@ -45,6 +80,7 @@ class AscClient {
   }
 
   /// Registers a new device by UDID.
+  @override
   Future<AscDevice> registerDevice({
     required String udid,
     required String name,
@@ -62,6 +98,7 @@ class AscClient {
   ///
   /// Apple limits device registrations per membership year - always check
   /// with this before [registerDevice] instead of blindly re-registering.
+  @override
   Future<AscDevice?> findDeviceByUdid(String udid) async {
     for (final device in await listDevices()) {
       if (device.udid == udid) return device;
@@ -70,6 +107,7 @@ class AscClient {
   }
 
   /// Finds an already-registered bundle id, or null if not found.
+  @override
   Future<AscBundleId?> findBundleId(String identifier) async {
     final json = await _get(
       '/bundleIds?filter[identifier]=${Uri.encodeQueryComponent(identifier)}',
@@ -80,6 +118,7 @@ class AscClient {
   }
 
   /// Registers a new bundle id.
+  @override
   Future<AscBundleId> registerBundleId({
     required String identifier,
     required String name,
@@ -101,6 +140,7 @@ class AscClient {
   /// [bundleIdResourceId], [certificateResourceIds], and
   /// [deviceResourceIds] (all App Store Connect resource ids, not the
   /// human-readable identifiers/UDIDs).
+  @override
   Future<AscProfile> createProfile({
     required String name,
     required String bundleIdResourceId,
@@ -133,6 +173,7 @@ class AscClient {
   }
 
   /// Releases the underlying HTTP client's resources.
+  @override
   void close() => _http.close();
 
   Future<Map<String, String>> _headers() async => {

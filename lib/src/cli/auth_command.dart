@@ -2,8 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
+import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/appstoreconnect/asc_config.dart';
+import 'package:xcross/src/appstoreconnect/developer_services_client.dart';
 import 'package:xcross/src/grandslam/anisette/anisette_data_provider.dart';
 import 'package:xcross/src/grandslam/anisette/anisette_state.dart';
 import 'package:xcross/src/grandslam/app_token_exchange.dart';
@@ -116,6 +118,9 @@ class AuthCommand extends Command<void> {
         'privateKeyPath': keyFile.absolute.path,
       }),
     );
+    // Authentication mode is explicit: a newly saved ASC key should not be
+    // silently shadowed by an older still-unexpired Apple ID session.
+    await GrandSlamSessionStore().clear();
 
     Log.logDone('App Store Connect credentials saved to $configPath');
   }
@@ -156,8 +161,38 @@ class AuthCommand extends Command<void> {
         'Fetching Developer Services session',
         () => tokenExchange!.exchange(loginData),
       );
+      final teamHttpClient = http.Client();
+      final List<DeveloperServicesTeam> teams;
+      try {
+        teams = await Log.logStep(
+          'Fetching Developer Services teams',
+          () => DeveloperServicesClient.listTeams(
+            token: token,
+            fetchAnisetteHeaders: anisette.fetchAnisetteHeaders,
+            httpClient: teamHttpClient,
+          ),
+        );
+      } finally {
+        teamHttpClient.close();
+      }
+      final activeTeams = teams
+          .where((team) => team.status.toLowerCase() == 'active')
+          .toList();
+      if (activeTeams.isEmpty) {
+        throw XcrossError('No active Developer Services teams are available.');
+      }
+      final team = activeTeams.length == 1
+          ? activeTeams.single
+          : _selectTeam(activeTeams);
       final store = GrandSlamSessionStore();
-      await store.save(GrandSlamSession(username: username, token: token));
+      await store.save(
+        GrandSlamSession(
+          username: username,
+          token: token,
+          teamId: team.id,
+          adiLibraryDirectory: Directory(adiLibraryDir).absolute.path,
+        ),
+      );
       Log.logDone('Signed in as $username. Session saved to ${store.path}');
     } on XcrossError {
       rethrow;
@@ -167,6 +202,27 @@ class AuthCommand extends Command<void> {
       tokenExchange?.close();
       loginClient?.close();
       anisette.close();
+    }
+  }
+
+  DeveloperServicesTeam _selectTeam(List<DeveloperServicesTeam> teams) {
+    stdout.writeln('Multiple teams available. Choose one:');
+    for (var i = 0; i < teams.length; i++) {
+      stdout.writeln('  [${i + 1}] ${teams[i].name} (${teams[i].id})');
+    }
+    while (true) {
+      stdout.write('Choice (1-${teams.length}): ');
+      final raw = stdin.readLineSync()?.trim();
+      if (raw == null) {
+        throw XcrossError('No team selection made (stdin closed).');
+      }
+      final choice = int.tryParse(raw);
+      if (choice != null && choice >= 1 && choice <= teams.length) {
+        return teams[choice - 1];
+      }
+      stdout.writeln(
+        'Invalid choice "$raw". Enter a number 1-${teams.length}.',
+      );
     }
   }
 

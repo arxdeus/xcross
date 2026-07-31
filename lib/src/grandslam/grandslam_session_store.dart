@@ -12,10 +12,23 @@ import 'package:xcross/src/grandslam/app_token_exchange.dart';
 import 'package:xcross/src/util/errors.dart';
 
 class GrandSlamSession {
-  const GrandSlamSession({required this.username, required this.token});
+  GrandSlamSession({
+    required this.username,
+    required this.token,
+    required this.teamId,
+    required this.adiLibraryDirectory,
+  }) {
+    if (!p.isAbsolute(adiLibraryDirectory)) {
+      throw XcrossError(
+        'GrandSlam session: "adiLibraryDirectory" must be absolute',
+      );
+    }
+  }
 
   final String username;
   final DeveloperServicesLoginToken token;
+  final String teamId;
+  final String adiLibraryDirectory;
 
   bool get isExpired => token.isExpired;
 
@@ -24,6 +37,8 @@ class GrandSlamSession {
     'adsid': token.adsid,
     'token': token.token,
     'expiryMs': token.expiry.toUtc().millisecondsSinceEpoch,
+    'teamId': teamId,
+    'adiLibraryDirectory': adiLibraryDirectory,
   };
 
   factory GrandSlamSession.fromJson(Map<String, Object?> json) {
@@ -31,6 +46,8 @@ class GrandSlamSession {
     final adsid = json['adsid'];
     final token = json['token'];
     final expiryMs = json['expiryMs'];
+    final teamId = json['teamId'];
+    final adiLibraryDirectory = json['adiLibraryDirectory'];
     if (username is! String || username.isEmpty) {
       throw XcrossError('GrandSlam session: missing/invalid "username"');
     }
@@ -43,8 +60,18 @@ class GrandSlamSession {
     if (expiryMs is! int) {
       throw XcrossError('GrandSlam session: missing/invalid "expiryMs"');
     }
+    if (teamId is! String || teamId.isEmpty) {
+      throw XcrossError('GrandSlam session: missing/invalid "teamId"');
+    }
+    if (adiLibraryDirectory is! String || !p.isAbsolute(adiLibraryDirectory)) {
+      throw XcrossError(
+        'GrandSlam session: missing/invalid "adiLibraryDirectory"',
+      );
+    }
     return GrandSlamSession(
       username: username,
+      teamId: teamId,
+      adiLibraryDirectory: adiLibraryDirectory,
       token: DeveloperServicesLoginToken(
         adsid: adsid,
         token: token,
@@ -85,17 +112,25 @@ class GrandSlamSessionStore {
   Future<void> save(GrandSlamSession session) async {
     final file = File(_path);
     await file.parent.create(recursive: true);
-    await file.writeAsString(
-      const JsonEncoder.withIndent('  ').convert(session.toJson()),
-    );
-    if (!Platform.isWindows) {
-      try {
-        posix.chmod(file.path, '600');
-      } on Object catch (e) {
-        throw XcrossError(
-          'Could not restrict GrandSlam session permissions at $_path: $e',
-        );
-      }
+    final contents = const JsonEncoder.withIndent(
+      '  ',
+    ).convert(session.toJson());
+
+    if (Platform.isWindows) {
+      // Files under %APPDATA% inherit the user's ACL. POSIX needs an explicit
+      // mode, handled atomically below.
+      await file.writeAsString(contents);
+      return;
+    }
+
+    final temporary = File('$_path.${generateUuidV4()}.tmp');
+    try {
+      await temporary.writeAsString(contents);
+      posix.chmod(temporary.path, '600');
+      await temporary.rename(file.path);
+    } on Object catch (e) {
+      if (temporary.existsSync()) await temporary.delete();
+      throw XcrossError('Could not save GrandSlam session at $_path: $e');
     }
   }
 

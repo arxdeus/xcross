@@ -4,6 +4,8 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/appstoreconnect/appstoreconnect.dart';
 import 'package:xcross/src/device/pymd_device_resolver.dart';
 import 'package:xcross/src/device/pymd_devices.dart';
+import 'package:xcross/src/grandslam/anisette/anisette_data_provider.dart';
+import 'package:xcross/src/grandslam/grandslam_session_store.dart';
 import 'package:xcross/src/models/device/device.dart';
 import 'package:xcross/src/signing/zsign_cli.dart';
 import 'package:xcross/src/util/errors.dart';
@@ -79,23 +81,93 @@ class NativeBackend implements DeviceBackend {
     required String bundleId,
   }) async {
     final configPath = AscCredentials.defaultConfigPath();
-    if (!File(configPath).existsSync()) {
-      throw XcrossError(
-        'No App Store Connect credentials configured (needed to provision a '
-        'Development certificate/profile without xtool). Run:\n'
-        '    xcross auth --issuer-id <id> --key-id <id> '
-        '--private-key <path-to-AuthKey_XXXX.p8>',
+    final configDirectory = p.dirname(configPath);
+    DevelopmentProvisioningClient? client;
+    AnisetteDataProvider? anisette;
+    String? outputDir;
+    String? identityDir;
+    Object? appleSessionFailure;
+    Object? ascFailure;
+
+    GrandSlamSession? session;
+    try {
+      session = await GrandSlamSessionStore().load();
+    } on Object catch (error) {
+      appleSessionFailure = error;
+    }
+
+    if (session != null && !session.isExpired) {
+      final candidateAnisette = AnisetteDataProvider(
+        session.adiLibraryDirectory,
+      );
+      final candidateClient = DeveloperServicesClient.fromSession(
+        session,
+        candidateAnisette.fetchAnisetteHeaders,
+      );
+      try {
+        // Validate saved auth before any provisioning mutation. A revoked
+        // token, unavailable ADI library, or inaccessible team can then fall
+        // back safely to an explicitly configured ASC key.
+        await candidateClient.verifyAccess();
+        final providerRoot = p.join(
+          configDirectory,
+          'signing',
+          'developer-services-${session.teamId}',
+        );
+        client = candidateClient;
+        anisette = candidateAnisette;
+        identityDir = p.join(providerRoot, 'identity');
+        outputDir = p.join(providerRoot, 'profiles', bundleId);
+      } on Object catch (error) {
+        appleSessionFailure = error;
+        candidateClient.close();
+        candidateAnisette.close();
+      }
+    } else if (session?.isExpired == true) {
+      appleSessionFailure = XcrossError(
+        'Developer Services session has expired. Run xcross auth again.',
       );
     }
-    final credentials = await AscCredentials.fromFile(configPath);
-    final client = AscClient(credentials);
+
+    if (client == null && File(configPath).existsSync()) {
+      try {
+        final credentials = await AscCredentials.fromFile(configPath);
+        final providerRoot = p.join(
+          configDirectory,
+          'signing',
+          'appstoreconnect-${credentials.issuerId}',
+        );
+        client = AscClient(credentials);
+        identityDir = p.join(providerRoot, 'identity');
+        outputDir = p.join(providerRoot, 'profiles', bundleId);
+      } on Object catch (error) {
+        ascFailure = error;
+      }
+    }
+
+    if (client == null || outputDir == null || identityDir == null) {
+      final details = [
+        if (appleSessionFailure != null) 'Apple ID: $appleSessionFailure',
+        if (ascFailure != null) 'App Store Connect: $ascFailure',
+      ];
+      final failureDetails = details.isEmpty ? '' : '\n${details.join('\n')}';
+      throw XcrossError(
+        'No usable Apple ID session or App Store Connect credentials found. '
+        'Run either:\n'
+        '    xcross auth --apple-id <email> --adi-library-dir <path>\n'
+        'or:\n'
+        '    xcross auth --issuer-id <id> --key-id <id> '
+        '--private-key <path-to-AuthKey_XXXX.p8>$failureDetails',
+      );
+    }
+
     try {
-      final outputDir = p.join(p.dirname(configPath), 'signing', bundleId);
       final identity = await provisionDevelopmentIdentity(
         client: client,
         bundleId: bundleId,
         deviceUdids: [udid],
         outputDir: outputDir,
+        identityDir: identityDir,
       );
       await ZsignCli().sign(
         appOrIpaPath: appOrIpaPath,
@@ -107,6 +179,7 @@ class NativeBackend implements DeviceBackend {
       await PymdDevices.install(appOrIpaPath, udid: udid);
     } finally {
       client.close();
+      anisette?.close();
     }
   }
 }

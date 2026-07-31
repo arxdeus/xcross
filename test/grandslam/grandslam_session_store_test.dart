@@ -22,6 +22,8 @@ void main() {
     final store = GrandSlamSessionStore(path: sessionPath);
     final session = GrandSlamSession(
       username: 'User@Example.com',
+      teamId: 'TEAM123',
+      adiLibraryDirectory: tempDir.absolute.path,
       token: DeveloperServicesLoginToken(
         adsid: '123456789',
         token: 'developer-token',
@@ -34,6 +36,8 @@ void main() {
 
     expect(loaded, isNotNull);
     expect(loaded!.username, session.username);
+    expect(loaded.teamId, session.teamId);
+    expect(loaded.adiLibraryDirectory, session.adiLibraryDirectory);
     expect(loaded.token.adsid, session.token.adsid);
     expect(loaded.token.token, session.token.token);
     expect(loaded.token.expiry, session.token.expiry);
@@ -53,6 +57,8 @@ void main() {
     await store.save(
       GrandSlamSession(
         username: 'user@example.com',
+        teamId: 'TEAM123',
+        adiLibraryDirectory: tempDir.absolute.path,
         token: DeveloperServicesLoginToken(
           adsid: '1',
           token: 'token',
@@ -70,6 +76,8 @@ void main() {
   test('isExpired delegates to the persisted token expiry', () {
     final session = GrandSlamSession(
       username: 'user@example.com',
+      teamId: 'TEAM123',
+      adiLibraryDirectory: tempDir.absolute.path,
       token: DeveloperServicesLoginToken(
         adsid: '1',
         token: 'token',

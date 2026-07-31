@@ -15,6 +15,7 @@ export 'asc_config.dart';
 export 'asc_csr.dart';
 export 'asc_jwt.dart';
 export 'asc_models.dart';
+export 'developer_services_client.dart';
 
 /// Wraps [derBase64] (base64-encoded DER, as returned raw by the
 /// certificates API's `certificateContent`) into a line-wrapped PEM block.
@@ -38,31 +39,35 @@ String wrapDerAsPem(String derBase64, {String label = 'CERTIFICATE'}) {
 /// cached, unexpired) Development certificate, and generate a provisioning
 /// profile covering all of it. Files are written under [outputDir].
 ///
-/// A cached certificate + key are reused across calls (tracked via
-/// `state.json` in [outputDir]) so this doesn't burn through Apple's
-/// per-membership-year certificate quota on every run. The profile is
-/// (re)created every call - profiles aren't quota-limited the same way.
+/// A cached certificate + key are reused across calls (tracked under
+/// [identityDir], or [outputDir] when omitted) so this doesn't burn through
+/// Apple's team-wide certificate quota for every bundle. The profile remains
+/// bundle-specific and is (re)created in [outputDir] every call.
 Future<
   ({String certificatePemPath, String privateKeyPemPath, String profilePath})
 >
 provisionDevelopmentIdentity({
-  required AscClient client,
+  required DevelopmentProvisioningClient client,
   required String bundleId,
   required List<String> deviceUdids,
   required String outputDir,
+  String? identityDir,
 }) async {
-  await Directory(outputDir).create(recursive: true);
+  final signingIdentityDir = identityDir ?? outputDir;
+  await Future.wait([
+    Directory(outputDir).create(recursive: true),
+    Directory(signingIdentityDir).create(recursive: true),
+  ]);
 
-  final certPath = p.join(outputDir, 'cert.pem');
-  final keyPath = p.join(outputDir, 'key.pem');
-  final statePath = p.join(outputDir, 'state.json');
+  final certPath = p.join(signingIdentityDir, 'cert.pem');
+  final keyPath = p.join(signingIdentityDir, 'key.pem');
+  final statePath = p.join(signingIdentityDir, 'state.json');
   final profilePath = p.join(outputDir, 'profile.mobileprovision');
 
   var certificateId = await _cachedCertificateId(statePath, certPath, keyPath);
   if (certificateId == null) {
     final csr = AscCsr.generate();
-    final certificate = await client.createCertificate(
-      certificateType: 'IOS_DEVELOPMENT',
+    final certificate = await client.createDevelopmentCertificate(
       csrPem: csr.csrPem,
     );
     await File(
@@ -129,11 +134,11 @@ Future<String?> _cachedCertificateId(
     final id = state['certificateId'] as String?;
     if (id == null) return null;
     final expirationDate = state['certificateExpirationDate'] as String?;
-    if (expirationDate != null) {
-      final expiry = DateTime.tryParse(expirationDate);
-      if (expiry != null && !expiry.toUtc().isAfter(DateTime.now().toUtc())) {
-        return null; // expired, must reissue
-      }
+    final expiry = expirationDate == null
+        ? null
+        : DateTime.tryParse(expirationDate);
+    if (expiry == null || !expiry.toUtc().isAfter(DateTime.now().toUtc())) {
+      return null;
     }
     return id;
   } on FormatException {
