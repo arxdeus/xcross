@@ -377,10 +377,18 @@ class FlutterDebugBundler {
         lldToolsetBin: p.join(darwin.bundle, 'toolset', 'bin'),
       );
     }
-    // Linux without xtool Darwin SDK — cannot proceed.
+    // No Darwin SDK found — cannot proceed. `xtool sdk install` (the only
+    // way to acquire one today) needs the Swift toolchain, which only runs
+    // on Linux/macOS — so the actionable advice differs by platform.
     throw XcrossError(
-      'FlutterDebugBundler: no usable toolchain. xtool Darwin SDK not found.\n'
-      'Install with `xtool sdk install <Xcode.xip|Xcode.app>` first.',
+      Platform.isWindows
+          ? 'FlutterDebugBundler: no usable toolchain. No Darwin SDK found.\n'
+                "Native Windows SDK acquisition isn't implemented yet - obtain a "
+                'Darwin SDK bundle from a Linux/macOS/WSL `xtool sdk install '
+                '<Xcode.xip|Xcode.app>` run and point xcross at it, or run the '
+                'build step under WSL for now.'
+          : 'FlutterDebugBundler: no usable toolchain. xtool Darwin SDK not found.\n'
+                'Install with `xtool sdk install <Xcode.xip|Xcode.app>` first.',
     );
   }
 

@@ -4,6 +4,7 @@ import 'package:args/args.dart';
 import 'package:args/command_runner.dart';
 import 'package:cli_util/cli_logging.dart';
 import 'package:completion/completion.dart';
+import 'package:xcross/src/cli/auth_command.dart';
 import 'package:xcross/src/cli/completion_command.dart';
 import 'package:xcross/src/cli/flutter/flutter_command.dart';
 import 'package:xcross/src/cli/ide/dap_command.dart';
@@ -42,6 +43,7 @@ abstract final class XcrossCli {
       ..addCommand(FlutterCommand())
       ..addCommand(PrepareCommand())
       ..addCommand(SetupCommand())
+      ..addCommand(AuthCommand())
       ..addCommand(DapCommand())
       ..addCommand(VscodeCommand())
       ..addCommand(CompletionCommand());
@@ -62,17 +64,16 @@ abstract final class XcrossCli {
 
   /// Entry point used by `bin/xcross.dart`.
   static Future<int> run(List<String> args) async {
-    // xcross drives Linux-only tooling (xtool, usbmuxd, the Flutter Linux SDK),
-    // none of which exists on native Windows. Fail early with a pointer to WSL
-    // instead of dying later on a missing binary.
-    if (Platform.isWindows) {
-      stderr.writeln(
-        'error: xcross does not run on native Windows.\n'
-        'Use WSL: install a Linux distro (`wsl --install`), then run xcross '
-        'from inside it.',
-      );
-      return 1;
-    }
+    // Native Windows support is partial: device discovery/signing/install
+    // (App Store Connect API + zsign + pymobiledevice3, see NativeBackend)
+    // work without WSL, but the Flutter *build* step (compile + link) still
+    // needs a Darwin SDK + `ld64.lld`, neither of which has a native-Windows
+    // acquisition path yet (that still needs `xtool sdk install`, which is
+    // Swift-only). So: don't blanket-refuse to start here — let the build
+    // step's own error (FlutterDebugBundler._resolveToolchain) explain that
+    // specific, narrower gap when it's actually hit, instead of blocking
+    // every command (including `xcross auth` and `xcross flutter run`'s
+    // device-only steps, which already work) before they get a chance to run.
 
     final runner = buildRunner();
 
