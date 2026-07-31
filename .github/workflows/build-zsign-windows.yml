@@ -1,0 +1,62 @@
+# build-zsign-windows.yml
+#
+# PURPOSE:
+#   Builds zsign (https://github.com/zhlynn/zsign) — a portable,
+#   MIT-licensed, native code-signing tool — for Windows x64, and uploads the
+#   resulting zsign.exe as a workflow artifact. This gives xcross a way to
+#   sign+install iOS apps on Windows without a Swift toolchain (`xtool`, used
+#   for signing everywhere else, only runs on Linux/macOS). See
+#   lib/src/signing/zsign_cli.dart for the Dart wrapper that shells out to it.
+#
+# IMPORTANT — do NOT switch this to the `xtool-org/zsign` fork:
+#   That fork's CLI entry point (src/zsign.cpp) is compiled out (`#if 0`)
+#   because it ships as a C-ABI library for Swift consumption, not a
+#   standalone executable. Only plain upstream `zhlynn/zsign` has a working
+#   CLI. This was confirmed the hard way — don't "fix" it back to the fork.
+#
+# ZSIGN_REF is pinned to a specific commit for reproducible builds. To bump:
+#   curl -s https://api.github.com/repos/zhlynn/zsign/commits/master \
+#     | grep -m1 '"sha"'
+#   and update the value below.
+
+name: Build zsign (Windows)
+
+on:
+  workflow_dispatch:
+
+env:
+  ZSIGN_REF: d6e929c97b5b564c2cc1f82afe226a44da7149a0
+
+jobs:
+  build:
+    name: Build zsign.exe
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout xcross
+        uses: actions/checkout@v6
+
+      - name: Checkout zsign (pinned)
+        uses: actions/checkout@v6
+        with:
+          repository: zhlynn/zsign
+          ref: ${{ env.ZSIGN_REF }}
+          path: zsign
+
+      - name: Set up MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build zsign.exe
+        working-directory: zsign
+        run: >-
+          msbuild build/windows/vs2022/zsign.sln
+          -p:Configuration=Release -p:Platform=x64 -m
+
+      - name: Upload zsign.exe artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: zsign-windows-x64
+          # zsign's own post-build step copies the binary from
+          # build/windows/vs2022/x64/Release/ up to bin/ at its repo root.
+          path: zsign/bin/zsign.exe
+          if-no-files-found: error
