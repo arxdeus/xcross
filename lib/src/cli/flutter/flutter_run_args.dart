@@ -4,9 +4,11 @@ import 'package:xcross/src/build/hot_reload_setup.dart';
 import 'package:xcross/src/cli/flutter/flutter_build_args.dart';
 import 'package:xcross/src/device/core_device_launcher.dart';
 import 'package:xcross/src/device/debug_launcher.dart';
+import 'package:xcross/src/device/device_backend.dart';
 import 'package:xcross/src/device/os_version.dart';
 import 'package:xcross/src/models/device/device.dart';
 import 'package:xcross/src/models/flutter/flutter_build_options.dart';
+import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/logging.dart';
 import 'package:xcross/src/xtool/xtool_cli.dart';
 
@@ -107,8 +109,8 @@ class FlutterRunCommand extends Command<void> with CommonFlutterOptions {
     );
     final pack = await FlutterPackOperation.pack(options: options);
 
-    final xtool = XtoolCli();
-    final device = await xtool.resolveDevice(
+    final backend = await DeviceBackend.resolve();
+    final device = await backend.resolveDevice(
       selector: _deviceSelector,
       mode: _searchMode,
     );
@@ -120,6 +122,17 @@ class FlutterRunCommand extends Command<void> with CommonFlutterOptions {
     final osMajor = await OsVersion.deviceOSMajorVersion(device.udid);
     final useCoreDevice = osMajor != null && osMajor >= 17;
 
+    // The pre-iOS-17 launch path (below, in _launch) needs a real XtoolCli,
+    // which NativeBackend can't provide. Fail before install rather than
+    // installing successfully and then crashing at launch.
+    if (backend is NativeBackend && !useCoreDevice) {
+      throw XcrossError(
+        'This device is pre-iOS 17 and needs xtool for the launch step, '
+        "which isn't available on this platform yet. Pre-iOS-17 devices are "
+        'only supported where xtool can run (Linux/macOS/WSL).',
+      );
+    }
+
     // Close the app if it happens to be running at install time, so the install
     // and relaunch don't collide with a live instance.
     if (useCoreDevice) {
@@ -130,14 +143,19 @@ class FlutterRunCommand extends Command<void> with CommonFlutterOptions {
     }
 
     // Renders its own spinner + grey log tail (see [XtoolCli.install]).
-    await xtool.install(pack.appPath, udid: device.udid, mode: _searchMode);
+    await backend.install(
+      pack.appPath,
+      udid: device.udid,
+      mode: _searchMode,
+      bundleId: pack.bundleId,
+    );
 
     await _launch(
       pack: pack,
       device: device,
       useCoreDevice: useCoreDevice,
       dartDefines: options.dartDefines,
-      xtool: xtool,
+      xtool: backend is XtoolBackend ? backend.xtool : null,
     );
   }
 
@@ -148,7 +166,7 @@ class FlutterRunCommand extends Command<void> with CommonFlutterOptions {
     required Device device,
     required bool useCoreDevice,
     required List<String> dartDefines,
-    required XtoolCli xtool,
+    required XtoolCli? xtool,
   }) async {
     // Flutter debug runs the Dart VM in JIT mode, which only works while a
     // debugger is attached (CS_DEBUGGED). run is always debug → stay attached.
