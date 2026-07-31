@@ -29,6 +29,7 @@ import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:provision_dart/provision_dart.dart';
 import 'package:xcross/src/grandslam/anisette/anisette_state.dart';
 import 'package:xcross/src/grandslam/anisette/grandslam_endpoints.dart';
+import 'package:xcross/src/grandslam/grandslam_response.dart';
 import 'package:xcross/src/util/errors.dart';
 
 /// Apple's well-known sentinel `dsId` for machine-level (not-yet
@@ -301,7 +302,7 @@ class AnisetteDataProvider {
         '(HTTP ${response.statusCode})',
       );
     }
-    return _decodeGsaResponse(response.body);
+    return decodeGrandSlamResponse(response.body);
   }
 
   /// Headers for the `GsService2/lookup` `GET` - no Anisette data exists
@@ -374,32 +375,6 @@ String _systemLocale() {
   return RegExp(r'^[a-zA-Z]{2,3}_[a-zA-Z]{2,4}$').hasMatch(raw)
       ? raw
       : _defaultLocale;
-}
-
-Map<String, Object?> _decodeGsaResponse(String xml) {
-  final Object decoded;
-  try {
-    decoded = PropertyListSerialization.propertyListWithString(xml);
-  } on PropertyListException catch (e) {
-    throw XcrossError('GrandSlam response was not a plist: $e');
-  }
-  if (decoded is! Map) {
-    throw XcrossError('GrandSlam response was not a plist dictionary');
-  }
-  // Response has a `Status` dict as a sibling of `Response`; tolerate/
-  // ignore it unless `ec != 0`.
-  final status = decoded['Status'];
-  if (status is Map) {
-    final ec = status['ec'];
-    if (ec is int && ec != 0) {
-      throw XcrossError('GrandSlam error $ec: ${status['em'] ?? 'unknown error'}');
-    }
-  }
-  final response = decoded['Response'];
-  if (response is! Map) {
-    throw XcrossError('GrandSlam response missing "Response" dict');
-  }
-  return response.cast<String, Object?>();
 }
 
 String _stringField(Map<String, Object?> map, String key) {
