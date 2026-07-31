@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import 'package:xcross/src/util/errors.dart';
+import 'package:xcross/src/util/process.dart';
 
 /// Locates an installed xtool Darwin SDK on the local machine and exposes path
 /// accessors for the parts needed to drive clang/ld invocations directly
@@ -19,6 +20,9 @@ class DarwinSdk {
   static List<String> _searchRoots() {
     final home = _homeDir();
     return [
+      // xcross's own extraction destination (`xcross sdk install`), checked
+      // first since it's the only native-Windows acquisition path.
+      nativeInstallDir(),
       // SwiftPM canonical location (set by `swift sdk install`).
       p.join(home, '.swiftpm', 'swift-sdks', 'darwin.artifactbundle'),
       p.join(home, '.swiftpm', 'swift-sdks', 'darwin.xtoolsdk'),
@@ -38,6 +42,31 @@ class DarwinSdk {
         'darwin.xtoolsdk',
       ),
     ];
+  }
+
+  /// Where `xcross sdk install <Xcode.xip>` extracts the iPhoneOS SDK to,
+  /// and one of the roots [_searchRoots] checks.
+  ///
+  /// Per-user config dir convention, matching
+  /// `AscCredentials.defaultConfigPath()`: `%APPDATA%` on Windows,
+  /// `$XDG_CONFIG_HOME`/`~/.config` elsewhere.
+  static String nativeInstallDir() =>
+      p.join(_configDir(), 'xcross', 'darwin-sdk');
+
+  /// Same per-user config dir logic as `AscCredentials._configDir()`
+  /// (private there, so replicated here rather than imported).
+  static String _configDir() {
+    if (Platform.isWindows) {
+      final appData = Platform.environment['APPDATA'];
+      if (appData != null && appData.isNotEmpty) return appData;
+    }
+    final xdg = Platform.environment['XDG_CONFIG_HOME'];
+    if (xdg != null && xdg.isNotEmpty) return xdg;
+    final home =
+        Platform.environment['HOME'] ??
+        Platform.environment['USERPROFILE'] ??
+        '.';
+    return p.join(home, '.config');
   }
 
   /// Resolve the SDK installed by `xtool sdk install`. Returns null if not
@@ -69,7 +98,10 @@ class DarwinSdk {
     return Directory(sdksPath).existsSync();
   }
 
-  /// `<bundle>/toolset/bin/ld64.lld` — Apple-compatible linker on Linux.
+  /// `<bundle>/toolset/bin/ld64.lld` — Apple-compatible linker on Linux, as
+  /// bundled by `xtool sdk install`. Wrong on Windows (no bundled toolset) —
+  /// use [resolveLd64Lld] instead of this getter wherever the host platform
+  /// matters.
   String get ld64lld => p.join(bundle, 'toolset', 'bin', 'ld64.lld');
 
   String _sdksDir(String platform) => p.join(
@@ -128,3 +160,15 @@ class DarwinSdk {
       Platform.environment['USERPROFILE'] ??
       '/root';
 }
+
+/// Async, platform-aware resolution of the Apple-compatible linker for
+/// [sdk].
+///
+/// On Linux/macOS this is just [DarwinSdk.ld64lld] (xtool's bundled
+/// `toolset/bin/ld64.lld`) — unchanged, zero regression. On Windows there is
+/// no bundled toolset; `ld64.lld.exe` is expected to already be on PATH from
+/// an LLVM install (e.g. `scoop install llvm`), so this resolves it there
+/// instead. Throws [XcrossError] if not found.
+Future<String> resolveLd64Lld(DarwinSdk sdk) => Platform.isWindows
+    ? ProcessRunner.locateTool('ld64.lld.exe')
+    : Future.value(sdk.ld64lld);

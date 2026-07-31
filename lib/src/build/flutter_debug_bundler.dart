@@ -371,22 +371,27 @@ class FlutterDebugBundler {
   Future<Toolchain> _resolveToolchain() async {
     final darwin = DarwinSdk.current();
     if (darwin != null) {
+      // On Windows there's no bundled `toolset/bin/` (that's xtool's
+      // Linux-only prebuilt ld64.lld) — clang and ld64.lld.exe both come
+      // from an LLVM install on PATH instead, so -B/-fuse-ld=lld needs to
+      // point at the directory *containing* the resolved linker, not a
+      // path inside the SDK bundle.
+      final lldToolsetBin = Platform.isWindows
+          ? p.dirname(await resolveLd64Lld(darwin))
+          : p.join(darwin.bundle, 'toolset', 'bin');
       return Toolchain(
-        clang: await ProcessRunner.locateTool('clang'),
+        clang: await ProcessRunner.locateTool(
+          Platform.isWindows ? 'clang.exe' : 'clang',
+        ),
         iosSDK: darwin.iPhoneOSSdk(),
-        lldToolsetBin: p.join(darwin.bundle, 'toolset', 'bin'),
+        lldToolsetBin: lldToolsetBin,
       );
     }
-    // No Darwin SDK found — cannot proceed. `xtool sdk install` (the only
-    // way to acquire one today) needs the Swift toolchain, which only runs
-    // on Linux/macOS — so the actionable advice differs by platform.
+    // No Darwin SDK found — cannot proceed.
     throw XcrossError(
       Platform.isWindows
           ? 'FlutterDebugBundler: no usable toolchain. No Darwin SDK found.\n'
-                "Native Windows SDK acquisition isn't implemented yet - obtain a "
-                'Darwin SDK bundle from a Linux/macOS/WSL `xtool sdk install '
-                '<Xcode.xip|Xcode.app>` run and point xcross at it, or run the '
-                'build step under WSL for now.'
+                'Install one natively with `xcross sdk install <Xcode.xip>` first.'
           : 'FlutterDebugBundler: no usable toolchain. xtool Darwin SDK not found.\n'
                 'Install with `xtool sdk install <Xcode.xip|Xcode.app>` first.',
     );
@@ -510,7 +515,9 @@ class Toolchain {
   final String clang;
   final String iosSDK;
 
-  /// Path to `toolset/bin/` containing `ld64.lld`. Null on macOS where the
-  /// host clang's default linker handles Mach-O.
+  /// Directory containing `ld64.lld`: `<bundle>/toolset/bin` on Linux, the
+  /// directory holding the PATH-resolved `ld64.lld.exe` on Windows (see
+  /// [resolveLd64Lld]). Null on macOS where the host clang's default linker
+  /// handles Mach-O.
   final String? lldToolsetBin;
 }

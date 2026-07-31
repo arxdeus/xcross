@@ -216,10 +216,13 @@ abstract final class ProcessRunner {
     return "'${s.replaceAll("'", r"'\''")}'";
   }
 
+  /// `;` on Windows, `:` elsewhere — how the OS joins PATH's directory list.
+  static String get _pathListSeparator => Platform.isWindows ? ';' : ':';
+
   /// Absolute path to [name] on PATH, or null if not found.
   static Future<String?> which(String name) async {
     final pathEnv = Platform.environment['PATH'] ?? '';
-    for (final dir in pathEnv.split(':')) {
+    for (final dir in pathEnv.split(_pathListSeparator)) {
       if (dir.isEmpty) continue;
       final file = File('$dir/$name');
       if (file.existsSync()) return file.path;
@@ -227,17 +230,24 @@ abstract final class ProcessRunner {
     return null;
   }
 
-  /// Search PATH for [name]. Falls back to `command -v` via a shell.
+  /// Search PATH for [name]. Falls back to `command -v` via a shell — skipped
+  /// on Windows, which has no `/bin/sh`.
   static Future<String> locateTool(String name) async {
     final pathEnv = Platform.environment['PATH'] ?? '';
-    for (final dir in pathEnv.split(':')) {
+    for (final dir in pathEnv.split(_pathListSeparator)) {
+      if (dir.isEmpty) continue;
       final candidate = p.join(dir, name);
       final candidateExists = File(candidate).existsSync();
       if (candidateExists) return candidate;
     }
-    final result = await Process.run('/bin/sh', ['-c', "command -v '$name'"]);
-    final out = (result.stdout as String).trim();
-    if (out.isNotEmpty) return out;
+    if (!Platform.isWindows) {
+      final result = await Process.run('/bin/sh', [
+        '-c',
+        "command -v '$name'",
+      ]);
+      final out = (result.stdout as String).trim();
+      if (out.isNotEmpty) return out;
+    }
     throw XcrossError("Could not find '$name' in PATH.");
   }
 

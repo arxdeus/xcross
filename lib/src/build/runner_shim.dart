@@ -34,7 +34,9 @@ class RunnerShim {
     required String outputDir,
     String? pluginsLibrary,
   }) => Log.logStep('Compiling Runner', () async {
-    final clang = await ProcessRunner.locateTool('clang');
+    final clang = await ProcessRunner.locateTool(
+      Platform.isWindows ? 'clang.exe' : 'clang',
+    );
     final iosSdk = _resolveIPhoneOsSDK(sdk);
     final flutterSlice = _flutterDeviceSlice(flutterXcframework);
     final subframeworks = p.join(iosSdk, 'System', 'Library', 'SubFrameworks');
@@ -62,7 +64,7 @@ class RunnerShim {
     // reaches ld64.lld's -platform_version and lands in LC_BUILD_VERSION.
     final sdkVersion = _sdkVersion(iosSdk) ?? '26.5';
     await _linkBinary(
-      ld64lld: sdk.ld64lld,
+      ld64lld: await resolveLd64Lld(sdk),
       objectPath: objectPath,
       outputPath: outputPath,
       iosSdk: iosSdk,
