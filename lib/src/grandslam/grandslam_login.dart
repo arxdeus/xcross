@@ -19,6 +19,7 @@ import 'package:http/http.dart' as http;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:xcross/src/grandslam/anisette/grandslam_endpoints.dart';
 import 'package:xcross/src/grandslam/grandslam_login_data.dart';
+import 'package:xcross/src/grandslam/grandslam_operation.dart';
 import 'package:xcross/src/grandslam/grandslam_response.dart';
 import 'package:xcross/src/grandslam/srp_client.dart';
 import 'package:xcross/src/util/errors.dart';
@@ -45,7 +46,8 @@ enum GrandSlamTwoFactorMode {
 /// triggered it. Returns the code, or `null` to cancel. Matches xtool's
 /// `TwoFactorAuthDelegate.fetchCode()`; the actual terminal-prompt UI is a
 /// later, CLI-layer concern - this is only the extension point.
-typedef FetchTwoFactorCode = Future<String?> Function(GrandSlamTwoFactorMode mode);
+typedef FetchTwoFactorCode =
+    Future<String?> Function(GrandSlamTwoFactorMode mode);
 
 /// The GrandSlam server rejected the client's `M1` (server `hamk`
 /// verification failed - almost always an incorrect password), or the
@@ -163,10 +165,7 @@ class GrandSlamClient {
     final initResponse = await _postOperation(
       operation: 'init',
       username: username,
-      extraParams: {
-        'ps': _srpProtocols,
-        'A2k': byteDataOf(srp.publicKey),
-      },
+      extraParams: {'ps': _srpProtocols, 'A2k': byteDataOf(srp.publicKey)},
     );
 
     final selectedProtocol = stringField(initResponse, 'sp');
@@ -257,49 +256,15 @@ class GrandSlamClient {
     required String operation,
     required String username,
     required Map<String, Object?> extraParams,
-  }) async {
-    final anisette = await _fetchAnisetteHeaders();
-    final request = <String, Object?>{
-      'o': operation,
-      'u': username,
-      'cpd': _clientProvisioningData(anisette),
-      ...extraParams,
-    };
-    final body = PropertyListSerialization.stringWithPropertyList({
-      'Header': {'Version': '1.0.1'},
-      'Request': request,
-    });
-
-    final response = await _http.post(
-      Uri.parse(endpoints.gsService),
-      headers: const {'Content-Type': 'text/x-xml-plist'},
-      body: body,
-    );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw XcrossError(
-        'GrandSlam o=$operation request failed (HTTP ${response.statusCode})',
-      );
-    }
-    return decodeGrandSlamResponse(response.body);
-  }
-
-  /// `cpd` ("client provisioning data"): the full Anisette headers map
-  /// merged with a fixed set of literal keys xtool always includes
-  /// (`GrandSlamOperationRequest.method(...)`'s `clientData` dict).
-  /// `deviceInfo.dictionary` (spoofed Mac hardware serials: ROM/MLB/SRL-NO)
-  /// is also merged in by xtool but deliberately NOT reproduced here -
-  /// this port doesn't spoof Mac hardware identifiers (same choice layer
-  /// 2a already made for `X-MMe-Client-Info`), and the task brief's `cpd`
-  /// spec only calls for the Anisette map plus these six literal keys.
-  Map<String, Object?> _clientProvisioningData(Map<String, String> anisette) => {
-    'bootstrap': true,
-    'icscrec': true,
-    'pbe': false,
-    'prkgen': true,
-    'svct': 'iCloud',
-    'loc': locale,
-    ...anisette,
-  };
+  }) => postGrandSlamOperation(
+    httpClient: _http,
+    gsService: endpoints.gsService,
+    operation: operation,
+    username: username,
+    fetchAnisetteHeaders: _fetchAnisetteHeaders,
+    extraParams: extraParams,
+    locale: locale,
+  );
 
   // --- two-factor authentication --------------------------------------
 
@@ -432,7 +397,11 @@ class GrandSlamClient {
     String body,
   ) async {
     final anisette = await _fetchAnisetteHeaders();
-    return _http.post(url, headers: _twoFactorHeaders(anisette, loginData), body: body);
+    return _http.post(
+      url,
+      headers: _twoFactorHeaders(anisette, loginData),
+      body: body,
+    );
   }
 
   Future<http.Response> _getTwoFactor(
@@ -443,7 +412,11 @@ class GrandSlamClient {
     final anisette = await _fetchAnisetteHeaders();
     return _http.get(
       url,
-      headers: _twoFactorHeaders(anisette, loginData, extraHeaders: extraHeaders),
+      headers: _twoFactorHeaders(
+        anisette,
+        loginData,
+        extraHeaders: extraHeaders,
+      ),
     );
   }
 

@@ -172,6 +172,13 @@ class AnisetteDataProvider {
     return _buildHeaders(await _adiFor(state), state);
   }
 
+  /// Resolves and caches the GrandSlam URL bag using this install's
+  /// persisted pseudo-identity. Useful for callers that also need to send
+  /// regular `o=...` GrandSlam operations with the same Anisette provider.
+  Future<GrandSlamEndpoints> resolveGrandSlamEndpoints() async {
+    return _grandSlamEndpoints(await _loadState());
+  }
+
   /// Releases the underlying HTTP client's resources.
   void close() => _http.close();
 

@@ -8,6 +8,7 @@
 /// responses are made of.
 library;
 
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:propertylistserialization/propertylistserialization.dart';
@@ -53,6 +54,34 @@ Map<String, Object?> decodePlist(String xml, {String context = 'plist'}) {
   } on PropertyListException catch (e) {
     throw XcrossError('$context was not a plist: $e');
   }
+  return _plistMap(decoded, context);
+}
+
+/// Decodes raw plist bytes in either Apple's binary (`bplist00`) or XML
+/// representation. GrandSlam's encrypted payloads are opaque bytes, so the
+/// server is free to use either representation.
+Map<String, Object?> decodePlistBytes(
+  Uint8List bytes, {
+  String context = 'plist',
+}) {
+  final Object decoded;
+  try {
+    if (bytes.length >= 8 && ascii.decode(bytes.sublist(0, 8)) == 'bplist00') {
+      decoded = PropertyListSerialization.propertyListWithData(
+        byteDataOf(bytes),
+      );
+    } else {
+      decoded = PropertyListSerialization.propertyListWithString(
+        utf8.decode(bytes),
+      );
+    }
+  } on Object catch (e) {
+    throw XcrossError('$context was not a plist: $e');
+  }
+  return _plistMap(decoded, context);
+}
+
+Map<String, Object?> _plistMap(Object decoded, String context) {
   if (decoded is! Map) {
     throw XcrossError('$context was not a plist dictionary');
   }
