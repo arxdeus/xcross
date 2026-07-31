@@ -27,6 +27,8 @@ dependencies:
   basic_utils: ^5.8.2
   http: ^1.6.0
   xml: ^7.0.1
+  crypto: ^3.0.7
+  pointycastle: ^4.0.0
 
 dev_dependencies:
   test: ^1.31.2

@@ -122,7 +122,7 @@ packages:
     source: hosted
     version: "1.15.1"
   crypto:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: crypto
       sha256: c8ea0233063ba03258fbcf2ca4d6dadfefe14f02fab57702265467a19f27fadf
@@ -338,7 +338,7 @@ packages:
     source: hosted
     version: "3.1.6"
   pointycastle:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: pointycastle
       sha256: "92aa3841d083cc4b0f4709b5c74fd6409a3e6ba833ffc7dc6a8fee096366acf5"
