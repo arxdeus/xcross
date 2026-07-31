@@ -11,15 +11,15 @@ import 'package:xcross/src/grandslam/app_token_exchange.dart';
 import 'package:xcross/src/grandslam/grandslam_login_data.dart';
 import 'package:xcross/src/grandslam/grandslam_response.dart';
 
-const _gsServiceUrl = 'https://gsa.test/grandslam';
+const _gsServiceUrl = 'https://gsa.apple.com/grandslam';
 
 const _endpoints = GrandSlamEndpoints(
   gsService: _gsServiceUrl,
   secondaryAuth: 'secondaryAuth',
-  trustedDeviceSecondaryAuth: 'https://gsa.test/trusted',
-  validateCode: 'https://gsa.test/validate',
-  midStartProvisioning: 'https://gsa.test/start',
-  midFinishProvisioning: 'https://gsa.test/finish',
+  trustedDeviceSecondaryAuth: 'https://gsa.apple.com/trusted',
+  validateCode: 'https://gsa.apple.com/validate',
+  midStartProvisioning: 'https://gsa.apple.com/start',
+  midFinishProvisioning: 'https://gsa.apple.com/finish',
 );
 
 void main() {

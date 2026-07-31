@@ -23,10 +23,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Set up Dart
-        uses: dart-lang/setup-dart@v1
+        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
           sdk: stable
 
@@ -46,15 +48,87 @@ jobs:
           chmod +x "dist/${{ matrix.asset }}"
 
       - name: Upload binary artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: ${{ matrix.asset }}
           path: dist/${{ matrix.asset }}
           if-no-files-found: error
 
+  build-windows:
+    name: Build xcross-windows-x64
+    runs-on: windows-2022
+    env:
+      ZSIGN_REF: d6e929c97b5b564c2cc1f82afe226a44da7149a0
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Checkout zsign
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: zhlynn/zsign
+          ref: ${{ env.ZSIGN_REF }}
+          path: zsign
+          persist-credentials: false
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+
+      - name: Set up MSBuild
+        uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce # v2
+
+      - name: Verify Dart code
+        run: |
+          dart pub get
+          dart analyze
+          dart test
+
+      - name: Build xcross and AOSKit bridge
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          dart compile exe bin/xcross.dart -o dist/xcross.exe
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw 'Visual Studio C++ tools were not found' }
+          $vcvars = Join-Path $vs 'VC\Auxiliary\Build\vcvarsall.bat'
+          $command = "call `"$vcvars`" x86 && cl /nologo /O2 /MT /EHsc /std:c++17 /W4 /WX /DUNICODE /D_UNICODE native\windows\aoskit_helper.cpp /Fe:dist\xcross-aoskit.exe"
+          cmd.exe /c $command
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build zsign
+        run: >-
+          msbuild zsign/build/windows/vs2022/zsign.sln
+          -p:Configuration=Release -p:Platform=x64 -m
+
+      - name: Add zsign to package
+        shell: pwsh
+        run: Copy-Item zsign/bin/zsign.exe dist/zsign.exe
+
+      - name: Package Windows release
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/THIRD_PARTY_LICENSES | Out-Null
+          Copy-Item LICENSE dist/LICENSE
+          Copy-Item native/windows/AOSKIT_HELPER_LICENSE.txt dist/THIRD_PARTY_LICENSES/aoskit-helper.txt
+          Copy-Item zsign/LICENSE dist/THIRD_PARTY_LICENSES/zsign.txt
+          Compress-Archive -Path dist/* -DestinationPath xcross-windows-x64.zip
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: xcross-windows-x64
+          path: xcross-windows-x64.zip
+          if-no-files-found: error
+
   release:
     name: Publish GitHub release
-    needs: build
+    needs: [build, build-windows]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -63,19 +137,24 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Download binaries
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: dist
           merge-multiple: true
 
       - name: Create and publish release
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          tag="${{ github.ref_name }}"
+          tag="$RELEASE_TAG"
           gh release create "$tag" \
             dist/xcross-linux-x64 \
             dist/xcross-linux-arm64 \
+            dist/xcross-windows-x64.zip \
             --title "$tag" \
             --generate-notes

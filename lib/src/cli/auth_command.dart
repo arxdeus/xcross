@@ -3,11 +3,10 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:http/http.dart' as http;
-import 'package:path/path.dart' as p;
 import 'package:xcross/src/appstoreconnect/asc_config.dart';
 import 'package:xcross/src/appstoreconnect/developer_services_client.dart';
-import 'package:xcross/src/grandslam/anisette/anisette_data_provider.dart';
-import 'package:xcross/src/grandslam/anisette/anisette_state.dart';
+import 'package:xcross/src/grandslam/anisette/anisette_provider.dart';
+import 'package:xcross/src/grandslam/anisette/aoskit_anisette_provider.dart';
 import 'package:xcross/src/grandslam/app_token_exchange.dart';
 import 'package:xcross/src/grandslam/grandslam_login.dart';
 import 'package:xcross/src/grandslam/grandslam_session_store.dart';
@@ -37,13 +36,6 @@ class AuthCommand extends Command<void> {
         'apple-id',
         valueHelp: 'email',
         help: 'Use Apple ID/password login. If omitted, xcross prompts.',
-      )
-      ..addOption(
-        'adi-library-dir',
-        valueHelp: 'path',
-        help:
-            'Directory containing libCoreADI.so and libstoreservicescore.so '
-            'for Apple ID login.',
       );
   }
 
@@ -80,9 +72,6 @@ class AuthCommand extends Command<void> {
           'Provide non-empty values for all of --issuer-id, --key-id, and '
           '--private-key, or none to use Apple ID login.',
         );
-      }
-      if (argResults!.wasParsed('adi-library-dir')) {
-        throw XcrossError('--adi-library-dir only applies to Apple ID login.');
       }
       await _saveAscCredentials(
         issuerId: issuerId!,
@@ -126,14 +115,17 @@ class AuthCommand extends Command<void> {
   }
 
   Future<void> _runAppleIdLogin({String? initialUsername}) async {
-    final adiLibraryDir =
-        argResults!.option('adi-library-dir') ??
-        p.join(p.dirname(AnisetteStateStore.defaultPath()), 'adi-libs');
-    _checkAdiLibraryDirectory(adiLibraryDir);
+    if (!Platform.isWindows) {
+      throw XcrossError(
+        'Built-in Apple ID/password login is currently available on native '
+        'Windows. On this platform use xtool authentication or App Store '
+        'Connect API key flags.',
+      );
+    }
+    final AnisetteProvider anisette = AosKitAnisetteProvider();
 
     final username = initialUsername ?? _readRequiredLine('Apple ID: ');
     final password = _readPassword();
-    final anisette = AnisetteDataProvider(adiLibraryDir);
     GrandSlamClient? loginClient;
     GrandSlamAppTokenExchange? tokenExchange;
     try {
@@ -186,12 +178,7 @@ class AuthCommand extends Command<void> {
           : _selectTeam(activeTeams);
       final store = GrandSlamSessionStore();
       await store.save(
-        GrandSlamSession(
-          username: username,
-          token: token,
-          teamId: team.id,
-          adiLibraryDirectory: Directory(adiLibraryDir).absolute.path,
-        ),
+        GrandSlamSession(username: username, token: token, teamId: team.id),
       );
       Log.logDone('Signed in as $username. Session saved to ${store.path}');
     } on XcrossError {
@@ -235,9 +222,7 @@ class AuthCommand extends Command<void> {
         'Enter the verification code sent to your trusted device: ',
       GrandSlamTwoFactorMode.unspecified => 'Enter the verification code: ',
     };
-    stdout.write(prompt);
-    final code = stdin.readLineSync()?.trim();
-    return _present(code) ? code : null;
+    return _readHiddenLine(prompt, valueName: 'verification code')?.trim();
   }
 
   String _readRequiredLine(String prompt) {
@@ -248,8 +233,14 @@ class AuthCommand extends Command<void> {
   }
 
   String _readPassword() {
+    final password = _readHiddenLine('Password: ', valueName: 'password');
+    if (!_present(password)) throw XcrossError('No password entered.');
+    return password!;
+  }
+
+  String? _readHiddenLine(String prompt, {required String valueName}) {
     if (!stdin.hasTerminal) {
-      throw XcrossError('Password prompt requires an interactive terminal.');
+      throw XcrossError('$valueName prompt requires an interactive terminal.');
     }
 
     final bool priorEcho;
@@ -258,7 +249,7 @@ class AuthCommand extends Command<void> {
       priorEcho = stdin.echoMode;
       priorLine = stdin.lineMode;
     } on Object catch (e) {
-      throw XcrossError('Secure password input is unavailable: $e');
+      throw XcrossError('Secure $valueName input is unavailable: $e');
     }
 
     try {
@@ -267,31 +258,17 @@ class AuthCommand extends Command<void> {
         stdin.lineMode = true;
       } on Object catch (e) {
         throw XcrossError(
-          'Could not disable terminal echo; refusing to read the password: $e',
+          'Could not disable terminal echo; refusing to read the $valueName: $e',
         );
       }
-      stdout.write('Password: ');
-      final password = stdin.readLineSync();
+      stdout.write(prompt);
+      final value = stdin.readLineSync();
       stdout.writeln();
-      if (!_present(password)) throw XcrossError('No password entered.');
-      return password!;
+      return _present(value) ? value : null;
     } finally {
       _trySet(() => stdin.lineMode = priorLine);
       _trySet(() => stdin.echoMode = priorEcho);
     }
-  }
-
-  static void _checkAdiLibraryDirectory(String dir) {
-    final missing = [
-      for (final name in const ['libCoreADI.so', 'libstoreservicescore.so'])
-        if (!File(p.join(dir, name)).existsSync()) name,
-    ];
-    if (missing.isEmpty) return;
-    throw XcrossError(
-      'Apple ID login needs ADI libraries at "$dir" '
-      '(${missing.join(', ')} missing). Place libCoreADI.so and '
-      'libstoreservicescore.so there, or pass --adi-library-dir.',
-    );
   }
 
   static bool _present(String? value) => value != null && value.isNotEmpty;

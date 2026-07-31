@@ -19,14 +19,13 @@
 library;
 
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:crypto/crypto.dart' as crypto;
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
-import 'package:provision_dart/provision_dart.dart';
+import 'package:xcross/src/grandslam/anisette/anisette_headers.dart';
+import 'package:xcross/src/grandslam/anisette/anisette_provider.dart';
 import 'package:xcross/src/grandslam/anisette/anisette_state.dart';
 import 'package:xcross/src/grandslam/anisette/grandslam_endpoints.dart';
 import 'package:xcross/src/grandslam/grandslam_response.dart';
@@ -42,11 +41,29 @@ import 'package:xcross/src/util/errors.dart';
 /// example, and `UInt64(bitPattern: -2)` in xtool's `XADIProvider`.
 const int kAdiMachineDsId = -2;
 
-/// Minimal surface of `package:provision_dart`'s [AdiClient] this provider
-/// drives, abstracted so tests can substitute a fake without touching the
-/// real (Linux-only) native ADI library. [AdiClient.fromDirectory] plus
-/// its `provisioningPath`/`identifier` setters are configuration, handled
-/// once by the factory that produces this interface - not part of it.
+class AdiClientProvisioningIntermediateMetadata {
+  const AdiClientProvisioningIntermediateMetadata({
+    required this.clientProvisioningIntermediateMetadata,
+    required this.session,
+  });
+
+  final Uint8List clientProvisioningIntermediateMetadata;
+  final int session;
+}
+
+class AdiOneTimePassword {
+  const AdiOneTimePassword({
+    required this.oneTimePassword,
+    required this.machineIdentifier,
+  });
+
+  final Uint8List oneTimePassword;
+  final Uint8List machineIdentifier;
+}
+
+/// Low-level Android ADI seam retained for injected/custom implementations.
+/// xcross's built-in Windows path uses AOSKit instead, so a clean checkout no
+/// longer depends on an unreleasable sibling package.
 abstract class AdiProvisioning {
   Future<bool> isMachineProvisioned(int dsId);
 
@@ -64,61 +81,15 @@ abstract class AdiProvisioning {
   Future<AdiOneTimePassword> requestOTP(int dsId);
 }
 
-class _RealAdiProvisioning implements AdiProvisioning {
-  _RealAdiProvisioning(this._client);
-
-  final AdiClient _client;
-
-  @override
-  Future<bool> isMachineProvisioned(int dsId) =>
-      _client.isMachineProvisioned(dsId);
-
-  @override
-  Future<AdiClientProvisioningIntermediateMetadata> startProvisioning(
-    int dsId,
-    Uint8List serverProvisioningIntermediateMetadata,
-  ) => _client.startProvisioning(dsId, serverProvisioningIntermediateMetadata);
-
-  @override
-  Future<void> endProvisioning(
-    int session,
-    Uint8List persistentTokenMetadata,
-    Uint8List trustKey,
-  ) => _client.endProvisioning(session, persistentTokenMetadata, trustKey);
-
-  @override
-  Future<AdiOneTimePassword> requestOTP(int dsId) => _client.requestOTP(dsId);
-}
-
-AdiProvisioning _defaultAdiFactory({
+AdiProvisioning _unsupportedAdiFactory({
   required String adiLibraryDirectory,
   required String provisioningPath,
   required String identifier,
-}) {
-  final client = AdiClient.fromDirectory(adiLibraryDirectory);
-  client.provisioningPath = provisioningPath;
-  client.identifier = identifier;
-  return _RealAdiProvisioning(client);
-}
-
-/// Static placeholder client-info string identifying this "device" to
-/// Apple's GrandSlam servers. Not derived from real hardware - this isn't
-/// spoofing one specific physical Mac - but this exact string is used
-/// identically in BOTH Dadoum/Provision's own `main.d` usage example and
-/// xtool's `XADIProvider.clientInfo()`, so it's a genuinely
-/// cross-validated known-working value, not a guess. A future reviewer
-/// may want to make this configurable/more "realistic" if Apple starts
-/// fingerprinting on it.
-const String _clientInfo =
-    '<MacBookPro13,2> <macOS;13.1;22C65> <com.apple.AuthKit/1 (com.apple.dt.Xcode/3594.4.19)>';
-
-/// Static placeholder locale/timezone/country defaults, used when the
-/// system value can't be confidently derived without a package
-/// dependency (e.g. Dart's stdlib has no IANA-zone-id API). Not critical
-/// to get exactly right for this layer.
-const String _defaultLocale = 'en_US';
-const String _defaultTimeZone = 'America/Los_Angeles';
-const String _defaultCountry = 'US';
+}) => throw XcrossError(
+  'No Android ADI runtime is bundled. Native Windows password login uses '
+  'the AOSKit provider; other platforms need an injected AdiProvisioning '
+  'implementation or App Store Connect key authentication.',
+);
 
 /// Produces the real HTTP headers/plist fields Apple's GrandSlam servers
 /// require ("Anisette data"), given a locally-loaded ADI native library.
@@ -131,7 +102,7 @@ const String _defaultCountry = 'US';
 ///  - Fresh per-call OTP generation (cheap, local, no network - safe to
 ///    call every time) combined with the persisted values into the final
 ///    header set.
-class AnisetteDataProvider {
+class AnisetteDataProvider implements AnisetteProvider {
   AnisetteDataProvider(
     this.adiLibraryDirectory, {
     http.Client? httpClient,
@@ -144,7 +115,7 @@ class AnisetteDataProvider {
     adiFactory,
   }) : _http = httpClient ?? http.Client(),
        _stateStore = stateStore ?? AnisetteStateStore(),
-       _adiFactory = adiFactory ?? _defaultAdiFactory;
+       _adiFactory = adiFactory ?? _unsupportedAdiFactory;
 
   /// Directory containing the already-extracted `libCoreADI.so` and
   /// `libstoreservicescore.so` native libraries. Obtaining them is the
@@ -167,6 +138,7 @@ class AnisetteDataProvider {
 
   /// Returns the current Anisette headers, running the one-time
   /// provisioning handshake first if this install isn't provisioned yet.
+  @override
   Future<Map<String, String>> fetchAnisetteHeaders() async {
     final state = await _ensureProvisioned(await _loadState());
     return _buildHeaders(await _adiFor(state), state);
@@ -175,11 +147,13 @@ class AnisetteDataProvider {
   /// Resolves and caches the GrandSlam URL bag using this install's
   /// persisted pseudo-identity. Useful for callers that also need to send
   /// regular `o=...` GrandSlam operations with the same Anisette provider.
+  @override
   Future<GrandSlamEndpoints> resolveGrandSlamEndpoints() async {
     return _grandSlamEndpoints(await _loadState());
   }
 
   /// Releases the underlying HTTP client's resources.
+  @override
   void close() => _http.close();
 
   Future<AnisetteState> _loadState() async {
@@ -202,7 +176,7 @@ class AnisetteDataProvider {
   Future<GrandSlamEndpoints> _grandSlamEndpoints(AnisetteState state) async {
     return _endpoints ??= await fetchGrandSlamEndpoints(
       _http,
-      headers: _lookupHeaders(state),
+      headers: buildAnisetteLookupHeaders(state),
     );
   }
 
@@ -275,17 +249,12 @@ class AnisetteDataProvider {
     AnisetteState state,
   ) async {
     final otp = await adi.requestOTP(kAdiMachineDsId);
-    return {
-      'X-Apple-I-MD': base64Encode(otp.oneTimePassword),
-      'X-Apple-I-MD-M': base64Encode(otp.machineIdentifier),
-      'X-Apple-I-MD-RINFO': '${state.routingInfo}',
-      'X-Apple-I-MD-LU': _localUserIdHash(state.localUserUid),
-      'X-Mme-Device-Id': state.localUserUid,
-      'X-MMe-Client-Info': _clientInfo,
-      'X-Apple-I-Locale': _systemLocale(),
-      'X-Apple-I-TimeZone': _defaultTimeZone,
-      'X-Apple-I-Client-Time': _isoClientTime(),
-    };
+    return buildAnisetteHeaders(
+      oneTimePassword: base64Encode(otp.oneTimePassword),
+      machineIdentifier: base64Encode(otp.machineIdentifier),
+      routingInfo: '${state.routingInfo}',
+      localUserUid: state.localUserUid,
+    );
   }
 
   Future<Map<String, Object?>> _postProvisioning(
@@ -297,9 +266,12 @@ class AnisetteDataProvider {
       'Header': <String, Object?>{},
       'Request': request,
     });
-    final response = await _http.post(
-      Uri.parse(url),
-      headers: _provisioningHeaders(state),
+    final response = await sendGrandSlamRequest(
+      _http,
+      method: 'POST',
+      url: url,
+      operation: 'Anisette provisioning',
+      headers: buildAnisetteProvisioningHeaders(state),
       body: body,
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -310,48 +282,6 @@ class AnisetteDataProvider {
     }
     return decodeGrandSlamResponse(response.body);
   }
-
-  /// Headers for the `GsService2/lookup` `GET` - no Anisette data exists
-  /// yet, so only the persisted pseudo-identity/locale headers apply.
-  /// Matches xtool's `GrandSlamLookupManager.performLookup` exactly.
-  Map<String, String> _lookupHeaders(AnisetteState state) => {
-    'X-MMe-Client-Info': _clientInfo,
-    'X-Mme-Device-Id': state.localUserUid,
-    'X-Apple-I-Locale': _systemLocale(),
-    'X-Apple-I-TimeZone': _defaultTimeZone,
-    'X-Apple-I-TimeZone-Offset': '${DateTime.now().timeZoneOffset.inSeconds}',
-    'X-MMe-Country': _defaultCountry,
-  };
-
-  /// Headers for the two provisioning POSTs. `X-Apple-I-Client-Time` is
-  /// generated fresh here (called immediately before each POST, never
-  /// cached/reused) per both Provision's `ProvisioningSession.provision`
-  /// (adds it fresh before each of the two POSTs) and the task's own
-  /// requirement; `text/x-xml-plist` matches xtool's choice (Provision's
-  /// D reference sends `application/x-www-form-urlencoded` here and notes
-  /// in a comment that it still works, but the plist content-type is the
-  /// standards-correct one every other GSA call uses).
-  Map<String, String> _provisioningHeaders(AnisetteState state) => {
-    'Content-Type': 'text/x-xml-plist',
-    'X-Apple-I-Client-Time': _isoClientTime(),
-    'X-Apple-I-MD-LU': _localUserIdHash(state.localUserUid),
-    'X-Mme-Device-Id': state.localUserUid,
-    'X-MMe-Client-Info': _clientInfo,
-    'X-MMe-Country': _defaultCountry,
-    'X-Apple-I-Locale': _systemLocale(),
-    'X-Apple-I-TimeZone': _defaultTimeZone,
-  };
-}
-
-/// `X-Apple-I-MD-LU`: `SHA256(localUserUid)`, uppercase hex - matches
-/// xtool's `ADIDataProvider.localUserID` derivation exactly (confirmed
-/// from source: `SHA256.hash(data: ...).map { String(format: "%02X", $0) }`).
-String _localUserIdHash(String localUserUid) {
-  final digest = crypto.sha256.convert(utf8.encode(localUserUid));
-  return digest.bytes
-      .map((b) => b.toRadixString(16).padLeft(2, '0'))
-      .join()
-      .toUpperCase();
 }
 
 /// ADI's "Android ID" identifier: the first 16 lowercase hex characters of
@@ -361,30 +291,6 @@ String _localUserIdHash(String localUserUid) {
 /// instead of a separate persisted value.
 String _androidId(String localUserUid) =>
     localUserUid.replaceAll('-', '').substring(0, 16).toLowerCase();
-
-/// ISO8601 UTC timestamp with no fractional seconds, e.g.
-/// `2024-05-01T12:34:56Z`. Matches Provision's
-/// `Clock.currTime().stripMilliseconds().toISOExtString()` and xtool's
-/// `AnisetteData`'s `"yyyy-MM-dd'T'HH:mm:ss'Z'"` date formatter.
-String _isoClientTime() {
-  final now = DateTime.now().toUtc();
-  String two(int v) => v.toString().padLeft(2, '0');
-  return '${now.year.toString().padLeft(4, '0')}-${two(now.month)}-${two(now.day)}'
-      'T${two(now.hour)}:${two(now.minute)}:${two(now.second)}Z';
-}
-
-/// Best-effort system locale in `xx_YY` form, falling back to
-/// [_defaultLocale] if [Platform.localeName] isn't in a recognizable
-/// shape (it varies by OS: `en_US.UTF-8` on POSIX, `en-US` on Windows).
-String _systemLocale() {
-  final raw = Platform.localeName
-      .split(RegExp('[.@]'))
-      .first
-      .replaceAll('-', '_');
-  return RegExp(r'^[a-zA-Z]{2,3}_[a-zA-Z]{2,4}$').hasMatch(raw)
-      ? raw
-      : _defaultLocale;
-}
 
 String _stringField(Map<String, Object?> map, String key) {
   final value = map[key];

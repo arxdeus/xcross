@@ -50,7 +50,7 @@ class GrandSlamEndpoints {
           'GrandSlam endpoint lookup response missing "$key" (or not a string)',
         );
       }
-      return value;
+      return validateGrandSlamUrl(value, field: key).toString();
     }
 
     return GrandSlamEndpoints(
@@ -62,6 +62,43 @@ class GrandSlamEndpoints {
       midFinishProvisioning: field('midFinishProvisioning'),
     );
   }
+}
+
+Uri validateGrandSlamUrl(String value, {required String field}) {
+  final uri = Uri.tryParse(value);
+  final host = uri?.host.toLowerCase() ?? '';
+  final isAppleHost = host == 'apple.com' || host.endsWith('.apple.com');
+  if (uri == null ||
+      uri.scheme != 'https' ||
+      !isAppleHost ||
+      uri.userInfo.isNotEmpty ||
+      (uri.hasPort && uri.port != 443)) {
+    throw XcrossError(
+      'GrandSlam endpoint "$field" is not a trusted Apple HTTPS URL.',
+    );
+  }
+  return uri;
+}
+
+Future<http.Response> sendGrandSlamRequest(
+  http.Client client, {
+  required String method,
+  required String url,
+  required String operation,
+  Map<String, String>? headers,
+  String? body,
+}) async {
+  final request = http.Request(
+    method,
+    validateGrandSlamUrl(url, field: operation),
+  )..followRedirects = false;
+  if (headers != null) request.headers.addAll(headers);
+  if (body != null) request.body = body;
+  final response = await http.Response.fromStream(await client.send(request));
+  if (response.statusCode >= 300 && response.statusCode < 400) {
+    throw XcrossError('GrandSlam $operation refused an HTTP redirect.');
+  }
+  return response;
 }
 
 final Uri _lookupUrl = Uri.parse(
@@ -82,7 +119,13 @@ Future<GrandSlamEndpoints> fetchGrandSlamEndpoints(
   http.Client client, {
   required Map<String, String> headers,
 }) async {
-  final response = await client.get(_lookupUrl, headers: headers);
+  final response = await sendGrandSlamRequest(
+    client,
+    method: 'GET',
+    url: _lookupUrl.toString(),
+    operation: 'endpoint lookup',
+    headers: headers,
+  );
   if (response.statusCode < 200 || response.statusCode >= 300) {
     throw XcrossError(
       'GrandSlam endpoint lookup failed (HTTP ${response.statusCode})',

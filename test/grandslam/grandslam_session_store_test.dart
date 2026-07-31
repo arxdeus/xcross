@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/grandslam/app_token_exchange.dart';
 import 'package:xcross/src/grandslam/grandslam_session_store.dart';
+import 'package:xcross/src/util/errors.dart';
 
 void main() {
   late Directory tempDir;
@@ -48,6 +49,40 @@ void main() {
         endsWith('rw-------'),
       );
     }
+  });
+
+  test('round-trips a pathless Windows AOSKit session', () async {
+    final store = GrandSlamSessionStore(path: sessionPath);
+    await store.save(
+      GrandSlamSession(
+        username: 'windows@example.com',
+        teamId: 'TEAM123',
+        token: DeveloperServicesLoginToken(
+          adsid: '1',
+          token: 'token',
+          expiry: DateTime.now().toUtc().add(const Duration(days: 1)),
+        ),
+      ),
+    );
+
+    final loaded = await store.load();
+    expect(loaded?.adiLibraryDirectory, isNull);
+    expect(loaded?.teamId, 'TEAM123');
+  });
+
+  test('invalid JSON errors do not echo persisted token material', () async {
+    await File(sessionPath).writeAsString('{"token":"secret-token",BROKEN');
+
+    await expectLater(
+      GrandSlamSessionStore(path: sessionPath).load(),
+      throwsA(
+        isA<XcrossError>().having(
+          (error) => error.toString(),
+          'message',
+          isNot(contains('secret-token')),
+        ),
+      ),
+    );
   });
 
   test('load returns null when absent, clear deletes the file', () async {

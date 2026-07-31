@@ -14,23 +14,22 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
-import 'package:provision_dart/provision_dart.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/grandslam/anisette/anisette_data_provider.dart';
 import 'package:xcross/src/grandslam/anisette/anisette_state.dart';
 
 const _lookupUrl = 'https://gsa.apple.com/grandslam/GsService2/lookup';
-const _midStartUrl = 'https://example.test/gsa/midStartProvisioning';
-const _midFinishUrl = 'https://example.test/gsa/midFinishProvisioning';
+const _midStartUrl = 'https://gsa.apple.com/gsa/midStartProvisioning';
+const _midFinishUrl = 'https://gsa.apple.com/gsa/midFinishProvisioning';
 
 String _lookupResponsePlist() =>
     PropertyListSerialization.stringWithPropertyList({
       'urls': {
-        'gsService': 'https://example.test/gsa/gsService',
-        'secondaryAuth': 'https://example.test/gsa/secondaryAuth',
+        'gsService': 'https://gsa.apple.com/gsa/gsService',
+        'secondaryAuth': 'https://gsa.apple.com/gsa/secondaryAuth',
         'trustedDeviceSecondaryAuth':
-            'https://example.test/gsa/trustedDeviceSecondaryAuth',
-        'validateCode': 'https://example.test/gsa/validateCode',
+            'https://gsa.apple.com/gsa/trustedDeviceSecondaryAuth',
+        'validateCode': 'https://gsa.apple.com/gsa/validateCode',
         'midStartProvisioning': _midStartUrl,
         'midFinishProvisioning': _midFinishUrl,
       },

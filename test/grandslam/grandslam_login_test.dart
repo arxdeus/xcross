@@ -27,9 +27,9 @@ import 'package:test/test.dart';
 import 'package:xcross/src/grandslam/anisette/grandslam_endpoints.dart';
 import 'package:xcross/src/grandslam/grandslam_login.dart';
 
-const _gsServiceUrl = 'https://example.test/gsService';
-const _trustedDeviceUrl = 'https://example.test/trustedDeviceSecondaryAuth';
-const _validateCodeUrl = 'https://example.test/validateCode';
+const _gsServiceUrl = 'https://gsa.apple.com/gsService';
+const _trustedDeviceUrl = 'https://gsa.apple.com/trustedDeviceSecondaryAuth';
+const _validateCodeUrl = 'https://gsa.apple.com/validateCode';
 const _smsPutUrl = 'https://gsa.apple.com/auth/verify/phone/put?mode=sms';
 const _smsValidateUrl =
     'https://gsa.apple.com/auth/verify/phone/securitycode'
@@ -37,11 +37,11 @@ const _smsValidateUrl =
 
 const _testEndpoints = GrandSlamEndpoints(
   gsService: _gsServiceUrl,
-  secondaryAuth: 'https://example.test/secondaryAuth',
+  secondaryAuth: 'https://gsa.apple.com/secondaryAuth',
   trustedDeviceSecondaryAuth: _trustedDeviceUrl,
   validateCode: _validateCodeUrl,
-  midStartProvisioning: 'https://example.test/midStartProvisioning',
-  midFinishProvisioning: 'https://example.test/midFinishProvisioning',
+  midStartProvisioning: 'https://gsa.apple.com/midStartProvisioning',
+  midFinishProvisioning: 'https://gsa.apple.com/midFinishProvisioning',
 );
 
 Future<Map<String, String>> _fakeAnisetteHeaders() async => {

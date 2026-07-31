@@ -16,9 +16,9 @@ class GrandSlamSession {
     required this.username,
     required this.token,
     required this.teamId,
-    required this.adiLibraryDirectory,
+    this.adiLibraryDirectory,
   }) {
-    if (!p.isAbsolute(adiLibraryDirectory)) {
+    if (adiLibraryDirectory != null && !p.isAbsolute(adiLibraryDirectory!)) {
       throw XcrossError(
         'GrandSlam session: "adiLibraryDirectory" must be absolute',
       );
@@ -28,7 +28,10 @@ class GrandSlamSession {
   final String username;
   final DeveloperServicesLoginToken token;
   final String teamId;
-  final String adiLibraryDirectory;
+
+  /// Absolute Android-ADI library path for legacy/non-Windows sessions.
+  /// Windows uses the installed AOSKit bridge and leaves this null.
+  final String? adiLibraryDirectory;
 
   bool get isExpired => token.isExpired;
 
@@ -38,7 +41,7 @@ class GrandSlamSession {
     'token': token.token,
     'expiryMs': token.expiry.toUtc().millisecondsSinceEpoch,
     'teamId': teamId,
-    'adiLibraryDirectory': adiLibraryDirectory,
+    if (adiLibraryDirectory != null) 'adiLibraryDirectory': adiLibraryDirectory,
   };
 
   factory GrandSlamSession.fromJson(Map<String, Object?> json) {
@@ -63,15 +66,15 @@ class GrandSlamSession {
     if (teamId is! String || teamId.isEmpty) {
       throw XcrossError('GrandSlam session: missing/invalid "teamId"');
     }
-    if (adiLibraryDirectory is! String || !p.isAbsolute(adiLibraryDirectory)) {
-      throw XcrossError(
-        'GrandSlam session: missing/invalid "adiLibraryDirectory"',
-      );
+    if (adiLibraryDirectory != null &&
+        (adiLibraryDirectory is! String ||
+            !p.isAbsolute(adiLibraryDirectory))) {
+      throw XcrossError('GrandSlam session: invalid "adiLibraryDirectory"');
     }
     return GrandSlamSession(
       username: username,
       teamId: teamId,
-      adiLibraryDirectory: adiLibraryDirectory,
+      adiLibraryDirectory: adiLibraryDirectory as String?,
       token: DeveloperServicesLoginToken(
         adsid: adsid,
         token: token,
@@ -100,8 +103,8 @@ class GrandSlamSessionStore {
     final Object? doc;
     try {
       doc = jsonDecode(await file.readAsString());
-    } on FormatException catch (e) {
-      throw XcrossError('$_path: invalid JSON ($e)');
+    } on FormatException {
+      throw XcrossError('$_path: invalid JSON');
     }
     if (doc is! Map) {
       throw XcrossError('$_path: invalid document');
@@ -116,17 +119,10 @@ class GrandSlamSessionStore {
       '  ',
     ).convert(session.toJson());
 
-    if (Platform.isWindows) {
-      // Files under %APPDATA% inherit the user's ACL. POSIX needs an explicit
-      // mode, handled atomically below.
-      await file.writeAsString(contents);
-      return;
-    }
-
     final temporary = File('$_path.${generateUuidV4()}.tmp');
     try {
-      await temporary.writeAsString(contents);
-      posix.chmod(temporary.path, '600');
+      await temporary.writeAsString(contents, flush: true);
+      if (!Platform.isWindows) posix.chmod(temporary.path, '600');
       await temporary.rename(file.path);
     } on Object catch (e) {
       if (temporary.existsSync()) await temporary.delete();

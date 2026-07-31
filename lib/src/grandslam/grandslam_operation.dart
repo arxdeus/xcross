@@ -7,6 +7,7 @@ library;
 
 import 'package:http/http.dart' as http;
 import 'package:propertylistserialization/propertylistserialization.dart';
+import 'package:xcross/src/grandslam/anisette/grandslam_endpoints.dart';
 import 'package:xcross/src/grandslam/grandslam_response.dart';
 import 'package:xcross/src/util/errors.dart';
 
@@ -59,8 +60,11 @@ Future<Map<String, Object?>> postGrandSlamOperation({
     locale: locale,
   );
 
-  final response = await httpClient.post(
-    Uri.parse(gsService),
+  final response = await sendGrandSlamRequest(
+    httpClient,
+    method: 'POST',
+    url: gsService,
+    operation: 'o=$operation',
     headers: const {'Content-Type': 'text/x-xml-plist'},
     body: body,
   );

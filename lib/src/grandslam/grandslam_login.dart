@@ -397,8 +397,11 @@ class GrandSlamClient {
     String body,
   ) async {
     final anisette = await _fetchAnisetteHeaders();
-    return _http.post(
-      url,
+    return sendGrandSlamRequest(
+      _http,
+      method: 'POST',
+      url: url.toString(),
+      operation: 'two-factor POST',
       headers: _twoFactorHeaders(anisette, loginData),
       body: body,
     );
@@ -410,8 +413,11 @@ class GrandSlamClient {
     Map<String, String> extraHeaders = const {},
   }) async {
     final anisette = await _fetchAnisetteHeaders();
-    return _http.get(
-      url,
+    return sendGrandSlamRequest(
+      _http,
+      method: 'GET',
+      url: url.toString(),
+      operation: 'two-factor GET',
       headers: _twoFactorHeaders(
         anisette,
         loginData,

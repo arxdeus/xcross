@@ -72,29 +72,54 @@ void main() {
     test('encoding then decoding a urls dict round-trips exactly', () {
       final original = {
         'urls': {
-          'gsService': 'https://example.test/gs',
-          'secondaryAuth': 'https://example.test/secondary',
-          'trustedDeviceSecondaryAuth': 'https://example.test/trusted',
-          'validateCode': 'https://example.test/validate',
-          'midStartProvisioning': 'https://example.test/start',
-          'midFinishProvisioning': 'https://example.test/finish',
+          'gsService': 'https://gsa.apple.com/gs',
+          'secondaryAuth': 'https://gsa.apple.com/secondary',
+          'trustedDeviceSecondaryAuth': 'https://gsa.apple.com/trusted',
+          'validateCode': 'https://gsa.apple.com/validate',
+          'midStartProvisioning': 'https://gsa.apple.com/start',
+          'midFinishProvisioning': 'https://gsa.apple.com/finish',
         },
       };
       final xml = PropertyListSerialization.stringWithPropertyList(original);
       expect(xml, contains('<key>midStartProvisioning</key>'));
-      expect(xml, contains('https://example.test/start'));
+      expect(xml, contains('https://gsa.apple.com/start'));
 
       final decoded = PropertyListSerialization.propertyListWithString(xml);
       final endpoints = GrandSlamEndpoints.fromPlistUrls(
         ((decoded as Map)['urls'] as Map).cast(),
       );
-      expect(endpoints.midStartProvisioning, 'https://example.test/start');
-      expect(endpoints.midFinishProvisioning, 'https://example.test/finish');
+      expect(endpoints.midStartProvisioning, 'https://gsa.apple.com/start');
+      expect(endpoints.midFinishProvisioning, 'https://gsa.apple.com/finish');
+    });
+
+    test('rejects non-Apple or plaintext endpoint URLs', () {
+      final urls = {
+        'gsService': 'https://evil.example/collect',
+        'secondaryAuth': 'https://gsa.apple.com/secondary',
+        'trustedDeviceSecondaryAuth': 'https://gsa.apple.com/trusted',
+        'validateCode': 'https://gsa.apple.com/validate',
+        'midStartProvisioning': 'https://gsa.apple.com/start',
+        'midFinishProvisioning': 'https://gsa.apple.com/finish',
+      };
+
+      expect(
+        () => GrandSlamEndpoints.fromPlistUrls(urls),
+        throwsA(isA<Exception>()),
+      );
+      expect(
+        () => validateGrandSlamUrl(
+          'http://gsa.apple.com/plaintext',
+          field: 'test',
+        ),
+        throwsA(isA<Exception>()),
+      );
     });
 
     test('throws a clear error when a field is missing', () {
       expect(
-        () => GrandSlamEndpoints.fromPlistUrls({'gsService': 'x'}),
+        () => GrandSlamEndpoints.fromPlistUrls({
+          'gsService': 'https://gsa.apple.com/gs',
+        }),
         throwsA(
           isA<Exception>().having(
             (e) => e.toString(),
@@ -104,6 +129,29 @@ void main() {
         ),
       );
     });
+  });
+
+  test('sensitive requests disable and reject redirects', () async {
+    final client = MockClient((request) async {
+      expect(request.followRedirects, isFalse);
+      return http.Response(
+        '',
+        302,
+        headers: {'location': 'https://evil.test'},
+        isRedirect: true,
+      );
+    });
+
+    await expectLater(
+      sendGrandSlamRequest(
+        client,
+        method: 'POST',
+        url: 'https://gsa.apple.com/gs',
+        operation: 'test',
+        body: 'secret',
+      ),
+      throwsA(isA<Exception>()),
+    );
   });
 
   group('fetchGrandSlamEndpoints', () {

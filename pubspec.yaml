@@ -30,16 +30,6 @@ dependencies:
   crypto: ^3.0.7
   pointycastle: ^4.0.0
   propertylistserialization: ^1.5.0
-  provision_dart:
-    path: ../provision_dart
 
 dev_dependencies:
   test: ^1.31.2
-
-# provision_dart (path dependency, see above) pins archive ^3.6.1; xcross's
-# own darwinsdk/xtool code needs ^4.0.9. provision_dart's only use of
-# archive (apk_fetch.dart's ZipDecoder/findFile/content) is
-# source-compatible with 4.x, so force the resolution to the newer major
-# instead of forking archive versions across the workspace.
-dependency_overrides:
-  archive: ^4.0.9

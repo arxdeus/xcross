@@ -4,7 +4,8 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/appstoreconnect/appstoreconnect.dart';
 import 'package:xcross/src/device/pymd_device_resolver.dart';
 import 'package:xcross/src/device/pymd_devices.dart';
-import 'package:xcross/src/grandslam/anisette/anisette_data_provider.dart';
+import 'package:xcross/src/grandslam/anisette/anisette_provider.dart';
+import 'package:xcross/src/grandslam/anisette/aoskit_anisette_provider.dart';
 import 'package:xcross/src/grandslam/grandslam_session_store.dart';
 import 'package:xcross/src/models/device/device.dart';
 import 'package:xcross/src/signing/zsign_cli.dart';
@@ -83,7 +84,7 @@ class NativeBackend implements DeviceBackend {
     final configPath = AscCredentials.defaultConfigPath();
     final configDirectory = p.dirname(configPath);
     DevelopmentProvisioningClient? client;
-    AnisetteDataProvider? anisette;
+    AnisetteProvider? anisette;
     String? outputDir;
     String? identityDir;
     Object? appleSessionFailure;
@@ -97,31 +98,35 @@ class NativeBackend implements DeviceBackend {
     }
 
     if (session != null && !session.isExpired) {
-      final candidateAnisette = AnisetteDataProvider(
-        session.adiLibraryDirectory,
-      );
-      final candidateClient = DeveloperServicesClient.fromSession(
-        session,
-        candidateAnisette.fetchAnisetteHeaders,
-      );
-      try {
-        // Validate saved auth before any provisioning mutation. A revoked
-        // token, unavailable ADI library, or inaccessible team can then fall
-        // back safely to an explicitly configured ASC key.
-        await candidateClient.verifyAccess();
-        final providerRoot = p.join(
-          configDirectory,
-          'signing',
-          'developer-services-${session.teamId}',
+      if (!Platform.isWindows) {
+        appleSessionFailure = XcrossError(
+          'Saved native Apple ID sessions are currently supported on Windows.',
         );
-        client = candidateClient;
-        anisette = candidateAnisette;
-        identityDir = p.join(providerRoot, 'identity');
-        outputDir = p.join(providerRoot, 'profiles', bundleId);
-      } on Object catch (error) {
-        appleSessionFailure = error;
-        candidateClient.close();
-        candidateAnisette.close();
+      } else {
+        final candidateAnisette = AosKitAnisetteProvider();
+        final candidateClient = DeveloperServicesClient.fromSession(
+          session,
+          candidateAnisette.fetchAnisetteHeaders,
+        );
+        try {
+          // Validate saved auth before any provisioning mutation. Never
+          // silently switch a configured Apple session to another provider:
+          // the stored ASC key may belong to a different team.
+          await candidateClient.verifyAccess();
+          final providerRoot = p.join(
+            configDirectory,
+            'signing',
+            'developer-services-${session.teamId}',
+          );
+          client = candidateClient;
+          anisette = candidateAnisette;
+          identityDir = p.join(providerRoot, 'identity');
+          outputDir = p.join(providerRoot, 'profiles', bundleId);
+        } on Object catch (error) {
+          appleSessionFailure = error;
+          candidateClient.close();
+          candidateAnisette.close();
+        }
       }
     } else if (session?.isExpired == true) {
       appleSessionFailure = XcrossError(
@@ -129,7 +134,9 @@ class NativeBackend implements DeviceBackend {
       );
     }
 
-    if (client == null && File(configPath).existsSync()) {
+    if (client == null &&
+        appleSessionFailure == null &&
+        File(configPath).existsSync()) {
       try {
         final credentials = await AscCredentials.fromFile(configPath);
         final providerRoot = p.join(
@@ -154,7 +161,7 @@ class NativeBackend implements DeviceBackend {
       throw XcrossError(
         'No usable Apple ID session or App Store Connect credentials found. '
         'Run either:\n'
-        '    xcross auth --apple-id <email> --adi-library-dir <path>\n'
+        '    xcross auth --apple-id <email>\n'
         'or:\n'
         '    xcross auth --issuer-id <id> --key-id <id> '
         '--private-key <path-to-AuthKey_XXXX.p8>$failureDetails',
@@ -174,7 +181,6 @@ class NativeBackend implements DeviceBackend {
         privateKeyPemPath: identity.privateKeyPemPath,
         certificatePemPath: identity.certificatePemPath,
         provisioningProfilePath: identity.profilePath,
-        outputPath: appOrIpaPath,
       );
       await PymdDevices.install(appOrIpaPath, udid: udid);
     } finally {

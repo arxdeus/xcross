@@ -6,22 +6,22 @@
 [![Latest release](https://img.shields.io/github/v/release/arxdeus/xcross?style=flat-square&label=release)](https://github.com/arxdeus/xcross/releases)
 [![GitHub stars](https://img.shields.io/github/stars/arxdeus/xcross?style=flat-square&label=stars)](https://github.com/arxdeus/xcross/stargazers)
 [![Open issues](https://img.shields.io/github/issues/arxdeus/xcross?style=flat-square)](https://github.com/arxdeus/xcross/issues)
-![Platform](https://img.shields.io/badge/platform-linux-3C873A?style=flat-square&logo=linux&logoColor=white)
+![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-3C873A?style=flat-square)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 
-**Build, run, and hot-reload Flutter iOS apps from Linux - no Xcode, no macOS.**
+**Build, run, and hot-reload Flutter iOS apps from Linux or Windows - no Xcode or macOS.**
 
 ⭐ If xcross saves you a Mac, star the repo.
 
-[Install](#install) • [Windows](#windows-via-wsl) • [Quick start](#quick-start) • [Commands](#commands) • [VS Code](#vs-code) • [FAQ](#faq)
+[Install](#install) • [Windows](#windows-native) • [Quick start](#quick-start) • [Commands](#commands) • [VS Code](#vs-code) • [FAQ](#faq)
 
 </div>
 
-xcross reimplements the Flutter iOS build pipeline and the iOS 17+ CoreDevice launch protocol in pure Dart, and hands signing, install, and device discovery off to [xtool](https://github.com/xtool-org/xtool).
+xcross reimplements the Flutter iOS build pipeline and the iOS 17+ CoreDevice launch protocol in pure Dart. Linux uses [xtool](https://github.com/xtool-org/xtool); Windows uses the bundled native signing bridge plus `pymobiledevice3`.
 
-- 🐧 **Linux-native** - no Xcode, no macOS, no Rosetta
+- 🐧🪟 **Linux and native Windows** - no Xcode, macOS, WSL, or Windows Swift toolchain
 - 🔥 **Hot reload on device** - `r` reload, `R` restart, over the iOS 17+ RSD tunnel
-- 📦 **Real signing & install** - via `xtool`, using your own Apple credentials
+- 📦 **Real signing & install** - with your Apple ID or App Store Connect API key
 - ⚙️ **Pure Dart pipeline** - `frontend_server` → `clang` → `ld64.lld` → `.app`/`.ipa`
 
 > [!IMPORTANT]
@@ -30,6 +30,8 @@ xcross reimplements the Flutter iOS build pipeline and the iOS 17+ CoreDevice la
 ---
 
 ## Requirements
+
+### Linux
 
 | Tool                              | Installation                                                                                                  |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------- |
@@ -54,15 +56,23 @@ You can install most of these packages via `xcross setup`
 curl -fsSL https://raw.githubusercontent.com/arxdeus/xcross/main/install.sh | sh
 ```
 
-## Windows (via WSL)
+## Windows (native)
 
-xcross only runs on Linux, so on Windows you need [WSL](https://learn.microsoft.com/windows/wsl/install) plus a forwarded USB connection to the iPhone:
+Download `xcross-windows-x64.zip` from [Releases](https://github.com/arxdeus/xcross/releases), extract it, and put that directory on `PATH`. The archive includes `xcross.exe`, `zsign.exe`, and the x86 `xcross-aoskit.exe` authentication bridge.
 
-1. Install [**iTunes**](https://support.apple.com/en-us/106372) on Windows - it carries Apple's USB drivers, without which Windows won't enumerate the phone.
-2. Install [usbipd-win](https://github.com/dorssel/usbipd-win) on the Windows host.
-3. In an admin PowerShell: `usbipd list`, then `usbipd bind --busid=<BUSID>` for the Apple Mobile Device entry.
-4. `usbipd attach --wsl --busid=<BUSID>` to forward it into WSL (repeat after every reboot/replug).
-5. Inside WSL, continue with [Quick start](#quick-start) as usual.
+Install these prerequisites:
+
+1. [Flutter](https://flutter.dev), Python 3, and `pymobiledevice3` (`py -m pip install -U pymobiledevice3`).
+2. Official [LLVM for Windows](https://github.com/llvm/llvm-project/releases), with `clang.exe` and `ld64.lld.exe` on `PATH`.
+3. The **desktop/website editions** of both iTunes and iCloud, not the Microsoft Store editions. They provide Apple Mobile Device support and the x86 `AOSKit.dll` used for Apple ID authentication.
+4. `Xcode.xip`, then extract only its iPhoneOS SDK without Xcode or Swift:
+
+```powershell
+xcross sdk install C:\Downloads\Xcode.xip
+xcross auth --apple-id you@example.com
+```
+
+The auth command prompts for the password and 2FA code, then stores only the resulting Developer Services session. App Store Connect API-key authentication remains available with `--issuer-id`, `--key-id`, and `--private-key`.
 
 ## Quick start
 
@@ -76,7 +86,9 @@ xcross vscode                    # wire up Run & Debug / Hot Reload in VS Code f
 
 ## Commands
 
-```
+```text
+xcross auth             save native Apple ID or App Store Connect credentials
+xcross sdk install      extract the iPhoneOS SDK from Xcode.xip
 xcross prepare          mount DDI + start the iOS 17+ RSD tunnel
 xcross flutter build    build a debug .app (or .ipa with -i)
 xcross flutter run      build → sign → install → launch → hot reload
@@ -86,7 +98,7 @@ xcross completion       print a shell-completion script
 
 **`xcross flutter build`**
 
-```
+```text
 -t, --target <path>          lib/main.dart
 -D, --dart-define k=v        repeatable
     --dart-define-from-file  .json / .env, repeatable
@@ -98,7 +110,7 @@ xcross completion       print a shell-completion script
 
 **`xcross flutter run`** - shares `--target`/`--dart-define`/`--pub`/`--flavor` with `build`, plus:
 
-```
+```text
 -d, --device-id     flutter-style
 -u, --udid          xtool-style, wins if both are set
     --usb / --wifi / --device-connection attached|wireless|both
@@ -122,7 +134,7 @@ infoPath: ios/Runner/Info.plist   # optional
 
 No file? Defaults to `com.example`.
 
-## VS Code / VS Codium / Cursor / Windsurf / Void / Trae
+## VS Code
 
 ```sh
 xcross vscode
@@ -193,28 +205,28 @@ sudo ln -sf /usr/lib/x86_64-linux-gnu/libxml2.so.16 /usr/lib/x86_64-linux-gnu/li
 
 ## How it works
 
-```
+```text
 flutter build → FlutterPacker
   ├─ FlutterDebugBundler   frontend_server → App.framework
   ├─ RunnerShim            clang / ld64.lld → Runner
   └─ Info.plist
 
-flutter run → build → xtool install → CoreDeviceLauncher (iOS 17+) / DebugLauncher (pre-17)
+flutter run → build → DeviceBackend → sign/install → launch
 ```
 
 ### Build
 
 1. **Resolve the Flutter SDK** - `FLUTTER_ROOT`, then a `.fvm/flutter_sdk` symlink, then `flutter` on PATH - and run `flutter pub get` (unless `--no-pub`).
 2. **`FlutterDebugBundler`** fetches/caches Flutter's iOS engine artifacts, compiles your Dart code to a kernel via `frontend_server` (JIT - the reason it's debug-only), and links a small stub dylib into `App.framework`.
-3. **`RunnerShim`** compiles a generated Objective-C `Runner` host (the `AppDelegate`/`SceneDelegate` boilerplate that embeds the Flutter engine) with `clang`, then links it with `ld64.lld` - there's no Xcode linker on Linux, so xcross brings its own.
+3. **`RunnerShim`** compiles a generated Objective-C `Runner` host (the `AppDelegate`/`SceneDelegate` boilerplate that embeds the Flutter engine) with `clang`, then links it with `ld64.lld` - no Xcode linker is used.
 4. **`Info.plist`** gets patched with the required keys (bundle id, executable, min OS version, device family, ...) and everything is stitched into `<AppName>.app`. Pass `-i/--ipa` to zip it into a `.ipa` too - pure Dart, no external `zip` binary.
 
 ### Run
 
 Runs the build above, then:
 
-1. **`xtool install`** signs the `.app`/`.ipa` with your saved `xtool auth` credentials and installs it on the device - xcross never touches signing itself.
+1. **`DeviceBackend`** uses `xtool` when present. Otherwise the native backend provisions with the saved Apple ID session or App Store Connect key, signs with bundled `zsign`, and installs with `pymobiledevice3`.
 2. **iOS 17+ → `CoreDeviceLauncher`**: brings up the `pymobiledevice3` RSD tunnel, launches the app *suspended*, then attaches over the GDB-remote protocol and resumes it - keeping a live debugger connection open for the whole session (why detaching mid-session kills the app). With hot reload on, it also keeps a `frontend_server` and the Dart VM Service connected for `r`/`R`/`q`.
-3. **Pre-17 → `DebugLauncher`**: just runs `xtool launch <bundleId>` and returns - no console, no hot reload, and the debugger detaches immediately after.
+3. **Pre-17 → `DebugLauncher`**: uses `xtool launch`. Native Windows builds can sign and install for older devices, but native launch/hot reload requires iOS 17+.
 
 `xcross dap` drives this exact same `flutter run` pipeline, just fed `r`/`R`/`q` over stdin instead of a terminal - that's what powers [VS Code](#vs-code).
