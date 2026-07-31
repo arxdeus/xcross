@@ -132,8 +132,10 @@ abstract final class TunnelDiscovery {
 
     final List<Object?> candidates;
     if (udid != null && root.containsKey(udid)) {
-      final Object? entry = root[udid];
-      candidates = entry is List ? List<Object?>.from(entry) : <Object?>[entry];
+      // Keep the per-device tunnel list intact. Flattening it here turns each
+      // candidate into a map, while the loop below intentionally expects one
+      // list per device and therefore silently skips every selected device.
+      candidates = <Object?>[root[udid]];
     } else {
       candidates = root.values.toList();
     }
