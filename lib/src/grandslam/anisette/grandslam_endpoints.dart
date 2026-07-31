@@ -96,7 +96,9 @@ Future<GrandSlamEndpoints> fetchGrandSlamEndpoints(
     throw XcrossError('GrandSlam endpoint lookup response was not a plist: $e');
   }
   if (decoded is! Map) {
-    throw XcrossError('GrandSlam endpoint lookup response was not a plist dictionary');
+    throw XcrossError(
+      'GrandSlam endpoint lookup response was not a plist dictionary',
+    );
   }
   final urls = decoded['urls'];
   if (urls is! Map) {

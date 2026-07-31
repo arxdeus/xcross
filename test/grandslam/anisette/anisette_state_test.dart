@@ -34,49 +34,55 @@ void main() {
     expect(generateUuidV4(), isNot(uuid));
   });
 
-  test('load() creates a fresh state file with a generated UUID when none exists', () async {
-    expect(File(statePath).existsSync(), isFalse);
+  test(
+    'load() creates a fresh state file with a generated UUID when none exists',
+    () async {
+      expect(File(statePath).existsSync(), isFalse);
 
-    final store = AnisetteStateStore(path: statePath);
-    final state = await store.load();
+      final store = AnisetteStateStore(path: statePath);
+      final state = await store.load();
 
-    expect(File(statePath).existsSync(), isTrue);
-    expect(state.localUserUid, isNotEmpty);
-    expect(state.provisioned, isFalse);
-    expect(state.routingInfo, isNull);
+      expect(File(statePath).existsSync(), isTrue);
+      expect(state.localUserUid, isNotEmpty);
+      expect(state.provisioned, isFalse);
+      expect(state.routingInfo, isNull);
 
-    // Loading again returns the same persisted UUID, not a new one.
-    final reloaded = await AnisetteStateStore(path: statePath).load();
-    expect(reloaded.localUserUid, state.localUserUid);
-  });
+      // Loading again returns the same persisted UUID, not a new one.
+      final reloaded = await AnisetteStateStore(path: statePath).load();
+      expect(reloaded.localUserUid, state.localUserUid);
+    },
+  );
 
-  test('save/load round-trips provisioned state + routingInfo (u64-safe)', () async {
-    final store = AnisetteStateStore(path: statePath);
-    // A value that would not round-trip through a JSON double (>2^53).
-    // (True near-2^64 values aren't representable at all: routingInfo is
-    // stored as a Dart `int`, which is 64-bit *signed* on the VM - values
-    // above 2^63-1 can't round-trip. Apple's observed routingInfo values
-    // are small, so this is an acceptable, documented ceiling rather than
-    // a bug worth a BigInt migration for.)
-    // xcross is a Dart CLI tool, never compiled to JS; the point of this
-    // literal is to exceed double precision (2^53), which is exactly what
-    // routingInfo's string-based JSON storage (AnisetteState.toJson) is
-    // meant to survive.
-    // ignore: avoid_js_rounded_ints
-    const bigRoutingInfo = 9223372036854775800; // near Dart int max
-    const state = AnisetteState(
-      localUserUid: 'abc12345-6789-4abc-8def-0123456789ab',
-      provisioned: true,
-      routingInfo: bigRoutingInfo,
-    );
+  test(
+    'save/load round-trips provisioned state + routingInfo (u64-safe)',
+    () async {
+      final store = AnisetteStateStore(path: statePath);
+      // A value that would not round-trip through a JSON double (>2^53).
+      // (True near-2^64 values aren't representable at all: routingInfo is
+      // stored as a Dart `int`, which is 64-bit *signed* on the VM - values
+      // above 2^63-1 can't round-trip. Apple's observed routingInfo values
+      // are small, so this is an acceptable, documented ceiling rather than
+      // a bug worth a BigInt migration for.)
+      // xcross is a Dart CLI tool, never compiled to JS; the point of this
+      // literal is to exceed double precision (2^53), which is exactly what
+      // routingInfo's string-based JSON storage (AnisetteState.toJson) is
+      // meant to survive.
+      // ignore: avoid_js_rounded_ints
+      const bigRoutingInfo = 9223372036854775800; // near Dart int max
+      const state = AnisetteState(
+        localUserUid: 'abc12345-6789-4abc-8def-0123456789ab',
+        provisioned: true,
+        routingInfo: bigRoutingInfo,
+      );
 
-    await store.save(state);
-    final reloaded = await AnisetteStateStore(path: statePath).load();
+      await store.save(state);
+      final reloaded = await AnisetteStateStore(path: statePath).load();
 
-    expect(reloaded.localUserUid, state.localUserUid);
-    expect(reloaded.provisioned, isTrue);
-    expect(reloaded.routingInfo, bigRoutingInfo);
-  });
+      expect(reloaded.localUserUid, state.localUserUid);
+      expect(reloaded.provisioned, isTrue);
+      expect(reloaded.routingInfo, bigRoutingInfo);
+    },
+  );
 
   test('routingInfo is stored as a JSON string, not a number', () async {
     final store = AnisetteStateStore(path: statePath);
@@ -92,9 +98,7 @@ void main() {
   });
 
   test('copyWith preserves unspecified fields', () {
-    const state = AnisetteState(
-      localUserUid: 'uid',
-    );
+    const state = AnisetteState(localUserUid: 'uid');
     final updated = state.copyWith(provisioned: true, routingInfo: 7);
     expect(updated.localUserUid, 'uid');
     expect(updated.provisioned, isTrue);

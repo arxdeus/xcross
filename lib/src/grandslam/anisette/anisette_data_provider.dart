@@ -240,11 +240,7 @@ class AnisetteDataProvider {
     // 3. POST midFinishProvisioning with the local cpim result.
     final finishResponse = await _postProvisioning(
       endpoints.midFinishProvisioning,
-      {
-        'cpim': base64Encode(
-          cpimResult.clientProvisioningIntermediateMetadata,
-        ),
-      },
+      {'cpim': base64Encode(cpimResult.clientProvisioningIntermediateMetadata)},
       state,
     );
     final ptm = base64Decode(_stringField(finishResponse, 'ptm'));
@@ -258,7 +254,10 @@ class AnisetteDataProvider {
 
     // 5. Persist routingInfo + the provisioned marker - ADI never returns
     //    routingInfo again after this point.
-    final newState = state.copyWith(provisioned: true, routingInfo: routingInfo);
+    final newState = state.copyWith(
+      provisioned: true,
+      routingInfo: routingInfo,
+    );
     await _stateStore.save(newState);
     _state = newState;
     return newState;
@@ -371,7 +370,10 @@ String _isoClientTime() {
 /// [_defaultLocale] if [Platform.localeName] isn't in a recognizable
 /// shape (it varies by OS: `en_US.UTF-8` on POSIX, `en-US` on Windows).
 String _systemLocale() {
-  final raw = Platform.localeName.split(RegExp('[.@]')).first.replaceAll('-', '_');
+  final raw = Platform.localeName
+      .split(RegExp('[.@]'))
+      .first
+      .replaceAll('-', '_');
   return RegExp(r'^[a-zA-Z]{2,3}_[a-zA-Z]{2,4}$').hasMatch(raw)
       ? raw
       : _defaultLocale;

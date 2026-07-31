@@ -41,7 +41,8 @@ void main() {
         _lookupResponsePlist,
       );
       expect(decoded, isA<Map<Object?, Object?>>());
-      final urls = (decoded as Map<Object?, Object?>)['urls']! as Map<Object?, Object?>;
+      final urls =
+          (decoded as Map<Object?, Object?>)['urls']! as Map<Object?, Object?>;
       expect(
         urls['midStartProvisioning'],
         'https://gsa.apple.com/grandslam/GsService2/midStartProvisioning',

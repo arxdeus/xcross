@@ -24,7 +24,8 @@ import 'package:pointycastle/export.dart' as pc;
 import 'package:test/test.dart';
 import 'package:xcross/src/grandslam/srp_client.dart';
 
-String _bytesToHex(List<int> bytes) => bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+String _bytesToHex(List<int> bytes) =>
+    bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 
 void main() {
   group('primitive sanity checks (known IETF test vectors)', () {
@@ -47,8 +48,9 @@ void main() {
     });
 
     test('PBKDF2-HMAC-SHA-256 matches RFC 7914 section 11, vector 1', () {
-      final derivator = pc.PBKDF2KeyDerivator(pc.HMac.withDigest(pc.SHA256Digest()))
-        ..init(pc.Pbkdf2Parameters(utf8.encode('salt'), 1, 64));
+      final derivator = pc.PBKDF2KeyDerivator(
+        pc.HMac.withDigest(pc.SHA256Digest()),
+      )..init(pc.Pbkdf2Parameters(utf8.encode('salt'), 1, 64));
       final derived = derivator.process(utf8.encode('passwd'));
       expect(
         _bytesToHex(derived),
@@ -57,17 +59,21 @@ void main() {
       );
     });
 
-    test('PBKDF2-HMAC-SHA-256 matches RFC 7914 section 11, vector 2 (c=80000)', () {
-      final derivator = pc.PBKDF2KeyDerivator(pc.HMac.withDigest(pc.SHA256Digest()))
-        ..init(pc.Pbkdf2Parameters(utf8.encode('NaCl'), 80000, 64));
-      final derived = derivator.process(utf8.encode('Password'));
-      expect(
-        _bytesToHex(derived),
-        '4ddcd8f60b98be21830cee5ef22701f9641a4418d04c0414aeff08876b34ab56'
-        'a1d425a12258 33549adb841b51c9b3176a272bdebba1d078478f62b397f33c8d'
-            .replaceAll(' ', ''),
-      );
-    });
+    test(
+      'PBKDF2-HMAC-SHA-256 matches RFC 7914 section 11, vector 2 (c=80000)',
+      () {
+        final derivator = pc.PBKDF2KeyDerivator(
+          pc.HMac.withDigest(pc.SHA256Digest()),
+        )..init(pc.Pbkdf2Parameters(utf8.encode('NaCl'), 80000, 64));
+        final derived = derivator.process(utf8.encode('Password'));
+        expect(
+          _bytesToHex(derived),
+          '4ddcd8f60b98be21830cee5ef22701f9641a4418d04c0414aeff08876b34ab56'
+                  'a1d425a12258 33549adb841b51c9b3176a272bdebba1d078478f62b397f33c8d'
+              .replaceAll(' ', ''),
+        );
+      },
+    );
   });
 
   group('SrpClient self-consistency (independent server-side simulation)', () {
@@ -90,7 +96,10 @@ void main() {
             iterations: iterations,
             legacy: legacy,
           );
-          final v = _g.modPow(x, _n); // password verifier, stored at "registration"
+          final v = _g.modPow(
+            x,
+            _n,
+          ); // password verifier, stored at "registration"
           final b = _randomBigInt(256);
           final k = _calcXYIndependently(_n, _g);
           final bigB = (k * v + _g.modPow(b, _n)) % _n;
@@ -109,13 +118,28 @@ void main() {
           final sServer = (bigA * v.modPow(u, _n) % _n).modPow(b, _n);
           final kServer = crypto.sha256.convert(_bigIntToBytes(sServer)).bytes;
 
-          expect(client.sharedSecret, sServer, reason: 'S must match on both sides');
-          expect(client.sessionKey, kServer, reason: 'K = SHA256(S) must match on both sides');
+          expect(
+            client.sharedSecret,
+            sServer,
+            reason: 'S must match on both sides',
+          );
+          expect(
+            client.sessionKey,
+            kServer,
+            reason: 'K = SHA256(S) must match on both sides',
+          );
 
           // Server's hamk (M2), computed independently, must verify.
           final aBytes = client.publicKey;
-          final hamkServer = crypto.sha256.convert([...aBytes, ...m1, ...kServer]).bytes;
-          expect(client.verifyServerProof(Uint8List.fromList(hamkServer)), isTrue);
+          final hamkServer = crypto.sha256.convert([
+            ...aBytes,
+            ...m1,
+            ...kServer,
+          ]).bytes;
+          expect(
+            client.verifyServerProof(Uint8List.fromList(hamkServer)),
+            isTrue,
+          );
 
           // A tampered hamk must be rejected.
           final tampered = Uint8List.fromList(hamkServer);
@@ -177,7 +201,9 @@ BigInt _computeXIndependently({
   required int iterations,
   required bool legacy,
 }) {
-  final hashedPassword = Uint8List.fromList(crypto.sha256.convert(utf8.encode(password)).bytes);
+  final hashedPassword = Uint8List.fromList(
+    crypto.sha256.convert(utf8.encode(password)).bytes,
+  );
   final Uint8List pbkdfInput;
   if (legacy) {
     pbkdfInput = Uint8List.fromList(utf8.encode(_bytesToHex(hashedPassword)));
@@ -187,7 +213,10 @@ BigInt _computeXIndependently({
   final derivator = pc.PBKDF2KeyDerivator(pc.HMac.withDigest(pc.SHA256Digest()))
     ..init(pc.Pbkdf2Parameters(salt, iterations, 32));
   final passkey = derivator.process(pbkdfInput);
-  final inner = crypto.sha256.convert([0x3a, ...passkey]).bytes; // ":" + passkey
+  final inner = crypto.sha256.convert([
+    0x3a,
+    ...passkey,
+  ]).bytes; // ":" + passkey
   final x = crypto.sha256.convert([...salt, ...inner]).bytes;
   return _bytesToBigInt(x);
 }
@@ -229,7 +258,9 @@ BigInt _bytesToBigInt(List<int> bytes) {
 
 Uint8List _randomBytes(int length) {
   final random = Random.secure();
-  return Uint8List.fromList(List<int>.generate(length, (_) => random.nextInt(256)));
+  return Uint8List.fromList(
+    List<int>.generate(length, (_) => random.nextInt(256)),
+  );
 }
 
 BigInt _randomBigInt(int bits) => _bytesToBigInt(_randomBytes((bits + 7) ~/ 8));

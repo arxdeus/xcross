@@ -23,16 +23,18 @@ const _lookupUrl = 'https://gsa.apple.com/grandslam/GsService2/lookup';
 const _midStartUrl = 'https://example.test/gsa/midStartProvisioning';
 const _midFinishUrl = 'https://example.test/gsa/midFinishProvisioning';
 
-String _lookupResponsePlist() => PropertyListSerialization.stringWithPropertyList({
-  'urls': {
-    'gsService': 'https://example.test/gsa/gsService',
-    'secondaryAuth': 'https://example.test/gsa/secondaryAuth',
-    'trustedDeviceSecondaryAuth': 'https://example.test/gsa/trustedDeviceSecondaryAuth',
-    'validateCode': 'https://example.test/gsa/validateCode',
-    'midStartProvisioning': _midStartUrl,
-    'midFinishProvisioning': _midFinishUrl,
-  },
-});
+String _lookupResponsePlist() =>
+    PropertyListSerialization.stringWithPropertyList({
+      'urls': {
+        'gsService': 'https://example.test/gsa/gsService',
+        'secondaryAuth': 'https://example.test/gsa/secondaryAuth',
+        'trustedDeviceSecondaryAuth':
+            'https://example.test/gsa/trustedDeviceSecondaryAuth',
+        'validateCode': 'https://example.test/gsa/validateCode',
+        'midStartProvisioning': _midStartUrl,
+        'midFinishProvisioning': _midFinishUrl,
+      },
+    });
 
 String _gsaResponsePlist(Map<String, Object?> response) =>
     PropertyListSerialization.stringWithPropertyList({
@@ -133,7 +135,9 @@ void main() {
   late String statePath;
 
   setUp(() {
-    tempDir = Directory.systemTemp.createTempSync('xcross_anisette_provider_test');
+    tempDir = Directory.systemTemp.createTempSync(
+      'xcross_anisette_provider_test',
+    );
     statePath = p.join(tempDir.path, 'anisette-state.json');
   });
 
@@ -141,190 +145,206 @@ void main() {
     tempDir.deleteSync(recursive: true);
   });
 
-  test('runs the provisioning handshake, persists state, and assembles headers', () async {
-    const localUserUid = '11111111-2222-4333-8444-555555555555';
-    await AnisetteStateStore(
-      path: statePath,
-    ).save(const AnisetteState(localUserUid: localUserUid));
+  test(
+    'runs the provisioning handshake, persists state, and assembles headers',
+    () async {
+      const localUserUid = '11111111-2222-4333-8444-555555555555';
+      await AnisetteStateStore(
+        path: statePath,
+      ).save(const AnisetteState(localUserUid: localUserUid));
 
-    final fake = FakeAdiProvisioning();
-    http.Request? startRequest;
-    http.Request? finishRequest;
+      final fake = FakeAdiProvisioning();
+      http.Request? startRequest;
+      http.Request? finishRequest;
 
-    final client = MockClient((request) async {
-      switch (request.url.toString()) {
-        case _lookupUrl:
-          return http.Response(_lookupResponsePlist(), 200);
-        case _midStartUrl:
-          startRequest = request;
-          return http.Response(
-            _gsaResponsePlist({'spim': base64Encode(_bytes('server-spim'))}),
-            200,
-          );
-        case _midFinishUrl:
-          finishRequest = request;
-          return http.Response(
-            _gsaResponsePlist({
-              'ptm': base64Encode(_bytes('server-ptm')),
-              'tk': base64Encode(_bytes('server-tk')),
-              'X-Apple-I-MD-RINFO': '1234567890123',
-            }),
-            200,
-          );
-        default:
-          throw StateError('unexpected request to ${request.url}');
-      }
-    });
+      final client = MockClient((request) async {
+        switch (request.url.toString()) {
+          case _lookupUrl:
+            return http.Response(_lookupResponsePlist(), 200);
+          case _midStartUrl:
+            startRequest = request;
+            return http.Response(
+              _gsaResponsePlist({'spim': base64Encode(_bytes('server-spim'))}),
+              200,
+            );
+          case _midFinishUrl:
+            finishRequest = request;
+            return http.Response(
+              _gsaResponsePlist({
+                'ptm': base64Encode(_bytes('server-ptm')),
+                'tk': base64Encode(_bytes('server-tk')),
+                'X-Apple-I-MD-RINFO': '1234567890123',
+              }),
+              200,
+            );
+          default:
+            throw StateError('unexpected request to ${request.url}');
+        }
+      });
 
-    final provider = AnisetteDataProvider(
-      '/fake/adi/lib/dir',
-      httpClient: client,
-      stateStore: AnisetteStateStore(path: statePath),
-      adiFactory: ({
-        required adiLibraryDirectory,
-        required provisioningPath,
-        required identifier,
-      }) {
-        expect(adiLibraryDirectory, '/fake/adi/lib/dir');
-        // Matches xtool's XADIProvider: first 16 lowercase hex chars of
-        // the UUID with dashes stripped.
-        expect(identifier, '1111111122224333');
-        return fake;
-      },
-    );
+      final provider = AnisetteDataProvider(
+        '/fake/adi/lib/dir',
+        httpClient: client,
+        stateStore: AnisetteStateStore(path: statePath),
+        adiFactory:
+            ({
+              required adiLibraryDirectory,
+              required provisioningPath,
+              required identifier,
+            }) {
+              expect(adiLibraryDirectory, '/fake/adi/lib/dir');
+              // Matches xtool's XADIProvider: first 16 lowercase hex chars of
+              // the UUID with dashes stripped.
+              expect(identifier, '1111111122224333');
+              return fake;
+            },
+      );
 
-    final headers = await provider.fetchAnisetteHeaders();
+      final headers = await provider.fetchAnisetteHeaders();
 
-    // --- provisioning handshake ran exactly once, in order ---
-    expect(fake.startProvisioningCalled, isTrue);
-    expect(fake.endProvisioningCalled, isTrue);
-    expect(fake.seenSpim, _bytes('server-spim'));
-    expect(fake.seenEndSession, 42);
-    expect(fake.seenPtm, _bytes('server-ptm'));
-    expect(fake.seenTk, _bytes('server-tk'));
+      // --- provisioning handshake ran exactly once, in order ---
+      expect(fake.startProvisioningCalled, isTrue);
+      expect(fake.endProvisioningCalled, isTrue);
+      expect(fake.seenSpim, _bytes('server-spim'));
+      expect(fake.seenEndSession, 42);
+      expect(fake.seenPtm, _bytes('server-ptm'));
+      expect(fake.seenTk, _bytes('server-tk'));
 
-    // --- request bodies match the spec's exact plist shape ---
-    final startBody =
-        PropertyListSerialization.propertyListWithString(startRequest!.body)
-            as Map<Object?, Object?>;
-    expect(startBody['Header'], isA<Map<Object?, Object?>>());
-    expect(startBody['Request'], isA<Map<Object?, Object?>>());
-    expect((startBody['Request']! as Map<Object?, Object?>).isEmpty, isTrue);
-    // package:http appends '; charset=utf-8' automatically when a String
-    // body is set - harmless, but assert the base media type rather than
-    // the exact header string.
-    expect(
-      startRequest!.headers['Content-Type'],
-      startsWith('text/x-xml-plist'),
-    );
-    expect(
-      startRequest!.headers['X-Apple-I-Client-Time'],
-      matches(RegExp(r'^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$')),
-    );
+      // --- request bodies match the spec's exact plist shape ---
+      final startBody =
+          PropertyListSerialization.propertyListWithString(startRequest!.body)
+              as Map<Object?, Object?>;
+      expect(startBody['Header'], isA<Map<Object?, Object?>>());
+      expect(startBody['Request'], isA<Map<Object?, Object?>>());
+      expect((startBody['Request']! as Map<Object?, Object?>).isEmpty, isTrue);
+      // package:http appends '; charset=utf-8' automatically when a String
+      // body is set - harmless, but assert the base media type rather than
+      // the exact header string.
+      expect(
+        startRequest!.headers['Content-Type'],
+        startsWith('text/x-xml-plist'),
+      );
+      expect(
+        startRequest!.headers['X-Apple-I-Client-Time'],
+        matches(RegExp(r'^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$')),
+      );
 
-    final finishBody =
-        PropertyListSerialization.propertyListWithString(finishRequest!.body)
-            as Map<Object?, Object?>;
-    expect(
-      (finishBody['Request']! as Map<Object?, Object?>)['cpim'],
-      base64Encode(_bytes('fake-cpim')),
-    );
+      final finishBody =
+          PropertyListSerialization.propertyListWithString(finishRequest!.body)
+              as Map<Object?, Object?>;
+      expect(
+        (finishBody['Request']! as Map<Object?, Object?>)['cpim'],
+        base64Encode(_bytes('fake-cpim')),
+      );
 
-    // --- persisted state now has provisioned=true + the real routingInfo ---
-    final persisted = await AnisetteStateStore(path: statePath).load();
-    expect(persisted.provisioned, isTrue);
-    expect(persisted.routingInfo, 1234567890123);
-    expect(persisted.localUserUid, localUserUid);
+      // --- persisted state now has provisioned=true + the real routingInfo ---
+      final persisted = await AnisetteStateStore(path: statePath).load();
+      expect(persisted.provisioned, isTrue);
+      expect(persisted.routingInfo, 1234567890123);
+      expect(persisted.localUserUid, localUserUid);
 
-    // --- assembled headers ---
-    expect(fake.otpCallCount, 1);
-    expect(headers['X-Apple-I-MD'], base64Encode(_bytes('otp-1')));
-    expect(headers['X-Apple-I-MD-M'], base64Encode(_bytes('mid-1')));
-    expect(headers['X-Apple-I-MD-RINFO'], '1234567890123');
-    expect(
-      headers['X-Apple-I-MD-LU'],
-      crypto.sha256
-          .convert(utf8.encode(localUserUid))
-          .bytes
-          .map((b) => b.toRadixString(16).padLeft(2, '0'))
-          .join()
-          .toUpperCase(),
-    );
-    expect(headers['X-Mme-Device-Id'], localUserUid);
-    expect(
-      headers['X-MMe-Client-Info'],
-      '<MacBookPro13,2> <macOS;13.1;22C65> <com.apple.AuthKit/1 (com.apple.dt.Xcode/3594.4.19)>',
-    );
-    expect(headers['X-Apple-I-Locale'], isNotEmpty);
-    expect(headers['X-Apple-I-TimeZone'], isNotEmpty);
-    expect(
-      headers['X-Apple-I-Client-Time'],
-      matches(RegExp(r'^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$')),
-    );
-  });
+      // --- assembled headers ---
+      expect(fake.otpCallCount, 1);
+      expect(headers['X-Apple-I-MD'], base64Encode(_bytes('otp-1')));
+      expect(headers['X-Apple-I-MD-M'], base64Encode(_bytes('mid-1')));
+      expect(headers['X-Apple-I-MD-RINFO'], '1234567890123');
+      expect(
+        headers['X-Apple-I-MD-LU'],
+        crypto.sha256
+            .convert(utf8.encode(localUserUid))
+            .bytes
+            .map((b) => b.toRadixString(16).padLeft(2, '0'))
+            .join()
+            .toUpperCase(),
+      );
+      expect(headers['X-Mme-Device-Id'], localUserUid);
+      expect(
+        headers['X-MMe-Client-Info'],
+        '<MacBookPro13,2> <macOS;13.1;22C65> <com.apple.AuthKit/1 (com.apple.dt.Xcode/3594.4.19)>',
+      );
+      expect(headers['X-Apple-I-Locale'], isNotEmpty);
+      expect(headers['X-Apple-I-TimeZone'], isNotEmpty);
+      expect(
+        headers['X-Apple-I-Client-Time'],
+        matches(RegExp(r'^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$')),
+      );
+    },
+  );
 
-  test('skips the provisioning handshake entirely once already provisioned', () async {
-    const localUserUid = '99999999-8888-4777-8666-555555555555';
-    await AnisetteStateStore(path: statePath).save(
-      const AnisetteState(
-        localUserUid: localUserUid,
-        provisioned: true,
-        routingInfo: 999,
-      ),
-    );
-
-    final fake = _RefusingAdiProvisioning();
-    final client = MockClient(
-      (request) async => throw StateError('unexpected HTTP call to ${request.url}'),
-    );
-
-    final provider = AnisetteDataProvider(
-      '/fake/adi/lib/dir',
-      httpClient: client,
-      stateStore: AnisetteStateStore(path: statePath),
-      adiFactory: ({
-        required adiLibraryDirectory,
-        required provisioningPath,
-        required identifier,
-      }) => fake,
-    );
-
-    final headers = await provider.fetchAnisetteHeaders();
-
-    expect(headers['X-Apple-I-MD-RINFO'], '999');
-    expect(headers['X-Apple-I-MD'], base64Encode(_bytes('cached-otp')));
-    expect(headers['X-Mme-Device-Id'], localUserUid);
-  });
-
-  test('throws a clear error when local state disagrees with ADI-reported provisioning', () async {
-    await AnisetteStateStore(
-      path: statePath,
-    ).save(const AnisetteState(localUserUid: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'));
-
-    final client = MockClient(
-      (request) async => throw StateError('unexpected HTTP call to ${request.url}'),
-    );
-
-    final provider = AnisetteDataProvider(
-      '/fake/adi/lib/dir',
-      httpClient: client,
-      stateStore: AnisetteStateStore(path: statePath),
-      adiFactory: ({
-        required adiLibraryDirectory,
-        required provisioningPath,
-        required identifier,
-      }) => FakeAdiProvisioning(alreadyProvisioned: true),
-    );
-
-    await expectLater(
-      provider.fetchAnisetteHeaders,
-      throwsA(
-        isA<Exception>().having(
-          (e) => e.toString(),
-          'message',
-          contains('already provisioned'),
+  test(
+    'skips the provisioning handshake entirely once already provisioned',
+    () async {
+      const localUserUid = '99999999-8888-4777-8666-555555555555';
+      await AnisetteStateStore(path: statePath).save(
+        const AnisetteState(
+          localUserUid: localUserUid,
+          provisioned: true,
+          routingInfo: 999,
         ),
-      ),
-    );
-  });
+      );
+
+      final fake = _RefusingAdiProvisioning();
+      final client = MockClient(
+        (request) async =>
+            throw StateError('unexpected HTTP call to ${request.url}'),
+      );
+
+      final provider = AnisetteDataProvider(
+        '/fake/adi/lib/dir',
+        httpClient: client,
+        stateStore: AnisetteStateStore(path: statePath),
+        adiFactory:
+            ({
+              required adiLibraryDirectory,
+              required provisioningPath,
+              required identifier,
+            }) => fake,
+      );
+
+      final headers = await provider.fetchAnisetteHeaders();
+
+      expect(headers['X-Apple-I-MD-RINFO'], '999');
+      expect(headers['X-Apple-I-MD'], base64Encode(_bytes('cached-otp')));
+      expect(headers['X-Mme-Device-Id'], localUserUid);
+    },
+  );
+
+  test(
+    'throws a clear error when local state disagrees with ADI-reported provisioning',
+    () async {
+      await AnisetteStateStore(path: statePath).save(
+        const AnisetteState(
+          localUserUid: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+        ),
+      );
+
+      final client = MockClient(
+        (request) async =>
+            throw StateError('unexpected HTTP call to ${request.url}'),
+      );
+
+      final provider = AnisetteDataProvider(
+        '/fake/adi/lib/dir',
+        httpClient: client,
+        stateStore: AnisetteStateStore(path: statePath),
+        adiFactory:
+            ({
+              required adiLibraryDirectory,
+              required provisioningPath,
+              required identifier,
+            }) => FakeAdiProvisioning(alreadyProvisioned: true),
+      );
+
+      await expectLater(
+        provider.fetchAnisetteHeaders,
+        throwsA(
+          isA<Exception>().having(
+            (e) => e.toString(),
+            'message',
+            contains('already provisioned'),
+          ),
+        ),
+      );
+    },
+  );
 }
