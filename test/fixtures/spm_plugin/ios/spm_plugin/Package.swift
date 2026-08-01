@@ -8,6 +8,15 @@ let package = Package(
         .library(name: "spm-plugin", type: .dynamic, targets: ["spm_plugin"])
     ],
     targets: [
-        .target(name: "spm_plugin")
-    ]
+        .target(
+            name: "CppSupport",
+            publicHeadersPath: "include"
+        ),
+        .target(
+            name: "spm_plugin",
+            dependencies: ["CppSupport"],
+            linkerSettings: [.linkedLibrary("c++")]
+        )
+    ],
+    cxxLanguageStandard: .cxx17
 )

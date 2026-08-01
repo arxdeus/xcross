@@ -98,11 +98,11 @@ abstract final class MachODylibRewriter {
             : null;
         if (replacement != null && replacement != oldName) {
           final replacementBytes = utf8.encode(replacement);
-          final oldLength = nameEnd - nameStart;
-          if (replacementBytes.length > oldLength) {
-            invalid('replacement "$replacement" is longer than "$oldName"');
+          final capacity = commandEnd - nameStart;
+          if (replacementBytes.length >= capacity) {
+            invalid('replacement "$replacement" does not fit "$oldName"');
           }
-          bytes.fillRange(nameStart, nameEnd, 0);
+          bytes.fillRange(nameStart, commandEnd, 0);
           bytes.setRange(
             nameStart,
             nameStart + replacementBytes.length,

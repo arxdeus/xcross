@@ -3,7 +3,8 @@
 # and installs it system-wide. No local Dart toolchain required.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/arxdeus/xcross/main/install.sh | sh
+#   curl -fsSL \
+#     https://raw.githubusercontent.com/arxdeus/xcross/main/install.sh | sh
 #   # or, pin a version / change install dir:
 #   XCROSS_VERSION=v1.2.3 INSTALL_DIR=/usr/local/bin sh install.sh
 set -eu
@@ -19,7 +20,8 @@ info() { printf '==> %s\n' "$1"; }
 
 # --- detect OS (releases are Linux-only) -----------------------------------
 os="$(uname -s)"
-[ "$os" = "Linux" ] || err "xcross prebuilt releases are Linux-only (got: $os). Build from source instead."
+[ "$os" = "Linux" ] ||
+  err "prebuilt releases are Linux-only (got: $os); build from source"
 
 # --- detect architecture ---------------------------------------------------
 arch="$(uname -m)"
@@ -74,15 +76,17 @@ elif command -v sudo >/dev/null 2>&1; then
   sudo install -m 0755 "$tmp/$asset" "$target"
   sudo install -m 0755 "$tmp/$zsign_asset" "$zsign_target"
 else
-  err "cannot write to $INSTALL_DIR and sudo is unavailable. Set INSTALL_DIR to a writable path."
+  err "cannot write to $INSTALL_DIR; set INSTALL_DIR to a writable path"
 fi
 
 # --- verify + PATH hint -----------------------------------------------------
-"$target" --version >/dev/null 2>&1 || err "installed xcross failed verification"
+"$target" --help >/dev/null 2>&1 || err "installed xcross failed verification"
 "$zsign_target" -h >/dev/null 2>&1 || err "installed zsign failed verification"
 info "Installed and verified: $target, $zsign_target"
 
-if ! command -v "$BINARY" >/dev/null 2>&1 || ! command -v "$ZSIGN" >/dev/null 2>&1; then
+if ! command -v "$BINARY" >/dev/null 2>&1 ||
+  ! command -v "$ZSIGN" >/dev/null 2>&1
+then
   info "Installed, but $INSTALL_DIR is not on your PATH. Add it:"
   printf '    export PATH="%s:$PATH"\n' "$INSTALL_DIR"
 fi

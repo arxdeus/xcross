@@ -41,9 +41,7 @@ class ZsignCli {
 
   static const _name = 'zsign';
 
-  /// Platform-correct binary filename (`zsign` vs `zsign.exe`) — required
-  /// because [ProcessRunner.which] does a literal filename match and does
-  /// not append `.exe` itself.
+  /// Platform-correct binary filename (`zsign` vs `zsign.exe`).
   static String get _binaryName => Platform.isWindows ? '$_name.exe' : _name;
 
   /// Resolve the `zsign` binary to run, in priority order:

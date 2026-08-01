@@ -184,8 +184,10 @@ jobs:
           app=${apps[0]}
           runner="$app/Runner"
           plugins="$app/Frameworks/libFlutterPluginsGenerated.dylib"
+          dependency="$app/Frameworks/libspm-plugin.dylib"
           test -f "$runner"
           test -f "$plugins"
+          test -f "$dependency"
 
           llvm-readobj --file-headers "$runner" | tee runner-headers.txt
           grep -Eq 'Format: Mach-O arm64|Arch: aarch64' runner-headers.txt
@@ -194,6 +196,13 @@ jobs:
             --extern-only \
             "$plugins" | tee plugin-symbols.txt
           grep -F XcrossRegisterGeneratedPlugins plugin-symbols.txt
+          llvm-objdump \
+            --macho \
+            --dylibs-used \
+            "$plugins" | tee plugin-dylibs.txt
+          grep -F '@rpath/libspm-plugin.dylib' plugin-dylibs.txt
+          llvm-objdump --macho --dylib-id "$dependency" |
+            grep -F '@rpath/libspm-plugin.dylib'
           llvm-objdump --macho --dylibs-used "$runner" | tee runner-dylibs.txt
           grep -F '@rpath/libFlutterPluginsGenerated.dylib' runner-dylibs.txt
           llvm-objdump \
@@ -216,11 +225,17 @@ jobs:
           $plugins = Join-Path `
             $apps[0].FullName `
             'Frameworks/libFlutterPluginsGenerated.dylib'
+          $dependency = Join-Path `
+            $apps[0].FullName `
+            'Frameworks/libspm-plugin.dylib'
           if (-not (Test-Path $runner -PathType Leaf)) {
             throw "Missing $runner"
           }
           if (-not (Test-Path $plugins -PathType Leaf)) {
             throw "Missing $plugins"
+          }
+          if (-not (Test-Path $dependency -PathType Leaf)) {
+            throw "Missing $dependency"
           }
 
           $headers = (& llvm-readobj --file-headers $runner | Out-String)
@@ -237,6 +252,22 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or
               $symbols -notmatch 'XcrossRegisterGeneratedPlugins') {
             throw "Missing exported plugin registrant:`n$symbols"
+          }
+          $pluginDylibs = (& llvm-objdump `
+            --macho `
+            --dylibs-used `
+            $plugins | Out-String)
+          if ($LASTEXITCODE -ne 0 -or
+              $pluginDylibs -notmatch '@rpath/libspm-plugin\.dylib') {
+            throw "Missing dynamic plugin dependency:`n$pluginDylibs"
+          }
+          $dependencyId = (& llvm-objdump `
+            --macho `
+            --dylib-id `
+            $dependency | Out-String)
+          if ($LASTEXITCODE -ne 0 -or
+              $dependencyId -notmatch '@rpath/libspm-plugin\.dylib') {
+            throw "Invalid dynamic plugin ID:`n$dependencyId"
           }
           $dylibs = (& llvm-objdump `
             --macho `

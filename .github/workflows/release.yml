@@ -46,7 +46,7 @@ jobs:
           sudo apt-get install -y g++ pkg-config libssl-dev
 
       - name: Set up Dart
-         # v1
+        # v1
         uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260
         with:
           sdk: stable
@@ -71,7 +71,7 @@ jobs:
             "dist/${{ matrix.zsign_asset }}"
 
       - name: Upload binary artifacts
-         # v7
+        # v7
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: ${{ matrix.asset }}
@@ -101,13 +101,13 @@ jobs:
           persist-credentials: false
 
       - name: Set up Dart
-         # v1
+        # v1
         uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260
         with:
           sdk: stable
 
       - name: Set up MSBuild
-         # v2
+        # v2
         uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce
 
       - name: Verify Dart code
@@ -202,7 +202,7 @@ jobs:
           }
 
       - name: Upload Windows artifact
-         # v7
+        # v7
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: xcross-windows-x64
@@ -226,7 +226,7 @@ jobs:
           persist-credentials: false
 
       - name: Download binaries
-         # v8
+        # v8
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           path: dist

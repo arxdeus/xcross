@@ -60,7 +60,7 @@ void main() {
         isA<XcrossError>().having(
           (error) => error.message,
           'message',
-          contains('is longer than'),
+          contains('does not fit'),
         ),
       ),
     );

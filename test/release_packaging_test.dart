@@ -31,7 +31,7 @@ void main() {
       'zsign-linux-arm64',
       r'tmp="$(mktemp -d)"',
       r"""trap 'rm -rf "$tmp"'""",
-      r'"$target" --version',
+      r'"$target" --help',
       r'"$zsign_target" -h',
     ]) {
       expect(installer, contains(expected));

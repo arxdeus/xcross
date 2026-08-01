@@ -3,10 +3,9 @@
 # PURPOSE:
 #   Builds zsign (https://github.com/zhlynn/zsign) — a portable,
 #   MIT-licensed, native code-signing tool — for Windows x64, and uploads the
-#   resulting zsign.exe as a workflow artifact. This gives xcross a way to
-#   sign+install iOS apps on Windows without a Swift toolchain (`xtool`, used
-#   for signing everywhere else, only runs on Linux/macOS). See
-#   lib/src/signing/zsign_cli.dart for the Dart wrapper that shells out to it.
+#   resulting zsign.exe as a workflow artifact. xcross uses this executable
+#   for native Windows signing. See lib/src/signing/zsign_cli.dart for the
+#   Dart wrapper that invokes it.
 #
 # IMPORTANT — do NOT switch this to the `xtool-org/zsign` fork:
 #   That fork's CLI entry point (src/zsign.cpp) is compiled out (`#if 0`)
@@ -34,17 +33,20 @@ jobs:
 
     steps:
       - name: Checkout xcross
-        uses: actions/checkout@v6
+        # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
 
       - name: Checkout zsign (pinned)
-        uses: actions/checkout@v6
+        # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           repository: zhlynn/zsign
           ref: ${{ env.ZSIGN_REF }}
           path: zsign
 
       - name: Set up MSBuild
-        uses: microsoft/setup-msbuild@v2
+        # v2
+        uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce
 
       - name: Build zsign.exe
         working-directory: zsign
@@ -53,7 +55,8 @@ jobs:
           -p:Configuration=Release -p:Platform=x64 -m
 
       - name: Upload zsign.exe artifact
-        uses: actions/upload-artifact@v7
+        # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: zsign-windows-x64
           # zsign's own post-build step copies the binary from
