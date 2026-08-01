@@ -104,6 +104,13 @@ void main() {
         final cpd = (req['cpd']! as Map).cast<String, Object?>();
         expect(cpd['bootstrap'], isTrue);
         expect(cpd['X-Apple-I-MD'], 'otp');
+        expect(cpd['X-Apple-I-MD-LU'], 'fake-lu-hash');
+        expect(cpd['X-Apple-I-MD-M'], 'fake-mid');
+        expect(cpd['X-Apple-I-MD-RINFO'], 84215040);
+        expect(cpd['X-Apple-I-SRL-NO'], 'C02LKHBBFD57');
+        expect(cpd['X-Mme-Device-Id'], 'fake-device-id');
+        expect(cpd, isNot(contains('X-Apple-I-Locale')));
+        expect(cpd, isNot(contains('X-MMe-Client-Info')));
 
         return http.Response(
           PropertyListSerialization.stringWithPropertyList({
@@ -117,7 +124,14 @@ void main() {
       final exchange = GrandSlamAppTokenExchange(
         endpoints: _endpoints,
         fetchAnisetteHeaders: () async => const {
+          'X-Apple-I-Client-Time': '2024-01-01T00:00:00Z',
           'X-Apple-I-MD': 'otp',
+          'X-Apple-I-MD-LU': 'fake-lu-hash',
+          'X-Apple-I-MD-M': 'fake-mid',
+          'X-Apple-I-MD-RINFO': '84215040',
+          'X-Apple-I-TimeZone': 'UTC',
+          'X-Apple-Locale': 'en_US',
+          'X-Mme-Device-Id': 'fake-device-id',
           'X-MMe-Client-Info': 'fake-client-info',
         },
         httpClient: client,

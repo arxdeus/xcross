@@ -16,16 +16,22 @@ class AosKitCoreData {
     required this.oneTimePassword,
     required this.machineIdentifier,
     required this.routingInfo,
+    required this.clientInfo,
+    required this.deviceId,
+    required this.localUserId,
   });
 
   final String oneTimePassword;
   final String machineIdentifier;
   final String routingInfo;
+  final String clientInfo;
+  final String deviceId;
+  final String localUserId;
 }
 
 /// Calls the bundled x86 bridge which loads the user-installed Apple Windows
 /// frameworks. Apple credentials never cross this process boundary; only a
-/// fresh machine OTP, machine identifier, and routing value are returned.
+/// fresh machine OTP and the native GrandSlam identity tuple are returned.
 class AosKitHelper {
   AosKitHelper({
     Future<String> Function()? locateHelper,
@@ -89,6 +95,9 @@ class AosKitHelper {
       oneTimePassword: _field(map, 'oneTimePassword'),
       machineIdentifier: _field(map, 'machineIdentifier'),
       routingInfo: _field(map, 'routingInfo'),
+      clientInfo: _field(map, 'clientInfo'),
+      deviceId: _field(map, 'deviceId'),
+      localUserId: _field(map, 'localUserId'),
     );
   }
 
@@ -107,40 +116,41 @@ class AosKitHelper {
 class AosKitAnisetteProvider implements AnisetteProvider {
   AosKitAnisetteProvider({
     http.Client? httpClient,
-    AnisetteStateStore? stateStore,
     Future<AosKitCoreData> Function()? fetchCoreData,
   }) : _http = httpClient ?? createAppleHttpClient(),
-       _stateStore = stateStore ?? AnisetteStateStore(),
        _fetchCoreData = fetchCoreData ?? AosKitHelper().fetch;
 
   final http.Client _http;
-  final AnisetteStateStore _stateStore;
   final Future<AosKitCoreData> Function() _fetchCoreData;
 
-  AnisetteState? _state;
   GrandSlamEndpoints? _endpoints;
-
-  Future<AnisetteState> _loadState() async =>
-      _state ??= await _stateStore.load();
 
   @override
   Future<Map<String, String>> fetchAnisetteHeaders() async {
-    final state = await _loadState();
     final core = await _fetchCoreData();
     return buildAnisetteHeaders(
       oneTimePassword: core.oneTimePassword,
       machineIdentifier: core.machineIdentifier,
       routingInfo: core.routingInfo,
-      localUserUid: state.localUserUid,
+      localUserUid: core.deviceId,
+      clientInfo: core.clientInfo,
+      deviceId: core.deviceId,
+      localUserId: core.localUserId,
     );
   }
 
   @override
   Future<GrandSlamEndpoints> resolveGrandSlamEndpoints() async {
-    final state = await _loadState();
-    return _endpoints ??= await fetchGrandSlamEndpoints(
+    final cached = _endpoints;
+    if (cached != null) return cached;
+    final core = await _fetchCoreData();
+    return _endpoints = await fetchGrandSlamEndpoints(
       _http,
-      headers: buildAnisetteLookupHeaders(state),
+      headers: buildAnisetteLookupHeaders(
+        AnisetteState(localUserUid: core.deviceId),
+        clientInfo: core.clientInfo,
+        deviceId: core.deviceId,
+      ),
     );
   }
 

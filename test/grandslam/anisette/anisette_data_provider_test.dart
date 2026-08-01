@@ -261,7 +261,7 @@ void main() {
         headers['X-MMe-Client-Info'],
         '<MacBookPro13,2> <macOS;13.1;22C65> <com.apple.AuthKit/1 (com.apple.dt.Xcode/3594.4.19)>',
       );
-      expect(headers['X-Apple-I-Locale'], isNotEmpty);
+      expect(headers['X-Apple-Locale'], isNotEmpty);
       expect(headers['X-Apple-I-TimeZone'], isNotEmpty);
       expect(
         headers['X-Apple-I-Client-Time'],

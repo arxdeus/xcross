@@ -13,9 +13,13 @@
 #define _WIN32_WINNT 0x0602
 #endif
 #include <Windows.h>
+#include <bcrypt.h>
 
 #include <iostream>
 #include <string>
+#include <vector>
+
+#pragma comment(lib, "bcrypt.lib")
 
 namespace {
 using ObjcId = void*;
@@ -23,6 +27,16 @@ using Selector = void*;
 using GetClass = ObjcId(__cdecl*)(const char*);
 using RegisterSelector = Selector(__cdecl*)(const char*);
 using MessageSend = ObjcId(__cdecl*)();
+using GetClientInfo = ObjcId(__cdecl*)(ObjcId);
+using GetIdentity = ObjcId(__cdecl*)();
+
+// ponytail: this hash and these deltas support one verified website-iCloud
+// build; update all four together when Apple ships a new iCloud_main.dll.
+constexpr char kSupportedICloudMainSha256[] =
+    "9E3AF0C4CF50CC65554A9478AA7B381FF351373BDF034413A877F52912FF5010";
+constexpr uintptr_t kGetClientInfoDelta = 0x94490;
+constexpr uintptr_t kGetDeviceIdDelta = 0x93610;
+constexpr uintptr_t kGetLocalUserIdDelta = 0x93890;
 
 std::wstring environment(const wchar_t* name) {
   const DWORD length = GetEnvironmentVariableW(name, nullptr, 0);
@@ -61,6 +75,72 @@ bool fileExists(const std::wstring& path) {
 bool hasSupportFrameworks(const std::wstring& directory) {
   return fileExists(directory + L"\\objc.dll") &&
          fileExists(directory + L"\\Foundation.dll");
+}
+
+bool sha256File(const std::wstring& path, std::string* hexDigest) {
+  HANDLE file = CreateFileW(path.c_str(), GENERIC_READ,
+                            FILE_SHARE_READ | FILE_SHARE_WRITE |
+                                FILE_SHARE_DELETE,
+                            nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
+                            nullptr);
+  if (file == INVALID_HANDLE_VALUE) return false;
+
+  BCRYPT_ALG_HANDLE algorithm = nullptr;
+  BCRYPT_HASH_HANDLE hash = nullptr;
+  DWORD objectLength = 0;
+  DWORD hashLength = 0;
+  DWORD resultLength = 0;
+  DWORD bytesRead = 0;
+  bool success = false;
+  std::vector<UCHAR> hashObject;
+  std::vector<UCHAR> digest;
+  std::vector<UCHAR> buffer;
+
+  if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr,
+                                  0) < 0 ||
+      BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH,
+                        reinterpret_cast<PUCHAR>(&objectLength),
+                        sizeof(objectLength), &resultLength, 0) < 0 ||
+      BCryptGetProperty(algorithm, BCRYPT_HASH_LENGTH,
+                        reinterpret_cast<PUCHAR>(&hashLength),
+                        sizeof(hashLength), &resultLength, 0) < 0) {
+    goto cleanup;
+  }
+
+  hashObject.resize(objectLength);
+  digest.resize(hashLength);
+  if (BCryptCreateHash(algorithm, &hash, hashObject.data(), objectLength,
+                       nullptr, 0, 0) < 0) {
+    goto cleanup;
+  }
+
+  buffer.resize(64 * 1024);
+  do {
+    if (!ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()),
+                  &bytesRead, nullptr) ||
+        (bytesRead != 0 &&
+         BCryptHashData(hash, buffer.data(), bytesRead, 0) < 0)) {
+      goto cleanup;
+    }
+  } while (bytesRead != 0);
+
+  if (BCryptFinishHash(hash, digest.data(), hashLength, 0) < 0) {
+    goto cleanup;
+  }
+  static constexpr char hex[] = "0123456789ABCDEF";
+  hexDigest->clear();
+  hexDigest->reserve(digest.size() * 2);
+  for (const UCHAR byte : digest) {
+    hexDigest->push_back(hex[byte >> 4]);
+    hexDigest->push_back(hex[byte & 0x0f]);
+  }
+  success = true;
+
+cleanup:
+  if (hash != nullptr) BCryptDestroyHash(hash);
+  if (algorithm != nullptr) BCryptCloseAlgorithmProvider(algorithm, 0);
+  CloseHandle(file);
+  return success;
 }
 
 std::string windowsError(DWORD code) {
@@ -117,6 +197,24 @@ int main() {
               << windowsError(ERROR_FILE_NOT_FOUND);
     return 2;
   }
+  const std::wstring iCloudMainPath = internet + L"\\iCloud_main.dll";
+  if (!fileExists(iCloudMainPath)) {
+    std::cerr << "Could not find website-iCloud iCloud_main.dll. Install the "
+                 "website edition of iCloud: "
+              << windowsError(ERROR_FILE_NOT_FOUND);
+    return 2;
+  }
+  std::string iCloudMainSha256;
+  if (!sha256File(iCloudMainPath, &iCloudMainSha256)) {
+    std::cerr << "Could not SHA-256 website-iCloud iCloud_main.dll; refusing "
+                 "private calls.";
+    return 2;
+  }
+  if (iCloudMainSha256 != kSupportedICloudMainSha256) {
+    std::cerr << "Unsupported website-iCloud iCloud_main.dll (SHA-256 "
+              << iCloudMainSha256 << ").";
+    return 2;
+  }
   constexpr DWORD searchFlags = LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR |
                                 LOAD_LIBRARY_SEARCH_USER_DIRS |
                                 LOAD_LIBRARY_SEARCH_SYSTEM32;
@@ -142,7 +240,6 @@ int main() {
     RemoveDllDirectory(internetCookie);
     RemoveDllDirectory(supportCookie);
   };
-  SetCurrentDirectoryW(support.c_str());
 
   HMODULE objc = LoadLibraryExW(
       (support + L"\\objc.dll").c_str(), nullptr, searchFlags);
@@ -175,6 +272,18 @@ int main() {
     removeDllDirectories();
     return 4;
   }
+  HMODULE iCloudMain =
+      LoadLibraryExW(iCloudMainPath.c_str(), nullptr, searchFlags);
+  if (iCloudMain == nullptr) {
+    const DWORD error = GetLastError();
+    std::cerr << "Could not load website-iCloud iCloud_main.dll: "
+              << windowsError(error);
+    FreeLibrary(aoskit);
+    FreeLibrary(foundation);
+    FreeLibrary(objc);
+    removeDllDirectories();
+    return 4;
+  }
 
   auto getClass = reinterpret_cast<GetClass>(GetProcAddress(objc, "objc_getClass"));
   auto registerSelector = reinterpret_cast<RegisterSelector>(
@@ -182,6 +291,7 @@ int main() {
   auto send = reinterpret_cast<MessageSend>(GetProcAddress(objc, "objc_msgSend"));
   if (getClass == nullptr || registerSelector == nullptr || send == nullptr) {
     std::cerr << "Apple Objective-C runtime is missing required exports.";
+    FreeLibrary(iCloudMain);
     FreeLibrary(aoskit);
     FreeLibrary(foundation);
     FreeLibrary(objc);
@@ -210,6 +320,37 @@ int main() {
         dictionary, registerSelector("objectForKey:"), makeString(key));
   };
 
+  auto arenaAnchor = reinterpret_cast<uintptr_t>(
+      GetProcAddress(iCloudMain, "PL_FreeArenaPool"));
+  if (arenaAnchor == 0) {
+    std::cerr << "Supported website-iCloud iCloud_main.dll is missing "
+                 "PL_FreeArenaPool.";
+    FreeLibrary(iCloudMain);
+    FreeLibrary(aoskit);
+    FreeLibrary(foundation);
+    FreeLibrary(objc);
+    removeDllDirectories();
+    return 5;
+  }
+  const char* clientInfo = describe(
+      reinterpret_cast<GetClientInfo>(arenaAnchor + kGetClientInfoDelta)(
+          nullptr));
+  const char* deviceId = describe(
+      reinterpret_cast<GetIdentity>(arenaAnchor + kGetDeviceIdDelta)());
+  const char* localUserId = describe(
+      reinterpret_cast<GetIdentity>(arenaAnchor + kGetLocalUserIdDelta)());
+  if (clientInfo == nullptr || deviceId == nullptr || localUserId == nullptr ||
+      *clientInfo == '\0' || *deviceId == '\0' || *localUserId == '\0') {
+    std::cerr << "website-iCloud iCloud_main.dll returned an empty native "
+                 "identity.";
+    FreeLibrary(iCloudMain);
+    FreeLibrary(aoskit);
+    FreeLibrary(foundation);
+    FreeLibrary(objc);
+    removeDllDirectories();
+    return 6;
+  }
+
   const ObjcId utilities = getClass("AOSUtilities");
   const ObjcId headers = utilities == nullptr
       ? nullptr
@@ -221,6 +362,7 @@ int main() {
   if (otp == nullptr || machine == nullptr || *otp == '\0' || *machine == '\0') {
     std::cerr << "AOSKit did not return machine OTP data. Start website-edition "
                  "iTunes and iCloud once, then retry.";
+    FreeLibrary(iCloudMain);
     FreeLibrary(aoskit);
     FreeLibrary(foundation);
     FreeLibrary(objc);
@@ -228,18 +370,15 @@ int main() {
     return 6;
   }
 
-  const char* routing = describe(dictionaryValue(headers, "X-Apple-MD-RINFO"));
-  if (routing == nullptr || *routing == '\0') {
-    routing = describe(dictionaryValue(headers, "X-Apple-I-MD-RINFO"));
-  }
-  // ponytail: historical AOSKit compatibility value used by AltServer and
-  // windows-anisette; remove once current Apple builds expose routing here.
-  if (routing == nullptr || *routing == '\0') routing = "17106176";
-
   std::cout << "{\"oneTimePassword\":\"" << escapeJson(otp)
             << "\",\"machineIdentifier\":\"" << escapeJson(machine)
-            << "\",\"routingInfo\":\"" << escapeJson(routing) << "\"}";
+            << "\",\"routingInfo\":\"84215040\""
+            << ",\"clientInfo\":\"" << escapeJson(clientInfo)
+            << "\",\"deviceId\":\"" << escapeJson(deviceId)
+            << "\",\"localUserId\":\"" << escapeJson(localUserId)
+            << "\"}";
 
+  FreeLibrary(iCloudMain);
   FreeLibrary(aoskit);
   FreeLibrary(foundation);
   FreeLibrary(objc);

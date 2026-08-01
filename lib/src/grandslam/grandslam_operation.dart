@@ -15,15 +15,38 @@ import 'package:xcross/src/util/errors.dart';
 Map<String, Object?> grandSlamClientProvisioningData(
   Map<String, String> anisette, {
   String locale = 'en_US',
-}) => {
-  'bootstrap': true,
-  'icscrec': true,
-  'pbe': false,
-  'prkgen': true,
-  'svct': 'iCloud',
-  'loc': locale,
-  ...anisette,
-};
+}) {
+  String requiredHeader(String name) {
+    final value = anisette[name];
+    if (value == null || value.isEmpty) {
+      throw XcrossError('Missing required Anisette header "$name"');
+    }
+    return value;
+  }
+
+  final routingInfo = int.tryParse(requiredHeader('X-Apple-I-MD-RINFO'));
+  if (routingInfo == null) {
+    throw XcrossError('Invalid decimal Anisette routing info');
+  }
+
+  return {
+    'bootstrap': true,
+    'icscrec': true,
+    'pbe': false,
+    'prkgen': true,
+    'svct': 'iCloud',
+    'loc': locale,
+    'X-Apple-I-Client-Time': requiredHeader('X-Apple-I-Client-Time'),
+    'X-Apple-I-MD': requiredHeader('X-Apple-I-MD'),
+    'X-Apple-I-MD-LU': requiredHeader('X-Apple-I-MD-LU'),
+    'X-Apple-I-MD-M': requiredHeader('X-Apple-I-MD-M'),
+    'X-Apple-I-MD-RINFO': routingInfo,
+    'X-Apple-I-SRL-NO': 'C02LKHBBFD57',
+    'X-Apple-I-TimeZone': requiredHeader('X-Apple-I-TimeZone'),
+    'X-Apple-Locale': locale,
+    'X-Mme-Device-Id': requiredHeader('X-Mme-Device-Id'),
+  };
+}
 
 String encodeGrandSlamOperationRequest({
   required String operation,
@@ -71,8 +94,7 @@ Future<Map<String, Object?>> postGrandSlamOperation({
       'Content-Type': 'text/x-xml-plist',
       'Accept': '*/*',
       'User-Agent': 'akd/1.0 CFNetwork/978.0.7 Darwin/18.7.0',
-      'X-MMe-Client-Info':
-          anisette['X-MMe-Client-Info'] ?? anisetteClientInfo,
+      'X-MMe-Client-Info': anisette['X-MMe-Client-Info'] ?? anisetteClientInfo,
     },
     body: body,
   );

@@ -19,21 +19,28 @@ Map<String, String> buildAnisetteHeaders({
   required String machineIdentifier,
   required String routingInfo,
   required String localUserUid,
+  String? clientInfo,
+  String? deviceId,
+  String? localUserId,
 }) => {
   'X-Apple-I-MD': oneTimePassword,
   'X-Apple-I-MD-M': machineIdentifier,
   'X-Apple-I-MD-RINFO': routingInfo,
-  'X-Apple-I-MD-LU': anisetteLocalUserIdHash(localUserUid),
-  'X-Mme-Device-Id': localUserUid,
-  'X-MMe-Client-Info': anisetteClientInfo,
-  'X-Apple-I-Locale': anisetteSystemLocale(),
+  'X-Apple-I-MD-LU': localUserId ?? anisetteLocalUserIdHash(localUserUid),
+  'X-Mme-Device-Id': deviceId ?? localUserUid,
+  'X-MMe-Client-Info': clientInfo ?? anisetteClientInfo,
+  'X-Apple-Locale': anisetteSystemLocale(),
   'X-Apple-I-TimeZone': _defaultTimeZone,
   'X-Apple-I-Client-Time': anisetteIsoClientTime(),
 };
 
-Map<String, String> buildAnisetteLookupHeaders(AnisetteState state) => {
-  'X-MMe-Client-Info': anisetteClientInfo,
-  'X-Mme-Device-Id': state.localUserUid,
+Map<String, String> buildAnisetteLookupHeaders(
+  AnisetteState state, {
+  String? clientInfo,
+  String? deviceId,
+}) => {
+  'X-MMe-Client-Info': clientInfo ?? anisetteClientInfo,
+  'X-Mme-Device-Id': deviceId ?? state.localUserUid,
   'X-Apple-I-Locale': anisetteSystemLocale(),
   'X-Apple-I-TimeZone': _defaultTimeZone,
   'X-Apple-I-TimeZone-Offset': '${DateTime.now().timeZoneOffset.inSeconds}',

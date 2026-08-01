@@ -47,11 +47,11 @@ const _testEndpoints = GrandSlamEndpoints(
 Future<Map<String, String>> _fakeAnisetteHeaders() async => {
   'X-Apple-I-MD': 'fake-otp',
   'X-Apple-I-MD-M': 'fake-mid',
-  'X-Apple-I-MD-RINFO': '1234567890123',
+  'X-Apple-I-MD-RINFO': '84215040',
   'X-Apple-I-MD-LU': 'fake-lu-hash',
   'X-Mme-Device-Id': 'fake-device-id',
   'X-MMe-Client-Info': 'fake-client-info',
-  'X-Apple-I-Locale': 'en_US',
+  'X-Apple-Locale': 'en_US',
   'X-Apple-I-TimeZone': 'UTC',
   'X-Apple-I-Client-Time': '2024-01-01T00:00:00Z',
 };
@@ -82,14 +82,23 @@ void main() {
         final req = (envelope['Request']! as Map).cast<String, Object?>();
         final cpd = (req['cpd']! as Map).cast<String, Object?>();
 
-        // cpd carries the full anisette map plus the fixed literal keys.
         expect(cpd['bootstrap'], true);
         expect(cpd['icscrec'], true);
         expect(cpd['pbe'], false);
         expect(cpd['prkgen'], true);
         expect(cpd['svct'], 'iCloud');
         expect(cpd['loc'], 'en_US');
+        expect(cpd['X-Apple-I-Client-Time'], '2024-01-01T00:00:00Z');
         expect(cpd['X-Apple-I-MD'], 'fake-otp');
+        expect(cpd['X-Apple-I-MD-LU'], 'fake-lu-hash');
+        expect(cpd['X-Apple-I-MD-M'], 'fake-mid');
+        expect(cpd['X-Apple-I-MD-RINFO'], 84215040);
+        expect(cpd['X-Apple-I-SRL-NO'], 'C02LKHBBFD57');
+        expect(cpd['X-Apple-I-TimeZone'], 'UTC');
+        expect(cpd['X-Apple-Locale'], 'en_US');
+        expect(cpd['X-Mme-Device-Id'], 'fake-device-id');
+        expect(cpd, isNot(contains('X-Apple-I-Locale')));
+        expect(cpd, isNot(contains('X-MMe-Client-Info')));
 
         switch (req['o']) {
           case 'init':
