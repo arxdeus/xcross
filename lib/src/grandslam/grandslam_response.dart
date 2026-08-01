@@ -1,5 +1,5 @@
-/// Shared GrandSlam plist response helpers: the `{"Status": {"ec", "em"},
-/// "Response": {...}}` envelope every `gsService`/`o=...` operation call
+/// Shared GrandSlam plist response helpers: the `{"Response": {"Status":
+/// {"ec", "em"}, ...}}` envelope every `gsService`/`o=...` operation call
 /// uses (originally implemented for the provisioning handshake in
 /// [AnisetteDataProvider], extracted here so the SRP login handshake
 /// ([GrandSlamClient], `grandslam_login.dart`) can reuse it verbatim rather
@@ -25,22 +25,22 @@ class GrandSlamOperationError extends XcrossError {
   final int code;
 }
 
-/// Decodes a GrandSlam `o=...` operation response body: a plist dict with
-/// a `Status` dict (`ec`/`em`) as a sibling of a `Response` dict. Throws
-/// [GrandSlamOperationError] if `ec != 0`, or [XcrossError] if the body
-/// isn't a well-formed envelope.
+/// Decodes a GrandSlam `o=...` operation response body. Apple's `Status`
+/// dict (`ec`/`em`) is inside `Response`; the older sibling form remains
+/// accepted for compatibility. Throws [GrandSlamOperationError] if `ec != 0`,
+/// or [XcrossError] if the body isn't a well-formed envelope.
 Map<String, Object?> decodeGrandSlamResponse(String xml) {
   final decoded = decodePlist(xml, context: 'GrandSlam response');
-  final status = decoded['Status'];
+  final response = decoded['Response'];
+  if (response is! Map) {
+    throw XcrossError('GrandSlam response missing "Response" dict');
+  }
+  final status = response['Status'] ?? decoded['Status'];
   if (status is Map) {
     final ec = status['ec'];
     if (ec is int && ec != 0) {
       throw GrandSlamOperationError(ec, '${status['em'] ?? 'unknown error'}');
     }
-  }
-  final response = decoded['Response'];
-  if (response is! Map) {
-    throw XcrossError('GrandSlam response missing "Response" dict');
   }
   return response.cast<String, Object?>();
 }
