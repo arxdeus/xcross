@@ -28,12 +28,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
 
       - name: Checkout zsign
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: zhlynn/zsign
           ref: ${{ env.ZSIGN_REF }}
@@ -88,12 +88,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
 
       - name: Checkout zsign
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: zhlynn/zsign
           ref: ${{ env.ZSIGN_REF }}
@@ -190,13 +190,14 @@ jobs:
           & smoke/xcross.exe --help | Out-Null
           if ($LASTEXITCODE -ne 0) { throw 'xcross.exe --help failed' }
 
-          $PSNativeCommandUseErrorActionPreference = $false
-          $diagnostic = & smoke/xcross-aoskit.exe 2>&1 | Out-String
+          cmd /c 'smoke\xcross-aoskit.exe 2> helper-error.txt'
+          $helperExit = $LASTEXITCODE
+          $diagnostic = Get-Content helper-error.txt -Raw
           $expectedDiagnostic = (
             'Could not (register Apple DLL directories|' +
             'load Apple Application Support objc\.dll)'
           )
-          if ($LASTEXITCODE -ne 2 -or
+          if ($helperExit -ne 2 -or
               $diagnostic -notmatch $expectedDiagnostic) {
             throw "Unexpected AOSKit helper result: $diagnostic"
           }
@@ -221,7 +222,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
 

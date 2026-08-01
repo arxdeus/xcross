@@ -234,7 +234,7 @@ void main() {
     test('appends PATHEXT when the command already contains a dot', () async {
       final tmp = Directory.systemTemp.createTempSync('xcross-dotted-exe-');
       addTearDown(() => tmp.deleteSync(recursive: true));
-      final executable = File(p.join(tmp.path, 'ld64.lld.exe'))..createSync();
+      final executable = File(p.join(tmp.path, 'ld64.lld.EXE'))..createSync();
 
       final result = await ProcessRunner.which(
         'ld64.lld',
