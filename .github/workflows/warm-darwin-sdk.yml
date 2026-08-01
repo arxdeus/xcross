@@ -28,7 +28,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
           persist-credentials: false
 
@@ -47,22 +47,48 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          winget install --id Swift.Toolchain --exact --source winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
-          winget install --id LLVM.LLVM --exact --source winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+          $install = @(
+            'install', '--exact', '--source', 'winget', '--silent',
+            '--accept-package-agreements', '--accept-source-agreements',
+            '--disable-interactivity'
+          )
+          winget @install --id Swift.Toolchain
+          winget @install --id LLVM.LLVM
 
-          $env:Path = "${env:ProgramFiles}\LLVM\bin;$([Environment]::GetEnvironmentVariable('Path', 'Machine'));$([Environment]::GetEnvironmentVariable('Path', 'User'))"
+          $llvmBin = "${env:ProgramFiles}\LLVM\bin"
+          $machinePath = [Environment]::GetEnvironmentVariable(
+            'Path', 'Machine'
+          )
+          $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+          $env:Path = "$llvmBin;$machinePath;$userPath"
           $swift = Get-Command swift.exe -ErrorAction SilentlyContinue
           if (-not $swift) {
-            $swift = Get-ChildItem "${env:ProgramFiles}\Swift" -Filter swift.exe -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            $swift = Get-ChildItem `
+              "${env:ProgramFiles}\Swift" `
+              -Filter swift.exe `
+              -File `
+              -Recurse `
+              -ErrorAction SilentlyContinue |
+              Select-Object -First 1
           }
-          if (-not $swift) { throw 'Swift.Toolchain did not install swift.exe' }
-          $swiftPath = if ($swift.Source) { $swift.Source } else { $swift.FullName }
+          if (-not $swift) {
+            throw 'Swift.Toolchain did not install swift.exe'
+          }
+          $swiftPath = if ($swift.Source) {
+            $swift.Source
+          } else {
+            $swift.FullName
+          }
           $swiftBin = Split-Path $swiftPath
-          "${env:ProgramFiles}\LLVM\bin" | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+          $llvmBin |
+            Out-File $env:GITHUB_PATH -Encoding utf8 -Append
           $swiftBin | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
-          $env:Path = "${env:ProgramFiles}\LLVM\bin;$swiftBin;$env:Path"
-          foreach ($tool in 'swift', 'clang', 'clang++', 'llvm-ar', 'ld64.lld') {
-            if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { throw "Missing $tool" }
+          $env:Path = "$llvmBin;$swiftBin;$env:Path"
+          $tools = @('swift', 'clang', 'clang++', 'llvm-ar', 'ld64.lld')
+          foreach ($tool in $tools) {
+            if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
+              throw "Missing $tool"
+            }
           }
 
       - name: Restore or download xcross Darwin SDK

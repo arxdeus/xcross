@@ -24,7 +24,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
           persist-credentials: false
 
@@ -33,7 +33,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          git clone \
+            --depth 1 \
+            --branch stable \
+            https://github.com/flutter/flutter.git \
+            "$RUNNER_TEMP/flutter"
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
 
       - name: Install Flutter on Windows
@@ -41,8 +45,13 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$env:RUNNER_TEMP\flutter"
-          "$env:RUNNER_TEMP\flutter\bin" | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+          git clone `
+            --depth 1 `
+            --branch stable `
+            https://github.com/flutter/flutter.git `
+            "$env:RUNNER_TEMP\flutter"
+          "$env:RUNNER_TEMP\flutter\bin" |
+            Out-File $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Install Linux requirements
         if: runner.os == 'Linux'
@@ -56,32 +65,61 @@ jobs:
           chmod +x "$RUNNER_TEMP/xcross"
           "$RUNNER_TEMP/xcross" setup
           sudo apt-get install -y llvm
-          for tool in swift clang clang++ llvm-ar ld64.lld llvm-readobj llvm-nm llvm-objdump; do
-            command -v "$tool"
-          done
+          tools=(
+            swift clang clang++ llvm-ar ld64.lld
+            llvm-readobj llvm-nm llvm-objdump
+          )
+          for tool in "${tools[@]}"; do command -v "$tool"; done
 
       - name: Install official Swift and LLVM on Windows
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          winget install --id Swift.Toolchain --exact --source winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
-          winget install --id LLVM.LLVM --exact --source winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+          $install = @(
+            'install', '--exact', '--source', 'winget', '--silent',
+            '--accept-package-agreements', '--accept-source-agreements',
+            '--disable-interactivity'
+          )
+          winget @install --id Swift.Toolchain
+          winget @install --id LLVM.LLVM
 
           $llvmBin = "${env:ProgramFiles}\LLVM\bin"
-          $env:Path = "$llvmBin;$([Environment]::GetEnvironmentVariable('Path', 'Machine'));$([Environment]::GetEnvironmentVariable('Path', 'User'));$env:Path"
+          $machinePath = [Environment]::GetEnvironmentVariable(
+            'Path', 'Machine'
+          )
+          $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+          $env:Path = "$llvmBin;$machinePath;$userPath;$env:Path"
           $swift = Get-Command swift.exe -ErrorAction SilentlyContinue
           if (-not $swift) {
-            $swift = Get-ChildItem "${env:ProgramFiles}\Swift" -Filter swift.exe -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            $swift = Get-ChildItem `
+              "${env:ProgramFiles}\Swift" `
+              -Filter swift.exe `
+              -File `
+              -Recurse `
+              -ErrorAction SilentlyContinue |
+              Select-Object -First 1
           }
-          if (-not $swift) { throw 'Swift.Toolchain did not install swift.exe' }
-          $swiftPath = if ($swift.Source) { $swift.Source } else { $swift.FullName }
+          if (-not $swift) {
+            throw 'Swift.Toolchain did not install swift.exe'
+          }
+          $swiftPath = if ($swift.Source) {
+            $swift.Source
+          } else {
+            $swift.FullName
+          }
           $swiftBin = Split-Path $swiftPath
           $llvmBin | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
           $swiftBin | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
           $env:Path = "$llvmBin;$swiftBin;$env:Path"
-          foreach ($tool in 'swift', 'clang', 'clang++', 'llvm-ar', 'ld64.lld', 'llvm-readobj', 'llvm-nm', 'llvm-objdump') {
-            if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { throw "Missing $tool" }
+          $tools = @(
+            'swift', 'clang', 'clang++', 'llvm-ar', 'ld64.lld',
+            'llvm-readobj', 'llvm-nm', 'llvm-objdump'
+          )
+          foreach ($tool in $tools) {
+            if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
+              throw "Missing $tool"
+            }
           }
 
           flutter config --no-analytics
@@ -98,10 +136,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          flutter create --platforms=ios --org com.example.xcrossci --project-name xcross_ci_sample "$RUNNER_TEMP/flutter_sample"
+          flutter create \
+            --platforms=ios \
+            --org com.example.xcrossci \
+            --project-name xcross_ci_sample \
+            "$RUNNER_TEMP/flutter_sample"
           cd "$RUNNER_TEMP/flutter_sample"
           fixture="$GITHUB_WORKSPACE/test/fixtures/spm_plugin"
-          dart pub add "spm_plugin:{\"path\":\"$fixture\"}"
+          flutter pub add "spm_plugin@{path: $fixture}"
           "$RUNNER_TEMP/xcross" flutter build
 
       - name: Create and build plugin sample on Windows
@@ -110,11 +152,17 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $sample = "$env:RUNNER_TEMP\flutter_sample"
-          flutter create --platforms=ios --org com.example.xcrossci --project-name xcross_ci_sample $sample
+          flutter create `
+            --platforms=ios `
+            --org com.example.xcrossci `
+            --project-name xcross_ci_sample `
+            $sample
           Set-Location $sample
-          $fixture = (Resolve-Path "$env:GITHUB_WORKSPACE/test/fixtures/spm_plugin").Path.Replace('\', '/')
-          $descriptor = 'spm_plugin:{"path":"' + $fixture + '"}'
-          dart pub add -- $descriptor
+          $fixturePath = Resolve-Path `
+            "$env:GITHUB_WORKSPACE/test/fixtures/spm_plugin"
+          $fixture = $fixturePath.Path.Replace('\', '/')
+          $descriptor = 'spm_plugin@{path: ' + $fixture + '}'
+          flutter pub add -- $descriptor
           & "$env:RUNNER_TEMP\xcross.exe" flutter build
 
       - name: Inspect app and plugin library on Linux
@@ -125,7 +173,10 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
           apps=(build/xcross-ios/*.app)
-          [[ ${#apps[@]} -eq 1 ]] || { printf 'Expected one .app, found %s\n' "${#apps[@]}"; exit 1; }
+          if [[ ${#apps[@]} -ne 1 ]]; then
+            printf 'Expected one .app, found %s\n' "${#apps[@]}"
+            exit 1
+          fi
           app=${apps[0]}
           runner="$app/Runner"
           plugins="$app/Frameworks/libFlutterPluginsGenerated.dylib"
@@ -134,11 +185,17 @@ jobs:
 
           llvm-readobj --file-headers "$runner" | tee runner-headers.txt
           grep -Eq 'Format: Mach-O arm64|Arch: aarch64' runner-headers.txt
-          llvm-nm --defined-only --extern-only "$plugins" | tee plugin-symbols.txt
+          llvm-nm \
+            --defined-only \
+            --extern-only \
+            "$plugins" | tee plugin-symbols.txt
           grep -F XcrossRegisterGeneratedPlugins plugin-symbols.txt
           llvm-objdump --macho --dylibs-used "$runner" | tee runner-dylibs.txt
           grep -F '@rpath/libFlutterPluginsGenerated.dylib' runner-dylibs.txt
-          llvm-objdump --macho --private-headers "$runner" | tee runner-load-commands.txt
+          llvm-objdump \
+            --macho \
+            --private-headers \
+            "$runner" | tee runner-load-commands.txt
           grep -F '@executable_path/Frameworks' runner-load-commands.txt
 
       - name: Inspect app and plugin library on Windows
@@ -148,18 +205,48 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $apps = @(Get-ChildItem build/xcross-ios -Directory -Filter *.app)
-          if ($apps.Count -ne 1) { throw "Expected one .app, found $($apps.Count)" }
+          if ($apps.Count -ne 1) {
+            throw "Expected one .app, found $($apps.Count)"
+          }
           $runner = Join-Path $apps[0].FullName 'Runner'
-          $plugins = Join-Path $apps[0].FullName 'Frameworks/libFlutterPluginsGenerated.dylib'
-          if (-not (Test-Path $runner -PathType Leaf)) { throw "Missing $runner" }
-          if (-not (Test-Path $plugins -PathType Leaf)) { throw "Missing $plugins" }
+          $plugins = Join-Path `
+            $apps[0].FullName `
+            'Frameworks/libFlutterPluginsGenerated.dylib'
+          if (-not (Test-Path $runner -PathType Leaf)) {
+            throw "Missing $runner"
+          }
+          if (-not (Test-Path $plugins -PathType Leaf)) {
+            throw "Missing $plugins"
+          }
 
           $headers = (& llvm-readobj --file-headers $runner | Out-String)
           if ($LASTEXITCODE -ne 0) { throw 'llvm-readobj failed' }
-          if ($headers -notmatch 'Format:\s+Mach-O arm64' -and $headers -notmatch 'Arch:\s+aarch64') { throw "Runner is not ARM64 Mach-O:`n$headers" }
-          $symbols = (& llvm-nm --defined-only --extern-only $plugins | Out-String)
-          if ($LASTEXITCODE -ne 0 -or $symbols -notmatch 'XcrossRegisterGeneratedPlugins') { throw "Missing exported plugin registrant:`n$symbols" }
-          $dylibs = (& llvm-objdump --macho --dylibs-used $runner | Out-String)
-          if ($LASTEXITCODE -ne 0 -or $dylibs -notmatch '@rpath/libFlutterPluginsGenerated\.dylib') { throw "Missing plugin load command:`n$dylibs" }
-          $commands = (& llvm-objdump --macho --private-headers $runner | Out-String)
-          if ($LASTEXITCODE -ne 0 -or $commands -notmatch '@executable_path/Frameworks') { throw "Missing Frameworks rpath:`n$commands" }
+          $isMachO = $headers -match 'Format:\s+Mach-O arm64'
+          $isArm64 = $headers -match 'Arch:\s+aarch64'
+          if (-not $isMachO -and -not $isArm64) {
+            throw "Runner is not ARM64 Mach-O:`n$headers"
+          }
+          $symbols = (& llvm-nm `
+            --defined-only `
+            --extern-only `
+            $plugins | Out-String)
+          if ($LASTEXITCODE -ne 0 -or
+              $symbols -notmatch 'XcrossRegisterGeneratedPlugins') {
+            throw "Missing exported plugin registrant:`n$symbols"
+          }
+          $dylibs = (& llvm-objdump `
+            --macho `
+            --dylibs-used `
+            $runner | Out-String)
+          if ($LASTEXITCODE -ne 0 -or
+              $dylibs -notmatch '@rpath/libFlutterPluginsGenerated\.dylib') {
+            throw "Missing plugin load command:`n$dylibs"
+          }
+          $commands = (& llvm-objdump `
+            --macho `
+            --private-headers `
+            $runner | Out-String)
+          if ($LASTEXITCODE -ne 0 -or
+              $commands -notmatch '@executable_path/Frameworks') {
+            throw "Missing Frameworks rpath:`n$commands"
+          }

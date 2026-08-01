@@ -15,7 +15,7 @@ class DarwinSdk {
 
   static final RegExp _digitPattern = RegExp('[0-9]');
 
-  /// Artifact bundle path passed to SwiftPM's `--swift-sdk-path` option.
+  /// Artifact bundle path whose parent is passed to `--swift-sdks-path`.
   String get swiftSdkPath => bundle;
 
   /// Where `xcross sdk install <Xcode.xip>` installs the Swift SDK bundle.
@@ -35,13 +35,27 @@ class DarwinSdk {
   /// A complete bundle has Swift artifact metadata and a usable iPhoneOS SDK.
   static bool isValidBundle(String candidate) {
     if (!File(p.join(candidate, 'info.json')).existsSync() ||
-        !File(p.join(candidate, 'swift-sdk.json')).existsSync()) {
+        !File(p.join(candidate, 'swift-sdk.json')).existsSync() ||
+        !File(p.join(candidate, 'toolset.json')).existsSync()) {
       return false;
     }
 
     final sdk = _firstSdk(_sdksDir(candidate, 'iPhoneOS'), 'iPhoneOS');
+    final swiftResources = p.join(
+      candidate,
+      'Developer',
+      'Toolchains',
+      'XcodeDefault.xctoolchain',
+      'usr',
+      'lib',
+      'swift',
+      'iphoneos',
+    );
     return sdk != null &&
-        Directory(p.join(sdk, 'System', 'Library', 'Frameworks')).existsSync();
+        Directory(
+          p.join(sdk, 'System', 'Library', 'Frameworks'),
+        ).existsSync() &&
+        Directory(swiftResources).existsSync();
   }
 
   /// First versioned iPhoneOSXX.X.sdk found, else first iPhoneOS.sdk.

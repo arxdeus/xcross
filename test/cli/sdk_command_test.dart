@@ -141,6 +141,18 @@ void main() {
     await Directory(
       p.join(sdkRoot, 'System', 'Library', 'Frameworks'),
     ).create(recursive: true);
+    await Directory(
+      p.join(
+        bundle.path,
+        'Developer',
+        'Toolchains',
+        'XcodeDefault.xctoolchain',
+        'usr',
+        'lib',
+        'swift',
+        'iphoneos',
+      ),
+    ).create(recursive: true);
 
     await writeSwiftSdkBundleMetadata(bundle.path);
 
@@ -189,8 +201,6 @@ void main() {
     ]);
     expect(target['librarySearchPaths'], [
       'Developer/Platforms/iPhoneOS.platform/Developer/usr/lib',
-      'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos',
-      'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift_static/iphoneos',
     ]);
     expect(target['toolsetPaths'], ['toolset.json']);
 

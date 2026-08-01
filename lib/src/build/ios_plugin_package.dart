@@ -78,6 +78,13 @@ abstract final class GeneratedPluginsPackage {
           flutterXcframework: flutterXcframework,
         );
 
+        final sdk = DarwinSdk.current();
+        if (sdk == null) {
+          throw XcrossError(
+            'Darwin Swift SDK not found. Run '
+            '`xcross sdk install <Xcode.xip>` first.',
+          );
+        }
         final swift = await ProcessRunner.locateTool('swift');
         final pluginsDir = p.join(outputDir, 'Plugins');
         final scratchPath = p.join(pluginsDir, '.build');
@@ -100,7 +107,7 @@ abstract final class GeneratedPluginsPackage {
           swiftBuildArguments(
             pluginsDir: pluginsDir,
             scratchPath: scratchPath,
-            swiftSdksPath: p.dirname(DarwinSdk.nativeInstallDir()),
+            swiftSdksPath: p.dirname(sdk.swiftSdkPath),
             flutterFrameworkSlice: flutterFrameworkSlice,
             toolsetPath: toolsetPath,
           ),

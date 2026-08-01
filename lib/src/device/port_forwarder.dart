@@ -96,15 +96,13 @@ class PortForwarder {
   /// never returns.
   Future<void> close() async {
     _closed = true;
-    // Closing the server also ends its accept subscription.
-    await _server.close();
-    // destroy(), not close(): a peer still holding the connection open (DevTools
-    // left running when the app stops) would otherwise keep this socket — and
-    // the process — alive indefinitely. Covered by port_forwarder_exit_test's
-    // "a peer never lets go", which hangs without this.
+    // Destroy live connections before awaiting the listener close. On Windows,
+    // a peer that stays attached can otherwise keep ServerSocket.close()
+    // pending indefinitely.
     for (final socket in _sockets.toList()) {
       socket.destroy();
     }
     _sockets.clear();
+    await _server.close();
   }
 }

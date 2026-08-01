@@ -15,6 +15,7 @@ runs:
   using: composite
   steps:
     - name: Resolve xcross Swift SDK path
+      id: sdk-path
       shell: python
       run: |
         import os
@@ -23,18 +24,22 @@ runs:
         if os.name == "nt":
             config = Path(os.environ["APPDATA"])
         else:
-            config = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+            config = Path(
+                os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")
+            )
         parent = config / "xcross" / "swift-sdks"
         bundle = parent / "xcross-darwin.artifactbundle"
         with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
             env.write(f"XCROSS_SWIFT_SDKS_PATH={parent}\n")
             env.write(f"XCROSS_DARWIN_BUNDLE={bundle}\n")
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+            out.write(f"bundle={bundle}\n")
 
     - name: Restore Darwin SDK cache
       id: darwin-cache
-      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
       with:
-        path: ${{ env.XCROSS_DARWIN_BUNDLE }}
+        path: ${{ steps.sdk-path.outputs.bundle }}
         key: xcross-darwin-artifactbundle-v2-${{ runner.os }}-${{ runner.arch }}
 
     - name: Download Darwin SDK (cache miss)
@@ -51,22 +56,37 @@ runs:
 
         url = os.environ.get("DARWIN_ARTIFACTBUNDLE_URL", "")
         if not url:
-            print("::error::Darwin SDK cache miss. Run the Warm Darwin SDK cache workflow for this runner OS/architecture, or pass its private artifact URL.")
+            print(
+                "::error::Darwin SDK cache miss. Run the Warm Darwin SDK "
+                "cache workflow for this runner, or pass its private URL."
+            )
             raise SystemExit(1)
 
         parent = Path(os.environ["XCROSS_SWIFT_SDKS_PATH"])
         bundle = Path(os.environ["XCROSS_DARWIN_BUNDLE"])
-        archive = Path(os.environ["RUNNER_TEMP"]) / "xcross-darwin.artifactbundle.tar.gz"
+        archive = (
+            Path(os.environ["RUNNER_TEMP"])
+            / "xcross-darwin.artifactbundle.tar.gz"
+        )
         parent.mkdir(parents=True, exist_ok=True)
         if bundle.exists():
             shutil.rmtree(bundle)
         print("Downloading private Darwin SDK archive...")
-        with urllib.request.urlopen(url) as response, archive.open("wb") as output:
+        with (
+            urllib.request.urlopen(url) as response,
+            archive.open("wb") as output,
+        ):
             shutil.copyfileobj(response, output)
-        subprocess.run(["tar", "-xzf", str(archive), "-C", str(parent)], check=True)
+        subprocess.run(
+            ["tar", "-xzf", str(archive), "-C", str(parent)],
+            check=True,
+        )
         archive.unlink()
         if not (bundle / "info.json").is_file():
-            print("::error::Archive must contain xcross-darwin.artifactbundle at its root.")
+            print(
+                "::error::Archive must contain "
+                "xcross-darwin.artifactbundle at its root."
+            )
             raise SystemExit(1)
 
     - name: Refresh clang builtin headers
@@ -77,9 +97,22 @@ runs:
         import subprocess
         from pathlib import Path
 
-        resource = Path(subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip())
+        resource = Path(
+            subprocess.check_output(
+                ["clang", "-print-resource-dir"], text=True
+            ).strip()
+        )
         source = resource / "include"
-        destination = Path(os.environ["XCROSS_DARWIN_BUNDLE"]) / "Developer" / "Toolchains" / "XcodeDefault.xctoolchain" / "usr" / "lib" / "swift" / "clang" / "include"
+        destination = Path(os.environ["XCROSS_DARWIN_BUNDLE"]).joinpath(
+            "Developer",
+            "Toolchains",
+            "XcodeDefault.xctoolchain",
+            "usr",
+            "lib",
+            "swift",
+            "clang",
+            "include",
+        )
         if not source.is_dir():
             raise SystemExit(f"clang builtin headers not found at {source}")
         if destination.is_symlink() or destination.is_file():
@@ -101,4 +134,7 @@ runs:
         for name in ("info.json", "swift-sdk.json"):
             if not (bundle / name).is_file():
                 raise SystemExit(f"missing {bundle / name}")
-        subprocess.run(["swift", "sdk", "list", "--swift-sdks-path", str(parent)], check=True)
+        subprocess.run(
+            ["swift", "sdk", "list", "--swift-sdks-path", str(parent)],
+            check=True,
+        )

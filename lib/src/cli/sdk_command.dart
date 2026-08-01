@@ -201,7 +201,7 @@ Future<void> writeSwiftSdkBundleMetadata(String artifactRoot) async {
           'swiftResourcesPath': _swiftResources,
           'swiftStaticResourcesPath': _swiftStaticResources,
           'includeSearchPaths': ['$_platformDeveloper/usr/lib'],
-          'librarySearchPaths': ['$_platformDeveloper/usr/lib', '$_swiftResources/iphoneos', '$_swiftStaticResources/iphoneos'],
+          'librarySearchPaths': ['$_platformDeveloper/usr/lib'],
           'toolsetPaths': ['toolset.json'],
         },
       },

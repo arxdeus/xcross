@@ -12,6 +12,7 @@ import 'package:xcross/src/util/sudo.dart';
 const _aptPackages = [
   'clang',
   'lld',
+  'llvm',
   'python3',
   'python3-pip',
   'python3-venv',
@@ -79,7 +80,13 @@ class SetupCommand extends Command<void> {
     }
 
     final missing = <String>[];
-    for (final tool in const ['swift', 'ld64.lld']) {
+    for (final tool in const [
+      'swift',
+      'clang',
+      'clang++',
+      'llvm-ar',
+      'ld64.lld',
+    ]) {
       if (await ProcessRunner.which(tool) == null) missing.add(tool);
     }
     if (missing.isNotEmpty) {

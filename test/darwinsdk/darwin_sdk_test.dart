@@ -45,11 +45,25 @@ void main() {
         'Frameworks',
       );
       await Directory(frameworks).create(recursive: true);
+      await Directory(
+        p.join(
+          bundle,
+          'Developer',
+          'Toolchains',
+          'XcodeDefault.xctoolchain',
+          'usr',
+          'lib',
+          'swift',
+          'iphoneos',
+        ),
+      ).create(recursive: true);
 
       expect(DarwinSdk.current(bundle: bundle), isNull);
       await File(p.join(bundle, 'info.json')).writeAsString('{}');
       expect(DarwinSdk.current(bundle: bundle), isNull);
       await File(p.join(bundle, 'swift-sdk.json')).writeAsString('{}');
+      expect(DarwinSdk.current(bundle: bundle), isNull);
+      await File(p.join(bundle, 'toolset.json')).writeAsString('{}');
 
       final sdk = DarwinSdk.current(bundle: bundle);
       expect(sdk, isNotNull);

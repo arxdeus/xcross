@@ -24,12 +24,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
           persist-credentials: false
 
       - name: Set up Dart
-        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260  # v1
         with:
           sdk: stable
 
@@ -49,7 +49,8 @@ jobs:
           chmod +x "dist/${{ matrix.asset }}"
 
       - name: Upload binary artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+         # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: ${{ matrix.asset }}
           path: dist/${{ matrix.asset }}
@@ -63,12 +64,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
           persist-credentials: false
 
       - name: Checkout zsign
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
           repository: zhlynn/zsign
           ref: ${{ env.ZSIGN_REF }}
@@ -76,12 +77,13 @@ jobs:
           persist-credentials: false
 
       - name: Set up Dart
-        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260  # v1
         with:
           sdk: stable
 
       - name: Set up MSBuild
-        uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce # v2
+         # v2
+        uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce
 
       - name: Verify Dart code
         run: |
@@ -94,11 +96,26 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
           dart compile exe bin/xcross.dart -o dist/xcross.exe
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          if (-not $vs) { throw 'Visual Studio C++ tools were not found' }
+          $vswhere = Join-Path `
+            ${env:ProgramFiles(x86)} `
+            'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vsArgs = @(
+            '-latest', '-products', '*',
+            '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
+            '-property', 'installationPath'
+          )
+          $vs = & $vswhere @vsArgs
+          if (-not $vs) {
+            throw 'Visual Studio C++ tools were not found'
+          }
           $vcvars = Join-Path $vs 'VC\Auxiliary\Build\vcvarsall.bat'
-          $command = "call `"$vcvars`" x86 && cl /nologo /O2 /MT /EHsc /std:c++17 /W4 /WX /DUNICODE /D_UNICODE native\windows\aoskit_helper.cpp /Fe:dist\xcross-aoskit.exe"
+          $cl = @(
+            'cl', '/nologo', '/O2', '/MT', '/EHsc', '/std:c++17',
+            '/W4', '/WX', '/DUNICODE', '/D_UNICODE',
+            'native\windows\aoskit_helper.cpp',
+            '/Fe:dist\xcross-aoskit.exe'
+          ) -join ' '
+          $command = "call `"$vcvars`" x86 && $cl"
           cmd.exe /c $command
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -114,9 +131,13 @@ jobs:
       - name: Package Windows release
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force dist/THIRD_PARTY_LICENSES | Out-Null
+          New-Item `
+            -ItemType Directory `
+            -Force dist/THIRD_PARTY_LICENSES | Out-Null
           Copy-Item LICENSE dist/LICENSE
-          Copy-Item native/windows/AOSKIT_HELPER_LICENSE.txt dist/THIRD_PARTY_LICENSES/aoskit-helper.txt
+          Copy-Item `
+            native/windows/AOSKIT_HELPER_LICENSE.txt `
+            dist/THIRD_PARTY_LICENSES/aoskit-helper.txt
           Copy-Item zsign/LICENSE dist/THIRD_PARTY_LICENSES/zsign.txt
           Compress-Archive -Path dist/* -DestinationPath xcross-windows-x64.zip
 
@@ -133,11 +154,12 @@ jobs:
             'xcross.exe'
             'zsign.exe'
           ) | Sort-Object
+          $root = Resolve-Path smoke
           $actual = Get-ChildItem smoke -File -Recurse | ForEach-Object {
-            [IO.Path]::GetRelativePath((Resolve-Path smoke), $_.FullName).Replace('\', '/')
+            [IO.Path]::GetRelativePath($root, $_.FullName).Replace('\', '/')
           } | Sort-Object
           if (Compare-Object $expected $actual) {
-            throw "Unexpected archive contents. Expected: $expected; actual: $actual"
+            throw "Unexpected archive contents: $actual"
           }
 
           & smoke/xcross.exe --help | Out-Null
@@ -145,12 +167,18 @@ jobs:
 
           $PSNativeCommandUseErrorActionPreference = $false
           $diagnostic = & smoke/xcross-aoskit.exe 2>&1 | Out-String
-          if ($LASTEXITCODE -ne 2 -or $diagnostic -notmatch 'Could not (register Apple DLL directories|load Apple Application Support objc\.dll)') {
-            throw "Unexpected xcross-aoskit.exe result: exit $LASTEXITCODE; $diagnostic"
+          $expectedDiagnostic = (
+            'Could not (register Apple DLL directories|' +
+            'load Apple Application Support objc\.dll)'
+          )
+          if ($LASTEXITCODE -ne 2 -or
+              $diagnostic -notmatch $expectedDiagnostic) {
+            throw "Unexpected AOSKit helper result: $diagnostic"
           }
 
       - name: Upload Windows artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+         # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: xcross-windows-x64
           path: xcross-windows-x64.zip
@@ -168,12 +196,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
           persist-credentials: false
 
       - name: Download binaries
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+         # v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           path: dist
           merge-multiple: true
