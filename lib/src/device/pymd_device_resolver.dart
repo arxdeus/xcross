@@ -3,13 +3,8 @@ import 'dart:io';
 import 'package:xcross/src/device/pymd_devices.dart';
 import 'package:xcross/src/models/device/device.dart';
 import 'package:xcross/src/util/errors.dart';
-import 'package:xcross/src/xtool/xtool_cli.dart' show DeviceSearchMode;
 
 /// Resolves a target [Device] via pymobiledevice3-backed listing.
-///
-/// Mirrors `XtoolCli.resolveDevice`'s selector/interactive-picker contract
-/// exactly (same matching rules, same TTY-vs-non-TTY behavior), so it is a
-/// drop-in replacement once wired into the run pipeline.
 class PymdDeviceResolver {
   /// Resolve a single target device.
   ///

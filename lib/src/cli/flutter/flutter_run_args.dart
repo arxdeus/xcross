@@ -3,31 +3,26 @@ import 'package:xcross/src/build/flutter_pack_operation.dart';
 import 'package:xcross/src/build/hot_reload_setup.dart';
 import 'package:xcross/src/cli/flutter/flutter_build_args.dart';
 import 'package:xcross/src/device/core_device_launcher.dart';
-import 'package:xcross/src/device/debug_launcher.dart';
 import 'package:xcross/src/device/device_backend.dart';
 import 'package:xcross/src/device/os_version.dart';
 import 'package:xcross/src/models/device/device.dart';
 import 'package:xcross/src/models/flutter/flutter_build_options.dart';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/logging.dart';
-import 'package:xcross/src/xtool/xtool_cli.dart';
 
 /// How `--device-connection` restricts device discovery.
 enum DeviceConnection { attached, wireless, both }
 
-/// `xcross flutter run` — build, sign+install (via xtool), launch, and (for
-/// iOS 17+ debug builds) hot-reload a Flutter app on a connected device.
+/// `xcross flutter run` — build, sign, install, launch, and hot-reload a
+/// Flutter app on a connected iOS 17+ device.
 ///
 /// Always builds a debug (JIT) app and always launches with hot reload (the
-/// flutter default). Accepts a mix of the original xtool flags (`-u/--udid`,
+/// flutter default). Accepts device-selection flags (`-u/--udid`,
 /// `--usb/--wifi`) and the official `flutter run` flags (`-t/--target`,
 /// `-d/--device-id`, `-D/--dart-define`, `--dart-define-from-file`,
 /// `--[no-]pub`, `--route`, `-a/--dart-entrypoint-args`, `--device-connection`,
 /// `--flavor`).
-bool shouldUseCoreDevice({
-  required int? osMajor,
-  required bool nativeBackend,
-}) => osMajor == null ? nativeBackend : osMajor >= 17;
+bool shouldUseCoreDevice(int? osMajor) => osMajor == null || osMajor >= 17;
 
 class FlutterRunCommand extends Command<void> with CommonFlutterOptions {
   FlutterRunCommand() {
@@ -38,7 +33,7 @@ class FlutterRunCommand extends Command<void> with CommonFlutterOptions {
         abbr: 'd',
         help: 'Target device id or name (flutter-style).',
       )
-      ..addOption('udid', abbr: 'u', help: 'Target device UDID (xtool-style).')
+      ..addOption('udid', abbr: 'u', help: 'Target device UDID.')
       ..addFlag('usb', help: 'Search USB devices only.', negatable: false)
       ..addFlag('wifi', help: 'Search Wi-Fi devices only.', negatable: false)
       ..addOption(
@@ -121,42 +116,29 @@ class FlutterRunCommand extends Command<void> with CommonFlutterOptions {
     );
     Log.logInfo('Device', '${device.name} ${Log.ansi.subtle(device.udid)}');
 
-    // iOS 17+ removed the classic lockdown debugserver: launch (and process
-    // control) go through the CoreDevice/RSD tunnel. Determine this up front so
-    // we can close a still-running instance before installing.
+    // iOS 17+ launch and process control go through the CoreDevice/RSD tunnel.
+    // Fail before install when the device is known to be unsupported.
     final osMajor = await OsVersion.deviceOSMajorVersion(device.udid);
-    final useCoreDevice = shouldUseCoreDevice(
-      osMajor: osMajor,
-      nativeBackend: backend is NativeBackend,
-    );
-    if (osMajor == null && backend is NativeBackend) {
+    if (!shouldUseCoreDevice(osMajor)) {
+      throw XcrossError(
+        'Native device launching requires iOS 17 or later; update this device '
+        'before running the app.',
+      );
+    }
+    if (osMajor == null) {
       Log.logWarn(
         'Could not read the device OS version; attempting the native '
         'CoreDevice path.',
       );
     }
 
-    // The pre-iOS-17 launch path (below, in _launch) needs a real XtoolCli,
-    // which NativeBackend can't provide. Fail before install rather than
-    // installing successfully and then crashing at launch.
-    if (backend is NativeBackend && !useCoreDevice) {
-      throw XcrossError(
-        'This device is pre-iOS 17 and needs xtool for the launch step, '
-        "which isn't available on this platform yet. Pre-iOS-17 devices are "
-        'only supported where xtool can run (Linux/macOS/WSL).',
-      );
-    }
-
     // Close the app if it happens to be running at install time, so the install
     // and relaunch don't collide with a live instance.
-    if (useCoreDevice) {
-      await CoreDeviceLauncher.terminateIfRunning(
-        udid: device.udid,
-        bundleId: pack.bundleId,
-      );
-    }
+    await CoreDeviceLauncher.terminateIfRunning(
+      udid: device.udid,
+      bundleId: pack.bundleId,
+    );
 
-    // Renders its own spinner + grey log tail (see [XtoolCli.install]).
     await backend.install(
       pack.appPath,
       udid: device.udid,
@@ -164,36 +146,16 @@ class FlutterRunCommand extends Command<void> with CommonFlutterOptions {
       bundleId: pack.bundleId,
     );
 
-    await _launch(
-      pack: pack,
-      device: device,
-      useCoreDevice: useCoreDevice,
-      dartDefines: options.dartDefines,
-      xtool: backend is XtoolBackend ? backend.xtool : null,
-    );
+    await _launch(pack: pack, device: device, dartDefines: options.dartDefines);
   }
 
-  /// Launch the freshly installed app: CoreDevice/RSD on iOS 17+ (with hot
-  /// reload when available), otherwise the classic debugserver path.
+  /// Launch the freshly installed app through CoreDevice/RSD, with hot reload
+  /// when available.
   Future<void> _launch({
     required PackResult pack,
     required Device device,
-    required bool useCoreDevice,
     required List<String> dartDefines,
-    required XtoolCli? xtool,
   }) async {
-    // Flutter debug runs the Dart VM in JIT mode, which only works while a
-    // debugger is attached (CS_DEBUGGED). run is always debug → stay attached.
-    if (!useCoreDevice) {
-      Log.logInfo('App', '${pack.bundleId} ${Log.ansi.subtle('debug/JIT')}');
-      await DebugLauncher.launch(
-        udid: device.udid,
-        bundleId: pack.bundleId,
-        xtool: xtool,
-      );
-      return;
-    }
-
     // Always hot reload (flutter default). Degrades to attach-only if a
     // frontend_server artifact is missing.
     final hotReload = await HotReloadSetup.buildHotReloadConfig(

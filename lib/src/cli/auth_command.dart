@@ -118,8 +118,7 @@ class AuthCommand extends Command<void> {
     if (!Platform.isWindows) {
       throw XcrossError(
         'Built-in Apple ID/password login is currently available on native '
-        'Windows. On this platform use xtool authentication or App Store '
-        'Connect API key flags.',
+        'Windows. On this platform use App Store Connect API key flags.',
       );
     }
     final AnisetteProvider anisette = AosKitAnisetteProvider();

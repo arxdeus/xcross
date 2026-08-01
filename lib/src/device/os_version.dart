@@ -13,8 +13,8 @@ abstract final class OsVersion {
   /// empty/unparseable output — common on WSL/usbipd where lockdown JSON is
   /// empty but the UDID still lists.
   ///
-  /// Returns null if neither tool can provide [ProductVersion]. Callers use
-  /// this to gate iOS 17+ (CoreDeviceLauncher) vs pre-17 (DebugLauncher).
+  /// Returns null if neither tool can provide [ProductVersion]. Callers reject
+  /// confirmed pre-iOS-17 devices and attempt CoreDevice when it is unknown.
   static Future<int?> deviceOSMajorVersion(String udid) async {
     final fromPymd = await _majorFromPymdLockdown(udid);
     if (fromPymd != null) return fromPymd;

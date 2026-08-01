@@ -13,10 +13,9 @@ void main() {
       'WIFI is case-insensitive',
       () => expect(ConnectionType.parse('WIFI'), ConnectionType.wifi),
     );
-    // Regression check: upstream xtool's `devices` output uses the wire
-    // value `network`, not `wifi`, for wireless-connected devices.
+    // pymobiledevice3 uses `Network` for wireless-connected devices.
     test(
-      'network (upstream xtool wire value) maps to wifi',
+      'network maps to wifi',
       () => expect(ConnectionType.parse('network'), ConnectionType.wifi),
     );
     test(

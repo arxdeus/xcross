@@ -25,10 +25,8 @@ List<String> buildZsignArguments({
 ];
 
 /// Wrapper around the upstream `zsign` binary
-/// (https://github.com/zhlynn/zsign) — a portable, MIT-licensed, native
-/// code-signing tool. Intended as a Swift-toolchain-free stand-in for
-/// `xtool install`'s signing step, primarily for Windows where `xtool`
-/// itself cannot run.
+/// (https://github.com/zhlynn/zsign) — the portable, MIT-licensed signing tool
+/// used by the native device backend.
 ///
 /// NOTE: build/bundle plain `zhlynn/zsign`, never the `xtool-org/zsign`
 /// fork — that fork's CLI entry point (`src/zsign.cpp`) is compiled out
@@ -93,7 +91,7 @@ class ZsignCli {
   /// (zsign accepts either PEM/DER or a `.p12`; xcross only needs the PEM
   /// pair, since a locally-generated RSA key and an Apple-issued cert are
   /// already separate files). Runs under a spinner whose grey tail shows
-  /// zsign's own output, matching `XtoolCli.install`'s UX.
+  /// zsign's own output.
   ///
   /// Throws [XcrossError] (with zsign's stderr attached) on a non-zero exit.
   Future<void> sign({

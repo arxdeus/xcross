@@ -10,13 +10,8 @@ import 'package:xcross/src/grandslam/grandslam_session_store.dart';
 import 'package:xcross/src/models/device/device.dart';
 import 'package:xcross/src/signing/zsign_cli.dart';
 import 'package:xcross/src/util/errors.dart';
-import 'package:xcross/src/util/process.dart';
-import 'package:xcross/src/xtool/xtool_cli.dart';
 
-/// Resolves and installs to a device, backed by either the upstream `xtool`
-/// binary (Linux/macOS, unchanged behavior) or the native (no-Swift)
-/// App Store Connect + zsign + pymobiledevice3 pipeline (Windows and anywhere
-/// else `xtool` isn't installed).
+/// Resolves, signs, and installs to a device using the native pipeline.
 abstract class DeviceBackend {
   Future<Device> resolveDevice({
     required DeviceSearchMode mode,
@@ -30,43 +25,11 @@ abstract class DeviceBackend {
     required String bundleId,
   });
 
-  /// [XtoolBackend] if the `xtool` binary is found on PATH (existing
-  /// Linux/macOS behavior), else [NativeBackend]. Windows always uses the
-  /// native path because xtool requires a Swift toolchain there.
-  static Future<DeviceBackend> resolve({
-    bool? windows,
-    Future<String?> Function(String name)? which,
-  }) async {
-    if (windows ?? Platform.isWindows) return NativeBackend();
-    final xtoolPath = await (which ?? ProcessRunner.which)('xtool');
-    return xtoolPath != null ? XtoolBackend() : NativeBackend();
-  }
+  static Future<DeviceBackend> resolve() async => NativeBackend();
 }
 
-/// Delegates straight to [XtoolCli] — zero behavior change from the
-/// pre-existing `xtool`-only code path.
-class XtoolBackend implements DeviceBackend {
-  XtoolBackend([XtoolCli? xtool]) : xtool = xtool ?? XtoolCli();
-
-  final XtoolCli xtool;
-
-  @override
-  Future<Device> resolveDevice({
-    required DeviceSearchMode mode,
-    String? selector,
-  }) => xtool.resolveDevice(selector: selector, mode: mode);
-
-  @override
-  Future<void> install(
-    String appOrIpaPath, {
-    required String udid,
-    required DeviceSearchMode mode,
-    required String bundleId,
-  }) => xtool.install(appOrIpaPath, udid: udid, mode: mode);
-}
-
-/// Swift/xtool-free pipeline: pymobiledevice3 for device discovery/install,
-/// App Store Connect API + zsign for provisioning and signing.
+/// pymobiledevice3 for device discovery/install, with App Store Connect and
+/// zsign for provisioning and signing.
 class NativeBackend implements DeviceBackend {
   NativeBackend([PymdDeviceResolver? resolver])
     : _resolver = resolver ?? PymdDeviceResolver();

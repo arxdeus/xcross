@@ -1,5 +1,8 @@
 import 'package:meta/meta.dart';
 
+/// Which devices to search for.
+enum DeviceSearchMode { all, usb, wifi }
+
 /// How a device is connected.
 enum ConnectionType {
   usb,
@@ -7,14 +10,14 @@ enum ConnectionType {
 
   static ConnectionType parse(String raw) {
     final v = raw.toLowerCase();
-    // Upstream xtool prints `[network]` for wireless devices.
+    // pymobiledevice3 reports wireless devices as `Network`.
     return (v == 'wifi' || v == 'network')
         ? ConnectionType.wifi
         : ConnectionType.usb;
   }
 }
 
-/// A device as reported by `xtool devices`.
+/// A connected iOS device.
 @immutable
 class Device {
   const Device({required this.name, required this.udid, required this.type});

@@ -5,7 +5,6 @@ import 'package:xcross/src/models/device/device.dart';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/logging.dart';
 import 'package:xcross/src/util/process.dart';
-import 'package:xcross/src/xtool/xtool_cli.dart' show DeviceSearchMode;
 
 /// pymobiledevice3-backed device enumeration and app install.
 ///
@@ -21,9 +20,12 @@ abstract final class PymdDevices {
   static Future<List<Device>> devices({
     DeviceSearchMode mode = DeviceSearchMode.all,
   }) async {
-    final args = <String>['usbmux', 'list'];
-    final flag = mode.flag;
-    if (flag != null) args.add(flag);
+    final args = <String>[
+      'usbmux',
+      'list',
+      if (mode == DeviceSearchMode.usb) '--usb',
+      if (mode == DeviceSearchMode.wifi) '--network',
+    ];
     final result = await Pymd.run(args);
     return parseDevices(result.stdout);
   }
@@ -58,9 +60,8 @@ abstract final class PymdDevices {
 
   /// `pymobiledevice3 apps install <path> [--udid <udid>]`.
   ///
-  /// Mirrors `XtoolCli.install`'s UX: a spinner whose grey tail streams
-  /// pymobiledevice3's own progress, stdin forwarded for any prompts, and
-  /// failures surfaced as [XcrossError].
+  /// Shows a spinner whose grey tail streams pymobiledevice3's own progress,
+  /// forwards stdin for any prompts, and surfaces failures as [XcrossError].
   static Future<void> install(String appOrIpaPath, {String? udid}) async {
     final inv = await Pymd.resolve();
     final args = <String>['apps', 'install', appOrIpaPath];

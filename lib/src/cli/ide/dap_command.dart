@@ -125,9 +125,9 @@ class XcrossDap
     await _prepareUriMappings(cwd);
 
     // With tunneld down the child reaches `sudo -v` under inheritStdio and can
-    // block forever on a tty nobody can see. Warn, but don't fail: the iOS < 17
-    // debugserver path needs no tunneld at all. A half-dead tunneld can accept
-    // the socket and never answer, hence the timeout.
+    // block forever on a tty nobody can see. Warn, but let the run command
+    // report the device-specific failure. A half-dead tunneld can accept the
+    // socket and never answer, hence the timeout.
     final tunnelUp = await TunnelDaemon.isReachable().timeout(
       const Duration(seconds: 5),
       onTimeout: () => false,
@@ -142,8 +142,8 @@ class XcrossDap
     }
 
     // NEVER forward Dart-Code's `toolArgs`: it injects `-d <deviceId>` and
-    // --host-vmservice-port, which makes XtoolCli.resolveDevice throw. Only the
-    // user's own `args` from launch.json is passed through.
+    // --host-vmservice-port, which conflict with xcross device resolution. Only
+    // the user's own `args` from launch.json is passed through.
     final program = launchArgs.program;
     final target = p.isAbsolute(program)
         ? p.relative(program, from: cwd)
@@ -275,7 +275,7 @@ class XcrossDap
   }
 
   /// `q` first so [SessionConsole] runs its real cleanup (frontend_server,
-  /// debugserver, tunneld), then escalate.
+  /// device session, tunneld), then escalate.
   Future<void> _quitChild() async {
     _writeKey('q');
     await _reapChild();
@@ -288,8 +288,8 @@ class XcrossDap
   Future<void> terminateImpl() => _quitChild();
 
   // ponytail: signals only the direct child. `xcross flutter run` spawns its
-  // build-phase grandchildren (clang, pub, xtool) with inheritStdio, so those
-  // survive a disconnect mid-build. Needs a process group (no portable
+  // build-phase grandchildren (clang, pub, and other tools) with inheritStdio,
+  // so those survive a disconnect mid-build. Needs a process group (no portable
   // setsid on macOS) if that becomes a real problem.
   Future<void> _reapChild() async {
     final child = _child;
