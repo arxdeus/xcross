@@ -78,6 +78,12 @@ void main() {
         expect(request.method, 'POST');
         expect(request.url.toString(), _gsServiceUrl);
         expect(request.headers['Content-Type'], startsWith('text/x-xml-plist'));
+        expect(request.headers['Accept'], '*/*');
+        expect(
+          request.headers['User-Agent'],
+          'akd/1.0 CFNetwork/978.0.7 Darwin/18.7.0',
+        );
+        expect(request.headers['X-MMe-Client-Info'], 'fake-client-info');
         final envelope =
             PropertyListSerialization.propertyListWithString(request.body)
                 as Map;
@@ -110,7 +116,10 @@ void main() {
 
       final exchange = GrandSlamAppTokenExchange(
         endpoints: _endpoints,
-        fetchAnisetteHeaders: () async => const {'X-Apple-I-MD': 'otp'},
+        fetchAnisetteHeaders: () async => const {
+          'X-Apple-I-MD': 'otp',
+          'X-MMe-Client-Info': 'fake-client-info',
+        },
         httpClient: client,
       );
       final token = await exchange.exchange(loginData);

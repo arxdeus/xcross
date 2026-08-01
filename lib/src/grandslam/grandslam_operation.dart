@@ -7,6 +7,7 @@ library;
 
 import 'package:http/http.dart' as http;
 import 'package:propertylistserialization/propertylistserialization.dart';
+import 'package:xcross/src/grandslam/anisette/anisette_headers.dart';
 import 'package:xcross/src/grandslam/anisette/grandslam_endpoints.dart';
 import 'package:xcross/src/grandslam/grandslam_response.dart';
 import 'package:xcross/src/util/errors.dart';
@@ -52,10 +53,11 @@ Future<Map<String, Object?>> postGrandSlamOperation({
   required Map<String, Object?> extraParams,
   String locale = 'en_US',
 }) async {
+  final anisette = await fetchAnisetteHeaders();
   final body = encodeGrandSlamOperationRequest(
     operation: operation,
     username: username,
-    anisette: await fetchAnisetteHeaders(),
+    anisette: anisette,
     extraParams: extraParams,
     locale: locale,
   );
@@ -65,7 +67,13 @@ Future<Map<String, Object?>> postGrandSlamOperation({
     method: 'POST',
     url: gsService,
     operation: 'o=$operation',
-    headers: const {'Content-Type': 'text/x-xml-plist'},
+    headers: {
+      'Content-Type': 'text/x-xml-plist',
+      'Accept': '*/*',
+      'User-Agent': 'akd/1.0 CFNetwork/978.0.7 Darwin/18.7.0',
+      'X-MMe-Client-Info':
+          anisette['X-MMe-Client-Info'] ?? anisetteClientInfo,
+    },
     body: body,
   );
   if (response.statusCode < 200 || response.statusCode >= 300) {
