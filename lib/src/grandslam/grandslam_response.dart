@@ -48,9 +48,16 @@ Map<String, Object?> decodeGrandSlamResponse(String xml) {
 /// Decodes a bare (no `Status`/`Response` envelope) plist dict, e.g. the
 /// decrypted `spd` payload from `o=complete`.
 Map<String, Object?> decodePlist(String xml, {String context = 'plist'}) {
+  final fragment = xml.trim();
+  final source = fragment.startsWith('<dict>') && fragment.endsWith('</dict>')
+      ? '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+            '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+            '<plist version="1.0">$fragment</plist>'
+      : xml;
   final Object decoded;
   try {
-    decoded = PropertyListSerialization.propertyListWithString(xml);
+    decoded = PropertyListSerialization.propertyListWithString(source);
   } on PropertyListException catch (e) {
     throw XcrossError('$context was not a plist: $e');
   }
