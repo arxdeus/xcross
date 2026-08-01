@@ -71,17 +71,14 @@ Map<String, Object?> decodePlistBytes(
   Uint8List bytes, {
   String context = 'plist',
 }) {
+  if (bytes.length < 8 || ascii.decode(bytes.sublist(0, 8)) != 'bplist00') {
+    return decodePlist(utf8.decode(bytes), context: context);
+  }
   final Object decoded;
   try {
-    if (bytes.length >= 8 && ascii.decode(bytes.sublist(0, 8)) == 'bplist00') {
-      decoded = PropertyListSerialization.propertyListWithData(
-        byteDataOf(bytes),
-      );
-    } else {
-      decoded = PropertyListSerialization.propertyListWithString(
-        utf8.decode(bytes),
-      );
-    }
+    decoded = PropertyListSerialization.propertyListWithData(
+      byteDataOf(bytes),
+    );
   } on Object catch (e) {
     throw XcrossError('$context was not a plist: $e');
   }

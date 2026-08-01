@@ -1,13 +1,17 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/grandslam/grandslam_response.dart';
 
 void main() {
   test("decodes Apple's bare dictionary payload", () {
-    expect(
-      decodePlist('<dict><key>adsid</key><string>123</string></dict>'),
-      {'adsid': '123'},
-    );
+    const fragment = '<dict><key>adsid</key><string>123</string></dict>';
+    expect(decodePlist(fragment), {'adsid': '123'});
+    expect(decodePlistBytes(Uint8List.fromList(utf8.encode(fragment))), {
+      'adsid': '123',
+    });
   });
 
   test('surfaces operation errors from Status nested inside Response', () {
