@@ -1,0 +1,1 @@
+library spm_plugin;

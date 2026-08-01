@@ -1,88 +1,71 @@
-# warm-darwin-sdk.yml
-#
-# PURPOSE:
-#   One-time / on-demand workflow to seed the darwin.artifactbundle cache so
-#   integration tests can run without hitting cold-start failures.
-#
-# USAGE:
-#   1. Build a .tar.gz that contains darwin.artifactbundle/ at its root:
-#
-#        tar -czf darwin.artifactbundle.tar.gz \
-#          -C ~/.swiftpm/swift-sdks darwin.artifactbundle
-#        # Upload to an accessible URL (e.g. private GCS bucket, release asset)
-#
-#   2. Go to Actions → "Warm Darwin SDK cache" → Run workflow, and paste the
-#      URL into the `darwin_artifactbundle_url` input.
-#
-#   3. After this job completes, the cache key `darwin-artifactbundle-v1` is
-#      warm and integration tests will hit it on every subsequent run.
-#
-# NOTES:
-#   - Re-run whenever the SDK changes (bump cache key version in both this file
-#     and integration.yml + setup-darwin-sdk/action.yml).
-#   - This workflow never modifies code — safe to run from any branch.
-
+# Seeds the private, per-host Darwin SDK caches used by integration.yml.
+# The input archive must contain xcross-darwin.artifactbundle at its root and
+# should be produced locally by `xcross sdk install <Xcode.xip>`. Never publish
+# the archive: it contains Apple SDK content.
 name: Warm Darwin SDK cache
 
 on:
   workflow_dispatch:
     inputs:
-      darwin_artifactbundle_url:
+      xcross_darwin_artifactbundle_url:
         description: >-
-          URL of a .tar.gz containing darwin.artifactbundle/ at its
-          root
+          Private URL of a .tar.gz containing xcross-darwin.artifactbundle at
+          its root
         required: true
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   warm-cache:
-    name: Download and cache darwin.artifactbundle
-    runs-on: ubuntu-24.04
-    env:
-      DARWIN_ARTIFACTBUNDLE_URL: >-
-        ${{ inputs.darwin_artifactbundle_url }}
+    name: Warm ${{ matrix.os }} cache
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Download darwin.artifactbundle
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "::group::Download darwin.artifactbundle"
-          mkdir -p ~/.swiftpm/swift-sdks
-          cmd=(curl -fSL "${DARWIN_ARTIFACTBUNDLE_URL}" \
-            -o /tmp/darwin.artifactbundle.tar.gz)
-          echo "+ ${cmd[*]}"
-          "${cmd[@]}"
-          echo "Download complete. Verifying archive ..."
-          tar -tzf /tmp/darwin.artifactbundle.tar.gz \
-            | grep "info.json" || {
-            echo "::error::Archive missing darwin.artifactbundle/info.json"
-            exit 1
-          }
-          echo "Extracting ..."
-          tar -xzf /tmp/darwin.artifactbundle.tar.gz \
-            -C ~/.swiftpm/swift-sdks/
-          rm /tmp/darwin.artifactbundle.tar.gz
-          echo "Extracted:"
-          ls -la ~/.swiftpm/swift-sdks/darwin.artifactbundle/
-          echo "::endgroup::"
-
-      - name: Verify info.json
-        shell: bash
-        run: |
-          set -euo pipefail
-          bundle=~/.swiftpm/swift-sdks/darwin.artifactbundle
-          test -f "$bundle/info.json" || {
-            echo "::error::info.json missing after extraction"
-            exit 1
-          }
-          echo "info.json OK"
-
-      - name: Save darwin.artifactbundle to cache
-        uses: actions/cache/save@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          path: ~/.swiftpm/swift-sdks/darwin.artifactbundle
-          key: darwin-artifactbundle-v1
+          persist-credentials: false
+
+      - name: Install Linux LLVM requirements
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y clang lld llvm
+          swift --version
+          clang --version
+
+      - name: Install official Swift and LLVM on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          winget install --id Swift.Toolchain --exact --source winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+          winget install --id LLVM.LLVM --exact --source winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+
+          $env:Path = "${env:ProgramFiles}\LLVM\bin;$([Environment]::GetEnvironmentVariable('Path', 'Machine'));$([Environment]::GetEnvironmentVariable('Path', 'User'))"
+          $swift = Get-Command swift.exe -ErrorAction SilentlyContinue
+          if (-not $swift) {
+            $swift = Get-ChildItem "${env:ProgramFiles}\Swift" -Filter swift.exe -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          }
+          if (-not $swift) { throw 'Swift.Toolchain did not install swift.exe' }
+          $swiftPath = if ($swift.Source) { $swift.Source } else { $swift.FullName }
+          $swiftBin = Split-Path $swiftPath
+          "${env:ProgramFiles}\LLVM\bin" | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+          $swiftBin | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+          $env:Path = "${env:ProgramFiles}\LLVM\bin;$swiftBin;$env:Path"
+          foreach ($tool in 'swift', 'clang', 'clang++', 'llvm-ar', 'ld64.lld') {
+            if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { throw "Missing $tool" }
+          }
+
+      - name: Restore or download xcross Darwin SDK
+        uses: ./.github/actions/setup-darwin-sdk
+        with:
+          artifactbundle-url: ${{ inputs.xcross_darwin_artifactbundle_url }}

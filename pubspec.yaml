@@ -1,8 +1,7 @@
 name: xcross
 description: >-
-  Build, run, and hot-reload Flutter iOS apps from Linux without Xcode, by
-  driving the xtool CLI for sign/install and re-implementing the
-  Flutter build + iOS 17 CoreDevice launch pipeline in Dart.
+  Build, run, and hot-reload Flutter iOS apps natively from Linux and Windows
+  with official Swift and LLVM toolchains and no xtool runtime.
 version: 1.0.0
 publish_to: none
 

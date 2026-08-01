@@ -1,0 +1,17 @@
+name: spm_plugin
+description: Local SwiftPM Flutter plugin fixture for integration tests.
+version: 0.0.1
+publish_to: none
+
+environment:
+  sdk: ^3.8.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      ios:
+        pluginClass: SpmPlugin

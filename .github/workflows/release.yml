@@ -120,6 +120,35 @@ jobs:
           Copy-Item zsign/LICENSE dist/THIRD_PARTY_LICENSES/zsign.txt
           Compress-Archive -Path dist/* -DestinationPath xcross-windows-x64.zip
 
+      - name: Smoke-test Windows archive
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Expand-Archive xcross-windows-x64.zip smoke
+          $expected = @(
+            'LICENSE'
+            'THIRD_PARTY_LICENSES/aoskit-helper.txt'
+            'THIRD_PARTY_LICENSES/zsign.txt'
+            'xcross-aoskit.exe'
+            'xcross.exe'
+            'zsign.exe'
+          ) | Sort-Object
+          $actual = Get-ChildItem smoke -File -Recurse | ForEach-Object {
+            [IO.Path]::GetRelativePath((Resolve-Path smoke), $_.FullName).Replace('\', '/')
+          } | Sort-Object
+          if (Compare-Object $expected $actual) {
+            throw "Unexpected archive contents. Expected: $expected; actual: $actual"
+          }
+
+          & smoke/xcross.exe --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'xcross.exe --help failed' }
+
+          $PSNativeCommandUseErrorActionPreference = $false
+          $diagnostic = & smoke/xcross-aoskit.exe 2>&1 | Out-String
+          if ($LASTEXITCODE -ne 2 -or $diagnostic -notmatch 'Could not (register Apple DLL directories|load Apple Application Support objc\.dll)') {
+            throw "Unexpected xcross-aoskit.exe result: exit $LASTEXITCODE; $diagnostic"
+          }
+
       - name: Upload Windows artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
