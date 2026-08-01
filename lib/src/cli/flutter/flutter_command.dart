@@ -14,6 +14,5 @@ class FlutterCommand extends Command<void> {
   String get name => 'flutter';
 
   @override
-  String get description =>
-      'Build and run Flutter iOS apps from Linux, driving the original xtool.';
+  String get description => 'Build and run Flutter iOS apps without Xcode.';
 }

@@ -17,13 +17,13 @@ import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/logging.dart';
 import 'package:xcross/src/util/process.dart';
 
-/// Builds a Flutter iOS `.app` bundle using dart + xtool's cross-platform
+/// Builds a Flutter iOS `.app` bundle using Dart and xcross's cross-platform
 /// toolchain. Does NOT call `xcrun`.
 ///
 /// Pipeline (debug/JIT only — xcross does not support release/AOT):
 ///   1. Resolve `FLUTTER_ROOT` and run `flutter pub get`.
 ///   2. Build `App.framework` via [FlutterDebugBundler] (frontend_server
-///      one-shot + clang stub dylib + xtool's ld64.lld).
+///      one-shot + clang stub dylib + ld64.lld from PATH).
 ///   3. Discover iOS plugins and build the aggregate Swift Package Manager
 ///      plugins library via [GeneratedPluginsPackage], if any exist.
 ///   4. Compile the ObjC Runner shim via [RunnerShim], linking in the

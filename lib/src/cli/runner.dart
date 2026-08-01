@@ -66,17 +66,6 @@ abstract final class XcrossCli {
 
   /// Entry point used by `bin/xcross.dart`.
   static Future<int> run(List<String> args) async {
-    // Native Windows support is partial: device discovery/signing/install
-    // (App Store Connect API + zsign + pymobiledevice3, see NativeBackend)
-    // work without WSL, but the Flutter *build* step (compile + link) still
-    // needs a Darwin SDK + `ld64.lld`, neither of which has a native-Windows
-    // acquisition path yet (that still needs `xtool sdk install`, which is
-    // Swift-only). So: don't blanket-refuse to start here — let the build
-    // step's own error (FlutterDebugBundler._resolveToolchain) explain that
-    // specific, narrower gap when it's actually hit, instead of blocking
-    // every command (including `xcross auth` and `xcross flutter run`'s
-    // device-only steps, which already work) before they get a chance to run.
-
     final runner = buildRunner();
 
     // Intercept the shell-driven `xcross completion -- ...` hook and print

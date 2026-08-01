@@ -31,7 +31,7 @@ class FrontendServerClient {
   /// Kernel dill the debug build already produced (FlutterDebugBundler). Used to
   /// warm-start the incremental compiler via `--initialize-from-dill`.
   String get _buildKernelDill =>
-      '${config.projectRoot}/build/xtool-flutter-debug/.kernel/app.dill';
+      '${config.projectRoot}/build/xcross-flutter-debug/.kernel/app.dill';
 
   Future<void> spawn() async {
     // Must match the URI form the debug build compiled with (see

@@ -95,10 +95,9 @@ abstract final class ProcessRunner {
     }
 
     if (inheritStdio) {
-      // Must use inheritStdio (not piped stdout/stderr): xtool writes
-      // confirmation prompts without a trailing newline and reads stdin.
-      // Piping + LineSplitter hid the prompt and left stdin disconnected,
-      // so install hung at "certificates must be revoked".
+      // Must use inheritStdio (not piped stdout/stderr) for interactive tools
+      // that write prompts without a trailing newline and read stdin. Piping +
+      // LineSplitter would hide the prompt and leave stdin disconnected.
       final process = await Process.start(
         executable,
         arguments,
@@ -137,9 +136,7 @@ abstract final class ProcessRunner {
   }
 
   /// Stream a child's merged output into [tail] while forwarding our stdin to
-  /// it. The stdin forwarding is what makes this safe for `xtool install`:
-  /// piping alone previously hid its "certificates must be revoked" prompt AND
-  /// left the child's stdin disconnected, so the install hung forever.
+  /// it. Forwarding keeps interactive prompts visible and connected.
   static Future<void> _runWithTail(
     String executable,
     List<String> arguments, {

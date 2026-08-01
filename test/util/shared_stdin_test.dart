@@ -4,7 +4,7 @@ import 'package:test/test.dart';
 import 'package:xcross/src/util/process.dart';
 
 void main() {
-  // Regression: `xtool install` forwards stdin to the child, then cancels.
+  // Regression: an interactive child forwards stdin, then cancels.
   // With a plain `stdin.listen`, that cancel closes the fd for good and
   // SessionConsole's later listen fires onDone at once — the session quit the
   // instant the app launched and r/R did nothing.

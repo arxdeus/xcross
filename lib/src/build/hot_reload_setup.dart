@@ -56,7 +56,7 @@ abstract final class HotReloadSetup {
     final outputDill = p.join(
       projectRoot,
       'build',
-      'xtool-flutter-debug',
+      'xcross-flutter-debug',
       '.hotreload',
       'app.dill',
     );

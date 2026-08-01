@@ -45,7 +45,7 @@ void main() {
     tearDown(() => tmp.delete(recursive: true));
 
     Future<PackSchema> load(String content) async {
-      final path = p.join(tmp.path, 'xtool.yml');
+      final path = p.join(tmp.path, 'xcross.yml');
       await File(path).writeAsString(content);
       return PackSchema.fromFile(path);
     }
@@ -113,14 +113,14 @@ void main() {
       );
     });
 
-    test('throws when the document is not a YAML mapping', () async {
+    test('names xcross.yml when the document is not a YAML mapping', () async {
       await expectLater(
         load('hello'),
         throwsA(
           isA<XcrossError>().having(
             (e) => e.message,
             'message',
-            contains('invalid document'),
+            'xcross.yml: invalid document',
           ),
         ),
       );

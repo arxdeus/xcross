@@ -7,23 +7,23 @@ import 'package:standard_message_codec/standard_message_codec.dart';
 
 import 'package:xcross/src/build/ios_engine_cache.dart';
 import 'package:xcross/src/constants.dart';
+import 'package:xcross/src/darwinsdk/darwin_sdk.dart';
 import 'package:xcross/src/models/config/pubspec_info.dart';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/logging.dart';
 import 'package:xcross/src/util/package_uris.dart';
 import 'package:xcross/src/util/process.dart';
-import 'package:xcross/src/xtool/darwin_sdk.dart';
 
 /// Assembles `App.framework` (debug/JIT mode) for a Flutter iOS app without
 /// invoking `xcrun` or `flutter_tools.snapshot assemble`.
 ///
-/// Cross-platform path used on Linux where `xcrun` is unavailable.
+/// Cross-platform path for hosts where `xcrun` is unavailable.
 ///
 /// Pipeline:
 ///   1. Download iOS engine artifacts via [IosEngineCache] if missing.
 ///   2. Run `frontend_server` → `app.dill` (Dart kernel for JIT).
 ///   3. Bundle `flutter_assets/` (kernel blob, snapshot data, manifests).
-///   4. Build App stub Mach-O dylib via clang + xtool's ld64.lld.
+///   4. Build App stub Mach-O dylib via clang + ld64.lld from PATH.
 ///   5. Write `App.framework/Info.plist`.
 ///
 class FlutterDebugBundler {
@@ -117,7 +117,7 @@ class FlutterDebugBundler {
     final scratch = p.join(
       projectRoot,
       'build',
-      'xtool-flutter-debug',
+      'xcross-flutter-debug',
       '.kernel',
     );
     final scratchDir = Directory(scratch);
@@ -373,37 +373,25 @@ class FlutterDebugBundler {
 
   Future<Toolchain> _resolveToolchain() async {
     final darwin = DarwinSdk.current();
-    if (darwin != null) {
-      // On Windows there's no bundled `toolset/bin/` (that's xtool's
-      // Linux-only prebuilt ld64.lld) — clang and ld64.lld.exe both come
-      // from an LLVM install on PATH instead, so -B/-fuse-ld=lld needs to
-      // point at the directory *containing* the resolved linker, not a
-      // path inside the SDK bundle.
-      final lldToolsetBin = Platform.isWindows
-          ? p.dirname(await resolveLd64Lld(darwin))
-          : p.join(darwin.bundle, 'toolset', 'bin');
-      return Toolchain(
-        clang: await ProcessRunner.locateTool(
-          Platform.isWindows ? 'clang.exe' : 'clang',
-        ),
-        iosSDK: darwin.iPhoneOSSdk(),
-        lldToolsetBin: lldToolsetBin,
+    if (darwin == null) {
+      throw XcrossError(
+        'FlutterDebugBundler: no usable toolchain. No Darwin SDK found.\n'
+        'Install with `xcross sdk install <Xcode.xip|Xcode.app>` first.',
       );
     }
-    // No Darwin SDK found — cannot proceed.
-    throw XcrossError(
-      Platform.isWindows
-          ? 'FlutterDebugBundler: no usable toolchain. No Darwin SDK found.\n'
-                'Install one natively with `xcross sdk install <Xcode.xip>` first.'
-          : 'FlutterDebugBundler: no usable toolchain. xtool Darwin SDK not found.\n'
-                'Install with `xtool sdk install <Xcode.xip|Xcode.app>` first.',
+    return Toolchain(
+      clang: await ProcessRunner.locateTool(
+        Platform.isWindows ? 'clang.exe' : 'clang',
+      ),
+      iosSDK: darwin.iPhoneOSSdk(),
+      lldToolsetBin: p.dirname(await resolveLd64Lld(darwin)),
     );
   }
 
   Future<void> _buildAppStub(String appFramework, Toolchain toolchain) =>
       Log.logStep('Building App.framework', () async {
         final tmp = await Directory.systemTemp.createTemp(
-          'xtool-flutter-stub-',
+          'xcross-flutter-stub-',
         );
         final stubSource = p.join(tmp.path, 'debug_app.c');
         // Exact stub content emitted by flutter_tools.
@@ -443,11 +431,9 @@ class FlutterDebugBundler {
     required String outputBinary,
   }) {
     return <String>[
-      if (toolchain.lldToolsetBin != null) ...[
-        '-fuse-ld=lld',
-        '-B',
-        toolchain.lldToolsetBin!,
-      ],
+      '-fuse-ld=lld',
+      '-B',
+      toolchain.lldToolsetBin,
       '--target=${IosDeploymentConstants.buildTriple}',
       '-arch',
       'arm64',
@@ -512,15 +498,12 @@ class Toolchain {
   const Toolchain({
     required this.clang,
     required this.iosSDK,
-    this.lldToolsetBin,
+    required this.lldToolsetBin,
   });
 
   final String clang;
   final String iosSDK;
 
-  /// Directory containing `ld64.lld`: `<bundle>/toolset/bin` on Linux, the
-  /// directory holding the PATH-resolved `ld64.lld.exe` on Windows (see
-  /// [resolveLd64Lld]). Null on macOS where the host clang's default linker
-  /// handles Mach-O.
-  final String? lldToolsetBin;
+  /// Directory containing the PATH-resolved `ld64.lld`.
+  final String lldToolsetBin;
 }

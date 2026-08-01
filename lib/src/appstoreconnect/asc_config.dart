@@ -6,7 +6,7 @@ import 'package:xcross/src/util/errors.dart';
 
 /// App Store Connect API credentials (a Team-scoped API key).
 ///
-/// Loaded from a per-user config file, never from the project's `xtool.yml` -
+/// Loaded from a per-user config file, never from the project's `xcross.yml` -
 /// that file is project-local and commonly committed to git, which is the
 /// wrong place for secret material.
 class AscCredentials {

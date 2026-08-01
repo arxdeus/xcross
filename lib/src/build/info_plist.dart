@@ -146,7 +146,7 @@ abstract final class InfoPlist {
   }
 
   /// Remove references to storyboards not present (compiled) in [bundleDir].
-  /// xtool doesn't run `ibtool`, so missing storyboards would crash at launch.
+  /// xcross doesn't run `ibtool`, so missing storyboards would crash at launch.
   static String stripUnsatisfiableStoryboards(String xml, String bundleDir) {
     bool hasCompiled(String name) =>
         Directory(p.join(bundleDir, '$name.storyboardc')).existsSync();

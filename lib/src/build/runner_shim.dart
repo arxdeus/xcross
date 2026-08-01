@@ -2,15 +2,15 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/constants.dart';
+import 'package:xcross/src/darwinsdk/darwin_sdk.dart';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/logging.dart';
 import 'package:xcross/src/util/process.dart';
-import 'package:xcross/src/xtool/darwin_sdk.dart';
 
 /// Embeds the ObjC Runner.m source, compiles it with clang, and links it with
 /// ld64.lld to produce the `Runner` executable for an iOS `.app` bundle.
 ///
-/// This is the cross-platform (Linux) equivalent of the Xcode-built Runner.
+/// This is the cross-platform equivalent of the Xcode-built Runner.
 class RunnerShim {
   /// Compile and link the Runner binary.
   ///

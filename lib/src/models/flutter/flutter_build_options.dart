@@ -2,8 +2,7 @@ import 'package:meta/meta.dart';
 import 'package:xcross/src/models/flutter/dart_defines.dart';
 
 /// Options shared by `xcross flutter build` and `run`, mirroring the semantics
-/// of the official `flutter build ios` / `flutter run` arguments. xcross accepts
-/// a mix of these flutter-style flags and the original xtool flags.
+/// of the official `flutter build ios` / `flutter run` arguments.
 ///
 /// xcross is debug-only, so there is no build-mode field.
 @immutable

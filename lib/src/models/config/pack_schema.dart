@@ -37,7 +37,7 @@ class BundleIdSpecifier extends IdSpecifier {
   String formBundleId(String product) => bundleId;
 }
 
-/// Parsed `xtool.yml` (schema version 1).
+/// Parsed `xcross.yml` (schema version 1).
 @immutable
 class PackSchema {
   const PackSchema({required this.idSpecifier, this.infoPath});
@@ -48,18 +48,18 @@ class PackSchema {
   /// Path to a custom `Info.plist`.
   final String? infoPath;
 
-  /// Default used when no `xtool.yml` is present (`com.example` org).
+  /// Default used when no `xcross.yml` is present (`com.example` org).
   factory PackSchema.defaultSchema() =>
       const PackSchema(idSpecifier: OrgIdSpecifier('com.example'));
 
   static Future<PackSchema> fromFile(String path) async {
     final doc = loadYaml(await File(path).readAsString());
     if (doc is! YamlMap) {
-      throw XcrossError('xtool.yml: invalid document');
+      throw XcrossError('xcross.yml: invalid document');
     }
     final version = doc['version'];
     if (version != 1) {
-      throw XcrossError('xtool.yml: Unsupported schema version: $version');
+      throw XcrossError('xcross.yml: Unsupported schema version: $version');
     }
     final bundleId = doc['bundleID'] as String?;
     final orgId = doc['orgID'] as String?;
@@ -69,7 +69,7 @@ class PackSchema {
     } else if (orgId != null) {
       spec = OrgIdSpecifier(orgId);
     } else {
-      throw XcrossError('xtool.yml: Must specify either orgID or bundleID');
+      throw XcrossError('xcross.yml: Must specify either orgID or bundleID');
     }
     return PackSchema(idSpecifier: spec, infoPath: doc['infoPath'] as String?);
   }

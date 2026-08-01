@@ -119,10 +119,9 @@ class SessionConsole {
     // _stopped must flip BEFORE _finish(): run()'s `while (!_stopped)` loop
     // would otherwise spin forever when our stdin pipe closes, orphaning
     // frontend_server and the RSD tunnel.
-    // ProcessRunner.sharedStdin, not stdin: `xtool install` reads stdin too,
-    // and cancelling a raw stdin subscription leaves this listen dead on
-    // arrival — onDone fires at once and the session quits the moment the
-    // app launches.
+    // ProcessRunner.sharedStdin, not stdin: cancelling an earlier raw stdin
+    // subscription leaves this listen dead on arrival — onDone fires at once
+    // and the session quits the moment the app launches.
     final sub = ProcessRunner.sharedStdin.listen(
       _handleKeyByte,
       onDone: () {

@@ -15,7 +15,7 @@ abstract final class DeviceConstants {
   static const String tunneldUrl = 'http://127.0.0.1:49151/';
 
   /// Name of the DevFS filesystem registered with the Dart VM.
-  static const String devFsName = 'xtool';
+  static const String devFsName = 'xcross';
 
   /// Marker printed when the on-device VM Service is live; the DAP scans child
   /// stdout for it (by substring, so a line glyph may precede it) to emit

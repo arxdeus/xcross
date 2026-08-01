@@ -19,20 +19,20 @@ class PackResult {
 abstract final class FlutterPackOperation {
   /// Build the Flutter iOS `.app` for the project in the current directory.
   ///
-  /// Prefers `xtool.yml`, otherwise falls back to the default `com.example`
+  /// Prefers `xcross.yml`, otherwise falls back to the default `com.example`
   /// schema, deletes any prior bundle, then packs.
   static Future<PackResult> pack({required FlutterBuildOptions options}) async {
     final projectRoot = Directory.current.path;
 
     final PackSchema schema;
-    final configPath = p.join(projectRoot, 'xtool.yml');
+    final configPath = p.join(projectRoot, 'xcross.yml');
     final configExists = File(configPath).existsSync();
     if (configExists) {
       schema = await PackSchema.fromFile(configPath);
     } else {
       schema = PackSchema.defaultSchema();
       Log.logWarn(
-        "Could not locate configuration file 'xtool.yml'. Using default "
+        "Could not locate configuration file 'xcross.yml'. Using default "
         "configuration with 'com.example' organization ID.",
       );
     }
@@ -47,7 +47,7 @@ abstract final class FlutterPackOperation {
     // Always delete any previous bundle BEFORE packing, otherwise stale
     // binaries from an earlier build get codesigned into the new one.
     final bundleDir = Directory(
-      p.join(projectRoot, 'build', 'xtool-ios', '${packer.appName}.app'),
+      p.join(projectRoot, 'build', 'xcross-ios', '${packer.appName}.app'),
     );
     if (bundleDir.existsSync()) await bundleDir.delete(recursive: true);
 

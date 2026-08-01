@@ -46,10 +46,9 @@ mixin CommonFlutterOptions on Command<void> {
 
 /// `xcross flutter build` — build a Flutter iOS `.app` (optionally ipa).
 ///
-/// xcross is debug-only and cannot sign: the original xtool has no standalone
-/// sign command, so signing only happens at install time (`xcross flutter
-/// run` / `xtool install`). Accepts the xtool `--ipa` flag plus the official
-/// `flutter build ios` flags (`-t/--target`, `-D/--dart-define`,
+/// xcross is debug-only; `build` produces an unsigned bundle and signing
+/// happens when `xcross flutter run` installs it. Accepts `--ipa` plus the
+/// official `flutter build ios` flags (`-t/--target`, `-D/--dart-define`,
 /// `--dart-define-from-file`, `--[no-]pub`, `--build-name`, `--build-number`,
 /// `--flavor`).
 class FlutterBuildCommand extends Command<void> with CommonFlutterOptions {
@@ -73,8 +72,7 @@ class FlutterBuildCommand extends Command<void> with CommonFlutterOptions {
   String get name => 'build';
 
   @override
-  String get description =>
-      'Build a Flutter iOS .app from Linux without Xcode.';
+  String get description => 'Build a Flutter iOS .app without Xcode.';
 
   String? get _buildName => argResults!.option('build-name');
   String? get _buildNumber => argResults!.option('build-number');
