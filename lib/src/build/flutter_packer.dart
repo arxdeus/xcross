@@ -9,13 +9,13 @@ import 'package:xcross/src/build/ios_plugin_package.dart';
 import 'package:xcross/src/build/ios_plugins.dart';
 import 'package:xcross/src/build/runner_shim.dart';
 import 'package:xcross/src/constants.dart';
+import 'package:xcross/src/darwinsdk/darwin_sdk.dart';
 import 'package:xcross/src/models/config/pack_schema.dart';
 import 'package:xcross/src/models/config/pubspec_info.dart';
 import 'package:xcross/src/models/flutter/flutter_build_options.dart';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/logging.dart';
 import 'package:xcross/src/util/process.dart';
-import 'package:xcross/src/xtool/darwin_sdk.dart';
 
 /// Builds a Flutter iOS `.app` bundle using dart + xtool's cross-platform
 /// toolchain. Does NOT call `xcrun`.
@@ -44,7 +44,7 @@ class FlutterPacker {
   }) : appName = PubspecInfo.loadSync(projectRoot).name;
 
   /// Build the Flutter iOS app.
-  /// Returns path to `<projectRoot>/build/xtool-ios/<appName>.app`.
+  /// Returns path to `<projectRoot>/build/xcross-ios/<appName>.app`.
   Future<String> pack() async {
     final flutterRoot = await resolveFlutterRoot(projectRoot: projectRoot);
     Log.logTrace('Flutter SDK: $flutterRoot');
@@ -139,7 +139,7 @@ class FlutterPacker {
   /// Build `App.framework` via [FlutterDebugBundler].
   /// Returns the framework directory path.
   Future<String> _buildAppFramework(String flutterRoot) async {
-    final assembleOut = p.join(projectRoot, 'build', 'xtool-flutter-debug');
+    final assembleOut = p.join(projectRoot, 'build', 'xcross-flutter-debug');
     final assembleDir = Directory(assembleOut);
     if (assembleDir.existsSync()) await assembleDir.delete(recursive: true);
     await assembleDir.create(recursive: true);
@@ -163,21 +163,6 @@ class FlutterPacker {
   /// Flutter's own tool, this doesn't fail the build).
   Future<String?> _buildPlugins(String flutterRoot) async {
     final plugins = await PluginDiscovery.discover(projectRoot);
-    final nativePlugins = plugins
-        .where(
-          (plugin) =>
-              plugin.pluginClassIos != null ||
-              plugin.usesSwiftPackageManager ||
-              plugin.usesCocoaPods,
-        )
-        .toList();
-    if (Platform.isWindows && nativePlugins.isNotEmpty) {
-      throw XcrossError(
-        'Native iOS Flutter plugins are not yet supported by the no-Swift '
-        'Windows builder: ${nativePlugins.map((plugin) => plugin.name).join(', ')}.',
-      );
-    }
-
     final spmPlugins = <IosPlugin>[];
     for (final plugin in plugins) {
       if (plugin.usesSwiftPackageManager) {
@@ -201,7 +186,7 @@ class FlutterPacker {
       projectRoot: projectRoot,
       plugins: spmPlugins,
       flutterXcframework: xcframework,
-      outputDir: p.join(projectRoot, 'build', 'xtool-flutter-plugins'),
+      outputDir: p.join(projectRoot, 'build', 'xcross-flutter-plugins'),
     );
     return result?.libraryPath;
   }
@@ -220,7 +205,7 @@ class FlutterPacker {
     if (darwin == null) {
       throw XcrossError(
         'FlutterPacker: Darwin SDK not found. '
-        'Install with `xtool sdk install <Xcode.xip|Xcode.app>`.',
+        'Install with `xcross sdk install <Xcode.xip|Xcode.app>`.',
       );
     }
 
@@ -228,7 +213,7 @@ class FlutterPacker {
       projectRoot: projectRoot,
       sdk: darwin,
       flutterXcframework: xcframework,
-      outputDir: p.join(projectRoot, 'build', 'xtool-flutter-runner-bin'),
+      outputDir: p.join(projectRoot, 'build', 'xcross-flutter-runner-bin'),
       pluginsLibrary: pluginsLibrary,
     );
 
@@ -239,7 +224,7 @@ class FlutterPacker {
   }
 
   /// Copy all bundle contents into a temp directory, write `Info.plist`, then
-  /// move the result to `build/xtool-ios/<appName>.app`.
+  /// move the result to `build/xcross-ios/<appName>.app`.
   Future<String> _assembleAndPersistBundle({
     required String appFramework,
     required String xcframework,
@@ -277,7 +262,7 @@ class FlutterPacker {
     await _copyOptionalRunnerResources(bundleDir);
     await _writeInfoPlist(bundleDir);
 
-    final dest = p.join(projectRoot, 'build', 'xtool-ios', '$appName.app');
+    final dest = p.join(projectRoot, 'build', 'xcross-ios', '$appName.app');
     final destDir = Directory(dest);
     if (destDir.existsSync()) {
       await destDir.delete(recursive: true);

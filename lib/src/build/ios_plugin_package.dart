@@ -1,9 +1,11 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/build/ios_plugins.dart';
 import 'package:xcross/src/constants.dart';
+import 'package:xcross/src/darwinsdk/darwin_sdk.dart';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/logging.dart';
 import 'package:xcross/src/util/process.dart';
@@ -30,8 +32,8 @@ class GeneratedPluginsBuildResult {
 
 /// Synthesizes and builds a Swift Package Manager package that aggregates
 /// every Flutter plugin's iOS SPM native code into one dynamic library,
-/// cross-compiled on Linux via the same Darwin-SDK-backed `swift build
-/// --swift-sdk` mechanism xtool itself uses.
+/// cross-compiled on Linux or Windows via a Darwin-SDK-backed `swift build
+/// --swift-sdk`.
 ///
 /// Mirrors Flutter's own SPM plugin integration: a generated wrapper package
 /// depending on every plugin package plus a `FlutterFramework` binary-target
@@ -58,115 +60,151 @@ abstract final class GeneratedPluginsPackage {
     required List<IosPlugin> plugins,
     required String flutterXcframework,
     required String outputDir,
-  }) => Log.logStep(
-    'Building Flutter plugins (Swift Package Manager)',
-    () async {
-      final spmPlugins = plugins
-          .where((plugin) => plugin.usesSwiftPackageManager)
-          .toList();
-      if (spmPlugins.isEmpty) return null;
+  }) =>
+      Log.logStep('Building Flutter plugins (Swift Package Manager)', () async {
+        final spmPlugins = plugins
+            .where((plugin) => plugin.usesSwiftPackageManager)
+            .toList();
+        if (spmPlugins.isEmpty) return null;
 
-      Log.logTrace(
-        'projectRoot=$projectRoot '
-        'spmPlugins=${[for (final plugin in spmPlugins) plugin.name]}',
-      );
-
-      await writeGeneratedPackages(
-        outputDir: outputDir,
-        plugins: spmPlugins,
-        flutterXcframework: flutterXcframework,
-      );
-
-      final swift = await ProcessRunner.locateTool('swift');
-      final pluginsDir = p.join(outputDir, 'Plugins');
-      final scratchPath = p.join(pluginsDir, '.build');
-      // Real `Flutter.framework` (not our FlutterFramework binary-target
-      // wrapper). Our own aggregate target resolves `import Flutter` via
-      // that wrapper's declared package dependency, but individual
-      // third-party plugin targets often don't declare any such dependency
-      // in their own Package.swift at all — they rely on Xcode's implicit,
-      // project-wide framework search paths to make `import Flutter` resolve
-      // (verified against a real published plugin: its manifest lists zero
-      // dependencies, yet its Swift source does `import Flutter`). A plain
-      // `swift build` has no such implicit project-wide behaviour, so we
-      // reproduce it ourselves with a build-wide `-Xswiftc -F` flag, applied
-      // uniformly to every target's compile step regardless of what that
-      // target's own manifest declares.
-      final flutterFrameworkSlice = p.join(flutterXcframework, 'ios-arm64');
-      await ProcessRunner.runChecked(
-        swift,
-        [
-          'build',
-          '--package-path',
-          pluginsDir,
-          '--configuration',
-          'debug',
-          '--swift-sdk',
-          'arm64-apple-ios',
-          '--scratch-path',
-          scratchPath,
-          '-Xswiftc',
-          '-F',
-          '-Xswiftc',
-          flutterFrameworkSlice,
-          // A plugin class can be marked `@available(iOS 16.0, *)` (etc.)
-          // while its Package.swift's own `platforms:` floor stays lower —
-          // real-world example: flutter_file_manager_ios declares iOS 12 at
-          // the package level but gates its actual plugin class at iOS 16,
-          // since only the underlying feature (not registration itself)
-          // needs the newer OS. Our generated registrant has no per-plugin
-          // `@available`/`#available` annotations (we don't parse Swift
-          // source to learn each plugin's true floor), so without this flag
-          // the call to `PluginClass.register(with:)` fails to compile.
-          // Registration itself is lightweight glue — trusting the plugin
-          // author's own availability gating for the actual feature code is
-          // the right tradeoff here, same as disabling this check is a
-          // common pattern for generated interop shims.
-          //
-          // `-disable-availability-checking` is a frontend-only flag, so it
-          // must go through `-Xfrontend` — passing it as a bare `-Xswiftc`
-          // argument crashes this SwiftPM version outright (a `try!` in its
-          // own arg validation) instead of a normal compiler error.
-          '-Xswiftc',
-          '-Xfrontend',
-          '-Xswiftc',
-          '-disable-availability-checking',
-          // Without this, the produced dylib's LC_ID_DYLIB defaults to an
-          // absolute build-machine path. The final Runner binary, linked
-          // against this dylib in a later pipeline step, would then embed that
-          // same unusable absolute path in its own LC_LOAD_DYLIB and fail to
-          // load at runtime on a real device with a `dyld: Library not loaded`
-          // crash. Setting the install name to `@rpath/...` up front makes it
-          // resolve via the `-rpath @executable_path/Frameworks` RunnerShim
-          // already sets when linking Runner.
-          '-Xlinker',
-          '-install_name',
-          '-Xlinker',
-          '@rpath/lib$_pluginsProductName.dylib',
-        ],
-        inheritStdio: Log.isVerbose,
-        label: 'swift build',
-      );
-
-      final libraryPath = p.join(
-        scratchPath,
-        'arm64-apple-ios',
-        'debug',
-        'lib$_pluginsProductName.dylib',
-      );
-      if (!File(libraryPath).existsSync()) {
-        throw XcrossError(
-          'GeneratedPluginsPackage: swift build did not produce the plugins '
-          'library at $libraryPath',
+        Log.logTrace(
+          'projectRoot=$projectRoot '
+          'spmPlugins=${[for (final plugin in spmPlugins) plugin.name]}',
         );
-      }
 
-      return GeneratedPluginsBuildResult(libraryPath: libraryPath);
-    },
-  );
+        await writeGeneratedPackages(
+          outputDir: outputDir,
+          plugins: spmPlugins,
+          flutterXcframework: flutterXcframework,
+        );
+
+        final swift = await ProcessRunner.locateTool('swift');
+        final pluginsDir = p.join(outputDir, 'Plugins');
+        final scratchPath = p.join(pluginsDir, '.build');
+        // Real `Flutter.framework` (not our FlutterFramework binary-target
+        // wrapper). Our own aggregate target resolves `import Flutter` via
+        // that wrapper's declared package dependency, but individual
+        // third-party plugin targets often don't declare any such dependency
+        // in their own Package.swift at all — they rely on Xcode's implicit,
+        // project-wide framework search paths to make `import Flutter` resolve
+        // (verified against a real published plugin: its manifest lists zero
+        // dependencies, yet its Swift source does `import Flutter`). A plain
+        // `swift build` has no such implicit project-wide behaviour, so we
+        // reproduce it ourselves with a build-wide `-Xswiftc -F` flag, applied
+        // uniformly to every target's compile step regardless of what that
+        // target's own manifest declares.
+        final flutterFrameworkSlice = p.join(flutterXcframework, 'ios-arm64');
+        final toolsetPath = await writeWindowsToolset(outputDir: outputDir);
+        await ProcessRunner.runChecked(
+          swift,
+          swiftBuildArguments(
+            pluginsDir: pluginsDir,
+            scratchPath: scratchPath,
+            swiftSdksPath: p.dirname(DarwinSdk.nativeInstallDir()),
+            flutterFrameworkSlice: flutterFrameworkSlice,
+            toolsetPath: toolsetPath,
+          ),
+          inheritStdio: Log.isVerbose,
+          label: 'swift build',
+        );
+
+        final libraryPath = p.join(
+          scratchPath,
+          'arm64-apple-ios',
+          'debug',
+          'lib$_pluginsProductName.dylib',
+        );
+        if (!File(libraryPath).existsSync()) {
+          throw XcrossError(
+            'GeneratedPluginsPackage: swift build did not produce the plugins '
+            'library at $libraryPath',
+          );
+        }
+
+        return GeneratedPluginsBuildResult(libraryPath: libraryPath);
+      });
+
+  /// Arguments shared by Linux and Windows SwiftPM builds. SDK-owned compiler
+  /// flags stay in SDK metadata; only package-specific flags belong here.
+  @visibleForTesting
+  static List<String> swiftBuildArguments({
+    required String pluginsDir,
+    required String scratchPath,
+    required String swiftSdksPath,
+    required String flutterFrameworkSlice,
+    String? toolsetPath,
+  }) => [
+    'build',
+    '--package-path',
+    pluginsDir,
+    '--configuration',
+    'debug',
+    '--swift-sdks-path',
+    swiftSdksPath,
+    '--swift-sdk',
+    'arm64-apple-ios',
+    if (toolsetPath != null) ...['--toolset', toolsetPath],
+    '--scratch-path',
+    scratchPath,
+    '-Xswiftc',
+    '-F',
+    '-Xswiftc',
+    flutterFrameworkSlice,
+    '-Xswiftc',
+    '-Xfrontend',
+    '-Xswiftc',
+    '-disable-availability-checking',
+    '-Xlinker',
+    '-install_name',
+    '-Xlinker',
+    '@rpath/lib$_pluginsProductName.dylib',
+  ];
+
+  /// Writes SwiftPM's external Windows toolset and returns its path. Other
+  /// hosts use the SDK's toolset metadata and return null.
+  @visibleForTesting
+  static Future<String?> writeWindowsToolset({
+    required String outputDir,
+    bool? windows,
+    Future<String> Function(String name)? locateTool,
+  }) async {
+    final onWindows = windows ?? Platform.isWindows;
+    if (!onWindows) return null;
+
+    final output = Directory(outputDir);
+    await output.create(recursive: true);
+    final locate = locateTool ?? ProcessRunner.locateTool;
+    final tools = <String, String>{
+      'cCompiler': 'clang',
+      'cxxCompiler': 'clang++',
+      'librarian': 'llvm-ar',
+      // `.lld` looks like an extension, so pass the complete Windows name.
+      'linker': 'ld64.lld.exe',
+    };
+    final toolset = <String, Object>{
+      'schemaVersion': '1.0',
+      'rootPath': _jsonPath(output.resolveSymbolicLinksSync()),
+    };
+    for (final tool in tools.entries) {
+      final executable = ProcessRunner.hostExecutableName(
+        tool.value,
+        windows: true,
+      );
+      final path = await locate(executable);
+      toolset[tool.key] = {
+        'path': _jsonPath(File(path).resolveSymbolicLinksSync()),
+      };
+    }
+
+    final toolsetFile = File(p.join(outputDir, 'xcross-windows-toolset.json'));
+    await toolsetFile.writeAsString(
+      '${const JsonEncoder.withIndent('  ').convert(toolset)}\n',
+    );
+    return toolsetFile.path;
+  }
 
   /// Writes the `FlutterFramework` and `Plugins` wrapper packages (manifests,
-  /// registrant source, and the `Flutter.xcframework` symlink) under
+  /// registrant source, and the `Flutter.xcframework` link/copy) under
   /// [outputDir], without invoking `swift build`. Split out from [build] so
   /// the file-synthesis logic is testable without a Swift toolchain.
   @visibleForTesting
@@ -174,6 +212,7 @@ abstract final class GeneratedPluginsPackage {
     required String outputDir,
     required List<IosPlugin> plugins,
     required String flutterXcframework,
+    bool? copyFlutterXcframework,
   }) async {
     final frameworkDir = p.join(outputDir, _flutterFrameworkPackageName);
     final pluginsDir = p.join(outputDir, 'Plugins');
@@ -181,6 +220,7 @@ abstract final class GeneratedPluginsPackage {
     await _writeFlutterFrameworkPackage(
       frameworkDir: frameworkDir,
       flutterXcframework: flutterXcframework,
+      copyFlutterXcframework: copyFlutterXcframework ?? Platform.isWindows,
     );
     await _writePluginsPackage(
       pluginsDir: pluginsDir,
@@ -189,28 +229,26 @@ abstract final class GeneratedPluginsPackage {
     );
   }
 
-  /// Writes `FlutterFramework/Package.swift` and the `Flutter.xcframework`
-  /// symlink pointing at the real [flutterXcframework].
+  /// Writes `FlutterFramework/Package.swift` and links or copies the real
+  /// [flutterXcframework]. Windows copies because creating symlinks commonly
+  /// requires Developer Mode or elevation.
   static Future<void> _writeFlutterFrameworkPackage({
     required String frameworkDir,
     required String flutterXcframework,
+    required bool copyFlutterXcframework,
   }) async {
     await Directory(frameworkDir).create(recursive: true);
     await File(
       p.join(frameworkDir, 'Package.swift'),
     ).writeAsString(flutterFrameworkManifest());
 
-    final linkPath = p.join(frameworkDir, 'Flutter.xcframework');
-    final existingLink = Link(linkPath);
-    final existingDir = Directory(linkPath);
-    if (existingLink.existsSync()) {
-      await existingLink.delete();
-    } else if (existingDir.existsSync()) {
-      // Defensive: normal case is either nothing or a stale symlink from a
-      // prior run, but guard against a real directory somehow landing here.
-      await existingDir.delete(recursive: true);
+    final frameworkPath = p.join(frameworkDir, 'Flutter.xcframework');
+    await _deleteEntity(frameworkPath);
+    if (copyFlutterXcframework) {
+      await _copyDirectory(flutterXcframework, frameworkPath);
+    } else {
+      await Link(frameworkPath).create(flutterXcframework);
     }
-    await existingLink.create(flutterXcframework);
   }
 
   /// Writes `Plugins/Package.swift` and the generated registrant source.
@@ -339,11 +377,41 @@ $registrations}
 ''';
   }
 
+  static Future<void> _deleteEntity(String path) async {
+    final type = FileSystemEntity.typeSync(path, followLinks: false);
+    if (type == FileSystemEntityType.link) {
+      await Link(path).delete();
+    } else if (type == FileSystemEntityType.directory) {
+      await Directory(path).delete(recursive: true);
+    } else if (type == FileSystemEntityType.file) {
+      await File(path).delete();
+    }
+  }
+
+  static Future<void> _copyDirectory(String source, String destination) async {
+    await Directory(destination).create(recursive: true);
+    await for (final entity in Directory(source).list(followLinks: false)) {
+      final destinationPath = p.join(destination, p.basename(entity.path));
+      if (entity is Directory) {
+        await _copyDirectory(entity.path, destinationPath);
+      } else if (entity is File) {
+        await entity.copy(destinationPath);
+      } else if (entity is Link) {
+        final target = entity.resolveSymbolicLinksSync();
+        if (Directory(target).existsSync()) {
+          await _copyDirectory(target, destinationPath);
+        } else {
+          await File(target).copy(destinationPath);
+        }
+      }
+    }
+  }
+
+  static String _jsonPath(String path) => path.replaceAll(r'\', '/');
+
   /// Forward-slash-safe absolute path for interpolation into a Swift string
-  /// literal. Production only runs on Linux, but this guards the test suite
-  /// running on a non-POSIX path separator.
-  static String _swiftPath(String path) =>
-      p.absolute(path).replaceAll(r'\', '/');
+  /// literal on every host.
+  static String _swiftPath(String path) => _jsonPath(p.absolute(path));
 
   /// A pub package name with underscores replaced by hyphens — SwiftPM's own
   /// convention for a plugin's SPM library product name (used as the
