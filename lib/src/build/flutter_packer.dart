@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
 import 'package:xcross/src/build/flutter_debug_bundler.dart';
@@ -60,17 +61,17 @@ class FlutterPacker {
     }
 
     final appFramework = await _buildAppFramework(flutterRoot);
-    final pluginsLibrary = await _buildPlugins(flutterRoot);
+    final pluginsBuild = await _buildPlugins(flutterRoot);
     final runnerResult = await _buildRunnerBinary(
       flutterRoot,
-      pluginsLibrary: pluginsLibrary,
+      pluginsLibrary: pluginsBuild?.libraryPath,
     );
 
     return _assembleAndPersistBundle(
       appFramework: appFramework,
       xcframework: runnerResult.xcframework,
       runnerBinary: runnerResult.runnerBinary,
-      pluginsLibrary: pluginsLibrary,
+      pluginLibraries: pluginsBuild?.dylibPaths ?? const [],
     );
   }
 
@@ -157,11 +158,11 @@ class FlutterPacker {
   /// Discover the project's iOS plugins and build the aggregate Swift
   /// Package Manager plugins library, if any exist.
   ///
-  /// Returns the absolute path to the built dylib, or null when there's
-  /// nothing to build — no plugins at all, or only CocoaPods-only ones
-  /// xcross doesn't support (a warning is logged for those; matching
-  /// Flutter's own tool, this doesn't fail the build).
-  Future<String?> _buildPlugins(String flutterRoot) async {
+  /// Returns the built dylibs, or null when there's nothing to build — no
+  /// plugins at all, or only CocoaPods-only ones xcross doesn't support (a
+  /// warning is logged for those; matching Flutter's own tool, this doesn't
+  /// fail the build).
+  Future<GeneratedPluginsBuildResult?> _buildPlugins(String flutterRoot) async {
     final plugins = await PluginDiscovery.discover(projectRoot);
     final spmPlugins = <IosPlugin>[];
     for (final plugin in plugins) {
@@ -182,13 +183,12 @@ class FlutterPacker {
       flutterRoot: flutterRoot,
     ).flutterXcframework;
 
-    final result = await GeneratedPluginsPackage.build(
+    return GeneratedPluginsPackage.build(
       projectRoot: projectRoot,
       plugins: spmPlugins,
       flutterXcframework: xcframework,
       outputDir: p.join(projectRoot, 'build', 'xcross-flutter-plugins'),
     );
-    return result?.libraryPath;
   }
 
   /// Compile the ObjC Runner shim and return both the xcframework path and the
@@ -229,7 +229,7 @@ class FlutterPacker {
     required String appFramework,
     required String xcframework,
     required String runnerBinary,
-    String? pluginsLibrary,
+    required List<String> pluginLibraries,
   }) async {
     final flutterFramework = p.join(
       xcframework,
@@ -253,11 +253,7 @@ class FlutterPacker {
     );
     await _copyDirectory(appFramework, p.join(frameworksDir, 'App.framework'));
 
-    if (pluginsLibrary != null) {
-      await File(
-        pluginsLibrary,
-      ).copy(p.join(frameworksDir, p.basename(pluginsLibrary)));
-    }
+    await copyPluginLibraries(pluginLibraries, frameworksDir);
 
     await _copyOptionalRunnerResources(bundleDir);
     await _writeInfoPlist(bundleDir);
@@ -272,6 +268,17 @@ class FlutterPacker {
     await tmp.delete(recursive: true);
 
     return dest;
+  }
+
+  /// Copies every SwiftPM-produced dylib into the app's Frameworks directory.
+  @visibleForTesting
+  static Future<void> copyPluginLibraries(
+    Iterable<String> pluginLibraries,
+    String frameworksDir,
+  ) async {
+    for (final library in pluginLibraries) {
+      await File(library).copy(p.join(frameworksDir, p.basename(library)));
+    }
   }
 
   /// Copy compiled storyboards from `ios/Runner/` into the bundle, if present.

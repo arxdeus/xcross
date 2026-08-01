@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -370,7 +371,31 @@ let package = Package(
         ]),
       );
       expect(arguments, contains('-disable-availability-checking'));
-      expect(arguments, contains('@rpath/libFlutterPluginsGenerated.dylib'));
+      expect(arguments, isNot(contains('-install_name')));
+    });
+  });
+
+  group('built dylibs', () {
+    test('returns the aggregate and every produced dynamic library', () async {
+      final output = Directory(p.join(tmp.path, 'debug'))..createSync();
+      final aggregate = File(
+        p.join(output.path, 'libFlutterPluginsGenerated.dylib'),
+      )..writeAsBytesSync(_emptyMachO());
+      final dependency = File(p.join(output.path, 'libDynamicPlugin.dylib'))
+        ..writeAsBytesSync(_emptyMachO());
+      File(
+        p.join(output.path, 'libStaticPlugin.a'),
+      ).writeAsStringSync('static');
+
+      final result = await GeneratedPluginsPackage.discoverAndRewriteDylibs(
+        output.path,
+      );
+
+      expect(result.libraryPath, p.absolute(aggregate.path));
+      expect(result.dylibPaths, {
+        p.absolute(aggregate.path),
+        p.absolute(dependency.path),
+      });
     });
   });
 
@@ -415,4 +440,10 @@ let package = Package(
       },
     );
   });
+}
+
+Uint8List _emptyMachO() {
+  final bytes = Uint8List(32);
+  ByteData.sublistView(bytes).setUint32(0, 0xfeedfacf, Endian.little);
+  return bytes;
 }

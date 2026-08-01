@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/build/ios_plugins.dart';
+import 'package:xcross/src/build/macho_dylib_rewriter.dart';
 import 'package:xcross/src/constants.dart';
 import 'package:xcross/src/darwinsdk/darwin_sdk.dart';
 import 'package:xcross/src/util/errors.dart';
@@ -23,11 +24,19 @@ const String _pluginsProductName = 'FlutterPluginsGenerated';
 
 /// Result of building the aggregate Flutter-plugins Swift package.
 class GeneratedPluginsBuildResult {
-  /// Creates a result wrapping the built dylib's path.
-  const GeneratedPluginsBuildResult({required this.libraryPath});
+  /// Creates a result wrapping the built dylib paths.
+  const GeneratedPluginsBuildResult({
+    required this.libraryPath,
+    List<String>? dylibPaths,
+  }) : _dylibPaths = dylibPaths;
 
   /// Absolute path to the built `libFlutterPluginsGenerated.dylib`.
   final String libraryPath;
+
+  final List<String>? _dylibPaths;
+
+  /// Absolute paths to every dynamic library produced by SwiftPM.
+  List<String> get dylibPaths => _dylibPaths ?? [libraryPath];
 }
 
 /// Synthesizes and builds a Swift Package Manager package that aggregates
@@ -40,9 +49,9 @@ class GeneratedPluginsBuildResult {
 /// wrapper around `Flutter.xcframework`. Two deliberate differences from
 /// Flutter's tool: `.package(path:)` entries use absolute paths (there is no
 /// committed Xcode project here to keep portable), and the aggregate is a
-/// *dynamic* library, so it can be embedded as one extra `Frameworks/*.dylib`
-/// and linked with a single flag instead of hand-deriving Swift-runtime
-/// autolink flags for a static library.
+/// *dynamic* library, so its produced dylibs can be embedded under
+/// `Frameworks` and Runner can link only the aggregate instead of hand-deriving
+/// Swift-runtime autolink flags for a static library.
 abstract final class GeneratedPluginsPackage {
   /// Builds the aggregate dylib for the subset of [plugins] that use Swift
   /// Package Manager. Returns null if there is nothing to build.
@@ -115,20 +124,9 @@ abstract final class GeneratedPluginsPackage {
           label: 'swift build',
         );
 
-        final libraryPath = p.join(
-          scratchPath,
-          'arm64-apple-ios',
-          'debug',
-          'lib$_pluginsProductName.dylib',
+        return discoverAndRewriteDylibs(
+          p.join(scratchPath, 'arm64-apple-ios', 'debug'),
         );
-        if (!File(libraryPath).existsSync()) {
-          throw XcrossError(
-            'GeneratedPluginsPackage: swift build did not produce the plugins '
-            'library at $libraryPath',
-          );
-        }
-
-        return GeneratedPluginsBuildResult(libraryPath: libraryPath);
       });
 
   /// Arguments shared by Linux and Windows SwiftPM builds. SDK-owned compiler
@@ -161,11 +159,44 @@ abstract final class GeneratedPluginsPackage {
     '-Xfrontend',
     '-Xswiftc',
     '-disable-availability-checking',
-    '-Xlinker',
-    '-install_name',
-    '-Xlinker',
-    '@rpath/lib$_pluginsProductName.dylib',
   ];
+
+  /// Finds and fixes every dylib emitted into SwiftPM's target debug output.
+  @visibleForTesting
+  static Future<GeneratedPluginsBuildResult> discoverAndRewriteDylibs(
+    String targetDebugDir,
+  ) async {
+    final dylibPaths = <String>[];
+    await for (final entity in Directory(targetDebugDir).list()) {
+      if (entity is File && p.extension(entity.path) == '.dylib') {
+        dylibPaths.add(p.absolute(entity.path));
+      }
+    }
+    dylibPaths.sort();
+
+    const aggregateName = 'lib$_pluginsProductName.dylib';
+    final aggregatePath = dylibPaths
+        .where((path) => p.basename(path) == aggregateName)
+        .firstOrNull;
+    if (aggregatePath == null) {
+      throw XcrossError(
+        'GeneratedPluginsPackage: swift build did not produce the plugins '
+        'library in $targetDebugDir',
+      );
+    }
+
+    final dylibNames = dylibPaths.map(p.basename).toSet();
+    for (final path in dylibPaths) {
+      await MachODylibRewriter.rewriteFile(
+        path,
+        producedDylibNames: dylibNames,
+      );
+    }
+    return GeneratedPluginsBuildResult(
+      libraryPath: aggregatePath,
+      dylibPaths: List.unmodifiable(dylibPaths),
+    );
+  }
 
   /// Writes SwiftPM's external Windows toolset and returns its path. Other
   /// hosts use the SDK's toolset metadata and return null.

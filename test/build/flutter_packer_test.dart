@@ -1,6 +1,8 @@
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/build/flutter_packer.dart';
 import 'package:xcross/src/constants.dart';
 
 void main() {
@@ -14,6 +16,38 @@ void main() {
     expect(source, isNot(contains('Platform.isWindows && nativePlugins')));
     expect(source, contains('if (plugin.usesSwiftPackageManager)'));
     expect(source, contains('else if (plugin.usesCocoaPods)'));
+  });
+
+  test('copies every SwiftPM dylib into Frameworks', () async {
+    final tmp = await Directory.systemTemp.createTemp('flutter_packer_test-');
+    try {
+      final frameworks = Directory(p.join(tmp.path, 'Frameworks'))
+        ..createSync();
+      final aggregate = File(p.join(tmp.path, 'libAggregate.dylib'))
+        ..writeAsStringSync('aggregate');
+      final dependency = File(p.join(tmp.path, 'libDependency.dylib'))
+        ..writeAsStringSync('dependency');
+
+      await FlutterPacker.copyPluginLibraries([
+        aggregate.path,
+        dependency.path,
+      ], frameworks.path);
+
+      expect(
+        File(
+          p.join(frameworks.path, p.basename(aggregate.path)),
+        ).readAsStringSync(),
+        'aggregate',
+      );
+      expect(
+        File(
+          p.join(frameworks.path, p.basename(dependency.path)),
+        ).readAsStringSync(),
+        'dependency',
+      );
+    } finally {
+      await tmp.delete(recursive: true);
+    }
   });
 
   test('uses xcross build, temp, and DevFS names', () {
