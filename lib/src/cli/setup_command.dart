@@ -8,10 +8,10 @@ import 'package:xcross/src/util/process.dart';
 import 'package:xcross/src/util/sudo.dart';
 
 /// `apt`-installable packages from the README Requirements table, plus the
-/// Swift toolchain's own build dependencies. Swift, `xtool`, Flutter, and the
-/// Darwin SDK are not apt packages and stay manual.
+/// Swift toolchain's own build dependencies. Swift and Flutter stay manual.
 const _aptPackages = [
   'clang',
+  'lld',
   'python3',
   'python3-pip',
   'python3-venv',
@@ -78,6 +78,19 @@ class SetupCommand extends Command<void> {
       rethrow;
     }
 
+    final missing = <String>[];
+    for (final tool in const ['swift', 'ld64.lld']) {
+      if (await ProcessRunner.which(tool) == null) missing.add(tool);
+    }
+    if (missing.isNotEmpty) {
+      throw XcrossError(
+        'Missing Linux requirements on PATH after apt install: '
+        '${missing.join(', ')}.\n'
+        'Install the Swift toolchain manually and ensure its bin directory is '
+        'on PATH. The lld package must provide ld64.lld.',
+      );
+    }
+
     if (!await Pymd.ensureInstalled()) {
       throw XcrossError('pymobiledevice3 install failed; see above.');
     }
@@ -86,13 +99,21 @@ class SetupCommand extends Command<void> {
 
   Future<void> _setupWindows() async {
     final missing = <String>[];
-    for (final tool in const ['flutter', 'clang', 'ld64.lld']) {
+    for (final tool in const [
+      'flutter',
+      'swift',
+      'clang',
+      'clang++',
+      'llvm-ar',
+      'ld64.lld',
+    ]) {
       if (await ProcessRunner.which(tool) == null) missing.add(tool);
     }
     if (missing.isNotEmpty) {
       throw XcrossError(
         'Missing Windows requirements on PATH: ${missing.join(', ')}.\n'
-        'Install Flutter and the official LLVM Windows toolchain, then retry.',
+        'Install Flutter, Swift, and the official LLVM Windows toolchain, '
+        'then retry.',
       );
     }
     if (!await Pymd.ensureInstalled()) {

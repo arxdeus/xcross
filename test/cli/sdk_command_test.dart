@@ -1,49 +1,57 @@
-// Tests for `xcross sdk install`'s filtering/path-rewriting logic only —
-// against small in-memory synthetic entry names, not `extractXcodeXipContent`
-// itself (already tested in test/darwinsdk/xcode_xip_extractor_test.dart).
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
-
 import 'package:test/test.dart';
 import 'package:xcross/src/cli/sdk_command.dart';
 import 'package:xcross/src/darwinsdk/cpio_reader.dart';
+import 'package:xcross/src/darwinsdk/darwin_sdk.dart';
 
 void main() {
-  test('filters a mixed CpioEntry list down to just SDK entries', () {
-    final entries = [
+  CpioEntry entry(String name, {int mode = 0x81a4, String data = ''}) =>
       CpioEntry(
-        name:
-            'Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/'
-            'Developer/SDKs/iPhoneOS17.5.sdk/usr/include/stdio.h',
-        mode: 0x81a4, // regular file, rw-r--r--
-        data: Uint8List(0),
-      ),
-      CpioEntry(
-        name:
-            'Xcode.app/Contents/Developer/Platforms/MacOSX.platform/'
-            'Developer/SDKs/MacOSX14.sdk/usr/include/stdio.h',
-        mode: 0x81a4,
-        data: Uint8List(0),
-      ),
-      CpioEntry(
-        name: 'Xcode.app/Contents/Info.plist',
-        mode: 0x81a4,
-        data: Uint8List(0),
-      ),
-    ];
+        name: name,
+        mode: mode,
+        data: Uint8List.fromList(utf8.encode(data)),
+      );
 
-    final relativePaths = entries
-        .map((e) => sdkRelativePath(e.name))
-        .whereType<String>()
-        .toList();
+  group('sdkRelativePath', () {
+    test('includes the exact iOS cross-SDK subset', () {
+      final names = [
+        for (final root in sdkIncludedRoots) 'Xcode.app/Contents/$root/kept',
+      ];
 
-    const expectedIPhoneOSHeader =
+      expect(names.map(sdkRelativePath), [
+        for (final root in sdkIncludedRoots) '$root/kept',
+      ]);
+      expect(sdkRelativePath(sdkIncludedRoots.first), sdkIncludedRoots.first);
+    });
+
+    test('excludes neighboring Xcode content', () {
+      const excluded = [
+        'Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX14.sdk/usr/include/stdio.h',
+        'Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.2.sdk/usr/include/stdio.h',
+        'Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/Library/OtherFrameworks/No.framework/file',
+        'Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift',
+        'Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-driver/file',
+        'Xcode.app/Contents/Info.plist',
+        'README.md',
+      ];
+
+      expect(excluded.map(sdkRelativePath), everyElement(isNull));
+    });
+
+    test('strips the Xcode.app prefix from SDK files', () {
+      const name =
+          'Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/'
+          'Developer/SDKs/iPhoneOS17.5.sdk/usr/include/stdio.h';
+      expect(
+        sdkRelativePath(name),
         'Developer/Platforms/iPhoneOS.platform/Developer/SDKs/'
-        'iPhoneOS17.5.sdk/usr/include/stdio.h';
-    expect(relativePaths, [expectedIPhoneOSHeader]);
+        'iPhoneOS17.5.sdk/usr/include/stdio.h',
+      );
+    });
   });
 
   test('writes directories and materializes SDK symlinks', () async {
@@ -55,17 +63,9 @@ void main() {
 
     final count = await writeSdkEntries(
       Stream.fromIterable([
-        CpioEntry(name: '$sdk/usr/include', mode: 0x41ed, data: Uint8List(0)),
-        CpioEntry(
-          name: '$sdk/usr/include/real.h',
-          mode: 0x81a4,
-          data: Uint8List.fromList(utf8.encode('header')),
-        ),
-        CpioEntry(
-          name: '$sdk/usr/include/alias.h',
-          mode: 0xa1ff,
-          data: Uint8List.fromList(utf8.encode('real.h')),
-        ),
+        entry('$sdk/usr/include', mode: 0x41ed),
+        entry('$sdk/usr/include/real.h', data: 'header'),
+        entry('$sdk/usr/include/alias.h', mode: 0xa1ff, data: 'real.h'),
       ]),
       temp.path,
       materializeLinks: true,
@@ -87,6 +87,24 @@ void main() {
     expect(File(p.join(include, 'alias.h')).readAsStringSync(), 'header');
   });
 
+  test('rejects archive traversal', () async {
+    final temp = Directory.systemTemp.createTempSync('xcross-sdk-path-');
+    addTearDown(() => temp.deleteSync(recursive: true));
+
+    await expectLater(
+      writeSdkEntries(
+        Stream.value(
+          entry(
+            'Developer/Platforms/iPhoneOS.platform/Developer/SDKs/'
+            'iPhoneOS17.5.sdk/../../../../../../info.json',
+          ),
+        ),
+        temp.path,
+      ),
+      throwsA(isA<Exception>()),
+    );
+  });
+
   test('rejects SDK symlinks that escape the extraction root', () async {
     final temp = Directory.systemTemp.createTempSync('xcross-sdk-link-');
     addTearDown(() => temp.deleteSync(recursive: true));
@@ -94,14 +112,11 @@ void main() {
     await expectLater(
       writeSdkEntries(
         Stream.value(
-          CpioEntry(
-            name:
-                'Developer/Platforms/iPhoneOS.platform/Developer/SDKs/'
-                'iPhoneOS17.5.sdk/escape',
+          entry(
+            'Developer/Platforms/iPhoneOS.platform/Developer/SDKs/'
+            'iPhoneOS17.5.sdk/escape',
             mode: 0xa1ff,
-            data: Uint8List.fromList(
-              utf8.encode('../../../../../../../outside'),
-            ),
+            data: '../../../../../../../outside',
           ),
         ),
         temp.path,
@@ -111,39 +126,87 @@ void main() {
     );
   });
 
-  group('sdkRelativePath', () {
-    test('strips an Xcode.app-style prefix down to the SDK anchor', () {
-      const name =
-          'Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/'
-          'Developer/SDKs/iPhoneOS17.5.sdk/usr/include/stdio.h';
-      expect(
-        sdkRelativePath(name),
-        'Developer/Platforms/iPhoneOS.platform/Developer/SDKs/'
-        'iPhoneOS17.5.sdk/usr/include/stdio.h',
-      );
-    });
+  test('writes Swift SDK artifact metadata for the extracted tree', () async {
+    final bundle = Directory.systemTemp.createTempSync('xcross-sdk-metadata-');
+    addTearDown(() => bundle.deleteSync(recursive: true));
+    final sdkRoot = p.join(
+      bundle.path,
+      'Developer',
+      'Platforms',
+      'iPhoneOS.platform',
+      'Developer',
+      'SDKs',
+      'iPhoneOS18.2.sdk',
+    );
+    await Directory(
+      p.join(sdkRoot, 'System', 'Library', 'Frameworks'),
+    ).create(recursive: true);
 
-    test('keeps a name already rooted at the anchor unchanged', () {
-      const name =
-          'Developer/Platforms/iPhoneOS.platform/Developer/SDKs/'
-          'iPhoneOS17.5.sdk/System/Library/Frameworks/UIKit.framework/'
-          'UIKit.tbd';
-      expect(sdkRelativePath(name), name);
-    });
+    await writeSwiftSdkBundleMetadata(bundle.path);
 
-    test('returns null for entries outside the iPhoneOS SDK sysroot', () {
-      expect(
-        sdkRelativePath(
-          'Xcode.app/Contents/Developer/Platforms/MacOSX.platform/'
-          'Developer/SDKs/MacOSX14.sdk/usr/include/stdio.h',
-        ),
-        isNull,
-      );
-      expect(sdkRelativePath('Xcode.app/Contents/Info.plist'), isNull);
-    });
+    final info =
+        jsonDecode(File(p.join(bundle.path, 'info.json')).readAsStringSync())
+            as Map<String, dynamic>;
+    final artifact =
+        (info['artifacts'] as Map<String, dynamic>)['xcross-darwin']
+            as Map<String, dynamic>;
+    final variant =
+        (artifact['variants'] as List).single as Map<String, dynamic>;
+    expect(info['schemaVersion'], '1.0');
+    expect(artifact['type'], 'swiftSDK');
+    expect(variant['path'], '.');
+    expect(variant['supportedTriples'], [
+      'x86_64-unknown-linux-gnu',
+      'aarch64-unknown-linux-gnu',
+      'x86_64-unknown-windows-msvc',
+      'aarch64-unknown-windows-msvc',
+    ]);
 
-    test('returns null for an unrelated top-level file', () {
-      expect(sdkRelativePath('README.md'), isNull);
+    final swiftSdk =
+        jsonDecode(
+              File(p.join(bundle.path, 'swift-sdk.json')).readAsStringSync(),
+            )
+            as Map<String, dynamic>;
+    final target =
+        (swiftSdk['targetTriples'] as Map<String, dynamic>)['arm64-apple-ios']
+            as Map<String, dynamic>;
+    expect(swiftSdk['schemaVersion'], '4.0');
+    expect(
+      target['sdkRootPath'],
+      'Developer/Platforms/iPhoneOS.platform/Developer/SDKs/'
+      'iPhoneOS18.2.sdk',
+    );
+    expect(
+      target['swiftResourcesPath'],
+      'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift',
+    );
+    expect(
+      target['swiftStaticResourcesPath'],
+      'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift_static',
+    );
+    expect(target['includeSearchPaths'], [
+      'Developer/Platforms/iPhoneOS.platform/Developer/usr/lib',
+    ]);
+    expect(target['librarySearchPaths'], [
+      'Developer/Platforms/iPhoneOS.platform/Developer/usr/lib',
+      'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos',
+      'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift_static/iphoneos',
+    ]);
+    expect(target['toolsetPaths'], ['toolset.json']);
+
+    final toolset =
+        jsonDecode(File(p.join(bundle.path, 'toolset.json')).readAsStringSync())
+            as Map<String, dynamic>;
+    expect(toolset, {
+      'schemaVersion': '1.0',
+      'swiftCompiler': {
+        'extraCLIOptions': [
+          '-Xfrontend',
+          '-enable-cross-import-overlays',
+          '-use-ld=lld',
+        ],
+      },
     });
+    expect(DarwinSdk.isValidBundle(bundle.path), isTrue);
   });
 }

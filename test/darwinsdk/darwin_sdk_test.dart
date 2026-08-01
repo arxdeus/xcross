@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/darwinsdk/darwin_sdk.dart';
 import 'package:xcross/src/util/errors.dart';
-import 'package:xcross/src/xtool/darwin_sdk.dart';
 
 void main() {
   late Directory tmp;
@@ -23,23 +23,52 @@ void main() {
     'SDKs',
   );
 
-  group('ld64lld', () {
-    test('joins bundle with toolset/bin/ld64.lld', () {
-      final sdk = DarwinSdk(tmp.path);
-      expect(sdk.ld64lld, p.join(tmp.path, 'toolset', 'bin', 'ld64.lld'));
+  group('native bundle', () {
+    test('uses xcross artifact-bundle storage', () {
+      final expected = p.join(
+        tmp.path,
+        'xcross',
+        'swift-sdks',
+        'xcross-darwin.artifactbundle',
+      );
+      expect(DarwinSdk.nativeInstallDir(configDir: tmp.path), expected);
+      expect(DarwinSdk(expected).swiftSdkPath, expected);
     });
 
-    test('follows a different bundle root', () {
-      final otherBundle = p.join(tmp.path, 'darwin.artifactbundle');
-      final sdk = DarwinSdk(otherBundle);
-      expect(sdk.ld64lld, p.join(otherBundle, 'toolset', 'bin', 'ld64.lld'));
+    test('current accepts only a complete bundle', () async {
+      final bundle = p.join(tmp.path, 'xcross-darwin.artifactbundle');
+      final frameworks = p.join(
+        sdksDir(bundle),
+        'iPhoneOS18.2.sdk',
+        'System',
+        'Library',
+        'Frameworks',
+      );
+      await Directory(frameworks).create(recursive: true);
+
+      expect(DarwinSdk.current(bundle: bundle), isNull);
+      await File(p.join(bundle, 'info.json')).writeAsString('{}');
+      expect(DarwinSdk.current(bundle: bundle), isNull);
+      await File(p.join(bundle, 'swift-sdk.json')).writeAsString('{}');
+
+      final sdk = DarwinSdk.current(bundle: bundle);
+      expect(sdk, isNotNull);
+      expect(sdk!.bundle, bundle);
+    });
+
+    test('rejects metadata with an empty SDK directory', () async {
+      final bundle = p.join(tmp.path, 'xcross-darwin.artifactbundle');
+      await Directory(
+        p.join(sdksDir(bundle), 'iPhoneOS18.2.sdk'),
+      ).create(recursive: true);
+      await File(p.join(bundle, 'info.json')).writeAsString('{}');
+      await File(p.join(bundle, 'swift-sdk.json')).writeAsString('{}');
+
+      expect(DarwinSdk.isValidBundle(bundle), isFalse);
     });
   });
 
   group('iPhoneOSSdk', () {
-    // Regression check: a plain unversioned symlink/dir and a versioned SDK
-    // can coexist (xtool installs both); the versioned one must win so the
-    // linker gets the concrete SDK contents rather than a symlink target.
     test('prefers a versioned SDK over an unversioned one', () async {
       final dir = sdksDir(tmp.path);
       await Directory(p.join(dir, 'iPhoneOS.sdk')).create(recursive: true);
@@ -78,9 +107,9 @@ void main() {
           sdk.iPhoneOSSdk,
           throwsA(
             isA<XcrossError>().having(
-              (e) => e.message,
+              (error) => error.message,
               'message',
-              contains('Could not find iPhoneOS SDK'),
+              contains('Could not find an iPhoneOS SDK'),
             ),
           ),
         );
@@ -93,9 +122,9 @@ void main() {
         sdk.iPhoneOSSdk,
         throwsA(
           isA<XcrossError>().having(
-            (e) => e.message,
+            (error) => error.message,
             'message',
-            contains('Could not find iPhoneOS SDK'),
+            contains('Could not find an iPhoneOS SDK'),
           ),
         ),
       );

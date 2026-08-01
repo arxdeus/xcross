@@ -5,13 +5,13 @@ import 'package:args/command_runner.dart';
 import 'package:path/path.dart' as p;
 
 import 'package:xcross/src/darwinsdk/cpio_reader.dart';
+import 'package:xcross/src/darwinsdk/darwin_sdk.dart';
 import 'package:xcross/src/darwinsdk/xcode_xip_extractor.dart';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/logging.dart';
 import 'package:xcross/src/util/process.dart';
-import 'package:xcross/src/xtool/darwin_sdk.dart';
 
-/// `xcross sdk` \u2014 manage the native (no-Xcode/Swift) Darwin/iOS SDK.
+/// `xcross sdk` — manage xcross's host-neutral Darwin Swift SDK.
 class SdkCommand extends Command<void> {
   SdkCommand() {
     addSubcommand(SdkInstallCommand());
@@ -21,23 +21,39 @@ class SdkCommand extends Command<void> {
   String get name => 'sdk';
 
   @override
-  String get description => 'Manage the native (no-Xcode/Swift) Darwin SDK.';
+  String get description => 'Manage the xcross Darwin Swift SDK.';
 }
 
-/// The path fragment marking the start of the iPhoneOS SDK sysroot inside a
-/// decoded Xcode.xip cpio entry name. Matched as a substring rather than an
-/// assumed exact prefix (e.g. `Xcode.app/Contents/Developer/...` vs. some
-/// other root) because the real prefix ahead of it hasn't been confirmed
-/// against an actual Xcode.xip \u2014 searching for this anchor and keeping
-/// everything from it onward is robust to that prefix being wrong.
-const sdkAnchor = 'Developer/Platforms/iPhoneOS.platform/Developer/SDKs/';
+/// The iOS subset required by Swift's Linux cross-SDK protocol.
+const sdkIncludedRoots = <String>[
+  'Developer/Platforms/iPhoneOS.platform/Developer/SDKs',
+  'Developer/Platforms/iPhoneOS.platform/Developer/Library/Frameworks',
+  'Developer/Platforms/iPhoneOS.platform/Developer/Library/PrivateFrameworks',
+  'Developer/Platforms/iPhoneOS.platform/Developer/usr/lib',
+  'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift',
+  'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift_static',
+  'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang',
+];
 
-/// Destination-relative path for cpio entry [name] \u2014 everything from
-/// [sdkAnchor] onward \u2014 or null if [name] isn't under the iPhoneOS SDK
-/// sysroot (and so should be skipped by `xcross sdk install`).
+/// Destination-relative path for an included cpio entry, or null when the
+/// entry is outside [sdkIncludedRoots].
 String? sdkRelativePath(String name) {
-  final index = name.indexOf(sdkAnchor);
-  return index < 0 ? null : name.substring(index);
+  final archiveName = name.replaceAll(r'\', '/');
+  for (final root in sdkIncludedRoots) {
+    if (archiveName == root || archiveName.startsWith('$root/')) {
+      return archiveName;
+    }
+    final anchor = '/$root';
+    var index = archiveName.indexOf(anchor);
+    while (index >= 0) {
+      final end = index + anchor.length;
+      if (end == archiveName.length || archiveName[end] == '/') {
+        return archiveName.substring(index + 1);
+      }
+      index = archiveName.indexOf(anchor, index + 1);
+    }
+  }
+  return null;
 }
 
 const _fileTypeMask = 0xF000;
@@ -59,6 +75,9 @@ Future<int> writeSdkEntries(
   await for (final entry in entries) {
     final archivePath = sdkRelativePath(entry.name);
     if (archivePath == null) continue;
+    if (archivePath.split('/').contains('..')) {
+      throw XcrossError('Unsafe SDK archive path: ${entry.name}');
+    }
     final relative = p.normalize(archivePath.replaceAll('/', p.separator));
     final destPath = p.normalize(p.join(root, relative));
     if (p.isAbsolute(relative) || !p.isWithin(root, destPath)) {
@@ -87,6 +106,7 @@ Future<int> writeSdkEntries(
     await _materializeSdkLinks(root, links);
   } else {
     for (final link in links.entries) {
+      _resolvedSdkLinkTarget(root, link.key, link.value);
       await Link(link.key).create(link.value, recursive: true);
     }
   }
@@ -101,14 +121,7 @@ Future<void> _materializeSdkLinks(
   while (pending.isNotEmpty) {
     var progressed = false;
     for (final link in pending.entries.toList()) {
-      final rawTarget = link.value.replaceAll('/', p.separator);
-      if (p.isAbsolute(rawTarget)) {
-        throw XcrossError('SDK symlink target is absolute: ${link.value}');
-      }
-      final target = p.normalize(p.join(p.dirname(link.key), rawTarget));
-      if (!p.isWithin(root, target)) {
-        throw XcrossError('SDK symlink escapes the SDK: ${link.value}');
-      }
+      final target = _resolvedSdkLinkTarget(root, link.key, link.value);
       final type = FileSystemEntity.typeSync(target);
       if (type == FileSystemEntityType.notFound) continue;
       if (type == FileSystemEntityType.directory &&
@@ -136,99 +149,196 @@ Future<void> _materializeSdkLinks(
   }
 }
 
+String _resolvedSdkLinkTarget(String root, String link, String rawTarget) {
+  final targetPath = rawTarget.replaceAll('/', p.separator);
+  if (p.isAbsolute(targetPath)) {
+    throw XcrossError('SDK symlink target is absolute: $rawTarget');
+  }
+  final target = p.normalize(p.join(p.dirname(link), targetPath));
+  if (!p.isWithin(root, target)) {
+    throw XcrossError('SDK symlink escapes the SDK: $rawTarget');
+  }
+  return target;
+}
+
 Future<void> _copySdkDirectory(String source, String destination) async {
   await Directory(destination).create(recursive: true);
   await for (final entity in Directory(source).list()) {
     final target = p.join(destination, p.basename(entity.path));
-    if (entity is Directory) {
+    final type = FileSystemEntity.typeSync(entity.path);
+    if (type == FileSystemEntityType.directory) {
       await _copySdkDirectory(entity.path, target);
-    } else if (entity is File) {
-      await entity.copy(target);
+    } else if (type == FileSystemEntityType.file) {
+      await File(entity.path).copy(target);
     }
   }
 }
 
-/// `xcross sdk install <Xcode.xip>` \u2014 extract just the iPhoneOS SDK sysroot
-/// out of an Xcode.xip using the pure-Dart extractor in `lib/src/darwinsdk/`
-/// (XAR + pbzx + cpio, no `xar`/Swift/Xcode/xtool needed), and install it
-/// under [DarwinSdk.nativeInstallDir] so [DarwinSdk.current] picks it up \u2014
-/// this is what makes `xcross flutter build`/`run`'s toolchain resolution
-/// work natively on Windows, without WSL or a Linux/macOS `xtool sdk
-/// install` run.
-///
-/// **UNVALIDATED against a real Xcode.xip** \u2014 the extractor
-/// (`xcode_xip_extractor.dart`) was written and tested only against
-/// hand-built synthetic fixtures matching the documented wire formats; a
-/// real Xcode.xip is a multi-gigabyte, Apple-account-gated download that was
-/// unavailable in the environment this was written in. Confirm this
-/// extracts a plausible SDK tree before relying on it for a real build.
+const _platformDeveloper = 'Developer/Platforms/iPhoneOS.platform/Developer';
+const _toolchainLib = 'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib';
+const _swiftResources = '$_toolchainLib/swift';
+const _swiftStaticResources = '$_toolchainLib/swift_static';
+
+/// Write the Swift artifact-bundle metadata after extraction.
+Future<void> writeSwiftSdkBundleMetadata(String artifactRoot) async {
+  final sdkRoot = DarwinSdk(artifactRoot).iPhoneOSSdk();
+  if (!RegExp('[0-9]').hasMatch(p.basename(sdkRoot))) {
+    throw XcrossError(
+      'The extracted Xcode archive did not contain a versioned iPhoneOS SDK.',
+    );
+  }
+  final relativeSdkRoot = _metadataPath(
+    p.relative(sdkRoot, from: artifactRoot),
+  );
+
+  const encoder = JsonEncoder.withIndent('  ');
+  await File(p.join(artifactRoot, 'swift-sdk.json')).writeAsString(
+    '${encoder.convert({
+      'schemaVersion': '4.0',
+      'targetTriples': {
+        'arm64-apple-ios': {
+          'sdkRootPath': relativeSdkRoot,
+          'swiftResourcesPath': _swiftResources,
+          'swiftStaticResourcesPath': _swiftStaticResources,
+          'includeSearchPaths': ['$_platformDeveloper/usr/lib'],
+          'librarySearchPaths': ['$_platformDeveloper/usr/lib', '$_swiftResources/iphoneos', '$_swiftStaticResources/iphoneos'],
+          'toolsetPaths': ['toolset.json'],
+        },
+      },
+    })}\n',
+  );
+  await File(p.join(artifactRoot, 'toolset.json')).writeAsString(
+    '${encoder.convert({
+      'schemaVersion': '1.0',
+      'swiftCompiler': {
+        'extraCLIOptions': ['-Xfrontend', '-enable-cross-import-overlays', '-use-ld=lld'],
+      },
+    })}\n',
+  );
+  await File(p.join(artifactRoot, 'info.json')).writeAsString(
+    '${encoder.convert({
+      'schemaVersion': '1.0',
+      'artifacts': {
+        'xcross-darwin': {
+          'type': 'swiftSDK',
+          'version': '1.0.0',
+          'variants': [
+            {
+              'path': '.',
+              'supportedTriples': ['x86_64-unknown-linux-gnu', 'aarch64-unknown-linux-gnu', 'x86_64-unknown-windows-msvc', 'aarch64-unknown-windows-msvc'],
+            },
+          ],
+        },
+      },
+    })}\n',
+  );
+}
+
+String _metadataPath(String path) => path.replaceAll(r'\', '/');
+
+/// Replace Xcode's clang builtin headers with headers matching the host clang.
+Future<void> replaceClangBuiltinHeaders(String artifactRoot) async {
+  String clang;
+  try {
+    clang = await ProcessRunner.locateTool('clang');
+  } on Object {
+    throw XcrossError(
+      'clang is required to install the Darwin Swift SDK. Install LLVM clang '
+      'and ensure `clang` is on PATH, then retry.',
+    );
+  }
+
+  final result = await ProcessRunner.run(clang, const ['-print-resource-dir']);
+  final resourceDir = result.stdout.trim();
+  final source = p.join(resourceDir, 'include');
+  if (result.exitCode != 0 ||
+      resourceDir.isEmpty ||
+      !Directory(source).existsSync()) {
+    final detail = result.stderr.trim();
+    throw XcrossError(
+      'Could not locate clang builtin headers with '
+      '`clang -print-resource-dir`. Verify the LLVM clang installation and '
+      'retry.${detail.isEmpty ? '' : '\n$detail'}',
+    );
+  }
+
+  final destination = p.join(
+    artifactRoot,
+    'Developer',
+    'Toolchains',
+    'XcodeDefault.xctoolchain',
+    'usr',
+    'lib',
+    'swift',
+    'clang',
+    'include',
+  );
+  final existingType = FileSystemEntity.typeSync(
+    destination,
+    followLinks: false,
+  );
+  if (existingType == FileSystemEntityType.directory) {
+    await Directory(destination).delete(recursive: true);
+  } else if (existingType == FileSystemEntityType.link) {
+    await Link(destination).delete();
+  } else if (existingType == FileSystemEntityType.file) {
+    await File(destination).delete();
+  }
+  await _copySdkDirectory(source, destination);
+}
+
+/// `xcross sdk install <Xcode.xip>` — build xcross's Darwin Swift SDK bundle.
 class SdkInstallCommand extends Command<void> {
   @override
   String get name => 'install';
 
   @override
   String get description =>
-      'Extract the iPhoneOS SDK from an Xcode.xip natively (no Xcode, '
-      'Swift, or xtool required). UNVALIDATED against a real Xcode.xip.';
+      'Extract a host-neutral Darwin Swift SDK from an Xcode.xip.';
 
   @override
   String get invocation => 'xcross sdk install <path-to-Xcode.xip>';
 
-  /// How often to update the progress line while extracting \u2014 a real
-  /// iPhoneOS SDK sysroot has thousands of header files; one line per file
-  /// would flood the console.
   static const _progressInterval = 250;
 
   @override
   Future<void> run() async {
     final xipPath = argResults!.rest.firstOrNull;
-    if (xipPath == null) {
-      throw XcrossError('Usage: $invocation');
-    }
+    if (xipPath == null) throw XcrossError('Usage: $invocation');
     if (!File(xipPath).existsSync()) {
       throw XcrossError('No file found at "$xipPath".');
     }
 
     final destDir = DarwinSdk.nativeInstallDir();
+    if (Directory(destDir).existsSync()) {
+      await Directory(destDir).delete(recursive: true);
+    }
     final written = await _extract(xipPath, destDir);
-
     if (written == 0) {
       throw XcrossError(
-        '$xipPath: extraction produced zero iPhoneOS SDK files.\n'
-        "Either this isn't a real Xcode.xip, or the pure-Dart extractor's "
-        'assumptions about the cpio entry-name layout are wrong for this '
-        'file \u2014 it has not been validated against a real Xcode.xip (see '
-        'lib/src/darwinsdk/xcode_xip_extractor.dart).',
+        '$xipPath: extraction produced no files from the required iOS SDK '
+        'subset. Verify that this is a complete Xcode.xip.',
       );
     }
 
-    await File(p.join(destDir, 'darwin-sdk-version.txt')).writeAsString(
-      'xcross native (Xcode.xip extractor), extracted '
-      '${DateTime.now().toIso8601String()}\n',
-    );
-
-    Log.logDone('Extracted $written iPhoneOS SDK files to $destDir');
-    Log.logWarn(
-      'This extractor is UNVALIDATED against a real Xcode.xip \u2014 verify the '
-      'SDK tree looks right before relying on it for a real build.',
-    );
+    await replaceClangBuiltinHeaders(destDir);
+    await writeSwiftSdkBundleMetadata(destDir);
+    Log.logDone('Installed Darwin Swift SDK ($written entries) at $destDir');
   }
 
-  /// Streams [xipPath]'s decoded cpio content, writing every entry under the
-  /// iPhoneOS SDK sysroot to [destDir]. Returns the number of files written.
   Future<int> _extract(String xipPath, String destDir) async {
-    final step = Log.beginStep('Extracting iPhoneOS SDK from Xcode.xip');
+    final step = Log.beginStep('Extracting Darwin Swift SDK from Xcode.xip');
     try {
       final written = await writeSdkEntries(
         extractXcodeXipContent(xipPath),
         destDir,
         onProgress: (count) {
           if (count % _progressInterval == 0) {
-            step.log('$count files extracted…\n');
+            step.log('$count entries extracted…\n');
           }
         },
       );
-      step.done('Extracted $written files');
+      step.done('Extracted $written entries');
       return written;
     } on Object {
       step.fail();
