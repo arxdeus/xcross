@@ -137,6 +137,7 @@ class NativeBackend implements DeviceBackend {
     }
 
     try {
+      await ZsignCli.locate();
       final identity = await provisionDevelopmentIdentity(
         client: client,
         bundleId: bundleId,

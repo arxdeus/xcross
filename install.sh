@@ -10,6 +10,7 @@ set -eu
 
 REPO="arxdeus/xcross"
 BINARY="xcross"
+ZSIGN="zsign"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 VERSION="${XCROSS_VERSION:-latest}"
 
@@ -23,17 +24,23 @@ os="$(uname -s)"
 # --- detect architecture ---------------------------------------------------
 arch="$(uname -m)"
 case "$arch" in
-  x86_64 | amd64)          asset="xcross-linux-x64" ;;
-  aarch64 | arm64)         asset="xcross-linux-arm64" ;;
+  x86_64 | amd64)
+    asset="xcross-linux-x64"
+    zsign_asset="zsign-linux-x64"
+    ;;
+  aarch64 | arm64)
+    asset="xcross-linux-arm64"
+    zsign_asset="zsign-linux-arm64"
+    ;;
   *) err "unsupported architecture: $arch (supported: x86_64, aarch64)" ;;
 esac
-info "Detected: $os/$arch -> $asset"
+info "Detected: $os/$arch -> $asset + $zsign_asset"
 
-# --- resolve download URL ---------------------------------------------------
+# --- resolve download URLs --------------------------------------------------
 if [ "$VERSION" = "latest" ]; then
-  url="https://github.com/$REPO/releases/latest/download/$asset"
+  base_url="https://github.com/$REPO/releases/latest/download"
 else
-  url="https://github.com/$REPO/releases/download/$VERSION/$asset"
+  base_url="https://github.com/$REPO/releases/download/$VERSION"
 fi
 
 # --- pick a downloader ------------------------------------------------------
@@ -45,34 +52,37 @@ else
   err "need curl or wget to download"
 fi
 
-# --- download to a temp file ------------------------------------------------
-tmp="$(mktemp)"
-trap 'rm -f "$tmp"' EXIT INT TERM
-info "Downloading $VERSION binary..."
-download "$url" "$tmp" || err "download failed: $url"
-[ -s "$tmp" ] || err "downloaded file is empty: $url"
-chmod +x "$tmp"
+# --- download to a temp directory ------------------------------------------
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+for release_asset in "$asset" "$zsign_asset"; do
+  url="$base_url/$release_asset"
+  info "Downloading $VERSION $release_asset..."
+  download "$url" "$tmp/$release_asset" || err "download failed: $url"
+  [ -s "$tmp/$release_asset" ] || err "downloaded file is empty: $url"
+done
 
 # --- install (use sudo if the target dir is not writable) -------------------
 target="$INSTALL_DIR/$BINARY"
-if [ -w "$INSTALL_DIR" ] || { [ ! -e "$INSTALL_DIR" ] && mkdir -p "$INSTALL_DIR" 2>/dev/null; }; then
-  mv "$tmp" "$target"
+zsign_target="$INSTALL_DIR/$ZSIGN"
+if mkdir -p "$INSTALL_DIR" 2>/dev/null && [ -w "$INSTALL_DIR" ]; then
+  install -m 0755 "$tmp/$asset" "$target"
+  install -m 0755 "$tmp/$zsign_asset" "$zsign_target"
 elif command -v sudo >/dev/null 2>&1; then
-  info "Elevating with sudo to write $target"
+  info "Elevating with sudo to write $INSTALL_DIR"
   sudo mkdir -p "$INSTALL_DIR"
-  sudo mv "$tmp" "$target"
-  sudo chmod +x "$target"
+  sudo install -m 0755 "$tmp/$asset" "$target"
+  sudo install -m 0755 "$tmp/$zsign_asset" "$zsign_target"
 else
   err "cannot write to $INSTALL_DIR and sudo is unavailable. Set INSTALL_DIR to a writable path."
 fi
-trap - EXIT INT TERM
-
-info "Installed: $target"
 
 # --- verify + PATH hint -----------------------------------------------------
-if command -v "$BINARY" >/dev/null 2>&1; then
-  info "$("$BINARY" --version 2>/dev/null || echo "$BINARY ready")"
-else
+"$target" --version >/dev/null 2>&1 || err "installed xcross failed verification"
+"$zsign_target" -h >/dev/null 2>&1 || err "installed zsign failed verification"
+info "Installed and verified: $target, $zsign_target"
+
+if ! command -v "$BINARY" >/dev/null 2>&1 || ! command -v "$ZSIGN" >/dev/null 2>&1; then
   info "Installed, but $INSTALL_DIR is not on your PATH. Add it:"
   printf '    export PATH="%s:$PATH"\n' "$INSTALL_DIR"
 fi
