@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+env:
+  SWIFT_VERSION: 6.3.3
+  SWIFT_WINDOWS_SHA256: >-
+    235626548F249CD516D3D4D90EEE980DCCAD46F3822DAC1F8E3119B0FEDE94B7
+
 concurrency:
   group: integration-${{ github.ref }}
   cancel-in-progress: true
@@ -80,30 +85,42 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $install = @(
-            'install', '--exact', '--source', 'winget', '--silent',
-            '--accept-package-agreements', '--accept-source-agreements',
-            '--disable-interactivity'
-          )
-          winget @install --id Swift.Toolchain
-          winget @install --id LLVM.LLVM
+          $installer = "$env:RUNNER_TEMP\swift-installer.exe"
+          $release = "swift-$env:SWIFT_VERSION-release"
+          $version = "swift-$env:SWIFT_VERSION-RELEASE"
+          $base = 'https://download.swift.org'
+          $url = "$base/$release/windows10/$version/" +
+            "$version-windows10.exe"
+          Invoke-WebRequest $url -OutFile $installer
+          $hash = (Get-FileHash $installer -Algorithm SHA256).Hash
+          if ($hash -ne $env:SWIFT_WINDOWS_SHA256) {
+            throw "Swift installer checksum mismatch: $hash"
+          }
+          $process = Start-Process `
+            $installer `
+            -ArgumentList '/quiet', '/norestart' `
+            -PassThru `
+            -Wait
+          if ($process.ExitCode -notin 0, 3010) {
+            throw "Swift installer failed: $($process.ExitCode)"
+          }
 
           $llvmBin = "${env:ProgramFiles}\LLVM\bin"
+          if (-not (Test-Path "$llvmBin\ld64.lld.exe")) {
+            throw "Hosted-runner LLVM missing ld64.lld.exe at $llvmBin"
+          }
           $machinePath = [Environment]::GetEnvironmentVariable(
             'Path', 'Machine'
           )
           $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
           $env:Path = "$llvmBin;$machinePath;$userPath;$env:Path"
-          $swift = Get-Command swift.exe -ErrorAction SilentlyContinue
-          if (-not $swift) {
-            $swift = Get-ChildItem `
-              "${env:ProgramFiles}\Swift" `
-              -Filter swift.exe `
-              -File `
-              -Recurse `
-              -ErrorAction SilentlyContinue |
-              Select-Object -First 1
-          }
+          $swift = Get-ChildItem `
+            "$env:LOCALAPPDATA\Programs\Swift" `
+            -Filter swift.exe `
+            -File `
+            -Recurse `
+            -ErrorAction SilentlyContinue |
+            Select-Object -First 1
           if (-not $swift) {
             throw 'Swift.Toolchain did not install swift.exe'
           }
