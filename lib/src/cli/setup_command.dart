@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
+import 'package:path/path.dart' as p;
 import 'package:xcross/src/device/pymd.dart';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/logging.dart';
@@ -77,6 +78,27 @@ class SetupCommand extends Command<void> {
     } on Object {
       step.fail();
       rethrow;
+    }
+
+    if (await ProcessRunner.which('ld64.lld') == null) {
+      final linkers =
+          Directory('/usr/bin')
+              .listSync()
+              .where(
+                (entry) =>
+                    (entry is File || entry is Link) &&
+                    p.basename(entry.path).startsWith('ld64.lld-'),
+              )
+              .toList()
+            ..sort((a, b) => a.path.compareTo(b.path));
+      if (linkers.isNotEmpty) {
+        await ProcessRunner.runChecked('sudo', [
+          'ln',
+          '-sf',
+          linkers.last.path,
+          '/usr/local/bin/ld64.lld',
+        ], label: 'link ld64.lld');
+      }
     }
 
     final missing = <String>[];
