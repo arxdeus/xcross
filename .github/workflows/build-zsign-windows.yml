@@ -23,6 +23,9 @@ name: Build zsign (Windows)
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 env:
   ZSIGN_REF: d6e929c97b5b564c2cc1f82afe226a44da7149a0
 
@@ -35,6 +38,8 @@ jobs:
       - name: Checkout xcross
         # v6
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
 
       - name: Checkout zsign (pinned)
         # v6
@@ -43,6 +48,7 @@ jobs:
           repository: zhlynn/zsign
           ref: ${{ env.ZSIGN_REF }}
           path: zsign
+          persist-credentials: false
 
       - name: Set up MSBuild
         # v2

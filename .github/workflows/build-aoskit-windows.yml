@@ -13,7 +13,8 @@ jobs:
 
     steps:
       - name: Checkout xcross
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
 
@@ -22,24 +23,45 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force dist | Out-Null
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $install = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          if (-not $install) { throw 'Visual Studio C++ tools not found' }
+          $vswhere = Join-Path `
+            ${env:ProgramFiles(x86)} `
+            'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vsArgs = @(
+            '-latest', '-products', '*',
+            '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
+            '-property', 'installationPath'
+          )
+          $install = & $vswhere @vsArgs
+          if (-not $install) {
+            throw 'Visual Studio C++ tools not found'
+          }
           $vcvars = Join-Path $install 'VC\Auxiliary\Build\vcvars32.bat'
-          cmd /c "`"$vcvars`" && cl /nologo /std:c++17 /O2 /MT /EHsc native\windows\aoskit_helper.cpp /Fe:dist\xcross-aoskit.exe"
-          if ($LASTEXITCODE -ne 0) { throw "cl failed with exit code $LASTEXITCODE" }
+          $cl = @(
+            'cl', '/nologo', '/std:c++17', '/O2', '/MT', '/EHsc',
+            'native\windows\aoskit_helper.cpp',
+            '/Fe:dist\xcross-aoskit.exe'
+          ) -join ' '
+          cmd /c "`"$vcvars`" && $cl"
+          if ($LASTEXITCODE -ne 0) {
+            throw "cl failed with exit code $LASTEXITCODE"
+          }
 
       - name: Smoke-test missing Apple frameworks diagnostic
         shell: pwsh
         run: |
           $PSNativeCommandUseErrorActionPreference = $false
           & .\dist\xcross-aoskit.exe 2> helper-error.txt
-          if ($LASTEXITCODE -eq 0) { throw 'Helper unexpectedly succeeded on a clean runner' }
+          if ($LASTEXITCODE -eq 0) {
+            throw 'Helper unexpectedly succeeded on a clean runner'
+          }
           $message = Get-Content helper-error.txt -Raw
-          if (-not $message.Contains('Apple')) { throw "Unexpected diagnostic: $message" }
+          if (-not $message.Contains('Apple')) {
+            throw "Unexpected diagnostic: $message"
+          }
 
       - name: Upload helper artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: xcross-aoskit-windows-x86
           path: dist/xcross-aoskit.exe
