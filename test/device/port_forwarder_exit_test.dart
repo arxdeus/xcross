@@ -90,6 +90,9 @@ $body
     // Tell the probe to close the forwarder while we keep holding the socket.
     child.stdin.writeln();
     await child.stdin.flush();
+    // Reading stdin activates a persistent Windows pipe handle. Close the
+    // parent end so the probe can exit for the socket lifecycle we are testing.
+    await child.stdin.close();
 
     expect(
       await waitForExit(child),
