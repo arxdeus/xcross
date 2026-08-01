@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:xcross/src/appstoreconnect/asc_config.dart';
 import 'package:xcross/src/appstoreconnect/asc_jwt.dart';
 import 'package:xcross/src/appstoreconnect/asc_models.dart';
+import 'package:xcross/src/util/apple_http_client.dart';
 import 'package:xcross/src/util/errors.dart';
 
 abstract class DevelopmentProvisioningClient {
@@ -41,7 +42,7 @@ abstract class DevelopmentProvisioningClient {
 /// login.
 class AscClient implements DevelopmentProvisioningClient {
   AscClient(this.credentials, {http.Client? httpClient})
-    : _http = httpClient ?? http.Client();
+    : _http = httpClient ?? createAppleHttpClient();
 
   final AscCredentials credentials;
   final http.Client _http;

@@ -9,6 +9,7 @@ import 'package:xcross/src/grandslam/anisette/anisette_state.dart';
 import 'package:xcross/src/grandslam/app_token_exchange.dart';
 import 'package:xcross/src/grandslam/grandslam_response.dart';
 import 'package:xcross/src/grandslam/grandslam_session_store.dart';
+import 'package:xcross/src/util/apple_http_client.dart';
 import 'package:xcross/src/util/errors.dart';
 
 class DeveloperServicesTeam {
@@ -36,7 +37,7 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
     required Future<Map<String, String>> Function() fetchAnisetteHeaders,
     http.Client? httpClient,
   }) : _fetchAnisetteHeaders = fetchAnisetteHeaders,
-       _http = httpClient ?? http.Client();
+       _http = httpClient ?? createAppleHttpClient();
 
   factory DeveloperServicesClient.fromSession(
     GrandSlamSession session,
@@ -68,7 +69,7 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
   }) async {
     _rejectExpired(token);
     final anisette = await fetchAnisetteHeaders();
-    final client = httpClient ?? http.Client();
+    final client = httpClient ?? createAppleHttpClient();
     try {
       final response = await client.post(
         Uri.parse('$_baseUrl/QH65B2/listTeams.action?clientId=XABBG36SBA'),

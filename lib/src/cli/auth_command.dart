@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:http/http.dart' as http;
 import 'package:xcross/src/appstoreconnect/asc_config.dart';
 import 'package:xcross/src/appstoreconnect/developer_services_client.dart';
 import 'package:xcross/src/grandslam/anisette/anisette_provider.dart';
@@ -10,6 +9,7 @@ import 'package:xcross/src/grandslam/anisette/aoskit_anisette_provider.dart';
 import 'package:xcross/src/grandslam/app_token_exchange.dart';
 import 'package:xcross/src/grandslam/grandslam_login.dart';
 import 'package:xcross/src/grandslam/grandslam_session_store.dart';
+import 'package:xcross/src/util/apple_http_client.dart';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/logging.dart';
 
@@ -152,7 +152,7 @@ class AuthCommand extends Command<void> {
         'Fetching Developer Services session',
         () => tokenExchange!.exchange(loginData),
       );
-      final teamHttpClient = http.Client();
+      final teamHttpClient = createAppleHttpClient();
       final List<DeveloperServicesTeam> teams;
       try {
         teams = await Log.logStep(

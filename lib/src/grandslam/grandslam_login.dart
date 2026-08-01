@@ -22,6 +22,7 @@ import 'package:xcross/src/grandslam/grandslam_login_data.dart';
 import 'package:xcross/src/grandslam/grandslam_operation.dart';
 import 'package:xcross/src/grandslam/grandslam_response.dart';
 import 'package:xcross/src/grandslam/srp_client.dart';
+import 'package:xcross/src/util/apple_http_client.dart';
 import 'package:xcross/src/util/errors.dart';
 
 /// Which channel a two-factor code was (or, for [unspecified], may have
@@ -111,7 +112,7 @@ class GrandSlamClient {
     http.Client? httpClient,
     this.locale = 'en_US',
   }) : _fetchAnisetteHeaders = fetchAnisetteHeaders,
-       _http = httpClient ?? http.Client();
+       _http = httpClient ?? createAppleHttpClient();
 
   final GrandSlamEndpoints endpoints;
 

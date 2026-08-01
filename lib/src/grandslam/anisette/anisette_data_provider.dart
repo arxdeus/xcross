@@ -29,6 +29,7 @@ import 'package:xcross/src/grandslam/anisette/anisette_provider.dart';
 import 'package:xcross/src/grandslam/anisette/anisette_state.dart';
 import 'package:xcross/src/grandslam/anisette/grandslam_endpoints.dart';
 import 'package:xcross/src/grandslam/grandslam_response.dart';
+import 'package:xcross/src/util/apple_http_client.dart';
 import 'package:xcross/src/util/errors.dart';
 
 /// Apple's well-known sentinel `dsId` for machine-level (not-yet
@@ -113,7 +114,7 @@ class AnisetteDataProvider implements AnisetteProvider {
       required String identifier,
     })?
     adiFactory,
-  }) : _http = httpClient ?? http.Client(),
+  }) : _http = httpClient ?? createAppleHttpClient(),
        _stateStore = stateStore ?? AnisetteStateStore(),
        _adiFactory = adiFactory ?? _unsupportedAdiFactory;
 

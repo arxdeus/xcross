@@ -7,6 +7,7 @@ import 'package:xcross/src/grandslam/anisette/anisette_headers.dart';
 import 'package:xcross/src/grandslam/anisette/anisette_provider.dart';
 import 'package:xcross/src/grandslam/anisette/anisette_state.dart';
 import 'package:xcross/src/grandslam/anisette/grandslam_endpoints.dart';
+import 'package:xcross/src/util/apple_http_client.dart';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/process.dart';
 
@@ -108,7 +109,7 @@ class AosKitAnisetteProvider implements AnisetteProvider {
     http.Client? httpClient,
     AnisetteStateStore? stateStore,
     Future<AosKitCoreData> Function()? fetchCoreData,
-  }) : _http = httpClient ?? http.Client(),
+  }) : _http = httpClient ?? createAppleHttpClient(),
        _stateStore = stateStore ?? AnisetteStateStore(),
        _fetchCoreData = fetchCoreData ?? AosKitHelper().fetch;
 
