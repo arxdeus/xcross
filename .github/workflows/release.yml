@@ -190,14 +190,17 @@ jobs:
           & smoke/xcross.exe --help | Out-Null
           if ($LASTEXITCODE -ne 0) { throw 'xcross.exe --help failed' }
 
-          cmd /c 'smoke\xcross-aoskit.exe 2> helper-error.txt'
-          $helperExit = $LASTEXITCODE
+          $helper = Start-Process `
+            (Resolve-Path 'smoke\xcross-aoskit.exe') `
+            -RedirectStandardError helper-error.txt `
+            -PassThru `
+            -Wait
           $diagnostic = Get-Content helper-error.txt -Raw
           $expectedDiagnostic = (
             'Could not (register Apple DLL directories|' +
             'load Apple Application Support objc\.dll)'
           )
-          if ($helperExit -ne 2 -or
+          if ($helper.ExitCode -ne 2 -or
               $diagnostic -notmatch $expectedDiagnostic) {
             throw "Unexpected AOSKit helper result: $diagnostic"
           }
