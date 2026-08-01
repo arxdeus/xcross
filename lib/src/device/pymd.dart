@@ -189,6 +189,7 @@ abstract final class Pymd {
   /// legacy flags so both versions work.
   static Future<List<String>> listInstalledApps() async {
     const attempts = <List<String>>[
+      ['apps', 'list', '--type', 'User'],
       ['apps', 'list', '--userspace'],
       ['apps', 'list', '--user', '--system'],
     ];

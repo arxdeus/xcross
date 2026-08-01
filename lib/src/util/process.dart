@@ -284,7 +284,9 @@ abstract final class ProcessRunner {
   /// Set mode 0755 on [path] via libc chmod (FFI) — no subprocess. posix is a
   /// no-op stub on non-POSIX hosts, so guard with isPosixSupported.
   static void makeExecutable(String path) {
-    if (posix.isPosixSupported) posix.chmod(path, '0755');
+    if (!Platform.isWindows && posix.isPosixSupported) {
+      posix.chmod(path, '0755');
+    }
   }
 
   /// Wrap a bare IPv6 address in brackets for URL construction.

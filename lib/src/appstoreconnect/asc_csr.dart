@@ -41,6 +41,8 @@ abstract final class AscCsr {
   static Future<void> writePrivateKeyPem(String path, String pem) async {
     final file = File(path);
     await file.writeAsString(pem);
-    if (posix.isPosixSupported) posix.chmod(path, '0600');
+    if (!Platform.isWindows && posix.isPosixSupported) {
+      posix.chmod(path, '0600');
+    }
   }
 }

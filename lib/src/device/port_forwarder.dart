@@ -18,6 +18,7 @@ class PortForwarder {
 
   final ServerSocket _server;
   final Set<Socket> _sockets;
+  bool _closed = false;
 
   /// The loopback port to advertise.
   int get localPort => _server.port;
@@ -33,7 +34,12 @@ class PortForwarder {
     final forwarder = PortForwarder._(server, sockets);
 
     server.listen((client) async {
+      if (forwarder._closed) {
+        client.destroy();
+        return;
+      }
       client.setOption(SocketOption.tcpNoDelay, true);
+      sockets.add(client);
       final Socket device;
       try {
         // Socket.connect wants a bare address; a bracketed literal never
@@ -44,13 +50,18 @@ class PortForwarder {
         );
       } on Object catch (e) {
         Log.logWarn('vm-service forward failed: $e');
-        await client.close();
+        sockets.remove(client);
+        client.destroy();
+        return;
+      }
+      if (forwarder._closed) {
+        sockets.remove(client);
+        client.destroy();
+        device.destroy();
         return;
       }
       device.setOption(SocketOption.tcpNoDelay, true);
-      sockets
-        ..add(client)
-        ..add(device);
+      sockets.add(device);
 
       /// Copies until [from] reaches EOF, then half-closes [to].
       ///
@@ -84,6 +95,7 @@ class PortForwarder {
   /// loop alive — so this must run on every exit path or `xcross flutter run`
   /// never returns.
   Future<void> close() async {
+    _closed = true;
     // Closing the server also ends its accept subscription.
     await _server.close();
     // destroy(), not close(): a peer still holding the connection open (DevTools
