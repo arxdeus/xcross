@@ -69,7 +69,7 @@ Future<int> writeSdkEntries(
   void Function(int count)? onProgress,
 }) async {
   final root = p.normalize(p.absolute(destDir));
-  await Directory(root).create(recursive: true);
+  await Directory(_sdkIoPath(root)).create(recursive: true);
   final links = <String, String>{};
   var written = 0;
 
@@ -87,13 +87,17 @@ Future<int> writeSdkEntries(
 
     switch (entry.mode & _fileTypeMask) {
       case _directoryType:
-        await Directory(destPath).create(recursive: true);
+        await Directory(_sdkIoPath(destPath)).create(recursive: true);
       case _symbolicLinkType:
-        await Directory(p.dirname(destPath)).create(recursive: true);
+        await Directory(
+          _sdkIoPath(p.dirname(destPath)),
+        ).create(recursive: true);
         links[destPath] = utf8.decode(entry.data);
       case _regularFileType || 0:
-        await Directory(p.dirname(destPath)).create(recursive: true);
-        await File(destPath).writeAsBytes(entry.data);
+        await Directory(
+          _sdkIoPath(p.dirname(destPath)),
+        ).create(recursive: true);
+        await File(_sdkIoPath(destPath)).writeAsBytes(entry.data);
         if (entry.mode & 0x49 != 0) ProcessRunner.makeExecutable(destPath);
       default:
         continue;
@@ -123,7 +127,7 @@ Future<void> _materializeSdkLinks(
     var progressed = false;
     for (final link in pending.entries.toList()) {
       final target = _resolvedSdkLinkTarget(root, link.key, link.value);
-      final type = FileSystemEntity.typeSync(target);
+      final type = FileSystemEntity.typeSync(_sdkIoPath(target));
       if (type == FileSystemEntityType.notFound) continue;
       if (type == FileSystemEntityType.directory &&
           pending.keys.any(
@@ -135,7 +139,7 @@ Future<void> _materializeSdkLinks(
       if (type == FileSystemEntityType.directory) {
         await _copySdkDirectory(target, link.key);
       } else if (type == FileSystemEntityType.file) {
-        await File(target).copy(link.key);
+        await File(_sdkIoPath(target)).copy(_sdkIoPath(link.key));
       } else {
         throw XcrossError('Unsupported SDK symlink target: ${link.value}');
       }
@@ -163,16 +167,28 @@ String _resolvedSdkLinkTarget(String root, String link, String rawTarget) {
 }
 
 Future<void> _copySdkDirectory(String source, String destination) async {
-  await Directory(destination).create(recursive: true);
-  await for (final entity in Directory(source).list()) {
+  await Directory(_sdkIoPath(destination)).create(recursive: true);
+  await for (final entity in Directory(_sdkIoPath(source)).list()) {
     final target = p.join(destination, p.basename(entity.path));
     final type = FileSystemEntity.typeSync(entity.path);
     if (type == FileSystemEntityType.directory) {
       await _copySdkDirectory(entity.path, target);
     } else if (type == FileSystemEntityType.file) {
-      await File(entity.path).copy(target);
+      await File(entity.path).copy(_sdkIoPath(target));
     }
   }
+}
+
+/// Win32 directory enumeration appends `\\*`, which still hits `MAX_PATH`
+/// unless the absolute path uses the extended-length prefix.
+String _sdkIoPath(String path) {
+  if (!Platform.isWindows) return path;
+  final absolute = p.absolute(path);
+  if (absolute.startsWith(r'\\?\')) return absolute;
+  if (absolute.startsWith(r'\\')) {
+    return '\\\\?\\UNC\\${absolute.substring(2)}';
+  }
+  return '\\\\?\\$absolute';
 }
 
 const _platformDeveloper = 'Developer/Platforms/iPhoneOS.platform/Developer';
@@ -311,8 +327,9 @@ class SdkInstallCommand extends Command<void> {
     }
 
     final destDir = DarwinSdk.nativeInstallDir();
-    if (Directory(destDir).existsSync()) {
-      await Directory(destDir).delete(recursive: true);
+    final ioDestDir = _sdkIoPath(destDir);
+    if (Directory(ioDestDir).existsSync()) {
+      await Directory(ioDestDir).delete(recursive: true);
     }
     final written = await _extract(xipPath, destDir);
     if (written == 0) {

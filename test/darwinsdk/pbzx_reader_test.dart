@@ -51,6 +51,27 @@ void main() {
       expect(decoded, plaintext);
     });
 
+    test('decodes an initial raw LZMA2 packet used as dictionary', () async {
+      // The fixture is 62,000 deterministic pseudo-random bytes repeated
+      // twice and compressed with Python's standard XZ encoder. archive 4.0.9
+      // fails when the second half references the first control-1 raw packet.
+      final xzBytes = await File(
+        'test/fixtures/darwinsdk/lzma2-initial-dictionary-reset.xz',
+      ).readAsBytes();
+      final pbzxBytes = buildPbzx([
+        PbzxChunk(decompressedSize: 124000, bytes: xzBytes),
+      ]);
+
+      final path = '${tempDir.path}/dictionary-reset.pbzx';
+      await File(path).writeAsBytes(pbzxBytes);
+      final file = await File(path).open();
+      addTearDown(file.close);
+
+      final decoded = await decodeToBytes(file, pbzxBytes.length);
+      expect(decoded, hasLength(124000));
+      expect(decoded.sublist(0, 62000), decoded.sublist(62000));
+    });
+
     test(
       'decodes multiple consecutive xz chunks via one concatenated decode',
       () async {

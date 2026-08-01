@@ -90,8 +90,28 @@ int _beUint64(Uint8List bytes) => ByteData.sublistView(bytes).getUint64(0);
 /// pure-Dart [XZDecoder] — no subprocess, no external binary.
 Uint8List _xzDecompress(Uint8List compressed) {
   try {
-    return XZDecoder().decodeBytes(compressed);
+    return XZDecoder().decodeBytes(_fixInitialLzma2DictionaryReset(compressed));
   } on Object catch (e) {
     throw XcrossError('pbzx: failed to decode an xz-compressed chunk: $e');
   }
+}
+
+/// `archive` 4.0.9 copies an initial LZMA2 control-1 raw packet to output but
+/// forgets to seed its dictionary. For the first packet of a fresh block,
+/// control 2 is equivalent: the dictionary is already empty, and `archive`
+/// correctly appends those same bytes to it before decoding later matches.
+Uint8List _fixInitialLzma2DictionaryReset(Uint8List xz) {
+  const streamHeaderSize = 12;
+  if (xz.length <= streamHeaderSize) return xz;
+
+  final blockHeaderByte = xz[streamHeaderSize];
+  if (blockHeaderByte == 0) return xz;
+  final blockHeaderSize = (blockHeaderByte + 1) * 4;
+  final firstControl = streamHeaderSize + blockHeaderSize;
+  if (firstControl >= xz.length || xz[firstControl] != 1) return xz;
+
+  // ponytail: remove when package:archive handles LZMA2 control 1 correctly.
+  final fixed = Uint8List.fromList(xz);
+  fixed[firstControl] = 2;
+  return fixed;
 }

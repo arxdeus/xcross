@@ -87,6 +87,53 @@ void main() {
     expect(File(p.join(include, 'alias.h')).readAsStringSync(), 'header');
   });
 
+  test('materializes SDK directories beyond Windows MAX_PATH', () async {
+    final temp = Directory.systemTemp.createTempSync('xcross-sdk-long-path-');
+    addTearDown(() {
+      final path = Platform.isWindows
+          ? '\\\\?\\${p.absolute(temp.path)}'
+          : temp.path;
+      Directory(path).deleteSync(recursive: true);
+    });
+    const sdk =
+        'Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/'
+        'Developer/SDKs/iPhoneOS26.6.sdk';
+    final first = List.filled(90, 'a').join();
+    final second = List.filled(90, 'b').join();
+    final target = '$sdk/System/Library/Frameworks/$first/$second';
+
+    await writeSdkEntries(
+      Stream.fromIterable([
+        entry(target, mode: 0x41ed),
+        entry('$target/value.txt', data: 'long path'),
+        entry(
+          '$sdk/copied',
+          mode: 0xa1ff,
+          data: 'System/Library/Frameworks/$first/$second',
+        ),
+      ]),
+      temp.path,
+      materializeLinks: true,
+    );
+
+    final copied = p.join(
+      temp.path,
+      'Developer',
+      'Platforms',
+      'iPhoneOS.platform',
+      'Developer',
+      'SDKs',
+      'iPhoneOS26.6.sdk',
+      'copied',
+      'value.txt',
+    );
+    expect(p.join(temp.path, target).length, greaterThan(260));
+    final ioCopied = Platform.isWindows
+        ? '\\\\?\\${p.absolute(copied)}'
+        : copied;
+    expect(File(ioCopied).readAsStringSync(), 'long path');
+  });
+
   test('rejects archive traversal', () async {
     final temp = Directory.systemTemp.createTempSync('xcross-sdk-path-');
     addTearDown(() => temp.deleteSync(recursive: true));
