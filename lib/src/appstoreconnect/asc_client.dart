@@ -100,10 +100,12 @@ class AscClient implements DevelopmentProvisioningClient {
   /// with this before [registerDevice] instead of blindly re-registering.
   @override
   Future<AscDevice?> findDeviceByUdid(String udid) async {
-    for (final device in await listDevices()) {
-      if (device.udid == udid) return device;
-    }
-    return null;
+    final json = await _get(
+      '/devices?filter[udid]=${Uri.encodeQueryComponent(udid)}',
+    );
+    final data = json['data'] as List;
+    if (data.isEmpty) return null;
+    return AscDevice.fromJson((data.first as Map).cast());
   }
 
   /// Finds an already-registered bundle id, or null if not found.

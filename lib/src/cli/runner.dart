@@ -39,7 +39,7 @@ abstract final class XcrossCli {
   static CommandRunner<void> buildRunner() {
     return _XcrossRunner(
         'xcross',
-        'Build, run, and hot-reload Flutter iOS apps from Linux without Xcode.',
+        'Build, run, and hot-reload Flutter iOS apps without Xcode.',
       )
       ..addCommand(FlutterCommand())
       ..addCommand(PrepareCommand())
@@ -82,10 +82,11 @@ abstract final class XcrossCli {
       // Not our error to report — dispatch below produces the real message.
     }
 
-    // Skip the credits line for `completion`: its stdout is appended verbatim
-    // to a shell rc file (or is the runtime completion hook above, which never
-    // reaches here), so any extra text would corrupt it.
-    if (args.isEmpty || args.first != 'completion') _printCredits();
+    // Both completion and DAP own stdout as a machine protocol; a credits line
+    // corrupts either stream.
+    if (args.isEmpty || !const {'completion', 'dap'}.contains(args.first)) {
+      _printCredits();
+    }
 
     try {
       await runner.run(args);

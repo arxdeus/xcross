@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:args/command_runner.dart';
 import 'package:xcross/src/build/flutter_pack_operation.dart';
 import 'package:xcross/src/build/hot_reload_setup.dart';
@@ -163,6 +165,12 @@ class FlutterRunCommand extends Command<void> with CommonFlutterOptions {
       dartDefines: dartDefines,
       verbose: _verbose,
     );
+    if (hotReload == null && Platform.environment['XCROSS_DAP'] == '1') {
+      throw XcrossError(
+        'DAP launch requires the Flutter frontend_server artifacts needed '
+        'for hot reload.',
+      );
+    }
 
     final mode = hotReload != null
         ? 'debug/JIT, hot reload'

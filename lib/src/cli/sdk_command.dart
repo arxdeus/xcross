@@ -33,6 +33,7 @@ const sdkIncludedRoots = <String>[
   'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift',
   'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift_static',
   'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang',
+  'Developer/Toolchains/XcodeDefault.xctoolchain/usr/include',
 ];
 
 /// Destination-relative path for an included cpio entry, or null when the
@@ -200,7 +201,7 @@ Future<void> writeSwiftSdkBundleMetadata(String artifactRoot) async {
           'sdkRootPath': relativeSdkRoot,
           'swiftResourcesPath': _swiftResources,
           'swiftStaticResourcesPath': _swiftStaticResources,
-          'includeSearchPaths': ['$_platformDeveloper/usr/lib'],
+          'includeSearchPaths': ['$_platformDeveloper/usr/lib', 'Developer/Toolchains/XcodeDefault.xctoolchain/usr/include/c++/v1'],
           'librarySearchPaths': ['$_platformDeveloper/usr/lib'],
           'toolsetPaths': ['toolset.json'],
         },

@@ -10,6 +10,10 @@ inputs:
       root. Optional when the host-specific cache is warm.
     required: false
     default: ""
+  cache-revision:
+    description: Non-secret revision used to invalidate the private SDK cache.
+    required: false
+    default: v3
 
 runs:
   using: composite
@@ -17,6 +21,8 @@ runs:
     - name: Resolve xcross Swift SDK path
       id: sdk-path
       shell: python
+      env:
+        CACHE_REVISION: ${{ inputs.cache-revision }}
       run: |
         import os
         from pathlib import Path
@@ -32,15 +38,24 @@ runs:
         with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
             env.write(f"XCROSS_SWIFT_SDKS_PATH={parent}\n")
             env.write(f"XCROSS_DARWIN_BUNDLE={bundle}\n")
+        cache_key = "-".join(
+            (
+                "xcross-darwin",
+                os.environ["CACHE_REVISION"],
+                os.environ["RUNNER_OS"],
+                os.environ["RUNNER_ARCH"],
+            )
+        )
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
             out.write(f"bundle={bundle}\n")
+            out.write(f"cache-key={cache_key}\n")
 
     - name: Restore Darwin SDK cache
       id: darwin-cache
       uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
       with:
         path: ${{ steps.sdk-path.outputs.bundle }}
-        key: xcross-darwin-artifactbundle-v2-${{ runner.os }}-${{ runner.arch }}
+        key: ${{ steps.sdk-path.outputs.cache-key }}
 
     - name: Download Darwin SDK (cache miss)
       if: steps.darwin-cache.outputs.cache-hit != 'true'

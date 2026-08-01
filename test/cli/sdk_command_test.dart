@@ -198,6 +198,7 @@ void main() {
     );
     expect(target['includeSearchPaths'], [
       'Developer/Platforms/iPhoneOS.platform/Developer/usr/lib',
+      'Developer/Toolchains/XcodeDefault.xctoolchain/usr/include/c++/v1',
     ]);
     expect(target['librarySearchPaths'], [
       'Developer/Platforms/iPhoneOS.platform/Developer/usr/lib',

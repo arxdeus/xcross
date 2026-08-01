@@ -237,7 +237,7 @@ abstract final class ProcessRunner {
     final env = environment ?? Platform.environment;
     final onWindows = windows ?? Platform.isWindows;
     final pathEnv = _environmentValue(env, 'PATH') ?? '';
-    final extensions = onWindows && p.extension(name).isEmpty
+    final extensions = onWindows
         ? (_environmentValue(env, 'PATHEXT') ?? '.COM;.EXE;.BAT;.CMD')
               .split(';')
               .where((extension) => extension.isNotEmpty)
@@ -245,11 +245,20 @@ abstract final class ProcessRunner {
                 (extension) =>
                     extension.startsWith('.') ? extension : '.$extension',
               )
-        : const <String>[''];
+              .toList()
+        : const <String>[];
+    final hasWindowsExtension = extensions.any(
+      (extension) => name.toLowerCase().endsWith(extension.toLowerCase()),
+    );
+    final names = [
+      name,
+      if (onWindows && !hasWindowsExtension)
+        for (final extension in extensions) '$name$extension',
+    ];
     for (final dir in pathEnv.split(onWindows ? ';' : ':')) {
       if (dir.isEmpty) continue;
-      for (final extension in extensions) {
-        final candidate = p.join(dir, '$name$extension');
+      for (final candidateName in names) {
+        final candidate = p.join(dir, candidateName);
         if (File(candidate).existsSync()) return candidate;
       }
     }

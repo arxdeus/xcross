@@ -63,28 +63,24 @@ abstract final class CoreDeviceLauncher {
       await gdb.resume();
       Log.logDone('Debugger attached');
     } catch (e) {
+      await gdb.close();
       tunnelDaemon.stop();
       throw XcrossError('Debugger attach failed: $e');
     }
 
-    final hotReloadController = await _trySpinUpHotReload(
-      hotReload: hotReload,
-      tunnelAddress: tunnel.address,
-    );
-
-    // Only advertised when hot reload is live: the VM Service flags are passed
-    // to the app only when hotReload != null, so there is nothing to connect to
-    // otherwise. Owned here rather than inside _trySpinUpHotReload because a
-    // listening socket must be closed on the way out.
-    final vmService = hotReloadController == null
-        ? null
-        : await _publishVmService(tunnelAddress: tunnel.address);
-
-    // In a finally: the forwarder holds a LISTENING socket, which keeps the
-    // Dart event loop alive. If the session throws (a gdb socket error when the
-    // cable is pulled), skipping this cleanup hangs the process instead of
-    // reporting the error.
+    HotReloadController? hotReloadController;
+    PortForwarder? vmService;
+    // Hot-reload setup is inside the same cleanup boundary as the session. A
+    // failed VM connection must not leak the attached debugger or leave a DAP
+    // launch paused forever.
     try {
+      hotReloadController = await _trySpinUpHotReload(
+        hotReload: hotReload,
+        tunnelAddress: tunnel.address,
+      );
+      if (hotReloadController != null) {
+        vmService = await _publishVmService(tunnelAddress: tunnel.address);
+      }
       await SessionConsole(gdb: gdb, hotReload: hotReloadController).run();
     } finally {
       await vmService?.close();
@@ -112,6 +108,9 @@ abstract final class CoreDeviceLauncher {
       );
       return forwarder;
     } on Object catch (e) {
+      if (_isDap) {
+        throw XcrossError('Could not publish the VM Service: $e');
+      }
       Log.logWarn('could not publish the VM Service on loopback: $e');
       return null;
     }
@@ -236,6 +235,8 @@ abstract final class CoreDeviceLauncher {
 
   /// Spin up hot reload if [hotReload] config is provided; log and return null
   /// on failure.
+  static bool get _isDap => Platform.environment['XCROSS_DAP'] == '1';
+
   static Future<HotReloadController?> _trySpinUpHotReload({
     required HotReloadConfig? hotReload,
     required String tunnelAddress,
@@ -246,17 +247,19 @@ abstract final class CoreDeviceLauncher {
       );
       return null;
     }
+    DartVmServiceClient? vm;
+    HotReloadController? controller;
     try {
       final wsUri = Uri.parse(
         'ws://${ProcessRunner.bracketHost(tunnelAddress)}:'
         '${DeviceConstants.vmServicePort}/ws',
       );
-      final vm = await _waitForVmService(wsUri);
+      vm = await _waitForVmService(wsUri);
       // `print` and `log()` reach us only over these streams — the debugger
       // attached to an already-launched process, so it owns no stdio for the
       // app.
       await VmServiceOutput.forwardVmServiceOutput(vm);
-      final controller = HotReloadController(
+      controller = HotReloadController(
         config: hotReload,
         vm: vm,
         tunnelAddress: tunnelAddress,
@@ -268,6 +271,12 @@ abstract final class CoreDeviceLauncher {
       );
       return controller;
     } catch (e) {
+      if (controller != null) {
+        await controller.close();
+      } else {
+        await vm?.close();
+      }
+      if (_isDap) throw XcrossError('Hot reload setup failed: $e');
       Log.logWarn('hot reload unavailable: $e');
       return null;
     }
@@ -291,6 +300,7 @@ abstract final class CoreDeviceLauncher {
       },
     );
     if (connected != null) return connected;
+    await vm.close();
     // ignore: only_throw_errors
     if (lastError case final Object error?) throw error;
     throw XcrossError('VM Service did not become available');

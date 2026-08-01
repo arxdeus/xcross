@@ -231,6 +231,21 @@ void main() {
       expect(result, executable.path);
     });
 
+    test('appends PATHEXT when the command already contains a dot', () async {
+      final tmp = Directory.systemTemp.createTempSync('xcross-dotted-exe-');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final executable = File(p.join(tmp.path, 'ld64.lld.exe'))..createSync();
+
+      final result = await ProcessRunner.which(
+        'ld64.lld',
+        windows: true,
+        environment: {'PATH': tmp.path, 'PATHEXT': '.EXE;.BAT'},
+      );
+
+      expect(result, isNotNull);
+      expect(p.equals(result!, executable.path), isTrue);
+    });
+
     test(
       'resolves to null for an executable that does not exist on PATH',
       () async {
