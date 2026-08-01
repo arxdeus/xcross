@@ -8,6 +8,27 @@ import 'package:xcross/src/cli/flutter/flutter_build_args.dart';
 import 'package:xcross/src/cli/flutter/flutter_run_args.dart';
 
 void main() {
+  group('shouldUseCoreDevice', () {
+    test(
+      'uses CoreDevice for confirmed iOS 17+ and unknown native devices',
+      () {
+        expect(shouldUseCoreDevice(osMajor: 17, nativeBackend: false), isTrue);
+        expect(shouldUseCoreDevice(osMajor: null, nativeBackend: true), isTrue);
+      },
+    );
+
+    test(
+      'keeps confirmed older and unknown xtool devices on legacy launch',
+      () {
+        expect(shouldUseCoreDevice(osMajor: 16, nativeBackend: true), isFalse);
+        expect(
+          shouldUseCoreDevice(osMajor: null, nativeBackend: false),
+          isFalse,
+        );
+      },
+    );
+  });
+
   group('FlutterRunCommand', () {
     late Command<void> command;
 

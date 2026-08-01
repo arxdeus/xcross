@@ -184,7 +184,7 @@ abstract final class CoreDeviceLauncher {
         'debugproxy service. Mount it and retry:\n\n'
         '    xcross prepare\n\n'
         'Or manually:\n\n'
-        '    sudo pymobiledevice3 mounter auto-mount\n\n'
+        '    ${Pymd.elevatedCommand('mounter auto-mount')}\n\n'
         'If you just mounted it, restart `pymobiledevice3 remote tunneld` '
         'so the RSD service list is refreshed.',
       );

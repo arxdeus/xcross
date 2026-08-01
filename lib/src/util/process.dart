@@ -216,16 +216,54 @@ abstract final class ProcessRunner {
     return "'${s.replaceAll("'", r"'\''")}'";
   }
 
-  /// `;` on Windows, `:` elsewhere — how the OS joins PATH's directory list.
-  static String get _pathListSeparator => Platform.isWindows ? ';' : ':';
+  /// Host-specific filename for a bundled executable.
+  static String hostExecutableName(
+    String name, {
+    bool? windows,
+    String windowsExtension = '.exe',
+  }) {
+    final onWindows = windows ?? Platform.isWindows;
+    return onWindows && p.extension(name).isEmpty
+        ? '$name$windowsExtension'
+        : name;
+  }
 
   /// Absolute path to [name] on PATH, or null if not found.
-  static Future<String?> which(String name) async {
-    final pathEnv = Platform.environment['PATH'] ?? '';
-    for (final dir in pathEnv.split(_pathListSeparator)) {
+  ///
+  /// Windows lookup follows PATHEXT, matching `cmd.exe` and normal Python/
+  /// Flutter installations where only `.exe`/`.bat` launchers exist.
+  static Future<String?> which(
+    String name, {
+    Map<String, String>? environment,
+    bool? windows,
+  }) async {
+    final env = environment ?? Platform.environment;
+    final onWindows = windows ?? Platform.isWindows;
+    final pathEnv = _environmentValue(env, 'PATH') ?? '';
+    final extensions = onWindows && p.extension(name).isEmpty
+        ? (_environmentValue(env, 'PATHEXT') ?? '.COM;.EXE;.BAT;.CMD')
+              .split(';')
+              .where((extension) => extension.isNotEmpty)
+              .map(
+                (extension) =>
+                    extension.startsWith('.') ? extension : '.$extension',
+              )
+        : const <String>[''];
+    for (final dir in pathEnv.split(onWindows ? ';' : ':')) {
       if (dir.isEmpty) continue;
-      final file = File('$dir/$name');
-      if (file.existsSync()) return file.path;
+      for (final extension in extensions) {
+        final candidate = p.join(dir, '$name$extension');
+        if (File(candidate).existsSync()) return candidate;
+      }
+    }
+    return null;
+  }
+
+  static String? _environmentValue(Map<String, String> env, String name) {
+    final exact = env[name];
+    if (exact != null) return exact;
+    for (final entry in env.entries) {
+      if (entry.key.toUpperCase() == name) return entry.value;
     }
     return null;
   }
@@ -233,13 +271,8 @@ abstract final class ProcessRunner {
   /// Search PATH for [name]. Falls back to `command -v` via a shell — skipped
   /// on Windows, which has no `/bin/sh`.
   static Future<String> locateTool(String name) async {
-    final pathEnv = Platform.environment['PATH'] ?? '';
-    for (final dir in pathEnv.split(_pathListSeparator)) {
-      if (dir.isEmpty) continue;
-      final candidate = p.join(dir, name);
-      final candidateExists = File(candidate).existsSync();
-      if (candidateExists) return candidate;
-    }
+    final found = await which(name);
+    if (found != null) return found;
     if (!Platform.isWindows) {
       final result = await Process.run('/bin/sh', ['-c', "command -v '$name'"]);
       final out = (result.stdout as String).trim();

@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:path/path.dart' as p;
 
+import 'package:xcross/src/darwinsdk/cpio_reader.dart';
 import 'package:xcross/src/darwinsdk/xcode_xip_extractor.dart';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/logging.dart';
@@ -36,6 +38,114 @@ const sdkAnchor = 'Developer/Platforms/iPhoneOS.platform/Developer/SDKs/';
 String? sdkRelativePath(String name) {
   final index = name.indexOf(sdkAnchor);
   return index < 0 ? null : name.substring(index);
+}
+
+const _fileTypeMask = 0xF000;
+const _directoryType = 0x4000;
+const _regularFileType = 0x8000;
+const _symbolicLinkType = 0xA000;
+
+Future<int> writeSdkEntries(
+  Stream<CpioEntry> entries,
+  String destDir, {
+  bool? materializeLinks,
+  void Function(int count)? onProgress,
+}) async {
+  final root = p.normalize(p.absolute(destDir));
+  await Directory(root).create(recursive: true);
+  final links = <String, String>{};
+  var written = 0;
+
+  await for (final entry in entries) {
+    final archivePath = sdkRelativePath(entry.name);
+    if (archivePath == null) continue;
+    final relative = p.normalize(archivePath.replaceAll('/', p.separator));
+    final destPath = p.normalize(p.join(root, relative));
+    if (p.isAbsolute(relative) || !p.isWithin(root, destPath)) {
+      throw XcrossError('Unsafe SDK archive path: ${entry.name}');
+    }
+
+    switch (entry.mode & _fileTypeMask) {
+      case _directoryType:
+        await Directory(destPath).create(recursive: true);
+      case _symbolicLinkType:
+        await Directory(p.dirname(destPath)).create(recursive: true);
+        links[destPath] = utf8.decode(entry.data);
+      case _regularFileType || 0:
+        await Directory(p.dirname(destPath)).create(recursive: true);
+        await File(destPath).writeAsBytes(entry.data);
+        if (entry.mode & 0x49 != 0) ProcessRunner.makeExecutable(destPath);
+      default:
+        continue;
+    }
+
+    written++;
+    onProgress?.call(written);
+  }
+
+  if (materializeLinks ?? Platform.isWindows) {
+    await _materializeSdkLinks(root, links);
+  } else {
+    for (final link in links.entries) {
+      await Link(link.key).create(link.value, recursive: true);
+    }
+  }
+  return written;
+}
+
+Future<void> _materializeSdkLinks(
+  String root,
+  Map<String, String> links,
+) async {
+  final pending = Map<String, String>.from(links);
+  while (pending.isNotEmpty) {
+    var progressed = false;
+    for (final link in pending.entries.toList()) {
+      final rawTarget = link.value.replaceAll('/', p.separator);
+      if (p.isAbsolute(rawTarget)) {
+        throw XcrossError('SDK symlink target is absolute: ${link.value}');
+      }
+      final target = p.normalize(p.join(p.dirname(link.key), rawTarget));
+      if (!p.isWithin(root, target)) {
+        throw XcrossError('SDK symlink escapes the SDK: ${link.value}');
+      }
+      final type = FileSystemEntity.typeSync(target);
+      if (type == FileSystemEntityType.notFound) continue;
+      if (type == FileSystemEntityType.directory &&
+          pending.keys.any(
+            (other) => other != link.key && p.isWithin(target, other),
+          )) {
+        continue;
+      }
+
+      if (type == FileSystemEntityType.directory) {
+        await _copySdkDirectory(target, link.key);
+      } else if (type == FileSystemEntityType.file) {
+        await File(target).copy(link.key);
+      } else {
+        throw XcrossError('Unsupported SDK symlink target: ${link.value}');
+      }
+      pending.remove(link.key);
+      progressed = true;
+    }
+    if (!progressed) {
+      throw XcrossError(
+        'Could not resolve SDK symlinks: ${pending.values.join(', ')}',
+      );
+    }
+  }
+}
+
+Future<void> _copySdkDirectory(String source, String destination) async {
+  await Directory(destination).create(recursive: true);
+  await for (final entity in Directory(source).list()) {
+    final target = p.join(destination, p.basename(entity.path));
+    if (entity is Directory) {
+      await _copySdkDirectory(entity.path, target);
+    } else if (entity is File) {
+      await entity.copy(target);
+    }
+  }
 }
 
 /// `xcross sdk install <Xcode.xip>` \u2014 extract just the iPhoneOS SDK sysroot
@@ -107,30 +217,22 @@ class SdkInstallCommand extends Command<void> {
   /// Streams [xipPath]'s decoded cpio content, writing every entry under the
   /// iPhoneOS SDK sysroot to [destDir]. Returns the number of files written.
   Future<int> _extract(String xipPath, String destDir) async {
-    var written = 0;
     final step = Log.beginStep('Extracting iPhoneOS SDK from Xcode.xip');
     try {
-      await for (final entry in extractXcodeXipContent(xipPath)) {
-        final relative = sdkRelativePath(entry.name);
-        if (relative == null) continue;
-
-        final destPath = p.join(destDir, relative);
-        await Directory(p.dirname(destPath)).create(recursive: true);
-        await File(destPath).writeAsBytes(entry.data);
-        // Owner/group/other execute bits \u2014 same mask as the rest of this
-        // codebase's mode checks (see test/util/process_test.dart).
-        if (entry.mode & 0x49 != 0) ProcessRunner.makeExecutable(destPath);
-
-        written++;
-        if (written % _progressInterval == 0) {
-          step.log('$written files extracted\u2026\n');
-        }
-      }
+      final written = await writeSdkEntries(
+        extractXcodeXipContent(xipPath),
+        destDir,
+        onProgress: (count) {
+          if (count % _progressInterval == 0) {
+            step.log('$count files extracted…\n');
+          }
+        },
+      );
       step.done('Extracted $written files');
+      return written;
     } on Object {
       step.fail();
       rethrow;
     }
-    return written;
   }
 }

@@ -107,7 +107,10 @@ class FlutterDebugBundler {
     // AOT snapshots run via `dartaotruntime`; non-AOT via `dart`.
     final isAot = p.basename(snapshot).contains('_aot');
     final runtimeName = isAot ? 'dartaotruntime' : 'dart';
-    final runtime = p.join(dartSdkBin, runtimeName);
+    final runtime = p.join(
+      dartSdkBin,
+      ProcessRunner.hostExecutableName(runtimeName),
+    );
 
     _validateKernelDependencies(snapshot, runtime, runtimeName, engineCache);
 

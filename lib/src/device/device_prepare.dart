@@ -2,12 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
 import 'package:xcross/src/device/pymd.dart';
 import 'package:xcross/src/device/tunnel_daemon.dart';
 import 'package:xcross/src/util/errors.dart';
+import 'package:xcross/src/util/host_privileges.dart';
 import 'package:xcross/src/util/logging.dart';
 import 'package:xcross/src/util/process.dart';
-import 'package:xcross/src/util/sudo.dart';
 
 /// One-shot iOS 17+ host prep: mount the Developer Disk Image and start the
 /// RSD tunnel(s) that [CoreDeviceLauncher] needs.
@@ -34,11 +35,11 @@ abstract final class DevicePrepare {
       );
     }
 
-    await Sudo.cacheCredentials(
-      manualHint:
+    await HostPrivileges.ensureDeviceToolAccess(
+      posixManualHint:
           'Start prepare steps manually:\n'
-          '    sudo pymobiledevice3 mounter auto-mount\n'
-          '    sudo pymobiledevice3 lockdown start-tunnel',
+          '    ${Pymd.elevatedCommand('mounter auto-mount')}\n'
+          '    ${Pymd.elevatedCommand('lockdown start-tunnel')}',
     );
 
     await _autoMount();
@@ -70,7 +71,7 @@ abstract final class DevicePrepare {
           'mounter auto-mount failed (exit ${result.exitCode}).\n'
           '${result.stderr.trim()}\n'
           'Retry manually:\n'
-          '    sudo pymobiledevice3 mounter auto-mount',
+          '    ${Pymd.elevatedCommand('mounter auto-mount')}',
         );
       }
     });
@@ -89,8 +90,10 @@ abstract final class DevicePrepare {
   /// Spawn `lockdown start-tunnel` and wait for it to report an RSD tunnel.
   static Future<void> _startLockdownTunnel() async {
     final argv = await Pymd.elevatedArgs(['lockdown', 'start-tunnel']);
-    final tmpDir = Platform.environment['TMPDIR'] ?? '/tmp';
-    final logPath = '$tmpDir/xcross-start-tunnel.log';
+    final logPath = p.join(
+      Directory.systemTemp.path,
+      'xcross-start-tunnel.log',
+    );
     final logFile = File(logPath);
     if (!logFile.existsSync()) logFile.createSync(recursive: true);
 
@@ -164,7 +167,7 @@ abstract final class DevicePrepare {
       throw XcrossError(
         'lockdown start-tunnel did not report a tunnel within 60s.\n'
         'Keep the phone unlocked and trusted, then retry:\n'
-        '    sudo pymobiledevice3 lockdown start-tunnel\n'
+        '    ${Pymd.elevatedCommand('lockdown start-tunnel')}\n'
         'See $logPath for output.',
       );
     } on XcrossError {

@@ -30,10 +30,15 @@ abstract class DeviceBackend {
     required String bundleId,
   });
 
-  /// [XtoolBackend] if the `xtool` binary is found on PATH (existing,
-  /// unchanged Linux/macOS behavior), else [NativeBackend].
-  static Future<DeviceBackend> resolve() async {
-    final xtoolPath = await ProcessRunner.which('xtool');
+  /// [XtoolBackend] if the `xtool` binary is found on PATH (existing
+  /// Linux/macOS behavior), else [NativeBackend]. Windows always uses the
+  /// native path because xtool requires a Swift toolchain there.
+  static Future<DeviceBackend> resolve({
+    bool? windows,
+    Future<String?> Function(String name)? which,
+  }) async {
+    if (windows ?? Platform.isWindows) return NativeBackend();
+    final xtoolPath = await (which ?? ProcessRunner.which)('xtool');
     return xtoolPath != null ? XtoolBackend() : NativeBackend();
   }
 }

@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
 import 'package:xcross/src/constants.dart';
 import 'package:xcross/src/device/pymd.dart';
 import 'package:xcross/src/util/errors.dart';
+import 'package:xcross/src/util/host_privileges.dart';
 import 'package:xcross/src/util/logging.dart';
 import 'package:xcross/src/util/process.dart';
 import 'package:xcross/src/util/sudo.dart';
@@ -28,17 +30,16 @@ class TunnelDaemon {
       return;
     }
 
+    await HostPrivileges.ensureDeviceToolAccess(
+      posixManualHint:
+          'Start tunneld manually:\n'
+          '    ${Pymd.elevatedCommand('remote tunneld')}',
+    );
     final sudo = await Sudo.resolve();
 
     // Cache sudo credentials interactively first, then start the long-lived
     // daemon with piped stdio (never inheritStdio — that steals `r`/`R`/`q`
     // from the hot-reload keypress loop for the whole session).
-    await Sudo.cacheCredentials(
-      manualHint:
-          'Start tunneld manually:\n'
-          '    sudo pymobiledevice3 remote tunneld',
-    );
-
     // Build: [sudo -n] [env USBMUXD_SOCKET_ADDRESS=…] <exe> … remote tunneld
     // sudo strips the env by default; without the unix socket path,
     // Linux pymobiledevice3 targets 127.0.0.1:27015 and fails under usbipd.
@@ -58,8 +59,7 @@ class TunnelDaemon {
 
   /// Spawn tunneld with [argv] and poll until its REST API answers.
   Future<void> _startDaemon(List<String> argv) async {
-    final tmpDir = Platform.environment['TMPDIR'] ?? '/tmp';
-    final logPath = '$tmpDir/xtool-tunneld.log';
+    final logPath = p.join(Directory.systemTemp.path, 'xcross-tunneld.log');
     final logFile = File(logPath);
     if (!logFile.existsSync()) logFile.createSync(recursive: true);
 
@@ -101,7 +101,7 @@ class TunnelDaemon {
     if (up ?? false) return;
     throw XcrossError(
       'tunneld did not come up. Try starting it manually in another terminal:\n'
-      '    sudo pymobiledevice3 remote tunneld\n'
+      '    ${Pymd.elevatedCommand('remote tunneld')}\n'
       'See $logPath for daemon output.',
     );
   }

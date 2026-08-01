@@ -5,6 +5,7 @@ import 'package:xcross/src/build/flutter_packer.dart';
 import 'package:xcross/src/build/ios_engine_cache.dart';
 import 'package:xcross/src/models/device/hot_reload_config.dart';
 import 'package:xcross/src/util/logging.dart';
+import 'package:xcross/src/util/process.dart';
 
 /// Groups hot-reload configuration setup.
 abstract final class HotReloadSetup {
@@ -46,7 +47,10 @@ abstract final class HotReloadSetup {
     // frontend_server is AOT (dartaotruntime) or a kernel snapshot (dart).
     final dartSdkBin = p.join(flutterRoot, 'bin', 'cache', 'dart-sdk', 'bin');
     final isAot = p.basename(frontendServer).contains('_aot');
-    final dart = p.join(dartSdkBin, isAot ? 'dartaotruntime' : 'dart');
+    final dart = p.join(
+      dartSdkBin,
+      ProcessRunner.hostExecutableName(isAot ? 'dartaotruntime' : 'dart'),
+    );
 
     // Persistent dill output for incremental reloads.
     final outputDill = p.join(

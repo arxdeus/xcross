@@ -30,12 +30,16 @@ abstract final class Pymd {
 
   static PymdInvocation? _cached;
 
+  static String get _installCommand => Platform.isWindows
+      ? 'py -m pip install -U pymobiledevice3'
+      : 'sudo pip3 install --break-system-packages pymobiledevice3';
+
   /// Human-readable install hint shown when pymobiledevice3 is not found.
-  static const _notFoundMessage =
-      'Could not find `pymobiledevice3` in PATH (or a python3 that can '
+  static String get _notFoundMessage =>
+      'Could not find `pymobiledevice3` in PATH (or a Python 3 that can '
       '`import pymobiledevice3`).\n'
       'Install it once on this machine, e.g.:\n'
-      '    sudo pip3 install --break-system-packages pymobiledevice3';
+      '    $_installCommand';
 
   static Future<PymdInvocation> resolve() async {
     if (_cached != null) return _cached!;
@@ -47,10 +51,8 @@ abstract final class Pymd {
       return _cached!;
     }
 
-    // Fallback: python3 -m pymobiledevice3.
-    final py =
-        await ProcessRunner.which('python3') ??
-        await ProcessRunner.which('python');
+    // Fallback: Python launcher -m pymobiledevice3.
+    final py = await _resolvePython();
     if (py == null) throw XcrossError(_notFoundMessage);
 
     final probe = await ProcessRunner.run(py, ['-c', 'import pymobiledevice3']);
@@ -77,12 +79,10 @@ abstract final class Pymd {
 
     final step = Log.beginStep('Installing pymobiledevice3 (one-time)');
 
-    final py =
-        await ProcessRunner.which('python3') ??
-        await ProcessRunner.which('python');
+    final py = await _resolvePython();
     if (py == null) {
       step.fail();
-      Log.logError('no python3 found. Install Python 3 first.');
+      Log.logError('no Python 3 found. Install Python 3 first.');
       return false;
     }
 
@@ -106,10 +106,15 @@ abstract final class Pymd {
     step.fail();
     Log.logError(
       'failed to install pymobiledevice3. Install it manually:\n'
-      '    sudo pip3 install --break-system-packages pymobiledevice3',
+      '    $_installCommand',
     );
     return false;
   }
+
+  static Future<String?> _resolvePython() async =>
+      await ProcessRunner.which('python3') ??
+      await ProcessRunner.which('python') ??
+      await ProcessRunner.which('py');
 
   /// Build the ordered list of install command vectors to try.
   static Future<List<List<String>>> _buildInstallAttempts(String py) async {
@@ -313,6 +318,9 @@ abstract final class Pymd {
     if (addr != null) env['USBMUXD_SOCKET_ADDRESS'] = addr;
     return env;
   }
+
+  static String elevatedCommand(String arguments) =>
+      '${Platform.isWindows ? '' : 'sudo '}pymobiledevice3 $arguments';
 
   /// `[sudo -n] [env USBMUXD_SOCKET_ADDRESS=…] <pymd> …args`.
   static Future<List<String>> elevatedArgs(List<String> pymdArgs) async {

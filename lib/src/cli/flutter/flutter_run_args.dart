@@ -24,6 +24,11 @@ enum DeviceConnection { attached, wireless, both }
 /// `-d/--device-id`, `-D/--dart-define`, `--dart-define-from-file`,
 /// `--[no-]pub`, `--route`, `-a/--dart-entrypoint-args`, `--device-connection`,
 /// `--flavor`).
+bool shouldUseCoreDevice({
+  required int? osMajor,
+  required bool nativeBackend,
+}) => osMajor == null ? nativeBackend : osMajor >= 17;
+
 class FlutterRunCommand extends Command<void> with CommonFlutterOptions {
   FlutterRunCommand() {
     addCommonFlutterOptions();
@@ -120,7 +125,16 @@ class FlutterRunCommand extends Command<void> with CommonFlutterOptions {
     // control) go through the CoreDevice/RSD tunnel. Determine this up front so
     // we can close a still-running instance before installing.
     final osMajor = await OsVersion.deviceOSMajorVersion(device.udid);
-    final useCoreDevice = osMajor != null && osMajor >= 17;
+    final useCoreDevice = shouldUseCoreDevice(
+      osMajor: osMajor,
+      nativeBackend: backend is NativeBackend,
+    );
+    if (osMajor == null && backend is NativeBackend) {
+      Log.logWarn(
+        'Could not read the device OS version; attempting the native '
+        'CoreDevice path.',
+      );
+    }
 
     // The pre-iOS-17 launch path (below, in _launch) needs a real XtoolCli,
     // which NativeBackend can't provide. Fail before install rather than

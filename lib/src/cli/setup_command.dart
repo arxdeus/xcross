@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:args/command_runner.dart';
 import 'package:xcross/src/device/pymd.dart';
 import 'package:xcross/src/util/errors.dart';
@@ -36,10 +38,15 @@ class SetupCommand extends Command<void> {
   String get name => 'setup';
 
   @override
-  String get description => 'Install apt-installable required packages';
+  String get description => 'Install or verify host requirements';
 
   @override
   Future<void> run() async {
+    if (Platform.isWindows) {
+      await _setupWindows();
+      return;
+    }
+
     final apt = await ProcessRunner.which('apt-get');
     if (apt == null) {
       throw XcrossError(
@@ -75,5 +82,22 @@ class SetupCommand extends Command<void> {
       throw XcrossError('pymobiledevice3 install failed; see above.');
     }
     Log.logDone('Requirements installed');
+  }
+
+  Future<void> _setupWindows() async {
+    final missing = <String>[];
+    for (final tool in const ['flutter', 'clang', 'ld64.lld']) {
+      if (await ProcessRunner.which(tool) == null) missing.add(tool);
+    }
+    if (missing.isNotEmpty) {
+      throw XcrossError(
+        'Missing Windows requirements on PATH: ${missing.join(', ')}.\n'
+        'Install Flutter and the official LLVM Windows toolchain, then retry.',
+      );
+    }
+    if (!await Pymd.ensureInstalled()) {
+      throw XcrossError('pymobiledevice3 install failed; see above.');
+    }
+    Log.logDone('Windows requirements found');
   }
 }

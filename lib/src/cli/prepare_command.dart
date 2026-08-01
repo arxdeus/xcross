@@ -20,7 +20,7 @@ class PrepareCommand extends Command<void> {
   String get description =>
       'Mount the Developer Disk Image and start the iOS 17+ RSD tunnel '
       '(mounter auto-mount + lockdown start-tunnel + tunneld). '
-      'Requires sudo once; leave tunnels running for flutter run.';
+      'Requires sudo on POSIX or an Administrator terminal on Windows.';
 
   @override
   Future<void> run() => DevicePrepare.prepare();

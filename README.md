@@ -68,20 +68,36 @@ Install these prerequisites:
 4. `Xcode.xip`, then extract only its iPhoneOS SDK without Xcode or Swift:
 
 ```powershell
+xcross setup
 xcross sdk install C:\Downloads\Xcode.xip
 xcross auth --apple-id you@example.com
 ```
 
 The auth command prompts for the password and 2FA code, then stores only the resulting Developer Services session. App Store Connect API-key authentication remains available with `--issuer-id`, `--key-id`, and `--private-key`.
 
+Native Windows launch currently requires iOS 17+ and a plugin-free Flutter app. Before each reconnect, open PowerShell with **Run as administrator** and run `xcross prepare`.
+
 ## Quick start
 
+### Linux
+
 ```sh
-xcross setup                     # will install most of the required apt packages
+xcross setup                     # install apt requirements
 xcross prepare                   # once per reconnect: mount DDI, start the RSD tunnel
 cd my_flutter_app
 xcross flutter run [-u <UDID>]   # build, install, launch, hot reload
 xcross vscode                    # wire up Run & Debug / Hot Reload in VS Code for use via F5
+```
+
+### Windows
+
+```powershell
+# Administrator PowerShell, once per reconnect:
+xcross prepare
+
+# Normal terminal:
+cd my_flutter_app
+xcross flutter run -u <UDID>
 ```
 
 ## Commands
@@ -119,7 +135,7 @@ xcross completion       print a shell-completion script
 -v, --verbose
 ```
 
-`r` reload · `R` restart · `q` / Ctrl-C / Ctrl-D quit. Multiple devices → numbered picker, or pass `-u`. Hot reload needs iOS 17+ - older devices just launch, no console.
+`r` reload · `R` restart · `q` / Ctrl-C / Ctrl-D quit. Multiple devices → numbered picker, or pass `-u`. Hot reload needs iOS 17+; older devices require the Linux/xtool backend.
 
 ## Configuration
 
@@ -183,7 +199,7 @@ Only iOS 17+. And don't detach mid-session there - it kills the app (`CS_DEBUGGE
 <details>
 <summary>What does <code>xcross prepare</code> actually do?</summary>
 
-On iOS 17+ it mounts the Developer Disk Image and starts the `pymobiledevice3` RSD tunnel (needs root). It never stops its own tunnels, so re-running after a reconnect is always safe.
+On iOS 17+ it mounts the Developer Disk Image and starts the `pymobiledevice3` RSD tunnel (needs root on Linux or an Administrator PowerShell on Windows). It never stops its own tunnels, so re-running after a reconnect is always safe.
 </details>
 
 <details>

@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:xcross/src/constants.dart';
-import 'package:xcross/src/device/pymd.dart' show asPort;
+import 'package:xcross/src/device/pymd.dart' show Pymd, asPort;
 import 'package:xcross/src/models/device/tunnel.dart';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/logging.dart';
@@ -68,7 +68,7 @@ abstract final class TunnelDiscovery {
         'Run:\n\n'
         '    xcross prepare\n\n'
         'Or start it manually (in another terminal, leave it running):\n\n'
-        '    sudo pymobiledevice3 remote tunneld',
+        '    ${Pymd.elevatedCommand('remote tunneld')}',
       );
     }
     final target = udid != null ? 'for device $udid' : 'for any device';
@@ -77,9 +77,9 @@ abstract final class TunnelDiscovery {
       'Run:\n\n'
       '    xcross prepare\n\n'
       'Or in another terminal (iOS 17.4+ / 18 / 26):\n\n'
-      '    sudo pymobiledevice3 lockdown start-tunnel\n\n'
+      '    ${Pymd.elevatedCommand('lockdown start-tunnel')}\n\n'
       'Or mount the Developer Disk Image first:\n\n'
-      '    sudo pymobiledevice3 mounter auto-mount\n\n'
+      '    ${Pymd.elevatedCommand('mounter auto-mount')}\n\n'
       'Keep the phone unlocked and trusted. usbipd often fails here — '
       'Apple Mobile Device Service + USBMUXD_SOCKET_ADDRESS=127.0.0.1:27015 '
       'is more reliable on WSL.',

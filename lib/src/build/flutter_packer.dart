@@ -107,7 +107,14 @@ class FlutterPacker {
     return Log.logStep('Resolving dependencies', () async {
       try {
         await ProcessRunner.runChecked(
-          p.join(flutterRoot, 'bin', 'flutter'),
+          p.join(
+            flutterRoot,
+            'bin',
+            ProcessRunner.hostExecutableName(
+              'flutter',
+              windowsExtension: '.bat',
+            ),
+          ),
           ['pub', 'get'],
           workingDirectory: projectRoot,
           // `pub get` is non-interactive; inheriting fd1 would shred the
@@ -156,6 +163,21 @@ class FlutterPacker {
   /// Flutter's own tool, this doesn't fail the build).
   Future<String?> _buildPlugins(String flutterRoot) async {
     final plugins = await PluginDiscovery.discover(projectRoot);
+    final nativePlugins = plugins
+        .where(
+          (plugin) =>
+              plugin.pluginClassIos != null ||
+              plugin.usesSwiftPackageManager ||
+              plugin.usesCocoaPods,
+        )
+        .toList();
+    if (Platform.isWindows && nativePlugins.isNotEmpty) {
+      throw XcrossError(
+        'Native iOS Flutter plugins are not yet supported by the no-Swift '
+        'Windows builder: ${nativePlugins.map((plugin) => plugin.name).join(', ')}.',
+      );
+    }
+
     final spmPlugins = <IosPlugin>[];
     for (final plugin in plugins) {
       if (plugin.usesSwiftPackageManager) {

@@ -198,7 +198,39 @@ void main() {
     );
   });
 
+  group('hostExecutableName', () {
+    test('adds the requested Windows extension only on Windows', () {
+      expect(
+        ProcessRunner.hostExecutableName('dart', windows: true),
+        'dart.exe',
+      );
+      expect(
+        ProcessRunner.hostExecutableName(
+          'flutter',
+          windows: true,
+          windowsExtension: '.bat',
+        ),
+        'flutter.bat',
+      );
+      expect(ProcessRunner.hostExecutableName('dart', windows: false), 'dart');
+    });
+  });
+
   group('which', () {
+    test('follows Windows PATH and PATHEXT case-insensitively', () async {
+      final tmp = Directory.systemTemp.createTempSync('xcross-pathext-');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final executable = File(p.join(tmp.path, 'python.EXE'))..createSync();
+
+      final result = await ProcessRunner.which(
+        'python',
+        windows: true,
+        environment: {'Path': tmp.path, 'Pathext': '.EXE;.BAT'},
+      );
+
+      expect(result, executable.path);
+    });
+
     test(
       'resolves to null for an executable that does not exist on PATH',
       () async {
