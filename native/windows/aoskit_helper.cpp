@@ -28,7 +28,7 @@ std::wstring environment(const wchar_t* name) {
   const DWORD length = GetEnvironmentVariableW(name, nullptr, 0);
   if (length == 0) return {};
   std::wstring value(length, L'\0');
-  GetEnvironmentVariableW(name, value.data(), length);
+  GetEnvironmentVariableW(name, &value[0], length);
   value.resize(length - 1);
   return value;
 }
@@ -38,7 +38,7 @@ std::wstring absolutePath(const std::wstring& path) {
   if (length == 0) return path;
   std::wstring result(length, L'\0');
   const DWORD written =
-      GetFullPathNameW(path.c_str(), length, result.data(), nullptr);
+      GetFullPathNameW(path.c_str(), length, &result[0], nullptr);
   if (written == 0 || written >= length) return path;
   result.resize(written);
   return result;
@@ -50,6 +50,17 @@ std::wstring appleRoot() {
   auto common = environment(L"CommonProgramFiles(x86)");
   if (common.empty()) common = L"C:\\Program Files (x86)\\Common Files";
   return absolutePath(common + L"\\Apple");
+}
+
+bool fileExists(const std::wstring& path) {
+  const DWORD attributes = GetFileAttributesW(path.c_str());
+  return attributes != INVALID_FILE_ATTRIBUTES &&
+         !(attributes & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+bool hasSupportFrameworks(const std::wstring& directory) {
+  return fileExists(directory + L"\\objc.dll") &&
+         fileExists(directory + L"\\Foundation.dll");
 }
 
 std::string windowsError(DWORD code) {
@@ -89,8 +100,23 @@ int main() {
                SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
 
   const std::wstring root = appleRoot();
-  const std::wstring support = root + L"\\Apple Application Support";
+  std::wstring support = root + L"\\Apple Application Support";
+  if (!hasSupportFrameworks(support)) {
+    support = root + L"\\Mobile Device Support";
+  }
   const std::wstring internet = root + L"\\Internet Services";
+  if (!hasSupportFrameworks(support)) {
+    std::cerr << "Could not find Apple support objc.dll and Foundation.dll. "
+                 "Install the website edition of iTunes: "
+              << windowsError(ERROR_FILE_NOT_FOUND);
+    return 2;
+  }
+  if (!fileExists(internet + L"\\AOSKit.dll")) {
+    std::cerr << "Could not find Apple Internet Services AOSKit.dll. Install "
+                 "the website edition of iCloud: "
+              << windowsError(ERROR_FILE_NOT_FOUND);
+    return 2;
+  }
   constexpr DWORD searchFlags = LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR |
                                 LOAD_LIBRARY_SEARCH_USER_DIRS |
                                 LOAD_LIBRARY_SEARCH_SYSTEM32;

@@ -197,7 +197,9 @@ jobs:
             -Wait
           $diagnostic = Get-Content helper-error.txt -Raw
           $expectedDiagnostic = (
-            'Could not (register Apple DLL directories|' +
+            'Could not (find Apple support|' +
+            'find Apple Internet Services|' +
+            'register Apple DLL directories|' +
             'load Apple Application Support objc\.dll)'
           )
           if ($helper.ExitCode -ne 2 -or

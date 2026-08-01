@@ -68,7 +68,7 @@ xcross setup
 xcross sdk install C:\Downloads\Xcode.xip
 ```
 
-Apple ID authentication additionally needs the desktop/website editions of iTunes and iCloud, not the Microsoft Store editions. They provide Apple Mobile Device support and the x86 `AOSKit.dll`.
+Apple ID authentication additionally needs the desktop/website editions of iTunes and [iCloud](https://secure-appldnld.apple.com/windows/061-91601-20200323-974a39d0-41fc-4761-b571-318b7d9205ed/iCloudSetup.exe), not the Microsoft Store editions. They provide Apple Mobile Device support and the x86 `AOSKit.dll`.
 
 ```powershell
 xcross auth --apple-id you@example.com
