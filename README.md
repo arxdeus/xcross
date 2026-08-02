@@ -190,6 +190,7 @@ xcross vscode
 This writes the `.vscode` launch integration. Press F5 to build, sign, install, and launch; Hot Reload and Restart drive the same `r`/`R` commands as the CLI, and DevTools uses the same VM Service connection.
 
 - Works in VS Code forks with the Dart-Code extension installed.
+- The xcross launch config sets `"xcross": true`. Other Flutter configs in the same workspace still work — sessions without that flag are handed to Flutter's own debug adapter.
 - For multiple iPhones, set `"args": ["--udid", "<UDID>"]` in `launch.json`.
 - Existing `launch.json` and `settings.json` files are not overwritten.
 - Run the installed `xcross`; the generated DAP shim records that binary's path.

@@ -18,6 +18,7 @@ import 'package:args/command_runner.dart';
 import 'package:dds/dap.dart';
 import 'package:path/path.dart' as p;
 import 'package:vm_service/vm_service.dart' as vm;
+import 'package:xcross/src/cli/ide/dap_router.dart';
 import 'package:xcross/src/constants.dart';
 import 'package:xcross/src/device/tunnel_daemon.dart';
 import 'package:xcross/src/util/package_uris.dart';
@@ -25,7 +26,8 @@ import 'package:xcross/src/util/package_uris.dart';
 /// `xcross dap` — Debug Adapter Protocol server driving `xcross flutter run`.
 ///
 /// Spawned by `.vscode/xcross_dap.dart` (see `xcross vscode`), which VS Code
-/// launches through `dart.customFlutterDapPath`.
+/// launches through `dart.customFlutterDapPath`. Launch configs must set
+/// `"xcross": true`; other Flutter sessions are proxied to Flutter's DAP.
 class DapCommand extends Command<void> {
   @override
   String get name => 'dap';
@@ -38,11 +40,11 @@ class DapCommand extends Command<void> {
   bool get hidden => true;
 
   @override
-  Future<void> run() {
-    final channel = ByteStreamServerChannel(stdin, stdout, null);
-    XcrossDap(channel);
-    return channel.closed;
-  }
+  Future<void> run() => runDapSession(
+        startXcross: (channel) {
+          XcrossDap(channel);
+        },
+      );
 }
 
 /// A DAP debug adapter that spawns `xcross flutter run` and drives it:

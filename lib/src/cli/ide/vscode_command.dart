@@ -75,6 +75,9 @@ const String _launchJson = r'''
       "request": "launch",
       "debuggerType": "flutter",
       "program": "lib/main.dart",
+      // Opt into xcross. Without this, dart.customFlutterDapPath still hits
+      // our shim but we hand the session to Flutter's own debug-adapter.
+      "xcross": true,
       // VS Code sets no cwd on the adapter process, so state it here rather
       // than depending on a Dart-Code default.
       "cwd": "${workspaceFolder}",
@@ -102,7 +105,8 @@ import 'dart:io';
 
 Future<void> main(List<String> args) async {
   // `flutter test` sessions arrive through the same customFlutterDapPath
-  // setting; hand those to the real Flutter adapter.
+  // setting; hand those to the real Flutter adapter. Non-xcross launch
+  // configs are gated inside `xcross dap` via `"xcross": true`.
   if (args.contains('--test')) {
     final flutterRoot = Platform.environment['FLUTTER_ROOT'];
     if (flutterRoot == null) {
