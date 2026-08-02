@@ -57,8 +57,7 @@ abstract final class XcrossCli {
     if (Ansi.terminalSupportsAnsi) {
       Log.logStatus(
         '${a.bold}${a.magenta}xcross${a.none}'
-        '${a.subtle(' - made by')} ${a.bold}${a.cyan}arxdeus${a.none}'
-        ' ${a.subtle('· github.com/arxdeus')}'
+        ' ${a.subtle('· github.com/arxdeus/xcross')}'
         '\n',
       );
     }
