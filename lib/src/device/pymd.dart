@@ -151,8 +151,7 @@ abstract final class Pymd {
 
   /// Launch [bundleId] suspended via DVT ProcessControl, returning the device PID.
   static Future<int> launchSuspended({
-    required String rsdHost,
-    required int rsdPort,
+    required List<String> deviceArgs,
     required String bundleId,
     required List<String> appArguments,
   }) async {
@@ -161,9 +160,7 @@ abstract final class Pymd {
       'developer',
       'dvt',
       'launch',
-      '--rsd',
-      rsdHost,
-      '$rsdPort',
+      ...deviceArgs,
       '--suspended',
       '--kill-existing',
       '--',
@@ -237,8 +234,7 @@ abstract final class Pymd {
   /// Best-effort: returns null (rather than throwing) when the app isn't
   /// running or the query is unsupported.
   static Future<int?> processIdForBundleId({
-    required String rsdHost,
-    required int rsdPort,
+    required List<String> deviceArgs,
     required String bundleId,
   }) async {
     final CapturedProcess result;
@@ -247,9 +243,7 @@ abstract final class Pymd {
         'developer',
         'dvt',
         'process-id-for-bundle-id',
-        '--rsd',
-        rsdHost,
-        '$rsdPort',
+        ...deviceArgs,
         bundleId,
       ]);
     } on XcrossError {
@@ -267,19 +261,10 @@ abstract final class Pymd {
 
   /// Kill the process with device [pid] via DVT ProcessControl.
   static Future<void> killPid({
-    required String rsdHost,
-    required int rsdPort,
+    required List<String> deviceArgs,
     required int pid,
   }) async {
-    await run([
-      'developer',
-      'dvt',
-      'kill',
-      '--rsd',
-      rsdHost,
-      '$rsdPort',
-      '$pid',
-    ]);
+    await run(['developer', 'dvt', 'kill', ...deviceArgs, '$pid']);
   }
 
   /// Run arbitrary pymobiledevice3 [args], returning captured output.

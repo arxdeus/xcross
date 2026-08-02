@@ -295,6 +295,25 @@ abstract final class ProcessRunner {
     }
   }
 
+  /// Kill [process] together with everything it spawned.
+  ///
+  /// [Process.kill] signals one pid only. That is not enough for
+  /// pip console-script wrappers on Windows (`foo.exe` runs the real
+  /// interpreter as a child), where killing the wrapper leaves the child
+  /// holding its listening socket.
+  static Future<void> killTree(Process process) async {
+    if (!Platform.isWindows) {
+      process.kill();
+      return;
+    }
+    try {
+      await run('taskkill', ['/PID', '${process.pid}', '/T', '/F']);
+    } on Object {
+      // taskkill missing or the tree is already gone — fall through.
+    }
+    process.kill();
+  }
+
   /// Wrap a bare IPv6 address in brackets for URL construction.
   static String bracketHost(String addr) =>
       addr.contains(':') ? '[$addr]' : addr;

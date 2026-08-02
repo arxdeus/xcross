@@ -135,9 +135,10 @@ class XcrossDap
     if (!tunnelUp) {
       sendOutput(
         'stderr',
-        'xcross: the iOS 17+ RSD tunnel daemon is not reachable.\n'
-            'If this is an iOS 17+ device, run `xcross prepare` once in a '
-            'terminal (it needs sudo).\n',
+        'xcross: the iOS 17+ RSD tunnel daemon is not reachable — falling '
+            'back to the userspace tunnel over usbmux.\n'
+            'For the faster kernel tunnel, run `xcross prepare` once in a '
+            'terminal (it needs sudo/Administrator).\n',
       );
     }
 

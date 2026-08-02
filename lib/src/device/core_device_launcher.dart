@@ -3,14 +3,14 @@ import 'dart:io' show Platform;
 
 import 'package:xcross/src/constants.dart';
 import 'package:xcross/src/device/dart_vm_service_client.dart';
+import 'package:xcross/src/device/device_transport.dart';
+import 'package:xcross/src/device/device_transport_resolver.dart';
 import 'package:xcross/src/device/gdb_remote_client.dart';
 import 'package:xcross/src/device/hot_reload_controller.dart'
     show HotReloadController;
 import 'package:xcross/src/device/port_forwarder.dart';
 import 'package:xcross/src/device/pymd.dart';
 import 'package:xcross/src/device/session_console.dart';
-import 'package:xcross/src/device/tunnel_daemon.dart';
-import 'package:xcross/src/device/tunnel_discovery.dart';
 import 'package:xcross/src/device/vm_service_output.dart';
 import 'package:xcross/src/models/device/hot_reload_config.dart';
 import 'package:xcross/src/util/errors.dart';
@@ -32,22 +32,33 @@ abstract final class CoreDeviceLauncher {
       );
     }
 
-    final tunnelDaemon = TunnelDaemon();
+    final transport = await DeviceTransportResolver.resolve(udid: udid);
+    Log.logTrace('device transport: ${transport.description}');
     try {
-      await tunnelDaemon.ensureRunning();
-    } catch (e) {
-      throw XcrossError('Failed to start tunneld: $e');
+      await _runSession(
+        transport: transport,
+        bundleId: bundleId,
+        arguments: arguments,
+        hotReload: hotReload,
+      );
+    } finally {
+      await transport.close();
     }
+  }
 
-    final tunnel = await TunnelDiscovery.discoverTunnel(udid: udid);
-    Log.logTrace('connecting to RSD at ${tunnel.address}:${tunnel.port}');
-
+  /// Launch, attach, and hold the interactive session open.
+  static Future<void> _runSession({
+    required DeviceTransport transport,
+    required String bundleId,
+    required List<String> arguments,
+    required HotReloadConfig? hotReload,
+  }) async {
     final resolvedBundleId = await _resolveBundleId(bundleId);
-    final debugproxyPort = await _resolveDebugproxyPort(tunnel);
+    final debugproxy = await transport.debugproxyEndpoint();
     final appArgs = _buildAppArgs(arguments: arguments, hotReload: hotReload);
 
     final pid = await _launchSuspended(
-      tunnel: tunnel,
+      transport: transport,
       bundleId: resolvedBundleId,
       appArgs: appArgs,
     );
@@ -55,7 +66,7 @@ abstract final class CoreDeviceLauncher {
     // ORDER MATTERS: connect -> start -> attach -> resume. The GDB client has a
     // single-slot exchange completer, so an RPC issued after resume() can be
     // hijacked by a stray stdout packet.
-    final gdb = GdbRemoteClient(host: tunnel.address, port: debugproxyPort);
+    final gdb = GdbRemoteClient(host: debugproxy.host, port: debugproxy.port);
     try {
       await gdb.connect();
       await gdb.start();
@@ -64,7 +75,6 @@ abstract final class CoreDeviceLauncher {
       Log.logDone('Debugger attached');
     } catch (e) {
       await gdb.close();
-      tunnelDaemon.stop();
       throw XcrossError('Debugger attach failed: $e');
     }
 
@@ -76,10 +86,10 @@ abstract final class CoreDeviceLauncher {
     try {
       hotReloadController = await _trySpinUpHotReload(
         hotReload: hotReload,
-        tunnelAddress: tunnel.address,
+        transport: transport,
       );
       if (hotReloadController != null) {
-        vmService = await _publishVmService(tunnelAddress: tunnel.address);
+        vmService = await _publishVmService(transport: transport);
       }
       await SessionConsole(gdb: gdb, hotReload: hotReloadController).run();
     } finally {
@@ -87,7 +97,6 @@ abstract final class CoreDeviceLauncher {
       await hotReloadController?.close();
       await gdb.kill();
       await gdb.close();
-      tunnelDaemon.stop();
     }
   }
 
@@ -95,12 +104,15 @@ abstract final class CoreDeviceLauncher {
   /// the DAP watches for. Returns null (without the marker) if forwarding
   /// fails, since an unreachable URI is worse than none.
   static Future<PortForwarder?> _publishVmService({
-    required String tunnelAddress,
+    required DeviceTransport transport,
   }) async {
     try {
+      final endpoint = await transport.devicePortEndpoint(
+        DeviceConstants.vmServicePort,
+      );
       final forwarder = await PortForwarder.start(
-        deviceHost: tunnelAddress,
-        devicePort: DeviceConstants.vmServicePort,
+        deviceHost: endpoint.host,
+        devicePort: endpoint.port,
       );
       Log.logInfo(
         DeviceConstants.vmServiceMarker,
@@ -126,29 +138,26 @@ abstract final class CoreDeviceLauncher {
   }) async {
     try {
       if (!await Pymd.ensureInstalled()) return;
-      await TunnelDaemon().ensureRunning();
       // Best-effort only — don't burn the full 60s discovery before install
       // when tunneld has no device yet (common on first run / flaky usbipd).
-      final tunnel = await TunnelDiscovery.discoverTunnel(
+      final transport = await DeviceTransportResolver.resolve(
         udid: udid,
-        timeout: const Duration(seconds: 8),
-        pollInterval: const Duration(milliseconds: 800),
+        discoveryTimeout: const Duration(seconds: 8),
       );
-      final resolved = await _resolveBundleId(bundleId);
-      final pid = await Pymd.processIdForBundleId(
-        rsdHost: tunnel.address,
-        rsdPort: tunnel.port,
-        bundleId: resolved,
-      );
-      if (pid == null) return;
-      Log.logTrace(
-        'app already running (pid $pid); terminating before install…',
-      );
-      await Pymd.killPid(
-        rsdHost: tunnel.address,
-        rsdPort: tunnel.port,
-        pid: pid,
-      );
+      try {
+        final resolved = await _resolveBundleId(bundleId);
+        final pid = await Pymd.processIdForBundleId(
+          deviceArgs: transport.pymdDeviceArgs,
+          bundleId: resolved,
+        );
+        if (pid == null) return;
+        Log.logTrace(
+          'app already running (pid $pid); terminating before install…',
+        );
+        await Pymd.killPid(deviceArgs: transport.pymdDeviceArgs, pid: pid);
+      } finally {
+        await transport.close();
+      }
     } on Object catch (e) {
       Log.logWarn('could not check/terminate running app: $e');
     }
@@ -169,34 +178,14 @@ abstract final class CoreDeviceLauncher {
     return resolved;
   }
 
-  /// Look up the debugproxy port via RSD info.
-  static Future<int> _resolveDebugproxyPort(Tunnel tunnel) async {
-    try {
-      return await Pymd.rsdServicePort(
-        rsdHost: tunnel.address,
-        rsdPort: tunnel.port,
-        service: DeviceConstants.debugproxyService,
-      );
-    } catch (_) {
-      throw XcrossError(
-        "Developer Disk Image not mounted — the device doesn't expose the "
-        'debugproxy service. Mount it and retry:\n\n'
-        '    xcross prepare\n\n'
-        'Or manually:\n\n'
-        '    ${Pymd.elevatedCommand('mounter auto-mount')}\n\n'
-        'If you just mounted it, restart `pymobiledevice3 remote tunneld` '
-        'so the RSD service list is refreshed.',
-      );
-    }
-  }
-
   /// Build the launch-argument list, prepending VM Service and checked-mode
   /// flags as required.
   static List<String> _buildAppArgs({
     required List<String> arguments,
     required HotReloadConfig? hotReload,
   }) => [
-    // VM Service must bind IPv6-any (::) — the RSD tunnel is IPv6.
+    // VM Service must bind IPv6-any (::): the RSD tunnel is IPv6, and `::`
+    // accepts IPv4-mapped peers too, so the usbmux relay path also reaches it.
     if (hotReload != null) ...[
       '--vm-service-host=::',
       '--vm-service-port=${DeviceConstants.vmServicePort}',
@@ -214,15 +203,14 @@ abstract final class CoreDeviceLauncher {
 
   /// Launch the app suspended and return its device PID.
   static Future<int> _launchSuspended({
-    required Tunnel tunnel,
+    required DeviceTransport transport,
     required String bundleId,
     required List<String> appArgs,
   }) async {
     final int pid;
     try {
       pid = await Pymd.launchSuspended(
-        rsdHost: tunnel.address,
-        rsdPort: tunnel.port,
+        deviceArgs: transport.pymdDeviceArgs,
         bundleId: bundleId,
         appArguments: appArgs,
       );
@@ -239,7 +227,7 @@ abstract final class CoreDeviceLauncher {
 
   static Future<HotReloadController?> _trySpinUpHotReload({
     required HotReloadConfig? hotReload,
-    required String tunnelAddress,
+    required DeviceTransport transport,
   }) async {
     if (hotReload == null) {
       Log.logInfo(
@@ -250,9 +238,12 @@ abstract final class CoreDeviceLauncher {
     DartVmServiceClient? vm;
     HotReloadController? controller;
     try {
+      final vmService = await transport.devicePortEndpoint(
+        DeviceConstants.vmServicePort,
+      );
       final wsUri = Uri.parse(
-        'ws://${ProcessRunner.bracketHost(tunnelAddress)}:'
-        '${DeviceConstants.vmServicePort}/ws',
+        'ws://${ProcessRunner.bracketHost(vmService.host)}:'
+        '${vmService.port}/ws',
       );
       vm = await _waitForVmService(wsUri);
       // `print` and `log()` reach us only over these streams — the debugger
@@ -262,7 +253,7 @@ abstract final class CoreDeviceLauncher {
       controller = HotReloadController(
         config: hotReload,
         vm: vm,
-        tunnelAddress: tunnelAddress,
+        vmService: vmService,
       );
       await controller.initialSync();
       Log.logInfo(

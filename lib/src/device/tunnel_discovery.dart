@@ -86,6 +86,18 @@ abstract final class TunnelDiscovery {
     );
   }
 
+  /// Single-shot lookup of a tunnel tunneld already has, without polling or
+  /// asking it to create one. Returns null instead of throwing when tunneld is
+  /// down or has nothing for [udid].
+  static Future<Tunnel?> findExistingTunnel({String? udid}) async {
+    try {
+      final data = await _fetch(DeviceConstants.tunneldUrl);
+      return _parseTunnelList(data, udid);
+    } on Object {
+      return null;
+    }
+  }
+
   /// `GET /start-tunnel?udid=` — returns a single `{address,port}` tunnel or
   /// null if tunneld could not create one (501/404).
   static Future<Tunnel?> _requestStartTunnel(String udid) async {

@@ -5,6 +5,7 @@ import 'package:xcross/src/constants.dart';
 import 'package:xcross/src/device/dart_vm_service_client.dart';
 import 'package:xcross/src/device/frontend_server_client.dart';
 import 'package:xcross/src/device/source_watcher.dart';
+import 'package:xcross/src/models/device/device_endpoint.dart';
 import 'package:xcross/src/models/device/hot_reload_config.dart';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/logging.dart';
@@ -18,10 +19,10 @@ class HotReloadController {
   HotReloadController({
     required this.config,
     required this.vm,
-    required String tunnelAddress,
+    required DeviceEndpoint vmService,
   }) : _httpBase =
-           'http://${ProcessRunner.bracketHost(tunnelAddress)}:'
-           '${DeviceConstants.vmServicePort}/',
+           'http://${ProcessRunner.bracketHost(vmService.host)}:'
+           '${vmService.port}/',
        _frontend = FrontendServerClient(config),
        _sources = SourceWatcher(config);
 

@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/device/pymd.dart';
 import 'package:xcross/src/device/tunnel_daemon.dart';
+import 'package:xcross/src/device/tunnel_discovery.dart';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/host_privileges.dart';
 import 'package:xcross/src/util/logging.dart';
@@ -48,7 +49,7 @@ abstract final class DevicePrepare {
 
     Log.logDone(
       'Device ready '
-      '${Log.ansi.subtle('— DDI mounted, tunneld and lockdown tunnel up')}',
+      '${Log.ansi.subtle('— DDI mounted, RSD tunnel up')}',
     );
     Log.logInfo('Next', Log.ansi.subtle('xcross flutter run -u <UDID>'));
   }
@@ -79,13 +80,27 @@ abstract final class DevicePrepare {
 
   /// Start `lockdown start-tunnel` in the background if one is not already
   /// producing an RSD tunnel. Leaves the process running after prepare exits.
+  ///
+  /// Skips when tunneld already exposes a tunnel: on Windows a second
+  /// `lockdown start-tunnel` creates another WinTun adapter for the same
+  /// device and breaks IPv6 RSD connectivity (connect → WinError 10013).
   static Future<void> _ensureLockdownTunnel() async {
+    if (await _tunneldHasTunnel()) {
+      Log.logTrace(
+        'tunneld already has an RSD tunnel; skipping lockdown start-tunnel',
+      );
+      return;
+    }
     if (await _lockdownTunnelLooksAlive()) {
       Log.logTrace('lockdown start-tunnel already running');
       return;
     }
     await Log.logStep('Starting lockdown RSD tunnel', _startLockdownTunnel);
   }
+
+  /// True when the local tunneld REST API already lists at least one tunnel.
+  static Future<bool> _tunneldHasTunnel() async =>
+      await TunnelDiscovery.findExistingTunnel() != null;
 
   /// Spawn `lockdown start-tunnel` and wait for it to report an RSD tunnel.
   static Future<void> _startLockdownTunnel() async {
@@ -183,11 +198,35 @@ abstract final class DevicePrepare {
   /// Best-effort: a live `start-tunnel` child usually holds a tun interface
   /// and shows up in the process list.
   static Future<bool> _lockdownTunnelLooksAlive() async {
+    if (Platform.isWindows) {
+      return _windowsLockdownTunnelLooksAlive();
+    }
     try {
       final result = await ProcessRunner.run('pgrep', [
         '-f',
         'pymobiledevice3.*lockdown.*start-tunnel',
       ]);
+      return result.exitCode == 0 && result.stdout.trim().isNotEmpty;
+    } on Object {
+      return false;
+    }
+  }
+
+  /// `pgrep` is unavailable on Windows; match elevated tunnel children via
+  /// CIM instead. Command lines of other users' elevated processes may be
+  /// blank — treat any `pymobiledevice3` image as "already running" only when
+  /// tunneld already has a tunnel (handled by [_tunneldHasTunnel] first).
+  static Future<bool> _windowsLockdownTunnelLooksAlive() async {
+    try {
+      final result = await ProcessRunner.run(
+        await ProcessRunner.locateTool('powershell'),
+        const [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          r"Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'lockdown.*start-tunnel|start-tunnel' } | Select-Object -First 1 -ExpandProperty ProcessId",
+        ],
+      );
       return result.exitCode == 0 && result.stdout.trim().isNotEmpty;
     } on Object {
       return false;
