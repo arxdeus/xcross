@@ -225,14 +225,30 @@ abstract final class ProcessRunner {
         : name;
   }
 
+  /// True when [path] is one of swiftly's proxy shims — every tool in
+  /// swiftly's bin directory is a symlink to the `swiftly` binary itself,
+  /// which re-execs the matching tool from the active Swift toolchain.
+  static bool isSwiftlyProxy(String path) {
+    try {
+      final target = File(path).resolveSymbolicLinksSync();
+      return p.basenameWithoutExtension(target) == 'swiftly';
+    } on FileSystemException {
+      return false;
+    }
+  }
+
   /// Absolute path to [name] on PATH, or null if not found.
   ///
   /// Windows lookup follows PATHEXT, matching `cmd.exe` and normal Python/
   /// Flutter installations where only `.exe`/`.bat` launchers exist.
+  ///
+  /// [accept] rejects candidates that exist but are not usable, so the search
+  /// continues down PATH instead of stopping at the first name match.
   static Future<String?> which(
     String name, {
     Map<String, String>? environment,
     bool? windows,
+    bool Function(String path)? accept,
   }) async {
     final env = environment ?? Platform.environment;
     final onWindows = windows ?? Platform.isWindows;
@@ -259,7 +275,10 @@ abstract final class ProcessRunner {
       if (dir.isEmpty) continue;
       for (final candidateName in names) {
         final candidate = p.join(dir, candidateName);
-        if (File(candidate).existsSync()) return candidate;
+        if (File(candidate).existsSync() &&
+            (accept == null || accept(candidate))) {
+          return candidate;
+        }
       }
     }
     return null;

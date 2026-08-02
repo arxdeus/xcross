@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/darwinsdk/darwin_sdk.dart';
 import 'package:xcross/src/device/pymd.dart';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/logging.dart';
@@ -80,7 +81,7 @@ class SetupCommand extends Command<void> {
       rethrow;
     }
 
-    if (await ProcessRunner.which('ld64.lld') == null) {
+    if (await _locate('ld64.lld') == null) {
       final linkers =
           Directory('/usr/bin')
               .listSync()
@@ -109,7 +110,7 @@ class SetupCommand extends Command<void> {
       'llvm-ar',
       'ld64.lld',
     ]) {
-      if (await ProcessRunner.which(tool) == null) missing.add(tool);
+      if (await _locate(tool) == null) missing.add(tool);
     }
     if (missing.isNotEmpty) {
       throw XcrossError(
@@ -136,7 +137,7 @@ class SetupCommand extends Command<void> {
       'llvm-ar',
       'ld64.lld',
     ]) {
-      if (await ProcessRunner.which(tool) == null) missing.add(tool);
+      if (await _locate(tool) == null) missing.add(tool);
     }
     if (missing.isNotEmpty) {
       throw XcrossError(
@@ -150,4 +151,11 @@ class SetupCommand extends Command<void> {
     }
     Log.logDone('Windows requirements found');
   }
+
+  /// PATH lookup that refuses swiftly's `ld64.lld` shim — see [resolveLd64Lld]
+  /// for why that one cannot link iOS.
+  static Future<String?> _locate(String tool) => ProcessRunner.which(
+    tool,
+    accept: tool == 'ld64.lld' ? usableLd64Lld : null,
+  );
 }

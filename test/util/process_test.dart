@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/darwinsdk/darwin_sdk.dart';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross/src/util/process.dart';
 
@@ -255,6 +256,44 @@ void main() {
         expect(result, isNull);
       },
     );
+
+    test('skips a swiftly proxy shim and keeps walking PATH', () async {
+      final tmp = Directory.systemTemp.createTempSync('xcross-swiftly-');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+
+      // Mirror swiftly's layout: every tool in its bin directory is a symlink
+      // to the `swiftly` binary itself.
+      final swiftlyBin = Directory(p.join(tmp.path, 'swiftly-bin'))
+        ..createSync();
+      final shim = p.join(swiftlyBin.path, 'ld64.lld');
+      File(p.join(swiftlyBin.path, 'swiftly')).writeAsStringSync('');
+      try {
+        Link(shim).createSync(p.join(swiftlyBin.path, 'swiftly'));
+      } on FileSystemException {
+        markTestSkipped('host does not allow creating symlinks');
+        return;
+      }
+
+      final llvmBin = Directory(p.join(tmp.path, 'llvm-bin'))..createSync();
+      final real = File(p.join(llvmBin.path, 'ld64.lld'))
+        ..writeAsStringSync('');
+
+      final env = {
+        'PATH': [
+          swiftlyBin.path,
+          llvmBin.path,
+        ].join(Platform.isWindows ? ';' : ':'),
+      };
+      expect(await ProcessRunner.which('ld64.lld', environment: env), shim);
+      expect(
+        await ProcessRunner.which(
+          'ld64.lld',
+          environment: env,
+          accept: usableLd64Lld,
+        ),
+        real.path,
+      );
+    });
   });
 
   group('run', () {

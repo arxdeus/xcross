@@ -339,6 +339,7 @@ let package = Package(
         swiftSdksPath: 'xcross-swift-sdks',
         flutterFrameworkSlice: 'Flutter.xcframework/ios-arm64',
         toolsetPath: 'toolset.json',
+        linkerPath: '/usr/bin/ld64.lld',
       );
 
       expect(arguments.take(5), [
@@ -348,6 +349,17 @@ let package = Package(
         '--configuration',
         'debug',
       ]);
+      // No DWARF, so swift-driver plans no dSYM job and needs no dsymutil.
+      expect(arguments, containsAllInOrder(['-debug-info-format', 'none']));
+      expect(
+        arguments,
+        containsAllInOrder([
+          '-Xswiftc',
+          '-Xclang-linker',
+          '-Xswiftc',
+          '--ld-path=/usr/bin/ld64.lld',
+        ]),
+      );
       expect(
         arguments,
         containsAllInOrder([

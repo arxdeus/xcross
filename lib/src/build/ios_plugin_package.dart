@@ -119,6 +119,8 @@ abstract final class GeneratedPluginsPackage {
             swiftSdksPath: p.dirname(sdk.swiftSdkPath),
             flutterFrameworkSlice: flutterFrameworkSlice,
             toolsetPath: toolsetPath,
+            // Windows gets the same override from the toolset's `linker`.
+            linkerPath: Platform.isWindows ? null : await resolveLd64Lld(sdk),
           ),
           inheritStdio: Log.isVerbose,
           label: 'swift build',
@@ -138,12 +140,21 @@ abstract final class GeneratedPluginsPackage {
     required String swiftSdksPath,
     required String flutterFrameworkSlice,
     String? toolsetPath,
+    String? linkerPath,
   }) => [
     'build',
     '--package-path',
     pluginsDir,
     '--configuration',
     'debug',
+    // A debug build with DWARF makes swift-driver plan a dSYM job for Darwin
+    // targets, and that job needs a `dsymutil` no cross host is guaranteed to
+    // have ("error: unableToFind(tool: \"dsymutil\")" on Linux). Nothing here
+    // consumes a dSYM — only the dylibs are collected — and the Runner is
+    // compiled without debug info too, so drop it instead of adding a tool
+    // requirement.
+    '-debug-info-format',
+    'none',
     '--swift-sdks-path',
     swiftSdksPath,
     '--swift-sdk',
@@ -159,6 +170,16 @@ abstract final class GeneratedPluginsPackage {
     '-Xfrontend',
     '-Xswiftc',
     '-disable-availability-checking',
+    // The link runs through the toolchain's own clang, which resolves
+    // `-use-ld=lld` to the `ld64.lld` sitting next to itself — swiftly's, the
+    // one that refuses iOS (see [resolveLd64Lld]). `--ld-path` overrides that
+    // choice with the stock LLVM linker.
+    if (linkerPath != null) ...[
+      '-Xswiftc',
+      '-Xclang-linker',
+      '-Xswiftc',
+      '--ld-path=$linkerPath',
+    ],
   ];
 
   /// Finds and fixes every dylib emitted into SwiftPM's target debug output.
