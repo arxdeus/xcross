@@ -25,8 +25,8 @@ import 'package:xcross/src/util/package_uris.dart';
 
 /// `xcross dap` — Debug Adapter Protocol server driving `xcross flutter run`.
 ///
-/// Spawned by `.vscode/xcross_dap.dart` (see `xcross vscode`), which VS Code
-/// launches through `dart.customFlutterDapPath`. Launch configs must set
+/// Spawned by `.vscode/xcross_dap.dart` (see `xcross ide vscode`) or by an
+/// LSP4IJ DAP run config (see `xcross ide idea`). Launch configs must set
 /// `"xcross": true`; other Flutter sessions are proxied to Flutter's DAP.
 class DapCommand extends Command<void> {
   @override
@@ -34,7 +34,7 @@ class DapCommand extends Command<void> {
 
   @override
   String get description =>
-      'Debug Adapter Protocol server for the VS Code Run & Debug buttons.';
+      'Debug Adapter Protocol server for IDE Run & Debug buttons.';
 
   @override
   bool get hidden => true;

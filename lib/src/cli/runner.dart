@@ -8,7 +8,7 @@ import 'package:xcross/src/cli/auth_command.dart';
 import 'package:xcross/src/cli/completion_command.dart';
 import 'package:xcross/src/cli/flutter/flutter_command.dart';
 import 'package:xcross/src/cli/ide/dap_command.dart';
-import 'package:xcross/src/cli/ide/vscode_command.dart';
+import 'package:xcross/src/cli/ide/ide_command.dart';
 import 'package:xcross/src/cli/prepare_command.dart';
 import 'package:xcross/src/cli/sdk_command.dart';
 import 'package:xcross/src/cli/setup_command.dart';
@@ -47,7 +47,7 @@ abstract final class XcrossCli {
       ..addCommand(AuthCommand())
       ..addCommand(SdkCommand())
       ..addCommand(DapCommand())
-      ..addCommand(VscodeCommand())
+      ..addCommand(IdeCommand())
       ..addCommand(CompletionCommand());
   }
 

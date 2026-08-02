@@ -11,7 +11,7 @@
 
 **Build, run, and hot-reload Flutter iOS apps natively from Linux or Windows.**
 
-[Install](#install) • [Windows](#windows-native) • [Quick start](#quick-start) • [Commands](#commands) • [VS Code](#vs-code) • [FAQ](#faq)
+[Install](#install) • [Windows](#windows-native) • [Quick start](#quick-start) • [Commands](#commands) • [IDE](#ide) • [FAQ](#faq)
 
 </div>
 
@@ -109,7 +109,7 @@ xcross auth --apple-id you@example.com     # or ASC API key flags
 xcross prepare                             # once per device reconnect
 cd my_flutter_app
 xcross flutter run [-u <UDID>]
-xcross vscode
+xcross ide vscode
 ```
 
 ### Windows
@@ -137,7 +137,8 @@ xcross sdk install      extract a Darwin Swift SDK from Xcode.xip
 xcross prepare          mount DDI + start the iOS 17+ RSD tunnel
 xcross flutter build    build a debug .app (or .ipa with -i)
 xcross flutter run      build → sign → install → launch → hot reload
-xcross vscode           write .vscode/* for Run & Debug / Hot Reload
+xcross ide vscode       upsert .vscode/* for Run & Debug / Hot Reload
+xcross ide idea         write a JetBrains DAP run config (needs LSP4IJ)
 xcross completion       print a shell-completion script
 ```
 
@@ -181,19 +182,34 @@ infoPath: ios/Runner/Info.plist   # optional
 
 Without a file, the organization defaults to `com.example`.
 
-## VS Code
+## IDE
+
+### VS Code
 
 ```sh
-xcross vscode
+xcross ide vscode
 ```
 
-This writes the `.vscode` launch integration. Press F5 to build, sign, install, and launch; Hot Reload and Restart drive the same `r`/`R` commands as the CLI, and DevTools uses the same VM Service connection.
+Writes the DAP shim and upserts the xcross launch entry + DAP settings into `.vscode/`. Press F5 to build, sign, install, and launch; Hot Reload and Restart drive the same `r`/`R` commands as the CLI, and DevTools uses the same VM Service connection.
 
 - Works in VS Code forks with the Dart-Code extension installed.
 - The xcross launch config sets `"xcross": true`. Other Flutter configs in the same workspace still work — sessions without that flag are handed to Flutter's own debug adapter.
-- For multiple iPhones, set `"args": ["--udid", "<UDID>"]` in `launch.json`.
-- Existing `launch.json` and `settings.json` files are not overwritten.
+- For multiple iPhones, set `"args": ["--udid", "<UDID>"]` on the xcross entry; re-running the command preserves those args.
+- Existing `launch.json` / `settings.json` are merged in place (xcross keys upserted; other configs and settings kept). A second run is a no-op when already current.
 - Run the installed `xcross`; the generated DAP shim records that binary's path.
+
+### JetBrains IDEA / Android Studio
+
+```sh
+xcross ide idea
+```
+
+Writes `.run/xcross_ios_device.run.xml` — a shared [LSP4IJ](https://plugins.jetbrains.com/plugin/18229-lsp4ij) Debug Adapter Protocol run configuration that starts `xcross dap` over stdio.
+
+- Install the LSP4IJ plugin, then Debug **xcross: iOS device** (do not use Flutter's Run button — it still calls `flutter run`).
+- Breakpoints and stepping use the DAP/VM Service path; Restart maps to hot restart. Console `r`/`R` still work.
+- Existing `.run/xcross_ios_device.run.xml` is not overwritten.
+- Run the installed `xcross`; the run config records that binary's path.
 
 ## FAQ
 
