@@ -24,6 +24,8 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
+import 'package:provision_dart/provision_dart.dart'
+    show AdiClient, AdiClientProvisioningIntermediateMetadata, AdiOneTimePassword;
 import 'package:xcross/src/grandslam/anisette/anisette_headers.dart';
 import 'package:xcross/src/grandslam/anisette/anisette_provider.dart';
 import 'package:xcross/src/grandslam/anisette/anisette_state.dart';
@@ -31,6 +33,9 @@ import 'package:xcross/src/grandslam/anisette/grandslam_endpoints.dart';
 import 'package:xcross/src/grandslam/grandslam_response.dart';
 import 'package:xcross/src/util/apple_http_client.dart';
 import 'package:xcross/src/util/errors.dart';
+
+export 'package:provision_dart/provision_dart.dart'
+    show AdiClientProvisioningIntermediateMetadata, AdiOneTimePassword;
 
 /// Apple's well-known sentinel `dsId` for machine-level (not-yet
 /// logged-in) ADI identity, used identically for the provisioning
@@ -42,29 +47,11 @@ import 'package:xcross/src/util/errors.dart';
 /// example, and `UInt64(bitPattern: -2)` in xtool's `XADIProvider`.
 const int kAdiMachineDsId = -2;
 
-class AdiClientProvisioningIntermediateMetadata {
-  const AdiClientProvisioningIntermediateMetadata({
-    required this.clientProvisioningIntermediateMetadata,
-    required this.session,
-  });
-
-  final Uint8List clientProvisioningIntermediateMetadata;
-  final int session;
-}
-
-class AdiOneTimePassword {
-  const AdiOneTimePassword({
-    required this.oneTimePassword,
-    required this.machineIdentifier,
-  });
-
-  final Uint8List oneTimePassword;
-  final Uint8List machineIdentifier;
-}
-
-/// Low-level Android ADI seam retained for injected/custom implementations.
-/// xcross's built-in Windows path uses AOSKit instead, so a clean checkout no
-/// longer depends on an unreleasable sibling package.
+/// Minimal surface of `package:provision_dart`'s [AdiClient] this provider
+/// drives, abstracted so tests can substitute a fake without touching the
+/// real (Linux) native ADI library. [AdiClient.fromDirectory] plus its
+/// `provisioningPath`/`identifier` setters are configuration, handled once
+/// by the factory that produces this interface - not part of it.
 abstract class AdiProvisioning {
   Future<bool> isMachineProvisioned(int dsId);
 
@@ -82,15 +69,42 @@ abstract class AdiProvisioning {
   Future<AdiOneTimePassword> requestOTP(int dsId);
 }
 
-AdiProvisioning _unsupportedAdiFactory({
+class _RealAdiProvisioning implements AdiProvisioning {
+  _RealAdiProvisioning(this._client);
+
+  final AdiClient _client;
+
+  @override
+  Future<bool> isMachineProvisioned(int dsId) =>
+      _client.isMachineProvisioned(dsId);
+
+  @override
+  Future<AdiClientProvisioningIntermediateMetadata> startProvisioning(
+    int dsId,
+    Uint8List serverProvisioningIntermediateMetadata,
+  ) => _client.startProvisioning(dsId, serverProvisioningIntermediateMetadata);
+
+  @override
+  Future<void> endProvisioning(
+    int session,
+    Uint8List persistentTokenMetadata,
+    Uint8List trustKey,
+  ) => _client.endProvisioning(session, persistentTokenMetadata, trustKey);
+
+  @override
+  Future<AdiOneTimePassword> requestOTP(int dsId) => _client.requestOTP(dsId);
+}
+
+AdiProvisioning _defaultAdiFactory({
   required String adiLibraryDirectory,
   required String provisioningPath,
   required String identifier,
-}) => throw XcrossError(
-  'No Android ADI runtime is bundled. Native Windows password login uses '
-  'the AOSKit provider; other platforms need an injected AdiProvisioning '
-  'implementation or App Store Connect key authentication.',
-);
+}) {
+  final client = AdiClient.fromDirectory(adiLibraryDirectory);
+  client.provisioningPath = provisioningPath;
+  client.identifier = identifier;
+  return _RealAdiProvisioning(client);
+}
 
 /// Produces the real HTTP headers/plist fields Apple's GrandSlam servers
 /// require ("Anisette data"), given a locally-loaded ADI native library.
@@ -116,12 +130,12 @@ class AnisetteDataProvider implements AnisetteProvider {
     adiFactory,
   }) : _http = httpClient ?? createAppleHttpClient(),
        _stateStore = stateStore ?? AnisetteStateStore(),
-       _adiFactory = adiFactory ?? _unsupportedAdiFactory;
+       _adiFactory = adiFactory ?? _defaultAdiFactory;
 
   /// Directory containing the already-extracted `libCoreADI.so` and
-  /// `libstoreservicescore.so` native libraries. Obtaining them is the
-  /// caller's responsibility (see `package:provision_dart`'s
-  /// `AdiLibraryFetcher`/`apk_fetch.dart`, out of scope here).
+  /// `libstoreservicescore.so` native libraries. On Linux x86_64, `xcross auth`
+  /// can fetch these via provision_dart's AdiLibraryFetcher; otherwise the
+  /// caller supplies them.
   final String adiLibraryDirectory;
 
   final http.Client _http;

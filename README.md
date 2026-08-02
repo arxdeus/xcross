@@ -49,6 +49,14 @@ xcross sdk install ~/Downloads/Xcode.xip
 
 For USB device access and diagnostics, `xcross setup` installs `usbmuxd`, `usbutils`, and `libimobiledevice-utils`.
 
+Apple ID authentication on Linux uses Android ADI libraries (`libCoreADI.so` and `libstoreservicescore.so`). On x86_64, `xcross auth` downloads them from the Apple Music APK into `~/.config/xcross/adi-libs` on first use. On other architectures, extract the matching APK slice and pass `--adi-library-dir`:
+
+```sh
+xcross auth --apple-id you@example.com
+```
+
+The command prompts for the password and 2FA code, then stores only the resulting Developer Services session. App Store Connect API-key authentication remains available with `--issuer-id`, `--key-id`, and `--private-key`.
+
 ### Windows (native)
 
 Download `xcross-windows-x64.zip` from [Releases](https://github.com/arxdeus/xcross/releases), extract it, and put that directory on `PATH`. The archive contains `xcross.exe` and the x86 `xcross-aoskit.exe` authentication bridge. Signing runs in process, so no signing executable is bundled. Swift, LLVM, Flutter, and the Apple SDK are host prerequisites and are not bundled.
@@ -97,6 +105,7 @@ Use the release archive described in [Windows (native)](#windows-native).
 ```sh
 xcross setup
 xcross sdk install ~/Downloads/Xcode.xip   # once
+xcross auth --apple-id you@example.com     # or ASC API key flags
 xcross prepare                             # once per device reconnect
 cd my_flutter_app
 xcross flutter run [-u <UDID>]

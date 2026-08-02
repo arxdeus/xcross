@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/appstoreconnect/appstoreconnect.dart';
 import 'package:xcross/src/device/pymd_device_resolver.dart';
 import 'package:xcross/src/device/pymd_devices.dart';
+import 'package:xcross/src/grandslam/anisette/anisette_data_provider.dart';
 import 'package:xcross/src/grandslam/anisette/anisette_provider.dart';
 import 'package:xcross/src/grandslam/anisette/aoskit_anisette_provider.dart';
 import 'package:xcross/src/grandslam/grandslam_session_store.dart';
@@ -76,12 +77,13 @@ class NativeBackend implements DeviceBackend {
     }
 
     if (session != null && !session.isExpired) {
-      if (!Platform.isWindows) {
-        appleSessionFailure = XcrossError(
-          'Saved native Apple ID sessions are currently supported on Windows.',
-        );
-      } else {
-        final candidateAnisette = AosKitAnisetteProvider();
+      AnisetteProvider? candidateAnisette;
+      try {
+        candidateAnisette = _anisetteForSession(session);
+      } on Object catch (error) {
+        appleSessionFailure = error;
+      }
+      if (candidateAnisette != null) {
         final candidateClient = DeveloperServicesClient.fromSession(
           session,
           candidateAnisette.fetchAnisetteHeaders,
@@ -168,5 +170,24 @@ class NativeBackend implements DeviceBackend {
       client.close();
       anisette?.close();
     }
+  }
+
+  static AnisetteProvider _anisetteForSession(GrandSlamSession session) {
+    if (Platform.isWindows) {
+      return AosKitAnisetteProvider();
+    }
+    if (Platform.isLinux) {
+      final adiDir = session.adiLibraryDirectory;
+      if (adiDir == null || adiDir.isEmpty) {
+        throw XcrossError(
+          'Saved Apple ID session is missing adiLibraryDirectory. '
+          'Run xcross auth --apple-id <email> again on Linux.',
+        );
+      }
+      return AnisetteDataProvider(adiDir);
+    }
+    throw XcrossError(
+      'Saved native Apple ID sessions are supported on Linux and Windows.',
+    );
   }
 }

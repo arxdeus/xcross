@@ -438,7 +438,7 @@ class GrandSlamClient {
   /// operations use, since that's a protocol-wide convention, not an
   /// operation-specific one) so the interactive-2FA feature this task
   /// asks for actually works. Tolerant of a non-plist/empty body (e.g.
-  /// the trusted-device push notification has no meaningful response).
+  /// the trusted-device push returns `application/x-buddyml`).
   void _checkTwoFactorResponse(
     http.Response response, {
     bool incorrectCodeMeansWrongCode = false,
@@ -449,13 +449,14 @@ class GrandSlamClient {
         '(HTTP ${response.statusCode})',
       );
     }
-    if (response.body.trim().isEmpty) return;
+    final body = response.body.trim();
+    if (body.isEmpty || !_looksLikeXmlPlist(body)) return;
 
     final Object decoded;
     try {
-      decoded = PropertyListSerialization.propertyListWithString(response.body);
+      decoded = PropertyListSerialization.propertyListWithString(body);
     } on PropertyListException {
-      return; // Not a plist body (e.g. x-buddyml) - nothing to check.
+      return; // Malformed plist-looking body - nothing to check.
     }
     if (decoded is! Map) return;
     final status = decoded['Status'];
@@ -467,5 +468,12 @@ class GrandSlamClient {
       throw GrandSlamIncorrectCodeError(em);
     }
     throw GrandSlamOperationError(ec, em);
+  }
+
+  /// `propertylistserialization` prints a stack before throwing when the
+  /// body is not XML plist (e.g. x-buddyml). Sniff first to avoid that noise.
+  static bool _looksLikeXmlPlist(String body) {
+    final start = body.trimLeft();
+    return start.startsWith('<?xml') || start.startsWith('<plist');
   }
 }

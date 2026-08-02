@@ -118,6 +118,9 @@ jobs:
             native/windows/AOSKIT_HELPER_LICENSE.txt `
             dist/THIRD_PARTY_LICENSES/aoskit-helper.txt
           Copy-Item `
+            packages/provision_dart/LICENSE `
+            dist/THIRD_PARTY_LICENSES/provision-dart.txt
+          Copy-Item `
             native/signing/ZSIGN_LICENSE.txt `
             dist/THIRD_PARTY_LICENSES/zsign.txt
           Compress-Archive -Path dist/* -DestinationPath xcross-windows-x64.zip
@@ -130,6 +133,7 @@ jobs:
           $expected = @(
             'LICENSE'
             'THIRD_PARTY_LICENSES/aoskit-helper.txt'
+            'THIRD_PARTY_LICENSES/provision-dart.txt'
             'THIRD_PARTY_LICENSES/zsign.txt'
             'xcross-aoskit.exe'
             'xcross.exe'
@@ -203,5 +207,6 @@ jobs:
             dist/xcross-linux-arm64 \
             dist/xcross-windows-x64.zip \
             native/signing/ZSIGN_LICENSE.txt \
+            packages/provision_dart/LICENSE \
             --title "$tag" \
             --generate-notes

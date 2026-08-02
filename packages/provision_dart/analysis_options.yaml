@@ -1,0 +1,5 @@
+# Analyzed as a path dependency of xcross; keep this file free of
+# package:lints so root `dart analyze` does not require that package.
+analyzer:
+  exclude:
+    - test/**

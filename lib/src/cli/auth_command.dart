@@ -1,10 +1,15 @@
 import 'dart:convert';
+import 'dart:ffi' show Abi;
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
+import 'package:path/path.dart' as p;
+import 'package:provision_dart/provision_dart.dart' show AdiLibraryFetcher;
 import 'package:xcross/src/appstoreconnect/asc_config.dart';
 import 'package:xcross/src/appstoreconnect/developer_services_client.dart';
+import 'package:xcross/src/grandslam/anisette/anisette_data_provider.dart';
 import 'package:xcross/src/grandslam/anisette/anisette_provider.dart';
+import 'package:xcross/src/grandslam/anisette/anisette_state.dart';
 import 'package:xcross/src/grandslam/anisette/aoskit_anisette_provider.dart';
 import 'package:xcross/src/grandslam/app_token_exchange.dart';
 import 'package:xcross/src/grandslam/grandslam_login.dart';
@@ -36,6 +41,14 @@ class AuthCommand extends Command<void> {
         'apple-id',
         valueHelp: 'email',
         help: 'Use Apple ID/password login. If omitted, xcross prompts.',
+      )
+      ..addOption(
+        'adi-library-dir',
+        valueHelp: 'path',
+        help:
+            'Linux: directory containing libCoreADI.so and '
+            'libstoreservicescore.so for Apple ID login. Defaults to '
+            '~/.config/xcross/adi-libs (fetched automatically on x86_64).',
       );
   }
 
@@ -72,6 +85,9 @@ class AuthCommand extends Command<void> {
           'Provide non-empty values for all of --issuer-id, --key-id, and '
           '--private-key, or none to use Apple ID login.',
         );
+      }
+      if (argResults!.wasParsed('adi-library-dir')) {
+        throw XcrossError('--adi-library-dir only applies to Apple ID login.');
       }
       await _saveAscCredentials(
         issuerId: issuerId!,
@@ -115,13 +131,24 @@ class AuthCommand extends Command<void> {
   }
 
   Future<void> _runAppleIdLogin({String? initialUsername}) async {
-    if (!Platform.isWindows) {
+    if (!Platform.isWindows && !Platform.isLinux) {
       throw XcrossError(
-        'Built-in Apple ID/password login is currently available on native '
-        'Windows. On this platform use App Store Connect API key flags.',
+        'Built-in Apple ID/password login is available on Linux and Windows. '
+        'On this platform use App Store Connect API key flags.',
       );
     }
-    final AnisetteProvider anisette = AosKitAnisetteProvider();
+    if (Platform.isWindows && argResults!.wasParsed('adi-library-dir')) {
+      throw XcrossError(
+        '--adi-library-dir is Linux-only. On Windows, Apple ID login uses '
+        'the bundled AOSKit helper with website-edition iTunes/iCloud.',
+      );
+    }
+
+    final resolved = Platform.isWindows
+        ? await _windowsAnisette()
+        : await _linuxAnisette();
+    final anisette = resolved.anisette;
+    final adiLibraryDirectory = resolved.adiLibraryDirectory;
 
     final username = initialUsername ?? _readRequiredLine('Apple ID: ');
     final password = _readPassword();
@@ -177,7 +204,12 @@ class AuthCommand extends Command<void> {
           : _selectTeam(activeTeams);
       final store = GrandSlamSessionStore();
       await store.save(
-        GrandSlamSession(username: username, token: token, teamId: team.id),
+        GrandSlamSession(
+          username: username,
+          token: token,
+          teamId: team.id,
+          adiLibraryDirectory: adiLibraryDirectory,
+        ),
       );
       Log.logDone('Signed in as $username. Session saved to ${store.path}');
     } on XcrossError {
@@ -189,6 +221,55 @@ class AuthCommand extends Command<void> {
       loginClient?.close();
       anisette.close();
     }
+  }
+
+  Future<({AnisetteProvider anisette, String? adiLibraryDirectory})>
+  _windowsAnisette() async => (
+    anisette: AosKitAnisetteProvider(),
+    adiLibraryDirectory: null,
+  );
+
+  Future<({AnisetteProvider anisette, String? adiLibraryDirectory})>
+  _linuxAnisette() async {
+    final adiLibraryDir = await _resolveLinuxAdiLibraryDirectory();
+    return (
+      anisette: AnisetteDataProvider(adiLibraryDir),
+      adiLibraryDirectory: adiLibraryDir,
+    );
+  }
+
+  Future<String> _resolveLinuxAdiLibraryDirectory() async {
+    final configured = argResults!.option('adi-library-dir');
+    final adiLibraryDir =
+        configured ??
+        p.join(p.dirname(AnisetteStateStore.defaultPath()), 'adi-libs');
+    if (_adiLibsPresent(adiLibraryDir)) {
+      return Directory(adiLibraryDir).absolute.path;
+    }
+
+    if (configured != null) {
+      _throwMissingAdiLibs(adiLibraryDir);
+    }
+
+    if (Abi.current() != Abi.linuxX64) {
+      throw XcrossError(
+        'Apple ID login on ${Abi.current()} needs matching ADI libraries at '
+        '"$adiLibraryDir" (libCoreADI.so and libstoreservicescore.so). '
+        'Extract them from the Apple Music Android APK for this architecture, '
+        'or pass --adi-library-dir.',
+      );
+    }
+
+    await Log.logStep(
+      'Fetching Apple ADI libraries',
+      () => AdiLibraryFetcher(
+        cacheDir: Directory(adiLibraryDir),
+      ).ensureLibraries(),
+    );
+    if (!_adiLibsPresent(adiLibraryDir)) {
+      _throwMissingAdiLibs(adiLibraryDir);
+    }
+    return Directory(adiLibraryDir).absolute.path;
   }
 
   DeveloperServicesTeam _selectTeam(List<DeveloperServicesTeam> teams) {
@@ -268,6 +349,19 @@ class AuthCommand extends Command<void> {
       _trySet(() => stdin.lineMode = priorLine);
       _trySet(() => stdin.echoMode = priorEcho);
     }
+  }
+
+  static bool _adiLibsPresent(String dir) => const [
+    'libCoreADI.so',
+    'libstoreservicescore.so',
+  ].every((name) => File(p.join(dir, name)).existsSync());
+
+  static Never _throwMissingAdiLibs(String dir) {
+    throw XcrossError(
+      'Apple ID login needs ADI libraries at "$dir" '
+      '(libCoreADI.so and/or libstoreservicescore.so missing). Place both '
+      'there, or pass --adi-library-dir.',
+    );
   }
 
   static bool _present(String? value) => value != null && value.isNotEmpty;

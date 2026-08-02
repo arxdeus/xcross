@@ -281,7 +281,13 @@ void main() {
           expect(request.headers['X-Apple-App-Info'], 'com.apple.gs.xcode.auth');
           expect(request.headers['X-Xcode-Version'], isNotEmpty);
           pushSent = true;
-          return http.Response('', 200);
+          // Apple returns application/x-buddyml here, not a plist. Parsing
+          // that as XML would trip propertylistserialization's debug print.
+          return http.Response(
+            '<buddyui><alert>Enter the code</alert></buddyui>',
+            200,
+            headers: {'content-type': 'application/x-buddyml'},
+          );
         }
         if (request.url.toString() == _validateCodeUrl) {
           expect(request.method, 'GET');
