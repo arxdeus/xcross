@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:args/command_runner.dart';
 import 'package:path/path.dart' as p;
@@ -71,9 +72,31 @@ Future<int> writeSdkEntries(
   final root = p.normalize(p.absolute(destDir));
   await Directory(_sdkIoPath(root)).create(recursive: true);
   final links = <String, String>{};
+  // ponytail: archive-order cache is memory-bound; disk-spool only if a future Xcode archive makes pending groups large.
+  final hardLinks = <(int, int), ({Uint8List data, int remaining})>{};
   var written = 0;
 
   await for (final entry in entries) {
+    var data = entry.data;
+    final fileType = entry.mode & _fileTypeMask;
+    if ((fileType == _regularFileType || fileType == 0) && entry.nlink > 1) {
+      final key = (entry.dev, entry.ino);
+      final pending = hardLinks[key];
+      if (pending == null) {
+        hardLinks[key] = (data: data, remaining: entry.nlink - 1);
+      } else {
+        data = pending.data;
+        if (pending.remaining == 1) {
+          hardLinks.remove(key);
+        } else {
+          hardLinks[key] = (
+            data: pending.data,
+            remaining: pending.remaining - 1,
+          );
+        }
+      }
+    }
+
     final archivePath = sdkRelativePath(entry.name);
     if (archivePath == null) continue;
     if (archivePath.split('/').contains('..')) {
@@ -97,7 +120,7 @@ Future<int> writeSdkEntries(
         await Directory(
           _sdkIoPath(p.dirname(destPath)),
         ).create(recursive: true);
-        await File(_sdkIoPath(destPath)).writeAsBytes(entry.data);
+        await File(_sdkIoPath(destPath)).writeAsBytes(data);
         if (entry.mode & 0x49 != 0) ProcessRunner.makeExecutable(destPath);
       default:
         continue;
@@ -196,6 +219,33 @@ const _toolchainLib = 'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib';
 const _swiftResources = '$_toolchainLib/swift';
 const _swiftStaticResources = '$_toolchainLib/swift_static';
 
+/// Copy Swift's canonical iPhoneOS layout into its legacy Runtime location.
+Future<void> materializeSwiftCompatibilityResources(String artifactRoot) async {
+  final source = File(
+    _sdkIoPath(
+      p.join(artifactRoot, _swiftResources, 'iphoneos', 'layouts-arm64.yaml'),
+    ),
+  );
+  if (!source.existsSync() || source.lengthSync() == 0) {
+    throw XcrossError(
+      'Missing or empty canonical Swift iPhoneOS layout: ${source.path}',
+    );
+  }
+  final destination = _sdkIoPath(
+    p.join(
+      artifactRoot,
+      'Developer',
+      'Runtimes',
+      'XcodeDefault.xctoolchain',
+      'usr',
+      'bin',
+      'layouts-arm64.yaml',
+    ),
+  );
+  await Directory(p.dirname(destination)).create(recursive: true);
+  await source.copy(destination);
+}
+
 /// Write the Swift artifact-bundle metadata after extraction.
 Future<void> writeSwiftSdkBundleMetadata(String artifactRoot) async {
   final sdkRoot = DarwinSdk(artifactRoot).iPhoneOSSdk();
@@ -253,19 +303,42 @@ Future<void> writeSwiftSdkBundleMetadata(String artifactRoot) async {
 
 String _metadataPath(String path) => path.replaceAll(r'\', '/');
 
-/// Replace Xcode's clang builtin headers with headers matching the host clang.
-Future<void> replaceClangBuiltinHeaders(String artifactRoot) async {
-  String clang;
+/// Replace Xcode's clang builtin headers with headers matching host Swift.
+Future<void> replaceClangBuiltinHeaders(
+  String artifactRoot, {
+  Future<String> Function(String name)? locateTool,
+  Future<CapturedProcess> Function(String executable, List<String> arguments)?
+  runProcess,
+}) async {
+  final locate = locateTool ?? ProcessRunner.locateTool;
+  final run = runProcess ?? ProcessRunner.run;
+  String swift;
   try {
-    clang = await ProcessRunner.locateTool('clang');
+    swift = await locate('swift');
   } on Object {
     throw XcrossError(
-      'clang is required to install the Darwin Swift SDK. Install LLVM clang '
-      'and ensure `clang` is on PATH, then retry.',
+      'Could not locate the selected Swift executable `swift` on PATH.',
     );
   }
 
-  final result = await ProcessRunner.run(clang, const ['-print-resource-dir']);
+  String resolvedSwift;
+  try {
+    resolvedSwift = await File(swift).resolveSymbolicLinks();
+  } on Object {
+    throw XcrossError('Could not resolve selected Swift executable "$swift".');
+  }
+  final clang = p.join(
+    p.dirname(resolvedSwift),
+    ProcessRunner.hostExecutableName('clang'),
+  );
+  if (!File(clang).existsSync()) {
+    throw XcrossError(
+      'Selected Swift executable "$resolvedSwift" has no sibling clang at '
+      '"$clang".',
+    );
+  }
+
+  final result = await run(clang, const ['-print-resource-dir']);
   final resourceDir = result.stdout.trim();
   final source = p.join(resourceDir, 'include');
   if (result.exitCode != 0 ||
@@ -273,9 +346,8 @@ Future<void> replaceClangBuiltinHeaders(String artifactRoot) async {
       !Directory(source).existsSync()) {
     final detail = result.stderr.trim();
     throw XcrossError(
-      'Could not locate clang builtin headers with '
-      '`clang -print-resource-dir`. Verify the LLVM clang installation and '
-      'retry.${detail.isEmpty ? '' : '\n$detail'}',
+      'Could not locate clang builtin headers using sibling clang "$clang" '
+      'selected for Swift "$resolvedSwift".${detail.isEmpty ? '' : '\n$detail'}',
     );
   }
 
@@ -340,6 +412,7 @@ class SdkInstallCommand extends Command<void> {
     }
 
     await replaceClangBuiltinHeaders(destDir);
+    await materializeSwiftCompatibilityResources(destDir);
     await writeSwiftSdkBundleMetadata(destDir);
     Log.logDone('Installed Darwin Swift SDK ($written entries) at $destDir');
   }

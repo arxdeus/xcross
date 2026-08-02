@@ -52,7 +52,7 @@ runs:
 
     - name: Restore Darwin SDK cache
       id: darwin-cache
-      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
+      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
       with:
         path: ${{ steps.sdk-path.outputs.bundle }}
         key: ${{ steps.sdk-path.outputs.cache-key }}
@@ -112,9 +112,19 @@ runs:
         import subprocess
         from pathlib import Path
 
+        swift_path = shutil.which("swift")
+        if not swift_path:
+            raise SystemExit("selected Swift executable not found on PATH")
+        swift = Path(swift_path).resolve()
+        clang = swift.with_name("clang.exe" if os.name == "nt" else "clang")
+        if not clang.is_file():
+            raise SystemExit(
+                f"selected Swift executable {swift} has no sibling "
+                f"clang at {clang}"
+            )
         resource = Path(
             subprocess.check_output(
-                ["clang", "-print-resource-dir"], text=True
+                [str(clang), "-print-resource-dir"], text=True
             ).strip()
         )
         source = resource / "include"
@@ -136,6 +146,29 @@ runs:
             shutil.rmtree(destination)
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(source, destination)
+
+    - name: Materialize Swift compatibility resources
+      shell: python
+      run: |
+        import os
+        import shutil
+        from pathlib import Path
+
+        bundle = Path(os.environ["XCROSS_DARWIN_BUNDLE"])
+        source = bundle.joinpath(
+            "Developer", "Toolchains", "XcodeDefault.xctoolchain", "usr",
+            "lib", "swift", "iphoneos", "layouts-arm64.yaml"
+        )
+        if not source.is_file() or source.stat().st_size == 0:
+            raise SystemExit(
+                f"missing or empty canonical Swift layout: {source}"
+            )
+        destination = bundle.joinpath(
+            "Developer", "Runtimes", "XcodeDefault.xctoolchain", "usr",
+            "bin", "layouts-arm64.yaml"
+        )
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, destination)
 
     - name: Verify Darwin Swift SDK
       shell: python

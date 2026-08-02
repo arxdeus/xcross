@@ -76,9 +76,7 @@ Map<String, Object?> decodePlistBytes(
   }
   final Object decoded;
   try {
-    decoded = PropertyListSerialization.propertyListWithData(
-      byteDataOf(bytes),
-    );
+    decoded = PropertyListSerialization.propertyListWithData(byteDataOf(bytes));
   } on Object catch (e) {
     throw XcrossError('$context was not a plist: $e');
   }

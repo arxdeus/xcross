@@ -267,8 +267,8 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
     final response = await _http.post(
       Uri.parse('$_baseUrl${logicalUrl.path.substring('/services'.length)}'),
       headers: {
-        ...await _fetchAnisetteHeaders(),
         ..._headers(token),
+        ...await _fetchAnisetteHeaders(),
         'X-HTTP-Method-Override': 'GET',
       },
       body: jsonEncode({
@@ -327,7 +327,7 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
     final attributes = (data['attributes'] as Map).cast<String, dynamic>();
     final response = await _http.post(
       Uri.parse('$_baseUrl$path'),
-      headers: {...await _fetchAnisetteHeaders(), ..._headers(token)},
+      headers: {..._headers(token), ...await _fetchAnisetteHeaders()},
       body: jsonEncode({
         ...body,
         'data': {

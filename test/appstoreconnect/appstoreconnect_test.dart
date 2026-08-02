@@ -60,10 +60,31 @@ void main() {
       expect(client.certificateCreations, 1);
     },
   );
+
+  test('registers a bundle ID with an alphanumeric display name', () async {
+    final temp = Directory.systemTemp.createTempSync('xcross_bundle_name');
+    addTearDown(() => temp.deleteSync(recursive: true));
+    final client = _FakeProvisioningClient(bundleExists: false);
+
+    await provisionDevelopmentIdentity(
+      client: client,
+      bundleId: 'com.example.my-app',
+      deviceUdids: const ['UDID'],
+      outputDir: temp.path,
+    );
+
+    expect(client.registeredBundleName, 'com example my app');
+    expect(client.createdProfileName, matches(r'^xcross Development \d+$'));
+  });
 }
 
 class _FakeProvisioningClient implements DevelopmentProvisioningClient {
+  _FakeProvisioningClient({this.bundleExists = true});
+
+  final bool bundleExists;
   int certificateCreations = 0;
+  String? registeredBundleName;
+  String? createdProfileName;
 
   @override
   Future<AscCertificate> createDevelopmentCertificate({
@@ -82,11 +103,13 @@ class _FakeProvisioningClient implements DevelopmentProvisioningClient {
   }
 
   @override
-  Future<AscBundleId?> findBundleId(String identifier) async => AscBundleId(
-    id: 'bundle-$identifier',
-    identifier: identifier,
-    name: identifier,
-  );
+  Future<AscBundleId?> findBundleId(String identifier) async => bundleExists
+      ? AscBundleId(
+          id: 'bundle-$identifier',
+          identifier: identifier,
+          name: identifier,
+        )
+      : null;
 
   @override
   Future<AscDevice?> findDeviceByUdid(String udid) async =>
@@ -98,13 +121,16 @@ class _FakeProvisioningClient implements DevelopmentProvisioningClient {
     required String bundleIdResourceId,
     required List<String> certificateResourceIds,
     required List<String> deviceResourceIds,
-  }) async => AscProfile(
-    id: 'profile-$bundleIdResourceId',
-    profileContentBase64: base64Encode([4, 5, 6]),
-    uuid: 'uuid',
-    profileState: 'ACTIVE',
-    expirationDate: null,
-  );
+  }) async {
+    createdProfileName = name;
+    return AscProfile(
+      id: 'profile-$bundleIdResourceId',
+      profileContentBase64: base64Encode([4, 5, 6]),
+      uuid: 'uuid',
+      profileState: 'ACTIVE',
+      expirationDate: null,
+    );
+  }
 
   @override
   Future<List<AscDevice>> listDevices() async => const [];
@@ -113,7 +139,14 @@ class _FakeProvisioningClient implements DevelopmentProvisioningClient {
   Future<AscBundleId> registerBundleId({
     required String identifier,
     required String name,
-  }) => throw UnimplementedError();
+  }) async {
+    registeredBundleName = name;
+    return AscBundleId(
+      id: 'bundle-$identifier',
+      identifier: identifier,
+      name: name,
+    );
+  }
 
   @override
   Future<AscDevice> registerDevice({

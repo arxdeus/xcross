@@ -90,6 +90,9 @@ Uint8List buildCpioEntry({
   required String name,
   required List<int> data,
   int mode = 0x81a4, // regular file, rw-r--r--
+  int dev = 0,
+  int ino = 0,
+  int nlink = 1,
 }) {
   final nameBytes = ascii.encode(name);
   final namesize = nameBytes.length + 1; // + trailing NUL
@@ -97,12 +100,12 @@ Uint8List buildCpioEntry({
       value.toRadixString(8).padLeft(width, '0');
   final header =
       '070707'
-      '${oct(0, 6)}' // dev
-      '${oct(0, 6)}' // ino
+      '${oct(dev, 6)}' // dev
+      '${oct(ino, 6)}' // ino
       '${oct(mode, 6)}'
       '${oct(0, 6)}' // uid
       '${oct(0, 6)}' // gid
-      '${oct(1, 6)}' // nlink
+      '${oct(nlink, 6)}' // nlink
       '${oct(0, 6)}' // rdev
       '${oct(0, 11)}' // mtime
       '${oct(namesize, 6)}'

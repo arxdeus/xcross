@@ -7,6 +7,9 @@ import 'package:test/test.dart';
 import 'package:xcross/src/cli/sdk_command.dart';
 import 'package:xcross/src/darwinsdk/cpio_reader.dart';
 import 'package:xcross/src/darwinsdk/darwin_sdk.dart';
+import 'package:xcross/src/util/process.dart';
+
+import '../darwinsdk/test_fixtures.dart';
 
 void main() {
   CpioEntry entry(String name, {int mode = 0x81a4, String data = ''}) =>
@@ -86,6 +89,52 @@ void main() {
     expect(Directory(include).existsSync(), isTrue);
     expect(File(p.join(include, 'alias.h')).readAsStringSync(), 'header');
   });
+
+  test(
+    'restores included cpio hard-link payloads from excluded entries',
+    () async {
+      final temp = Directory.systemTemp.createTempSync('xcross-sdk-hard-link-');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      const canonical = [1, 2, 3, 4];
+      const relative =
+          'Developer/Platforms/iPhoneOS.platform/Developer/SDKs/'
+          'iPhoneOS18.2.sdk/usr/include/hard-link.h';
+      final archive = BytesBuilder()
+        ..add(
+          buildCpioEntry(
+            name:
+                'Xcode.app/Contents/Developer/Platforms/'
+                'iPhoneSimulator.platform/Developer/SDKs/'
+                'iPhoneSimulator18.2.sdk/usr/include/hard-link.h',
+            data: canonical,
+            dev: 1,
+            ino: 42,
+            nlink: 2,
+          ),
+        )
+        ..add(
+          buildCpioEntry(
+            name: 'Xcode.app/Contents/$relative',
+            data: ascii.encode('NULLcanary'),
+            dev: 1,
+            ino: 42,
+            nlink: 2,
+          ),
+        )
+        ..add(buildCpioTrailer());
+
+      final count = await writeSdkEntries(
+        readCpio(Stream.value(archive.takeBytes())),
+        temp.path,
+      );
+
+      expect(count, 1);
+      expect(
+        File(p.joinAll([temp.path, ...relative.split('/')])).readAsBytesSync(),
+        canonical,
+      );
+    },
+  );
 
   test('materializes SDK directories beyond Windows MAX_PATH', () async {
     final temp = Directory.systemTemp.createTempSync('xcross-sdk-long-path-');
@@ -173,6 +222,86 @@ void main() {
     );
   });
 
+  test('materializes the Swift compatibility layout', () async {
+    final temp = Directory.systemTemp.createTempSync('xcross-sdk-layout-');
+    addTearDown(() => temp.deleteSync(recursive: true));
+    final source = File(
+      p.join(
+        temp.path,
+        'Developer',
+        'Toolchains',
+        'XcodeDefault.xctoolchain',
+        'usr',
+        'lib',
+        'swift',
+        'iphoneos',
+        'layouts-arm64.yaml',
+      ),
+    );
+    await source.parent.create(recursive: true);
+    await source.writeAsBytes([1, 2, 3, 4]);
+
+    await materializeSwiftCompatibilityResources(temp.path);
+
+    expect(
+      File(
+        p.join(
+          temp.path,
+          'Developer',
+          'Runtimes',
+          'XcodeDefault.xctoolchain',
+          'usr',
+          'bin',
+          'layouts-arm64.yaml',
+        ),
+      ).readAsBytesSync(),
+      [1, 2, 3, 4],
+    );
+  });
+
+  test('uses clang beside the selected Swift executable', () async {
+    final temp = Directory.systemTemp.createTempSync('xcross-sdk-clang-');
+    addTearDown(() => temp.deleteSync(recursive: true));
+    final bin = await Directory(p.join(temp.path, 'bin')).create();
+    final swift = File(
+      p.join(bin.path, ProcessRunner.hostExecutableName('swift')),
+    )..createSync();
+    final clang = File(
+      p.join(bin.path, ProcessRunner.hostExecutableName('clang')),
+    )..createSync();
+    final include = await Directory(
+      p.join(temp.path, 'resource', 'include'),
+    ).create(recursive: true);
+    await File(p.join(include.path, 'arm_neon.h')).writeAsString('swift clang');
+
+    await replaceClangBuiltinHeaders(
+      temp.path,
+      locateTool: (name) async {
+        expect(name, 'swift');
+        return swift.path;
+      },
+      runProcess: (executable, arguments) async {
+        expect(executable, clang.path);
+        expect(arguments, ['-print-resource-dir']);
+        return CapturedProcess(0, p.dirname(include.path), '');
+      },
+    );
+
+    final destination = p.join(
+      temp.path,
+      'Developer',
+      'Toolchains',
+      'XcodeDefault.xctoolchain',
+      'usr',
+      'lib',
+      'swift',
+      'clang',
+      'include',
+      'arm_neon.h',
+    );
+    expect(File(destination).readAsStringSync(), 'swift clang');
+  });
+
   test('writes Swift SDK artifact metadata for the extracted tree', () async {
     final bundle = Directory.systemTemp.createTempSync('xcross-sdk-metadata-');
     addTearDown(() => bundle.deleteSync(recursive: true));
@@ -188,7 +317,7 @@ void main() {
     await Directory(
       p.join(sdkRoot, 'System', 'Library', 'Frameworks'),
     ).create(recursive: true);
-    await Directory(
+    final layout = File(
       p.join(
         bundle.path,
         'Developer',
@@ -198,8 +327,12 @@ void main() {
         'lib',
         'swift',
         'iphoneos',
+        'layouts-arm64.yaml',
       ),
-    ).create(recursive: true);
+    );
+    await layout.parent.create(recursive: true);
+    await layout.writeAsString('layout');
+    await materializeSwiftCompatibilityResources(bundle.path);
 
     await writeSwiftSdkBundleMetadata(bundle.path);
 

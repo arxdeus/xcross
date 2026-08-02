@@ -10,45 +10,38 @@ import 'package:xcross/src/util/errors.dart';
 
 void main() {
   group('DeveloperServicesClient', () {
-    test(
-      'rewrites logical GET as POST with encoded query and teamId',
-      () async {
-        var requestCount = 0;
-        final client = DeveloperServicesClient(
-          token: _token(),
-          teamId: 'TEAM 1',
-          fetchAnisetteHeaders: () async => {
-            'X-Apple-I-MD': 'fresh',
-            'X-MMe-Client-Info': 'old-client-info',
-          },
-          httpClient: MockClient((request) async {
-            requestCount++;
-            expect(request.method, 'POST');
-            expect(
-              request.url.toString(),
-              'https://developerservices2.apple.com/services/v1/bundleIds',
-            );
-            expect(request.headers['X-HTTP-Method-Override'], 'GET');
-            expect(request.headers['X-Apple-I-MD'], 'fresh');
-            expect(
-              request.headers['X-MMe-Client-Info'],
-              '<VirtualMac2,1> <macOS;15.1.1;24B91> '
-              '<com.apple.AuthKit/1 (com.apple.dt.Xcode/23505)>',
-            );
-            final body = jsonDecode(request.body) as Map<String, dynamic>;
-            expect(
-              body['urlEncodedQueryParams'],
-              'filter%5Bidentifier%5D=com.example.app&teamId=TEAM+1',
-            );
-            return http.Response(jsonEncode({'data': <Object>[]}), 200);
-          }),
-        );
+    test('rewrites GET and keeps the fresh anisette client identity', () async {
+      var requestCount = 0;
+      final client = DeveloperServicesClient(
+        token: _token(),
+        teamId: 'TEAM 1',
+        fetchAnisetteHeaders: () async => {
+          'X-Apple-I-MD': 'fresh',
+          'X-MMe-Client-Info': 'fresh-client-info',
+        },
+        httpClient: MockClient((request) async {
+          requestCount++;
+          expect(request.method, 'POST');
+          expect(
+            request.url.toString(),
+            'https://developerservices2.apple.com/services/v1/bundleIds',
+          );
+          expect(request.headers['X-HTTP-Method-Override'], 'GET');
+          expect(request.headers['X-Apple-I-MD'], 'fresh');
+          expect(request.headers['X-MMe-Client-Info'], 'fresh-client-info');
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          expect(
+            body['urlEncodedQueryParams'],
+            'filter%5Bidentifier%5D=com.example.app&teamId=TEAM+1',
+          );
+          return http.Response(jsonEncode({'data': <Object>[]}), 200);
+        }),
+      );
 
-        expect(await client.findBundleId('com.example.app'), isNull);
-        expect(requestCount, 1);
-        client.close();
-      },
-    );
+      expect(await client.findBundleId('com.example.app'), isNull);
+      expect(requestCount, 1);
+      client.close();
+    });
 
     test('empty logical GET still sends teamId', () async {
       final client = DeveloperServicesClient(

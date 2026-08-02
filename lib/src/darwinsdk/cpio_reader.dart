@@ -12,13 +12,23 @@ const int _headerSize = 76;
 /// Byte offsets of the fields we care about within the 76-byte odc header:
 /// `magic(6) dev(6) ino(6) mode(6) uid(6) gid(6) nlink(6) rdev(6) mtime(11)
 /// namesize(6) filesize(11)`.
+const int _devOffset = 6;
+const int _inoOffset = 12;
 const int _modeOffset = 18;
+const int _nlinkOffset = 36;
 const int _namesizeOffset = 59;
 const int _filesizeOffset = 65;
 
 /// One decoded entry from an odc cpio archive.
 class CpioEntry {
-  const CpioEntry({required this.name, required this.mode, required this.data});
+  const CpioEntry({
+    required this.name,
+    required this.mode,
+    required this.data,
+    this.dev = 0,
+    this.ino = 0,
+    this.nlink = 1,
+  });
 
   /// Entry path, with the trailing NUL and cpio's own end-of-archive marker
   /// (`TRAILER!!!`) already stripped/excluded.
@@ -28,6 +38,9 @@ class CpioEntry {
   final int mode;
 
   final Uint8List data;
+  final int dev;
+  final int ino;
+  final int nlink;
 }
 
 /// Reads a classic POSIX portable-ASCII ("odc") cpio stream — NOT "newc" or
@@ -81,6 +94,13 @@ Stream<CpioEntry> readCpio(Stream<List<int>> input) async* {
 
     if (name == 'TRAILER!!!') return;
 
-    yield CpioEntry(name: name, mode: field(_modeOffset, 6), data: data);
+    yield CpioEntry(
+      name: name,
+      mode: field(_modeOffset, 6),
+      data: data,
+      dev: field(_devOffset, 6),
+      ino: field(_inoOffset, 6),
+      nlink: field(_nlinkOffset, 6),
+    );
   }
 }

@@ -88,7 +88,10 @@ provisionDevelopmentIdentity({
 
   final bundleIdResource =
       await client.findBundleId(bundleId) ??
-      await client.registerBundleId(identifier: bundleId, name: bundleId);
+      await client.registerBundleId(
+        identifier: bundleId,
+        name: bundleId.replaceAll(RegExp('[^A-Za-z0-9]+'), ' ').trim(),
+      );
 
   final deviceResourceIds = <String>[];
   for (final udid in deviceUdids) {
@@ -99,7 +102,7 @@ provisionDevelopmentIdentity({
   }
 
   final profile = await client.createProfile(
-    name: '$bundleId Development',
+    name: 'xcross Development ${DateTime.now().microsecondsSinceEpoch}',
     bundleIdResourceId: bundleIdResource.id,
     certificateResourceIds: [certificateId],
     deviceResourceIds: deviceResourceIds,

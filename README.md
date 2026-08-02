@@ -51,7 +51,7 @@ For USB device access and diagnostics, `xcross setup` installs `usbmuxd`, `usbut
 
 ### Windows (native)
 
-Download `xcross-windows-x64.zip` from [Releases](https://github.com/arxdeus/xcross/releases), extract it, and put that directory on `PATH`. The archive contains `xcross.exe`, `zsign.exe`, and the x86 `xcross-aoskit.exe` authentication bridge. Swift, LLVM, Flutter, and the Apple SDK are host prerequisites and are not bundled.
+Download `xcross-windows-x64.zip` from [Releases](https://github.com/arxdeus/xcross/releases), extract it, and put that directory on `PATH`. The archive contains `xcross.exe` and the x86 `xcross-aoskit.exe` authentication bridge. Signing runs in process, so no signing executable is bundled. Swift, LLVM, Flutter, and the Apple SDK are host prerequisites and are not bundled.
 
 Install Swift and LLVM from an Administrator PowerShell:
 

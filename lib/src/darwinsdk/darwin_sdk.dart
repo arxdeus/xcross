@@ -29,6 +29,18 @@ class DarwinSdk {
   /// Resolve the SDK installed and owned by xcross, or null when incomplete.
   static DarwinSdk? current({String? bundle}) {
     final candidate = bundle ?? nativeInstallDir();
+    final source = _canonicalLayout(candidate);
+    final destination = _runtimeLayout(candidate);
+    try {
+      if ((!destination.existsSync() || destination.lengthSync() == 0) &&
+          source.existsSync() &&
+          source.lengthSync() > 0) {
+        destination.parent.createSync(recursive: true);
+        source.copySync(destination.path);
+      }
+    } on FileSystemException {
+      // Validation below reports an unwritable/incomplete SDK as unavailable.
+    }
     return isValidBundle(candidate) ? DarwinSdk(candidate) : null;
   }
 
@@ -51,11 +63,17 @@ class DarwinSdk {
       'swift',
       'iphoneos',
     );
+    final canonicalLayout = _canonicalLayout(candidate);
+    final runtimeLayout = _runtimeLayout(candidate);
     return sdk != null &&
         Directory(
           p.join(sdk, 'System', 'Library', 'Frameworks'),
         ).existsSync() &&
-        Directory(swiftResources).existsSync();
+        Directory(swiftResources).existsSync() &&
+        canonicalLayout.existsSync() &&
+        canonicalLayout.lengthSync() > 0 &&
+        runtimeLayout.existsSync() &&
+        runtimeLayout.lengthSync() > 0;
   }
 
   /// First versioned iPhoneOSXX.X.sdk found, else first iPhoneOS.sdk.
@@ -78,6 +96,32 @@ class DarwinSdk {
     '$platform.platform',
     'Developer',
     'SDKs',
+  );
+
+  static File _canonicalLayout(String bundle) => File(
+    p.join(
+      bundle,
+      'Developer',
+      'Toolchains',
+      'XcodeDefault.xctoolchain',
+      'usr',
+      'lib',
+      'swift',
+      'iphoneos',
+      'layouts-arm64.yaml',
+    ),
+  );
+
+  static File _runtimeLayout(String bundle) => File(
+    p.join(
+      bundle,
+      'Developer',
+      'Runtimes',
+      'XcodeDefault.xctoolchain',
+      'usr',
+      'bin',
+      'layouts-arm64.yaml',
+    ),
   );
 
   static String? _firstSdk(String dir, String prefix) {

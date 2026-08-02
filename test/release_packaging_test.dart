@@ -3,38 +3,66 @@ import 'dart:io';
 import 'package:test/test.dart';
 
 void main() {
-  test('Linux release builds and publishes pinned zsign binaries', () {
+  test('release publishes only xcross artifacts and keeps attribution', () {
     final workflow = File('.github/workflows/release.yml').readAsStringSync();
 
     for (final expected in [
-      'd6e929c97b5b564c2cc1f82afe226a44da7149a0',
-      'repository: zhlynn/zsign',
-      'sudo apt-get install -y g++ pkg-config libssl-dev',
-      'make -C zsign/build/linux',
-      'dist/zsign-linux-x64',
-      'dist/zsign-linux-arm64',
+      'native/signing/ZSIGN_LICENSE.txt',
+      'dist/THIRD_PARTY_LICENSES/zsign.txt',
+      "'THIRD_PARTY_LICENSES/zsign.txt'",
+      'dart analyze',
+      'dart test',
+      "if: startsWith(github.ref, 'refs/tags/')",
+      r'gh release create "$tag"',
+      'dist/xcross-linux-x64',
+      'dist/xcross-linux-arm64',
+      'dist/xcross-windows-x64.zip',
+      'native/signing/ZSIGN_LICENSE.txt',
+      'xcross.exe --help',
     ]) {
       expect(workflow, contains(expected));
     }
     expect(
-      workflow,
-      contains("if: startsWith(github.ref, 'refs/tags/')"),
-      reason: 'workflow_dispatch must build without publishing',
+      workflow
+          .split('\n')
+          .where((line) => line.toLowerCase().contains('zsign'))
+          .map((line) => line.trim()),
+      orderedEquals([
+        'native/signing/ZSIGN_LICENSE.txt `',
+        'dist/THIRD_PARTY_LICENSES/zsign.txt',
+        "'THIRD_PARTY_LICENSES/zsign.txt'",
+        r'native/signing/ZSIGN_LICENSE.txt \',
+      ]),
     );
+    for (final removed in [
+      'libssl-dev',
+      'microsoft/setup-msbuild',
+      'make -C',
+      'msbuild ',
+    ]) {
+      expect(workflow, isNot(contains(removed)));
+    }
   });
 
-  test('installer downloads and verifies xcross and matching zsign', () {
+  test('installer installs xcross plus its required license notice', () {
     final installer = File('install.sh').readAsStringSync();
 
     for (final expected in [
-      'zsign-linux-x64',
-      'zsign-linux-arm64',
+      'xcross-linux-x64',
+      'xcross-linux-arm64',
+      'NOTICE="ZSIGN_LICENSE.txt"',
       r'tmp="$(mktemp -d)"',
-      r"""trap 'rm -rf "$tmp"'""",
+      r'''trap 'rm -rf "$tmp"' EXIT HUP INT TERM''',
+      r'download "$url" "$tmp/$asset"',
+      r'download "$notice_url" "$tmp/$NOTICE"',
+      r'install -m 0755 "$tmp/$asset" "$target"',
+      r'install -m 0644 "$tmp/$NOTICE" "$notice_target"',
       r'"$target" --help',
-      r'"$zsign_target" -h',
     ]) {
       expect(installer, contains(expected));
+    }
+    for (final removed in ['zsign-linux', 'zsign.exe', 'XCROSS_ZSIGN_PATH']) {
+      expect(installer, isNot(contains(removed)));
     }
   });
 }

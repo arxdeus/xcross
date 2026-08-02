@@ -8,8 +8,10 @@ import 'package:xcross/src/grandslam/anisette/anisette_provider.dart';
 import 'package:xcross/src/grandslam/anisette/aoskit_anisette_provider.dart';
 import 'package:xcross/src/grandslam/grandslam_session_store.dart';
 import 'package:xcross/src/models/device/device.dart';
-import 'package:xcross/src/signing/zsign_cli.dart';
+import 'package:xcross/src/signing/bundle_signer.dart';
+import 'package:xcross/src/signing/signing_asset.dart';
 import 'package:xcross/src/util/errors.dart';
+import 'package:xcross/src/util/logging.dart';
 
 /// Resolves, signs, and installs to a device using the native pipeline.
 abstract class DeviceBackend {
@@ -28,8 +30,8 @@ abstract class DeviceBackend {
   static Future<DeviceBackend> resolve() async => NativeBackend();
 }
 
-/// pymobiledevice3 for device discovery/install, with App Store Connect and
-/// zsign for provisioning and signing.
+/// pymobiledevice3 for device discovery/install, with Apple provisioning and
+/// in-process signing.
 class NativeBackend implements DeviceBackend {
   NativeBackend([PymdDeviceResolver? resolver])
     : _resolver = resolver ?? PymdDeviceResolver();
@@ -49,6 +51,14 @@ class NativeBackend implements DeviceBackend {
     required DeviceSearchMode mode,
     required String bundleId,
   }) async {
+    if (!appOrIpaPath.endsWith('.app') ||
+        !Directory(appOrIpaPath).existsSync()) {
+      throw XcrossError(
+        'The in-process signer currently supports xcross-generated .app '
+        'directories only; "$appOrIpaPath" is not an existing .app directory.',
+      );
+    }
+
     final configPath = AscCredentials.defaultConfigPath();
     final configDirectory = p.dirname(configPath);
     DevelopmentProvisioningClient? client;
@@ -137,7 +147,6 @@ class NativeBackend implements DeviceBackend {
     }
 
     try {
-      await ZsignCli.locate();
       final identity = await provisionDevelopmentIdentity(
         client: client,
         bundleId: bundleId,
@@ -145,11 +154,14 @@ class NativeBackend implements DeviceBackend {
         outputDir: outputDir,
         identityDir: identityDir,
       );
-      await ZsignCli().sign(
-        appOrIpaPath: appOrIpaPath,
+      final asset = await SigningAsset.load(
         privateKeyPemPath: identity.privateKeyPemPath,
         certificatePemPath: identity.certificatePemPath,
         provisioningProfilePath: identity.profilePath,
+      );
+      await Log.logStep(
+        'Signing app',
+        () => BundleSigner(asset).signApp(appOrIpaPath),
       );
       await PymdDevices.install(appOrIpaPath, udid: udid);
     } finally {

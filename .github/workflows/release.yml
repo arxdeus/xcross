@@ -13,37 +13,20 @@ jobs:
   build:
     name: Build ${{ matrix.asset }}
     runs-on: ${{ matrix.runner }}
-    env:
-      ZSIGN_REF: d6e929c97b5b564c2cc1f82afe226a44da7149a0
     strategy:
       fail-fast: false
       matrix:
         include:
           - runner: ubuntu-24.04
             asset: xcross-linux-x64
-            zsign_asset: zsign-linux-x64
           - runner: ubuntu-24.04-arm
             asset: xcross-linux-arm64
-            zsign_asset: zsign-linux-arm64
 
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-
-      - name: Checkout zsign
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          repository: zhlynn/zsign
-          ref: ${{ env.ZSIGN_REF }}
-          path: zsign
-          persist-credentials: false
-
-      - name: Install zsign build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y g++ pkg-config libssl-dev
 
       - name: Set up Dart
         # v1
@@ -60,31 +43,23 @@ jobs:
       - name: Test
         run: dart test
 
-      - name: Compile binaries
+      - name: Compile binary
         run: |
           mkdir -p dist
           dart compile exe bin/xcross.dart -o "dist/${{ matrix.asset }}"
-          make -C zsign/build/linux
-          cp zsign/bin/zsign "dist/${{ matrix.zsign_asset }}"
-          chmod +x \
-            "dist/${{ matrix.asset }}" \
-            "dist/${{ matrix.zsign_asset }}"
+          chmod +x "dist/${{ matrix.asset }}"
 
       - name: Upload binary artifacts
         # v7
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: ${{ matrix.asset }}
-          path: |
-            dist/${{ matrix.asset }}
-            dist/${{ matrix.zsign_asset }}
+          path: dist/${{ matrix.asset }}
           if-no-files-found: error
 
   build-windows:
     name: Build xcross-windows-x64
     runs-on: windows-2022
-    env:
-      ZSIGN_REF: d6e929c97b5b564c2cc1f82afe226a44da7149a0
 
     steps:
       - name: Checkout
@@ -92,23 +67,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Checkout zsign
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          repository: zhlynn/zsign
-          ref: ${{ env.ZSIGN_REF }}
-          path: zsign
-          persist-credentials: false
-
       - name: Set up Dart
         # v1
         uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260
         with:
           sdk: stable
-
-      - name: Set up MSBuild
-        # v2
-        uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce
 
       - name: Verify Dart code
         run: |
@@ -144,15 +107,6 @@ jobs:
           cmd.exe /c $command
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Build zsign
-        run: >-
-          msbuild zsign/build/windows/vs2022/zsign.sln
-          -p:Configuration=Release -p:Platform=x64 -m
-
-      - name: Add zsign to package
-        shell: pwsh
-        run: Copy-Item zsign/bin/zsign.exe dist/zsign.exe
-
       - name: Package Windows release
         shell: pwsh
         run: |
@@ -163,7 +117,9 @@ jobs:
           Copy-Item `
             native/windows/AOSKIT_HELPER_LICENSE.txt `
             dist/THIRD_PARTY_LICENSES/aoskit-helper.txt
-          Copy-Item zsign/LICENSE dist/THIRD_PARTY_LICENSES/zsign.txt
+          Copy-Item `
+            native/signing/ZSIGN_LICENSE.txt `
+            dist/THIRD_PARTY_LICENSES/zsign.txt
           Compress-Archive -Path dist/* -DestinationPath xcross-windows-x64.zip
 
       - name: Smoke-test Windows archive
@@ -177,7 +133,6 @@ jobs:
             'THIRD_PARTY_LICENSES/zsign.txt'
             'xcross-aoskit.exe'
             'xcross.exe'
-            'zsign.exe'
           ) | Sort-Object
           $root = Resolve-Path smoke
           $actual = Get-ChildItem smoke -File -Recurse | ForEach-Object {
@@ -246,8 +201,7 @@ jobs:
           gh release create "$tag" \
             dist/xcross-linux-x64 \
             dist/xcross-linux-arm64 \
-            dist/zsign-linux-x64 \
-            dist/zsign-linux-arm64 \
             dist/xcross-windows-x64.zip \
+            native/signing/ZSIGN_LICENSE.txt \
             --title "$tag" \
             --generate-notes

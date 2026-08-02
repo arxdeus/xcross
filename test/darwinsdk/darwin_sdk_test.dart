@@ -45,7 +45,7 @@ void main() {
         'Frameworks',
       );
       await Directory(frameworks).create(recursive: true);
-      await Directory(
+      final canonicalLayout = File(
         p.join(
           bundle,
           'Developer',
@@ -55,8 +55,22 @@ void main() {
           'lib',
           'swift',
           'iphoneos',
+          'layouts-arm64.yaml',
         ),
-      ).create(recursive: true);
+      );
+      final runtimeLayout = File(
+        p.join(
+          bundle,
+          'Developer',
+          'Runtimes',
+          'XcodeDefault.xctoolchain',
+          'usr',
+          'bin',
+          'layouts-arm64.yaml',
+        ),
+      );
+      await canonicalLayout.parent.create(recursive: true);
+      await canonicalLayout.writeAsString('layout');
 
       expect(DarwinSdk.current(bundle: bundle), isNull);
       await File(p.join(bundle, 'info.json')).writeAsString('{}');
@@ -68,6 +82,10 @@ void main() {
       final sdk = DarwinSdk.current(bundle: bundle);
       expect(sdk, isNotNull);
       expect(sdk!.bundle, bundle);
+      expect(runtimeLayout.readAsStringSync(), 'layout');
+
+      await runtimeLayout.delete();
+      expect(DarwinSdk.isValidBundle(bundle), isFalse);
     });
 
     test('rejects metadata with an empty SDK directory', () async {
