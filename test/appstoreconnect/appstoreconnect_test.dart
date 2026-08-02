@@ -76,29 +76,157 @@ void main() {
     expect(client.registeredBundleName, 'com example my app');
     expect(client.createdProfileName, matches(r'^xcross Development \d+$'));
   });
+
+  test('revokes team certificates and reissues on create 409', () async {
+    final temp = Directory.systemTemp.createTempSync('xcross_cert_409');
+    addTearDown(() => temp.deleteSync(recursive: true));
+    final client = _FakeProvisioningClient(quotaUsedBy: const ['old-cert']);
+
+    final result = await provisionDevelopmentIdentity(
+      client: client,
+      bundleId: 'com.example.app',
+      deviceUdids: const ['UDID'],
+      outputDir: temp.path,
+    );
+
+    expect(client.revoked, ['old-cert']);
+    expect(client.certificateCreations, 2, reason: 'retried after revoking');
+    expect(File(result.certificatePemPath).existsSync(), isTrue);
+    expect(File(result.privateKeyPemPath).existsSync(), isTrue);
+  });
+
+  test('surfaces the 409 when there is nothing to revoke', () async {
+    final temp = Directory.systemTemp.createTempSync('xcross_cert_409_empty');
+    addTearDown(() => temp.deleteSync(recursive: true));
+    final client = _FakeProvisioningClient(pendingRequest: true);
+
+    await expectLater(
+      provisionDevelopmentIdentity(
+        client: client,
+        bundleId: 'com.example.app',
+        deviceUdids: const ['UDID'],
+        outputDir: temp.path,
+      ),
+      throwsA(isA<AppleApiError>()),
+    );
+    expect(client.revoked, isEmpty);
+    expect(client.certificateCreations, 1, reason: 'no pointless retry');
+  });
+
+  test('resolves profile certificate ids by serial like xtool', () async {
+    final temp = Directory.systemTemp.createTempSync('xcross_serial_resolve');
+    addTearDown(() => temp.deleteSync(recursive: true));
+    final client = _FakeProvisioningClient(teamIdForSerial: 'team-side-id');
+
+    await provisionDevelopmentIdentity(
+      client: client,
+      bundleId: 'com.example.app',
+      deviceUdids: const ['UDID'],
+      outputDir: temp.path,
+    );
+
+    expect(client.lastProfileCertificateIds, ['team-side-id']);
+  });
+
+  test('deletes the sole existing profile before creating a new one', () async {
+    final temp = Directory.systemTemp.createTempSync('xcross_profile_replace');
+    addTearDown(() => temp.deleteSync(recursive: true));
+    final client = _FakeProvisioningClient(
+      existingProfileIds: const ['old-profile'],
+    );
+
+    await provisionDevelopmentIdentity(
+      client: client,
+      bundleId: 'com.example.app',
+      deviceUdids: const ['UDID'],
+      outputDir: temp.path,
+    );
+
+    expect(client.deletedProfiles, ['old-profile']);
+  });
+
+  test('attaches every iOS device on the team to the profile', () async {
+    final temp = Directory.systemTemp.createTempSync('xcross_all_devices');
+    addTearDown(() => temp.deleteSync(recursive: true));
+    final client = _FakeProvisioningClient(
+      extraDevices: const [
+        AscDevice(
+          id: 'ipad',
+          udid: 'IPAD-UDID',
+          name: 'iPad',
+          status: 'ENABLED',
+          deviceClass: 'IPAD',
+        ),
+        AscDevice(
+          id: 'mac',
+          udid: 'MAC-UDID',
+          name: 'Mac',
+          status: 'ENABLED',
+          deviceClass: 'MAC',
+        ),
+      ],
+    );
+
+    await provisionDevelopmentIdentity(
+      client: client,
+      bundleId: 'com.example.app',
+      deviceUdids: const ['UDID'],
+      outputDir: temp.path,
+    );
+
+    expect(client.lastProfileDeviceIds, unorderedEquals(['device-UDID', 'ipad']));
+  });
 }
 
 class _FakeProvisioningClient implements DevelopmentProvisioningClient {
-  _FakeProvisioningClient({this.bundleExists = true});
+  _FakeProvisioningClient({
+    this.bundleExists = true,
+    this.quotaUsedBy = const [],
+    this.pendingRequest = false,
+    this.teamIdForSerial,
+    this.existingProfileIds = const [],
+    this.extraDevices = const [],
+  });
 
   final bool bundleExists;
+  final List<String> quotaUsedBy;
+  final bool pendingRequest;
+  final String? teamIdForSerial;
+  final List<String> existingProfileIds;
+  final List<AscDevice> extraDevices;
+
+  final revoked = <String>[];
+  final deletedProfiles = <String>[];
+  final teamSerials = <String, String>{};
   int certificateCreations = 0;
   String? registeredBundleName;
   String? createdProfileName;
+  List<String>? lastProfileCertificateIds;
+  List<String>? lastProfileDeviceIds;
 
   @override
   Future<AscCertificate> createDevelopmentCertificate({
     required String csrPem,
   }) async {
     certificateCreations++;
+    if (pendingRequest || quotaUsedBy.any((id) => !revoked.contains(id))) {
+      throw AppleApiError(
+        409,
+        'You already have a current Development certificate or a pending '
+        'certificate request.',
+      );
+    }
+    final id = 'certificate-id-$certificateCreations';
+    final serial = 'SERIAL$certificateCreations';
+    teamSerials[serial] = teamIdForSerial ?? id;
     return AscCertificate(
-      id: 'certificate-id',
+      id: id,
       certificateContentBase64: base64Encode([1, 2, 3]),
       expirationDate: DateTime.now()
           .toUtc()
           .add(const Duration(days: 1))
           .toIso8601String(),
-      serialNumber: 'serial',
+      serialNumber: serial,
     );
   }
 
@@ -112,8 +240,13 @@ class _FakeProvisioningClient implements DevelopmentProvisioningClient {
       : null;
 
   @override
-  Future<AscDevice?> findDeviceByUdid(String udid) async =>
-      AscDevice(id: 'device-$udid', udid: udid, name: udid, status: 'ENABLED');
+  Future<AscDevice?> findDeviceByUdid(String udid) async => AscDevice(
+    id: 'device-$udid',
+    udid: udid,
+    name: udid,
+    status: 'ENABLED',
+    deviceClass: 'IPHONE',
+  );
 
   @override
   Future<AscProfile> createProfile({
@@ -122,6 +255,8 @@ class _FakeProvisioningClient implements DevelopmentProvisioningClient {
     required List<String> certificateResourceIds,
     required List<String> deviceResourceIds,
   }) async {
+    lastProfileCertificateIds = List.of(certificateResourceIds);
+    lastProfileDeviceIds = List.of(deviceResourceIds);
     createdProfileName = name;
     return AscProfile(
       id: 'profile-$bundleIdResourceId',
@@ -133,7 +268,47 @@ class _FakeProvisioningClient implements DevelopmentProvisioningClient {
   }
 
   @override
-  Future<List<AscDevice>> listDevices() async => const [];
+  Future<List<String>> listCertificateIds() async => [
+    for (final id in quotaUsedBy)
+      if (!revoked.contains(id)) id,
+  ];
+
+  @override
+  Future<List<String>> findCertificateIdsBySerial(String serialNumber) async {
+    final id = teamSerials[serialNumber];
+    if (id == null || revoked.contains(id)) return const [];
+    return [id];
+  }
+
+  @override
+  Future<void> revokeCertificate(String certificateId) async {
+    revoked.add(certificateId);
+    teamSerials.removeWhere((_, id) => id == certificateId);
+  }
+
+  @override
+  Future<List<AscDevice>> listDevices() async => [
+    const AscDevice(
+      id: 'device-UDID',
+      udid: 'UDID',
+      name: 'UDID',
+      status: 'ENABLED',
+      deviceClass: 'IPHONE',
+    ),
+    ...extraDevices,
+  ];
+
+  @override
+  Future<List<String>> listProfileIdsForBundle(
+    String bundleIdResourceId,
+  ) async => [
+    for (final id in existingProfileIds)
+      if (!deletedProfiles.contains(id)) id,
+  ];
+
+  @override
+  Future<void> deleteProfile(String profileId) async =>
+      deletedProfiles.add(profileId);
 
   @override
   Future<AscBundleId> registerBundleId({

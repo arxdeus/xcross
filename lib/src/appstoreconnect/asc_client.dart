@@ -7,8 +7,27 @@ import 'package:xcross/src/appstoreconnect/asc_models.dart';
 import 'package:xcross/src/util/apple_http_client.dart';
 import 'package:xcross/src/util/errors.dart';
 
+/// An Apple provisioning API error, carrying the HTTP status so callers can
+/// branch on codes like 409 without caring which backend produced it.
+class AppleApiError extends XcrossError {
+  AppleApiError(this.statusCode, String message) : super(message);
+
+  final int statusCode;
+}
+
 abstract class DevelopmentProvisioningClient {
   Future<AscCertificate> createDevelopmentCertificate({required String csrPem});
+
+  /// Resource ids of every certificate currently on the team (xtool lists
+  /// the unfiltered collection before deciding what to revoke).
+  Future<List<String>> listCertificateIds();
+
+  /// Resource ids of certificates whose `serialNumber` attribute equals
+  /// [serialNumber]. Used to resolve the team-side id before attaching a
+  /// cert to a profile (xtool never uses the create-response id alone).
+  Future<List<String>> findCertificateIdsBySerial(String serialNumber);
+
+  Future<void> revokeCertificate(String certificateId);
 
   Future<List<AscDevice>> listDevices();
 
@@ -25,6 +44,11 @@ abstract class DevelopmentProvisioningClient {
     required String identifier,
     required String name,
   });
+
+  /// Profile resource ids currently linked to [bundleIdResourceId].
+  Future<List<String>> listProfileIdsForBundle(String bundleIdResourceId);
+
+  Future<void> deleteProfile(String profileId);
 
   Future<AscProfile> createProfile({
     required String name,
@@ -70,6 +94,30 @@ class AscClient implements DevelopmentProvisioningClient {
   Future<AscCertificate> createDevelopmentCertificate({
     required String csrPem,
   }) => createCertificate(certificateType: 'IOS_DEVELOPMENT', csrPem: csrPem);
+
+  @override
+  Future<List<String>> listCertificateIds() async {
+    final json = await _get('/certificates');
+    return [for (final e in json['data'] as List) (e as Map)['id'] as String];
+  }
+
+  @override
+  Future<List<String>> findCertificateIdsBySerial(String serialNumber) async {
+    final json = await _get(
+      '/certificates?filter[serialNumber]=${Uri.encodeQueryComponent(serialNumber)}',
+    );
+    return [for (final e in json['data'] as List) (e as Map)['id'] as String];
+  }
+
+  @override
+  Future<void> revokeCertificate(String certificateId) async {
+    _decode(
+      await _http.delete(
+        Uri.parse('$_baseUrl/certificates/$certificateId'),
+        headers: await _headers(),
+      ),
+    );
+  }
 
   /// Lists all devices registered on the team.
   @override
@@ -139,6 +187,24 @@ class AscClient implements DevelopmentProvisioningClient {
     return AscBundleId.fromJson((json['data'] as Map).cast());
   }
 
+  @override
+  Future<List<String>> listProfileIdsForBundle(
+    String bundleIdResourceId,
+  ) async {
+    final json = await _get('/bundleIds/$bundleIdResourceId/profiles');
+    return [for (final e in json['data'] as List) (e as Map)['id'] as String];
+  }
+
+  @override
+  Future<void> deleteProfile(String profileId) async {
+    _decode(
+      await _http.delete(
+        Uri.parse('$_baseUrl/profiles/$profileId'),
+        headers: await _headers(),
+      ),
+    );
+  }
+
   /// Creates a new `IOS_APP_DEVELOPMENT` provisioning profile linking
   /// [bundleIdResourceId], [certificateResourceIds], and
   /// [deviceResourceIds] (all App Store Connect resource ids, not the
@@ -199,19 +265,22 @@ class AscClient implements DevelopmentProvisioningClient {
     ),
   );
 
-  /// Decodes a JSON:API response, throwing [XcrossError] (surfacing the
+  /// Decodes a JSON:API response, throwing [AppleApiError] (surfacing the
   /// `errors[].detail` App Store Connect sends) on any non-2xx status.
   Map<String, dynamic> _decode(http.Response response) {
     final Object? decoded = response.body.isEmpty
         ? null
         : jsonDecode(response.body);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw XcrossError(
+      throw AppleApiError(
+        response.statusCode,
         'App Store Connect API error '
         '(HTTP ${response.statusCode}): ${_firstErrorDetail(decoded) ?? response.body}',
       );
     }
-    return (decoded! as Map).cast<String, dynamic>();
+    // A successful DELETE answers 204 with no body.
+    if (decoded == null) return const {};
+    return (decoded as Map).cast<String, dynamic>();
   }
 
   static String? _firstErrorDetail(Object? decoded) {

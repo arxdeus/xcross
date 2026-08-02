@@ -24,12 +24,6 @@ class DeveloperServicesTeam {
   final String status;
 }
 
-class DeveloperServicesApiError extends XcrossError {
-  DeveloperServicesApiError(this.statusCode, String message) : super(message);
-
-  final int statusCode;
-}
-
 class DeveloperServicesClient implements DevelopmentProvisioningClient {
   DeveloperServicesClient({
     required this.token,
@@ -152,6 +146,27 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
   }
 
   @override
+  Future<List<String>> listCertificateIds() async => [
+    for (final value in await _getCollection('/v1/certificates'))
+      (value! as Map)['id'] as String,
+  ];
+
+  @override
+  Future<List<String>> findCertificateIdsBySerial(String serialNumber) async =>
+      [
+        for (final value in await _getCollection(
+          '/v1/certificates?filter[serialNumber]='
+          '${Uri.encodeQueryComponent(serialNumber)}',
+        ))
+          (value! as Map)['id'] as String,
+      ];
+
+  @override
+  Future<void> revokeCertificate(String certificateId) async {
+    await _withMethodOverride('/v1/certificates/$certificateId', 'DELETE');
+  }
+
+  @override
   Future<List<AscDevice>> listDevices() async => [
     for (final value in await _getCollection('/v1/devices'))
       AscDevice.fromJson((value! as Map).cast()),
@@ -170,7 +185,7 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
         },
       });
       return AscDevice.fromJson((json['data'] as Map).cast());
-    } on DeveloperServicesApiError catch (error) {
+    } on AppleApiError catch (error) {
       if (error.statusCode != 409) rethrow;
       final existing = await findDeviceByUdid(udid);
       if (existing != null) return existing;
@@ -217,6 +232,21 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
   }
 
   @override
+  Future<List<String>> listProfileIdsForBundle(
+    String bundleIdResourceId,
+  ) async => [
+    for (final value in await _getCollection(
+      '/v1/bundleIds/$bundleIdResourceId/profiles',
+    ))
+      (value! as Map)['id'] as String,
+  ];
+
+  @override
+  Future<void> deleteProfile(String profileId) async {
+    await _withMethodOverride('/v1/profiles/$profileId', 'DELETE');
+  }
+
+  @override
   Future<AscProfile> createProfile({
     required String name,
     required String bundleIdResourceId,
@@ -257,7 +287,15 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
   @override
   void close() => _http.close();
 
-  Future<Map<String, dynamic>> _get(String path) async {
+  Future<Map<String, dynamic>> _get(String path) =>
+      _withMethodOverride(path, 'GET');
+
+  /// developerservices2 only accepts POST; other verbs ride along in
+  /// `X-HTTP-Method-Override`, with the query string moved into the body.
+  Future<Map<String, dynamic>> _withMethodOverride(
+    String path,
+    String method,
+  ) async {
     _rejectExpired(token);
     final logicalUrl = Uri.parse('$_baseUrl$path');
     final queryParameters = <String, String>{
@@ -269,7 +307,7 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
       headers: {
         ..._headers(token),
         ...await _fetchAnisetteHeaders(),
-        'X-HTTP-Method-Override': 'GET',
+        'X-HTTP-Method-Override': method,
       },
       body: jsonEncode({
         'urlEncodedQueryParams': Uri(queryParameters: queryParameters).query,
@@ -365,13 +403,15 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
         ? null
         : jsonDecode(response.body);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw DeveloperServicesApiError(
+      throw AppleApiError(
         response.statusCode,
         'Developer Services API error (HTTP ${response.statusCode}): '
         '${_errorDetails(decoded) ?? response.body}',
       );
     }
-    return (decoded! as Map).cast<String, dynamic>();
+    // A successful revoke answers with no body.
+    if (decoded == null) return const {};
+    return (decoded as Map).cast<String, dynamic>();
   }
 
   static String? _errorDetails(Object? decoded) {

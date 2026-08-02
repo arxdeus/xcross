@@ -6,9 +6,13 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:basic_utils/basic_utils.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/appstoreconnect/asc_client.dart';
 import 'package:xcross/src/appstoreconnect/asc_csr.dart';
+import 'package:xcross/src/appstoreconnect/asc_models.dart';
+import 'package:xcross/src/util/errors.dart';
+import 'package:xcross/src/util/logging.dart';
 
 export 'asc_client.dart';
 export 'asc_config.dart';
@@ -34,15 +38,19 @@ String wrapDerAsPem(String derBase64, {String label = 'CERTIFICATE'}) {
   return buffer.toString();
 }
 
-/// Runs the full Development-signing provisioning flow against [client]:
-/// find-or-register [bundleId] and each of [deviceUdids], issue (or reuse a
-/// cached, unexpired) Development certificate, and generate a provisioning
-/// profile covering all of it. Files are written under [outputDir].
+/// Runs the full Development-signing provisioning flow against [client].
 ///
-/// A cached certificate + key are reused across calls (tracked under
-/// [identityDir], or [outputDir] when omitted) so this doesn't burn through
-/// Apple's team-wide certificate quota for every bundle. The profile remains
-/// bundle-specific and is (re)created in [outputDir] every call.
+/// Mirrors xtool's `DeveloperServicesFetchCertificateOperation` +
+/// `DeveloperServicesFetchProfileOperation`:
+/// 1. Reuse a local identity whose serial is still on the team, otherwise
+///    revoke existing team certificates and issue a new `DEVELOPMENT` /
+///    `IOS_DEVELOPMENT` cert.
+/// 2. Find-or-register [bundleId] and each of [deviceUdids].
+/// 3. If the bundle already has exactly one profile, delete it (free-team
+///    slot).
+/// 4. Resolve the cert's team-side id by serial (never trust create-response
+///    id alone), attach every iOS-capable device on the team, and create an
+///    `IOS_APP_DEVELOPMENT` profile.
 Future<
   ({String certificatePemPath, String privateKeyPemPath, String profilePath})
 >
@@ -64,27 +72,12 @@ provisionDevelopmentIdentity({
   final statePath = p.join(signingIdentityDir, 'state.json');
   final profilePath = p.join(outputDir, 'profile.mobileprovision');
 
-  var certificateId = await _cachedCertificateId(statePath, certPath, keyPath);
-  if (certificateId == null) {
-    final csr = AscCsr.generate();
-    final certificate = await client.createDevelopmentCertificate(
-      csrPem: csr.csrPem,
-    );
-    await File(
-      certPath,
-    ).writeAsString(wrapDerAsPem(certificate.certificateContentBase64));
-    await AscCsr.writePrivateKeyPem(
-      keyPath,
-      AscCsr.privateKeyToPem(csr.privateKey),
-    );
-    certificateId = certificate.id;
-    await File(statePath).writeAsString(
-      jsonEncode({
-        'certificateId': certificate.id,
-        'certificateExpirationDate': certificate.expirationDate,
-      }),
-    );
-  }
+  final identity = await _loadOrIssueIdentity(
+    client: client,
+    certPath: certPath,
+    keyPath: keyPath,
+    statePath: statePath,
+  );
 
   final bundleIdResource =
       await client.findBundleId(bundleId) ??
@@ -93,18 +86,50 @@ provisionDevelopmentIdentity({
         name: bundleId.replaceAll(RegExp('[^A-Za-z0-9]+'), ' ').trim(),
       );
 
-  final deviceResourceIds = <String>[];
   for (final udid in deviceUdids) {
-    final device =
-        await client.findDeviceByUdid(udid) ??
+    await client.findDeviceByUdid(udid) ??
         await client.registerDevice(udid: udid, name: udid);
-    deviceResourceIds.add(device.id);
+  }
+
+  // xtool: if the bundle already has exactly one profile, delete it before
+  // creating a fresh one (free teams are limited; paid teams with >1 are left
+  // alone).
+  final existingProfiles = await client.listProfileIdsForBundle(
+    bundleIdResource.id,
+  );
+  if (existingProfiles.length == 1) {
+    await client.deleteProfile(existingProfiles.single);
+  }
+
+  final certificateIds = await client.findCertificateIdsBySerial(
+    identity.serialNumber,
+  );
+  if (certificateIds.isEmpty) {
+    throw XcrossError(
+      'Development certificate serial ${identity.serialNumber} is not on '
+      'the team after issuance. Run xcross auth again, or revoke stale '
+      'certificates at developer.apple.com.',
+    );
+  }
+
+  // xtool attaches every iPhone/iPad/iPod on the team, not just the current
+  // UDID — Apple's profile create is picky about device membership.
+  final deviceResourceIds = {
+    for (final device in await client.listDevices())
+      if (device.supportsIosApps || deviceUdids.contains(device.udid))
+        device.id,
+  }.toList();
+  if (deviceResourceIds.isEmpty) {
+    throw XcrossError(
+      'No iOS devices are registered on this team. Plug in a device and '
+      'retry.',
+    );
   }
 
   final profile = await client.createProfile(
     name: 'xcross Development ${DateTime.now().microsecondsSinceEpoch}',
     bundleIdResourceId: bundleIdResource.id,
-    certificateResourceIds: [certificateId],
+    certificateResourceIds: certificateIds,
     deviceResourceIds: deviceResourceIds,
   );
   await File(
@@ -118,10 +143,102 @@ provisionDevelopmentIdentity({
   );
 }
 
-/// Returns the cached certificate resource id from [statePath] if [certPath]
-/// and [keyPath] both exist and the cached certificate isn't expired, else
-/// null (meaning: issue a new certificate).
-Future<String?> _cachedCertificateId(
+class _SigningIdentity {
+  const _SigningIdentity({required this.serialNumber});
+
+  final String serialNumber;
+}
+
+/// xtool `DeveloperServicesFetchCertificateOperation.perform`:
+/// reuse local identity when its serial is still on the team and unexpired;
+/// otherwise revoke team certificates and create a new one.
+Future<_SigningIdentity> _loadOrIssueIdentity({
+  required DevelopmentProvisioningClient client,
+  required String certPath,
+  required String keyPath,
+  required String statePath,
+}) async {
+  final cached = await _cachedIdentity(statePath, certPath, keyPath);
+  if (cached != null) {
+    final ids = await client.findCertificateIdsBySerial(cached.serialNumber);
+    if (ids.isNotEmpty) return cached;
+    Log.logWarn(
+      'Cached Development certificate serial ${cached.serialNumber} is '
+      'gone from the team; revoking leftovers and re-issuing.',
+    );
+    await _revokeAllCertificates(client);
+  }
+  return _issueAndPersistIdentity(
+    client: client,
+    certPath: certPath,
+    keyPath: keyPath,
+    statePath: statePath,
+  );
+}
+
+Future<_SigningIdentity> _issueAndPersistIdentity({
+  required DevelopmentProvisioningClient client,
+  required String certPath,
+  required String keyPath,
+  required String statePath,
+}) async {
+  final csr = AscCsr.generate();
+  final certificate = await _issueDevelopmentCertificate(client, csr.csrPem);
+  await File(
+    certPath,
+  ).writeAsString(wrapDerAsPem(certificate.certificateContentBase64));
+  await AscCsr.writePrivateKeyPem(
+    keyPath,
+    AscCsr.privateKeyToPem(csr.privateKey),
+  );
+  final serialNumber =
+      certificate.serialNumber ??
+      serialNumberFromCertificatePem(await File(certPath).readAsString());
+  await File(statePath).writeAsString(
+    jsonEncode({
+      'certificateId': certificate.id,
+      'certificateSerialNumber': serialNumber,
+      'certificateExpirationDate': certificate.expirationDate,
+    }),
+  );
+  return _SigningIdentity(serialNumber: serialNumber);
+}
+
+/// Issues a Development certificate. On HTTP 409 (quota), revoke every
+/// certificate on the team first — same as xtool's free-team
+/// `replaceCertificates`.
+Future<AscCertificate> _issueDevelopmentCertificate(
+  DevelopmentProvisioningClient client,
+  String csrPem,
+) async {
+  try {
+    return await client.createDevelopmentCertificate(csrPem: csrPem);
+  } on AppleApiError catch (error) {
+    if (error.statusCode != 409) rethrow;
+    final existing = await client.listCertificateIds();
+    if (existing.isEmpty) rethrow;
+    await _revokeAllCertificates(client, existing);
+    return client.createDevelopmentCertificate(csrPem: csrPem);
+  }
+}
+
+Future<void> _revokeAllCertificates(
+  DevelopmentProvisioningClient client, [
+  List<String>? knownIds,
+]) async {
+  final ids = knownIds ?? await client.listCertificateIds();
+  for (final id in ids) {
+    Log.logWarn(
+      'Revoking certificate $id: its private key is not on this machine. '
+      'Apps still signed with it must be re-signed.',
+    );
+    await client.revokeCertificate(id);
+  }
+}
+
+/// Returns the cached identity when [certPath]/[keyPath] exist and the
+/// certificate isn't expired, else null.
+Future<_SigningIdentity?> _cachedIdentity(
   String statePath,
   String certPath,
   String keyPath,
@@ -134,8 +251,6 @@ Future<String?> _cachedCertificateId(
   try {
     final state = jsonDecode(await File(statePath).readAsString());
     if (state is! Map) return null;
-    final id = state['certificateId'] as String?;
-    if (id == null) return null;
     final expirationDate = state['certificateExpirationDate'] as String?;
     final expiry = expirationDate == null
         ? null
@@ -143,8 +258,26 @@ Future<String?> _cachedCertificateId(
     if (expiry == null || !expiry.toUtc().isAfter(DateTime.now().toUtc())) {
       return null;
     }
-    return id;
+    final serial =
+        state['certificateSerialNumber'] as String? ??
+        serialNumberFromCertificatePem(await File(certPath).readAsString());
+    if (serial.isEmpty) return null;
+    return _SigningIdentity(serialNumber: serial);
   } on FormatException {
     return null;
+  } on Object {
+    return null;
   }
+}
+
+/// Apple's `filter[serialNumber]` wants the uppercase hex form of the
+/// certificate serial (no `0x`, no colons), matching what the certificates
+/// API returns in `attributes.serialNumber`.
+String serialNumberFromCertificatePem(String pem) {
+  final tbs = X509Utils.x509CertificateFromPem(pem).tbsCertificate;
+  if (tbs == null) {
+    throw XcrossError('Certificate PEM is missing a TBS certificate');
+  }
+  final hex = tbs.serialNumber.toRadixString(16).toUpperCase();
+  return hex.length.isOdd ? '0$hex' : hex;
 }

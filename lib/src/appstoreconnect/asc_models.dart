@@ -39,6 +39,7 @@ class AscDevice {
     required this.udid,
     required this.name,
     required this.status,
+    this.deviceClass,
   });
 
   /// The device's App Store Connect resource id.
@@ -47,6 +48,23 @@ class AscDevice {
   final String name;
   final String? status;
 
+  /// `IPHONE` / `IPAD` / `IPOD` / … — used to decide which devices belong
+  /// in an `IOS_APP_DEVELOPMENT` profile (xtool filters the same way).
+  final String? deviceClass;
+
+  bool get supportsIosApps {
+    switch (deviceClass?.toUpperCase()) {
+      case 'IPHONE':
+      case 'IPAD':
+      case 'IPOD':
+        return true;
+      default:
+        // Older payloads omit the class; keep the device so we don't drop
+        // the UDID we just registered.
+        return deviceClass == null;
+    }
+  }
+
   factory AscDevice.fromJson(Map<String, dynamic> json) {
     final attributes = (json['attributes'] as Map).cast<String, dynamic>();
     return AscDevice(
@@ -54,6 +72,7 @@ class AscDevice {
       udid: attributes['udid'] as String,
       name: attributes['name'] as String,
       status: attributes['status'] as String?,
+      deviceClass: attributes['deviceClass'] as String?,
     );
   }
 }
