@@ -1,22 +1,13 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
-import 'package:xcross/src/appstoreconnect/provisioning_identifiers.dart';
+import 'package:apple_developer_kit/apple_developer_kit.dart';
+import 'package:cli_kit/cli_kit.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:xcross/src/constants.dart';
-import 'package:xcross/src/device/dart_vm_service_client.dart';
-import 'package:xcross/src/device/device_transport.dart';
-import 'package:xcross/src/device/device_transport_resolver.dart';
-import 'package:xcross/src/device/gdb_remote_client.dart';
-import 'package:xcross/src/device/hot_reload_controller.dart'
-    show HotReloadController;
-import 'package:xcross/src/device/port_forwarder.dart';
-import 'package:xcross/src/device/pymd.dart';
 import 'package:xcross/src/device/session_console.dart';
-import 'package:xcross/src/device/vm_service_output.dart';
-import 'package:xcross/src/models/device/hot_reload_config.dart';
 import 'package:xcross/src/util/errors.dart';
-import 'package:xcross/src/util/logging.dart';
-import 'package:xcross/src/util/process.dart';
+import 'package:xcross_flutter/xcross_flutter.dart';
 
 /// Launches an installed app on an iOS 17+ device through a CoreDevice RSD
 /// tunnel. Blocks until the app exits or the user presses `q`/Ctrl-C.
@@ -128,7 +119,7 @@ abstract final class CoreDeviceLauncher {
   }) async {
     try {
       final endpoint = await transport.devicePortEndpoint(
-        DeviceConstants.vmServicePort,
+        TunnelConstants.vmServicePort,
       );
       final forwarder = await PortForwarder.start(
         deviceHost: endpoint.host,
@@ -208,7 +199,7 @@ abstract final class CoreDeviceLauncher {
     // accepts IPv4-mapped peers too, so the usbmux relay path also reaches it.
     if (hotReload != null) ...[
       '--vm-service-host=::',
-      '--vm-service-port=${DeviceConstants.vmServicePort}',
+      '--vm-service-port=${TunnelConstants.vmServicePort}',
       '--disable-service-auth-codes',
     ],
     // DAP only: hold the root isolate at startup so the debug adapter can
@@ -259,7 +250,7 @@ abstract final class CoreDeviceLauncher {
     HotReloadController? controller;
     try {
       final vmService = await transport.devicePortEndpoint(
-        DeviceConstants.vmServicePort,
+        TunnelConstants.vmServicePort,
       );
       final wsUri = Uri.parse(
         'ws://${ProcessRunner.bracketHost(vmService.host)}:'

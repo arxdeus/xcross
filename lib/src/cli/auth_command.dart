@@ -2,20 +2,11 @@ import 'dart:convert';
 import 'dart:ffi' show Abi;
 import 'dart:io';
 
+import 'package:apple_developer_kit/apple_developer_kit.dart';
 import 'package:args/command_runner.dart';
+import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
-import 'package:provision_dart/provision_dart.dart' show AdiLibraryFetcher;
-import 'package:xcross/src/appstoreconnect/asc_config.dart';
-import 'package:xcross/src/appstoreconnect/developer_services_client.dart';
-import 'package:xcross/src/grandslam/anisette/anisette_data_provider.dart';
-import 'package:xcross/src/grandslam/anisette/anisette_provider.dart';
-import 'package:xcross/src/grandslam/anisette/anisette_state.dart';
-import 'package:xcross/src/grandslam/app_token_exchange.dart';
-import 'package:xcross/src/grandslam/grandslam_login.dart';
-import 'package:xcross/src/grandslam/grandslam_session_store.dart';
-import 'package:xcross/src/util/apple_http_client.dart';
 import 'package:xcross/src/util/errors.dart';
-import 'package:xcross/src/util/logging.dart';
 
 /// `xcross auth` — save credentials for the native (no-Swift) signing
 /// pipeline. Supports both App Store Connect API keys and Apple ID/password

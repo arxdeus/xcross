@@ -1,9 +1,13 @@
 import 'dart:io';
 
+import 'package:apple_developer_kit/apple_developer_kit.dart';
 import 'package:args/args.dart';
 import 'package:args/command_runner.dart';
+import 'package:cli_kit/cli_kit.dart';
 import 'package:cli_util/cli_logging.dart';
 import 'package:completion/completion.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:xcross/src/cli/auth_command.dart';
 import 'package:xcross/src/cli/completion_command.dart';
 import 'package:xcross/src/cli/flutter/flutter_command.dart';
@@ -13,7 +17,7 @@ import 'package:xcross/src/cli/prepare_command.dart';
 import 'package:xcross/src/cli/sdk_command.dart';
 import 'package:xcross/src/cli/setup_command.dart';
 import 'package:xcross/src/util/errors.dart';
-import 'package:xcross/src/util/logging.dart';
+import 'package:xcross_flutter/xcross_flutter.dart';
 
 /// Adds a global `-v` so every command can surface its trace output, not just
 /// `flutter run` (which keeps its own `-v` for `xcross flutter run -v`).
@@ -93,6 +97,21 @@ abstract final class XcrossCli {
     } on UsageException catch (e) {
       _cliError('$e');
       return 64;
+    } on CliError catch (e) {
+      _cliError('error: ${e.message}');
+      return 1;
+    } on AppleError catch (e) {
+      _cliError('error: ${e.message}');
+      return 1;
+    } on DarwinSdkError catch (e) {
+      _cliError('error: ${e.message}');
+      return 1;
+    } on TunnelError catch (e) {
+      _cliError('error: ${e.message}');
+      return 1;
+    } on FlutterBuildError catch (e) {
+      _cliError('error: ${e.message}');
+      return 1;
     } on XcrossError catch (e) {
       _cliError('error: ${e.message}');
       return 1;

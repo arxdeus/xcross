@@ -1,18 +1,11 @@
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/appstoreconnect/appstoreconnect.dart';
-import 'package:xcross/src/build/info_plist.dart';
-import 'package:xcross/src/device/pymd_device_resolver.dart';
-import 'package:xcross/src/device/pymd_devices.dart';
-import 'package:xcross/src/grandslam/anisette/anisette_data_provider.dart';
-import 'package:xcross/src/grandslam/anisette/anisette_provider.dart';
-import 'package:xcross/src/grandslam/grandslam_session_store.dart';
-import 'package:xcross/src/models/device/device.dart';
-import 'package:xcross/src/signing/bundle_signer.dart';
-import 'package:xcross/src/signing/signing_asset.dart';
+import 'package:apple_developer_kit/apple_developer_kit.dart';
+import 'package:xcross_flutter/xcross_flutter.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:xcross/src/util/errors.dart';
-import 'package:xcross/src/util/logging.dart';
 
 /// Resolves, signs, and installs to a device using the native pipeline.
 abstract class DeviceBackend {
@@ -174,6 +167,7 @@ class NativeBackend implements DeviceBackend {
         deviceUdids: [udid],
         outputDir: outputDir,
         identityDir: identityDir,
+        onProgress: Log.logWarn,
       );
       final asset = await SigningAsset.load(
         privateKeyPemPath: identity.privateKeyPemPath,

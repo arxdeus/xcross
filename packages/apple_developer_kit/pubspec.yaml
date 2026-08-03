@@ -1,0 +1,36 @@
+name: apple_developer_kit
+description: >-
+  Apple Developer tooling for Dart: GrandSlam/Anisette login, App Store Connect
+  provisioning, in-process codesigning, and ADI (Provision) client.
+version: 0.1.0
+repository: https://github.com/arxdeus/xcross
+homepage: https://github.com/arxdeus/xcross
+topics:
+  - apple
+  - anisette
+  - codesign
+  - app-store-connect
+
+environment:
+  sdk: ^3.10.0
+
+resolution: workspace
+
+dependencies:
+  archive: ^4.0.9
+  basic_utils: ^5.8.2
+  code_assets: ^1.2.1
+  crypto: ^3.0.7
+  ffi: ^2.1.3
+  hooks: ^2.1.0
+  http: ^1.6.0
+  logging: ^1.3.0
+  meta: ^1.19.0
+  native_toolchain_c: ^0.19.3
+  path: ^1.9.1
+  pointycastle: ^4.0.0
+  posix: ^6.5.2
+  propertylistserialization: ^1.5.0
+
+dev_dependencies:
+  test: ^1.31.2

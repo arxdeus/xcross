@@ -1,8 +1,7 @@
+import 'package:cli_kit/cli_kit.dart';
 import 'package:args/command_runner.dart';
-import 'package:xcross/src/build/flutter_pack_operation.dart';
+import 'package:xcross_flutter/xcross_flutter.dart';
 import 'package:xcross/src/cli/shared/ipa_packager.dart';
-import 'package:xcross/src/models/flutter/flutter_build_options.dart';
-import 'package:xcross/src/util/logging.dart';
 
 /// Shared `flutter build`/`flutter run` options: entry-point target, flavor,
 /// dart-defines, and `--pub`. Mixed into [FlutterBuildCommand] and

@@ -41,7 +41,13 @@ jobs:
         run: dart analyze
 
       - name: Test
-        run: dart test
+        run: |
+          dart test
+          dart test packages/cli_kit
+          dart test packages/apple_developer_kit
+          dart test packages/darwin_sdk_kit
+          dart test packages/dart_mobile_device
+          dart test packages/xcross_flutter
 
       - name: Compile binary
         run: |
@@ -79,6 +85,11 @@ jobs:
           dart pub get
           dart analyze
           dart test
+          dart test packages/cli_kit
+          dart test packages/apple_developer_kit
+          dart test packages/darwin_sdk_kit
+          dart test packages/dart_mobile_device
+          dart test packages/xcross_flutter
 
       - name: Build xcross
         shell: pwsh
@@ -96,7 +107,7 @@ jobs:
             -Force dist/THIRD_PARTY_LICENSES | Out-Null
           Copy-Item LICENSE dist/LICENSE
           Copy-Item `
-            packages/provision_dart/LICENSE `
+            packages/apple_developer_kit/ADI_LICENSE `
             dist/THIRD_PARTY_LICENSES/provision-dart.txt
           Copy-Item `
             native/signing/ZSIGN_LICENSE.txt `
@@ -167,6 +178,6 @@ jobs:
             dist/xcross-linux-arm64.tar.gz \
             dist/xcross-windows-x64.zip \
             native/signing/ZSIGN_LICENSE.txt \
-            packages/provision_dart/LICENSE \
+            packages/apple_developer_kit/ADI_LICENSE \
             --title "$tag" \
             --generate-notes

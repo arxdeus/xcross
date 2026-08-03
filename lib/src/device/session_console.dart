@@ -1,11 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:xcross/src/constants.dart';
-import 'package:xcross/src/device/gdb_remote_client.dart';
-import 'package:xcross/src/device/hot_reload_controller.dart';
-import 'package:xcross/src/util/logging.dart';
-import 'package:xcross/src/util/process.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:xcross_flutter/xcross_flutter.dart';
 
 /// Interactive terminal session for an attached app: streams the app's stdout,
 /// dispatches `r`/`R`/`q` keypresses to hot reload, and stops on SIGINT or when

@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:args/command_runner.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/util/logging.dart';
 
 /// `xcross ide idea` — write a shared LSP4IJ DAP run configuration that
 /// drives `xcross dap` (stdio).

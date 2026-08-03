@@ -2,14 +2,13 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/cli/sdk_command.dart';
-import 'package:xcross/src/darwinsdk/cpio_reader.dart';
-import 'package:xcross/src/darwinsdk/darwin_sdk.dart';
-import 'package:xcross/src/util/process.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 
-import '../darwinsdk/test_fixtures.dart';
+import '../../packages/darwin_sdk_kit/test/test_fixtures.dart';
 
 void main() {
   CpioEntry entry(String name, {int mode = 0x81a4, String data = ''}) =>

@@ -1,5 +1,5 @@
 import 'package:args/command_runner.dart';
-import 'package:xcross/src/device/device_prepare.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart';
 
 /// `xcross prepare` — mount the Developer Disk Image and start the iOS 17+
 /// RSD tunnel(s) needed by `xcross flutter run`.

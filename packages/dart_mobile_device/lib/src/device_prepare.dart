@@ -1,0 +1,237 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:cli_kit/cli_kit.dart';
+import 'package:path/path.dart' as p;
+import 'package:dart_mobile_device/src/pymd.dart';
+import 'package:dart_mobile_device/src/tunnel_daemon.dart';
+import 'package:dart_mobile_device/src/tunnel_discovery.dart';
+import 'package:dart_mobile_device/src/errors.dart';
+
+/// One-shot iOS 17+ host prep: mount the Developer Disk Image and start the
+/// RSD tunnel(s) that [CoreDeviceLauncher] needs.
+///
+/// Equivalent to the manual:
+/// ```sh
+/// sudo pymobiledevice3 mounter auto-mount
+/// sudo pymobiledevice3 lockdown start-tunnel
+/// ```
+/// plus ensuring `remote tunneld` is up (the REST discovery path used by
+/// `xcross flutter run`).
+abstract final class DevicePrepare {
+  static final _tunnelReadyPattern = RegExp(
+    'tunnel created|RSD Address|RSD Port',
+    caseSensitive: false,
+  );
+
+  /// Mount DDI, ensure tunneld, and start a lockdown RSD tunnel in the
+  /// background. Leaves long-lived processes running after return.
+  static Future<void> prepare() async {
+    if (!await Pymd.ensureInstalled()) {
+      throw TunnelError(
+        'pymobiledevice3 is required but could not be installed automatically.',
+      );
+    }
+
+    await HostPrivileges.ensureDeviceToolAccess(
+      posixManualHint:
+          'Start prepare steps manually:\n'
+          '    ${Pymd.elevatedCommand('mounter auto-mount')}\n'
+          '    ${Pymd.elevatedCommand('lockdown start-tunnel')}',
+      windowsDeniedMessage:
+          'xcross needs Administrator rights to create the Windows RSD tunnel.\n'
+          'Open PowerShell with "Run as administrator", then run:\n'
+          '    xcross prepare',
+    );
+
+    await _autoMount();
+    await TunnelDaemon().ensureRunning();
+    await _ensureLockdownTunnel();
+
+    Log.logDone(
+      'Device ready '
+      '${Log.ansi.subtle('— DDI mounted, RSD tunnel up')}',
+    );
+    Log.logInfo('Next', Log.ansi.subtle('xcross flutter run -u <UDID>'));
+  }
+
+  /// `sudo pymobiledevice3 mounter auto-mount` (one-shot).
+  static Future<void> _autoMount() async {
+    final argv = await Pymd.elevatedArgs(['mounter', 'auto-mount']);
+    Log.logTrace('[pymobiledevice3] mounting DDI: ${argv.join(' ')}');
+    // Captured (not inheritStdio): a child writing to fd1 would shred the
+    // spinner. Runs under `sudo -n`, so there is no prompt to hide.
+    await Log.logStep('Mounting Developer Disk Image', () async {
+      final result = await ProcessRunner.run(
+        argv.first,
+        argv.sublist(1),
+        environment: Pymd.usbmuxEnvironment(),
+      );
+      Log.logTrace(result.stdout.trim());
+      if (result.exitCode != 0) {
+        throw TunnelError(
+          'mounter auto-mount failed (exit ${result.exitCode}).\n'
+          '${result.stderr.trim()}\n'
+          'Retry manually:\n'
+          '    ${Pymd.elevatedCommand('mounter auto-mount')}',
+        );
+      }
+    });
+  }
+
+  /// Start `lockdown start-tunnel` in the background if one is not already
+  /// producing an RSD tunnel. Leaves the process running after prepare exits.
+  ///
+  /// Skips when tunneld already exposes a tunnel: on Windows a second
+  /// `lockdown start-tunnel` creates another WinTun adapter for the same
+  /// device and breaks IPv6 RSD connectivity (connect → WinError 10013).
+  static Future<void> _ensureLockdownTunnel() async {
+    if (await _tunneldHasTunnel()) {
+      Log.logTrace(
+        'tunneld already has an RSD tunnel; skipping lockdown start-tunnel',
+      );
+      return;
+    }
+    if (await _lockdownTunnelLooksAlive()) {
+      Log.logTrace('lockdown start-tunnel already running');
+      return;
+    }
+    await Log.logStep('Starting lockdown RSD tunnel', _startLockdownTunnel);
+  }
+
+  /// True when the local tunneld REST API already lists at least one tunnel.
+  static Future<bool> _tunneldHasTunnel() async =>
+      await TunnelDiscovery.findExistingTunnel() != null;
+
+  /// Spawn `lockdown start-tunnel` and wait for it to report an RSD tunnel.
+  static Future<void> _startLockdownTunnel() async {
+    final argv = await Pymd.elevatedArgs(['lockdown', 'start-tunnel']);
+    final logPath = p.join(
+      Directory.systemTemp.path,
+      'xcross-start-tunnel.log',
+    );
+    final logFile = File(logPath);
+    if (!logFile.existsSync()) logFile.createSync(recursive: true);
+
+    Log.logTrace(
+      '[pymobiledevice3] starting lockdown RSD tunnel'
+      ' (background; log: $logPath): ${argv.join(' ')}',
+    );
+
+    late Process proc;
+    try {
+      // Piped (never inheritStdio): an inherited stdin steals `r`/`R`/`q` from
+      // the hot-reload keypress loop for the whole session.
+      proc = await Process.start(
+        argv.first,
+        argv.sublist(1),
+        environment: Pymd.usbmuxEnvironment(),
+      );
+    } catch (e) {
+      throw TunnelError('could not start lockdown start-tunnel: $e');
+    }
+
+    try {
+      await proc.stdin.close();
+    } catch (_) {}
+
+    final logSink = logFile.openWrite(mode: FileMode.append);
+    final ready = Completer<void>();
+
+    void onLine(String line) {
+      final trimmed = line.trimRight();
+      if (trimmed.isEmpty) return;
+      Log.logTrace(trimmed);
+      if (!ready.isCompleted && _tunnelReadyPattern.hasMatch(trimmed)) {
+        ready.complete();
+      }
+    }
+
+    // Tee the raw bytes to the log file, then decode a separate view of the
+    // same broadcast stream into lines for the readiness match.
+    for (final raw in [proc.stdout, proc.stderr]) {
+      final stream = raw.asBroadcastStream();
+      stream.listen(logSink.add, onError: (_) {});
+      stream
+          // Lossy on purpose: pymobiledevice3 can emit non-UTF-8 bytes, and a
+          // strict decoder would drop the whole chunk — losing the ASCII
+          // readiness line with it and stalling until the timeout below.
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .transform(const LineSplitter())
+          .listen(onLine, onError: (_) {});
+    }
+    unawaited(
+      proc.exitCode.then((code) async {
+        try {
+          await logSink.flush();
+          await logSink.close();
+        } catch (_) {}
+        if (!ready.isCompleted) {
+          ready.completeError(
+            TunnelError(
+              'lockdown start-tunnel exited early (code $code). '
+              'See $logPath',
+            ),
+          );
+        }
+      }),
+    );
+
+    try {
+      await ready.future.timeout(const Duration(seconds: 60));
+    } on TimeoutException {
+      throw TunnelError(
+        'lockdown start-tunnel did not report a tunnel within 60s.\n'
+        'Keep the phone unlocked and trusted, then retry:\n'
+        '    ${Pymd.elevatedCommand('lockdown start-tunnel')}\n'
+        'See $logPath for output.',
+      );
+    } on TunnelError {
+      rethrow;
+    }
+
+    Log.logTrace(
+      '[pymobiledevice3] lockdown RSD tunnel is up '
+      '(pid ${proc.pid}; leave it running)',
+    );
+  }
+
+  /// Best-effort: a live `start-tunnel` child usually holds a tun interface
+  /// and shows up in the process list.
+  static Future<bool> _lockdownTunnelLooksAlive() async {
+    if (Platform.isWindows) {
+      return _windowsLockdownTunnelLooksAlive();
+    }
+    try {
+      final result = await ProcessRunner.run('pgrep', [
+        '-f',
+        'pymobiledevice3.*lockdown.*start-tunnel',
+      ]);
+      return result.exitCode == 0 && result.stdout.trim().isNotEmpty;
+    } on Object {
+      return false;
+    }
+  }
+
+  /// `pgrep` is unavailable on Windows; match elevated tunnel children via
+  /// CIM instead. Command lines of other users' elevated processes may be
+  /// blank — treat any `pymobiledevice3` image as "already running" only when
+  /// tunneld already has a tunnel (handled by [_tunneldHasTunnel] first).
+  static Future<bool> _windowsLockdownTunnelLooksAlive() async {
+    try {
+      final result = await ProcessRunner.run(
+        await ProcessRunner.locateTool('powershell'),
+        const [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          r"Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'lockdown.*start-tunnel|start-tunnel' } | Select-Object -First 1 -ExpandProperty ProcessId",
+        ],
+      );
+      return result.exitCode == 0 && result.stdout.trim().isNotEmpty;
+    } on Object {
+      return false;
+    }
+  }
+}

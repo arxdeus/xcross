@@ -8,12 +8,29 @@ publish_to: none
 environment:
   sdk: ^3.10.0
 
+workspace:
+  - packages/cli_kit
+  - packages/apple_developer_kit
+  - packages/darwin_sdk_kit
+  - packages/dart_mobile_device
+  - packages/xcross_flutter
+
 dependencies:
   archive: ^4.0.9
   args: ^2.7.0
   async: ^2.13.1
+  apple_developer_kit:
+    path: packages/apple_developer_kit
   completion: ^1.0.2
+  cli_kit:
+    path: packages/cli_kit
   cli_util: ^0.5.2
+  darwin_sdk_kit:
+    path: packages/darwin_sdk_kit
+  dart_mobile_device:
+    path: packages/dart_mobile_device
+  xcross_flutter:
+    path: packages/xcross_flutter
   meta: ^1.19.0
   path: ^1.9.1
   standard_message_codec: ^0.0.1+5
@@ -29,14 +46,6 @@ dependencies:
   crypto: ^3.0.7
   pointycastle: ^4.0.0
   propertylistserialization: ^1.5.0
-  # LGPLv2 ADI client (vendored). Used for Linux/Windows Apple ID / Anisette.
-  provision_dart:
-    path: packages/provision_dart
 
 dev_dependencies:
   test: ^1.31.2
-
-# provision_dart pins archive ^3.6.1; xcross needs ^4.0.9. apk_fetch's ZipDecoder
-# usage is source-compatible with 4.x.
-dependency_overrides:
-  archive: ^4.0.9

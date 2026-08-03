@@ -1,0 +1,9 @@
+/// A user-facing error from Darwin/iOS SDK resolution or Xcode.xip extraction.
+class DarwinSdkError implements Exception {
+  DarwinSdkError(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}

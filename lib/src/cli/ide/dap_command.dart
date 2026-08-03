@@ -20,8 +20,8 @@ import 'package:path/path.dart' as p;
 import 'package:vm_service/vm_service.dart' as vm;
 import 'package:xcross/src/cli/ide/dap_router.dart';
 import 'package:xcross/src/constants.dart';
-import 'package:xcross/src/device/tunnel_daemon.dart';
-import 'package:xcross/src/util/package_uris.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:xcross_flutter/xcross_flutter.dart';
 
 /// `xcross dap` — Debug Adapter Protocol server driving `xcross flutter run`.
 ///

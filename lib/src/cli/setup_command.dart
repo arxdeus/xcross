@@ -1,13 +1,11 @@
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:args/command_runner.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/darwinsdk/darwin_sdk.dart';
-import 'package:xcross/src/device/pymd.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:xcross/src/util/errors.dart';
-import 'package:xcross/src/util/logging.dart';
-import 'package:xcross/src/util/process.dart';
-import 'package:xcross/src/util/sudo.dart';
 
 /// `apt`-installable packages from the README Requirements table, plus the
 /// Swift toolchain's own build dependencies. Swift and Flutter stay manual.
