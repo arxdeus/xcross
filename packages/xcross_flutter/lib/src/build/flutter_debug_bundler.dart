@@ -386,7 +386,7 @@ class FlutterDebugBundler {
         Platform.isWindows ? 'clang.exe' : 'clang',
       ),
       iosSDK: darwin.iPhoneOSSdk(),
-      lldToolsetBin: p.dirname(await resolveLd64Lld(darwin)),
+      lldToolsetBin: p.dirname(await DarwinSdk.resolveLd64Lld(darwin)),
     );
   }
 

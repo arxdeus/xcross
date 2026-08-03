@@ -15,7 +15,7 @@ class AscCertificate {
   final String id;
 
   /// Base64-encoded **DER** certificate content - not PEM. Wrap it (see
-  /// `wrapDerAsPem`) before writing it out as a `.pem`/`.cer` file.
+  /// `AscProvisioning.wrapDerAsPem`) before writing it out as a `.pem`/`.cer` file.
   final String certificateContentBase64;
 
   final String? expirationDate;

@@ -98,22 +98,6 @@ class _RealAdiProvisioning implements AdiProvisioning {
   Future<AdiOneTimePassword> requestOTP(int dsId) => _client.requestOTP(dsId);
 }
 
-AdiProvisioning _defaultAdiFactory({
-  required String adiLibraryDirectory,
-  required String provisioningPath,
-  required String identifier,
-}) {
-  final client = AdiClient.fromDirectory(adiLibraryDirectory);
-  // ADI on Windows is happier with forward-slash provisioning paths (bionic
-  // open() stubs translate them); trailing slash matches Provision usage.
-  final normalizedPath = provisioningPath.replaceAll(r'\', '/');
-  client.provisioningPath = normalizedPath.endsWith('/')
-      ? normalizedPath
-      : '$normalizedPath/';
-  client.identifier = identifier;
-  return _RealAdiProvisioning(client);
-}
-
 /// Produces the real HTTP headers/plist fields Apple's GrandSlam servers
 /// require ("Anisette data"), given a locally-loaded ADI native library.
 ///
@@ -136,7 +120,7 @@ class AnisetteDataProvider implements AnisetteProvider {
       required String identifier,
     })?
     adiFactory,
-  }) : _http = httpClient ?? createAppleHttpClient(),
+  }) : _http = httpClient ?? AppleHttp.createAppleHttpClient(),
        _stateStore = stateStore ?? AnisetteStateStore(),
        _adiFactory = adiFactory ?? _defaultAdiFactory;
 
@@ -197,9 +181,9 @@ class AnisetteDataProvider implements AnisetteProvider {
   }
 
   Future<GrandSlamEndpoints> _grandSlamEndpoints(AnisetteState state) async {
-    return _endpoints ??= await fetchGrandSlamEndpoints(
+    return _endpoints ??= await GrandSlamEndpoints.fetchGrandSlamEndpoints(
       _http,
-      headers: buildAnisetteLookupHeaders(state),
+      headers: AnisetteHeaders.buildAnisetteLookupHeaders(state),
     );
   }
 
@@ -272,7 +256,7 @@ class AnisetteDataProvider implements AnisetteProvider {
     AnisetteState state,
   ) async {
     final otp = await adi.requestOTP(kAdiMachineDsId);
-    return buildAnisetteHeaders(
+    return AnisetteHeaders.buildAnisetteHeaders(
       oneTimePassword: base64Encode(otp.oneTimePassword),
       machineIdentifier: base64Encode(otp.machineIdentifier),
       routingInfo: '${state.routingInfo}',
@@ -289,12 +273,12 @@ class AnisetteDataProvider implements AnisetteProvider {
       'Header': <String, Object?>{},
       'Request': request,
     });
-    final response = await sendGrandSlamRequest(
+    final response = await GrandSlamEndpoints.sendGrandSlamRequest(
       _http,
       method: 'POST',
       url: url,
       operation: 'Anisette provisioning',
-      headers: buildAnisetteProvisioningHeaders(state),
+      headers: AnisetteHeaders.buildAnisetteProvisioningHeaders(state),
       body: body,
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -303,22 +287,37 @@ class AnisetteDataProvider implements AnisetteProvider {
         '(HTTP ${response.statusCode})',
       );
     }
-    return decodeGrandSlamResponse(response.body);
+    return GrandSlamResponse.decodeGrandSlamResponse(response.body);
   }
-}
 
-/// ADI's "Android ID" identifier: the first 16 lowercase hex characters of
-/// [localUserUid] with dashes removed. Matches xtool's `XADIProvider`
-/// derivation exactly (`id.uuidString.replacingOccurrences(of: "-", with:
-/// "").prefix(16).lowercased()`) - reusing the persisted identity UUID
-/// instead of a separate persisted value.
-String _androidId(String localUserUid) =>
-    localUserUid.replaceAll('-', '').substring(0, 16).toLowerCase();
-
-String _stringField(Map<String, Object?> map, String key) {
-  final value = map[key];
-  if (value is! String) {
-    throw AppleError('GrandSlam response missing "$key" (or not a string)');
+  static AdiProvisioning _defaultAdiFactory({
+    required String adiLibraryDirectory,
+    required String provisioningPath,
+    required String identifier,
+  }) {
+    final client = AdiClient.fromDirectory(adiLibraryDirectory);
+    // ADI on Windows is happier with forward-slash provisioning paths (bionic
+    // open() stubs translate them); trailing slash matches Provision usage.
+    final normalizedPath = provisioningPath.replaceAll(r'\', '/');
+    client.provisioningPath = normalizedPath.endsWith('/')
+        ? normalizedPath
+        : '$normalizedPath/';
+    client.identifier = identifier;
+    return _RealAdiProvisioning(client);
   }
-  return value;
+
+  /// ADI's "Android ID" identifier: the first 16 lowercase hex characters of
+  /// [localUserUid] with dashes removed. Matches xtool's `XADIProvider`
+  /// derivation exactly (`id.uuidString.replacingOccurrences(of: "-", with:
+  /// "").prefix(16).lowercased()`) - reusing the persisted identity UUID
+  /// instead of a separate persisted value.
+  static String _androidId(String localUserUid) =>
+      localUserUid.replaceAll('-', '').substring(0, 16).toLowerCase();
+  static String _stringField(Map<String, Object?> map, String key) {
+    final value = map[key];
+    if (value is! String) {
+      throw AppleError('GrandSlam response missing "$key" (or not a string)');
+    }
+    return value;
+  }
 }

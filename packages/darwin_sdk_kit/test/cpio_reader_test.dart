@@ -6,7 +6,7 @@ import 'package:test/test.dart';
 
 import 'test_fixtures.dart';
 
-/// Splits [bytes] into small chunks to force [readCpio] to read across
+/// Splits [bytes] into small chunks to force [CpioReader.read] to read across
 /// stream-chunk boundaries mid-header and mid-content, not just mid-file.
 Stream<List<int>> chunked(List<int> bytes, int chunkSize) async* {
   for (var i = 0; i < bytes.length; i += chunkSize) {
@@ -15,7 +15,7 @@ Stream<List<int>> chunked(List<int> bytes, int chunkSize) async* {
 }
 
 void main() {
-  group('readCpio', () {
+  group('CpioReader.read', () {
     test('decodes multiple entries and stops at TRAILER!!!', () async {
       final stream = [
         buildCpioEntry(name: 'a.txt', data: utf8.encode('hello')),
@@ -24,7 +24,7 @@ void main() {
         buildCpioTrailer(),
       ].expand((e) => e).toList();
 
-      final entries = await readCpio(Stream.value(stream)).toList();
+      final entries = await CpioReader.read(Stream.value(stream)).toList();
 
       expect(entries, hasLength(3));
       expect(entries[0].name, 'a.txt');
@@ -41,7 +41,7 @@ void main() {
         buildCpioTrailer(),
       ].expand((e) => e).toList();
 
-      final entries = await readCpio(Stream.value(stream)).toList();
+      final entries = await CpioReader.read(Stream.value(stream)).toList();
       expect(entries.single.mode, 0x81ff);
     });
 
@@ -56,7 +56,7 @@ void main() {
 
         // 7 bytes doesn't align with any field width above, so headers and
         // content are guaranteed to straddle chunk boundaries.
-        final entries = await readCpio(chunked(bytes, 7)).toList();
+        final entries = await CpioReader.read(chunked(bytes, 7)).toList();
 
         expect(entries, hasLength(2));
         expect(entries[0].name, 'a');
@@ -68,7 +68,7 @@ void main() {
 
     test('throws on bad magic', () {
       final bad = utf8.encode('not a cpio header at all, 76+ bytes long...');
-      expect(readCpio(Stream.value(bad)).toList(), throwsA(isException));
+      expect(CpioReader.read(Stream.value(bad)).toList(), throwsA(isException));
     });
   });
 }

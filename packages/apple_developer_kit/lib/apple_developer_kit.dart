@@ -15,8 +15,7 @@ export 'src/adi/loader/loader.dart'
     show LoadedNativeLibrary, NativeLibraryLoader;
 export 'src/adi/loader/loader_posix.dart' show PosixNativeLibraryLoader;
 export 'src/adi/loader/loader_windows.dart' show WindowsNativeLibraryLoader;
-export 'src/apple_http_client.dart'
-    show createAppleHttpClient, createAppleSecurityContext;
+export 'src/apple_http_client.dart' show AppleHttp;
 export 'src/appstoreconnect/appstoreconnect.dart';
 export 'src/errors.dart' show AppleError;
 export 'src/grandslam/anisette/anisette_data_provider.dart'

@@ -10,14 +10,14 @@ import 'package:xcross/src/cli/flutter/subcommands/flutter_run_command.dart';
 import 'package:xcross/src/cli/runner.dart';
 
 void main() {
-  group('shouldUseCoreDevice', () {
+  group('FlutterRunCommand.shouldUseCoreDevice', () {
     test('uses CoreDevice for confirmed iOS 17+ and unknown devices', () {
-      expect(shouldUseCoreDevice(17), isTrue);
-      expect(shouldUseCoreDevice(null), isTrue);
+      expect(FlutterRunCommand.shouldUseCoreDevice(17), isTrue);
+      expect(FlutterRunCommand.shouldUseCoreDevice(null), isTrue);
     });
 
     test('rejects confirmed older devices', () {
-      expect(shouldUseCoreDevice(16), isFalse);
+      expect(FlutterRunCommand.shouldUseCoreDevice(16), isFalse);
     });
   });
 

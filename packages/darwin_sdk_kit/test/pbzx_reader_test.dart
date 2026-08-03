@@ -14,14 +14,18 @@ const int _chunkSize = 0x1000000;
 
 Future<List<int>> decodeToBytes(RandomAccessFile file, int length) async {
   final out = BytesBuilder();
-  await for (final piece in decodePbzx(file, offset: 0, length: length)) {
+  await for (final piece in PbzxReader.decode(
+    file,
+    offset: 0,
+    length: length,
+  )) {
     out.add(piece);
   }
   return out.takeBytes();
 }
 
 void main() {
-  group('decodePbzx', () {
+  group('PbzxReader.decode', () {
     late Directory tempDir;
 
     setUp(() async {

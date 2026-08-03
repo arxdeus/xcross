@@ -15,12 +15,14 @@ import 'package:path/path.dart' as p;
 /// impossible (initialize must be answered before launch arrives), so we stub
 /// the pre-launch handshake ourselves, then replay the raw frames into the
 /// chosen adapter and drop its duplicate responses for already-acked seqs.
-Future<void> runDapSession({
-  required void Function(ByteStreamServerChannel channel) startXcross,
-  Stream<List<int>>? input,
-  StreamSink<List<int>>? output,
-}) {
-  return _DapRouter(input ?? stdin, output ?? stdout, startXcross).run();
+abstract final class DapSession {
+  static Future<void> run({
+    required void Function(ByteStreamServerChannel channel) startXcross,
+    Stream<List<int>>? input,
+    StreamSink<List<int>>? output,
+  }) {
+    return _DapRouter(input ?? stdin, output ?? stdout, startXcross).run();
+  }
 }
 
 class _DapRouter {
@@ -192,7 +194,7 @@ class _DapRouter {
 
   void _sendResponse(String command, int requestSeq, {Object? body}) {
     _output.add(
-      encodeDapFrame({
+      DapFrame.encode({
         'seq': _outSeq++,
         'type': 'response',
         'request_seq': requestSeq,
@@ -205,7 +207,7 @@ class _DapRouter {
 
   void _sendEvent(String event, Object? body) {
     _output.add(
-      encodeDapFrame({
+      DapFrame.encode({
         'seq': _outSeq++,
         'type': 'event',
         'event': event,
@@ -216,13 +218,15 @@ class _DapRouter {
 }
 
 /// Encodes one DAP message with Content-Length framing.
-Uint8List encodeDapFrame(Map<String, Object?> message) {
-  final body = utf8.encode(jsonEncode(message));
-  final header = ascii.encode('Content-Length: ${body.length}\r\n\r\n');
-  final out = Uint8List(header.length + body.length);
-  out.setAll(0, header);
-  out.setAll(header.length, body);
-  return out;
+abstract final class DapFrame {
+  static Uint8List encode(Map<String, Object?> message) {
+    final body = utf8.encode(jsonEncode(message));
+    final header = ascii.encode('Content-Length: ${body.length}\r\n\r\n');
+    final out = Uint8List(header.length + body.length);
+    out.setAll(0, header);
+    out.setAll(header.length, body);
+    return out;
+  }
 }
 
 /// Incremental DAP frame parser. [push] yields complete frames; [takeBuffered]

@@ -84,7 +84,7 @@ class WindowsNativeSymbolStubs {
   Pointer<Void> resolve(String symbolName) => _table[symbolName] ?? nullptr;
 
   void _publish(String name, Pointer<Void> msAbiFn, int argc) {
-    _table[name] = sysvExport(msAbiFn, argc);
+    _table[name] = SysvAbiBridge.sysvExport(msAbiFn, argc);
   }
 
   /// Host CRT symbol published as a SysV-callable GOT entry.

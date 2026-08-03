@@ -50,7 +50,10 @@ class GrandSlamEndpoints {
           'GrandSlam endpoint lookup response missing "$key" (or not a string)',
         );
       }
-      return validateGrandSlamUrl(value, field: key).toString();
+      return GrandSlamEndpoints.validateGrandSlamUrl(
+        value,
+        field: key,
+      ).toString();
     }
 
     return GrandSlamEndpoints(
@@ -62,90 +65,92 @@ class GrandSlamEndpoints {
       midFinishProvisioning: field('midFinishProvisioning'),
     );
   }
-}
 
-Uri validateGrandSlamUrl(String value, {required String field}) {
-  final uri = Uri.tryParse(value);
-  final host = uri?.host.toLowerCase() ?? '';
-  final isAppleHost = host == 'apple.com' || host.endsWith('.apple.com');
-  if (uri == null ||
-      uri.scheme != 'https' ||
-      !isAppleHost ||
-      uri.userInfo.isNotEmpty ||
-      (uri.hasPort && uri.port != 443)) {
-    throw AppleError(
-      'GrandSlam endpoint "$field" is not a trusted Apple HTTPS URL.',
+  static Uri validateGrandSlamUrl(String value, {required String field}) {
+    final uri = Uri.tryParse(value);
+    final host = uri?.host.toLowerCase() ?? '';
+    final isAppleHost = host == 'apple.com' || host.endsWith('.apple.com');
+    if (uri == null ||
+        uri.scheme != 'https' ||
+        !isAppleHost ||
+        uri.userInfo.isNotEmpty ||
+        (uri.hasPort && uri.port != 443)) {
+      throw AppleError(
+        'GrandSlam endpoint "$field" is not a trusted Apple HTTPS URL.',
+      );
+    }
+    return uri;
+  }
+
+  static Future<http.Response> sendGrandSlamRequest(
+    http.Client client, {
+    required String method,
+    required String url,
+    required String operation,
+    Map<String, String>? headers,
+    String? body,
+  }) async {
+    final request = http.Request(
+      method,
+      GrandSlamEndpoints.validateGrandSlamUrl(url, field: operation),
+    )..followRedirects = false;
+    if (headers != null) request.headers.addAll(headers);
+    if (body != null) request.body = body;
+    final response = await http.Response.fromStream(await client.send(request));
+    if (response.statusCode >= 300 && response.statusCode < 400) {
+      throw AppleError('GrandSlam $operation refused an HTTP redirect.');
+    }
+    return response;
+  }
+
+  /// Fetches [GrandSlamEndpoints] via a `GET` to the GrandSlam lookup
+  /// endpoint. No Anisette data is needed for this call (nothing exists to
+  /// derive it from yet); [headers] should carry the persisted
+  /// pseudo-identity/locale headers (`X-MMe-Client-Info`, `X-Mme-Device-Id`,
+  /// `X-Apple-I-Locale`, `X-Apple-I-TimeZone`, `X-Apple-I-TimeZone-Offset`,
+  /// `X-MMe-Country`) per xtool's `GrandSlamLookupManager.performLookup`.
+  ///
+  /// Not cached to disk by this function - callers are expected to cache the
+  /// result in memory for the process lifetime (endpoints are stable enough
+  /// to just re-fetch each run).
+  static Future<GrandSlamEndpoints> fetchGrandSlamEndpoints(
+    http.Client client, {
+    required Map<String, String> headers,
+  }) async {
+    final response = await GrandSlamEndpoints.sendGrandSlamRequest(
+      client,
+      method: 'GET',
+      url: _lookupUrl.toString(),
+      operation: 'endpoint lookup',
+      headers: headers,
     );
-  }
-  return uri;
-}
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw AppleError(
+        'GrandSlam endpoint lookup failed (HTTP ${response.statusCode})',
+      );
+    }
 
-Future<http.Response> sendGrandSlamRequest(
-  http.Client client, {
-  required String method,
-  required String url,
-  required String operation,
-  Map<String, String>? headers,
-  String? body,
-}) async {
-  final request = http.Request(
-    method,
-    validateGrandSlamUrl(url, field: operation),
-  )..followRedirects = false;
-  if (headers != null) request.headers.addAll(headers);
-  if (body != null) request.body = body;
-  final response = await http.Response.fromStream(await client.send(request));
-  if (response.statusCode >= 300 && response.statusCode < 400) {
-    throw AppleError('GrandSlam $operation refused an HTTP redirect.');
+    final Object decoded;
+    try {
+      decoded = PropertyListSerialization.propertyListWithString(response.body);
+    } on PropertyListException catch (e) {
+      throw AppleError(
+        'GrandSlam endpoint lookup response was not a plist: $e',
+      );
+    }
+    if (decoded is! Map) {
+      throw AppleError(
+        'GrandSlam endpoint lookup response was not a plist dictionary',
+      );
+    }
+    final urls = decoded['urls'];
+    if (urls is! Map) {
+      throw AppleError('GrandSlam endpoint lookup response missing "urls"');
+    }
+    return GrandSlamEndpoints.fromPlistUrls(urls.cast());
   }
-  return response;
 }
 
 final Uri _lookupUrl = Uri.parse(
   'https://gsa.apple.com/grandslam/GsService2/lookup',
 );
-
-/// Fetches [GrandSlamEndpoints] via a `GET` to the GrandSlam lookup
-/// endpoint. No Anisette data is needed for this call (nothing exists to
-/// derive it from yet); [headers] should carry the persisted
-/// pseudo-identity/locale headers (`X-MMe-Client-Info`, `X-Mme-Device-Id`,
-/// `X-Apple-I-Locale`, `X-Apple-I-TimeZone`, `X-Apple-I-TimeZone-Offset`,
-/// `X-MMe-Country`) per xtool's `GrandSlamLookupManager.performLookup`.
-///
-/// Not cached to disk by this function - callers are expected to cache the
-/// result in memory for the process lifetime (endpoints are stable enough
-/// to just re-fetch each run).
-Future<GrandSlamEndpoints> fetchGrandSlamEndpoints(
-  http.Client client, {
-  required Map<String, String> headers,
-}) async {
-  final response = await sendGrandSlamRequest(
-    client,
-    method: 'GET',
-    url: _lookupUrl.toString(),
-    operation: 'endpoint lookup',
-    headers: headers,
-  );
-  if (response.statusCode < 200 || response.statusCode >= 300) {
-    throw AppleError(
-      'GrandSlam endpoint lookup failed (HTTP ${response.statusCode})',
-    );
-  }
-
-  final Object decoded;
-  try {
-    decoded = PropertyListSerialization.propertyListWithString(response.body);
-  } on PropertyListException catch (e) {
-    throw AppleError('GrandSlam endpoint lookup response was not a plist: $e');
-  }
-  if (decoded is! Map) {
-    throw AppleError(
-      'GrandSlam endpoint lookup response was not a plist dictionary',
-    );
-  }
-  final urls = decoded['urls'];
-  if (urls is! Map) {
-    throw AppleError('GrandSlam endpoint lookup response missing "urls"');
-  }
-  return GrandSlamEndpoints.fromPlistUrls(urls.cast());
-}

@@ -28,10 +28,10 @@ class GrandSlamLoginData {
   /// cookie used to correlate the `o=complete` request).
   factory GrandSlamLoginData.fromDecryptedPlist(Map<String, Object?> plist) {
     return GrandSlamLoginData(
-      adsid: stringField(plist, 'adsid'),
-      idmsToken: stringField(plist, 'GsIdmsToken'),
-      sessionKey: dataField(plist, 'sk'),
-      cookie: dataField(plist, 'c'),
+      adsid: GrandSlamResponse.stringField(plist, 'adsid'),
+      idmsToken: GrandSlamResponse.stringField(plist, 'GsIdmsToken'),
+      sessionKey: GrandSlamResponse.dataField(plist, 'sk'),
+      cookie: GrandSlamResponse.dataField(plist, 'c'),
     );
   }
 

@@ -51,56 +51,58 @@ class CpioEntry {
 /// or variable-length name/content, so it never holds the whole
 /// (potentially multi-GB, once wired to a real Xcode.xip) decompressed
 /// archive in memory at once.
-Stream<CpioEntry> readCpio(Stream<List<int>> input) async* {
-  final queue = StreamQueue<List<int>>(input);
-  var buffer = Uint8List(0);
-  var bufferPos = 0;
+abstract final class CpioReader {
+  static Stream<CpioEntry> read(Stream<List<int>> input) async* {
+    final queue = StreamQueue<List<int>>(input);
+    var buffer = Uint8List(0);
+    var bufferPos = 0;
 
-  Future<Uint8List> readExact(int count) async {
-    final out = Uint8List(count);
-    var filled = 0;
-    while (filled < count) {
-      if (bufferPos >= buffer.length) {
-        if (!await queue.hasNext) {
-          throw DarwinSdkError('cpio: unexpected end of stream.');
+    Future<Uint8List> readExact(int count) async {
+      final out = Uint8List(count);
+      var filled = 0;
+      while (filled < count) {
+        if (bufferPos >= buffer.length) {
+          if (!await queue.hasNext) {
+            throw DarwinSdkError('cpio: unexpected end of stream.');
+          }
+          final next = await queue.next;
+          buffer = next is Uint8List ? next : Uint8List.fromList(next);
+          bufferPos = 0;
         }
-        final next = await queue.next;
-        buffer = next is Uint8List ? next : Uint8List.fromList(next);
-        bufferPos = 0;
+        final take = (buffer.length - bufferPos).clamp(0, count - filled);
+        out.setRange(filled, filled + take, buffer, bufferPos);
+        bufferPos += take;
+        filled += take;
       }
-      final take = (buffer.length - bufferPos).clamp(0, count - filled);
-      out.setRange(filled, filled + take, buffer, bufferPos);
-      bufferPos += take;
-      filled += take;
+      return out;
     }
-    return out;
-  }
 
-  while (true) {
-    final header = ascii.decode(await readExact(_headerSize));
-    if (!header.startsWith('070707')) {
-      throw DarwinSdkError('cpio: bad magic (expected odc header "070707").');
+    while (true) {
+      final header = ascii.decode(await readExact(_headerSize));
+      if (!header.startsWith('070707')) {
+        throw DarwinSdkError('cpio: bad magic (expected odc header "070707").');
+      }
+      int field(int start, int len) =>
+          int.parse(header.substring(start, start + len).trim(), radix: 8);
+
+      final namesize = field(_namesizeOffset, 6);
+      final filesize = field(_filesizeOffset, 11);
+
+      // namesize includes the trailing NUL; strip it before decoding.
+      final nameBytes = await readExact(namesize);
+      final name = ascii.decode(nameBytes.sublist(0, namesize - 1));
+      final data = await readExact(filesize);
+
+      if (name == 'TRAILER!!!') return;
+
+      yield CpioEntry(
+        name: name,
+        mode: field(_modeOffset, 6),
+        data: data,
+        dev: field(_devOffset, 6),
+        ino: field(_inoOffset, 6),
+        nlink: field(_nlinkOffset, 6),
+      );
     }
-    int field(int start, int len) =>
-        int.parse(header.substring(start, start + len).trim(), radix: 8);
-
-    final namesize = field(_namesizeOffset, 6);
-    final filesize = field(_filesizeOffset, 11);
-
-    // namesize includes the trailing NUL; strip it before decoding.
-    final nameBytes = await readExact(namesize);
-    final name = ascii.decode(nameBytes.sublist(0, namesize - 1));
-    final data = await readExact(filesize);
-
-    if (name == 'TRAILER!!!') return;
-
-    yield CpioEntry(
-      name: name,
-      mode: field(_modeOffset, 6),
-      data: data,
-      dev: field(_devOffset, 6),
-      ino: field(_inoOffset, 6),
-      nlink: field(_nlinkOffset, 6),
-    );
   }
 }

@@ -232,6 +232,649 @@ class SigningAsset {
     ]);
     return _sequence([_oid(_oidSignedData), _tlv(0xa0, signedData)]);
   }
+
+  static List<Uint8List> _buildCertificateChain({
+    required _ParsedCertificate leaf,
+    required List<Uint8List> profileCertificates,
+    required List<Uint8List> trustedRootCertificates,
+    required DateTime now,
+    required String profilePath,
+  }) {
+    final candidates = <_ParsedCertificate>[
+      for (var index = 0; index < profileCertificates.length; index++)
+        _parseChainCertificate(
+          profileCertificates[index],
+          'certificate ${index + 1} in provisioning profile "$profilePath"',
+        ),
+      for (final entry in _embeddedAppleCertificateBase64.entries)
+        _parseChainCertificate(
+          Uint8List.fromList(base64.decode(entry.value)),
+          'embedded ${entry.key}',
+        ),
+      for (var index = 0; index < trustedRootCertificates.length; index++)
+        _parseChainCertificate(
+          trustedRootCertificates[index],
+          'test trust root ${index + 1}',
+        ),
+    ];
+    final chain = <Uint8List>[];
+    final seen = <String>{base64.encode(leaf.der)};
+    var current = leaf;
+
+    while (!_bytesEqual(current.issuer, current.subject)) {
+      _ParsedCertificate? issuer;
+      for (final candidate in candidates) {
+        final encoded = base64.encode(candidate.der);
+        if (!seen.contains(encoded) &&
+            _bytesEqual(current.issuer, candidate.subject)) {
+          issuer = candidate;
+          break;
+        }
+      }
+      if (issuer == null) {
+        throw AppleError(
+          'Could not build certificate chain for leaf issuer '
+          '"${leaf.issuerName}": no certificate subject matches issuer '
+          '"${current.issuerName}".',
+        );
+      }
+      _checkValidity(
+        now,
+        issuer.notBefore!,
+        issuer.notAfter!,
+        'Signing chain certificate "${issuer.commonName}" for leaf issuer '
+        '"${leaf.issuerName}"',
+      );
+      chain.add(Uint8List.fromList(issuer.der));
+      seen.add(base64.encode(issuer.der));
+      current = issuer;
+    }
+
+    final trustedRoots = {
+      ..._embeddedAppleCertificateBase64.entries
+          .where((entry) => entry.key.startsWith('Apple Root CA'))
+          .map((entry) => base64.encode(base64.decode(entry.value))),
+      ...trustedRootCertificates.map(base64.encode),
+    };
+    if (!trustedRoots.contains(base64.encode(current.der))) {
+      throw AppleError(
+        'Could not build certificate chain for leaf issuer '
+        '"${leaf.issuerName}": chain is not anchored to an Apple root.',
+      );
+    }
+    return chain;
+  }
+
+  static _ParsedCertificate _parseChainCertificate(
+    Uint8List der,
+    String context,
+  ) {
+    try {
+      return _withCertificateMetadata(
+        _parseCertificate(der, context),
+        '-----BEGIN CERTIFICATE-----\n${base64.encode(der)}\n'
+        '-----END CERTIFICATE-----',
+      );
+    } on Object catch (error) {
+      throw AppleError('Malformed $context: $error');
+    }
+  }
+
+  static Future<String> _readText(String path, String description) async {
+    try {
+      return await File(path).readAsString();
+    } on Object catch (error) {
+      throw AppleError('Could not read $description "$path": $error');
+    }
+  }
+
+  static Future<Uint8List> _readBytes(String path, String description) async {
+    try {
+      return await File(path).readAsBytes();
+    } on Object catch (error) {
+      throw AppleError('Could not read $description "$path": $error');
+    }
+  }
+
+  static RSAPrivateKey _parsePrivateKey(String pem, String path) {
+    try {
+      final decoded = _decodePem(pem);
+      switch (decoded.label) {
+        case 'PRIVATE KEY':
+          final root = _single(decoded.bytes, 0x30, 'PKCS#8 private key');
+          final reader = root.reader();
+          reader.read(0x02, 'PKCS#8 version');
+          final algorithm = reader.read(0x30, 'PKCS#8 algorithm');
+          if (_algorithmOid(algorithm, 'PKCS#8 algorithm') !=
+              _oidRsaEncryption) {
+            throw AppleError(
+              'Unsupported private key algorithm in "$path"; RSA is required.',
+            );
+          }
+          reader.read(0x04, 'PKCS#8 private key data');
+          reader.requireDone('PKCS#8 private key');
+          return CryptoUtils.rsaPrivateKeyFromPem(pem);
+        case 'RSA PRIVATE KEY':
+          _single(decoded.bytes, 0x30, 'PKCS#1 private key');
+          return CryptoUtils.rsaPrivateKeyFromPemPkcs1(pem);
+        default:
+          throw AppleError(
+            'Unsupported private key algorithm in "$path"; RSA PEM is required.',
+          );
+      }
+    } on AppleError {
+      rethrow;
+    } on Object catch (error) {
+      throw AppleError('Malformed RSA private key "$path": $error');
+    }
+  }
+
+  static _ParsedCertificate _parseCertificatePem(String pem, String path) {
+    try {
+      final decoded = _decodePem(pem);
+      if (decoded.label != 'CERTIFICATE') {
+        throw const FormatException('expected a CERTIFICATE PEM block');
+      }
+      final parsed = _parseCertificate(decoded.bytes, path, requireRsa: true);
+      final result = _withCertificateMetadata(parsed, pem);
+      if (result.commonName.isEmpty) {
+        throw const FormatException('certificate subject has no common name');
+      }
+      return result;
+    } on AppleError {
+      rethrow;
+    } on Object catch (error) {
+      throw AppleError('Malformed certificate "$path": $error');
+    }
+  }
+
+  static _ParsedCertificate _parseCertificate(
+    Uint8List der,
+    String path, {
+    bool requireRsa = false,
+  }) {
+    final certificate = _single(der, 0x30, 'certificate');
+    final certificateReader = certificate.reader();
+    final tbs = certificateReader.read(0x30, 'TBSCertificate');
+    final outerSignature = certificateReader.read(
+      0x30,
+      'certificate signature algorithm',
+    );
+    certificateReader.read(0x03, 'certificate signature');
+    certificateReader.requireDone('certificate');
+
+    final outerSignatureOid = _algorithmOid(
+      outerSignature,
+      'certificate signature algorithm',
+    );
+
+    final tbsReader = tbs.reader();
+    if (tbsReader.peekTag() == 0xa0) {
+      tbsReader.read(0xa0, 'certificate version');
+    }
+    final serialNumber = tbsReader.read(0x02, 'certificate serial number');
+    final tbsSignature = tbsReader.read(0x30, 'TBS signature algorithm');
+    if (_algorithmOid(tbsSignature, 'TBS signature algorithm') !=
+        outerSignatureOid) {
+      throw const FormatException('certificate signature algorithms differ');
+    }
+    final issuer = tbsReader.read(0x30, 'certificate issuer');
+    tbsReader.read(0x30, 'certificate validity');
+    final subject = tbsReader.read(0x30, 'certificate subject');
+    final subjectPublicKeyInfo = tbsReader.read(0x30, 'certificate public key');
+
+    RSAPublicKey? publicKey;
+    if (requireRsa) {
+      final spkiReader = subjectPublicKeyInfo.reader();
+      final publicKeyAlgorithm = spkiReader.read(0x30, 'public key algorithm');
+      final publicKeyOid = _algorithmOid(
+        publicKeyAlgorithm,
+        'public key algorithm',
+      );
+      if (publicKeyOid != _oidRsaEncryption) {
+        throw AppleError(
+          'Unsupported certificate public key algorithm in "$path": '
+          '$publicKeyOid; RSA is required.',
+        );
+      }
+      final publicKeyBits = spkiReader.read(0x03, 'RSA public key');
+      spkiReader.requireDone('certificate public key');
+      if (publicKeyBits.value.isEmpty || publicKeyBits.value.first != 0) {
+        throw const FormatException('invalid RSA public-key bit string');
+      }
+      final publicKeySequence = _single(
+        Uint8List.sublistView(publicKeyBits.value, 1),
+        0x30,
+        'RSA public key',
+      );
+      final publicKeyReader = publicKeySequence.reader();
+      final modulus = _positiveInteger(
+        publicKeyReader.read(0x02, 'RSA modulus'),
+        'RSA modulus',
+      );
+      final exponent = _positiveInteger(
+        publicKeyReader.read(0x02, 'RSA public exponent'),
+        'RSA public exponent',
+      );
+      publicKeyReader.requireDone('RSA public key');
+      publicKey = RSAPublicKey(modulus, exponent);
+    }
+
+    return _ParsedCertificate(
+      der: Uint8List.fromList(der),
+      issuer: Uint8List.fromList(issuer.encoded),
+      subject: Uint8List.fromList(subject.encoded),
+      serialNumber: Uint8List.fromList(serialNumber.encoded),
+      publicKey: publicKey,
+    );
+  }
+
+  static _ParsedCertificate _withCertificateMetadata(
+    _ParsedCertificate certificate,
+    String pem,
+  ) {
+    final tbs = X509Utils.x509CertificateFromPem(pem).tbsCertificate;
+    if (tbs == null) throw const FormatException('certificate has no TBS data');
+    final validity = tbs.validity;
+    return certificate.withMetadata(
+      commonName: tbs.subject['2.5.4.3'] ?? '',
+      issuerName: tbs.issuer['2.5.4.3'] ?? base64.encode(certificate.issuer),
+      notBefore: validity.notBefore,
+      notAfter: validity.notAfter,
+    );
+  }
+
+  static _ProfileCms _parseProfileCms(Uint8List bytes, String path) {
+    try {
+      final contentInfo = _single(bytes, 0x30, 'mobileprovision ContentInfo');
+      final contentInfoReader = contentInfo.reader();
+      final contentType = _oidValue(
+        contentInfoReader.read(0x06, 'mobileprovision content type'),
+      );
+      if (contentType != _oidSignedData) {
+        throw FormatException('expected SignedData, found $contentType');
+      }
+      final explicitSignedData = contentInfoReader.read(
+        0xa0,
+        'mobileprovision SignedData',
+      );
+      contentInfoReader.requireDone('mobileprovision ContentInfo');
+      final signedData = _single(
+        explicitSignedData.value,
+        0x30,
+        'mobileprovision SignedData',
+      );
+      final signedDataReader = signedData.reader();
+      signedDataReader.read(0x02, 'SignedData version');
+      signedDataReader.read(0x31, 'SignedData digest algorithms');
+      final encapsulatedContentInfo = signedDataReader.read(
+        0x30,
+        'encapsulated profile',
+      );
+      final encapsulatedReader = encapsulatedContentInfo.reader();
+      final encapsulatedType = _oidValue(
+        encapsulatedReader.read(0x06, 'encapsulated content type'),
+      );
+      if (encapsulatedType != _oidData) {
+        throw FormatException(
+          'expected encapsulated data, found $encapsulatedType',
+        );
+      }
+      final explicitContent = encapsulatedReader.read(
+        0xa0,
+        'encapsulated profile content',
+      );
+      encapsulatedReader.requireDone('encapsulated profile');
+      final plist = _single(
+        explicitContent.value,
+        0x04,
+        'encapsulated profile plist',
+      ).value;
+      if (plist.isEmpty) {
+        throw const FormatException('encapsulated profile plist is empty');
+      }
+
+      final certificates = <Uint8List>[];
+      var foundSignerInfos = false;
+      while (!signedDataReader.isDone) {
+        final tag = signedDataReader.peekTag();
+        if (tag == 0xa0) {
+          if (certificates.isNotEmpty) {
+            throw const FormatException('duplicate certificate set');
+          }
+          final certificateSet = signedDataReader.read(
+            0xa0,
+            'profile certificate set',
+          );
+          final certificateReader = certificateSet.reader();
+          while (!certificateReader.isDone) {
+            final embedded = certificateReader.read(
+              0x30,
+              'embedded profile certificate',
+            );
+            _validateCertificateShape(embedded);
+            certificates.add(Uint8List.fromList(embedded.encoded));
+          }
+        } else if (tag == 0xa1) {
+          signedDataReader.read(0xa1, 'SignedData revocation data');
+        } else if (tag == 0x31) {
+          signedDataReader.read(0x31, 'SignedData signer infos');
+          foundSignerInfos = true;
+          if (!signedDataReader.isDone) {
+            throw const FormatException('data follows SignedData signer infos');
+          }
+        } else {
+          throw FormatException(
+            'unexpected SignedData field 0x${tag.toRadixString(16)}',
+          );
+        }
+      }
+      if (!foundSignerInfos) {
+        throw const FormatException('SignedData signer infos are missing');
+      }
+      return _ProfileCms(
+        plist: Uint8List.fromList(plist),
+        certificates: certificates,
+      );
+    } on Object catch (error) {
+      throw AppleError('Malformed mobileprovision CMS "$path": $error');
+    }
+  }
+
+  static void _validateCertificateShape(_DerValue certificate) {
+    final reader = certificate.reader();
+    reader.read(0x30, 'embedded TBSCertificate');
+    reader.read(0x30, 'embedded certificate algorithm');
+    reader.read(0x03, 'embedded certificate signature');
+    reader.requireDone('embedded certificate');
+  }
+
+  static Map<String, Object?> _parsePlist(Uint8List bytes, String path) {
+    try {
+      final Object value;
+      if (bytes.length >= 8 &&
+          ascii.decode(bytes.sublist(0, 8)) == 'bplist00') {
+        value = PropertyListSerialization.propertyListWithData(
+          ByteData.sublistView(bytes),
+        );
+      } else {
+        value = PropertyListSerialization.propertyListWithString(
+          utf8.decode(bytes),
+        );
+      }
+      return _requiredMap(value, 'root property list', path);
+    } on AppleError {
+      rethrow;
+    } on Object catch (error) {
+      throw AppleError('Malformed provisioning plist in "$path": $error');
+    }
+  }
+
+  static Map<String, Object?> _requiredMap(
+    Object? value,
+    String field,
+    String path,
+  ) {
+    if (value is! Map<Object?, Object?>) {
+      throw AppleError(
+        'Provisioning profile "$path" has an invalid $field map.',
+      );
+    }
+    final result = <String, Object?>{};
+    for (final entry in value.entries) {
+      if (entry.key is! String) {
+        throw AppleError(
+          'Provisioning profile "$path" has a non-string key in $field.',
+        );
+      }
+      result[entry.key! as String] = entry.value;
+    }
+    return result;
+  }
+
+  static DateTime _requiredDate(
+    Map<String, Object?> profile,
+    String key,
+    String path,
+  ) {
+    final value = profile[key];
+    if (value is! DateTime) {
+      throw AppleError('Provisioning profile "$path" is missing valid $key.');
+    }
+    return value;
+  }
+
+  static String _requiredFirstString(
+    Map<String, Object?> profile,
+    String key,
+    String path,
+  ) {
+    final value = profile[key];
+    if (value is! List<Object?> ||
+        value.isEmpty ||
+        value.first is! String ||
+        (value.first! as String).isEmpty) {
+      throw AppleError('Provisioning profile "$path" is missing $key.');
+    }
+    return value.first! as String;
+  }
+
+  static List<Uint8List> _developerCertificates(
+    Map<String, Object?> profile,
+    String path,
+  ) {
+    final value = profile['DeveloperCertificates'];
+    if (value is! List<Object?> || value.isEmpty) {
+      throw AppleError(
+        'Provisioning profile "$path" has no DeveloperCertificates.',
+      );
+    }
+    return value.map((item) {
+      if (item is ByteData) {
+        return Uint8List.fromList(
+          item.buffer.asUint8List(item.offsetInBytes, item.lengthInBytes),
+        );
+      }
+      if (item is Uint8List) return Uint8List.fromList(item);
+      throw AppleError(
+        'Provisioning profile "$path" contains a malformed '
+        'DeveloperCertificates entry.',
+      );
+    }).toList();
+  }
+
+  static void _checkValidity(
+    DateTime now,
+    DateTime notBefore,
+    DateTime notAfter,
+    String context,
+  ) {
+    final start = notBefore.toUtc();
+    final end = notAfter.toUtc();
+    if (now.isBefore(start.subtract(_notBeforeSkew))) {
+      throw AppleError(
+        '$context is not yet valid (starts ${start.toIso8601String()}).',
+      );
+    }
+    if (now.isAfter(end)) {
+      throw AppleError('$context expired at ${end.toIso8601String()}.');
+    }
+  }
+
+  static bool _bytesEqual(List<int> left, List<int> right) {
+    if (left.length != right.length) return false;
+    var difference = 0;
+    for (var index = 0; index < left.length; index++) {
+      difference |= left[index] ^ right[index];
+    }
+    return difference == 0;
+  }
+
+  static String _algorithmOid(_DerValue algorithm, String context) {
+    final reader = algorithm.reader();
+    final oid = _oidValue(reader.read(0x06, '$context OID'));
+    if (!reader.isDone) {
+      final parameters = reader.read(null, '$context parameters');
+      if (parameters.tag != 0x05 || parameters.value.isNotEmpty) {
+        throw FormatException('$context has unsupported parameters');
+      }
+    }
+    reader.requireDone(context);
+    return oid;
+  }
+
+  static BigInt _positiveInteger(_DerValue value, String context) {
+    final bytes = value.value;
+    if (bytes.isEmpty || bytes.first >= 0x80) {
+      throw FormatException('$context is not a positive integer');
+    }
+    if (bytes.length > 1 && bytes.first == 0 && bytes[1] < 0x80) {
+      throw FormatException('$context has redundant leading zeroes');
+    }
+    var result = BigInt.zero;
+    for (final byte in bytes) {
+      result = (result << 8) | BigInt.from(byte);
+    }
+    return result;
+  }
+
+  static _DerValue _single(Uint8List bytes, int tag, String context) {
+    final reader = _DerReader(bytes);
+    final value = reader.read(tag, context);
+    reader.requireDone(context);
+    return value;
+  }
+
+  static Uint8List _attribute(String oid, List<Uint8List> values) =>
+      _sequence([_oid(oid), _set(values)]);
+  static Uint8List _algorithmIdentifier(
+    String oid, {
+    bool includeNull = true,
+  }) => _sequence([_oid(oid), if (includeNull) _tlv(0x05, const [])]);
+  static Uint8List _sequence(Iterable<Uint8List> values) =>
+      _tlv(0x30, _concat(values));
+  static Uint8List _set(Iterable<Uint8List> values) =>
+      _tlv(0x31, _sortedContent(values));
+  static Uint8List _octet(List<int> bytes) => _tlv(0x04, bytes);
+  static Uint8List _integer(int value) {
+    if (value < 0) throw ArgumentError.value(value, 'value');
+    final bytes = <int>[];
+    var remaining = value;
+    do {
+      bytes.insert(0, remaining & 0xff);
+      remaining >>= 8;
+    } while (remaining != 0);
+    if (bytes.first >= 0x80) bytes.insert(0, 0);
+    return _tlv(0x02, bytes);
+  }
+
+  static Uint8List _time(DateTime value) {
+    final utc = value.toUtc();
+    String two(int part) => part.toString().padLeft(2, '0');
+    if (utc.year >= 1950 && utc.year <= 2049) {
+      return _tlv(
+        0x17,
+        ascii.encode(
+          '${two(utc.year % 100)}${two(utc.month)}${two(utc.day)}'
+          '${two(utc.hour)}${two(utc.minute)}${two(utc.second)}Z',
+        ),
+      );
+    }
+    return _tlv(
+      0x18,
+      ascii.encode(
+        '${utc.year.toString().padLeft(4, '0')}${two(utc.month)}${two(utc.day)}'
+        '${two(utc.hour)}${two(utc.minute)}${two(utc.second)}Z',
+      ),
+    );
+  }
+
+  static Uint8List _oid(String value) {
+    final arcs = value.split('.').map(int.parse).toList();
+    if (arcs.length < 2 ||
+        arcs.first < 0 ||
+        arcs.first > 2 ||
+        arcs[1] < 0 ||
+        (arcs.first < 2 && arcs[1] >= 40)) {
+      throw ArgumentError.value(value, 'value', 'invalid object identifier');
+    }
+    final body = <int>[
+      ..._base128(arcs.first * 40 + arcs[1]),
+      for (final arc in arcs.skip(2)) ..._base128(arc),
+    ];
+    return _tlv(0x06, body);
+  }
+
+  static List<int> _base128(int value) {
+    if (value < 0) throw ArgumentError.value(value, 'value');
+    final bytes = <int>[value & 0x7f];
+    var remaining = value >> 7;
+    while (remaining > 0) {
+      bytes.insert(0, (remaining & 0x7f) | 0x80);
+      remaining >>= 7;
+    }
+    return bytes;
+  }
+
+  static Uint8List _tlv(int tag, Iterable<int> value) {
+    final body = value is Uint8List
+        ? value
+        : Uint8List.fromList(value.toList());
+    return Uint8List.fromList([tag, ..._length(body.length), ...body]);
+  }
+
+  static List<int> _length(int value) {
+    if (value < 128) return [value];
+    final bytes = <int>[];
+    var remaining = value;
+    while (remaining > 0) {
+      bytes.insert(0, remaining & 0xff);
+      remaining >>= 8;
+    }
+    return [0x80 | bytes.length, ...bytes];
+  }
+
+  static Uint8List _concat(Iterable<Uint8List> values) =>
+      Uint8List.fromList([for (final value in values) ...value]);
+  static Uint8List _sortedContent(Iterable<Uint8List> values) {
+    final sorted = values.map(Uint8List.fromList).toList()..sort(_compareBytes);
+    return _concat(sorted);
+  }
+
+  static int _compareBytes(List<int> left, List<int> right) {
+    final length = left.length < right.length ? left.length : right.length;
+    for (var index = 0; index < length; index++) {
+      final result = left[index].compareTo(right[index]);
+      if (result != 0) return result;
+    }
+    return left.length.compareTo(right.length);
+  }
+
+  static String _oidValue(_DerValue value) {
+    if (value.value.isEmpty) throw const FormatException('empty OID');
+    final subIdentifiers = <BigInt>[];
+    var current = BigInt.zero;
+    var continued = false;
+    for (final byte in value.value) {
+      current = (current << 7) | BigInt.from(byte & 0x7f);
+      continued = byte & 0x80 != 0;
+      if (!continued) {
+        subIdentifiers.add(current);
+        current = BigInt.zero;
+      }
+    }
+    if (continued || subIdentifiers.isEmpty) {
+      throw const FormatException('unterminated OID');
+    }
+    final first = subIdentifiers.first;
+    final firstArc = first < BigInt.from(40)
+        ? BigInt.zero
+        : first < BigInt.from(80)
+        ? BigInt.one
+        : BigInt.two;
+    final secondArc = first - firstArc * BigInt.from(40);
+    return [firstArc, secondArc, ...subIdentifiers.skip(1)].join('.');
+  }
 }
 
 const _oidData = '1.2.840.113549.1.7.1';
@@ -382,472 +1025,10 @@ const _embeddedAppleCertificateBase64 = <String, String>{
       '1A3UT82NQz60imOlM27jbdoXt2QfyFMm+YhidDkLF1vLUagM6BgD56KyKA==',
 };
 
-List<Uint8List> _buildCertificateChain({
-  required _ParsedCertificate leaf,
-  required List<Uint8List> profileCertificates,
-  required List<Uint8List> trustedRootCertificates,
-  required DateTime now,
-  required String profilePath,
-}) {
-  final candidates = <_ParsedCertificate>[
-    for (var index = 0; index < profileCertificates.length; index++)
-      _parseChainCertificate(
-        profileCertificates[index],
-        'certificate ${index + 1} in provisioning profile "$profilePath"',
-      ),
-    for (final entry in _embeddedAppleCertificateBase64.entries)
-      _parseChainCertificate(
-        Uint8List.fromList(base64.decode(entry.value)),
-        'embedded ${entry.key}',
-      ),
-    for (var index = 0; index < trustedRootCertificates.length; index++)
-      _parseChainCertificate(
-        trustedRootCertificates[index],
-        'test trust root ${index + 1}',
-      ),
-  ];
-  final chain = <Uint8List>[];
-  final seen = <String>{base64.encode(leaf.der)};
-  var current = leaf;
-
-  while (!_bytesEqual(current.issuer, current.subject)) {
-    _ParsedCertificate? issuer;
-    for (final candidate in candidates) {
-      final encoded = base64.encode(candidate.der);
-      if (!seen.contains(encoded) &&
-          _bytesEqual(current.issuer, candidate.subject)) {
-        issuer = candidate;
-        break;
-      }
-    }
-    if (issuer == null) {
-      throw AppleError(
-        'Could not build certificate chain for leaf issuer '
-        '"${leaf.issuerName}": no certificate subject matches issuer '
-        '"${current.issuerName}".',
-      );
-    }
-    _checkValidity(
-      now,
-      issuer.notBefore!,
-      issuer.notAfter!,
-      'Signing chain certificate "${issuer.commonName}" for leaf issuer '
-      '"${leaf.issuerName}"',
-    );
-    chain.add(Uint8List.fromList(issuer.der));
-    seen.add(base64.encode(issuer.der));
-    current = issuer;
-  }
-
-  final trustedRoots = {
-    ..._embeddedAppleCertificateBase64.entries
-        .where((entry) => entry.key.startsWith('Apple Root CA'))
-        .map((entry) => base64.encode(base64.decode(entry.value))),
-    ...trustedRootCertificates.map(base64.encode),
-  };
-  if (!trustedRoots.contains(base64.encode(current.der))) {
-    throw AppleError(
-      'Could not build certificate chain for leaf issuer '
-      '"${leaf.issuerName}": chain is not anchored to an Apple root.',
-    );
-  }
-  return chain;
-}
-
-_ParsedCertificate _parseChainCertificate(Uint8List der, String context) {
-  try {
-    return _withCertificateMetadata(
-      _parseCertificate(der, context),
-      '-----BEGIN CERTIFICATE-----\n${base64.encode(der)}\n'
-      '-----END CERTIFICATE-----',
-    );
-  } on Object catch (error) {
-    throw AppleError('Malformed $context: $error');
-  }
-}
-
-Future<String> _readText(String path, String description) async {
-  try {
-    return await File(path).readAsString();
-  } on Object catch (error) {
-    throw AppleError('Could not read $description "$path": $error');
-  }
-}
-
-Future<Uint8List> _readBytes(String path, String description) async {
-  try {
-    return await File(path).readAsBytes();
-  } on Object catch (error) {
-    throw AppleError('Could not read $description "$path": $error');
-  }
-}
-
-RSAPrivateKey _parsePrivateKey(String pem, String path) {
-  try {
-    final decoded = _decodePem(pem);
-    switch (decoded.label) {
-      case 'PRIVATE KEY':
-        final root = _single(decoded.bytes, 0x30, 'PKCS#8 private key');
-        final reader = root.reader();
-        reader.read(0x02, 'PKCS#8 version');
-        final algorithm = reader.read(0x30, 'PKCS#8 algorithm');
-        if (_algorithmOid(algorithm, 'PKCS#8 algorithm') != _oidRsaEncryption) {
-          throw AppleError(
-            'Unsupported private key algorithm in "$path"; RSA is required.',
-          );
-        }
-        reader.read(0x04, 'PKCS#8 private key data');
-        reader.requireDone('PKCS#8 private key');
-        return CryptoUtils.rsaPrivateKeyFromPem(pem);
-      case 'RSA PRIVATE KEY':
-        _single(decoded.bytes, 0x30, 'PKCS#1 private key');
-        return CryptoUtils.rsaPrivateKeyFromPemPkcs1(pem);
-      default:
-        throw AppleError(
-          'Unsupported private key algorithm in "$path"; RSA PEM is required.',
-        );
-    }
-  } on AppleError {
-    rethrow;
-  } on Object catch (error) {
-    throw AppleError('Malformed RSA private key "$path": $error');
-  }
-}
-
-_ParsedCertificate _parseCertificatePem(String pem, String path) {
-  try {
-    final decoded = _decodePem(pem);
-    if (decoded.label != 'CERTIFICATE') {
-      throw const FormatException('expected a CERTIFICATE PEM block');
-    }
-    final parsed = _parseCertificate(decoded.bytes, path, requireRsa: true);
-    final result = _withCertificateMetadata(parsed, pem);
-    if (result.commonName.isEmpty) {
-      throw const FormatException('certificate subject has no common name');
-    }
-    return result;
-  } on AppleError {
-    rethrow;
-  } on Object catch (error) {
-    throw AppleError('Malformed certificate "$path": $error');
-  }
-}
-
-_ParsedCertificate _parseCertificate(
-  Uint8List der,
-  String path, {
-  bool requireRsa = false,
-}) {
-  final certificate = _single(der, 0x30, 'certificate');
-  final certificateReader = certificate.reader();
-  final tbs = certificateReader.read(0x30, 'TBSCertificate');
-  final outerSignature = certificateReader.read(
-    0x30,
-    'certificate signature algorithm',
-  );
-  certificateReader.read(0x03, 'certificate signature');
-  certificateReader.requireDone('certificate');
-
-  final outerSignatureOid = _algorithmOid(
-    outerSignature,
-    'certificate signature algorithm',
-  );
-
-  final tbsReader = tbs.reader();
-  if (tbsReader.peekTag() == 0xa0) {
-    tbsReader.read(0xa0, 'certificate version');
-  }
-  final serialNumber = tbsReader.read(0x02, 'certificate serial number');
-  final tbsSignature = tbsReader.read(0x30, 'TBS signature algorithm');
-  if (_algorithmOid(tbsSignature, 'TBS signature algorithm') !=
-      outerSignatureOid) {
-    throw const FormatException('certificate signature algorithms differ');
-  }
-  final issuer = tbsReader.read(0x30, 'certificate issuer');
-  tbsReader.read(0x30, 'certificate validity');
-  final subject = tbsReader.read(0x30, 'certificate subject');
-  final subjectPublicKeyInfo = tbsReader.read(0x30, 'certificate public key');
-
-  RSAPublicKey? publicKey;
-  if (requireRsa) {
-    final spkiReader = subjectPublicKeyInfo.reader();
-    final publicKeyAlgorithm = spkiReader.read(0x30, 'public key algorithm');
-    final publicKeyOid = _algorithmOid(
-      publicKeyAlgorithm,
-      'public key algorithm',
-    );
-    if (publicKeyOid != _oidRsaEncryption) {
-      throw AppleError(
-        'Unsupported certificate public key algorithm in "$path": '
-        '$publicKeyOid; RSA is required.',
-      );
-    }
-    final publicKeyBits = spkiReader.read(0x03, 'RSA public key');
-    spkiReader.requireDone('certificate public key');
-    if (publicKeyBits.value.isEmpty || publicKeyBits.value.first != 0) {
-      throw const FormatException('invalid RSA public-key bit string');
-    }
-    final publicKeySequence = _single(
-      Uint8List.sublistView(publicKeyBits.value, 1),
-      0x30,
-      'RSA public key',
-    );
-    final publicKeyReader = publicKeySequence.reader();
-    final modulus = _positiveInteger(
-      publicKeyReader.read(0x02, 'RSA modulus'),
-      'RSA modulus',
-    );
-    final exponent = _positiveInteger(
-      publicKeyReader.read(0x02, 'RSA public exponent'),
-      'RSA public exponent',
-    );
-    publicKeyReader.requireDone('RSA public key');
-    publicKey = RSAPublicKey(modulus, exponent);
-  }
-
-  return _ParsedCertificate(
-    der: Uint8List.fromList(der),
-    issuer: Uint8List.fromList(issuer.encoded),
-    subject: Uint8List.fromList(subject.encoded),
-    serialNumber: Uint8List.fromList(serialNumber.encoded),
-    publicKey: publicKey,
-  );
-}
-
-_ParsedCertificate _withCertificateMetadata(
-  _ParsedCertificate certificate,
-  String pem,
-) {
-  final tbs = X509Utils.x509CertificateFromPem(pem).tbsCertificate;
-  if (tbs == null) throw const FormatException('certificate has no TBS data');
-  final validity = tbs.validity;
-  return certificate.withMetadata(
-    commonName: tbs.subject['2.5.4.3'] ?? '',
-    issuerName: tbs.issuer['2.5.4.3'] ?? base64.encode(certificate.issuer),
-    notBefore: validity.notBefore,
-    notAfter: validity.notAfter,
-  );
-}
-
-_ProfileCms _parseProfileCms(Uint8List bytes, String path) {
-  try {
-    final contentInfo = _single(bytes, 0x30, 'mobileprovision ContentInfo');
-    final contentInfoReader = contentInfo.reader();
-    final contentType = _oidValue(
-      contentInfoReader.read(0x06, 'mobileprovision content type'),
-    );
-    if (contentType != _oidSignedData) {
-      throw FormatException('expected SignedData, found $contentType');
-    }
-    final explicitSignedData = contentInfoReader.read(
-      0xa0,
-      'mobileprovision SignedData',
-    );
-    contentInfoReader.requireDone('mobileprovision ContentInfo');
-    final signedData = _single(
-      explicitSignedData.value,
-      0x30,
-      'mobileprovision SignedData',
-    );
-    final signedDataReader = signedData.reader();
-    signedDataReader.read(0x02, 'SignedData version');
-    signedDataReader.read(0x31, 'SignedData digest algorithms');
-    final encapsulatedContentInfo = signedDataReader.read(
-      0x30,
-      'encapsulated profile',
-    );
-    final encapsulatedReader = encapsulatedContentInfo.reader();
-    final encapsulatedType = _oidValue(
-      encapsulatedReader.read(0x06, 'encapsulated content type'),
-    );
-    if (encapsulatedType != _oidData) {
-      throw FormatException(
-        'expected encapsulated data, found $encapsulatedType',
-      );
-    }
-    final explicitContent = encapsulatedReader.read(
-      0xa0,
-      'encapsulated profile content',
-    );
-    encapsulatedReader.requireDone('encapsulated profile');
-    final plist = _single(
-      explicitContent.value,
-      0x04,
-      'encapsulated profile plist',
-    ).value;
-    if (plist.isEmpty) {
-      throw const FormatException('encapsulated profile plist is empty');
-    }
-
-    final certificates = <Uint8List>[];
-    var foundSignerInfos = false;
-    while (!signedDataReader.isDone) {
-      final tag = signedDataReader.peekTag();
-      if (tag == 0xa0) {
-        if (certificates.isNotEmpty) {
-          throw const FormatException('duplicate certificate set');
-        }
-        final certificateSet = signedDataReader.read(
-          0xa0,
-          'profile certificate set',
-        );
-        final certificateReader = certificateSet.reader();
-        while (!certificateReader.isDone) {
-          final embedded = certificateReader.read(
-            0x30,
-            'embedded profile certificate',
-          );
-          _validateCertificateShape(embedded);
-          certificates.add(Uint8List.fromList(embedded.encoded));
-        }
-      } else if (tag == 0xa1) {
-        signedDataReader.read(0xa1, 'SignedData revocation data');
-      } else if (tag == 0x31) {
-        signedDataReader.read(0x31, 'SignedData signer infos');
-        foundSignerInfos = true;
-        if (!signedDataReader.isDone) {
-          throw const FormatException('data follows SignedData signer infos');
-        }
-      } else {
-        throw FormatException(
-          'unexpected SignedData field 0x${tag.toRadixString(16)}',
-        );
-      }
-    }
-    if (!foundSignerInfos) {
-      throw const FormatException('SignedData signer infos are missing');
-    }
-    return _ProfileCms(
-      plist: Uint8List.fromList(plist),
-      certificates: certificates,
-    );
-  } on Object catch (error) {
-    throw AppleError('Malformed mobileprovision CMS "$path": $error');
-  }
-}
-
-void _validateCertificateShape(_DerValue certificate) {
-  final reader = certificate.reader();
-  reader.read(0x30, 'embedded TBSCertificate');
-  reader.read(0x30, 'embedded certificate algorithm');
-  reader.read(0x03, 'embedded certificate signature');
-  reader.requireDone('embedded certificate');
-}
-
-Map<String, Object?> _parsePlist(Uint8List bytes, String path) {
-  try {
-    final Object value;
-    if (bytes.length >= 8 && ascii.decode(bytes.sublist(0, 8)) == 'bplist00') {
-      value = PropertyListSerialization.propertyListWithData(
-        ByteData.sublistView(bytes),
-      );
-    } else {
-      value = PropertyListSerialization.propertyListWithString(
-        utf8.decode(bytes),
-      );
-    }
-    return _requiredMap(value, 'root property list', path);
-  } on AppleError {
-    rethrow;
-  } on Object catch (error) {
-    throw AppleError('Malformed provisioning plist in "$path": $error');
-  }
-}
-
-Map<String, Object?> _requiredMap(Object? value, String field, String path) {
-  if (value is! Map<Object?, Object?>) {
-    throw AppleError('Provisioning profile "$path" has an invalid $field map.');
-  }
-  final result = <String, Object?>{};
-  for (final entry in value.entries) {
-    if (entry.key is! String) {
-      throw AppleError(
-        'Provisioning profile "$path" has a non-string key in $field.',
-      );
-    }
-    result[entry.key! as String] = entry.value;
-  }
-  return result;
-}
-
-DateTime _requiredDate(Map<String, Object?> profile, String key, String path) {
-  final value = profile[key];
-  if (value is! DateTime) {
-    throw AppleError('Provisioning profile "$path" is missing valid $key.');
-  }
-  return value;
-}
-
-String _requiredFirstString(
-  Map<String, Object?> profile,
-  String key,
-  String path,
-) {
-  final value = profile[key];
-  if (value is! List<Object?> ||
-      value.isEmpty ||
-      value.first is! String ||
-      (value.first! as String).isEmpty) {
-    throw AppleError('Provisioning profile "$path" is missing $key.');
-  }
-  return value.first! as String;
-}
-
-List<Uint8List> _developerCertificates(
-  Map<String, Object?> profile,
-  String path,
-) {
-  final value = profile['DeveloperCertificates'];
-  if (value is! List<Object?> || value.isEmpty) {
-    throw AppleError(
-      'Provisioning profile "$path" has no DeveloperCertificates.',
-    );
-  }
-  return value.map((item) {
-    if (item is ByteData) {
-      return Uint8List.fromList(
-        item.buffer.asUint8List(item.offsetInBytes, item.lengthInBytes),
-      );
-    }
-    if (item is Uint8List) return Uint8List.fromList(item);
-    throw AppleError(
-      'Provisioning profile "$path" contains a malformed '
-      'DeveloperCertificates entry.',
-    );
-  }).toList();
-}
-
 /// Apple's portal clock is often a few seconds ahead of the local machine;
 /// freshly issued profiles then fail a strict `CreationDate` check. Five
 /// minutes covers NTP drift without accepting obviously-future material.
 const _notBeforeSkew = Duration(minutes: 5);
-
-void _checkValidity(
-  DateTime now,
-  DateTime notBefore,
-  DateTime notAfter,
-  String context,
-) {
-  final start = notBefore.toUtc();
-  final end = notAfter.toUtc();
-  if (now.isBefore(start.subtract(_notBeforeSkew))) {
-    throw AppleError(
-      '$context is not yet valid (starts ${start.toIso8601String()}).',
-    );
-  }
-  if (now.isAfter(end)) {
-    throw AppleError('$context expired at ${end.toIso8601String()}.');
-  }
-}
-
-bool _bytesEqual(List<int> left, List<int> right) {
-  if (left.length != right.length) return false;
-  var difference = 0;
-  for (var index = 0; index < left.length; index++) {
-    difference |= left[index] ^ right[index];
-  }
-  return difference == 0;
-}
 
 ({String label, Uint8List bytes}) _decodePem(String pem) {
   final lines = const LineSplitter().convert(pem.trim());
@@ -866,173 +1047,6 @@ bool _bytesEqual(List<int> left, List<int> right) {
       .join();
   if (body.isEmpty) throw const FormatException('empty PEM body');
   return (label: label, bytes: Uint8List.fromList(base64.decode(body)));
-}
-
-String _algorithmOid(_DerValue algorithm, String context) {
-  final reader = algorithm.reader();
-  final oid = _oidValue(reader.read(0x06, '$context OID'));
-  if (!reader.isDone) {
-    final parameters = reader.read(null, '$context parameters');
-    if (parameters.tag != 0x05 || parameters.value.isNotEmpty) {
-      throw FormatException('$context has unsupported parameters');
-    }
-  }
-  reader.requireDone(context);
-  return oid;
-}
-
-BigInt _positiveInteger(_DerValue value, String context) {
-  final bytes = value.value;
-  if (bytes.isEmpty || bytes.first >= 0x80) {
-    throw FormatException('$context is not a positive integer');
-  }
-  if (bytes.length > 1 && bytes.first == 0 && bytes[1] < 0x80) {
-    throw FormatException('$context has redundant leading zeroes');
-  }
-  var result = BigInt.zero;
-  for (final byte in bytes) {
-    result = (result << 8) | BigInt.from(byte);
-  }
-  return result;
-}
-
-_DerValue _single(Uint8List bytes, int tag, String context) {
-  final reader = _DerReader(bytes);
-  final value = reader.read(tag, context);
-  reader.requireDone(context);
-  return value;
-}
-
-Uint8List _attribute(String oid, List<Uint8List> values) =>
-    _sequence([_oid(oid), _set(values)]);
-
-Uint8List _algorithmIdentifier(String oid, {bool includeNull = true}) =>
-    _sequence([_oid(oid), if (includeNull) _tlv(0x05, const [])]);
-
-Uint8List _sequence(Iterable<Uint8List> values) => _tlv(0x30, _concat(values));
-
-Uint8List _set(Iterable<Uint8List> values) =>
-    _tlv(0x31, _sortedContent(values));
-
-Uint8List _octet(List<int> bytes) => _tlv(0x04, bytes);
-
-Uint8List _integer(int value) {
-  if (value < 0) throw ArgumentError.value(value, 'value');
-  final bytes = <int>[];
-  var remaining = value;
-  do {
-    bytes.insert(0, remaining & 0xff);
-    remaining >>= 8;
-  } while (remaining != 0);
-  if (bytes.first >= 0x80) bytes.insert(0, 0);
-  return _tlv(0x02, bytes);
-}
-
-Uint8List _time(DateTime value) {
-  final utc = value.toUtc();
-  String two(int part) => part.toString().padLeft(2, '0');
-  if (utc.year >= 1950 && utc.year <= 2049) {
-    return _tlv(
-      0x17,
-      ascii.encode(
-        '${two(utc.year % 100)}${two(utc.month)}${two(utc.day)}'
-        '${two(utc.hour)}${two(utc.minute)}${two(utc.second)}Z',
-      ),
-    );
-  }
-  return _tlv(
-    0x18,
-    ascii.encode(
-      '${utc.year.toString().padLeft(4, '0')}${two(utc.month)}${two(utc.day)}'
-      '${two(utc.hour)}${two(utc.minute)}${two(utc.second)}Z',
-    ),
-  );
-}
-
-Uint8List _oid(String value) {
-  final arcs = value.split('.').map(int.parse).toList();
-  if (arcs.length < 2 ||
-      arcs.first < 0 ||
-      arcs.first > 2 ||
-      arcs[1] < 0 ||
-      (arcs.first < 2 && arcs[1] >= 40)) {
-    throw ArgumentError.value(value, 'value', 'invalid object identifier');
-  }
-  final body = <int>[
-    ..._base128(arcs.first * 40 + arcs[1]),
-    for (final arc in arcs.skip(2)) ..._base128(arc),
-  ];
-  return _tlv(0x06, body);
-}
-
-List<int> _base128(int value) {
-  if (value < 0) throw ArgumentError.value(value, 'value');
-  final bytes = <int>[value & 0x7f];
-  var remaining = value >> 7;
-  while (remaining > 0) {
-    bytes.insert(0, (remaining & 0x7f) | 0x80);
-    remaining >>= 7;
-  }
-  return bytes;
-}
-
-Uint8List _tlv(int tag, Iterable<int> value) {
-  final body = value is Uint8List ? value : Uint8List.fromList(value.toList());
-  return Uint8List.fromList([tag, ..._length(body.length), ...body]);
-}
-
-List<int> _length(int value) {
-  if (value < 128) return [value];
-  final bytes = <int>[];
-  var remaining = value;
-  while (remaining > 0) {
-    bytes.insert(0, remaining & 0xff);
-    remaining >>= 8;
-  }
-  return [0x80 | bytes.length, ...bytes];
-}
-
-Uint8List _concat(Iterable<Uint8List> values) =>
-    Uint8List.fromList([for (final value in values) ...value]);
-
-Uint8List _sortedContent(Iterable<Uint8List> values) {
-  final sorted = values.map(Uint8List.fromList).toList()..sort(_compareBytes);
-  return _concat(sorted);
-}
-
-int _compareBytes(List<int> left, List<int> right) {
-  final length = left.length < right.length ? left.length : right.length;
-  for (var index = 0; index < length; index++) {
-    final result = left[index].compareTo(right[index]);
-    if (result != 0) return result;
-  }
-  return left.length.compareTo(right.length);
-}
-
-String _oidValue(_DerValue value) {
-  if (value.value.isEmpty) throw const FormatException('empty OID');
-  final subIdentifiers = <BigInt>[];
-  var current = BigInt.zero;
-  var continued = false;
-  for (final byte in value.value) {
-    current = (current << 7) | BigInt.from(byte & 0x7f);
-    continued = byte & 0x80 != 0;
-    if (!continued) {
-      subIdentifiers.add(current);
-      current = BigInt.zero;
-    }
-  }
-  if (continued || subIdentifiers.isEmpty) {
-    throw const FormatException('unterminated OID');
-  }
-  final first = subIdentifiers.first;
-  final firstArc = first < BigInt.from(40)
-      ? BigInt.zero
-      : first < BigInt.from(80)
-      ? BigInt.one
-      : BigInt.two;
-  final secondArc = first - firstArc * BigInt.from(40);
-  return [firstArc, secondArc, ...subIdentifiers.skip(1)].join('.');
 }
 
 class _ProfileCms {

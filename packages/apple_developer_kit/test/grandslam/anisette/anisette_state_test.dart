@@ -21,7 +21,7 @@ void main() {
   });
 
   test('generateUuidV4 produces well-formed v4 UUIDs', () {
-    final uuid = generateUuidV4();
+    final uuid = AnisetteState.generateUuidV4();
     expect(
       uuid,
       matches(
@@ -31,7 +31,7 @@ void main() {
       ),
     );
     // Not the same value every call.
-    expect(generateUuidV4(), isNot(uuid));
+    expect(AnisetteState.generateUuidV4(), isNot(uuid));
   });
 
   test(

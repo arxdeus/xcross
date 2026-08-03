@@ -8,10 +8,13 @@ import 'package:test/test.dart';
 void main() {
   test("decodes Apple's bare dictionary payload", () {
     const fragment = '<dict><key>adsid</key><string>123</string></dict>';
-    expect(decodePlist(fragment), {'adsid': '123'});
-    expect(decodePlistBytes(Uint8List.fromList(utf8.encode(fragment))), {
-      'adsid': '123',
-    });
+    expect(GrandSlamResponse.decodePlist(fragment), {'adsid': '123'});
+    expect(
+      GrandSlamResponse.decodePlistBytes(
+        Uint8List.fromList(utf8.encode(fragment)),
+      ),
+      {'adsid': '123'},
+    );
   });
 
   test('surfaces operation errors from Status nested inside Response', () {
@@ -22,7 +25,7 @@ void main() {
     });
 
     expect(
-      () => decodeGrandSlamResponse(body),
+      () => GrandSlamResponse.decodeGrandSlamResponse(body),
       throwsA(
         isA<GrandSlamOperationError>()
             .having((error) => error.code, 'code', -22410)

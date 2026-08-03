@@ -7,7 +7,7 @@ import 'package:xcross_dap/src/dap_router.dart';
 void main() {
   test('DapFrameParser splits Content-Length frames across chunks', () {
     final parser = DapFrameParser();
-    final msg = encodeDapFrame({
+    final msg = DapFrame.encode({
       'seq': 1,
       'type': 'request',
       'command': 'initialize',
@@ -37,7 +37,7 @@ void main() {
 
       final filter = DapResponseFilter(out, {1, 2});
       filter.add(
-        encodeDapFrame({
+        DapFrame.encode({
           'seq': 10,
           'type': 'response',
           'request_seq': 1,
@@ -46,7 +46,7 @@ void main() {
         }),
       );
       filter.add(
-        encodeDapFrame({
+        DapFrame.encode({
           'seq': 11,
           'type': 'event',
           'event': 'initialized',
@@ -54,7 +54,7 @@ void main() {
         }),
       );
       filter.add(
-        encodeDapFrame({
+        DapFrame.encode({
           'seq': 12,
           'type': 'response',
           'request_seq': 3,
@@ -63,7 +63,7 @@ void main() {
         }),
       );
       filter.add(
-        encodeDapFrame({
+        DapFrame.encode({
           'seq': 13,
           'type': 'event',
           'event': 'output',
@@ -79,12 +79,12 @@ void main() {
     },
   );
 
-  test('runDapSession with xcross:true starts the xcross adapter', () async {
+  test('DapSession.run with xcross:true starts the xcross adapter', () async {
     final inbound = StreamController<List<int>>();
     final outbound = StreamController<List<int>>();
     ByteStreamServerChannel? started;
 
-    final session = runDapSession(
+    final session = DapSession.run(
       startXcross: (channel) {
         started = channel;
         // Don't run a real adapter — just close once launch is replayed.
@@ -94,7 +94,7 @@ void main() {
       output: outbound,
     );
 
-    void send(Map<String, Object?> msg) => inbound.add(encodeDapFrame(msg));
+    void send(Map<String, Object?> msg) => inbound.add(DapFrame.encode(msg));
 
     send({
       'seq': 1,

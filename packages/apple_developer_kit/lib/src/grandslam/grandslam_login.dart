@@ -98,7 +98,7 @@ const String _xcodeVersion = '14.2 (14C18)';
 /// GrandSlam SRP login + two-factor authentication client.
 ///
 /// Callers are expected to have already resolved [endpoints] (e.g. via
-/// [AnisetteDataProvider] / `fetchGrandSlamEndpoints`, layer 2a) and to
+/// [AnisetteDataProvider] / `GrandSlamEndpoints.fetchGrandSlamEndpoints`, layer 2a) and to
 /// supply a way to fetch fresh Anisette headers
 /// ([AnisetteDataProvider.fetchAnisetteHeaders]) - this class deliberately
 /// takes that as a plain callback rather than depending on
@@ -112,7 +112,7 @@ class GrandSlamClient {
     http.Client? httpClient,
     this.locale = 'en_US',
   }) : _fetchAnisetteHeaders = fetchAnisetteHeaders,
-       _http = httpClient ?? createAppleHttpClient();
+       _http = httpClient ?? AppleHttp.createAppleHttpClient();
 
   final GrandSlamEndpoints endpoints;
 
@@ -166,14 +166,17 @@ class GrandSlamClient {
     final initResponse = await _postOperation(
       operation: 'init',
       username: username,
-      extraParams: {'ps': _srpProtocols, 'A2k': byteDataOf(srp.publicKey)},
+      extraParams: {
+        'ps': _srpProtocols,
+        'A2k': GrandSlamResponse.byteDataOf(srp.publicKey),
+      },
     );
 
-    final selectedProtocol = stringField(initResponse, 'sp');
-    final cookie = stringField(initResponse, 'c');
-    final salt = dataField(initResponse, 's');
-    final iterations = intField(initResponse, 'i');
-    final serverPublicKey = dataField(initResponse, 'B');
+    final selectedProtocol = GrandSlamResponse.stringField(initResponse, 'sp');
+    final cookie = GrandSlamResponse.stringField(initResponse, 'c');
+    final salt = GrandSlamResponse.dataField(initResponse, 's');
+    final iterations = GrandSlamResponse.intField(initResponse, 'i');
+    final serverPublicKey = GrandSlamResponse.dataField(initResponse, 'B');
 
     srp.addString('|');
     srp.addString(selectedProtocol);
@@ -190,13 +193,13 @@ class GrandSlamClient {
     final completeResponse = await _postOperation(
       operation: 'complete',
       username: username,
-      extraParams: {'c': cookie, 'M1': byteDataOf(m1)},
+      extraParams: {'c': cookie, 'M1': GrandSlamResponse.byteDataOf(m1)},
     );
 
-    final hamk = dataField(completeResponse, 'M2');
-    final spd = dataField(completeResponse, 'spd');
-    final negProto = dataField(completeResponse, 'np');
-    final sc = optionalDataField(completeResponse, 'sc');
+    final hamk = GrandSlamResponse.dataField(completeResponse, 'M2');
+    final spd = GrandSlamResponse.dataField(completeResponse, 'spd');
+    final negProto = GrandSlamResponse.dataField(completeResponse, 'np');
+    final sc = GrandSlamResponse.optionalDataField(completeResponse, 'sc');
 
     srp.addString('|');
     srp.addData(spd);
@@ -217,7 +220,10 @@ class GrandSlamClient {
     }
 
     final decrypted = utf8.decode(srp.decryptCbc(spd));
-    final payload = decodePlist(decrypted, context: "decrypted 'spd' payload");
+    final payload = GrandSlamResponse.decodePlist(
+      decrypted,
+      context: "decrypted 'spd' payload",
+    );
 
     final statusCode = payload['status-code'];
     if (statusCode == 409) {
@@ -257,7 +263,7 @@ class GrandSlamClient {
     required String operation,
     required String username,
     required Map<String, Object?> extraParams,
-  }) => postGrandSlamOperation(
+  }) => GrandSlamOperation.postGrandSlamOperation(
     httpClient: _http,
     gsService: endpoints.gsService,
     operation: operation,
@@ -398,7 +404,7 @@ class GrandSlamClient {
     String body,
   ) async {
     final anisette = await _fetchAnisetteHeaders();
-    return sendGrandSlamRequest(
+    return GrandSlamEndpoints.sendGrandSlamRequest(
       _http,
       method: 'POST',
       url: url.toString(),
@@ -414,7 +420,7 @@ class GrandSlamClient {
     Map<String, String> extraHeaders = const {},
   }) async {
     final anisette = await _fetchAnisetteHeaders();
-    return sendGrandSlamRequest(
+    return GrandSlamEndpoints.sendGrandSlamRequest(
       _http,
       method: 'GET',
       url: url.toString(),

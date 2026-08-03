@@ -320,75 +320,78 @@ class SrpClient {
     final padY = _padLeft(_bigIntToBytes(y), _nByteLength);
     return _bytesToBigInt(crypto.sha256.convert([...padX, ...padY]).bytes);
   }
-}
 
-Uint8List _hmacSha256({required Uint8List key, required List<int> message}) =>
-    Uint8List.fromList(crypto.Hmac(crypto.sha256, key).convert(message).bytes);
-
-Uint8List _pbkdf2HmacSha256({
-  required Uint8List input,
-  required Uint8List salt,
-  required int iterations,
-  required int derivedKeyLength,
-}) {
-  final derivator = pc.PBKDF2KeyDerivator(pc.HMac.withDigest(pc.SHA256Digest()))
-    ..init(pc.Pbkdf2Parameters(salt, iterations, derivedKeyLength));
-  return derivator.process(input);
-}
-
-/// Cryptographically secure random `BigInt` with exactly [bits] bits of
-/// entropy (top bit forced set so the value always has the full bit
-/// length, matching interpreting `bits` secure-random bytes as an unsigned
-/// big-endian integer).
-BigInt _randomBigInt(int bits) {
-  final random = Random.secure();
-  final byteLength = (bits + 7) ~/ 8;
-  final bytes = Uint8List.fromList(
-    List<int>.generate(byteLength, (_) => random.nextInt(256)),
+  static Uint8List _hmacSha256({
+    required Uint8List key,
+    required List<int> message,
+  }) => Uint8List.fromList(
+    crypto.Hmac(crypto.sha256, key).convert(message).bytes,
   );
-  return _bytesToBigInt(bytes);
-}
-
-/// Minimal unsigned big-endian byte representation of a non-negative
-/// [BigInt] (matches Swift `BigUInt.serialize()` - no sign byte, no
-/// padding). `0` serializes as a single zero byte; this never arises for
-/// real SRP values (public keys are checked non-zero, secrets are random).
-Uint8List _bigIntToBytes(BigInt value) {
-  assert(!value.isNegative, 'SRP big-integer values must be non-negative');
-  var hex = value.toRadixString(16);
-  if (hex.length.isOdd) hex = '0$hex';
-  final bytes = Uint8List(hex.length ~/ 2);
-  for (var i = 0; i < bytes.length; i++) {
-    bytes[i] = int.parse(hex.substring(i * 2, i * 2 + 2), radix: 16);
+  static Uint8List _pbkdf2HmacSha256({
+    required Uint8List input,
+    required Uint8List salt,
+    required int iterations,
+    required int derivedKeyLength,
+  }) {
+    final derivator = pc.PBKDF2KeyDerivator(
+      pc.HMac.withDigest(pc.SHA256Digest()),
+    )..init(pc.Pbkdf2Parameters(salt, iterations, derivedKeyLength));
+    return derivator.process(input);
   }
-  return bytes;
-}
 
-BigInt _bytesToBigInt(List<int> bytes) {
-  var result = BigInt.zero;
-  for (final b in bytes) {
-    result = (result << 8) | BigInt.from(b);
+  /// Cryptographically secure random `BigInt` with exactly [bits] bits of
+  /// entropy (top bit forced set so the value always has the full bit
+  /// length, matching interpreting `bits` secure-random bytes as an unsigned
+  /// big-endian integer).
+  static BigInt _randomBigInt(int bits) {
+    final random = Random.secure();
+    final byteLength = (bits + 7) ~/ 8;
+    final bytes = Uint8List.fromList(
+      List<int>.generate(byteLength, (_) => random.nextInt(256)),
+    );
+    return _bytesToBigInt(bytes);
   }
-  return result;
-}
 
-Uint8List _padLeft(Uint8List bytes, int length) {
-  if (bytes.length >= length) return bytes;
-  final padded = Uint8List(length);
-  padded.setRange(length - bytes.length, length, bytes);
-  return padded;
-}
-
-Uint8List _utf8(String value) => Uint8List.fromList(utf8.encode(value));
-
-String _lowercaseHex(Uint8List bytes) =>
-    bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-
-bool _constantTimeEquals(List<int> a, List<int> b) {
-  if (a.length != b.length) return false;
-  var diff = 0;
-  for (var i = 0; i < a.length; i++) {
-    diff |= a[i] ^ b[i];
+  /// Minimal unsigned big-endian byte representation of a non-negative
+  /// [BigInt] (matches Swift `BigUInt.serialize()` - no sign byte, no
+  /// padding). `0` serializes as a single zero byte; this never arises for
+  /// real SRP values (public keys are checked non-zero, secrets are random).
+  static Uint8List _bigIntToBytes(BigInt value) {
+    assert(!value.isNegative, 'SRP big-integer values must be non-negative');
+    var hex = value.toRadixString(16);
+    if (hex.length.isOdd) hex = '0$hex';
+    final bytes = Uint8List(hex.length ~/ 2);
+    for (var i = 0; i < bytes.length; i++) {
+      bytes[i] = int.parse(hex.substring(i * 2, i * 2 + 2), radix: 16);
+    }
+    return bytes;
   }
-  return diff == 0;
+
+  static BigInt _bytesToBigInt(List<int> bytes) {
+    var result = BigInt.zero;
+    for (final b in bytes) {
+      result = (result << 8) | BigInt.from(b);
+    }
+    return result;
+  }
+
+  static Uint8List _padLeft(Uint8List bytes, int length) {
+    if (bytes.length >= length) return bytes;
+    final padded = Uint8List(length);
+    padded.setRange(length - bytes.length, length, bytes);
+    return padded;
+  }
+
+  static Uint8List _utf8(String value) =>
+      Uint8List.fromList(utf8.encode(value));
+  static String _lowercaseHex(Uint8List bytes) =>
+      bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+  static bool _constantTimeEquals(List<int> a, List<int> b) {
+    if (a.length != b.length) return false;
+    var diff = 0;
+    for (var i = 0; i < a.length; i++) {
+      diff |= a[i] ^ b[i];
+    }
+    return diff == 0;
+  }
 }

@@ -9,7 +9,7 @@ void main() {
   group('wrapDerAsPem', () {
     test('wraps base64 DER content into a line-wrapped PEM block', () {
       final der = base64.encode(List<int>.generate(200, (i) => i % 256));
-      final pem = wrapDerAsPem(der);
+      final pem = AscProvisioning.wrapDerAsPem(der);
 
       expect(pem, startsWith('-----BEGIN CERTIFICATE-----\n'));
       expect(pem, endsWith('-----END CERTIFICATE-----\n'));
@@ -25,7 +25,7 @@ void main() {
     });
 
     test('supports a custom label', () {
-      final pem = wrapDerAsPem(
+      final pem = AscProvisioning.wrapDerAsPem(
         base64.encode([1, 2, 3]),
         label: 'RSA PRIVATE KEY',
       );
@@ -43,7 +43,7 @@ void main() {
       final identityDir = p.join(temp.path, 'identity');
 
       for (final bundleId in ['com.example.one', 'com.example.two']) {
-        final result = await provisionDevelopmentIdentity(
+        final result = await AscProvisioning.provisionDevelopmentIdentity(
           client: client,
           bundleId: bundleId,
           deviceUdids: const ['UDID'],
@@ -66,7 +66,7 @@ void main() {
     addTearDown(() => temp.deleteSync(recursive: true));
     final client = _FakeProvisioningClient(bundleExists: false);
 
-    await provisionDevelopmentIdentity(
+    await AscProvisioning.provisionDevelopmentIdentity(
       client: client,
       bundleId: 'com.example.my-app',
       deviceUdids: const ['UDID'],
@@ -82,7 +82,7 @@ void main() {
     addTearDown(() => temp.deleteSync(recursive: true));
     final client = _FakeProvisioningClient(quotaUsedBy: const ['old-cert']);
 
-    final result = await provisionDevelopmentIdentity(
+    final result = await AscProvisioning.provisionDevelopmentIdentity(
       client: client,
       bundleId: 'com.example.app',
       deviceUdids: const ['UDID'],
@@ -101,7 +101,7 @@ void main() {
     final client = _FakeProvisioningClient(pendingRequest: true);
 
     await expectLater(
-      provisionDevelopmentIdentity(
+      AscProvisioning.provisionDevelopmentIdentity(
         client: client,
         bundleId: 'com.example.app',
         deviceUdids: const ['UDID'],
@@ -118,7 +118,7 @@ void main() {
     addTearDown(() => temp.deleteSync(recursive: true));
     final client = _FakeProvisioningClient(teamIdForSerial: 'team-side-id');
 
-    await provisionDevelopmentIdentity(
+    await AscProvisioning.provisionDevelopmentIdentity(
       client: client,
       bundleId: 'com.example.app',
       deviceUdids: const ['UDID'],
@@ -135,7 +135,7 @@ void main() {
       existingProfileIds: const ['old-profile'],
     );
 
-    await provisionDevelopmentIdentity(
+    await AscProvisioning.provisionDevelopmentIdentity(
       client: client,
       bundleId: 'com.example.app',
       deviceUdids: const ['UDID'],
@@ -167,7 +167,7 @@ void main() {
       ],
     );
 
-    await provisionDevelopmentIdentity(
+    await AscProvisioning.provisionDevelopmentIdentity(
       client: client,
       bundleId: 'com.example.app',
       deviceUdids: const ['UDID'],

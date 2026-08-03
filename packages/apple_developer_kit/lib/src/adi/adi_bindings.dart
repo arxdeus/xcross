@@ -111,16 +111,6 @@ typedef ADIOTPRequestDart =
       Pointer<Uint32> outOneTimePasswordLength,
     );
 
-Pointer<NativeFunction<T>> _lookup<T extends Function>(
-  LoadedNativeLibrary lib,
-  String symbol,
-  int argc,
-) {
-  final raw = lib.lookup<T>(symbol);
-  if (!Platform.isWindows) return raw;
-  return sysvImport(raw, argc);
-}
-
 /// Raw FFI bindings to the ADI (Apple Device Identity) native functions
 /// exported by `libstoreservicescore.so`, resolved by their obfuscated
 /// (but stable) symbol names.
@@ -181,6 +171,16 @@ class AdiNativeBindings {
         'qi864985u0',
         5,
       ).asFunction<ADIOTPRequestDart>();
+
+  static Pointer<NativeFunction<T>> _lookup<T extends Function>(
+    LoadedNativeLibrary lib,
+    String symbol,
+    int argc,
+  ) {
+    final raw = lib.lookup<T>(symbol);
+    if (!Platform.isWindows) return raw;
+    return SysvAbiBridge.sysvImport(raw, argc);
+  }
 
   final ADILoadLibraryWithPathDart adiLoadLibraryWithPath;
   final ADISetAndroidIDDart adiSetAndroidId;

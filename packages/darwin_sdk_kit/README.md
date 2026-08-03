@@ -7,5 +7,5 @@ a usable `ld64.lld` on Linux/Windows.
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 
 final sdk = DarwinSdk.current();
-final linker = await resolveLd64Lld(sdk!);
+final linker = await DarwinSdk.resolveLd64Lld(sdk!);
 ```

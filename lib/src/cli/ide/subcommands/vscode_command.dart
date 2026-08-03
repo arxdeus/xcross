@@ -39,8 +39,14 @@ class VscodeCommand extends Command<void> {
     );
     Log.logDone('Wrote ${p.relative(shim.path)}');
 
-    await upsertJsonFile(p.join(dir.path, 'launch.json'), mergeLaunchDoc);
-    await upsertJsonFile(p.join(dir.path, 'settings.json'), mergeSettingsDoc);
+    await upsertJsonFile(
+      p.join(dir.path, 'launch.json'),
+      VscodeJsonMerge.mergeLaunchDoc,
+    );
+    await upsertJsonFile(
+      p.join(dir.path, 'settings.json'),
+      VscodeJsonMerge.mergeSettingsDoc,
+    );
 
     Log.logInfo(
       'Next',
@@ -50,50 +56,50 @@ class VscodeCommand extends Command<void> {
       ),
     );
   }
-}
 
-/// Read-merge-write a JSON/JSONC file. Skips the write when already current.
-Future<void> upsertJsonFile(
-  String path,
-  Map<String, Object?> Function(Map<String, Object?>? existing) merge,
-) async {
-  final file = File(path);
-  Map<String, Object?>? existing;
-  if (file.existsSync()) {
-    final raw = await file.readAsString();
-    if (raw.trim().isNotEmpty) {
-      late final Object? decoded;
-      try {
-        decoded = parseJsonc(raw);
-      } on FormatException catch (e) {
-        throw XcrossError(
-          '${p.relative(path)} is not valid JSON/JSONC (${e.message}) — '
-          'fix it, then re-run `xcross ide vscode`',
-        );
+  /// Read-merge-write a JSON/JSONC file. Skips the write when already current.
+  static Future<void> upsertJsonFile(
+    String path,
+    Map<String, Object?> Function(Map<String, Object?>? existing) merge,
+  ) async {
+    final file = File(path);
+    Map<String, Object?>? existing;
+    if (file.existsSync()) {
+      final raw = await file.readAsString();
+      if (raw.trim().isNotEmpty) {
+        late final Object? decoded;
+        try {
+          decoded = VscodeJsonMerge.parseJsonc(raw);
+        } on FormatException catch (e) {
+          throw XcrossError(
+            '${p.relative(path)} is not valid JSON/JSONC (${e.message}) — '
+            'fix it, then re-run `xcross ide vscode`',
+          );
+        }
+        if (decoded is! Map) {
+          throw XcrossError(
+            '${p.relative(path)} must be a JSON object — '
+            'fix it, then re-run `xcross ide vscode`',
+          );
+        }
+        existing = <String, Object?>{
+          for (final e in decoded.entries) '${e.key}': e.value,
+        };
       }
-      if (decoded is! Map) {
-        throw XcrossError(
-          '${p.relative(path)} must be a JSON object — '
-          'fix it, then re-run `xcross ide vscode`',
-        );
-      }
-      existing = <String, Object?>{
-        for (final e in decoded.entries) '${e.key}': e.value,
-      };
     }
-  }
 
-  final merged = merge(existing);
-  if (existing != null && jsonDeepEqual(existing, merged)) {
-    Log.logDone('Unchanged ${p.relative(path)}');
-    return;
+    final merged = merge(existing);
+    if (existing != null && VscodeJsonMerge.jsonDeepEqual(existing, merged)) {
+      Log.logDone('Unchanged ${p.relative(path)}');
+      return;
+    }
+    await file.writeAsString(VscodeJsonMerge.encodePrettyJson(merged));
+    Log.logDone(
+      existing == null
+          ? 'Wrote ${p.relative(path)}'
+          : 'Updated ${p.relative(path)}',
+    );
   }
-  await file.writeAsString(encodePrettyJson(merged));
-  Log.logDone(
-    existing == null
-        ? 'Wrote ${p.relative(path)}'
-        : 'Updated ${p.relative(path)}',
-  );
 }
 
 /// Dart-Code spawns this as `dart <this file> debug_adapter`, so it must stay a

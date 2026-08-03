@@ -119,7 +119,7 @@ class GrandSlamSessionStore {
       '  ',
     ).convert(session.toJson());
 
-    final temporary = File('$_path.${generateUuidV4()}.tmp');
+    final temporary = File('$_path.${AnisetteState.generateUuidV4()}.tmp');
     try {
       await temporary.writeAsString(contents, flush: true);
       if (!Platform.isWindows) posix.chmod(temporary.path, '600');

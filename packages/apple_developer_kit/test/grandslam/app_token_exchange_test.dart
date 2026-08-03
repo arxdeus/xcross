@@ -24,7 +24,7 @@ const _endpoints = GrandSlamEndpoints(
 
 void main() {
   test('checksum matches xtool AppTokens.swift byte concatenation', () {
-    final checksum = grandSlamAppTokenChecksum(
+    final checksum = GrandSlamAppTokenExchange.grandSlamAppTokenChecksum(
       sessionKey: Uint8List.fromList(List<int>.generate(32, (i) => i)),
       adsid: '123456789',
       apps: const [kDeveloperServicesAppIdentifier],
@@ -42,7 +42,10 @@ void main() {
     final blob = _encryptBlob(key: key, plaintext: plaintext);
 
     expect(
-      decryptGrandSlamAppTokenBlob(encryptedToken: blob, sessionKey: key),
+      GrandSlamAppTokenExchange.decryptGrandSlamAppTokenBlob(
+        encryptedToken: blob,
+        sessionKey: key,
+      ),
       plaintext,
     );
   });
@@ -95,7 +98,7 @@ void main() {
         expect(req['t'], loginData.idmsToken);
         expect(
           _bytes(req['checksum']!),
-          grandSlamAppTokenChecksum(
+          GrandSlamAppTokenExchange.grandSlamAppTokenChecksum(
             sessionKey: sessionKey,
             adsid: loginData.adsid,
             apps: const [kDeveloperServicesAppIdentifier],
@@ -115,7 +118,7 @@ void main() {
         return http.Response(
           PropertyListSerialization.stringWithPropertyList({
             'Status': {'ec': 0, 'em': ''},
-            'Response': {'et': byteDataOf(encryptedToken)},
+            'Response': {'et': GrandSlamResponse.byteDataOf(encryptedToken)},
           }),
           200,
         );

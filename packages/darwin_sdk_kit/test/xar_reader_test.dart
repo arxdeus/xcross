@@ -7,7 +7,7 @@ import 'package:test/test.dart';
 import 'test_fixtures.dart';
 
 void main() {
-  group('findXarEntry', () {
+  group('XarReader.findEntry', () {
     late Directory tempDir;
 
     setUp(() async {
@@ -28,13 +28,13 @@ void main() {
       final file = await File(path).open();
       addTearDown(file.close);
 
-      final content = await findXarEntry(file, 'Content');
+      final content = await XarReader.findEntry(file, 'Content');
       expect(content, isNotNull);
       await file.setPosition(content!.offset);
       final contentBytes = await file.read(content.length);
       expect(utf8.decode(contentBytes), 'hello world');
 
-      final metadata = await findXarEntry(file, 'Metadata');
+      final metadata = await XarReader.findEntry(file, 'Metadata');
       expect(metadata, isNotNull);
       await file.setPosition(metadata!.offset);
       final metadataBytes = await file.read(metadata.length);
@@ -51,7 +51,7 @@ void main() {
       final file = await File(path).open();
       addTearDown(file.close);
 
-      expect(await findXarEntry(file, 'DoesNotExist'), isNull);
+      expect(await XarReader.findEntry(file, 'DoesNotExist'), isNull);
     });
 
     test('throws on bad magic', () async {
@@ -60,7 +60,7 @@ void main() {
       final file = await File(path).open();
       addTearDown(file.close);
 
-      expect(() => findXarEntry(file, 'Content'), throwsA(isException));
+      expect(() => XarReader.findEntry(file, 'Content'), throwsA(isException));
     });
   });
 }

@@ -63,7 +63,7 @@ class RunnerShim {
     // reaches ld64.lld's -platform_version and lands in LC_BUILD_VERSION.
     final sdkVersion = _sdkVersion(iosSdk) ?? '26.5';
     await _linkBinary(
-      ld64lld: await resolveLd64Lld(sdk),
+      ld64lld: await DarwinSdk.resolveLd64Lld(sdk),
       objectPath: objectPath,
       outputPath: outputPath,
       iosSdk: iosSdk,

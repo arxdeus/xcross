@@ -159,23 +159,23 @@ class DarwinSdk {
         '.';
     return p.join(home, '.config');
   }
+
+  /// Resolve the Apple-compatible linker from PATH on every host.
+  ///
+  /// swiftly's proxy shims are skipped. The lld inside a Swift toolchain is a
+  /// downstream build that refuses iOS device targets ("This version of lld does
+  /// not support linking for platform iOS"), and its shim cannot even be spawned
+  /// from a clang that swiftly itself proxied ("Circular swiftly proxy
+  /// invocation"). Only the stock LLVM `ld64.lld` can link the Mach-O output.
+  static Future<String> resolveLd64Lld(DarwinSdk _) async =>
+      await ProcessRunner.which('ld64.lld', accept: usableLd64Lld) ??
+      (throw DarwinSdkError(
+        "No usable 'ld64.lld' on PATH.\n"
+        "swiftly's bundled lld cannot link for iOS, so it is skipped. Install "
+        'the LLVM one — `xcross setup`, or `sudo apt install lld` on Linux — '
+        'and make sure it is on PATH.',
+      ));
+
+  /// PATH filter for [resolveLd64Lld] and the `xcross setup` requirement check.
+  static bool usableLd64Lld(String path) => !ProcessRunner.isSwiftlyProxy(path);
 }
-
-/// Resolve the Apple-compatible linker from PATH on every host.
-///
-/// swiftly's proxy shims are skipped. The lld inside a Swift toolchain is a
-/// downstream build that refuses iOS device targets ("This version of lld does
-/// not support linking for platform iOS"), and its shim cannot even be spawned
-/// from a clang that swiftly itself proxied ("Circular swiftly proxy
-/// invocation"). Only the stock LLVM `ld64.lld` can link the Mach-O output.
-Future<String> resolveLd64Lld(DarwinSdk _) async =>
-    await ProcessRunner.which('ld64.lld', accept: usableLd64Lld) ??
-    (throw DarwinSdkError(
-      "No usable 'ld64.lld' on PATH.\n"
-      "swiftly's bundled lld cannot link for iOS, so it is skipped. Install "
-      'the LLVM one — `xcross setup`, or `sudo apt install lld` on Linux — '
-      'and make sure it is on PATH.',
-    ));
-
-/// PATH filter for [resolveLd64Lld] and the `xcross setup` requirement check.
-bool usableLd64Lld(String path) => !ProcessRunner.isSwiftlyProxy(path);

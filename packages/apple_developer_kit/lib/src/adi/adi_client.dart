@@ -16,18 +16,6 @@ import 'package:apple_developer_kit/src/adi/loader/loader_windows.dart';
 import 'package:ffi/ffi.dart';
 import 'package:path/path.dart' as p;
 
-/// Default loader for the current host: Windows ELF+SysV bridge, or Linux
-/// POSIX mmap loader. See NOTICE.md for why plain dlopen/LoadLibrary is
-/// unsafe for these Android libraries.
-NativeLibraryLoader defaultNativeLibraryLoader() {
-  if (Platform.isWindows) return WindowsNativeLibraryLoader();
-  if (Platform.isLinux) return PosixNativeLibraryLoader();
-  throw UnsupportedError(
-    'provision_dart ADI loader supports Linux and Windows only '
-    '(got ${Platform.operatingSystem}).',
-  );
-}
-
 /// Known ADI native error codes, ported verbatim from the `ADIError` enum
 /// in adi.d.
 enum AdiErrorCode {
@@ -203,7 +191,7 @@ class AdiClient {
     String nativeLibraryDir, {
     NativeLibraryLoader? loader,
   }) {
-    final resolvedLoader = loader ?? defaultNativeLibraryLoader();
+    final resolvedLoader = loader ?? AdiClient.defaultNativeLibraryLoader();
     final storeServicesPath = p.join(
       nativeLibraryDir,
       'libstoreservicescore.so',
@@ -431,5 +419,17 @@ class AdiClient {
     if (errorCode != 0) {
       throw AdiException(errorCode);
     }
+  }
+
+  /// Default loader for the current host: Windows ELF+SysV bridge, or Linux
+  /// POSIX mmap loader. See NOTICE.md for why plain dlopen/LoadLibrary is
+  /// unsafe for these Android libraries.
+  static NativeLibraryLoader defaultNativeLibraryLoader() {
+    if (Platform.isWindows) return WindowsNativeLibraryLoader();
+    if (Platform.isLinux) return PosixNativeLibraryLoader();
+    throw UnsupportedError(
+      'provision_dart ADI loader supports Linux and Windows only '
+      '(got ${Platform.operatingSystem}).',
+    );
   }
 }

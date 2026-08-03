@@ -9,7 +9,7 @@ import 'package:xcross/src/cli/ide/subcommands/vscode_json_merge.dart';
 import 'package:xcross/src/util/errors.dart';
 
 void main() {
-  group('stripJsonc / parseJsonc', () {
+  group('VscodeJsonMerge.stripJsonc / VscodeJsonMerge.parseJsonc', () {
     test('strips line and block comments outside strings', () {
       const raw = '''
 {
@@ -18,32 +18,38 @@ void main() {
   "url": "http://example.com" // keep // in string above
 }
 ''';
-      expect(parseJsonc(raw), {'a': 1, 'url': 'http://example.com'});
+      expect(VscodeJsonMerge.parseJsonc(raw), {
+        'a': 1,
+        'url': 'http://example.com',
+      });
     });
 
     test('strips trailing commas in objects and arrays', () {
-      expect(parseJsonc('{\n  "a": 1,\n  "b": false,\n}\n'), {
+      expect(VscodeJsonMerge.parseJsonc('{\n  "a": 1,\n  "b": false,\n}\n'), {
         'a': 1,
         'b': false,
       });
-      expect(parseJsonc('[1, 2, ]'), [1, 2]);
-      expect(parseJsonc('{"a": 1, // trailing\n}'), {'a': 1});
+      expect(VscodeJsonMerge.parseJsonc('[1, 2, ]'), [1, 2]);
+      expect(VscodeJsonMerge.parseJsonc('{"a": 1, // trailing\n}'), {'a': 1});
       // Comma inside a string must survive.
-      expect(parseJsonc('{"x": "a,b"}'), {'x': 'a,b'});
+      expect(VscodeJsonMerge.parseJsonc('{"x": "a,b"}'), {'x': 'a,b'});
     });
   });
 
-  group('mergeLaunchDoc', () {
+  group('VscodeJsonMerge.mergeLaunchDoc', () {
     test('creates a fresh document', () {
-      final doc = mergeLaunchDoc(null);
+      final doc = VscodeJsonMerge.mergeLaunchDoc(null);
       expect(doc['version'], '0.2.0');
       final configs = doc['configurations']! as List;
       expect(configs, hasLength(1));
-      expect(configs.single, {...xcrossLaunchFields(), 'args': <Object?>[]});
+      expect(configs.single, {
+        ...VscodeJsonMerge.xcrossLaunchFields(),
+        'args': <Object?>[],
+      });
     });
 
     test('appends beside foreign configs and preserves their content', () {
-      final doc = mergeLaunchDoc({
+      final doc = VscodeJsonMerge.mergeLaunchDoc({
         'version': '0.2.0',
         'configurations': [
           {'name': 'Flutter', 'type': 'dart', 'request': 'launch'},
@@ -60,7 +66,7 @@ void main() {
     });
 
     test('preserves args on an existing xcross entry', () {
-      final doc = mergeLaunchDoc({
+      final doc = VscodeJsonMerge.mergeLaunchDoc({
         'version': '0.2.0',
         'configurations': [
           {
@@ -80,7 +86,7 @@ void main() {
     });
 
     test('matches by name when xcross flag is missing', () {
-      final doc = mergeLaunchDoc({
+      final doc = VscodeJsonMerge.mergeLaunchDoc({
         'configurations': [
           {'name': 'xcross: iOS device', 'type': 'dart'},
         ],
@@ -91,10 +97,13 @@ void main() {
     });
   });
 
-  group('mergeSettingsDoc', () {
+  group('VscodeJsonMerge.mergeSettingsDoc', () {
     test('upserts DAP keys without wiping siblings', () {
       expect(
-        mergeSettingsDoc({'editor.fontSize': 14, dapPathSetting: 'stale'}),
+        VscodeJsonMerge.mergeSettingsDoc({
+          'editor.fontSize': 14,
+          dapPathSetting: 'stale',
+        }),
         {
           'editor.fontSize': 14,
           dapPathSetting: dapPathValue,
@@ -184,9 +193,9 @@ void main() {
     });
   });
 
-  group('buildIdeaRunXml', () {
+  group('IdeaCommand.buildIdeaRunXml', () {
     test('embeds exe, DAPConfiguration, xcross launch, and dart mapping', () {
-      final xml = buildIdeaRunXml(r'C:\tools\xcross.exe');
+      final xml = IdeaCommand.buildIdeaRunXml(r'C:\tools\xcross.exe');
       expect(xml, contains('type="DAPConfiguration"'));
       expect(xml, contains('factoryName="DAPConfiguration"'));
       expect(xml, contains(r'C:\tools\xcross.exe'));
@@ -199,7 +208,7 @@ void main() {
     });
 
     test('quotes paths with spaces', () {
-      final xml = buildIdeaRunXml(r'C:\Program Files\xcross.exe');
+      final xml = IdeaCommand.buildIdeaRunXml(r'C:\Program Files\xcross.exe');
       expect(
         xml,
         contains(r'&quot;C:\Program Files\xcross.exe&quot; flutter dap'),

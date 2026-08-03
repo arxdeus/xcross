@@ -11,16 +11,16 @@ class PymdInvocation {
   final List<String> prefixArgs;
 }
 
-/// Coerce an `int` or parseable `String` port value into `int?`.
-int? asPort(Object? value) => switch (value) {
-  final int p => p,
-  final String s => int.tryParse(s),
-  _ => null,
-};
-
 /// One-shot invocations of `pymobiledevice3` for DVT ProcessControl,
 /// RSD service discovery, and the installed-app list.
 abstract final class Pymd {
+  /// Coerce an `int` or parseable `String` port value into `int?`.
+  static int? asPort(Object? value) => switch (value) {
+    final int p => p,
+    final String s => int.tryParse(s),
+    _ => null,
+  };
+
   static final _processLaunchedPidPattern = RegExp(
     r'Process launched with pid (\d+)',
   );

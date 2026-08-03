@@ -61,6 +61,25 @@ class AnisetteState {
       routingInfo: routingInfoStr is String ? int.parse(routingInfoStr) : null,
     );
   }
+
+  /// Generates a random (v4) UUID string using `dart:math`'s `Random.secure`
+  /// - no dependency on a UUID-generation package for one-shot, non-crypto
+  /// device identity, unlike the `dart:math`-seeded RNGs, `Random.secure` is
+  /// suitable here since this value is persisted and reused, not just a
+  /// throwaway.
+  static String generateUuidV4() {
+    final rand = Random.secure();
+    final bytes = List<int>.generate(16, (_) => rand.nextInt(256));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+    bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 10xx
+
+    String hex(int start, int end) => bytes
+        .sublist(start, end)
+        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+        .join();
+
+    return '${hex(0, 4)}-${hex(4, 6)}-${hex(6, 8)}-${hex(8, 10)}-${hex(10, 16)}';
+  }
 }
 
 /// Reads/writes [AnisetteState] to a per-user JSON config file.
@@ -99,7 +118,7 @@ class AnisetteStateStore {
   Future<AnisetteState> load() async {
     final file = File(_path);
     if (!file.existsSync()) {
-      final fresh = AnisetteState(localUserUid: generateUuidV4());
+      final fresh = AnisetteState(localUserUid: AnisetteState.generateUuidV4());
       await save(fresh);
       return fresh;
     }
@@ -120,23 +139,4 @@ class AnisetteStateStore {
     await file.parent.create(recursive: true);
     await file.writeAsString(jsonEncode(state.toJson()));
   }
-}
-
-/// Generates a random (v4) UUID string using `dart:math`'s `Random.secure`
-/// - no dependency on a UUID-generation package for one-shot, non-crypto
-/// device identity, unlike the `dart:math`-seeded RNGs, `Random.secure` is
-/// suitable here since this value is persisted and reused, not just a
-/// throwaway.
-String generateUuidV4() {
-  final rand = Random.secure();
-  final bytes = List<int>.generate(16, (_) => rand.nextInt(256));
-  bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
-  bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 10xx
-
-  String hex(int start, int end) => bytes
-      .sublist(start, end)
-      .map((b) => b.toRadixString(16).padLeft(2, '0'))
-      .join();
-
-  return '${hex(0, 4)}-${hex(4, 6)}-${hex(6, 8)}-${hex(8, 10)}-${hex(10, 16)}';
 }

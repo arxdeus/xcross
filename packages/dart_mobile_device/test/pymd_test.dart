@@ -4,29 +4,29 @@ import 'package:dart_mobile_device/src/pymd.dart';
 import 'package:test/test.dart';
 
 void main() {
-  group('asPort', () {
+  group('Pymd.asPort', () {
     test('passes through an int unchanged', () {
-      expect(asPort(12345), 12345);
+      expect(Pymd.asPort(12345), 12345);
     });
 
     test('parses a numeric String', () {
-      expect(asPort('12345'), 12345);
+      expect(Pymd.asPort('12345'), 12345);
     });
 
     test('returns null for a non-numeric String', () {
-      expect(asPort('not-a-number'), isNull);
+      expect(Pymd.asPort('not-a-number'), isNull);
     });
 
     test('returns null for null', () {
-      expect(asPort(null), isNull);
+      expect(Pymd.asPort(null), isNull);
     });
 
     test('returns null for a double (neither int nor String)', () {
-      expect(asPort(3.14), isNull);
+      expect(Pymd.asPort(3.14), isNull);
     });
 
     test('returns null for an unrelated type like a List', () {
-      expect(asPort(<int>[1, 2]), isNull);
+      expect(Pymd.asPort(<int>[1, 2]), isNull);
     });
   });
 

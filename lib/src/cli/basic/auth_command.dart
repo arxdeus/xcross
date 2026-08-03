@@ -189,7 +189,7 @@ class AuthCommand extends _$AuthArgsCommand<void> {
         'Fetching Developer Services session',
         () => tokenExchange!.exchange(loginData),
       );
-      final teamHttpClient = createAppleHttpClient();
+      final teamHttpClient = AppleHttp.createAppleHttpClient();
       final List<DeveloperServicesTeam> teams;
       try {
         teams = await Log.logStep(

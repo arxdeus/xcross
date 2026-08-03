@@ -39,13 +39,15 @@ UKqK1drk/NAJBzewdXUh
 -----END CERTIFICATE-----
 ''';
 
-SecurityContext createAppleSecurityContext() {
-  final context = SecurityContext(withTrustedRoots: true);
-  context.setTrustedCertificatesBytes(utf8.encode(_appleIncRootPem));
-  return context;
-}
+abstract final class AppleHttp {
+  static SecurityContext createAppleSecurityContext() {
+    final context = SecurityContext(withTrustedRoots: true);
+    context.setTrustedCertificatesBytes(utf8.encode(_appleIncRootPem));
+    return context;
+  }
 
-/// HTTP client with normal Mozilla roots plus Apple's published private root.
-/// Hostname and chain verification remain fully enabled.
-http.Client createAppleHttpClient() =>
-    IOClient(HttpClient(context: createAppleSecurityContext()));
+  /// HTTP client with normal Mozilla roots plus Apple's published private root.
+  /// Hostname and chain verification remain fully enabled.
+  static http.Client createAppleHttpClient() =>
+      IOClient(HttpClient(context: AppleHttp.createAppleSecurityContext()));
+}

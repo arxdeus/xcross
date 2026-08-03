@@ -53,22 +53,21 @@ class IdeaCommand extends Command<void> {
     await file.writeAsString(content);
     Log.logDone('Wrote ${p.relative(path)}');
   }
-}
 
-/// Shared `.run/*.run.xml` body for LSP4IJ's `DAPConfiguration` type.
-String buildIdeaRunXml(String xcrossExe) {
-  final command = '${_quoteCmd(xcrossExe)} flutter dap';
-  final launch = jsonEncode({
-    'type': 'dart',
-    'name': 'xcross: iOS device',
-    'request': 'launch',
-    'program': 'lib/main.dart',
-    'cwd': r'${workspaceFolder}',
-    'xcross': true,
-    'args': <String>[],
-  });
+  /// Shared `.run/*.run.xml` body for LSP4IJ's `DAPConfiguration` type.
+  static String buildIdeaRunXml(String xcrossExe) {
+    final command = '${_quoteCmd(xcrossExe)} flutter dap';
+    final launch = jsonEncode({
+      'type': 'dart',
+      'name': 'xcross: iOS device',
+      'request': 'launch',
+      'program': 'lib/main.dart',
+      'cwd': r'${workspaceFolder}',
+      'xcross': true,
+      'args': <String>[],
+    });
 
-  return '''
+    return '''
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="xcross: iOS device" type="DAPConfiguration" factoryName="DAPConfiguration">
     <option name="command" value="${_xmlAttr(command)}" />
@@ -97,16 +96,17 @@ String buildIdeaRunXml(String xcrossExe) {
   </configuration>
 </component>
 ''';
-}
-
-String _quoteCmd(String path) {
-  if (path.contains(RegExp(r'[\s"]'))) {
-    return '"${path.replaceAll('"', r'\"')}"';
   }
-  return path;
-}
 
-String _xmlAttr(String value) => value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('"', '&quot;');
+  static String _quoteCmd(String path) {
+    if (path.contains(RegExp(r'[\s"]'))) {
+      return '"${path.replaceAll('"', r'\"')}"';
+    }
+    return path;
+  }
+
+  static String _xmlAttr(String value) => value
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('"', '&quot;');
+}

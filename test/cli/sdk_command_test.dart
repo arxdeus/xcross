@@ -18,16 +18,19 @@ void main() {
         data: Uint8List.fromList(utf8.encode(data)),
       );
 
-  group('sdkRelativePath', () {
+  group('SdkInstall.sdkRelativePath', () {
     test('includes the exact iOS cross-SDK subset', () {
       final names = [
         for (final root in sdkIncludedRoots) 'Xcode.app/Contents/$root/kept',
       ];
 
-      expect(names.map(sdkRelativePath), [
+      expect(names.map(SdkInstall.sdkRelativePath), [
         for (final root in sdkIncludedRoots) '$root/kept',
       ]);
-      expect(sdkRelativePath(sdkIncludedRoots.first), sdkIncludedRoots.first);
+      expect(
+        SdkInstall.sdkRelativePath(sdkIncludedRoots.first),
+        sdkIncludedRoots.first,
+      );
     });
 
     test('excludes neighboring Xcode content', () {
@@ -41,7 +44,7 @@ void main() {
         'README.md',
       ];
 
-      expect(excluded.map(sdkRelativePath), everyElement(isNull));
+      expect(excluded.map(SdkInstall.sdkRelativePath), everyElement(isNull));
     });
 
     test('strips the Xcode.app prefix from SDK files', () {
@@ -49,7 +52,7 @@ void main() {
           'Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/'
           'Developer/SDKs/iPhoneOS17.5.sdk/usr/include/stdio.h';
       expect(
-        sdkRelativePath(name),
+        SdkInstall.sdkRelativePath(name),
         'Developer/Platforms/iPhoneOS.platform/Developer/SDKs/'
         'iPhoneOS17.5.sdk/usr/include/stdio.h',
       );
@@ -63,7 +66,7 @@ void main() {
         'Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/'
         'Developer/SDKs/iPhoneOS17.5.sdk';
 
-    final count = await writeSdkEntries(
+    final count = await SdkInstall.writeSdkEntries(
       Stream.fromIterable([
         entry('$sdk/usr/include', mode: 0x41ed),
         entry('$sdk/usr/include/real.h', data: 'header'),
@@ -122,8 +125,8 @@ void main() {
         )
         ..add(buildCpioTrailer());
 
-      final count = await writeSdkEntries(
-        readCpio(Stream.value(archive.takeBytes())),
+      final count = await SdkInstall.writeSdkEntries(
+        CpioReader.read(Stream.value(archive.takeBytes())),
         temp.path,
       );
 
@@ -150,7 +153,7 @@ void main() {
     final second = List.filled(90, 'b').join();
     final target = '$sdk/System/Library/Frameworks/$first/$second';
 
-    await writeSdkEntries(
+    await SdkInstall.writeSdkEntries(
       Stream.fromIterable([
         entry(target, mode: 0x41ed),
         entry('$target/value.txt', data: 'long path'),
@@ -187,7 +190,7 @@ void main() {
     addTearDown(() => temp.deleteSync(recursive: true));
 
     await expectLater(
-      writeSdkEntries(
+      SdkInstall.writeSdkEntries(
         Stream.value(
           entry(
             'Developer/Platforms/iPhoneOS.platform/Developer/SDKs/'
@@ -205,7 +208,7 @@ void main() {
     addTearDown(() => temp.deleteSync(recursive: true));
 
     await expectLater(
-      writeSdkEntries(
+      SdkInstall.writeSdkEntries(
         Stream.value(
           entry(
             'Developer/Platforms/iPhoneOS.platform/Developer/SDKs/'
@@ -240,7 +243,7 @@ void main() {
     await source.parent.create(recursive: true);
     await source.writeAsBytes([1, 2, 3, 4]);
 
-    await materializeSwiftCompatibilityResources(temp.path);
+    await SdkInstall.materializeSwiftCompatibilityResources(temp.path);
 
     expect(
       File(
@@ -273,7 +276,7 @@ void main() {
     ).create(recursive: true);
     await File(p.join(include.path, 'arm_neon.h')).writeAsString('swift clang');
 
-    await replaceClangBuiltinHeaders(
+    await SdkInstall.replaceClangBuiltinHeaders(
       temp.path,
       locateTool: (name) async {
         expect(name, 'swift');
@@ -331,9 +334,9 @@ void main() {
     );
     await layout.parent.create(recursive: true);
     await layout.writeAsString('layout');
-    await materializeSwiftCompatibilityResources(bundle.path);
+    await SdkInstall.materializeSwiftCompatibilityResources(bundle.path);
 
-    await writeSwiftSdkBundleMetadata(bundle.path);
+    await SdkInstall.writeSwiftSdkBundleMetadata(bundle.path);
 
     final info =
         jsonDecode(File(p.join(bundle.path, 'info.json')).readAsStringSync())

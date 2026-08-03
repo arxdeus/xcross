@@ -5,6 +5,6 @@ import 'package:test/test.dart';
 
 void main() {
   test('loads the published Apple Inc. root certificate', () {
-    expect(createAppleSecurityContext(), isA<SecurityContext>());
+    expect(AppleHttp.createAppleSecurityContext(), isA<SecurityContext>());
   });
 }

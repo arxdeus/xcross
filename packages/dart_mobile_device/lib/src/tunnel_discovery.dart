@@ -5,7 +5,7 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/constants.dart';
 import 'package:dart_mobile_device/src/errors.dart';
 import 'package:dart_mobile_device/src/models/tunnel.dart';
-import 'package:dart_mobile_device/src/pymd.dart' show Pymd, asPort;
+import 'package:dart_mobile_device/src/pymd.dart' show Pymd;
 
 export 'package:dart_mobile_device/src/models/tunnel.dart';
 
@@ -174,7 +174,7 @@ abstract final class TunnelDiscovery {
         json['tunnel-address'] ?? json['address'] ?? json['tunnel_address'];
     final portObj = json['tunnel-port'] ?? json['port'] ?? json['tunnel_port'];
     final addr = addrObj is String ? addrObj : null;
-    final port = asPort(portObj);
+    final port = Pymd.asPort(portObj);
     if (addr == null || port == null) return null;
     Log.logTrace('found RSD tunnel: $addr:$port');
     return Tunnel(address: addr, port: port);

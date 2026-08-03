@@ -66,7 +66,7 @@ abstract class DevelopmentProvisioningClient {
 /// login.
 class AscClient implements DevelopmentProvisioningClient {
   AscClient(this.credentials, {http.Client? httpClient})
-    : _http = httpClient ?? createAppleHttpClient();
+    : _http = httpClient ?? AppleHttp.createAppleHttpClient();
 
   final AscCredentials credentials;
   final http.Client _http;

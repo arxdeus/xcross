@@ -8,7 +8,7 @@ import 'package:test/test.dart';
 import 'test_fixtures.dart';
 
 void main() {
-  group('extractXcodeXipContent', () {
+  group('XcodeXipExtractor.extract', () {
     late Directory tempDir;
 
     setUp(() async {
@@ -43,7 +43,7 @@ void main() {
         final path = '${tempDir.path}/Xcode.xip';
         await File(path).writeAsBytes(xarBytes);
 
-        final entries = await extractXcodeXipContent(path).toList();
+        final entries = await XcodeXipExtractor.extract(path).toList();
 
         expect(entries, hasLength(2));
         expect(entries[0].name, 'a.txt');
@@ -59,7 +59,7 @@ void main() {
       await File(path).writeAsBytes(xarBytes);
 
       expect(
-        extractXcodeXipContent(path).toList(),
+        XcodeXipExtractor.extract(path).toList(),
         throwsA(isA<DarwinSdkError>()),
       );
     });

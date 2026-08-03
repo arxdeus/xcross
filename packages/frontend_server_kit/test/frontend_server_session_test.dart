@@ -23,10 +23,7 @@ void main() {
 
   test('parseResultBoundary joins path tokens before error count', () async {
     final queue = StreamQueue(
-      Stream.fromIterable([
-        'result tok',
-        r'tok C:\Users\me\My App\out.dill 2',
-      ]),
+      Stream.fromIterable(['result tok', r'tok C:\Users\me\My App\out.dill 2']),
     );
     expect(
       await FrontendServerSession.parseResultBoundary(queue),
@@ -34,45 +31,48 @@ void main() {
     );
   });
 
-  test('buildCompileExpressionCommand keeps fixed list order and terminators', () {
-    final payload = buildCompileExpressionCommand(
-      boundaryKey: 'k1',
-      expression: 'a + b',
-      definitions: ['a', 'b'],
-      definitionTypes: ['int', 'int'],
-      typeDefinitions: ['T'],
-      typeBounds: ['Object'],
-      typeDefaults: ['dynamic'],
-      libraryUri: 'package:app/main.dart',
-      klass: 'Foo',
-      method: 'bar',
-      isStatic: false,
-    );
-    expect(
-      payload,
-      'compile-expression k1\n'
-      'a + b\n'
-      'a\n'
-      'b\n'
-      'k1\n'
-      'int\n'
-      'int\n'
-      'k1\n'
-      'T\n'
-      'k1\n'
-      'Object\n'
-      'k1\n'
-      'dynamic\n'
-      'k1\n'
-      'package:app/main.dart\n'
-      'Foo\n'
-      'bar\n'
-      'false\n',
-    );
-  });
+  test(
+    'buildCompileExpressionCommand keeps fixed list order and terminators',
+    () {
+      final payload = FrontendServerSession.buildCompileExpressionCommand(
+        boundaryKey: 'k1',
+        expression: 'a + b',
+        definitions: ['a', 'b'],
+        definitionTypes: ['int', 'int'],
+        typeDefinitions: ['T'],
+        typeBounds: ['Object'],
+        typeDefaults: ['dynamic'],
+        libraryUri: 'package:app/main.dart',
+        klass: 'Foo',
+        method: 'bar',
+        isStatic: false,
+      );
+      expect(
+        payload,
+        'compile-expression k1\n'
+        'a + b\n'
+        'a\n'
+        'b\n'
+        'k1\n'
+        'int\n'
+        'int\n'
+        'k1\n'
+        'T\n'
+        'k1\n'
+        'Object\n'
+        'k1\n'
+        'dynamic\n'
+        'k1\n'
+        'package:app/main.dart\n'
+        'Foo\n'
+        'bar\n'
+        'false\n',
+      );
+    },
+  );
 
   test('buildCompileExpressionCommand uses empty klass/method when null', () {
-    final payload = buildCompileExpressionCommand(
+    final payload = FrontendServerSession.buildCompileExpressionCommand(
       boundaryKey: 'k2',
       expression: '1',
       definitions: const [],

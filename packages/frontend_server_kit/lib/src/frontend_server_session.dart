@@ -166,7 +166,7 @@ class FrontendServerSession {
   }) => _serialized(() async {
     final key = DateTime.now().microsecondsSinceEpoch.toRadixString(16);
     await _send(
-      buildCompileExpressionCommand(
+      FrontendServerSession.buildCompileExpressionCommand(
         boundaryKey: key,
         expression: expression,
         definitions: definitions,
@@ -194,7 +194,7 @@ class FrontendServerSession {
     _process = null;
     if (process != null) {
       try {
-        await killProcessTree(process).timeout(const Duration(seconds: 2));
+        await ProcessKill.killTree(process).timeout(const Duration(seconds: 2));
       } on Object catch (_) {
         process.kill();
       }
@@ -230,8 +230,9 @@ class FrontendServerSession {
     // Never block forever: if frontend_server emits no result, fail instead.
     return parseResultBoundary(queue).timeout(
       const Duration(seconds: 60),
-      onTimeout: () =>
-          throw FrontendServerException('frontend_server: no result within 60s'),
+      onTimeout: () => throw FrontendServerException(
+        'frontend_server: no result within 60s',
+      ),
     );
   }
 
@@ -267,43 +268,43 @@ class FrontendServerSession {
     }
     throw FrontendServerException('frontend_server closed unexpectedly');
   }
-}
 
-/// Builds the stdin payload for `compile-expression`.
-///
-/// Line protocol: the header, the expression, then five lists each terminated
-/// by the boundary token, then the context. Order and count are fixed — a
-/// missing terminator desynchronises the compiler.
-String buildCompileExpressionCommand({
-  required String boundaryKey,
-  required String expression,
-  required List<String> definitions,
-  required List<String> definitionTypes,
-  required List<String> typeDefinitions,
-  required List<String> typeBounds,
-  required List<String> typeDefaults,
-  required String libraryUri,
-  required String? klass,
-  required String? method,
-  required bool isStatic,
-}) {
-  final sb = StringBuffer()
-    ..writeln('compile-expression $boundaryKey')
-    ..writeln(expression);
-  for (final list in [
-    definitions,
-    definitionTypes,
-    typeDefinitions,
-    typeBounds,
-    typeDefaults,
-  ]) {
-    list.forEach(sb.writeln);
-    sb.writeln(boundaryKey);
+  /// Builds the stdin payload for `compile-expression`.
+  ///
+  /// Line protocol: the header, the expression, then five lists each terminated
+  /// by the boundary token, then the context. Order and count are fixed — a
+  /// missing terminator desynchronises the compiler.
+  static String buildCompileExpressionCommand({
+    required String boundaryKey,
+    required String expression,
+    required List<String> definitions,
+    required List<String> definitionTypes,
+    required List<String> typeDefinitions,
+    required List<String> typeBounds,
+    required List<String> typeDefaults,
+    required String libraryUri,
+    required String? klass,
+    required String? method,
+    required bool isStatic,
+  }) {
+    final sb = StringBuffer()
+      ..writeln('compile-expression $boundaryKey')
+      ..writeln(expression);
+    for (final list in [
+      definitions,
+      definitionTypes,
+      typeDefinitions,
+      typeBounds,
+      typeDefaults,
+    ]) {
+      list.forEach(sb.writeln);
+      sb.writeln(boundaryKey);
+    }
+    sb
+      ..writeln(libraryUri)
+      ..writeln(klass ?? '')
+      ..writeln(method ?? '')
+      ..writeln(isStatic);
+    return sb.toString();
   }
-  sb
-    ..writeln(libraryUri)
-    ..writeln(klass ?? '')
-    ..writeln(method ?? '')
-    ..writeln(isStatic);
-  return sb.toString();
 }

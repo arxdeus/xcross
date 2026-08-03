@@ -161,7 +161,7 @@ class NativeBackend implements DeviceBackend {
           '$bundleId ${Log.ansi.subtle('→')} $signedBundleId',
         );
       }
-      final identity = await provisionDevelopmentIdentity(
+      final identity = await AscProvisioning.provisionDevelopmentIdentity(
         client: client,
         bundleId: signedBundleId,
         deviceUdids: [udid],

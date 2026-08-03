@@ -107,7 +107,7 @@ void main() {
         throwsA(isA<Exception>()),
       );
       expect(
-        () => validateGrandSlamUrl(
+        () => GrandSlamEndpoints.validateGrandSlamUrl(
           'http://gsa.apple.com/plaintext',
           field: 'test',
         ),
@@ -143,7 +143,7 @@ void main() {
     });
 
     await expectLater(
-      sendGrandSlamRequest(
+      GrandSlamEndpoints.sendGrandSlamRequest(
         client,
         method: 'POST',
         url: 'https://gsa.apple.com/gs',
@@ -162,7 +162,7 @@ void main() {
         return http.Response(_lookupResponsePlist, 200);
       });
 
-      final endpoints = await fetchGrandSlamEndpoints(
+      final endpoints = await GrandSlamEndpoints.fetchGrandSlamEndpoints(
         client,
         headers: const {'X-Mme-Device-Id': 'test-device'},
       );
@@ -182,7 +182,10 @@ void main() {
     test('throws on a non-2xx response', () async {
       final client = MockClient((request) async => http.Response('', 500));
       await expectLater(
-        () => fetchGrandSlamEndpoints(client, headers: const {}),
+        () => GrandSlamEndpoints.fetchGrandSlamEndpoints(
+          client,
+          headers: const {},
+        ),
         throwsA(isA<Exception>()),
       );
     });
@@ -197,7 +200,10 @@ void main() {
         ),
       );
       await expectLater(
-        () => fetchGrandSlamEndpoints(client, headers: const {}),
+        () => GrandSlamEndpoints.fetchGrandSlamEndpoints(
+          client,
+          headers: const {},
+        ),
         throwsA(
           isA<Exception>().having(
             (e) => e.toString(),

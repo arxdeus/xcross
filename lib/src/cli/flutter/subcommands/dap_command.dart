@@ -19,5 +19,5 @@ class DapCommand extends Command<void> {
   bool get hidden => true;
 
   @override
-  Future<void> run() => runDapSession(startXcross: XcrossDap.new);
+  Future<void> run() => DapSession.run(startXcross: XcrossDap.new);
 }

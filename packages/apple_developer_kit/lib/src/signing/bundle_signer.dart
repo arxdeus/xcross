@@ -487,6 +487,151 @@ class BundleSigner {
       ..['weight'] = 20.0)
     ..[r'^embedded\.provisionprofile$'] = (_sortedMap()..['weight'] = 20.0)
     ..[r'^version\.plist$'] = (_sortedMap()..['weight'] = 20.0);
+
+  static SplayTreeMap<String, Object?> _sortedMap() =>
+      SplayTreeMap<String, Object?>(_compareUtf8);
+  static int _compareUtf8(String left, String right) {
+    final leftBytes = utf8.encode(left);
+    final rightBytes = utf8.encode(right);
+    final length = leftBytes.length < rightBytes.length
+        ? leftBytes.length
+        : rightBytes.length;
+    for (var index = 0; index < length; index++) {
+      final result = leftBytes[index].compareTo(rightBytes[index]);
+      if (result != 0) return result;
+    }
+    return leftBytes.length.compareTo(rightBytes.length);
+  }
+
+  static String _relative(String root, String path) =>
+      p.relative(path, from: root).replaceAll(r'\', '/');
+  static String _pathKey(String path) {
+    final normalized = p.normalize(p.absolute(path));
+    return Platform.isWindows ? normalized.toLowerCase() : normalized;
+  }
+
+  static bool _samePath(String left, String right) =>
+      _pathKey(left) == _pathKey(right);
+  static bool _isWithinOrEqual(String parent, String child) =>
+      _samePath(parent, child) || p.isWithin(parent, child);
+  static int _depth(String relative) =>
+      relative == '.' ? 0 : relative.split('/').length;
+  static String _resolveDirectory(String path, String root) {
+    try {
+      return Directory(path).resolveSymbolicLinksSync();
+    } on Object catch (error) {
+      _fail(root, path, 'could not resolve directory: $error');
+    }
+  }
+
+  static String _resolveLink(String path, String root) {
+    try {
+      return Link(path).resolveSymbolicLinksSync();
+    } on Object catch (error) {
+      _fail(root, path, 'unsafe or dangling symlink: $error');
+    }
+  }
+
+  static bool _hasMachOMagic(String path) {
+    try {
+      final file = File(path).openSync();
+      try {
+        final bytes = file.readSync(4);
+        if (bytes.length != 4) return false;
+        final magic = ByteData.sublistView(bytes).getUint32(0, Endian.little);
+        return const {
+          0xcafebabe,
+          0xbebafeca,
+          0xfeedface,
+          0xcefaedfe,
+          0xfeedfacf,
+          0xcffaedfe,
+        }.contains(magic);
+      } finally {
+        file.closeSync();
+      }
+    } on Object {
+      return false;
+    }
+  }
+
+  static bool _isLocalization(String path) => path.contains('.lproj/');
+  static bool _omitFiles1(String path) =>
+      path.endsWith('.lproj/locversion.plist');
+  static bool _omitFiles2(String path) =>
+      path.endsWith('.lproj/locversion.plist') ||
+      path.endsWith('.DS_Store') ||
+      path == 'Info.plist' ||
+      path == 'PkgInfo';
+  static ByteData _data(List<int> bytes) =>
+      ByteData.sublistView(Uint8List.fromList(bytes));
+  static Uint8List _sha1File(String path, String root) {
+    try {
+      return Uint8List.fromList(
+        crypto.sha1.convert(File(path).readAsBytesSync()).bytes,
+      );
+    } on Object catch (error) {
+      _fail(root, path, 'could not hash file with SHA-1: $error');
+    }
+  }
+
+  static Uint8List _sha256File(String path, String root) {
+    try {
+      return Uint8List.fromList(
+        crypto.sha256.convert(File(path).readAsBytesSync()).bytes,
+      );
+    } on Object catch (error) {
+      _fail(root, path, 'could not hash file with SHA-256: $error');
+    }
+  }
+
+  static SplayTreeMap<String, Object?> _symlinkSeal(String path, String root) {
+    final String target;
+    try {
+      target = Link(path).targetSync();
+    } on Object catch (error) {
+      _fail(root, path, 'could not read symlink target: $error');
+    }
+    return _sortedMap()..['symlink'] = target;
+  }
+
+  static Future<void> _removeIfPresent(String path) async {
+    final type = FileSystemEntity.typeSync(path, followLinks: false);
+    if (type == FileSystemEntityType.notFound) return;
+    try {
+      if (type == FileSystemEntityType.directory) {
+        await Directory(path).delete(recursive: true);
+      } else if (type == FileSystemEntityType.link) {
+        await Link(path).delete();
+      } else {
+        await File(path).delete();
+      }
+    } on Object catch (error) {
+      throw AppleError('Could not remove stale signing entry "$path": $error');
+    }
+  }
+
+  static Future<void> _atomicWrite(
+    String path,
+    List<int> bytes,
+    String root,
+  ) async {
+    final temporary = File(
+      '$path.xcross-sign-$pid-${DateTime.now().microsecondsSinceEpoch}.tmp',
+    );
+    try {
+      await temporary.writeAsBytes(bytes, flush: true);
+      await temporary.rename(path);
+    } on Object catch (error) {
+      if (temporary.existsSync()) await temporary.delete();
+      _fail(root, path, 'could not atomically write file: $error');
+    }
+  }
+
+  static Never _fail(String root, String path, String reason) =>
+      throw AppleError(
+        'Bundle "${_relative(root, path)}" is invalid: $reason.',
+      );
 }
 
 class _Plan {
@@ -532,148 +677,3 @@ class _Entry {
   final String relativePath;
   final FileSystemEntityType type;
 }
-
-SplayTreeMap<String, Object?> _sortedMap() =>
-    SplayTreeMap<String, Object?>(_compareUtf8);
-
-int _compareUtf8(String left, String right) {
-  final leftBytes = utf8.encode(left);
-  final rightBytes = utf8.encode(right);
-  final length = leftBytes.length < rightBytes.length
-      ? leftBytes.length
-      : rightBytes.length;
-  for (var index = 0; index < length; index++) {
-    final result = leftBytes[index].compareTo(rightBytes[index]);
-    if (result != 0) return result;
-  }
-  return leftBytes.length.compareTo(rightBytes.length);
-}
-
-String _relative(String root, String path) =>
-    p.relative(path, from: root).replaceAll(r'\', '/');
-
-String _pathKey(String path) {
-  final normalized = p.normalize(p.absolute(path));
-  return Platform.isWindows ? normalized.toLowerCase() : normalized;
-}
-
-bool _samePath(String left, String right) => _pathKey(left) == _pathKey(right);
-
-bool _isWithinOrEqual(String parent, String child) =>
-    _samePath(parent, child) || p.isWithin(parent, child);
-
-int _depth(String relative) => relative == '.' ? 0 : relative.split('/').length;
-
-String _resolveDirectory(String path, String root) {
-  try {
-    return Directory(path).resolveSymbolicLinksSync();
-  } on Object catch (error) {
-    _fail(root, path, 'could not resolve directory: $error');
-  }
-}
-
-String _resolveLink(String path, String root) {
-  try {
-    return Link(path).resolveSymbolicLinksSync();
-  } on Object catch (error) {
-    _fail(root, path, 'unsafe or dangling symlink: $error');
-  }
-}
-
-bool _hasMachOMagic(String path) {
-  try {
-    final file = File(path).openSync();
-    try {
-      final bytes = file.readSync(4);
-      if (bytes.length != 4) return false;
-      final magic = ByteData.sublistView(bytes).getUint32(0, Endian.little);
-      return const {
-        0xcafebabe,
-        0xbebafeca,
-        0xfeedface,
-        0xcefaedfe,
-        0xfeedfacf,
-        0xcffaedfe,
-      }.contains(magic);
-    } finally {
-      file.closeSync();
-    }
-  } on Object {
-    return false;
-  }
-}
-
-bool _isLocalization(String path) => path.contains('.lproj/');
-
-bool _omitFiles1(String path) => path.endsWith('.lproj/locversion.plist');
-
-bool _omitFiles2(String path) =>
-    path.endsWith('.lproj/locversion.plist') ||
-    path.endsWith('.DS_Store') ||
-    path == 'Info.plist' ||
-    path == 'PkgInfo';
-
-ByteData _data(List<int> bytes) =>
-    ByteData.sublistView(Uint8List.fromList(bytes));
-
-Uint8List _sha1File(String path, String root) {
-  try {
-    return Uint8List.fromList(
-      crypto.sha1.convert(File(path).readAsBytesSync()).bytes,
-    );
-  } on Object catch (error) {
-    _fail(root, path, 'could not hash file with SHA-1: $error');
-  }
-}
-
-Uint8List _sha256File(String path, String root) {
-  try {
-    return Uint8List.fromList(
-      crypto.sha256.convert(File(path).readAsBytesSync()).bytes,
-    );
-  } on Object catch (error) {
-    _fail(root, path, 'could not hash file with SHA-256: $error');
-  }
-}
-
-SplayTreeMap<String, Object?> _symlinkSeal(String path, String root) {
-  final String target;
-  try {
-    target = Link(path).targetSync();
-  } on Object catch (error) {
-    _fail(root, path, 'could not read symlink target: $error');
-  }
-  return _sortedMap()..['symlink'] = target;
-}
-
-Future<void> _removeIfPresent(String path) async {
-  final type = FileSystemEntity.typeSync(path, followLinks: false);
-  if (type == FileSystemEntityType.notFound) return;
-  try {
-    if (type == FileSystemEntityType.directory) {
-      await Directory(path).delete(recursive: true);
-    } else if (type == FileSystemEntityType.link) {
-      await Link(path).delete();
-    } else {
-      await File(path).delete();
-    }
-  } on Object catch (error) {
-    throw AppleError('Could not remove stale signing entry "$path": $error');
-  }
-}
-
-Future<void> _atomicWrite(String path, List<int> bytes, String root) async {
-  final temporary = File(
-    '$path.xcross-sign-$pid-${DateTime.now().microsecondsSinceEpoch}.tmp',
-  );
-  try {
-    await temporary.writeAsBytes(bytes, flush: true);
-    await temporary.rename(path);
-  } on Object catch (error) {
-    if (temporary.existsSync()) await temporary.delete();
-    _fail(root, path, 'could not atomically write file: $error');
-  }
-}
-
-Never _fail(String root, String path, String reason) =>
-    throw AppleError('Bundle "${_relative(root, path)}" is invalid: $reason.');

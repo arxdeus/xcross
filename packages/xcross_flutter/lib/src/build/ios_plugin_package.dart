@@ -119,7 +119,9 @@ abstract final class GeneratedPluginsPackage {
             flutterFrameworkSlice: flutterFrameworkSlice,
             toolsetPath: toolsetPath,
             // Windows gets the same override from the toolset's `linker`.
-            linkerPath: Platform.isWindows ? null : await resolveLd64Lld(sdk),
+            linkerPath: Platform.isWindows
+                ? null
+                : await DarwinSdk.resolveLd64Lld(sdk),
           ),
           inheritStdio: Log.isVerbose,
           label: 'swift build',

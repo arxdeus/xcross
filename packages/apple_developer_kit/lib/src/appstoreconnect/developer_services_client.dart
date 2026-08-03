@@ -31,7 +31,7 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
     required Future<Map<String, String>> Function() fetchAnisetteHeaders,
     http.Client? httpClient,
   }) : _fetchAnisetteHeaders = fetchAnisetteHeaders,
-       _http = httpClient ?? createAppleHttpClient();
+       _http = httpClient ?? AppleHttp.createAppleHttpClient();
 
   factory DeveloperServicesClient.fromSession(
     GrandSlamSession session,
@@ -63,7 +63,7 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
   }) async {
     _rejectExpired(token);
     final anisette = await fetchAnisetteHeaders();
-    final client = httpClient ?? createAppleHttpClient();
+    final client = httpClient ?? AppleHttp.createAppleHttpClient();
     try {
       final response = await client.post(
         Uri.parse('$_baseUrl/QH65B2/listTeams.action?clientId=XABBG36SBA'),
@@ -78,7 +78,7 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
           'X-Apple-GS-Token': token.token,
         },
         body: PropertyListSerialization.stringWithPropertyList({
-          'requestId': generateUuidV4(),
+          'requestId': AnisetteState.generateUuidV4(),
           'clientId': 'XABBG36SBA',
           'protocolVersion': 'QH65B2',
           'userLocale': [Platform.localeName],
@@ -90,7 +90,7 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
           '(HTTP ${response.statusCode})',
         );
       }
-      final plist = decodePlist(
+      final plist = GrandSlamResponse.decodePlist(
         response.body,
         context: 'Developer Services list teams response',
       );

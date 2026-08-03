@@ -423,6 +423,460 @@ class MachOSigner {
     final xml = utf8.decode(xmlEntitlements.sublist(8));
     return RegExp(r'<key>get-task-allow</key>\s*<true\s*/>').hasMatch(xml);
   }
+
+  static Uint8List _codeDirectory({
+    required Uint8List code,
+    required int codeLimit,
+    required int execSegmentLimit,
+    required int execSegmentFlags,
+    required String identifier,
+    required String teamIdentifier,
+    required List<Uint8List> specialSlots,
+    required String path,
+  }) {
+    const headerLength = 88;
+    const hashSize = 32;
+    const pageSize = 4096;
+    final identifierBytes = Uint8List.fromList([...utf8.encode(identifier), 0]);
+    final teamBytes = Uint8List.fromList([...utf8.encode(teamIdentifier), 0]);
+    final codeSlots = (codeLimit + pageSize - 1) ~/ pageSize;
+    final hashOffset = _checkedAdd(
+      headerLength + identifierBytes.length + teamBytes.length,
+      specialSlots.length * hashSize,
+      _uint32Max,
+      path,
+      'CodeDirectory.hashOffset',
+    );
+    final length = _checkedAdd(
+      hashOffset,
+      codeSlots * hashSize,
+      _uint32Max,
+      path,
+      'CodeDirectory.length',
+    );
+    final output = Uint8List(length);
+    _setU32be(output, 0, _csMagicCodeDirectory);
+    _setU32be(output, 4, length);
+    _setU32be(output, 8, 0x20400);
+    _setU32be(output, 12, 0);
+    _setU32be(output, 16, hashOffset);
+    _setU32be(output, 20, headerLength);
+    _setU32be(output, 24, specialSlots.length);
+    _setU32be(output, 28, codeSlots);
+    _setU32be(output, 32, codeLimit);
+    output[36] = hashSize;
+    output[37] = 2;
+    output[39] = 12;
+    _setU32be(output, 48, headerLength + identifierBytes.length);
+    _setU64be(output, 64, 0);
+    _setU64be(output, 72, execSegmentLimit);
+    _setU64be(output, 80, execSegmentFlags);
+    output.setRange(
+      headerLength,
+      headerLength + identifierBytes.length,
+      identifierBytes,
+    );
+    output.setRange(
+      headerLength + identifierBytes.length,
+      headerLength + identifierBytes.length + teamBytes.length,
+      teamBytes,
+    );
+    var offset = headerLength + identifierBytes.length + teamBytes.length;
+    for (final hash in specialSlots) {
+      if (hash.length != hashSize) {
+        _fail(
+          path,
+          'CodeDirectory special slot',
+          'SHA-256 hash is not 32 bytes',
+        );
+      }
+      output.setRange(offset, offset + hashSize, hash);
+      offset += hashSize;
+    }
+    for (var slot = 0; slot < codeSlots; slot++) {
+      final start = slot * pageSize;
+      final end = start + pageSize < codeLimit ? start + pageSize : codeLimit;
+      final hash = _sha256(Uint8List.sublistView(code, start, end));
+      output.setRange(
+        hashOffset + slot * hashSize,
+        hashOffset + (slot + 1) * hashSize,
+        hash,
+      );
+    }
+    return output;
+  }
+
+  static Uint8List _requirements(
+    String identifier,
+    String subject,
+    String path,
+  ) {
+    _checkString(subject, 'certificate common name', path);
+    final expression = BytesBuilder(copy: false)
+      ..add(_be32(1))
+      ..add(_be32(6))
+      ..add(_be32(2))
+      ..add(_padded(identifier))
+      ..add(_be32(6))
+      ..add(_be32(15))
+      ..add(_be32(6))
+      ..add(_be32(11))
+      ..add(_be32(0))
+      ..add(_padded('subject.CN'))
+      ..add(_be32(1))
+      ..add(_padded(subject))
+      ..add(_be32(14))
+      ..add(_be32(1))
+      ..add(
+        _paddedBytes(const [
+          0x2a,
+          0x86,
+          0x48,
+          0x86,
+          0xf7,
+          0x63,
+          0x64,
+          0x06,
+          0x02,
+          0x01,
+        ]),
+      )
+      ..add(_be32(0));
+    final expressionBytes = expression.takeBytes();
+    final innerLength = 8 + expressionBytes.length;
+    final totalLength = 20 + innerLength;
+    if (totalLength > _uint32Max) {
+      _fail(path, 'designated requirement length', 'exceeds 32 bits');
+    }
+    return Uint8List.fromList([
+      ..._be32(_csMagicRequirements),
+      ..._be32(totalLength),
+      ..._be32(1),
+      ..._be32(3),
+      ..._be32(20),
+      ..._be32(_csMagicRequirement),
+      ..._be32(innerLength),
+      ...expressionBytes,
+    ]);
+  }
+
+  static Uint8List _entitlementsXml(
+    Map<String, Object?> entitlements,
+    String path,
+  ) {
+    final normalized = _normalizePlist(entitlements, path, 'XML entitlements');
+    try {
+      final xml = PropertyListSerialization.stringWithPropertyList(normalized);
+      return _blob(
+        _csMagicEmbeddedEntitlements,
+        utf8.encode(xml),
+        path,
+        'XML entitlements',
+      );
+    } on AppleError {
+      rethrow;
+    } on Object catch (error) {
+      _fail(path, 'XML entitlements', '$error');
+    }
+  }
+
+  static Object _normalizePlist(Object? value, String path, String field) {
+    if (value is bool || value is int || value is String || value is DateTime) {
+      return value!;
+    }
+    if (value is Uint8List) return ByteData.sublistView(value);
+    if (value is ByteData) {
+      return ByteData.sublistView(
+        Uint8List.fromList(
+          value.buffer.asUint8List(value.offsetInBytes, value.lengthInBytes),
+        ),
+      );
+    }
+    if (value is List<Object?>) {
+      return [
+        for (var index = 0; index < value.length; index++)
+          _normalizePlist(value[index], path, '$field[$index]'),
+      ];
+    }
+    if (value is Map<Object?, Object?>) {
+      final result = SplayTreeMap<String, Object?>(_compareStringsUtf8);
+      for (final entry in value.entries) {
+        if (entry.key is! String) {
+          _fail(path, field, 'contains a non-string map key');
+        }
+        final key = entry.key! as String;
+        result[key] = _normalizePlist(entry.value, path, '$field.$key');
+      }
+      return result;
+    }
+    _fail(path, field, 'unsupported value type ${value.runtimeType}');
+  }
+
+  static Uint8List _derEntitlements(
+    Map<String, Object?> entitlements,
+    String path,
+  ) {
+    final dictionary = _derValue(entitlements, path, 'DER entitlements');
+    final body = Uint8List.fromList([0x02, 0x01, 0x01, ...dictionary]);
+    final raw = _derTlv(0x70, body);
+    return _blob(
+      _csMagicEmbeddedDerEntitlements,
+      raw,
+      path,
+      'DER entitlements',
+    );
+  }
+
+  static Uint8List _derValue(Object? value, String path, String field) {
+    if (value is bool) {
+      return Uint8List.fromList([0x01, 0x01, if (value) 0xff else 0]);
+    }
+    if (value is int) return _derInteger(value, path, field);
+    if (value is String) return _derTlv(0x0c, utf8.encode(value));
+    if (value is Uint8List) return _derTlv(0x04, value);
+    if (value is ByteData) {
+      return _derTlv(
+        0x04,
+        value.buffer.asUint8List(value.offsetInBytes, value.lengthInBytes),
+      );
+    }
+    if (value is DateTime) {
+      final utc = value.toUtc();
+      if (utc.year < 0 || utc.year > 9999) {
+        _fail(path, field, 'date year is outside canonical GeneralizedTime');
+      }
+      String two(int part) => part.toString().padLeft(2, '0');
+      final text =
+          '${utc.year.toString().padLeft(4, '0')}'
+          '${two(utc.month)}${two(utc.day)}${two(utc.hour)}'
+          '${two(utc.minute)}${two(utc.second)}Z';
+      return _derTlv(0x18, ascii.encode(text));
+    }
+    if (value is List<Object?>) {
+      return _derTlv(0x30, [
+        for (var index = 0; index < value.length; index++)
+          ..._derValue(value[index], path, '$field[$index]'),
+      ]);
+    }
+    if (value is Map<Object?, Object?>) {
+      final entries = <({Uint8List key, Object? value})>[];
+      for (final entry in value.entries) {
+        if (entry.key is! String) {
+          _fail(path, field, 'contains a non-string map key');
+        }
+        entries.add((
+          key: Uint8List.fromList(utf8.encode(entry.key! as String)),
+          value: entry.value,
+        ));
+      }
+      entries.sort((left, right) => _compareBytes(left.key, right.key));
+      return _derTlv(0xb0, [
+        for (final entry in entries)
+          ..._derTlv(0x30, [
+            ..._derTlv(0x0c, entry.key),
+            ..._derValue(entry.value, path, '$field.${utf8.decode(entry.key)}'),
+          ]),
+      ]);
+    }
+    _fail(path, field, 'unsupported value type ${value.runtimeType}');
+  }
+
+  static Uint8List _derInteger(int value, String path, String field) {
+    const minimum = -0x8000000000000000;
+    const maximum = 0x7fffffffffffffff;
+    if (value < minimum || value > maximum) {
+      _fail(path, field, 'integer is outside the signed 64-bit plist range');
+    }
+    final bytes = Uint8List(8);
+    var current = value;
+    for (var index = 7; index >= 0; index--) {
+      bytes[index] = current & 0xff;
+      current >>= 8;
+    }
+    var start = 0;
+    while (start < 7 &&
+        ((bytes[start] == 0 && bytes[start + 1] & 0x80 == 0) ||
+            (bytes[start] == 0xff && bytes[start + 1] & 0x80 != 0))) {
+      start++;
+    }
+    return _derTlv(0x02, Uint8List.sublistView(bytes, start));
+  }
+
+  static Uint8List _derTlv(int tag, Iterable<int> value) {
+    final body = value is Uint8List
+        ? value
+        : Uint8List.fromList(value.toList());
+    return Uint8List.fromList([tag, ..._derLength(body.length), ...body]);
+  }
+
+  static List<int> _derLength(int value) {
+    if (value < 128) return [value];
+    final bytes = <int>[];
+    var remaining = value;
+    while (remaining > 0) {
+      bytes.insert(0, remaining & 0xff);
+      remaining >>= 8;
+    }
+    return [0x80 | bytes.length, ...bytes];
+  }
+
+  static Uint8List _blob(
+    int magic,
+    Iterable<int> body,
+    String path,
+    String field,
+  ) {
+    final bytes = body is Uint8List ? body : Uint8List.fromList(body.toList());
+    final length = _checkedAdd(
+      8,
+      bytes.length,
+      _uint32Max,
+      path,
+      '$field length',
+    );
+    return Uint8List.fromList([..._be32(magic), ..._be32(length), ...bytes]);
+  }
+
+  static Uint8List _hashSource({
+    required Uint8List? bytes,
+    required Uint8List? hash,
+    required String field,
+    required String path,
+  }) {
+    if (bytes != null && hash != null) {
+      _fail(path, field, 'provide bytes or a SHA-256 hash, not both');
+    }
+    if (hash != null) {
+      if (hash.length != 32) {
+        _fail(path, field, 'SHA-256 hash must be 32 bytes');
+      }
+      return Uint8List.fromList(hash);
+    }
+    return bytes == null ? Uint8List(32) : _sha256(bytes);
+  }
+
+  static Uint8List _sha256(List<int> bytes) =>
+      Uint8List.fromList(crypto.sha256.convert(bytes).bytes);
+  static Uint8List _padded(String value) => _paddedBytes(utf8.encode(value));
+  static Uint8List _paddedBytes(List<int> value) => Uint8List.fromList([
+    ..._be32(value.length),
+    ...value,
+    ...List<int>.filled((4 - value.length % 4) % 4, 0),
+  ]);
+  static Uint8List _be32(int value) =>
+      Uint8List(4)..buffer.asByteData().setUint32(0, value);
+  static void _checkString(String value, String field, String path) {
+    if (value.isEmpty) _fail(path, field, 'must not be empty');
+    if (value.contains('\u0000')) _fail(path, field, 'must not contain NUL');
+  }
+
+  static int _checkedAdd(
+    int left,
+    int right,
+    int maximum,
+    String path,
+    String field,
+  ) {
+    if (left < 0 || right < 0 || left > maximum - right) {
+      _fail(path, field, 'integer overflow or out-of-bounds range');
+    }
+    return left + right;
+  }
+
+  static int _checkedMultiply(
+    int left,
+    int right,
+    int maximum,
+    String path,
+    String field,
+  ) {
+    if (left < 0 || right < 0 || (left != 0 && right > maximum ~/ left)) {
+      _fail(path, field, 'integer overflow');
+    }
+    return left * right;
+  }
+
+  static int _align(int value, int alignment, String path, String field) {
+    final remainder = value % alignment;
+    return remainder == 0
+        ? value
+        : _checkedAdd(value, alignment - remainder, _uint32Max, path, field);
+  }
+
+  static void _range(
+    Uint8List bytes,
+    int offset,
+    int length,
+    String path,
+    String field,
+  ) {
+    if (offset < 0 || length < 0 || offset > bytes.length - length) {
+      _fail(path, field, 'range is outside the file');
+    }
+  }
+
+  static int _u32le(Uint8List bytes, int offset) =>
+      ByteData.sublistView(bytes).getUint32(offset, Endian.little);
+  static int _u64le(Uint8List bytes, int offset) =>
+      ByteData.sublistView(bytes).getUint64(offset, Endian.little);
+  static void _setU32le(
+    Uint8List bytes,
+    int offset,
+    int value,
+    String path,
+    String field,
+  ) {
+    if (value < 0 || value > _uint32Max) _fail(path, field, 'exceeds 32 bits');
+    _range(bytes, offset, 4, path, field);
+    ByteData.sublistView(bytes).setUint32(offset, value, Endian.little);
+  }
+
+  static void _setU64le(
+    Uint8List bytes,
+    int offset,
+    int value,
+    String path,
+    String field,
+  ) {
+    if (value < 0) _fail(path, field, 'must not be negative');
+    _range(bytes, offset, 8, path, field);
+    ByteData.sublistView(bytes).setUint64(offset, value, Endian.little);
+  }
+
+  static void _setU32be(Uint8List bytes, int offset, int value) =>
+      ByteData.sublistView(bytes).setUint32(offset, value);
+  static void _setU64be(Uint8List bytes, int offset, int value) =>
+      ByteData.sublistView(bytes).setUint64(offset, value);
+  static String _fixedString(
+    Uint8List bytes,
+    int offset,
+    int length,
+    String path,
+    String field,
+  ) {
+    _range(bytes, offset, length, path, field);
+    final fieldBytes = Uint8List.sublistView(bytes, offset, offset + length);
+    final nul = fieldBytes.indexOf(0);
+    try {
+      return ascii.decode(nul < 0 ? fieldBytes : fieldBytes.sublist(0, nul));
+    } on FormatException {
+      _fail(path, field, 'is not ASCII');
+    }
+  }
+
+  static int _compareStringsUtf8(String left, String right) =>
+      _compareBytes(utf8.encode(left), utf8.encode(right));
+  static int _compareBytes(List<int> left, List<int> right) {
+    final length = left.length < right.length ? left.length : right.length;
+    for (var index = 0; index < length; index++) {
+      final comparison = left[index].compareTo(right[index]);
+      if (comparison != 0) return comparison;
+    }
+    return left.length.compareTo(right.length);
+  }
+
+  static Never _fail(String path, String field, String reason) =>
+      throw AppleError('Mach-O "$path" has invalid $field: $reason.');
 }
 
 class _MachO {
@@ -457,28 +911,36 @@ class _MachO {
   final int signatureDataSize;
 
   factory _MachO.parse(Uint8List bytes, String path) {
-    if (bytes.length < 4) _fail(path, 'magic', 'file is truncated');
-    final magic = _u32le(bytes, 0);
+    if (bytes.length < 4) MachOSigner._fail(path, 'magic', 'file is truncated');
+    final magic = MachOSigner._u32le(bytes, 0);
     if (magic == _fatMagic || magic == _fatCigam) {
-      _fail(path, 'magic', 'FAT Mach-O files are unsupported');
+      MachOSigner._fail(path, 'magic', 'FAT Mach-O files are unsupported');
     }
     if (magic == _mhMagic || magic == _mhCigam) {
-      _fail(path, 'magic', '32-bit Mach-O files are unsupported');
+      MachOSigner._fail(path, 'magic', '32-bit Mach-O files are unsupported');
     }
     if (magic == _mhCigam64) {
-      _fail(path, 'magic', 'big-endian Mach-O files are unsupported');
+      MachOSigner._fail(
+        path,
+        'magic',
+        'big-endian Mach-O files are unsupported',
+      );
     }
     if (magic != _mhMagic64) {
-      _fail(path, 'magic', 'not a 64-bit little-endian Mach-O');
+      MachOSigner._fail(path, 'magic', 'not a 64-bit little-endian Mach-O');
     }
-    _range(bytes, 0, 32, path, 'mach_header_64');
-    if (_u32le(bytes, 4) != _cpuTypeArm64) {
-      _fail(path, 'mach_header_64.cputype', 'only ARM64 is supported');
+    MachOSigner._range(bytes, 0, 32, path, 'mach_header_64');
+    if (MachOSigner._u32le(bytes, 4) != _cpuTypeArm64) {
+      MachOSigner._fail(
+        path,
+        'mach_header_64.cputype',
+        'only ARM64 is supported',
+      );
     }
-    final fileType = _u32le(bytes, 12);
-    final ncmds = _u32le(bytes, 16);
-    final sizeofcmds = _u32le(bytes, 20);
-    final commandsEnd = _checkedAdd(
+    final fileType = MachOSigner._u32le(bytes, 12);
+    final ncmds = MachOSigner._u32le(bytes, 16);
+    final sizeofcmds = MachOSigner._u32le(bytes, 20);
+    final commandsEnd = MachOSigner._checkedAdd(
       32,
       sizeofcmds,
       bytes.length,
@@ -486,7 +948,11 @@ class _MachO {
       'mach_header_64.sizeofcmds',
     );
     if (ncmds > sizeofcmds ~/ 8) {
-      _fail(path, 'mach_header_64.ncmds', 'cannot fit in sizeofcmds');
+      MachOSigner._fail(
+        path,
+        'mach_header_64.ncmds',
+        'cannot fit in sizeofcmds',
+      );
     }
 
     var command = 32;
@@ -503,13 +969,17 @@ class _MachO {
     var signatureDataOffset = 0;
     var signatureDataSize = 0;
     for (var index = 0; index < ncmds; index++) {
-      _range(bytes, command, 8, path, 'load command $index');
-      final cmd = _u32le(bytes, command);
-      final cmdsize = _u32le(bytes, command + 4);
+      MachOSigner._range(bytes, command, 8, path, 'load command $index');
+      final cmd = MachOSigner._u32le(bytes, command);
+      final cmdsize = MachOSigner._u32le(bytes, command + 4);
       if (cmdsize < 8 || !cmdsize.isEven || cmdsize % 8 != 0) {
-        _fail(path, 'load command $index.cmdsize', 'must be 8-byte aligned');
+        MachOSigner._fail(
+          path,
+          'load command $index.cmdsize',
+          'must be 8-byte aligned',
+        );
       }
-      final next = _checkedAdd(
+      final next = MachOSigner._checkedAdd(
         command,
         cmdsize,
         commandsEnd,
@@ -517,21 +987,21 @@ class _MachO {
         'load command $index.cmdsize',
       );
       if (cmd == _lcSegment) {
-        _fail(
+        MachOSigner._fail(
           path,
           'load command $index.cmd',
           '32-bit segments are unsupported',
         );
       } else if (cmd == _lcSegment64) {
         if (cmdsize < 72) {
-          _fail(
+          MachOSigner._fail(
             path,
             'load command $index.cmdsize',
             'segment_command_64 is truncated',
           );
         }
-        final nsects = _u32le(bytes, command + 64);
-        final sectionsSize = _checkedMultiply(
+        final nsects = MachOSigner._u32le(bytes, command + 64);
+        final sectionsSize = MachOSigner._checkedMultiply(
           nsects,
           80,
           _uint32Max,
@@ -539,16 +1009,26 @@ class _MachO {
           'segment_command_64.nsects',
         );
         if (cmdsize != 72 + sectionsSize) {
-          _fail(path, 'segment_command_64.cmdsize', 'does not match nsects');
+          MachOSigner._fail(
+            path,
+            'segment_command_64.cmdsize',
+            'does not match nsects',
+          );
         }
-        final name = _fixedString(bytes, command + 8, 16, path, 'segment name');
-        final vmSize = _u64le(bytes, command + 32);
-        final fileOffset = _u64le(bytes, command + 40);
-        final fileSize = _u64le(bytes, command + 48);
+        final name = MachOSigner._fixedString(
+          bytes,
+          command + 8,
+          16,
+          path,
+          'segment name',
+        );
+        final vmSize = MachOSigner._u64le(bytes, command + 32);
+        final fileOffset = MachOSigner._u64le(bytes, command + 40);
+        final fileSize = MachOSigner._u64le(bytes, command + 48);
         if (vmSize < fileSize) {
-          _fail(path, '$name.vmsize', 'is smaller than filesize');
+          MachOSigner._fail(path, '$name.vmsize', 'is smaller than filesize');
         }
-        final segmentEnd = _checkedAdd(
+        final segmentEnd = MachOSigner._checkedAdd(
           fileOffset,
           fileSize,
           bytes.length,
@@ -557,12 +1037,12 @@ class _MachO {
         );
         if (name == '__TEXT') {
           if (textCommand != null) {
-            _fail(path, '__TEXT', 'segment is duplicated');
+            MachOSigner._fail(path, '__TEXT', 'segment is duplicated');
           }
           textCommand = command;
           textVmSize = vmSize;
           if (fileOffset != 0 || commandsEnd > segmentEnd) {
-            _fail(
+            MachOSigner._fail(
               path,
               '__TEXT file range',
               'does not contain the Mach-O header',
@@ -570,10 +1050,14 @@ class _MachO {
           }
         } else if (name == '__LINKEDIT') {
           if (linkeditCommand != null) {
-            _fail(path, '__LINKEDIT', 'segment is duplicated');
+            MachOSigner._fail(path, '__LINKEDIT', 'segment is duplicated');
           }
           if (fileOffset % 4096 != 0) {
-            _fail(path, '__LINKEDIT file offset', 'must be 4096-byte aligned');
+            MachOSigner._fail(
+              path,
+              '__LINKEDIT file offset',
+              'must be 4096-byte aligned',
+            );
           }
           linkeditCommand = command;
           linkeditFileOffset = fileOffset;
@@ -585,20 +1069,20 @@ class _MachO {
         }
         for (var sectionIndex = 0; sectionIndex < nsects; sectionIndex++) {
           final section = command + 72 + sectionIndex * 80;
-          final sectionName = _fixedString(
+          final sectionName = MachOSigner._fixedString(
             bytes,
             section,
             16,
             path,
             '$name section $sectionIndex name',
           );
-          final sectionSize = _u64le(bytes, section + 40);
-          final sectionOffset = _u32le(bytes, section + 48);
-          final sectionType = _u32le(bytes, section + 64) & 0xff;
+          final sectionSize = MachOSigner._u64le(bytes, section + 40);
+          final sectionOffset = MachOSigner._u32le(bytes, section + 48);
+          final sectionType = MachOSigner._u32le(bytes, section + 64) & 0xff;
           final zeroFill =
               sectionType == 1 || sectionType == 0x0c || sectionType == 0x12;
           if (!zeroFill && sectionSize > 0) {
-            final sectionEnd = _checkedAdd(
+            final sectionEnd = MachOSigner._checkedAdd(
               sectionOffset,
               sectionSize,
               bytes.length,
@@ -606,7 +1090,11 @@ class _MachO {
               '$name.$sectionName range',
             );
             if (sectionOffset < fileOffset || sectionEnd > segmentEnd) {
-              _fail(path, '$name.$sectionName range', 'is outside its segment');
+              MachOSigner._fail(
+                path,
+                '$name.$sectionName range',
+                'is outside its segment',
+              );
             }
             if (sectionOffset > 0 &&
                 (firstFileSectionOffset == null ||
@@ -616,7 +1104,7 @@ class _MachO {
           }
           if (name == '__TEXT' && sectionName == '__text') {
             if (textSectionOffset != null) {
-              _fail(path, '__TEXT.__text', 'section is duplicated');
+              MachOSigner._fail(path, '__TEXT.__text', 'section is duplicated');
             }
             textSectionOffset = sectionOffset;
           }
@@ -624,10 +1112,14 @@ class _MachO {
       } else if (cmd == _lcEncryptionInfo || cmd == _lcEncryptionInfo64) {
         final expected = cmd == _lcEncryptionInfo ? 20 : 24;
         if (cmdsize != expected) {
-          _fail(path, 'encryption command cmdsize', 'expected $expected');
+          MachOSigner._fail(
+            path,
+            'encryption command cmdsize',
+            'expected $expected',
+          );
         }
-        if (_u32le(bytes, command + 16) != 0) {
-          _fail(
+        if (MachOSigner._u32le(bytes, command + 16) != 0) {
+          MachOSigner._fail(
             path,
             'encryption command cryptid',
             'encrypted binaries are unsupported',
@@ -635,31 +1127,35 @@ class _MachO {
         }
       } else if (cmd == _lcCodeSignature) {
         if (signatureCommand != null) {
-          _fail(path, 'LC_CODE_SIGNATURE', 'command is duplicated');
+          MachOSigner._fail(path, 'LC_CODE_SIGNATURE', 'command is duplicated');
         }
         if (cmdsize != 16) {
-          _fail(path, 'LC_CODE_SIGNATURE.cmdsize', 'must be 16');
+          MachOSigner._fail(path, 'LC_CODE_SIGNATURE.cmdsize', 'must be 16');
         }
         signatureCommand = command;
-        signatureDataOffset = _u32le(bytes, command + 8);
-        signatureDataSize = _u32le(bytes, command + 12);
+        signatureDataOffset = MachOSigner._u32le(bytes, command + 8);
+        signatureDataSize = MachOSigner._u32le(bytes, command + 12);
       }
       command = next;
     }
     if (command != commandsEnd) {
-      _fail(
+      MachOSigner._fail(
         path,
         'mach_header_64.sizeofcmds',
         'does not equal load-command sizes',
       );
     }
     if (textCommand == null || textSectionOffset == null) {
-      _fail(path, '__TEXT.__text', 'required section is missing');
+      MachOSigner._fail(path, '__TEXT.__text', 'required section is missing');
     }
     if (linkeditCommand == null) {
-      _fail(path, '__LINKEDIT', 'required terminal segment is missing');
+      MachOSigner._fail(
+        path,
+        '__LINKEDIT',
+        'required terminal segment is missing',
+      );
     }
-    final linkeditEnd = _checkedAdd(
+    final linkeditEnd = MachOSigner._checkedAdd(
       linkeditFileOffset,
       linkeditFileSize,
       bytes.length,
@@ -668,14 +1164,22 @@ class _MachO {
     );
     if (linkeditEnd != bytes.length ||
         greatestNonLinkeditEnd > linkeditFileOffset) {
-      _fail(path, '__LINKEDIT file range', 'segment is not terminal');
+      MachOSigner._fail(
+        path,
+        '__LINKEDIT file range',
+        'segment is not terminal',
+      );
     }
     final firstSection = firstFileSectionOffset ?? textSectionOffset;
     if (firstSection < commandsEnd) {
-      _fail(path, 'load-command slack', 'overlaps file-backed section data');
+      MachOSigner._fail(
+        path,
+        'load-command slack',
+        'overlaps file-backed section data',
+      );
     }
     if (signatureCommand == null && firstSection - commandsEnd < 16) {
-      _fail(
+      MachOSigner._fail(
         path,
         'load-command slack',
         'needs 16 bytes for LC_CODE_SIGNATURE, found '
@@ -684,7 +1188,7 @@ class _MachO {
     }
     if (signatureCommand != null) {
       if (signatureDataOffset % 16 != 0 || signatureDataSize % 16 != 0) {
-        _fail(
+        MachOSigner._fail(
           path,
           'LC_CODE_SIGNATURE alignment',
           'offset and size must be 16-byte aligned',
@@ -692,9 +1196,13 @@ class _MachO {
       }
       if (signatureDataOffset < commandsEnd ||
           signatureDataOffset < linkeditFileOffset) {
-        _fail(path, 'LC_CODE_SIGNATURE.dataoff', 'overlaps non-signature data');
+        MachOSigner._fail(
+          path,
+          'LC_CODE_SIGNATURE.dataoff',
+          'overlaps non-signature data',
+        );
       }
-      final signatureEnd = _checkedAdd(
+      final signatureEnd = MachOSigner._checkedAdd(
         signatureDataOffset,
         signatureDataSize,
         bytes.length,
@@ -702,10 +1210,14 @@ class _MachO {
         'LC_CODE_SIGNATURE data range',
       );
       if (signatureEnd != bytes.length) {
-        _fail(path, 'LC_CODE_SIGNATURE data range', 'must be terminal');
+        MachOSigner._fail(
+          path,
+          'LC_CODE_SIGNATURE data range',
+          'must be terminal',
+        );
       }
     } else {
-      signatureDataOffset = _align(
+      signatureDataOffset = MachOSigner._align(
         bytes.length,
         16,
         path,
@@ -729,435 +1241,6 @@ class _MachO {
     );
   }
 }
-
-Uint8List _codeDirectory({
-  required Uint8List code,
-  required int codeLimit,
-  required int execSegmentLimit,
-  required int execSegmentFlags,
-  required String identifier,
-  required String teamIdentifier,
-  required List<Uint8List> specialSlots,
-  required String path,
-}) {
-  const headerLength = 88;
-  const hashSize = 32;
-  const pageSize = 4096;
-  final identifierBytes = Uint8List.fromList([...utf8.encode(identifier), 0]);
-  final teamBytes = Uint8List.fromList([...utf8.encode(teamIdentifier), 0]);
-  final codeSlots = (codeLimit + pageSize - 1) ~/ pageSize;
-  final hashOffset = _checkedAdd(
-    headerLength + identifierBytes.length + teamBytes.length,
-    specialSlots.length * hashSize,
-    _uint32Max,
-    path,
-    'CodeDirectory.hashOffset',
-  );
-  final length = _checkedAdd(
-    hashOffset,
-    codeSlots * hashSize,
-    _uint32Max,
-    path,
-    'CodeDirectory.length',
-  );
-  final output = Uint8List(length);
-  _setU32be(output, 0, _csMagicCodeDirectory);
-  _setU32be(output, 4, length);
-  _setU32be(output, 8, 0x20400);
-  _setU32be(output, 12, 0);
-  _setU32be(output, 16, hashOffset);
-  _setU32be(output, 20, headerLength);
-  _setU32be(output, 24, specialSlots.length);
-  _setU32be(output, 28, codeSlots);
-  _setU32be(output, 32, codeLimit);
-  output[36] = hashSize;
-  output[37] = 2;
-  output[39] = 12;
-  _setU32be(output, 48, headerLength + identifierBytes.length);
-  _setU64be(output, 64, 0);
-  _setU64be(output, 72, execSegmentLimit);
-  _setU64be(output, 80, execSegmentFlags);
-  output.setRange(
-    headerLength,
-    headerLength + identifierBytes.length,
-    identifierBytes,
-  );
-  output.setRange(
-    headerLength + identifierBytes.length,
-    headerLength + identifierBytes.length + teamBytes.length,
-    teamBytes,
-  );
-  var offset = headerLength + identifierBytes.length + teamBytes.length;
-  for (final hash in specialSlots) {
-    if (hash.length != hashSize) {
-      _fail(path, 'CodeDirectory special slot', 'SHA-256 hash is not 32 bytes');
-    }
-    output.setRange(offset, offset + hashSize, hash);
-    offset += hashSize;
-  }
-  for (var slot = 0; slot < codeSlots; slot++) {
-    final start = slot * pageSize;
-    final end = start + pageSize < codeLimit ? start + pageSize : codeLimit;
-    final hash = _sha256(Uint8List.sublistView(code, start, end));
-    output.setRange(
-      hashOffset + slot * hashSize,
-      hashOffset + (slot + 1) * hashSize,
-      hash,
-    );
-  }
-  return output;
-}
-
-Uint8List _requirements(String identifier, String subject, String path) {
-  _checkString(subject, 'certificate common name', path);
-  final expression = BytesBuilder(copy: false)
-    ..add(_be32(1))
-    ..add(_be32(6))
-    ..add(_be32(2))
-    ..add(_padded(identifier))
-    ..add(_be32(6))
-    ..add(_be32(15))
-    ..add(_be32(6))
-    ..add(_be32(11))
-    ..add(_be32(0))
-    ..add(_padded('subject.CN'))
-    ..add(_be32(1))
-    ..add(_padded(subject))
-    ..add(_be32(14))
-    ..add(_be32(1))
-    ..add(
-      _paddedBytes(const [
-        0x2a,
-        0x86,
-        0x48,
-        0x86,
-        0xf7,
-        0x63,
-        0x64,
-        0x06,
-        0x02,
-        0x01,
-      ]),
-    )
-    ..add(_be32(0));
-  final expressionBytes = expression.takeBytes();
-  final innerLength = 8 + expressionBytes.length;
-  final totalLength = 20 + innerLength;
-  if (totalLength > _uint32Max) {
-    _fail(path, 'designated requirement length', 'exceeds 32 bits');
-  }
-  return Uint8List.fromList([
-    ..._be32(_csMagicRequirements),
-    ..._be32(totalLength),
-    ..._be32(1),
-    ..._be32(3),
-    ..._be32(20),
-    ..._be32(_csMagicRequirement),
-    ..._be32(innerLength),
-    ...expressionBytes,
-  ]);
-}
-
-Uint8List _entitlementsXml(Map<String, Object?> entitlements, String path) {
-  final normalized = _normalizePlist(entitlements, path, 'XML entitlements');
-  try {
-    final xml = PropertyListSerialization.stringWithPropertyList(normalized);
-    return _blob(
-      _csMagicEmbeddedEntitlements,
-      utf8.encode(xml),
-      path,
-      'XML entitlements',
-    );
-  } on AppleError {
-    rethrow;
-  } on Object catch (error) {
-    _fail(path, 'XML entitlements', '$error');
-  }
-}
-
-Object _normalizePlist(Object? value, String path, String field) {
-  if (value is bool || value is int || value is String || value is DateTime) {
-    return value!;
-  }
-  if (value is Uint8List) return ByteData.sublistView(value);
-  if (value is ByteData) {
-    return ByteData.sublistView(
-      Uint8List.fromList(
-        value.buffer.asUint8List(value.offsetInBytes, value.lengthInBytes),
-      ),
-    );
-  }
-  if (value is List<Object?>) {
-    return [
-      for (var index = 0; index < value.length; index++)
-        _normalizePlist(value[index], path, '$field[$index]'),
-    ];
-  }
-  if (value is Map<Object?, Object?>) {
-    final result = SplayTreeMap<String, Object?>(_compareStringsUtf8);
-    for (final entry in value.entries) {
-      if (entry.key is! String) {
-        _fail(path, field, 'contains a non-string map key');
-      }
-      final key = entry.key! as String;
-      result[key] = _normalizePlist(entry.value, path, '$field.$key');
-    }
-    return result;
-  }
-  _fail(path, field, 'unsupported value type ${value.runtimeType}');
-}
-
-Uint8List _derEntitlements(Map<String, Object?> entitlements, String path) {
-  final dictionary = _derValue(entitlements, path, 'DER entitlements');
-  final body = Uint8List.fromList([0x02, 0x01, 0x01, ...dictionary]);
-  final raw = _derTlv(0x70, body);
-  return _blob(_csMagicEmbeddedDerEntitlements, raw, path, 'DER entitlements');
-}
-
-Uint8List _derValue(Object? value, String path, String field) {
-  if (value is bool) {
-    return Uint8List.fromList([0x01, 0x01, if (value) 0xff else 0]);
-  }
-  if (value is int) return _derInteger(value, path, field);
-  if (value is String) return _derTlv(0x0c, utf8.encode(value));
-  if (value is Uint8List) return _derTlv(0x04, value);
-  if (value is ByteData) {
-    return _derTlv(
-      0x04,
-      value.buffer.asUint8List(value.offsetInBytes, value.lengthInBytes),
-    );
-  }
-  if (value is DateTime) {
-    final utc = value.toUtc();
-    if (utc.year < 0 || utc.year > 9999) {
-      _fail(path, field, 'date year is outside canonical GeneralizedTime');
-    }
-    String two(int part) => part.toString().padLeft(2, '0');
-    final text =
-        '${utc.year.toString().padLeft(4, '0')}'
-        '${two(utc.month)}${two(utc.day)}${two(utc.hour)}'
-        '${two(utc.minute)}${two(utc.second)}Z';
-    return _derTlv(0x18, ascii.encode(text));
-  }
-  if (value is List<Object?>) {
-    return _derTlv(0x30, [
-      for (var index = 0; index < value.length; index++)
-        ..._derValue(value[index], path, '$field[$index]'),
-    ]);
-  }
-  if (value is Map<Object?, Object?>) {
-    final entries = <({Uint8List key, Object? value})>[];
-    for (final entry in value.entries) {
-      if (entry.key is! String) {
-        _fail(path, field, 'contains a non-string map key');
-      }
-      entries.add((
-        key: Uint8List.fromList(utf8.encode(entry.key! as String)),
-        value: entry.value,
-      ));
-    }
-    entries.sort((left, right) => _compareBytes(left.key, right.key));
-    return _derTlv(0xb0, [
-      for (final entry in entries)
-        ..._derTlv(0x30, [
-          ..._derTlv(0x0c, entry.key),
-          ..._derValue(entry.value, path, '$field.${utf8.decode(entry.key)}'),
-        ]),
-    ]);
-  }
-  _fail(path, field, 'unsupported value type ${value.runtimeType}');
-}
-
-Uint8List _derInteger(int value, String path, String field) {
-  const minimum = -0x8000000000000000;
-  const maximum = 0x7fffffffffffffff;
-  if (value < minimum || value > maximum) {
-    _fail(path, field, 'integer is outside the signed 64-bit plist range');
-  }
-  final bytes = Uint8List(8);
-  var current = value;
-  for (var index = 7; index >= 0; index--) {
-    bytes[index] = current & 0xff;
-    current >>= 8;
-  }
-  var start = 0;
-  while (start < 7 &&
-      ((bytes[start] == 0 && bytes[start + 1] & 0x80 == 0) ||
-          (bytes[start] == 0xff && bytes[start + 1] & 0x80 != 0))) {
-    start++;
-  }
-  return _derTlv(0x02, Uint8List.sublistView(bytes, start));
-}
-
-Uint8List _derTlv(int tag, Iterable<int> value) {
-  final body = value is Uint8List ? value : Uint8List.fromList(value.toList());
-  return Uint8List.fromList([tag, ..._derLength(body.length), ...body]);
-}
-
-List<int> _derLength(int value) {
-  if (value < 128) return [value];
-  final bytes = <int>[];
-  var remaining = value;
-  while (remaining > 0) {
-    bytes.insert(0, remaining & 0xff);
-    remaining >>= 8;
-  }
-  return [0x80 | bytes.length, ...bytes];
-}
-
-Uint8List _blob(int magic, Iterable<int> body, String path, String field) {
-  final bytes = body is Uint8List ? body : Uint8List.fromList(body.toList());
-  final length = _checkedAdd(
-    8,
-    bytes.length,
-    _uint32Max,
-    path,
-    '$field length',
-  );
-  return Uint8List.fromList([..._be32(magic), ..._be32(length), ...bytes]);
-}
-
-Uint8List _hashSource({
-  required Uint8List? bytes,
-  required Uint8List? hash,
-  required String field,
-  required String path,
-}) {
-  if (bytes != null && hash != null) {
-    _fail(path, field, 'provide bytes or a SHA-256 hash, not both');
-  }
-  if (hash != null) {
-    if (hash.length != 32) _fail(path, field, 'SHA-256 hash must be 32 bytes');
-    return Uint8List.fromList(hash);
-  }
-  return bytes == null ? Uint8List(32) : _sha256(bytes);
-}
-
-Uint8List _sha256(List<int> bytes) =>
-    Uint8List.fromList(crypto.sha256.convert(bytes).bytes);
-
-Uint8List _padded(String value) => _paddedBytes(utf8.encode(value));
-
-Uint8List _paddedBytes(List<int> value) => Uint8List.fromList([
-  ..._be32(value.length),
-  ...value,
-  ...List<int>.filled((4 - value.length % 4) % 4, 0),
-]);
-
-Uint8List _be32(int value) =>
-    Uint8List(4)..buffer.asByteData().setUint32(0, value);
-
-void _checkString(String value, String field, String path) {
-  if (value.isEmpty) _fail(path, field, 'must not be empty');
-  if (value.contains('\u0000')) _fail(path, field, 'must not contain NUL');
-}
-
-int _checkedAdd(int left, int right, int maximum, String path, String field) {
-  if (left < 0 || right < 0 || left > maximum - right) {
-    _fail(path, field, 'integer overflow or out-of-bounds range');
-  }
-  return left + right;
-}
-
-int _checkedMultiply(
-  int left,
-  int right,
-  int maximum,
-  String path,
-  String field,
-) {
-  if (left < 0 || right < 0 || (left != 0 && right > maximum ~/ left)) {
-    _fail(path, field, 'integer overflow');
-  }
-  return left * right;
-}
-
-int _align(int value, int alignment, String path, String field) {
-  final remainder = value % alignment;
-  return remainder == 0
-      ? value
-      : _checkedAdd(value, alignment - remainder, _uint32Max, path, field);
-}
-
-void _range(
-  Uint8List bytes,
-  int offset,
-  int length,
-  String path,
-  String field,
-) {
-  if (offset < 0 || length < 0 || offset > bytes.length - length) {
-    _fail(path, field, 'range is outside the file');
-  }
-}
-
-int _u32le(Uint8List bytes, int offset) =>
-    ByteData.sublistView(bytes).getUint32(offset, Endian.little);
-
-int _u64le(Uint8List bytes, int offset) =>
-    ByteData.sublistView(bytes).getUint64(offset, Endian.little);
-
-void _setU32le(
-  Uint8List bytes,
-  int offset,
-  int value,
-  String path,
-  String field,
-) {
-  if (value < 0 || value > _uint32Max) _fail(path, field, 'exceeds 32 bits');
-  _range(bytes, offset, 4, path, field);
-  ByteData.sublistView(bytes).setUint32(offset, value, Endian.little);
-}
-
-void _setU64le(
-  Uint8List bytes,
-  int offset,
-  int value,
-  String path,
-  String field,
-) {
-  if (value < 0) _fail(path, field, 'must not be negative');
-  _range(bytes, offset, 8, path, field);
-  ByteData.sublistView(bytes).setUint64(offset, value, Endian.little);
-}
-
-void _setU32be(Uint8List bytes, int offset, int value) =>
-    ByteData.sublistView(bytes).setUint32(offset, value);
-
-void _setU64be(Uint8List bytes, int offset, int value) =>
-    ByteData.sublistView(bytes).setUint64(offset, value);
-
-String _fixedString(
-  Uint8List bytes,
-  int offset,
-  int length,
-  String path,
-  String field,
-) {
-  _range(bytes, offset, length, path, field);
-  final fieldBytes = Uint8List.sublistView(bytes, offset, offset + length);
-  final nul = fieldBytes.indexOf(0);
-  try {
-    return ascii.decode(nul < 0 ? fieldBytes : fieldBytes.sublist(0, nul));
-  } on FormatException {
-    _fail(path, field, 'is not ASCII');
-  }
-}
-
-int _compareStringsUtf8(String left, String right) =>
-    _compareBytes(utf8.encode(left), utf8.encode(right));
-
-int _compareBytes(List<int> left, List<int> right) {
-  final length = left.length < right.length ? left.length : right.length;
-  for (var index = 0; index < length; index++) {
-    final comparison = left[index].compareTo(right[index]);
-    if (comparison != 0) return comparison;
-  }
-  return left.length.compareTo(right.length);
-}
-
-Never _fail(String path, String field, String reason) =>
-    throw AppleError('Mach-O "$path" has invalid $field: $reason.');
 
 const _uint32Max = 0xffffffff;
 const _fatMagic = 0xcafebabe;

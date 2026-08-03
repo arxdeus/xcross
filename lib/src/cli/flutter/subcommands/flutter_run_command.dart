@@ -55,9 +55,10 @@ class FlutterRunArgs extends CommonFlutterArgs {
 /// `-d/--device-id`, `-D/--dart-define`, `--dart-define-from-file`,
 /// `--[no-]pub`, `--route`, `-a/--dart-entrypoint-args`, `--device-connection`,
 /// `--flavor`).
-bool shouldUseCoreDevice(int? osMajor) => osMajor == null || osMajor >= 17;
-
 class FlutterRunCommand extends _$FlutterRunArgsCommand<void> {
+  static bool shouldUseCoreDevice(int? osMajor) =>
+      osMajor == null || osMajor >= 17;
+
   @override
   String get name => 'run';
 

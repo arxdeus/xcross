@@ -150,10 +150,10 @@ class SetupCommand extends Command<void> {
     Log.logDone('Windows requirements found');
   }
 
-  /// PATH lookup that refuses swiftly's `ld64.lld` shim — see [resolveLd64Lld]
-  /// for why that one cannot link iOS.
+  /// PATH lookup that refuses swiftly's `ld64.lld` shim — see
+  /// [DarwinSdk.resolveLd64Lld] for why that one cannot link iOS.
   static Future<String?> _locate(String tool) => ProcessRunner.which(
     tool,
-    accept: tool == 'ld64.lld' ? usableLd64Lld : null,
+    accept: tool == 'ld64.lld' ? DarwinSdk.usableLd64Lld : null,
   );
 }
