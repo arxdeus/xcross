@@ -3,14 +3,13 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:cli_kit/cli_kit.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:standard_message_codec/standard_message_codec.dart';
-
 import 'package:xcross_flutter/src/build/ios_engine_cache.dart';
 import 'package:xcross_flutter/src/constants.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
-import 'package:xcross_flutter/src/models/pubspec_info.dart';
 import 'package:xcross_flutter/src/errors.dart';
+import 'package:xcross_flutter/src/models/pubspec_info.dart';
 import 'package:xcross_flutter/src/package_uris.dart';
 
 /// Assembles `App.framework` (debug/JIT mode) for a Flutter iOS app without
@@ -214,7 +213,9 @@ class FlutterDebugBundler {
     }
     final runtimeExists = File(runtime).existsSync();
     if (!runtimeExists) {
-      throw FlutterBuildError('FlutterDebugBundler: $runtimeName not at $runtime');
+      throw FlutterBuildError(
+        'FlutterDebugBundler: $runtimeName not at $runtime',
+      );
     }
     final platformDillExists = File(
       p.join(engineCache.patchedSdkRoot, 'platform_strong.dill'),
@@ -259,7 +260,9 @@ class FlutterDebugBundler {
       if (entry.endsWith('/')) {
         final dir = Directory(p.join(projectRoot, entry));
         if (!dir.existsSync()) {
-          throw FlutterBuildError('pubspec.yaml: asset directory not found: $entry');
+          throw FlutterBuildError(
+            'pubspec.yaml: asset directory not found: $entry',
+          );
         }
         // Non-recursive, matching flutter_tools' folder-entry semantics.
         for (final file in dir.listSync().whereType<File>()) {

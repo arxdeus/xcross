@@ -20,11 +20,7 @@ Future<void> runDapSession({
   Stream<List<int>>? input,
   StreamSink<List<int>>? output,
 }) {
-  return _DapRouter(
-    input ?? stdin,
-    output ?? stdout,
-    startXcross,
-  ).run();
+  return _DapRouter(input ?? stdin, output ?? stdout, startXcross).run();
 }
 
 class _DapRouter {
@@ -76,11 +72,13 @@ class _DapRouter {
         if (buffered.isNotEmpty) _rest.add(buffered);
         // stdin onDone closes _rest later; keep it open for live bytes.
         unawaited(
-          _handoff(msg).then((_) {
-            if (!_done.isCompleted) _done.complete();
-          }).catchError((Object e, StackTrace st) {
-            if (!_done.isCompleted) _done.completeError(e, st);
-          }),
+          _handoff(msg)
+              .then((_) {
+                if (!_done.isCompleted) _done.complete();
+              })
+              .catchError((Object e, StackTrace st) {
+                if (!_done.isCompleted) _done.completeError(e, st);
+              }),
         );
         return;
       }
@@ -166,11 +164,7 @@ class _DapRouter {
         'supportsEvaluateForHovers': true,
         'supportsLogPoints': true,
         'exceptionBreakpointFilters': [
-          {
-            'filter': 'All',
-            'label': 'All Exceptions',
-            'default': false,
-          },
+          {'filter': 'All', 'label': 'All Exceptions', 'default': false},
           {
             'filter': 'Unhandled',
             'label': 'Uncaught Exceptions',
@@ -187,9 +181,9 @@ class _DapRouter {
       final bps = args is Map<Object?, Object?> ? args['breakpoints'] : null;
       final lines = bps is List
           ? bps
-              .whereType<Map<Object?, Object?>>()
-              .map((b) => {'verified': false, 'line': b['line']})
-              .toList()
+                .whereType<Map<Object?, Object?>>()
+                .map((b) => {'verified': false, 'line': b['line']})
+                .toList()
           : const <Map<String, Object?>>[];
       body = {'breakpoints': lines};
     }

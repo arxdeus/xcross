@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:crypto/crypto.dart' as crypto;
 import 'package:apple_developer_kit/src/grandslam/anisette/anisette_state.dart';
+import 'package:crypto/crypto.dart' as crypto;
 
 /// Cross-validated client identity used by Dadoum/Provision and xtool's
 /// XADIProvider. It is intentionally stable rather than real host hardware.

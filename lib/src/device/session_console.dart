@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
-import 'package:xcross/src/constants.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:xcross/src/constants.dart';
 import 'package:xcross_flutter/xcross_flutter.dart';
 
 /// Interactive terminal session for an attached app: streams the app's stdout,

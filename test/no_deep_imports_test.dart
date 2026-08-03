@@ -26,10 +26,10 @@ void main() {
         if (!file.path.endsWith('.dart')) continue;
         final text = file.readAsStringSync();
         for (final pkg in packages) {
-          final needle = "package:$pkg/src/";
+          final needle = 'package:$pkg/src/';
           if (!text.contains(needle)) continue;
           // Allowed only inside the owning package.
-          final normalized = file.path.replaceAll('\\', '/');
+          final normalized = file.path.replaceAll(r'\', '/');
           final ownerPrefix = 'packages/$pkg/';
           if (normalized.contains(ownerPrefix)) continue;
           violations.add('${file.path}: $needle');

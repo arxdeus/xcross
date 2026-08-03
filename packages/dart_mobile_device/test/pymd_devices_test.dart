@@ -1,7 +1,7 @@
-import 'package:test/test.dart';
-import 'package:dart_mobile_device/src/pymd_devices.dart';
-import 'package:dart_mobile_device/src/models/device.dart';
 import 'package:dart_mobile_device/src/errors.dart';
+import 'package:dart_mobile_device/src/models/device.dart';
+import 'package:dart_mobile_device/src/pymd_devices.dart';
+import 'package:test/test.dart';
 
 void main() {
   group('PymdDevices.parseDevices', () {

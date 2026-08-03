@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:apple_developer_kit/src/appstoreconnect/appstoreconnect.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:apple_developer_kit/src/appstoreconnect/appstoreconnect.dart';
 
 void main() {
   group('wrapDerAsPem', () {
@@ -174,7 +174,10 @@ void main() {
       outputDir: temp.path,
     );
 
-    expect(client.lastProfileDeviceIds, unorderedEquals(['device-UDID', 'ipad']));
+    expect(
+      client.lastProfileDeviceIds,
+      unorderedEquals(['device-UDID', 'ipad']),
+    );
   });
 }
 

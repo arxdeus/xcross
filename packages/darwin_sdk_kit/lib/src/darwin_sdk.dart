@@ -1,9 +1,8 @@
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
-import 'package:path/path.dart' as p;
-
 import 'package:darwin_sdk_kit/src/errors.dart';
+import 'package:path/path.dart' as p;
 
 /// An xcross-owned Swift SDK artifact bundle containing the Darwin SDK files
 /// needed to build for iOS.

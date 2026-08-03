@@ -20,9 +20,9 @@ library;
 import 'dart:io';
 
 import 'package:darwin_sdk_kit/src/cpio_reader.dart';
+import 'package:darwin_sdk_kit/src/errors.dart';
 import 'package:darwin_sdk_kit/src/pbzx_reader.dart';
 import 'package:darwin_sdk_kit/src/xar_reader.dart';
-import 'package:darwin_sdk_kit/src/errors.dart';
 
 /// Streams the decoded `Content` entry of [xipPath] as a sequence of
 /// [CpioEntry]s.

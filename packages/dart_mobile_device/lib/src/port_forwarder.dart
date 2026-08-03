@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'package:cli_kit/cli_kit.dart';
 
-
 /// Publishes a device TCP port on `127.0.0.1` so tools that cannot use the RSD
 /// tunnel address directly can still reach it.
 ///

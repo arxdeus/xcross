@@ -13,9 +13,9 @@
 /// no `Status`/`Response` envelope (unlike the provisioning POSTs).
 library;
 
+import 'package:apple_developer_kit/src/errors.dart';
 import 'package:http/http.dart' as http;
 import 'package:propertylistserialization/propertylistserialization.dart';
-import 'package:apple_developer_kit/src/errors.dart';
 
 /// `https://gsa.apple.com/grandslam/GsService2/lookup`'s `urls` dict.
 ///

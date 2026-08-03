@@ -38,7 +38,8 @@ Future<void> _buildWithSystemCc({
   required Logger logger,
 }) async {
   final os = input.config.code.targetOS;
-  final outDir = Directory.fromUri(input.outputDirectory)..createSync(recursive: true);
+  final outDir = Directory.fromUri(input.outputDirectory)
+    ..createSync(recursive: true);
   final outFile = outDir.uri.resolve(os.dylibFileName('sysv_abi_bridge'));
   final source = input.packageRoot.resolve('src/sysv_abi_bridge.c');
   final cc = _resolveSystemCc();
@@ -63,7 +64,9 @@ Future<void> _buildWithSystemCc({
     throw ProcessException(cc, args, result.stderr.toString(), result.exitCode);
   }
   if (!File.fromUri(outFile).existsSync()) {
-    throw StateError('C compiler reported success but $outFile was not created');
+    throw StateError(
+      'C compiler reported success but $outFile was not created',
+    );
   }
 
   output.assets.code.add(
@@ -92,6 +95,6 @@ String _resolveSystemCc() {
   }
   throw StateError(
     'No usable system C compiler found (/usr/bin/cc|gcc|clang). '
-    'Install build-essential, or remove swiftly\'s clang shim from PATH.',
+    "Install build-essential, or remove swiftly's clang shim from PATH.",
   );
 }

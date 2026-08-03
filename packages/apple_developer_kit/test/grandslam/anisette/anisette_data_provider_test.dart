@@ -9,14 +9,14 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:apple_developer_kit/src/grandslam/anisette/anisette_data_provider.dart';
+import 'package:apple_developer_kit/src/grandslam/anisette/anisette_state.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
-import 'package:apple_developer_kit/src/grandslam/anisette/anisette_data_provider.dart';
-import 'package:apple_developer_kit/src/grandslam/anisette/anisette_state.dart';
 
 const _lookupUrl = 'https://gsa.apple.com/grandslam/GsService2/lookup';
 const _midStartUrl = 'https://gsa.apple.com/gsa/midStartProvisioning';

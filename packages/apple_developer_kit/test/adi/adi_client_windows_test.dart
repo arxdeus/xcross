@@ -1,5 +1,5 @@
 @TestOn('windows')
-library adi_client_windows_test;
+library;
 
 import 'dart:io';
 
@@ -14,8 +14,8 @@ void main() {
     'native ADI library can be fetched, ELF-loaded on Windows, and symbols resolved',
     () async {
       final fetcher = AdiLibraryFetcher();
-      final (coreAdiPath, storeServicesPath, apkSha256) =
-          await fetcher.ensureLibraries();
+      final (coreAdiPath, storeServicesPath, apkSha256) = await fetcher
+          .ensureLibraries();
 
       expect(File(coreAdiPath).existsSync(), isTrue);
       expect(File(storeServicesPath).existsSync(), isTrue);

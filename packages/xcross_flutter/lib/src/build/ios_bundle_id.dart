@@ -46,7 +46,9 @@ abstract final class IosBundleId {
   static String? _cfBundleIdentifierFromPlist(String projectRoot) {
     final file = File(p.join(projectRoot, 'ios', 'Runner', 'Info.plist'));
     if (!file.existsSync()) return null;
-    final match = _cfBundleIdentifierPattern.firstMatch(file.readAsStringSync());
+    final match = _cfBundleIdentifierPattern.firstMatch(
+      file.readAsStringSync(),
+    );
     final value = match?.group(1)?.trim();
     if (value == null || value.isEmpty) return null;
     return value;
@@ -76,7 +78,9 @@ abstract final class IosBundleId {
     }
     if (pbxproj == null) return null;
 
-    final match = _productBundleIdPattern.firstMatch(pbxproj.readAsStringSync());
+    final match = _productBundleIdPattern.firstMatch(
+      pbxproj.readAsStringSync(),
+    );
     final value = match?.group(2)?.trim();
     if (value == null || value.isEmpty || value.contains(r'$')) return null;
     return value;

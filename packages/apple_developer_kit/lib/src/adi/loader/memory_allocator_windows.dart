@@ -5,9 +5,8 @@
 
 import 'dart:ffi';
 
-import 'package:ffi/ffi.dart';
-
 import 'package:apple_developer_kit/src/adi/loader/memory_allocator.dart';
+import 'package:ffi/ffi.dart';
 
 const int _memCommit = 0x1000;
 const int _memReserve = 0x2000;
@@ -20,55 +19,42 @@ const int _pageExecute = 0x10;
 const int _pageExecuteRead = 0x20;
 const int _pageExecuteReadwrite = 0x40;
 
-typedef _VirtualAllocNative = Pointer<Void> Function(
-  Pointer<Void> address,
-  IntPtr size,
-  Uint32 allocationType,
-  Uint32 protect,
-);
-typedef _VirtualAllocDart = Pointer<Void> Function(
-  Pointer<Void> address,
-  int size,
-  int allocationType,
-  int protect,
-);
+typedef _VirtualAllocDart =
+    Pointer<Void> Function(
+      Pointer<Void> address,
+      int size,
+      int allocationType,
+      int protect,
+    );
 
-typedef _VirtualProtectNative = Int32 Function(
-  Pointer<Void> address,
-  IntPtr size,
-  Uint32 newProtect,
-  Pointer<Uint32> oldProtect,
-);
-typedef _VirtualProtectDart = int Function(
-  Pointer<Void> address,
-  int size,
-  int newProtect,
-  Pointer<Uint32> oldProtect,
-);
+typedef _VirtualProtectDart =
+    int Function(
+      Pointer<Void> address,
+      int size,
+      int newProtect,
+      Pointer<Uint32> oldProtect,
+    );
 
-typedef _VirtualFreeNative = Int32 Function(
-  Pointer<Void> address,
-  IntPtr size,
-  Uint32 freeType,
-);
-typedef _VirtualFreeDart = int Function(
-  Pointer<Void> address,
-  int size,
-  int freeType,
-);
+typedef _VirtualFreeDart =
+    int Function(Pointer<Void> address, int size, int freeType);
 
 class WindowsMemoryAllocator implements NativeMemoryAllocator {
   WindowsMemoryAllocator()
-      : _virtualAlloc = DynamicLibrary.process()
-            .lookupFunction<_VirtualAllocNative, _VirtualAllocDart>(
-              'VirtualAlloc',
-            ),
-        _virtualProtect = DynamicLibrary.process()
-            .lookupFunction<_VirtualProtectNative, _VirtualProtectDart>(
-              'VirtualProtect',
-            ),
-        _virtualFree = DynamicLibrary.process()
-            .lookupFunction<_VirtualFreeNative, _VirtualFreeDart>('VirtualFree');
+    : _virtualAlloc = DynamicLibrary.process()
+          .lookupFunction<
+            Pointer<Void> Function(Pointer<Void>, IntPtr, Uint32, Uint32),
+            _VirtualAllocDart
+          >('VirtualAlloc'),
+      _virtualProtect = DynamicLibrary.process()
+          .lookupFunction<
+            Int32 Function(Pointer<Void>, IntPtr, Uint32, Pointer<Uint32>),
+            _VirtualProtectDart
+          >('VirtualProtect'),
+      _virtualFree = DynamicLibrary.process()
+          .lookupFunction<
+            Int32 Function(Pointer<Void>, IntPtr, Uint32),
+            _VirtualFreeDart
+          >('VirtualFree');
 
   final _VirtualAllocDart _virtualAlloc;
   final _VirtualProtectDart _virtualProtect;
@@ -103,11 +89,17 @@ class WindowsMemoryAllocator implements NativeMemoryAllocator {
       final result = _virtualProtect(
         address,
         length,
-        _protection(readable: readable, writable: writable, executable: executable),
+        _protection(
+          readable: readable,
+          writable: writable,
+          executable: executable,
+        ),
         oldProtect,
       );
       if (result == 0) {
-        throw StateError('VirtualProtect failed for offset=$offset length=$length.');
+        throw StateError(
+          'VirtualProtect failed for offset=$offset length=$length.',
+        );
       }
     } finally {
       calloc.free(oldProtect);

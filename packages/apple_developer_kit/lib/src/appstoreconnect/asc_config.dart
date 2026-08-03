@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:path/path.dart' as p;
 import 'package:apple_developer_kit/src/errors.dart';
+import 'package:path/path.dart' as p;
 
 /// App Store Connect API credentials (a Team-scoped API key).
 ///

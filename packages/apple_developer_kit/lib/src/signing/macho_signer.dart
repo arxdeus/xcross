@@ -3,12 +3,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:apple_developer_kit/src/errors.dart';
+import 'package:apple_developer_kit/src/signing/signing_asset.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:meta/meta.dart';
 import 'package:posix/posix.dart' as posix;
 import 'package:propertylistserialization/propertylistserialization.dart';
-import 'package:apple_developer_kit/src/signing/signing_asset.dart';
-import 'package:apple_developer_kit/src/errors.dart';
 
 /// Signs xcross-generated thin arm64 Mach-O files without invoking zsign.
 class MachOSigner {

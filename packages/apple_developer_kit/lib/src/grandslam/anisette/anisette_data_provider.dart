@@ -21,18 +21,21 @@ library;
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:http/http.dart' as http;
-import 'package:path/path.dart' as p;
-import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:apple_developer_kit/src/adi/adi_client.dart'
-    show AdiClient, AdiClientProvisioningIntermediateMetadata, AdiOneTimePassword;
+    show
+        AdiClient,
+        AdiClientProvisioningIntermediateMetadata,
+        AdiOneTimePassword;
+import 'package:apple_developer_kit/src/apple_http_client.dart';
+import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/anisette_headers.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/anisette_provider.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/anisette_state.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/grandslam_endpoints.dart';
 import 'package:apple_developer_kit/src/grandslam/grandslam_response.dart';
-import 'package:apple_developer_kit/src/apple_http_client.dart';
-import 'package:apple_developer_kit/src/errors.dart';
+import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as p;
+import 'package:propertylistserialization/propertylistserialization.dart';
 
 export 'package:apple_developer_kit/src/adi/adi_client.dart'
     show AdiClientProvisioningIntermediateMetadata, AdiOneTimePassword;
@@ -104,8 +107,9 @@ AdiProvisioning _defaultAdiFactory({
   // ADI on Windows is happier with forward-slash provisioning paths (bionic
   // open() stubs translate them); trailing slash matches Provision usage.
   final normalizedPath = provisioningPath.replaceAll(r'\', '/');
-  client.provisioningPath =
-      normalizedPath.endsWith('/') ? normalizedPath : '$normalizedPath/';
+  client.provisioningPath = normalizedPath.endsWith('/')
+      ? normalizedPath
+      : '$normalizedPath/';
   client.identifier = identifier;
   return _RealAdiProvisioning(client);
 }

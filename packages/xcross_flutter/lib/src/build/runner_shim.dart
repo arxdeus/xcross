@@ -1,9 +1,9 @@
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross_flutter/src/constants.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:xcross_flutter/src/errors.dart';
 
 /// Embeds the ObjC Runner.m source, compiles it with clang, and links it with

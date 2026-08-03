@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
 import 'package:args/command_runner.dart';
+import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/cli/ide/vscode_json_merge.dart';
 import 'package:xcross/src/util/errors.dart';
@@ -39,14 +39,8 @@ class VscodeCommand extends Command<void> {
     );
     Log.logDone('Wrote ${p.relative(shim.path)}');
 
-    await upsertJsonFile(
-      p.join(dir.path, 'launch.json'),
-      mergeLaunchDoc,
-    );
-    await upsertJsonFile(
-      p.join(dir.path, 'settings.json'),
-      mergeSettingsDoc,
-    );
+    await upsertJsonFile(p.join(dir.path, 'launch.json'), mergeLaunchDoc);
+    await upsertJsonFile(p.join(dir.path, 'settings.json'), mergeSettingsDoc);
 
     Log.logInfo(
       'Next',

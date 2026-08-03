@@ -26,24 +26,44 @@ const int _mapPrivate = 0x02;
 const int _mapAnonymousLinux = 0x20;
 const int _mapAnonymousMacos = 0x1000;
 
-typedef _MmapNative = Pointer<Void> Function(
-    Pointer<Void> addr, IntPtr length, Int32 prot, Int32 flags, Int32 fd, Int64 offset);
-typedef _MmapDart = Pointer<Void> Function(
-    Pointer<Void> addr, int length, int prot, int flags, int fd, int offset);
+typedef _MmapDart =
+    Pointer<Void> Function(
+      Pointer<Void> addr,
+      int length,
+      int prot,
+      int flags,
+      int fd,
+      int offset,
+    );
 
-typedef _MprotectNative = Int32 Function(Pointer<Void> addr, IntPtr length, Int32 prot);
 typedef _MprotectDart = int Function(Pointer<Void> addr, int length, int prot);
 
-typedef _MunmapNative = Int32 Function(Pointer<Void> addr, IntPtr length);
 typedef _MunmapDart = int Function(Pointer<Void> addr, int length);
 
 class PosixMemoryAllocator implements NativeMemoryAllocator {
   PosixMemoryAllocator({bool? isMacos})
-      : _isMacos = isMacos ?? Platform.isMacOS,
-        _mmap = DynamicLibrary.process().lookupFunction<_MmapNative, _MmapDart>('mmap'),
-        _mprotect =
-            DynamicLibrary.process().lookupFunction<_MprotectNative, _MprotectDart>('mprotect'),
-        _munmap = DynamicLibrary.process().lookupFunction<_MunmapNative, _MunmapDart>('munmap');
+    : _isMacos = isMacos ?? Platform.isMacOS,
+      _mmap = DynamicLibrary.process()
+          .lookupFunction<
+            Pointer<Void> Function(
+              Pointer<Void>,
+              IntPtr,
+              Int32,
+              Int32,
+              Int32,
+              Int64,
+            ),
+            _MmapDart
+          >('mmap'),
+      _mprotect = DynamicLibrary.process()
+          .lookupFunction<
+            Int32 Function(Pointer<Void>, IntPtr, Int32),
+            _MprotectDart
+          >('mprotect'),
+      _munmap = DynamicLibrary.process()
+          .lookupFunction<Int32 Function(Pointer<Void>, IntPtr), _MunmapDart>(
+            'munmap',
+          );
 
   final bool _isMacos;
   final _MmapDart _mmap;

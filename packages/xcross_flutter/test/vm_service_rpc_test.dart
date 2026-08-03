@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:test/test.dart';
-import 'package:xcross_flutter/src/hot_reload/dart_vm_service_client.dart';
 import 'package:xcross_flutter/src/errors.dart';
+import 'package:xcross_flutter/src/hot_reload/dart_vm_service_client.dart';
 
 /// The VM Service socket carries three message shapes, and the client has to
 /// tell them apart: a notification (method, no id), a request the VM makes OF

@@ -3,9 +3,9 @@
 // network/native-ADI involved - this is pure persisted-state logic.
 import 'dart:io';
 
+import 'package:apple_developer_kit/src/grandslam/anisette/anisette_state.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:apple_developer_kit/src/grandslam/anisette/anisette_state.dart';
 
 void main() {
   late Directory tempDir;

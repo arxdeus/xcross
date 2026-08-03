@@ -1,11 +1,11 @@
 import 'dart:convert';
 
-import 'package:http/http.dart' as http;
+import 'package:apple_developer_kit/src/apple_http_client.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/asc_config.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/asc_jwt.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/asc_models.dart';
-import 'package:apple_developer_kit/src/apple_http_client.dart';
 import 'package:apple_developer_kit/src/errors.dart';
+import 'package:http/http.dart' as http;
 
 /// An Apple provisioning API error, carrying the HTTP status so callers can
 /// branch on codes like 409 without caring which backend produced it.

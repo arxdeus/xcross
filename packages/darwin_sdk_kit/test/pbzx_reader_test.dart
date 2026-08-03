@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:test/test.dart';
 import 'package:darwin_sdk_kit/src/pbzx_reader.dart';
+import 'package:test/test.dart';
 
 import 'test_fixtures.dart';
 
@@ -58,7 +58,8 @@ void main() {
       final xzBytes = await File(
         'packages/darwin_sdk_kit/test/fixtures/darwinsdk/'
         'lzma2-initial-dictionary-reset.xz',
-      ).readAsBytes();      final pbzxBytes = buildPbzx([
+      ).readAsBytes();
+      final pbzxBytes = buildPbzx([
         PbzxChunk(decompressedSize: 124000, bytes: xzBytes),
       ]);
 
@@ -84,18 +85,9 @@ void main() {
           // of their real (tiny, for-test) decompressed length — the reader
           // never validates decompressedSize against actual output, it only
           // uses it to detect the final chunk.
-          PbzxChunk(
-            decompressedSize: _chunkSize,
-            bytes: xzCompress(plain1),
-          ),
-          PbzxChunk(
-            decompressedSize: _chunkSize,
-            bytes: xzCompress(plain2),
-          ),
-          PbzxChunk(
-            decompressedSize: plain3.length,
-            bytes: xzCompress(plain3),
-          ),
+          PbzxChunk(decompressedSize: _chunkSize, bytes: xzCompress(plain1)),
+          PbzxChunk(decompressedSize: _chunkSize, bytes: xzCompress(plain2)),
+          PbzxChunk(decompressedSize: plain3.length, bytes: xzCompress(plain3)),
         ]);
 
         final path = '${tempDir.path}/multi.pbzx';
@@ -108,65 +100,58 @@ void main() {
       },
     );
 
-    test(
-      'copies a raw (compressedSize == 0x1000000) chunk through verbatim, '
-      'then decodes the following compressed final chunk',
-      () async {
-        // A real 16 MiB raw chunk, matching Apple's exact size-based
-        // raw-chunk signal (this is a genuinely un-testable-any-smaller
-        // path: readExact(compressedSize) requires exactly that many raw
-        // bytes to actually be present in the stream).
-        final raw = Uint8List(_chunkSize);
-        for (var i = 0; i < raw.length; i++) {
-          raw[i] = i & 0xff;
-        }
-        final finalPlain = utf8.encode('tail after the raw chunk');
+    test('copies a raw (compressedSize == 0x1000000) chunk through verbatim, '
+        'then decodes the following compressed final chunk', () async {
+      // A real 16 MiB raw chunk, matching Apple's exact size-based
+      // raw-chunk signal (this is a genuinely un-testable-any-smaller
+      // path: readExact(compressedSize) requires exactly that many raw
+      // bytes to actually be present in the stream).
+      final raw = Uint8List(_chunkSize);
+      for (var i = 0; i < raw.length; i++) {
+        raw[i] = i & 0xff;
+      }
+      final finalPlain = utf8.encode('tail after the raw chunk');
 
-        final pbzxBytes = buildPbzx([
-          PbzxChunk(decompressedSize: _chunkSize, bytes: raw),
-          PbzxChunk(
-            decompressedSize: finalPlain.length,
-            bytes: xzCompress(finalPlain),
-          ),
-        ]);
+      final pbzxBytes = buildPbzx([
+        PbzxChunk(decompressedSize: _chunkSize, bytes: raw),
+        PbzxChunk(
+          decompressedSize: finalPlain.length,
+          bytes: xzCompress(finalPlain),
+        ),
+      ]);
 
-        final path = '${tempDir.path}/raw.pbzx';
-        await File(path).writeAsBytes(pbzxBytes);
-        final file = await File(path).open();
-        addTearDown(file.close);
+      final path = '${tempDir.path}/raw.pbzx';
+      await File(path).writeAsBytes(pbzxBytes);
+      final file = await File(path).open();
+      addTearDown(file.close);
 
-        final decoded = await decodeToBytes(file, pbzxBytes.length);
-        expect(decoded.length, raw.length + finalPlain.length);
-        expect(decoded.sublist(0, raw.length), raw);
-        expect(decoded.sublist(raw.length), finalPlain);
-      },
-      timeout: const Timeout.factor(3),
-    );
+      final decoded = await decodeToBytes(file, pbzxBytes.length);
+      expect(decoded.length, raw.length + finalPlain.length);
+      expect(decoded.sublist(0, raw.length), raw);
+      expect(decoded.sublist(raw.length), finalPlain);
+    }, timeout: const Timeout.factor(3));
 
-    test(
-      'treats a non-full-size chunk that lacks xz magic as raw too '
-      '(safety net)',
-      () async {
-        final notXz = utf8.encode('definitely not an xz stream, just text');
-        final finalPlain = utf8.encode('after the bogus chunk');
+    test('treats a non-full-size chunk that lacks xz magic as raw too '
+        '(safety net)', () async {
+      final notXz = utf8.encode('definitely not an xz stream, just text');
+      final finalPlain = utf8.encode('after the bogus chunk');
 
-        final pbzxBytes = buildPbzx([
-          PbzxChunk(decompressedSize: _chunkSize, bytes: notXz),
-          PbzxChunk(
-            decompressedSize: finalPlain.length,
-            bytes: xzCompress(finalPlain),
-          ),
-        ]);
+      final pbzxBytes = buildPbzx([
+        PbzxChunk(decompressedSize: _chunkSize, bytes: notXz),
+        PbzxChunk(
+          decompressedSize: finalPlain.length,
+          bytes: xzCompress(finalPlain),
+        ),
+      ]);
 
-        final path = '${tempDir.path}/sniff.pbzx';
-        await File(path).writeAsBytes(pbzxBytes);
-        final file = await File(path).open();
-        addTearDown(file.close);
+      final path = '${tempDir.path}/sniff.pbzx';
+      await File(path).writeAsBytes(pbzxBytes);
+      final file = await File(path).open();
+      addTearDown(file.close);
 
-        final decoded = await decodeToBytes(file, pbzxBytes.length);
-        expect(decoded, [...notXz, ...finalPlain]);
-      },
-    );
+      final decoded = await decodeToBytes(file, pbzxBytes.length);
+      expect(decoded, [...notXz, ...finalPlain]);
+    });
 
     test('throws on bad magic', () async {
       final path = '${tempDir.path}/bad.pbzx';
@@ -174,10 +159,7 @@ void main() {
       final file = await File(path).open();
       addTearDown(file.close);
 
-      expect(
-        decodeToBytes(file, 32),
-        throwsA(isException),
-      );
+      expect(decodeToBytes(file, 32), throwsA(isException));
     });
   });
 }

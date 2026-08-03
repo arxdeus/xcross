@@ -18,8 +18,8 @@
 import 'dart:ffi';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/adi/loader/memory_allocator.dart';
 import 'package:apple_developer_kit/src/adi/elf/elf_reader.dart';
+import 'package:apple_developer_kit/src/adi/loader/memory_allocator.dart';
 
 /// Resolves a symbol this library imports but does not define itself
 /// (bionic libc functions, pthread stubs, dlopen/dlsym/dlclose, etc. —
@@ -30,7 +30,12 @@ typedef ExternalSymbolResolver = Pointer<Void> Function(String symbolName);
 
 /// A manually loaded, manually relocated ELF64 shared object.
 class ElfLoadedLibrary {
-  ElfLoadedLibrary._(this._allocation, this._symtab, this._gnuHash, this._elfHash);
+  ElfLoadedLibrary._(
+    this._allocation,
+    this._symtab,
+    this._gnuHash,
+    this._elfHash,
+  );
 
   final NativeMemoryBlock _allocation;
   final ElfDynamicSymbolTable? _symtab;
@@ -87,8 +92,14 @@ class ElfLoadedLibrary {
 
       // RW while we copy the segment's bytes in, matching upstream's
       // "protect RW, copy, protect final" two-step.
-      allocator.protect(allocation,
-          offset: protStart, length: protLength, readable: true, writable: true, executable: false);
+      allocator.protect(
+        allocation,
+        offset: protStart,
+        length: protLength,
+        readable: true,
+        writable: true,
+        executable: false,
+      );
 
       allocation.pointer
           .cast<Uint8>()
@@ -132,37 +143,51 @@ class ElfLoadedLibrary {
         case elfShtDynsym:
           symtabOffset = offset;
           symtabCount = size ~/ ElfDynamicSymbolTable.symSize;
-          break;
         case elfShtStrtab:
           if (elf.sectionName(i) == '.dynstr') {
             strtabOffset = offset;
           }
-          break;
         case elfShtGnuHash:
-          gnuHash = GnuHashTable(Uint8List.sublistView(bytes, offset, offset + size));
-          break;
+          gnuHash = GnuHashTable(
+            Uint8List.sublistView(bytes, offset, offset + size),
+          );
         case elfShtHash:
           // Matches upstream: only used if no (preferred) GNU hash table
           // has been seen yet.
-          elfHash ??= ElfHashTable(Uint8List.sublistView(bytes, offset, offset + size));
-          break;
+          elfHash ??= ElfHashTable(
+            Uint8List.sublistView(bytes, offset, offset + size),
+          );
         case elfShtRela:
           if (symtabOffset == null || strtabOffset == null) {
             throw StateError(
-                'SHT_RELA section encountered before SHT_DYNSYM/.dynstr '
-                'were seen; this loader assumes the conventional section '
-                'order, matching upstream androidlibrary.d\'s same '
-                'assumption.');
+              'SHT_RELA section encountered before SHT_DYNSYM/.dynstr '
+              'were seen; this loader assumes the conventional section '
+              "order, matching upstream androidlibrary.d's same "
+              'assumption.',
+            );
           }
-          final symtab =
-              ElfDynamicSymbolTable(elf.data, symtabOffset, symtabCount!, strtabOffset, bytes);
-          _applyRelaSection(allocation, elf.data, offset, size, symtab, resolveExternalSymbol, alignedMin);
-          break;
+          final symtab = ElfDynamicSymbolTable(
+            elf.data,
+            symtabOffset,
+            symtabCount!,
+            strtabOffset,
+            bytes,
+          );
+          _applyRelaSection(
+            allocation,
+            elf.data,
+            offset,
+            size,
+            symtab,
+            resolveExternalSymbol,
+            alignedMin,
+          );
         case elfShtRel:
           throw StateError(
-              'SHT_REL relocation section encountered; only SHT_RELA is '
-              'supported here (x86_64 ELF objects always use RELA, never '
-              'the legacy implicit-addend REL format).');
+            'SHT_REL relocation section encountered; only SHT_RELA is '
+            'supported here (x86_64 ELF objects always use RELA, never '
+            'the legacy implicit-addend REL format).',
+          );
         default:
           break;
       }
@@ -188,7 +213,13 @@ class ElfLoadedLibrary {
     }
 
     final finalSymtab = (symtabOffset != null && strtabOffset != null)
-        ? ElfDynamicSymbolTable(elf.data, symtabOffset, symtabCount!, strtabOffset, bytes)
+        ? ElfDynamicSymbolTable(
+            elf.data,
+            symtabOffset,
+            symtabCount!,
+            strtabOffset,
+            bytes,
+          )
         : null;
 
     return ElfLoadedLibrary._(allocation, finalSymtab, gnuHash, elfHash);
@@ -203,7 +234,11 @@ class ElfLoadedLibrary {
     ExternalSymbolResolver resolveExternalSymbol,
     int alignedMin,
   ) {
-    final rela = ElfRelaTable(elfData, shOffset, shSize ~/ ElfRelaTable.relaSize);
+    final rela = ElfRelaTable(
+      elfData,
+      shOffset,
+      shSize ~/ ElfRelaTable.relaSize,
+    );
     final base = allocation.pointer.address;
 
     for (var i = 0; i < rela.count; i++) {
@@ -216,24 +251,21 @@ class ElfLoadedLibrary {
       // up-front regardless of relocation type, even though RELATIVE
       // relocations (symbolIndex == 0, the null symbol entry) never
       // actually use the result.
-      final resolvedAddress =
-          symbolIndex == 0 ? 0 : resolveExternalSymbol(symtab.name(symbolIndex)).address;
+      final resolvedAddress = symbolIndex == 0
+          ? 0
+          : resolveExternalSymbol(symtab.name(symbolIndex)).address;
 
       final target = (allocation.pointer + offset).cast<Uint64>();
 
       switch (type) {
         case rX8664Relative:
           target.value = base + addend;
-          break;
         case rX8664GlobDat:
           target.value = resolvedAddress + addend;
-          break;
         case rX8664JumpSlot:
           target.value = resolvedAddress;
-          break;
         case rX8664Abs64:
           target.value = resolvedAddress + addend;
-          break;
         default:
           throw StateError('Unknown x86_64 relocation type: $type');
       }

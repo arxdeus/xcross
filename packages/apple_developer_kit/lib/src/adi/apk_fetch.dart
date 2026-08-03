@@ -26,13 +26,15 @@ const _storeServicesEntry = 'lib/x86_64/libstoreservicescore.so';
 /// they are downloaded on demand and cached locally, matching upstream's
 /// documented approach.
 class AdiLibraryFetcher {
-  AdiLibraryFetcher({Directory? cacheDir}) : cacheDir = cacheDir ?? _defaultCacheDir();
+  AdiLibraryFetcher({Directory? cacheDir})
+    : cacheDir = cacheDir ?? _defaultCacheDir();
 
   /// Directory the APK and extracted libraries are cached in.
   final Directory cacheDir;
 
   static Directory _defaultCacheDir() {
-    final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+    final home =
+        Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
     if (home == null) {
       throw StateError('Cannot determine a home directory (HOME is not set).');
     }
@@ -50,7 +52,8 @@ class AdiLibraryFetcher {
   File get coreAdiFile => File(p.join(cacheDir.path, 'libCoreADI.so'));
 
   /// Path the extracted `libstoreservicescore.so` is cached at.
-  File get storeServicesFile => File(p.join(cacheDir.path, 'libstoreservicescore.so'));
+  File get storeServicesFile =>
+      File(p.join(cacheDir.path, 'libstoreservicescore.so'));
 
   /// Ensures both native libraries are present in [cacheDir], downloading
   /// and extracting them first if needed.
@@ -58,8 +61,14 @@ class AdiLibraryFetcher {
   /// Returns `(coreAdiPath, storeServicesPath, apkSha256)`, libraries in
   /// dependency-load order plus the cached APK's recorded SHA-256.
   Future<(String, String, String)> ensureLibraries() async {
-    if (coreAdiFile.existsSync() && storeServicesFile.existsSync() && _apkShaSidecar.existsSync()) {
-      return (coreAdiFile.path, storeServicesFile.path, _apkShaSidecar.readAsStringSync().trim());
+    if (coreAdiFile.existsSync() &&
+        storeServicesFile.existsSync() &&
+        _apkShaSidecar.existsSync()) {
+      return (
+        coreAdiFile.path,
+        storeServicesFile.path,
+        _apkShaSidecar.readAsStringSync().trim(),
+      );
     }
 
     await cacheDir.create(recursive: true);
@@ -93,7 +102,9 @@ class AdiLibraryFetcher {
     for (final entryName in [_coreAdiEntry, _storeServicesEntry]) {
       final entry = archive.findFile(entryName);
       if (entry == null) {
-        throw StateError('Apple Music APK is missing expected entry: $entryName');
+        throw StateError(
+          'Apple Music APK is missing expected entry: $entryName',
+        );
       }
       final outPath = p.join(cacheDir.path, p.basename(entryName));
       File(outPath).writeAsBytesSync(entry.content as List<int>);

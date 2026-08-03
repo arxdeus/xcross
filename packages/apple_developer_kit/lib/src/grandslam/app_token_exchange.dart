@@ -12,15 +12,15 @@ library;
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:crypto/crypto.dart' as crypto;
-import 'package:http/http.dart' as http;
-import 'package:pointycastle/export.dart' as pc;
+import 'package:apple_developer_kit/src/apple_http_client.dart';
+import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/grandslam_endpoints.dart';
 import 'package:apple_developer_kit/src/grandslam/grandslam_login_data.dart';
 import 'package:apple_developer_kit/src/grandslam/grandslam_operation.dart';
 import 'package:apple_developer_kit/src/grandslam/grandslam_response.dart';
-import 'package:apple_developer_kit/src/apple_http_client.dart';
-import 'package:apple_developer_kit/src/errors.dart';
+import 'package:crypto/crypto.dart' as crypto;
+import 'package:http/http.dart' as http;
+import 'package:pointycastle/export.dart' as pc;
 
 const String kDeveloperServicesAppIdentifier = 'com.apple.gs.xcode.auth';
 

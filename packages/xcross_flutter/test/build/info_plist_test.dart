@@ -28,11 +28,9 @@ void main() {
   });
 
   group('parseXcconfig', () {
-    test(
-      'parses KEY = VALUE lines, stripping comments, blanks, config '
-      'suffixes, and only splitting on the first "="',
-      () {
-        const text = '''
+    test('parses KEY = VALUE lines, stripping comments, blanks, config '
+        'suffixes, and only splitting on the first "="', () {
+      const text = '''
 FOO = plain_value
 // a full-line comment
 # another full-line comment
@@ -41,15 +39,14 @@ BAR[debug] = bracket_value
 BAZ = a=b
 ''';
 
-        final result = InfoPlist.parseXcconfig(text);
+      final result = InfoPlist.parseXcconfig(text);
 
-        expect(result, {
-          'FOO': 'plain_value',
-          'BAR': 'bracket_value',
-          'BAZ': 'a=b',
-        });
-      },
-    );
+      expect(result, {
+        'FOO': 'plain_value',
+        'BAR': 'bracket_value',
+        'BAZ': 'a=b',
+      });
+    });
   });
 
   group('applyIosRequiredKeys', () {
@@ -144,19 +141,16 @@ BAZ = a=b
       );
     });
 
-    test(
-      'strips the Swift module prefix from UISceneDelegateClassName',
-      () {
-        const xml =
-            '<key>UISceneDelegateClassName</key>\n'
-            '\t<string>MyModule.SceneDelegate</string>';
+    test('strips the Swift module prefix from UISceneDelegateClassName', () {
+      const xml =
+          '<key>UISceneDelegateClassName</key>\n'
+          '\t<string>MyModule.SceneDelegate</string>';
 
-        expect(
-          InfoPlist.normalizeObjCClassNames(xml),
-          '<key>UISceneDelegateClassName</key>\n\t<string>SceneDelegate</string>',
-        );
-      },
-    );
+      expect(
+        InfoPlist.normalizeObjCClassNames(xml),
+        '<key>UISceneDelegateClassName</key>\n\t<string>SceneDelegate</string>',
+      );
+    });
 
     test('leaves an unqualified class name unchanged', () {
       const xml = '<key>NSPrincipalClass</key>\n\t<string>AppDelegate</string>';
@@ -190,33 +184,27 @@ BAZ = a=b
       expect(InfoPlist.stripUnsatisfiableStoryboards(xml, tmp.path), xml);
     });
 
-    test(
-      'replaces a missing UILaunchStoryboardName with UILaunchScreen',
-      () {
-        const xml =
-            '<key>UILaunchStoryboardName</key>\n\t<string>Missing</string>';
+    test('replaces a missing UILaunchStoryboardName with UILaunchScreen', () {
+      const xml =
+          '<key>UILaunchStoryboardName</key>\n\t<string>Missing</string>';
 
-        expect(
-          InfoPlist.stripUnsatisfiableStoryboards(xml, tmp.path),
-          '<key>UILaunchScreen</key>\n\t<dict/>',
-        );
-      },
-    );
+      expect(
+        InfoPlist.stripUnsatisfiableStoryboards(xml, tmp.path),
+        '<key>UILaunchScreen</key>\n\t<dict/>',
+      );
+    });
 
-    test(
-      'strips a missing UILaunchStoryboardName without duplicating an '
-      'existing UILaunchScreen',
-      () {
-        const xml =
-            '<key>UILaunchScreen</key>\n\t<dict/>\n'
-            '<key>UILaunchStoryboardName</key>\n\t<string>Missing</string>';
+    test('strips a missing UILaunchStoryboardName without duplicating an '
+        'existing UILaunchScreen', () {
+      const xml =
+          '<key>UILaunchScreen</key>\n\t<dict/>\n'
+          '<key>UILaunchStoryboardName</key>\n\t<string>Missing</string>';
 
-        final result = InfoPlist.stripUnsatisfiableStoryboards(xml, tmp.path);
+      final result = InfoPlist.stripUnsatisfiableStoryboards(xml, tmp.path);
 
-        expect(result, '<key>UILaunchScreen</key>\n\t<dict/>\n');
-        expect('UILaunchScreen'.allMatches(result).length, 1);
-      },
-    );
+      expect(result, '<key>UILaunchScreen</key>\n\t<dict/>\n');
+      expect('UILaunchScreen'.allMatches(result).length, 1);
+    });
 
     test('keeps UISceneStoryboardFile when the storyboard is compiled', () {
       const xml = '<key>UISceneStoryboardFile</key>\n\t<string>Main</string>';
@@ -224,18 +212,15 @@ BAZ = a=b
       expect(InfoPlist.stripUnsatisfiableStoryboards(xml, tmp.path), xml);
     });
 
-    test(
-      'strips a missing UISceneStoryboardFile with no UILaunchScreen '
-      'substitution',
-      () {
-        const xml =
-            '<key>UISceneStoryboardFile</key>\n\t<string>Missing</string>';
+    test('strips a missing UISceneStoryboardFile with no UILaunchScreen '
+        'substitution', () {
+      const xml =
+          '<key>UISceneStoryboardFile</key>\n\t<string>Missing</string>';
 
-        final result = InfoPlist.stripUnsatisfiableStoryboards(xml, tmp.path);
+      final result = InfoPlist.stripUnsatisfiableStoryboards(xml, tmp.path);
 
-        expect(result, isEmpty);
-      },
-    );
+      expect(result, isEmpty);
+    });
   });
 
   group('fallback', () {

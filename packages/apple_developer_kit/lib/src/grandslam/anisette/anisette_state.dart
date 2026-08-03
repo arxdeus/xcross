@@ -9,8 +9,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:path/path.dart' as p;
 import 'package:apple_developer_kit/src/errors.dart';
+import 'package:path/path.dart' as p;
 
 /// Persisted Anisette provisioning state.
 class AnisetteState {

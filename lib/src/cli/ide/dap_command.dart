@@ -15,12 +15,12 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:dds/dap.dart';
 import 'package:path/path.dart' as p;
 import 'package:vm_service/vm_service.dart' as vm;
 import 'package:xcross/src/cli/ide/dap_router.dart';
 import 'package:xcross/src/constants.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:xcross_flutter/xcross_flutter.dart';
 
 /// `xcross dap` — Debug Adapter Protocol server driving `xcross flutter run`.
@@ -41,10 +41,10 @@ class DapCommand extends Command<void> {
 
   @override
   Future<void> run() => runDapSession(
-        startXcross: (channel) {
-          XcrossDap(channel);
-        },
-      );
+    startXcross: (channel) {
+      XcrossDap(channel);
+    },
+  );
 }
 
 /// A DAP debug adapter that spawns `xcross flutter run` and drives it:

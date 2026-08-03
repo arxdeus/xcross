@@ -7,15 +7,16 @@
 // struct-stat layouts. Every address published into the ELF GOT is a
 // SysV-callable trampoline wrapping an MS-ABI NativeCallable.
 
+// ignore_for_file: non_constant_identifier_names
+
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:ffi/ffi.dart';
-
 import 'package:apple_developer_kit/src/adi/elf/elf_loaded_library.dart';
 import 'package:apple_developer_kit/src/adi/loader/sysv_abi_bridge.dart';
+import 'package:ffi/ffi.dart';
 
 // Linux x86_64 struct stat layout (from Provision std_edit/linux_stat.d).
 final class LinuxStat extends Struct {
@@ -80,8 +81,7 @@ class WindowsNativeSymbolStubs {
 
   final DynamicLibrary _ucrt = DynamicLibrary.process();
 
-  Pointer<Void> resolve(String symbolName) =>
-      _table[symbolName] ?? nullptr;
+  Pointer<Void> resolve(String symbolName) => _table[symbolName] ?? nullptr;
 
   void _publish(String name, Pointer<Void> msAbiFn, int argc) {
     _table[name] = sysvExport(msAbiFn, argc);
@@ -137,15 +137,18 @@ class WindowsNativeSymbolStubs {
     // C++ ABI bits CoreADI references; no-op is enough for our short-lived
     // ADI usage (matches "don't run real destructors" lazy approach).
     final cxaAtexit =
-        NativeCallable<Int32 Function(Pointer<Void>, Pointer<Void>, Pointer<Void>)>.isolateLocal(
-      (Pointer<Void> a, Pointer<Void> b, Pointer<Void> c) => 0,
-      exceptionalReturn: 0,
-    );
+        NativeCallable<
+          Int32 Function(Pointer<Void>, Pointer<Void>, Pointer<Void>)
+        >.isolateLocal(
+          (Pointer<Void> a, Pointer<Void> b, Pointer<Void> c) => 0,
+          exceptionalReturn: 0,
+        );
     _keepAlive.add(cxaAtexit);
     _publish('__cxa_atexit', cxaAtexit.nativeFunction.cast(), 3);
-    final cxaFinalize = NativeCallable<Void Function(Pointer<Void>)>.isolateLocal(
-      (Pointer<Void> p) {},
-    );
+    final cxaFinalize =
+        NativeCallable<Void Function(Pointer<Void>)>.isolateLocal(
+          (Pointer<Void> p) {},
+        );
     _keepAlive.add(cxaFinalize);
     _publish('__cxa_finalize', cxaFinalize.nativeFunction.cast(), 1);
     _publish('__stack_chk_fail', _ucrt.lookup<Void>('abort').cast(), 0);
@@ -177,12 +180,15 @@ class WindowsNativeSymbolStubs {
     }
 
     final systemPropertyGet =
-        NativeCallable<Int32 Function(Pointer<Utf8>, Pointer<Utf8>)>.isolateLocal(
-      _systemPropertyGet,
-      exceptionalReturn: -1,
-    );
+        NativeCallable<
+          Int32 Function(Pointer<Utf8>, Pointer<Utf8>)
+        >.isolateLocal(_systemPropertyGet, exceptionalReturn: -1);
     _keepAlive.add(systemPropertyGet);
-    _publish('__system_property_get', systemPropertyGet.nativeFunction.cast(), 2);
+    _publish(
+      '__system_property_get',
+      systemPropertyGet.nativeFunction.cast(),
+      2,
+    );
 
     final arc4random = NativeCallable<Uint32 Function()>.isolateLocal(
       () => Random().nextInt(1 << 32),
@@ -192,30 +198,40 @@ class WindowsNativeSymbolStubs {
     _publish('arc4random', arc4random.nativeFunction.cast(), 0);
 
     final dlopen =
-        NativeCallable<Pointer<Void> Function(Pointer<Utf8>)>.isolateLocal(_dlopen);
+        NativeCallable<Pointer<Void> Function(Pointer<Utf8>)>.isolateLocal(
+          _dlopen,
+        );
     _keepAlive.add(dlopen);
     _publish('dlopen', dlopen.nativeFunction.cast(), 1);
 
     final dlsym =
-        NativeCallable<Pointer<Void> Function(Pointer<Void>, Pointer<Utf8>)>.isolateLocal(
-      _dlsym,
-    );
+        NativeCallable<
+          Pointer<Void> Function(Pointer<Void>, Pointer<Utf8>)
+        >.isolateLocal(_dlsym);
     _keepAlive.add(dlsym);
     _publish('dlsym', dlsym.nativeFunction.cast(), 2);
 
-    final dlclose = NativeCallable<Void Function(Pointer<Void>)>.isolateLocal(_dlclose);
+    final dlclose = NativeCallable<Void Function(Pointer<Void>)>.isolateLocal(
+      _dlclose,
+    );
     _keepAlive.add(dlclose);
     _publish('dlclose', dlclose.nativeFunction.cast(), 1);
   }
 
   Pointer<Void> _callable1i(int Function(int) fn) {
-    final c = NativeCallable<Int32 Function(Int32)>.isolateLocal(fn, exceptionalReturn: -1);
+    final c = NativeCallable<Int32 Function(Int32)>.isolateLocal(
+      fn,
+      exceptionalReturn: -1,
+    );
     _keepAlive.add(c);
     return c.nativeFunction.cast();
   }
 
   Pointer<Void> _callable1u(int Function(int) fn) {
-    final c = NativeCallable<Uint64 Function(Uint64)>.isolateLocal(fn, exceptionalReturn: 0);
+    final c = NativeCallable<Uint64 Function(Uint64)>.isolateLocal(
+      fn,
+      exceptionalReturn: 0,
+    );
     _keepAlive.add(c);
     return c.nativeFunction.cast();
   }
@@ -250,20 +266,23 @@ class WindowsNativeSymbolStubs {
     return c.nativeFunction.cast();
   }
 
-  Pointer<Void> _callable2stat(int Function(Pointer<Utf8>, Pointer<LinuxStat>) fn) {
-    final c = NativeCallable<Int32 Function(Pointer<Utf8>, Pointer<LinuxStat>)>.isolateLocal(
-      fn,
-      exceptionalReturn: -1,
-    );
+  Pointer<Void> _callable2stat(
+    int Function(Pointer<Utf8>, Pointer<LinuxStat>) fn,
+  ) {
+    final c =
+        NativeCallable<
+          Int32 Function(Pointer<Utf8>, Pointer<LinuxStat>)
+        >.isolateLocal(fn, exceptionalReturn: -1);
     _keepAlive.add(c);
     return c.nativeFunction.cast();
   }
 
   Pointer<Void> _callable2fstat(int Function(int, Pointer<LinuxStat>) fn) {
-    final c = NativeCallable<Int32 Function(Int32, Pointer<LinuxStat>)>.isolateLocal(
-      fn,
-      exceptionalReturn: -1,
-    );
+    final c =
+        NativeCallable<Int32 Function(Int32, Pointer<LinuxStat>)>.isolateLocal(
+          fn,
+          exceptionalReturn: -1,
+        );
     _keepAlive.add(c);
     return c.nativeFunction.cast();
   }
@@ -272,19 +291,18 @@ class WindowsNativeSymbolStubs {
     int Function(Pointer<LinuxTimeval>, Pointer<Void>) fn,
   ) {
     final c =
-        NativeCallable<Int32 Function(Pointer<LinuxTimeval>, Pointer<Void>)>.isolateLocal(
-      fn,
-      exceptionalReturn: -1,
-    );
+        NativeCallable<
+          Int32 Function(Pointer<LinuxTimeval>, Pointer<Void>)
+        >.isolateLocal(fn, exceptionalReturn: -1);
     _keepAlive.add(c);
     return c.nativeFunction.cast();
   }
 
   Pointer<Void> _callable3(int Function(int, Pointer<Void>, int) fn) {
-    final c = NativeCallable<Int32 Function(Int32, Pointer<Void>, Uint32)>.isolateLocal(
-      fn,
-      exceptionalReturn: -1,
-    );
+    final c =
+        NativeCallable<
+          Int32 Function(Int32, Pointer<Void>, Uint32)
+        >.isolateLocal(fn, exceptionalReturn: -1);
     _keepAlive.add(c);
     return c.nativeFunction.cast();
   }
@@ -293,53 +311,71 @@ class WindowsNativeSymbolStubs {
     Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>, int) fn,
   ) {
     final c =
-        NativeCallable<Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>, IntPtr)>.isolateLocal(
-      fn,
-    );
+        NativeCallable<
+          Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>, IntPtr)
+        >.isolateLocal(fn);
     _keepAlive.add(c);
     return c.nativeFunction.cast();
   }
 
   // --- CRT lookups ---
 
-  late final _openCrt = _ucrt.lookupFunction<
-      Int32 Function(Pointer<Utf8>, Int32),
-      int Function(Pointer<Utf8>, int)>('_open');
-  late final _closeCrt =
-      _ucrt.lookupFunction<Int32 Function(Int32), int Function(int)>('_close');
-  late final _readCrt = _ucrt.lookupFunction<
-      Int32 Function(Int32, Pointer<Void>, Uint32),
-      int Function(int, Pointer<Void>, int)>('_read');
-  late final _writeCrt = _ucrt.lookupFunction<
-      Int32 Function(Int32, Pointer<Void>, Uint32),
-      int Function(int, Pointer<Void>, int)>('_write');
-  late final _mkdirCrt =
-      _ucrt.lookupFunction<Int32 Function(Pointer<Utf8>), int Function(Pointer<Utf8>)>(
-    '_mkdir',
-  );
-  late final _chmodCrt = _ucrt.lookupFunction<
-      Int32 Function(Pointer<Utf8>, Int32),
-      int Function(Pointer<Utf8>, int)>('_chmod');
-  late final _chsizeCrt = _ucrt.lookupFunction<
-      Int32 Function(Int32, Int64),
-      int Function(int, int)>('_chsize_s');
-  late final _statCrt = _ucrt.lookupFunction<
-      Int32 Function(Pointer<Utf8>, Pointer<Uint8>),
-      int Function(Pointer<Utf8>, Pointer<Uint8>)>('_stat64');
-  late final _fstatCrt = _ucrt.lookupFunction<
-      Int32 Function(Int32, Pointer<Uint8>),
-      int Function(int, Pointer<Uint8>)>('_fstat64');
-  late final _mallocCrt =
-      _ucrt.lookupFunction<Pointer<Void> Function(IntPtr), Pointer<Void> Function(int)>(
-    'malloc',
-  );
-  late final _freeCrt =
-      _ucrt.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>(
-    'free',
-  );
-  late final _strncpyCrt = _ucrt.lookupFunction<
-      Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>, IntPtr),
-      Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>, int)>('strncpy');
+  late final _openCrt = _ucrt
+      .lookupFunction<
+        Int32 Function(Pointer<Utf8>, Int32),
+        int Function(Pointer<Utf8>, int)
+      >('_open');
+  late final _closeCrt = _ucrt
+      .lookupFunction<Int32 Function(Int32), int Function(int)>('_close');
+  late final _readCrt = _ucrt
+      .lookupFunction<
+        Int32 Function(Int32, Pointer<Void>, Uint32),
+        int Function(int, Pointer<Void>, int)
+      >('_read');
+  late final _writeCrt = _ucrt
+      .lookupFunction<
+        Int32 Function(Int32, Pointer<Void>, Uint32),
+        int Function(int, Pointer<Void>, int)
+      >('_write');
+  late final _mkdirCrt = _ucrt
+      .lookupFunction<
+        Int32 Function(Pointer<Utf8>),
+        int Function(Pointer<Utf8>)
+      >('_mkdir');
+  late final _chmodCrt = _ucrt
+      .lookupFunction<
+        Int32 Function(Pointer<Utf8>, Int32),
+        int Function(Pointer<Utf8>, int)
+      >('_chmod');
+  late final _chsizeCrt = _ucrt
+      .lookupFunction<Int32 Function(Int32, Int64), int Function(int, int)>(
+        '_chsize_s',
+      );
+  late final _statCrt = _ucrt
+      .lookupFunction<
+        Int32 Function(Pointer<Utf8>, Pointer<Uint8>),
+        int Function(Pointer<Utf8>, Pointer<Uint8>)
+      >('_stat64');
+  late final _fstatCrt = _ucrt
+      .lookupFunction<
+        Int32 Function(Int32, Pointer<Uint8>),
+        int Function(int, Pointer<Uint8>)
+      >('_fstat64');
+  late final _mallocCrt = _ucrt
+      .lookupFunction<
+        Pointer<Void> Function(IntPtr),
+        Pointer<Void> Function(int)
+      >('malloc');
+  late final _freeCrt = _ucrt
+      .lookupFunction<
+        Void Function(Pointer<Void>),
+        void Function(Pointer<Void>)
+      >('free');
+  late final _strncpyCrt = _ucrt
+      .lookupFunction<
+        Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>, IntPtr),
+        Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>, int)
+      >('strncpy');
 
   static const _oBinary = 0x8000;
   static const _oCreat = 0x0100;
@@ -355,7 +391,7 @@ class WindowsNativeSymbolStubs {
   Pointer<Utf8> _toWindowsPath(Pointer<Utf8> path) {
     var s = path.toDartString();
     if (s.startsWith('//?/')) s = s.substring(4);
-    s = s.replaceAll('/', '\\');
+    s = s.replaceAll('/', r'\');
     return s.toNativeUtf8();
   }
 
@@ -381,11 +417,9 @@ class WindowsNativeSymbolStubs {
 
   int _close(int fd) => _closeCrt(fd);
 
-  int _read(int fd, Pointer<Void> buf, int count) =>
-      _readCrt(fd, buf, count);
+  int _read(int fd, Pointer<Void> buf, int count) => _readCrt(fd, buf, count);
 
-  int _write(int fd, Pointer<Void> buf, int count) =>
-      _writeCrt(fd, buf, count);
+  int _write(int fd, Pointer<Void> buf, int count) => _writeCrt(fd, buf, count);
 
   int _mkdir(Pointer<Utf8> path, int mode) {
     final winPath = _toWindowsPath(path);
@@ -400,7 +434,9 @@ class WindowsNativeSymbolStubs {
     final winPath = _toWindowsPath(path);
     try {
       // Map a crude write bit into Windows _S_IWRITE (0x80).
-      final winMode = (mode & 0x80) != 0 || (mode & 0x02) != 0 ? 0x80 | 0x100 : 0x100;
+      final winMode = (mode & 0x80) != 0 || (mode & 0x02) != 0
+          ? 0x80 | 0x100
+          : 0x100;
       return _chmodCrt(winPath, winMode);
     } finally {
       malloc.free(winPath);

@@ -2,13 +2,13 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:apple_developer_kit/src/errors.dart';
+import 'package:apple_developer_kit/src/signing/macho_signer.dart';
+import 'package:apple_developer_kit/src/signing/signing_asset.dart';
 import 'package:basic_utils/basic_utils.dart';
 import 'package:crypto/crypto.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
-import 'package:apple_developer_kit/src/signing/macho_signer.dart';
-import 'package:apple_developer_kit/src/signing/signing_asset.dart';
-import 'package:apple_developer_kit/src/errors.dart';
 
 void main() {
   final signingTime = DateTime.utc(2030, 2, 3, 4, 5, 6);

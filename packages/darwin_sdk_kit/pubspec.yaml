@@ -23,6 +23,6 @@ dependencies:
   path: ^1.9.1
   xml: ^7.0.1
 
+  archive: any
 dev_dependencies:
-  archive: ^4.0.9
   test: ^1.31.2

@@ -34,9 +34,8 @@ import 'dart:convert';
 import 'dart:ffi';
 import 'dart:math';
 
-import 'package:ffi/ffi.dart';
-
 import 'package:apple_developer_kit/src/adi/elf/elf_loaded_library.dart';
+import 'package:ffi/ffi.dart';
 
 /// Builds the fixed 29-entry stub-symbol table Android/bionic-targeted
 /// libraries are relocated against, and hosts the recursive "dlopen
@@ -139,10 +138,9 @@ class NativeSymbolStubs {
     }
 
     final systemPropertyGet =
-        NativeCallable<Int32 Function(Pointer<Utf8>, Pointer<Utf8>)>.isolateLocal(
-      _systemPropertyGet,
-      exceptionalReturn: -1,
-    );
+        NativeCallable<
+          Int32 Function(Pointer<Utf8>, Pointer<Utf8>)
+        >.isolateLocal(_systemPropertyGet, exceptionalReturn: -1);
     _keepAlive.add(systemPropertyGet);
     _table['__system_property_get'] = systemPropertyGet.nativeFunction.cast();
 
@@ -154,16 +152,22 @@ class NativeSymbolStubs {
     _table['arc4random'] = arc4random.nativeFunction.cast();
 
     final dlopen =
-        NativeCallable<Pointer<Void> Function(Pointer<Utf8>)>.isolateLocal(_dlopen);
+        NativeCallable<Pointer<Void> Function(Pointer<Utf8>)>.isolateLocal(
+          _dlopen,
+        );
     _keepAlive.add(dlopen);
     _table['dlopen'] = dlopen.nativeFunction.cast();
 
     final dlsym =
-        NativeCallable<Pointer<Void> Function(Pointer<Void>, Pointer<Utf8>)>.isolateLocal(_dlsym);
+        NativeCallable<
+          Pointer<Void> Function(Pointer<Void>, Pointer<Utf8>)
+        >.isolateLocal(_dlsym);
     _keepAlive.add(dlsym);
     _table['dlsym'] = dlsym.nativeFunction.cast();
 
-    final dlclose = NativeCallable<Void Function(Pointer<Void>)>.isolateLocal(_dlclose);
+    final dlclose = NativeCallable<Void Function(Pointer<Void>)>.isolateLocal(
+      _dlclose,
+    );
     _keepAlive.add(dlclose);
     _table['dlclose'] = dlclose.nativeFunction.cast();
   }

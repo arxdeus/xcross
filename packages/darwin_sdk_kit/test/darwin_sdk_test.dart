@@ -1,9 +1,9 @@
 import 'dart:io';
 
-import 'package:path/path.dart' as p;
-import 'package:test/test.dart';
 import 'package:darwin_sdk_kit/src/darwin_sdk.dart';
 import 'package:darwin_sdk_kit/src/errors.dart';
+import 'package:path/path.dart' as p;
+import 'package:test/test.dart';
 
 void main() {
   late Directory tmp;

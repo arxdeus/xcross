@@ -69,18 +69,26 @@ class ElfReader {
   // --- Phdr (Elf64_Phdr, 56 bytes each) ---
   static const int _phdrSize = 56;
   int phType(int i) => data.getUint32(ehPhoff + i * _phdrSize, Endian.little);
-  int phFlags(int i) => data.getUint32(ehPhoff + i * _phdrSize + 4, Endian.little);
-  int phOffset(int i) => data.getUint64(ehPhoff + i * _phdrSize + 8, Endian.little);
-  int phVaddr(int i) => data.getUint64(ehPhoff + i * _phdrSize + 16, Endian.little);
-  int phFilesz(int i) => data.getUint64(ehPhoff + i * _phdrSize + 32, Endian.little);
-  int phMemsz(int i) => data.getUint64(ehPhoff + i * _phdrSize + 40, Endian.little);
+  int phFlags(int i) =>
+      data.getUint32(ehPhoff + i * _phdrSize + 4, Endian.little);
+  int phOffset(int i) =>
+      data.getUint64(ehPhoff + i * _phdrSize + 8, Endian.little);
+  int phVaddr(int i) =>
+      data.getUint64(ehPhoff + i * _phdrSize + 16, Endian.little);
+  int phFilesz(int i) =>
+      data.getUint64(ehPhoff + i * _phdrSize + 32, Endian.little);
+  int phMemsz(int i) =>
+      data.getUint64(ehPhoff + i * _phdrSize + 40, Endian.little);
 
   // --- Shdr (Elf64_Shdr, 64 bytes each) ---
   static const int _shdrSize = 64;
   int shName(int i) => data.getUint32(ehShoff + i * _shdrSize, Endian.little);
-  int shType(int i) => data.getUint32(ehShoff + i * _shdrSize + 4, Endian.little);
-  int shOffset(int i) => data.getUint64(ehShoff + i * _shdrSize + 24, Endian.little);
-  int shSize(int i) => data.getUint64(ehShoff + i * _shdrSize + 32, Endian.little);
+  int shType(int i) =>
+      data.getUint32(ehShoff + i * _shdrSize + 4, Endian.little);
+  int shOffset(int i) =>
+      data.getUint64(ehShoff + i * _shdrSize + 24, Endian.little);
+  int shSize(int i) =>
+      data.getUint64(ehShoff + i * _shdrSize + 32, Endian.little);
 
   /// Name of section [i], read via the section-header string table
   /// (`e_shstrndx`).
@@ -101,7 +109,13 @@ class ElfReader {
 /// The ELF64 dynamic symbol table (`.dynsym`, paired with `.dynstr` for
 /// names). Elf64_Sym is 24 bytes.
 class ElfDynamicSymbolTable {
-  ElfDynamicSymbolTable(this._data, this._offset, this.count, this._strtabOffset, this._bytes);
+  ElfDynamicSymbolTable(
+    this._data,
+    this._offset,
+    this.count,
+    this._strtabOffset,
+    this._bytes,
+  );
 
   static const int symSize = 24;
 
@@ -112,7 +126,8 @@ class ElfDynamicSymbolTable {
   final Uint8List _bytes;
 
   int value(int i) => _data.getUint64(_offset + i * symSize + 8, Endian.little);
-  int _nameOffset(int i) => _data.getUint32(_offset + i * symSize, Endian.little);
+  int _nameOffset(int i) =>
+      _data.getUint32(_offset + i * symSize, Endian.little);
 
   String name(int i) => _readCString(_strtabOffset + _nameOffset(i));
 
@@ -138,8 +153,10 @@ class ElfRelaTable {
   final int count;
 
   int offset(int i) => _data.getUint64(_offset + i * relaSize, Endian.little);
-  int _info(int i) => _data.getUint64(_offset + i * relaSize + 8, Endian.little);
-  int addend(int i) => _data.getInt64(_offset + i * relaSize + 16, Endian.little);
+  int _info(int i) =>
+      _data.getUint64(_offset + i * relaSize + 8, Endian.little);
+  int addend(int i) =>
+      _data.getInt64(_offset + i * relaSize + 16, Endian.little);
 
   /// `ELF64_R_SYM(r_info)`.
   int symbolIndex(int i) => _info(i) >> 32;

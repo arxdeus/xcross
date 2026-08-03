@@ -1,5 +1,5 @@
 @TestOn('linux')
-library adi_client_test;
+library;
 
 import 'dart:io';
 
@@ -27,7 +27,8 @@ void main() {
     'native ADI library can be fetched, manually ELF-loaded, and a known symbol resolved',
     () async {
       final fetcher = AdiLibraryFetcher();
-      final (coreAdiPath, storeServicesPath, apkSha256) = await fetcher.ensureLibraries();
+      final (coreAdiPath, storeServicesPath, apkSha256) = await fetcher
+          .ensureLibraries();
 
       expect(File(coreAdiPath).existsSync(), isTrue);
       expect(File(storeServicesPath).existsSync(), isTrue);

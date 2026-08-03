@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross_flutter/src/models/flutter/dart_defines.dart';
 import 'package:xcross_flutter/src/errors.dart';
+import 'package:xcross_flutter/src/models/flutter/dart_defines.dart';
 
 void main() {
   group('DartDefines.mergeDartDefines', () {
@@ -114,19 +114,22 @@ void main() {
       );
     });
 
-    test('throws FlutterBuildError when a .json file is not a JSON object', () async {
-      final path = await writeFile('defines.json', '[1, 2, 3]');
+    test(
+      'throws FlutterBuildError when a .json file is not a JSON object',
+      () async {
+        final path = await writeFile('defines.json', '[1, 2, 3]');
 
-      await expectLater(
-        DartDefines.mergeDartDefines([path], []),
-        throwsA(
-          isA<FlutterBuildError>().having(
-            (e) => e.message,
-            'message',
-            contains('is not a JSON object'),
+        await expectLater(
+          DartDefines.mergeDartDefines([path], []),
+          throwsA(
+            isA<FlutterBuildError>().having(
+              (e) => e.message,
+              'message',
+              contains('is not a JSON object'),
+            ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
   });
 }

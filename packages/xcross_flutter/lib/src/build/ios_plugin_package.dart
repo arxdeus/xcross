@@ -2,12 +2,12 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross_flutter/src/build/ios_plugins.dart';
 import 'package:xcross_flutter/src/build/macho_dylib_rewriter.dart';
 import 'package:xcross_flutter/src/constants.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:xcross_flutter/src/errors.dart';
 
 /// Name of the synthetic package/product/binary-target that wraps the real

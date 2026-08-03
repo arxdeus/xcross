@@ -1,9 +1,9 @@
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-
 import 'package:xcross_flutter/src/build/flutter_debug_bundler.dart';
 import 'package:xcross_flutter/src/build/info_plist.dart';
 import 'package:xcross_flutter/src/build/ios_engine_cache.dart';
@@ -11,10 +11,9 @@ import 'package:xcross_flutter/src/build/ios_plugin_package.dart';
 import 'package:xcross_flutter/src/build/ios_plugins.dart';
 import 'package:xcross_flutter/src/build/runner_shim.dart';
 import 'package:xcross_flutter/src/constants.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
-import 'package:xcross_flutter/src/models/pubspec_info.dart';
-import 'package:xcross_flutter/src/models/flutter/flutter_build_options.dart';
 import 'package:xcross_flutter/src/errors.dart';
+import 'package:xcross_flutter/src/models/flutter/flutter_build_options.dart';
+import 'package:xcross_flutter/src/models/pubspec_info.dart';
 
 /// Builds a Flutter iOS `.app` bundle using Dart and xcross's cross-platform
 /// toolchain. Does NOT call `xcrun`.
@@ -308,10 +307,7 @@ class FlutterPacker {
     // keys see already-substituted values from the template, and before
     // storyboard stripping so $(VAR)-valued storyboard names are resolved
     // before the .storyboardc filesystem probe.
-    plistXml = InfoPlist.expandVars(
-      plistXml,
-      await _buildSubstitutionMap(),
-    );
+    plistXml = InfoPlist.expandVars(plistXml, await _buildSubstitutionMap());
     plistXml = InfoPlist.applyIosRequiredKeys(plistXml, bundleId: bundleId);
     plistXml = InfoPlist.stripUnsatisfiableStoryboards(plistXml, bundleDir);
     plistXml = InfoPlist.normalizeObjCClassNames(plistXml);
@@ -321,9 +317,7 @@ class FlutterPacker {
 
   /// Read `ios/Runner/Info.plist`, falling back to [InfoPlist.fallback].
   Future<String> _loadPlistTemplate() async {
-    final plistFile = File(
-      p.join(projectRoot, 'ios', 'Runner', 'Info.plist'),
-    );
+    final plistFile = File(p.join(projectRoot, 'ios', 'Runner', 'Info.plist'));
     if (plistFile.existsSync()) return plistFile.readAsString();
     return InfoPlist.fallback;
   }

@@ -23,59 +23,61 @@ void main() {
     expect(frames.single.raw, msg);
   });
 
-  test('DapResponseFilter drops answered responses and one initialized event',
-      () async {
-    final out = StreamController<List<int>>();
-    final received = <Map<String, Object?>>[];
-    out.stream.listen((chunk) {
-      final parser = DapFrameParser();
-      for (final frame in parser.push(chunk)) {
-        received.add(frame.json);
-      }
-    });
+  test(
+    'DapResponseFilter drops answered responses and one initialized event',
+    () async {
+      final out = StreamController<List<int>>();
+      final received = <Map<String, Object?>>[];
+      out.stream.listen((chunk) {
+        final parser = DapFrameParser();
+        for (final frame in parser.push(chunk)) {
+          received.add(frame.json);
+        }
+      });
 
-    final filter = DapResponseFilter(out, {1, 2});
-    filter.add(
-      encodeDapFrame({
-        'seq': 10,
-        'type': 'response',
-        'request_seq': 1,
-        'success': true,
-        'command': 'initialize',
-      }),
-    );
-    filter.add(
-      encodeDapFrame({
-        'seq': 11,
-        'type': 'event',
-        'event': 'initialized',
-        'body': <String, Object?>{},
-      }),
-    );
-    filter.add(
-      encodeDapFrame({
-        'seq': 12,
-        'type': 'response',
-        'request_seq': 3,
-        'success': true,
-        'command': 'launch',
-      }),
-    );
-    filter.add(
-      encodeDapFrame({
-        'seq': 13,
-        'type': 'event',
-        'event': 'output',
-        'body': {'output': 'hi'},
-      }),
-    );
-    await filter.close();
-    await Future<void>.delayed(Duration.zero);
+      final filter = DapResponseFilter(out, {1, 2});
+      filter.add(
+        encodeDapFrame({
+          'seq': 10,
+          'type': 'response',
+          'request_seq': 1,
+          'success': true,
+          'command': 'initialize',
+        }),
+      );
+      filter.add(
+        encodeDapFrame({
+          'seq': 11,
+          'type': 'event',
+          'event': 'initialized',
+          'body': <String, Object?>{},
+        }),
+      );
+      filter.add(
+        encodeDapFrame({
+          'seq': 12,
+          'type': 'response',
+          'request_seq': 3,
+          'success': true,
+          'command': 'launch',
+        }),
+      );
+      filter.add(
+        encodeDapFrame({
+          'seq': 13,
+          'type': 'event',
+          'event': 'output',
+          'body': {'output': 'hi'},
+        }),
+      );
+      await filter.close();
+      await Future<void>.delayed(Duration.zero);
 
-    expect(received, hasLength(2));
-    expect(received[0]['command'], 'launch');
-    expect(received[1]['event'], 'output');
-  });
+      expect(received, hasLength(2));
+      expect(received[0]['command'], 'launch');
+      expect(received[1]['event'], 'output');
+    },
+  );
 
   test('runDapSession with xcross:true starts the xcross adapter', () async {
     final inbound = StreamController<List<int>>();
@@ -100,19 +102,12 @@ void main() {
       'command': 'initialize',
       'arguments': {'adapterID': 'dart'},
     });
-    send({
-      'seq': 2,
-      'type': 'request',
-      'command': 'configurationDone',
-    });
+    send({'seq': 2, 'type': 'request', 'command': 'configurationDone'});
     send({
       'seq': 3,
       'type': 'request',
       'command': 'launch',
-      'arguments': {
-        'program': 'lib/main.dart',
-        'xcross': true,
-      },
+      'arguments': {'program': 'lib/main.dart', 'xcross': true},
     });
     await inbound.close();
     await session;

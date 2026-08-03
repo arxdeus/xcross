@@ -5,12 +5,12 @@
 /// prevents the auth-token layer from drifting away from the SRP layer.
 library;
 
-import 'package:http/http.dart' as http;
-import 'package:propertylistserialization/propertylistserialization.dart';
+import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/anisette_headers.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/grandslam_endpoints.dart';
 import 'package:apple_developer_kit/src/grandslam/grandslam_response.dart';
-import 'package:apple_developer_kit/src/errors.dart';
+import 'package:http/http.dart' as http;
+import 'package:propertylistserialization/propertylistserialization.dart';
 
 Map<String, Object?> grandSlamClientProvisioningData(
   Map<String, String> anisette, {

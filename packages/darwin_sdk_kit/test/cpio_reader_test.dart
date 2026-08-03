@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:test/test.dart';
 import 'package:darwin_sdk_kit/src/cpio_reader.dart';
+import 'package:test/test.dart';
 
 import 'test_fixtures.dart';
 
@@ -45,23 +45,26 @@ void main() {
       expect(entries.single.mode, 0x81ff);
     });
 
-    test('reassembles entries split arbitrarily across stream chunks', () async {
-      final bytes = [
-        buildCpioEntry(name: 'a', data: utf8.encode('first file')),
-        buildCpioEntry(name: 'bb', data: utf8.encode('second file body')),
-        buildCpioTrailer(),
-      ].expand((e) => e).toList();
+    test(
+      'reassembles entries split arbitrarily across stream chunks',
+      () async {
+        final bytes = [
+          buildCpioEntry(name: 'a', data: utf8.encode('first file')),
+          buildCpioEntry(name: 'bb', data: utf8.encode('second file body')),
+          buildCpioTrailer(),
+        ].expand((e) => e).toList();
 
-      // 7 bytes doesn't align with any field width above, so headers and
-      // content are guaranteed to straddle chunk boundaries.
-      final entries = await readCpio(chunked(bytes, 7)).toList();
+        // 7 bytes doesn't align with any field width above, so headers and
+        // content are guaranteed to straddle chunk boundaries.
+        final entries = await readCpio(chunked(bytes, 7)).toList();
 
-      expect(entries, hasLength(2));
-      expect(entries[0].name, 'a');
-      expect(utf8.decode(entries[0].data), 'first file');
-      expect(entries[1].name, 'bb');
-      expect(utf8.decode(entries[1].data), 'second file body');
-    });
+        expect(entries, hasLength(2));
+        expect(entries[0].name, 'a');
+        expect(utf8.decode(entries[0].data), 'first file');
+        expect(entries[1].name, 'bb');
+        expect(utf8.decode(entries[1].data), 'second file body');
+      },
+    );
 
     test('throws on bad magic', () {
       final bad = utf8.encode('not a cpio header at all, 76+ bytes long...');

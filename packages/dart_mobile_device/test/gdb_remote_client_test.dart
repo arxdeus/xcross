@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:test/test.dart';
-import 'package:dart_mobile_device/src/gdb_remote_client.dart';
 import 'package:dart_mobile_device/src/errors.dart';
+import 'package:dart_mobile_device/src/gdb_remote_client.dart';
+import 'package:test/test.dart';
 
 /// ASCII `$` — start-of-packet sentinel (mirrors the production wire format).
 const _packetStart = 0x24;

@@ -3,12 +3,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:apple_developer_kit/src/errors.dart';
+import 'package:apple_developer_kit/src/signing/macho_signer.dart';
+import 'package:apple_developer_kit/src/signing/signing_asset.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
-import 'package:apple_developer_kit/src/signing/macho_signer.dart';
-import 'package:apple_developer_kit/src/signing/signing_asset.dart';
-import 'package:apple_developer_kit/src/errors.dart';
 
 /// Signs the constrained `.app` layout produced by xcross's FlutterPacker.
 class BundleSigner {
@@ -89,9 +89,7 @@ class BundleSigner {
     if (!p.basename(normalized).endsWith('.app') ||
         FileSystemEntity.typeSync(normalized, followLinks: false) !=
             FileSystemEntityType.directory) {
-      throw AppleError(
-        'Bundle "$appPath" must be an existing .app directory.',
-      );
+      throw AppleError('Bundle "$appPath" must be an existing .app directory.');
     }
 
     final rootReal = _resolveDirectory(normalized, normalized);

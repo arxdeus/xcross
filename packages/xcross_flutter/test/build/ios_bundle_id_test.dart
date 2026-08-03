@@ -74,9 +74,9 @@ void main() {
     await writePlist(r'$(PRODUCT_BUNDLE_IDENTIFIER)');
     final dir = Directory(p.join(tmp.path, 'ios', 'Runner.xcodeproj'));
     await dir.create(recursive: true);
-    await File(p.join(dir.path, 'project.pbxproj')).writeAsString(
-      'PRODUCT_BUNDLE_IDENTIFIER = "com.example.Quoted";\n',
-    );
+    await File(
+      p.join(dir.path, 'project.pbxproj'),
+    ).writeAsString('PRODUCT_BUNDLE_IDENTIFIER = "com.example.Quoted";\n');
 
     expect(IosBundleId.resolve(tmp.path), 'com.example.Quoted');
   });

@@ -18,14 +18,14 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:apple_developer_kit/src/grandslam/anisette/grandslam_endpoints.dart';
+import 'package:apple_developer_kit/src/grandslam/grandslam_login.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:pointycastle/export.dart' as pc;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
-import 'package:apple_developer_kit/src/grandslam/anisette/grandslam_endpoints.dart';
-import 'package:apple_developer_kit/src/grandslam/grandslam_login.dart';
 
 const _gsServiceUrl = 'https://gsa.apple.com/gsService';
 const _trustedDeviceUrl = 'https://gsa.apple.com/trustedDeviceSecondaryAuth';
@@ -58,119 +58,145 @@ Future<Map<String, String>> _fakeAnisetteHeaders() async => {
 
 void main() {
   group('successful login (no 2FA)', () {
-    test('performs o=init -> o=complete and decodes the success payload', () async {
-      const username = 'test@example.com';
-      const password = 'hunter2';
-      final server = _FakeGsaServer(username: username, password: password);
+    test(
+      'performs o=init -> o=complete and decodes the success payload',
+      () async {
+        const username = 'test@example.com';
+        const password = 'hunter2';
+        final server = _FakeGsaServer(username: username, password: password);
 
-      http.Request? initRequest;
-      http.Request? completeRequest;
+        http.Request? initRequest;
+        http.Request? completeRequest;
 
-      final client = MockClient((request) async {
-        expect(request.url.toString(), _gsServiceUrl);
-        expect(request.method, 'POST');
-        expect(request.headers['Content-Type'], startsWith('text/x-xml-plist'));
-        expect(request.headers['Accept'], '*/*');
-        expect(
-          request.headers['User-Agent'],
-          'akd/1.0 CFNetwork/978.0.7 Darwin/18.7.0',
+        final client = MockClient((request) async {
+          expect(request.url.toString(), _gsServiceUrl);
+          expect(request.method, 'POST');
+          expect(
+            request.headers['Content-Type'],
+            startsWith('text/x-xml-plist'),
+          );
+          expect(request.headers['Accept'], '*/*');
+          expect(
+            request.headers['User-Agent'],
+            'akd/1.0 CFNetwork/978.0.7 Darwin/18.7.0',
+          );
+          expect(request.headers['X-MMe-Client-Info'], 'fake-client-info');
+
+          final envelope =
+              PropertyListSerialization.propertyListWithString(request.body)
+                  as Map;
+          final req = (envelope['Request']! as Map).cast<String, Object?>();
+          final cpd = (req['cpd']! as Map).cast<String, Object?>();
+
+          expect(cpd['bootstrap'], true);
+          expect(cpd['icscrec'], true);
+          expect(cpd['pbe'], false);
+          expect(cpd['prkgen'], true);
+          expect(cpd['svct'], 'iCloud');
+          expect(cpd['loc'], 'en_US');
+          expect(cpd['X-Apple-I-Client-Time'], '2024-01-01T00:00:00Z');
+          expect(cpd['X-Apple-I-MD'], 'fake-otp');
+          expect(cpd['X-Apple-I-MD-LU'], 'fake-lu-hash');
+          expect(cpd['X-Apple-I-MD-M'], 'fake-mid');
+          expect(cpd['X-Apple-I-MD-RINFO'], 84215040);
+          expect(cpd['X-Apple-I-SRL-NO'], 'C02LKHBBFD57');
+          expect(cpd['X-Apple-I-TimeZone'], 'UTC');
+          expect(cpd['X-Apple-Locale'], 'en_US');
+          expect(cpd['X-Mme-Device-Id'], 'fake-device-id');
+          expect(cpd, isNot(contains('X-Apple-I-Locale')));
+          expect(cpd, isNot(contains('X-MMe-Client-Info')));
+
+          switch (req['o']) {
+            case 'init':
+              initRequest = request;
+              expect(req['u'], username);
+              expect(req['ps'], ['s2k', 's2k_fo']);
+              final aBytes = _bytesOf(req['A2k']);
+              server.receiveClientPublicKey(aBytes);
+              return http.Response(
+                _operationResponse({
+                  'sp': server.selectedProtocol,
+                  'c': 'cookie-abc',
+                  's': _bd(server.salt),
+                  'i': server.iterations,
+                  'B': _bd(server.serverPublicKeyBytes),
+                }),
+                200,
+              );
+            case 'complete':
+              completeRequest = request;
+              expect(req['c'], 'cookie-abc');
+              final m1 = _bytesOf(req['M1']);
+              final result = server.verifyAndRespond(m1);
+              expect(
+                result,
+                isNotNull,
+                reason: 'server should accept a correct password',
+              );
+              final successPlist =
+                  PropertyListSerialization.stringWithPropertyList({
+                    'adsid': 'the-adsid',
+                    'GsIdmsToken': 'the-idms-token',
+                    'sk': _bd(result!.sessionKey),
+                    'c': _bd(Uint8List.fromList(utf8.encode('binary-cookie'))),
+                  });
+              final spd = _encryptCbc(
+                result.sessionKey,
+                utf8.encode(successPlist),
+              );
+              final negProto = _negProto(
+                sessionKey: result.sessionKey,
+                selectedProtocol: server.selectedProtocol,
+                spd: spd,
+              );
+              return http.Response(
+                _operationResponse({
+                  'M2': _bd(result.hamk),
+                  'spd': _bd(spd),
+                  'np': _bd(negProto),
+                }),
+                200,
+              );
+            default:
+              throw StateError('unexpected o=${req['o']}');
+          }
+        });
+
+        final grandSlam = GrandSlamClient(
+          endpoints: _testEndpoints,
+          fetchAnisetteHeaders: _fakeAnisetteHeaders,
+          httpClient: client,
         );
-        expect(request.headers['X-MMe-Client-Info'], 'fake-client-info');
 
-        final envelope =
-            PropertyListSerialization.propertyListWithString(request.body) as Map;
-        final req = (envelope['Request']! as Map).cast<String, Object?>();
-        final cpd = (req['cpd']! as Map).cast<String, Object?>();
+        final loginData = await grandSlam.login(
+          username: username,
+          password: password,
+        );
 
-        expect(cpd['bootstrap'], true);
-        expect(cpd['icscrec'], true);
-        expect(cpd['pbe'], false);
-        expect(cpd['prkgen'], true);
-        expect(cpd['svct'], 'iCloud');
-        expect(cpd['loc'], 'en_US');
-        expect(cpd['X-Apple-I-Client-Time'], '2024-01-01T00:00:00Z');
-        expect(cpd['X-Apple-I-MD'], 'fake-otp');
-        expect(cpd['X-Apple-I-MD-LU'], 'fake-lu-hash');
-        expect(cpd['X-Apple-I-MD-M'], 'fake-mid');
-        expect(cpd['X-Apple-I-MD-RINFO'], 84215040);
-        expect(cpd['X-Apple-I-SRL-NO'], 'C02LKHBBFD57');
-        expect(cpd['X-Apple-I-TimeZone'], 'UTC');
-        expect(cpd['X-Apple-Locale'], 'en_US');
-        expect(cpd['X-Mme-Device-Id'], 'fake-device-id');
-        expect(cpd, isNot(contains('X-Apple-I-Locale')));
-        expect(cpd, isNot(contains('X-MMe-Client-Info')));
-
-        switch (req['o']) {
-          case 'init':
-            initRequest = request;
-            expect(req['u'], username);
-            expect(req['ps'], ['s2k', 's2k_fo']);
-            final aBytes = _bytesOf(req['A2k']);
-            server.receiveClientPublicKey(aBytes);
-            return http.Response(
-              _operationResponse({
-                'sp': server.selectedProtocol,
-                'c': 'cookie-abc',
-                's': _bd(server.salt),
-                'i': server.iterations,
-                'B': _bd(server.serverPublicKeyBytes),
-              }),
-              200,
-            );
-          case 'complete':
-            completeRequest = request;
-            expect(req['c'], 'cookie-abc');
-            final m1 = _bytesOf(req['M1']);
-            final result = server.verifyAndRespond(m1);
-            expect(result, isNotNull, reason: 'server should accept a correct password');
-            final successPlist = PropertyListSerialization.stringWithPropertyList({
-              'adsid': 'the-adsid',
-              'GsIdmsToken': 'the-idms-token',
-              'sk': _bd(result!.sessionKey),
-              'c': _bd(Uint8List.fromList(utf8.encode('binary-cookie'))),
-            });
-            final spd = _encryptCbc(result.sessionKey, utf8.encode(successPlist));
-            final negProto = _negProto(
-              sessionKey: result.sessionKey,
-              selectedProtocol: server.selectedProtocol,
-              spd: spd,
-            );
-            return http.Response(
-              _operationResponse({'M2': _bd(result.hamk), 'spd': _bd(spd), 'np': _bd(negProto)}),
-              200,
-            );
-          default:
-            throw StateError('unexpected o=${req['o']}');
-        }
-      });
-
-      final grandSlam = GrandSlamClient(
-        endpoints: _testEndpoints,
-        fetchAnisetteHeaders: _fakeAnisetteHeaders,
-        httpClient: client,
-      );
-
-      final loginData = await grandSlam.login(username: username, password: password);
-
-      expect(loginData.adsid, 'the-adsid');
-      expect(loginData.idmsToken, 'the-idms-token');
-      expect(loginData.cookie, utf8.encode('binary-cookie'));
-      expect(
-        loginData.identityToken,
-        base64Encode(utf8.encode('the-adsid:the-idms-token')),
-      );
-      expect(initRequest, isNotNull);
-      expect(completeRequest, isNotNull);
-    });
+        expect(loginData.adsid, 'the-adsid');
+        expect(loginData.idmsToken, 'the-idms-token');
+        expect(loginData.cookie, utf8.encode('binary-cookie'));
+        expect(
+          loginData.identityToken,
+          base64Encode(utf8.encode('the-adsid:the-idms-token')),
+        );
+        expect(initRequest, isNotNull);
+        expect(completeRequest, isNotNull);
+      },
+    );
 
     test('lowercases the username before both the request and SRP', () async {
       const password = 'hunter2';
-      final server = _FakeGsaServer(username: 'test@example.com', password: password);
+      final server = _FakeGsaServer(
+        username: 'test@example.com',
+        password: password,
+      );
       String? seenUsername;
 
       final client = MockClient((request) async {
         final envelope =
-            PropertyListSerialization.propertyListWithString(request.body) as Map;
+            PropertyListSerialization.propertyListWithString(request.body)
+                as Map;
         final req = (envelope['Request']! as Map).cast<String, Object?>();
         seenUsername = req['u'] as String?;
         if (req['o'] == 'init') {
@@ -200,7 +226,11 @@ void main() {
           spd: spd,
         );
         return http.Response(
-          _operationResponse({'M2': _bd(result.hamk), 'spd': _bd(spd), 'np': _bd(negProto)}),
+          _operationResponse({
+            'M2': _bd(result.hamk),
+            'spd': _bd(spd),
+            'np': _bd(negProto),
+          }),
           200,
         );
       });
@@ -216,481 +246,567 @@ void main() {
   });
 
   group('incorrect password', () {
-    test('throws GrandSlamAuthError when the server hamk does not verify', () async {
-      const username = 'test@example.com';
-      final server = _FakeGsaServer(username: username, password: 'correct-password');
+    test(
+      'throws GrandSlamAuthError when the server hamk does not verify',
+      () async {
+        const username = 'test@example.com';
+        final server = _FakeGsaServer(
+          username: username,
+          password: 'correct-password',
+        );
 
-      final client = MockClient((request) async {
-        final envelope =
-            PropertyListSerialization.propertyListWithString(request.body) as Map;
-        final req = (envelope['Request']! as Map).cast<String, Object?>();
-        if (req['o'] == 'init') {
-          server.receiveClientPublicKey(_bytesOf(req['A2k']));
+        final client = MockClient((request) async {
+          final envelope =
+              PropertyListSerialization.propertyListWithString(request.body)
+                  as Map;
+          final req = (envelope['Request']! as Map).cast<String, Object?>();
+          if (req['o'] == 'init') {
+            server.receiveClientPublicKey(_bytesOf(req['A2k']));
+            return http.Response(
+              _operationResponse({
+                'sp': server.selectedProtocol,
+                'c': 'cookie-abc',
+                's': _bd(server.salt),
+                'i': server.iterations,
+                'B': _bd(server.serverPublicKeyBytes),
+              }),
+              200,
+            );
+          }
+          // Client used the wrong password, so its M1 won't match what the
+          // server (registered with the correct password) expects.
+          final result = server.verifyAndRespond(_bytesOf(req['M1']));
+          expect(
+            result,
+            isNull,
+            reason: 'server should reject a wrong-password M1',
+          );
+          // A real GrandSlam server would presumably error out; simulate the
+          // client-detectable consequence either way by returning a bogus
+          // hamk/spd/np - `verifyServerProof` must catch this itself.
+          final garbage = _randomBytes(32);
           return http.Response(
             _operationResponse({
-              'sp': server.selectedProtocol,
-              'c': 'cookie-abc',
-              's': _bd(server.salt),
-              'i': server.iterations,
-              'B': _bd(server.serverPublicKeyBytes),
+              'M2': _bd(garbage),
+              'spd': _bd(garbage),
+              'np': _bd(garbage),
             }),
             200,
           );
-        }
-        // Client used the wrong password, so its M1 won't match what the
-        // server (registered with the correct password) expects.
-        final result = server.verifyAndRespond(_bytesOf(req['M1']));
-        expect(result, isNull, reason: 'server should reject a wrong-password M1');
-        // A real GrandSlam server would presumably error out; simulate the
-        // client-detectable consequence either way by returning a bogus
-        // hamk/spd/np - `verifyServerProof` must catch this itself.
-        final garbage = _randomBytes(32);
-        return http.Response(
-          _operationResponse({'M2': _bd(garbage), 'spd': _bd(garbage), 'np': _bd(garbage)}),
-          200,
+        });
+
+        final grandSlam = GrandSlamClient(
+          endpoints: _testEndpoints,
+          fetchAnisetteHeaders: _fakeAnisetteHeaders,
+          httpClient: client,
         );
-      });
 
-      final grandSlam = GrandSlamClient(
-        endpoints: _testEndpoints,
-        fetchAnisetteHeaders: _fakeAnisetteHeaders,
-        httpClient: client,
-      );
-
-      await expectLater(
-        () => grandSlam.login(username: username, password: 'wrong-password'),
-        throwsA(isA<GrandSlamAuthError>()),
-      );
-    });
+        await expectLater(
+          () => grandSlam.login(username: username, password: 'wrong-password'),
+          throwsA(isA<GrandSlamAuthError>()),
+        );
+      },
+    );
   });
 
   group('two-factor authentication', () {
-    test('trusted-device push -> code validation -> full retry -> success', () async {
-      const username = 'test@example.com';
-      const password = 'hunter2';
-      final server = _FakeGsaServer(username: username, password: password);
+    test(
+      'trusted-device push -> code validation -> full retry -> success',
+      () async {
+        const username = 'test@example.com';
+        const password = 'hunter2';
+        final server = _FakeGsaServer(username: username, password: password);
 
-      var completeCallCount = 0;
-      var pushSent = false;
-      var validateCodeCalled = false;
+        var completeCallCount = 0;
+        var pushSent = false;
+        var validateCodeCalled = false;
 
-      final client = MockClient((request) async {
-        if (request.url.toString() == _trustedDeviceUrl) {
-          expect(request.method, 'GET');
-          expect(request.headers['X-Apple-Identity-Token'], isNotEmpty);
-          expect(request.headers['X-Apple-App-Info'], 'com.apple.gs.xcode.auth');
-          expect(request.headers['X-Xcode-Version'], isNotEmpty);
-          pushSent = true;
-          // Apple returns application/x-buddyml here, not a plist. Parsing
-          // that as XML would trip propertylistserialization's debug print.
-          return http.Response(
-            '<buddyui><alert>Enter the code</alert></buddyui>',
-            200,
-            headers: {'content-type': 'application/x-buddyml'},
+        final client = MockClient((request) async {
+          if (request.url.toString() == _trustedDeviceUrl) {
+            expect(request.method, 'GET');
+            expect(request.headers['X-Apple-Identity-Token'], isNotEmpty);
+            expect(
+              request.headers['X-Apple-App-Info'],
+              'com.apple.gs.xcode.auth',
+            );
+            expect(request.headers['X-Xcode-Version'], isNotEmpty);
+            pushSent = true;
+            // Apple returns application/x-buddyml here, not a plist. Parsing
+            // that as XML would trip propertylistserialization's debug print.
+            return http.Response(
+              '<buddyui><alert>Enter the code</alert></buddyui>',
+              200,
+              headers: {'content-type': 'application/x-buddyml'},
+            );
+          }
+          if (request.url.toString() == _validateCodeUrl) {
+            expect(request.method, 'GET');
+            expect(request.headers['security-code'], '123456');
+            validateCodeCalled = true;
+            return http.Response('', 200);
+          }
+          expect(request.url.toString(), _gsServiceUrl);
+          final envelope =
+              PropertyListSerialization.propertyListWithString(request.body)
+                  as Map;
+          final req = (envelope['Request']! as Map).cast<String, Object?>();
+          if (req['o'] == 'init') {
+            server.receiveClientPublicKey(_bytesOf(req['A2k']));
+            return http.Response(
+              _operationResponse({
+                'sp': server.selectedProtocol,
+                'c': 'cookie-${completeCallCount + 1}',
+                's': _bd(server.salt),
+                'i': server.iterations,
+                'B': _bd(server.serverPublicKeyBytes),
+              }),
+              200,
+            );
+          }
+          completeCallCount++;
+          final result = server.verifyAndRespond(_bytesOf(req['M1']))!;
+          final needsTwoFactor = completeCallCount == 1;
+          final plistMap = <String, Object?>{
+            'adsid': 'the-adsid',
+            'GsIdmsToken': 'the-idms-token',
+            'sk': _bd(result.sessionKey),
+            'c': _bd(Uint8List.fromList([9, 9, 9])),
+            if (needsTwoFactor) 'status-code': 409,
+            if (needsTwoFactor) 'url': 'trustedDeviceSecondaryAuth',
+          };
+          final successPlist = PropertyListSerialization.stringWithPropertyList(
+            plistMap,
           );
-        }
-        if (request.url.toString() == _validateCodeUrl) {
-          expect(request.method, 'GET');
-          expect(request.headers['security-code'], '123456');
-          validateCodeCalled = true;
-          return http.Response('', 200);
-        }
-        expect(request.url.toString(), _gsServiceUrl);
-        final envelope =
-            PropertyListSerialization.propertyListWithString(request.body) as Map;
-        final req = (envelope['Request']! as Map).cast<String, Object?>();
-        if (req['o'] == 'init') {
-          server.receiveClientPublicKey(_bytesOf(req['A2k']));
-          return http.Response(
-            _operationResponse({
-              'sp': server.selectedProtocol,
-              'c': 'cookie-${completeCallCount + 1}',
-              's': _bd(server.salt),
-              'i': server.iterations,
-              'B': _bd(server.serverPublicKeyBytes),
-            }),
-            200,
+          final spd = _encryptCbc(result.sessionKey, utf8.encode(successPlist));
+          final negProto = _negProto(
+            sessionKey: result.sessionKey,
+            selectedProtocol: server.selectedProtocol,
+            spd: spd,
           );
-        }
-        completeCallCount++;
-        final result = server.verifyAndRespond(_bytesOf(req['M1']))!;
-        final needsTwoFactor = completeCallCount == 1;
-        final plistMap = <String, Object?>{
-          'adsid': 'the-adsid',
-          'GsIdmsToken': 'the-idms-token',
-          'sk': _bd(result.sessionKey),
-          'c': _bd(Uint8List.fromList([9, 9, 9])),
-          if (needsTwoFactor) 'status-code': 409,
-          if (needsTwoFactor) 'url': 'trustedDeviceSecondaryAuth',
-        };
-        final successPlist = PropertyListSerialization.stringWithPropertyList(plistMap);
-        final spd = _encryptCbc(result.sessionKey, utf8.encode(successPlist));
-        final negProto = _negProto(
-          sessionKey: result.sessionKey,
-          selectedProtocol: server.selectedProtocol,
-          spd: spd,
-        );
-        return http.Response(
-          _operationResponse({'M2': _bd(result.hamk), 'spd': _bd(spd), 'np': _bd(negProto)}),
-          200,
-        );
-      });
-
-      GrandSlamTwoFactorMode? promptedMode;
-      final grandSlam = GrandSlamClient(
-        endpoints: _testEndpoints,
-        fetchAnisetteHeaders: _fakeAnisetteHeaders,
-        httpClient: client,
-      );
-
-      final loginData = await grandSlam.login(
-        username: username,
-        password: password,
-        fetchTwoFactorCode: (mode) async {
-          promptedMode = mode;
-          return '123456';
-        },
-      );
-
-      expect(promptedMode, GrandSlamTwoFactorMode.trustedDevice);
-      expect(pushSent, isTrue);
-      expect(validateCodeCalled, isTrue);
-      expect(completeCallCount, 2, reason: 'must fully redo o=init/o=complete after 2FA');
-      expect(loginData.adsid, 'the-adsid');
-    });
-
-    test('SMS 2FA: hits the hardcoded phone/put and securitycode endpoints', () async {
-      const username = 'test@example.com';
-      const password = 'hunter2';
-      final server = _FakeGsaServer(username: username, password: password);
-
-      var completeCallCount = 0;
-      var smsSent = false;
-
-      final client = MockClient((request) async {
-        if (request.url.toString() == _smsPutUrl) {
-          expect(request.method, 'POST');
-          final body = PropertyListSerialization.propertyListWithString(request.body) as Map;
-          final serverInfo = (body['serverInfo']! as Map).cast<String, Object?>();
-          expect(serverInfo['phoneNumber.id'], '1');
-          smsSent = true;
-          return http.Response('', 200);
-        }
-        if (request.url.toString() == _smsValidateUrl) {
-          expect(request.method, 'POST');
-          final body = PropertyListSerialization.propertyListWithString(request.body) as Map;
-          expect(body['securityCode.code'], '654321');
-          final serverInfo = (body['serverInfo']! as Map).cast<String, Object?>();
-          expect(serverInfo['mode'], 'sms');
-          expect(serverInfo['phoneNumber.id'], '1');
-          return http.Response('', 200);
-        }
-        final envelope =
-            PropertyListSerialization.propertyListWithString(request.body) as Map;
-        final req = (envelope['Request']! as Map).cast<String, Object?>();
-        if (req['o'] == 'init') {
-          server.receiveClientPublicKey(_bytesOf(req['A2k']));
           return http.Response(
             _operationResponse({
-              'sp': server.selectedProtocol,
-              'c': 'cookie',
-              's': _bd(server.salt),
-              'i': server.iterations,
-              'B': _bd(server.serverPublicKeyBytes),
+              'M2': _bd(result.hamk),
+              'spd': _bd(spd),
+              'np': _bd(negProto),
             }),
             200,
           );
-        }
-        completeCallCount++;
-        final result = server.verifyAndRespond(_bytesOf(req['M1']))!;
-        final needsTwoFactor = completeCallCount == 1;
-        final plistMap = <String, Object?>{
-          'adsid': 'a',
-          'GsIdmsToken': 'b',
-          'sk': _bd(result.sessionKey),
-          'c': _bd(Uint8List.fromList([1])),
-          if (needsTwoFactor) 'status-code': 409,
-          if (needsTwoFactor) 'url': 'secondaryAuth',
-        };
-        final successPlist = PropertyListSerialization.stringWithPropertyList(plistMap);
-        final spd = _encryptCbc(result.sessionKey, utf8.encode(successPlist));
-        final negProto = _negProto(
-          sessionKey: result.sessionKey,
-          selectedProtocol: server.selectedProtocol,
-          spd: spd,
-        );
-        return http.Response(
-          _operationResponse({'M2': _bd(result.hamk), 'spd': _bd(spd), 'np': _bd(negProto)}),
-          200,
-        );
-      });
-
-      GrandSlamTwoFactorMode? promptedMode;
-      final grandSlam = GrandSlamClient(
-        endpoints: _testEndpoints,
-        fetchAnisetteHeaders: _fakeAnisetteHeaders,
-        httpClient: client,
-      );
-
-      await grandSlam.login(
-        username: username,
-        password: password,
-        fetchTwoFactorCode: (mode) async {
-          promptedMode = mode;
-          return '654321';
-        },
-      );
-
-      expect(promptedMode, GrandSlamTwoFactorMode.sms);
-      expect(smsSent, isTrue);
-    });
-
-    test('incorrect verification code (-21669) throws GrandSlamIncorrectCodeError', () async {
-      const username = 'test@example.com';
-      const password = 'hunter2';
-      final server = _FakeGsaServer(username: username, password: password);
-
-      final client = MockClient((request) async {
-        if (request.url.toString() == _validateCodeUrl) {
-          return http.Response(
-            PropertyListSerialization.stringWithPropertyList({
-              'Status': {'ec': -21669, 'em': 'Incorrect verification code.'},
-              'Response': <String, Object?>{},
-            }),
-            200,
-          );
-        }
-        final envelope =
-            PropertyListSerialization.propertyListWithString(request.body) as Map;
-        final req = (envelope['Request']! as Map).cast<String, Object?>();
-        if (req['o'] == 'init') {
-          server.receiveClientPublicKey(_bytesOf(req['A2k']));
-          return http.Response(
-            _operationResponse({
-              'sp': server.selectedProtocol,
-              'c': 'cookie',
-              's': _bd(server.salt),
-              'i': server.iterations,
-              'B': _bd(server.serverPublicKeyBytes),
-            }),
-            200,
-          );
-        }
-        final result = server.verifyAndRespond(_bytesOf(req['M1']))!;
-        final successPlist = PropertyListSerialization.stringWithPropertyList({
-          'adsid': 'a',
-          'GsIdmsToken': 'b',
-          'sk': _bd(result.sessionKey),
-          'c': _bd(Uint8List.fromList([1])),
-          'status-code': 409,
-          // url absent -> "unspecified" implicit 2FA path -> GET validateCode.
         });
-        final spd = _encryptCbc(result.sessionKey, utf8.encode(successPlist));
-        final negProto = _negProto(
-          sessionKey: result.sessionKey,
-          selectedProtocol: server.selectedProtocol,
-          spd: spd,
-        );
-        return http.Response(
-          _operationResponse({'M2': _bd(result.hamk), 'spd': _bd(spd), 'np': _bd(negProto)}),
-          200,
-        );
-      });
 
-      final grandSlam = GrandSlamClient(
-        endpoints: _testEndpoints,
-        fetchAnisetteHeaders: _fakeAnisetteHeaders,
-        httpClient: client,
-      );
+        GrandSlamTwoFactorMode? promptedMode;
+        final grandSlam = GrandSlamClient(
+          endpoints: _testEndpoints,
+          fetchAnisetteHeaders: _fakeAnisetteHeaders,
+          httpClient: client,
+        );
 
-      GrandSlamTwoFactorMode? promptedMode;
-      await expectLater(
-        () => grandSlam.login(
+        final loginData = await grandSlam.login(
           username: username,
           password: password,
           fetchTwoFactorCode: (mode) async {
             promptedMode = mode;
-            return '000000';
+            return '123456';
           },
-        ),
-        throwsA(isA<GrandSlamIncorrectCodeError>()),
-      );
-      expect(promptedMode, GrandSlamTwoFactorMode.unspecified);
-    });
+        );
 
-    test('throws GrandSlamTwoFactorRequiredError when no callback is provided', () async {
-      const username = 'test@example.com';
-      const password = 'hunter2';
-      final server = _FakeGsaServer(username: username, password: password);
+        expect(promptedMode, GrandSlamTwoFactorMode.trustedDevice);
+        expect(pushSent, isTrue);
+        expect(validateCodeCalled, isTrue);
+        expect(
+          completeCallCount,
+          2,
+          reason: 'must fully redo o=init/o=complete after 2FA',
+        );
+        expect(loginData.adsid, 'the-adsid');
+      },
+    );
 
-      final client = MockClient((request) async {
-        final envelope =
-            PropertyListSerialization.propertyListWithString(request.body) as Map;
-        final req = (envelope['Request']! as Map).cast<String, Object?>();
-        if (req['o'] == 'init') {
-          server.receiveClientPublicKey(_bytesOf(req['A2k']));
+    test(
+      'SMS 2FA: hits the hardcoded phone/put and securitycode endpoints',
+      () async {
+        const username = 'test@example.com';
+        const password = 'hunter2';
+        final server = _FakeGsaServer(username: username, password: password);
+
+        var completeCallCount = 0;
+        var smsSent = false;
+
+        final client = MockClient((request) async {
+          if (request.url.toString() == _smsPutUrl) {
+            expect(request.method, 'POST');
+            final body =
+                PropertyListSerialization.propertyListWithString(request.body)
+                    as Map;
+            final serverInfo = (body['serverInfo']! as Map)
+                .cast<String, Object?>();
+            expect(serverInfo['phoneNumber.id'], '1');
+            smsSent = true;
+            return http.Response('', 200);
+          }
+          if (request.url.toString() == _smsValidateUrl) {
+            expect(request.method, 'POST');
+            final body =
+                PropertyListSerialization.propertyListWithString(request.body)
+                    as Map;
+            expect(body['securityCode.code'], '654321');
+            final serverInfo = (body['serverInfo']! as Map)
+                .cast<String, Object?>();
+            expect(serverInfo['mode'], 'sms');
+            expect(serverInfo['phoneNumber.id'], '1');
+            return http.Response('', 200);
+          }
+          final envelope =
+              PropertyListSerialization.propertyListWithString(request.body)
+                  as Map;
+          final req = (envelope['Request']! as Map).cast<String, Object?>();
+          if (req['o'] == 'init') {
+            server.receiveClientPublicKey(_bytesOf(req['A2k']));
+            return http.Response(
+              _operationResponse({
+                'sp': server.selectedProtocol,
+                'c': 'cookie',
+                's': _bd(server.salt),
+                'i': server.iterations,
+                'B': _bd(server.serverPublicKeyBytes),
+              }),
+              200,
+            );
+          }
+          completeCallCount++;
+          final result = server.verifyAndRespond(_bytesOf(req['M1']))!;
+          final needsTwoFactor = completeCallCount == 1;
+          final plistMap = <String, Object?>{
+            'adsid': 'a',
+            'GsIdmsToken': 'b',
+            'sk': _bd(result.sessionKey),
+            'c': _bd(Uint8List.fromList([1])),
+            if (needsTwoFactor) 'status-code': 409,
+            if (needsTwoFactor) 'url': 'secondaryAuth',
+          };
+          final successPlist = PropertyListSerialization.stringWithPropertyList(
+            plistMap,
+          );
+          final spd = _encryptCbc(result.sessionKey, utf8.encode(successPlist));
+          final negProto = _negProto(
+            sessionKey: result.sessionKey,
+            selectedProtocol: server.selectedProtocol,
+            spd: spd,
+          );
           return http.Response(
             _operationResponse({
-              'sp': server.selectedProtocol,
-              'c': 'cookie',
-              's': _bd(server.salt),
-              'i': server.iterations,
-              'B': _bd(server.serverPublicKeyBytes),
+              'M2': _bd(result.hamk),
+              'spd': _bd(spd),
+              'np': _bd(negProto),
             }),
             200,
           );
-        }
-        final result = server.verifyAndRespond(_bytesOf(req['M1']))!;
-        final successPlist = PropertyListSerialization.stringWithPropertyList({
-          'adsid': 'a',
-          'GsIdmsToken': 'b',
-          'sk': _bd(result.sessionKey),
-          'c': _bd(Uint8List.fromList([1])),
-          'status-code': 409,
         });
-        final spd = _encryptCbc(result.sessionKey, utf8.encode(successPlist));
-        final negProto = _negProto(
-          sessionKey: result.sessionKey,
-          selectedProtocol: server.selectedProtocol,
-          spd: spd,
+
+        GrandSlamTwoFactorMode? promptedMode;
+        final grandSlam = GrandSlamClient(
+          endpoints: _testEndpoints,
+          fetchAnisetteHeaders: _fakeAnisetteHeaders,
+          httpClient: client,
         );
-        return http.Response(
-          _operationResponse({'M2': _bd(result.hamk), 'spd': _bd(spd), 'np': _bd(negProto)}),
-          200,
-        );
-      });
 
-      final grandSlam = GrandSlamClient(
-        endpoints: _testEndpoints,
-        fetchAnisetteHeaders: _fakeAnisetteHeaders,
-        httpClient: client,
-      );
-
-      await expectLater(
-        () => grandSlam.login(username: username, password: password),
-        throwsA(isA<GrandSlamTwoFactorRequiredError>()),
-      );
-    });
-
-    test('throws GrandSlamAuthError if 2FA is still required after the retry', () async {
-      const username = 'test@example.com';
-      const password = 'hunter2';
-      final server = _FakeGsaServer(username: username, password: password);
-
-      final client = MockClient((request) async {
-        if (request.url.toString() == _validateCodeUrl) {
-          return http.Response('', 200);
-        }
-        final envelope =
-            PropertyListSerialization.propertyListWithString(request.body) as Map;
-        final req = (envelope['Request']! as Map).cast<String, Object?>();
-        if (req['o'] == 'init') {
-          server.receiveClientPublicKey(_bytesOf(req['A2k']));
-          return http.Response(
-            _operationResponse({
-              'sp': server.selectedProtocol,
-              'c': 'cookie',
-              's': _bd(server.salt),
-              'i': server.iterations,
-              'B': _bd(server.serverPublicKeyBytes),
-            }),
-            200,
-          );
-        }
-        // Always report 2FA required, even on the retry.
-        final result = server.verifyAndRespond(_bytesOf(req['M1']))!;
-        final successPlist = PropertyListSerialization.stringWithPropertyList({
-          'adsid': 'a',
-          'GsIdmsToken': 'b',
-          'sk': _bd(result.sessionKey),
-          'c': _bd(Uint8List.fromList([1])),
-          'status-code': 409,
-        });
-        final spd = _encryptCbc(result.sessionKey, utf8.encode(successPlist));
-        final negProto = _negProto(
-          sessionKey: result.sessionKey,
-          selectedProtocol: server.selectedProtocol,
-          spd: spd,
-        );
-        return http.Response(
-          _operationResponse({'M2': _bd(result.hamk), 'spd': _bd(spd), 'np': _bd(negProto)}),
-          200,
-        );
-      });
-
-      final grandSlam = GrandSlamClient(
-        endpoints: _testEndpoints,
-        fetchAnisetteHeaders: _fakeAnisetteHeaders,
-        httpClient: client,
-      );
-
-      await expectLater(
-        () => grandSlam.login(
+        await grandSlam.login(
           username: username,
           password: password,
-          fetchTwoFactorCode: (mode) async => '123456',
-        ),
-        throwsA(isA<GrandSlamAuthError>()),
-      );
-    });
+          fetchTwoFactorCode: (mode) async {
+            promptedMode = mode;
+            return '654321';
+          },
+        );
 
-    test('cancelling the code prompt throws GrandSlamTwoFactorCancelledError', () async {
-      const username = 'test@example.com';
-      const password = 'hunter2';
-      final server = _FakeGsaServer(username: username, password: password);
+        expect(promptedMode, GrandSlamTwoFactorMode.sms);
+        expect(smsSent, isTrue);
+      },
+    );
 
-      final client = MockClient((request) async {
-        final envelope =
-            PropertyListSerialization.propertyListWithString(request.body) as Map;
-        final req = (envelope['Request']! as Map).cast<String, Object?>();
-        if (req['o'] == 'init') {
-          server.receiveClientPublicKey(_bytesOf(req['A2k']));
+    test(
+      'incorrect verification code (-21669) throws GrandSlamIncorrectCodeError',
+      () async {
+        const username = 'test@example.com';
+        const password = 'hunter2';
+        final server = _FakeGsaServer(username: username, password: password);
+
+        final client = MockClient((request) async {
+          if (request.url.toString() == _validateCodeUrl) {
+            return http.Response(
+              PropertyListSerialization.stringWithPropertyList({
+                'Status': {'ec': -21669, 'em': 'Incorrect verification code.'},
+                'Response': <String, Object?>{},
+              }),
+              200,
+            );
+          }
+          final envelope =
+              PropertyListSerialization.propertyListWithString(request.body)
+                  as Map;
+          final req = (envelope['Request']! as Map).cast<String, Object?>();
+          if (req['o'] == 'init') {
+            server.receiveClientPublicKey(_bytesOf(req['A2k']));
+            return http.Response(
+              _operationResponse({
+                'sp': server.selectedProtocol,
+                'c': 'cookie',
+                's': _bd(server.salt),
+                'i': server.iterations,
+                'B': _bd(server.serverPublicKeyBytes),
+              }),
+              200,
+            );
+          }
+          final result = server.verifyAndRespond(_bytesOf(req['M1']))!;
+          final successPlist = PropertyListSerialization.stringWithPropertyList({
+            'adsid': 'a',
+            'GsIdmsToken': 'b',
+            'sk': _bd(result.sessionKey),
+            'c': _bd(Uint8List.fromList([1])),
+            'status-code': 409,
+            // url absent -> "unspecified" implicit 2FA path -> GET validateCode.
+          });
+          final spd = _encryptCbc(result.sessionKey, utf8.encode(successPlist));
+          final negProto = _negProto(
+            sessionKey: result.sessionKey,
+            selectedProtocol: server.selectedProtocol,
+            spd: spd,
+          );
           return http.Response(
             _operationResponse({
-              'sp': server.selectedProtocol,
-              'c': 'cookie',
-              's': _bd(server.salt),
-              'i': server.iterations,
-              'B': _bd(server.serverPublicKeyBytes),
+              'M2': _bd(result.hamk),
+              'spd': _bd(spd),
+              'np': _bd(negProto),
             }),
             200,
           );
-        }
-        final result = server.verifyAndRespond(_bytesOf(req['M1']))!;
-        final successPlist = PropertyListSerialization.stringWithPropertyList({
-          'adsid': 'a',
-          'GsIdmsToken': 'b',
-          'sk': _bd(result.sessionKey),
-          'c': _bd(Uint8List.fromList([1])),
-          'status-code': 409,
         });
-        final spd = _encryptCbc(result.sessionKey, utf8.encode(successPlist));
-        final negProto = _negProto(
-          sessionKey: result.sessionKey,
-          selectedProtocol: server.selectedProtocol,
-          spd: spd,
-        );
-        return http.Response(
-          _operationResponse({'M2': _bd(result.hamk), 'spd': _bd(spd), 'np': _bd(negProto)}),
-          200,
-        );
-      });
 
-      final grandSlam = GrandSlamClient(
-        endpoints: _testEndpoints,
-        fetchAnisetteHeaders: _fakeAnisetteHeaders,
-        httpClient: client,
-      );
+        final grandSlam = GrandSlamClient(
+          endpoints: _testEndpoints,
+          fetchAnisetteHeaders: _fakeAnisetteHeaders,
+          httpClient: client,
+        );
 
-      await expectLater(
-        () => grandSlam.login(
-          username: username,
-          password: password,
-          fetchTwoFactorCode: (mode) async => null,
-        ),
-        throwsA(isA<GrandSlamTwoFactorCancelledError>()),
-      );
-    });
+        GrandSlamTwoFactorMode? promptedMode;
+        await expectLater(
+          () => grandSlam.login(
+            username: username,
+            password: password,
+            fetchTwoFactorCode: (mode) async {
+              promptedMode = mode;
+              return '000000';
+            },
+          ),
+          throwsA(isA<GrandSlamIncorrectCodeError>()),
+        );
+        expect(promptedMode, GrandSlamTwoFactorMode.unspecified);
+      },
+    );
+
+    test(
+      'throws GrandSlamTwoFactorRequiredError when no callback is provided',
+      () async {
+        const username = 'test@example.com';
+        const password = 'hunter2';
+        final server = _FakeGsaServer(username: username, password: password);
+
+        final client = MockClient((request) async {
+          final envelope =
+              PropertyListSerialization.propertyListWithString(request.body)
+                  as Map;
+          final req = (envelope['Request']! as Map).cast<String, Object?>();
+          if (req['o'] == 'init') {
+            server.receiveClientPublicKey(_bytesOf(req['A2k']));
+            return http.Response(
+              _operationResponse({
+                'sp': server.selectedProtocol,
+                'c': 'cookie',
+                's': _bd(server.salt),
+                'i': server.iterations,
+                'B': _bd(server.serverPublicKeyBytes),
+              }),
+              200,
+            );
+          }
+          final result = server.verifyAndRespond(_bytesOf(req['M1']))!;
+          final successPlist = PropertyListSerialization.stringWithPropertyList(
+            {
+              'adsid': 'a',
+              'GsIdmsToken': 'b',
+              'sk': _bd(result.sessionKey),
+              'c': _bd(Uint8List.fromList([1])),
+              'status-code': 409,
+            },
+          );
+          final spd = _encryptCbc(result.sessionKey, utf8.encode(successPlist));
+          final negProto = _negProto(
+            sessionKey: result.sessionKey,
+            selectedProtocol: server.selectedProtocol,
+            spd: spd,
+          );
+          return http.Response(
+            _operationResponse({
+              'M2': _bd(result.hamk),
+              'spd': _bd(spd),
+              'np': _bd(negProto),
+            }),
+            200,
+          );
+        });
+
+        final grandSlam = GrandSlamClient(
+          endpoints: _testEndpoints,
+          fetchAnisetteHeaders: _fakeAnisetteHeaders,
+          httpClient: client,
+        );
+
+        await expectLater(
+          () => grandSlam.login(username: username, password: password),
+          throwsA(isA<GrandSlamTwoFactorRequiredError>()),
+        );
+      },
+    );
+
+    test(
+      'throws GrandSlamAuthError if 2FA is still required after the retry',
+      () async {
+        const username = 'test@example.com';
+        const password = 'hunter2';
+        final server = _FakeGsaServer(username: username, password: password);
+
+        final client = MockClient((request) async {
+          if (request.url.toString() == _validateCodeUrl) {
+            return http.Response('', 200);
+          }
+          final envelope =
+              PropertyListSerialization.propertyListWithString(request.body)
+                  as Map;
+          final req = (envelope['Request']! as Map).cast<String, Object?>();
+          if (req['o'] == 'init') {
+            server.receiveClientPublicKey(_bytesOf(req['A2k']));
+            return http.Response(
+              _operationResponse({
+                'sp': server.selectedProtocol,
+                'c': 'cookie',
+                's': _bd(server.salt),
+                'i': server.iterations,
+                'B': _bd(server.serverPublicKeyBytes),
+              }),
+              200,
+            );
+          }
+          // Always report 2FA required, even on the retry.
+          final result = server.verifyAndRespond(_bytesOf(req['M1']))!;
+          final successPlist = PropertyListSerialization.stringWithPropertyList(
+            {
+              'adsid': 'a',
+              'GsIdmsToken': 'b',
+              'sk': _bd(result.sessionKey),
+              'c': _bd(Uint8List.fromList([1])),
+              'status-code': 409,
+            },
+          );
+          final spd = _encryptCbc(result.sessionKey, utf8.encode(successPlist));
+          final negProto = _negProto(
+            sessionKey: result.sessionKey,
+            selectedProtocol: server.selectedProtocol,
+            spd: spd,
+          );
+          return http.Response(
+            _operationResponse({
+              'M2': _bd(result.hamk),
+              'spd': _bd(spd),
+              'np': _bd(negProto),
+            }),
+            200,
+          );
+        });
+
+        final grandSlam = GrandSlamClient(
+          endpoints: _testEndpoints,
+          fetchAnisetteHeaders: _fakeAnisetteHeaders,
+          httpClient: client,
+        );
+
+        await expectLater(
+          () => grandSlam.login(
+            username: username,
+            password: password,
+            fetchTwoFactorCode: (mode) async => '123456',
+          ),
+          throwsA(isA<GrandSlamAuthError>()),
+        );
+      },
+    );
+
+    test(
+      'cancelling the code prompt throws GrandSlamTwoFactorCancelledError',
+      () async {
+        const username = 'test@example.com';
+        const password = 'hunter2';
+        final server = _FakeGsaServer(username: username, password: password);
+
+        final client = MockClient((request) async {
+          final envelope =
+              PropertyListSerialization.propertyListWithString(request.body)
+                  as Map;
+          final req = (envelope['Request']! as Map).cast<String, Object?>();
+          if (req['o'] == 'init') {
+            server.receiveClientPublicKey(_bytesOf(req['A2k']));
+            return http.Response(
+              _operationResponse({
+                'sp': server.selectedProtocol,
+                'c': 'cookie',
+                's': _bd(server.salt),
+                'i': server.iterations,
+                'B': _bd(server.serverPublicKeyBytes),
+              }),
+              200,
+            );
+          }
+          final result = server.verifyAndRespond(_bytesOf(req['M1']))!;
+          final successPlist = PropertyListSerialization.stringWithPropertyList(
+            {
+              'adsid': 'a',
+              'GsIdmsToken': 'b',
+              'sk': _bd(result.sessionKey),
+              'c': _bd(Uint8List.fromList([1])),
+              'status-code': 409,
+            },
+          );
+          final spd = _encryptCbc(result.sessionKey, utf8.encode(successPlist));
+          final negProto = _negProto(
+            sessionKey: result.sessionKey,
+            selectedProtocol: server.selectedProtocol,
+            spd: spd,
+          );
+          return http.Response(
+            _operationResponse({
+              'M2': _bd(result.hamk),
+              'spd': _bd(spd),
+              'np': _bd(negProto),
+            }),
+            200,
+          );
+        });
+
+        final grandSlam = GrandSlamClient(
+          endpoints: _testEndpoints,
+          fetchAnisetteHeaders: _fakeAnisetteHeaders,
+          httpClient: client,
+        );
+
+        await expectLater(
+          () => grandSlam.login(
+            username: username,
+            password: password,
+            fetchTwoFactorCode: (mode) async => null,
+          ),
+          throwsA(isA<GrandSlamTwoFactorCancelledError>()),
+        );
+      },
+    );
   });
 }
 
@@ -793,16 +909,30 @@ class _FakeGsaServer {
   _SrpVerifyResult? verifyAndRespond(Uint8List m1) {
     final u = _calcXY(_bigA, _bigB);
     final s = (_bigA * _v.modPow(u, _n) % _n).modPow(_b, _n);
-    final k = Uint8List.fromList(crypto.sha256.convert(_bigIntToBytes(s)).bytes);
+    final k = Uint8List.fromList(
+      crypto.sha256.convert(_bigIntToBytes(s)).bytes,
+    );
 
     final aBytes = _bigIntToBytes(_bigA);
     final bBytes = serverPublicKeyBytes;
-    final gHash = crypto.sha256.convert(_padLeft(_bigIntToBytes(_g), _nByteLength)).bytes;
+    final gHash = crypto.sha256
+        .convert(_padLeft(_bigIntToBytes(_g), _nByteLength))
+        .bytes;
     final nHash = crypto.sha256.convert(_bigIntToBytes(_n)).bytes;
-    final xorHash = List<int>.generate(gHash.length, (i) => gHash[i] ^ nHash[i]);
+    final xorHash = List<int>.generate(
+      gHash.length,
+      (i) => gHash[i] ^ nHash[i],
+    );
     final hi = crypto.sha256.convert(utf8.encode(username)).bytes;
     final expectedM = Uint8List.fromList(
-      crypto.sha256.convert([...xorHash, ...hi, ...salt, ...aBytes, ...bBytes, ...k]).bytes,
+      crypto.sha256.convert([
+        ...xorHash,
+        ...hi,
+        ...salt,
+        ...aBytes,
+        ...bBytes,
+        ...k,
+      ]).bytes,
     );
     if (!_constantTimeEquals(expectedM, m1)) return null;
 
@@ -819,11 +949,15 @@ BigInt _computeX({
   required int iterations,
   required bool legacy,
 }) {
-  final hashedPassword = Uint8List.fromList(crypto.sha256.convert(utf8.encode(password)).bytes);
+  final hashedPassword = Uint8List.fromList(
+    crypto.sha256.convert(utf8.encode(password)).bytes,
+  );
   final Uint8List pbkdfInput;
   if (legacy) {
     pbkdfInput = Uint8List.fromList(
-      utf8.encode(hashedPassword.map((b) => b.toRadixString(16).padLeft(2, '0')).join()),
+      utf8.encode(
+        hashedPassword.map((b) => b.toRadixString(16).padLeft(2, '0')).join(),
+      ),
     );
   } else {
     pbkdfInput = hashedPassword;
@@ -871,7 +1005,9 @@ BigInt _bytesToBigInt(List<int> bytes) {
 
 Uint8List _randomBytes(int length) {
   final random = Random.secure();
-  return Uint8List.fromList(List<int>.generate(length, (_) => random.nextInt(256)));
+  return Uint8List.fromList(
+    List<int>.generate(length, (_) => random.nextInt(256)),
+  );
 }
 
 bool _constantTimeEquals(List<int> a, List<int> b) {
@@ -894,8 +1030,17 @@ Uint8List _sessionSubkey(Uint8List sessionKey, String name) =>
 Uint8List _encryptCbc(Uint8List sessionKey, Uint8List plaintext) {
   final aesKey = _sessionSubkey(sessionKey, 'extra data key:');
   final iv = _sessionSubkey(sessionKey, 'extra data iv:').sublist(0, 16);
-  final cipher = pc.PaddedBlockCipherImpl(pc.PKCS7Padding(), pc.CBCBlockCipher(pc.AESEngine()))
-    ..init(true, pc.PaddedBlockCipherParameters(pc.ParametersWithIV(pc.KeyParameter(aesKey), iv), null));
+  final cipher =
+      pc.PaddedBlockCipherImpl(
+        pc.PKCS7Padding(),
+        pc.CBCBlockCipher(pc.AESEngine()),
+      )..init(
+        true,
+        pc.PaddedBlockCipherParameters(
+          pc.ParametersWithIV(pc.KeyParameter(aesKey), iv),
+          null,
+        ),
+      );
   return cipher.process(plaintext);
 }
 

@@ -22,10 +22,10 @@ void main() {
     });
 
     test('strips trailing commas in objects and arrays', () {
-      expect(
-        parseJsonc('{\n  "a": 1,\n  "b": false,\n}\n'),
-        {'a': 1, 'b': false},
-      );
+      expect(parseJsonc('{\n  "a": 1,\n  "b": false,\n}\n'), {
+        'a': 1,
+        'b': false,
+      });
       expect(parseJsonc('[1, 2, ]'), [1, 2]);
       expect(parseJsonc('{"a": 1, // trailing\n}'), {'a': 1});
       // Comma inside a string must survive.
@@ -200,7 +200,7 @@ void main() {
 
     test('quotes paths with spaces', () {
       final xml = buildIdeaRunXml(r'C:\Program Files\xcross.exe');
-      expect(xml, contains('&quot;C:\\Program Files\\xcross.exe&quot; dap'));
+      expect(xml, contains(r'&quot;C:\Program Files\xcross.exe&quot; dap'));
     });
   });
 

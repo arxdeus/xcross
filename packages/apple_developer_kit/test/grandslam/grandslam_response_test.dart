@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:apple_developer_kit/src/grandslam/grandslam_response.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
-import 'package:apple_developer_kit/src/grandslam/grandslam_response.dart';
 
 void main() {
   test("decodes Apple's bare dictionary payload", () {

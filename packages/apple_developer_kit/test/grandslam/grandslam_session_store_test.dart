@@ -1,10 +1,10 @@
 import 'dart:io';
 
-import 'package:path/path.dart' as p;
-import 'package:test/test.dart';
+import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/grandslam/app_token_exchange.dart';
 import 'package:apple_developer_kit/src/grandslam/grandslam_session_store.dart';
-import 'package:apple_developer_kit/src/errors.dart';
+import 'package:path/path.dart' as p;
+import 'package:test/test.dart';
 
 void main() {
   late Directory tempDir;

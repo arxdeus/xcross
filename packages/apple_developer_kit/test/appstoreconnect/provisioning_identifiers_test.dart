@@ -1,5 +1,5 @@
-import 'package:test/test.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/provisioning_identifiers.dart';
+import 'package:test/test.dart';
 
 void main() {
   test('qualifies with first identity segment uppercased', () {

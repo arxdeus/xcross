@@ -1,10 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:basic_utils/basic_utils.dart';
-import 'package:test/test.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/asc_config.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/asc_jwt.dart';
+import 'package:basic_utils/basic_utils.dart';
+import 'package:test/test.dart';
 
 void main() {
   group('AscJwt.generate', () {

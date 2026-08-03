@@ -2,11 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:cli_kit/cli_kit.dart';
 import 'package:args/command_runner.dart';
-import 'package:path/path.dart' as p;
-
+import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:path/path.dart' as p;
 import 'package:xcross/src/util/errors.dart';
 
 /// `xcross sdk` — manage xcross's host-neutral Darwin Swift SDK.

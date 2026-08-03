@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:test/test.dart';
 import 'package:darwin_sdk_kit/src/xar_reader.dart';
+import 'package:test/test.dart';
 
 import 'test_fixtures.dart';
 

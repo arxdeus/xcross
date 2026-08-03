@@ -1,11 +1,11 @@
 // Tests for [GrandSlamEndpoints]/[fetchGrandSlamEndpoints]: plist
 // encode/decode of the lookup response shape, and the lookup HTTP call
 // (mocked - see task note re: no real network in this test suite).
+import 'package:apple_developer_kit/src/grandslam/anisette/grandslam_endpoints.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
-import 'package:apple_developer_kit/src/grandslam/anisette/grandslam_endpoints.dart';
 
 /// A hand-constructed lookup response plist, matching the exact shape
 /// documented in the task spec: a top-level `urls` dict, no `Status`/

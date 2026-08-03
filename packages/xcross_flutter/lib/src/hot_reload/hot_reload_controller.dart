@@ -2,13 +2,13 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:xcross_flutter/src/constants.dart';
+import 'package:xcross_flutter/src/errors.dart';
 import 'package:xcross_flutter/src/hot_reload/dart_vm_service_client.dart';
 import 'package:xcross_flutter/src/hot_reload/frontend_server_client.dart';
 import 'package:xcross_flutter/src/hot_reload/source_watcher.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:xcross_flutter/src/models/hot_reload_config.dart';
-import 'package:xcross_flutter/src/errors.dart';
 
 /// Drives Flutter hot reload / hot restart by:
 ///   1. Spawning a persistent `frontend_server` for incremental kernel diffs.
@@ -140,7 +140,8 @@ class HotReloadController {
     final targetUri = await _timed('devfs-upload', () => _uploadDill(dill));
 
     final isolateId = await _rootIsolateIdCached();
-    if (isolateId == null) throw FlutterBuildError('no Flutter isolate to reload');
+    if (isolateId == null)
+      throw FlutterBuildError('no Flutter isolate to reload');
 
     final ok = await _timed('reloadSources', () async {
       final report = await vm.call(
@@ -252,8 +253,10 @@ class HotReloadController {
   ];
 
   Future<void> _createDevFs() async {
-    Future<Map<String, dynamic>> tryCreate() =>
-        vm.call('_createDevFS', params: {'fsName': FlutterDeviceConstants.devFsName});
+    Future<Map<String, dynamic>> tryCreate() => vm.call(
+      '_createDevFS',
+      params: {'fsName': FlutterDeviceConstants.devFsName},
+    );
 
     Map<String, dynamic> data;
     try {

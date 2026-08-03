@@ -2,12 +2,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:apple_developer_kit/src/errors.dart';
 import 'package:basic_utils/basic_utils.dart' show CryptoUtils, X509Utils;
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:meta/meta.dart';
 import 'package:pointycastle/export.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
-import 'package:apple_developer_kit/src/errors.dart';
 
 /// Parsed signing material used to produce Apple code-signing CMS blobs.
 class SigningAsset {
@@ -756,9 +756,7 @@ Map<String, Object?> _parsePlist(Uint8List bytes, String path) {
 
 Map<String, Object?> _requiredMap(Object? value, String field, String path) {
   if (value is! Map<Object?, Object?>) {
-    throw AppleError(
-      'Provisioning profile "$path" has an invalid $field map.',
-    );
+    throw AppleError('Provisioning profile "$path" has an invalid $field map.');
   }
   final result = <String, Object?>{};
   for (final entry in value.entries) {
@@ -838,9 +836,7 @@ void _checkValidity(
     );
   }
   if (now.isAfter(end)) {
-    throw AppleError(
-      '$context expired at ${end.toIso8601String()}.',
-    );
+    throw AppleError('$context expired at ${end.toIso8601String()}.');
   }
 }
 

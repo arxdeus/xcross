@@ -1,9 +1,9 @@
 import 'dart:convert';
 
 import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/src/pymd.dart';
-import 'package:dart_mobile_device/src/models/device.dart';
 import 'package:dart_mobile_device/src/errors.dart';
+import 'package:dart_mobile_device/src/models/device.dart';
+import 'package:dart_mobile_device/src/pymd.dart';
 
 /// pymobiledevice3-backed device enumeration and app install.
 ///

@@ -2,6 +2,8 @@
 // hook/build.dart. On Windows x64 these rearrange SysV <-> MS ABI; on
 // other hosts the C side is an identity stub (host ABI is already SysV).
 
+// ignore_for_file: non_constant_identifier_names
+
 import 'dart:ffi';
 
 /// Wraps an MS-ABI function so Android/SysV callers can invoke it.

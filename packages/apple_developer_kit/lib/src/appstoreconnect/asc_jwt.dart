@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:basic_utils/basic_utils.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/asc_config.dart';
+import 'package:basic_utils/basic_utils.dart';
 
 /// Builds the short-lived JWT bearer token App Store Connect API requests
 /// are authenticated with (Team-scoped API key, ES256).

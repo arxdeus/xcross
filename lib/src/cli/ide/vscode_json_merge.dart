@@ -59,8 +59,7 @@ String stripJsonc(String source) {
   return out.toString();
 }
 
-bool _isJsoncSpace(String c) =>
-    c == ' ' || c == '\t' || c == '\n' || c == '\r';
+bool _isJsoncSpace(String c) => c == ' ' || c == '\t' || c == '\n' || c == '\r';
 
 /// Skip whitespace and comments; returns the index of the next real token.
 int _skipJsoncTrivia(String source, int start) {
@@ -119,20 +118,18 @@ const String xcrossLaunchName = 'xcross: iOS device';
 
 /// Canonical launch.json fields for the xcross entry (except [args]).
 Map<String, Object?> xcrossLaunchFields() => {
-      'name': xcrossLaunchName,
-      'type': 'dart',
-      'request': 'launch',
-      'debuggerType': 'flutter',
-      'program': 'lib/main.dart',
-      'xcross': true,
-      'cwd': r'${workspaceFolder}',
-    };
+  'name': xcrossLaunchName,
+  'type': 'dart',
+  'request': 'launch',
+  'debuggerType': 'flutter',
+  'program': 'lib/main.dart',
+  'xcross': true,
+  'cwd': r'${workspaceFolder}',
+};
 
 /// Upsert the xcross launch configuration into a launch.json document.
 Map<String, Object?> mergeLaunchDoc(Map<String, Object?>? existing) {
-  final doc = <String, Object?>{
-    if (existing != null) ...existing,
-  };
+  final doc = <String, Object?>{if (existing != null) ...existing};
   doc.putIfAbsent('version', () => '0.2.0');
 
   final configs = <Object?>[

@@ -1,13 +1,13 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
 import 'package:args/command_runner.dart';
-import 'package:xcross_flutter/xcross_flutter.dart';
+import 'package:cli_kit/cli_kit.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:xcross/src/cli/flutter/flutter_build_args.dart';
 import 'package:xcross/src/device/core_device_launcher.dart';
 import 'package:xcross/src/device/device_backend.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:xcross/src/util/errors.dart';
+import 'package:xcross_flutter/xcross_flutter.dart';
 
 /// How `--device-connection` restricts device discovery.
 enum DeviceConnection { attached, wireless, both }

@@ -15,15 +15,15 @@ library;
 
 import 'dart:convert';
 
-import 'package:http/http.dart' as http;
-import 'package:propertylistserialization/propertylistserialization.dart';
+import 'package:apple_developer_kit/src/apple_http_client.dart';
+import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/grandslam_endpoints.dart';
 import 'package:apple_developer_kit/src/grandslam/grandslam_login_data.dart';
 import 'package:apple_developer_kit/src/grandslam/grandslam_operation.dart';
 import 'package:apple_developer_kit/src/grandslam/grandslam_response.dart';
 import 'package:apple_developer_kit/src/grandslam/srp_client.dart';
-import 'package:apple_developer_kit/src/apple_http_client.dart';
-import 'package:apple_developer_kit/src/errors.dart';
+import 'package:http/http.dart' as http;
+import 'package:propertylistserialization/propertylistserialization.dart';
 
 /// Which channel a two-factor code was (or, for [unspecified], may have
 /// been) sent through - surfaced to [FetchTwoFactorCode] so a caller can

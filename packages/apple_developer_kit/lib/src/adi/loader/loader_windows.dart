@@ -56,7 +56,6 @@ class WindowsNativeLibraryLoader implements NativeLibraryLoader {
     return lib;
   }
 
-
   @override
   LoadedNativeLibrary load(String path) {
     _lastLoadDir = File(path).parent.path;

@@ -5,11 +5,11 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:path/path.dart' as p;
-import 'package:posix/posix.dart' as posix;
+import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/anisette_state.dart';
 import 'package:apple_developer_kit/src/grandslam/app_token_exchange.dart';
-import 'package:apple_developer_kit/src/errors.dart';
+import 'package:path/path.dart' as p;
+import 'package:posix/posix.dart' as posix;
 
 class GrandSlamSession {
   GrandSlamSession({

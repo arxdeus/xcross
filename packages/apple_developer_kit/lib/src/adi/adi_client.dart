@@ -9,13 +9,12 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:ffi/ffi.dart';
-import 'package:path/path.dart' as p;
-
 import 'package:apple_developer_kit/src/adi/adi_bindings.dart';
 import 'package:apple_developer_kit/src/adi/loader/loader.dart';
 import 'package:apple_developer_kit/src/adi/loader/loader_posix.dart';
 import 'package:apple_developer_kit/src/adi/loader/loader_windows.dart';
+import 'package:ffi/ffi.dart';
+import 'package:path/path.dart' as p;
 
 /// Default loader for the current host: Windows ELF+SysV bridge, or Linux
 /// POSIX mmap loader. See NOTICE.md for why plain dlopen/LoadLibrary is
@@ -205,7 +204,10 @@ class AdiClient {
     NativeLibraryLoader? loader,
   }) {
     final resolvedLoader = loader ?? defaultNativeLibraryLoader();
-    final storeServicesPath = p.join(nativeLibraryDir, 'libstoreservicescore.so');
+    final storeServicesPath = p.join(
+      nativeLibraryDir,
+      'libstoreservicescore.so',
+    );
     final storeServicesCore = resolvedLoader.load(storeServicesPath);
 
     final client = AdiClient._(AdiNativeBindings(storeServicesCore));
@@ -276,19 +278,24 @@ class AdiClient {
     final outSrm = malloc<Pointer<Uint8>>();
     final outSrmLength = malloc<Uint32>();
     try {
-      _unwrap(_bindings.adiSynchronize(
-        dsId,
-        inputPtr,
-        serverIntermediateMetadata.length,
-        outMid,
-        outMidLength,
-        outSrm,
-        outSrmLength,
-      ));
+      _unwrap(
+        _bindings.adiSynchronize(
+          dsId,
+          inputPtr,
+          serverIntermediateMetadata.length,
+          outMid,
+          outMidLength,
+          outSrm,
+          outSrmLength,
+        ),
+      );
 
       return AdiSynchronizationResult(
         machineIdentifier: _copyAndDispose(outMid.value, outMidLength.value),
-        synchronizationResumeMetadata: _copyAndDispose(outSrm.value, outSrmLength.value),
+        synchronizationResumeMetadata: _copyAndDispose(
+          outSrm.value,
+          outSrmLength.value,
+        ),
       );
     } finally {
       malloc.free(inputPtr);
@@ -315,13 +322,15 @@ class AdiClient {
     final ptmPtr = _copyToNative(persistentTokenMetadata);
     final tkPtr = _copyToNative(trustKey);
     try {
-      _unwrap(_bindings.adiProvisioningEnd(
-        session,
-        ptmPtr,
-        persistentTokenMetadata.length,
-        tkPtr,
-        trustKey.length,
-      ));
+      _unwrap(
+        _bindings.adiProvisioningEnd(
+          session,
+          ptmPtr,
+          persistentTokenMetadata.length,
+          tkPtr,
+          trustKey.length,
+        ),
+      );
     } finally {
       malloc.free(ptmPtr);
       malloc.free(tkPtr);
@@ -340,17 +349,22 @@ class AdiClient {
     final outCpimLength = malloc<Uint32>();
     final outSession = malloc<Uint32>();
     try {
-      _unwrap(_bindings.adiProvisioningStart(
-        dsId,
-        inputPtr,
-        serverProvisioningIntermediateMetadata.length,
-        outCpim,
-        outCpimLength,
-        outSession,
-      ));
+      _unwrap(
+        _bindings.adiProvisioningStart(
+          dsId,
+          inputPtr,
+          serverProvisioningIntermediateMetadata.length,
+          outCpim,
+          outCpimLength,
+          outSession,
+        ),
+      );
 
       return AdiClientProvisioningIntermediateMetadata(
-        clientProvisioningIntermediateMetadata: _copyAndDispose(outCpim.value, outCpimLength.value),
+        clientProvisioningIntermediateMetadata: _copyAndDispose(
+          outCpim.value,
+          outCpimLength.value,
+        ),
         session: outSession.value,
       );
     } finally {
@@ -378,13 +392,15 @@ class AdiClient {
     final outOtp = malloc<Pointer<Uint8>>();
     final outOtpLength = malloc<Uint32>();
     try {
-      _unwrap(_bindings.adiOtpRequest(
-        dsId,
-        outMid,
-        outMidLength,
-        outOtp,
-        outOtpLength,
-      ));
+      _unwrap(
+        _bindings.adiOtpRequest(
+          dsId,
+          outMid,
+          outMidLength,
+          outOtp,
+          outOtpLength,
+        ),
+      );
 
       return AdiOneTimePassword(
         machineIdentifier: _copyAndDispose(outMid.value, outMidLength.value),

@@ -28,8 +28,8 @@ class PosixNativeLibraryLoader implements NativeLibraryLoader {
     // time) that it exists to avoid on pthreads.
     if (!Platform.isLinux) {
       throw UnsupportedError(
-        'provision_dart\'s native ELF loader currently only supports '
-        'Linux. macOS needs lib/provision/compat/macos.d\'s open()/stat() '
+        "provision_dart's native ELF loader currently only supports "
+        "Linux. macOS needs lib/provision/compat/macos.d's open()/stat() "
         'translation ported first — see NOTICE.md.',
       );
     }

@@ -1,10 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
 import 'package:async/async.dart';
-import 'package:xcross_flutter/src/models/hot_reload_config.dart';
+import 'package:cli_kit/cli_kit.dart';
 import 'package:xcross_flutter/src/errors.dart';
+import 'package:xcross_flutter/src/models/hot_reload_config.dart';
 import 'package:xcross_flutter/src/package_uris.dart';
 
 /// Drives a persistent `frontend_server` subprocess over its stdin/stdout
@@ -205,9 +205,9 @@ class FrontendServerClient {
     _process = null;
     if (process != null) {
       try {
-        await ProcessRunner.killTree(process).timeout(
-          const Duration(seconds: 2),
-        );
+        await ProcessRunner.killTree(
+          process,
+        ).timeout(const Duration(seconds: 2));
       } on Object catch (_) {
         process.kill();
       }
@@ -226,7 +226,8 @@ class FrontendServerClient {
   /// is killed before the OS buffer is flushed.
   Future<void> _send(String s) async {
     final sink = _sink;
-    if (sink == null) throw FlutterBuildError('frontend_server closed unexpectedly');
+    if (sink == null)
+      throw FlutterBuildError('frontend_server closed unexpectedly');
     sink.write(s);
     await sink.flush();
   }
@@ -235,7 +236,8 @@ class FrontendServerClient {
   /// Returns the local dill file path.
   Future<String> _readResultBoundary() {
     final queue = _queue;
-    if (queue == null) throw FlutterBuildError('frontend_server closed unexpectedly');
+    if (queue == null)
+      throw FlutterBuildError('frontend_server closed unexpectedly');
     // Never block forever: if frontend_server emits no result, fail instead.
     return _parseResultBoundary(queue).timeout(
       const Duration(seconds: 60),

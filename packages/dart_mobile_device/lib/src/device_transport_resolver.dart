@@ -3,12 +3,12 @@ import 'dart:io' show Platform;
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/constants.dart';
 import 'package:dart_mobile_device/src/device_transport.dart';
+import 'package:dart_mobile_device/src/errors.dart';
 import 'package:dart_mobile_device/src/kernel_tunnel_transport.dart';
 import 'package:dart_mobile_device/src/pymd.dart';
 import 'package:dart_mobile_device/src/tunnel_daemon.dart';
 import 'package:dart_mobile_device/src/tunnel_discovery.dart';
 import 'package:dart_mobile_device/src/userspace_tunnel_transport.dart';
-import 'package:dart_mobile_device/src/errors.dart';
 
 /// Which [DeviceTransport] to build.
 enum DeviceTransportMode {

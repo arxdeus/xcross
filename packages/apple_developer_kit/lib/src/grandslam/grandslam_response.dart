@@ -11,8 +11,8 @@ library;
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:apple_developer_kit/src/errors.dart';
+import 'package:propertylistserialization/propertylistserialization.dart';
 
 /// A GrandSlam operation error: the response's `Status.ec` was non-zero.
 /// Carries the numeric code separately from [message] so callers can
