@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:dds/dap.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/ide/dap_router.dart';
+import 'package:xcross_dap/src/dap_router.dart';
 
 void main() {
   test('DapFrameParser splits Content-Length frames across chunks', () {

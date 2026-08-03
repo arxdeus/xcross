@@ -234,7 +234,7 @@ packages:
     source: hosted
     version: "3.1.12"
   dds:
-    dependency: "direct main"
+    dependency: transitive
     description:
       name: dds
       sha256: f8e875dcd7b5e5073a7bfe54095144c70487f18e2f8e47fa51c09dd67eccfb0c
@@ -426,7 +426,7 @@ packages:
     source: hosted
     version: "2.0.2"
   package_config:
-    dependency: "direct main"
+    dependency: transitive
     description:
       name: package_config
       sha256: ffcf4cf3d6c0b74ac43708d9f56625506e8a68aa935abe9d267a7330f320eb5d
@@ -690,7 +690,7 @@ packages:
     source: hosted
     version: "8.0.16"
   vm_service:
-    dependency: "direct main"
+    dependency: transitive
     description:
       name: vm_service
       sha256: "0016aef94fc66495ac78af5859181e3f3bf2026bd8eecc72b9565601e19ab360"

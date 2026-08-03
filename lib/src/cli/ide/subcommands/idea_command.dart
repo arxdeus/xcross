@@ -6,7 +6,7 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 
 /// `xcross ide idea` — write a shared LSP4IJ DAP run configuration that
-/// drives `xcross dap` (stdio).
+/// drives `xcross flutter dap` (stdio).
 class IdeaCommand extends Command<void> {
   @override
   String get name => 'idea';
@@ -57,7 +57,7 @@ class IdeaCommand extends Command<void> {
 
 /// Shared `.run/*.run.xml` body for LSP4IJ's `DAPConfiguration` type.
 String buildIdeaRunXml(String xcrossExe) {
-  final command = '${_quoteCmd(xcrossExe)} dap';
+  final command = '${_quoteCmd(xcrossExe)} flutter dap';
   final launch = jsonEncode({
     'type': 'dart',
     'name': 'xcross: iOS device',

@@ -19,6 +19,7 @@ void main() {
       'dart test packages/darwin_sdk_kit',
       'dart test packages/dart_mobile_device',
       'dart test packages/xcross_flutter',
+      'dart test packages/xcross_dap',
       'dart build cli',
       "if: startsWith(github.ref, 'refs/tags/')",
       r'gh release create "$tag"',

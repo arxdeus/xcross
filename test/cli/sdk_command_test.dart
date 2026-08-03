@@ -6,7 +6,7 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/sdk_command.dart';
+import 'package:xcross/src/cli/basic/sdk_command.dart';
 
 import '../../packages/darwin_sdk_kit/test/test_fixtures.dart';
 

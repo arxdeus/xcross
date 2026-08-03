@@ -4,7 +4,7 @@
 // `Command.argParser` seam from package:args — no private state.
 import 'package:args/command_runner.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/auth_command.dart';
+import 'package:xcross/src/cli/basic/auth_command.dart';
 import 'package:xcross/src/cli/flutter/subcommands/flutter_build_command.dart';
 import 'package:xcross/src/cli/flutter/subcommands/flutter_run_command.dart';
 import 'package:xcross/src/cli/runner.dart';

@@ -48,6 +48,7 @@ jobs:
           dart test packages/darwin_sdk_kit
           dart test packages/dart_mobile_device
           dart test packages/xcross_flutter
+          dart test packages/xcross_dap
 
       - name: Compile binary
         run: |
@@ -90,6 +91,7 @@ jobs:
           dart test packages/darwin_sdk_kit
           dart test packages/dart_mobile_device
           dart test packages/xcross_flutter
+          dart test packages/xcross_dap
 
       - name: Build xcross
         shell: pwsh

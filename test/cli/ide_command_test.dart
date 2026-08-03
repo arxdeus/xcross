@@ -190,7 +190,7 @@ void main() {
       expect(xml, contains('type="DAPConfiguration"'));
       expect(xml, contains('factoryName="DAPConfiguration"'));
       expect(xml, contains(r'C:\tools\xcross.exe'));
-      expect(xml, contains(' dap'));
+      expect(xml, contains(' flutter dap'));
       expect(xml, contains('&quot;xcross&quot;:true'));
       expect(xml, contains('*.dart'));
       expect(xml, contains(r'$PROJECT_DIR$'));
@@ -200,7 +200,10 @@ void main() {
 
     test('quotes paths with spaces', () {
       final xml = buildIdeaRunXml(r'C:\Program Files\xcross.exe');
-      expect(xml, contains(r'&quot;C:\Program Files\xcross.exe&quot; dap'));
+      expect(
+        xml,
+        contains(r'&quot;C:\Program Files\xcross.exe&quot; flutter dap'),
+      );
     });
   });
 

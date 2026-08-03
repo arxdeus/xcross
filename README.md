@@ -200,7 +200,7 @@ Writes the DAP shim and upserts the xcross launch entry + DAP settings into `.vs
 xcross ide idea
 ```
 
-Writes `.run/xcross_ios_device.run.xml` — a shared [LSP4IJ](https://plugins.jetbrains.com/plugin/18229-lsp4ij) Debug Adapter Protocol run configuration that starts `xcross dap` over stdio.
+Writes `.run/xcross_ios_device.run.xml` — a shared [LSP4IJ](https://plugins.jetbrains.com/plugin/18229-lsp4ij) Debug Adapter Protocol run configuration that starts `xcross flutter dap` over stdio.
 
 - Install the LSP4IJ plugin, then Debug **xcross: iOS device** (do not use Flutter's Run button — it still calls `flutter run`).
 - Breakpoints and stepping use the DAP/VM Service path; Restart maps to hot restart. Console `r`/`R` still work.

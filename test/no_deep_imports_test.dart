@@ -11,6 +11,7 @@ void main() {
       'darwin_sdk_kit',
       'dart_mobile_device',
       'xcross_flutter',
+      'xcross_dap',
     ];
     final roots = [
       Directory('lib'),

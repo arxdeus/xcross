@@ -106,7 +106,7 @@ import 'dart:io';
 Future<void> main(List<String> args) async {
   // `flutter test` sessions arrive through the same customFlutterDapPath
   // setting; hand those to the real Flutter adapter. Non-xcross launch
-  // configs are gated inside `xcross dap` via `"xcross": true`.
+  // configs are gated inside `xcross flutter dap` via `"xcross": true`.
   if (args.contains('--test')) {
     final flutterRoot = Platform.environment['FLUTTER_ROOT'];
     if (flutterRoot == null) {
@@ -125,7 +125,7 @@ Future<void> main(List<String> args) async {
   try {
     final dap = await Process.start(
       <XCROSS>,
-      ['dap'],
+      ['flutter', 'dap'],
       mode: ProcessStartMode.inheritStdio,
     );
     exit(await dap.exitCode);

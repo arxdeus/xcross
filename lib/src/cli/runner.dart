@@ -14,7 +14,6 @@ import 'package:xcross/src/cli/basic/prepare_command.dart';
 import 'package:xcross/src/cli/basic/sdk_command.dart';
 import 'package:xcross/src/cli/basic/setup_command.dart';
 import 'package:xcross/src/cli/flutter/flutter_command.dart';
-import 'package:xcross/src/cli/ide/dap_command.dart';
 import 'package:xcross/src/cli/ide/ide_command.dart';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross_flutter/xcross_flutter.dart';
@@ -60,7 +59,6 @@ abstract final class XcrossCli {
       ..addCommand(SetupCommand())
       ..addCommand(AuthCommand())
       ..addCommand(SdkCommand())
-      ..addCommand(DapCommand())
       ..addCommand(IdeCommand())
       ..addCommand(CompletionCommand());
   }
@@ -97,7 +95,11 @@ abstract final class XcrossCli {
 
     // Both completion and DAP own stdout as a machine protocol; a credits line
     // corrupts either stream.
-    if (args.isEmpty || !const {'completion', 'dap'}.contains(args.first)) {
+    final quiet =
+        args.isNotEmpty &&
+        (args.first == 'completion' ||
+            (args.length >= 2 && args[0] == 'flutter' && args[1] == 'dap'));
+    if (args.isEmpty || !quiet) {
       _printCredits();
     }
 

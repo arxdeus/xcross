@@ -14,43 +14,21 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:args/command_runner.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:dds/dap.dart';
 import 'package:path/path.dart' as p;
 import 'package:vm_service/vm_service.dart' as vm;
-import 'package:xcross/src/cli/ide/dap_router.dart';
-import 'package:xcross/src/constants.dart';
 import 'package:xcross_flutter/xcross_flutter.dart';
 
-/// `xcross dap` — Debug Adapter Protocol server driving `xcross flutter run`.
-///
-/// Spawned by `.vscode/xcross_dap.dart` (see `xcross ide vscode`) or by an
-/// LSP4IJ DAP run config (see `xcross ide idea`). Launch configs must set
-/// `"xcross": true`; other Flutter sessions are proxied to Flutter's DAP.
-class DapCommand extends Command<void> {
-  @override
-  String get name => 'dap';
-
-  @override
-  String get description =>
-      'Debug Adapter Protocol server for IDE Run & Debug buttons.';
-
-  @override
-  bool get hidden => true;
-
-  @override
-  Future<void> run() => runDapSession(
-    startXcross: (channel) {
-      XcrossDap(channel);
-    },
-  );
-}
+/// Must match `DeviceConstants.vmServiceMarker` in the xcross CLI
+/// (`lib/src/constants.dart`) — that is what `CoreDeviceLauncher` prints.
+/// Duplicated here so this package does not depend back on root `xcross`.
+const _vmServiceMarker = 'vm-service: ';
 
 /// A DAP debug adapter that spawns `xcross flutter run` and drives it:
 ///
 ///  - `r`/`R`/`q` keypresses on its stdin for hot reload/restart/quit (the
-///    same protocol [SessionConsole] speaks for the interactive CLI).
+///    same protocol SessionConsole speaks for the interactive CLI).
 ///  - a second, independent connection to the app's Dart VM Service — set up
 ///    by [DartDebugAdapter.connectDebugger] once the child prints the VM
 ///    Service URI — for real breakpoints/stepping/stack/variables. All of
@@ -225,13 +203,11 @@ class XcrossDap
     final lines = (_pendingLine + text).split('\n');
     _pendingLine = lines.removeLast();
     for (final line in lines) {
-      final start = line.indexOf(DeviceConstants.vmServiceMarker);
+      final start = line.indexOf(_vmServiceMarker);
       if (start < 0) continue;
       _vmServiceReported = true;
       sendEvent(RawEventBody(const {}), eventType: 'flutter.appStarted');
-      final uri = line
-          .substring(start + DeviceConstants.vmServiceMarker.length)
-          .trim();
+      final uri = line.substring(start + _vmServiceMarker.length).trim();
       if (uri.isNotEmpty) {
         // Connects our OWN VM Service client (independent of the child's,
         // which it uses for hot reload) and turns on breakpoints/stepping/
@@ -277,7 +253,7 @@ class XcrossDap
     sendResponse();
   }
 
-  /// `q` first so [SessionConsole] runs its real cleanup (frontend_server,
+  /// `q` first so SessionConsole runs its real cleanup (frontend_server,
   /// device session, tunneld), then escalate.
   Future<void> _quitChild() async {
     _writeKey('q');

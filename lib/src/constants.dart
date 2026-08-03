@@ -4,6 +4,9 @@ abstract final class DeviceConstants {
   /// stdout for it (by substring, so a line glyph may precede it) to emit
   /// `flutter.appStarted`. Keep the colon — it is what stops a stray mention of
   /// "vm-service" in the app's own output from being parsed as the URI line.
+  ///
+  /// Must stay identical to `_vmServiceMarker` in `package:xcross_dap`
+  /// (`packages/xcross_dap/lib/src/xcross_dap.dart`).
   static const String vmServiceMarker = 'vm-service: ';
 
   /// Keycode for 'q' — quits the running session.

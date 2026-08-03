@@ -14,6 +14,7 @@ workspace:
   - packages/darwin_sdk_kit
   - packages/dart_mobile_device
   - packages/xcross_flutter
+  - packages/xcross_dap
 
 dependencies:
   archive: ^4.0.9
@@ -31,15 +32,14 @@ dependencies:
     path: packages/dart_mobile_device
   xcross_flutter:
     path: packages/xcross_flutter
+  xcross_dap:
+    path: packages/xcross_dap
   meta: ^1.19.0
   path: ^1.9.1
   standard_message_codec: ^0.0.1+5
   yaml: ^3.1.3
   web_socket_channel: ^3.0.3
   posix: ^6.5.2
-  dds: ^5.4.0
-  vm_service: ">=15.2.0"
-  package_config: ^3.0.0
   basic_utils: ^5.8.2
   http: ^1.6.0
   xml: ^7.0.1

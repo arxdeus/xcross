@@ -140,8 +140,9 @@ class HotReloadController {
     final targetUri = await _timed('devfs-upload', () => _uploadDill(dill));
 
     final isolateId = await _rootIsolateIdCached();
-    if (isolateId == null)
+    if (isolateId == null) {
       throw FlutterBuildError('no Flutter isolate to reload');
+    }
 
     final ok = await _timed('reloadSources', () async {
       final report = await vm.call(

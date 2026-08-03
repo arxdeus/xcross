@@ -226,8 +226,9 @@ class FrontendServerClient {
   /// is killed before the OS buffer is flushed.
   Future<void> _send(String s) async {
     final sink = _sink;
-    if (sink == null)
+    if (sink == null) {
       throw FlutterBuildError('frontend_server closed unexpectedly');
+    }
     sink.write(s);
     await sink.flush();
   }
@@ -236,8 +237,9 @@ class FrontendServerClient {
   /// Returns the local dill file path.
   Future<String> _readResultBoundary() {
     final queue = _queue;
-    if (queue == null)
+    if (queue == null) {
       throw FlutterBuildError('frontend_server closed unexpectedly');
+    }
     // Never block forever: if frontend_server emits no result, fail instead.
     return _parseResultBoundary(queue).timeout(
       const Duration(seconds: 60),
