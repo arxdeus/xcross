@@ -10,6 +10,7 @@ void main() {
       'apple_developer_kit',
       'darwin_sdk_kit',
       'dart_mobile_device',
+      'frontend_server_kit',
       'xcross_flutter',
       'xcross_dap',
     ];

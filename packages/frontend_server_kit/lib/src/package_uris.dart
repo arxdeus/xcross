@@ -15,7 +15,7 @@ import 'package:package_config/package_config.dart';
 /// On no match the VM still reports success and records a *latent* breakpoint,
 /// so the editor shows it accepted but never verified — grey forever, with no
 /// error anywhere. Absolute paths are exactly what differs between the compile
-/// host and the editor (WSL mounts, symlinked roots, containers), so xcross
+/// host and the editor (WSL mounts, symlinked roots, containers), so tooling
 /// compiles and debugs through `package:` URIs. flutter_tools does the same.
 class PackageUris {
   PackageUris._(this._config);

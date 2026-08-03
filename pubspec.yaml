@@ -13,6 +13,7 @@ workspace:
   - packages/apple_developer_kit
   - packages/darwin_sdk_kit
   - packages/dart_mobile_device
+  - packages/frontend_server_kit
   - packages/xcross_flutter
   - packages/xcross_dap
 

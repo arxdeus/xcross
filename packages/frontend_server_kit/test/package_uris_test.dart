@@ -1,8 +1,8 @@
 import 'dart:io';
 
+import 'package:frontend_server_kit/frontend_server_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross_flutter/src/package_uris.dart';
 
 /// Guards the file -> `package:` mapping that decides whether a breakpoint
 /// binds. A `file:` URI is matched by the VM against the compile host's
@@ -12,7 +12,7 @@ void main() {
   late Directory tmp;
 
   setUp(() async {
-    tmp = await Directory.systemTemp.createTemp('xcross_pkg_uris-');
+    tmp = await Directory.systemTemp.createTemp('frontend_server_pkg_uris-');
     await Directory(p.join(tmp.path, '.dart_tool')).create(recursive: true);
     await File(
       p.join(tmp.path, '.dart_tool', 'package_config.json'),

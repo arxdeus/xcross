@@ -18,6 +18,7 @@ void main() {
       'dart test packages/apple_developer_kit',
       'dart test packages/darwin_sdk_kit',
       'dart test packages/dart_mobile_device',
+      'dart test packages/frontend_server_kit',
       'dart test packages/xcross_flutter',
       'dart test packages/xcross_dap',
       'dart build cli',

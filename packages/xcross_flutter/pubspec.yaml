@@ -24,8 +24,9 @@ dependencies:
     path: ../darwin_sdk_kit
   dart_mobile_device:
     path: ../dart_mobile_device
+  frontend_server_kit:
+    path: ../frontend_server_kit
   meta: ^1.19.0
-  package_config: ^3.0.0
   path: ^1.9.1
   standard_message_codec: ^0.0.1+5
   web_socket_channel: ^3.0.3

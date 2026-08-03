@@ -16,9 +16,9 @@ import 'dart:io';
 
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:dds/dap.dart';
+import 'package:frontend_server_kit/frontend_server_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:vm_service/vm_service.dart' as vm;
-import 'package:xcross_flutter/xcross_flutter.dart';
 
 /// Must match `DeviceConstants.vmServiceMarker` in the xcross CLI
 /// (`lib/src/constants.dart`) — that is what `CoreDeviceLauncher` prints.

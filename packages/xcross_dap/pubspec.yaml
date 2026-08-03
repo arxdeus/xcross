@@ -16,8 +16,8 @@ dependencies:
   dds: ^5.4.0
   path: ^1.9.1
   vm_service: ">=15.2.0"
-  xcross_flutter:
-    path: ../xcross_flutter
+  frontend_server_kit:
+    path: ../frontend_server_kit
 
 dev_dependencies:
   test: ^1.31.2

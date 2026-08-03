@@ -3,10 +3,10 @@ import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:frontend_server_kit/frontend_server_kit.dart';
 import 'package:xcross_flutter/src/constants.dart';
 import 'package:xcross_flutter/src/errors.dart';
 import 'package:xcross_flutter/src/hot_reload/dart_vm_service_client.dart';
-import 'package:xcross_flutter/src/hot_reload/frontend_server_client.dart';
 import 'package:xcross_flutter/src/hot_reload/source_watcher.dart';
 import 'package:xcross_flutter/src/models/hot_reload_config.dart';
 
@@ -22,7 +22,7 @@ class HotReloadController {
   }) : _httpBase =
            'http://${ProcessRunner.bracketHost(vmService.host)}:'
            '${vmService.port}/',
-       _frontend = FrontendServerClient(config),
+       _frontend = FrontendServerSession(_frontendOptions(config)),
        _sources = SourceWatcher(config);
 
   /// Fallback devFS base URI used when `_createDevFs` does not return one.
@@ -32,7 +32,7 @@ class HotReloadController {
   final HotReloadConfig config;
   final DartVmServiceClient vm;
   final String _httpBase;
-  final FrontendServerClient _frontend;
+  final FrontendServerSession _frontend;
   final SourceWatcher _sources;
 
   String? _devFsBaseUri;
@@ -43,6 +43,24 @@ class HotReloadController {
   /// Cached root Flutter isolate id so reload doesn't re-`listViews` each time.
   /// Cleared on hot restart (which spins up a new isolate).
   String? _cachedRootIsolate;
+
+  /// Maps [HotReloadConfig] into kit options; resolves the xcross build dill
+  /// path here so the kit stays free of project layout knowledge.
+  static FrontendServerOptions _frontendOptions(HotReloadConfig config) {
+    final warm =
+        '${config.projectRoot}/build/xcross-flutter-debug/.kernel/app.dill';
+    return FrontendServerOptions(
+      dart: config.dart,
+      frontendServer: config.frontendServer,
+      sdkRoot: config.sdkRoot,
+      packageConfig: config.packageConfig,
+      entrypoint: config.entrypoint,
+      outputDill: config.outputDill,
+      dartDefines: config.dartDefines,
+      initializeFromDill: File(warm).existsSync() ? warm : null,
+      onTrace: Log.logTrace,
+    );
+  }
 
   /// Initial compile + devFS creation. Call once after VM Service connects.
   Future<void> initialSync() async {

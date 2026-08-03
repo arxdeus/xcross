@@ -4,13 +4,13 @@ import 'dart:typed_data';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:frontend_server_kit/frontend_server_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:standard_message_codec/standard_message_codec.dart';
 import 'package:xcross_flutter/src/build/ios_engine_cache.dart';
 import 'package:xcross_flutter/src/constants.dart';
 import 'package:xcross_flutter/src/errors.dart';
 import 'package:xcross_flutter/src/models/pubspec_info.dart';
-import 'package:xcross_flutter/src/package_uris.dart';
 
 /// Assembles `App.framework` (debug/JIT mode) for a Flutter iOS app without
 /// invoking `xcrun` or `flutter_tools.snapshot assemble`.
