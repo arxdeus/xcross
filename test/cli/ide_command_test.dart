@@ -3,9 +3,9 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/ide/idea_command.dart';
-import 'package:xcross/src/cli/ide/vscode_command.dart';
-import 'package:xcross/src/cli/ide/vscode_json_merge.dart';
+import 'package:xcross/src/cli/ide/subcommands/idea_command.dart';
+import 'package:xcross/src/cli/ide/subcommands/vscode_command.dart';
+import 'package:xcross/src/cli/ide/subcommands/vscode_json_merge.dart';
 import 'package:xcross/src/util/errors.dart';
 
 void main() {

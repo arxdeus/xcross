@@ -1,7 +1,7 @@
 import 'package:args/command_runner.dart';
 
-import 'package:xcross/src/cli/flutter/flutter_build_args.dart';
-import 'package:xcross/src/cli/flutter/flutter_run_args.dart';
+import 'package:xcross/src/cli/flutter/subcommands/flutter_build_command.dart';
+import 'package:xcross/src/cli/flutter/subcommands/flutter_run_command.dart';
 
 /// `xcross flutter` — parent command grouping `build` and `run`.
 class FlutterCommand extends Command<void> {

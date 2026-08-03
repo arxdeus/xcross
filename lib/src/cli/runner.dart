@@ -1,39 +1,49 @@
 import 'dart:io';
 
 import 'package:apple_developer_kit/apple_developer_kit.dart';
-import 'package:args/args.dart';
 import 'package:args/command_runner.dart';
+import 'package:build_cli_annotations/build_cli_annotations.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:cli_util/cli_logging.dart';
 import 'package:completion/completion.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
-import 'package:xcross/src/cli/auth_command.dart';
-import 'package:xcross/src/cli/completion_command.dart';
+import 'package:xcross/src/cli/basic/auth_command.dart';
+import 'package:xcross/src/cli/basic/completion_command.dart';
+import 'package:xcross/src/cli/basic/prepare_command.dart';
+import 'package:xcross/src/cli/basic/sdk_command.dart';
+import 'package:xcross/src/cli/basic/setup_command.dart';
 import 'package:xcross/src/cli/flutter/flutter_command.dart';
 import 'package:xcross/src/cli/ide/dap_command.dart';
 import 'package:xcross/src/cli/ide/ide_command.dart';
-import 'package:xcross/src/cli/prepare_command.dart';
-import 'package:xcross/src/cli/sdk_command.dart';
-import 'package:xcross/src/cli/setup_command.dart';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross_flutter/xcross_flutter.dart';
+
+part 'runner.g.dart';
+
+/// Global options for the xcross CommandRunner (not a subcommand).
+@CliOptions()
+class XcrossGlobalArgs {
+  @CliOption(
+    abbr: 'v',
+    help: 'Verbose output (show every command and tool line).',
+    negatable: false,
+  )
+  late bool verbose;
+}
 
 /// Adds a global `-v` so every command can surface its trace output, not just
 /// `flutter run` (which keeps its own `-v` for `xcross flutter run -v`).
 class _XcrossRunner extends CommandRunner<void> {
   _XcrossRunner(super.executableName, super.description) {
-    argParser.addFlag(
-      'verbose',
-      abbr: 'v',
-      help: 'Verbose output (show every command and tool line).',
-      negatable: false,
-    );
+    _$populateXcrossGlobalArgsParser(argParser);
   }
 
   @override
   Future<void> runCommand(ArgResults topLevelResults) {
-    if (topLevelResults.flag('verbose')) Log.setVerbose();
+    if (_$parseXcrossGlobalArgsResult(topLevelResults).verbose) {
+      Log.setVerbose();
+    }
     return super.runCommand(topLevelResults);
   }
 }

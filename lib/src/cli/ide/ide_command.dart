@@ -1,7 +1,7 @@
 import 'package:args/command_runner.dart';
 
-import 'package:xcross/src/cli/ide/idea_command.dart';
-import 'package:xcross/src/cli/ide/vscode_command.dart';
+import 'package:xcross/src/cli/ide/subcommands/idea_command.dart';
+import 'package:xcross/src/cli/ide/subcommands/vscode_command.dart';
 
 /// `xcross ide` — parent command grouping IDE setup subcommands.
 class IdeCommand extends Command<void> {

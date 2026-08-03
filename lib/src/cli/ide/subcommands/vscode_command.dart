@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/cli/ide/vscode_json_merge.dart';
+import 'package:xcross/src/cli/ide/subcommands/vscode_json_merge.dart';
 import 'package:xcross/src/util/errors.dart';
 
 /// `xcross ide vscode` — write / upsert `.vscode/` so Run & Debug / Restart /

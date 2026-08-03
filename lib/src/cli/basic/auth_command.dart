@@ -4,49 +4,61 @@ import 'dart:io';
 
 import 'package:apple_developer_kit/apple_developer_kit.dart';
 import 'package:args/command_runner.dart';
+import 'package:build_cli_annotations/build_cli_annotations.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/util/errors.dart';
 
+part 'auth_command.g.dart';
+
+/// Options for `xcross auth`.
+@CliOptions(createCommand: true)
+class AuthArgs {
+  @CliOption(help: 'App Store Connect API "Issuer ID" (one per team).')
+  late String? issuerId;
+
+  late bool issuerIdWasParsed;
+
+  @CliOption(
+    help: "The API key's \"Key ID\", shown next to it in App Store Connect.",
+  )
+  late String? keyId;
+
+  late bool keyIdWasParsed;
+
+  @CliOption(help: 'Path to the downloaded AuthKey_<keyId>.p8 file.')
+  late String? privateKey;
+
+  late bool privateKeyWasParsed;
+
+  @CliOption(
+    valueHelp: 'email',
+    help: 'Use Apple ID/password login. If omitted, xcross prompts.',
+  )
+  late String? appleId;
+
+  late bool appleIdWasParsed;
+
+  @CliOption(help: 'Apple ID password (optional; prompted if omitted).')
+  late String? password;
+
+  @CliOption(
+    valueHelp: 'path',
+    help:
+        'Directory containing libCoreADI.so and '
+        'libstoreservicescore.so for Apple ID login. Defaults to '
+        'the xcross config adi-libs directory. On x86_64, missing libs '
+        'are fetched from the Apple Music APK.',
+  )
+  late String? adiLibraryDir;
+
+  late bool adiLibraryDirWasParsed;
+}
+
 /// `xcross auth` — save credentials for the native (no-Swift) signing
 /// pipeline. Supports both App Store Connect API keys and Apple ID/password
 /// GrandSlam login.
-class AuthCommand extends Command<void> {
-  AuthCommand() {
-    argParser
-      ..addOption(
-        'issuer-id',
-        help: 'App Store Connect API "Issuer ID" (one per team).',
-      )
-      ..addOption(
-        'key-id',
-        help:
-            "The API key's \"Key ID\", shown next to it in App Store Connect.",
-      )
-      ..addOption(
-        'private-key',
-        help: 'Path to the downloaded AuthKey_<keyId>.p8 file.',
-      )
-      ..addOption(
-        'apple-id',
-        valueHelp: 'email',
-        help: 'Use Apple ID/password login. If omitted, xcross prompts.',
-      )
-      ..addOption(
-        'password',
-        help: 'Apple ID password (optional; prompted if omitted).',
-      )
-      ..addOption(
-        'adi-library-dir',
-        valueHelp: 'path',
-        help:
-            'Directory containing libCoreADI.so and '
-            'libstoreservicescore.so for Apple ID login. Defaults to '
-            'the xcross config adi-libs directory. On x86_64, missing libs '
-            'are fetched from the Apple Music APK.',
-      );
-  }
-
+class AuthCommand extends _$AuthArgsCommand<void> {
   @override
   String get name => 'auth';
 
@@ -57,20 +69,19 @@ class AuthCommand extends Command<void> {
 
   @override
   Future<void> run() async {
-    final issuerId = argResults!.option('issuer-id');
-    final keyId = argResults!.option('key-id');
-    final privateKeyPath = argResults!.option('private-key');
-    final appleId = argResults!.option('apple-id')?.trim();
+    final issuerId = _options.issuerId;
+    final keyId = _options.keyId;
+    final privateKeyPath = _options.privateKey;
+    final appleId = _options.appleId?.trim();
 
     final ascValues = [issuerId, keyId, privateKeyPath];
-    final hasAnyAsc = const [
-      'issuer-id',
-      'key-id',
-      'private-key',
-    ].any(argResults!.wasParsed);
+    final hasAnyAsc =
+        _options.issuerIdWasParsed ||
+        _options.keyIdWasParsed ||
+        _options.privateKeyWasParsed;
     final hasAllAsc = ascValues.every(_present);
     if (hasAnyAsc) {
-      if (argResults!.wasParsed('apple-id')) {
+      if (_options.appleIdWasParsed) {
         throw XcrossError(
           'Use either App Store Connect API key flags or --apple-id, not both.',
         );
@@ -81,7 +92,7 @@ class AuthCommand extends Command<void> {
           '--private-key, or none to use Apple ID login.',
         );
       }
-      if (argResults!.wasParsed('adi-library-dir')) {
+      if (_options.adiLibraryDirWasParsed) {
         throw XcrossError('--adi-library-dir only applies to Apple ID login.');
       }
       await _saveAscCredentials(
@@ -92,10 +103,10 @@ class AuthCommand extends Command<void> {
       return;
     }
 
-    if (argResults!.wasParsed('apple-id') && !_present(appleId)) {
+    if (_options.appleIdWasParsed && !_present(appleId)) {
       throw XcrossError('--apple-id requires a non-empty email address.');
     }
-    final passwordOpt = argResults!.option('password');
+    final passwordOpt = _options.password;
     await _runAppleIdLogin(
       initialUsername: _present(appleId) ? appleId : null,
       initialPassword: _present(passwordOpt) ? passwordOpt : null,
@@ -234,7 +245,7 @@ class AuthCommand extends Command<void> {
   }
 
   Future<String> _resolveAdiLibraryDirectory() async {
-    final configured = argResults!.option('adi-library-dir');
+    final configured = _options.adiLibraryDir;
     final adiLibraryDir =
         configured ??
         p.join(p.dirname(AnisetteStateStore.defaultPath()), 'adi-libs');

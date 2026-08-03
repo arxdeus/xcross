@@ -4,8 +4,10 @@
 // `Command.argParser` seam from package:args — no private state.
 import 'package:args/command_runner.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/flutter/flutter_build_args.dart';
-import 'package:xcross/src/cli/flutter/flutter_run_args.dart';
+import 'package:xcross/src/cli/auth_command.dart';
+import 'package:xcross/src/cli/flutter/subcommands/flutter_build_command.dart';
+import 'package:xcross/src/cli/flutter/subcommands/flutter_run_command.dart';
+import 'package:xcross/src/cli/runner.dart';
 
 void main() {
   group('shouldUseCoreDevice', () {
@@ -149,6 +151,42 @@ void main() {
       ]);
       expect(results.option('target'), 'lib/other.dart');
       expect(results.option('flavor'), 'dev');
+    });
+  });
+
+  group('AuthCommand', () {
+    late Command<void> command;
+
+    setUp(() => command = AuthCommand());
+
+    test('exposes all six option names', () {
+      final options = command.argParser.options;
+      expect(
+        options.keys,
+        containsAll([
+          'issuer-id',
+          'key-id',
+          'private-key',
+          'apple-id',
+          'password',
+          'adi-library-dir',
+        ]),
+      );
+    });
+
+    test('apple-id wasParsed is false by default and true when set', () {
+      expect(command.argParser.parse([]).wasParsed('apple-id'), isFalse);
+      expect(
+        command.argParser.parse(['--apple-id', 'a@b.c']).wasParsed('apple-id'),
+        isTrue,
+      );
+    });
+  });
+
+  group('XcrossCli global -v', () {
+    test('-v sets the verbose flag on the runner', () {
+      final results = XcrossCli.buildRunner().argParser.parse(['-v']);
+      expect(results.flag('verbose'), isTrue);
     });
   });
 }
