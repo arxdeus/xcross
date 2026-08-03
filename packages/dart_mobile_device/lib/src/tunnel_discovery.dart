@@ -65,7 +65,7 @@ abstract final class TunnelDiscovery {
       throw TunnelError(
         'Cannot reach the tunneld REST API on 127.0.0.1:49151.\n\n'
         'Run:\n\n'
-        '    xcross prepare\n\n'
+        '    xcross tunnel\n\n'
         'Or start it manually (in another terminal, leave it running):\n\n'
         '    ${Pymd.elevatedCommand('remote tunneld')}',
       );
@@ -74,7 +74,7 @@ abstract final class TunnelDiscovery {
     throw TunnelError(
       'No RSD tunnel $target yet (tunneld returned empty).\n\n'
       'Run:\n\n'
-      '    xcross prepare\n\n'
+      '    xcross tunnel\n\n'
       'Or in another terminal (iOS 17.4+ / 18 / 26):\n\n'
       '    ${Pymd.elevatedCommand('lockdown start-tunnel')}\n\n'
       'Or mount the Developer Disk Image first:\n\n'

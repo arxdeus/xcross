@@ -10,9 +10,9 @@ import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:xcross/src/cli/basic/auth_command.dart';
 import 'package:xcross/src/cli/basic/completion_command.dart';
-import 'package:xcross/src/cli/basic/prepare_command.dart';
 import 'package:xcross/src/cli/basic/sdk_command.dart';
 import 'package:xcross/src/cli/basic/setup_command.dart';
+import 'package:xcross/src/cli/basic/tunnel_command.dart';
 import 'package:xcross/src/cli/flutter/flutter_command.dart';
 import 'package:xcross/src/cli/ide/ide_command.dart';
 import 'package:xcross/src/util/errors.dart';
@@ -55,7 +55,7 @@ abstract final class XcrossCli {
         'Build, run, and hot-reload Flutter iOS apps without Xcode.',
       )
       ..addCommand(FlutterCommand())
-      ..addCommand(PrepareCommand())
+      ..addCommand(TunnelCommand())
       ..addCommand(SetupCommand())
       ..addCommand(AuthCommand())
       ..addCommand(SdkCommand())

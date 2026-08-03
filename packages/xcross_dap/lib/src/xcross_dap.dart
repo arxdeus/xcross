@@ -117,7 +117,7 @@ class XcrossDap
         'stderr',
         'xcross: the iOS 17+ RSD tunnel daemon is not reachable — falling '
             'back to the userspace tunnel over usbmux.\n'
-            'For the faster kernel tunnel, run `xcross prepare` once in a '
+            'For the faster kernel tunnel, run `xcross tunnel` once in a '
             'terminal (it needs sudo/Administrator).\n',
       );
     }

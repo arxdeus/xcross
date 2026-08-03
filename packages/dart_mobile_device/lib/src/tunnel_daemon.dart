@@ -34,7 +34,7 @@ class TunnelDaemon {
       windowsDeniedMessage:
           'xcross needs Administrator rights to create the Windows RSD tunnel.\n'
           'Open PowerShell with "Run as administrator", then run:\n'
-          '    xcross prepare',
+          '    xcross tunnel',
     );
     final sudo = await Sudo.resolve();
 

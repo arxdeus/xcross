@@ -42,7 +42,7 @@ abstract final class DevicePrepare {
       windowsDeniedMessage:
           'xcross needs Administrator rights to create the Windows RSD tunnel.\n'
           'Open PowerShell with "Run as administrator", then run:\n'
-          '    xcross prepare',
+          '    xcross tunnel',
     );
 
     await _autoMount();

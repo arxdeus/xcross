@@ -1,7 +1,7 @@
 import 'package:args/command_runner.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 
-/// `xcross prepare` — mount the Developer Disk Image and start the iOS 17+
+/// `xcross tunnel` — mount the Developer Disk Image and start the iOS 17+
 /// RSD tunnel(s) needed by `xcross flutter run`.
 ///
 /// Automates:
@@ -12,9 +12,9 @@ import 'package:dart_mobile_device/dart_mobile_device.dart';
 /// and also ensures `pymobiledevice3 remote tunneld` is running (REST discovery
 /// used by CoreDevice launch). Long-lived tunnel processes are left running
 /// after the command exits.
-class PrepareCommand extends Command<void> {
+class TunnelCommand extends Command<void> {
   @override
-  String get name => 'prepare';
+  String get name => 'tunnel';
 
   @override
   String get description =>

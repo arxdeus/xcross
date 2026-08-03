@@ -117,7 +117,7 @@ abstract final class DeviceTransportResolver {
         throw TunnelError(
           "Developer Disk Image not mounted — the device doesn't expose the "
           'debugproxy service. Mount it and retry:\n\n'
-          '    xcross prepare\n\n'
+          '    xcross tunnel\n\n'
           'Or manually:\n\n'
           '    ${Pymd.elevatedCommand('mounter auto-mount')}\n\n'
           'If you just mounted it, restart `pymobiledevice3 remote tunneld` '

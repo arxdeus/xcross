@@ -84,7 +84,7 @@ xcross auth --apple-id you@example.com
 
 The command prompts for the password and 2FA code, then stores only the resulting Developer Services session. App Store Connect API-key authentication remains available with `--issuer-id`, `--key-id`, and `--private-key`.
 
-Before each device reconnect, run `xcross prepare` in an Administrator PowerShell. Device launch requires iOS 17+.
+Before each device reconnect, run `xcross tunnel` in an Administrator PowerShell. Device launch requires iOS 17+.
 
 ## Install
 
@@ -106,7 +106,7 @@ Use the release archive described in [Windows (native)](#windows-native).
 xcross setup
 xcross sdk install ~/Downloads/Xcode.xip   # once
 xcross auth --apple-id you@example.com     # or ASC API key flags
-xcross prepare                             # once per device reconnect
+xcross tunnel                             # once per device reconnect
 cd my_flutter_app
 xcross flutter run [-u <UDID>]
 xcross ide vscode
@@ -116,7 +116,7 @@ xcross ide vscode
 
 ```powershell
 # Administrator PowerShell, once per reconnect:
-xcross prepare
+xcross tunnel
 
 # Normal terminal:
 cd my_flutter_app
@@ -134,7 +134,7 @@ Plugins that only provide a CocoaPods podspec are currently omitted with a warni
 ```text
 xcross auth             save native Apple ID or App Store Connect credentials
 xcross sdk install      extract a Darwin Swift SDK from Xcode.xip
-xcross prepare          mount DDI + start the iOS 17+ RSD tunnel
+xcross tunnel          mount DDI + start the iOS 17+ RSD tunnel
 xcross flutter build    build a debug .app (or .ipa with -i)
 xcross flutter run      build → sign → install → launch → hot reload
 xcross ide vscode       upsert .vscode/* for Run & Debug / Hot Reload
@@ -222,7 +222,7 @@ No. xcross builds arm64 device apps with a minimum deployment target of iOS 13; 
 </details>
 
 <details>
-<summary>What does <code>xcross prepare</code> do?</summary>
+<summary>What does <code>xcross tunnel</code> do?</summary>
 
 It mounts the Developer Disk Image and starts the `pymobiledevice3` RSD tunnel. It needs root on Linux or an Administrator PowerShell on Windows.
 </details>
