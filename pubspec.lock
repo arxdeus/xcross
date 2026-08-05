@@ -505,6 +505,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.5.0"
+  pure:
+    dependency: "direct main"
+    description:
+      name: pure
+      sha256: "6509864865ab9c4c1b6039cb362968dc27d2299f561df3cffd9cfcbc853386c1"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.0"
   record_use:
     dependency: transitive
     description:

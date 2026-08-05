@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:pure/pure.dart';
 import 'package:xcross/src/constants.dart';
 import 'package:xcross_flutter/xcross_flutter.dart';
 
@@ -11,6 +12,11 @@ import 'package:xcross_flutter/xcross_flutter.dart';
 /// the app exits.
 class SessionConsole {
   SessionConsole({required this.gdb, required this.hotReload});
+
+  /// Drain and keypress loops are already unwinding via [_stop] by the time we
+  /// await them; this only bounds a wedged stdin cancel that would otherwise
+  /// block process exit.
+  static const _unwindTimeout = Duration(seconds: 1);
 
   final GdbRemoteClient gdb;
   final HotReloadController? hotReload;
@@ -54,13 +60,8 @@ class SessionConsole {
       final keypressFuture = _runKeypressLoop();
 
       await _stoppedCompleter.future;
-      // Drain/keypress should already be unwinding via [_stop]; keep short
-      // timeouts so a wedged stdin cancel cannot block process exit.
-      await drainFuture.timeout(const Duration(seconds: 1), onTimeout: () {});
-      await keypressFuture.timeout(
-        const Duration(seconds: 1),
-        onTimeout: () {},
-      );
+      await drainFuture.timeout(_unwindTimeout, onTimeout: nothing);
+      await keypressFuture.timeout(_unwindTimeout, onTimeout: nothing);
     } finally {
       // An uncancelled signal subscription keeps the event loop alive forever;
       // bin/xcross.dart only sets exitCode, so a clean 'q' would never return.
