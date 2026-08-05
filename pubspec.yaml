@@ -21,20 +21,8 @@ dependencies:
   archive: ^4.0.9
   args: ^2.7.0
   async: ^2.13.1
-  apple_developer_kit:
-    path: packages/apple_developer_kit
   completion: ^1.0.2
-  cli_kit:
-    path: packages/cli_kit
   cli_util: ^0.5.2
-  darwin_sdk_kit:
-    path: packages/darwin_sdk_kit
-  dart_mobile_device:
-    path: packages/dart_mobile_device
-  xcross_flutter:
-    path: packages/xcross_flutter
-  xcross_dap:
-    path: packages/xcross_dap
   meta: ^1.19.0
   path: ^1.9.1
   standard_message_codec: ^0.0.1+5
@@ -49,6 +37,13 @@ dependencies:
   propertylistserialization: ^1.5.0
   build_cli_annotations: ^2.1.1
   pure: ^1.0.0
+
+  apple_developer_kit: ^1.0.0
+  cli_kit: ^1.0.0
+  darwin_sdk_kit: ^1.0.0
+  dart_mobile_device: ^1.0.0
+  xcross_flutter: ^1.0.0
+  xcross_dap: ^1.0.0
 
 dev_dependencies:
   build_cli: ^2.2.13

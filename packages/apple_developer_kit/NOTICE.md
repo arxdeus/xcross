@@ -1,6 +1,6 @@
 # NOTICE
 
-`provision_dart` is a Dart port of parts of
+`apple_developer_kit` have a few parts implemented as Dart port of parts of
 [Provision](https://github.com/Dadoum/Provision) by Dadoum, licensed under
 the GNU Library General Public License, version 2 (LGPLv2). See `LICENSE`
 for the full license text.

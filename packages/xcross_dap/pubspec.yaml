@@ -2,7 +2,7 @@ name: xcross_dap
 description: >-
   Debug Adapter Protocol server driving `xcross flutter run` from IDE
   Run & Debug buttons.
-version: 0.1.0
+version: 1.0.0
 publish_to: none
 
 environment:
@@ -11,13 +11,11 @@ environment:
 resolution: workspace
 
 dependencies:
-  dart_mobile_device:
-    path: ../dart_mobile_device
+  dart_mobile_device: ^1.0.0
   dds: ^5.4.0
   path: ^1.9.1
   vm_service: ">=15.2.0"
-  frontend_server_kit:
-    path: ../frontend_server_kit
+  frontend_server_kit: ^1.0.0
   pure: ^1.0.0
   meta: ^1.19.0
 

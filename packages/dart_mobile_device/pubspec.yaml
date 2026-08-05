@@ -2,7 +2,7 @@ name: dart_mobile_device
 description: >-
   iOS device transport for Dart: pymobiledevice3 wrappers, RSD tunnels,
   port forwarding, and GDB remote debug proxy.
-version: 0.1.0
+version: 1.0.0
 repository: https://github.com/arxdeus/xcross
 homepage: https://github.com/arxdeus/xcross
 topics:
@@ -17,8 +17,7 @@ environment:
 resolution: workspace
 
 dependencies:
-  cli_kit:
-    path: ../cli_kit
+  cli_kit: ^1.0.0
   meta: ^1.19.0
   path: ^1.9.1
 dev_dependencies:

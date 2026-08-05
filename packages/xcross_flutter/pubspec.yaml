@@ -2,9 +2,10 @@ name: xcross_flutter
 description: >-
   Build Flutter iOS app bundles on Linux/Windows and drive hot reload over a
   device tunnel.
-version: 0.1.0
+version: 1.0.0
 repository: https://github.com/arxdeus/xcross
 homepage: https://github.com/arxdeus/xcross
+publish_to: none
 topics:
   - flutter
   - ios
@@ -18,14 +19,10 @@ resolution: workspace
 dependencies:
   archive: ^4.0.9
   async: ^2.13.1
-  cli_kit:
-    path: ../cli_kit
-  darwin_sdk_kit:
-    path: ../darwin_sdk_kit
-  dart_mobile_device:
-    path: ../dart_mobile_device
-  frontend_server_kit:
-    path: ../frontend_server_kit
+  cli_kit: ^1.0.0
+  darwin_sdk_kit: ^1.0.0
+  dart_mobile_device: ^1.0.0
+  frontend_server_kit: ^1.0.0
   meta: ^1.19.0
   path: ^1.9.1
   standard_message_codec: ^0.0.1+5

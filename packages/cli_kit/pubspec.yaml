@@ -2,7 +2,7 @@ name: cli_kit
 description: >-
   Shared CLI utilities — logging/spinners, process runners, downloads,
   and host privilege helpers.
-version: 0.1.0
+version: 1.0.0
 repository: https://github.com/arxdeus/xcross
 homepage: https://github.com/arxdeus/xcross
 topics:

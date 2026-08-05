@@ -2,7 +2,7 @@ name: frontend_server_kit
 description: >-
   Drive a persistent frontend_server subprocess for incremental kernel
   compile, hot reload, and expression evaluation (including Flutter targets).
-version: 0.1.0
+version: 1.0.0
 repository: https://github.com/arxdeus/xcross
 homepage: https://github.com/arxdeus/xcross
 topics:
