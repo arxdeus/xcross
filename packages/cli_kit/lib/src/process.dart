@@ -85,9 +85,11 @@ abstract final class ProcessRunner {
     // prompt must pass false: the first sharedStdin listen happens in cooked
     // mode and on Windows leaves the later hot-reload keypress loop deaf.
     bool forwardStdin = true,
-  }) async {
-    final prefix = label ?? executable;
-    Log.logTrace('[$prefix] running: ${commandLine(executable, arguments)}');
+  }) {
+    Log.logTrace(
+      '[${label ?? executable}] running: '
+      '${commandLine(executable, arguments)}',
+    );
 
     if (tail != null) {
       return _runWithTail(
@@ -99,46 +101,69 @@ abstract final class ProcessRunner {
         forwardStdin: forwardStdin,
       );
     }
-
     if (inheritStdio) {
-      // Must use inheritStdio (not piped stdout/stderr) for interactive tools
-      // that write prompts without a trailing newline and read stdin. Piping +
-      // LineSplitter would hide the prompt and leave stdin disconnected.
-      final process = await Process.start(
+      return _runInheritingStdio(
         executable,
         arguments,
         workingDirectory: workingDirectory,
         environment: environment,
-        mode: ProcessStartMode.inheritStdio,
       );
-      final code = await process.exitCode;
-      if (code != 0) {
-        throw CliError(
-          'command failed ($code): ${commandLine(executable, arguments)}',
-        );
-      }
-      return;
     }
+    return _runCaptured(
+      executable,
+      arguments,
+      workingDirectory: workingDirectory,
+      environment: environment,
+    );
+  }
 
+  /// Give the child our real stdio. Piping instead would hide prompts written
+  /// without a trailing newline and leave the child's stdin disconnected.
+  static Future<void> _runInheritingStdio(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+    Map<String, String>? environment,
+  }) async {
+    final process = await Process.start(
+      executable,
+      arguments,
+      workingDirectory: workingDirectory,
+      environment: environment,
+      mode: ProcessStartMode.inheritStdio,
+    );
+    final code = await process.exitCode;
+    if (code != 0) {
+      throw CliError(
+        'command failed ($code): ${commandLine(executable, arguments)}',
+      );
+    }
+  }
+
+  static Future<void> _runCaptured(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+    Map<String, String>? environment,
+  }) async {
     final result = await run(
       executable,
       arguments,
       workingDirectory: workingDirectory,
       environment: environment,
     );
-    if (result.exitCode != 0) {
-      // Some tools (e.g. `swift build`) write their actual diagnostics to
-      // stdout and only dynamic-linker/loader noise to stderr — dropping
-      // stdout here silently hid the real error behind harmless warnings.
-      final output = [
-        result.stdout,
-        result.stderr,
-      ].where((s) => s.trim().isNotEmpty).join('\n');
-      throw CliError(
-        'command failed (${result.exitCode}): '
-        '${commandLine(executable, arguments)}\n$output',
-      );
-    }
+    if (result.exitCode == 0) return;
+    // Some tools (e.g. `swift build`) write their actual diagnostics to stdout
+    // and only dynamic-linker/loader noise to stderr — dropping stdout here
+    // silently hid the real error behind harmless warnings.
+    final output = [
+      result.stdout,
+      result.stderr,
+    ].where((s) => s.trim().isNotEmpty).join('\n');
+    throw CliError(
+      'command failed (${result.exitCode}): '
+      '${commandLine(executable, arguments)}\n$output',
+    );
   }
 
   /// Stream a child's merged output into [tail]. Optionally forward our stdin
@@ -177,19 +202,7 @@ abstract final class ProcessRunner {
 
     StreamSubscription<List<int>>? input;
     if (forwardStdin) {
-      try {
-        input = sharedStdin.listen((bytes) {
-          try {
-            process.stdin.add(bytes);
-          } on Object catch (_) {
-            // Child already gone; nothing left to feed.
-          }
-        }, onError: (Object _) {});
-      } on Object catch (e) {
-        // Unavailable stdin is not fatal: the child simply gets no input,
-        // exactly as before this streaming path existed.
-        Log.logTrace('stdin not forwarded to $executable: $e');
-      }
+      input = _forwardStdinTo(process, label: executable);
     } else {
       // Don't leave the child blocking on a pipe we will never write.
       try {
@@ -212,6 +225,26 @@ abstract final class ProcessRunner {
     } finally {
       await input?.cancel();
       unawaited(process.stdin.close().catchError((Object _) {}));
+    }
+  }
+
+  /// Pipe our stdin into [process] so its prompts stay interactive. Null when
+  /// stdin is unavailable — not fatal, the child simply gets no input.
+  static StreamSubscription<List<int>>? _forwardStdinTo(
+    Process process, {
+    required String label,
+  }) {
+    try {
+      return sharedStdin.listen((bytes) {
+        try {
+          process.stdin.add(bytes);
+        } on Object catch (_) {
+          // Child already gone; nothing left to feed.
+        }
+      }, onError: (Object _) {});
+    } on Object catch (e) {
+      Log.logTrace('stdin not forwarded to $label: $e');
+      return null;
     }
   }
 
@@ -266,26 +299,13 @@ abstract final class ProcessRunner {
   }) async {
     final env = environment ?? Platform.environment;
     final onWindows = windows ?? Platform.isWindows;
-    final pathEnv = _environmentValue(env, 'PATH') ?? '';
-    final extensions = onWindows
-        ? (_environmentValue(env, 'PATHEXT') ?? '.COM;.EXE;.BAT;.CMD')
-              .split(';')
-              .where((extension) => extension.isNotEmpty)
-              .map(
-                (extension) =>
-                    extension.startsWith('.') ? extension : '.$extension',
-              )
-              .toList()
-        : const <String>[];
-    final hasWindowsExtension = extensions.any(
-      (extension) => name.toLowerCase().endsWith(extension.toLowerCase()),
-    );
-    final names = [
+    final names = _candidateNames(
       name,
-      if (onWindows && !hasWindowsExtension)
-        for (final extension in extensions) '$name$extension',
-    ];
-    for (final dir in pathEnv.split(onWindows ? ';' : ':')) {
+      onWindows ? _pathExtensions(env) : const [],
+    );
+
+    final searchPath = _environmentValue(env, 'PATH') ?? '';
+    for (final dir in searchPath.split(onWindows ? ';' : ':')) {
       if (dir.isEmpty) continue;
       for (final candidateName in names) {
         final candidate = p.join(dir, candidateName);
@@ -296,6 +316,26 @@ abstract final class ProcessRunner {
       }
     }
     return null;
+  }
+
+  /// PATHEXT entries, normalised to a leading dot. The fallback list is what
+  /// `cmd.exe` uses when PATHEXT is unset.
+  static List<String> _pathExtensions(Map<String, String> env) =>
+      (_environmentValue(env, 'PATHEXT') ?? '.COM;.EXE;.BAT;.CMD')
+          .split(';')
+          .where((extension) => extension.isNotEmpty)
+          .map(
+            (extension) =>
+                extension.startsWith('.') ? extension : '.$extension',
+          )
+          .toList();
+
+  /// [name] first, then each PATHEXT variant — unless [name] already ends in
+  /// one, so `ld64.lld` still gets `.EXE` appended but `python.exe` does not.
+  static List<String> _candidateNames(String name, List<String> extensions) {
+    final lower = name.toLowerCase();
+    if (extensions.any((e) => lower.endsWith(e.toLowerCase()))) return [name];
+    return [name, for (final extension in extensions) '$name$extension'];
   }
 
   static String? _environmentValue(Map<String, String> env, String name) {

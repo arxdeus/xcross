@@ -12,7 +12,7 @@ abstract final class Log {
 
   /// Switch global logger to verbose mode (shows trace output, no spinners).
   static void setVerbose() {
-    _stopStep();
+    stopStep();
     _logger = Logger.verbose();
   }
 
@@ -49,7 +49,7 @@ abstract final class Log {
   /// Print [message] verbatim (already carries its own marker). Interrupts any
   /// running spinner so the two never fight over the same line.
   static void logStatus(String message) {
-    _stopStep();
+    stopStep();
     _logger.stdout(message);
   }
 
@@ -59,20 +59,15 @@ abstract final class Log {
 
   /// A warning on stderr.
   static void logWarn(String message) {
-    _stopStep();
+    stopStep();
     _logger.stderr('${Glyph.warn} $message');
   }
 
   /// An error on stderr.
   static void logError(String message) {
-    _stopStep();
+    stopStep();
     _logger.stderr('${Glyph.bad} $message');
   }
-
-  // -------------------------------------------------------------------------
-  // Steps: one spinner line per phase, replaced in place by a ✓/✗ on
-  // completion.
-  // -------------------------------------------------------------------------
 
   /// Run [body] under a spinner labelled [label]; prints `✓ label 1.2s` when
   /// it returns, `✗ label` when it throws.
@@ -91,21 +86,19 @@ abstract final class Log {
   /// Start a spinner for work that cannot be wrapped in a closure. The caller
   /// must call [Step.done] or [Step.fail].
   static Step beginStep(String label) {
-    _stopStep();
+    stopStep();
     return _active = Step._(label);
   }
 
   /// Erase any running spinner — for code that writes to stdout directly
   /// (e.g. the download progress bar).
-  static void stopStep() => _stopStep();
-
-  static Step? _active;
-
-  static void _stopStep() {
+  static void stopStep() {
     final step = _active;
     _active = null;
     step?._erase();
   }
+
+  static Step? _active;
 }
 
 /// Every line xcross prints starts with one of these markers, so output reads
@@ -136,13 +129,12 @@ abstract final class Glyph {
 class Step {
   Step._(this.label) : _watch = Stopwatch()..start() {
     if (Log._fancy) {
-      _timer = Timer.periodic(const Duration(milliseconds: 80), (_) => _draw());
       _draw();
-    } else {
-      // No spinner to watch (piped output, a debug console, `--verbose`), so
-      // announce the phase up front — otherwise long steps look like a hang.
-      Log._logger.stdout('${Glyph.info}$label…');
+      return;
     }
+    // No spinner to watch (piped output, a debug console, `--verbose`), so
+    // announce the phase up front — otherwise long steps look like a hang.
+    Log._logger.stdout('${Glyph.info}$label…');
   }
 
   static const _frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -196,14 +188,16 @@ class Step {
     // A `logStatus` mid-step erases the block and kills the timer; a later log
     // line should bring the spinner back rather than leave it frozen.
     _timer ??= Timer.periodic(const Duration(milliseconds: 80), (_) => _draw());
+    final tail = _visibleTail();
     final frame = _frames[_tick++ % _frames.length];
-    final block = renderBlock(
-      head: '${Log.ansi.cyan}$frame${Log.ansi.none} $label',
-      tail: [for (final line in _visibleTail()) Log.ansi.subtle(_fit(line))],
-      previousRows: _drawn,
+    stdout.write(
+      renderBlock(
+        head: '${Log.ansi.cyan}$frame${Log.ansi.none} $label',
+        tail: [for (final line in tail) Log.ansi.subtle(_fit(line))],
+        previousRows: _drawn,
+      ),
     );
-    _drawn = 1 + _visibleTail().length;
-    stdout.write(block);
+    _drawn = 1 + tail.length;
   }
 
   /// The escape sequence that repaints a [head] line plus indented [tail] lines
@@ -262,10 +256,10 @@ class Step {
     _closed = true;
     if (Log._active == this) Log._active = null;
     _erase();
-    Log._logger.stdout(
-      '$mark'
-      '${timed ? Log._withDetail(message, _fmtElapsed(_watch.elapsed)) : message}',
-    );
+    final body = timed
+        ? Log._withDetail(message, _fmtElapsed(_watch.elapsed))
+        : message;
+    Log._logger.stdout('$mark$body');
   }
 
   static String _fmtElapsed(Duration d) {

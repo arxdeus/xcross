@@ -67,7 +67,12 @@ abstract final class Downloader {
       );
       final sink = dest.openWrite();
       try {
-        await sink.addStream(_withProgress(response, reporter));
+        await sink.addStream(
+          response.map((chunk) {
+            reporter.add(chunk.length);
+            return chunk;
+          }),
+        );
         await sink.flush();
       } finally {
         await sink.close();
@@ -76,18 +81,6 @@ abstract final class Downloader {
     } finally {
       client.close(force: true);
     }
-  }
-
-  /// Wrap [source] so [reporter] observes byte counts without changing the
-  /// stream's contents. Returns the source unchanged when [reporter] is null.
-  static Stream<List<int>> _withProgress(
-    Stream<List<int>> source,
-    _DownloadProgress reporter,
-  ) {
-    return source.map((chunk) {
-      reporter.add(chunk.length);
-      return chunk;
-    });
   }
 
   /// Best-effort file-name from [url] for display in the progress line.
@@ -124,24 +117,29 @@ class _DownloadProgress {
 
   void add(int bytes) {
     _received += bytes;
-    final elapsedMs = _stopwatch.elapsedMilliseconds;
     if (_isTty) {
-      // Throttle TTY redraws to ~10 Hz.
-      if (elapsedMs - _lastRenderMs < 100) return;
-      _lastRenderMs = elapsedMs;
-      _render(elapsedMs);
+      _renderThrottled();
     } else if (total > 0) {
-      // Non-TTY: log a fresh line every ~10% so piped logs stay readable.
-      final percent = (_received * 100 ~/ total).clamp(0, 100);
-      if (percent >= _lastLoggedPercent + 10) {
-        _lastLoggedPercent = percent - (percent % 10);
-        Log.logStatus(
-          '${Glyph.download} $label '
-          '${Log.ansi.subtle('$percent%  ${_fmtBytes(_received)}'
-          ' / ${_fmtBytes(total)}')}',
-        );
-      }
+      _logNextDecile();
     }
+  }
+
+  void _renderThrottled() {
+    final elapsedMs = _stopwatch.elapsedMilliseconds;
+    // Redraw at most ~10 Hz.
+    if (elapsedMs - _lastRenderMs < 100) return;
+    _lastRenderMs = elapsedMs;
+    _render(elapsedMs);
+  }
+
+  /// Off a TTY there is no line to overwrite, so emit one plain line every
+  /// ~10% instead — enough progress to follow, few enough to keep logs sane.
+  void _logNextDecile() {
+    final percent = (_received * 100 ~/ total).clamp(0, 100);
+    if (percent < _lastLoggedPercent + 10) return;
+    _lastLoggedPercent = percent - (percent % 10);
+    final progress = '$percent%  ${_fmtBytes(_received)} / ${_fmtBytes(total)}';
+    Log.logStatus('${Glyph.download} $label ${Log.ansi.subtle(progress)}');
   }
 
   void finish() {
