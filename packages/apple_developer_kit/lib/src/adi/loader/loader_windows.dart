@@ -30,23 +30,14 @@ class WindowsNativeLibraryLoader implements NativeLibraryLoader {
   String? _lastLoadDir;
 
   ElfLoadedLibrary _loadByPath(String path) {
+    // Note the deliberate asymmetry, matching existing behaviour: the
+    // cache is probed with the canonical path but populated with the
+    // (possibly fallback-resolved) path actually read.
     final canonical = File(path).absolute.path;
     final cached = _loaded[canonical];
     if (cached != null) return cached;
 
-    var resolvedPath = canonical;
-    if (!File(resolvedPath).existsSync()) {
-      // Same bare-name sibling fallback as loader_posix.dart.
-      final fallbackDir = _lastLoadDir;
-      final isBareName = !path.contains('/') && !path.contains(r'\');
-      if (fallbackDir != null && isBareName) {
-        final candidate = File('$fallbackDir${Platform.pathSeparator}$path');
-        if (candidate.existsSync()) {
-          resolvedPath = candidate.absolute.path;
-        }
-      }
-    }
-
+    final resolvedPath = _resolvePath(path, canonical);
     final lib = ElfLoadedLibrary.load(
       File(resolvedPath).readAsBytesSync(),
       _allocator,
@@ -54,6 +45,20 @@ class WindowsNativeLibraryLoader implements NativeLibraryLoader {
     );
     _loaded[resolvedPath] = lib;
     return lib;
+  }
+
+  // Same bare-name sibling fallback as loader_posix.dart, including its
+  // ponytail caveat: it is an addition not present upstream and has not
+  // been verified against what the real libstoreservicescore.so requests.
+  String _resolvePath(String requested, String canonical) {
+    if (File(canonical).existsSync()) return canonical;
+
+    final fallbackDir = _lastLoadDir;
+    final isBareName = !requested.contains('/') && !requested.contains(r'\');
+    if (fallbackDir == null || !isBareName) return canonical;
+
+    final candidate = File('$fallbackDir${Platform.pathSeparator}$requested');
+    return candidate.existsSync() ? candidate.absolute.path : canonical;
   }
 
   @override

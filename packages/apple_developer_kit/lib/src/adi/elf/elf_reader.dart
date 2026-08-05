@@ -22,20 +22,45 @@
 
 import 'dart:typed_data';
 
-// --- ELF64 constants (standard ELF/SysV AMD64 ABI values) ---
+/// `p_type` values of an ELF64 program header.
+abstract final class ElfSegmentType {
+  /// `PT_LOAD` — a segment the loader must map into memory.
+  static const int load = 1;
+}
 
-const int elfPtLoad = 1;
+/// `p_flags` bits of an ELF64 program header.
+abstract final class ElfSegmentFlags {
+  /// `PF_X`
+  static const int execute = 1;
 
-const int elfShtDynsym = 11;
-const int elfShtStrtab = 3;
-const int elfShtRel = 9;
-const int elfShtRela = 4;
-const int elfShtHash = 5;
-const int elfShtGnuHash = 0x6ffffff6;
+  /// `PF_W`
+  static const int write = 2;
 
-const int elfPfX = 1;
-const int elfPfW = 2;
-const int elfPfR = 4;
+  /// `PF_R`
+  static const int read = 4;
+}
+
+/// `sh_type` values of an ELF64 section header.
+abstract final class ElfSectionType {
+  /// `SHT_STRTAB`
+  static const int stringTable = 3;
+
+  /// `SHT_RELA` — relocations with an explicit addend.
+  static const int rela = 4;
+
+  /// `SHT_HASH` — SysV symbol hash table.
+  static const int hash = 5;
+
+  /// `SHT_REL` — legacy relocations with an implicit addend. Never
+  /// emitted for x86_64.
+  static const int rel = 9;
+
+  /// `SHT_DYNSYM`
+  static const int dynamicSymbols = 11;
+
+  /// `SHT_GNU_HASH`
+  static const int gnuHash = 0x6fff_fff6;
+}
 
 /// x86_64 relocation types upstream's `relocate()` handles (ported from
 /// androidlibrary.d's `relocate()` switch: `R_GENERIC!"RELATIVE"`,
@@ -44,10 +69,28 @@ const int elfPfR = 4;
 /// `R_X86_64_64`). All four cases are present in the fetched source; the
 /// task's framing only mentioned the first three, so the `R_X86_64_64`
 /// case is called out explicitly in the port report.
-const int rX8664Relative = 8;
-const int rX8664GlobDat = 6;
-const int rX8664JumpSlot = 7;
-const int rX8664Abs64 = 1;
+abstract final class ElfRelocationType {
+  /// `R_X86_64_64`
+  static const int abs64 = 1;
+
+  /// `R_X86_64_GLOB_DAT`
+  static const int globalData = 6;
+
+  /// `R_X86_64_JUMP_SLOT`
+  static const int jumpSlot = 7;
+
+  /// `R_X86_64_RELATIVE`
+  static const int relative = 8;
+}
+
+/// Reads a NUL-terminated string out of [bytes] starting at [offset].
+String _readCString(Uint8List bytes, int offset) {
+  var end = offset;
+  while (bytes[end] != 0) {
+    end++;
+  }
+  return String.fromCharCodes(bytes, offset, end);
+}
 
 /// Reads ELF64 structures directly out of a raw file image (no `mmap` of
 /// the *file itself* the way upstream's `MmFile` does — we just need the
@@ -59,7 +102,7 @@ class ElfReader {
   final Uint8List bytes;
   final ByteData data;
 
-  // --- Ehdr ---
+  // --- Ehdr (Elf64_Ehdr) ---
   int get ehPhoff => data.getUint64(32, Endian.little);
   int get ehShoff => data.getUint64(40, Endian.little);
   int get ehPhnum => data.getUint16(56, Endian.little);
@@ -92,52 +135,41 @@ class ElfReader {
 
   /// Name of section [i], read via the section-header string table
   /// (`e_shstrndx`).
-  String sectionName(int i) {
-    final strtabSectionOffset = shOffset(ehShstrndx);
-    return _readCString(strtabSectionOffset + shName(i));
-  }
-
-  String _readCString(int offset) {
-    var end = offset;
-    while (bytes[end] != 0) {
-      end++;
-    }
-    return String.fromCharCodes(bytes, offset, end);
-  }
+  String sectionName(int i) =>
+      _readCString(bytes, shOffset(ehShstrndx) + shName(i));
 }
 
 /// The ELF64 dynamic symbol table (`.dynsym`, paired with `.dynstr` for
 /// names). Elf64_Sym is 24 bytes.
 class ElfDynamicSymbolTable {
-  ElfDynamicSymbolTable(
-    this._data,
-    this._offset,
-    this.count,
-    this._strtabOffset,
-    this._bytes,
-  );
+  ElfDynamicSymbolTable({
+    required ByteData data,
+    required int offset,
+    required this.count,
+    required int stringTableOffset,
+    required Uint8List bytes,
+  }) : _data = data,
+       _offset = offset,
+       _stringTableOffset = stringTableOffset,
+       _bytes = bytes;
 
   static const int symSize = 24;
 
   final ByteData _data;
   final int _offset;
   final int count;
-  final int _strtabOffset;
+  final int _stringTableOffset;
   final Uint8List _bytes;
 
+  /// `st_value` — the symbol's address, relative to the load base.
   int value(int i) => _data.getUint64(_offset + i * symSize + 8, Endian.little);
+
+  /// `st_name` resolved against `.dynstr`.
+  String name(int i) =>
+      _readCString(_bytes, _stringTableOffset + _nameOffset(i));
+
   int _nameOffset(int i) =>
       _data.getUint32(_offset + i * symSize, Endian.little);
-
-  String name(int i) => _readCString(_strtabOffset + _nameOffset(i));
-
-  String _readCString(int offset) {
-    var end = offset;
-    while (_bytes[end] != 0) {
-      end++;
-    }
-    return String.fromCharCodes(_bytes, offset, end);
-  }
 }
 
 /// ELF64 RELA relocation records (Elf64_Rela, 24 bytes each; explicit
@@ -153,8 +185,6 @@ class ElfRelaTable {
   final int count;
 
   int offset(int i) => _data.getUint64(_offset + i * relaSize, Endian.little);
-  int _info(int i) =>
-      _data.getUint64(_offset + i * relaSize + 8, Endian.little);
   int addend(int i) =>
       _data.getInt64(_offset + i * relaSize + 16, Endian.little);
 
@@ -162,7 +192,10 @@ class ElfRelaTable {
   int symbolIndex(int i) => _info(i) >> 32;
 
   /// `ELF64_R_TYPE(r_info)`.
-  int relocationType(int i) => _info(i) & 0xffffffff;
+  int relocationType(int i) => _info(i) & 0xffff_ffff;
+
+  int _info(int i) =>
+      _data.getUint64(_offset + i * relaSize + 8, Endian.little);
 }
 
 /// SysV ELF `.hash` symbol lookup. Ported from `ElfHashTable` in
@@ -179,16 +212,13 @@ class ElfHashTable {
   late final int _bucketsOffset;
   late final int _chainOffset;
 
-  int _bucket(int i) => _data.getUint32(_bucketsOffset + i * 4, Endian.little);
-  int _chain(int i) => _data.getUint32(_chainOffset + i * 4, Endian.little);
-
   static int hash(String name) {
     var h = 0;
     for (final c in name.codeUnits) {
-      h = (16 * h + c) & 0xffffffff;
+      h = (16 * h + c) & 0xffff_ffff;
       h ^= (h >> 24) & 0xf0;
     }
-    return h & 0xfffffff;
+    return h & 0xfff_ffff;
   }
 
   /// Returns the resolved symbol index, or `null` if not found.
@@ -199,6 +229,9 @@ class ElfHashTable {
     }
     return null;
   }
+
+  int _bucket(int i) => _data.getUint32(_bucketsOffset + i * 4, Endian.little);
+  int _chain(int i) => _data.getUint32(_chainOffset + i * 4, Endian.little);
 }
 
 /// GNU `.gnu.hash` symbol lookup. Ported from `GnuHashTable` in
@@ -222,13 +255,10 @@ class GnuHashTable {
   late final int _bucketsOffset;
   late final int _chainOffset;
 
-  int _bucket(int i) => _data.getUint32(_bucketsOffset + i * 4, Endian.little);
-  int _chain(int i) => _data.getUint32(_chainOffset + i * 4, Endian.little);
-
   static int hash(String name) {
     var h = 5381;
     for (final c in name.codeUnits) {
-      h = ((h << 5) + h + c) & 0xffffffff;
+      h = ((h << 5) + h + c) & 0xffff_ffff;
     }
     return h;
   }
@@ -252,4 +282,7 @@ class GnuHashTable {
       symbolIndex++;
     }
   }
+
+  int _bucket(int i) => _data.getUint32(_bucketsOffset + i * 4, Endian.little);
+  int _chain(int i) => _data.getUint32(_chainOffset + i * 4, Endian.little);
 }

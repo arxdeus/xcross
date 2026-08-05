@@ -45,12 +45,11 @@ enum AdiErrorCode {
 
   final int code;
 
-  static AdiErrorCode? fromCode(int code) {
-    for (final value in values) {
-      if (value.code == code) return value;
-    }
-    return null;
-  }
+  static final Map<int, AdiErrorCode> _byCode = {
+    for (final value in values) value.code: value,
+  };
+
+  static AdiErrorCode? fromCode(int code) => _byCode[code];
 }
 
 /// Thrown when a native ADI call returns a non-zero error code.
@@ -68,57 +67,44 @@ class AdiException implements Exception {
 
   /// Human-readable description, ported verbatim from adi.d's
   /// `toString(ADIError)`.
-  String get message {
-    switch (errorCode) {
-      case -45001:
-        return 'invalid parameters ($errorCode), or missing initialization '
-            'bits, you need to set an identifier and a valid provisioning '
-            'path first!';
-      case -45002:
-        return 'invalid parameters (for decipher) ($errorCode)';
-      case -45003:
-        return 'invalid Trust Key ($errorCode)';
-      case -45006:
-        return 'ptm and tk are not matching the transmitted cpim ($errorCode)';
-      case -45018:
-        return 'invalid input data header (first uint) (pointer is correct '
-            'tho) ($errorCode)';
-      case -45019:
-        return "vdfut768ig doesn't know the asked function ($errorCode)";
-      case -45020:
-        return 'invalid input data (not the first uint) ($errorCode)';
-      case -45025:
-        return 'unknown session ($errorCode)';
-      case -45026:
-        return 'empty session ($errorCode)';
-      case -45031:
-        return 'invalid data (header) ($errorCode)';
-      case -45032:
-        return 'data too short ($errorCode)';
-      case -45033:
-        return 'invalid data (body) ($errorCode)';
-      case -45034:
-        return 'unknown ADI call flags ($errorCode)';
-      case -45036:
-        return 'time error ($errorCode)';
-      case -45046:
-        return 'identifier generation failure: empty hardware ids ($errorCode)';
-      case -45054:
-        return 'generic libc/file manipulation error ($errorCode)';
-      case -45061:
-        return 'not provisioned ($errorCode)';
-      case -45062:
-        return 'cannot erase provisioning: not provisioned ($errorCode)';
-      case -45063:
-        return 'provisioning first step is already pending ($errorCode)';
-      case -45066:
-        return '2nd step fail: session already consumed ($errorCode)';
-      case -45075:
-        return 'library loading error ($errorCode)';
-      default:
-        return 'unknown ADI error ($errorCode)';
-    }
-  }
+  String get message => switch (error) {
+    AdiErrorCode.invalidParams =>
+      'invalid parameters ($errorCode), or missing initialization '
+          'bits, you need to set an identifier and a valid provisioning '
+          'path first!',
+    AdiErrorCode.invalidParams2 =>
+      'invalid parameters (for decipher) ($errorCode)',
+    AdiErrorCode.invalidTrustKey => 'invalid Trust Key ($errorCode)',
+    AdiErrorCode.ptmTkNotMatchingState =>
+      'ptm and tk are not matching the transmitted cpim ($errorCode)',
+    AdiErrorCode.invalidInputDataParamHeader =>
+      'invalid input data header (first uint) (pointer is correct '
+          'tho) ($errorCode)',
+    AdiErrorCode.unknownAdiFunction =>
+      "vdfut768ig doesn't know the asked function ($errorCode)",
+    AdiErrorCode.invalidInputDataParamBody =>
+      'invalid input data (not the first uint) ($errorCode)',
+    AdiErrorCode.unknownSession => 'unknown session ($errorCode)',
+    AdiErrorCode.emptySession => 'empty session ($errorCode)',
+    AdiErrorCode.invalidDataHeader => 'invalid data (header) ($errorCode)',
+    AdiErrorCode.dataTooShort => 'data too short ($errorCode)',
+    AdiErrorCode.invalidDataBody => 'invalid data (body) ($errorCode)',
+    AdiErrorCode.unknownAdiCallFlags => 'unknown ADI call flags ($errorCode)',
+    AdiErrorCode.timeError => 'time error ($errorCode)',
+    AdiErrorCode.emptyHardwareIds =>
+      'identifier generation failure: empty hardware ids ($errorCode)',
+    AdiErrorCode.filesystemError =>
+      'generic libc/file manipulation error ($errorCode)',
+    AdiErrorCode.notProvisioned => 'not provisioned ($errorCode)',
+    AdiErrorCode.noProvisioningToErase =>
+      'cannot erase provisioning: not provisioned ($errorCode)',
+    AdiErrorCode.pendingSession =>
+      'provisioning first step is already pending ($errorCode)',
+    AdiErrorCode.sessionAlreadyDone =>
+      '2nd step fail: session already consumed ($errorCode)',
+    AdiErrorCode.libraryLoadingFailed => 'library loading error ($errorCode)',
+    null => 'unknown ADI error ($errorCode)',
+  };
 
   @override
   String toString() => 'AdiException: $message';
@@ -171,10 +157,12 @@ class AdiOneTimePassword {
 /// lifetime (copying `out` buffers into Dart-owned [Uint8List]s and
 /// disposing the native allocation immediately) and translates non-zero
 /// ADI return codes into [AdiException].
+///
+/// Every scratch buffer is arena-allocated through [malloc] explicitly:
+/// the arena's own default is `calloc`, and zero-filling buffers the
+/// native side is expected to fill would be a behaviour change.
 class AdiClient {
   AdiClient._(this._bindings);
-
-  final AdiNativeBindings _bindings;
 
   /// Loads `libstoreservicescore.so` from [nativeLibraryDir] and
   /// constructs an [AdiClient] bound to it.
@@ -203,16 +191,10 @@ class AdiClient {
     return client;
   }
 
-  void _loadLibrary(String nativeLibraryDir) {
-    final pathPtr = nativeLibraryDir.toNativeUtf8();
-    try {
-      _unwrap(_bindings.adiLoadLibraryWithPath(pathPtr));
-    } finally {
-      malloc.free(pathPtr);
-    }
-  }
+  final AdiNativeBindings _bindings;
 
   String? _provisioningPath;
+  String? _identifier;
 
   /// Directory ADI persists its provisioning state to. Ported from
   /// `ADI.provisioningPath` in adi.d.
@@ -220,16 +202,13 @@ class AdiClient {
 
   set provisioningPath(String? path) {
     if (path == null) return;
-    final pathPtr = path.toNativeUtf8();
-    try {
-      _unwrap(_bindings.adiSetProvisioningPath(pathPtr));
+    using((arena) {
+      _check(
+        _bindings.adiSetProvisioningPath(path.toNativeUtf8(allocator: arena)),
+      );
       _provisioningPath = path;
-    } finally {
-      malloc.free(pathPtr);
-    }
+    }, malloc);
   }
-
-  String? _identifier;
 
   /// The Android ID (device identifier) ADI derives its identity from.
   /// Ported from `ADI.identifier` in adi.d.
@@ -238,20 +217,16 @@ class AdiClient {
   set identifier(String? identifier) {
     if (identifier == null) return;
     final bytes = Uint8List.fromList(utf8.encode(identifier));
-    final ptr = malloc<Uint8>(bytes.length);
-    try {
-      ptr.asTypedList(bytes.length).setAll(0, bytes);
-      _unwrap(_bindings.adiSetAndroidId(ptr, bytes.length));
+    using((arena) {
+      _check(_bindings.adiSetAndroidId(_copy(bytes, arena), bytes.length));
       _identifier = identifier;
-    } finally {
-      malloc.free(ptr);
-    }
+    }, malloc);
   }
 
   /// Erases all provisioning state for [dsId]. Ported from
   /// `ADI.eraseProvisioning` in adi.d.
   Future<void> eraseProvisioning(int dsId) async {
-    _unwrap(_bindings.adiProvisioningErase(dsId));
+    _check(_bindings.adiProvisioningErase(dsId));
   }
 
   /// Re-synchronizes an already-provisioned device against
@@ -260,16 +235,16 @@ class AdiClient {
     int dsId,
     Uint8List serverIntermediateMetadata,
   ) async {
-    final inputPtr = _copyToNative(serverIntermediateMetadata);
-    final outMid = malloc<Pointer<Uint8>>();
-    final outMidLength = malloc<Uint32>();
-    final outSrm = malloc<Pointer<Uint8>>();
-    final outSrmLength = malloc<Uint32>();
-    try {
-      _unwrap(
+    return using((arena) {
+      final outMid = arena<Pointer<Uint8>>();
+      final outMidLength = arena<Uint32>();
+      final outSrm = arena<Pointer<Uint8>>();
+      final outSrmLength = arena<Uint32>();
+
+      _check(
         _bindings.adiSynchronize(
           dsId,
-          inputPtr,
+          _copy(serverIntermediateMetadata, arena),
           serverIntermediateMetadata.length,
           outMid,
           outMidLength,
@@ -279,25 +254,19 @@ class AdiClient {
       );
 
       return AdiSynchronizationResult(
-        machineIdentifier: _copyAndDispose(outMid.value, outMidLength.value),
-        synchronizationResumeMetadata: _copyAndDispose(
+        machineIdentifier: _takeBytes(outMid.value, outMidLength.value),
+        synchronizationResumeMetadata: _takeBytes(
           outSrm.value,
           outSrmLength.value,
         ),
       );
-    } finally {
-      malloc.free(inputPtr);
-      malloc.free(outMid);
-      malloc.free(outMidLength);
-      malloc.free(outSrm);
-      malloc.free(outSrmLength);
-    }
+    }, malloc);
   }
 
   /// Destroys an in-progress provisioning [session]. Ported from
   /// `ADI.destroyProvisioning` in adi.d.
   Future<void> destroyProvisioning(int session) async {
-    _unwrap(_bindings.adiProvisioningDestroy(session));
+    _check(_bindings.adiProvisioningDestroy(session));
   }
 
   /// Completes provisioning [session] with the server's `ptm`/`tk`
@@ -307,22 +276,17 @@ class AdiClient {
     Uint8List persistentTokenMetadata,
     Uint8List trustKey,
   ) async {
-    final ptmPtr = _copyToNative(persistentTokenMetadata);
-    final tkPtr = _copyToNative(trustKey);
-    try {
-      _unwrap(
+    using((arena) {
+      _check(
         _bindings.adiProvisioningEnd(
           session,
-          ptmPtr,
+          _copy(persistentTokenMetadata, arena),
           persistentTokenMetadata.length,
-          tkPtr,
+          _copy(trustKey, arena),
           trustKey.length,
         ),
       );
-    } finally {
-      malloc.free(ptmPtr);
-      malloc.free(tkPtr);
-    }
+    }, malloc);
   }
 
   /// Starts a new provisioning session against server-provided
@@ -332,15 +296,15 @@ class AdiClient {
     int dsId,
     Uint8List serverProvisioningIntermediateMetadata,
   ) async {
-    final inputPtr = _copyToNative(serverProvisioningIntermediateMetadata);
-    final outCpim = malloc<Pointer<Uint8>>();
-    final outCpimLength = malloc<Uint32>();
-    final outSession = malloc<Uint32>();
-    try {
-      _unwrap(
+    return using((arena) {
+      final outCpim = arena<Pointer<Uint8>>();
+      final outCpimLength = arena<Uint32>();
+      final outSession = arena<Uint32>();
+
+      _check(
         _bindings.adiProvisioningStart(
           dsId,
-          inputPtr,
+          _copy(serverProvisioningIntermediateMetadata, arena),
           serverProvisioningIntermediateMetadata.length,
           outCpim,
           outCpimLength,
@@ -349,18 +313,13 @@ class AdiClient {
       );
 
       return AdiClientProvisioningIntermediateMetadata(
-        clientProvisioningIntermediateMetadata: _copyAndDispose(
+        clientProvisioningIntermediateMetadata: _takeBytes(
           outCpim.value,
           outCpimLength.value,
         ),
         session: outSession.value,
       );
-    } finally {
-      malloc.free(inputPtr);
-      malloc.free(outCpim);
-      malloc.free(outCpimLength);
-      malloc.free(outSession);
-    }
+    }, malloc);
   }
 
   /// Whether the device identified by [dsId] is already provisioned with
@@ -375,12 +334,13 @@ class AdiClient {
   /// Requests a one-time password (OTP) for [dsId], used as part of
   /// Apple's GrandSlam login flow. Ported from `ADI.requestOTP` in adi.d.
   Future<AdiOneTimePassword> requestOTP(int dsId) async {
-    final outMid = malloc<Pointer<Uint8>>();
-    final outMidLength = malloc<Uint32>();
-    final outOtp = malloc<Pointer<Uint8>>();
-    final outOtpLength = malloc<Uint32>();
-    try {
-      _unwrap(
+    return using((arena) {
+      final outMid = arena<Pointer<Uint8>>();
+      final outMidLength = arena<Uint32>();
+      final outOtp = arena<Pointer<Uint8>>();
+      final outOtpLength = arena<Uint32>();
+
+      _check(
         _bindings.adiOtpRequest(
           dsId,
           outMid,
@@ -391,31 +351,38 @@ class AdiClient {
       );
 
       return AdiOneTimePassword(
-        machineIdentifier: _copyAndDispose(outMid.value, outMidLength.value),
-        oneTimePassword: _copyAndDispose(outOtp.value, outOtpLength.value),
+        machineIdentifier: _takeBytes(outMid.value, outMidLength.value),
+        oneTimePassword: _takeBytes(outOtp.value, outOtpLength.value),
       );
-    } finally {
-      malloc.free(outMid);
-      malloc.free(outMidLength);
-      malloc.free(outOtp);
-      malloc.free(outOtpLength);
-    }
+    }, malloc);
   }
 
-  Pointer<Uint8> _copyToNative(Uint8List data) {
-    final ptr = malloc<Uint8>(data.length);
+  void _loadLibrary(String nativeLibraryDir) {
+    using((arena) {
+      _check(
+        _bindings.adiLoadLibraryWithPath(
+          nativeLibraryDir.toNativeUtf8(allocator: arena),
+        ),
+      );
+    }, malloc);
+  }
+
+  Pointer<Uint8> _copy(Uint8List data, Allocator allocator) {
+    final ptr = allocator<Uint8>(data.length);
     ptr.asTypedList(data.length).setAll(0, data);
     return ptr;
   }
 
-  Uint8List _copyAndDispose(Pointer<Uint8> ptr, int length) {
+  /// Copies an ADI-owned `out` buffer into Dart memory and hands the
+  /// native allocation straight back to ADI.
+  Uint8List _takeBytes(Pointer<Uint8> ptr, int length) {
     if (ptr == nullptr || length == 0) return Uint8List(0);
     final copy = Uint8List.fromList(ptr.asTypedList(length));
-    _unwrap(_bindings.adiDispose(ptr.cast<Void>()));
+    _check(_bindings.adiDispose(ptr.cast<Void>()));
     return copy;
   }
 
-  void _unwrap(int errorCode) {
+  void _check(int errorCode) {
     if (errorCode != 0) {
       throw AdiException(errorCode);
     }

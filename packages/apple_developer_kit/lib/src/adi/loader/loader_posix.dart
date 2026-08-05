@@ -45,35 +45,35 @@ class PosixNativeLibraryLoader implements NativeLibraryLoader {
     final cached = _loaded[path];
     if (cached != null) return cached;
 
-    var resolvedPath = path;
-    if (!File(resolvedPath).existsSync()) {
-      // ponytail: this fallback is an addition, NOT present upstream —
-      // upstream's own dlopen emulation does a literal, unmodified open
-      // of whatever string the loaded library passed
-      // (symbols.d's dlopenWrapper -> `new AndroidLibrary(name)`, no
-      // search path at all). If the requested name is a bare filename
-      // (no directory separator) and isn't found as given, we also try
-      // it next to the last explicitly-`load()`-ed path, on the
-      // (UNVERIFIED) assumption that sibling libraries live in the same
-      // directory. Whether the real `libstoreservicescore.so` actually
-      // requests a bare filename or an already-fully-qualified path here
-      // has not been confirmed against the real extracted library — see
-      // NOTICE.md.
-      final fallbackDir = _lastLoadDir;
-      final isBareName = !path.contains('/') && !path.contains(r'$');
-      if (fallbackDir != null && isBareName) {
-        final candidate = File('$fallbackDir${Platform.pathSeparator}$path');
-        if (candidate.existsSync()) resolvedPath = candidate.path;
-      }
-    }
-
     final lib = ElfLoadedLibrary.load(
-      File(resolvedPath).readAsBytesSync(),
+      File(_resolvePath(path)).readAsBytesSync(),
       _allocator,
       _stubs.resolve,
     );
     _loaded[path] = lib;
     return lib;
+  }
+
+  // ponytail: this fallback is an addition, NOT present upstream —
+  // upstream's own dlopen emulation does a literal, unmodified open of
+  // whatever string the loaded library passed (symbols.d's dlopenWrapper
+  // -> `new AndroidLibrary(name)`, no search path at all). If the
+  // requested name is a bare filename (no directory separator) and isn't
+  // found as given, we also try it next to the last
+  // explicitly-`load()`-ed path, on the (UNVERIFIED) assumption that
+  // sibling libraries live in the same directory. Whether the real
+  // `libstoreservicescore.so` actually requests a bare filename or an
+  // already-fully-qualified path here has not been confirmed against the
+  // real extracted library — see NOTICE.md.
+  String _resolvePath(String path) {
+    if (File(path).existsSync()) return path;
+
+    final fallbackDir = _lastLoadDir;
+    final isBareName = !path.contains('/') && !path.contains(r'$');
+    if (fallbackDir == null || !isBareName) return path;
+
+    final candidate = File('$fallbackDir${Platform.pathSeparator}$path');
+    return candidate.existsSync() ? candidate.path : path;
   }
 
   @override

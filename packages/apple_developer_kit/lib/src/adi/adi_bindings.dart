@@ -10,7 +10,8 @@
 //
 // On Windows, looked-up symbols are SysV and must be wrapped with
 // sysvImport before Dart's MS-ABI asFunction can call them (mirrors
-// Provision's androidInvoke / @sysv). On Linux the wrap is an identity.
+// Provision's androidInvoke / @sysv). On Linux the wrap is skipped
+// entirely — the host ABI is already SysV.
 
 import 'dart:ffi';
 import 'dart:io';
@@ -19,13 +20,23 @@ import 'package:apple_developer_kit/src/adi/loader/loader.dart';
 import 'package:apple_developer_kit/src/adi/loader/sysv_abi_bridge.dart';
 import 'package:ffi/ffi.dart' show Utf8;
 
-// --- Native (C) call signatures, ported from adi.d's `extern(C)` aliases ---
+// Native (C) and Dart call signatures, paired per ADI function. The
+// native side is ported verbatim from adi.d's `extern(C)` aliases.
 
 typedef ADILoadLibraryWithPathNative = Int32 Function(Pointer<Utf8> path);
+typedef ADILoadLibraryWithPathDart = int Function(Pointer<Utf8> path);
+
 typedef ADISetAndroidIDNative =
     Int32 Function(Pointer<Uint8> identifier, Uint32 length);
+typedef ADISetAndroidIDDart =
+    int Function(Pointer<Uint8> identifier, int length);
+
 typedef ADISetProvisioningPathNative = Int32 Function(Pointer<Utf8> path);
+typedef ADISetProvisioningPathDart = int Function(Pointer<Utf8> path);
+
 typedef ADIProvisioningEraseNative = Int32 Function(Uint64 dsId);
+typedef ADIProvisioningEraseDart = int Function(int dsId);
+
 typedef ADISynchronizeNative =
     Int32 Function(
       Uint64 dsId,
@@ -36,42 +47,6 @@ typedef ADISynchronizeNative =
       Pointer<Pointer<Uint8>> outSynchronizationResumeMetadata,
       Pointer<Uint32> outSynchronizationResumeMetadataLength,
     );
-typedef ADIProvisioningDestroyNative = Int32 Function(Uint32 session);
-typedef ADIProvisioningEndNative =
-    Int32 Function(
-      Uint32 session,
-      Pointer<Uint8> persistentTokenMetadata,
-      Uint32 persistentTokenMetadataLength,
-      Pointer<Uint8> trustKey,
-      Uint32 trustKeyLength,
-    );
-typedef ADIProvisioningStartNative =
-    Int32 Function(
-      Uint64 dsId,
-      Pointer<Uint8> serverProvisioningIntermediateMetadata,
-      Uint32 serverProvisioningIntermediateMetadataLength,
-      Pointer<Pointer<Uint8>> outClientProvisioningIntermediateMetadata,
-      Pointer<Uint32> outClientProvisioningIntermediateMetadataLength,
-      Pointer<Uint32> outSession,
-    );
-typedef ADIGetLoginCodeNative = Int32 Function(Uint64 dsId);
-typedef ADIDisposeNative = Int32 Function(Pointer<Void> ptr);
-typedef ADIOTPRequestNative =
-    Int32 Function(
-      Uint64 dsId,
-      Pointer<Pointer<Uint8>> outMachineIdentifier,
-      Pointer<Uint32> outMachineIdentifierLength,
-      Pointer<Pointer<Uint8>> outOneTimePassword,
-      Pointer<Uint32> outOneTimePasswordLength,
-    );
-
-// --- Dart-side call signatures ---
-
-typedef ADILoadLibraryWithPathDart = int Function(Pointer<Utf8> path);
-typedef ADISetAndroidIDDart =
-    int Function(Pointer<Uint8> identifier, int length);
-typedef ADISetProvisioningPathDart = int Function(Pointer<Utf8> path);
-typedef ADIProvisioningEraseDart = int Function(int dsId);
 typedef ADISynchronizeDart =
     int Function(
       int dsId,
@@ -82,7 +57,18 @@ typedef ADISynchronizeDart =
       Pointer<Pointer<Uint8>> outSynchronizationResumeMetadata,
       Pointer<Uint32> outSynchronizationResumeMetadataLength,
     );
+
+typedef ADIProvisioningDestroyNative = Int32 Function(Uint32 session);
 typedef ADIProvisioningDestroyDart = int Function(int session);
+
+typedef ADIProvisioningEndNative =
+    Int32 Function(
+      Uint32 session,
+      Pointer<Uint8> persistentTokenMetadata,
+      Uint32 persistentTokenMetadataLength,
+      Pointer<Uint8> trustKey,
+      Uint32 trustKeyLength,
+    );
 typedef ADIProvisioningEndDart =
     int Function(
       int session,
@@ -90,6 +76,16 @@ typedef ADIProvisioningEndDart =
       int persistentTokenMetadataLength,
       Pointer<Uint8> trustKey,
       int trustKeyLength,
+    );
+
+typedef ADIProvisioningStartNative =
+    Int32 Function(
+      Uint64 dsId,
+      Pointer<Uint8> serverProvisioningIntermediateMetadata,
+      Uint32 serverProvisioningIntermediateMetadataLength,
+      Pointer<Pointer<Uint8>> outClientProvisioningIntermediateMetadata,
+      Pointer<Uint32> outClientProvisioningIntermediateMetadataLength,
+      Pointer<Uint32> outSession,
     );
 typedef ADIProvisioningStartDart =
     int Function(
@@ -100,8 +96,21 @@ typedef ADIProvisioningStartDart =
       Pointer<Uint32> outClientProvisioningIntermediateMetadataLength,
       Pointer<Uint32> outSession,
     );
+
+typedef ADIGetLoginCodeNative = Int32 Function(Uint64 dsId);
 typedef ADIGetLoginCodeDart = int Function(int dsId);
+
+typedef ADIDisposeNative = Int32 Function(Pointer<Void> ptr);
 typedef ADIDisposeDart = int Function(Pointer<Void> ptr);
+
+typedef ADIOTPRequestNative =
+    Int32 Function(
+      Uint64 dsId,
+      Pointer<Pointer<Uint8>> outMachineIdentifier,
+      Pointer<Uint32> outMachineIdentifierLength,
+      Pointer<Pointer<Uint8>> outOneTimePassword,
+      Pointer<Uint32> outOneTimePasswordLength,
+    );
 typedef ADIOTPRequestDart =
     int Function(
       int dsId,
@@ -114,73 +123,63 @@ typedef ADIOTPRequestDart =
 /// Raw FFI bindings to the ADI (Apple Device Identity) native functions
 /// exported by `libstoreservicescore.so`, resolved by their obfuscated
 /// (but stable) symbol names.
+///
+/// The `argc` passed alongside each symbol is the SysV thunk arity used
+/// by the Windows ABI bridge; it must match the native signature above
+/// it.
 class AdiNativeBindings {
-  AdiNativeBindings(LoadedNativeLibrary storeServicesCore)
+  AdiNativeBindings(LoadedNativeLibrary lib)
     : adiLoadLibraryWithPath = _lookup<ADILoadLibraryWithPathNative>(
-        storeServicesCore,
+        lib,
         'kq56gsgHG6',
         1,
-      ).asFunction<ADILoadLibraryWithPathDart>(),
+      ).asFunction(),
       adiSetAndroidId = _lookup<ADISetAndroidIDNative>(
-        storeServicesCore,
+        lib,
         'Sph98paBcz',
         2,
-      ).asFunction<ADISetAndroidIDDart>(),
+      ).asFunction(),
       adiSetProvisioningPath = _lookup<ADISetProvisioningPathNative>(
-        storeServicesCore,
+        lib,
         'nf92ngaK92',
         1,
-      ).asFunction<ADISetProvisioningPathDart>(),
+      ).asFunction(),
       adiProvisioningErase = _lookup<ADIProvisioningEraseNative>(
-        storeServicesCore,
+        lib,
         'p435tmhbla',
         1,
-      ).asFunction<ADIProvisioningEraseDart>(),
+      ).asFunction(),
       adiSynchronize = _lookup<ADISynchronizeNative>(
-        storeServicesCore,
+        lib,
         'tn46gtiuhw',
         7,
-      ).asFunction<ADISynchronizeDart>(),
+      ).asFunction(),
       adiProvisioningDestroy = _lookup<ADIProvisioningDestroyNative>(
-        storeServicesCore,
+        lib,
         'fy34trz2st',
         1,
-      ).asFunction<ADIProvisioningDestroyDart>(),
+      ).asFunction(),
       adiProvisioningEnd = _lookup<ADIProvisioningEndNative>(
-        storeServicesCore,
+        lib,
         'uv5t6nhkui',
         5,
-      ).asFunction<ADIProvisioningEndDart>(),
+      ).asFunction(),
       adiProvisioningStart = _lookup<ADIProvisioningStartNative>(
-        storeServicesCore,
+        lib,
         'rsegvyrt87',
         6,
-      ).asFunction<ADIProvisioningStartDart>(),
+      ).asFunction(),
       adiGetLoginCode = _lookup<ADIGetLoginCodeNative>(
-        storeServicesCore,
+        lib,
         'aslgmuibau',
         1,
-      ).asFunction<ADIGetLoginCodeDart>(),
-      adiDispose = _lookup<ADIDisposeNative>(
-        storeServicesCore,
-        'jk24uiwqrg',
-        1,
-      ).asFunction<ADIDisposeDart>(),
+      ).asFunction(),
+      adiDispose = _lookup<ADIDisposeNative>(lib, 'jk24uiwqrg', 1).asFunction(),
       adiOtpRequest = _lookup<ADIOTPRequestNative>(
-        storeServicesCore,
+        lib,
         'qi864985u0',
         5,
-      ).asFunction<ADIOTPRequestDart>();
-
-  static Pointer<NativeFunction<T>> _lookup<T extends Function>(
-    LoadedNativeLibrary lib,
-    String symbol,
-    int argc,
-  ) {
-    final raw = lib.lookup<T>(symbol);
-    if (!Platform.isWindows) return raw;
-    return SysvAbiBridge.sysvImport(raw, argc);
-  }
+      ).asFunction();
 
   final ADILoadLibraryWithPathDart adiLoadLibraryWithPath;
   final ADISetAndroidIDDart adiSetAndroidId;
@@ -193,4 +192,14 @@ class AdiNativeBindings {
   final ADIGetLoginCodeDart adiGetLoginCode;
   final ADIDisposeDart adiDispose;
   final ADIOTPRequestDart adiOtpRequest;
+
+  static Pointer<NativeFunction<T>> _lookup<T extends Function>(
+    LoadedNativeLibrary lib,
+    String symbol,
+    int argc,
+  ) {
+    final raw = lib.lookup<T>(symbol);
+    if (!Platform.isWindows) return raw;
+    return SysvAbiBridge.sysvImport(raw, argc);
+  }
 }

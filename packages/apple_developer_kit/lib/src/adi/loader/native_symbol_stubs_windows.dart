@@ -2,12 +2,22 @@
 // Provision's lib/provision/compat/windows.d + symbols.d (LGPLv2 — see
 // NOTICE.md).
 //
-// Unlike the Linux stubs (which forward open/stat/etc. straight to
-// host libc), Windows must translate Linux/bionic open flags and
-// struct-stat layouts. Every address published into the ELF GOT is a
-// SysV-callable trampoline wrapping an MS-ABI NativeCallable.
-
-// ignore_for_file: non_constant_identifier_names
+// Unlike the Linux stubs (which forward open/stat/etc. straight to host
+// libc), Windows must translate Linux/bionic open flags and struct-stat
+// layouts — see windows/linux_abi.dart. Every address published into the
+// ELF GOT is a SysV-callable trampoline wrapping an MS-ABI
+// NativeCallable, because the loaded library calls its imports with the
+// SysV AMD64 convention while Dart's NativeCallable speaks the Microsoft
+// x64 one (different argument registers, different shadow space, no red
+// zone).
+//
+// DO NOT "IMPROVE" THE PTHREAD STUBS: they are deliberately no-ops,
+// matching upstream's `emptyStub` in symbols.d. Bionic's
+// `pthread_mutex_t`/`pthread_once_t` are ~4 bytes; glibc's and the CRT's
+// equivalents are far larger. A real implementation running against a
+// bionic-sized field inside the loaded library's own memory would
+// silently write past it. That is precisely why this custom loader
+// exists instead of a plain `dlopen()` — see NOTICE.md.
 
 import 'dart:convert';
 import 'dart:ffi';
@@ -18,96 +28,153 @@ import 'package:apple_developer_kit/src/adi/elf/elf_loaded_library.dart';
 import 'package:apple_developer_kit/src/adi/loader/sysv_abi_bridge.dart';
 import 'package:ffi/ffi.dart';
 
-// Linux x86_64 struct stat layout (from Provision std_edit/linux_stat.d).
-final class LinuxStat extends Struct {
-  @Uint64()
-  external int st_dev;
-  @Uint64()
-  external int st_ino;
-  @Uint64()
-  external int st_nlink;
-  @Uint32()
-  external int st_mode;
-  @Uint32()
-  external int st_uid;
-  @Uint32()
-  external int st_gid;
-  @Uint32()
-  external int pad0;
-  @Uint64()
-  external int st_rdev;
-  @Int64()
-  external int st_size;
-  @Int64()
-  external int st_blksize;
-  @Int64()
-  external int st_blocks;
-  @Int64()
-  external int st_atime;
-  @Int64()
-  external int st_atimensec;
-  @Int64()
-  external int st_mtime;
-  @Int64()
-  external int st_mtimensec;
-  @Int64()
-  external int st_ctime;
-  @Int64()
-  external int st_ctimensec;
-  @Array(3)
-  external Array<Int64> unused;
-}
-
-final class LinuxTimeval extends Struct {
-  @IntPtr()
-  external int tv_sec;
-  @IntPtr()
-  external int tv_usec;
-}
+part 'windows/linux_abi.dart';
+part 'windows/windows_crt.dart';
 
 /// Builds the fixed stub-symbol table for Windows, with SysV GOT entries.
+///
+/// The set of symbol name strings, and the exact value each stub returns,
+/// are load-bearing: a missing entry becomes a null GOT slot the loaded
+/// library will call straight into.
 class WindowsNativeSymbolStubs {
   WindowsNativeSymbolStubs({required this.loadLibraryForDlopen}) {
     _errnoPtr = calloc<Int32>();
     _bindAll();
   }
 
+  /// Loads (or returns an already-loaded) [ElfLoadedLibrary] for the
+  /// literal path a bionic `dlopen()` call requests. Owned by the loader
+  /// glue (`loader_windows.dart`), so this class stays a pure "symbol
+  /// table" independent of how libraries are actually loaded.
   final ElfLoadedLibrary Function(String path) loadLibraryForDlopen;
 
   final Map<String, Pointer<Void>> _table = {};
   final Map<int, ElfLoadedLibrary> _dlopenHandles = {};
+  final _WindowsCrt _crt = _WindowsCrt();
+
+  /// NativeCallables must outlive every call the loaded library might
+  /// make into them (i.e. the whole process); holding them here keeps
+  /// their trampoline addresses valid.
   final List<NativeCallable> _keepAlive = [];
+
   late final Pointer<Int32> _errnoPtr;
 
-  final DynamicLibrary _ucrt = DynamicLibrary.process();
-
+  /// Resolves [symbolName] against the stub table, or [nullptr] for
+  /// anything outside it.
+  ///
+  /// Upstream instead installs a hand-assembled trapping trampoline for
+  /// unresolved symbols; a null GOT entry gets the same practical
+  /// property (a loud crash rather than silently running the wrong host
+  /// function) without synthesizing executable stub code from Dart.
   Pointer<Void> resolve(String symbolName) => _table[symbolName] ?? nullptr;
 
-  void _publish(String name, Pointer<Void> msAbiFn, int argc) {
-    _table[name] = SysvAbiBridge.sysvExport(msAbiFn, argc);
-  }
-
-  /// Host CRT symbol published as a SysV-callable GOT entry.
-  void _publishCrt(String name, int argc, [String? crtName]) {
-    _publish(name, _ucrt.lookup<Void>(crtName ?? name).cast(), argc);
-  }
-
   void _bindAll() {
-    _publish('open', _callable2(_open), 2);
-    _publish('close', _callable1i(_close), 1);
-    _publish('read', _callable3(_read), 3);
-    _publish('write', _callable3(_write), 3);
-    _publish('mkdir', _callable2(_mkdir), 2);
-    _publish('chmod', _callable2(_chmod), 2);
-    _publish('ftruncate', _callable2i64(_ftruncate), 2);
-    _publish('umask', _callable1u(_umask), 1);
-    _publish('lstat', _callable2stat(_lstat), 2);
-    _publish('fstat', _callable2fstat(_fstat), 2);
-    _publish('gettimeofday', _callable2timeval(_gettimeofday), 2);
-    _publish('malloc', _callable1malloc(_malloc), 1);
-    _publish('free', _callable1free(_free), 1);
-    _publish('strncpy', _callable3strncpy(_strncpy), 3);
+    _publishCallable(
+      'open',
+      NativeCallable<Int32 Function(Pointer<Utf8>, Int32)>.isolateLocal(
+        _open,
+        exceptionalReturn: -1,
+      ),
+      2,
+    );
+    _publishCallable(
+      'close',
+      NativeCallable<Int32 Function(Int32)>.isolateLocal(
+        _close,
+        exceptionalReturn: -1,
+      ),
+      1,
+    );
+    _publishCallable(
+      'read',
+      NativeCallable<Int32 Function(Int32, Pointer<Void>, Uint32)>.isolateLocal(
+        _read,
+        exceptionalReturn: -1,
+      ),
+      3,
+    );
+    _publishCallable(
+      'write',
+      NativeCallable<Int32 Function(Int32, Pointer<Void>, Uint32)>.isolateLocal(
+        _write,
+        exceptionalReturn: -1,
+      ),
+      3,
+    );
+    _publishCallable(
+      'mkdir',
+      NativeCallable<Int32 Function(Pointer<Utf8>, Int32)>.isolateLocal(
+        _mkdir,
+        exceptionalReturn: -1,
+      ),
+      2,
+    );
+    _publishCallable(
+      'chmod',
+      NativeCallable<Int32 Function(Pointer<Utf8>, Int32)>.isolateLocal(
+        _chmod,
+        exceptionalReturn: -1,
+      ),
+      2,
+    );
+    _publishCallable(
+      'ftruncate',
+      NativeCallable<Int32 Function(Int64, Int64)>.isolateLocal(
+        _ftruncate,
+        exceptionalReturn: -1,
+      ),
+      2,
+    );
+    _publishCallable(
+      'umask',
+      NativeCallable<Uint64 Function(Uint64)>.isolateLocal(
+        _umask,
+        exceptionalReturn: 0,
+      ),
+      1,
+    );
+    _publishCallable(
+      'lstat',
+      NativeCallable<
+        Int32 Function(Pointer<Utf8>, Pointer<LinuxStat>)
+      >.isolateLocal(_lstat, exceptionalReturn: -1),
+      2,
+    );
+    _publishCallable(
+      'fstat',
+      NativeCallable<Int32 Function(Int32, Pointer<LinuxStat>)>.isolateLocal(
+        _fstat,
+        exceptionalReturn: -1,
+      ),
+      2,
+    );
+    _publishCallable(
+      'gettimeofday',
+      NativeCallable<
+        Int32 Function(Pointer<LinuxTimeval>, Pointer<Void>)
+      >.isolateLocal(_gettimeofday, exceptionalReturn: -1),
+      2,
+    );
+    _publishCallable(
+      'malloc',
+      NativeCallable<Pointer<Void> Function(IntPtr)>.isolateLocal(_malloc),
+      1,
+    );
+    _publishCallable(
+      'free',
+      NativeCallable<Void Function(Pointer<Void>)>.isolateLocal(_free),
+      1,
+    );
+    _publishCallable(
+      'strncpy',
+      NativeCallable<
+        Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>, IntPtr)
+      >.isolateLocal(_strncpy),
+      3,
+    );
 
+    // Pure-computation libc entry points with no Linux/Windows ABI
+    // difference: published straight from the host CRT, no Dart wrapper.
     _publishCrt('memcpy', 3);
     _publishCrt('memmove', 3);
     _publishCrt('memset', 3);
@@ -134,32 +201,56 @@ class WindowsNativeSymbolStubs {
     _publishCrt('strcasecmp', 2, '_stricmp');
     _publishCrt('strncasecmp', 3, '_strnicmp');
 
-    // C++ ABI bits CoreADI references; no-op is enough for our short-lived
-    // ADI usage (matches "don't run real destructors" lazy approach).
-    final cxaAtexit =
-        NativeCallable<
-          Int32 Function(Pointer<Void>, Pointer<Void>, Pointer<Void>)
-        >.isolateLocal(
-          (Pointer<Void> a, Pointer<Void> b, Pointer<Void> c) => 0,
-          exceptionalReturn: 0,
-        );
-    _keepAlive.add(cxaAtexit);
-    _publish('__cxa_atexit', cxaAtexit.nativeFunction.cast(), 3);
-    final cxaFinalize =
-        NativeCallable<Void Function(Pointer<Void>)>.isolateLocal(
-          (Pointer<Void> p) {},
-        );
-    _keepAlive.add(cxaFinalize);
-    _publish('__cxa_finalize', cxaFinalize.nativeFunction.cast(), 1);
-    _publish('__stack_chk_fail', _ucrt.lookup<Void>('abort').cast(), 0);
+    _bindCxxAbi();
+    _bindErrno();
+    _bindPthreadNoOps();
+    _bindAndroidRuntime();
+    _bindDynamicLoader();
+  }
 
-    final errnoLoc = NativeCallable<Pointer<Int32> Function()>.isolateLocal(
-      () => _errnoPtr,
+  /// C++ ABI bits CoreADI references. No-ops are enough: this is a
+  /// short-lived process that never needs static destructors to run.
+  void _bindCxxAbi() {
+    _publishCallable(
+      '__cxa_atexit',
+      NativeCallable<
+        Int32 Function(Pointer<Void>, Pointer<Void>, Pointer<Void>)
+      >.isolateLocal(
+        (Pointer<Void> _, Pointer<Void> _, Pointer<Void> _) => 0,
+        exceptionalReturn: 0,
+      ),
+      3,
     );
-    _keepAlive.add(errnoLoc);
-    _publish('__errno_location', errnoLoc.nativeFunction.cast(), 0);
-    _table['__errno'] = _table['__errno_location']!;
+    _publishCallable(
+      '__cxa_finalize',
+      NativeCallable<Void Function(Pointer<Void>)>.isolateLocal(
+        (Pointer<Void> _) {},
+      ),
+      1,
+    );
+    // A stack-cookie failure is unrecoverable; abort is the correct
+    // (and upstream) response.
+    _publish('__stack_chk_fail', _crt.symbol('abort'), 0);
+  }
 
+  void _bindErrno() {
+    _publishCallable(
+      '__errno_location',
+      NativeCallable<Pointer<Int32> Function()>.isolateLocal(() => _errnoPtr),
+      0,
+    );
+    // symbols.d's gperf wordlist imports the same function under the
+    // name "__errno" as well.
+    _table['__errno'] = _table['__errno_location']!;
+  }
+
+  /// A single shared no-op for all nine pthread imports, matching
+  /// upstream's `emptyStub` (`extern (C) int emptyStub() { return 0; }`).
+  ///
+  /// Published with argc 0 even though the real functions take arguments:
+  /// a function that declares none never touches the incoming argument
+  /// registers, so there is nothing for the SysV thunk to marshal.
+  void _bindPthreadNoOps() {
     final emptyStub = NativeCallable<Int32 Function()>.isolateLocal(
       () => 0,
       exceptionalReturn: 0,
@@ -178,253 +269,98 @@ class WindowsNativeSymbolStubs {
     ]) {
       _publish(name, emptyStub.nativeFunction.cast(), 0);
     }
+  }
 
-    final systemPropertyGet =
-        NativeCallable<
-          Int32 Function(Pointer<Utf8>, Pointer<Utf8>)
-        >.isolateLocal(_systemPropertyGet, exceptionalReturn: -1);
-    _keepAlive.add(systemPropertyGet);
-    _publish(
+  void _bindAndroidRuntime() {
+    _publishCallable(
       '__system_property_get',
-      systemPropertyGet.nativeFunction.cast(),
+      NativeCallable<Int32 Function(Pointer<Utf8>, Pointer<Utf8>)>.isolateLocal(
+        _systemPropertyGet,
+        exceptionalReturn: -1,
+      ),
       2,
     );
-
-    final arc4random = NativeCallable<Uint32 Function()>.isolateLocal(
-      () => Random().nextInt(1 << 32),
-      exceptionalReturn: 0,
+    // Ported from symbols.d's `arc4random_impl`: deliberately a plain,
+    // NON-cryptographic source, matching upstream's own std.random
+    // choice. Changing it would be a behaviour change, not a fix.
+    _publishCallable(
+      'arc4random',
+      NativeCallable<Uint32 Function()>.isolateLocal(
+        () => Random().nextInt(1 << 32),
+        exceptionalReturn: 0,
+      ),
+      0,
     );
-    _keepAlive.add(arc4random);
-    _publish('arc4random', arc4random.nativeFunction.cast(), 0);
+  }
 
-    final dlopen =
-        NativeCallable<Pointer<Void> Function(Pointer<Utf8>)>.isolateLocal(
-          _dlopen,
-        );
-    _keepAlive.add(dlopen);
-    _publish('dlopen', dlopen.nativeFunction.cast(), 1);
-
-    final dlsym =
-        NativeCallable<
-          Pointer<Void> Function(Pointer<Void>, Pointer<Utf8>)
-        >.isolateLocal(_dlsym);
-    _keepAlive.add(dlsym);
-    _publish('dlsym', dlsym.nativeFunction.cast(), 2);
-
-    final dlclose = NativeCallable<Void Function(Pointer<Void>)>.isolateLocal(
-      _dlclose,
+  void _bindDynamicLoader() {
+    _publishCallable(
+      'dlopen',
+      NativeCallable<Pointer<Void> Function(Pointer<Utf8>)>.isolateLocal(
+        _dlopen,
+      ),
+      1,
     );
-    _keepAlive.add(dlclose);
-    _publish('dlclose', dlclose.nativeFunction.cast(), 1);
-  }
-
-  Pointer<Void> _callable1i(int Function(int) fn) {
-    final c = NativeCallable<Int32 Function(Int32)>.isolateLocal(
-      fn,
-      exceptionalReturn: -1,
+    _publishCallable(
+      'dlsym',
+      NativeCallable<
+        Pointer<Void> Function(Pointer<Void>, Pointer<Utf8>)
+      >.isolateLocal(_dlsym),
+      2,
     );
-    _keepAlive.add(c);
-    return c.nativeFunction.cast();
-  }
-
-  Pointer<Void> _callable1u(int Function(int) fn) {
-    final c = NativeCallable<Uint64 Function(Uint64)>.isolateLocal(
-      fn,
-      exceptionalReturn: 0,
+    _publishCallable(
+      'dlclose',
+      NativeCallable<Void Function(Pointer<Void>)>.isolateLocal(_dlclose),
+      1,
     );
-    _keepAlive.add(c);
-    return c.nativeFunction.cast();
   }
 
-  Pointer<Void> _callable1malloc(Pointer<Void> Function(int) fn) {
-    final c = NativeCallable<Pointer<Void> Function(IntPtr)>.isolateLocal(fn);
-    _keepAlive.add(c);
-    return c.nativeFunction.cast();
+  void _publish(String name, Pointer<Void> msAbiFn, int argc) {
+    _table[name] = SysvAbiBridge.sysvExport(msAbiFn, argc);
   }
 
-  Pointer<Void> _callable1free(void Function(Pointer<Void>) fn) {
-    final c = NativeCallable<Void Function(Pointer<Void>)>.isolateLocal(fn);
-    _keepAlive.add(c);
-    return c.nativeFunction.cast();
-  }
-
-  Pointer<Void> _callable2(int Function(Pointer<Utf8>, int) fn) {
-    final c = NativeCallable<Int32 Function(Pointer<Utf8>, Int32)>.isolateLocal(
-      fn,
-      exceptionalReturn: -1,
-    );
-    _keepAlive.add(c);
-    return c.nativeFunction.cast();
-  }
-
-  Pointer<Void> _callable2i64(int Function(int, int) fn) {
-    final c = NativeCallable<Int32 Function(Int64, Int64)>.isolateLocal(
-      fn,
-      exceptionalReturn: -1,
-    );
-    _keepAlive.add(c);
-    return c.nativeFunction.cast();
-  }
-
-  Pointer<Void> _callable2stat(
-    int Function(Pointer<Utf8>, Pointer<LinuxStat>) fn,
+  /// Keeps [callable] alive and publishes its trampoline as a
+  /// SysV-callable GOT entry. [argc] is the thunk arity the SysV bridge
+  /// marshals, and must match the callable's native signature.
+  void _publishCallable<T extends Function>(
+    String name,
+    NativeCallable<T> callable,
+    int argc,
   ) {
-    final c =
-        NativeCallable<
-          Int32 Function(Pointer<Utf8>, Pointer<LinuxStat>)
-        >.isolateLocal(fn, exceptionalReturn: -1);
-    _keepAlive.add(c);
-    return c.nativeFunction.cast();
+    _keepAlive.add(callable);
+    _publish(name, callable.nativeFunction.cast(), argc);
   }
 
-  Pointer<Void> _callable2fstat(int Function(int, Pointer<LinuxStat>) fn) {
-    final c =
-        NativeCallable<Int32 Function(Int32, Pointer<LinuxStat>)>.isolateLocal(
-          fn,
-          exceptionalReturn: -1,
-        );
-    _keepAlive.add(c);
-    return c.nativeFunction.cast();
+  /// Host CRT symbol published as a SysV-callable GOT entry.
+  void _publishCrt(String name, int argc, [String? crtName]) {
+    _publish(name, _crt.symbol(crtName ?? name), argc);
   }
 
-  Pointer<Void> _callable2timeval(
-    int Function(Pointer<LinuxTimeval>, Pointer<Void>) fn,
-  ) {
-    final c =
-        NativeCallable<
-          Int32 Function(Pointer<LinuxTimeval>, Pointer<Void>)
-        >.isolateLocal(fn, exceptionalReturn: -1);
-    _keepAlive.add(c);
-    return c.nativeFunction.cast();
-  }
-
-  Pointer<Void> _callable3(int Function(int, Pointer<Void>, int) fn) {
-    final c =
-        NativeCallable<
-          Int32 Function(Int32, Pointer<Void>, Uint32)
-        >.isolateLocal(fn, exceptionalReturn: -1);
-    _keepAlive.add(c);
-    return c.nativeFunction.cast();
-  }
-
-  Pointer<Void> _callable3strncpy(
-    Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>, int) fn,
-  ) {
-    final c =
-        NativeCallable<
-          Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>, IntPtr)
-        >.isolateLocal(fn);
-    _keepAlive.add(c);
-    return c.nativeFunction.cast();
-  }
-
-  // --- CRT lookups ---
-
-  late final _openCrt = _ucrt
-      .lookupFunction<
-        Int32 Function(Pointer<Utf8>, Int32),
-        int Function(Pointer<Utf8>, int)
-      >('_open');
-  late final _closeCrt = _ucrt
-      .lookupFunction<Int32 Function(Int32), int Function(int)>('_close');
-  late final _readCrt = _ucrt
-      .lookupFunction<
-        Int32 Function(Int32, Pointer<Void>, Uint32),
-        int Function(int, Pointer<Void>, int)
-      >('_read');
-  late final _writeCrt = _ucrt
-      .lookupFunction<
-        Int32 Function(Int32, Pointer<Void>, Uint32),
-        int Function(int, Pointer<Void>, int)
-      >('_write');
-  late final _mkdirCrt = _ucrt
-      .lookupFunction<
-        Int32 Function(Pointer<Utf8>),
-        int Function(Pointer<Utf8>)
-      >('_mkdir');
-  late final _chmodCrt = _ucrt
-      .lookupFunction<
-        Int32 Function(Pointer<Utf8>, Int32),
-        int Function(Pointer<Utf8>, int)
-      >('_chmod');
-  late final _chsizeCrt = _ucrt
-      .lookupFunction<Int32 Function(Int32, Int64), int Function(int, int)>(
-        '_chsize_s',
-      );
-  late final _statCrt = _ucrt
-      .lookupFunction<
-        Int32 Function(Pointer<Utf8>, Pointer<Uint8>),
-        int Function(Pointer<Utf8>, Pointer<Uint8>)
-      >('_stat64');
-  late final _fstatCrt = _ucrt
-      .lookupFunction<
-        Int32 Function(Int32, Pointer<Uint8>),
-        int Function(int, Pointer<Uint8>)
-      >('_fstat64');
-  late final _mallocCrt = _ucrt
-      .lookupFunction<
-        Pointer<Void> Function(IntPtr),
-        Pointer<Void> Function(int)
-      >('malloc');
-  late final _freeCrt = _ucrt
-      .lookupFunction<
-        Void Function(Pointer<Void>),
-        void Function(Pointer<Void>)
-      >('free');
-  late final _strncpyCrt = _ucrt
-      .lookupFunction<
-        Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>, IntPtr),
-        Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>, int)
-      >('strncpy');
-
-  static const _oBinary = 0x8000;
-  static const _oCreat = 0x0100;
-  static const _oWronly = 0x0001;
-  static const _oRdwr = 0x0002;
-  static const _oRdonly = 0x0000;
-
-  // Linux/bionic flag bits (octal in upstream windows.d).
-  static const _linuxOCreat = 0x40; // 0100
-  static const _linuxOWronly = 0x1;
-  static const _linuxORdwr = 0x2;
-
-  Pointer<Utf8> _toWindowsPath(Pointer<Utf8> path) {
-    var s = path.toDartString();
-    if (s.startsWith('//?/')) s = s.substring(4);
-    s = s.replaceAll('/', r'\');
-    return s.toNativeUtf8();
-  }
+  // --- File system ---
 
   int _open(Pointer<Utf8> path, int oflag) {
-    var converted = _oBinary;
-    if ((oflag & _linuxOCreat) != 0) converted |= _oCreat;
-    if ((oflag & _linuxOWronly) != 0) {
-      converted |= _oWronly;
-    } else if ((oflag & _linuxORdwr) != 0) {
-      converted |= _oRdwr;
-    } else {
-      converted |= _oRdonly;
-    }
     final winPath = _toWindowsPath(path);
     try {
-      final result = _openCrt(winPath, converted);
-      if (result < 0) _errnoPtr.value = 2; // ENOENT-ish
+      final result = _crt.open(winPath, _windowsOpenFlags(oflag));
+      if (result < 0) _errnoPtr.value = _enoent;
       return result;
     } finally {
       malloc.free(winPath);
     }
   }
 
-  int _close(int fd) => _closeCrt(fd);
+  int _close(int fd) => _crt.close(fd);
 
-  int _read(int fd, Pointer<Void> buf, int count) => _readCrt(fd, buf, count);
+  int _read(int fd, Pointer<Void> buf, int count) => _crt.read(fd, buf, count);
 
-  int _write(int fd, Pointer<Void> buf, int count) => _writeCrt(fd, buf, count);
+  int _write(int fd, Pointer<Void> buf, int count) =>
+      _crt.write(fd, buf, count);
 
+  /// The Windows `_mkdir` takes no mode; the requested one is dropped.
   int _mkdir(Pointer<Utf8> path, int mode) {
     final winPath = _toWindowsPath(path);
     try {
-      return _mkdirCrt(winPath);
+      return _crt.mkdir(winPath);
     } finally {
       malloc.free(winPath);
     }
@@ -433,63 +369,24 @@ class WindowsNativeSymbolStubs {
   int _chmod(Pointer<Utf8> path, int mode) {
     final winPath = _toWindowsPath(path);
     try {
-      // Map a crude write bit into Windows _S_IWRITE (0x80).
-      final winMode = (mode & 0x80) != 0 || (mode & 0x02) != 0
-          ? 0x80 | 0x100
-          : 0x100;
-      return _chmodCrt(winPath, winMode);
+      return _crt.chmod(winPath, _windowsChmodMode(mode));
     } finally {
       malloc.free(winPath);
     }
   }
 
-  int _ftruncate(int fd, int length) => _chsizeCrt(fd, length);
+  int _ftruncate(int fd, int length) => _crt.chsize(fd, length);
 
-  int _umask(int mask) => mask; // upstream returns the argument unchanged
-
-  // MSVC _stat64 is 48 bytes on x64: dev(4)+ino(2)+mode(2)+nlink(2)+uid(2)+gid(2)+rdev(4)+pad + size(8)+atime(8)+mtime(8)+ctime(8)
-  // Actually _stat64 structure varies. Use a generous buffer and read known offsets for _stat64:
-  // On VS: struct __stat64 { _dev_t st_dev; _ino_t st_ino; unsigned short st_mode; short st_nlink; short st_uid; short st_gid; _dev_t st_rdev; __int64 st_size; __time64_t st_atime, st_mtime, st_ctime; }
-  // Layout roughly: 0:dev(4), 4:ino(2), 6:mode(2), 8:nlink(2), 10:uid(2), 12:gid(2), 16:rdev(4), 24:size(8), 32:atime(8), 40:mtime(8), 48:ctime(8) = 56
-
-  void _fillLinuxStat(Pointer<LinuxStat> out, Pointer<Uint8> winStat) {
-    final b = winStat.asTypedList(56);
-    final bd = ByteData.sublistView(b);
-    out.ref
-      ..st_dev = bd.getUint32(0, Endian.little)
-      ..st_ino = bd.getUint16(4, Endian.little)
-      ..st_mode = _linuxMode(bd.getUint16(6, Endian.little))
-      ..st_nlink = bd.getInt16(8, Endian.little)
-      ..st_uid = bd.getInt16(10, Endian.little)
-      ..st_gid = bd.getInt16(12, Endian.little)
-      ..pad0 = 0
-      ..st_rdev = bd.getUint32(16, Endian.little)
-      ..st_size = bd.getInt64(24, Endian.little)
-      ..st_blksize = 4096
-      ..st_blocks = (out.ref.st_size + 511) ~/ 512
-      ..st_atime = bd.getInt64(32, Endian.little)
-      ..st_atimensec = 0
-      ..st_mtime = bd.getInt64(40, Endian.little)
-      ..st_mtimensec = 0
-      ..st_ctime = bd.getInt64(48, Endian.little)
-      ..st_ctimensec = 0;
-  }
-
-  // Ported from windows.d mode translation (simplified).
-  static int _linuxMode(int winMode) {
-    var mode = 0x1ed; // 0555
-    if ((winMode & 0x0080) != 0) mode |= 0x80; // write
-    if ((winMode & 0x4000) != 0) mode |= 0x4000; // dir
-    return mode;
-  }
+  /// Upstream returns the argument unchanged rather than tracking a mask.
+  int _umask(int mask) => mask;
 
   int _lstat(Pointer<Utf8> path, Pointer<LinuxStat> out) {
     final winPath = _toWindowsPath(path);
-    final buf = calloc<Uint8>(64);
+    final buf = calloc<Uint8>(_statScratchSize);
     try {
-      final rc = _statCrt(winPath, buf);
+      final rc = _crt.stat(winPath, buf);
       if (rc != 0) {
-        _errnoPtr.value = 2;
+        _errnoPtr.value = _enoent;
         return rc;
       }
       _fillLinuxStat(out, buf);
@@ -501,11 +398,11 @@ class WindowsNativeSymbolStubs {
   }
 
   int _fstat(int fd, Pointer<LinuxStat> out) {
-    final buf = calloc<Uint8>(64);
+    final buf = calloc<Uint8>(_statScratchSize);
     try {
-      final rc = _fstatCrt(fd, buf);
+      final rc = _crt.fstat(fd, buf);
       if (rc != 0) {
-        _errnoPtr.value = 9;
+        _errnoPtr.value = _ebadf;
         return rc;
       }
       _fillLinuxStat(out, buf);
@@ -515,6 +412,8 @@ class WindowsNativeSymbolStubs {
     }
   }
 
+  // --- Time, memory, strings ---
+
   int _gettimeofday(Pointer<LinuxTimeval> tv, Pointer<Void> tz) {
     final now = DateTime.now().toUtc();
     tv.ref
@@ -523,13 +422,17 @@ class WindowsNativeSymbolStubs {
     return 0;
   }
 
-  Pointer<Void> _malloc(int size) => _mallocCrt(size);
+  Pointer<Void> _malloc(int size) => _crt.malloc(size);
 
-  void _free(Pointer<Void> ptr) => _freeCrt(ptr);
+  void _free(Pointer<Void> ptr) => _crt.free(ptr);
 
   Pointer<Utf8> _strncpy(Pointer<Utf8> dest, Pointer<Utf8> src, int n) =>
-      _strncpyCrt(dest, src, n);
+      _crt.strncpy(dest, src, n);
 
+  /// Ported from symbols.d's `__system_property_get_impl`: always reports
+  /// a fixed placeholder "serial number", verbatim — including *not*
+  /// NUL-terminating the output. Upstream doesn't either; callers are
+  /// expected to use the returned length.
   static int _systemPropertyGet(Pointer<Utf8> _, Pointer<Utf8> value) {
     const placeholder = 'no s/n number';
     final bytes = ascii.encode(placeholder);
@@ -537,13 +440,24 @@ class WindowsNativeSymbolStubs {
     return bytes.length;
   }
 
+  // --- dlopen/dlsym/dlclose emulation ---
+  //
+  // Ported from symbols.d's dlopenWrapper/dlsymWrapper/dlcloseWrapper.
+  // Upstream additionally identifies the *calling* library by inspecting
+  // the return address on the stack (`rootLibrary()`), purely to
+  // propagate a `hooks` override map and to track the child for a D
+  // destructor. ADI never supplies `hooks`, and this short-lived process
+  // has no equivalent deterministic destructor, so both are dropped
+  // rather than reimplementing return-address stack inspection in Dart.
+
   Pointer<Void> _dlopen(Pointer<Utf8> namePtr) {
     final path = namePtr.toDartString();
     try {
       final lib = loadLibraryForDlopen(path);
-      // Opaque heap handle — never return the ELF mapping address. ADI may
-      // treat the dlopen result like a malloc'd object in edge paths; giving
-      // it VirtualAlloc base has been a crash suspect after dlsym.
+      // Opaque heap handle — never return the ELF mapping address. ADI
+      // may treat the dlopen result like a malloc'd object in edge
+      // paths; handing it the VirtualAlloc base has been a crash suspect
+      // after dlsym.
       final handle = malloc<IntPtr>();
       handle.value = lib.base.address;
       _dlopenHandles[handle.address] = lib;
@@ -566,5 +480,17 @@ class WindowsNativeSymbolStubs {
   void _dlclose(Pointer<Void> handle) {
     _dlopenHandles.remove(handle.address);
     malloc.free(handle.cast<IntPtr>());
+    // ponytail: the sub-library's pages are not unmapped on close — this
+    // is a short-lived, single-shot provisioning client. Add real
+    // VirtualFree-on-close (via the NativeMemoryAllocator) if this loader
+    // is ever reused in a long-lived process that opens and closes
+    // libraries repeatedly.
   }
 }
+
+/// Scratch buffer handed to `_stat64`/`_fstat64`, generously sized past
+/// the 56 bytes we actually read back.
+const int _statScratchSize = 64;
+
+const int _enoent = 2;
+const int _ebadf = 9;

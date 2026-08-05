@@ -46,8 +46,10 @@ import 'package:ffi/ffi.dart';
 /// `libCoreADI.so` directly. See NOTICE.md for the load-order note).
 class NativeSymbolStubs {
   NativeSymbolStubs({required this.loadLibraryForDlopen}) {
-    _bindPassthroughs();
-    _bindStubs();
+    _bindLibcPassthroughs();
+    _bindPthreadNoOps();
+    _bindAndroidRuntime();
+    _bindDynamicLoader();
   }
 
   /// Loads (or returns an already-loaded) [ElfLoadedLibrary] for the
@@ -59,10 +61,10 @@ class NativeSymbolStubs {
   final Map<String, Pointer<Void>> _table = {};
   final Map<int, ElfLoadedLibrary> _dlopenHandles = {};
 
-  // NativeCallables must be kept alive for as long as the loaded library
-  // might call into them (i.e. for the lifetime of this process) —
-  // storing them here prevents them from being garbage-collected and the
-  // trampoline address becoming invalid.
+  /// NativeCallables must be kept alive for as long as the loaded library
+  /// might call into them (i.e. for the lifetime of this process);
+  /// storing them here prevents them from being garbage-collected and
+  /// the trampoline address becoming invalid.
   final List<NativeCallable> _keepAlive = [];
 
   /// Resolves [symbolName] against the stub table.
@@ -80,12 +82,12 @@ class NativeSymbolStubs {
   /// function) without needing to synthesize executable stub code.
   Pointer<Void> resolve(String symbolName) => _table[symbolName] ?? nullptr;
 
-  void _bindPassthroughs() {
+  /// Direct pass-throughs to the host's real libc, ported from
+  /// compat/linux.d's `alias x = core.sys.posix....x;` bindings. (D's
+  /// `traceCall!` wrapper there only adds a debug log line — not
+  /// behavior — and was intentionally not ported.)
+  void _bindLibcPassthroughs() {
     final libc = DynamicLibrary.process();
-    // Direct pass-throughs to the host's real libc, ported from
-    // compat/linux.d's `alias x = core.sys.posix....x;` bindings. (D's
-    // `traceCall!` wrapper there only adds a debug log line — not
-    // behavior — and was intentionally not ported.)
     for (final name in const [
       'open',
       'close',
@@ -111,13 +113,13 @@ class NativeSymbolStubs {
     _table['__errno'] = _table['__errno_location']!;
   }
 
-  void _bindStubs() {
-    // pthread_* — a single shared no-op stub for all nine of them,
-    // ignoring whatever arguments were actually passed. Matches
-    // `emptyStub` in symbols.d exactly (`extern (C) int emptyStub() {
-    // return 0; }`), reused as-is for every pthread_* entry in D's own
-    // wordlist. Safe because the incoming argument registers are simply
-    // never touched by a function that takes none.
+  /// A single shared no-op stub for all nine pthread imports, ignoring
+  /// whatever arguments were actually passed. Matches `emptyStub` in
+  /// symbols.d exactly (`extern (C) int emptyStub() { return 0; }`),
+  /// reused as-is for every `pthread_*` entry in D's own wordlist. Safe
+  /// because the incoming argument registers are simply never touched by
+  /// a function that takes none.
+  void _bindPthreadNoOps() {
     final emptyStub = NativeCallable<Int32 Function()>.isolateLocal(
       _emptyStub,
       exceptionalReturn: 0,
@@ -136,48 +138,56 @@ class NativeSymbolStubs {
     ]) {
       _table[name] = emptyStub.nativeFunction.cast();
     }
+  }
 
-    final systemPropertyGet =
-        NativeCallable<
-          Int32 Function(Pointer<Utf8>, Pointer<Utf8>)
-        >.isolateLocal(_systemPropertyGet, exceptionalReturn: -1);
-    _keepAlive.add(systemPropertyGet);
-    _table['__system_property_get'] = systemPropertyGet.nativeFunction.cast();
-
-    final arc4random = NativeCallable<Uint32 Function()>.isolateLocal(
-      _arc4random,
-      exceptionalReturn: 0,
+  void _bindAndroidRuntime() {
+    _bind(
+      '__system_property_get',
+      NativeCallable<Int32 Function(Pointer<Utf8>, Pointer<Utf8>)>.isolateLocal(
+        _systemPropertyGet,
+        exceptionalReturn: -1,
+      ),
     );
-    _keepAlive.add(arc4random);
-    _table['arc4random'] = arc4random.nativeFunction.cast();
-
-    final dlopen =
-        NativeCallable<Pointer<Void> Function(Pointer<Utf8>)>.isolateLocal(
-          _dlopen,
-        );
-    _keepAlive.add(dlopen);
-    _table['dlopen'] = dlopen.nativeFunction.cast();
-
-    final dlsym =
-        NativeCallable<
-          Pointer<Void> Function(Pointer<Void>, Pointer<Utf8>)
-        >.isolateLocal(_dlsym);
-    _keepAlive.add(dlsym);
-    _table['dlsym'] = dlsym.nativeFunction.cast();
-
-    final dlclose = NativeCallable<Void Function(Pointer<Void>)>.isolateLocal(
-      _dlclose,
+    _bind(
+      'arc4random',
+      NativeCallable<Uint32 Function()>.isolateLocal(
+        _arc4random,
+        exceptionalReturn: 0,
+      ),
     );
-    _keepAlive.add(dlclose);
-    _table['dlclose'] = dlclose.nativeFunction.cast();
+  }
+
+  void _bindDynamicLoader() {
+    _bind(
+      'dlopen',
+      NativeCallable<Pointer<Void> Function(Pointer<Utf8>)>.isolateLocal(
+        _dlopen,
+      ),
+    );
+    _bind(
+      'dlsym',
+      NativeCallable<
+        Pointer<Void> Function(Pointer<Void>, Pointer<Utf8>)
+      >.isolateLocal(_dlsym),
+    );
+    _bind(
+      'dlclose',
+      NativeCallable<Void Function(Pointer<Void>)>.isolateLocal(_dlclose),
+    );
+  }
+
+  /// Keeps [callable] alive and publishes its trampoline under [name].
+  void _bind<T extends Function>(String name, NativeCallable<T> callable) {
+    _keepAlive.add(callable);
+    _table[name] = callable.nativeFunction.cast();
   }
 
   static int _emptyStub() => 0;
 
-  // Ported from symbols.d's `__system_property_get_impl`: always reports
-  // a fixed placeholder "serial number", verbatim — including *not*
-  // null-terminating the output. Upstream doesn't either; callers are
-  // expected to use the returned length rather than rely on a NUL.
+  /// Ported from symbols.d's `__system_property_get_impl`: always reports
+  /// a fixed placeholder "serial number", verbatim — including *not*
+  /// NUL-terminating the output. Upstream doesn't either; callers are
+  /// expected to use the returned length rather than rely on a NUL.
   static int _systemPropertyGet(Pointer<Utf8> _, Pointer<Utf8> value) {
     const placeholder = 'no s/n number';
     final bytes = ascii.encode(placeholder);
@@ -185,10 +195,10 @@ class NativeSymbolStubs {
     return bytes.length;
   }
 
-  // Ported from symbols.d's `arc4random_impl`: a plain (non-CSPRNG)
-  // random source, matching upstream's own (also non-cryptographic)
-  // choice of D's `std.random.Random` — not "improved" to a secure RNG
-  // here since that would be a behavior change beyond what was asked.
+  /// Ported from symbols.d's `arc4random_impl`: a plain (non-CSPRNG)
+  /// random source, matching upstream's own (also non-cryptographic)
+  /// choice of D's `std.random.Random` — not "improved" to a secure RNG
+  /// here since that would be a behavior change beyond what was asked.
   static int _arc4random() => Random().nextInt(1 << 32);
 
   // --- dlopen/dlsym/dlclose emulation ---
@@ -203,6 +213,7 @@ class NativeSymbolStubs {
   // process with no equivalent deterministic destructor to mirror (b)
   // with anyway, so both are dropped rather than reimplementing
   // return-address stack inspection from Dart.
+
   Pointer<Void> _dlopen(Pointer<Utf8> namePtr) {
     final path = namePtr.toDartString();
     try {

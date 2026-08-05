@@ -8,9 +8,9 @@ import 'dart:ffi';
 import 'package:apple_developer_kit/src/adi/loader/memory_allocator.dart';
 import 'package:ffi/ffi.dart';
 
-const int _memCommit = 0x1000;
-const int _memReserve = 0x2000;
-const int _memRelease = 0x8000;
+const int _memCommit = 0x0000_1000;
+const int _memReserve = 0x0000_2000;
+const int _memRelease = 0x0000_8000;
 
 const int _pageNoaccess = 0x01;
 const int _pageReadonly = 0x02;
@@ -114,19 +114,19 @@ class WindowsMemoryAllocator implements NativeMemoryAllocator {
     }
   }
 
-  // Ported from Provision compat/windows.d protectionToWindows.
+  // Ported from Provision compat/windows.d protectionToWindows. Windows
+  // has no write-without-read protection, so a writable page always
+  // maps to a *_READWRITE constant.
   static int _protection({
     required bool readable,
     required bool writable,
     required bool executable,
-  }) {
-    if (executable) {
-      if (writable) return _pageExecuteReadwrite;
-      if (readable) return _pageExecuteRead;
-      return _pageExecute;
-    }
-    if (writable) return _pageReadwrite;
-    if (readable) return _pageReadonly;
-    return _pageNoaccess;
-  }
+  }) => switch ((executable, writable, readable)) {
+    (true, true, _) => _pageExecuteReadwrite,
+    (true, false, true) => _pageExecuteRead,
+    (true, false, false) => _pageExecute,
+    (false, true, _) => _pageReadwrite,
+    (false, false, true) => _pageReadonly,
+    (false, false, false) => _pageNoaccess,
+  };
 }
