@@ -78,4 +78,23 @@ void main() {
       expect(installer, isNot(contains(removed)));
     }
   });
+
+  test('Windows installer installs release zip under LOCALAPPDATA', () {
+    final installer = File('install.ps1').readAsStringSync();
+
+    for (final expected in [
+      'xcross-windows-x64.zip',
+      'LOCALAPPDATA',
+      r"sysv_abi_bridge.dll",
+      r'bin\xcross.exe',
+      '--help',
+      "Join-Path \$env:LOCALAPPDATA 'xcross'",
+      'SetEnvironmentVariable',
+    ]) {
+      expect(installer, contains(expected));
+    }
+    for (final removed in ['zsign.exe', 'XCROSS_ZSIGN_PATH']) {
+      expect(installer, isNot(contains(removed)));
+    }
+  });
 }
