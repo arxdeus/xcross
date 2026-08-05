@@ -31,9 +31,10 @@ class AscCredentials {
   /// Reads the `.p8` file's PEM content.
   Future<String> readPrivateKeyPem() => File(privateKeyPath).readAsString();
 
-  /// Default per-user config file location: `%APPDATA%/xcross/appstoreconnect.json`
-  /// on Windows, `$XDG_CONFIG_HOME/xcross/appstoreconnect.json` (falling back
-  /// to `~/.config/...`) elsewhere.
+  /// Default per-user config file location:
+  /// `%APPDATA%/xcross/appstoreconnect.json` on Windows,
+  /// `$XDG_CONFIG_HOME/xcross/appstoreconnect.json` (falling back to
+  /// `~/.config/...`) elsewhere.
   static String defaultConfigPath() =>
       p.join(_configDir(), 'xcross', 'appstoreconnect.json');
 

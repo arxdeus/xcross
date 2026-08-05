@@ -46,8 +46,8 @@ abstract final class AppleHttp {
     return context;
   }
 
-  /// HTTP client with normal Mozilla roots plus Apple's published private root.
-  /// Hostname and chain verification remain fully enabled.
+  /// HTTP client with normal Mozilla roots plus Apple's published private
+  /// root. Hostname and chain verification remain fully enabled.
   static http.Client createAppleHttpClient() =>
-      IOClient(HttpClient(context: AppleHttp.createAppleSecurityContext()));
+      IOClient(HttpClient(context: createAppleSecurityContext()));
 }

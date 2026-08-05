@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:apple_developer_kit/src/apple_http_client.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/asc_client.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/asc_models.dart';
+import 'package:apple_developer_kit/src/appstoreconnect/asc_payloads.dart';
 import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/anisette_state.dart';
 import 'package:apple_developer_kit/src/grandslam/app_token_exchange.dart';
@@ -24,6 +25,14 @@ class DeveloperServicesTeam {
   final String status;
 }
 
+/// Provisioning against Apple's legacy `developerservices2` endpoints, which
+/// an Apple ID (GrandSlam) session can reach without an App Store Connect
+/// API key.
+///
+/// The resource schema matches App Store Connect, but the transport does
+/// not: every call is a POST, `teamId` must be threaded in by hand, and the
+/// team listing still speaks XML plist. See [_withMethodOverride] and
+/// [listTeams].
 class DeveloperServicesClient implements DevelopmentProvisioningClient {
   DeveloperServicesClient({
     required this.token,
@@ -56,6 +65,12 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
   final Future<Map<String, String>> Function() _fetchAnisetteHeaders;
   final http.Client _http;
 
+  /// Lists the teams [token] can provision for.
+  ///
+  /// Static because it runs before a team is chosen, i.e. before a
+  /// [DeveloperServicesClient] can be constructed. It is also the one call
+  /// that still uses the pre-JSON `QH65B2` plist protocol, with its own
+  /// header set and its own `resultCode` error convention.
   static Future<List<DeveloperServicesTeam>> listTeams({
     required DeveloperServicesLoginToken token,
     required Future<Map<String, String>> Function() fetchAnisetteHeaders,
@@ -67,16 +82,7 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
     try {
       final response = await client.post(
         Uri.parse('$_baseUrl/QH65B2/listTeams.action?clientId=XABBG36SBA'),
-        headers: {
-          ...anisette,
-          'Accept': 'text/x-xml-plist',
-          'Content-Type': 'text/x-xml-plist',
-          'User-Agent': 'Xcode',
-          'X-Xcode-Version': '14.2 (14C18)',
-          'X-Apple-App-Info': _appIdentifier,
-          'X-Apple-I-Identity-Id': token.adsid,
-          'X-Apple-GS-Token': token.token,
-        },
+        headers: {...anisette, ..._legacyHeaders(token)},
         body: PropertyListSerialization.stringWithPropertyList({
           'requestId': AnisetteState.generateUuidV4(),
           'clientId': 'XABBG36SBA',
@@ -84,49 +90,7 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
           'userLocale': [Platform.localeName],
         }),
       );
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw AppleError(
-          'Developer Services list teams failed '
-          '(HTTP ${response.statusCode})',
-        );
-      }
-      final plist = GrandSlamResponse.decodePlist(
-        response.body,
-        context: 'Developer Services list teams response',
-      );
-      final resultCodeValue = plist['resultCode'];
-      final resultCode = switch (resultCodeValue) {
-        final int value => value,
-        final String value => int.tryParse(value),
-        _ => null,
-      };
-      if (resultCode == null) {
-        throw AppleError(
-          'Developer Services list teams response has an invalid resultCode',
-        );
-      }
-      if (resultCode != 0) {
-        final message =
-            plist['userString'] ?? plist['resultString'] ?? 'unknown error';
-        throw AppleError(
-          'Developer Services list teams failed ($resultCode): $message',
-        );
-      }
-      final teams = plist['teams'];
-      if (teams is! List) {
-        throw AppleError(
-          'Developer Services list teams response is missing teams',
-        );
-      }
-      return [
-        for (final value in teams)
-          if (value is Map)
-            DeveloperServicesTeam(
-              id: _requiredString(value, 'teamId'),
-              name: _requiredString(value, 'name'),
-              status: _requiredString(value, 'status'),
-            ),
-      ];
+      return _parseTeams(response);
     } finally {
       if (httpClient == null) client.close();
     }
@@ -135,31 +99,29 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
   @override
   Future<AscCertificate> createDevelopmentCertificate({
     required String csrPem,
-  }) async {
-    final json = await _post('/v1/certificates', {
-      'data': {
-        'type': 'certificates',
-        'attributes': {'certificateType': 'DEVELOPMENT', 'csrContent': csrPem},
-      },
-    });
-    return AscCertificate.fromJson((json['data'] as Map).cast());
-  }
+  }) async => AscCertificate.fromJson(
+    _data(
+      // developerservices2 names the type `DEVELOPMENT`, not App Store
+      // Connect's `IOS_DEVELOPMENT`.
+      await _post(
+        '/v1/certificates',
+        AscPayloads.certificate(certificateType: 'DEVELOPMENT', csrPem: csrPem),
+      ),
+    ),
+  );
 
   @override
-  Future<List<String>> listCertificateIds() async => [
-    for (final value in await _getCollection('/v1/certificates'))
-      (value! as Map)['id'] as String,
-  ];
+  Future<List<String>> listCertificateIds() async =>
+      _ids(await _getCollection('/v1/certificates'));
 
   @override
   Future<List<String>> findCertificateIdsBySerial(String serialNumber) async =>
-      [
-        for (final value in await _getCollection(
+      _ids(
+        await _getCollection(
           '/v1/certificates?filter[serialNumber]='
           '${Uri.encodeQueryComponent(serialNumber)}',
-        ))
-          (value! as Map)['id'] as String,
-      ];
+        ),
+      );
 
   @override
   Future<void> revokeCertificate(String certificateId) async {
@@ -168,8 +130,8 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
 
   @override
   Future<List<AscDevice>> listDevices() async => [
-    for (final value in await _getCollection('/v1/devices'))
-      AscDevice.fromJson((value! as Map).cast()),
+    for (final entry in await _getCollection('/v1/devices'))
+      AscDevice.fromJson((entry! as Map).cast<String, dynamic>()),
   ];
 
   @override
@@ -178,14 +140,17 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
     required String name,
   }) async {
     try {
-      final json = await _post('/v1/devices', {
-        'data': {
-          'type': 'devices',
-          'attributes': {'name': name, 'platform': 'IOS', 'udid': udid},
-        },
-      });
-      return AscDevice.fromJson((json['data'] as Map).cast());
+      return AscDevice.fromJson(
+        _data(
+          await _post(
+            '/v1/devices',
+            AscPayloads.device(udid: udid, name: name),
+          ),
+        ),
+      );
     } on AppleApiError catch (error) {
+      // 409 means the UDID is already on the team; re-registering is not
+      // possible, so adopt the existing resource instead of failing.
       if (error.statusCode != 409) rethrow;
       final existing = await findDeviceByUdid(udid);
       if (existing != null) return existing;
@@ -193,6 +158,7 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
     }
   }
 
+  /// developerservices2 ignores `filter[udid]`, so the match happens here.
   @override
   Future<AscDevice?> findDeviceByUdid(String udid) async {
     for (final device in await listDevices()) {
@@ -201,13 +167,18 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
     return null;
   }
 
+  /// developerservices2 treats `filter[identifier]` as a prefix match, so the
+  /// exact identifier has to be picked out of the page.
   @override
   Future<AscBundleId?> findBundleId(String identifier) async {
-    final data = await _getCollection(
-      '/v1/bundleIds?filter[identifier]=${Uri.encodeQueryComponent(identifier)}',
+    final page = await _getCollection(
+      '/v1/bundleIds?filter[identifier]='
+      '${Uri.encodeQueryComponent(identifier)}',
     );
-    for (final value in data) {
-      final bundleId = AscBundleId.fromJson((value! as Map).cast());
+    for (final entry in page) {
+      final bundleId = AscBundleId.fromJson(
+        (entry! as Map).cast<String, dynamic>(),
+      );
       if (bundleId.identifier == identifier) return bundleId;
     }
     return null;
@@ -217,29 +188,20 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
   Future<AscBundleId> registerBundleId({
     required String identifier,
     required String name,
-  }) async {
-    final json = await _post('/v1/bundleIds', {
-      'data': {
-        'type': 'bundleIds',
-        'attributes': {
-          'identifier': identifier,
-          'name': name,
-          'platform': 'IOS',
-        },
-      },
-    });
-    return AscBundleId.fromJson((json['data'] as Map).cast());
-  }
+  }) async => AscBundleId.fromJson(
+    _data(
+      await _post(
+        '/v1/bundleIds',
+        AscPayloads.bundleId(identifier: identifier, name: name),
+      ),
+    ),
+  );
 
   @override
   Future<List<String>> listProfileIdsForBundle(
     String bundleIdResourceId,
-  ) async => [
-    for (final value in await _getCollection(
-      '/v1/bundleIds/$bundleIdResourceId/profiles',
-    ))
-      (value! as Map)['id'] as String,
-  ];
+  ) async =>
+      _ids(await _getCollection('/v1/bundleIds/$bundleIdResourceId/profiles'));
 
   @override
   Future<void> deleteProfile(String profileId) async {
@@ -252,31 +214,19 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
     required String bundleIdResourceId,
     required List<String> certificateResourceIds,
     required List<String> deviceResourceIds,
-  }) async {
-    final json = await _post('/v1/profiles', {
-      'data': {
-        'type': 'profiles',
-        'attributes': {'name': name, 'profileType': 'IOS_APP_DEVELOPMENT'},
-        'relationships': {
-          'bundleId': {
-            'data': {'type': 'bundleIds', 'id': bundleIdResourceId},
-          },
-          'certificates': {
-            'data': [
-              for (final id in certificateResourceIds)
-                {'type': 'certificates', 'id': id},
-            ],
-          },
-          'devices': {
-            'data': [
-              for (final id in deviceResourceIds) {'type': 'devices', 'id': id},
-            ],
-          },
-        },
-      },
-    });
-    return AscProfile.fromJson((json['data'] as Map).cast());
-  }
+  }) async => AscProfile.fromJson(
+    _data(
+      await _post(
+        '/v1/profiles',
+        AscPayloads.profile(
+          name: name,
+          bundleIdResourceId: bundleIdResourceId,
+          certificateResourceIds: certificateResourceIds,
+          deviceResourceIds: deviceResourceIds,
+        ),
+      ),
+    ),
+  );
 
   /// Performs a non-mutating, one-item request so callers can validate the
   /// saved token/team/Anisette state before choosing this provider.
@@ -297,25 +247,54 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
     String method,
   ) async {
     _rejectExpired(token);
-    final logicalUrl = Uri.parse('$_baseUrl$path');
-    final queryParameters = <String, String>{
-      ...logicalUrl.queryParameters,
-      'teamId': teamId,
-    };
+    final logicalUrl = '$_baseUrl$path';
     final response = await _http.post(
-      Uri.parse('$_baseUrl${logicalUrl.path.substring('/services'.length)}'),
+      Uri.parse(logicalUrl.split('?').first),
       headers: {
         ..._headers(token),
         ...await _fetchAnisetteHeaders(),
         'X-HTTP-Method-Override': method,
       },
       body: jsonEncode({
-        'urlEncodedQueryParams': Uri(queryParameters: queryParameters).query,
+        'urlEncodedQueryParams': Uri(
+          queryParameters: {
+            ...Uri.parse(logicalUrl).queryParameters,
+            'teamId': teamId,
+          },
+        ).query,
       }),
     );
     return _decode(response);
   }
 
+  Future<Map<String, dynamic>> _post(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    _rejectExpired(token);
+    final response = await _http.post(
+      Uri.parse('$_baseUrl$path'),
+      headers: {..._headers(token), ...await _fetchAnisetteHeaders()},
+      body: jsonEncode(_withTeamId(body)),
+    );
+    return _decode(response);
+  }
+
+  /// developerservices2 requires `teamId` inside `data.attributes`; App Store
+  /// Connect infers it from the API key.
+  Map<String, dynamic> _withTeamId(Map<String, dynamic> body) {
+    final data = (body['data'] as Map).cast<String, dynamic>();
+    final attributes = (data['attributes'] as Map).cast<String, dynamic>();
+    return {
+      ...body,
+      'data': {
+        ...data,
+        'attributes': {...attributes, 'teamId': teamId},
+      },
+    };
+  }
+
+  /// Reads every page of a `data` collection, following `links.next`.
   Future<List<Object?>> _getCollection(String path) async {
     final values = <Object?>[];
     final seenNextLinks = <String>{};
@@ -331,6 +310,7 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
       final links = json['links'];
       final next = links is Map ? links['next'] : null;
       if (next is! String || next.isEmpty) return values;
+      // A next link that repeats one we already followed would loop forever.
       if (!seenNextLinks.add(next)) {
         throw AppleError('Developer Services returned a repeated next link');
       }
@@ -338,6 +318,8 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
     }
   }
 
+  /// Rebuilds [originalPath] with the cursor from [nextLink]: the returned
+  /// link points at the bare endpoint and would otherwise drop the filters.
   static String _nextPagePath(String originalPath, String nextLink) {
     final next = Uri.parse(nextLink);
     final cursor = next.queryParameters['cursor'];
@@ -356,27 +338,6 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
     ).toString();
   }
 
-  Future<Map<String, dynamic>> _post(
-    String path,
-    Map<String, dynamic> body,
-  ) async {
-    _rejectExpired(token);
-    final data = (body['data'] as Map).cast<String, dynamic>();
-    final attributes = (data['attributes'] as Map).cast<String, dynamic>();
-    final response = await _http.post(
-      Uri.parse('$_baseUrl$path'),
-      headers: {..._headers(token), ...await _fetchAnisetteHeaders()},
-      body: jsonEncode({
-        ...body,
-        'data': {
-          ...data,
-          'attributes': {...attributes, 'teamId': teamId},
-        },
-      }),
-    );
-    return _decode(response);
-  }
-
   static Map<String, String> _headers(DeveloperServicesLoginToken token) => {
     'Accept': 'application/vnd.api+json',
     'Content-Type': 'application/vnd.api+json',
@@ -390,10 +351,77 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
     'X-Apple-GS-Token': token.token,
   };
 
+  /// Header set for the legacy `listTeams.action` protocol, which still pins
+  /// an older Xcode version and negotiates XML plist rather than JSON:API.
+  static Map<String, String> _legacyHeaders(
+    DeveloperServicesLoginToken token,
+  ) => {
+    'Accept': 'text/x-xml-plist',
+    'Content-Type': 'text/x-xml-plist',
+    'User-Agent': 'Xcode',
+    'X-Xcode-Version': '14.2 (14C18)',
+    'X-Apple-App-Info': _appIdentifier,
+    'X-Apple-I-Identity-Id': token.adsid,
+    'X-Apple-GS-Token': token.token,
+  };
+
   static void _rejectExpired(DeveloperServicesLoginToken token) {
     if (token.isExpired) {
       throw AppleError(
         'Developer Services session has expired. Run xcross auth again.',
+      );
+    }
+  }
+
+  static List<DeveloperServicesTeam> _parseTeams(http.Response response) {
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw AppleError(
+        'Developer Services list teams failed '
+        '(HTTP ${response.statusCode})',
+      );
+    }
+    final plist = GrandSlamResponse.decodePlist(
+      response.body,
+      context: 'Developer Services list teams response',
+    );
+    _rejectLegacyFailure(plist);
+
+    final teams = plist['teams'];
+    if (teams is! List) {
+      throw AppleError(
+        'Developer Services list teams response is missing teams',
+      );
+    }
+    return [
+      for (final team in teams)
+        if (team is Map)
+          DeveloperServicesTeam(
+            id: _requiredString(team, 'teamId'),
+            name: _requiredString(team, 'name'),
+            status: _requiredString(team, 'status'),
+          ),
+    ];
+  }
+
+  /// The legacy protocol always answers HTTP 200 and reports failure through
+  /// `resultCode` instead - and sends it as an int or a string depending on
+  /// the error.
+  static void _rejectLegacyFailure(Map<String, Object?> plist) {
+    final resultCode = switch (plist['resultCode']) {
+      final int value => value,
+      final String value => int.tryParse(value),
+      _ => null,
+    };
+    if (resultCode == null) {
+      throw AppleError(
+        'Developer Services list teams response has an invalid resultCode',
+      );
+    }
+    if (resultCode != 0) {
+      final message =
+          plist['userString'] ?? plist['resultString'] ?? 'unknown error';
+      throw AppleError(
+        'Developer Services list teams failed ($resultCode): $message',
       );
     }
   }
@@ -423,6 +451,13 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
     ];
     return details.isEmpty ? null : details.join('; ');
   }
+
+  static Map<String, dynamic> _data(Map<String, dynamic> json) =>
+      (json['data'] as Map).cast<String, dynamic>();
+
+  static List<String> _ids(List<Object?> collection) => [
+    for (final entry in collection) (entry! as Map)['id'] as String,
+  ];
 
   static String _requiredString(Map<dynamic, dynamic> map, String key) {
     final value = map[key];

@@ -30,10 +30,6 @@ abstract final class AscCsr {
   static String privateKeyToPem(RSAPrivateKey privateKey) =>
       CryptoUtils.encodeRSAPrivateKeyToPem(privateKey);
 
-  /// Parses a PEM-encoded (PKCS#8) RSA private key.
-  static RSAPrivateKey privateKeyFromPem(String pem) =>
-      CryptoUtils.rsaPrivateKeyFromPem(pem);
-
   /// Writes [pem] to [path] and, on POSIX platforms, restricts its
   /// permissions to owner-only (`chmod 600`) since it's a private signing
   /// key. `posix` is a no-op stub on non-POSIX hosts (e.g. Windows), which

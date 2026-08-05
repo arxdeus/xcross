@@ -8,12 +8,11 @@ abstract final class ProvisioningIdentifiers {
   static const idPrefix = 'XCR-';
   static const namePrefix = 'xcross ';
 
-  /// Strip a leading `XCR-<segment>.` if present.
+  /// Strips a leading `XCR-<segment>.` if present.
   static String sanitize(String identifier) {
     if (!identifier.startsWith(idPrefix)) return identifier;
     final dot = identifier.indexOf('.');
-    if (dot < 0) return identifier;
-    return identifier.substring(dot + 1);
+    return dot < 0 ? identifier : identifier.substring(dot + 1);
   }
 
   /// `XCR-<first segment of identityId>.<sanitized identifier>`.
@@ -27,10 +26,11 @@ abstract final class ProvisioningIdentifiers {
   }
 
   /// Portal display name for a (possibly already-qualified) bundle id.
+  /// Apple rejects anything but letters, digits, and spaces here.
   static String appName(String identifier) {
-    final safe = sanitize(
+    final words = sanitize(
       identifier,
     ).replaceAll(RegExp('[^A-Za-z0-9]+'), ' ').trim();
-    return '$namePrefix$safe';
+    return '$namePrefix$words';
   }
 }
