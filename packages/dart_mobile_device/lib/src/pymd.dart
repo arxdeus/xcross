@@ -60,7 +60,8 @@ abstract final class Pymd {
     return _cached!;
   }
 
-  /// True if pymobiledevice3 is invocable (CLI on PATH or importable by python3).
+  /// True if pymobiledevice3 is invocable (CLI on PATH, or importable by a
+  /// python3 on PATH).
   static Future<bool> _isInstalled() async {
     try {
       await resolve();
@@ -114,40 +115,26 @@ abstract final class Pymd {
       await ProcessRunner.which('python') ??
       await ProcessRunner.which('py');
 
-  /// Build the ordered list of install command vectors to try.
+  /// Build the ordered list of install command vectors to try: system-wide
+  /// with `--break-system-packages`, then without, then the `--user` variants
+  /// (which need no sudo).
   static Future<List<List<String>>> _buildInstallAttempts(String py) async {
     final sudo = await Sudo.resolve();
-
-    // Base pip-install arg vectors (without a leading sudo/py prefix).
-    // Tried in order: system-wide with --break-system-packages, then without,
-    // then --user variants (no sudo needed).
-    const pipInstallBreak = [
-      '-m', 'pip', 'install', '--break-system-packages', '-U',
-      'pymobiledevice3', // ignore: lines_longer_than_80_chars
-    ];
-    const pipInstall = ['-m', 'pip', 'install', '-U', 'pymobiledevice3'];
-    const pipInstallUserBreak = [
-      '-m', 'pip', 'install', '--user', '--break-system-packages', '-U',
-      'pymobiledevice3', // ignore: lines_longer_than_80_chars
-    ];
-    const pipInstallUser = [
-      '-m',
-      'pip',
-      'install',
-      '--user',
-      '-U',
-      'pymobiledevice3',
-    ];
+    const pipInstall = ['-m', 'pip', 'install'];
+    const upgradeTarget = ['-U', 'pymobiledevice3'];
+    const breakSystem = '--break-system-packages';
 
     return <List<String>>[
-      if (sudo != null) [sudo, py, ...pipInstallBreak],
-      if (sudo != null) [sudo, py, ...pipInstall],
-      [py, ...pipInstallUserBreak],
-      [py, ...pipInstallUser],
+      if (sudo != null)
+        [sudo, py, ...pipInstall, breakSystem, ...upgradeTarget],
+      if (sudo != null) [sudo, py, ...pipInstall, ...upgradeTarget],
+      [py, ...pipInstall, '--user', breakSystem, ...upgradeTarget],
+      [py, ...pipInstall, '--user', ...upgradeTarget],
     ];
   }
 
-  /// Launch [bundleId] suspended via DVT ProcessControl, returning the device PID.
+  /// Launch [bundleId] suspended via DVT ProcessControl, returning the device
+  /// PID.
   static Future<int> launchSuspended({
     required List<String> deviceArgs,
     required String bundleId,
@@ -191,8 +178,9 @@ abstract final class Pymd {
     for (final args in attempts) {
       try {
         final result = await run(args);
-        final dynamic json = jsonDecode(result.stdout);
-        if (json is Map) return json.keys.cast<String>().toList();
+        if (jsonDecode(result.stdout) case final Map<Object?, Object?> json) {
+          return json.keys.cast<String>().toList();
+        }
       } on Object {
         // Try the next flag variant.
       }
@@ -213,19 +201,19 @@ abstract final class Pymd {
       rsdHost,
       '$rsdPort',
     ]);
-    final dynamic root = jsonDecode(result.stdout);
+    final Object? root = jsonDecode(result.stdout);
     if (root is! Map) throw TunnelError('rsd-info: expected JSON object');
-    final services = root['Services'];
-    if (services is! Map) {
-      throw TunnelError('rsd-info: Services.$service missing');
-    }
-    final entry = services[service];
+
+    final Object? services = root['Services'];
+    final Object? entry = services is Map ? services[service] : null;
     if (entry is! Map) throw TunnelError('rsd-info: Services.$service missing');
 
     // Port can be String or int across pymobiledevice3 versions.
     final port = asPort(entry['Port']);
-    if (port != null) return port;
-    throw TunnelError('rsd-info: Services.$service.Port unparseable');
+    if (port == null) {
+      throw TunnelError('rsd-info: Services.$service.Port unparseable');
+    }
+    return port;
   }
 
   /// Return the device PID of [bundleId] if it is currently running, else null.

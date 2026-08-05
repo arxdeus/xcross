@@ -14,15 +14,8 @@ abstract final class OsVersion {
   ///
   /// Returns null if neither tool can provide [ProductVersion]. Callers reject
   /// confirmed pre-iOS-17 devices and attempt CoreDevice when it is unknown.
-  static Future<int?> deviceOSMajorVersion(String udid) async {
-    final fromPymd = await _majorFromPymdLockdown(udid);
-    if (fromPymd != null) return fromPymd;
-
-    final fromIdevice = await _majorFromIdeviceinfo(udid);
-    if (fromIdevice != null) return fromIdevice;
-
-    return null;
-  }
+  static Future<int?> deviceOSMajorVersion(String udid) async =>
+      await _majorFromPymdLockdown(udid) ?? await _majorFromIdeviceinfo(udid);
 
   static Future<int?> _majorFromPymdLockdown(String udid) async {
     try {
@@ -35,11 +28,10 @@ abstract final class OsVersion {
         );
         return null;
       }
-      final Object? json = jsonDecode(stdout);
-      if (json is! Map) return null;
-      final Object? version = json['ProductVersion'];
-      if (version is! String) return null;
-      return _majorFromVersionString(version);
+      if (jsonDecode(stdout) case {'ProductVersion': final String version}) {
+        return _majorFromVersionString(version);
+      }
+      return null;
     } catch (e) {
       Log.logWarn(
         'Could not determine device OS version via pymobiledevice3: $e',

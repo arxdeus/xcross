@@ -28,65 +28,82 @@ class PortForwarder {
   }) async {
     // Port 0: let the OS pick, so two concurrent sessions never collide.
     final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-    final sockets = <Socket>{};
-    final forwarder = PortForwarder._(server, sockets);
+    final forwarder = PortForwarder._(server, <Socket>{});
 
-    server.listen((client) async {
-      if (forwarder._closed) {
-        client.destroy();
-        return;
-      }
-      client.setOption(SocketOption.tcpNoDelay, true);
-      sockets.add(client);
-      final Socket device;
-      try {
-        // Socket.connect wants a bare address; a bracketed literal never
-        // resolves. Callers pass tunnel.address raw today, so this is defensive.
-        device = await Socket.connect(
-          ProcessRunner.unbracketHost(deviceHost),
-          devicePort,
-        );
-      } on Object catch (e) {
-        Log.logWarn('vm-service forward failed: $e');
-        sockets.remove(client);
-        client.destroy();
-        return;
-      }
-      if (forwarder._closed) {
-        sockets.remove(client);
-        client.destroy();
-        device.destroy();
-        return;
-      }
-      device.setOption(SocketOption.tcpNoDelay, true);
-      sockets.add(device);
-
-      /// Copies until [from] reaches EOF, then half-closes [to].
-      ///
-      /// Closes ONLY [to]: `from`'s sink is the opposite pipe's destination, and
-      /// closing it here races that pipe's still-bound `addStream`
-      /// ("StreamSink is bound to a stream").
-      Future<void> pipe(Socket from, Socket to) async {
-        try {
-          await to.addStream(from);
-          await to.close();
-        } on Object catch (_) {
-          // Peer vanished mid-copy; the teardown below is the only cleanup.
-        }
-      }
-
-      try {
-        await Future.wait([pipe(client, device), pipe(device, client)]);
-      } finally {
-        sockets
-          ..remove(client)
-          ..remove(device);
-        client.destroy();
-        device.destroy();
-      }
-    }, onError: (Object e) => Log.logWarn('vm-service forward error: $e'));
+    server.listen(
+      (client) => unawaited(
+        forwarder._forward(
+          client,
+          deviceHost: deviceHost,
+          devicePort: devicePort,
+        ),
+      ),
+      onError: (Object e) => Log.logWarn('vm-service forward error: $e'),
+    );
 
     return forwarder;
+  }
+
+  /// Pump one accepted [client] to [deviceHost]:[devicePort] until either side
+  /// hangs up, then drop both sockets.
+  Future<void> _forward(
+    Socket client, {
+    required String deviceHost,
+    required int devicePort,
+  }) async {
+    if (_closed) {
+      client.destroy();
+      return;
+    }
+    client.setOption(SocketOption.tcpNoDelay, true);
+    _sockets.add(client);
+
+    final Socket device;
+    try {
+      // Socket.connect wants a bare address; a bracketed literal never
+      // resolves. Callers pass tunnel.address raw today, so this is defensive.
+      device = await Socket.connect(
+        ProcessRunner.unbracketHost(deviceHost),
+        devicePort,
+      );
+    } on Object catch (e) {
+      Log.logWarn('vm-service forward failed: $e');
+      _sockets.remove(client);
+      client.destroy();
+      return;
+    }
+    if (_closed) {
+      _sockets.remove(client);
+      client.destroy();
+      device.destroy();
+      return;
+    }
+    device.setOption(SocketOption.tcpNoDelay, true);
+    _sockets.add(device);
+
+    try {
+      await Future.wait([_pipe(client, device), _pipe(device, client)]);
+    } finally {
+      _sockets
+        ..remove(client)
+        ..remove(device);
+      client.destroy();
+      device.destroy();
+    }
+  }
+
+  /// Copies until [from] reaches EOF, then half-closes [to].
+  ///
+  /// Closes ONLY [to]: `from`'s sink is the opposite pipe's destination, and
+  /// closing it here races that pipe's still-bound `addStream`
+  /// ("StreamSink is bound to a stream").
+  static Future<void> _pipe(Socket from, Socket to) async {
+    try {
+      await to.addStream(from);
+      await to.close();
+    } on Object catch (_) {
+      // Peer vanished mid-copy; the caller's teardown is the only cleanup.
+    }
   }
 
   /// A listening ServerSocket, or a live forwarded Socket, keeps the Dart event

@@ -148,19 +148,7 @@ abstract final class DevicePrepare {
       }
     }
 
-    // Tee the raw bytes to the log file, then decode a separate view of the
-    // same broadcast stream into lines for the readiness match.
-    for (final raw in [proc.stdout, proc.stderr]) {
-      final stream = raw.asBroadcastStream();
-      stream.listen(logSink.add, onError: (_) {});
-      stream
-          // Lossy on purpose: pymobiledevice3 can emit non-UTF-8 bytes, and a
-          // strict decoder would drop the whole chunk — losing the ASCII
-          // readiness line with it and stalling until the timeout below.
-          .transform(const Utf8Decoder(allowMalformed: true))
-          .transform(const LineSplitter())
-          .listen(onLine, onError: (_) {});
-    }
+    _teeOutput(proc, logSink, onLine);
     unawaited(
       proc.exitCode.then((code) async {
         try {
@@ -195,6 +183,26 @@ abstract final class DevicePrepare {
       '[pymobiledevice3] lockdown RSD tunnel is up '
       '(pid ${proc.pid}; leave it running)',
     );
+  }
+
+  /// Tee the raw bytes of both output streams to [logSink], then decode a
+  /// separate view of the same broadcast stream into lines for [onLine].
+  static void _teeOutput(
+    Process proc,
+    IOSink logSink,
+    void Function(String line) onLine,
+  ) {
+    for (final raw in [proc.stdout, proc.stderr]) {
+      final stream = raw.asBroadcastStream();
+      stream.listen(logSink.add, onError: (_) {});
+      stream
+          // Lossy on purpose: pymobiledevice3 can emit non-UTF-8 bytes, and a
+          // strict decoder would drop the whole chunk — losing the ASCII
+          // readiness line with it and stalling until the readiness timeout.
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .transform(const LineSplitter())
+          .listen(onLine, onError: (_) {});
+    }
   }
 
   /// Best-effort: a live `start-tunnel` child usually holds a tun interface

@@ -40,7 +40,7 @@ abstract final class PymdDevices {
   /// }
   /// ```
   static List<Device> parseDevices(String output) {
-    final dynamic json = jsonDecode(output);
+    final Object? json = jsonDecode(output);
     if (json is! List) {
       throw TunnelError(
         'pymobiledevice3 usbmux list: expected a JSON array, got: $output',

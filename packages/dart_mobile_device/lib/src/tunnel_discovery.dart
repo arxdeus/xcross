@@ -152,13 +152,10 @@ abstract final class TunnelDiscovery {
     }
 
     for (final value in candidates) {
-      if (value is! List) continue;
-      if (value.isEmpty) continue;
-      final first = value.first;
-      if (first is! Map) continue;
-
-      final tunnel = _tunnelFromJson(first);
-      if (tunnel != null) return tunnel;
+      if (value case [final Map<Object?, Object?> first, ...]) {
+        final tunnel = _tunnelFromJson(first);
+        if (tunnel != null) return tunnel;
+      }
     }
     return null;
   }

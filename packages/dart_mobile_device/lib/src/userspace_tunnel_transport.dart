@@ -125,18 +125,7 @@ class UserspaceTunnelTransport implements DeviceTransport {
     } on Object catch (_) {}
 
     final output = StringBuffer();
-    for (final stream in [relay.stdout, relay.stderr]) {
-      stream
-          // Lossy on purpose: pymobiledevice3 can emit non-UTF-8 bytes, and a
-          // strict decoder would drop the whole chunk.
-          .transform(const Utf8Decoder(allowMalformed: true))
-          .transform(const LineSplitter())
-          .listen((line) {
-            if (line.trim().isEmpty) return;
-            output.writeln(line);
-            Log.logTrace('[$label relay] $line');
-          }, onError: (Object _) {});
-    }
+    _captureOutput(relay, label, output);
 
     var exited = false;
     unawaited(relay.exitCode.then((_) => exited = true));
@@ -165,6 +154,23 @@ class UserspaceTunnelTransport implements DeviceTransport {
                 '${_relayStartTimeout.inSeconds}s. Keep the device unlocked '
                 'and trusted.${detail.isEmpty ? '' : '\n$detail'}',
     );
+  }
+
+  /// Trace every non-empty line the relay prints, keeping a copy in [output]
+  /// for the failure message.
+  static void _captureOutput(Process relay, String label, StringBuffer output) {
+    for (final stream in [relay.stdout, relay.stderr]) {
+      stream
+          // Lossy on purpose: pymobiledevice3 can emit non-UTF-8 bytes, and a
+          // strict decoder would drop the whole chunk.
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .transform(const LineSplitter())
+          .listen((line) {
+            if (line.trim().isEmpty) return;
+            output.writeln(line);
+            Log.logTrace('[$label relay] $line');
+          }, onError: (Object _) {});
+    }
   }
 
   /// Ask the OS for a free loopback port, then hand it to the relay.
