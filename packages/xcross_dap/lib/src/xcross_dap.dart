@@ -2,13 +2,15 @@
 //  1. [ByteStreamServerChannel] (package:dds) owns stdout framing — it's the
 //     ONLY thing here that touches stdout. A stray byte desynchronises the
 //     frame stream for good.
-//  2. Never call Log.logStatus() on the DAP code path — it writes to fd1. logWarn /
-//     logError go to fd2 and are safe, but an `output` event is better.
-//  3. Never start a child with ProcessStartMode.inheritStdio from this process.
-//     `xcross flutter run` spawns ~9 grandchildren that write straight to fd1,
-//     which is exactly why it runs as a piped child process instead of inline.
-//     The tunneld pre-flight must use TunnelDaemon.isReachable() (pure HTTP),
-//     never ensureRunning() (reaches Sudo.cacheCredentials -> inheritStdio).
+//  2. Never call Log.logStatus() on the DAP code path — it writes to fd1.
+//     logWarn / logError go to fd2 and are safe, but an `output` event is
+//     better.
+//  3. Never start a child with ProcessStartMode.inheritStdio from this
+//     process. `xcross flutter run` spawns ~9 grandchildren that write
+//     straight to fd1, which is exactly why it runs as a piped child process
+//     instead of inline. The tunneld pre-flight must use
+//     TunnelDaemon.isReachable() (pure HTTP), never ensureRunning() (reaches
+//     Sudo.cacheCredentials -> inheritStdio).
 
 import 'dart:async';
 import 'dart:convert';
@@ -103,55 +105,11 @@ class XcrossDap
     final launchArgs = args as DartLaunchRequestArguments;
     final cwd = launchArgs.cwd ?? Directory.current.path;
     await _prepareUriMappings(cwd);
+    await _warnIfTunnelUnreachable();
 
-    // With tunneld down the child reaches `sudo -v` under inheritStdio and can
-    // block forever on a tty nobody can see. Warn, but let the run command
-    // report the device-specific failure. A half-dead tunneld can accept the
-    // socket and never answer, hence the timeout.
-    final tunnelUp = await TunnelDaemon.isReachable().timeout(
-      const Duration(seconds: 5),
-      onTimeout: () => false,
-    );
-    if (!tunnelUp) {
-      sendOutput(
-        'stderr',
-        'xcross: the iOS 17+ RSD tunnel daemon is not reachable — falling '
-            'back to the userspace tunnel over usbmux.\n'
-            'For the faster kernel tunnel, run `xcross tunnel` once in a '
-            'terminal (it needs sudo/Administrator).\n',
-      );
-    }
-
-    // NEVER forward Dart-Code's `toolArgs`: it injects `-d <deviceId>` and
-    // --host-vmservice-port, which conflict with xcross device resolution. Only
-    // the user's own `args` from launch.json is passed through.
-    final program = launchArgs.program;
-    final target = p.isAbsolute(program)
-        ? p.relative(program, from: cwd)
-        : program;
-    final extraArgs = launchArgs.args ?? const <String>[];
-
-    final child = await Process.start(
-      Platform.resolvedExecutable,
-      ['flutter', 'run', '--target', target, ...extraArgs],
-      workingDirectory: cwd,
-      // Tells SessionConsole that a controller owns its stdin pipe, so EOF
-      // there means "editor gone, quit" instead of "no keyboard" (CI, docker
-      // without -i). Parent env is still inherited.
-      environment: const {'XCROSS_DAP': '1'},
-    );
+    final child = await _startRun(launchArgs, cwd);
     _child = child;
-    // The child may die first; a broken-pipe write reports asynchronously here
-    // and would otherwise kill the adapter mid-shutdown.
-    child.stdin.done.ignore();
-    // Utf8Decoder as a transformer carries a multi-byte sequence across chunk
-    // boundaries; utf8.decode() per chunk replaces it with U+FFFD.
-    child.stdout
-        .transform(const Utf8Decoder(allowMalformed: true))
-        .listen(_onChildStdout, onError: _childError);
-    child.stderr
-        .transform(const Utf8Decoder(allowMalformed: true))
-        .listen((text) => sendOutput('stderr', text), onError: _childError);
+    _pipeChildOutput(child);
     // Registered before the response so a child that dies instantly cannot
     // leave a zombie session in the editor.
     unawaited(
@@ -175,6 +133,58 @@ class XcrossDap
       }),
       eventType: 'flutter.appStart',
     );
+  }
+
+  /// With tunneld down the child reaches `sudo -v` under inheritStdio and can
+  /// block forever on a tty nobody can see. Warn, but let the run command
+  /// report the device-specific failure. A half-dead tunneld can accept the
+  /// socket and never answer, hence the timeout.
+  Future<void> _warnIfTunnelUnreachable() async {
+    final reachable = await TunnelDaemon.isReachable().timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => false,
+    );
+    if (reachable) return;
+    sendOutput(
+      'stderr',
+      'xcross: the iOS 17+ RSD tunnel daemon is not reachable — falling '
+          'back to the userspace tunnel over usbmux.\n'
+          'For the faster kernel tunnel, run `xcross tunnel` once in a '
+          'terminal (it needs sudo/Administrator).\n',
+    );
+  }
+
+  /// NEVER forward Dart-Code's `toolArgs`: it injects `-d <deviceId>` and
+  /// `--host-vmservice-port`, which conflict with xcross device resolution.
+  /// Only the user's own `args` from launch.json is passed through.
+  Future<Process> _startRun(DartLaunchRequestArguments launchArgs, String cwd) {
+    final program = launchArgs.program;
+    final target = p.isAbsolute(program)
+        ? p.relative(program, from: cwd)
+        : program;
+    return Process.start(
+      Platform.resolvedExecutable,
+      ['flutter', 'run', '--target', target, ...?launchArgs.args],
+      workingDirectory: cwd,
+      // Tells SessionConsole that a controller owns its stdin pipe, so EOF
+      // there means "editor gone, quit" instead of "no keyboard" (CI, docker
+      // without -i). Parent env is still inherited.
+      environment: const {'XCROSS_DAP': '1'},
+    );
+  }
+
+  void _pipeChildOutput(Process child) {
+    // The child may die first; a broken-pipe write reports asynchronously here
+    // and would otherwise kill the adapter mid-shutdown.
+    child.stdin.done.ignore();
+    // Utf8Decoder as a transformer carries a multi-byte sequence across chunk
+    // boundaries; utf8.decode() per chunk replaces it with U+FFFD.
+    child.stdout
+        .transform(const Utf8Decoder(allowMalformed: true))
+        .listen(_onChildStdout, onError: _childError);
+    child.stderr
+        .transform(const Utf8Decoder(allowMalformed: true))
+        .listen((text) => sendOutput('stderr', text), onError: _childError);
   }
 
   /// Loads the package mapping [convertUriToOrgDartlangSdk] needs, and drops
@@ -274,20 +284,14 @@ class XcrossDap
     final child = _child;
     if (child == null) return;
     _child = null;
-    await child.exitCode.timeout(
-      const Duration(seconds: 5),
-      onTimeout: () {
-        child.kill();
-        return child.exitCode.timeout(
-          const Duration(seconds: 2),
-          onTimeout: () {
-            child.kill(ProcessSignal.sigkill);
-            return -1;
-          },
-        );
-      },
-    );
+    if (await _exited(child, const Duration(seconds: 5))) return;
+    child.kill();
+    if (await _exited(child, const Duration(seconds: 2))) return;
+    child.kill(ProcessSignal.sigkill);
   }
+
+  Future<bool> _exited(Process child, Duration within) =>
+      child.exitCode.then((_) => true).timeout(within, onTimeout: () => false);
 
   void _writeKey(String key) {
     try {
