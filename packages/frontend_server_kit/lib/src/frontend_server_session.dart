@@ -35,35 +35,7 @@ class FrontendServerSession {
     // than an update to the existing one.
     _packageUris = await PackageUris.load(options.packageConfig);
 
-    final isAot = options.frontendServer.contains('_aot');
-    final args = <String>[
-      if (!isAot) '--disable-dart-dev',
-      options.frontendServer,
-      '--sdk-root',
-      if (options.sdkRoot.endsWith('/'))
-        options.sdkRoot
-      else
-        '${options.sdkRoot}/',
-      '--incremental',
-      '--target=${options.target}',
-      '--no-print-incremental-dependencies',
-      '-Ddart.developer.serviceExtensionStream.enabled=true',
-      '-Ddart.vm.profile=false',
-      '-Ddart.vm.product=false',
-      if (options.trackWidgetCreation) '--track-widget-creation',
-      for (final d in options.dartDefines) '-D$d',
-      // Warm-start the incremental compiler from a prior full kernel so the
-      // initial compile is a fast delta instead of a cold full compile.
-      if (options.initializeFromDill != null) ...[
-        '--initialize-from-dill',
-        options.initializeFromDill!,
-      ],
-      '--packages',
-      options.packageConfig,
-      '--output-dill',
-      options.outputDill,
-    ];
-
+    final args = _spawnArguments();
     await Directory(
       File(options.outputDill).parent.path,
     ).create(recursive: true);
@@ -83,6 +55,36 @@ class FrontendServerSession {
         .transform(utf8.decoder)
         .transform(const LineSplitter())
         .listen((line) => stderr.writeln('[frontend_server] $line'));
+  }
+
+  List<String> _spawnArguments() {
+    // An `_aot` snapshot runs under `dartaotruntime`, which does not accept
+    // the `dart`-only `--disable-dart-dev` flag.
+    final isAot = options.frontendServer.contains('_aot');
+    final sdkRoot = options.sdkRoot.endsWith('/')
+        ? options.sdkRoot
+        : '${options.sdkRoot}/';
+    return [
+      if (!isAot) '--disable-dart-dev',
+      options.frontendServer,
+      '--sdk-root', sdkRoot,
+      '--incremental',
+      '--target=${options.target}',
+      '--no-print-incremental-dependencies',
+      '-Ddart.developer.serviceExtensionStream.enabled=true',
+      '-Ddart.vm.profile=false',
+      '-Ddart.vm.product=false',
+      if (options.trackWidgetCreation) '--track-widget-creation',
+      for (final define in options.dartDefines) '-D$define',
+      // Warm-start the incremental compiler from a prior full kernel so the
+      // initial compile is a fast delta instead of a cold full compile.
+      if (options.initializeFromDill case final dill?) ...[
+        '--initialize-from-dill',
+        dill,
+      ],
+      '--packages', options.packageConfig,
+      '--output-dill', options.outputDill,
+    ];
   }
 
   /// Serializes everything that talks to the compiler over its stdin/stdout.
