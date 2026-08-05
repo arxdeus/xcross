@@ -62,15 +62,24 @@ void main() {
     final hotReload = File(
       'packages/xcross_flutter/lib/src/build/hot_reload_setup.dart',
     ).readAsStringSync();
-    final frontendServer = File(
-      'packages/xcross_flutter/lib/src/hot_reload/frontend_server_client.dart',
-    ).readAsStringSync();
+    // Scanned as a directory, not a fixed filename: the incremental dill path
+    // has already moved once (out of the deleted frontend_server_client.dart,
+    // when frontend_server driving was extracted into the project-agnostic
+    // package:frontend_server_kit) and naming a single file broke this test.
+    final hotReloadLayer = Directory(
+      'packages/xcross_flutter/lib/src/hot_reload',
+    ).listSync(recursive: true).whereType<File>().map((f) => f.path);
+    expect(hotReloadLayer, isNotEmpty, reason: 'hot_reload sources not found');
+    final hotReloadSources = hotReloadLayer
+        .map(File.new)
+        .map((f) => f.readAsStringSync())
+        .join('\n');
 
     expect(debugBundler, contains("'xcross-flutter-debug'"));
     expect(debugBundler, contains("'xcross-flutter-stub-'"));
     expect(packOperation, contains("'xcross-ios'"));
     expect(hotReload, contains("'xcross-flutter-debug'"));
-    expect(frontendServer, contains('build/xcross-flutter-debug'));
+    expect(hotReloadSources, contains('build/xcross-flutter-debug'));
     expect(FlutterDeviceConstants.devFsName, 'xcross');
   });
 }

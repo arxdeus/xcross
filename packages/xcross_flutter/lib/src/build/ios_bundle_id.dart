@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
-
 import 'package:xcross_flutter/src/errors.dart';
 
 /// Resolves the iOS product bundle identifier the way Flutter tooling does on
@@ -23,8 +22,8 @@ abstract final class IosBundleId {
 
   /// Resolve the bundle id for the Flutter project at [projectRoot].
   ///
-  /// Throws [FlutterBuildError] when neither a literal plist value nor a pbxproj
-  /// `PRODUCT_BUNDLE_IDENTIFIER` can be found.
+  /// Throws [FlutterBuildError] when neither a literal plist value nor a
+  /// pbxproj `PRODUCT_BUNDLE_IDENTIFIER` can be found.
   static String resolve(String projectRoot) {
     final fromPlist = _cfBundleIdentifierFromPlist(projectRoot);
     if (fromPlist != null && !fromPlist.contains(r'$')) {
@@ -54,28 +53,8 @@ abstract final class IosBundleId {
     return value;
   }
 
-  /// Prefer `Runner.xcodeproj`, otherwise the first `*.xcodeproj` under `ios/`.
   static String? _productBundleIdFromPbxproj(String projectRoot) {
-    final iosDir = Directory(p.join(projectRoot, 'ios'));
-    if (!iosDir.existsSync()) return null;
-
-    File? pbxproj;
-    final runner = File(
-      p.join(iosDir.path, 'Runner.xcodeproj', 'project.pbxproj'),
-    );
-    if (runner.existsSync()) {
-      pbxproj = runner;
-    } else {
-      for (final entity in iosDir.listSync()) {
-        if (entity is! Directory) continue;
-        if (!entity.path.endsWith('.xcodeproj')) continue;
-        final candidate = File(p.join(entity.path, 'project.pbxproj'));
-        if (candidate.existsSync()) {
-          pbxproj = candidate;
-          break;
-        }
-      }
-    }
+    final pbxproj = _findPbxproj(projectRoot);
     if (pbxproj == null) return null;
 
     final match = _productBundleIdPattern.firstMatch(
@@ -84,5 +63,24 @@ abstract final class IosBundleId {
     final value = match?.group(2)?.trim();
     if (value == null || value.isEmpty || value.contains(r'$')) return null;
     return value;
+  }
+
+  /// Prefer `Runner.xcodeproj`, otherwise the first `*.xcodeproj` under `ios/`.
+  static File? _findPbxproj(String projectRoot) {
+    final iosDir = Directory(p.join(projectRoot, 'ios'));
+    if (!iosDir.existsSync()) return null;
+
+    final runner = File(
+      p.join(iosDir.path, 'Runner.xcodeproj', 'project.pbxproj'),
+    );
+    if (runner.existsSync()) return runner;
+
+    for (final entity in iosDir.listSync()) {
+      if (entity is! Directory) continue;
+      if (!entity.path.endsWith('.xcodeproj')) continue;
+      final candidate = File(p.join(entity.path, 'project.pbxproj'));
+      if (candidate.existsSync()) return candidate;
+    }
+    return null;
   }
 }

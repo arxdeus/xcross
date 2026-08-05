@@ -26,16 +26,14 @@ class GeneratedPluginsBuildResult {
   /// Creates a result wrapping the built dylib paths.
   const GeneratedPluginsBuildResult({
     required this.libraryPath,
-    List<String>? dylibPaths,
-  }) : _dylibPaths = dylibPaths;
+    required this.dylibPaths,
+  });
 
   /// Absolute path to the built `libFlutterPluginsGenerated.dylib`.
   final String libraryPath;
 
-  final List<String>? _dylibPaths;
-
   /// Absolute paths to every dynamic library produced by SwiftPM.
-  List<String> get dylibPaths => _dylibPaths ?? [libraryPath];
+  final List<String> dylibPaths;
 }
 
 /// Synthesizes and builds a Swift Package Manager package that aggregates
@@ -86,51 +84,67 @@ abstract final class GeneratedPluginsPackage {
           flutterXcframework: flutterXcframework,
         );
 
-        final sdk = DarwinSdk.current();
-        if (sdk == null) {
-          throw FlutterBuildError(
-            'Darwin Swift SDK not found. Run '
-            '`xcross sdk install <Xcode.xip>` first.',
-          );
-        }
-        final swift = await ProcessRunner.locateTool('swift');
         final pluginsDir = p.join(outputDir, 'Plugins');
         final scratchPath = p.join(pluginsDir, '.build');
-        // Real `Flutter.framework` (not our FlutterFramework binary-target
-        // wrapper). Our own aggregate target resolves `import Flutter` via
-        // that wrapper's declared package dependency, but individual
-        // third-party plugin targets often don't declare any such dependency
-        // in their own Package.swift at all — they rely on Xcode's implicit,
-        // project-wide framework search paths to make `import Flutter` resolve
-        // (verified against a real published plugin: its manifest lists zero
-        // dependencies, yet its Swift source does `import Flutter`). A plain
-        // `swift build` has no such implicit project-wide behaviour, so we
-        // reproduce it ourselves with a build-wide `-Xswiftc -F` flag, applied
-        // uniformly to every target's compile step regardless of what that
-        // target's own manifest declares.
-        final flutterFrameworkSlice = p.join(flutterXcframework, 'ios-arm64');
-        final toolsetPath = await writeWindowsToolset(outputDir: outputDir);
-        await ProcessRunner.runChecked(
-          swift,
-          swiftBuildArguments(
-            pluginsDir: pluginsDir,
-            scratchPath: scratchPath,
-            swiftSdksPath: p.dirname(sdk.swiftSdkPath),
-            flutterFrameworkSlice: flutterFrameworkSlice,
-            toolsetPath: toolsetPath,
-            // Windows gets the same override from the toolset's `linker`.
-            linkerPath: Platform.isWindows
-                ? null
-                : await DarwinSdk.resolveLd64Lld(sdk),
-          ),
-          inheritStdio: Log.isVerbose,
-          label: 'swift build',
+        await _runSwiftBuild(
+          outputDir: outputDir,
+          pluginsDir: pluginsDir,
+          scratchPath: scratchPath,
+          flutterXcframework: flutterXcframework,
         );
 
         return discoverAndRewriteDylibs(
           p.join(scratchPath, 'arm64-apple-ios', 'debug'),
         );
       });
+
+  /// Cross-compiles the synthesized packages in [pluginsDir] with
+  /// `swift build --swift-sdk arm64-apple-ios`.
+  static Future<void> _runSwiftBuild({
+    required String outputDir,
+    required String pluginsDir,
+    required String scratchPath,
+    required String flutterXcframework,
+  }) async {
+    final sdk = DarwinSdk.current();
+    if (sdk == null) {
+      throw FlutterBuildError(
+        'Darwin Swift SDK not found. Run '
+        '`xcross sdk install <Xcode.xip>` first.',
+      );
+    }
+    final swift = await ProcessRunner.locateTool('swift');
+    // Real `Flutter.framework` (not our FlutterFramework binary-target
+    // wrapper). Our own aggregate target resolves `import Flutter` via
+    // that wrapper's declared package dependency, but individual
+    // third-party plugin targets often don't declare any such dependency
+    // in their own Package.swift at all — they rely on Xcode's implicit,
+    // project-wide framework search paths to make `import Flutter` resolve
+    // (verified against a real published plugin: its manifest lists zero
+    // dependencies, yet its Swift source does `import Flutter`). A plain
+    // `swift build` has no such implicit project-wide behaviour, so we
+    // reproduce it ourselves with a build-wide `-Xswiftc -F` flag, applied
+    // uniformly to every target's compile step regardless of what that
+    // target's own manifest declares.
+    final flutterFrameworkSlice = p.join(flutterXcframework, 'ios-arm64');
+    final toolsetPath = await writeWindowsToolset(outputDir: outputDir);
+    await ProcessRunner.runChecked(
+      swift,
+      swiftBuildArguments(
+        pluginsDir: pluginsDir,
+        scratchPath: scratchPath,
+        swiftSdksPath: p.dirname(sdk.swiftSdkPath),
+        flutterFrameworkSlice: flutterFrameworkSlice,
+        toolsetPath: toolsetPath,
+        // Windows gets the same override from the toolset's `linker`.
+        linkerPath: Platform.isWindows
+            ? null
+            : await DarwinSdk.resolveLd64Lld(sdk),
+      ),
+      inheritStdio: Log.isVerbose,
+      label: 'swift build',
+    );
+  }
 
   /// Arguments shared by Linux and Windows SwiftPM builds. SDK-owned compiler
   /// flags stay in SDK metadata; only package-specific flags belong here.

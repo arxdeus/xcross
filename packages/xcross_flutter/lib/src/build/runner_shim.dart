@@ -73,8 +73,7 @@ class RunnerShim {
       pluginsLibrary: pluginsLibrary,
     );
 
-    final outputPathExists = File(outputPath).existsSync();
-    if (!outputPathExists) {
+    if (!File(outputPath).existsSync()) {
       throw FlutterBuildError(
         'RunnerShim: clang/ld64.lld did not produce '
         'Runner at $outputPath',
@@ -195,8 +194,7 @@ class RunnerShim {
   static String _flutterDeviceSlice(String xcframework) {
     final slice = p.join(xcframework, 'ios-arm64');
     final framework = p.join(slice, 'Flutter.framework');
-    final frameworkExists = Directory(framework).existsSync();
-    if (!frameworkExists) {
+    if (!Directory(framework).existsSync()) {
       throw FlutterBuildError(
         'RunnerShim: Flutter device slice not found at $framework',
       );
@@ -204,7 +202,7 @@ class RunnerShim {
     return slice;
   }
 
-  /// Extract version number from SDK dir name, e.g. `iPhoneOS17.5.sdk` → `17.5`.
+  /// Version number from an SDK dir name: `iPhoneOS17.5.sdk` → `17.5`.
   static String? _sdkVersion(String sdkPath) {
     final name = p.basenameWithoutExtension(sdkPath);
     if (!name.startsWith('iPhoneOS')) return null;

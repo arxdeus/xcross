@@ -54,15 +54,13 @@ class IosEngineCache {
       'bin',
       'snapshots',
     );
-    for (final name in [
-      'frontend_server_aot.dart.snapshot',
-      'frontend_server.dart.snapshot',
-    ]) {
+    const jitSnapshot = 'frontend_server.dart.snapshot';
+    for (final name in ['frontend_server_aot.dart.snapshot', jitSnapshot]) {
       final candidate = p.join(snapshotsDir, name);
       if (File(candidate).existsSync()) return candidate;
     }
     // Canonical fallback — used in error messages even if the file is missing.
-    return p.join(snapshotsDir, 'frontend_server.dart.snapshot');
+    return p.join(snapshotsDir, jitSnapshot);
   }
 
   /// Patched SDK platform .dill — debug uses `flutter_patched_sdk/`.
@@ -101,16 +99,14 @@ class IosEngineCache {
   /// Verify required iOS engine artifacts are present, downloading each set
   /// from `storage.googleapis.com` if missing. Safe to call repeatedly.
   Future<void> ensureArtifactsAvailable() async {
-    final flutterXcframeworkExists = Directory(flutterXcframework).existsSync();
-    if (!flutterXcframeworkExists) {
+    if (!Directory(flutterXcframework).existsSync()) {
       await _downloadIosArtifacts();
     }
     if (!File(vmSnapshotData).existsSync() ||
         !File(isolateSnapshotData).existsSync()) {
       await _downloadHostArtifacts();
     }
-    final patchedSdkRootExists = Directory(patchedSdkRoot).existsSync();
-    if (!patchedSdkRootExists) {
+    if (!Directory(patchedSdkRoot).existsSync()) {
       await _downloadPatchedSdk();
     }
   }

@@ -190,7 +190,7 @@ class FlutterPacker {
 
   /// Compile the ObjC Runner shim and return both the xcframework path and the
   /// linked Runner binary path.
-  Future<RunnerBinaryResult> _buildRunnerBinary(
+  Future<_RunnerBinary> _buildRunnerBinary(
     String flutterRoot, {
     String? pluginsLibrary,
   }) async {
@@ -214,46 +214,28 @@ class FlutterPacker {
       pluginsLibrary: pluginsLibrary,
     );
 
-    return RunnerBinaryResult(
-      xcframework: xcframework,
-      runnerBinary: runnerBinary,
-    );
+    return (xcframework: xcframework, runnerBinary: runnerBinary);
   }
 
-  /// Copy all bundle contents into a temp directory, write `Info.plist`, then
-  /// move the result to `build/xcross-ios/<appName>.app`.
+  /// Stage the bundle in a temp directory, then move it to
+  /// `build/xcross-ios/<appName>.app`.
   Future<String> _assembleAndPersistBundle({
     required String appFramework,
     required String xcframework,
     required String runnerBinary,
     required List<String> pluginLibraries,
   }) async {
-    final flutterFramework = p.join(
-      xcframework,
-      'ios-arm64',
-      'Flutter.framework',
-    );
-
-    // Build the bundle in a temp dir so we can atomically move it to the dest.
+    // Stage in a temp dir so the destination is only touched once everything
+    // is in place.
     final tmp = await Directory.systemTemp.createTemp('${appName}_app_bundle-');
-    final bundleDir = tmp.path;
 
-    final frameworksDir = p.join(bundleDir, 'Frameworks');
-    await Directory(frameworksDir).create(recursive: true);
-
-    await File(runnerBinary).copy(p.join(bundleDir, 'Runner'));
-    ProcessRunner.makeExecutable(p.join(bundleDir, 'Runner'));
-
-    await _copyDirectory(
-      flutterFramework,
-      p.join(frameworksDir, 'Flutter.framework'),
+    await _stageBundle(
+      bundleDir: tmp.path,
+      appFramework: appFramework,
+      flutterFramework: p.join(xcframework, 'ios-arm64', 'Flutter.framework'),
+      runnerBinary: runnerBinary,
+      pluginLibraries: pluginLibraries,
     );
-    await _copyDirectory(appFramework, p.join(frameworksDir, 'App.framework'));
-
-    await copyPluginLibraries(pluginLibraries, frameworksDir);
-
-    await _copyOptionalRunnerResources(bundleDir);
-    await _writeInfoPlist(bundleDir);
 
     final dest = p.join(projectRoot, 'build', 'xcross-ios', '$appName.app');
     final destDir = Directory(dest);
@@ -261,10 +243,37 @@ class FlutterPacker {
       await destDir.delete(recursive: true);
     }
     await Directory(p.dirname(dest)).create(recursive: true);
-    await _copyDirectory(bundleDir, dest);
+    await _copyDirectory(tmp.path, dest);
     await tmp.delete(recursive: true);
 
     return dest;
+  }
+
+  /// Lay out the `.app` contents under [bundleDir]: the Runner executable,
+  /// the embedded frameworks and plugin dylibs, storyboards, and `Info.plist`.
+  Future<void> _stageBundle({
+    required String bundleDir,
+    required String appFramework,
+    required String flutterFramework,
+    required String runnerBinary,
+    required List<String> pluginLibraries,
+  }) async {
+    final frameworksDir = p.join(bundleDir, 'Frameworks');
+    await Directory(frameworksDir).create(recursive: true);
+
+    final runnerDest = p.join(bundleDir, 'Runner');
+    await File(runnerBinary).copy(runnerDest);
+    ProcessRunner.makeExecutable(runnerDest);
+
+    await _copyDirectory(
+      flutterFramework,
+      p.join(frameworksDir, 'Flutter.framework'),
+    );
+    await _copyDirectory(appFramework, p.join(frameworksDir, 'App.framework'));
+    await copyPluginLibraries(pluginLibraries, frameworksDir);
+
+    await _copyOptionalRunnerResources(bundleDir);
+    await _writeInfoPlist(bundleDir);
   }
 
   /// Copies every SwiftPM-produced dylib into the app's Frameworks directory.
@@ -377,12 +386,4 @@ class FlutterPacker {
 
 /// Result of building the ObjC Runner shim: the xcframework used and the
 /// linked Runner binary path.
-class RunnerBinaryResult {
-  const RunnerBinaryResult({
-    required this.xcframework,
-    required this.runnerBinary,
-  });
-
-  final String xcframework;
-  final String runnerBinary;
-}
+typedef _RunnerBinary = ({String xcframework, String runnerBinary});

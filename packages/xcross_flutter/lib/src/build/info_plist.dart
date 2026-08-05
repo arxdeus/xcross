@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
-
 import 'package:xcross_flutter/src/constants.dart';
 
 /// Plist / xcconfig text manipulation for the generated app bundle.
@@ -14,7 +13,27 @@ abstract final class InfoPlist {
   static String setBundleIdentifier(String plistXml, String bundleId) =>
       _setPlistKey(plistXml, 'CFBundleIdentifier', bundleId);
 
+  /// Keys Xcode would inject at build time, added only when the template
+  /// doesn't already declare them, in this exact order.
+  ///
+  /// The `UIDeviceFamily`/`DT*` group matters on iOS 26+: without it the OS
+  /// refuses to register the app with SpringBoard/LaunchServices (it installs
+  /// but won't launch — FBSApplicationLibrary returns nil).
+  static const _requiredKeys = <(String, String)>[
+    ('LSRequiresIPhoneOS', '<true/>'),
+    ('CFBundleSupportedPlatforms', '<array><string>iPhoneOS</string></array>'),
+    ('UIRequiredDeviceCapabilities', '<array><string>arm64</string></array>'),
+    ('UIDeviceFamily', '<array><integer>1</integer></array>'),
+    ('DTPlatformName', '<string>iphoneos</string>'),
+    ('DTSDKName', '<string>${IosDeploymentConstants.sdkTriple}</string>'),
+    (
+      'DTPlatformVersion',
+      '<string>${IosDeploymentConstants.sdkVersion}</string>',
+    ),
+  ];
+
   /// Overwrite or insert all mandatory iOS bundle keys.
+  ///
   /// Version strings (CFBundleShortVersionString / CFBundleVersion) are NOT
   /// forced here — they come solely from $(FLUTTER_BUILD_NAME) /
   /// $(FLUTTER_BUILD_NUMBER) substitution so that xcconfig and --build-name
@@ -23,8 +42,11 @@ abstract final class InfoPlist {
     String plistXml, {
     required String bundleId,
   }) {
-    var xml = plistXml;
-    xml = _setPlistKey(xml, 'CFBundleExecutable', PlistDefaults.executable);
+    var xml = _setPlistKey(
+      plistXml,
+      'CFBundleExecutable',
+      PlistDefaults.executable,
+    );
     xml = setBundleIdentifier(xml, bundleId);
     xml = _setPlistKey(xml, 'CFBundlePackageType', 'APPL');
     if (!xml.contains(IosDeploymentConstants.minimumOsVersionKey)) {
@@ -34,58 +56,11 @@ abstract final class InfoPlist {
         IosDeploymentConstants.minDeploymentTarget,
       );
     }
-    xml = _ensureKey(
-      xml,
-      'LSRequiresIPhoneOS',
-      '\t<key>LSRequiresIPhoneOS</key>\n\t<true/>\n',
-    );
-    xml = _ensureKey(
-      xml,
-      'CFBundleSupportedPlatforms',
-      '\t<key>CFBundleSupportedPlatforms</key>\n'
-          '\t<array><string>iPhoneOS</string></array>\n',
-    );
-    xml = _ensureKey(
-      xml,
-      'UIRequiredDeviceCapabilities',
-      '\t<key>UIRequiredDeviceCapabilities</key>\n'
-          '\t<array><string>arm64</string></array>\n',
-    );
-    // Xcode injects these at build time; without them newer iOS (26+) refuses
-    // to register the app with SpringBoard/LaunchServices (installs but won't
-    // launch — FBSApplicationLibrary returns nil).
-    xml = _ensureKey(
-      xml,
-      'UIDeviceFamily',
-      '\t<key>UIDeviceFamily</key>\n'
-          '\t<array><integer>1</integer></array>\n',
-    );
-    xml = _ensureKey(
-      xml,
-      'DTPlatformName',
-      '\t<key>DTPlatformName</key>\n\t<string>iphoneos</string>\n',
-    );
-    xml = _ensureKey(
-      xml,
-      'DTSDKName',
-      '\t<key>DTSDKName</key>\n'
-          '\t<string>${IosDeploymentConstants.sdkTriple}</string>\n',
-    );
-    xml = _ensureKey(
-      xml,
-      'DTPlatformVersion',
-      '\t<key>DTPlatformVersion</key>\n'
-          '\t<string>${IosDeploymentConstants.sdkVersion}</string>\n',
-    );
-    return xml;
-  }
-
-  /// Insert [fragment] before `</dict>` if [needle] is absent from [xml].
-  static String _ensureKey(String xml, String needle, String fragment) {
-    if (xml.contains(needle)) {
-      return xml;
+    for (final (key, value) in _requiredKeys) {
+      if (xml.contains(key)) continue;
+      xml = _insertBeforeEnd(xml, '\t<key>$key</key>\n\t$value\n');
     }
-    return _insertBeforeEnd(xml, fragment);
+    return xml;
   }
 
   /// Expand `$(KEY)` and `${KEY}` in [text] using [subs].

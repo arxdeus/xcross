@@ -99,86 +99,34 @@ class FlutterDebugBundler {
   }
 
   Future<String> _runKernelSnapshot(IosEngineCache engineCache) async {
-    final snapshot = engineCache.frontendServer;
-    final dartSdkBin = p.join(flutterRoot, 'bin', 'cache', 'dart-sdk', 'bin');
+    final compiler = _resolveKernelCompiler(engineCache);
+    _validateKernelDependencies(compiler, engineCache);
 
-    // AOT snapshots run via `dartaotruntime`; non-AOT via `dart`.
-    final isAot = p.basename(snapshot).contains('_aot');
-    final runtimeName = isAot ? 'dartaotruntime' : 'dart';
-    final runtime = p.join(
-      dartSdkBin,
-      ProcessRunner.hostExecutableName(runtimeName),
-    );
-
-    _validateKernelDependencies(snapshot, runtime, runtimeName, engineCache);
-
-    final scratch = p.join(
-      projectRoot,
-      'build',
-      'xcross-flutter-debug',
-      '.kernel',
-    );
-    final scratchDir = Directory(scratch);
-    if (scratchDir.existsSync()) await scratchDir.delete(recursive: true);
-    await scratchDir.create(recursive: true);
-
-    final outputDill = p.join(scratch, 'app.dill');
+    final outputDill = await _prepareKernelScratch();
     final packageConfig = p.join(
       projectRoot,
       '.dart_tool',
       'package_config.json',
     );
-    final packageConfigExists = File(packageConfig).existsSync();
-    if (!packageConfigExists) {
+    if (!File(packageConfig).existsSync()) {
       throw FlutterBuildError(
         'FlutterDebugBundler: package_config.json missing at $packageConfig; '
         'run `dart pub get` first.',
       );
     }
 
-    // Resolve entrypoint — join with projectRoot when relative.
-    final resolvedEntrypoint = p.isAbsolute(entrypoint)
-        ? entrypoint
-        : p.join(projectRoot, entrypoint);
-
-    // Compile under the entrypoint's `package:` URI when it has one, as
-    // flutter_tools does: this is what sets the kernel's `Library.importUri`,
-    // and that is what a `package:` breakpoint matches. See [PackageUris].
-    final packageUris = await PackageUris.load(packageConfig);
-    final entrypointArg =
-        packageUris?.toCompilerUri(resolvedEntrypoint) ?? resolvedEntrypoint;
-
-    // ORDER MATTERS: dartaotruntime takes <snapshot> as its first arg, so
-    // `dart`'s --disable-dart-dev must precede it. --sdk-root needs its
-    // trailing slash: frontend_server resolves platform_strong.dill by string
-    // concatenation. The -Ddart.* / --track-widget-creation quartet is what
-    // makes the kernel hot-reloadable.
-    final args = <String>[
-      if (!isAot) '--disable-dart-dev',
-      snapshot,
-      '--sdk-root', '${engineCache.patchedSdkRoot}/',
-      '--target=flutter',
-      '--no-print-incremental-dependencies',
-      '-Ddart.developer.serviceExtensionStream.enabled=true',
-      '-Ddart.vm.profile=false',
-      '-Ddart.vm.product=false',
-      '--track-widget-creation',
-      '--packages', packageConfig,
-      '--output-dill', outputDill,
-      // User-supplied dart-defines forwarded as -D<KEY=VALUE>.
-      for (final define in dartDefines) '-D$define',
-      // --flavor → FLUTTER_APP_FLAVOR dart-define, unless already set
-      // explicitly above (explicit define wins).
-      if (flavor != null &&
-          !dartDefines.any((d) => d.startsWith('FLUTTER_APP_FLAVOR=')))
-        '-DFLUTTER_APP_FLAVOR=$flavor',
-      entrypointArg,
-    ];
+    final args = _frontendServerArgs(
+      compiler: compiler,
+      engineCache: engineCache,
+      packageConfig: packageConfig,
+      outputDill: outputDill,
+      entrypointArg: await _resolveEntrypointArg(packageConfig),
+    );
 
     await Log.logStep(
       'Compiling Dart kernel',
       () => ProcessRunner.runChecked(
-        runtime,
+        compiler.runtime,
         args,
         workingDirectory: projectRoot,
         // Inheriting fd1 while a spinner animates shreds the line; capture
@@ -188,8 +136,7 @@ class FlutterDebugBundler {
       ),
     );
 
-    final outputDillExists = File(outputDill).existsSync();
-    if (!outputDillExists) {
+    if (!File(outputDill).existsSync()) {
       throw FlutterBuildError(
         'FlutterDebugBundler: kernel snapshot did not produce $outputDill',
       );
@@ -197,30 +144,50 @@ class FlutterDebugBundler {
     return outputDill;
   }
 
+  /// The frontend_server snapshot plus the Dart runtime that can execute it.
+  /// AOT snapshots run via `dartaotruntime`; non-AOT via `dart`.
+  _KernelCompiler _resolveKernelCompiler(IosEngineCache engineCache) {
+    final snapshot = engineCache.frontendServer;
+    final isAot = p.basename(snapshot).contains('_aot');
+    final runtimeName = isAot ? 'dartaotruntime' : 'dart';
+    return (
+      snapshot: snapshot,
+      isAot: isAot,
+      runtimeName: runtimeName,
+      runtime: p.join(
+        flutterRoot,
+        'bin',
+        'cache',
+        'dart-sdk',
+        'bin',
+        ProcessRunner.hostExecutableName(runtimeName),
+      ),
+    );
+  }
+
   /// Guard that all prerequisites for the kernel snapshot step exist.
   void _validateKernelDependencies(
-    String snapshot,
-    String runtime,
-    String runtimeName,
+    _KernelCompiler compiler,
     IosEngineCache engineCache,
   ) {
-    final snapshotExists = File(snapshot).existsSync();
-    if (!snapshotExists) {
+    if (!File(compiler.snapshot).existsSync()) {
       throw FlutterBuildError(
-        'FlutterDebugBundler: frontend_server snapshot missing at $snapshot.\n'
+        'FlutterDebugBundler: frontend_server snapshot missing at '
+        '${compiler.snapshot}.\n'
         'Run `<FLUTTER_ROOT>/bin/dart --version` once to materialize.',
       );
     }
-    final runtimeExists = File(runtime).existsSync();
-    if (!runtimeExists) {
+    if (!File(compiler.runtime).existsSync()) {
       throw FlutterBuildError(
-        'FlutterDebugBundler: $runtimeName not at $runtime',
+        'FlutterDebugBundler: ${compiler.runtimeName} not at '
+        '${compiler.runtime}',
       );
     }
-    final platformDillExists = File(
-      p.join(engineCache.patchedSdkRoot, 'platform_strong.dill'),
-    ).existsSync();
-    if (!platformDillExists) {
+    final platformDill = p.join(
+      engineCache.patchedSdkRoot,
+      'platform_strong.dill',
+    );
+    if (!File(platformDill).existsSync()) {
       throw FlutterBuildError(
         'FlutterDebugBundler: ${engineCache.patchedSdkRoot} is missing\n'
         'platform_strong.dill. Try deleting '
@@ -228,6 +195,62 @@ class FlutterDebugBundler {
       );
     }
   }
+
+  /// Recreate the kernel scratch directory and return its `app.dill` path.
+  Future<String> _prepareKernelScratch() async {
+    final scratch = Directory(
+      p.join(projectRoot, 'build', 'xcross-flutter-debug', '.kernel'),
+    );
+    if (scratch.existsSync()) await scratch.delete(recursive: true);
+    await scratch.create(recursive: true);
+    return p.join(scratch.path, 'app.dill');
+  }
+
+  /// The entrypoint as frontend_server should see it.
+  ///
+  /// Compile under the entrypoint's `package:` URI when it has one, as
+  /// flutter_tools does: this is what sets the kernel's `Library.importUri`,
+  /// and that is what a `package:` breakpoint matches. See [PackageUris].
+  Future<String> _resolveEntrypointArg(String packageConfig) async {
+    final resolved = p.isAbsolute(entrypoint)
+        ? entrypoint
+        : p.join(projectRoot, entrypoint);
+    final packageUris = await PackageUris.load(packageConfig);
+    return packageUris?.toCompilerUri(resolved) ?? resolved;
+  }
+
+  /// ORDER MATTERS: dartaotruntime takes <snapshot> as its first arg, so
+  /// `dart`'s --disable-dart-dev must precede it. --sdk-root needs its
+  /// trailing slash: frontend_server resolves platform_strong.dill by string
+  /// concatenation. The -Ddart.* / --track-widget-creation quartet is what
+  /// makes the kernel hot-reloadable.
+  List<String> _frontendServerArgs({
+    required _KernelCompiler compiler,
+    required IosEngineCache engineCache,
+    required String packageConfig,
+    required String outputDill,
+    required String entrypointArg,
+  }) => <String>[
+    if (!compiler.isAot) '--disable-dart-dev',
+    compiler.snapshot,
+    '--sdk-root', '${engineCache.patchedSdkRoot}/',
+    '--target=flutter',
+    '--no-print-incremental-dependencies',
+    '-Ddart.developer.serviceExtensionStream.enabled=true',
+    '-Ddart.vm.profile=false',
+    '-Ddart.vm.product=false',
+    '--track-widget-creation',
+    '--packages', packageConfig,
+    '--output-dill', outputDill,
+    // User-supplied dart-defines forwarded as -D<KEY=VALUE>.
+    for (final define in dartDefines) '-D$define',
+    // --flavor → FLUTTER_APP_FLAVOR dart-define, unless already set
+    // explicitly above (explicit define wins).
+    if (flavor != null &&
+        !dartDefines.any((d) => d.startsWith('FLUTTER_APP_FLAVOR=')))
+      '-DFLUTTER_APP_FLAVOR=$flavor',
+    entrypointArg,
+  ];
 
   Future<void> _copyDataAssets(
     String assetsDir,
@@ -373,7 +396,7 @@ class FlutterDebugBundler {
     File(p.join(assetsDir, 'NOTICES.Z')).writeAsBytesSync(_emptyZlibBytes);
   }
 
-  Future<Toolchain> _resolveToolchain() async {
+  Future<_Toolchain> _resolveToolchain() async {
     final darwin = DarwinSdk.current();
     if (darwin == null) {
       throw FlutterBuildError(
@@ -381,16 +404,16 @@ class FlutterDebugBundler {
         'Install with `xcross sdk install <Xcode.xip|Xcode.app>` first.',
       );
     }
-    return Toolchain(
+    return (
       clang: await ProcessRunner.locateTool(
         Platform.isWindows ? 'clang.exe' : 'clang',
       ),
-      iosSDK: darwin.iPhoneOSSdk(),
+      iosSdk: darwin.iPhoneOSSdk(),
       lldToolsetBin: p.dirname(await DarwinSdk.resolveLd64Lld(darwin)),
     );
   }
 
-  Future<void> _buildAppStub(String appFramework, Toolchain toolchain) =>
+  Future<void> _buildAppStub(String appFramework, _Toolchain toolchain) =>
       Log.logStep('Building App.framework', () async {
         final tmp = await Directory.systemTemp.createTemp(
           'xcross-flutter-stub-',
@@ -428,7 +451,7 @@ class FlutterDebugBundler {
 
   /// Build the clang argument list for the App stub dylib.
   static List<String> _appStubClangArgs({
-    required Toolchain toolchain,
+    required _Toolchain toolchain,
     required String stubSource,
     required String outputBinary,
   }) {
@@ -441,7 +464,7 @@ class FlutterDebugBundler {
       'arm64',
       '-miphoneos-version-min=${IosDeploymentConstants.minDeploymentTarget}',
       '-isysroot',
-      toolchain.iosSDK,
+      toolchain.iosSdk,
       '-x',
       'c',
       stubSource,
@@ -495,17 +518,14 @@ class FlutterDebugBundler {
   }
 }
 
-/// Resolved toolchain for the App.framework stub build.
-class Toolchain {
-  const Toolchain({
-    required this.clang,
-    required this.iosSDK,
-    required this.lldToolsetBin,
-  });
+/// The frontend_server snapshot and the Dart runtime able to execute it.
+typedef _KernelCompiler = ({
+  String snapshot,
+  String runtime,
+  String runtimeName,
+  bool isAot,
+});
 
-  final String clang;
-  final String iosSDK;
-
-  /// Directory containing the PATH-resolved `ld64.lld`.
-  final String lldToolsetBin;
-}
+/// Resolved toolchain for the App.framework stub build. [lldToolsetBin] is the
+/// directory containing the PATH-resolved `ld64.lld`.
+typedef _Toolchain = ({String clang, String iosSdk, String lldToolsetBin});
