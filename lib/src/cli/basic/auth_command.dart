@@ -55,6 +55,8 @@ class AuthArgs {
   late bool adiLibraryDirWasParsed;
 }
 
+const _adiLibraryNames = ['libCoreADI.so', 'libstoreservicescore.so'];
+
 /// `xcross auth` — save credentials for the native (no-Swift) signing
 /// pipeline. Supports both App Store Connect API keys and Apple ID/password
 /// GrandSlam login.
@@ -68,57 +70,36 @@ class AuthCommand extends _$AuthArgsCommand<void> {
       'for the native (no-Swift) signing pipeline.';
 
   @override
-  Future<void> run() async {
-    final issuerId = _options.issuerId;
-    final keyId = _options.keyId;
-    final privateKeyPath = _options.privateKey;
-    final appleId = _options.appleId?.trim();
-
-    final ascValues = [issuerId, keyId, privateKeyPath];
-    final hasAnyAsc =
+  Future<void> run() {
+    final usesAscKey =
         _options.issuerIdWasParsed ||
         _options.keyIdWasParsed ||
         _options.privateKeyWasParsed;
-    final hasAllAsc = ascValues.every(_present);
-    if (hasAnyAsc) {
-      if (_options.appleIdWasParsed) {
-        throw XcrossError(
-          'Use either App Store Connect API key flags or --apple-id, not both.',
-        );
-      }
-      if (!hasAllAsc) {
-        throw XcrossError(
-          'Provide non-empty values for all of --issuer-id, --key-id, and '
-          '--private-key, or none to use Apple ID login.',
-        );
-      }
-      if (_options.adiLibraryDirWasParsed) {
-        throw XcrossError('--adi-library-dir only applies to Apple ID login.');
-      }
-      await _saveAscCredentials(
-        issuerId: issuerId!,
-        keyId: keyId!,
-        privateKeyPath: privateKeyPath!,
-      );
-      return;
-    }
-
-    if (_options.appleIdWasParsed && !_present(appleId)) {
-      throw XcrossError('--apple-id requires a non-empty email address.');
-    }
-    final passwordOpt = _options.password;
-    await _runAppleIdLogin(
-      initialUsername: _present(appleId) ? appleId : null,
-      initialPassword: _present(passwordOpt) ? passwordOpt : null,
-    );
+    return usesAscKey ? _saveAscCredentials() : _appleIdLogin();
   }
 
-  Future<void> _saveAscCredentials({
-    required String issuerId,
-    required String keyId,
-    required String privateKeyPath,
-  }) async {
-    final keyFile = File(privateKeyPath);
+  // ---------------------------------------------------------------- ASC key
+
+  Future<void> _saveAscCredentials() async {
+    if (_options.appleIdWasParsed) {
+      throw XcrossError(
+        'Use either App Store Connect API key flags or --apple-id, not both.',
+      );
+    }
+    final issuerId = _options.issuerId;
+    final keyId = _options.keyId;
+    final privateKeyPath = _options.privateKey;
+    if (![issuerId, keyId, privateKeyPath].every(_present)) {
+      throw XcrossError(
+        'Provide non-empty values for all of --issuer-id, --key-id, and '
+        '--private-key, or none to use Apple ID login.',
+      );
+    }
+    if (_options.adiLibraryDirWasParsed) {
+      throw XcrossError('--adi-library-dir only applies to Apple ID login.');
+    }
+
+    final keyFile = File(privateKeyPath!);
     if (!keyFile.existsSync()) {
       throw XcrossError('No file found at "$privateKeyPath".');
     }
@@ -140,10 +121,13 @@ class AuthCommand extends _$AuthArgsCommand<void> {
     Log.logDone('App Store Connect credentials saved to $configPath');
   }
 
-  Future<void> _runAppleIdLogin({
-    String? initialUsername,
-    String? initialPassword,
-  }) async {
+  // --------------------------------------------------------------- Apple ID
+
+  Future<void> _appleIdLogin() async {
+    final appleId = _options.appleId?.trim();
+    if (_options.appleIdWasParsed && !_present(appleId)) {
+      throw XcrossError('--apple-id requires a non-empty email address.');
+    }
     if (!Platform.isWindows && !Platform.isLinux) {
       throw XcrossError(
         'Built-in Apple ID/password login is available on Linux and Windows. '
@@ -152,16 +136,19 @@ class AuthCommand extends _$AuthArgsCommand<void> {
     }
 
     // Credentials before any await: keeps interactive stdin simple on Windows.
-    final username = initialUsername ?? _readRequiredLine('Apple ID: ');
-    final password =
-        initialPassword ?? _readHiddenLine('Password: ', valueName: 'password');
+    final username = _present(appleId)
+        ? appleId!
+        : _readRequiredLine('Apple ID: ');
+    final givenPassword = _options.password;
+    final password = _present(givenPassword)
+        ? givenPassword
+        : _readHiddenLine('Password: ', valueName: 'password');
     if (password == null || password.isEmpty) {
       throw XcrossError('No password entered.');
     }
 
-    final resolved = await _resolveAdiAnisette();
-    final anisette = resolved.anisette;
-    final adiLibraryDirectory = resolved.adiLibraryDirectory;
+    final adiLibraryDirectory = await _resolveAdiLibraryDirectory();
+    final anisette = AnisetteDataProvider(adiLibraryDirectory);
     GrandSlamClient? loginClient;
     GrandSlamAppTokenExchange? tokenExchange;
     try {
@@ -189,29 +176,8 @@ class AuthCommand extends _$AuthArgsCommand<void> {
         'Fetching Developer Services session',
         () => tokenExchange!.exchange(loginData),
       );
-      final teamHttpClient = AppleHttp.createAppleHttpClient();
-      final List<DeveloperServicesTeam> teams;
-      try {
-        teams = await Log.logStep(
-          'Fetching Developer Services teams',
-          () => DeveloperServicesClient.listTeams(
-            token: token,
-            fetchAnisetteHeaders: anisette.fetchAnisetteHeaders,
-            httpClient: teamHttpClient,
-          ),
-        );
-      } finally {
-        teamHttpClient.close();
-      }
-      final activeTeams = teams
-          .where((team) => team.status.toLowerCase() == 'active')
-          .toList();
-      if (activeTeams.isEmpty) {
-        throw XcrossError('No active Developer Services teams are available.');
-      }
-      final team = activeTeams.length == 1
-          ? activeTeams.single
-          : _selectTeam(activeTeams);
+      final team = await _selectActiveTeam(token, anisette);
+
       final store = GrandSlamSessionStore();
       await store.save(
         GrandSlamSession(
@@ -235,52 +201,38 @@ class AuthCommand extends _$AuthArgsCommand<void> {
     }
   }
 
-  Future<({AnisetteProvider anisette, String? adiLibraryDirectory})>
-  _resolveAdiAnisette() async {
-    final adiLibraryDir = await _resolveAdiLibraryDirectory();
-    return (
-      anisette: AnisetteDataProvider(adiLibraryDir),
-      adiLibraryDirectory: adiLibraryDir,
-    );
-  }
-
-  Future<String> _resolveAdiLibraryDirectory() async {
-    final configured = _options.adiLibraryDir;
-    final adiLibraryDir =
-        configured ??
-        p.join(p.dirname(AnisetteStateStore.defaultPath()), 'adi-libs');
-    if (_adiLibsPresent(adiLibraryDir)) {
-      return Directory(adiLibraryDir).absolute.path;
-    }
-
-    if (configured != null) {
-      _throwMissingAdiLibs(adiLibraryDir);
-    }
-
-    final abi = Abi.current();
-    final canAutoFetch = abi == Abi.linuxX64 || abi == Abi.windowsX64;
-    if (!canAutoFetch) {
-      throw XcrossError(
-        'Apple ID login on $abi needs matching ADI libraries at '
-        '"$adiLibraryDir" (libCoreADI.so and libstoreservicescore.so). '
-        'Extract them from the Apple Music Android APK for this architecture, '
-        'or pass --adi-library-dir.',
+  Future<DeveloperServicesTeam> _selectActiveTeam(
+    DeveloperServicesLoginToken token,
+    AnisetteProvider anisette,
+  ) async {
+    final httpClient = AppleHttp.createAppleHttpClient();
+    final List<DeveloperServicesTeam> teams;
+    try {
+      teams = await Log.logStep(
+        'Fetching Developer Services teams',
+        () => DeveloperServicesClient.listTeams(
+          token: token,
+          fetchAnisetteHeaders: anisette.fetchAnisetteHeaders,
+          httpClient: httpClient,
+        ),
       );
+    } finally {
+      httpClient.close();
     }
 
-    await Log.logStep(
-      'Fetching Apple ADI libraries',
-      () => AdiLibraryFetcher(
-        cacheDir: Directory(adiLibraryDir),
-      ).ensureLibraries(),
-    );
-    if (!_adiLibsPresent(adiLibraryDir)) {
-      _throwMissingAdiLibs(adiLibraryDir);
-    }
-    return Directory(adiLibraryDir).absolute.path;
+    final active = teams
+        .where((team) => team.status.toLowerCase() == 'active')
+        .toList();
+    return switch (active) {
+      [] => throw XcrossError(
+        'No active Developer Services teams are available.',
+      ),
+      [final only] => only,
+      _ => _promptForTeam(active),
+    };
   }
 
-  DeveloperServicesTeam _selectTeam(List<DeveloperServicesTeam> teams) {
+  DeveloperServicesTeam _promptForTeam(List<DeveloperServicesTeam> teams) {
     stdout.writeln('Multiple teams available. Choose one:');
     for (var i = 0; i < teams.length; i++) {
       stdout.writeln('  [${i + 1}] ${teams[i].name} (${teams[i].id})');
@@ -303,15 +255,63 @@ class AuthCommand extends _$AuthArgsCommand<void> {
 
   Future<String?> _promptTwoFactorCode(GrandSlamTwoFactorMode mode) async {
     Log.stopStep();
-    final prompt = switch (mode) {
+    return _readRequiredLine(switch (mode) {
       GrandSlamTwoFactorMode.sms =>
         'Enter the verification code sent via SMS: ',
       GrandSlamTwoFactorMode.trustedDevice =>
         'Enter the verification code sent to your trusted device: ',
       GrandSlamTwoFactorMode.unspecified => 'Enter the verification code: ',
-    };
-    return _readRequiredLine(prompt);
+    });
   }
+
+  // ------------------------------------------------------------- ADI libs
+
+  Future<String> _resolveAdiLibraryDirectory() async {
+    final configured = _options.adiLibraryDir;
+    final adiLibraryDir =
+        configured ??
+        p.join(p.dirname(AnisetteStateStore.defaultPath()), 'adi-libs');
+    if (_adiLibsPresent(adiLibraryDir)) {
+      return Directory(adiLibraryDir).absolute.path;
+    }
+    if (configured != null) {
+      _throwMissingAdiLibs(adiLibraryDir);
+    }
+
+    final abi = Abi.current();
+    if (abi != Abi.linuxX64 && abi != Abi.windowsX64) {
+      throw XcrossError(
+        'Apple ID login on $abi needs matching ADI libraries at '
+        '"$adiLibraryDir" (libCoreADI.so and libstoreservicescore.so). '
+        'Extract them from the Apple Music Android APK for this architecture, '
+        'or pass --adi-library-dir.',
+      );
+    }
+
+    await Log.logStep(
+      'Fetching Apple ADI libraries',
+      () => AdiLibraryFetcher(
+        cacheDir: Directory(adiLibraryDir),
+      ).ensureLibraries(),
+    );
+    if (!_adiLibsPresent(adiLibraryDir)) {
+      _throwMissingAdiLibs(adiLibraryDir);
+    }
+    return Directory(adiLibraryDir).absolute.path;
+  }
+
+  static bool _adiLibsPresent(String dir) =>
+      _adiLibraryNames.every((name) => File(p.join(dir, name)).existsSync());
+
+  static Never _throwMissingAdiLibs(String dir) {
+    throw XcrossError(
+      'Apple ID login needs ADI libraries at "$dir" '
+      '(libCoreADI.so and/or libstoreservicescore.so missing). Place both '
+      'there, or pass --adi-library-dir.',
+    );
+  }
+
+  // ------------------------------------------------------------ stdin input
 
   // Never call stdout/stderr.flush() without awaiting it. Unawaited flush
   // leaves the IOSink "bound to a stream" (dart-lang/sdk#25277), so the next
@@ -359,19 +359,6 @@ class AuthCommand extends _$AuthArgsCommand<void> {
       _trySet(() => stdin.lineMode = priorLine);
       stdout.writeln();
     }
-  }
-
-  static bool _adiLibsPresent(String dir) => const [
-    'libCoreADI.so',
-    'libstoreservicescore.so',
-  ].every((name) => File(p.join(dir, name)).existsSync());
-
-  static Never _throwMissingAdiLibs(String dir) {
-    throw XcrossError(
-      'Apple ID login needs ADI libraries at "$dir" '
-      '(libCoreADI.so and/or libstoreservicescore.so missing). Place both '
-      'there, or pass --adi-library-dir.',
-    );
   }
 
   static bool _present(String? value) => value != null && value.isNotEmpty;

@@ -49,59 +49,24 @@ class _XcrossRunner extends CommandRunner<void> {
 
 /// Namespace for building and running the xcross CLI.
 abstract final class XcrossCli {
-  static CommandRunner<void> buildRunner() {
-    return _XcrossRunner(
-        'xcross',
-        'Build, run, and hot-reload Flutter iOS apps without Xcode.',
-      )
-      ..addCommand(FlutterCommand())
-      ..addCommand(TunnelCommand())
-      ..addCommand(SetupCommand())
-      ..addCommand(AuthCommand())
-      ..addCommand(SdkCommand())
-      ..addCommand(IdeCommand())
-      ..addCommand(CompletionCommand());
-  }
-
-  /// One-line credits banner printed before every command dispatch.
-  static void _printCredits() {
-    final a = Log.ansi;
-    if (Ansi.terminalSupportsAnsi) {
-      Log.logStatus(
-        '${a.bold}${a.magenta}xcross${a.none}'
-        ' ${a.subtle('· github.com/arxdeus/xcross')}'
-        '\n',
-      );
-    }
-  }
+  static CommandRunner<void> buildRunner() =>
+      _XcrossRunner(
+          'xcross',
+          'Build, run, and hot-reload Flutter iOS apps without Xcode.',
+        )
+        ..addCommand(FlutterCommand())
+        ..addCommand(TunnelCommand())
+        ..addCommand(SetupCommand())
+        ..addCommand(AuthCommand())
+        ..addCommand(SdkCommand())
+        ..addCommand(IdeCommand())
+        ..addCommand(CompletionCommand());
 
   /// Entry point used by `bin/xcross.dart`.
   static Future<int> run(List<String> args) async {
     final runner = buildRunner();
-
-    // Intercept the shell-driven `xcross completion -- ...` hook and print
-    // suggestions. In completion mode this calls `exit()` internally and never
-    // returns. Otherwise the ArgResults it returns are discarded and normal
-    // command dispatch continues below.
-    //
-    // Its parse throws on an unknown option, which would surface as a raw stack
-    // trace before dispatch ever runs. Swallow it so `runner.run` reports the
-    // bad flag as a proper UsageException.
-    try {
-      tryArgsCompletion(args, runner.argParser);
-    } on FormatException {
-      // Not our error to report — dispatch below produces the real message.
-    }
-
-    // Both completion and DAP own stdout as a machine protocol; a credits line
-    // corrupts either stream.
-    final quiet =
-        args.isNotEmpty &&
-        (args.first == 'completion' ||
-            (args.length >= 2 && args[0] == 'flutter' && args[1] == 'dap'));
-    if (args.isEmpty || !quiet) {
-      _printCredits();
-    }
+    _completeArgs(args, runner);
+    if (!_ownsStdout(args)) _printCredits();
 
     try {
       await runner.run(args);
@@ -109,28 +74,58 @@ abstract final class XcrossCli {
     } on UsageException catch (e) {
       _cliError('$e');
       return 64;
-    } on CliError catch (e) {
-      _cliError('error: ${e.message}');
+    } on Object catch (error, stackTrace) {
+      _reportFailure(error, stackTrace);
       return 1;
-    } on AppleError catch (e) {
-      _cliError('error: ${e.message}');
-      return 1;
-    } on DarwinSdkError catch (e) {
-      _cliError('error: ${e.message}');
-      return 1;
-    } on TunnelError catch (e) {
-      _cliError('error: ${e.message}');
-      return 1;
-    } on FlutterBuildError catch (e) {
-      _cliError('error: ${e.message}');
-      return 1;
-    } on XcrossError catch (e) {
-      _cliError('error: ${e.message}');
-      return 1;
-    } on Object catch (e, st) {
-      _cliError('error: $e');
-      _cliError('$st');
-      return 1;
+    }
+  }
+
+  /// Intercepts the shell-driven `xcross completion -- ...` hook and prints
+  /// suggestions. In completion mode this calls `exit()` internally and never
+  /// returns; otherwise normal command dispatch continues.
+  static void _completeArgs(List<String> args, CommandRunner<void> runner) {
+    try {
+      tryArgsCompletion(args, runner.argParser);
+    } on FormatException {
+      // Its parse throws on an unknown option, which would surface as a raw
+      // stack trace before dispatch ever runs. Swallow it so `runner.run`
+      // reports the bad flag as a proper UsageException.
+    }
+  }
+
+  /// Both completion and DAP own stdout as a machine protocol; a credits line
+  /// corrupts either stream.
+  static bool _ownsStdout(List<String> args) => switch (args) {
+    ['completion', ...] => true,
+    ['flutter', 'dap', ...] => true,
+    _ => false,
+  };
+
+  /// One-line credits banner printed before every command dispatch.
+  static void _printCredits() {
+    if (!Ansi.terminalSupportsAnsi) return;
+    final a = Log.ansi;
+    Log.logStatus(
+      '${a.bold}${a.magenta}xcross${a.none}'
+      ' ${a.subtle('· github.com/arxdeus/xcross')}'
+      '\n',
+    );
+  }
+
+  /// Errors carrying a finished user-facing message print without a Dart
+  /// stack trace; anything else is a bug and gets the full trace.
+  static void _reportFailure(Object error, StackTrace stackTrace) {
+    switch (error) {
+      case CliError(:final message) ||
+          AppleError(:final message) ||
+          DarwinSdkError(:final message) ||
+          TunnelError(:final message) ||
+          FlutterBuildError(:final message) ||
+          XcrossError(:final message):
+        _cliError('error: $message');
+      default:
+        _cliError('error: $error');
+        _cliError('$stackTrace');
     }
   }
 

@@ -33,6 +33,8 @@ const _aptPackages = [
   'libgcc-13-dev',
 ];
 
+const _requiredTools = ['swift', 'clang', 'clang++', 'llvm-ar', 'ld64.lld'];
+
 /// `xcross setup` — `sudo apt install` every apt-installable Requirement.
 class SetupCommand extends Command<void> {
   @override
@@ -42,14 +44,10 @@ class SetupCommand extends Command<void> {
   String get description => 'Install or verify host requirements';
 
   @override
-  Future<void> run() async {
-    if (Platform.isWindows) {
-      await _setupWindows();
-      return;
-    }
+  Future<void> run() => Platform.isWindows ? _setupWindows() : _setupAptLinux();
 
-    final apt = await ProcessRunner.which('apt-get');
-    if (apt == null) {
+  Future<void> _setupAptLinux() async {
+    if (await ProcessRunner.which('apt-get') == null) {
       throw XcrossError(
         'apt-get not found; xcross setup only supports apt-based distros. '
         'Install manually:\n    sudo apt install ${_aptPackages.join(' ')}',
@@ -61,10 +59,40 @@ class SetupCommand extends Command<void> {
           'Install manually:\n'
           '    sudo apt install ${_aptPackages.join(' ')}',
     );
+    await _aptInstall();
+    await _linkVersionedLd64Lld();
 
-    // Spinner with a streamed tail (not inheritStdio): apt's own progress
-    // shows collapsed under the spinner. sudo -v above already cached the
-    // credential, so this runs without a password prompt.
+    final missing = await _missingTools(_requiredTools);
+    if (missing.isNotEmpty) {
+      throw XcrossError(
+        'Missing Linux requirements on PATH after apt install: '
+        '${missing.join(', ')}.\n'
+        'Install the Swift toolchain manually and ensure its bin directory is '
+        'on PATH. The lld package must provide ld64.lld.',
+      );
+    }
+
+    await _ensurePymd();
+    Log.logDone('Requirements installed');
+  }
+
+  Future<void> _setupWindows() async {
+    final missing = await _missingTools(['flutter', ..._requiredTools]);
+    if (missing.isNotEmpty) {
+      throw XcrossError(
+        'Missing Windows requirements on PATH: ${missing.join(', ')}.\n'
+        'Install Flutter, Swift, and the official LLVM Windows toolchain, '
+        'then retry.',
+      );
+    }
+    await _ensurePymd();
+    Log.logDone('Windows requirements found');
+  }
+
+  /// Spinner with a streamed tail (not inheritStdio): apt's own progress shows
+  /// collapsed under the spinner. `sudo -v` already cached the credential, so
+  /// this runs without a password prompt.
+  Future<void> _aptInstall() async {
     final step = Log.beginStep('Installing apt requirements');
     try {
       await ProcessRunner.runChecked(
@@ -78,76 +106,45 @@ class SetupCommand extends Command<void> {
       step.fail();
       rethrow;
     }
-
-    if (await _locate('ld64.lld') == null) {
-      final linkers =
-          Directory('/usr/bin')
-              .listSync()
-              .where(
-                (entry) =>
-                    (entry is File || entry is Link) &&
-                    p.basename(entry.path).startsWith('ld64.lld-'),
-              )
-              .toList()
-            ..sort((a, b) => a.path.compareTo(b.path));
-      if (linkers.isNotEmpty) {
-        await ProcessRunner.runChecked('sudo', [
-          'ln',
-          '-sf',
-          linkers.last.path,
-          '/usr/local/bin/ld64.lld',
-        ], label: 'link ld64.lld');
-      }
-    }
-
-    final missing = <String>[];
-    for (final tool in const [
-      'swift',
-      'clang',
-      'clang++',
-      'llvm-ar',
-      'ld64.lld',
-    ]) {
-      if (await _locate(tool) == null) missing.add(tool);
-    }
-    if (missing.isNotEmpty) {
-      throw XcrossError(
-        'Missing Linux requirements on PATH after apt install: '
-        '${missing.join(', ')}.\n'
-        'Install the Swift toolchain manually and ensure its bin directory is '
-        'on PATH. The lld package must provide ld64.lld.',
-      );
-    }
-
-    if (!await Pymd.ensureInstalled()) {
-      throw XcrossError('pymobiledevice3 install failed; see above.');
-    }
-    Log.logDone('Requirements installed');
   }
 
-  Future<void> _setupWindows() async {
-    final missing = <String>[];
-    for (final tool in const [
-      'flutter',
-      'swift',
-      'clang',
-      'clang++',
-      'llvm-ar',
-      'ld64.lld',
-    ]) {
-      if (await _locate(tool) == null) missing.add(tool);
-    }
-    if (missing.isNotEmpty) {
-      throw XcrossError(
-        'Missing Windows requirements on PATH: ${missing.join(', ')}.\n'
-        'Install Flutter, Swift, and the official LLVM Windows toolchain, '
-        'then retry.',
-      );
-    }
+  /// Some distros only ship `ld64.lld-<version>`; point a stable name at the
+  /// newest one so the toolchain lookup finds it.
+  Future<void> _linkVersionedLd64Lld() async {
+    if (await _locate('ld64.lld') != null) return;
+
+    final versioned =
+        Directory('/usr/bin')
+            .listSync()
+            .where(
+              (entry) =>
+                  (entry is File || entry is Link) &&
+                  p.basename(entry.path).startsWith('ld64.lld-'),
+            )
+            .toList()
+          ..sort((a, b) => a.path.compareTo(b.path));
+    if (versioned.isEmpty) return;
+
+    await ProcessRunner.runChecked('sudo', [
+      'ln',
+      '-sf',
+      versioned.last.path,
+      '/usr/local/bin/ld64.lld',
+    ], label: 'link ld64.lld');
+  }
+
+  static Future<void> _ensurePymd() async {
     if (!await Pymd.ensureInstalled()) {
       throw XcrossError('pymobiledevice3 install failed; see above.');
     }
-    Log.logDone('Windows requirements found');
+  }
+
+  static Future<List<String>> _missingTools(List<String> tools) async {
+    final missing = <String>[];
+    for (final tool in tools) {
+      if (await _locate(tool) == null) missing.add(tool);
+    }
+    return missing;
   }
 
   /// PATH lookup that refuses swiftly's `ld64.lld` shim — see
