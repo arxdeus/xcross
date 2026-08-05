@@ -20,6 +20,5 @@ dependencies:
   async: ^2.13.1
   package_config: ^3.0.0
   path: ^1.9.1
-
 dev_dependencies:
   test: ^1.31.2

@@ -31,6 +31,7 @@ dependencies:
   pointycastle: ^4.0.0
   posix: ^6.5.2
   propertylistserialization: ^1.5.0
+  pure: ^1.0.0
 
 dev_dependencies:
   test: ^1.31.2

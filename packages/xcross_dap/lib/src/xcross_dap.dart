@@ -20,6 +20,7 @@ import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:dds/dap.dart';
 import 'package:frontend_server_kit/frontend_server_kit.dart';
 import 'package:path/path.dart' as p;
+import 'package:pure/pure.dart';
 import 'package:vm_service/vm_service.dart' as vm;
 
 /// Must match `DeviceConstants.vmServiceMarker` in the xcross CLI
@@ -142,7 +143,7 @@ class XcrossDap
   Future<void> _warnIfTunnelUnreachable() async {
     final reachable = await TunnelDaemon.isReachable().timeout(
       const Duration(seconds: 5),
-      onTimeout: () => false,
+      onTimeout: nullaryFalse,
     );
     if (reachable) return;
     sendOutput(
@@ -291,7 +292,7 @@ class XcrossDap
   }
 
   Future<bool> _exited(Process child, Duration within) =>
-      child.exitCode.then((_) => true).timeout(within, onTimeout: () => false);
+      child.exitCode.then(unaryTrue).timeout(within, onTimeout: nullaryFalse);
 
   void _writeKey(String key) {
     try {

@@ -21,6 +21,5 @@ dependencies:
     path: ../cli_kit
   meta: ^1.19.0
   path: ^1.9.1
-
 dev_dependencies:
   test: ^1.31.2

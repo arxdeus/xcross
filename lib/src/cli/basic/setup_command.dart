@@ -5,6 +5,7 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
+import 'package:pure/pure.dart';
 import 'package:xcross/src/util/errors.dart';
 
 /// `apt`-installable packages from the README Requirements table, plus the
@@ -122,7 +123,7 @@ class SetupCommand extends Command<void> {
                   p.basename(entry.path).startsWith('ld64.lld-'),
             )
             .toList()
-          ..sort((a, b) => a.path.compareTo(b.path));
+          ..sort(compare((entry) => entry.path));
     if (versioned.isEmpty) return;
 
     await ProcessRunner.runChecked('sudo', [

@@ -5,6 +5,7 @@ import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/signing/der.dart';
 import 'package:basic_utils/basic_utils.dart' show CryptoUtils, X509Utils;
 import 'package:pointycastle/export.dart';
+import 'package:pure/pure.dart';
 
 /// Object identifiers used by the certificate, profile, and CMS layers.
 abstract final class Oid {
@@ -383,10 +384,7 @@ bool bytesEqual(List<int> left, List<int> right) {
   if (lines.last.trim() != '-----END $label-----') {
     throw const FormatException('invalid PEM end marker');
   }
-  final body = lines
-      .sublist(1, lines.length - 1)
-      .map((line) => line.trim())
-      .join();
+  final body = lines.sublist(1, lines.length - 1).map(trim).join();
   if (body.isEmpty) throw const FormatException('empty PEM body');
   return (label: label, bytes: Uint8List.fromList(base64.decode(body)));
 }

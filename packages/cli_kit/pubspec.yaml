@@ -19,6 +19,7 @@ dependencies:
   cli_util: ^0.5.2
   path: ^1.9.1
   posix: ^6.5.2
+  pure: ^1.0.0
 
 dev_dependencies:
   test: ^1.31.2

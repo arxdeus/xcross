@@ -6,6 +6,7 @@ import 'package:cli_kit/src/errors.dart';
 import 'package:cli_kit/src/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:posix/posix.dart' as posix;
+import 'package:pure/pure.dart';
 
 /// Captured result of a finished subprocess.
 class CapturedProcess {
@@ -37,9 +38,7 @@ abstract final class ProcessRunner {
   /// tty.
   static Stream<T> pausingBroadcast<T>(Stream<T> source) =>
       source.asBroadcastStream(
-        onListen: (sub) {
-          if (sub.isPaused) sub.resume();
-        },
+        onListen: (sub) => callIf(sub.isPaused, sub.resume),
         onCancel: (sub) => sub.pause(),
       );
 

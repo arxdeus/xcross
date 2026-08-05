@@ -4,6 +4,7 @@ import 'dart:io' show Platform;
 import 'package:apple_developer_kit/apple_developer_kit.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:pure/pure.dart';
 import 'package:xcross/src/constants.dart';
 import 'package:xcross/src/device/session_console.dart';
 import 'package:xcross/src/util/errors.dart';
@@ -220,7 +221,7 @@ abstract final class CoreDeviceLauncher {
     // builds of the same app, the longest match resolves to the wrong one.
     final matches =
         ids.where((id) => id == base || id.endsWith(suffix)).toList()
-          ..sort((a, b) => a.length.compareTo(b.length));
+          ..sort(compare((id) => id.length));
     return matches.isNotEmpty ? matches.first : requested;
   }
 

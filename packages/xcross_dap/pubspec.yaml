@@ -18,6 +18,7 @@ dependencies:
   vm_service: ">=15.2.0"
   frontend_server_kit:
     path: ../frontend_server_kit
+  pure: ^1.0.0
 
 dev_dependencies:
   test: ^1.31.2
