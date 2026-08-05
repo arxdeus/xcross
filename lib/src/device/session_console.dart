@@ -15,26 +15,30 @@ class SessionConsole {
   final GdbRemoteClient gdb;
   final HotReloadController? hotReload;
 
-  bool _stopped = false;
-
-  /// Completes the moment [_stop] is first called; `run()` awaits this
-  /// instead of busy-polling [_stopped].
+  /// Completes the moment [_stop] is first called. `run()` awaits it instead of
+  /// polling, and [_drainGdbReplies] uses it to bail out without waiting for a
+  /// next GDB packet (which may never come after `q`).
   final Completer<void> _stoppedCompleter = Completer<void>();
+
+  /// App output that arrived while a reload spinner was on screen. Writing it
+  /// straight to fd1 would shred the spinner block, so it waits its turn.
+  final List<List<int>> _heldOutput = [];
 
   /// Prevents overlapping reload/restart operations.
   bool _busy = false;
 
-  Completer<void>? _done;
+  Completer<void>? _keypressDone;
 
-  /// Signalled by [_stop] so [_drainGdbReplies] exits without waiting for the
-  /// next GDB packet (which may never come after `q`).
-  final Completer<void> _drainCancel = Completer<void>();
+  bool get _stopped => _stoppedCompleter.isCompleted;
 
-  /// Flip [_stopped] and complete [_stoppedCompleter] (idempotent).
+  /// Signal every loop to unwind (idempotent).
   void _stop() {
-    _stopped = true;
     if (!_stoppedCompleter.isCompleted) _stoppedCompleter.complete();
-    if (!_drainCancel.isCompleted) _drainCancel.complete();
+  }
+
+  void _finishKeypressLoop() {
+    final done = _keypressDone;
+    if (done != null && !done.isCompleted) done.complete();
   }
 
   /// Run until the app exits or the user quits.
@@ -64,10 +68,6 @@ class SessionConsole {
       await signals.cancel();
     }
   }
-
-  /// App output that arrived while a reload spinner was on screen. Writing it
-  /// straight to fd1 would shred the spinner block, so it waits its turn.
-  final List<List<int>> _heldOutput = [];
 
   void _writeAppOutput(List<int> bytes) {
     if (_busy) {
@@ -120,15 +120,10 @@ class SessionConsole {
 
     // Exit as soon as either the stream ends or the user quits — don't sit on
     // `await for` forever with no more packets after `q`.
-    await Future.any([done.future, _drainCancel.future]);
+    await Future.any([done.future, _stoppedCompleter.future]);
     try {
       await sub.cancel().timeout(const Duration(milliseconds: 500));
     } on Object catch (_) {}
-  }
-
-  void _finish() {
-    final done = _done;
-    if (done != null && !done.isCompleted) done.complete();
   }
 
   /// Reads control keys from stdin. Deliberately does NOT require a TTY: the
@@ -146,10 +141,10 @@ class SessionConsole {
       );
     }
 
-    final done = _done = Completer<void>();
-    // _stopped must flip BEFORE _finish(): run()'s `while (!_stopped)` loop
-    // would otherwise spin forever when our stdin pipe closes, orphaning
-    // frontend_server and the RSD tunnel.
+    final done = _keypressDone = Completer<void>();
+    // _stop() must run BEFORE _finishKeypressLoop(): the session must observe
+    // "stopped" when our stdin pipe closes, or frontend_server and the RSD
+    // tunnel are orphaned while run() waits on a stop that never comes.
     // ProcessRunner.sharedStdin, not stdin: cancelling an earlier raw stdin
     // subscription leaves this listen dead on arrival — onDone fires at once
     // and the session quits the moment the app launches.
@@ -157,11 +152,11 @@ class SessionConsole {
       _handleKeyByte,
       onDone: () {
         _stop();
-        _finish();
+        _finishKeypressLoop();
       },
       onError: (_) {
         _stop();
-        _finish();
+        _finishKeypressLoop();
       },
     );
 
@@ -170,7 +165,7 @@ class SessionConsole {
     final poll = Timer.periodic(const Duration(milliseconds: 100), (t) {
       if (_stopped) {
         t.cancel();
-        _finish();
+        _finishKeypressLoop();
       }
     });
 
@@ -218,33 +213,32 @@ class SessionConsole {
   }
 
   /// Handle a single raw [bytes] chunk from stdin. Quit keys stop the session;
-  /// reload/restart keys are dispatched only when no op is already in flight.
+  /// reload/restart keys are ignored while one is already in flight, so presses
+  /// don't overlap and corrupt frontend_server state.
   Future<void> _handleKeyByte(List<int> bytes) async {
     for (final ch in bytes) {
-      if (_stopped) return _finish();
-      if (ch == DeviceConstants.keyQ ||
-          ch == DeviceConstants.keyBigQ ||
-          ch == DeviceConstants.keyCtrlC ||
-          ch == DeviceConstants.keyCtrlD) {
-        Log.logInfo('Quitting');
-        _stop();
-        return _finish();
-      }
-      // Ignore reload/restart keys while one is already in flight so presses
-      // don't overlap and corrupt frontend_server state.
-      if (_busy) continue;
-      if (ch == DeviceConstants.keyR) {
-        _busy = true;
-        await _handleHotReload();
-        _busy = false;
-        _flushAppOutput();
-      } else if (ch == DeviceConstants.keyBigR) {
-        _busy = true;
-        await _handleHotRestart();
-        _busy = false;
-        _flushAppOutput();
+      if (_stopped) return _finishKeypressLoop();
+      switch (ch) {
+        case DeviceConstants.keyQ ||
+            DeviceConstants.keyBigQ ||
+            DeviceConstants.keyCtrlC ||
+            DeviceConstants.keyCtrlD:
+          Log.logInfo('Quitting');
+          _stop();
+          return _finishKeypressLoop();
+        case DeviceConstants.keyR when !_busy:
+          await _runExclusive(_handleHotReload);
+        case DeviceConstants.keyBigR when !_busy:
+          await _runExclusive(_handleHotRestart);
       }
     }
+  }
+
+  Future<void> _runExclusive(Future<void> Function() operation) async {
+    _busy = true;
+    await operation();
+    _busy = false;
+    _flushAppOutput();
   }
 
   Future<void> _handleHotReload() async {
@@ -252,8 +246,7 @@ class SessionConsole {
     if (controller == null) return;
     final step = Log.beginStep('Hot reload');
     try {
-      final ok = await controller.reload();
-      if (ok) {
+      if (await controller.reload()) {
         step.done('Reloaded');
       } else {
         step.fail("Reload rejected (try 'R' to restart)");

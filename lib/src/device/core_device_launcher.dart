@@ -9,9 +9,23 @@ import 'package:xcross/src/device/session_console.dart';
 import 'package:xcross/src/util/errors.dart';
 import 'package:xcross_flutter/xcross_flutter.dart';
 
+const _cleanupTimeout = Duration(seconds: 2);
+const _transportCloseTimeout = Duration(seconds: 3);
+const _vmServiceConnectTimeout = Duration(seconds: 5);
+const _vmServiceWaitTimeout = Duration(seconds: 60);
+const _vmServicePollInterval = Duration(milliseconds: 800);
+
+/// Shorter than the full discovery budget: [CoreDeviceLauncher
+/// .terminateIfRunning] is best-effort and must not burn 60 s before an
+/// install when tunneld has no device yet (common on first run / flaky
+/// usbipd).
+const _terminateDiscoveryTimeout = Duration(seconds: 8);
+
 /// Launches an installed app on an iOS 17+ device through a CoreDevice RSD
 /// tunnel. Blocks until the app exits or the user presses `q`/Ctrl-C.
 abstract final class CoreDeviceLauncher {
+  static bool get _isDap => Platform.environment['XCROSS_DAP'] == '1';
+
   static Future<void> launch({
     required String udid,
     required String bundleId,
@@ -20,7 +34,8 @@ abstract final class CoreDeviceLauncher {
   }) async {
     if (!await Pymd.ensureInstalled()) {
       throw XcrossError(
-        'pymobiledevice3 is required for iOS 17+ but could not be installed automatically.',
+        'pymobiledevice3 is required for iOS 17+ but could not be '
+        'installed automatically.',
       );
     }
 
@@ -35,10 +50,43 @@ abstract final class CoreDeviceLauncher {
       );
     } finally {
       try {
-        await transport.close().timeout(const Duration(seconds: 3));
+        await transport.close().timeout(_transportCloseTimeout);
       } on Object catch (e) {
         Log.logTrace('cleanup transport: $e');
       }
+    }
+  }
+
+  /// Best-effort: if [bundleId] is already running on the device, terminate it
+  /// so a fresh install/launch doesn't collide with a live instance. Reuses the
+  /// RSD tunnel (started here is left running for the subsequent launch). Never
+  /// throws — logs and returns on any failure (e.g. no tunnel, app not
+  /// running).
+  static Future<void> terminateIfRunning({
+    required String udid,
+    required String bundleId,
+  }) async {
+    try {
+      if (!await Pymd.ensureInstalled()) return;
+      final transport = await DeviceTransportResolver.resolve(
+        udid: udid,
+        discoveryTimeout: _terminateDiscoveryTimeout,
+      );
+      try {
+        final pid = await Pymd.processIdForBundleId(
+          deviceArgs: transport.pymdDeviceArgs,
+          bundleId: await _resolveBundleId(bundleId),
+        );
+        if (pid == null) return;
+        Log.logTrace(
+          'app already running (pid $pid); terminating before install…',
+        );
+        await Pymd.killPid(deviceArgs: transport.pymdDeviceArgs, pid: pid);
+      } finally {
+        await transport.close();
+      }
+    } on Object catch (e) {
+      Log.logWarn('could not check/terminate running app: $e');
     }
   }
 
@@ -51,28 +99,14 @@ abstract final class CoreDeviceLauncher {
   }) async {
     final resolvedBundleId = await _resolveBundleId(bundleId);
     final debugproxy = await transport.debugproxyEndpoint();
-    final appArgs = _buildAppArgs(arguments: arguments, hotReload: hotReload);
 
     final pid = await _launchSuspended(
       transport: transport,
       bundleId: resolvedBundleId,
-      appArgs: appArgs,
+      appArgs: _buildAppArgs(arguments: arguments, hotReload: hotReload),
     );
 
-    // ORDER MATTERS: connect -> start -> attach -> resume. The GDB client has a
-    // single-slot exchange completer, so an RPC issued after resume() can be
-    // hijacked by a stray stdout packet.
-    final gdb = GdbRemoteClient(host: debugproxy.host, port: debugproxy.port);
-    try {
-      await gdb.connect();
-      await gdb.start();
-      await gdb.attach(pid);
-      await gdb.resume();
-      Log.logDone('Debugger attached');
-    } catch (e) {
-      await gdb.close();
-      throw XcrossError('Debugger attach failed: $e');
-    }
+    final gdb = await _attachDebugger(endpoint: debugproxy, pid: pid);
 
     HotReloadController? hotReloadController;
     PortForwarder? vmService;
@@ -98,6 +132,27 @@ abstract final class CoreDeviceLauncher {
     }
   }
 
+  /// ORDER MATTERS: connect -> start -> attach -> resume. The GDB client has a
+  /// single-slot exchange completer, so an RPC issued after resume() can be
+  /// hijacked by a stray stdout packet.
+  static Future<GdbRemoteClient> _attachDebugger({
+    required DeviceEndpoint endpoint,
+    required int pid,
+  }) async {
+    final gdb = GdbRemoteClient(host: endpoint.host, port: endpoint.port);
+    try {
+      await gdb.connect();
+      await gdb.start();
+      await gdb.attach(pid);
+      await gdb.resume();
+    } catch (e) {
+      await gdb.close();
+      throw XcrossError('Debugger attach failed: $e');
+    }
+    Log.logDone('Debugger attached');
+    return gdb;
+  }
+
   static Future<void> _cleanupStep(
     String label,
     Future<void>? Function() body,
@@ -105,7 +160,7 @@ abstract final class CoreDeviceLauncher {
     try {
       final future = body();
       if (future == null) return;
-      await future.timeout(const Duration(seconds: 2));
+      await future.timeout(_cleanupTimeout);
     } on Object catch (e) {
       Log.logTrace('cleanup $label: $e');
     }
@@ -139,41 +194,6 @@ abstract final class CoreDeviceLauncher {
     }
   }
 
-  /// Best-effort: if [bundleId] is already running on the device, terminate it
-  /// so a fresh install/launch doesn't collide with a live instance. Reuses the
-  /// RSD tunnel (started here is left running for the subsequent launch). Never
-  /// throws — logs and returns on any failure (e.g. no tunnel, app not running).
-  static Future<void> terminateIfRunning({
-    required String udid,
-    required String bundleId,
-  }) async {
-    try {
-      if (!await Pymd.ensureInstalled()) return;
-      // Best-effort only — don't burn the full 60s discovery before install
-      // when tunneld has no device yet (common on first run / flaky usbipd).
-      final transport = await DeviceTransportResolver.resolve(
-        udid: udid,
-        discoveryTimeout: const Duration(seconds: 8),
-      );
-      try {
-        final resolved = await _resolveBundleId(bundleId);
-        final pid = await Pymd.processIdForBundleId(
-          deviceArgs: transport.pymdDeviceArgs,
-          bundleId: resolved,
-        );
-        if (pid == null) return;
-        Log.logTrace(
-          'app already running (pid $pid); terminating before install…',
-        );
-        await Pymd.killPid(deviceArgs: transport.pymdDeviceArgs, pid: pid);
-      } finally {
-        await transport.close();
-      }
-    } on Object catch (e) {
-      Log.logWarn('could not check/terminate running app: $e');
-    }
-  }
-
   /// Resolve team-prefixed bundle id from the installed-app list.
   /// Returns [bundleId] unchanged on failure.
   static Future<String> _resolveBundleId(String bundleId) async {
@@ -187,6 +207,21 @@ abstract final class CoreDeviceLauncher {
       Log.logTrace('resolved installed bundle id: $bundleId -> $resolved');
     }
     return resolved;
+  }
+
+  static Future<String> _resolveInstalledBundleId({
+    required String requested,
+  }) async {
+    final ids = await Pymd.listInstalledApps();
+    if (ids.contains(requested)) return requested;
+    final base = ProvisioningIdentifiers.sanitize(requested);
+    final suffix = '.$base';
+    // Shortest suffix match wins: on a device carrying several team-prefixed
+    // builds of the same app, the longest match resolves to the wrong one.
+    final matches =
+        ids.where((id) => id == base || id.endsWith(suffix)).toList()
+          ..sort((a, b) => a.length.compareTo(b.length));
+    return matches.isNotEmpty ? matches.first : requested;
   }
 
   /// Build the launch-argument list, prepending VM Service and checked-mode
@@ -207,8 +242,7 @@ abstract final class CoreDeviceLauncher {
     // the reference Flutter adapter passes for the same reason. This is a
     // VM-level pause, separate from the GDB process resume above; the
     // interactive CLI has nothing that would resume it, so it stays off.
-    if (hotReload != null && Platform.environment['XCROSS_DAP'] == '1')
-      '--start-paused',
+    if (hotReload != null && _isDap) '--start-paused',
     '--enable-checked-mode', '--verify-entry-points', ...arguments,
   ];
 
@@ -234,8 +268,6 @@ abstract final class CoreDeviceLauncher {
 
   /// Spin up hot reload if [hotReload] config is provided; log and return null
   /// on failure.
-  static bool get _isDap => Platform.environment['XCROSS_DAP'] == '1';
-
   static Future<HotReloadController?> _trySpinUpHotReload({
     required HotReloadConfig? hotReload,
     required DeviceTransport transport,
@@ -284,16 +316,16 @@ abstract final class CoreDeviceLauncher {
     }
   }
 
-  /// Poll until the VM Service WebSocket is accepting connections (up to 60 s).
+  /// Poll until the VM Service WebSocket is accepting connections.
   static Future<DartVmServiceClient> _waitForVmService(Uri wsUri) async {
     final vm = DartVmServiceClient();
     Object? lastError;
     final connected = await ProcessRunner.pollUntil<DartVmServiceClient>(
-      timeout: const Duration(seconds: 60),
-      interval: const Duration(milliseconds: 800),
+      timeout: _vmServiceWaitTimeout,
+      interval: _vmServicePollInterval,
       attempt: () async {
         try {
-          await vm.connect(wsUri, timeout: const Duration(seconds: 5));
+          await vm.connect(wsUri, timeout: _vmServiceConnectTimeout);
           return vm;
         } on Object catch (e) {
           lastError = e;
@@ -306,20 +338,5 @@ abstract final class CoreDeviceLauncher {
     // ignore: only_throw_errors
     if (lastError case final Object error?) throw error;
     throw XcrossError('VM Service did not become available');
-  }
-
-  static Future<String> _resolveInstalledBundleId({
-    required String requested,
-  }) async {
-    final ids = await Pymd.listInstalledApps();
-    if (ids.contains(requested)) return requested;
-    final base = ProvisioningIdentifiers.sanitize(requested);
-    final suffix = '.$base';
-    // Shortest suffix match wins: on a device carrying several team-prefixed
-    // builds of the same app, the longest match resolves to the wrong one.
-    final matches =
-        ids.where((id) => id == base || id.endsWith(suffix)).toList()
-          ..sort((a, b) => a.length.compareTo(b.length));
-    return matches.isNotEmpty ? matches.first : requested;
   }
 }
