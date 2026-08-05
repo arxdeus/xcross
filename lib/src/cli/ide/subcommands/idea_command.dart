@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/cli/ide/xcross_executable.dart';
 
 /// `xcross ide idea` — write a shared LSP4IJ DAP run configuration that
 /// drives `xcross flutter dap` (stdio).
@@ -17,19 +18,18 @@ class IdeaCommand extends Command<void> {
 
   @override
   Future<void> run() async {
-    final exe = Platform.resolvedExecutable;
-    if (p.basenameWithoutExtension(exe) != 'xcross') {
-      Log.logWarn(
-        'embedding $exe — run `xcross ide idea` from the installed '
-        'binary, not `dart run`, or Debug will not work',
-      );
-    }
+    final exe = resolveXcrossExecutable(
+      subcommand: 'idea',
+      brokenFeature: 'Debug',
+    );
 
     final dir = Directory(p.join(Directory.current.path, '.run'));
     await dir.create(recursive: true);
 
-    final path = p.join(dir.path, 'xcross_ios_device.run.xml');
-    await _writeIfAbsent(path, buildIdeaRunXml(exe));
+    await _writeIfAbsent(
+      p.join(dir.path, 'xcross_ios_device.run.xml'),
+      buildIdeaRunXml(exe),
+    );
 
     Log.logInfo(
       'Next',
@@ -41,6 +41,7 @@ class IdeaCommand extends Command<void> {
     );
   }
 
+  /// Never clobber a run config the user may have edited; print it instead.
   static Future<void> _writeIfAbsent(String path, String content) async {
     final file = File(path);
     if (file.existsSync()) {
@@ -98,12 +99,11 @@ class IdeaCommand extends Command<void> {
 ''';
   }
 
-  static String _quoteCmd(String path) {
-    if (path.contains(RegExp(r'[\s"]'))) {
-      return '"${path.replaceAll('"', r'\"')}"';
-    }
-    return path;
-  }
+  /// LSP4IJ splits `command` on whitespace, so a path containing any must be
+  /// quoted before it is embedded.
+  static String _quoteCmd(String path) => path.contains(RegExp(r'[\s"]'))
+      ? '"${path.replaceAll('"', r'\"')}"'
+      : path;
 
   static String _xmlAttr(String value) => value
       .replaceAll('&', '&amp;')

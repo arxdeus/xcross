@@ -50,11 +50,7 @@ class FlutterRunArgs extends CommonFlutterArgs {
 /// Flutter app on a connected iOS 17+ device.
 ///
 /// Always builds a debug (JIT) app and always launches with hot reload (the
-/// flutter default). Accepts device-selection flags (`-u/--udid`,
-/// `--usb/--wifi`) and the official `flutter run` flags (`-t/--target`,
-/// `-d/--device-id`, `-D/--dart-define`, `--dart-define-from-file`,
-/// `--[no-]pub`, `--route`, `-a/--dart-entrypoint-args`, `--device-connection`,
-/// `--flavor`).
+/// flutter default).
 class FlutterRunCommand extends _$FlutterRunArgsCommand<void> {
   static bool shouldUseCoreDevice(int? osMajor) =>
       osMajor == null || osMajor >= 17;
@@ -107,9 +103,15 @@ class FlutterRunCommand extends _$FlutterRunArgsCommand<void> {
     );
     Log.logInfo('Device', '${device.name} ${Log.ansi.subtle(device.udid)}');
 
-    // iOS 17+ launch and process control go through the CoreDevice/RSD tunnel.
-    // Fail before install when the device is known to be unsupported.
-    final osMajor = await OsVersion.deviceOSMajorVersion(device.udid);
+    await _requireCoreDeviceSupport(device.udid);
+    await _install(backend: backend, device: device, pack: pack);
+    await _launch(pack: pack, device: device, dartDefines: options.dartDefines);
+  }
+
+  /// iOS 17+ launch and process control go through the CoreDevice/RSD tunnel,
+  /// so bail out before installing onto a device known to be too old.
+  Future<void> _requireCoreDeviceSupport(String udid) async {
+    final osMajor = await OsVersion.deviceOSMajorVersion(udid);
     if (!shouldUseCoreDevice(osMajor)) {
       throw XcrossError(
         'Native device launching requires iOS 17 or later; update this device '
@@ -122,22 +124,25 @@ class FlutterRunCommand extends _$FlutterRunArgsCommand<void> {
         'CoreDevice path.',
       );
     }
+  }
 
-    // Close the app if it happens to be running at install time, so the install
-    // and relaunch don't collide with a live instance.
+  /// Close any live instance first, so the install and relaunch don't collide
+  /// with the app already running on the device.
+  Future<void> _install({
+    required DeviceBackend backend,
+    required Device device,
+    required PackResult pack,
+  }) async {
     await CoreDeviceLauncher.terminateIfRunning(
       udid: device.udid,
       bundleId: pack.bundleId,
     );
-
     await backend.install(
       pack.appPath,
       udid: device.udid,
       mode: _searchMode,
       bundleId: pack.bundleId,
     );
-
-    await _launch(pack: pack, device: device, dartDefines: options.dartDefines);
   }
 
   /// Launch the freshly installed app through CoreDevice/RSD, with hot reload

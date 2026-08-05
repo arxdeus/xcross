@@ -49,10 +49,7 @@ class FlutterBuildArgs extends CommonFlutterArgs {
 /// `xcross flutter build` — build a Flutter iOS `.app` (optionally ipa).
 ///
 /// xcross is debug-only; `build` produces an unsigned bundle and signing
-/// happens when `xcross flutter run` installs it. Accepts `--ipa` plus the
-/// official `flutter build ios` flags (`-t/--target`, `-D/--dart-define`,
-/// `--dart-define-from-file`, `--[no-]pub`, `--build-name`, `--build-number`,
-/// `--flavor`).
+/// happens when `xcross flutter run` installs it.
 class FlutterBuildCommand extends _$FlutterBuildArgsCommand<void> {
   @override
   String get name => 'build';

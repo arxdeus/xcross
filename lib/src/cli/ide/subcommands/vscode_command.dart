@@ -5,6 +5,7 @@ import 'package:args/command_runner.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/cli/ide/subcommands/vscode_json_merge.dart';
+import 'package:xcross/src/cli/ide/xcross_executable.dart';
 import 'package:xcross/src/util/errors.dart';
 
 /// `xcross ide vscode` — write / upsert `.vscode/` so Run & Debug / Restart /
@@ -22,23 +23,7 @@ class VscodeCommand extends Command<void> {
     final dir = Directory(p.join(Directory.current.path, '.vscode'));
     await dir.create(recursive: true);
 
-    // Always ours to overwrite, and it embeds the absolute xcross path captured
-    // now so a changed PATH can't break the editor later.
-    final exe = Platform.resolvedExecutable;
-    if (p.basenameWithoutExtension(exe) != 'xcross') {
-      Log.logWarn(
-        'embedding $exe — run `xcross ide vscode` from the installed '
-        'binary, not `dart run`, or F5 will not work',
-      );
-    }
-    final shim = File(p.join(dir.path, 'xcross_dap.dart'));
-    await shim.writeAsString(
-      // The shim is a non-raw Dart string literal, so `$` in a path must be
-      // escaped too — jsonEncode does not.
-      _shim.replaceAll('<XCROSS>', jsonEncode(exe).replaceAll(r'$', r'\$')),
-    );
-    Log.logDone('Wrote ${p.relative(shim.path)}');
-
+    await _writeShim(dir);
     await upsertJsonFile(
       p.join(dir.path, 'launch.json'),
       VscodeJsonMerge.mergeLaunchDoc,
@@ -57,48 +42,67 @@ class VscodeCommand extends Command<void> {
     );
   }
 
+  /// The shim is always ours, so it is overwritten rather than merged.
+  static Future<void> _writeShim(Directory dir) async {
+    final exe = resolveXcrossExecutable(
+      subcommand: 'vscode',
+      brokenFeature: 'F5',
+    );
+    final shim = File(p.join(dir.path, 'xcross_dap.dart'));
+    // The shim embeds the path as a non-raw Dart string literal, so `$` needs
+    // escaping on top of what jsonEncode does.
+    await shim.writeAsString(
+      _shim.replaceAll('<XCROSS>', jsonEncode(exe).replaceAll(r'$', r'\$')),
+    );
+    Log.logDone('Wrote ${p.relative(shim.path)}');
+  }
+
   /// Read-merge-write a JSON/JSONC file. Skips the write when already current.
   static Future<void> upsertJsonFile(
     String path,
     Map<String, Object?> Function(Map<String, Object?>? existing) merge,
   ) async {
     final file = File(path);
-    Map<String, Object?>? existing;
-    if (file.existsSync()) {
-      final raw = await file.readAsString();
-      if (raw.trim().isNotEmpty) {
-        late final Object? decoded;
-        try {
-          decoded = VscodeJsonMerge.parseJsonc(raw);
-        } on FormatException catch (e) {
-          throw XcrossError(
-            '${p.relative(path)} is not valid JSON/JSONC (${e.message}) — '
-            'fix it, then re-run `xcross ide vscode`',
-          );
-        }
-        if (decoded is! Map) {
-          throw XcrossError(
-            '${p.relative(path)} must be a JSON object — '
-            'fix it, then re-run `xcross ide vscode`',
-          );
-        }
-        existing = <String, Object?>{
-          for (final e in decoded.entries) '${e.key}': e.value,
-        };
-      }
-    }
+    final existing = file.existsSync()
+        ? _decodeJsonObject(await file.readAsString(), path)
+        : null;
 
     final merged = merge(existing);
     if (existing != null && VscodeJsonMerge.jsonDeepEqual(existing, merged)) {
       Log.logDone('Unchanged ${p.relative(path)}');
       return;
     }
+
     await file.writeAsString(VscodeJsonMerge.encodePrettyJson(merged));
     Log.logDone(
       existing == null
           ? 'Wrote ${p.relative(path)}'
           : 'Updated ${p.relative(path)}',
     );
+  }
+
+  /// Decode a JSON/JSONC object, or null when the file is blank. Refuses to
+  /// guess at malformed input — silently overwriting a user's config would
+  /// lose their launch configurations.
+  static Map<String, Object?>? _decodeJsonObject(String raw, String path) {
+    if (raw.trim().isEmpty) return null;
+
+    final Object? decoded;
+    try {
+      decoded = VscodeJsonMerge.parseJsonc(raw);
+    } on FormatException catch (e) {
+      throw XcrossError(
+        '${p.relative(path)} is not valid JSON/JSONC (${e.message}) — '
+        'fix it, then re-run `xcross ide vscode`',
+      );
+    }
+    if (decoded is! Map) {
+      throw XcrossError(
+        '${p.relative(path)} must be a JSON object — '
+        'fix it, then re-run `xcross ide vscode`',
+      );
+    }
+    return {for (final e in decoded.entries) '${e.key}': e.value};
   }
 }
 
