@@ -26,12 +26,9 @@ import 'package:darwin_sdk_kit/src/xar_reader.dart';
 
 /// Streams the decoded `Content` entry of an Xcode `.xip` as [CpioEntry]s.
 abstract final class XcodeXipExtractor {
-  /// Streams the decoded `Content` entry of [xipPath] as a sequence of
-  /// [CpioEntry]s.
-  ///
-  /// This only decodes the format layers — filtering entries, writing them to
-  /// disk, etc. is the caller's job (a follow-up `xcode_xip install` CLI
-  /// command and wiring into `DarwinSdk` resolution, not this function).
+  /// Decodes the format layers of [xipPath] only — filtering entries, writing
+  /// them to disk, etc. is the caller's job (a follow-up `xcode_xip install`
+  /// CLI command and wiring into `DarwinSdk` resolution, not this function).
   static Stream<CpioEntry> extract(String xipPath) async* {
     final file = await File(xipPath).open();
     try {

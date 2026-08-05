@@ -9,6 +9,12 @@ import 'package:darwin_sdk_kit/src/errors.dart';
 /// entry header — no padding follows it, unlike the binary/newc variants.
 const int _headerSize = 76;
 
+/// ASCII magic every odc header starts with.
+const String _odcMagic = '070707';
+
+/// Name of the synthetic final entry that marks end-of-archive.
+const String _trailerName = 'TRAILER!!!';
+
 /// Byte offsets of the fields we care about within the 76-byte odc header:
 /// `magic(6) dev(6) ino(6) mode(6) uid(6) gid(6) nlink(6) rdev(6) mtime(11)
 /// namesize(6) filesize(11)`.
@@ -53,56 +59,68 @@ class CpioEntry {
 /// archive in memory at once.
 abstract final class CpioReader {
   static Stream<CpioEntry> read(Stream<List<int>> input) async* {
-    final queue = StreamQueue<List<int>>(input);
-    var buffer = Uint8List(0);
-    var bufferPos = 0;
-
-    Future<Uint8List> readExact(int count) async {
-      final out = Uint8List(count);
-      var filled = 0;
-      while (filled < count) {
-        if (bufferPos >= buffer.length) {
-          if (!await queue.hasNext) {
-            throw DarwinSdkError('cpio: unexpected end of stream.');
-          }
-          final next = await queue.next;
-          buffer = next is Uint8List ? next : Uint8List.fromList(next);
-          bufferPos = 0;
-        }
-        final take = (buffer.length - bufferPos).clamp(0, count - filled);
-        out.setRange(filled, filled + take, buffer, bufferPos);
-        bufferPos += take;
-        filled += take;
-      }
-      return out;
-    }
+    final bytes = _ByteCursor(input);
 
     while (true) {
-      final header = ascii.decode(await readExact(_headerSize));
-      if (!header.startsWith('070707')) {
-        throw DarwinSdkError('cpio: bad magic (expected odc header "070707").');
+      final header = ascii.decode(await bytes.take(_headerSize));
+      if (!header.startsWith(_odcMagic)) {
+        throw DarwinSdkError(
+          'cpio: bad magic (expected odc header "$_odcMagic").',
+        );
       }
-      int field(int start, int len) =>
-          int.parse(header.substring(start, start + len).trim(), radix: 8);
+      int octalField(int start, int length) =>
+          int.parse(header.substring(start, start + length).trim(), radix: 8);
 
-      final namesize = field(_namesizeOffset, 6);
-      final filesize = field(_filesizeOffset, 11);
+      final namesize = octalField(_namesizeOffset, 6);
+      final filesize = octalField(_filesizeOffset, 11);
 
       // namesize includes the trailing NUL; strip it before decoding.
-      final nameBytes = await readExact(namesize);
+      final nameBytes = await bytes.take(namesize);
       final name = ascii.decode(nameBytes.sublist(0, namesize - 1));
-      final data = await readExact(filesize);
+      final data = await bytes.take(filesize);
 
-      if (name == 'TRAILER!!!') return;
+      if (name == _trailerName) return;
 
       yield CpioEntry(
         name: name,
-        mode: field(_modeOffset, 6),
+        mode: octalField(_modeOffset, 6),
         data: data,
-        dev: field(_devOffset, 6),
-        ino: field(_inoOffset, 6),
-        nlink: field(_nlinkOffset, 6),
+        dev: octalField(_devOffset, 6),
+        ino: octalField(_inoOffset, 6),
+        nlink: octalField(_nlinkOffset, 6),
       );
     }
+  }
+}
+
+/// Pulls exactly-sized byte runs out of an arbitrarily chunked stream,
+/// holding at most one source chunk at a time.
+class _ByteCursor {
+  _ByteCursor(Stream<List<int>> input) : _chunks = StreamQueue(input);
+
+  final StreamQueue<List<int>> _chunks;
+  Uint8List _chunk = Uint8List(0);
+  int _offset = 0;
+
+  Future<Uint8List> take(int count) async {
+    final out = Uint8List(count);
+    var filled = 0;
+    while (filled < count) {
+      if (_offset >= _chunk.length) await _advance();
+      final available = (_chunk.length - _offset).clamp(0, count - filled);
+      out.setRange(filled, filled + available, _chunk, _offset);
+      _offset += available;
+      filled += available;
+    }
+    return out;
+  }
+
+  Future<void> _advance() async {
+    if (!await _chunks.hasNext) {
+      throw DarwinSdkError('cpio: unexpected end of stream.');
+    }
+    final next = await _chunks.next;
+    _chunk = next is Uint8List ? next : Uint8List.fromList(next);
+    _offset = 0;
   }
 }

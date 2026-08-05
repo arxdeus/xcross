@@ -9,28 +9,32 @@ import 'package:darwin_sdk_kit/src/errors.dart';
 /// equal to exactly this value marks a chunk stored **raw** (uncompressed).
 /// The chunk loop also terminates once a `decompressedSize` strictly less
 /// than this is read — that marks the final chunk.
-const int _pbzxChunkSize = 0x1000000;
+const int _pbzxChunkSize = 0x100_0000;
 
 /// Full `.xz` container magic (not raw/headerless LZMA1).
 const List<int> _xzMagic = [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00];
+
+/// `.xz` stream header: 6-byte magic + 2 stream flags + 4-byte CRC32.
+const int _xzStreamHeaderSize = 12;
+
+/// LZMA2 control bytes for an uncompressed chunk. `0x01` also resets the
+/// dictionary; `0x02` leaves it as-is.
+const int _lzma2UncompressedReset = 0x01;
+const int _lzma2UncompressedNoReset = 0x02;
 
 /// Decodes the pbzx-framed byte range `[offset, offset + length)` of [file],
 /// yielding the fully decompressed payload — a raw cpio stream — as it
 /// becomes available.
 abstract final class PbzxReader {
-  /// Each xz-compressed chunk is decoded independently via `package:archive`'s
-  /// pure-Dart [XZDecoder] — no external `xz`/`7z` binary required. (An
-  /// earlier version of this shelled out to a system `xz`, batching
-  /// consecutive compressed chunks into one subprocess call since `xz` decodes
-  /// concatenated multi-stream `.xz` data by default — but that meant xcross
-  /// silently depended on `xz` being present on PATH, which isn't guaranteed
-  /// on a end user's machine, especially Windows. `XZDecoder.decode` only
-  /// consumes a single stream per call, not concatenated ones, so chunks are
-  /// decoded one at a time instead of batched — fine now that there's no
-  /// subprocess-spawn cost to amortize.) A raw chunk (`compressedSize ==
-  /// 0x1000000`, or one that simply doesn't start with the xz magic bytes —
-  /// belt-and-braces against a theoretical small incompressible final chunk)
-  /// is copied through verbatim with no decompression at all.
+  /// Chunks are decoded one at a time by `package:archive`'s pure-Dart
+  /// [XZDecoder]: shelling out to a system `xz` would let it batch
+  /// consecutive chunks (it decodes concatenated `.xz` streams natively), but
+  /// `xz` is not guaranteed on an end user's PATH, especially on Windows.
+  /// [XZDecoder] consumes exactly one stream per call, so no batching.
+  ///
+  /// A raw chunk (`compressedSize == [_pbzxChunkSize]`, or one that simply
+  /// doesn't start with the xz magic — belt-and-braces against a theoretical
+  /// small incompressible final chunk) is copied through verbatim.
   static Stream<List<int>> decode(
     RandomAccessFile file, {
     required int offset,
@@ -106,18 +110,21 @@ abstract final class PbzxReader {
   /// control 2 is equivalent: the dictionary is already empty, and `archive`
   /// correctly appends those same bytes to it before decoding later matches.
   static Uint8List _fixInitialLzma2DictionaryReset(Uint8List xz) {
-    const streamHeaderSize = 12;
-    if (xz.length <= streamHeaderSize) return xz;
+    if (xz.length <= _xzStreamHeaderSize) return xz;
 
-    final blockHeaderByte = xz[streamHeaderSize];
+    // The block header's first byte is its size in 4-byte units, less one;
+    // 0 there means "stream index", not a block.
+    final blockHeaderByte = xz[_xzStreamHeaderSize];
     if (blockHeaderByte == 0) return xz;
-    final blockHeaderSize = (blockHeaderByte + 1) * 4;
-    final firstControl = streamHeaderSize + blockHeaderSize;
-    if (firstControl >= xz.length || xz[firstControl] != 1) return xz;
+    final firstControl = _xzStreamHeaderSize + (blockHeaderByte + 1) * 4;
+    if (firstControl >= xz.length ||
+        xz[firstControl] != _lzma2UncompressedReset) {
+      return xz;
+    }
 
     // ponytail: remove when package:archive handles LZMA2 control 1 correctly.
     final fixed = Uint8List.fromList(xz);
-    fixed[firstControl] = 2;
+    fixed[firstControl] = _lzma2UncompressedNoReset;
     return fixed;
   }
 }

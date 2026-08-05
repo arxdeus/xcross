@@ -31,9 +31,7 @@ class DarwinSdk {
     final source = _canonicalLayout(candidate);
     final destination = _runtimeLayout(candidate);
     try {
-      if ((!destination.existsSync() || destination.lengthSync() == 0) &&
-          source.existsSync() &&
-          source.lengthSync() > 0) {
+      if (!_hasContent(destination) && _hasContent(source)) {
         destination.parent.createSync(recursive: true);
         source.copySync(destination.path);
       }
@@ -45,35 +43,28 @@ class DarwinSdk {
 
   /// A complete bundle has Swift artifact metadata and a usable iPhoneOS SDK.
   static bool isValidBundle(String candidate) {
-    if (!File(p.join(candidate, 'info.json')).existsSync() ||
-        !File(p.join(candidate, 'swift-sdk.json')).existsSync() ||
-        !File(p.join(candidate, 'toolset.json')).existsSync()) {
+    const metadata = ['info.json', 'swift-sdk.json', 'toolset.json'];
+    if (!metadata.every((n) => File(p.join(candidate, n)).existsSync())) {
       return false;
     }
 
     final sdk = _firstSdk(_sdksDir(candidate, 'iPhoneOS'), 'iPhoneOS');
-    final swiftResources = p.join(
-      candidate,
-      'Developer',
-      'Toolchains',
-      'XcodeDefault.xctoolchain',
-      'usr',
-      'lib',
-      'swift',
-      'iphoneos',
-    );
+    if (sdk == null) return false;
+
     final canonicalLayout = _canonicalLayout(candidate);
-    final runtimeLayout = _runtimeLayout(candidate);
-    return sdk != null &&
-        Directory(
+    // The layout file lives directly in the Swift resource directory, so its
+    // parent is that directory — no need to spell the path out twice.
+    final swiftResources = canonicalLayout.parent;
+    return Directory(
           p.join(sdk, 'System', 'Library', 'Frameworks'),
         ).existsSync() &&
-        Directory(swiftResources).existsSync() &&
-        canonicalLayout.existsSync() &&
-        canonicalLayout.lengthSync() > 0 &&
-        runtimeLayout.existsSync() &&
-        runtimeLayout.lengthSync() > 0;
+        swiftResources.existsSync() &&
+        _hasContent(canonicalLayout) &&
+        _hasContent(_runtimeLayout(candidate));
   }
+
+  static bool _hasContent(File file) =>
+      file.existsSync() && file.lengthSync() > 0;
 
   /// First versioned iPhoneOSXX.X.sdk found, else first iPhoneOS.sdk.
   String iPhoneOSSdk() {
@@ -124,10 +115,13 @@ class DarwinSdk {
   );
 
   static String? _firstSdk(String dir, String prefix) {
-    if (!Directory(dir).existsSync()) return null;
-    final entries =
-        Directory(dir)
+    final directory = Directory(dir);
+    if (!directory.existsSync()) return null;
+    final names =
+        directory
             .listSync()
+            // SDKs are routinely symlinks, which listSync reports as Link,
+            // not Directory — typeSync resolves the link target.
             .where(
               (entry) =>
                   entry is Directory ||
@@ -139,10 +133,9 @@ class DarwinSdk {
             .toList()
           ..sort();
 
-    final versioned = entries
-        .where((name) => name.contains(_digitPattern))
-        .firstOrNull;
-    final pick = versioned ?? entries.firstOrNull;
+    final pick =
+        names.where((name) => name.contains(_digitPattern)).firstOrNull ??
+        names.firstOrNull;
     return pick == null ? null : p.join(dir, pick);
   }
 
@@ -163,9 +156,9 @@ class DarwinSdk {
   /// Resolve the Apple-compatible linker from PATH on every host.
   ///
   /// swiftly's proxy shims are skipped. The lld inside a Swift toolchain is a
-  /// downstream build that refuses iOS device targets ("This version of lld does
-  /// not support linking for platform iOS"), and its shim cannot even be spawned
-  /// from a clang that swiftly itself proxied ("Circular swiftly proxy
+  /// downstream build that refuses iOS device targets ("This version of lld
+  /// does not support linking for platform iOS"), and its shim cannot even be
+  /// spawned from a clang that swiftly itself proxied ("Circular swiftly proxy
   /// invocation"). Only the stock LLVM `ld64.lld` can link the Mach-O output.
   static Future<String> resolveLd64Lld(DarwinSdk _) async =>
       await ProcessRunner.which('ld64.lld', accept: usableLd64Lld) ??
