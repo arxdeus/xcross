@@ -1,11 +1,10 @@
-/// Shared GrandSlam plist response helpers: the `{"Response": {"Status":
-/// {"ec", "em"}, ...}}` envelope every `gsService`/`o=...` operation call
-/// uses (originally implemented for the provisioning handshake in
-/// [AnisetteDataProvider], extracted here so the SRP login handshake
-/// ([GrandSlamClient], `grandslam_login.dart`) can reuse it verbatim rather
-/// than duplicating the same decode/error logic), plus small typed
-/// field-extraction helpers for the `String`/`Data`/`int` fields GrandSlam
-/// responses are made of.
+/// Shared decoding for GrandSlam plist responses.
+///
+/// Every `gsService`/`o=...` call answers with a
+/// `{"Response": {"Status": {"ec", "em"}, ...}}` envelope; the encrypted
+/// payloads inside it are bare dicts. Both shapes, plus the typed field
+/// accessors GrandSlam responses are made of, live here so the
+/// provisioning, SRP login, and app-token layers decode identically.
 library;
 
 import 'dart:convert';
@@ -15,9 +14,8 @@ import 'package:apple_developer_kit/src/errors.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
 
 /// A GrandSlam operation error: the response's `Status.ec` was non-zero.
-/// Carries the numeric code separately from [message] so callers can
-/// distinguish specific codes (e.g. `-21669`, "incorrect verification
-/// code") without parsing the message string.
+/// [code] is kept separate from the message so callers can recognise
+/// specific codes (e.g. `-21669`, "incorrect verification code").
 class GrandSlamOperationError extends AppleError {
   GrandSlamOperationError(this.code, String em)
     : super('GrandSlam error $code: $em');
@@ -26,21 +24,19 @@ class GrandSlamOperationError extends AppleError {
 }
 
 abstract final class GrandSlamResponse {
-  /// Decodes a GrandSlam `o=...` operation response body. Apple's `Status`
-  /// dict (`ec`/`em`) is inside `Response`; the older sibling form remains
-  /// accepted for compatibility. Throws [GrandSlamOperationError] if `ec != 0`,
-  /// or [AppleError] if the body isn't a well-formed envelope.
+  /// Decodes an `o=...` operation response body and unwraps `Response`.
+  ///
+  /// Apple nests `Status` inside `Response`; the older sibling placement
+  /// stays accepted for compatibility. Throws [GrandSlamOperationError]
+  /// when `ec != 0`, or [AppleError] for a malformed envelope.
   static Map<String, Object?> decodeGrandSlamResponse(String xml) {
-    final decoded = GrandSlamResponse.decodePlist(
-      xml,
-      context: 'GrandSlam response',
-    );
+    final decoded = decodePlist(xml, context: 'GrandSlam response');
     final response = decoded['Response'];
-    if (response is! Map) {
+    if (response is! Map<Object?, Object?>) {
       throw AppleError('GrandSlam response missing "Response" dict');
     }
     final status = response['Status'] ?? decoded['Status'];
-    if (status is Map) {
+    if (status is Map<Object?, Object?>) {
       final ec = status['ec'];
       if (ec is int && ec != 0) {
         throw GrandSlamOperationError(ec, '${status['em'] ?? 'unknown error'}');
@@ -49,8 +45,9 @@ abstract final class GrandSlamResponse {
     return response.cast<String, Object?>();
   }
 
-  /// Decodes a bare (no `Status`/`Response` envelope) plist dict, e.g. the
-  /// decrypted `spd` payload from `o=complete`.
+  /// Decodes a bare plist dict, e.g. the decrypted `spd` payload from
+  /// `o=complete`. Apple sometimes sends the `<dict>` fragment alone, so a
+  /// missing plist header/DOCTYPE is re-wrapped before parsing.
   static Map<String, Object?> decodePlist(
     String xml, {
     String context = 'plist',
@@ -72,22 +69,19 @@ abstract final class GrandSlamResponse {
   }
 
   /// Decodes raw plist bytes in either Apple's binary (`bplist00`) or XML
-  /// representation. GrandSlam's encrypted payloads are opaque bytes, so the
-  /// server is free to use either representation.
+  /// representation - encrypted GrandSlam payloads are opaque bytes, so
+  /// the server may use either.
   static Map<String, Object?> decodePlistBytes(
     Uint8List bytes, {
     String context = 'plist',
   }) {
     if (bytes.length < 8 || ascii.decode(bytes.sublist(0, 8)) != 'bplist00') {
-      return GrandSlamResponse.decodePlist(
-        utf8.decode(bytes),
-        context: context,
-      );
+      return decodePlist(utf8.decode(bytes), context: context);
     }
     final Object decoded;
     try {
       decoded = PropertyListSerialization.propertyListWithData(
-        GrandSlamResponse.byteDataOf(bytes),
+        byteDataOf(bytes),
       );
     } on Object catch (e) {
       throw AppleError('$context was not a plist: $e');
@@ -118,9 +112,8 @@ abstract final class GrandSlamResponse {
     return value;
   }
 
-  /// A plist `<data>` field, decoded by `package:propertylistserialization`
-  /// as [ByteData]; converted here to the [Uint8List] the rest of this
-  /// codebase (and [SrpClient]) works with.
+  /// A plist `<data>` field. `package:propertylistserialization` decodes
+  /// those as [ByteData]; the rest of this package works in [Uint8List].
   static Uint8List dataField(Map<String, Object?> map, String key) {
     final value = map[key];
     if (value is! ByteData) {
@@ -131,14 +124,11 @@ abstract final class GrandSlamResponse {
     return value.buffer.asUint8List(value.offsetInBytes, value.lengthInBytes);
   }
 
-  static Uint8List? optionalDataField(Map<String, Object?> map, String key) {
-    if (!map.containsKey(key) || map[key] == null) return null;
-    return GrandSlamResponse.dataField(map, key);
-  }
+  static Uint8List? optionalDataField(Map<String, Object?> map, String key) =>
+      map[key] == null ? null : dataField(map, key);
 
-  /// Wraps [bytes] as the [ByteData] `package:propertylistserialization`'s
-  /// plist writer requires for a `<data>` element (it does not accept a
-  /// plain [Uint8List]/`List<int>` in the object graph).
+  /// Wraps [bytes] as the [ByteData] the plist writer requires for a
+  /// `<data>` element - it rejects a plain [Uint8List]/`List<int>`.
   static ByteData byteDataOf(Uint8List bytes) =>
       bytes.buffer.asByteData(bytes.offsetInBytes, bytes.length);
 }

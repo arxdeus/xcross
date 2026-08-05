@@ -1,12 +1,10 @@
-/// GrandSlam `o=apptokens` exchange: turns a successful SRP login
-/// ([GrandSlamLoginData]) into the Developer Services app token used by
-/// the native signing pipeline.
+/// GrandSlam `o=apptokens`: turns a successful SRP login
+/// ([GrandSlamLoginData]) into the Developer Services app token the native
+/// signing pipeline uses.
 ///
-/// The AES-GCM blob layout is source-verified against xtool's
-/// `AppTokens.swift`. That file attributes the construction to Apple's
-/// private `AppleIDAuthSupport` (`_AppleIDAuthSupportCreateDecryptedData`),
-/// so this is a faithful xtool port, not an independently documented Apple
-/// API.
+/// The AES-GCM blob layout is a faithful port of xtool's `AppTokens.swift`,
+/// which in turn attributes it to Apple's private `AppleIDAuthSupport`
+/// (`_AppleIDAuthSupportCreateDecryptedData`) - not a documented API.
 library;
 
 import 'dart:convert';
@@ -24,6 +22,15 @@ import 'package:pointycastle/export.dart' as pc;
 
 const String kDeveloperServicesAppIdentifier = 'com.apple.gs.xcode.auth';
 
+/// Byte layout of the encrypted `et` blob: a 3-byte AAD prefix, a 16-byte
+/// IV, the ciphertext, then a 16-byte GCM tag.
+const int _aadLength = 3;
+const int _ivLength = 16;
+const int _tagLength = 16;
+
+/// AES-256: the SRP session key must be exactly 32 bytes.
+const int _sessionKeyLength = 32;
+
 class DeveloperServicesLoginToken {
   const DeveloperServicesLoginToken({
     required this.adsid,
@@ -34,7 +41,7 @@ class DeveloperServicesLoginToken {
   final String adsid;
   final String token;
 
-  /// UTC expiry time decoded from Apple's millisecond epoch value.
+  /// UTC expiry decoded from Apple's millisecond epoch value.
   final DateTime expiry;
 
   bool get isExpired => !DateTime.now().toUtc().isBefore(expiry.toUtc());
@@ -80,7 +87,7 @@ class GrandSlamAppTokenExchange {
         'c': GrandSlamResponse.byteDataOf(loginData.cookie),
         't': loginData.idmsToken,
         'checksum': GrandSlamResponse.byteDataOf(
-          GrandSlamAppTokenExchange.grandSlamAppTokenChecksum(
+          grandSlamAppTokenChecksum(
             sessionKey: loginData.sessionKey,
             adsid: loginData.adsid,
             apps: apps,
@@ -89,75 +96,65 @@ class GrandSlamAppTokenExchange {
       },
     );
 
-    final encryptedToken = GrandSlamResponse.dataField(response, 'et');
-    final decrypted = GrandSlamAppTokenExchange.decryptGrandSlamAppTokenBlob(
-      encryptedToken: encryptedToken,
+    final decrypted = decryptGrandSlamAppTokenBlob(
+      encryptedToken: GrandSlamResponse.dataField(response, 'et'),
       sessionKey: loginData.sessionKey,
     );
-    final plist = GrandSlamResponse.decodePlistBytes(
-      decrypted,
-      context: "decrypted 'et' payload",
+    return _parseToken(
+      GrandSlamResponse.decodePlistBytes(
+        decrypted,
+        context: "decrypted 'et' payload",
+      ),
+      loginData.adsid,
+      kDeveloperServicesAppIdentifier,
     );
-    return _parseToken(plist, loginData.adsid, kDeveloperServicesAppIdentifier);
   }
 
   /// xtool/AppTokens.swift checksum order:
-  /// HMAC-SHA256(SK, "apptokens" || adsid || app[0] || app[1] || ...).
+  /// `HMAC-SHA256(SK, "apptokens" || adsid || app[0] || app[1] || ...)`.
   static Uint8List grandSlamAppTokenChecksum({
     required Uint8List sessionKey,
     required String adsid,
     required List<String> apps,
-  }) {
-    final bytes = <int>[
+  }) => Uint8List.fromList(
+    crypto.Hmac(crypto.sha256, sessionKey).convert([
       ...utf8.encode('apptokens'),
       ...utf8.encode(adsid),
       for (final app in apps) ...utf8.encode(app),
-    ];
-    return Uint8List.fromList(
-      crypto.Hmac(crypto.sha256, sessionKey).convert(bytes).bytes,
-    );
-  }
+    ]).bytes,
+  );
 
+  /// Opens the `et` blob: AES-256-GCM with the leading 3 bytes as
+  /// additional authenticated data.
   static Uint8List decryptGrandSlamAppTokenBlob({
     required Uint8List encryptedToken,
     required Uint8List sessionKey,
   }) {
-    const aadLength = 3;
-    const ivLength = 16;
-    const tagLength = 16;
-    if (sessionKey.length != 32) {
+    if (sessionKey.length != _sessionKeyLength) {
       throw AppleError(
         'GrandSlam app-token decrypt expected a 32-byte session key; '
         'got ${sessionKey.length} bytes.',
       );
     }
-    if (encryptedToken.length <= aadLength + ivLength + tagLength) {
+    if (encryptedToken.length <= _aadLength + _ivLength + _tagLength) {
       throw AppleError('GrandSlam app-token encrypted blob is too short.');
     }
 
-    final aad = Uint8List.sublistView(encryptedToken, 0, aadLength);
+    final aad = Uint8List.sublistView(encryptedToken, 0, _aadLength);
     final iv = Uint8List.sublistView(
       encryptedToken,
-      aadLength,
-      aadLength + ivLength,
+      _aadLength,
+      _aadLength + _ivLength,
     );
-    final ciphertext = Uint8List.sublistView(
-      encryptedToken,
-      aadLength + ivLength,
-      encryptedToken.length - tagLength,
-    );
-    final tag = Uint8List.sublistView(
-      encryptedToken,
-      encryptedToken.length - tagLength,
-    );
-    final sealed = Uint8List(ciphertext.length + tag.length)
-      ..setAll(0, ciphertext)
-      ..setAll(ciphertext.length, tag);
+    // PointyCastle's GCM expects the tag appended to the ciphertext, which
+    // is already this blob's layout past the IV. Copied, not viewed: a
+    // non-zero-offset view is not safe to hand to PointyCastle.
+    final sealed = encryptedToken.sublist(_aadLength + _ivLength);
 
     final cipher = pc.GCMBlockCipher(pc.AESEngine())
       ..init(
         false,
-        pc.AEADParameters(pc.KeyParameter(sessionKey), tagLength * 8, iv, aad),
+        pc.AEADParameters(pc.KeyParameter(sessionKey), _tagLength * 8, iv, aad),
       );
     try {
       return cipher.process(sealed);

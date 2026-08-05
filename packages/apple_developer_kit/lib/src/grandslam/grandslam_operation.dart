@@ -1,8 +1,8 @@
 /// Shared builder/sender for GrandSlam `o=...` operation requests.
 ///
-/// `o=init`, `o=complete`, and `o=apptokens` all use the same plist
-/// envelope and `cpd` (client provisioning data) shape; keeping it here
-/// prevents the auth-token layer from drifting away from the SRP layer.
+/// `o=init`, `o=complete`, and `o=apptokens` share one plist envelope and
+/// one `cpd` (client provisioning data) shape; keeping both here stops the
+/// app-token layer from drifting away from the SRP layer.
 library;
 
 import 'package:apple_developer_kit/src/errors.dart';
@@ -13,6 +13,9 @@ import 'package:http/http.dart' as http;
 import 'package:propertylistserialization/propertylistserialization.dart';
 
 abstract final class GrandSlamOperation {
+  /// The `cpd` dict: Anisette values echoed into the request body, where
+  /// GrandSlam expects `X-Apple-I-MD-RINFO` as an integer rather than the
+  /// decimal string the header carries.
   static Map<String, Object?> grandSlamClientProvisioningData(
     Map<String, String> anisette, {
     String locale = 'en_US',
@@ -55,22 +58,19 @@ abstract final class GrandSlamOperation {
     required Map<String, String> anisette,
     required Map<String, Object?> extraParams,
     String locale = 'en_US',
-  }) {
-    final request = <String, Object?>{
+  }) => PropertyListSerialization.stringWithPropertyList({
+    'Header': {'Version': '1.0.1'},
+    'Request': <String, Object?>{
       'o': operation,
       'u': username,
-      'cpd': GrandSlamOperation.grandSlamClientProvisioningData(
-        anisette,
-        locale: locale,
-      ),
+      'cpd': grandSlamClientProvisioningData(anisette, locale: locale),
       ...extraParams,
-    };
-    return PropertyListSerialization.stringWithPropertyList({
-      'Header': {'Version': '1.0.1'},
-      'Request': request,
-    });
-  }
+    },
+  });
 
+  /// POSTs one `o=<operation>` request and returns its unwrapped
+  /// `Response` dict, throwing [GrandSlamOperationError] on a non-zero
+  /// `Status.ec`.
   static Future<Map<String, Object?>> postGrandSlamOperation({
     required http.Client httpClient,
     required String gsService,
@@ -81,14 +81,6 @@ abstract final class GrandSlamOperation {
     String locale = 'en_US',
   }) async {
     final anisette = await fetchAnisetteHeaders();
-    final body = GrandSlamOperation.encodeGrandSlamOperationRequest(
-      operation: operation,
-      username: username,
-      anisette: anisette,
-      extraParams: extraParams,
-      locale: locale,
-    );
-
     final response = await GrandSlamEndpoints.sendGrandSlamRequest(
       httpClient,
       method: 'POST',
@@ -101,7 +93,13 @@ abstract final class GrandSlamOperation {
         'X-MMe-Client-Info':
             anisette['X-MMe-Client-Info'] ?? anisetteClientInfo,
       },
-      body: body,
+      body: encodeGrandSlamOperationRequest(
+        operation: operation,
+        username: username,
+        anisette: anisette,
+        extraParams: extraParams,
+        locale: locale,
+      ),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw AppleError(
