@@ -1,14 +1,47 @@
-import 'dart:collection';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/errors.dart';
+import 'package:apple_developer_kit/src/signing/bundle_paths.dart';
+import 'package:apple_developer_kit/src/signing/bytes.dart';
+import 'package:apple_developer_kit/src/signing/code_resources.dart';
 import 'package:apple_developer_kit/src/signing/macho_signer.dart';
+import 'package:apple_developer_kit/src/signing/plist.dart';
 import 'package:apple_developer_kit/src/signing/signing_asset.dart';
-import 'package:crypto/crypto.dart' as crypto;
 import 'package:path/path.dart' as p;
-import 'package:propertylistserialization/propertylistserialization.dart';
+
+/// Directory names that always imply nested code this signer cannot handle.
+const _forbiddenDirectoryNames = {
+  'Watch',
+  'WatchKit',
+  'com.apple.WatchPlaceholder',
+  'PlugIns',
+  'Extensions',
+  'XPCServices',
+};
+
+/// Bundle suffixes that carry their own signature. `.framework` is the only
+/// nested bundle kind xcross knows how to sign.
+const _unsupportedBundleSuffixes = {
+  '.app',
+  '.appex',
+  '.xctest',
+  '.xpc',
+  '.bundle',
+  '.plugin',
+  '.xcframework',
+};
+
+/// Every Mach-O magic, read little-endian: fat and thin, 32- and 64-bit, both
+/// byte orders. Anything matching is code that would need a signature.
+const _machoMagics = {
+  0xcafebabe,
+  0xbebafeca,
+  0xfeedface,
+  0xcefaedfe,
+  0xfeedfacf,
+  0xcffaedfe,
+};
 
 /// Signs the constrained `.app` layout produced by xcross's FlutterPacker.
 class BundleSigner {
@@ -38,16 +71,9 @@ class BundleSigner {
       plan.root.path,
     );
 
-    final frameworks = plan.bundles.where((bundle) => !bundle.isRoot).toList()
-      ..sort((left, right) {
-        final depth = _depth(
-          right.relativePath,
-        ).compareTo(_depth(left.relativePath));
-        return depth != 0
-            ? depth
-            : _compareUtf8(left.relativePath, right.relativePath);
-      });
-    for (final framework in frameworks) {
+    // A bundle seals its children's signatures into its own CodeResources, so
+    // the deepest nested code must be finished before its parent is sealed.
+    for (final framework in _deepestFirst(plan)) {
       final resources = _codeResources(plan, framework);
       await _writeCodeResources(plan, framework, resources);
       await _machoSigner.signFile(
@@ -84,96 +110,164 @@ class BundleSigner {
     );
   }
 
+  /// Nested bundles ordered deepest first, then by path, so signing is
+  /// deterministic across filesystems.
+  static List<_Bundle> _deepestFirst(_Plan plan) =>
+      plan.bundles.where((bundle) => !bundle.isRoot).toList()
+        ..sort((left, right) {
+          final depth = _depth(
+            right.relativePath,
+          ).compareTo(_depth(left.relativePath));
+          return depth != 0
+              ? depth
+              : compareUtf8(left.relativePath, right.relativePath);
+        });
+
+  /// Validates the bundle and resolves everything [signApp] will touch.
+  ///
+  /// Nothing here mutates the bundle: the whole tree is rejected or accepted
+  /// before signing begins, so a bad input never leaves a half-signed app.
   Future<_Plan> _inspect(String appPath) async {
+    final normalized = _requireAppDirectory(appPath);
+    final rootReal = _resolveDirectory(normalized, normalized);
+    final entries = _walk(normalized, rootReal);
+    _rejectUnsupportedTree(normalized, entries);
+
+    final bundles = _readBundles(normalized, entries);
+    final executableOwners = _executableOwners(normalized, bundles);
+    final candidates = _machoCandidates(normalized, entries, bundles);
+    final looseBinaries = _classifyLooseBinaries(
+      normalized,
+      candidates,
+      executableOwners,
+      bundles,
+    );
+    await _preflightBinaries(normalized, bundles, looseBinaries);
+
+    bundles.sort(
+      (left, right) => compareUtf8(left.relativePath, right.relativePath),
+    );
+    return _Plan(bundles, looseBinaries);
+  }
+
+  static String _requireAppDirectory(String appPath) {
     final normalized = p.normalize(p.absolute(appPath));
     if (!p.basename(normalized).endsWith('.app') ||
         FileSystemEntity.typeSync(normalized, followLinks: false) !=
             FileSystemEntityType.directory) {
       throw AppleError('Bundle "$appPath" must be an existing .app directory.');
     }
+    return normalized;
+  }
 
-    final rootReal = _resolveDirectory(normalized, normalized);
-    final entries = _walk(normalized, rootReal);
-    _rejectUnsupportedTree(normalized, entries);
-
+  /// The root app plus every nested `.framework`.
+  List<_Bundle> _readBundles(String normalized, List<_Entry> entries) {
     final root = _readBundle(normalized, normalized, isRoot: true);
     _checkApplicationIdentifier(root.identifier, normalized);
-    final bundles = <_Bundle>[root];
-    for (final entry in entries) {
-      if (entry.type == FileSystemEntityType.directory &&
-          entry.relativePath.endsWith('.framework')) {
-        bundles.add(_readBundle(normalized, entry.path));
-      }
-    }
+    return <_Bundle>[
+      root,
+      for (final entry in entries)
+        if (entry.type == FileSystemEntityType.directory &&
+            entry.relativePath.endsWith('.framework'))
+          _readBundle(normalized, entry.path),
+    ];
+  }
 
-    final executableOwners = <String, _Bundle>{};
+  /// Rejects two bundles claiming the same executable, which would make the
+  /// signing order ambiguous.
+  static Map<String, _Bundle> _executableOwners(
+    String normalized,
+    List<_Bundle> bundles,
+  ) {
+    final owners = <String, _Bundle>{};
     for (final bundle in bundles) {
-      final key = _pathKey(bundle.executablePath);
-      final previous = executableOwners[key];
+      final key = pathKey(bundle.executablePath);
+      final previous = owners[key];
       if (previous != null) {
-        _fail(
+        bundleFail(
           normalized,
           bundle.executablePath,
           'executable is also owned by "${previous.relativePath}"',
         );
       }
-      executableOwners[key] = bundle;
+      owners[key] = bundle;
     }
+    return owners;
+  }
 
-    final candidates = <String>[];
-    for (final entry in entries) {
-      if (entry.type == FileSystemEntityType.file &&
-          _hasMachOMagic(entry.path)) {
-        candidates.add(entry.path);
-      }
-    }
-    if (!candidates.any((path) => _samePath(path, root.executablePath))) {
-      candidates.add(root.executablePath);
-    }
-    for (final bundle in bundles.skip(1)) {
-      if (!candidates.any((path) => _samePath(path, bundle.executablePath))) {
+  /// Every file that looks like Mach-O, plus each declared executable even if
+  /// its magic could not be read.
+  static List<String> _machoCandidates(
+    String normalized,
+    List<_Entry> entries,
+    List<_Bundle> bundles,
+  ) {
+    final candidates = <String>[
+      for (final entry in entries)
+        if (entry.type == FileSystemEntityType.file &&
+            _hasMachOMagic(entry.path))
+          entry.path,
+    ];
+    // Still root-first here: [bundles] is only sorted once inspection ends.
+    for (final bundle in bundles) {
+      if (!candidates.any((path) => samePath(path, bundle.executablePath))) {
         candidates.add(bundle.executablePath);
       }
     }
-    candidates.sort(
-      (left, right) => _compareUtf8(
-        _relative(normalized, left),
-        _relative(normalized, right),
+    return candidates..sort(
+      (left, right) => compareUtf8(
+        bundleRelativePath(normalized, left),
+        bundleRelativePath(normalized, right),
       ),
     );
+  }
 
+  /// Sorts every Mach-O into "owned by a bundle" or "loose dylib", rejecting
+  /// stray code that would ship unsigned.
+  static List<_LooseBinary> _classifyLooseBinaries(
+    String normalized,
+    List<String> candidates,
+    Map<String, _Bundle> executableOwners,
+    List<_Bundle> bundles,
+  ) {
     final looseBinaries = <_LooseBinary>[];
     final owned = <String>{};
     for (final path in candidates) {
-      final key = _pathKey(path);
+      final key = pathKey(path);
       if (!owned.add(key)) {
-        _fail(normalized, path, 'binary has duplicate signing ownership');
+        bundleFail(normalized, path, 'binary has duplicate signing ownership');
       }
       if (executableOwners.containsKey(key)) continue;
 
-      final relative = _relative(normalized, path);
-      final components = relative.split('/');
+      final relative = bundleRelativePath(normalized, path);
       final insideFramework = bundles
           .skip(1)
-          .any((bundle) => _isWithinOrEqual(bundle.path, path));
-      if (!insideFramework && components.contains('Frameworks')) {
+          .any((bundle) => isWithinOrEqual(bundle.path, path));
+      if (!insideFramework && relative.split('/').contains('Frameworks')) {
         looseBinaries.add(_LooseBinary(path, relative, p.basename(path)));
       } else {
-        _fail(normalized, path, 'unknown nested Mach-O code');
+        bundleFail(normalized, path, 'unknown nested Mach-O code');
       }
     }
-    looseBinaries.sort(
-      (left, right) => _compareUtf8(left.relativePath, right.relativePath),
+    return looseBinaries..sort(
+      (left, right) => compareUtf8(left.relativePath, right.relativePath),
     );
+  }
 
+  /// Preflights every binary before any of them is rewritten.
+  static Future<void> _preflightBinaries(
+    String normalized,
+    List<_Bundle> bundles,
+    List<_LooseBinary> looseBinaries,
+  ) async {
     final allBinaries =
         <String>[
           for (final bundle in bundles) bundle.executablePath,
           for (final dylib in looseBinaries) dylib.path,
         ]..sort(
-          (left, right) => _compareUtf8(
-            _relative(normalized, left),
-            _relative(normalized, right),
+          (left, right) => compareUtf8(
+            bundleRelativePath(normalized, left),
+            bundleRelativePath(normalized, right),
           ),
         );
     for (final path in allBinaries) {
@@ -181,18 +275,15 @@ class BundleSigner {
         await MachOSigner.preflight(path);
       } on AppleError catch (error) {
         throw AppleError(
-          'Bundle "${_relative(normalized, path)}" failed Mach-O preflight: '
-          '${error.message}',
+          'Bundle "${bundleRelativePath(normalized, path)}" failed Mach-O '
+          'preflight: ${error.message}',
         );
       }
     }
-
-    bundles.sort(
-      (left, right) => _compareUtf8(left.relativePath, right.relativePath),
-    );
-    return _Plan(normalized, bundles, looseBinaries);
   }
 
+  /// Lists the tree under [root], refusing symlinks that escape the bundle and
+  /// files that cannot be read.
   List<_Entry> _walk(String root, String rootReal) {
     final result = <_Entry>[];
 
@@ -202,86 +293,73 @@ class BundleSigner {
         children = Directory(directory).listSync(followLinks: false).toList()
           ..sort(
             (left, right) =>
-                _compareUtf8(p.basename(left.path), p.basename(right.path)),
+                compareUtf8(p.basename(left.path), p.basename(right.path)),
           );
       } on Object catch (error) {
-        _fail(root, directory, 'could not list directory: $error');
+        bundleFail(root, directory, 'could not list directory: $error');
       }
       for (final child in children) {
         final type = FileSystemEntity.typeSync(child.path, followLinks: false);
-        final entry = _Entry(child.path, _relative(root, child.path), type);
-        result.add(entry);
-        if (type == FileSystemEntityType.link) {
-          final resolved = _resolveLink(child.path, root);
-          if (!_isWithinOrEqual(rootReal, resolved)) {
-            _fail(root, child.path, 'symlink target escapes the app bundle');
-          }
-        } else if (type == FileSystemEntityType.directory) {
-          visit(child.path);
-        } else if (type == FileSystemEntityType.file) {
-          try {
-            File(child.path).readAsBytesSync();
-          } on Object catch (error) {
-            _fail(root, child.path, 'could not read file: $error');
-          }
-        } else {
-          _fail(root, child.path, 'unsupported filesystem entry');
+        result.add(
+          _Entry(child.path, bundleRelativePath(root, child.path), type),
+        );
+        switch (type) {
+          case FileSystemEntityType.link:
+            final resolved = _resolveLink(child.path, root);
+            if (!isWithinOrEqual(rootReal, resolved)) {
+              bundleFail(
+                root,
+                child.path,
+                'symlink target escapes the app bundle',
+              );
+            }
+          case FileSystemEntityType.directory:
+            visit(child.path);
+          case FileSystemEntityType.file:
+            try {
+              File(child.path).readAsBytesSync();
+            } on Object catch (error) {
+              bundleFail(root, child.path, 'could not read file: $error');
+            }
+          default:
+            bundleFail(root, child.path, 'unsupported filesystem entry');
         }
       }
     }
 
     visit(root);
     result.sort(
-      (left, right) => _compareUtf8(left.relativePath, right.relativePath),
+      (left, right) => compareUtf8(left.relativePath, right.relativePath),
     );
     return result;
   }
 
   void _rejectUnsupportedTree(String root, List<_Entry> entries) {
-    const forbiddenNames = {
-      'Watch',
-      'WatchKit',
-      'com.apple.WatchPlaceholder',
-      'PlugIns',
-      'Extensions',
-      'XPCServices',
-    };
-    const unsupportedSuffixes = {
-      '.app',
-      '.appex',
-      '.xctest',
-      '.xpc',
-      '.bundle',
-      '.plugin',
-      '.xcframework',
-    };
     for (final entry in entries) {
       if (entry.type != FileSystemEntityType.directory) continue;
       final name = p.basename(entry.path);
-      if (forbiddenNames.contains(name)) {
-        _fail(root, entry.path, 'unsupported nested code directory "$name"');
+      if (_forbiddenDirectoryNames.contains(name)) {
+        bundleFail(
+          root,
+          entry.path,
+          'unsupported nested code directory "$name"',
+        );
       }
       if (!name.endsWith('.framework') &&
-          (unsupportedSuffixes.any(name.endsWith) ||
+          (_unsupportedBundleSuffixes.any(name.endsWith) ||
               _declaresBundleExecutable(entry.path))) {
-        _fail(root, entry.path, 'unsupported nested code bundle "$name"');
+        bundleFail(root, entry.path, 'unsupported nested code bundle "$name"');
       }
     }
   }
 
+  /// True when a directory carries an `Info.plist` naming an executable, which
+  /// makes it a code bundle whatever its suffix is.
   bool _declaresBundleExecutable(String directory) {
     final info = File(p.join(directory, 'Info.plist'));
     if (!info.existsSync()) return false;
     try {
-      final bytes = info.readAsBytesSync();
-      final plist =
-          bytes.length >= 8 && ascii.decode(bytes.sublist(0, 8)) == 'bplist00'
-          ? PropertyListSerialization.propertyListWithData(
-              ByteData.sublistView(bytes),
-            )
-          : PropertyListSerialization.propertyListWithString(
-              utf8.decode(bytes),
-            );
+      final plist = decodePropertyList(info.readAsBytesSync());
       return plist is Map<Object?, Object?> &&
           plist['CFBundleExecutable'] is String;
     } on Object {
@@ -293,28 +371,23 @@ class BundleSigner {
     final infoPath = p.join(path, 'Info.plist');
     if (FileSystemEntity.typeSync(infoPath, followLinks: false) !=
         FileSystemEntityType.file) {
-      _fail(root, infoPath, 'required Info.plist is missing');
+      bundleFail(root, infoPath, 'required Info.plist is missing');
     }
     final Uint8List bytes;
     final Object plist;
     try {
       bytes = File(infoPath).readAsBytesSync();
-      plist =
-          bytes.length >= 8 && ascii.decode(bytes.sublist(0, 8)) == 'bplist00'
-          ? PropertyListSerialization.propertyListWithData(
-              ByteData.sublistView(bytes),
-            )
-          : PropertyListSerialization.propertyListWithString(
-              utf8.decode(bytes),
-            );
+      plist = decodePropertyList(bytes);
     } on Object catch (error) {
-      _fail(root, infoPath, 'malformed Info.plist: $error');
+      bundleFail(root, infoPath, 'malformed Info.plist: $error');
     }
     if (plist is! Map<Object?, Object?>) {
-      _fail(root, infoPath, 'Info.plist root is not a dictionary');
+      bundleFail(root, infoPath, 'Info.plist root is not a dictionary');
     }
     final executable = plist['CFBundleExecutable'];
     final identifier = plist['CFBundleIdentifier'];
+    // The executable name is joined onto the bundle path, so anything that
+    // could traverse out of it is rejected.
     if (executable is! String ||
         executable.isEmpty ||
         executable == '.' ||
@@ -322,21 +395,25 @@ class BundleSigner {
         p.basename(executable) != executable ||
         executable.contains('/') ||
         executable.contains(r'\')) {
-      _fail(root, infoPath, 'CFBundleExecutable must be a file name');
+      bundleFail(root, infoPath, 'CFBundleExecutable must be a file name');
     }
     if (identifier is! String ||
         identifier.isEmpty ||
         identifier.contains('\u0000')) {
-      _fail(root, infoPath, 'CFBundleIdentifier is missing or invalid');
+      bundleFail(root, infoPath, 'CFBundleIdentifier is missing or invalid');
     }
     final executablePath = p.join(path, executable);
     if (FileSystemEntity.typeSync(executablePath, followLinks: false) !=
         FileSystemEntityType.file) {
-      _fail(root, executablePath, 'bundle executable is missing or not a file');
+      bundleFail(
+        root,
+        executablePath,
+        'bundle executable is missing or not a file',
+      );
     }
     return _Bundle(
       path,
-      isRoot ? '.' : _relative(root, path),
+      isRoot ? '.' : bundleRelativePath(root, path),
       identifier,
       executablePath,
       bytes,
@@ -344,6 +421,8 @@ class BundleSigner {
     );
   }
 
+  /// The profile's `application-identifier` is `<team>.<bundle id pattern>`,
+  /// where a trailing `*` makes it a wildcard profile.
   void _checkApplicationIdentifier(String bundleIdentifier, String root) {
     final applicationIdentifier = asset.entitlements['application-identifier'];
     if (applicationIdentifier is! String || applicationIdentifier.isEmpty) {
@@ -370,71 +449,31 @@ class BundleSigner {
     }
   }
 
+  /// Seals [bundle]'s own contents. Symlink containment is still judged
+  /// against the app root, not the nested bundle.
   Uint8List _codeResources(_Plan plan, _Bundle bundle) {
     final entries = _walk(
       bundle.path,
       _resolveDirectory(plan.root.path, plan.root.path),
     );
-    final files = _sortedMap();
-    final files2 = _sortedMap();
-    final executable = _relative(bundle.path, bundle.executablePath);
-    const codeResources = '_CodeSignature/CodeResources';
-
-    for (final entry in entries) {
-      if (entry.type != FileSystemEntityType.file &&
-          entry.type != FileSystemEntityType.link) {
-        continue;
-      }
-      final key = entry.relativePath;
-      if (key == executable || key == codeResources) continue;
-      if (entry.type == FileSystemEntityType.link) {
-        final seal = _symlinkSeal(entry.path, plan.root.path);
-        if (!_omitFiles1(key)) files[key] = seal;
-      } else if (!_omitFiles1(key)) {
-        final hash = _sha1File(entry.path, plan.root.path);
-        files[key] = _isLocalization(key)
-            ? (_sortedMap()
-                ..['hash'] = _data(hash)
-                ..['optional'] = true)
-            : _data(hash);
-      }
-    }
-
-    for (final entry in entries) {
-      if (entry.type != FileSystemEntityType.file &&
-          entry.type != FileSystemEntityType.link) {
-        continue;
-      }
-      final key = entry.relativePath;
-      if (key == executable || key == codeResources || _omitFiles2(key)) {
-        continue;
-      }
-      if (entry.type == FileSystemEntityType.link) {
-        files2[key] = _symlinkSeal(entry.path, plan.root.path);
-      } else {
-        final value = _sortedMap()
-          ..['hash'] = _data(_sha1File(entry.path, plan.root.path))
-          ..['hash2'] = _data(_sha256File(entry.path, plan.root.path));
-        if (_isLocalization(key)) value['optional'] = true;
-        files2[key] = value;
-      }
-    }
-
-    final output = _sortedMap()
-      ..['files'] = files
-      ..['files2'] = files2
-      ..['rules'] = _rules()
-      ..['rules2'] = _rules2();
-    try {
-      return Uint8List.fromList(
-        utf8.encode(PropertyListSerialization.stringWithPropertyList(output)),
-      );
-    } on Object catch (error) {
-      throw AppleError(
-        'Bundle "${bundle.relativePath}" could not serialize CodeResources: '
-        '$error',
-      );
-    }
+    return buildCodeResources(
+      candidates: [
+        for (final entry in entries)
+          if (entry.type == FileSystemEntityType.file ||
+              entry.type == FileSystemEntityType.link)
+            (
+              path: entry.path,
+              relativePath: entry.relativePath,
+              isSymlink: entry.type == FileSystemEntityType.link,
+            ),
+      ],
+      executableRelativePath: bundleRelativePath(
+        bundle.path,
+        bundle.executablePath,
+      ),
+      bundleRelativePath: bundle.relativePath,
+      rootPath: plan.root.path,
+    );
   }
 
   Future<void> _writeCodeResources(
@@ -446,7 +485,7 @@ class BundleSigner {
     try {
       await directory.create(recursive: true);
     } on Object catch (error) {
-      _fail(plan.root.path, directory.path, 'could not create: $error');
+      bundleFail(plan.root.path, directory.path, 'could not create: $error');
     }
     await _atomicWrite(
       p.join(directory.path, 'CodeResources'),
@@ -455,72 +494,14 @@ class BundleSigner {
     );
   }
 
-  SplayTreeMap<String, Object?> _rules() => _sortedMap()
-    ..['^.*'] = true
-    ..[r'^.*\.lproj/'] = (_sortedMap()
-      ..['optional'] = true
-      ..['weight'] = 1000.0)
-    ..[r'^.*\.lproj/locversion.plist$'] = (_sortedMap()
-      ..['omit'] = true
-      ..['weight'] = 1100.0)
-    ..[r'^Base\.lproj/'] = (_sortedMap()..['weight'] = 1010.0)
-    ..[r'^version\.plist$'] = true;
-
-  SplayTreeMap<String, Object?> _rules2() => _sortedMap()
-    ..['^.*'] = true
-    ..[r'.*\.dSYM($|/)'] = (_sortedMap()..['weight'] = 11.0)
-    ..[r'^(.*/)?\.DS_Store$'] = (_sortedMap()
-      ..['omit'] = true
-      ..['weight'] = 2000.0)
-    ..[r'^.*\.lproj/'] = (_sortedMap()
-      ..['optional'] = true
-      ..['weight'] = 1000.0)
-    ..[r'^.*\.lproj/locversion.plist$'] = (_sortedMap()
-      ..['omit'] = true
-      ..['weight'] = 1100.0)
-    ..[r'^Base\.lproj/'] = (_sortedMap()..['weight'] = 1010.0)
-    ..[r'^Info\.plist$'] = (_sortedMap()
-      ..['omit'] = true
-      ..['weight'] = 20.0)
-    ..[r'^PkgInfo$'] = (_sortedMap()
-      ..['omit'] = true
-      ..['weight'] = 20.0)
-    ..[r'^embedded\.provisionprofile$'] = (_sortedMap()..['weight'] = 20.0)
-    ..[r'^version\.plist$'] = (_sortedMap()..['weight'] = 20.0);
-
-  static SplayTreeMap<String, Object?> _sortedMap() =>
-      SplayTreeMap<String, Object?>(_compareUtf8);
-  static int _compareUtf8(String left, String right) {
-    final leftBytes = utf8.encode(left);
-    final rightBytes = utf8.encode(right);
-    final length = leftBytes.length < rightBytes.length
-        ? leftBytes.length
-        : rightBytes.length;
-    for (var index = 0; index < length; index++) {
-      final result = leftBytes[index].compareTo(rightBytes[index]);
-      if (result != 0) return result;
-    }
-    return leftBytes.length.compareTo(rightBytes.length);
-  }
-
-  static String _relative(String root, String path) =>
-      p.relative(path, from: root).replaceAll(r'\', '/');
-  static String _pathKey(String path) {
-    final normalized = p.normalize(p.absolute(path));
-    return Platform.isWindows ? normalized.toLowerCase() : normalized;
-  }
-
-  static bool _samePath(String left, String right) =>
-      _pathKey(left) == _pathKey(right);
-  static bool _isWithinOrEqual(String parent, String child) =>
-      _samePath(parent, child) || p.isWithin(parent, child);
   static int _depth(String relative) =>
       relative == '.' ? 0 : relative.split('/').length;
+
   static String _resolveDirectory(String path, String root) {
     try {
       return Directory(path).resolveSymbolicLinksSync();
     } on Object catch (error) {
-      _fail(root, path, 'could not resolve directory: $error');
+      bundleFail(root, path, 'could not resolve directory: $error');
     }
   }
 
@@ -528,10 +509,12 @@ class BundleSigner {
     try {
       return Link(path).resolveSymbolicLinksSync();
     } on Object catch (error) {
-      _fail(root, path, 'unsafe or dangling symlink: $error');
+      bundleFail(root, path, 'unsafe or dangling symlink: $error');
     }
   }
 
+  /// Deliberately treats an unreadable file as "not Mach-O": the walk has
+  /// already proven every file readable, so this only guards races.
   static bool _hasMachOMagic(String path) {
     try {
       final file = File(path).openSync();
@@ -539,60 +522,13 @@ class BundleSigner {
         final bytes = file.readSync(4);
         if (bytes.length != 4) return false;
         final magic = ByteData.sublistView(bytes).getUint32(0, Endian.little);
-        return const {
-          0xcafebabe,
-          0xbebafeca,
-          0xfeedface,
-          0xcefaedfe,
-          0xfeedfacf,
-          0xcffaedfe,
-        }.contains(magic);
+        return _machoMagics.contains(magic);
       } finally {
         file.closeSync();
       }
     } on Object {
       return false;
     }
-  }
-
-  static bool _isLocalization(String path) => path.contains('.lproj/');
-  static bool _omitFiles1(String path) =>
-      path.endsWith('.lproj/locversion.plist');
-  static bool _omitFiles2(String path) =>
-      path.endsWith('.lproj/locversion.plist') ||
-      path.endsWith('.DS_Store') ||
-      path == 'Info.plist' ||
-      path == 'PkgInfo';
-  static ByteData _data(List<int> bytes) =>
-      ByteData.sublistView(Uint8List.fromList(bytes));
-  static Uint8List _sha1File(String path, String root) {
-    try {
-      return Uint8List.fromList(
-        crypto.sha1.convert(File(path).readAsBytesSync()).bytes,
-      );
-    } on Object catch (error) {
-      _fail(root, path, 'could not hash file with SHA-1: $error');
-    }
-  }
-
-  static Uint8List _sha256File(String path, String root) {
-    try {
-      return Uint8List.fromList(
-        crypto.sha256.convert(File(path).readAsBytesSync()).bytes,
-      );
-    } on Object catch (error) {
-      _fail(root, path, 'could not hash file with SHA-256: $error');
-    }
-  }
-
-  static SplayTreeMap<String, Object?> _symlinkSeal(String path, String root) {
-    final String target;
-    try {
-      target = Link(path).targetSync();
-    } on Object catch (error) {
-      _fail(root, path, 'could not read symlink target: $error');
-    }
-    return _sortedMap()..['symlink'] = target;
   }
 
   static Future<void> _removeIfPresent(String path) async {
@@ -611,6 +547,8 @@ class BundleSigner {
     }
   }
 
+  /// Writes through a sibling temporary file so a crash cannot leave a
+  /// partially written seal behind.
   static Future<void> _atomicWrite(
     String path,
     List<int> bytes,
@@ -624,20 +562,14 @@ class BundleSigner {
       await temporary.rename(path);
     } on Object catch (error) {
       if (temporary.existsSync()) await temporary.delete();
-      _fail(root, path, 'could not atomically write file: $error');
+      bundleFail(root, path, 'could not atomically write file: $error');
     }
   }
-
-  static Never _fail(String root, String path, String reason) =>
-      throw AppleError(
-        'Bundle "${_relative(root, path)}" is invalid: $reason.',
-      );
 }
 
 class _Plan {
-  const _Plan(this.path, this.bundles, this.looseBinaries);
+  const _Plan(this.bundles, this.looseBinaries);
 
-  final String path;
   final List<_Bundle> bundles;
   final List<_LooseBinary> looseBinaries;
 
