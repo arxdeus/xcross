@@ -9,9 +9,11 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:apple_developer_kit/src/errors.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
 /// Persisted Anisette provisioning state.
+@immutable
 class AnisetteState {
   const AnisetteState({
     required this.localUserUid,
@@ -22,7 +24,7 @@ class AnisetteState {
   factory AnisetteState.fromJson(Map<String, Object?> json) {
     final localUserUid = json['localUserUid'];
     if (localUserUid is! String || localUserUid.isEmpty) {
-      throw AppleError('anisette state: missing/invalid "localUserUid"');
+      throw const AppleError('anisette state: missing/invalid "localUserUid"');
     }
     final routingInfo = json['routingInfo'];
     return AnisetteState(
@@ -43,6 +45,7 @@ class AnisetteState {
   /// `X-Apple-I-MD-RINFO`, parsed as a u64. Meaningful once [provisioned].
   final int? routingInfo;
 
+  @useResult
   AnisetteState copyWith({bool? provisioned, int? routingInfo}) =>
       AnisetteState(
         localUserUid: localUserUid,
@@ -60,6 +63,7 @@ class AnisetteState {
 
   /// A random v4 UUID from `Random.secure` - no UUID package needed for a
   /// single persisted device-identity value.
+  @useResult
   static String generateUuidV4() {
     final random = Random.secure();
     final bytes = List<int>.generate(16, (_) => random.nextInt(256));
@@ -85,6 +89,7 @@ class AnisetteStateStore {
   /// `<config-dir>/xcross/anisette-state.json`, where `<config-dir>` is
   /// `%APPDATA%` on Windows and `$XDG_CONFIG_HOME` (or `~/.config`)
   /// elsewhere - the same convention as `AscCredentials.defaultConfigPath`.
+  @useResult
   static String defaultPath() =>
       p.join(_configDir(), 'xcross', 'anisette-state.json');
 

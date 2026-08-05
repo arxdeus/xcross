@@ -19,6 +19,7 @@ dependencies:
   frontend_server_kit:
     path: ../frontend_server_kit
   pure: ^1.0.0
+  meta: ^1.19.0
 
 dev_dependencies:
   test: ^1.31.2

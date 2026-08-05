@@ -49,7 +49,7 @@ typedef _SrpChallenge = ({
 /// verify - almost always a wrong password), or two-factor was still
 /// demanded after a full retry.
 class GrandSlamAuthError extends AppleError {
-  GrandSlamAuthError(super.message);
+  const GrandSlamAuthError(super.message);
 }
 
 /// GrandSlam SRP login client.
@@ -122,7 +122,7 @@ class GrandSlamClient {
       return GrandSlamLoginData.fromDecryptedPlist(payload);
     }
     if (isRetry) {
-      throw GrandSlamAuthError(
+      throw const GrandSlamAuthError(
         '2FA is still being requested after a full login retry - '
         'aborting instead of looping indefinitely.',
       );
@@ -211,13 +211,13 @@ class GrandSlamClient {
     srp.addString('|');
 
     if (!srp.verifyServerProof(hamk)) {
-      throw GrandSlamAuthError(
+      throw const GrandSlamAuthError(
         'GrandSlam rejected the SRP proof (server hamk mismatch) - most '
         'likely an incorrect password.',
       );
     }
     if (!srp.verifyNegotiatedProtocols(negProto)) {
-      throw GrandSlamAuthError(
+      throw const GrandSlamAuthError(
         'GrandSlam negotiated-protocol verification (negProto) failed.',
       );
     }

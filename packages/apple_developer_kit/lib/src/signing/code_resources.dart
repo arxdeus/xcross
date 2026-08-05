@@ -7,10 +7,12 @@ import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/signing/bundle_paths.dart';
 import 'package:apple_developer_kit/src/signing/bytes.dart';
 import 'package:crypto/crypto.dart' as crypto;
+import 'package:meta/meta.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
 
 /// One sealable item found while walking a bundle: a regular file or a
 /// symlink. Directories are not sealed.
+@internal
 typedef SealCandidate = ({String path, String relativePath, bool isSymlink});
 
 /// The seal file never seals itself.
@@ -21,6 +23,8 @@ const String codeResourcesPath = '_CodeSignature/CodeResources';
 /// Two seal sets are emitted for compatibility: `files` is the original
 /// SHA-1-only format, and `files2` adds a SHA-256 `hash2` and omits more
 /// build residue. Both are keyed by bundle-relative path.
+@internal
+@useResult
 Uint8List buildCodeResources({
   required List<SealCandidate> candidates,
   required String executableRelativePath,
@@ -120,6 +124,8 @@ SplayTreeMap<String, Object?> _rules2() => sortedPlistMap()
 
 /// Keys are ordered by their UTF-8 bytes, not Dart's UTF-16 [String.compareTo],
 /// so the serialized plist matches what Apple's codesign emits.
+@internal
+@useResult
 SplayTreeMap<String, Object?> sortedPlistMap() =>
     SplayTreeMap<String, Object?>(compareUtf8);
 

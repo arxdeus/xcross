@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/errors.dart';
+import 'package:meta/meta.dart';
 
 /// Largest value any 32-bit Mach-O field can hold.
 const int uint32Max = 0xffffffff;
@@ -35,6 +36,7 @@ const String linkeditSegmentName = '__LINKEDIT';
 const String textSectionName = '__text';
 
 /// `mach_header_64` field offsets from `<mach-o/loader.h>`.
+@internal
 abstract final class MachHeader64 {
   static const int magic = 0;
   static const int cpuType = 4;
@@ -47,6 +49,7 @@ abstract final class MachHeader64 {
 }
 
 /// `load_command` field offsets shared by every command.
+@internal
 abstract final class LoadCommand {
   static const int cmd = 0;
   static const int cmdsize = 4;
@@ -56,6 +59,7 @@ abstract final class LoadCommand {
 }
 
 /// `segment_command_64` field offsets.
+@internal
 abstract final class SegmentCommand64 {
   static const int segname = 8;
   static const int vmsize = 32;
@@ -68,6 +72,7 @@ abstract final class SegmentCommand64 {
 }
 
 /// `section_64` field offsets and array stride.
+@internal
 abstract final class Section64 {
   static const int sectname = 0;
   static const int size = 40;
@@ -77,6 +82,7 @@ abstract final class Section64 {
 }
 
 /// `LC_CODE_SIGNATURE` field offsets. The command is always 16 bytes.
+@internal
 abstract final class CodeSignatureCommand {
   static const int dataOffset = 8;
   static const int dataSize = 12;
@@ -99,6 +105,7 @@ const int encryptionInfo64Size = 24;
 /// Offset of `cryptid` within either encryption command.
 const int encryptionCryptIdOffset = 16;
 
+@internal
 Never machoFail(String path, String field, String reason) =>
     throw AppleError('Mach-O "$path" has invalid $field: $reason.');
 
@@ -114,9 +121,13 @@ void requireRange(
   }
 }
 
+@internal
+@useResult
 int readU32le(Uint8List bytes, int offset) =>
     ByteData.sublistView(bytes).getUint32(offset, Endian.little);
 
+@internal
+@useResult
 int readU64le(Uint8List bytes, int offset) =>
     ByteData.sublistView(bytes).getUint64(offset, Endian.little);
 
@@ -145,6 +156,8 @@ void writeU64le(
 }
 
 /// Reads a NUL-padded ASCII `char[length]` field such as `segname`.
+@internal
+@useResult
 String readFixedString(
   Uint8List bytes,
   int offset,
@@ -162,6 +175,8 @@ String readFixedString(
   }
 }
 
+@internal
+@useResult
 int checkedAdd(int left, int right, int maximum, String path, String field) {
   if (left < 0 || right < 0 || left > maximum - right) {
     machoFail(path, field, 'integer overflow or out-of-bounds range');
@@ -169,6 +184,8 @@ int checkedAdd(int left, int right, int maximum, String path, String field) {
   return left + right;
 }
 
+@internal
+@useResult
 int checkedMultiply(
   int left,
   int right,
@@ -182,6 +199,8 @@ int checkedMultiply(
   return left * right;
 }
 
+@internal
+@useResult
 int alignUp(int value, int alignment, String path, String field) {
   final remainder = value % alignment;
   return remainder == 0
@@ -194,6 +213,8 @@ int alignUp(int value, int alignment, String path, String field) {
 /// Parsing is deliberately strict: anything the signer cannot rewrite safely
 /// (fat binaries, 32-bit or big-endian files, encrypted binaries, a
 /// non-terminal `__LINKEDIT`) is rejected up front rather than mis-signed.
+@internal
+@immutable
 class MachOLayout {
   const MachOLayout({
     required this.fileType,

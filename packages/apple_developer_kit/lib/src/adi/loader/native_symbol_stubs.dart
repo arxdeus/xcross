@@ -36,6 +36,7 @@ import 'dart:math';
 
 import 'package:apple_developer_kit/src/adi/elf/elf_loaded_library.dart';
 import 'package:ffi/ffi.dart';
+import 'package:meta/meta.dart';
 
 /// Builds the fixed 29-entry stub-symbol table Android/bionic-targeted
 /// libraries are relocated against, and hosts the recursive "dlopen
@@ -44,6 +45,7 @@ import 'package:ffi/ffi.dart';
 /// in symbols.d — this is how `libstoreservicescore.so` is expected to
 /// pull in `libCoreADI.so` at runtime; adi.d's own D caller never loads
 /// `libCoreADI.so` directly. See NOTICE.md for the load-order note).
+@internal
 class NativeSymbolStubs {
   NativeSymbolStubs({required this.loadLibraryForDlopen}) {
     _bindLibcPassthroughs();

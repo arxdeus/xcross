@@ -20,12 +20,14 @@ import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/adi/elf/elf_reader.dart';
 import 'package:apple_developer_kit/src/adi/loader/memory_allocator.dart';
+import 'package:meta/meta.dart';
 
 /// Resolves a symbol this library imports but does not define itself
 /// (bionic libc functions, pthread stubs, dlopen/dlsym/dlclose, etc. —
 /// see `native_symbol_stubs.dart`). Implementations must return
 /// [nullptr] rather than a nullable value for unresolved symbols — see
 /// the divergence note below.
+@internal
 typedef ExternalSymbolResolver = Pointer<Void> Function(String symbolName);
 
 /// The reserved image a library's `PT_LOAD` segments are mapped into,
@@ -43,8 +45,10 @@ typedef _SymbolTables = ({
 });
 
 /// A manually loaded, manually relocated ELF64 shared object.
+@internal
+@immutable
 class ElfLoadedLibrary {
-  ElfLoadedLibrary._(
+  const ElfLoadedLibrary._(
     this._allocation,
     this._symtab,
     this._gnuHash,
@@ -346,6 +350,7 @@ class ElfLoadedLibrary {
   /// and, confusingly, the ADI FFI wrapper's per-function lookups; this
   /// is the former — see `native_symbol_stubs.dart`'s dlsym emulation
   /// for the latter).
+  @useResult
   Pointer<Void> lookup(String symbolName) {
     final symtab = _symtab;
     if (symtab == null) {

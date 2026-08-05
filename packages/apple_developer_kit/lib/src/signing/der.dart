@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/signing/bytes.dart';
+import 'package:meta/meta.dart';
 
 /// ASN.1 identifier octets, in the constructed/primitive form each value is
 /// actually encoded with.
@@ -11,6 +12,7 @@ import 'package:apple_developer_kit/src/signing/bytes.dart';
 /// tags therefore start at `0xa0` (constructed, class `10`) and Apple's DER
 /// entitlements use `0x70` (application-class constructed 16) as their
 /// outermost wrapper.
+@internal
 abstract final class DerTag {
   static const int boolean = 0x01;
   static const int integer = 0x02;
@@ -38,8 +40,10 @@ abstract final class DerTag {
 }
 
 /// DER writers. Every helper emits definite-length, canonical encodings.
+@internal
 abstract final class Der {
   /// Encodes one tag-length-value triple.
+  @useResult
   static Uint8List tlv(int tag, Iterable<int> value) {
     final body = value is Uint8List
         ? value
@@ -60,17 +64,21 @@ abstract final class Der {
     return [0x80 | bytes.length, ...bytes];
   }
 
+  @useResult
   static Uint8List sequence(Iterable<Uint8List> values) =>
       tlv(DerTag.sequence, _concat(values));
 
   /// Encodes a `SET OF`, whose members DER requires to be sorted by encoding.
+  @useResult
   static Uint8List setOf(Iterable<Uint8List> values) =>
       tlv(DerTag.set, sortedContent(values));
 
+  @useResult
   static Uint8List octetString(List<int> bytes) =>
       tlv(DerTag.octetString, bytes);
 
   /// Encodes a non-negative `INTEGER` in minimal two's-complement form.
+  @useResult
   static Uint8List unsignedInteger(int value) {
     if (value < 0) throw ArgumentError.value(value, 'value');
     final bytes = <int>[];
@@ -85,6 +93,7 @@ abstract final class Der {
 
   /// Encodes a timestamp as `UTCTime` inside 1950-2049 and `GeneralizedTime`
   /// outside it, matching the CMS `signingTime` rule in RFC 5652 11.3.
+  @useResult
   static Uint8List time(DateTime value) {
     final utc = value.toUtc();
     String two(int part) => part.toString().padLeft(2, '0');
@@ -110,6 +119,7 @@ abstract final class Der {
   ///
   /// The first two arcs share one base-128 sub-identifier (`arc0 * 40 + arc1`),
   /// so arc 0 is limited to 0-2 and arc 1 to 0-39 unless arc 0 is 2.
+  @useResult
   static Uint8List oid(String value) {
     final arcs = value.split('.').map(int.parse).toList();
     if (arcs.length < 2 ||
@@ -143,6 +153,7 @@ abstract final class Der {
   ///
   /// SHA-256 digest algorithms omit the absent-parameters `NULL`, while
   /// `rsaEncryption` requires it (RFC 4055 2.1, RFC 3370 3.2).
+  @useResult
   static Uint8List algorithmIdentifier(
     String algorithm, {
     bool includeNull = true,
@@ -150,6 +161,7 @@ abstract final class Der {
       sequence([oid(algorithm), if (includeNull) tlv(DerTag.null_, const [])]);
 
   /// Encodes one CMS signed attribute: an OID paired with a `SET OF` values.
+  @useResult
   static Uint8List attribute(String algorithm, List<Uint8List> values) =>
       sequence([oid(algorithm), setOf(values)]);
 
@@ -158,6 +170,7 @@ abstract final class Der {
 
   /// Concatenates [values] after sorting them by encoding, as `SET OF` and the
   /// CMS certificate set both require.
+  @useResult
   static Uint8List sortedContent(Iterable<Uint8List> values) {
     final sorted = values.map(Uint8List.fromList).toList()..sort(compareBytes);
     return _concat(sorted);
@@ -173,6 +186,7 @@ abstract final class Der {
 
   /// Reads the OID out of an `AlgorithmIdentifier`, allowing only an absent or
   /// explicitly-`NULL` parameter.
+  @useResult
   static String algorithmOid(DerValue algorithm, String context) {
     final reader = algorithm.reader();
     final algorithmOid = oidValue(
@@ -189,6 +203,7 @@ abstract final class Der {
   }
 
   /// Decodes an `OBJECT IDENTIFIER` value into dotted form.
+  @useResult
   static String oidValue(DerValue value) {
     if (value.value.isEmpty) throw const FormatException('empty OID');
     final subIdentifiers = <BigInt>[];
@@ -218,6 +233,7 @@ abstract final class Der {
   }
 
   /// Decodes a strictly-positive, minimally-encoded `INTEGER`.
+  @useResult
   static BigInt positiveInteger(DerValue value, String context) {
     final bytes = value.value;
     if (bytes.isEmpty || bytes.first >= 0x80) {
@@ -237,6 +253,7 @@ abstract final class Der {
 /// A cursor over a DER container that rejects every non-canonical encoding:
 /// high-tag-number form, indefinite lengths, non-minimal lengths, and values
 /// that overrun their parent.
+@internal
 class DerReader {
   DerReader(this._bytes, [int start = 0, int? end])
     : _offset = start,
@@ -252,6 +269,7 @@ class DerReader {
 
   bool get isDone => _offset == _end;
 
+  @useResult
   int peekTag() {
     if (isDone) throw const FormatException('unexpected end of DER');
     return _bytes[_offset];
@@ -318,6 +336,8 @@ class DerReader {
 
 /// A parsed DER value, kept as views into the original buffer so that
 /// [encoded] can be re-emitted byte for byte.
+@internal
+@immutable
 class DerValue {
   const DerValue({
     required this.bytes,

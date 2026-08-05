@@ -14,6 +14,7 @@ import 'package:apple_developer_kit/src/adi/loader/loader.dart';
 import 'package:apple_developer_kit/src/adi/loader/loader_posix.dart';
 import 'package:apple_developer_kit/src/adi/loader/loader_windows.dart';
 import 'package:ffi/ffi.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
 /// Known ADI native error codes, ported verbatim from the `ADIError` enum
@@ -56,8 +57,9 @@ enum AdiErrorCode {
 ///
 /// Ported from `ADIException`/`ADIError`/`toString(ADIError)` in adi.d;
 /// the error code -> message mapping is copied verbatim from upstream.
+@immutable
 class AdiException implements Exception {
-  AdiException(this.errorCode);
+  const AdiException(this.errorCode);
 
   final int errorCode;
 
@@ -113,6 +115,7 @@ class AdiException implements Exception {
 /// Result of [AdiClient.synchronize].
 ///
 /// Ported from `ADI.SynchronizationResumeMetadata` in adi.d.
+@immutable
 class AdiSynchronizationResult {
   const AdiSynchronizationResult({
     required this.synchronizationResumeMetadata,
@@ -126,6 +129,7 @@ class AdiSynchronizationResult {
 /// Result of [AdiClient.startProvisioning].
 ///
 /// Ported from `ADI.ClientProvisioningIntermediateMetadata` in adi.d.
+@immutable
 class AdiClientProvisioningIntermediateMetadata {
   const AdiClientProvisioningIntermediateMetadata({
     required this.clientProvisioningIntermediateMetadata,
@@ -139,6 +143,7 @@ class AdiClientProvisioningIntermediateMetadata {
 /// Result of [AdiClient.requestOTP].
 ///
 /// Ported from `ADI.OneTimePassword` in adi.d.
+@immutable
 class AdiOneTimePassword {
   const AdiOneTimePassword({
     required this.oneTimePassword,
@@ -391,6 +396,7 @@ class AdiClient {
   /// Default loader for the current host: Windows ELF+SysV bridge, or Linux
   /// POSIX mmap loader. See NOTICE.md for why plain dlopen/LoadLibrary is
   /// unsafe for these Android libraries.
+  @useResult
   static NativeLibraryLoader defaultNativeLibraryLoader() {
     if (Platform.isWindows) return WindowsNativeLibraryLoader();
     if (Platform.isLinux) return PosixNativeLibraryLoader();

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/appstoreconnect/asc_config.dart';
 import 'package:basic_utils/basic_utils.dart';
+import 'package:meta/meta.dart';
 
 /// Builds the short-lived JWT bearer token App Store Connect API requests
 /// are authenticated with (Team-scoped API key, ES256).
@@ -16,6 +17,7 @@ abstract final class AscJwt {
   ///
   /// Tokens are cheap to generate and short-lived by design - callers should
   /// mint a fresh one per request rather than caching across calls.
+  @doNotStore
   static Future<String> generate(AscCredentials credentials) async {
     final privateKey = CryptoUtils.ecPrivateKeyFromPem(
       await credentials.readPrivateKeyPem(),

@@ -18,6 +18,7 @@ import 'package:apple_developer_kit/src/grandslam/grandslam_operation.dart';
 import 'package:apple_developer_kit/src/grandslam/grandslam_response.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:http/http.dart' as http;
+import 'package:meta/meta.dart';
 import 'package:pointycastle/export.dart' as pc;
 
 const String kDeveloperServicesAppIdentifier = 'com.apple.gs.xcode.auth';
@@ -31,6 +32,7 @@ const int _tagLength = 16;
 /// AES-256: the SRP session key must be exactly 32 bytes.
 const int _sessionKeyLength = 32;
 
+@immutable
 class DeveloperServicesLoginToken {
   const DeveloperServicesLoginToken({
     required this.adsid,
@@ -69,7 +71,7 @@ class GrandSlamAppTokenExchange {
     List<String> apps = const [kDeveloperServicesAppIdentifier],
   }) async {
     if (!apps.contains(kDeveloperServicesAppIdentifier)) {
-      throw AppleError(
+      throw const AppleError(
         'Developer Services app-token exchange must request '
         '$kDeveloperServicesAppIdentifier.',
       );
@@ -112,6 +114,7 @@ class GrandSlamAppTokenExchange {
 
   /// xtool/AppTokens.swift checksum order:
   /// `HMAC-SHA256(SK, "apptokens" || adsid || app[0] || app[1] || ...)`.
+  @useResult
   static Uint8List grandSlamAppTokenChecksum({
     required Uint8List sessionKey,
     required String adsid,
@@ -126,6 +129,7 @@ class GrandSlamAppTokenExchange {
 
   /// Opens the `et` blob: AES-256-GCM with the leading 3 bytes as
   /// additional authenticated data.
+  @useResult
   static Uint8List decryptGrandSlamAppTokenBlob({
     required Uint8List encryptedToken,
     required Uint8List sessionKey,
@@ -137,7 +141,9 @@ class GrandSlamAppTokenExchange {
       );
     }
     if (encryptedToken.length <= _aadLength + _ivLength + _tagLength) {
-      throw AppleError('GrandSlam app-token encrypted blob is too short.');
+      throw const AppleError(
+        'GrandSlam app-token encrypted blob is too short.',
+      );
     }
 
     final aad = Uint8List.sublistView(encryptedToken, 0, _aadLength);

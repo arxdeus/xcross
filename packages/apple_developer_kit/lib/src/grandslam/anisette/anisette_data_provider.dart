@@ -25,6 +25,7 @@ import 'package:apple_developer_kit/src/grandslam/anisette/anisette_state.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/grandslam_endpoints.dart';
 import 'package:apple_developer_kit/src/grandslam/grandslam_response.dart';
 import 'package:http/http.dart' as http;
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 
@@ -34,9 +35,11 @@ export 'package:apple_developer_kit/src/adi/adi_client.dart'
 /// Apple's sentinel `dsId` for machine-level (not-yet-signed-in) ADI
 /// identity, used for both provisioning and every `requestOTP`. A fixed
 /// protocol constant, not a per-caller value.
+@internal
 const int kAdiMachineDsId = -2;
 
 /// Builds the [AdiProvisioning] backing an [AnisetteDataProvider].
+@internal
 typedef AdiProvisioningFactory =
     AdiProvisioning Function({
       required String adiLibraryDirectory,
@@ -47,6 +50,7 @@ typedef AdiProvisioningFactory =
 /// The slice of `AdiClient` this provider drives, extracted so tests can
 /// substitute a fake instead of the real (Linux) native ADI library.
 /// Construction and configuration are the factory's job, not part of this.
+@internal
 abstract interface class AdiProvisioning {
   Future<bool> isMachineProvisioned(int dsId);
 

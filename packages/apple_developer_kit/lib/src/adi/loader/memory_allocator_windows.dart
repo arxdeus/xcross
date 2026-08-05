@@ -7,6 +7,7 @@ import 'dart:ffi';
 
 import 'package:apple_developer_kit/src/adi/loader/memory_allocator.dart';
 import 'package:ffi/ffi.dart';
+import 'package:meta/meta.dart';
 
 const int _memCommit = 0x0000_1000;
 const int _memReserve = 0x0000_2000;
@@ -38,6 +39,7 @@ typedef _VirtualProtectDart =
 typedef _VirtualFreeDart =
     int Function(Pointer<Void> address, int size, int freeType);
 
+@internal
 class WindowsMemoryAllocator implements NativeMemoryAllocator {
   WindowsMemoryAllocator()
     : _virtualAlloc = DynamicLibrary.process()

@@ -27,6 +27,7 @@ import 'dart:typed_data';
 import 'package:apple_developer_kit/src/adi/elf/elf_loaded_library.dart';
 import 'package:apple_developer_kit/src/adi/loader/sysv_abi_bridge.dart';
 import 'package:ffi/ffi.dart';
+import 'package:meta/meta.dart';
 
 part 'windows/linux_abi.dart';
 part 'windows/windows_crt.dart';
@@ -36,6 +37,7 @@ part 'windows/windows_crt.dart';
 /// The set of symbol name strings, and the exact value each stub returns,
 /// are load-bearing: a missing entry becomes a null GOT slot the loaded
 /// library will call straight into.
+@internal
 class WindowsNativeSymbolStubs {
   WindowsNativeSymbolStubs({required this.loadLibraryForDlopen}) {
     _errnoPtr = calloc<Int32>();

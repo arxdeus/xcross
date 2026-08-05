@@ -20,8 +20,9 @@ typedef _ProfileIdentity = ({
 });
 
 /// Parsed signing material used to produce Apple code-signing CMS blobs.
+@immutable
 class SigningAsset {
-  SigningAsset._({
+  const SigningAsset._({
     required this.privateKey,
     required this.leafCertificateDer,
     required this.profileCmsBytes,
@@ -52,6 +53,7 @@ class SigningAsset {
 
   /// Loads and validates a PEM RSA key, PEM leaf certificate, and
   /// CMS-wrapped mobile provisioning profile.
+  @useResult
   static Future<SigningAsset> load({
     required String privateKeyPemPath,
     required String certificatePemPath,
@@ -214,6 +216,7 @@ class SigningAsset {
   /// [cdhashBytes] is the full 32-byte SHA-256 CodeDirectory hash. Apple's
   /// legacy cdhash plist receives its first 20 bytes, while CDHashes2 receives
   /// all 32 bytes. Supplying [signingTime] makes the output deterministic.
+  @useResult
   Uint8List buildDetachedCms({
     required Uint8List codeDirectoryBytes,
     required Uint8List cdhashBytes,

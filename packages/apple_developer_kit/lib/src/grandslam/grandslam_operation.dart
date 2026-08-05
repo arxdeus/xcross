@@ -10,8 +10,10 @@ import 'package:apple_developer_kit/src/grandslam/anisette/anisette_headers.dart
 import 'package:apple_developer_kit/src/grandslam/anisette/grandslam_endpoints.dart';
 import 'package:apple_developer_kit/src/grandslam/grandslam_response.dart';
 import 'package:http/http.dart' as http;
+import 'package:meta/meta.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
 
+@internal
 abstract final class GrandSlamOperation {
   /// The `cpd` dict: Anisette values echoed into the request body, where
   /// GrandSlam expects `X-Apple-I-MD-RINFO` as an integer rather than the
@@ -30,7 +32,7 @@ abstract final class GrandSlamOperation {
 
     final routingInfo = int.tryParse(requiredHeader('X-Apple-I-MD-RINFO'));
     if (routingInfo == null) {
-      throw AppleError('Invalid decimal Anisette routing info');
+      throw const AppleError('Invalid decimal Anisette routing info');
     }
 
     return {

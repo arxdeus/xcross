@@ -4,9 +4,11 @@ import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/signing/der.dart';
 import 'package:apple_developer_kit/src/signing/plist.dart';
 import 'package:apple_developer_kit/src/signing/x509.dart';
+import 'package:meta/meta.dart';
 
 /// The payload of a `.mobileprovision`: the embedded plist and the
 /// certificates Apple shipped alongside it.
+@internal
 typedef ProfileCms = ({Uint8List plist, List<Uint8List> certificates});
 
 /// Unwraps the CMS `SignedData` that a `.mobileprovision` is packaged in.
@@ -14,6 +16,8 @@ typedef ProfileCms = ({Uint8List plist, List<Uint8List> certificates});
 /// The signature itself is not verified here: the profile is only trusted
 /// because the leaf certificate must also appear in `DeveloperCertificates`
 /// and chain to an Apple root.
+@internal
+@useResult
 ProfileCms parseProfileCms(Uint8List bytes, String path) {
   try {
     final contentInfo = Der.single(
@@ -140,6 +144,8 @@ void _validateCertificateShape(DerValue certificate) {
   reader.requireDone('embedded certificate');
 }
 
+@internal
+@useResult
 Map<String, Object?> parsePlist(Uint8List bytes, String path) {
   try {
     return requiredMap(decodePropertyList(bytes), 'root property list', path);
@@ -150,6 +156,8 @@ Map<String, Object?> parsePlist(Uint8List bytes, String path) {
   }
 }
 
+@internal
+@useResult
 Map<String, Object?> requiredMap(Object? value, String field, String path) {
   if (value is! Map<Object?, Object?>) {
     throw AppleError('Provisioning profile "$path" has an invalid $field map.');
@@ -166,6 +174,8 @@ Map<String, Object?> requiredMap(Object? value, String field, String path) {
   return result;
 }
 
+@internal
+@useResult
 DateTime requiredDate(Map<String, Object?> profile, String key, String path) {
   final value = profile[key];
   if (value is! DateTime) {
@@ -174,6 +184,8 @@ DateTime requiredDate(Map<String, Object?> profile, String key, String path) {
   return value;
 }
 
+@internal
+@useResult
 String requiredFirstString(
   Map<String, Object?> profile,
   String key,
@@ -187,6 +199,8 @@ String requiredFirstString(
 
 /// Reads `DeveloperCertificates`, which property list decoders surface as
 /// either [ByteData] or [Uint8List] depending on the plist flavour.
+@internal
+@useResult
 List<Uint8List> developerCertificates(
   Map<String, Object?> profile,
   String path,

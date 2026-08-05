@@ -13,6 +13,7 @@ import 'package:apple_developer_kit/src/appstoreconnect/asc_models.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/provisioning_identifiers.dart';
 import 'package:apple_developer_kit/src/errors.dart';
 import 'package:basic_utils/basic_utils.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
 export 'asc_client.dart';
@@ -42,6 +43,7 @@ abstract final class AscProvisioning {
   ///
   /// The API does NOT return PEM directly - dumping `certificateContent` to a
   /// `.pem` file as-is produces an invalid certificate.
+  @useResult
   static String wrapDerAsPem(String derBase64, {String label = 'CERTIFICATE'}) {
     // Re-encoding normalises whatever line breaks Apple sent.
     final body = base64.encode(base64.decode(derBase64));
@@ -166,7 +168,7 @@ abstract final class AscProvisioning {
           device.id,
     }.toList();
     if (ids.isEmpty) {
-      throw AppleError(
+      throw const AppleError(
         'No iOS devices are registered on this team. Plug in a device and '
         'retry.',
       );
@@ -314,7 +316,7 @@ abstract final class AscProvisioning {
   static String _serialNumberFromCertificatePem(String pem) {
     final tbs = X509Utils.x509CertificateFromPem(pem).tbsCertificate;
     if (tbs == null) {
-      throw AppleError('Certificate PEM is missing a TBS certificate');
+      throw const AppleError('Certificate PEM is missing a TBS certificate');
     }
     final hex = tbs.serialNumber.toRadixString(16).toUpperCase();
     return hex.length.isOdd ? '0$hex' : hex;

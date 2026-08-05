@@ -7,6 +7,7 @@ import 'package:apple_developer_kit/src/signing/bytes.dart';
 import 'package:apple_developer_kit/src/signing/der.dart';
 import 'package:apple_developer_kit/src/signing/macho_format.dart';
 import 'package:crypto/crypto.dart' as crypto;
+import 'package:meta/meta.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
 
 /// Every `CS_` blob is big-endian, unlike the little-endian Mach-O container
@@ -54,6 +55,7 @@ const int csPageSizeLog2 = 12;
 const int codeDirectoryVersion = 0x20400;
 
 /// `CS_CodeDirectory` field offsets, in the `0x20400` layout.
+@internal
 abstract final class CodeDirectoryField {
   static const int magic = 0;
   static const int length = 4;
@@ -99,21 +101,30 @@ const List<int> appleWwdrMarkerOid = [
 ];
 
 /// One entry of a `CS_SuperBlob`.
+@internal
 typedef SignatureSlot = ({int type, Uint8List bytes});
 
+@internal
+@useResult
 Uint8List sha256Digest(List<int> bytes) =>
     Uint8List.fromList(crypto.sha256.convert(bytes).bytes);
 
+@internal
+@useResult
 Uint8List be32(int value) =>
     Uint8List(4)..buffer.asByteData().setUint32(0, value);
 
+@internal
 void writeU32be(Uint8List bytes, int offset, int value) =>
     ByteData.sublistView(bytes).setUint32(offset, value);
 
+@internal
 void writeU64be(Uint8List bytes, int offset, int value) =>
     ByteData.sublistView(bytes).setUint64(offset, value);
 
 /// Wraps [body] in a `CS_` blob header carrying [magic] and the total length.
+@internal
+@useResult
 Uint8List csBlob(int magic, Iterable<int> body, String path, String field) {
   final bytes = body is Uint8List ? body : Uint8List.fromList(body.toList());
   final length = checkedAdd(
@@ -128,6 +139,8 @@ Uint8List csBlob(int magic, Iterable<int> body, String path, String field) {
 
 /// Lays out a `CS_SuperBlob`: header, one index entry per slot, then the slot
 /// payloads back to back in the same order.
+@internal
+@useResult
 Uint8List buildSuperblob(List<SignatureSlot> slots, String path) {
   final headerLength = checkedAdd(
     csSuperBlobHeaderLength,
@@ -180,6 +193,8 @@ Uint8List buildSuperblob(List<SignatureSlot> slots, String path) {
 /// caller therefore passes them as
 /// `[DER(-7), spare(-6), entitlements(-5), spare(-4), resources(-3),
 /// requirements(-2), Info.plist(-1)]`.
+@internal
+@useResult
 Uint8List buildCodeDirectory({
   required Uint8List code,
   required int codeLimit,
@@ -275,6 +290,8 @@ Uint8List buildCodeDirectory({
 /// The blob is a `CS_Requirements` superblob holding exactly one
 /// `CS_Requirement`, whose index entry sits at offset 20 (12-byte header plus
 /// one 8-byte index).
+@internal
+@useResult
 Uint8List buildRequirements(String identifier, String subject, String path) {
   requireSigningString(subject, 'certificate common name', path);
   final expression = BytesBuilder(copy: false)
@@ -324,12 +341,16 @@ Uint8List _paddedBytes(List<int> value) => Uint8List.fromList([
 
 /// True when the entitlements grant `get-task-allow`, which the exec segment
 /// must mirror with `CS_EXECSEG_ALLOW_UNSIGNED`.
+@internal
+@useResult
 bool entitlementsAllowUnsigned(Uint8List xmlEntitlements) {
   final xml = utf8.decode(xmlEntitlements.sublist(csBlobHeaderLength));
   return RegExp(r'<key>get-task-allow</key>\s*<true\s*/>').hasMatch(xml);
 }
 
 /// Serializes [entitlements] as an XML plist inside a `CS_` blob.
+@internal
+@useResult
 Uint8List buildEntitlementsXml(Map<String, Object?> entitlements, String path) {
   final normalized = _normalizePlist(entitlements, path, 'XML entitlements');
   try {
@@ -383,6 +404,8 @@ Object _normalizePlist(Object? value, String path, String field) {
 
 /// Serializes [entitlements] as Apple's DER entitlements blob: version 1
 /// followed by the dictionary, all wrapped in `[APPLICATION 16]`.
+@internal
+@useResult
 Uint8List buildDerEntitlements(Map<String, Object?> entitlements, String path) {
   final dictionary = _derValue(entitlements, path, 'DER entitlements');
   final body = Uint8List.fromList([
@@ -473,6 +496,7 @@ Uint8List _derInteger(int value, String path, String field) {
   return Der.tlv(DerTag.integer, Uint8List.sublistView(bytes, start));
 }
 
+@internal
 void requireSigningString(String value, String field, String path) {
   if (value.isEmpty) machoFail(path, field, 'must not be empty');
   if (value.contains('\u0000')) machoFail(path, field, 'must not contain NUL');

@@ -13,6 +13,7 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:apple_developer_kit/src/adi/loader/memory_allocator.dart';
+import 'package:meta/meta.dart';
 
 const int _protNone = 0;
 const int _protRead = 1;
@@ -40,6 +41,7 @@ typedef _MprotectDart = int Function(Pointer<Void> addr, int length, int prot);
 
 typedef _MunmapDart = int Function(Pointer<Void> addr, int length);
 
+@internal
 class PosixMemoryAllocator implements NativeMemoryAllocator {
   PosixMemoryAllocator({bool? isMacos})
     : _isMacos = isMacos ?? Platform.isMacOS,

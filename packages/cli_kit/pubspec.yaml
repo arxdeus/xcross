@@ -17,6 +17,7 @@ resolution: workspace
 
 dependencies:
   cli_util: ^0.5.2
+  meta: ^1.19.0
   path: ^1.9.1
   posix: ^6.5.2
   pure: ^1.0.0

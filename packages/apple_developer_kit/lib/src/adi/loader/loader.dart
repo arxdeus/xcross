@@ -1,5 +1,7 @@
 import 'dart:ffi';
 
+import 'package:meta/meta.dart';
+
 /// Strategy for loading a native shared library from a filesystem path.
 ///
 /// Unlike a plain `dlopen` wrapper, this does NOT hand back an SDK
@@ -10,6 +12,7 @@ import 'dart:ffi';
 /// manually-relocated ELF loader (`../elf/elf_loaded_library.dart`).
 abstract class NativeLibraryLoader {
   /// Loads the native library at [path].
+  @useResult
   LoadedNativeLibrary load(String path);
 }
 
@@ -18,5 +21,6 @@ abstract class NativeLibraryLoader {
 abstract class LoadedNativeLibrary {
   /// Resolves [symbolName] to a callable native function pointer of type
   /// [T].
+  @useResult
   Pointer<NativeFunction<T>> lookup<T extends Function>(String symbolName);
 }

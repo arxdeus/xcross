@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:apple_developer_kit/src/errors.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
 /// App Store Connect API credentials (a Team-scoped API key).
@@ -9,6 +10,7 @@ import 'package:path/path.dart' as p;
 /// Loaded from a per-user config file, never from the project tree —
 /// project files are commonly committed to git, which is the wrong place for
 /// secret material.
+@immutable
 class AscCredentials {
   const AscCredentials({
     required this.issuerId,

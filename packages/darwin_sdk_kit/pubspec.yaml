@@ -24,5 +24,6 @@ dependencies:
   xml: ^7.0.1
 
   archive: any
+  meta: ^1.19.0
 dev_dependencies:
   test: ^1.31.2

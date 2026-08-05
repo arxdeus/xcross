@@ -2,7 +2,10 @@
 /// used here return (`{"data": {"id", "type", "attributes": {...}}}`).
 library;
 
+import 'package:meta/meta.dart';
+
 /// A signed iOS Development certificate.
+@immutable
 class AscCertificate {
   const AscCertificate({
     required this.id,
@@ -34,6 +37,7 @@ class AscCertificate {
 }
 
 /// A registered test device.
+@immutable
 class AscDevice {
   const AscDevice({
     required this.id,
@@ -73,6 +77,7 @@ class AscDevice {
 }
 
 /// A registered app bundle id.
+@immutable
 class AscBundleId {
   const AscBundleId({
     required this.id,
@@ -97,6 +102,7 @@ class AscBundleId {
 }
 
 /// A generated provisioning profile.
+@immutable
 class AscProfile {
   const AscProfile({
     required this.id,

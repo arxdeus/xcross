@@ -36,19 +36,19 @@ typedef FetchTwoFactorCode =
 /// Two-factor authentication is required, but no [FetchTwoFactorCode] was
 /// supplied to `GrandSlamClient.login`.
 class GrandSlamTwoFactorRequiredError extends AppleError {
-  GrandSlamTwoFactorRequiredError(super.message);
+  const GrandSlamTwoFactorRequiredError(super.message);
 }
 
 /// [FetchTwoFactorCode] returned `null` - the user cancelled.
 class GrandSlamTwoFactorCancelledError extends AppleError {
-  GrandSlamTwoFactorCancelledError(super.message);
+  const GrandSlamTwoFactorCancelledError(super.message);
 }
 
 /// The code-validation endpoint returned `-21669`, an incorrect
 /// verification code. Kept distinct from other [GrandSlamOperationError]s
 /// so a caller can re-prompt instead of aborting.
 class GrandSlamIncorrectCodeError extends AppleError {
-  GrandSlamIncorrectCodeError(super.message);
+  const GrandSlamIncorrectCodeError(super.message);
 }
 
 /// `Status.ec` for "incorrect verification code".
@@ -137,14 +137,14 @@ class GrandSlamTwoFactor {
   }) async {
     final prompt = fetchCode;
     if (prompt == null) {
-      throw GrandSlamTwoFactorRequiredError(
+      throw const GrandSlamTwoFactorRequiredError(
         'GrandSlam requires two-factor authentication, but no '
         'fetchTwoFactorCode callback was provided to GrandSlamClient.login().',
       );
     }
     final code = await prompt(promptedMode);
     if (code == null) {
-      throw GrandSlamTwoFactorCancelledError(
+      throw const GrandSlamTwoFactorCancelledError(
         'Two-factor authentication was cancelled.',
       );
     }

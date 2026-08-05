@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:basic_utils/basic_utils.dart';
+import 'package:meta/meta.dart';
 import 'package:posix/posix.dart' as posix;
 
 /// Generates the RSA keypair + PKCS#10 CSR needed to request a new signing
@@ -13,6 +14,7 @@ import 'package:posix/posix.dart' as posix;
 /// build with the certificate Apple returns.
 abstract final class AscCsr {
   /// Generates a fresh 2048-bit RSA keypair and a CSR for it.
+  @useResult
   static ({RSAPrivateKey privateKey, RSAPublicKey publicKey, String csrPem})
   generate({String commonName = 'xcross Development'}) {
     final keyPair = CryptoUtils.generateRSAKeyPair();
@@ -27,6 +29,7 @@ abstract final class AscCsr {
   }
 
   /// PEM-encodes [privateKey] (PKCS#8) for persisting to disk.
+  @useResult
   static String privateKeyToPem(RSAPrivateKey privateKey) =>
       CryptoUtils.encodeRSAPrivateKeyToPem(privateKey);
 

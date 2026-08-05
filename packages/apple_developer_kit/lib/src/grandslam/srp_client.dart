@@ -15,6 +15,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' as crypto;
+import 'package:meta/meta.dart';
 import 'package:pointycastle/export.dart' as pc;
 
 /// RFC 5054 §A 2048-bit SRP group prime `N`. A well-known public
@@ -61,6 +62,7 @@ final int _nByteLength = (_n.bitLength + 7) ~/ 8;
 /// if (!client.verifyServerProof(hamk)) throw Exception('bad server proof');
 /// final plaintext = client.decryptCbc(spdCiphertext);
 /// ```
+@internal
 class SrpClient {
   /// Generates the ephemeral keypair: `a` is 256 secure-random bits
   /// (deliberately smaller than `N`, as xtool does - 256 bits of entropy
@@ -116,6 +118,7 @@ class SrpClient {
   ///
   /// Throws [ArgumentError] if `B mod N == 0`, the standard SRP safeguard
   /// against a degenerate server public key.
+  @useResult
   Uint8List processChallenge({
     required String username,
     required String password,
@@ -198,6 +201,7 @@ class SrpClient {
 
   /// Verifies the server's `hamk` (`M2`) against the value derived during
   /// [processChallenge].
+  @useResult
   bool verifyServerProof(Uint8List hamk) {
     final expected = _expectedHamk;
     if (expected == null) return false;
@@ -206,6 +210,7 @@ class SrpClient {
 
   /// Verifies the server's `negProto` HMAC over the negotiated-protocol
   /// digest accumulated via [addString]/[addData].
+  @useResult
   bool verifyNegotiatedProtocols(Uint8List negProto) {
     final key = _sessionKeyBytes;
     if (key == null) return false;
@@ -223,6 +228,7 @@ class SrpClient {
   /// the IV truncated to 16 bytes - `K` itself is the HMAC key, with no
   /// further re-derivation. PKCS7 padding matches Swift Crypto's
   /// `AES._CBC` convenience methods.
+  @useResult
   Uint8List decryptCbc(Uint8List ciphertext) {
     final key = _sessionKeyBytes;
     if (key == null) {

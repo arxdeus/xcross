@@ -4,11 +4,16 @@
 /// Free (and often paid) teams cannot share an explicit App ID. Qualifying
 /// `com.example.Hello` as `XCR-<IDENTITY>.com.example.Hello` lets two accounts
 /// keep the same project bundle id without colliding at registration time.
+library;
+
+import 'package:meta/meta.dart';
+
 abstract final class ProvisioningIdentifiers {
   static const idPrefix = 'XCR-';
   static const namePrefix = 'xcross ';
 
   /// Strips a leading `XCR-<segment>.` if present.
+  @useResult
   static String sanitize(String identifier) {
     if (!identifier.startsWith(idPrefix)) return identifier;
     final dot = identifier.indexOf('.');
@@ -19,6 +24,7 @@ abstract final class ProvisioningIdentifiers {
   ///
   /// [identityId] is the Apple team id (GrandSlam) or ASC issuer UUID — same
   /// sources xtool uses for `DeveloperAPIAuthData.identityID`.
+  @useResult
   static String qualify(String identifier, String identityId) {
     final sanitized = sanitize(identifier);
     final segment = identityId.split('-').first.toUpperCase();
@@ -27,6 +33,7 @@ abstract final class ProvisioningIdentifiers {
 
   /// Portal display name for a (possibly already-qualified) bundle id.
   /// Apple rejects anything but letters, digits, and spaces here.
+  @useResult
   static String appName(String identifier) {
     final words = sanitize(
       identifier,

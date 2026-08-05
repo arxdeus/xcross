@@ -11,29 +11,32 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/errors.dart';
+import 'package:meta/meta.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
 
 /// A GrandSlam operation error: the response's `Status.ec` was non-zero.
 /// [code] is kept separate from the message so callers can recognise
 /// specific codes (e.g. `-21669`, "incorrect verification code").
 class GrandSlamOperationError extends AppleError {
-  GrandSlamOperationError(this.code, String em)
+  const GrandSlamOperationError(this.code, String em)
     : super('GrandSlam error $code: $em');
 
   final int code;
 }
 
+@internal
 abstract final class GrandSlamResponse {
   /// Decodes an `o=...` operation response body and unwraps `Response`.
   ///
   /// Apple nests `Status` inside `Response`; the older sibling placement
   /// stays accepted for compatibility. Throws [GrandSlamOperationError]
   /// when `ec != 0`, or [AppleError] for a malformed envelope.
+  @useResult
   static Map<String, Object?> decodeGrandSlamResponse(String xml) {
     final decoded = decodePlist(xml, context: 'GrandSlam response');
     final response = decoded['Response'];
     if (response is! Map<Object?, Object?>) {
-      throw AppleError('GrandSlam response missing "Response" dict');
+      throw const AppleError('GrandSlam response missing "Response" dict');
     }
     final status = response['Status'] ?? decoded['Status'];
     if (status is Map<Object?, Object?>) {
@@ -48,6 +51,7 @@ abstract final class GrandSlamResponse {
   /// Decodes a bare plist dict, e.g. the decrypted `spd` payload from
   /// `o=complete`. Apple sometimes sends the `<dict>` fragment alone, so a
   /// missing plist header/DOCTYPE is re-wrapped before parsing.
+  @useResult
   static Map<String, Object?> decodePlist(
     String xml, {
     String context = 'plist',
@@ -71,6 +75,7 @@ abstract final class GrandSlamResponse {
   /// Decodes raw plist bytes in either Apple's binary (`bplist00`) or XML
   /// representation - encrypted GrandSlam payloads are opaque bytes, so
   /// the server may use either.
+  @useResult
   static Map<String, Object?> decodePlistBytes(
     Uint8List bytes, {
     String context = 'plist',
@@ -96,6 +101,7 @@ abstract final class GrandSlamResponse {
     return decoded.cast<String, Object?>();
   }
 
+  @useResult
   static String stringField(Map<String, Object?> map, String key) {
     final value = map[key];
     if (value is! String) {
@@ -104,6 +110,7 @@ abstract final class GrandSlamResponse {
     return value;
   }
 
+  @useResult
   static int intField(Map<String, Object?> map, String key) {
     final value = map[key];
     if (value is! int) {
@@ -114,6 +121,7 @@ abstract final class GrandSlamResponse {
 
   /// A plist `<data>` field. `package:propertylistserialization` decodes
   /// those as [ByteData]; the rest of this package works in [Uint8List].
+  @useResult
   static Uint8List dataField(Map<String, Object?> map, String key) {
     final value = map[key];
     if (value is! ByteData) {
@@ -124,11 +132,13 @@ abstract final class GrandSlamResponse {
     return value.buffer.asUint8List(value.offsetInBytes, value.lengthInBytes);
   }
 
+  @useResult
   static Uint8List? optionalDataField(Map<String, Object?> map, String key) =>
       map[key] == null ? null : dataField(map, key);
 
   /// Wraps [bytes] as the [ByteData] the plist writer requires for a
   /// `<data>` element - it rejects a plain [Uint8List]/`List<int>`.
+  @useResult
   static ByteData byteDataOf(Uint8List bytes) =>
       bytes.buffer.asByteData(bytes.offsetInBytes, bytes.length);
 }

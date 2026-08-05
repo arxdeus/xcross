@@ -4,10 +4,12 @@ import 'dart:typed_data';
 import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/signing/der.dart';
 import 'package:basic_utils/basic_utils.dart' show CryptoUtils, X509Utils;
+import 'package:meta/meta.dart';
 import 'package:pointycastle/export.dart';
 import 'package:pure/pure.dart';
 
 /// Object identifiers used by the certificate, profile, and CMS layers.
+@internal
 abstract final class Oid {
   static const String data = '1.2.840.113549.1.7.1';
   static const String signedData = '1.2.840.113549.1.7.2';
@@ -32,6 +34,8 @@ abstract final class Oid {
 /// [issuer], [subject], and [serialNumber] are the original encodings, not
 /// re-encodings, because CMS `SignerInfo` must reproduce the issuer and serial
 /// byte for byte.
+@internal
+@immutable
 class ParsedCertificate {
   const ParsedCertificate({
     required this.der,
@@ -80,6 +84,8 @@ class ParsedCertificate {
 ///
 /// The DER is walked first purely to reject non-RSA and malformed input with a
 /// precise message; the key itself is then decoded from the original PEM.
+@internal
+@useResult
 RSAPrivateKey parsePrivateKey(String pem, String path) {
   try {
     final decoded = _decodePem(pem);
@@ -119,6 +125,8 @@ RSAPrivateKey parsePrivateKey(String pem, String path) {
 
 /// Parses the leaf certificate, requiring an RSA public key and a subject
 /// common name (which becomes the designated requirement's subject).
+@internal
+@useResult
 ParsedCertificate parseCertificatePem(String pem, String path) {
   try {
     final decoded = _decodePem(pem);
@@ -139,6 +147,8 @@ ParsedCertificate parseCertificatePem(String pem, String path) {
 }
 
 /// Parses a chain certificate, which may be EC rather than RSA.
+@internal
+@useResult
 ParsedCertificate parseChainCertificate(Uint8List der, String context) {
   try {
     return _withCertificateMetadata(_parseCertificate(der, context), '''
@@ -271,6 +281,8 @@ ParsedCertificate _withCertificateMetadata(
 ///
 /// Returns the intermediates only; the leaf is emitted separately by the CMS
 /// builder. The result must anchor to an Apple root or signing is refused.
+@internal
+@useResult
 List<Uint8List> buildCertificateChain({
   required ParsedCertificate leaf,
   required List<Uint8List> profileCertificates,
@@ -344,6 +356,7 @@ List<Uint8List> buildCertificateChain({
   return chain;
 }
 
+@internal
 void checkValidity(
   DateTime now,
   DateTime notBefore,
@@ -364,6 +377,8 @@ void checkValidity(
 
 /// Constant-time-ish byte equality: always compares every byte of equal-length
 /// inputs rather than returning at the first difference.
+@internal
+@useResult
 bool bytesEqual(List<int> left, List<int> right) {
   if (left.length != right.length) return false;
   var difference = 0;

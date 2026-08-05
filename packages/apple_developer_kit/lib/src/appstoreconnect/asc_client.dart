@@ -11,7 +11,7 @@ import 'package:http/http.dart' as http;
 /// An Apple provisioning API error, carrying the HTTP status so callers can
 /// branch on codes like 409 without caring which backend produced it.
 class AppleApiError extends AppleError {
-  AppleApiError(this.statusCode, String message) : super(message);
+  const AppleApiError(this.statusCode, String message) : super(message);
 
   final int statusCode;
 }

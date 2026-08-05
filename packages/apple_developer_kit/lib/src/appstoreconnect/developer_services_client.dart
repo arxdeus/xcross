@@ -11,8 +11,10 @@ import 'package:apple_developer_kit/src/grandslam/app_token_exchange.dart';
 import 'package:apple_developer_kit/src/grandslam/grandslam_response.dart';
 import 'package:apple_developer_kit/src/grandslam/grandslam_session_store.dart';
 import 'package:http/http.dart' as http;
+import 'package:meta/meta.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
 
+@immutable
 class DeveloperServicesTeam {
   const DeveloperServicesTeam({
     required this.id,
@@ -303,7 +305,9 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
       final json = await _get(nextPath);
       final data = json['data'];
       if (data is! List) {
-        throw AppleError('Developer Services collection response has no data');
+        throw const AppleError(
+          'Developer Services collection response has no data',
+        );
       }
       values.addAll(data);
 
@@ -312,7 +316,9 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
       if (next is! String || next.isEmpty) return values;
       // A next link that repeats one we already followed would loop forever.
       if (!seenNextLinks.add(next)) {
-        throw AppleError('Developer Services returned a repeated next link');
+        throw const AppleError(
+          'Developer Services returned a repeated next link',
+        );
       }
       nextPath = _nextPagePath(path, next);
     }
@@ -325,7 +331,9 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
     final cursor = next.queryParameters['cursor'];
     final limit = next.queryParameters['limit'];
     if (cursor == null || limit == null) {
-      throw AppleError('Developer Services returned an invalid next link');
+      throw const AppleError(
+        'Developer Services returned an invalid next link',
+      );
     }
     final original = Uri.parse(originalPath);
     return Uri(
@@ -367,7 +375,7 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
 
   static void _rejectExpired(DeveloperServicesLoginToken token) {
     if (token.isExpired) {
-      throw AppleError(
+      throw const AppleError(
         'Developer Services session has expired. Run xcross auth again.',
       );
     }
@@ -388,7 +396,7 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
 
     final teams = plist['teams'];
     if (teams is! List) {
-      throw AppleError(
+      throw const AppleError(
         'Developer Services list teams response is missing teams',
       );
     }
@@ -413,7 +421,7 @@ class DeveloperServicesClient implements DevelopmentProvisioningClient {
       _ => null,
     };
     if (resultCode == null) {
-      throw AppleError(
+      throw const AppleError(
         'Developer Services list teams response has an invalid resultCode',
       );
     }

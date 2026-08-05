@@ -8,9 +8,11 @@ import 'dart:io';
 import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/anisette_state.dart';
 import 'package:apple_developer_kit/src/grandslam/app_token_exchange.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:posix/posix.dart' as posix;
 
+@immutable
 class GrandSlamSession {
   GrandSlamSession({
     required this.username,
@@ -20,7 +22,7 @@ class GrandSlamSession {
   }) {
     final directory = adiLibraryDirectory;
     if (directory != null && !p.isAbsolute(directory)) {
-      throw AppleError(
+      throw const AppleError(
         'GrandSlam session: "adiLibraryDirectory" must be absolute',
       );
     }
@@ -40,14 +42,16 @@ class GrandSlamSession {
     final token = required('token');
     final expiryMs = json['expiryMs'];
     if (expiryMs is! int) {
-      throw AppleError('GrandSlam session: missing/invalid "expiryMs"');
+      throw const AppleError('GrandSlam session: missing/invalid "expiryMs"');
     }
     final teamId = required('teamId');
     final adiLibraryDirectory = json['adiLibraryDirectory'];
     if (adiLibraryDirectory != null &&
         (adiLibraryDirectory is! String ||
             !p.isAbsolute(adiLibraryDirectory))) {
-      throw AppleError('GrandSlam session: invalid "adiLibraryDirectory"');
+      throw const AppleError(
+        'GrandSlam session: invalid "adiLibraryDirectory"',
+      );
     }
 
     return GrandSlamSession(
@@ -87,6 +91,7 @@ class GrandSlamSessionStore {
 
   final String path;
 
+  @useResult
   static String defaultPath() => p.join(
     p.dirname(AnisetteStateStore.defaultPath()),
     'grandslam-session.json',

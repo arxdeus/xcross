@@ -117,7 +117,7 @@ void main() {
 
     test('throws a clear error when a field is missing', () {
       expect(
-        () => GrandSlamEndpoints.fromPlistUrls({
+        () => GrandSlamEndpoints.fromPlistUrls(const {
           'gsService': 'https://gsa.apple.com/gs',
         }),
         throwsA(

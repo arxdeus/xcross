@@ -22,13 +22,17 @@
 
 import 'dart:typed_data';
 
+import 'package:meta/meta.dart';
+
 /// `p_type` values of an ELF64 program header.
+@internal
 abstract final class ElfSegmentType {
   /// `PT_LOAD` — a segment the loader must map into memory.
   static const int load = 1;
 }
 
 /// `p_flags` bits of an ELF64 program header.
+@internal
 abstract final class ElfSegmentFlags {
   /// `PF_X`
   static const int execute = 1;
@@ -41,6 +45,7 @@ abstract final class ElfSegmentFlags {
 }
 
 /// `sh_type` values of an ELF64 section header.
+@internal
 abstract final class ElfSectionType {
   /// `SHT_STRTAB`
   static const int stringTable = 3;
@@ -69,6 +74,7 @@ abstract final class ElfSectionType {
 /// `R_X86_64_64`). All four cases are present in the fetched source; the
 /// task's framing only mentioned the first three, so the `R_X86_64_64`
 /// case is called out explicitly in the port report.
+@internal
 abstract final class ElfRelocationType {
   /// `R_X86_64_64`
   static const int abs64 = 1;
@@ -96,6 +102,8 @@ String _readCString(Uint8List bytes, int offset) {
 /// the *file itself* the way upstream's `MmFile` does — we just need the
 /// bytes as a source buffer to copy segments out of, which
 /// `File.readAsBytesSync()` provides just as well for that purpose).
+@internal
+@immutable
 class ElfReader {
   ElfReader(this.bytes) : data = ByteData.sublistView(bytes);
 
@@ -141,8 +149,10 @@ class ElfReader {
 
 /// The ELF64 dynamic symbol table (`.dynsym`, paired with `.dynstr` for
 /// names). Elf64_Sym is 24 bytes.
+@internal
+@immutable
 class ElfDynamicSymbolTable {
-  ElfDynamicSymbolTable({
+  const ElfDynamicSymbolTable({
     required ByteData data,
     required int offset,
     required this.count,
@@ -175,8 +185,10 @@ class ElfDynamicSymbolTable {
 /// ELF64 RELA relocation records (Elf64_Rela, 24 bytes each; explicit
 /// addend). x86_64 ELF objects only ever use RELA, never the legacy
 /// implicit-addend REL format.
+@internal
+@immutable
 class ElfRelaTable {
-  ElfRelaTable(this._data, this._offset, this.count);
+  const ElfRelaTable(this._data, this._offset, this.count);
 
   static const int relaSize = 24;
 
@@ -200,6 +212,8 @@ class ElfRelaTable {
 
 /// SysV ELF `.hash` symbol lookup. Ported from `ElfHashTable` in
 /// androidlibrary.d.
+@internal
+@immutable
 class ElfHashTable {
   ElfHashTable(Uint8List table) : _data = ByteData.sublistView(table) {
     _nbucket = _data.getUint32(0, Endian.little);
@@ -212,6 +226,7 @@ class ElfHashTable {
   late final int _bucketsOffset;
   late final int _chainOffset;
 
+  @useResult
   static int hash(String name) {
     var h = 0;
     for (final c in name.codeUnits) {
@@ -222,6 +237,7 @@ class ElfHashTable {
   }
 
   /// Returns the resolved symbol index, or `null` if not found.
+  @useResult
   int? lookup(String symbolName, ElfDynamicSymbolTable symtab) {
     final targetHash = hash(symbolName);
     for (var i = _bucket(targetHash % _nbucket); i != 0; i = _chain(i)) {
@@ -236,6 +252,8 @@ class ElfHashTable {
 
 /// GNU `.gnu.hash` symbol lookup. Ported from `GnuHashTable` in
 /// androidlibrary.d.
+@internal
+@immutable
 class GnuHashTable {
   GnuHashTable(Uint8List table) : _data = ByteData.sublistView(table) {
     _nbuckets = _data.getUint32(0, Endian.little);
@@ -255,6 +273,7 @@ class GnuHashTable {
   late final int _bucketsOffset;
   late final int _chainOffset;
 
+  @useResult
   static int hash(String name) {
     var h = 5381;
     for (final c in name.codeUnits) {
@@ -264,6 +283,7 @@ class GnuHashTable {
   }
 
   /// Returns the resolved symbol index, or `null` if not found.
+  @useResult
   int? lookup(String symbolName, ElfDynamicSymbolTable symtab) {
     var targetHash = hash(symbolName);
     final bucket = _bucket(targetHash % _nbuckets);

@@ -9,6 +9,7 @@ library;
 
 import 'package:apple_developer_kit/src/errors.dart';
 import 'package:http/http.dart' as http;
+import 'package:meta/meta.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
 
 final Uri _lookupUrl = Uri.parse(
@@ -20,6 +21,7 @@ final Uri _lookupUrl = Uri.parse(
 /// Only [midStartProvisioning]/[midFinishProvisioning] drive the one-time
 /// device provisioning handshake; the rest are modeled so the sign-in and
 /// two-factor layers do not have to repeat the lookup.
+@immutable
 class GrandSlamEndpoints {
   const GrandSlamEndpoints({
     required this.gsService,
@@ -61,6 +63,7 @@ class GrandSlamEndpoints {
 
   /// Rejects anything that is not a plain HTTPS URL on an Apple host, so a
   /// tampered endpoint bag cannot redirect credentials elsewhere.
+  @useResult
   static Uri validateGrandSlamUrl(String value, {required String field}) {
     final uri = Uri.tryParse(value);
     final host = uri?.host.toLowerCase() ?? '';
@@ -134,10 +137,10 @@ class GrandSlamEndpoints {
     return switch (decoded) {
       {'urls': final Map<Object?, Object?> urls} =>
         GrandSlamEndpoints.fromPlistUrls(urls),
-      Map<Object?, Object?>() => throw AppleError(
+      Map<Object?, Object?>() => throw const AppleError(
         'GrandSlam endpoint lookup response missing "urls"',
       ),
-      _ => throw AppleError(
+      _ => throw const AppleError(
         'GrandSlam endpoint lookup response was not a plist dictionary',
       ),
     };

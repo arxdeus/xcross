@@ -1,6 +1,10 @@
 import 'dart:ffi';
 
+import 'package:meta/meta.dart';
+
 /// A block of native memory allocated by a [NativeMemoryAllocator].
+@internal
+@immutable
 class NativeMemoryBlock {
   const NativeMemoryBlock(this.pointer, this.length);
 
@@ -18,8 +22,10 @@ class NativeMemoryBlock {
 /// loader (including the OS's own) uses — not resolving symbols *from*
 /// the foreign library, which `NativeSymbolStubs`
 /// (`native_symbol_stubs.dart`) handles instead.
+@internal
 abstract class NativeMemoryAllocator {
   /// Reserves an anonymous block of [size] bytes.
+  @useResult
   NativeMemoryBlock alloc(int size);
 
   /// Changes protection of [block]'s `[offset, offset + length)` byte

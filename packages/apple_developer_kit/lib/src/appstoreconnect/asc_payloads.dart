@@ -6,6 +6,9 @@
 /// one place means a payload tweak can't drift between the two clients.
 library;
 
+import 'package:meta/meta.dart';
+
+@internal
 abstract final class AscPayloads {
   static Map<String, dynamic> certificate({
     required String certificateType,

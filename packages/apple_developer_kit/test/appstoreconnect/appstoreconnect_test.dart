@@ -213,7 +213,7 @@ class _FakeProvisioningClient implements DevelopmentProvisioningClient {
   }) async {
     certificateCreations++;
     if (pendingRequest || quotaUsedBy.any((id) => !revoked.contains(id))) {
-      throw AppleApiError(
+      throw const AppleApiError(
         409,
         'You already have a current Development certificate or a pending '
         'certificate request.',

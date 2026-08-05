@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
+import 'package:meta/meta.dart';
 
 /// Apple publishes this root at
 /// https://www.apple.com/appleca/AppleIncRootCertificate.cer.
@@ -40,6 +41,7 @@ UKqK1drk/NAJBzewdXUh
 ''';
 
 abstract final class AppleHttp {
+  @useResult
   static SecurityContext createAppleSecurityContext() {
     final context = SecurityContext(withTrustedRoots: true);
     context.setTrustedCertificatesBytes(utf8.encode(_appleIncRootPem));
@@ -48,6 +50,7 @@ abstract final class AppleHttp {
 
   /// HTTP client with normal Mozilla roots plus Apple's published private
   /// root. Hostname and chain verification remain fully enabled.
+  @useResult
   static http.Client createAppleHttpClient() =>
       IOClient(HttpClient(context: createAppleSecurityContext()));
 }
