@@ -1,13 +1,12 @@
 import 'dart:io';
 
-import 'package:xcross_flutter/src/models/hot_reload_config.dart';
-
 /// Tracks which `lib/` `.dart` files changed between compiles, so a hot reload
 /// only recompiles what the user actually edited.
 class SourceWatcher {
-  SourceWatcher(this.config);
+  SourceWatcher(this.projectRoot);
 
-  final HotReloadConfig config;
+  /// Flutter project root directory.
+  final String projectRoot;
 
   /// Content hash of each `lib/` `.dart` file at the last compile — the
   /// baseline for change detection.
@@ -19,24 +18,22 @@ class SourceWatcher {
   /// (e.g. `flutter_test`) that would balloon the compile. The walk is pruned
   /// so `.fvm`/`.dart_tool`/`build`/`.git` aren't traversed.
   List<String> dartFiles() {
-    var root = Directory('${config.projectRoot}/lib');
-    if (!root.existsSync()) root = Directory(config.projectRoot);
-    if (!root.existsSync()) return const [];
+    final root = _searchRoot();
+    if (root == null) return const [];
+
     final files = <String>[];
-    final stack = <Directory>[root];
-    while (stack.isNotEmpty) {
-      final dir = stack.removeLast();
+    final pending = <Directory>[root];
+    while (pending.isNotEmpty) {
       final List<FileSystemEntity> entries;
       try {
-        entries = dir.listSync(followLinks: false);
+        entries = pending.removeLast().listSync(followLinks: false);
       } on FileSystemException {
         continue;
       }
       for (final entity in entries) {
-        final name = entity.uri.pathSegments.where((s) => s.isNotEmpty).last;
+        final name = _basename(entity);
         if (entity is Directory) {
-          if (name.startsWith('.') || name == 'build') continue;
-          stack.add(entity);
+          if (!name.startsWith('.') && name != 'build') pending.add(entity);
         } else if (entity is File && name.endsWith('.dart')) {
           files.add(entity.absolute.path);
         }
@@ -50,9 +47,7 @@ class SourceWatcher {
   void snapshot() {
     _hashes.clear();
     for (final path in dartFiles()) {
-      try {
-        _hashes[path] = _fnv1a(File(path).readAsBytesSync());
-      } catch (_) {}
+      if (_contentHash(path) case final hash?) _hashes[path] = hash;
     }
   }
 
@@ -62,22 +57,38 @@ class SourceWatcher {
   /// actually changed (so we skip a pointless recompile).
   ///
   /// NOT a pure query: it advances the baseline as it walks, so a second call
-  /// returns empty. [restart] relies on that.
+  /// returns empty. Hot restart relies on that.
   List<String> changedFileUris() {
     final changed = <String>[];
     for (final path in dartFiles()) {
-      final int hash;
-      try {
-        hash = _fnv1a(File(path).readAsBytesSync());
-      } catch (_) {
-        continue;
-      }
-      if (_hashes[path] != hash) {
-        changed.add(Uri.file(path).toString());
-        _hashes[path] = hash;
-      }
+      final hash = _contentHash(path);
+      if (hash == null || _hashes[path] == hash) continue;
+      _hashes[path] = hash;
+      changed.add(Uri.file(path).toString());
     }
     return changed;
+  }
+
+  /// `<projectRoot>/lib`, falling back to the project root itself, or null when
+  /// neither exists.
+  Directory? _searchRoot() {
+    for (final path in ['$projectRoot/lib', projectRoot]) {
+      final dir = Directory(path);
+      if (dir.existsSync()) return dir;
+    }
+    return null;
+  }
+
+  static String _basename(FileSystemEntity entity) =>
+      entity.uri.pathSegments.where((s) => s.isNotEmpty).last;
+
+  /// Null when the file cannot be read (deleted mid-walk, permissions).
+  static int? _contentHash(String path) {
+    try {
+      return _fnv1a(File(path).readAsBytesSync());
+    } on Object catch (_) {
+      return null;
+    }
   }
 
   /// 64-bit FNV-1a hash of file bytes — cheap, collision-safe enough to detect
@@ -87,8 +98,8 @@ class SourceWatcher {
     // Native (dart compile exe) 64-bit ints; JS rounding doesn't apply.
     // ignore: avoid_js_rounded_ints
     var hash = 0xcbf29ce484222325;
-    for (final b in bytes) {
-      hash = (hash ^ b) * 0x100000001b3;
+    for (final byte in bytes) {
+      hash = (hash ^ byte) * 0x100000001b3;
     }
     return hash & 0x7fffffffffffffff;
   }

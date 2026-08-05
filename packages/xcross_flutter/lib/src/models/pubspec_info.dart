@@ -1,13 +1,12 @@
 import 'dart:io';
 
-import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross_flutter/src/errors.dart';
 import 'package:yaml/yaml.dart';
 
-/// One `flutter: fonts:` asset entry, e.g. `{asset: fonts/Foo.ttf, weight: 700}`.
-@immutable
-class PubspecFontAsset {
+/// One `flutter: fonts:` asset entry, e.g. `{asset: fonts/Foo.ttf, weight:
+/// 700}`.
+final class PubspecFontAsset {
   const PubspecFontAsset({required this.asset, this.weight, this.style});
 
   /// Path to the font file, relative to `pubspec.yaml`.
@@ -15,17 +14,16 @@ class PubspecFontAsset {
   final int? weight;
   final String? style;
 
-  /// `FontManifest.json` entry shape: `{"asset": ..., "weight": ..., "style": ...}`.
+  /// `FontManifest.json` entry shape.
   Map<String, Object> get descriptor => {
     'asset': asset,
-    if (weight != null) 'weight': weight!,
-    if (style != null) 'style': style!,
+    'weight': ?weight,
+    'style': ?style,
   };
 }
 
 /// One `flutter: fonts:` family entry, e.g. `{family: Foo, fonts: [...]}`.
-@immutable
-class PubspecFontFamily {
+final class PubspecFontFamily {
   const PubspecFontFamily({required this.family, required this.fonts});
 
   final String family;
@@ -38,14 +36,29 @@ class PubspecFontFamily {
 }
 
 /// Relevant fields read from a Flutter project's `pubspec.yaml`.
-@immutable
-class PubspecInfo {
+final class PubspecInfo {
   const PubspecInfo({
     required this.name,
     required this.usesMaterialDesign,
     this.assets = const [],
     this.fonts = const [],
   });
+
+  /// Sync so it can be used from a constructor initializer list.
+  factory PubspecInfo.loadSync(String projectRoot) {
+    final doc = _loadYamlMap(projectRoot);
+    final name = _valueOf<String>(doc['name']);
+    if (name == null) {
+      throw FlutterBuildError('pubspec.yaml: missing "name"');
+    }
+    final flutter = _valueOf<YamlMap>(doc['flutter']);
+    return PubspecInfo(
+      name: name,
+      usesMaterialDesign: flutter?['uses-material-design'] == true,
+      assets: _parseAssets(flutter?['assets']),
+      fonts: _parseFonts(flutter?['fonts']),
+    );
+  }
 
   /// The package/app name (`name:` key).
   final String name;
@@ -61,8 +74,7 @@ class PubspecInfo {
   /// `flutter: fonts:` entries.
   final List<PubspecFontFamily> fonts;
 
-  /// Sync so it can be used from a constructor initializer list.
-  factory PubspecInfo.loadSync(String projectRoot) {
+  static YamlMap _loadYamlMap(String projectRoot) {
     final file = File(p.join(projectRoot, 'pubspec.yaml'));
     if (!file.existsSync()) {
       throw FlutterBuildError('pubspec.yaml not found in $projectRoot');
@@ -71,32 +83,14 @@ class PubspecInfo {
     try {
       doc = loadYaml(file.readAsStringSync());
     } on Object catch (e) {
-      // YamlException is a FormatException, not an FlutterBuildError — rethrow so
-      // the CLI reports `error: <msg>` instead of dying with a stack trace.
+      // YamlException is a FormatException, not a FlutterBuildError — rethrow
+      // so the CLI reports `error: <msg>` instead of dying with a stack trace.
       throw FlutterBuildError('pubspec.yaml: $e');
     }
     if (doc is! YamlMap) {
       throw FlutterBuildError('pubspec.yaml: invalid document');
     }
-    final name = doc['name'];
-    if (name is! String) {
-      throw FlutterBuildError('pubspec.yaml: missing "name"');
-    }
-    var usesMaterialDesign = false;
-    var assets = const <String>[];
-    var fonts = const <PubspecFontFamily>[];
-    final flutterSection = doc['flutter'];
-    if (flutterSection is YamlMap) {
-      usesMaterialDesign = flutterSection['uses-material-design'] == true;
-      assets = _parseAssets(flutterSection['assets']);
-      fonts = _parseFonts(flutterSection['fonts']);
-    }
-    return PubspecInfo(
-      name: name,
-      usesMaterialDesign: usesMaterialDesign,
-      assets: assets,
-      fonts: fonts,
-    );
+    return doc;
   }
 
   /// `assets:` entries are either bare path strings or `{path: ..., flavor:
@@ -108,32 +102,38 @@ class PubspecInfo {
       for (final entry in node)
         if (entry is String)
           entry
-        else if (entry is YamlMap && entry['path'] is String)
-          entry['path'] as String,
+        else if (entry is YamlMap)
+          ?_valueOf<String>(entry['path']),
     ];
   }
 
   static List<PubspecFontFamily> _parseFonts(Object? node) {
     if (node is! YamlList) return const [];
-    final result = <PubspecFontFamily>[];
-    for (final entry in node) {
-      if (entry is! YamlMap) continue;
-      final family = entry['family'];
-      final fontsNode = entry['fonts'];
-      if (family is! String || fontsNode is! YamlList) continue;
-      final assets = <PubspecFontAsset>[
-        for (final font in fontsNode)
-          if (font is YamlMap && font['asset'] is String)
-            PubspecFontAsset(
-              asset: font['asset'] as String,
-              weight: font['weight'] is int ? font['weight'] as int : null,
-              style: font['style'] is String ? font['style'] as String : null,
-            ),
-      ];
-      if (assets.isNotEmpty) {
-        result.add(PubspecFontFamily(family: family, fonts: assets));
-      }
-    }
-    return result;
+    return [
+      for (final entry in node)
+        if (entry is YamlMap)
+          if (_valueOf<String>(entry['family']) case final family?)
+            if (_parseFontAssets(entry['fonts']) case final fonts
+                when fonts.isNotEmpty)
+              PubspecFontFamily(family: family, fonts: fonts),
+    ];
   }
+
+  static List<PubspecFontAsset> _parseFontAssets(Object? node) {
+    if (node is! YamlList) return const [];
+    return [
+      for (final font in node)
+        if (font is YamlMap)
+          if (_valueOf<String>(font['asset']) case final asset?)
+            PubspecFontAsset(
+              asset: asset,
+              weight: _valueOf<int>(font['weight']),
+              style: _valueOf<String>(font['style']),
+            ),
+    ];
+  }
+
+  /// YAML nodes are dynamically typed; keep the "right type or absent" checks
+  /// in one place instead of repeating `is T ? as T : null`.
+  static T? _valueOf<T>(Object? node) => node is T ? node : null;
 }

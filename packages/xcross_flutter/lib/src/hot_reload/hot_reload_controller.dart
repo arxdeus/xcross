@@ -16,21 +16,27 @@ import 'package:xcross_flutter/src/models/hot_reload_config.dart';
 ///   3. Calling `reloadSources` / `_flutter.runInView` on the Dart VM Service.
 class HotReloadController {
   HotReloadController({
-    required this.config,
-    required this.vm,
+    required HotReloadConfig config,
+    required DartVmServiceClient vm,
     required DeviceEndpoint vmService,
-  }) : _httpBase =
+  }) : _vm = vm,
+       _verbose = config.verbose,
+       _httpBase =
            'http://${ProcessRunner.bracketHost(vmService.host)}:'
            '${vmService.port}/',
        _frontend = FrontendServerSession(_frontendOptions(config)),
-       _sources = SourceWatcher(config);
+       _sources = SourceWatcher(config.projectRoot);
 
-  /// Fallback devFS base URI used when `_createDevFs` does not return one.
+  /// Fallback devFS base URI used when `_createDevFS` does not return one.
   static const _devFsFallbackUri =
       'org-dartlang-devfs://${FlutterDeviceConstants.devFsName}/';
 
-  final HotReloadConfig config;
-  final DartVmServiceClient vm;
+  /// A cold device can take well over the default RPC timeout to boot an
+  /// isolate, so hot restart gets its own budget.
+  static const _restartTimeout = Duration(minutes: 2);
+
+  final DartVmServiceClient _vm;
+  final bool _verbose;
   final String _httpBase;
   final FrontendServerSession _frontend;
   final SourceWatcher _sources;
@@ -75,7 +81,8 @@ class HotReloadController {
     await _registerExpressionCompiler();
   }
 
-  /// Serve the VM Service `compileExpression` service from our frontend_server.
+  /// Serve the VM Service `compileExpression` service from our
+  /// frontend_server.
   ///
   /// The Flutter engine embeds no kernel compiler, so the VM delegates
   /// expression compilation to a registered client. With nobody registered
@@ -86,7 +93,7 @@ class HotReloadController {
   /// Best effort: reload still works without it.
   Future<void> _registerExpressionCompiler() async {
     try {
-      await vm.registerService('compileExpression', 'xcross', (params) async {
+      await _vm.registerService('compileExpression', 'xcross', (params) async {
         final kernel = await _frontend.compileExpression(
           expression: params['expression'] as String? ?? '',
           definitions: _stringList(params['definitions']),
@@ -123,21 +130,11 @@ class HotReloadController {
     await _frontend.close();
     // Close the VM Service WebSocket so its socket/timers don't keep the event
     // loop alive after the session ends.
-    await vm.close();
+    await _vm.close();
   }
 
-  /// Time [body] and log `[timing] <label> <ms>ms` (helps locate reload cost).
-  Future<T> _timed<T>(String label, Future<T> Function() body) async {
-    if (!config.verbose) return body();
-    final sw = Stopwatch()..start();
-    try {
-      return await body();
-    } finally {
-      Log.logTrace('[timing] $label ${sw.elapsedMilliseconds}ms');
-    }
-  }
-
-  /// Recompile changed sources, push delta, reload the ROOT Flutter isolate.
+  /// Recompile changed sources, push the delta, reload the ROOT Flutter
+  /// isolate.
   ///
   /// Only the root isolate is reloaded (via `_flutter.listViews`), like
   /// flutter_tools — reloading every isolate from `getVM` can hit a worker
@@ -157,36 +154,22 @@ class HotReloadController {
     );
     final targetUri = await _timed('devfs-upload', () => _uploadDill(dill));
 
-    final isolateId = await _rootIsolateIdCached();
+    final isolateId = _cachedRootIsolate ??= await _rootIsolateId();
     if (isolateId == null) {
       throw FlutterBuildError('no Flutter isolate to reload');
     }
 
-    final ok = await _timed('reloadSources', () async {
-      final report = await vm.call(
-        'reloadSources',
-        params: {
-          'isolateId': isolateId,
-          'force': false,
-          'rootLibUri': targetUri,
-        },
-      );
-      return report['success'] == true;
-    });
-    if (ok) {
-      await _frontend.accept();
-      await _timed('reassemble', () async {
-        try {
-          await vm.call(
-            'ext.flutter.reassemble',
-            params: {'isolateId': isolateId},
-          );
-        } catch (_) {}
-      });
-    } else {
+    final reloaded = await _timed(
+      'reloadSources',
+      () => _reloadSources(isolateId, rootLibUri: targetUri),
+    );
+    if (!reloaded) {
       await _frontend.reject();
+      return false;
     }
-    return ok;
+    await _frontend.accept();
+    await _timed('reassemble', () => _reassemble(isolateId));
+    return true;
   }
 
   /// Full restart: recompile, push (to an alternating swap dill), then
@@ -205,54 +188,83 @@ class HotReloadController {
       'restart-recompile',
       () => _frontend.recompile(invalidated: changed),
     );
-    // Alternate the devFS file name so runInView always loads a fresh URI —
-    // runInView will not reload an identical URI, so a stable filename makes
-    // every second hot restart a silent no-op that still reports success.
     _restartCount++;
-    final fileName = _restartCount.isEven
-        ? 'main.dart.dill'
-        : 'main.dart.swap.dill';
     final targetUri = await _timed(
       'restart-devfs-upload',
-      () => _uploadDill(dill, fileName: fileName),
+      () => _uploadDill(dill, fileName: _restartDillName),
     );
     await _frontend.accept();
 
-    await vm.streamListen('Isolate');
-    final viewIds = await _flutterViewIds();
-    final assetDir = '${_devFsBaseUri ?? _devFsFallbackUri}flutter_assets/';
-    const longTimeout = Duration(minutes: 2);
-    for (final viewId in viewIds) {
-      // ORDER MATTERS: `events` is a broadcast stream, so the subscription must
-      // exist before runInView fires or the event is missed.
-      final runnable = vm.waitForEvent('IsolateRunnable', timeout: longTimeout);
-      await _timed(
-        'runInView',
-        () => vm.call(
-          '_flutter.runInView',
-          params: {
-            'viewId': viewId,
-            'mainScript': targetUri,
-            'assetDirectory': assetDir,
-          },
-          timeout: longTimeout,
-        ),
-      );
-      // waitForEvent swallows its timeout and yields {} — surface that instead
-      // of reporting a restart that never happened.
-      if ((await _timed('await-IsolateRunnable', () => runnable)).isEmpty) {
-        throw FlutterBuildError(
-          'isolate never became runnable after runInView (${longTimeout.inMinutes}m)',
-        );
-      }
+    await _vm.streamListen('Isolate');
+    for (final viewId in await _flutterViewIds()) {
+      await _runInView(viewId, mainScript: targetUri);
     }
   }
 
-  /// Cached root isolate id (avoids a `_flutter.listViews` round-trip per reload).
-  Future<String?> _rootIsolateIdCached() async =>
-      _cachedRootIsolate ??= await _rootIsolateId();
+  /// Alternating devFS file name: runInView will not reload an identical URI,
+  /// so a stable filename makes every second hot restart a silent no-op that
+  /// still reports success.
+  String get _restartDillName =>
+      _restartCount.isEven ? 'main.dart.dill' : 'main.dart.swap.dill';
 
-  /// The root Flutter isolate id (first view's isolate) via `_flutter.listViews`.
+  Future<bool> _reloadSources(
+    String isolateId, {
+    required String rootLibUri,
+  }) async {
+    final report = await _vm.call(
+      'reloadSources',
+      params: {
+        'isolateId': isolateId,
+        'force': false,
+        'rootLibUri': rootLibUri,
+      },
+    );
+    return report['success'] == true;
+  }
+
+  /// Best effort: a rejected repaint should not fail a reload that landed.
+  Future<void> _reassemble(String isolateId) async {
+    try {
+      await _vm.call(
+        'ext.flutter.reassemble',
+        params: {'isolateId': isolateId},
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _runInView(String viewId, {required String mainScript}) async {
+    // ORDER MATTERS: `events` is a broadcast stream, so the subscription must
+    // exist before runInView fires or the event is missed.
+    final runnable = _vm.waitForEvent(
+      'IsolateRunnable',
+      timeout: _restartTimeout,
+    );
+    await _timed(
+      'runInView',
+      () => _vm.call(
+        '_flutter.runInView',
+        params: {
+          'viewId': viewId,
+          'mainScript': mainScript,
+          'assetDirectory':
+              '${_devFsBaseUri ?? _devFsFallbackUri}'
+              'flutter_assets/',
+        },
+        timeout: _restartTimeout,
+      ),
+    );
+    // waitForEvent swallows its timeout and yields {} — surface that instead
+    // of reporting a restart that never happened.
+    if ((await _timed('await-IsolateRunnable', () => runnable)).isEmpty) {
+      throw FlutterBuildError(
+        'isolate never became runnable after runInView '
+        '(${_restartTimeout.inMinutes}m)',
+      );
+    }
+  }
+
+  /// The root Flutter isolate id (the first view's isolate), via
+  /// `_flutter.listViews`.
   Future<String?> _rootIsolateId() async {
     for (final view in await _flutterViews()) {
       if (view case {'isolate': {'id': final String id}}) return id;
@@ -261,73 +273,54 @@ class HotReloadController {
   }
 
   Future<List<Map<String, dynamic>>> _flutterViews() async {
-    final viewData = await vm.call('_flutter.listViews');
-    final viewArray = viewData['views'] as List<dynamic>? ?? [];
-    return viewArray.whereType<Map<String, dynamic>>().toList();
+    final response = await _vm.call('_flutter.listViews');
+    final views = response['views'] as List<dynamic>? ?? [];
+    return views.whereType<Map<String, dynamic>>().toList();
   }
 
   Future<List<String>> _flutterViewIds() async => [
-    for (final v in await _flutterViews())
-      if (v case {'id': final String id}) id,
+    for (final view in await _flutterViews())
+      if (view case {'id': final String id}) id,
   ];
 
   Future<void> _createDevFs() async {
-    Future<Map<String, dynamic>> tryCreate() => vm.call(
+    Future<Map<String, dynamic>> create() => _vm.call(
       '_createDevFS',
       params: {'fsName': FlutterDeviceConstants.devFsName},
     );
 
-    Map<String, dynamic> data;
+    Map<String, dynamic> response;
     try {
-      data = await tryCreate();
+      response = await create();
     } catch (e) {
-      if (e.toString().contains('already exists')) {
-        try {
-          await vm.call(
-            '_deleteDevFS',
-            params: {'fsName': FlutterDeviceConstants.devFsName},
-          );
-        } catch (_) {}
-        data = await tryCreate();
-      } else {
-        rethrow;
-      }
+      if (!e.toString().contains('already exists')) rethrow;
+      // Left over from a previous session: drop it and start clean.
+      try {
+        await _vm.call(
+          '_deleteDevFS',
+          params: {'fsName': FlutterDeviceConstants.devFsName},
+        );
+      } catch (_) {}
+      response = await create();
     }
-    _devFsBaseUri = data['uri'] as String? ?? _devFsFallbackUri;
+    _devFsBaseUri = response['uri'] as String? ?? _devFsFallbackUri;
   }
 
   /// PUT [dillPath] (gzipped) into devFS as [fileName].
   /// Returns the devFS URI of the uploaded file.
-  ///
-  /// contentLength must stay exact and the body must not be re-encoded or
-  /// chunked — the VM Service devFS handler reads exactly contentLength bytes.
   Future<String> _uploadDill(
     String dillPath, {
     String fileName = 'main.dart.dill',
   }) async {
-    final baseUri = _devFsBaseUri ?? _devFsFallbackUri;
-    final targetUri = '$baseUri$fileName';
+    final targetUri = '${_devFsBaseUri ?? _devFsFallbackUri}$fileName';
     final raw = await File(dillPath).readAsBytes();
     final gz = GZipCodec().encode(raw);
     Log.logTrace('[timing] devfs-bytes raw=${raw.length} gz=${gz.length}');
-    final targetUriB64 = base64.encode(utf8.encode(targetUri));
 
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 10);
     try {
-      final req = await client.putUrl(Uri.parse(_httpBase));
-      req.headers.set('dev_fs_name', FlutterDeviceConstants.devFsName);
-      req.headers.set('dev_fs_uri_b64', targetUriB64);
-      req.headers.contentType = ContentType('application', 'octet-stream');
-      req.contentLength = gz.length;
-      req.add(gz);
-      // Bound the PUT: without this a stalled devFS handler on the device hangs
-      // the whole session with no output.
-      final resp = await req.close().timeout(const Duration(seconds: 120));
-      await resp.drain<void>().timeout(const Duration(seconds: 30));
-      if (resp.statusCode < 200 || resp.statusCode >= 300) {
-        throw FlutterBuildError('devFS upload failed: HTTP ${resp.statusCode}');
-      }
+      await _putDevFsFile(client, targetUri: targetUri, body: gz);
     } catch (e) {
       if (e is FlutterBuildError) rethrow;
       throw FlutterBuildError('devFS upload failed: $e');
@@ -335,5 +328,45 @@ class HotReloadController {
       client.close();
     }
     return targetUri;
+  }
+
+  /// contentLength must stay exact and the body must not be re-encoded or
+  /// chunked — the VM Service devFS handler reads exactly contentLength bytes.
+  Future<void> _putDevFsFile(
+    HttpClient client, {
+    required String targetUri,
+    required List<int> body,
+  }) async {
+    final request = await client.putUrl(Uri.parse(_httpBase));
+    request.headers.set('dev_fs_name', FlutterDeviceConstants.devFsName);
+    request.headers.set(
+      'dev_fs_uri_b64',
+      base64.encode(utf8.encode(targetUri)),
+    );
+    request.headers.contentType = ContentType('application', 'octet-stream');
+    request.contentLength = body.length;
+    request.add(body);
+    // Bound the PUT: without this a stalled devFS handler on the device hangs
+    // the whole session with no output.
+    final response = await request.close().timeout(
+      const Duration(seconds: 120),
+    );
+    await response.drain<void>().timeout(const Duration(seconds: 30));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FlutterBuildError(
+        'devFS upload failed: HTTP ${response.statusCode}',
+      );
+    }
+  }
+
+  /// Time [body] and log `[timing] <label> <ms>ms` (helps locate reload cost).
+  Future<T> _timed<T>(String label, Future<T> Function() body) async {
+    if (!_verbose) return body();
+    final sw = Stopwatch()..start();
+    try {
+      return await body();
+    } finally {
+      Log.logTrace('[timing] $label ${sw.elapsedMilliseconds}ms');
+    }
   }
 }

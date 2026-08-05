@@ -3,19 +3,6 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross_flutter/src/hot_reload/source_watcher.dart';
-import 'package:xcross_flutter/src/models/hot_reload_config.dart';
-
-/// [SourceWatcher] only reads [HotReloadConfig.projectRoot]; the rest of the
-/// required fields are irrelevant here, so fill them with dummy values.
-HotReloadConfig _configFor(String projectRoot) => HotReloadConfig(
-  dart: 'x',
-  frontendServer: 'x',
-  sdkRoot: 'x',
-  packageConfig: 'x',
-  entrypoint: 'x',
-  projectRoot: projectRoot,
-  outputDill: 'x',
-);
 
 void main() {
   late Directory tmp;
@@ -40,7 +27,7 @@ void main() {
       writeFile(p.join('lib', 'build', 'skip2.dart'));
       writeFile('other.dart'); // outside lib/, must not be picked up
 
-      final watcher = SourceWatcher(_configFor(tmp.path));
+      final watcher = SourceWatcher(tmp.path);
       final basenames = watcher.dartFiles().map(p.basename).toSet();
 
       expect(basenames, {'a.dart', 'b.dart'});
@@ -48,7 +35,7 @@ void main() {
 
     test('returns absolute paths', () {
       writeFile(p.join('lib', 'a.dart'));
-      final watcher = SourceWatcher(_configFor(tmp.path));
+      final watcher = SourceWatcher(tmp.path);
       final files = watcher.dartFiles();
       expect(files, hasLength(1));
       expect(p.isAbsolute(files.single), isTrue);
@@ -56,14 +43,14 @@ void main() {
 
     test('falls back to projectRoot itself when lib/ does not exist', () {
       writeFile('other.dart'); // no lib/ dir at all
-      final watcher = SourceWatcher(_configFor(tmp.path));
+      final watcher = SourceWatcher(tmp.path);
       final basenames = watcher.dartFiles().map(p.basename).toSet();
       expect(basenames, {'other.dart'});
     });
 
     test('returns an empty list when projectRoot does not exist', () {
       final missing = p.join(tmp.path, 'does_not_exist');
-      final watcher = SourceWatcher(_configFor(missing));
+      final watcher = SourceWatcher(missing);
       expect(watcher.dartFiles(), isEmpty);
     });
   });
@@ -71,7 +58,7 @@ void main() {
   group('snapshot / changedFileUris', () {
     test('reports nothing changed right after a snapshot', () {
       writeFile(p.join('lib', 'a.dart'));
-      final watcher = SourceWatcher(_configFor(tmp.path));
+      final watcher = SourceWatcher(tmp.path);
       watcher.snapshot();
       expect(watcher.changedFileUris(), isEmpty);
     });
@@ -81,7 +68,7 @@ void main() {
     // baseline — an immediate second call with no further edits must not.
     test('reports an edited file once, then advances the baseline', () {
       writeFile(p.join('lib', 'a.dart'));
-      final watcher = SourceWatcher(_configFor(tmp.path));
+      final watcher = SourceWatcher(tmp.path);
       final aPath = watcher.dartFiles().single;
       watcher.snapshot();
 
@@ -94,7 +81,7 @@ void main() {
     test('only reports the file that actually changed', () {
       writeFile(p.join('lib', 'a.dart'), '// a\n');
       writeFile(p.join('lib', 'b.dart'), '// b\n');
-      final watcher = SourceWatcher(_configFor(tmp.path));
+      final watcher = SourceWatcher(tmp.path);
       watcher.snapshot();
 
       final bPath = watcher.dartFiles().firstWhere(
@@ -107,7 +94,7 @@ void main() {
 
     test('a file created after the snapshot counts as changed', () {
       writeFile(p.join('lib', 'a.dart'));
-      final watcher = SourceWatcher(_configFor(tmp.path));
+      final watcher = SourceWatcher(tmp.path);
       watcher.snapshot();
 
       writeFile(p.join('lib', 'new_file.dart'));

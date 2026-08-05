@@ -20,7 +20,8 @@ export 'src/constants.dart'
         PlistDefaults,
         flutterArtifactBaseUrl;
 export 'src/errors.dart' show FlutterBuildError;
-export 'src/hot_reload/dart_vm_service_client.dart' show DartVmServiceClient;
+export 'src/hot_reload/dart_vm_service_client.dart'
+    show DartVmServiceClient, VmServiceHandler;
 export 'src/hot_reload/hot_reload_controller.dart' show HotReloadController;
 export 'src/hot_reload/source_watcher.dart' show SourceWatcher;
 export 'src/hot_reload/vm_service_output.dart' show VmServiceOutput;

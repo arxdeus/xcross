@@ -2,35 +2,103 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:web_socket_channel/web_socket_channel.dart';
-
 import 'package:xcross_flutter/src/errors.dart';
+
+/// A service the VM can call back into; returns the reply body.
+typedef VmServiceHandler =
+    Future<Map<String, Object?>> Function(Map<String, Object?> params);
+
+/// An in-flight JSON-RPC call and the timer that bounds it.
+typedef _PendingCall = ({
+  Completer<Map<String, dynamic>> completer,
+  Timer timeout,
+});
 
 /// JSON-RPC 2.0 client for the Dart VM Service over WebSocket.
 class DartVmServiceClient {
   DartVmServiceClient();
 
   WebSocketChannel? _channel;
+  StreamSubscription<dynamic>? _subscription;
   int _nextId = 0;
-  final Map<int, Completer<Map<String, dynamic>>> _pending = {};
-  final Map<int, Timer> _timers = {};
-  StreamSubscription<dynamic>? _sub;
+  final Map<int, _PendingCall> _pending = {};
+  final Map<String, VmServiceHandler> _services = {};
 
   /// Broadcast of VM Service stream events (`streamNotify` — e.g. `Isolate`
-  /// `IsolateRunnable`). Callers `streamListen` first, then await here.
+  /// `IsolateRunnable`). Callers [streamListen] first, then await here.
   final _events = StreamController<Map<String, dynamic>>.broadcast();
+
   Stream<Map<String, dynamic>> get events => _events.stream;
 
-  /// Handlers for services we registered; the VM calls *into* us for these.
-  final Map<String, Future<Map<String, Object?>> Function(Map<String, Object?>)>
-  _services = {};
+  /// Connect to the VM Service WebSocket at [url].
+  Future<void> connect(
+    Uri url, {
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    try {
+      _channel = WebSocketChannel.connect(url);
+      await _channel!.ready.timeout(timeout);
+    } catch (e) {
+      throw FlutterBuildError('VM Service connect failed: $e');
+    }
+    _subscription = _channel!.stream.listen(
+      _onMessage,
+      onError: (_) => _handleClose(),
+      onDone: _handleClose,
+    );
+  }
+
+  Future<void> close() async {
+    try {
+      await _channel?.sink.close().timeout(const Duration(milliseconds: 500));
+    } on Object catch (_) {}
+    _handleClose();
+  }
+
+  /// Perform a JSON-RPC call; returns the `result` map.
+  Future<Map<String, dynamic>> call(
+    String method, {
+    Map<String, dynamic> params = const {},
+    Duration timeout = const Duration(seconds: 30),
+  }) {
+    final channel = _channel;
+    if (channel == null) throw FlutterBuildError('VM Service: not connected');
+
+    final id = ++_nextId;
+    final completer = Completer<Map<String, dynamic>>();
+
+    // KEEP the Timer so it can be cancelled on reply. A live Timer keeps the
+    // Dart event loop alive; leaking one per RPC is why the process wouldn't
+    // exit (Ctrl-C hang).
+    _pending[id] = (
+      completer: completer,
+      timeout: Timer(timeout, () {
+        if (_pending.remove(id) != null && !completer.isCompleted) {
+          completer.completeError(
+            FlutterBuildError('VM Service: $method timed out'),
+          );
+        }
+      }),
+    );
+
+    channel.sink.add(
+      jsonEncode({
+        'jsonrpc': '2.0',
+        'id': id,
+        'method': method,
+        'params': params,
+      }),
+    );
+    return completer.future;
+  }
 
   /// Register a service the VM can call back into, e.g. `compileExpression`.
   ///
-  /// [handler] returns the reply body; throwing becomes an error response.
+  /// A [handler] that throws becomes an error response.
   Future<void> registerService(
     String service,
     String alias,
-    Future<Map<String, Object?>> Function(Map<String, Object?> params) handler,
+    VmServiceHandler handler,
   ) async {
     _services[service] = handler;
     await call('registerService', params: {'service': service, 'alias': alias});
@@ -53,117 +121,64 @@ class DartVmServiceClient {
   Future<Map<String, dynamic>> waitForEvent(
     String kind, {
     Duration timeout = const Duration(seconds: 60),
-  }) {
-    return events
-        .firstWhere((e) => e['kind'] == kind)
-        .timeout(timeout, onTimeout: () => const {});
-  }
-
-  /// Connect to the VM Service WebSocket at [url].
-  Future<void> connect(
-    Uri url, {
-    Duration timeout = const Duration(seconds: 30),
-  }) async {
-    try {
-      _channel = WebSocketChannel.connect(url);
-      await _channel!.ready.timeout(timeout);
-    } catch (e) {
-      throw FlutterBuildError('VM Service connect failed: $e');
-    }
-    _sub = _channel!.stream.listen(
-      _onMessage,
-      onError: (_) => _handleClose(),
-      onDone: _handleClose,
-    );
-  }
-
-  Future<void> close() async {
-    try {
-      await _channel?.sink.close().timeout(const Duration(milliseconds: 500));
-    } on Object catch (_) {}
-    _handleClose();
-  }
-
-  /// Perform a JSON-RPC call; returns the `result` map.
-  Future<Map<String, dynamic>> call(
-    String method, {
-    Map<String, dynamic> params = const {},
-    Duration timeout = const Duration(seconds: 30),
-  }) {
-    final ch = _channel;
-    if (ch == null) throw FlutterBuildError('VM Service: not connected');
-
-    final id = ++_nextId;
-    final request = jsonEncode({
-      'jsonrpc': '2.0',
-      'id': id,
-      'method': method,
-      'params': params,
-    });
-
-    final c = Completer<Map<String, dynamic>>();
-    _pending[id] = c;
-    ch.sink.add(request);
-
-    // Arm a timeout — and KEEP the Timer so we can cancel it on reply. A live
-    // Timer keeps the Dart event loop alive; leaking one per RPC is why the
-    // process wouldn't exit (Ctrl-C hang).
-    _timers[id] = Timer(timeout, () {
-      _timers.remove(id);
-      if (_pending.remove(id) != null && !c.isCompleted) {
-        c.completeError(FlutterBuildError('VM Service: $method timed out'));
-      }
-    });
-
-    return c.future;
-  }
+  }) => events
+      .firstWhere((e) => e['kind'] == kind)
+      .timeout(timeout, onTimeout: () => const {});
 
   void _onMessage(dynamic raw) {
-    Map<String, dynamic>? json;
+    final Map<String, dynamic> message;
     try {
-      json = jsonDecode(raw as String) as Map<String, dynamic>;
+      message = jsonDecode(raw as String) as Map<String, dynamic>;
     } catch (_) {
       return;
     }
 
     // Three shapes share this socket: a notification (method, no id), a request
     // the VM makes OF US (method + id), and a reply to one of our calls.
-    final id = json['id'];
-    if (json['method'] case final String method when id != null) {
-      unawaited(_handleServerRequest(id, method, json['params']));
-      return;
+    final id = message['id'];
+    if (message['method'] case final String method when id != null) {
+      unawaited(_handleServerRequest(id, method, message['params']));
+    } else if (id is int) {
+      _completeCall(id, message);
+    } else {
+      _emitStreamEvent(message);
     }
-    if (id is! int) {
-      if (json case {
-        'method': 'streamNotify',
-        'params': final Map<String, dynamic> params,
-      }) {
-        if (params['event'] case final Map<String, dynamic> event) {
-          // On the wire `streamId` is a SIBLING of `event`, not a field of it.
-          // Fold it in: `Stdout` and `Stderr` both arrive as `WriteEvent`, so
-          // without it a listener cannot tell app stdout from app stderr.
-          if (!_events.isClosed) {
-            _events.add({
-              ...event,
-              if (params['streamId'] case final String streamId)
-                'streamId': streamId,
-            });
-          }
-        }
+  }
+
+  void _emitStreamEvent(Map<String, dynamic> message) {
+    if (message case {
+      'method': 'streamNotify',
+      'params': final Map<String, dynamic> params,
+    }) {
+      if (params['event'] case final Map<String, dynamic> event
+          when !_events.isClosed) {
+        // On the wire `streamId` is a SIBLING of `event`, not a field of it.
+        // Fold it in: `Stdout` and `Stderr` both arrive as `WriteEvent`, so
+        // without it a listener cannot tell app stdout from app stderr.
+        _events.add({
+          ...event,
+          if (params['streamId'] case final String streamId)
+            'streamId': streamId,
+        });
       }
+    }
+  }
+
+  void _completeCall(int id, Map<String, dynamic> message) {
+    final pending = _pending.remove(id);
+    if (pending == null) return;
+    pending.timeout.cancel();
+    final completer = pending.completer;
+    if (completer.isCompleted) return;
+
+    if (message case {'error': final Map<String, dynamic> error}) {
+      final detail = error['message'] as String? ?? '$error';
+      completer.completeError(
+        FlutterBuildError('VM Service RPC error: $detail'),
+      );
       return;
     }
-    _timers.remove(id)?.cancel();
-    final c = _pending.remove(id);
-    if (c == null || c.isCompleted) return;
-
-    if (json case {'error': final Map<String, dynamic> error}) {
-      final msg = error['message'] as String? ?? '$error';
-      c.completeError(FlutterBuildError('VM Service RPC error: $msg'));
-      return;
-    }
-
-    c.complete(switch (json['result']) {
+    completer.complete(switch (message['result']) {
       final Map<String, dynamic> result => result,
       _ => <String, dynamic>{},
     });
@@ -177,46 +192,50 @@ class DartVmServiceClient {
     String method,
     Object? rawParams,
   ) async {
-    Map<String, Object?> body;
-    final handler = _services[method];
-    if (handler == null) {
-      body = {
-        'error': {'code': -32601, 'message': "method not found '$method'"},
-      };
-    } else {
-      try {
-        body = await handler(switch (rawParams) {
-          final Map<String, Object?> params => params,
-          _ => const {},
-        });
-      } on Object catch (e) {
-        // 113 = kExpressionCompilationError. The VM forwards `details` to the
-        // caller, which is where a compile error belongs.
-        body = {
-          'error': {
-            'code': 113,
-            'message': 'Expression compilation error',
-            'data': {'details': '$e'},
-          },
-        };
-      }
-    }
+    final body = await _invokeService(method, rawParams);
     _channel?.sink.add(jsonEncode({...body, 'id': id, 'jsonrpc': '2.0'}));
   }
 
-  void _handleClose() {
-    for (final t in _timers.values) {
-      t.cancel();
+  Future<Map<String, Object?>> _invokeService(
+    String method,
+    Object? rawParams,
+  ) async {
+    final handler = _services[method];
+    if (handler == null) {
+      return {
+        'error': {'code': -32601, 'message': "method not found '$method'"},
+      };
     }
-    _timers.clear();
-    final copy = Map<int, Completer<Map<String, dynamic>>>.from(_pending);
+    try {
+      return await handler(switch (rawParams) {
+        final Map<String, Object?> params => params,
+        _ => const {},
+      });
+    } on Object catch (e) {
+      // 113 = kExpressionCompilationError. The VM forwards `details` to the
+      // caller, which is where a compile error belongs.
+      return {
+        'error': {
+          'code': 113,
+          'message': 'Expression compilation error',
+          'data': {'details': '$e'},
+        },
+      };
+    }
+  }
+
+  void _handleClose() {
+    final abandoned = _pending.values.toList();
     _pending.clear();
-    for (final c in copy.values) {
-      if (!c.isCompleted) {
-        c.completeError(FlutterBuildError('VM Service: connection closed'));
+    for (final pending in abandoned) {
+      pending.timeout.cancel();
+      if (!pending.completer.isCompleted) {
+        pending.completer.completeError(
+          FlutterBuildError('VM Service: connection closed'),
+        );
       }
     }
-    _sub?.cancel();
+    _subscription?.cancel();
     if (!_events.isClosed) _events.close();
     _channel = null;
   }

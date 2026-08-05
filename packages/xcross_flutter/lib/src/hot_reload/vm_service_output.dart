@@ -30,8 +30,7 @@ abstract final class VmServiceOutput {
           if (decodeStreamWrite(event) case final text?) stdout.write(text);
         case 'Stderr':
           if (decodeStreamWrite(event) case final text?) stderr.write(text);
-        case 'Logging':
-          if (!ownsLogging) break;
+        case 'Logging' when ownsLogging:
           if (formatLogRecord(event) case final text?) stdout.write(text);
       }
     });
@@ -64,13 +63,13 @@ abstract final class VmServiceOutput {
     if (event['logRecord'] case final Map<String, dynamic> record) {
       final name = _valueAsString(record['loggerName']);
       final prefix = '[${name == null || name.isEmpty ? 'log' : name}] ';
-      final parts = [
+      final lines = [
         for (final key in const ['message', 'error', 'stackTrace'])
           if (_valueAsString(record[key]) case final value?
               when value.isNotEmpty)
             '$prefix$value',
       ];
-      if (parts.isNotEmpty) return '${parts.join('\n')}\n';
+      if (lines.isNotEmpty) return '${lines.join('\n')}\n';
     }
     return null;
   }
@@ -79,10 +78,9 @@ abstract final class VmServiceOutput {
   /// (`{kind: Null, valueAsString: 'null'}`), not as an absent field — so the
   /// kind must be checked, or every `log('x')` prints a spurious
   /// `[log] null` line for each of them.
-  static String? _valueAsString(Object? instanceRef) =>
-      instanceRef is Map &&
-          instanceRef['kind'] != 'Null' &&
-          instanceRef['valueAsString'] is String
-      ? instanceRef['valueAsString'] as String
-      : null;
+  static String? _valueAsString(Object? instanceRef) => switch (instanceRef) {
+    {'kind': 'Null'} => null,
+    {'valueAsString': final String value} => value,
+    _ => null,
+  };
 }
