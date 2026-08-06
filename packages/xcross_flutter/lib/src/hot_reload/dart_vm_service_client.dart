@@ -1,31 +1,27 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:xcross_flutter/src/errors.dart';
+import 'package:xcross_flutter/src/hot_reload/internal/pending_call.dart';
 
 /// A service the VM can call back into; returns the reply body.
 typedef VmServiceHandler =
     Future<Map<String, Object?>> Function(Map<String, Object?> params);
 
-/// An in-flight JSON-RPC call and the timer that bounds it.
-typedef _PendingCall = ({
-  Completer<Map<String, dynamic>> completer,
-  Timer timeout,
-});
-
 /// JSON-RPC 2.0 client for the Dart VM Service over WebSocket.
-class DartVmServiceClient {
+final class DartVmServiceClient {
   DartVmServiceClient();
 
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _subscription;
   int _nextId = 0;
-  final Map<int, _PendingCall> _pending = {};
+  final Map<int, PendingCall> _pending = {};
   final Map<String, VmServiceHandler> _services = {};
 
-  /// Broadcast of VM Service stream events (`streamNotify` — e.g. `Isolate`
-  /// `IsolateRunnable`). Callers [streamListen] first, then await here.
+  // Broadcast of VM Service stream events (`streamNotify`). Callers must
+  // [streamListen] first, then await [events].
   final _events = StreamController<Map<String, dynamic>>.broadcast();
 
   Stream<Map<String, dynamic>> get events => _events.stream;
@@ -51,7 +47,9 @@ class DartVmServiceClient {
   Future<void> close() async {
     try {
       await _channel?.sink.close().timeout(const Duration(milliseconds: 500));
-    } on Object catch (_) {}
+    } on Object catch (e) {
+      Log.logTrace('VM Service: close ignored: $e');
+    }
     _handleClose();
   }
 
@@ -70,7 +68,7 @@ class DartVmServiceClient {
     // KEEP the Timer so it can be cancelled on reply. A live Timer keeps the
     // Dart event loop alive; leaking one per RPC is why the process wouldn't
     // exit (Ctrl-C hang).
-    _pending[id] = (
+    _pending[id] = PendingCall(
       completer: completer,
       timeout: Timer(timeout, () {
         if (_pending.remove(id) != null && !completer.isCompleted) {
@@ -109,8 +107,8 @@ class DartVmServiceClient {
   Future<void> streamListen(String streamId) async {
     try {
       await call('streamListen', params: {'streamId': streamId});
-    } on FlutterBuildError {
-      // Already subscribed / unsupported — fine.
+    } on FlutterBuildError catch (e) {
+      Log.logTrace('streamListen($streamId): $e');
     }
   }
 
@@ -184,9 +182,7 @@ class DartVmServiceClient {
     });
   }
 
-  /// Answer a request the VM made of us. Always replies: a silent drop leaves
-  /// the VM waiting forever, and an `evaluate` that never returns reads as a
-  /// hang rather than an error.
+  // Always replies: a silent drop leaves the VM waiting forever.
   Future<void> _handleServerRequest(
     Object? id,
     String method,

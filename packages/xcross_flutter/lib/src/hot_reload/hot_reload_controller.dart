@@ -14,7 +14,7 @@ import 'package:xcross_flutter/src/models/hot_reload_config.dart';
 ///   1. Spawning a persistent `frontend_server` for incremental kernel diffs.
 ///   2. Uploading those diffs into the app's devFS over HTTP.
 ///   3. Calling `reloadSources` / `_flutter.runInView` on the Dart VM Service.
-class HotReloadController {
+final class HotReloadController {
   HotReloadController({
     required HotReloadConfig config,
     required DartVmServiceClient vm,
@@ -27,12 +27,12 @@ class HotReloadController {
        _frontend = FrontendServerSession(_frontendOptions(config)),
        _sources = SourceWatcher(config.projectRoot);
 
-  /// Fallback devFS base URI used when `_createDevFS` does not return one.
+  // Fallback devFS base URI used when `_createDevFS` does not return one.
   static const _devFsFallbackUri =
       'org-dartlang-devfs://${FlutterDeviceConstants.devFsName}/';
 
-  /// A cold device can take well over the default RPC timeout to boot an
-  /// isolate, so hot restart gets its own budget.
+  // A cold device can take well over the default RPC timeout to boot an
+  // isolate, so hot restart gets its own budget.
   static const _restartTimeout = Duration(minutes: 2);
 
   final DartVmServiceClient _vm;
@@ -42,16 +42,13 @@ class HotReloadController {
   final SourceWatcher _sources;
 
   String? _devFsBaseUri;
-
-  /// Incremented per hot restart to alternate the devFS dill filename.
   int _restartCount = 0;
 
-  /// Cached root Flutter isolate id so reload doesn't re-`listViews` each time.
-  /// Cleared on hot restart (which spins up a new isolate).
+  // Cleared on hot restart (which spins up a new isolate).
   String? _cachedRootIsolate;
 
-  /// Maps [HotReloadConfig] into kit options; resolves the xcross build dill
-  /// path here so the kit stays free of project layout knowledge.
+  // Resolves the xcross build dill path here so the kit stays free of
+  // project layout knowledge.
   static FrontendServerOptions _frontendOptions(HotReloadConfig config) {
     final warm =
         '${config.projectRoot}/build/xcross-flutter-debug/.kernel/app.dill';
@@ -72,25 +69,18 @@ class HotReloadController {
   Future<void> initialSync() async {
     await _frontend.spawn();
     await _createDevFs();
-    // App already runs its bundled kernel. We only prime frontend_server's
-    // incremental state here; uploading the full seed dill makes first reload
-    // wait behind a multi-MB devFS transfer.
+    // Primes frontend_server's incremental state only; the app already runs
+    // its bundled kernel, so a full seed-dill upload would just slow the
+    // first reload.
     await _frontend.compile();
     await _frontend.accept();
     _sources.snapshot();
     await _registerExpressionCompiler();
   }
 
-  /// Serve the VM Service `compileExpression` service from our
-  /// frontend_server.
-  ///
-  /// The Flutter engine embeds no kernel compiler, so the VM delegates
-  /// expression compilation to a registered client. With nobody registered
-  /// every `evaluate` fails — which is also how DevTools decides an app is a
-  /// profile build (it probes with `Platform.isAndroid`), disabling the Flutter
-  /// Inspector and Debugger screens on a perfectly good debug build.
-  ///
-  /// Best effort: reload still works without it.
+  // Registers frontend_server as the `compileExpression` service. Without
+  // one, every `evaluate` fails, which DevTools reads as a profile build and
+  // disables Inspector/Debugger. Best effort: reload still works without it.
   Future<void> _registerExpressionCompiler() async {
     try {
       await _vm.registerService('compileExpression', 'xcross', (params) async {
@@ -118,9 +108,8 @@ class HotReloadController {
     }
   }
 
-  /// Tolerates a missing or differently-typed list: the parameter set has grown
-  /// over VM versions (`typeDefaults` is recent), and an absent one is empty,
-  /// not an error.
+  // Tolerates a missing or differently-typed list: the parameter set has
+  // grown over VM versions, and an absent one is empty, not an error.
   static List<String> _stringList(Object? value) => switch (value) {
     final List<Object?> list => list.whereType<String>().toList(),
     _ => const [],
@@ -134,12 +123,8 @@ class HotReloadController {
   }
 
   /// Recompile changed sources, push the delta, reload the ROOT Flutter
-  /// isolate.
-  ///
-  /// Only the root isolate is reloaded (via `_flutter.listViews`), like
-  /// flutter_tools — reloading every isolate from `getVM` can hit a worker
-  /// isolate that rejects, which discarded the whole (good) delta and forced a
-  /// redo.
+  /// isolate only (reloading every isolate can hit a worker that rejects and
+  /// discards the whole delta).
   Future<bool> reload() async {
     final changed = _sources.changedFileUris();
     if (changed.isEmpty) {
@@ -173,9 +158,8 @@ class HotReloadController {
   }
 
   /// Full restart: recompile, push (to an alternating swap dill), then
-  /// `_flutter.runInView` on each view and await the isolate becoming runnable
-  /// (rather than the RPC's own return, which on-device can exceed the default
-  /// timeout).
+  /// `_flutter.runInView` on each view, awaiting isolate-runnable rather than
+  /// the RPC's own return (which on-device can exceed the default timeout).
   Future<void> restart() async {
     final changed = _sources.changedFileUris();
     _cachedRootIsolate = null; // a new isolate comes up after runInView
@@ -201,9 +185,8 @@ class HotReloadController {
     }
   }
 
-  /// Alternating devFS file name: runInView will not reload an identical URI,
-  /// so a stable filename makes every second hot restart a silent no-op that
-  /// still reports success.
+  // runInView won't reload an identical URI, so a stable filename would make
+  // every second hot restart a silent no-op.
   String get _restartDillName =>
       _restartCount.isEven ? 'main.dart.dill' : 'main.dart.swap.dill';
 
@@ -229,7 +212,9 @@ class HotReloadController {
         'ext.flutter.reassemble',
         params: {'isolateId': isolateId},
       );
-    } catch (_) {}
+    } catch (e) {
+      Log.logTrace('reassemble ignored: $e');
+    }
   }
 
   Future<void> _runInView(String viewId, {required String mainScript}) async {
@@ -263,8 +248,7 @@ class HotReloadController {
     }
   }
 
-  /// The root Flutter isolate id (the first view's isolate), via
-  /// `_flutter.listViews`.
+  // The first view's isolate id, via `_flutter.listViews`.
   Future<String?> _rootIsolateId() async {
     for (final view in await _flutterViews()) {
       if (view case {'isolate': {'id': final String id}}) return id;
@@ -300,14 +284,15 @@ class HotReloadController {
           '_deleteDevFS',
           params: {'fsName': FlutterDeviceConstants.devFsName},
         );
-      } catch (_) {}
+      } catch (e) {
+        Log.logTrace('_deleteDevFS ignored: $e');
+      }
       response = await create();
     }
     _devFsBaseUri = response['uri'] as String? ?? _devFsFallbackUri;
   }
 
-  /// PUT [dillPath] (gzipped) into devFS as [fileName].
-  /// Returns the devFS URI of the uploaded file.
+  // PUTs [dillPath] (gzipped) into devFS as [fileName]; returns its URI.
   Future<String> _uploadDill(
     String dillPath, {
     String fileName = 'main.dart.dill',
@@ -330,8 +315,8 @@ class HotReloadController {
     return targetUri;
   }
 
-  /// contentLength must stay exact and the body must not be re-encoded or
-  /// chunked — the VM Service devFS handler reads exactly contentLength bytes.
+  // contentLength must stay exact and the body must not be re-encoded or
+  // chunked — the VM Service devFS handler reads exactly contentLength bytes.
   Future<void> _putDevFsFile(
     HttpClient client, {
     required String targetUri,
@@ -359,7 +344,7 @@ class HotReloadController {
     }
   }
 
-  /// Time [body] and log `[timing] <label> <ms>ms` (helps locate reload cost).
+  // Times [body] and logs `[timing] <label> <ms>ms` (helps locate reload cost).
   Future<T> _timed<T>(String label, Future<T> Function() body) async {
     if (!_verbose) return body();
     final sw = Stopwatch()..start();

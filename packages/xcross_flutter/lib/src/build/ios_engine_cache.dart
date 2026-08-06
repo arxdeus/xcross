@@ -12,7 +12,7 @@ import 'package:xcross_flutter/src/errors.dart';
 /// On macOS, `flutter precache --ios` downloads these into
 /// `bin/cache/artifacts/engine/ios/`. On Linux, Flutter skips iOS artifacts,
 /// so we fetch them ourselves from `storage.googleapis.com`.
-class IosEngineCache {
+final class IosEngineCache {
   final String flutterRoot;
 
   IosEngineCache({required this.flutterRoot});
@@ -180,17 +180,13 @@ class IosEngineCache {
 
   /// Platform-specific engine cache directory name.
   /// Mirrors `_HostArtifacts` in flutter_tools.
-  static String get _hostEngineCacheDir {
-    if (Platform.isLinux) {
-      return Abi.current() == Abi.linuxArm64 ? 'linux-arm64' : 'linux-x64';
-    }
-    if (Platform.isMacOS) {
-      return Abi.current() == Abi.macosArm64 ? 'darwin-arm64' : 'darwin-x64';
-    }
+  static String get _hostEngineCacheDir => switch (true) {
+    _ when Platform.isLinux =>
+      Abi.current() == Abi.linuxArm64 ? 'linux-arm64' : 'linux-x64',
+    _ when Platform.isMacOS =>
+      Abi.current() == Abi.macosArm64 ? 'darwin-arm64' : 'darwin-x64',
     // No arm64 Windows engine variant is published.
-    if (Platform.isWindows) {
-      return 'windows-x64';
-    }
-    return 'linux-x64';
-  }
+    _ when Platform.isWindows => 'windows-x64',
+    _ => 'linux-x64',
+  };
 }

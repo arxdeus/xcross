@@ -22,7 +22,7 @@ const String _flutterFrameworkPackageName = 'FlutterFramework';
 const String _pluginsProductName = 'FlutterPluginsGenerated';
 
 /// Result of building the aggregate Flutter-plugins Swift package.
-class GeneratedPluginsBuildResult {
+final class GeneratedPluginsBuildResult {
   /// Creates a result wrapping the built dylib paths.
   const GeneratedPluginsBuildResult({
     required this.libraryPath,

@@ -164,8 +164,10 @@ xcuserdata/
 build/
 # ...but lib/src/build/ is xcross source, not build output — keep it tracked.
 !/lib/src/build/
+!**/lib/src/build/
 # ...and test/build/ mirrors it (tests for lib/src/build/), same reason.
 !/test/build/
+!**/test/build/
 DerivedData/
 *.moved-aside
 *.pbxuser
@@ -203,3 +205,4 @@ pubspec.lock
 .fvmrc
 coverage
 example/
+AGENTS.md

@@ -9,7 +9,7 @@ import 'package:yaml/yaml.dart';
 /// One Flutter plugin's iOS native-code location, as recorded in
 /// `.flutter-plugins-dependencies`.
 @immutable
-class IosPlugin {
+final class IosPlugin {
   const IosPlugin({required this.name, required this.packageRoot});
 
   /// Pub package name (also the Dart class prefix / SPM directory name).

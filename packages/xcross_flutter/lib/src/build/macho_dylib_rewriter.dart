@@ -8,7 +8,7 @@ import 'package:xcross_flutter/src/errors.dart';
 
 /// Rewrites install names in 64-bit little-endian Mach-O dynamic libraries.
 abstract final class MachODylibRewriter {
-  static const _magic64 = 0xfeedfacf;
+  static const _magic64 = 0xFEED_FACF;
 
   /// `mach_header_64` is 32 bytes; load commands start right after it.
   static const _headerSize64 = 32;

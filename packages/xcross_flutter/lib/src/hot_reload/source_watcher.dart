@@ -2,21 +2,19 @@ import 'dart:io';
 
 /// Tracks which `lib/` `.dart` files changed between compiles, so a hot reload
 /// only recompiles what the user actually edited.
-class SourceWatcher {
+final class SourceWatcher {
   SourceWatcher(this.projectRoot);
 
   /// Flutter project root directory.
   final String projectRoot;
 
-  /// Content hash of each `lib/` `.dart` file at the last compile — the
-  /// baseline for change detection.
+  // Content hash of each file at the last compile, the change-detection
+  // baseline.
   final Map<String, int> _hashes = {};
 
-  /// Every `lib/` `.dart` file, as absolute paths.
-  ///
-  /// Scope is `lib/` on purpose: `test/`/`bin/`/`tool/` import non-runtime deps
-  /// (e.g. `flutter_test`) that would balloon the compile. The walk is pruned
-  /// so `.fvm`/`.dart_tool`/`build`/`.git` aren't traversed.
+  /// Every `lib/` `.dart` file, as absolute paths. Scoped to `lib/` since
+  /// `test/`/`bin/`/`tool/` pull in non-runtime deps that would balloon the
+  /// compile.
   List<String> dartFiles() {
     final root = _searchRoot();
     if (root == null) return const [];
@@ -42,8 +40,8 @@ class SourceWatcher {
     return files;
   }
 
-  /// Record the current content hash of every `lib/` `.dart` file, establishing
-  /// the baseline for [changedFileUris].
+  /// Record the current content hash of every `lib/` `.dart` file as the
+  /// baseline for [changedFileUris].
   void snapshot() {
     _hashes.clear();
     for (final path in dartFiles()) {
@@ -51,13 +49,9 @@ class SourceWatcher {
     }
   }
 
-  /// `lib/` `.dart` files whose *content* changed since the last snapshot, as
-  /// `file://` URIs. Content-based so it reliably catches an edit on the first
-  /// `r` regardless of mtime/clock behaviour, and returns empty when nothing
-  /// actually changed (so we skip a pointless recompile).
-  ///
-  /// NOT a pure query: it advances the baseline as it walks, so a second call
-  /// returns empty. Hot restart relies on that.
+  /// `lib/` `.dart` files whose content changed since the last snapshot, as
+  /// `file://` URIs. NOT a pure query: it advances the baseline as it walks,
+  /// so a second call returns empty.
   List<String> changedFileUris() {
     final changed = <String>[];
     for (final path in dartFiles()) {
@@ -69,8 +63,8 @@ class SourceWatcher {
     return changed;
   }
 
-  /// `<projectRoot>/lib`, falling back to the project root itself, or null when
-  /// neither exists.
+  // `<projectRoot>/lib`, falling back to the project root, or null if
+  // neither exists.
   Directory? _searchRoot() {
     for (final path in ['$projectRoot/lib', projectRoot]) {
       final dir = Directory(path);
@@ -82,7 +76,7 @@ class SourceWatcher {
   static String _basename(FileSystemEntity entity) =>
       entity.uri.pathSegments.where((s) => s.isNotEmpty).last;
 
-  /// Null when the file cannot be read (deleted mid-walk, permissions).
+  // Null when the file cannot be read (deleted mid-walk, permissions).
   static int? _contentHash(String path) {
     try {
       return _fnv1a(File(path).readAsBytesSync());
@@ -91,16 +85,14 @@ class SourceWatcher {
     }
   }
 
-  /// 64-bit FNV-1a hash of file bytes — cheap, collision-safe enough to detect
-  /// edits by content (mtime is unreliable over the virtiofs mount this tool
-  /// runs over). Offset basis 0xcbf29ce484222325, prime 0x100000001b3.
+  // 64-bit FNV-1a hash (mtime is unreliable over virtiofs). Offset basis
+  // 0xCBF2_9CE4_8422_2325, prime 0x100_0000_01B3.
   static int _fnv1a(List<int> bytes) {
-    // Native (dart compile exe) 64-bit ints; JS rounding doesn't apply.
     // ignore: avoid_js_rounded_ints
-    var hash = 0xcbf29ce484222325;
+    var hash = 0xCBF2_9CE4_8422_2325;
     for (final byte in bytes) {
-      hash = (hash ^ byte) * 0x100000001b3;
+      hash = (hash ^ byte) * 0x100_0000_01B3;
     }
-    return hash & 0x7fffffffffffffff;
+    return hash & 0x7FFF_FFFF_FFFF_FFFF;
   }
 }

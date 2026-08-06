@@ -10,7 +10,7 @@ import 'package:xcross_flutter/src/errors.dart';
 /// ld64.lld to produce the `Runner` executable for an iOS `.app` bundle.
 ///
 /// This is the cross-platform equivalent of the Xcode-built Runner.
-class RunnerShim {
+final class RunnerShim {
   /// Compile and link the Runner binary.
   ///
   /// [projectRoot]        — Flutter project root (used for output staging).

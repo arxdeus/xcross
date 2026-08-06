@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:xcross_flutter/src/build/internal/required_plist_key.dart';
 import 'package:xcross_flutter/src/constants.dart';
 
 /// Plist / xcconfig text manipulation for the generated app bundle.
@@ -19,16 +20,28 @@ abstract final class InfoPlist {
   /// The `UIDeviceFamily`/`DT*` group matters on iOS 26+: without it the OS
   /// refuses to register the app with SpringBoard/LaunchServices (it installs
   /// but won't launch — FBSApplicationLibrary returns nil).
-  static const _requiredKeys = <(String, String)>[
-    ('LSRequiresIPhoneOS', '<true/>'),
-    ('CFBundleSupportedPlatforms', '<array><string>iPhoneOS</string></array>'),
-    ('UIRequiredDeviceCapabilities', '<array><string>arm64</string></array>'),
-    ('UIDeviceFamily', '<array><integer>1</integer></array>'),
-    ('DTPlatformName', '<string>iphoneos</string>'),
-    ('DTSDKName', '<string>${IosDeploymentConstants.sdkTriple}</string>'),
-    (
-      'DTPlatformVersion',
-      '<string>${IosDeploymentConstants.sdkVersion}</string>',
+  static const _requiredKeys = <RequiredPlistKey>[
+    RequiredPlistKey(key: 'LSRequiresIPhoneOS', value: '<true/>'),
+    RequiredPlistKey(
+      key: 'CFBundleSupportedPlatforms',
+      value: '<array><string>iPhoneOS</string></array>',
+    ),
+    RequiredPlistKey(
+      key: 'UIRequiredDeviceCapabilities',
+      value: '<array><string>arm64</string></array>',
+    ),
+    RequiredPlistKey(
+      key: 'UIDeviceFamily',
+      value: '<array><integer>1</integer></array>',
+    ),
+    RequiredPlistKey(key: 'DTPlatformName', value: '<string>iphoneos</string>'),
+    RequiredPlistKey(
+      key: 'DTSDKName',
+      value: '<string>${IosDeploymentConstants.sdkTriple}</string>',
+    ),
+    RequiredPlistKey(
+      key: 'DTPlatformVersion',
+      value: '<string>${IosDeploymentConstants.sdkVersion}</string>',
     ),
   ];
 
@@ -56,9 +69,12 @@ abstract final class InfoPlist {
         IosDeploymentConstants.minDeploymentTarget,
       );
     }
-    for (final (key, value) in _requiredKeys) {
-      if (xml.contains(key)) continue;
-      xml = _insertBeforeEnd(xml, '\t<key>$key</key>\n\t$value\n');
+    for (final entry in _requiredKeys) {
+      if (xml.contains(entry.key)) continue;
+      xml = _insertBeforeEnd(
+        xml,
+        '\t<key>${entry.key}</key>\n\t${entry.value}\n',
+      );
     }
     return xml;
   }

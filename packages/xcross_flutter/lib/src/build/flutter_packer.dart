@@ -6,6 +6,7 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross_flutter/src/build/flutter_debug_bundler.dart';
 import 'package:xcross_flutter/src/build/info_plist.dart';
+import 'package:xcross_flutter/src/build/internal/runner_binary.dart';
 import 'package:xcross_flutter/src/build/ios_engine_cache.dart';
 import 'package:xcross_flutter/src/build/ios_plugin_package.dart';
 import 'package:xcross_flutter/src/build/ios_plugins.dart';
@@ -27,7 +28,7 @@ import 'package:xcross_flutter/src/models/pubspec_info.dart';
 ///   4. Compile the ObjC Runner shim via [RunnerShim], linking in the
 ///      plugins library when present.
 ///   5. Assemble the `.app` bundle and write `Info.plist`.
-class FlutterPacker {
+final class FlutterPacker {
   final String projectRoot;
   final String bundleId;
   final FlutterBuildOptions options;
@@ -190,7 +191,7 @@ class FlutterPacker {
 
   /// Compile the ObjC Runner shim and return both the xcframework path and the
   /// linked Runner binary path.
-  Future<_RunnerBinary> _buildRunnerBinary(
+  Future<RunnerBinary> _buildRunnerBinary(
     String flutterRoot, {
     String? pluginsLibrary,
   }) async {
@@ -214,7 +215,7 @@ class FlutterPacker {
       pluginsLibrary: pluginsLibrary,
     );
 
-    return (xcframework: xcframework, runnerBinary: runnerBinary);
+    return RunnerBinary(xcframework: xcframework, runnerBinary: runnerBinary);
   }
 
   /// Stage the bundle in a temp directory, then move it to
@@ -383,7 +384,3 @@ class FlutterPacker {
     }
   }
 }
-
-/// Result of building the ObjC Runner shim: the xcframework used and the
-/// linked Runner binary path.
-typedef _RunnerBinary = ({String xcframework, String runnerBinary});

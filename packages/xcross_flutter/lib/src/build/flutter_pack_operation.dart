@@ -7,7 +7,7 @@ import 'package:xcross_flutter/src/models/flutter/flutter_build_options.dart';
 
 /// The `.app` path and the iOS bundle identifier produced by
 /// [FlutterPackOperation.pack].
-class PackResult {
+final class PackResult {
   const PackResult({required this.appPath, required this.bundleId});
 
   final String appPath;

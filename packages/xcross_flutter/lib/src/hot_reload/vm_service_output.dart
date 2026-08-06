@@ -6,12 +6,9 @@ import 'package:xcross_flutter/src/hot_reload/dart_vm_service_client.dart';
 /// Forwards the app's `print` / `stderr` / `dart:developer log()` output from
 /// the Dart VM Service to this process's stdout and stderr.
 abstract final class VmServiceOutput {
-  /// The app is launched by pymobiledevice3 and the debugger only *attaches*
-  /// afterwards, so debugserver never owns the inferior's stdio and emits no
-  /// `O` packets for it — GDB output forwarding alone shows nothing. The VM
-  /// Service `Stdout`/`Stderr`/`Logging` streams are the only channel that
-  /// carries it. The reference Flutter debug adapter does the same on attach
-  /// (see `_subscribeToOutputStreams` in the DAP's `attachRequest`).
+  /// The debugger only *attaches* after launch, so debugserver never owns
+  /// the inferior's stdio; the VM Service `Stdout`/`Stderr`/`Logging`
+  /// streams are the only channel that carries app output.
   static Future<void> forwardVmServiceOutput(DartVmServiceClient vm) async {
     // Under `xcross dap` the debug adapter subscribes to Logging itself
     // (unconditionally, unlike Stdout/Stderr) and renders records with full
@@ -36,12 +33,9 @@ abstract final class VmServiceOutput {
     });
   }
 
-  /// Decode a `Stdout`/`Stderr` `WriteEvent` payload, which carries base64
-  /// bytes.
-  ///
-  /// Returns null when there is nothing to print. Malformed UTF-8 is passed
-  /// through with replacement chars rather than dropping the line: partial
-  /// sequences are normal because the VM chunks writes at arbitrary offsets.
+  /// Decode a `Stdout`/`Stderr` `WriteEvent`'s base64 payload, or null when
+  /// empty. Malformed UTF-8 is passed through with replacement chars since
+  /// the VM chunks writes at arbitrary offsets.
   static String? decodeStreamWrite(Map<String, dynamic> event) {
     if (event['bytes'] case final String bytes when bytes.isNotEmpty) {
       try {
@@ -53,12 +47,9 @@ abstract final class VmServiceOutput {
     return null;
   }
 
-  /// Render a `Logging` `LogRecord` the way the reference adapter does:
-  /// `[loggerName] message`.
-  ///
-  /// Only `valueAsString` is read. A message long enough to be truncated by
-  /// the VM would need a follow-up `getObject` round trip, which is not worth
-  /// a round trip per log line.
+  /// Render a `Logging` `LogRecord` as `[loggerName] message`. Only
+  /// `valueAsString` is read; a truncated message is not worth a follow-up
+  /// `getObject` round trip.
   static String? formatLogRecord(Map<String, dynamic> event) {
     if (event['logRecord'] case final Map<String, dynamic> record) {
       final name = _valueAsString(record['loggerName']);
@@ -74,10 +65,8 @@ abstract final class VmServiceOutput {
     return null;
   }
 
-  /// A `LogRecord`'s unset `error`/`stackTrace` arrive as a Null *instance*
-  /// (`{kind: Null, valueAsString: 'null'}`), not as an absent field — so the
-  /// kind must be checked, or every `log('x')` prints a spurious
-  /// `[log] null` line for each of them.
+  // Unset error/stackTrace arrive as a Null instance, not an absent field,
+  // so `kind` must be checked or every log prints a spurious "null" line.
   static String? _valueAsString(Object? instanceRef) => switch (instanceRef) {
     {'kind': 'Null'} => null,
     {'valueAsString': final String value} => value,

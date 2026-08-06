@@ -7,6 +7,8 @@ import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:frontend_server_kit/frontend_server_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:standard_message_codec/standard_message_codec.dart';
+import 'package:xcross_flutter/src/build/internal/kernel_compiler.dart';
+import 'package:xcross_flutter/src/build/internal/toolchain.dart';
 import 'package:xcross_flutter/src/build/ios_engine_cache.dart';
 import 'package:xcross_flutter/src/constants.dart';
 import 'package:xcross_flutter/src/errors.dart';
@@ -24,7 +26,7 @@ import 'package:xcross_flutter/src/models/pubspec_info.dart';
 ///   4. Build App stub Mach-O dylib via clang + ld64.lld from PATH.
 ///   5. Write `App.framework/Info.plist`.
 ///
-class FlutterDebugBundler {
+final class FlutterDebugBundler {
   final String projectRoot;
   final String flutterRoot;
   final String outputDir;
@@ -146,11 +148,11 @@ class FlutterDebugBundler {
 
   /// The frontend_server snapshot plus the Dart runtime that can execute it.
   /// AOT snapshots run via `dartaotruntime`; non-AOT via `dart`.
-  _KernelCompiler _resolveKernelCompiler(IosEngineCache engineCache) {
+  KernelCompiler _resolveKernelCompiler(IosEngineCache engineCache) {
     final snapshot = engineCache.frontendServer;
     final isAot = p.basename(snapshot).contains('_aot');
     final runtimeName = isAot ? 'dartaotruntime' : 'dart';
-    return (
+    return KernelCompiler(
       snapshot: snapshot,
       isAot: isAot,
       runtimeName: runtimeName,
@@ -167,7 +169,7 @@ class FlutterDebugBundler {
 
   /// Guard that all prerequisites for the kernel snapshot step exist.
   void _validateKernelDependencies(
-    _KernelCompiler compiler,
+    KernelCompiler compiler,
     IosEngineCache engineCache,
   ) {
     if (!File(compiler.snapshot).existsSync()) {
@@ -225,7 +227,7 @@ class FlutterDebugBundler {
   /// concatenation. The -Ddart.* / --track-widget-creation quartet is what
   /// makes the kernel hot-reloadable.
   List<String> _frontendServerArgs({
-    required _KernelCompiler compiler,
+    required KernelCompiler compiler,
     required IosEngineCache engineCache,
     required String packageConfig,
     required String outputDill,
@@ -396,7 +398,7 @@ class FlutterDebugBundler {
     File(p.join(assetsDir, 'NOTICES.Z')).writeAsBytesSync(_emptyZlibBytes);
   }
 
-  Future<_Toolchain> _resolveToolchain() async {
+  Future<Toolchain> _resolveToolchain() async {
     final darwin = DarwinSdk.current();
     if (darwin == null) {
       throw FlutterBuildError(
@@ -404,7 +406,7 @@ class FlutterDebugBundler {
         'Install with `xcross sdk install <Xcode.xip|Xcode.app>` first.',
       );
     }
-    return (
+    return Toolchain(
       clang: await ProcessRunner.locateTool(
         Platform.isWindows ? 'clang.exe' : 'clang',
       ),
@@ -413,7 +415,7 @@ class FlutterDebugBundler {
     );
   }
 
-  Future<void> _buildAppStub(String appFramework, _Toolchain toolchain) =>
+  Future<void> _buildAppStub(String appFramework, Toolchain toolchain) =>
       Log.logStep('Building App.framework', () async {
         final tmp = await Directory.systemTemp.createTemp(
           'xcross-flutter-stub-',
@@ -451,7 +453,7 @@ class FlutterDebugBundler {
 
   /// Build the clang argument list for the App stub dylib.
   static List<String> _appStubClangArgs({
-    required _Toolchain toolchain,
+    required Toolchain toolchain,
     required String stubSource,
     required String outputBinary,
   }) {
@@ -517,15 +519,3 @@ class FlutterDebugBundler {
     File(p.join(appFramework, 'Info.plist')).writeAsStringSync(plist);
   }
 }
-
-/// The frontend_server snapshot and the Dart runtime able to execute it.
-typedef _KernelCompiler = ({
-  String snapshot,
-  String runtime,
-  String runtimeName,
-  bool isAot,
-});
-
-/// Resolved toolchain for the App.framework stub build. [lldToolsetBin] is the
-/// directory containing the PATH-resolved `ld64.lld`.
-typedef _Toolchain = ({String clang, String iosSdk, String lldToolsetBin});
