@@ -17,7 +17,7 @@ import 'package:completion/completion.dart';
 /// The runtime `xcross completion -- ...` shell hook itself is handled
 /// earlier in [XcrossCli.run] via `tryArgsCompletion`, before the command
 /// runner parses args.
-class CompletionCommand extends Command<void> {
+final class CompletionCommand extends Command<void> {
   @override
   String get name => 'completion';
 

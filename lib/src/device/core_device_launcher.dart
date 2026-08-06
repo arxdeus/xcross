@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io' show Platform;
+import 'dart:io';
 
 import 'package:apple_developer_kit/apple_developer_kit.dart';
 import 'package:cli_kit/cli_kit.dart';
@@ -7,7 +7,7 @@ import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:pure/pure.dart';
 import 'package:xcross/src/constants.dart';
 import 'package:xcross/src/device/session_console.dart';
-import 'package:xcross/src/util/errors.dart';
+import 'package:xcross/src/errors.dart';
 import 'package:xcross_flutter/xcross_flutter.dart';
 
 const _cleanupTimeout = Duration(seconds: 2);

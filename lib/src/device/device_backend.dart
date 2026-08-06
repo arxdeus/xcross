@@ -4,20 +4,12 @@ import 'package:apple_developer_kit/apple_developer_kit.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/util/errors.dart';
+import 'package:xcross/src/device/internal/signing_session.dart';
+import 'package:xcross/src/errors.dart';
 import 'package:xcross_flutter/xcross_flutter.dart';
 
-/// An authenticated provisioning client plus the on-disk locations derived
-/// from whichever identity (Apple ID team or ASC issuer) it authenticated as.
-typedef _SigningSession = ({
-  DevelopmentProvisioningClient client,
-  AnisetteProvider? anisette,
-  String identityId,
-  String identityDir,
-});
-
 /// Resolves, signs, and installs to a device using the native pipeline.
-abstract class DeviceBackend {
+abstract interface class DeviceBackend {
   Future<Device> resolveDevice({
     required DeviceSearchMode mode,
     String? selector,
@@ -35,7 +27,7 @@ abstract class DeviceBackend {
 
 /// pymobiledevice3 for device discovery/install, with Apple provisioning and
 /// in-process signing.
-class NativeBackend implements DeviceBackend {
+final class NativeBackend implements DeviceBackend {
   NativeBackend([PymdDeviceResolver? resolver])
     : _resolver = resolver ?? PymdDeviceResolver();
 
@@ -112,7 +104,7 @@ class NativeBackend implements DeviceBackend {
   /// belong to a different team, so a broken Apple session must never silently
   /// switch providers. Throws [XcrossError] listing both failures if neither
   /// works.
-  static Future<_SigningSession> _resolveSigningSession() async {
+  static Future<SigningSession> _resolveSigningSession() async {
     final configPath = AscCredentials.defaultConfigPath();
     final configDirectory = p.dirname(configPath);
 
@@ -161,12 +153,12 @@ class NativeBackend implements DeviceBackend {
     );
   }
 
-  static Future<_SigningSession> _ascSession(
+  static Future<SigningSession> _ascSession(
     String configPath,
     String configDirectory,
   ) async {
     final credentials = await AscCredentials.fromFile(configPath);
-    return (
+    return SigningSession(
       client: AscClient(credentials),
       anisette: null,
       identityId: credentials.issuerId,
@@ -179,7 +171,7 @@ class NativeBackend implements DeviceBackend {
     );
   }
 
-  static Future<_SigningSession> _appleIdSession(
+  static Future<SigningSession> _appleIdSession(
     GrandSlamSession session,
     String configDirectory,
   ) async {
@@ -196,7 +188,7 @@ class NativeBackend implements DeviceBackend {
       anisette.close();
       rethrow;
     }
-    return (
+    return SigningSession(
       client: client,
       anisette: anisette,
       identityId: session.teamId,

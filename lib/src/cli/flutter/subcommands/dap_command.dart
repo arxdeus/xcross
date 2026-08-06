@@ -7,7 +7,7 @@ import 'package:xcross_dap/xcross_dap.dart';
 /// Spawned by `.vscode/xcross_dap.dart` (see `xcross ide vscode`) or by an
 /// LSP4IJ DAP run config (see `xcross ide idea`). Launch configs must set
 /// `"xcross": true`; other Flutter sessions are proxied to Flutter's DAP.
-class DapCommand extends Command<void> {
+final class DapCommand extends Command<void> {
   @override
   String get name => 'dap';
 

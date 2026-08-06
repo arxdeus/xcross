@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:ffi' show Abi;
+import 'dart:ffi';
 import 'dart:io';
 
 import 'package:apple_developer_kit/apple_developer_kit.dart';
@@ -7,13 +7,13 @@ import 'package:args/command_runner.dart';
 import 'package:build_cli_annotations/build_cli_annotations.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/util/errors.dart';
+import 'package:xcross/src/errors.dart';
 
 part 'auth_command.g.dart';
 
 /// Options for `xcross auth`.
 @CliOptions(createCommand: true)
-class AuthArgs {
+final class AuthArgs {
   @CliOption(help: 'App Store Connect API "Issuer ID" (one per team).')
   late String? issuerId;
 
@@ -60,7 +60,7 @@ const _adiLibraryNames = ['libCoreADI.so', 'libstoreservicescore.so'];
 /// `xcross auth` — save credentials for the native (no-Swift) signing
 /// pipeline. Supports both App Store Connect API keys and Apple ID/password
 /// GrandSlam login.
-class AuthCommand extends _$AuthArgsCommand<void> {
+final class AuthCommand extends _$AuthArgsCommand<void> {
   @override
   String get name => 'auth';
 

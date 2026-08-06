@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 
-part of 'runner.dart';
+part of 'xcross_runner.dart';
 
 // **************************************************************************
 // CliGenerator

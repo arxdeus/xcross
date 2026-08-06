@@ -7,7 +7,7 @@ import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:xcross/src/cli/flutter/subcommands/flutter_build_command.dart';
 import 'package:xcross/src/device/core_device_launcher.dart';
 import 'package:xcross/src/device/device_backend.dart';
-import 'package:xcross/src/util/errors.dart';
+import 'package:xcross/src/errors.dart';
 import 'package:xcross_flutter/xcross_flutter.dart';
 
 part 'flutter_run_command.g.dart';
@@ -17,7 +17,7 @@ enum DeviceConnection { attached, wireless, both }
 
 /// Options for `xcross flutter run`.
 @CliOptions(createCommand: true)
-class FlutterRunArgs extends CommonFlutterArgs {
+final class FlutterRunArgs extends CommonFlutterArgs {
   @CliOption(abbr: 'd', help: 'Target device id or name (flutter-style).')
   late String? deviceId;
 
@@ -51,7 +51,7 @@ class FlutterRunArgs extends CommonFlutterArgs {
 ///
 /// Always builds a debug (JIT) app and always launches with hot reload (the
 /// flutter default).
-class FlutterRunCommand extends _$FlutterRunArgsCommand<void> {
+final class FlutterRunCommand extends _$FlutterRunArgsCommand<void> {
   static bool shouldUseCoreDevice(int? osMajor) =>
       osMajor == null || osMajor >= 17;
 

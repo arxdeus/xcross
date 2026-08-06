@@ -31,7 +31,7 @@ class CommonFlutterArgs {
 
 /// Options for `xcross flutter build`.
 @CliOptions(createCommand: true)
-class FlutterBuildArgs extends CommonFlutterArgs {
+final class FlutterBuildArgs extends CommonFlutterArgs {
   @CliOption(help: 'Version name (CFBundleShortVersionString).')
   late String? buildName;
 
@@ -50,7 +50,7 @@ class FlutterBuildArgs extends CommonFlutterArgs {
 ///
 /// xcross is debug-only; `build` produces an unsigned bundle and signing
 /// happens when `xcross flutter run` installs it.
-class FlutterBuildCommand extends _$FlutterBuildArgsCommand<void> {
+final class FlutterBuildCommand extends _$FlutterBuildArgsCommand<void> {
   @override
   String get name => 'build';
 

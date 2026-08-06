@@ -4,12 +4,12 @@ import 'package:args/command_runner.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:xcross/src/cli/basic/sdk_install.dart';
-import 'package:xcross/src/util/errors.dart';
+import 'package:xcross/src/errors.dart';
 
 export 'package:xcross/src/cli/basic/sdk_install.dart';
 
 /// `xcross sdk` — manage xcross's host-neutral Darwin Swift SDK.
-class SdkCommand extends Command<void> {
+final class SdkCommand extends Command<void> {
   SdkCommand() {
     addSubcommand(SdkInstallCommand());
   }
@@ -22,7 +22,7 @@ class SdkCommand extends Command<void> {
 }
 
 /// `xcross sdk install <Xcode.xip>` — build xcross's Darwin Swift SDK bundle.
-class SdkInstallCommand extends Command<void> {
+final class SdkInstallCommand extends Command<void> {
   @override
   String get name => 'install';
 

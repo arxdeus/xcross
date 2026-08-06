@@ -8,7 +8,7 @@ import 'package:xcross/src/cli/ide/xcross_executable.dart';
 
 /// `xcross ide idea` — write a shared LSP4IJ DAP run configuration that
 /// drives `xcross flutter dap` (stdio).
-class IdeaCommand extends Command<void> {
+final class IdeaCommand extends Command<void> {
   @override
   String get name => 'idea';
 

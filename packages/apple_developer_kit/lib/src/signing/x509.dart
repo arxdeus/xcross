@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/signing/der.dart';
+import 'package:apple_developer_kit/src/signing/internal/pem_block.dart';
 import 'package:basic_utils/basic_utils.dart';
 import 'package:meta/meta.dart';
 import 'package:pure/pure.dart';
@@ -387,7 +388,7 @@ bool bytesEqual(List<int> left, List<int> right) {
   return difference == 0;
 }
 
-({String label, Uint8List bytes}) _decodePem(String pem) {
+PemBlock _decodePem(String pem) {
   final lines = const LineSplitter().convert(pem.trim());
   if (lines.length < 3) throw const FormatException('incomplete PEM block');
   final begin = RegExp(
@@ -400,7 +401,7 @@ bool bytesEqual(List<int> left, List<int> right) {
   }
   final body = lines.sublist(1, lines.length - 1).map(trim).join();
   if (body.isEmpty) throw const FormatException('empty PEM body');
-  return (label: label, bytes: Uint8List.fromList(base64.decode(body)));
+  return PemBlock(label: label, bytes: Uint8List.fromList(base64.decode(body)));
 }
 
 // DER certificates from pinned zsign d6e929c src/openssl.cpp.

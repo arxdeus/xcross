@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/signing/bytes.dart';
 import 'package:apple_developer_kit/src/signing/der.dart';
+import 'package:apple_developer_kit/src/signing/internal/plist_der_entry.dart';
 import 'package:apple_developer_kit/src/signing/macho_format.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:meta/meta.dart';
@@ -456,15 +457,17 @@ Uint8List _derValue(Object? value, String path, String field) {
     ]);
   }
   if (value is Map<Object?, Object?>) {
-    final entries = <({Uint8List key, Object? value})>[];
+    final entries = <PlistDerEntry>[];
     for (final entry in value.entries) {
       if (entry.key is! String) {
         machoFail(path, field, 'contains a non-string map key');
       }
-      entries.add((
-        key: Uint8List.fromList(utf8.encode(entry.key! as String)),
-        value: entry.value,
-      ));
+      entries.add(
+        PlistDerEntry(
+          key: Uint8List.fromList(utf8.encode(entry.key! as String)),
+          value: entry.value,
+        ),
+      );
     }
     entries.sort((left, right) => compareBytes(left.key, right.key));
     return Der.tlv(DerTag.context16, [

@@ -1,4 +1,4 @@
-import 'dart:io' show Platform;
+import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/constants.dart';

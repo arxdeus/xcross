@@ -10,7 +10,7 @@ import 'package:xcross_flutter/xcross_flutter.dart';
 /// Interactive terminal session for an attached app: streams the app's stdout,
 /// dispatches `r`/`R`/`q` keypresses to hot reload, and stops on SIGINT or when
 /// the app exits.
-class SessionConsole {
+final class SessionConsole {
   SessionConsole({required this.gdb, required this.hotReload});
 
   /// Drain and keypress loops are already unwinding via [_stop] by the time we

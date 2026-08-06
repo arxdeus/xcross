@@ -1,11 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/util/errors.dart';
+import 'package:xcross/src/cli/basic/internal/hard_link_payloads.dart';
+import 'package:xcross/src/cli/basic/internal/swift_sibling_clang.dart';
+import 'package:xcross/src/errors.dart';
 
 /// The iOS subset required by Swift's Linux cross-SDK protocol.
 const sdkIncludedRoots = <String>[
@@ -67,13 +68,17 @@ abstract final class SdkInstall {
     final root = p.normalize(p.absolute(destDir));
     await Directory(ioPath(root)).create(recursive: true);
     final links = <String, String>{};
-    final hardLinks = _HardLinkPayloads();
+    final hardLinks = HardLinkPayloads();
     var written = 0;
 
     await for (final entry in entries) {
       // Runs before the inclusion filter: an excluded entry may still carry
       // the only copy of a payload an included hard link shares.
-      final data = hardLinks.payloadFor(entry);
+      final fileType = entry.mode & _fileTypeMask;
+      final data = hardLinks.payloadFor(
+        entry,
+        isRegular: fileType == _regularFileType || fileType == 0,
+      );
       final destPath = _destinationPath(root, entry);
       if (destPath == null) continue;
 
@@ -317,12 +322,12 @@ abstract final class SdkInstall {
     Future<CapturedProcess> Function(String executable, List<String> arguments)?
     runProcess,
   }) async {
-    final (:clang, :swift) = await _swiftSiblingClang(
+    final sibling = await _swiftSiblingClang(
       locateTool ?? ProcessRunner.locateTool,
     );
     final source = await _clangBuiltinHeaderDir(
-      clang,
-      swift,
+      sibling.clang,
+      sibling.swift,
       runProcess ?? ProcessRunner.run,
     );
     final destination = p.join(
@@ -342,7 +347,7 @@ abstract final class SdkInstall {
 
   /// The clang shipped beside the selected `swift`, which is the one whose
   /// builtin headers match that Swift's module ABI.
-  static Future<({String clang, String swift})> _swiftSiblingClang(
+  static Future<SwiftSiblingClang> _swiftSiblingClang(
     Future<String> Function(String name) locate,
   ) async {
     final String swift;
@@ -373,7 +378,7 @@ abstract final class SdkInstall {
         '"$clang".',
       );
     }
-    return (clang: clang, swift: resolvedSwift);
+    return SwiftSiblingClang(clang: clang, swift: resolvedSwift);
   }
 
   static Future<String> _clangBuiltinHeaderDir(
@@ -401,40 +406,14 @@ abstract final class SdkInstall {
   /// shipped, so delete whichever kind is actually there.
   static Future<void> _deleteAnyEntity(String path) async {
     final type = FileSystemEntity.typeSync(path, followLinks: false);
-    if (type == FileSystemEntityType.directory) {
-      await Directory(path).delete(recursive: true);
-    } else if (type == FileSystemEntityType.link) {
-      await Link(path).delete();
-    } else if (type == FileSystemEntityType.file) {
-      await File(path).delete();
+    switch (type) {
+      case FileSystemEntityType.directory:
+        await Directory(path).delete(recursive: true);
+      case FileSystemEntityType.link:
+        await Link(path).delete();
+      case FileSystemEntityType.file:
+        await File(path).delete();
+      default:
     }
-  }
-}
-
-/// cpio writes a hard link's bytes once and leaves later entries for the same
-/// `(dev, ino)` empty, so the first payload seen has to be replayed for the
-/// rest of the group — even when that first entry is outside the SDK subset.
-class _HardLinkPayloads {
-  // ponytail: archive-order cache is memory-bound; disk-spool only if a future
-  // Xcode archive makes pending groups large.
-  final _pending = <(int, int), ({Uint8List data, int remaining})>{};
-
-  Uint8List payloadFor(CpioEntry entry) {
-    final fileType = entry.mode & _fileTypeMask;
-    final isRegular = fileType == _regularFileType || fileType == 0;
-    if (!isRegular || entry.nlink <= 1) return entry.data;
-
-    final key = (entry.dev, entry.ino);
-    final group = _pending[key];
-    if (group == null) {
-      _pending[key] = (data: entry.data, remaining: entry.nlink - 1);
-      return entry.data;
-    }
-    if (group.remaining == 1) {
-      _pending.remove(key);
-    } else {
-      _pending[key] = (data: group.data, remaining: group.remaining - 1);
-    }
-    return group.data;
   }
 }

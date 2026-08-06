@@ -6,7 +6,7 @@ import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:pure/pure.dart';
-import 'package:xcross/src/util/errors.dart';
+import 'package:xcross/src/errors.dart';
 
 /// `apt`-installable packages from the README Requirements table, plus the
 /// Swift toolchain's own build dependencies. Swift and Flutter stay manual.
@@ -37,7 +37,7 @@ const _aptPackages = [
 const _requiredTools = ['swift', 'clang', 'clang++', 'llvm-ar', 'ld64.lld'];
 
 /// `xcross setup` — `sudo apt install` every apt-installable Requirement.
-class SetupCommand extends Command<void> {
+final class SetupCommand extends Command<void> {
   @override
   String get name => 'setup';
 

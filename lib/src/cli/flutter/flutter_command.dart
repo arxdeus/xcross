@@ -5,7 +5,7 @@ import 'package:xcross/src/cli/flutter/subcommands/flutter_build_command.dart';
 import 'package:xcross/src/cli/flutter/subcommands/flutter_run_command.dart';
 
 /// `xcross flutter` — parent command grouping `build`, `run`, and hidden `dap`.
-class FlutterCommand extends Command<void> {
+final class FlutterCommand extends Command<void> {
   FlutterCommand() {
     addSubcommand(FlutterBuildCommand());
     addSubcommand(FlutterRunCommand());

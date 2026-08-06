@@ -6,11 +6,11 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/cli/ide/subcommands/vscode_json_merge.dart';
 import 'package:xcross/src/cli/ide/xcross_executable.dart';
-import 'package:xcross/src/util/errors.dart';
+import 'package:xcross/src/errors.dart';
 
 /// `xcross ide vscode` — write / upsert `.vscode/` so Run & Debug / Restart /
 /// Hot Reload drive `xcross flutter run`.
-class VscodeCommand extends Command<void> {
+final class VscodeCommand extends Command<void> {
   @override
   String get name => 'vscode';
 
