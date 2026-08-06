@@ -1,5 +1,5 @@
 /// Paths and flags needed to spawn a persistent `frontend_server` process.
-class FrontendServerOptions {
+final class FrontendServerOptions {
   const FrontendServerOptions({
     required this.dart,
     required this.frontendServer,

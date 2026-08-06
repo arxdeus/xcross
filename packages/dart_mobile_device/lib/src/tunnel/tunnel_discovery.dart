@@ -5,7 +5,7 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/constants.dart';
 import 'package:dart_mobile_device/src/errors.dart';
 import 'package:dart_mobile_device/src/models/tunnel.dart';
-import 'package:dart_mobile_device/src/pymd.dart' show Pymd;
+import 'package:dart_mobile_device/src/pymd/pymd.dart';
 
 export 'package:dart_mobile_device/src/models/tunnel.dart';
 

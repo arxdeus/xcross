@@ -4,12 +4,12 @@ import 'dart:io';
 import 'package:async/async.dart';
 import 'package:frontend_server_kit/src/errors.dart';
 import 'package:frontend_server_kit/src/frontend_server_options.dart';
+import 'package:frontend_server_kit/src/internal/process_kill.dart';
 import 'package:frontend_server_kit/src/package_uris.dart';
-import 'package:frontend_server_kit/src/process_kill.dart';
 
 /// Drives a persistent `frontend_server` subprocess over its stdin/stdout
 /// protocol, producing incremental kernel diffs for hot reload.
-class FrontendServerSession {
+final class FrontendServerSession {
   FrontendServerSession(this.options);
 
   static final _whitespacePattern = RegExp(r'\s+');
@@ -19,20 +19,13 @@ class FrontendServerSession {
   Process? _process;
   IOSink? _sink;
 
-  /// Loaded once in [spawn]; null when there is no readable package config.
   PackageUris? _packageUris;
 
-  /// Persistent pull-based reader. Returning early from `await for` cancels the
-  /// subscription, so the second [parseResultBoundary] would throw StateError
-  /// on this single-subscription stream. StreamQueue holds the subscription
-  /// internally and allows repeated `hasNext`/`next` across compile rounds.
+  // StreamQueue holds the subscription so repeated hasNext/next works across
+  // compile rounds; a plain `await for` would cancel it on early return.
   StreamQueue<String>? _queue;
 
   Future<void> spawn() async {
-    // Must match the URI form the initial kernel compile used: this compiler
-    // warm-starts from that same dill when [initializeFromDill] is set, so a
-    // root library named differently would be treated as a new library rather
-    // than an update to the existing one.
     _packageUris = await PackageUris.load(options.packageConfig);
 
     final args = _spawnArguments();
@@ -50,7 +43,6 @@ class FrontendServerSession {
     _queue = StreamQueue<String>(
       proc.stdout.transform(utf8.decoder).transform(const LineSplitter()),
     );
-    // Forward compile errors to our stderr with a program prefix.
     proc.stderr
         .transform(utf8.decoder)
         .transform(const LineSplitter())
@@ -58,8 +50,8 @@ class FrontendServerSession {
   }
 
   List<String> _spawnArguments() {
-    // An `_aot` snapshot runs under `dartaotruntime`, which does not accept
-    // the `dart`-only `--disable-dart-dev` flag.
+    // `_aot` snapshots run under dartaotruntime, which rejects the
+    // dart-only `--disable-dart-dev` flag.
     final isAot = options.frontendServer.contains('_aot');
     final sdkRoot = options.sdkRoot.endsWith('/')
         ? options.sdkRoot
@@ -67,7 +59,8 @@ class FrontendServerSession {
     return [
       if (!isAot) '--disable-dart-dev',
       options.frontendServer,
-      '--sdk-root', sdkRoot,
+      '--sdk-root',
+      sdkRoot,
       '--incremental',
       '--target=${options.target}',
       '--no-print-incremental-dependencies',
@@ -76,36 +69,31 @@ class FrontendServerSession {
       '-Ddart.vm.product=false',
       if (options.trackWidgetCreation) '--track-widget-creation',
       for (final define in options.dartDefines) '-D$define',
-      // Warm-start the incremental compiler from a prior full kernel so the
-      // initial compile is a fast delta instead of a cold full compile.
       if (options.initializeFromDill case final dill?) ...[
         '--initialize-from-dill',
         dill,
       ],
-      '--packages', options.packageConfig,
-      '--output-dill', options.outputDill,
+      '--packages',
+      options.packageConfig,
+      '--output-dill',
+      options.outputDill,
     ];
   }
 
-  /// Serializes everything that talks to the compiler over its stdin/stdout.
-  ///
-  /// A `compileExpression` from DevTools can arrive at any moment, and
-  /// interleaving it with a hot-reload recompile corrupts both the request
-  /// framing and the incremental state.
+  // Serializes everything on stdin/stdout: an interleaved compileExpression
+  // and recompile would corrupt request framing and incremental state.
   Future<void> _lock = Future<void>.value();
 
   Future<T> _serialized<T>(Future<T> Function() body) {
     final result = _lock.then((_) => body());
-    // Swallow the error on the chain only: one failure must not wedge every
-    // later request, but the caller still sees it.
+    // Swallow the error on this chain only, so one failed request doesn't
+    // wedge later ones; the caller still sees it via [result].
     _lock = result.then((_) {}, onError: (Object _) {});
     return result;
   }
 
-  /// The entrypoint as a `package:` URI when it has one, else a `file:` URI.
   String get _entrypointUri => _compilerUri(Uri.file(options.entrypoint));
 
-  /// `package:` form of [uri] when available, else [uri] unchanged.
   String _compilerUri(Uri uri) =>
       _packageUris?.toPackageUri(uri)?.toString() ?? uri.toString();
 
@@ -118,16 +106,12 @@ class FrontendServerSession {
       _serialized(() => _recompile(invalidated));
 
   Future<String> _recompile(List<String> invalidated) async {
-    // Hex-encoded microsecond timestamp used as the boundary token that wraps
-    // the invalidated-file list in the frontend_server recompile protocol.
     final boundaryToken = DateTime.now().microsecondsSinceEpoch.toRadixString(
       16,
     );
     final sb = StringBuffer()
       ..write('recompile $_entrypointUri $boundaryToken\n');
     for (final uri in invalidated) {
-      // Same URI form as the compile above, or the compiler will not match the
-      // file and the edit is silently left out of the reload.
       sb.write('${_compilerUri(Uri.parse(uri))}\n');
     }
     sb.write('$boundaryToken\n');
@@ -135,13 +119,9 @@ class FrontendServerSession {
     return _readResultBoundary();
   }
 
-  /// Reset the incremental compiler so the NEXT [recompile] emits a full
-  /// kernel component written to `--output-dill` (instead of a delta written to
-  /// `<output-dill>.incremental.dill`).
-  ///
-  /// Required before a hot restart: `_flutter.runInView` needs a complete
-  /// program as `mainScript`. Handing it a delta leaves the new isolate unable
-  /// to load, so it never becomes runnable and the restart hangs.
+  /// Resets the incremental compiler so the next [recompile] emits a full
+  /// kernel instead of a delta. Required before a hot restart, which needs a
+  /// complete `mainScript`.
   Future<void> reset() => _serialized(() => _send('reset\n'));
 
   /// Commit the latest output as the next incremental baseline.
@@ -149,11 +129,10 @@ class FrontendServerSession {
 
   Future<void> reject() => _serialized(() => _send('reject\n'));
 
-  /// Compile [expression] into an expression kernel and return its bytes.
+  /// Compiles [expression] into an expression kernel and returns its bytes.
   ///
-  /// Serves the VM Service `compileExpression` service. The Flutter engine
-  /// embeds no kernel compiler, so the VM delegates expression compilation to a
-  /// host; with nobody registered every `evaluate` fails.
+  /// Serves the VM Service `compileExpression` extension used by DevTools
+  /// `evaluate`.
   Future<List<int>> compileExpression({
     required String expression,
     required List<String> definitions,
@@ -186,12 +165,13 @@ class FrontendServerSession {
   });
 
   Future<void> close() async {
-    // ORDER MATTERS: try a polite `quit` first so frontend_server can flush,
-    // but never wait forever — a hung stdin flush here is what left `q` stuck
-    // with no further CLI I/O on Windows AOT.
+    // Try a polite quit first so frontend_server can flush, but never wait
+    // forever for it.
     try {
       await _send('quit\n').timeout(const Duration(milliseconds: 500));
-    } on Object catch (_) {}
+    } on Object catch (_) {
+      options.onTrace?.call('[frontend_server] quit failed or timed out');
+    }
     final process = _process;
     _process = null;
     if (process != null) {
@@ -205,14 +185,15 @@ class FrontendServerSession {
     _sink = null;
     try {
       await sink?.close().timeout(const Duration(milliseconds: 200));
-    } on Object catch (_) {}
+    } on Object catch (_) {
+      options.onTrace?.call(
+        '[frontend_server] stdin close failed or timed out',
+      );
+    }
     await _queue?.cancel(immediate: true);
     _queue = null;
   }
 
-  /// Write [s] to frontend_server stdin and flush. Async so callers can await
-  /// delivery — without it accept/reject/quit can be dropped when the process
-  /// is killed before the OS buffer is flushed.
   Future<void> _send(String s) async {
     final sink = _sink;
     if (sink == null) {
@@ -222,8 +203,6 @@ class FrontendServerSession {
     await sink.flush();
   }
 
-  /// Parse `result <boundary>\n...\n<boundary> <dill> <errCount>` from stdout.
-  /// Returns the local dill file path.
   Future<String> _readResultBoundary() {
     final queue = _queue;
     if (queue == null) {
@@ -238,9 +217,9 @@ class FrontendServerSession {
     );
   }
 
-  /// Parse `result <boundary>\n...\n<boundary> <dill> <errCount>` from [queue].
-  ///
-  /// Exposed for tests of the line protocol framing.
+  /// Parses `result <boundary>\n...\n<boundary> <dill> <errCount>` from
+  /// [queue] and returns the local dill path. Exposed for tests of the line
+  /// protocol framing.
   static Future<String> parseResultBoundary(StreamQueue<String> queue) async {
     String? boundary;
     while (await queue.hasNext) {
@@ -252,13 +231,11 @@ class FrontendServerSession {
         continue;
       }
       if (line.startsWith(boundary)) {
-        // frontend_server prints the boundary token alone first, then again as
-        // "<boundary> <dill> <errcount>". Skip the bare echo and keep reading
-        // until the line that carries the dill path.
+        // The boundary is printed alone first, then again with the dill path
+        // and error count; skip the bare echo.
         final rest = line.substring(boundary.length).trim();
         if (rest.isEmpty) continue;
         final parts = rest.split(_whitespacePattern);
-        // Trailing token is the error count; everything before it is the path.
         final dill = switch (parts) {
           [...final pathTokens, _] when pathTokens.isNotEmpty =>
             pathTokens.join(' '),
@@ -271,11 +248,9 @@ class FrontendServerSession {
     throw FrontendServerException('frontend_server closed unexpectedly');
   }
 
-  /// Builds the stdin payload for `compile-expression`.
-  ///
-  /// Line protocol: the header, the expression, then five lists each terminated
-  /// by the boundary token, then the context. Order and count are fixed — a
-  /// missing terminator desynchronises the compiler.
+  /// Builds the stdin payload for `compile-expression`: header, expression,
+  /// then five boundary-terminated lists, then the context. Order and count
+  /// are fixed — a missing terminator desynchronises the compiler.
   static String buildCompileExpressionCommand({
     required String boundaryKey,
     required String expression,

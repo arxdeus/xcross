@@ -1,19 +1,12 @@
 import 'dart:convert';
 
 import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/src/pymd.dart';
+import 'package:dart_mobile_device/src/pymd/pymd.dart';
 
 /// Groups device OS version detection.
 abstract final class OsVersion {
-  /// Return the major OS version for [udid] by querying the device.
-  ///
-  /// Prefers `pymobiledevice3 lockdown info`, then falls back to
-  /// `ideviceinfo` (libimobiledevice) when pymobiledevice3 returns
-  /// empty/unparseable output — common on WSL/usbipd where lockdown JSON is
-  /// empty but the UDID still lists.
-  ///
-  /// Returns null if neither tool can provide [ProductVersion]. Callers reject
-  /// confirmed pre-iOS-17 devices and attempt CoreDevice when it is unknown.
+  /// Major OS version for [udid], via `lockdown info` then `ideviceinfo`.
+  /// Returns null if neither tool can provide [ProductVersion].
   static Future<int?> deviceOSMajorVersion(String udid) async =>
       await _majorFromPymdLockdown(udid) ?? await _majorFromIdeviceinfo(udid);
 

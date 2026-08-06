@@ -5,10 +5,10 @@
 library;
 
 import 'dart:convert';
-import 'dart:io' show ZLibEncoder;
+import 'dart:io' as io;
 import 'dart:typed_data';
 
-import 'package:archive/archive.dart' show XZEncoder;
+import 'package:archive/archive.dart';
 
 /// Builds a minimal, valid XAR file: 28-byte fixed header + zlib-compressed
 /// TOC XML + heap. [entries] maps entry name -> raw heap bytes; each gets a
@@ -35,7 +35,7 @@ Uint8List buildXar(Map<String, List<int>> entries) {
   }
   final tocXml =
       '<?xml version="1.0" encoding="UTF-8"?><xar><toc>$fileXml</toc></xar>';
-  final tocCompressed = ZLibEncoder().convert(utf8.encode(tocXml));
+  final tocCompressed = io.ZLibEncoder().convert(utf8.encode(tocXml));
 
   final header = ByteData(28)
     ..setUint32(0, 0x78617221) // "xar!"

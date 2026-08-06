@@ -6,7 +6,7 @@ import 'package:path/path.dart' as p;
 
 /// An xcross-owned Swift SDK artifact bundle containing the Darwin SDK files
 /// needed to build for iOS.
-class DarwinSdk {
+final class DarwinSdk {
   DarwinSdk(this.bundle);
 
   /// Root of `xcross-darwin.artifactbundle`.
@@ -35,8 +35,8 @@ class DarwinSdk {
         destination.parent.createSync(recursive: true);
         source.copySync(destination.path);
       }
-    } on FileSystemException {
-      // Validation below reports an unwritable/incomplete SDK as unavailable.
+    } on FileSystemException catch (e) {
+      Log.logTrace('DarwinSdk: could not stage runtime layout: $e');
     }
     return isValidBundle(candidate) ? DarwinSdk(candidate) : null;
   }
@@ -52,8 +52,6 @@ class DarwinSdk {
     if (sdk == null) return false;
 
     final canonicalLayout = _canonicalLayout(candidate);
-    // The layout file lives directly in the Swift resource directory, so its
-    // parent is that directory — no need to spell the path out twice.
     final swiftResources = canonicalLayout.parent;
     return Directory(
           p.join(sdk, 'System', 'Library', 'Frameworks'),
@@ -120,8 +118,6 @@ class DarwinSdk {
     final names =
         directory
             .listSync()
-            // SDKs are routinely symlinks, which listSync reports as Link,
-            // not Directory — typeSync resolves the link target.
             .where(
               (entry) =>
                   entry is Directory ||
@@ -155,11 +151,7 @@ class DarwinSdk {
 
   /// Resolve the Apple-compatible linker from PATH on every host.
   ///
-  /// swiftly's proxy shims are skipped. The lld inside a Swift toolchain is a
-  /// downstream build that refuses iOS device targets ("This version of lld
-  /// does not support linking for platform iOS"), and its shim cannot even be
-  /// spawned from a clang that swiftly itself proxied ("Circular swiftly proxy
-  /// invocation"). Only the stock LLVM `ld64.lld` can link the Mach-O output.
+  /// swiftly's proxy shims are skipped since they cannot link for iOS.
   static Future<String> resolveLd64Lld(DarwinSdk _) async =>
       await ProcessRunner.which('ld64.lld', accept: usableLd64Lld) ??
       (throw DarwinSdkError(

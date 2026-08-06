@@ -26,15 +26,9 @@ const int _lzma2UncompressedNoReset = 0x02;
 /// yielding the fully decompressed payload — a raw cpio stream — as it
 /// becomes available.
 abstract final class PbzxReader {
-  /// Chunks are decoded one at a time by `package:archive`'s pure-Dart
-  /// [XZDecoder]: shelling out to a system `xz` would let it batch
-  /// consecutive chunks (it decodes concatenated `.xz` streams natively), but
-  /// `xz` is not guaranteed on an end user's PATH, especially on Windows.
-  /// [XZDecoder] consumes exactly one stream per call, so no batching.
-  ///
-  /// A raw chunk (`compressedSize == [_pbzxChunkSize]`, or one that simply
-  /// doesn't start with the xz magic — belt-and-braces against a theoretical
-  /// small incompressible final chunk) is copied through verbatim.
+  /// Decodes chunks one at a time via `package:archive`'s pure-Dart
+  /// [XZDecoder]. A raw chunk (`compressedSize == [_pbzxChunkSize]`, or one
+  /// that doesn't start with the xz magic) is copied through verbatim.
   static Stream<List<int>> decode(
     RandomAccessFile file, {
     required int offset,
@@ -62,9 +56,6 @@ abstract final class PbzxReader {
     if (String.fromCharCodes(magic) != 'pbzx') {
       throw DarwinSdkError('Not a pbzx stream (bad magic).');
     }
-    // Initial header u64: bit 24 is documented as a continuation flag, but the
-    // per-chunk `decompressedSize < _pbzxChunkSize` check below is sufficient
-    // on its own, so the value itself is read and discarded.
     await readExact(8);
 
     while (pos < end) {
@@ -93,8 +84,6 @@ abstract final class PbzxReader {
   static int _beUint64(Uint8List bytes) =>
       ByteData.sublistView(bytes).getUint64(0);
 
-  /// Decompresses a single, complete `.xz` stream via `package:archive`'s
-  /// pure-Dart [XZDecoder] — no subprocess, no external binary.
   static Uint8List _xzDecompress(Uint8List compressed) {
     try {
       return XZDecoder().decodeBytes(
@@ -105,15 +94,9 @@ abstract final class PbzxReader {
     }
   }
 
-  /// `archive` 4.0.9 copies an initial LZMA2 control-1 raw packet to output but
-  /// forgets to seed its dictionary. For the first packet of a fresh block,
-  /// control 2 is equivalent: the dictionary is already empty, and `archive`
-  /// correctly appends those same bytes to it before decoding later matches.
   static Uint8List _fixInitialLzma2DictionaryReset(Uint8List xz) {
     if (xz.length <= _xzStreamHeaderSize) return xz;
 
-    // The block header's first byte is its size in 4-byte units, less one;
-    // 0 there means "stream index", not a block.
     final blockHeaderByte = xz[_xzStreamHeaderSize];
     if (blockHeaderByte == 0) return xz;
     final firstControl = _xzStreamHeaderSize + (blockHeaderByte + 1) * 4;
@@ -122,7 +105,6 @@ abstract final class PbzxReader {
       return xz;
     }
 
-    // ponytail: remove when package:archive handles LZMA2 control 1 correctly.
     final fixed = Uint8List.fromList(xz);
     fixed[firstControl] = _lzma2UncompressedNoReset;
     return fixed;

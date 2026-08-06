@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dart_mobile_device/src/pymd.dart';
+import 'package:dart_mobile_device/src/pymd/pymd.dart';
 import 'package:test/test.dart';
 
 void main() {

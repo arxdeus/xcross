@@ -1,5 +1,5 @@
-/// A user-facing error. Its [message] is printed without a Dart stack trace.
-class CliError implements Exception {
+/// A user-facing error whose [message] is printed without a stack trace.
+final class CliError implements Exception {
   CliError(this.message);
 
   final String message;

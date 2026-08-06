@@ -16,9 +16,8 @@ const int _headerSizeOffset = 4;
 const int _tocLengthCompressedOffset = 8;
 
 /// Absolute byte range of a single named entry's data in a XAR archive's
-/// heap (the region immediately following the compressed table of
-/// contents).
-class XarEntry {
+/// heap.
+final class XarEntry {
   const XarEntry({required this.offset, required this.length});
 
   /// Absolute offset, from the start of the file, of the entry's data.
@@ -32,20 +31,13 @@ class XarEntry {
 abstract final class XarReader {
   /// Locates the `<file><name>[name]</name>` entry in [file]'s XAR table of
   /// contents and returns its absolute heap byte range, or null if no such
-  /// entry exists.
-  ///
-  /// Reads only the fixed 28-byte header prefix and the zlib-compressed TOC
-  /// XML — this is not a general-purpose XAR reader, it only locates one
-  /// named top-level entry (xip's `Content`).
+  /// entry exists. Not a general-purpose XAR reader.
   static Future<XarEntry?> findEntry(RandomAccessFile file, String name) async {
     await file.setPosition(0);
     final header = ByteData.sublistView(await file.read(_headerPrefixSize));
     if (header.getUint32(0) != _xarMagic) {
       throw DarwinSdkError('Not a XAR file (bad magic).');
     }
-    // tocStart comes from the header itself, not from _headerPrefixSize: xar
-    // permits header extensions after the fields we care about, so the TOC
-    // does not necessarily start at byte 28.
     final tocStart = header.getUint16(_headerSizeOffset);
     final tocLengthCompressed = header.getUint64(_tocLengthCompressedOffset);
 

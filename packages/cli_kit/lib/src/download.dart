@@ -1,13 +1,11 @@
 import 'dart:io';
 
 import 'package:cli_kit/src/errors.dart';
-import 'package:cli_kit/src/logging.dart';
+import 'package:cli_kit/src/internal/download_progress.dart';
 import 'package:path/path.dart' as p;
 
 /// Groups file-download helpers.
 abstract final class Downloader {
-  /// Open [url] with retry, following redirects, throwing [CliError] on
-  /// any non-2xx status. Returns the live, undrained response stream.
   static Future<HttpClientResponse> _openStream(
     HttpClient client,
     String url, {
@@ -40,11 +38,7 @@ abstract final class Downloader {
     );
   }
 
-  /// Stream [url] to [dest] (pure Dart; replaces `curl -L --fail -o`).
-  ///
-  /// Shows a live download-progress line on stdout (bytes, percent, rate).
-  /// Pass [label] to override the display name (defaults to the URL's file
-  /// name).
+  /// Streams [url] to [dest] with retries and a live progress line.
   static Future<void> downloadToFile(
     String url,
     File dest, {
@@ -61,7 +55,7 @@ abstract final class Downloader {
         retryDelay: retryDelay,
       );
       await dest.parent.create(recursive: true);
-      final reporter = _DownloadProgress(
+      final reporter = DownloadProgress(
         label ?? _labelFromUrl(url),
         response.contentLength,
       );
@@ -83,104 +77,11 @@ abstract final class Downloader {
     }
   }
 
-  /// Best-effort file-name from [url] for display in the progress line.
   static String _labelFromUrl(String url) {
     try {
       return p.url.basename(Uri.parse(url).path);
     } catch (_) {
       return url;
     }
-  }
-}
-
-/// Live download-progress line. Prints `\r`-overwriting updates on a TTY
-/// (bytes / total, percent, rate); on a non-TTY (piped/logged) it emits
-/// occasional plain lines so logs stay readable. [total] is `-1` when the
-/// server did not send `Content-Length`.
-class _DownloadProgress {
-  _DownloadProgress(this.label, this.total)
-    : _stopwatch = Stopwatch()..start(),
-      _isTty = stdout.hasTerminal {
-    // We draw with raw `\r`; a live spinner on the same line would fight us.
-    Log.stopStep();
-  }
-
-  final String label;
-  final int total;
-  final Stopwatch _stopwatch;
-  final bool _isTty;
-
-  int _received = 0;
-  int _lastRenderMs = 0;
-  int _lastLoggedPercent = -1;
-  bool _done = false;
-
-  void add(int bytes) {
-    _received += bytes;
-    if (_isTty) {
-      _renderThrottled();
-    } else if (total > 0) {
-      _logNextDecile();
-    }
-  }
-
-  void _renderThrottled() {
-    final elapsedMs = _stopwatch.elapsedMilliseconds;
-    // Redraw at most ~10 Hz.
-    if (elapsedMs - _lastRenderMs < 100) return;
-    _lastRenderMs = elapsedMs;
-    _render(elapsedMs);
-  }
-
-  /// Off a TTY there is no line to overwrite, so emit one plain line every
-  /// ~10% instead — enough progress to follow, few enough to keep logs sane.
-  void _logNextDecile() {
-    final percent = (_received * 100 ~/ total).clamp(0, 100);
-    if (percent < _lastLoggedPercent + 10) return;
-    _lastLoggedPercent = percent - (percent % 10);
-    final progress = '$percent%  ${_fmtBytes(_received)} / ${_fmtBytes(total)}';
-    Log.logStatus('${Glyph.download} $label ${Log.ansi.subtle(progress)}');
-  }
-
-  void finish() {
-    if (_done) return;
-    _done = true;
-    _stopwatch.stop();
-    if (_isTty) stdout.write('\r${' '.padRight(96)}\r');
-    Log.logDone(label, _fmtBytes(_received));
-  }
-
-  static const _barWidth = 24;
-
-  void _render(int elapsedMs) {
-    final rate = elapsedMs > 0 ? _received * 1000 / elapsedMs : 0.0;
-    final buf = StringBuffer('${Glyph.download} ${label.padRight(24)}');
-    if (total > 0) {
-      final fraction = (_received / total).clamp(0.0, 1.0);
-      final filled = (fraction * _barWidth).round();
-      buf.write('${Log.ansi.cyan}${'━' * filled}${Log.ansi.none}');
-      buf.write(Log.ansi.subtle('━' * (_barWidth - filled)));
-      buf.write(' ${(fraction * 100).round()}%'.padLeft(5));
-      buf.write(
-        Log.ansi.subtle('  ${_fmtBytes(_received)} / ${_fmtBytes(total)}'),
-      );
-    } else {
-      buf.write(_fmtBytes(_received));
-    }
-    buf.write(Log.ansi.subtle('  ${_fmtBytes(rate.round())}/s'));
-    // `\r` + right-pad so leftover chars from a longer prior line are erased.
-    stdout.write('\r${buf.toString().padRight(96)}');
-  }
-
-  static String _fmtBytes(int n) {
-    if (n < 1024) return '$n B';
-    const units = ['KB', 'MB', 'GB', 'TB'];
-    var value = n / 1024;
-    var unit = 0;
-    while (value >= 1024 && unit < units.length - 1) {
-      value /= 1024;
-      unit++;
-    }
-    return '${value.toStringAsFixed(value >= 100 ? 0 : 1)} ${units[unit]}';
   }
 }

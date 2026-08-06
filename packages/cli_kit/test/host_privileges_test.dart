@@ -7,7 +7,7 @@ void main() {
   test('accepts an elevated Windows process', () async {
     await HostPrivileges.ensureDeviceToolAccess(
       windows: true,
-      windowsProbe: () async => CapturedProcess(0, 'True\r\n', ''),
+      windowsProbe: () async => const CapturedProcess(0, 'True\r\n', ''),
     );
   });
 
@@ -15,7 +15,7 @@ void main() {
     await expectLater(
       HostPrivileges.ensureDeviceToolAccess(
         windows: true,
-        windowsProbe: () async => CapturedProcess(0, 'False\r\n', ''),
+        windowsProbe: () async => const CapturedProcess(0, 'False\r\n', ''),
       ),
       throwsA(
         isA<CliError>().having(

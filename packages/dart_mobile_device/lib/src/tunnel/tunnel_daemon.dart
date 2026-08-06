@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/constants.dart';
 import 'package:dart_mobile_device/src/errors.dart';
-import 'package:dart_mobile_device/src/pymd.dart';
+import 'package:dart_mobile_device/src/pymd/pymd.dart';
 import 'package:path/path.dart' as p;
 
 /// Manages the `pymobiledevice3 remote tunneld` daemon lifecycle.

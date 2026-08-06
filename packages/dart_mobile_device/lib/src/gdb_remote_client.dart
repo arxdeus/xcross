@@ -24,7 +24,7 @@ enum GdbReply {
 }
 
 /// Decoded GDB-remote reply with its raw payload string.
-class GdbReplyPacket {
+final class GdbReplyPacket {
   const GdbReplyPacket(this.type, this.payload);
 
   final GdbReply type;
@@ -43,12 +43,9 @@ class GdbReplyPacket {
   }
 }
 
-/// Minimal GDB-remote client over raw TCP, enough to attach, resume, drain
-/// stdout (`O` packets), and detect process exit (`W`/`X`).
-///
-/// Wire format: `$<payload>#<2-hex-checksum>`. After `QStartNoAckMode` we
-/// stop expecting `+`/`-` acks from the peer.
-class GdbRemoteClient {
+/// Minimal GDB-remote client over raw TCP: attach, resume, drain stdout
+/// (`O` packets), and detect process exit (`W`/`X`).
+final class GdbRemoteClient {
   GdbRemoteClient({required this.host, required this.port});
 
   final String host;
@@ -60,20 +57,12 @@ class GdbRemoteClient {
 
   final _replyController = StreamController<GdbReplyPacket>.broadcast();
 
-  /// Single-slot continuation for an in-flight [_exchange]. Safe only because
-  /// the app launches suspended and [resume] is the last RPC — any packet that
-  /// arrives while this is set resolves the exchange instead of the stream.
   Completer<String>? _exchangeCompleter;
 
   Stream<GdbReplyPacket> get replies => _replyController.stream;
 
-  /// ASCII `$` — start-of-packet sentinel.
-  static const _packetStart = 0x24; // '$'
-
-  /// ASCII `#` — end-of-payload / checksum separator.
-  static const _packetEnd = 0x23; // '#'
-
-  /// Checksum field width in ASCII hex digits.
+  static const _packetStart = 0x24;
+  static const _packetEnd = 0x23;
   static const _checksumWidth = 2;
 
   Future<void> connect() async {
@@ -94,21 +83,15 @@ class GdbRemoteClient {
   Future<void> start() async {
     await _sendRaw('+');
     await _exchange('QStartNoAckMode');
-    // Optional optimizations. Some debugproxy implementations (notably
-    // pymobiledevice3's on iOS 17+/26) silently ignore these instead of
-    // replying with an empty packet. A real debugger treats no-reply as
-    // "unsupported" and proceeds — so must we, or the whole attach fails.
     await _exchangeOptional('QThreadSuffixSupported');
     await _exchangeOptional('QListThreadsInStopReply');
   }
 
-  /// Best-effort query: on timeout, assume the peer doesn't support it and
-  /// continue (the reply, if any late one arrives, is routed to the stream).
   Future<void> _exchangeOptional(String payload) async {
     try {
       await _exchange(payload, timeout: const Duration(seconds: 2));
     } on TunnelError {
-      // Unsupported / ignored by this debugproxy — proceed.
+      Log.logTrace('debugproxy: $payload not supported, continuing');
     }
   }
 
@@ -128,15 +111,14 @@ class GdbRemoteClient {
   Future<void> kill() async {
     try {
       await _sendFramed('k').timeout(const Duration(milliseconds: 500));
-    } on Object catch (_) {}
+    } on Object catch (e) {
+      Log.logTrace('debugproxy: kill send failed: $e');
+    }
   }
 
   Future<void> close() async {
     final s = _socket;
     _socket = null;
-    // destroy(), not close(): Socket.close awaits a flush that can hang on
-    // Windows when the peer (debugproxy relay) is already gone — that wedged
-    // `q` into a silent stuck CLI with no further I/O.
     s?.destroy();
     if (!_replyController.isClosed) await _replyController.close();
   }
@@ -151,15 +133,11 @@ class GdbRemoteClient {
     try {
       return await completer.future.timeout(timeout);
     } on TimeoutException {
-      // Drop the pending completer so a late reply is classified onto the
-      // reply stream instead of hijacking the next _exchange().
       if (identical(_exchangeCompleter, completer)) _exchangeCompleter = null;
       throw TunnelError('debugproxy: timeout waiting for response to $payload');
     }
   }
 
-  /// Frame as `$<payload>#<cc>`. The checksum must stay lowercase and exactly
-  /// [_checksumWidth] digits wide or the peer rejects the packet.
   Future<void> _sendFramed(String payload) async {
     final checksum = _checksum(
       payload,
@@ -179,14 +157,6 @@ class GdbRemoteClient {
     _drainPackets();
   }
 
-  /// Extract all complete `$payload#cc` packets from [_buffer].
-  ///
-  /// Each iteration consumes one complete frame. Bytes before `$` are discarded
-  /// (spurious acks). The loop breaks when fewer than 3 bytes follow `#` (frame
-  /// incomplete) — leaving them buffered for the next [_onData] call.
-  /// Scanning for a bare `#` is correct only because GDB RSP hex-encodes `O`
-  /// payloads and `}`-escapes `#`/`$`/`}` elsewhere, so an unescaped `#` cannot
-  /// appear inside a payload.
   void _drainPackets() {
     while (true) {
       final start = _buffer.indexOf(_packetStart);
@@ -194,14 +164,13 @@ class GdbRemoteClient {
         _buffer.clear();
         break;
       }
-      // Discard any leading bytes before `$`.
       if (start > 0) _buffer.removeRange(0, start);
 
       final hash = _buffer.indexOf(_packetEnd);
-      if (hash < 0 || _buffer.length < hash + 3) break; // packet incomplete
+      if (hash < 0 || _buffer.length < hash + 3) break;
 
       final payload = String.fromCharCodes(_buffer.sublist(1, hash));
-      _buffer.removeRange(0, hash + 3); // consume `$payload#xx`
+      _buffer.removeRange(0, hash + 3);
 
       _dispatchPacket(payload);
     }
@@ -231,7 +200,6 @@ class GdbRemoteClient {
     return GdbReplyPacket(type, payload);
   }
 
-  /// GDB-remote checksum: sum of payload code units mod 256.
   static int _checksum(String s) {
     var sum = 0;
     for (final b in s.codeUnits) {

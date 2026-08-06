@@ -1,20 +1,9 @@
-/// Pure-Dart extractor for `Xcode.xip` — Apple's Xcode installer archive.
+/// Pure-Dart extractor for `Xcode.xip` — Apple's Xcode installer archive: a
+/// XAR container holding a pbzx-framed, xz-compressed `Content` entry that
+/// decompresses to an odc-cpio archive of the actual SDK files.
 ///
-/// The format nests three layers, decoded here by `xar_reader.dart`,
-/// `pbzx_reader.dart`, and `cpio_reader.dart` respectively: a XAR container
-/// holding a `Content` entry, which is pbzx-framed and xz-compressed, which
-/// in turn decompresses to a classic odc-cpio archive holding the actual SDK
-/// files.
-///
-/// **This has NOT been validated against a real `Xcode.xip`.** It was
-/// written and tested entirely against hand-built synthetic fixtures (see
-/// `test/darwinsdk/`) matching the documented wire formats, cross-checked
-/// against the XAR spec header (`mackyle/xar`), `saagarjha/unxip`'s Swift
-/// pbzx/cpio implementation, and `NiklasRosenstein/pbzx`'s C source —
-/// because a real Xcode.xip is a multi-gigabyte, Apple-account-gated
-/// download unavailable in the environment this was written in. Run this
-/// against a real Xcode.xip and confirm it extracts a plausible SDK tree
-/// before trusting it for an actual SDK install.
+/// **Not validated against a real `Xcode.xip`** — only hand-built synthetic
+/// fixtures matching the documented wire formats.
 library;
 
 import 'dart:io';

@@ -3,10 +3,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/src/device_transport.dart';
 import 'package:dart_mobile_device/src/errors.dart';
 import 'package:dart_mobile_device/src/models/device_endpoint.dart';
-import 'package:dart_mobile_device/src/pymd.dart';
+import 'package:dart_mobile_device/src/pymd/pymd.dart';
+import 'package:dart_mobile_device/src/transport/device_transport.dart';
 
 /// RSD over pymobiledevice3's in-process (`--userspace`) tunnel, with every
 /// device service republished on loopback.

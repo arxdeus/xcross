@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dart_mobile_device/src/port_forwarder.dart';
+import 'package:dart_mobile_device/src/tunnel/port_forwarder.dart';
 import 'package:test/test.dart';
 
 void main() {

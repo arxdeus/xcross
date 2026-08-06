@@ -19,7 +19,7 @@ enum ConnectionType {
 
 /// A connected iOS device.
 @immutable
-class Device {
+final class Device {
   const Device({required this.name, required this.udid, required this.type});
 
   /// Human-readable device name.

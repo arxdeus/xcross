@@ -1,7 +1,7 @@
-import 'package:dart_mobile_device/src/device_transport.dart';
 import 'package:dart_mobile_device/src/models/device_endpoint.dart';
 import 'package:dart_mobile_device/src/models/tunnel.dart';
-import 'package:dart_mobile_device/src/tunnel_daemon.dart';
+import 'package:dart_mobile_device/src/transport/device_transport.dart';
+import 'package:dart_mobile_device/src/tunnel/tunnel_daemon.dart';
 
 /// RSD over the privileged tunnel published by `pymobiledevice3 remote
 /// tunneld` (WinTun on Windows, utun on Linux).

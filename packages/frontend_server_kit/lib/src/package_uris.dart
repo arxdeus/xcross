@@ -3,21 +3,10 @@ import 'dart:io';
 import 'package:package_config/package_config.dart';
 
 /// Maps local file paths to `package:` URIs via a project's
-/// `.dart_tool/package_config.json`.
-///
-/// Exists for breakpoints. The VM matches a breakpoint's script URI two ways
-/// (`runtime/vm/debugger.cc`, `BreakpointLocationAtLineCol`):
-///
-///   * `package:` → the kernel's `Library.importUri`, host-independent.
-///   * anything else → `resolved_url`, the absolute path of whichever machine
-///     compiled the kernel.
-///
-/// On no match the VM still reports success and records a *latent* breakpoint,
-/// so the editor shows it accepted but never verified — grey forever, with no
-/// error anywhere. Absolute paths are exactly what differs between the compile
-/// host and the editor (WSL mounts, symlinked roots, containers), so tooling
-/// compiles and debugs through `package:` URIs. flutter_tools does the same.
-class PackageUris {
+/// `.dart_tool/package_config.json`, so breakpoints match reliably: the VM
+/// matches breakpoints by `package:` URI, not by absolute path, which
+/// differs between the compile host and the editor.
+final class PackageUris {
   PackageUris._(this._config);
 
   final PackageConfig _config;

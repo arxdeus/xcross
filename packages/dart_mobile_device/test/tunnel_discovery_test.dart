@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dart_mobile_device/src/errors.dart';
-import 'package:dart_mobile_device/src/tunnel_discovery.dart';
+import 'package:dart_mobile_device/src/tunnel/tunnel_discovery.dart';
 import 'package:test/test.dart';
 
 /// tunneld's fixed REST port (see TunnelConstants.tunneldUrl). The only way

@@ -1,10 +1,7 @@
 import 'package:dart_mobile_device/src/models/device_endpoint.dart';
 
-/// How xcross reaches an iOS 17+ device for launch and debug.
-///
-/// Implementations differ only in *where* device services become reachable:
-/// straight at the RSD tunnel address, or on loopback relays. Callers depend on
-/// this contract, never on a concrete transport.
+/// How xcross reaches an iOS 17+ device for launch and debug. Callers depend
+/// on this contract, never on a concrete transport.
 abstract interface class DeviceTransport {
   /// Device-selection arguments for one-shot `pymobiledevice3` invocations,
   /// e.g. `--rsd <host> <port>` or `--userspace --udid <udid>`.

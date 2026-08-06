@@ -4,9 +4,9 @@ import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/errors.dart';
-import 'package:dart_mobile_device/src/pymd.dart';
-import 'package:dart_mobile_device/src/tunnel_daemon.dart';
-import 'package:dart_mobile_device/src/tunnel_discovery.dart';
+import 'package:dart_mobile_device/src/pymd/pymd.dart';
+import 'package:dart_mobile_device/src/tunnel/tunnel_daemon.dart';
+import 'package:dart_mobile_device/src/tunnel/tunnel_discovery.dart';
 import 'package:path/path.dart' as p;
 
 /// One-shot iOS 17+ host prep: mount the Developer Disk Image and start the

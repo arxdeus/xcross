@@ -2,33 +2,17 @@ import 'dart:io' show Platform;
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/constants.dart';
-import 'package:dart_mobile_device/src/device_transport.dart';
 import 'package:dart_mobile_device/src/errors.dart';
-import 'package:dart_mobile_device/src/kernel_tunnel_transport.dart';
-import 'package:dart_mobile_device/src/pymd.dart';
-import 'package:dart_mobile_device/src/tunnel_daemon.dart';
-import 'package:dart_mobile_device/src/tunnel_discovery.dart';
-import 'package:dart_mobile_device/src/userspace_tunnel_transport.dart';
+import 'package:dart_mobile_device/src/pymd/pymd.dart';
+import 'package:dart_mobile_device/src/transport/device_transport.dart';
+import 'package:dart_mobile_device/src/transport/internal/device_transport_mode.dart';
+import 'package:dart_mobile_device/src/tunnel/kernel_tunnel_transport.dart';
+import 'package:dart_mobile_device/src/tunnel/tunnel_daemon.dart';
+import 'package:dart_mobile_device/src/tunnel/tunnel_discovery.dart';
+import 'package:dart_mobile_device/src/tunnel/userspace_tunnel_transport.dart';
 
-/// Which [DeviceTransport] to build.
-enum DeviceTransportMode {
-  /// Prefer the kernel tunnel, fall back to the userspace tunnel.
-  auto,
-
-  /// Kernel tunnel only; fail instead of falling back.
-  kernel,
-
-  /// Userspace tunnel only; never touch tunneld or a TUN device.
-  userspace,
-}
-
-/// Builds the [DeviceTransport] for a session.
-///
-/// The kernel tunnel is preferred because it is the faster path, but it depends
-/// on host networking that xcross does not control: a VPN kill-switch or
-/// firewall can block its subnet, and creating it needs root/Administrator.
-/// When it turns out to be unusable, the userspace tunnel takes over instead of
-/// failing the run — it only needs usbmux and loopback.
+/// Builds the [DeviceTransport] for a session, preferring the kernel tunnel
+/// and falling back to the userspace tunnel when it is unusable.
 abstract final class DeviceTransportResolver {
   /// `auto` (default), `kernel`, or `userspace`.
   static const String modeEnvironmentVariable = 'XCROSS_TUNNEL_MODE';
@@ -73,11 +57,6 @@ abstract final class DeviceTransportResolver {
     };
   }
 
-  /// tunneld + RSD discovery + a real debugproxy lookup.
-  ///
-  /// The lookup doubles as the reachability probe: it is the first traffic that
-  /// actually crosses the tunnel, so a blocked subnet surfaces here rather than
-  /// mid-session.
   static Future<DeviceTransport> _kernelTransport({
     required String udid,
     required Duration discoveryTimeout,
@@ -97,8 +76,6 @@ abstract final class DeviceTransportResolver {
         daemon: daemon,
       );
     } on Object {
-      // Never leak a daemon this attempt started; a tunneld the user runs
-      // themselves is untouched by stop().
       daemon.stop();
       rethrow;
     }
@@ -132,8 +109,6 @@ abstract final class DeviceTransportResolver {
     }
   }
 
-  /// True when RSD answered but carries no debugproxy service — a DDI problem
-  /// that no transport can work around.
   static bool _deviceIsMissingDebugproxy(String detail) =>
       detail.contains('Services.') && detail.contains('missing') ||
       detail.contains('Developer Disk Image not mounted');
