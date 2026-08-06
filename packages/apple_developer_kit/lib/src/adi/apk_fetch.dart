@@ -6,9 +6,25 @@
 import 'dart:io';
 
 import 'package:archive/archive.dart';
-import 'package:crypto/crypto.dart' show sha256;
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
+
+/// Paths to the extracted ADI native libraries, in dependency-load order,
+/// plus the cached APK's recorded SHA-256.
+@immutable
+final class AdiLibraryPaths {
+  const AdiLibraryPaths({
+    required this.coreAdiPath,
+    required this.storeServicesPath,
+    required this.apkSha256,
+  });
+
+  final String coreAdiPath;
+  final String storeServicesPath;
+  final String apkSha256;
+}
 
 /// URL of the Apple Music Android APK, from which the ADI native
 /// libraries are extracted (per upstream Provision's README.md).
@@ -57,17 +73,14 @@ class AdiLibraryFetcher {
 
   /// Ensures both native libraries are present in [cacheDir], downloading
   /// and extracting them first if needed.
-  ///
-  /// Returns `(coreAdiPath, storeServicesPath, apkSha256)`, libraries in
-  /// dependency-load order plus the cached APK's recorded SHA-256.
-  Future<(String, String, String)> ensureLibraries() async {
+  Future<AdiLibraryPaths> ensureLibraries() async {
     if (coreAdiFile.existsSync() &&
         storeServicesFile.existsSync() &&
         _apkShaSidecar.existsSync()) {
-      return (
-        coreAdiFile.path,
-        storeServicesFile.path,
-        _apkShaSidecar.readAsStringSync().trim(),
+      return AdiLibraryPaths(
+        coreAdiPath: coreAdiFile.path,
+        storeServicesPath: storeServicesFile.path,
+        apkSha256: _apkShaSidecar.readAsStringSync().trim(),
       );
     }
 
@@ -76,7 +89,11 @@ class AdiLibraryFetcher {
     final apkSha256 = _recordApkHash();
     _extractLibraries();
 
-    return (coreAdiFile.path, storeServicesFile.path, apkSha256);
+    return AdiLibraryPaths(
+      coreAdiPath: coreAdiFile.path,
+      storeServicesPath: storeServicesFile.path,
+      apkSha256: apkSha256,
+    );
   }
 
   String _recordApkHash() {

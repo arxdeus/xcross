@@ -8,25 +8,17 @@
 library;
 
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/apple_http_client.dart';
 import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/grandslam_endpoints.dart';
 import 'package:apple_developer_kit/src/grandslam/grandslam_login_data.dart';
 import 'package:apple_developer_kit/src/grandslam/grandslam_operation.dart';
-import 'package:apple_developer_kit/src/grandslam/grandslam_response.dart';
 import 'package:apple_developer_kit/src/grandslam/grandslam_two_factor.dart';
+import 'package:apple_developer_kit/src/grandslam/internal/grandslam_response_decoder.dart';
+import 'package:apple_developer_kit/src/grandslam/internal/srp_challenge.dart';
 import 'package:apple_developer_kit/src/grandslam/srp_client.dart';
 import 'package:http/http.dart' as http;
-
-export 'package:apple_developer_kit/src/grandslam/grandslam_two_factor.dart'
-    show
-        FetchTwoFactorCode,
-        GrandSlamIncorrectCodeError,
-        GrandSlamTwoFactorCancelledError,
-        GrandSlamTwoFactorMode,
-        GrandSlamTwoFactorRequiredError;
 
 /// SRP variants offered in `o=init`'s `ps`, in xtool's
 /// `GrandSlamAuthProtocol.allCases` order. The same list, comma-joined, is
@@ -36,19 +28,10 @@ const List<String> _srpProtocols = ['s2k', 's2k_fo'];
 /// `o=complete`'s `status-code` meaning "two-factor authentication first".
 const int _twoFactorRequiredStatus = 409;
 
-/// What `o=init` hands back: everything needed to answer the challenge.
-typedef _SrpChallenge = ({
-  String protocol,
-  String cookie,
-  Uint8List salt,
-  int iterations,
-  Uint8List serverPublicKey,
-});
-
 /// GrandSlam rejected the client's `M1` (the server `hamk` did not
 /// verify - almost always a wrong password), or two-factor was still
 /// demanded after a full retry.
-class GrandSlamAuthError extends AppleError {
+final class GrandSlamAuthError extends AppleError {
   const GrandSlamAuthError(super.message);
 }
 
@@ -59,7 +42,7 @@ class GrandSlamAuthError extends AppleError {
 /// through a plain callback rather than an `AnisetteDataProvider`
 /// dependency, which avoids a second endpoint lookup and keeps this class
 /// trivially fakeable in tests.
-class GrandSlamClient {
+final class GrandSlamClient {
   GrandSlamClient({
     required this.endpoints,
     required Future<Map<String, String>> Function() fetchAnisetteHeaders,
@@ -148,7 +131,7 @@ class GrandSlamClient {
 
   /// `o=init`: publishes `A`, learns the salt, iteration count, chosen
   /// protocol, and the server's `B`.
-  Future<_SrpChallenge> _requestSrpInit(SrpClient srp, String username) async {
+  Future<SrpChallenge> _requestSrpInit(SrpClient srp, String username) async {
     final response = await _postOperation(
       operation: 'init',
       username: username,
@@ -163,7 +146,7 @@ class GrandSlamClient {
       ..addString('|')
       ..addString(protocol);
 
-    return (
+    return SrpChallenge(
       protocol: protocol,
       cookie: GrandSlamResponse.stringField(response, 'c'),
       salt: GrandSlamResponse.dataField(response, 's'),
@@ -178,7 +161,7 @@ class GrandSlamClient {
     required SrpClient srp,
     required String username,
     required String password,
-    required _SrpChallenge challenge,
+    required SrpChallenge challenge,
   }) async {
     final m1 = srp.processChallenge(
       username: username,

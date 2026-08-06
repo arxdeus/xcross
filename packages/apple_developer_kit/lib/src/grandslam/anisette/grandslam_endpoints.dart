@@ -22,7 +22,7 @@ final Uri _lookupUrl = Uri.parse(
 /// device provisioning handshake; the rest are modeled so the sign-in and
 /// two-factor layers do not have to repeat the lookup.
 @immutable
-class GrandSlamEndpoints {
+final class GrandSlamEndpoints {
   const GrandSlamEndpoints({
     required this.gsService,
     required this.secondaryAuth,

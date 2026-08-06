@@ -5,7 +5,7 @@ import 'package:meta/meta.dart';
 /// A block of native memory allocated by a [NativeMemoryAllocator].
 @internal
 @immutable
-class NativeMemoryBlock {
+final class NativeMemoryBlock {
   const NativeMemoryBlock(this.pointer, this.length);
 
   final Pointer<Uint8> pointer;
@@ -23,7 +23,7 @@ class NativeMemoryBlock {
 /// the foreign library, which `NativeSymbolStubs`
 /// (`native_symbol_stubs.dart`) handles instead.
 @internal
-abstract class NativeMemoryAllocator {
+abstract interface class NativeMemoryAllocator {
   /// Reserves an anonymous block of [size] bytes.
   @useResult
   NativeMemoryBlock alloc(int size);

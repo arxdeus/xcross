@@ -3,27 +3,11 @@ import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/signing/code_signature.dart';
+import 'package:apple_developer_kit/src/signing/internal/signature_inputs.dart';
 import 'package:apple_developer_kit/src/signing/macho_format.dart';
 import 'package:apple_developer_kit/src/signing/signing_asset.dart';
 import 'package:meta/meta.dart';
 import 'package:posix/posix.dart' as posix;
-
-/// Everything the embedded signature is built from, other than the code image
-/// itself. Signing runs two passes over these same inputs, so grouping them
-/// makes it obvious that nothing changes between the passes.
-typedef _SignatureInputs = ({
-  int execSegmentLimit,
-  String identifier,
-  String teamIdentifier,
-  Uint8List infoHash,
-  Uint8List resourcesHash,
-  Uint8List requirement,
-  Uint8List xmlEntitlements,
-  Uint8List? derEntitlements,
-  bool isExecutable,
-  DateTime signingTime,
-  String path,
-});
 
 /// Signs xcross-generated thin arm64 Mach-O files without invoking zsign.
 class MachOSigner {
@@ -184,7 +168,7 @@ class MachOSigner {
 
   /// Validates the caller's arguments and precomputes everything both signing
   /// passes consume.
-  _SignatureInputs _collectInputs({
+  SignatureInputs _collectInputs({
     required MachOLayout macho,
     required String path,
     required String identifier,
@@ -227,7 +211,7 @@ class MachOSigner {
       signingAsset.certificateCommonName,
       path,
     );
-    return (
+    return SignatureInputs(
       execSegmentLimit: macho.textVmSize,
       identifier: identifier,
       teamIdentifier: teamIdentifier,
@@ -431,7 +415,7 @@ class MachOSigner {
   Uint8List _buildEmbeddedSignature(
     Uint8List code,
     int codeLimit,
-    _SignatureInputs inputs,
+    SignatureInputs inputs,
   ) {
     final path = inputs.path;
     final derEntitlements = inputs.derEntitlements;
@@ -458,12 +442,12 @@ class MachOSigner {
       machoFail(path, 'CMS signature', '$error');
     }
     return buildSuperblob([
-      (type: csslotCodeDirectory, bytes: codeDirectory),
-      (type: csslotRequirements, bytes: inputs.requirement),
-      (type: csslotEntitlements, bytes: inputs.xmlEntitlements),
+      SignatureSlot(type: csslotCodeDirectory, bytes: codeDirectory),
+      SignatureSlot(type: csslotRequirements, bytes: inputs.requirement),
+      SignatureSlot(type: csslotEntitlements, bytes: inputs.xmlEntitlements),
       if (derEntitlements != null)
-        (type: csslotDerEntitlements, bytes: derEntitlements),
-      (type: csslotSignature, bytes: _cmsWrapper(cms, path)),
+        SignatureSlot(type: csslotDerEntitlements, bytes: derEntitlements),
+      SignatureSlot(type: csslotSignature, bytes: _cmsWrapper(cms, path)),
     ], path);
   }
 
@@ -472,7 +456,7 @@ class MachOSigner {
 
   /// Special slots run from -7 up to -1 and are written in that order, so the
   /// unused -6 and -4 slots must still be present as all-zero hashes.
-  static List<Uint8List> _specialSlots(_SignatureInputs inputs) {
+  static List<Uint8List> _specialSlots(SignatureInputs inputs) {
     final derEntitlements = inputs.derEntitlements;
     return <Uint8List>[
       if (inputs.isExecutable) sha256Digest(derEntitlements!),
@@ -485,7 +469,7 @@ class MachOSigner {
     ];
   }
 
-  static int _execSegmentFlags(_SignatureInputs inputs) =>
+  static int _execSegmentFlags(SignatureInputs inputs) =>
       (inputs.isExecutable ? csExecsegMainBinary : 0) |
       (inputs.isExecutable && entitlementsAllowUnsigned(inputs.xmlEntitlements)
           ? csExecsegAllowUnsigned

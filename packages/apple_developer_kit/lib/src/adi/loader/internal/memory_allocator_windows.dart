@@ -5,7 +5,7 @@
 
 import 'dart:ffi';
 
-import 'package:apple_developer_kit/src/adi/loader/memory_allocator.dart';
+import 'package:apple_developer_kit/src/adi/loader/internal/memory_allocator.dart';
 import 'package:ffi/ffi.dart';
 import 'package:meta/meta.dart';
 
@@ -40,7 +40,7 @@ typedef _VirtualFreeDart =
     int Function(Pointer<Void> address, int size, int freeType);
 
 @internal
-class WindowsMemoryAllocator implements NativeMemoryAllocator {
+final class WindowsMemoryAllocator implements NativeMemoryAllocator {
   WindowsMemoryAllocator()
     : _virtualAlloc = DynamicLibrary.process()
           .lookupFunction<

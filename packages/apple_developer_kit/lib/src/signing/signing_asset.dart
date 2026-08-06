@@ -4,20 +4,13 @@ import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/signing/der.dart';
+import 'package:apple_developer_kit/src/signing/internal/profile_identity.dart';
 import 'package:apple_developer_kit/src/signing/provisioning_profile.dart';
 import 'package:apple_developer_kit/src/signing/x509.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:meta/meta.dart';
 import 'package:pointycastle/export.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
-
-/// The identifiers a provisioning profile contributes to a signature.
-typedef _ProfileIdentity = ({
-  String teamIdentifier,
-  Map<String, Object?> entitlements,
-  String applicationIdentifier,
-  String applicationIdentifierPrefix,
-});
 
 /// Parsed signing material used to produce Apple code-signing CMS blobs.
 @immutable
@@ -176,7 +169,7 @@ class SigningAsset {
     }
   }
 
-  static _ProfileIdentity _readIdentity(
+  static ProfileIdentity _readIdentity(
     Map<String, Object?> profile,
     String profilePath,
   ) {
@@ -203,7 +196,7 @@ class SigningAsset {
       [final String first, ...] when first.isNotEmpty => first,
       _ => applicationIdentifier.split('.').first,
     };
-    return (
+    return ProfileIdentity(
       teamIdentifier: teamIdentifier,
       entitlements: entitlements,
       applicationIdentifier: applicationIdentifier,

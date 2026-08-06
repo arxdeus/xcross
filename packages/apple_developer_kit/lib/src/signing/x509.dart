@@ -3,9 +3,8 @@ import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/signing/der.dart';
-import 'package:basic_utils/basic_utils.dart' show CryptoUtils, X509Utils;
+import 'package:basic_utils/basic_utils.dart';
 import 'package:meta/meta.dart';
-import 'package:pointycastle/export.dart';
 import 'package:pure/pure.dart';
 
 /// Object identifiers used by the certificate, profile, and CMS layers.

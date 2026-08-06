@@ -9,8 +9,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:apple_developer_kit/src/adi/adi_client.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/anisette_data_provider.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/anisette_state.dart';
+import 'package:apple_developer_kit/src/grandslam/anisette/internal/adi_provisioning.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';

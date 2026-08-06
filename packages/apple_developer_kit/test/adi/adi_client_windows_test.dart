@@ -14,12 +14,11 @@ void main() {
     'native ADI library can be fetched, ELF-loaded on Windows, and symbols resolved',
     () async {
       final fetcher = AdiLibraryFetcher();
-      final (coreAdiPath, storeServicesPath, apkSha256) = await fetcher
-          .ensureLibraries();
+      final paths = await fetcher.ensureLibraries();
 
-      expect(File(coreAdiPath).existsSync(), isTrue);
-      expect(File(storeServicesPath).existsSync(), isTrue);
-      expect(apkSha256, isNotEmpty);
+      expect(File(paths.coreAdiPath).existsSync(), isTrue);
+      expect(File(paths.storeServicesPath).existsSync(), isTrue);
+      expect(paths.apkSha256, isNotEmpty);
 
       final client = AdiClient.fromDirectory(fetcher.cacheDir.path);
       expect(client, isNotNull);

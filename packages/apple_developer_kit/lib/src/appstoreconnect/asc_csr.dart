@@ -15,8 +15,7 @@ import 'package:posix/posix.dart' as posix;
 abstract final class AscCsr {
   /// Generates a fresh 2048-bit RSA keypair and a CSR for it.
   @useResult
-  static ({RSAPrivateKey privateKey, RSAPublicKey publicKey, String csrPem})
-  generate({String commonName = 'xcross Development'}) {
+  static AscGeneratedCsr generate({String commonName = 'xcross Development'}) {
     final keyPair = CryptoUtils.generateRSAKeyPair();
     final privateKey = keyPair.privateKey as RSAPrivateKey;
     final publicKey = keyPair.publicKey as RSAPublicKey;
@@ -25,7 +24,11 @@ abstract final class AscCsr {
       privateKey,
       publicKey,
     );
-    return (privateKey: privateKey, publicKey: publicKey, csrPem: csrPem);
+    return AscGeneratedCsr(
+      privateKey: privateKey,
+      publicKey: publicKey,
+      csrPem: csrPem,
+    );
   }
 
   /// PEM-encodes [privateKey] (PKCS#8) for persisting to disk.
@@ -44,4 +47,18 @@ abstract final class AscCsr {
       posix.chmod(path, '0600');
     }
   }
+}
+
+/// A freshly generated RSA keypair and its PKCS#10 CSR, from [AscCsr.generate].
+@immutable
+final class AscGeneratedCsr {
+  const AscGeneratedCsr({
+    required this.privateKey,
+    required this.publicKey,
+    required this.csrPem,
+  });
+
+  final RSAPrivateKey privateKey;
+  final RSAPublicKey publicKey;
+  final String csrPem;
 }

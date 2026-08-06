@@ -10,7 +10,7 @@ import 'package:meta/meta.dart';
 /// silently corrupt memory rather than fail cleanly). Implementations
 /// instead return a [LoadedNativeLibrary] backed by this package's own
 /// manually-relocated ELF loader (`../elf/elf_loaded_library.dart`).
-abstract class NativeLibraryLoader {
+abstract interface class NativeLibraryLoader {
   /// Loads the native library at [path].
   @useResult
   LoadedNativeLibrary load(String path);
@@ -18,7 +18,7 @@ abstract class NativeLibraryLoader {
 
 /// A loaded native library, capable of resolving exported symbols to
 /// callable native function pointers.
-abstract class LoadedNativeLibrary {
+abstract interface class LoadedNativeLibrary {
   /// Resolves [symbolName] to a callable native function pointer of type
   /// [T].
   @useResult

@@ -7,7 +7,7 @@
 
 part of '../native_symbol_stubs_windows.dart';
 
-class _WindowsCrt {
+final class WindowsCrt {
   final DynamicLibrary _process = DynamicLibrary.process();
 
   /// Raw address of CRT symbol [name], for entries published straight

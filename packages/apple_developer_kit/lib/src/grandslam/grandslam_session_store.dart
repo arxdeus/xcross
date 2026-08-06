@@ -13,7 +13,7 @@ import 'package:path/path.dart' as p;
 import 'package:posix/posix.dart' as posix;
 
 @immutable
-class GrandSlamSession {
+final class GrandSlamSession {
   GrandSlamSession({
     required this.username,
     required this.token,
@@ -86,7 +86,7 @@ class GrandSlamSession {
   };
 }
 
-class GrandSlamSessionStore {
+final class GrandSlamSessionStore {
   GrandSlamSessionStore({String? path}) : path = path ?? defaultPath();
 
   final String path;

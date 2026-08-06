@@ -19,7 +19,10 @@ import 'dart:ffi';
 import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/adi/elf/elf_reader.dart';
-import 'package:apple_developer_kit/src/adi/loader/memory_allocator.dart';
+import 'package:apple_developer_kit/src/adi/elf/internal/elf_image.dart';
+import 'package:apple_developer_kit/src/adi/elf/internal/elf_page_range.dart';
+import 'package:apple_developer_kit/src/adi/elf/internal/elf_symbol_tables.dart';
+import 'package:apple_developer_kit/src/adi/loader/internal/memory_allocator.dart';
 import 'package:meta/meta.dart';
 
 /// Resolves a symbol this library imports but does not define itself
@@ -29,20 +32,6 @@ import 'package:meta/meta.dart';
 /// the divergence note below.
 @internal
 typedef ExternalSymbolResolver = Pointer<Void> Function(String symbolName);
-
-/// The reserved image a library's `PT_LOAD` segments are mapped into,
-/// plus the page-aligned lowest `p_vaddr` every offset is relative to.
-typedef _Image = ({NativeMemoryBlock allocation, int baseVaddr});
-
-/// A page-aligned protection range within an [_Image].
-typedef _PageRange = ({int offset, int length});
-
-/// The symbol-lookup state collected while scanning section headers.
-typedef _SymbolTables = ({
-  ElfDynamicSymbolTable? symtab,
-  GnuHashTable? gnuHash,
-  ElfHashTable? elfHash,
-});
 
 /// A manually loaded, manually relocated ELF64 shared object.
 @internal
@@ -103,7 +92,10 @@ class ElfLoadedLibrary {
 
   /// Reserves one contiguous, page-aligned region spanning every
   /// `PT_LOAD` segment's `[p_vaddr, p_vaddr + p_memsz)`.
-  static _Image _reserveImage(ElfReader elf, NativeMemoryAllocator allocator) {
+  static ElfImage _reserveImage(
+    ElfReader elf,
+    NativeMemoryAllocator allocator,
+  ) {
     var minVaddr = 1 << 62;
     var maxVaddr = 0;
     for (var i = 0; i < elf.ehPhnum; i++) {
@@ -116,24 +108,27 @@ class ElfLoadedLibrary {
 
     final alignedMin = _pageFloor(minVaddr);
     final alignedMax = _pageCeil(maxVaddr);
-    return (
+    return ElfImage(
       allocation: allocator.alloc(alignedMax - alignedMin),
       baseVaddr: alignedMin,
     );
   }
 
   /// The page-aligned range covering segment [i]'s whole `p_memsz`.
-  static _PageRange _segmentPages(ElfReader elf, int i, int baseVaddr) {
+  static ElfPageRange _segmentPages(ElfReader elf, int i, int baseVaddr) {
     final headerStart = elf.phVaddr(i) - baseVaddr;
     final memEnd = headerStart + elf.phMemsz(i);
     final protStart = _pageFloor(headerStart);
-    return (offset: protStart, length: _pageCeil(memEnd) - protStart);
+    return ElfPageRange(
+      offset: protStart,
+      length: _pageCeil(memEnd) - protStart,
+    );
   }
 
   static void _protect(
     NativeMemoryAllocator allocator,
-    _Image image,
-    _PageRange pages, {
+    ElfImage image,
+    ElfPageRange pages, {
     required bool readable,
     required bool writable,
     required bool executable,
@@ -152,7 +147,7 @@ class ElfLoadedLibrary {
     ElfReader elf,
     Uint8List bytes,
     NativeMemoryAllocator allocator,
-    _Image image,
+    ElfImage image,
   ) {
     for (var i = 0; i < elf.ehPhnum; i++) {
       if (elf.phType(i) != ElfSegmentType.load) continue;
@@ -201,11 +196,11 @@ class ElfLoadedLibrary {
   /// relocate" approach). This relies on the conventional toolchain
   /// section ordering (.dynsym/.dynstr before .rela.*), same as
   /// upstream does.
-  static _SymbolTables _relocate(
+  static ElfSymbolTables _relocate(
     ElfReader elf,
     Uint8List bytes,
     NativeMemoryAllocator allocator,
-    _Image image,
+    ElfImage image,
     ExternalSymbolResolver resolveExternalSymbol,
   ) {
     int? symtabOffset;
@@ -273,7 +268,7 @@ class ElfLoadedLibrary {
     }
 
     final hasSymtab = symtabOffset != null && strtabOffset != null;
-    return (
+    return ElfSymbolTables(
       symtab: hasSymtab ? buildSymtab() : null,
       gnuHash: gnuHash,
       elfHash: elfHash,
@@ -281,7 +276,7 @@ class ElfLoadedLibrary {
   }
 
   static void _applyRelaSection(
-    _Image image,
+    ElfImage image,
     ByteData elfData,
     int shOffset,
     int shSize,
@@ -328,7 +323,7 @@ class ElfLoadedLibrary {
   static void _applyFinalProtection(
     ElfReader elf,
     NativeMemoryAllocator allocator,
-    _Image image,
+    ElfImage image,
   ) {
     for (var i = 0; i < elf.ehPhnum; i++) {
       if (elf.phType(i) != ElfSegmentType.load) continue;
@@ -357,10 +352,12 @@ class ElfLoadedLibrary {
       throw StateError('Library has no dynamic symbol table.');
     }
 
-    final index = switch ((_gnuHash, _elfHash)) {
-      (final GnuHashTable gnu, _) => gnu.lookup(symbolName, symtab),
-      (_, final ElfHashTable elf) => elf.lookup(symbolName, symtab),
-      _ => _linearScan(symbolName, symtab),
+    final index = switch (_gnuHash) {
+      final GnuHashTable gnu => gnu.lookup(symbolName, symtab),
+      null => switch (_elfHash) {
+        final ElfHashTable elf => elf.lookup(symbolName, symtab),
+        null => _linearScan(symbolName, symtab),
+      },
     };
 
     if (index == null) {

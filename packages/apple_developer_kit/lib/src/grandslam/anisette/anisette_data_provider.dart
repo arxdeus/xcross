@@ -10,96 +10,27 @@
 library;
 
 import 'dart:convert';
-import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/adi/adi_client.dart'
-    show
-        AdiClient,
-        AdiClientProvisioningIntermediateMetadata,
-        AdiOneTimePassword;
+import 'package:apple_developer_kit/src/adi/adi_client.dart';
 import 'package:apple_developer_kit/src/apple_http_client.dart';
 import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/anisette_headers.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/anisette_provider.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/anisette_state.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/grandslam_endpoints.dart';
-import 'package:apple_developer_kit/src/grandslam/grandslam_response.dart';
+import 'package:apple_developer_kit/src/grandslam/anisette/internal/adi_provisioning.dart';
+import 'package:apple_developer_kit/src/grandslam/anisette/internal/real_adi_provisioning.dart';
+import 'package:apple_developer_kit/src/grandslam/internal/grandslam_response_decoder.dart';
 import 'package:http/http.dart' as http;
-import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
-
-export 'package:apple_developer_kit/src/adi/adi_client.dart'
-    show AdiClientProvisioningIntermediateMetadata, AdiOneTimePassword;
-
-/// Apple's sentinel `dsId` for machine-level (not-yet-signed-in) ADI
-/// identity, used for both provisioning and every `requestOTP`. A fixed
-/// protocol constant, not a per-caller value.
-@internal
-const int kAdiMachineDsId = -2;
-
-/// Builds the [AdiProvisioning] backing an [AnisetteDataProvider].
-@internal
-typedef AdiProvisioningFactory =
-    AdiProvisioning Function({
-      required String adiLibraryDirectory,
-      required String provisioningPath,
-      required String identifier,
-    });
-
-/// The slice of `AdiClient` this provider drives, extracted so tests can
-/// substitute a fake instead of the real (Linux) native ADI library.
-/// Construction and configuration are the factory's job, not part of this.
-@internal
-abstract interface class AdiProvisioning {
-  Future<bool> isMachineProvisioned(int dsId);
-
-  Future<AdiClientProvisioningIntermediateMetadata> startProvisioning(
-    int dsId,
-    Uint8List serverProvisioningIntermediateMetadata,
-  );
-
-  Future<void> endProvisioning(
-    int session,
-    Uint8List persistentTokenMetadata,
-    Uint8List trustKey,
-  );
-
-  Future<AdiOneTimePassword> requestOTP(int dsId);
-}
-
-class _RealAdiProvisioning implements AdiProvisioning {
-  _RealAdiProvisioning(this._client);
-
-  final AdiClient _client;
-
-  @override
-  Future<bool> isMachineProvisioned(int dsId) =>
-      _client.isMachineProvisioned(dsId);
-
-  @override
-  Future<AdiClientProvisioningIntermediateMetadata> startProvisioning(
-    int dsId,
-    Uint8List serverProvisioningIntermediateMetadata,
-  ) => _client.startProvisioning(dsId, serverProvisioningIntermediateMetadata);
-
-  @override
-  Future<void> endProvisioning(
-    int session,
-    Uint8List persistentTokenMetadata,
-    Uint8List trustKey,
-  ) => _client.endProvisioning(session, persistentTokenMetadata, trustKey);
-
-  @override
-  Future<AdiOneTimePassword> requestOTP(int dsId) => _client.requestOTP(dsId);
-}
 
 /// Produces Anisette headers from a locally-loaded ADI native library.
 ///
 /// On first use it loads or creates the persisted pseudo-identity, runs
 /// the one-time provisioning handshake, and saves `routingInfo`. After
 /// that each call only generates a fresh OTP, which is local and cheap.
-class AnisetteDataProvider implements AnisetteProvider {
+final class AnisetteDataProvider implements AnisetteProvider {
   AnisetteDataProvider(
     this.adiLibraryDirectory, {
     http.Client? httpClient,
@@ -251,7 +182,7 @@ class AnisetteDataProvider implements AnisetteProvider {
     final client = AdiClient.fromDirectory(adiLibraryDirectory)
       ..provisioningPath = path.endsWith('/') ? path : '$path/'
       ..identifier = identifier;
-    return _RealAdiProvisioning(client);
+    return RealAdiProvisioning(client);
   }
 
   /// ADI's "Android ID": the first 16 lowercase hex characters of the

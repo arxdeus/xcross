@@ -5,11 +5,12 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:apple_developer_kit/src/adi/elf/elf_loaded_library.dart';
+import 'package:apple_developer_kit/src/adi/loader/internal/memory_allocator_windows.dart';
+import 'package:apple_developer_kit/src/adi/loader/internal/native_symbol_stubs_windows.dart';
+import 'package:apple_developer_kit/src/adi/loader/internal/windows_loaded_library.dart';
 import 'package:apple_developer_kit/src/adi/loader/loader.dart';
-import 'package:apple_developer_kit/src/adi/loader/memory_allocator_windows.dart';
-import 'package:apple_developer_kit/src/adi/loader/native_symbol_stubs_windows.dart';
 
-class WindowsNativeLibraryLoader implements NativeLibraryLoader {
+final class WindowsNativeLibraryLoader implements NativeLibraryLoader {
   WindowsNativeLibraryLoader() : _allocator = WindowsMemoryAllocator() {
     if (!Platform.isWindows) {
       throw UnsupportedError(
@@ -64,16 +65,6 @@ class WindowsNativeLibraryLoader implements NativeLibraryLoader {
   @override
   LoadedNativeLibrary load(String path) {
     _lastLoadDir = File(path).parent.path;
-    return _WindowsLoadedLibrary(_loadByPath(path));
+    return WindowsLoadedLibrary(_loadByPath(path));
   }
-}
-
-class _WindowsLoadedLibrary implements LoadedNativeLibrary {
-  _WindowsLoadedLibrary(this._lib);
-
-  final ElfLoadedLibrary _lib;
-
-  @override
-  Pointer<NativeFunction<T>> lookup<T extends Function>(String symbolName) =>
-      _lib.lookup(symbolName).cast();
 }

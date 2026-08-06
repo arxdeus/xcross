@@ -35,19 +35,19 @@ typedef FetchTwoFactorCode =
 
 /// Two-factor authentication is required, but no [FetchTwoFactorCode] was
 /// supplied to `GrandSlamClient.login`.
-class GrandSlamTwoFactorRequiredError extends AppleError {
+final class GrandSlamTwoFactorRequiredError extends AppleError {
   const GrandSlamTwoFactorRequiredError(super.message);
 }
 
 /// [FetchTwoFactorCode] returned `null` - the user cancelled.
-class GrandSlamTwoFactorCancelledError extends AppleError {
+final class GrandSlamTwoFactorCancelledError extends AppleError {
   const GrandSlamTwoFactorCancelledError(super.message);
 }
 
 /// The code-validation endpoint returned `-21669`, an incorrect
 /// verification code. Kept distinct from other [GrandSlamOperationError]s
 /// so a caller can re-prompt instead of aborting.
-class GrandSlamIncorrectCodeError extends AppleError {
+final class GrandSlamIncorrectCodeError extends AppleError {
   const GrandSlamIncorrectCodeError(super.message);
 }
 
@@ -70,7 +70,7 @@ const String _smsValidateUrl =
     '?referrer=/auth/verify/phone/put';
 
 /// Runs one two-factor round: trigger the code, then validate it.
-class GrandSlamTwoFactor {
+final class GrandSlamTwoFactor {
   const GrandSlamTwoFactor({
     required this.endpoints,
     required this.httpClient,

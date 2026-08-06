@@ -6,7 +6,7 @@ import 'package:meta/meta.dart';
 
 /// A signed iOS Development certificate.
 @immutable
-class AscCertificate {
+final class AscCertificate {
   const AscCertificate({
     required this.id,
     required this.certificateContentBase64,
@@ -38,7 +38,7 @@ class AscCertificate {
 
 /// A registered test device.
 @immutable
-class AscDevice {
+final class AscDevice {
   const AscDevice({
     required this.id,
     required this.udid,
@@ -78,7 +78,7 @@ class AscDevice {
 
 /// A registered app bundle id.
 @immutable
-class AscBundleId {
+final class AscBundleId {
   const AscBundleId({
     required this.id,
     required this.identifier,
@@ -103,7 +103,7 @@ class AscBundleId {
 
 /// A generated provisioning profile.
 @immutable
-class AscProfile {
+final class AscProfile {
   const AscProfile({
     required this.id,
     required this.profileContentBase64,

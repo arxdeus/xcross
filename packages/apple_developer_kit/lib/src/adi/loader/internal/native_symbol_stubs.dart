@@ -46,7 +46,7 @@ import 'package:meta/meta.dart';
 /// pull in `libCoreADI.so` at runtime; adi.d's own D caller never loads
 /// `libCoreADI.so` directly. See NOTICE.md for the load-order note).
 @internal
-class NativeSymbolStubs {
+final class NativeSymbolStubs {
   NativeSymbolStubs({required this.loadLibraryForDlopen}) {
     _bindLibcPassthroughs();
     _bindPthreadNoOps();

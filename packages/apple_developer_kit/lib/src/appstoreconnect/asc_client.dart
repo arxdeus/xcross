@@ -10,7 +10,7 @@ import 'package:http/http.dart' as http;
 
 /// An Apple provisioning API error, carrying the HTTP status so callers can
 /// branch on codes like 409 without caring which backend produced it.
-class AppleApiError extends AppleError {
+final class AppleApiError extends AppleError {
   const AppleApiError(this.statusCode, String message) : super(message);
 
   final int statusCode;
@@ -20,7 +20,7 @@ class AppleApiError extends AppleError {
 /// can supply them: the modern App Store Connect API (`AscClient`, API key)
 /// and Apple's legacy developerservices2 endpoints
 /// (`DeveloperServicesClient`, Apple ID session).
-abstract class DevelopmentProvisioningClient {
+abstract interface class DevelopmentProvisioningClient {
   Future<AscCertificate> createDevelopmentCertificate({required String csrPem});
 
   /// Resource ids of every certificate currently on the team (xtool lists
@@ -69,7 +69,7 @@ abstract class DevelopmentProvisioningClient {
 /// provision iOS Development signing (certificates, devices, bundle ids,
 /// profiles) using only a Team-scoped API key - no interactive Apple ID
 /// login.
-class AscClient implements DevelopmentProvisioningClient {
+final class AscClient implements DevelopmentProvisioningClient {
   AscClient(this.credentials, {http.Client? httpClient})
     : _http = httpClient ?? AppleHttp.createAppleHttpClient();
 

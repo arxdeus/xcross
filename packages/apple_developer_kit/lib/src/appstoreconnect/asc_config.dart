@@ -11,7 +11,7 @@ import 'package:path/path.dart' as p;
 /// project files are commonly committed to git, which is the wrong place for
 /// secret material.
 @immutable
-class AscCredentials {
+final class AscCredentials {
   const AscCredentials({
     required this.issuerId,
     required this.keyId,

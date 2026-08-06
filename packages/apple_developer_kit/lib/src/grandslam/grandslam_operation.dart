@@ -8,7 +8,7 @@ library;
 import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/anisette_headers.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/grandslam_endpoints.dart';
-import 'package:apple_developer_kit/src/grandslam/grandslam_response.dart';
+import 'package:apple_developer_kit/src/grandslam/internal/grandslam_response_decoder.dart';
 import 'package:http/http.dart' as http;
 import 'package:meta/meta.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';

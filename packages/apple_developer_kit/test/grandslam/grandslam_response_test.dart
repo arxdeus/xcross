@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/grandslam/grandslam_response.dart';
+import 'package:apple_developer_kit/src/grandslam/internal/grandslam_response_decoder.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
 

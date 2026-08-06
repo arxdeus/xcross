@@ -16,21 +16,20 @@ import 'package:basic_utils/basic_utils.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
-export 'asc_client.dart';
-export 'asc_config.dart';
-export 'asc_csr.dart';
-export 'asc_jwt.dart';
-export 'asc_models.dart';
-export 'developer_services_client.dart';
-export 'provisioning_identifiers.dart';
-
 /// Where [AscProvisioning.provisionDevelopmentIdentity] left the three files
 /// a signer needs.
-typedef DevelopmentIdentityPaths = ({
-  String certificatePemPath,
-  String privateKeyPemPath,
-  String profilePath,
-});
+@immutable
+final class DevelopmentIdentityPaths {
+  const DevelopmentIdentityPaths({
+    required this.certificatePemPath,
+    required this.privateKeyPemPath,
+    required this.profilePath,
+  });
+
+  final String certificatePemPath;
+  final String privateKeyPemPath;
+  final String profilePath;
+}
 
 /// Progress notes for actions the user should know about, such as revoking a
 /// certificate whose private key is gone.
@@ -113,7 +112,7 @@ abstract final class AscProvisioning {
       profilePath,
     ).writeAsBytes(base64.decode(profile.profileContentBase64));
 
-    return (
+    return DevelopmentIdentityPaths(
       certificatePemPath: certPath,
       privateKeyPemPath: keyPath,
       profilePath: profilePath,

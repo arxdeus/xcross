@@ -13,7 +13,18 @@ import 'package:propertylistserialization/propertylistserialization.dart';
 /// One sealable item found while walking a bundle: a regular file or a
 /// symlink. Directories are not sealed.
 @internal
-typedef SealCandidate = ({String path, String relativePath, bool isSymlink});
+@immutable
+final class SealCandidate {
+  const SealCandidate({
+    required this.path,
+    required this.relativePath,
+    required this.isSymlink,
+  });
+
+  final String path;
+  final String relativePath;
+  final bool isSymlink;
+}
 
 /// The seal file never seals itself.
 const String codeResourcesPath = '_CodeSignature/CodeResources';

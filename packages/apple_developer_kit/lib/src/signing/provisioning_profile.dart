@@ -9,7 +9,13 @@ import 'package:meta/meta.dart';
 /// The payload of a `.mobileprovision`: the embedded plist and the
 /// certificates Apple shipped alongside it.
 @internal
-typedef ProfileCms = ({Uint8List plist, List<Uint8List> certificates});
+@immutable
+final class ProfileCms {
+  const ProfileCms({required this.plist, required this.certificates});
+
+  final Uint8List plist;
+  final List<Uint8List> certificates;
+}
 
 /// Unwraps the CMS `SignedData` that a `.mobileprovision` is packaged in.
 ///
@@ -50,7 +56,10 @@ ProfileCms parseProfileCms(Uint8List bytes, String path) {
     signedDataReader.read(DerTag.set, 'SignedData digest algorithms');
     final plist = _readEncapsulatedPlist(signedDataReader);
     final certificates = _readTrailingFields(signedDataReader);
-    return (plist: Uint8List.fromList(plist), certificates: certificates);
+    return ProfileCms(
+      plist: Uint8List.fromList(plist),
+      certificates: certificates,
+    );
   } on Object catch (error) {
     throw AppleError('Malformed mobileprovision CMS "$path": $error');
   }

@@ -8,14 +8,14 @@ import 'package:apple_developer_kit/src/appstoreconnect/asc_payloads.dart';
 import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/anisette_state.dart';
 import 'package:apple_developer_kit/src/grandslam/app_token_exchange.dart';
-import 'package:apple_developer_kit/src/grandslam/grandslam_response.dart';
 import 'package:apple_developer_kit/src/grandslam/grandslam_session_store.dart';
+import 'package:apple_developer_kit/src/grandslam/internal/grandslam_response_decoder.dart';
 import 'package:http/http.dart' as http;
 import 'package:meta/meta.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
 
 @immutable
-class DeveloperServicesTeam {
+final class DeveloperServicesTeam {
   const DeveloperServicesTeam({
     required this.id,
     required this.name,
@@ -35,7 +35,7 @@ class DeveloperServicesTeam {
 /// not: every call is a POST, `teamId` must be threaded in by hand, and the
 /// team listing still speaks XML plist. See [_withMethodOverride] and
 /// [listTeams].
-class DeveloperServicesClient implements DevelopmentProvisioningClient {
+final class DeveloperServicesClient implements DevelopmentProvisioningClient {
   DeveloperServicesClient({
     required this.token,
     required this.teamId,

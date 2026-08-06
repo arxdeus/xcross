@@ -14,7 +14,7 @@ import 'package:path/path.dart' as p;
 
 /// Persisted Anisette provisioning state.
 @immutable
-class AnisetteState {
+final class AnisetteState {
   const AnisetteState({
     required this.localUserUid,
     this.provisioned = false,
@@ -81,7 +81,7 @@ class AnisetteState {
 }
 
 /// Reads/writes [AnisetteState] to a per-user JSON config file.
-class AnisetteStateStore {
+final class AnisetteStateStore {
   AnisetteStateStore({String? path}) : path = path ?? defaultPath();
 
   final String path;

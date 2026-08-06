@@ -63,7 +63,7 @@ final int _nByteLength = (_n.bitLength + 7) ~/ 8;
 /// final plaintext = client.decryptCbc(spdCiphertext);
 /// ```
 @internal
-class SrpClient {
+final class SrpClient {
   /// Generates the ephemeral keypair: `a` is 256 secure-random bits
   /// (deliberately smaller than `N`, as xtool does - 256 bits of entropy
   /// is ample regardless of `N`'s size) and `A = g^a mod N`.

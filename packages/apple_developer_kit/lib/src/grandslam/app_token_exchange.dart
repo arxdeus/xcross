@@ -15,7 +15,7 @@ import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/grandslam_endpoints.dart';
 import 'package:apple_developer_kit/src/grandslam/grandslam_login_data.dart';
 import 'package:apple_developer_kit/src/grandslam/grandslam_operation.dart';
-import 'package:apple_developer_kit/src/grandslam/grandslam_response.dart';
+import 'package:apple_developer_kit/src/grandslam/internal/grandslam_response_decoder.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:http/http.dart' as http;
 import 'package:meta/meta.dart';
@@ -33,7 +33,7 @@ const int _tagLength = 16;
 const int _sessionKeyLength = 32;
 
 @immutable
-class DeveloperServicesLoginToken {
+final class DeveloperServicesLoginToken {
   const DeveloperServicesLoginToken({
     required this.adsid,
     required this.token,
@@ -49,7 +49,7 @@ class DeveloperServicesLoginToken {
   bool get isExpired => !DateTime.now().toUtc().isBefore(expiry.toUtc());
 }
 
-class GrandSlamAppTokenExchange {
+final class GrandSlamAppTokenExchange {
   GrandSlamAppTokenExchange({
     required this.endpoints,
     required Future<Map<String, String>> Function() fetchAnisetteHeaders,

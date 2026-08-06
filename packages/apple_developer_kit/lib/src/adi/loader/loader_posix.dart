@@ -11,15 +11,15 @@
 // the instant they're called. That path has been removed entirely — see
 // NOTICE.md.
 
-import 'dart:ffi';
 import 'dart:io';
 
 import 'package:apple_developer_kit/src/adi/elf/elf_loaded_library.dart';
+import 'package:apple_developer_kit/src/adi/loader/internal/memory_allocator_posix.dart';
+import 'package:apple_developer_kit/src/adi/loader/internal/native_symbol_stubs.dart';
+import 'package:apple_developer_kit/src/adi/loader/internal/posix_loaded_library.dart';
 import 'package:apple_developer_kit/src/adi/loader/loader.dart';
-import 'package:apple_developer_kit/src/adi/loader/memory_allocator_posix.dart';
-import 'package:apple_developer_kit/src/adi/loader/native_symbol_stubs.dart';
 
-class PosixNativeLibraryLoader implements NativeLibraryLoader {
+final class PosixNativeLibraryLoader implements NativeLibraryLoader {
   PosixNativeLibraryLoader() : _allocator = PosixMemoryAllocator() {
     // Linux only for now — see native_symbol_stubs.dart's file-level
     // note. macOS needs compat/macos.d's open()/stat() flag and struct
@@ -79,16 +79,6 @@ class PosixNativeLibraryLoader implements NativeLibraryLoader {
   @override
   LoadedNativeLibrary load(String path) {
     _lastLoadDir = File(path).parent.path;
-    return _PosixLoadedLibrary(_loadByPath(path));
+    return PosixLoadedLibrary(_loadByPath(path));
   }
-}
-
-class _PosixLoadedLibrary implements LoadedNativeLibrary {
-  _PosixLoadedLibrary(this._lib);
-
-  final ElfLoadedLibrary _lib;
-
-  @override
-  Pointer<NativeFunction<T>> lookup<T extends Function>(String symbolName) =>
-      _lib.lookup(symbolName).cast();
 }

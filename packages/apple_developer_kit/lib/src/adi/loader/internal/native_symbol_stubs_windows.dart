@@ -25,7 +25,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/adi/elf/elf_loaded_library.dart';
-import 'package:apple_developer_kit/src/adi/loader/sysv_abi_bridge.dart';
+import 'package:apple_developer_kit/src/adi/loader/internal/sysv_abi_bridge.dart';
 import 'package:ffi/ffi.dart';
 import 'package:meta/meta.dart';
 
@@ -38,7 +38,7 @@ part 'windows/windows_crt.dart';
 /// are load-bearing: a missing entry becomes a null GOT slot the loaded
 /// library will call straight into.
 @internal
-class WindowsNativeSymbolStubs {
+final class WindowsNativeSymbolStubs {
   WindowsNativeSymbolStubs({required this.loadLibraryForDlopen}) {
     _errnoPtr = calloc<Int32>();
     _bindAll();
@@ -52,7 +52,7 @@ class WindowsNativeSymbolStubs {
 
   final Map<String, Pointer<Void>> _table = {};
   final Map<int, ElfLoadedLibrary> _dlopenHandles = {};
-  final _WindowsCrt _crt = _WindowsCrt();
+  final WindowsCrt _crt = WindowsCrt();
 
   /// NativeCallables must outlive every call the loaded library might
   /// make into them (i.e. the whole process); holding them here keeps

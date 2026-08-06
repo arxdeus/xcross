@@ -60,7 +60,7 @@ final class LinuxTimeval extends Struct {
 }
 
 /// Windows CRT `_O_*` flags (`fcntl.h`).
-abstract final class _WindowsOpenFlags {
+abstract final class WindowsOpenFlags {
   static const int binary = 0x8000;
   static const int creat = 0x0100;
   static const int wronly = 0x0001;
@@ -70,7 +70,7 @@ abstract final class _WindowsOpenFlags {
 
 /// Linux/bionic `O_*` flags, whose bit values differ from the Windows
 /// CRT's (upstream windows.d spells these in octal).
-abstract final class _LinuxOpenFlags {
+abstract final class LinuxOpenFlags {
   /// `O_CREAT`, octal 0100.
   static const int creat = 0x40;
   static const int wronly = 0x1;
@@ -82,16 +82,16 @@ abstract final class _LinuxOpenFlags {
 /// Always binary: the CRT would otherwise perform CRLF translation on the
 /// provisioning blobs ADI reads and writes.
 int _windowsOpenFlags(int linuxFlags) {
-  var flags = _WindowsOpenFlags.binary;
-  if ((linuxFlags & _LinuxOpenFlags.creat) != 0) {
-    flags |= _WindowsOpenFlags.creat;
+  var flags = WindowsOpenFlags.binary;
+  if ((linuxFlags & LinuxOpenFlags.creat) != 0) {
+    flags |= WindowsOpenFlags.creat;
   }
-  if ((linuxFlags & _LinuxOpenFlags.wronly) != 0) {
-    flags |= _WindowsOpenFlags.wronly;
-  } else if ((linuxFlags & _LinuxOpenFlags.rdwr) != 0) {
-    flags |= _WindowsOpenFlags.rdwr;
+  if ((linuxFlags & LinuxOpenFlags.wronly) != 0) {
+    flags |= WindowsOpenFlags.wronly;
+  } else if ((linuxFlags & LinuxOpenFlags.rdwr) != 0) {
+    flags |= WindowsOpenFlags.rdwr;
   } else {
-    flags |= _WindowsOpenFlags.rdonly;
+    flags |= WindowsOpenFlags.rdonly;
   }
   return flags;
 }

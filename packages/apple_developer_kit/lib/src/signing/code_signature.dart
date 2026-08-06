@@ -12,13 +12,13 @@ import 'package:propertylistserialization/propertylistserialization.dart';
 
 /// Every `CS_` blob is big-endian, unlike the little-endian Mach-O container
 /// that carries it.
-const int csMagicRequirement = 0xfade0c00;
-const int csMagicRequirements = 0xfade0c01;
-const int csMagicCodeDirectory = 0xfade0c02;
-const int csMagicEmbeddedSignature = 0xfade0cc0;
-const int csMagicBlobWrapper = 0xfade0b01;
-const int csMagicEmbeddedEntitlements = 0xfade7171;
-const int csMagicEmbeddedDerEntitlements = 0xfade7172;
+const int csMagicRequirement = 0xFADE_0C00;
+const int csMagicRequirements = 0xFADE_0C01;
+const int csMagicCodeDirectory = 0xFADE_0C02;
+const int csMagicEmbeddedSignature = 0xFADE_0CC0;
+const int csMagicBlobWrapper = 0xFADE_0B01;
+const int csMagicEmbeddedEntitlements = 0xFADE_7171;
+const int csMagicEmbeddedDerEntitlements = 0xFADE_7172;
 
 const int csslotCodeDirectory = 0;
 const int csslotRequirements = 2;
@@ -102,7 +102,13 @@ const List<int> appleWwdrMarkerOid = [
 
 /// One entry of a `CS_SuperBlob`.
 @internal
-typedef SignatureSlot = ({int type, Uint8List bytes});
+@immutable
+final class SignatureSlot {
+  const SignatureSlot({required this.type, required this.bytes});
+
+  final int type;
+  final Uint8List bytes;
+}
 
 @internal
 @useResult
@@ -476,8 +482,8 @@ Uint8List _derValue(Object? value, String path, String field) {
 /// `INTEGER`. Unlike [Der.unsignedInteger] this must also express negatives,
 /// so it trims redundant leading `0x00`/`0xff` octets by hand.
 Uint8List _derInteger(int value, String path, String field) {
-  const minimum = -0x8000000000000000;
-  const maximum = 0x7fffffffffffffff;
+  const minimum = -0x8000_0000_0000_0000;
+  const maximum = 0x7FFF_FFFF_FFFF_FFFF;
   if (value < minimum || value > maximum) {
     machoFail(path, field, 'integer is outside the signed 64-bit plist range');
   }
