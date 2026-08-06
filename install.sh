@@ -101,11 +101,51 @@ else
 	err "cannot write install directories; set INSTALL_DIR and XCROSS_LICENSE_DIR"
 fi
 
-# --- verify + PATH hint ----------------------------------------------------
+# --- verify ----------------------------------------------------------------
 "$target" --help >/dev/null 2>&1 || err "installed xcross failed verification"
 info "Installed and verified: $target (license: $notice_target)"
 
-if ! command -v "$BINARY" >/dev/null 2>&1; then
-	info "Installed, but $INSTALL_DIR is not on your PATH. Add it:"
-	printf '    export PATH="%s:$PATH"\n' "$INSTALL_DIR"
+# --- put INSTALL_DIR on PATH persistently if it is not already -------------
+path_has_dir() {
+	case ":$PATH:" in
+	*":$1:"*) return 0 ;;
+	*) return 1 ;;
+	esac
+}
+
+if ! path_has_dir "$INSTALL_DIR"; then
+	case "${SHELL:-}" in
+	*/zsh) profile="$HOME/.zshrc" ;;
+	*/bash) profile="$HOME/.bashrc" ;;
+	*) profile="$HOME/.profile" ;;
+	esac
+	path_line="export PATH=\"$INSTALL_DIR:\$PATH\""
+	if [ -f "$profile" ] && grep -Fqx "$path_line" "$profile" 2>/dev/null; then
+		info "$INSTALL_DIR already configured in $profile; restart your shell"
+	else
+		printf '\n# xcross\n%s\n' "$path_line" >>"$profile"
+		info "Added $INSTALL_DIR to PATH via $profile (restart your shell)"
+	fi
 fi
+
+# --- prerequisite hints ----------------------------------------------------
+missing=""
+command -v swift >/dev/null 2>&1 ||
+	missing="$missing  Swift toolchain:  https://www.swift.org/install/\n"
+command -v clang >/dev/null 2>&1 && command -v ld64.lld >/dev/null 2>&1 ||
+	missing="$missing  LLVM (clang, ld64.lld):  https://releases.llvm.org/\n"
+command -v flutter >/dev/null 2>&1 ||
+	missing="$missing  Flutter:  https://flutter.dev/docs/get-started/install/linux\n"
+command -v python3 >/dev/null 2>&1 ||
+	missing="$missing  Python 3:  install via your package manager\n"
+if [ -n "$missing" ]; then
+	printf '\nMissing prerequisites:\n'
+	printf '%b' "$missing"
+fi
+
+printf '\nNext steps:\n'
+printf '  xcross setup                             # install apt deps & pymobiledevice3\n'
+printf '  xcross sdk install ~/Downloads/Xcode.xip # once\n'
+printf '  xcross auth --apple-id you@example.com\n'
+printf '  xcross tunnel                            # needs root, per device reconnect\n'
+printf '  xcross flutter run\n'
