@@ -51,9 +51,10 @@ final class GradleKlibBuilder {
     if (toolchain.javaHome.isNotEmpty) {
       final parentPath = Platform.environment['PATH'] ?? '';
       final javaBin = p.join(toolchain.javaHome, 'bin');
+      final pathSeparator = toolchain.host.isWindows ? ';' : ':';
       env['PATH'] = parentPath.isEmpty
           ? javaBin
-          : '$javaBin${p.separator}$parentPath';
+          : '$javaBin$pathSeparator$parentPath';
     }
 
     try {
@@ -184,19 +185,23 @@ allprojects {
 ''';
 
   List<String> _dependencies(String output, String kotlinHome) {
-    final kotlinRoot = kotlinHome.endsWith(p.separator)
-        ? kotlinHome
-        : '$kotlinHome${p.separator}';
-    return output
-        .split('\n')
-        .map((line) => line.trim())
-        .where(
-          (line) =>
-              line.endsWith('.klib') &&
-              FileSystemEntity.typeSync(line) !=
-                  FileSystemEntityType.notFound &&
-              !line.startsWith(kotlinRoot),
-        )
-        .toList(growable: false);
+    final kotlinRoot = p.normalize(kotlinHome);
+    final seen = <String>{};
+    final dependencies = <String>[];
+    for (final rawLine in output.split('\n')) {
+      final line = rawLine.trim();
+      if (!line.endsWith('.klib')) continue;
+      final normalized = p.normalize(line);
+      if (FileSystemEntity.typeSync(normalized) ==
+          FileSystemEntityType.notFound) {
+        continue;
+      }
+      if (p.equals(normalized, kotlinRoot) ||
+          p.isWithin(kotlinRoot, normalized)) {
+        continue;
+      }
+      if (seen.add(normalized)) dependencies.add(normalized);
+    }
+    return dependencies;
   }
 }
