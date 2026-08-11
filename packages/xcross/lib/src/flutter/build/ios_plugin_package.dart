@@ -355,8 +355,18 @@ abstract final class GeneratedPluginsPackage {
     required String flutterXcframework,
     bool? copyFlutterXcframework,
   }) async {
-    final frameworkDir = p.join(outputDir, _flutterFrameworkPackageName);
+    final packagesDir = p.join(outputDir, 'Packages');
+    final frameworkDir = p.join(packagesDir, _flutterFrameworkPackageName);
     final pluginsDir = p.join(outputDir, 'Plugins');
+
+    await Directory(packagesDir).create(recursive: true);
+
+    final pluginPackageDirs = <String, String>{};
+    for (final plugin in plugins) {
+      final packageAlias = p.join(packagesDir, plugin.name);
+      await _createDirectoryAlias(packageAlias, plugin.swiftPackageDir);
+      pluginPackageDirs[plugin.name] = packageAlias;
+    }
 
     await _writeFlutterFrameworkPackage(
       frameworkDir: frameworkDir,
@@ -367,6 +377,7 @@ abstract final class GeneratedPluginsPackage {
       pluginsDir: pluginsDir,
       frameworkDir: frameworkDir,
       plugins: plugins,
+      pluginPackageDirs: pluginPackageDirs,
     );
   }
 
@@ -397,13 +408,18 @@ abstract final class GeneratedPluginsPackage {
     required String pluginsDir,
     required String frameworkDir,
     required List<IosPlugin> plugins,
+    required Map<String, String> pluginPackageDirs,
   }) async {
     final sourcesDir = p.join(pluginsDir, 'Sources', _pluginsProductName);
     await Directory(sourcesDir).create(recursive: true);
 
-    await File(
-      p.join(pluginsDir, 'Package.swift'),
-    ).writeAsString(pluginsManifest(plugins, frameworkDir));
+    await File(p.join(pluginsDir, 'Package.swift')).writeAsString(
+      pluginsManifest(
+        plugins,
+        frameworkDir,
+        pluginPackageDirs: pluginPackageDirs,
+      ),
+    );
 
     await File(
       p.join(sourcesDir, 'GeneratedPluginRegistrant.swift'),
@@ -433,16 +449,22 @@ let package = Package(
   /// into one dynamic library product depending on [frameworkDir]'s
   /// `FlutterFramework` package plus every entry in [plugins].
   @visibleForTesting
-  static String pluginsManifest(List<IosPlugin> plugins, String frameworkDir) {
+  static String pluginsManifest(
+    List<IosPlugin> plugins,
+    String frameworkDir, {
+    Map<String, String>? pluginPackageDirs,
+  }) {
     final dependencies = StringBuffer()
       ..writeln(
         '        .package(name: "$_flutterFrameworkPackageName", '
         'path: "${_swiftPath(frameworkDir)}"),',
       );
     for (final plugin in plugins) {
+      final packageDir =
+          pluginPackageDirs?[plugin.name] ?? plugin.swiftPackageDir;
       dependencies.writeln(
         '        .package(name: "${plugin.name}", '
-        'path: "${_swiftPath(plugin.swiftPackageDir)}"),',
+        'path: "${_swiftPath(packageDir)}"),',
       );
     }
 
@@ -527,6 +549,32 @@ $registrations}
     } else if (type == FileSystemEntityType.file) {
       await File(path).delete();
     }
+  }
+
+  /// Makes the staged Swift package appear directly beside FlutterFramework,
+  /// so every plugin's conventional `../FlutterFramework` dependency resolves
+  /// to the same package path. Directory junctions avoid Windows symlink
+  /// privilege requirements.
+  static Future<void> _createDirectoryAlias(String alias, String target) async {
+    await _deleteEntity(alias);
+    if (Platform.isWindows) {
+      final result = await Process.run('cmd.exe', [
+        '/c',
+        'mklink',
+        '/J',
+        p.windows.normalize(alias),
+        p.windows.normalize(p.absolute(target)),
+      ]);
+      if (result.exitCode != 0) {
+        throw FileSystemException(
+          'Could not create plugin package junction: ${result.stderr}',
+          alias,
+        );
+      }
+      return;
+    }
+
+    await Link(alias).create(p.relative(target, from: p.dirname(alias)));
   }
 
   static Future<void> _copyDirectory(String source, String destination) async {

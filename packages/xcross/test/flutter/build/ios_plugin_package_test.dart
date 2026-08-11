@@ -9,6 +9,8 @@ import 'package:xcross/src/flutter/build/ios_plugins.dart';
 import 'package:xcross/src/flutter/constants.dart';
 import 'package:xcross/src/flutter/errors.dart';
 
+String swiftPath(String path) => p.absolute(path).replaceAll(r'\', '/');
+
 void main() {
   late Directory tmp;
 
@@ -21,12 +23,16 @@ void main() {
   /// Creates a fake plugin pub package with an `ios/<name>/Package.swift` and
   /// a `pubspec.yaml` whose `pluginClass` is [pluginClass] (or omitted when
   /// null).
-  IosPlugin makePlugin(String name, {String? pluginClass}) {
+  IosPlugin makePlugin(
+    String name, {
+    String? pluginClass,
+    String packageManifest = '',
+  }) {
     final packageRoot = p.join(tmp.path, name);
     Directory(p.join(packageRoot, 'ios', name)).createSync(recursive: true);
     File(
       p.join(packageRoot, 'ios', name, 'Package.swift'),
-    ).writeAsStringSync('');
+    ).writeAsStringSync(packageManifest);
 
     final pluginSection = pluginClass == null
         ? ''
@@ -166,7 +172,65 @@ let package = Package(
 
   group('writeGeneratedPackages', () {
     test(
-      'writes FlutterFramework/Plugins packages and the xcframework symlink',
+      'stages plugin packages beside one FlutterFramework package',
+      () async {
+        const pluginManifest = '''
+// swift-tools-version: 5.9
+import PackageDescription
+
+let package = Package(
+    name: "plugin_a",
+    dependencies: [
+        .package(name: "FlutterFramework", path: "../FlutterFramework")
+    ],
+    targets: [
+        .target(
+            name: "plugin_a",
+            dependencies: [
+                .product(name: "FlutterFramework", package: "FlutterFramework")
+            ]
+        )
+    ]
+)
+''';
+        final pluginA = makePlugin('plugin_a', packageManifest: pluginManifest);
+        final flutterXcframework = p.join(tmp.path, 'Flutter.xcframework');
+        Directory(flutterXcframework).createSync(recursive: true);
+        final outputDir = p.join(tmp.path, 'out');
+
+        await GeneratedPluginsPackage.writeGeneratedPackages(
+          outputDir: outputDir,
+          plugins: [pluginA],
+          flutterXcframework: flutterXcframework,
+          copyFlutterXcframework: true,
+        );
+
+        final packagesDir = p.join(outputDir, 'Packages');
+        final stagedPluginDir = p.join(packagesDir, 'plugin_a');
+        final stagedFrameworkDir = p.join(packagesDir, 'FlutterFramework');
+        expect(
+          File(p.join(stagedPluginDir, 'Package.swift')).readAsStringSync(),
+          pluginManifest,
+        );
+        expect(
+          p.normalize(p.join(stagedPluginDir, '..', 'FlutterFramework')),
+          p.normalize(stagedFrameworkDir),
+        );
+
+        final aggregateManifest = File(
+          p.join(outputDir, 'Plugins', 'Package.swift'),
+        ).readAsStringSync();
+        expect(aggregateManifest, contains(swiftPath(stagedPluginDir)));
+        expect(aggregateManifest, contains(swiftPath(stagedFrameworkDir)));
+        expect(
+          aggregateManifest,
+          isNot(contains(swiftPath(pluginA.swiftPackageDir))),
+        );
+      },
+    );
+
+    test(
+      'writes shared packages and the Flutter xcframework symlink',
       () async {
         final pluginA = makePlugin('plugin_a', pluginClass: 'PluginA');
         final flutterXcframework = p.join(tmp.path, 'Flutter.xcframework');
@@ -174,6 +238,7 @@ let package = Package(
         final outputDir = p.join(tmp.path, 'out');
         final frameworkPath = p.join(
           outputDir,
+          'Packages',
           'FlutterFramework',
           'Flutter.xcframework',
         );
@@ -195,7 +260,7 @@ let package = Package(
         }
 
         final frameworkManifest = File(
-          p.join(outputDir, 'FlutterFramework', 'Package.swift'),
+          p.join(outputDir, 'Packages', 'FlutterFramework', 'Package.swift'),
         );
         expect(frameworkManifest.existsSync(), isTrue);
         expect(
@@ -246,6 +311,7 @@ let package = Package(
       final outputDir = p.join(tmp.path, 'out');
       final copiedFramework = p.join(
         outputDir,
+        'Packages',
         'FlutterFramework',
         'Flutter.xcframework',
       );
@@ -268,7 +334,7 @@ let package = Package(
       );
       expect(
         File(
-          p.join(outputDir, 'FlutterFramework', 'Package.swift'),
+          p.join(outputDir, 'Packages', 'FlutterFramework', 'Package.swift'),
         ).readAsStringSync(),
         GeneratedPluginsPackage.flutterFrameworkManifest(),
       );
