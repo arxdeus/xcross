@@ -121,15 +121,24 @@ int _le4(Uint8List buf, int off) =>
     (buf[off + 3] << 24);
 
 void _rejectDuplicateZipEntries(Uint8List bytes) {
+  final eocdOffset = _findEndOfCentralDirectory(bytes);
+  if (eocdOffset == null) return;
+  final entryCount = _le2(bytes, eocdOffset + 10);
+  final centralDirectorySize = _le4(bytes, eocdOffset + 12);
+  final centralDirectoryOffset = _le4(bytes, eocdOffset + 16);
+  final centralDirectoryEnd = centralDirectoryOffset + centralDirectorySize;
+  if (centralDirectoryOffset < 0 || centralDirectoryEnd > bytes.length) return;
+
   final names = <String>{};
-  for (var off = 0; off <= bytes.length - 46; off++) {
-    if (_le4(bytes, off) != 0x02014B50) continue;
+  var off = centralDirectoryOffset;
+  for (var i = 0; i < entryCount && off < centralDirectoryEnd; i++) {
+    if (_le4(bytes, off) != 0x02014B50) return;
     final nameLength = _le2(bytes, off + 28);
     final extraLength = _le2(bytes, off + 30);
     final commentLength = _le2(bytes, off + 32);
     final nameStart = off + 46;
     final nameEnd = nameStart + nameLength;
-    if (nameEnd > bytes.length) break;
+    if (nameEnd > centralDirectoryEnd) return;
     final name = utf8.decode(
       Uint8List.sublistView(bytes, nameStart, nameEnd),
       allowMalformed: true,
@@ -137,8 +146,16 @@ void _rejectDuplicateZipEntries(Uint8List bytes) {
     if (!names.add(name)) {
       throw StateError('HostManagerPatcher: duplicate JAR entry $name');
     }
-    off = nameEnd + extraLength + commentLength - 1;
+    off = nameEnd + extraLength + commentLength;
   }
+}
+
+int? _findEndOfCentralDirectory(Uint8List bytes) {
+  final minOffset = bytes.length > 0xFFFF + 22 ? bytes.length - 0xFFFF - 22 : 0;
+  for (var off = bytes.length - 22; off >= minOffset; off--) {
+    if (_le4(bytes, off) == 0x06054B50) return off;
+  }
+  return null;
 }
 
 // ── Big-endian emit helpers ───────────────────────────────────────────────────
@@ -151,6 +168,20 @@ Uint8List _emitU4(int v) => Uint8List.fromList([
       (v >> 8) & 0xFF,
       v & 0xFF,
     ]);
+
+void _addUnmodifiedEntry(ZipEncoder encoder, ArchiveFile entry) {
+  final decodedTime = entry.lastModDateTime;
+  entry.lastModTime = DateTime(
+        decodedTime.year,
+        decodedTime.month,
+        decodedTime.day,
+        decodedTime.hour,
+        decodedTime.minute,
+        decodedTime.second,
+      ).millisecondsSinceEpoch ~/
+      1000;
+  encoder.add(entry);
+}
 
 // ── Class-file parser / serializer ────────────────────────────────────────────
 
@@ -654,22 +685,21 @@ bool patchKotlinNativeJar(String jarPath) {
     try {
       for (final entry in archive.files) {
         final name = entry.name;
-        final entryBytes = entry.content;
 
         if (name == hostManagerClassEntry) {
-          final patched = patchHostManagerClassBytes(entryBytes);
+          final patched = patchHostManagerClassBytes(entry.content);
           encoder.add(ArchiveFile(name, patched.length, patched));
           didPatch = true;
         } else if (name == objcExportClassEntry) {
-          final patched = patchObjCExportClassBytes(entryBytes);
+          final patched = patchObjCExportClassBytes(entry.content);
           if (patched != null) {
             encoder.add(ArchiveFile(name, patched.length, patched));
             didPatch = true;
           } else {
-            encoder.add(ArchiveFile(name, entryBytes.length, entryBytes));
+            _addUnmodifiedEntry(encoder, entry);
           }
         } else {
-          encoder.add(ArchiveFile(name, entryBytes.length, entryBytes));
+          _addUnmodifiedEntry(encoder, entry);
         }
       }
 

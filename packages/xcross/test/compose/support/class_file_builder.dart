@@ -37,6 +37,9 @@ List<int> cpMethodref(int classIdx, int natIdx) =>
 /// Long entry (tag 5 + 8 bytes).  Consumes TWO CP slots per JVM spec §4.4.5.
 List<int> cpLong(int high, int low) => [5, ...u4(high), ...u4(low)];
 
+/// Double entry (tag 6 + 8 bytes).  Consumes TWO CP slots per JVM spec §4.4.5.
+List<int> cpDouble(int high, int low) => [6, ...u4(high), ...u4(low)];
+
 // ── Structural builders ───────────────────────────────────────────────────────
 
 /// Assembles `cp_count u2 + all entry bytes`.

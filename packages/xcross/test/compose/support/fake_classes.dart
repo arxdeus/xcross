@@ -25,7 +25,12 @@ import 'class_file_builder.dart';
 //  [15 = null, second slot of Long]
 //  16  UTF8 "LineNumberTable"
 
-Uint8List buildFakeHostManagerClass() {
+Uint8List buildFakeHostManagerClass() => _buildFakeHostManagerClass(cpLong(0, 42));
+
+Uint8List buildFakeHostManagerClassWithDouble() =>
+    _buildFakeHostManagerClass(cpDouble(0x400921FB, 0x54442D18));
+
+Uint8List _buildFakeHostManagerClass(List<int> doubleSlotEntry) {
   final cpEntries = [
     cpUtf8('Code'), // 1
     cpUtf8('StackMapTable'), // 2
@@ -40,7 +45,7 @@ Uint8List buildFakeHostManagerClass() {
     cpUtf8('isEnabled'), // 11
     cpUtf8('(Lorg/jetbrains/kotlin/konan/target/KonanTarget;)Z'), // 12
     cpUtf8('getEnabled'), // 13
-    cpLong(0, 42), // 14  (Long → takes slots 14+15)
+    doubleSlotEntry, // 14  (Long/Double → takes slots 14+15)
     cpUtf8('LineNumberTable'), // 16
   ];
 

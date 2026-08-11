@@ -31,6 +31,13 @@ void main() {
       );
     });
 
+    test('Double entry in CP does not corrupt subsequent index', () {
+      expect(
+        () => patchHostManagerClassBytes(buildFakeHostManagerClassWithDouble()),
+        returnsNormally,
+      );
+    });
+
     test('patched class round-trips magic and version unchanged', () {
       final patched = patchHostManagerClassBytes(buildFakeHostManagerClass());
       expect(patched.sublist(0, 4), equals([0xCA, 0xFE, 0xBA, 0xBE]));
@@ -242,6 +249,55 @@ void main() {
         () => patchKotlinNativeJar(jar.path),
         throwsA(isA<StateError>()),
       );
+    });
+
+    test('ignores central-directory signature bytes in normal entry payload', () async {
+      final jar = File('${tmpDir.path}/test.jar');
+      final payload = <int>[
+        0x50, 0x4B, 0x01, 0x02,
+        ...List<int>.filled(24, 0),
+        ...u2('normal.bin'.length),
+        ...u2(0),
+        ...u2(0),
+        ...List<int>.filled(12, 0),
+        ...'normal.bin'.codeUnits,
+      ];
+      await jar.writeAsBytes(buildJar({
+        'normal.bin': payload,
+        hostManagerClassEntry: buildFakeHostManagerClass().toList(),
+      }));
+
+      expect(patchKotlinNativeJar(jar.path), isTrue);
+    });
+
+    test('unmodified entries preserve decoded payload and metadata', () async {
+      final jar = File('${tmpDir.path}/test.jar');
+      final payload = [9, 8, 7, 6, 5];
+      final manifest = ArchiveFile('META-INF/MANIFEST.MF', payload.length, payload)
+        ..mode = 0x1ed
+        ..lastModTime = 0x5A4884C0
+        ..comment = 'keep metadata';
+      final archive = Archive()
+        ..addFile(ArchiveFile(
+          hostManagerClassEntry,
+          buildFakeHostManagerClass().length,
+          buildFakeHostManagerClass(),
+        ))
+        ..addFile(manifest);
+      await jar.writeAsBytes(ZipEncoder().encode(archive));
+      final original = ZipDecoder().decodeBytes(await jar.readAsBytes());
+      final originalManifest =
+          original.files.firstWhere((f) => f.name == 'META-INF/MANIFEST.MF');
+
+      patchKotlinNativeJar(jar.path);
+
+      final updated = ZipDecoder().decodeBytes(await jar.readAsBytes());
+      final updatedManifest =
+          updated.files.firstWhere((f) => f.name == 'META-INF/MANIFEST.MF');
+      expect((updatedManifest.content as List).toList(), equals(payload));
+      expect(updatedManifest.mode, equals(originalManifest.mode));
+      expect(updatedManifest.lastModTime, equals(originalManifest.lastModTime));
+      expect(updatedManifest.comment, equals(originalManifest.comment));
     });
 
     test('returns true and adds marker when HostManager present', () async {
