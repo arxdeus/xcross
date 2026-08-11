@@ -396,7 +396,10 @@ abstract final class GeneratedPluginsPackage {
     final pluginPackageDirs = <String, String>{};
     for (final plugin in plugins) {
       final packageAlias = p.join(packagesDir, plugin.name);
-      await _createDirectoryAlias(packageAlias, plugin.swiftPackageDir);
+      await _stagePluginPackage(
+        alias: packageAlias,
+        target: plugin.swiftPackageDir,
+      );
       pluginPackageDirs[plugin.name] = packageAlias;
     }
 
@@ -412,6 +415,44 @@ abstract final class GeneratedPluginsPackage {
       pluginPackageDirs: pluginPackageDirs,
       deploymentTarget: deploymentTarget,
     );
+  }
+
+  /// Stages [target] at [alias], using a shallow overlay only when its Swift
+  /// manifest contains linker flags that the Swift driver cannot consume.
+  static Future<void> _stagePluginPackage({
+    required String alias,
+    required String target,
+  }) async {
+    final manifest = await File(p.join(target, 'Package.swift')).readAsString();
+    final normalizedManifest = normalizeLinkerFlags(manifest);
+    if (normalizedManifest == manifest) {
+      await _createDirectoryAlias(alias, target);
+      return;
+    }
+
+    await _deleteEntity(alias);
+    await Directory(alias).create(recursive: true);
+    await File(
+      p.join(alias, 'Package.swift'),
+    ).writeAsString(normalizedManifest);
+
+    await for (final entity in Directory(target).list(followLinks: false)) {
+      final name = p.basename(entity.path);
+      if (name == 'Package.swift') continue;
+      final destination = p.join(alias, name);
+      if (entity is Directory) {
+        await _createDirectoryAlias(destination, entity.path);
+      } else if (entity is File) {
+        await entity.copy(destination);
+      } else if (entity is Link) {
+        final resolved = entity.resolveSymbolicLinksSync();
+        if (Directory(resolved).existsSync()) {
+          await _createDirectoryAlias(destination, resolved);
+        } else {
+          await File(resolved).copy(destination);
+        }
+      }
+    }
   }
 
   /// Writes `FlutterFramework/Package.swift` and links or copies the real

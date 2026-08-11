@@ -196,6 +196,75 @@ let package = Package(
 
   group('writeGeneratedPackages', () {
     test(
+      'stages normalized plugin manifest without modifying source',
+      () async {
+        const pluginManifest = '''
+// swift-tools-version: 5.9
+import PackageDescription
+
+let package = Package(
+    name: "plugin_a",
+    targets: [
+        .target(
+            name: "plugin_a",
+            linkerSettings: [
+                .unsafeFlags(["-Wl,-undefined,dynamic_lookup"])
+            ]
+        )
+    ]
+)
+''';
+        final plugin = makePlugin('plugin_a', packageManifest: pluginManifest);
+        final source =
+            File(
+                p.join(
+                  plugin.swiftPackageDir,
+                  'Sources',
+                  'plugin_a',
+                  'source.m',
+                ),
+              )
+              ..createSync(recursive: true)
+              ..writeAsStringSync('source');
+        final flutterXcframework = p.join(tmp.path, 'Flutter.xcframework');
+        Directory(flutterXcframework).createSync(recursive: true);
+        final outputDir = p.join(tmp.path, 'out');
+
+        await GeneratedPluginsPackage.writeGeneratedPackages(
+          outputDir: outputDir,
+          plugins: [plugin],
+          flutterXcframework: flutterXcframework,
+          copyFlutterXcframework: true,
+          deploymentTarget: const IosDeploymentTarget('15.6'),
+        );
+
+        final stagedPluginDir = p.join(outputDir, 'Packages', 'plugin_a');
+        expect(Link(stagedPluginDir).existsSync(), isFalse);
+        expect(
+          File(p.join(stagedPluginDir, 'Package.swift')).readAsStringSync(),
+          contains('"-Xlinker", "-undefined", "-Xlinker", "dynamic_lookup"'),
+        );
+        expect(
+          File(
+            p.join(plugin.swiftPackageDir, 'Package.swift'),
+          ).readAsStringSync(),
+          pluginManifest,
+        );
+        expect(
+          File(
+            p.join(stagedPluginDir, 'Sources', 'plugin_a', 'source.m'),
+          ).readAsStringSync(),
+          'source',
+        );
+        expect(source.readAsStringSync(), 'source');
+        expect(
+          p.normalize(p.join(stagedPluginDir, '..', 'FlutterFramework')),
+          p.normalize(p.join(outputDir, 'Packages', 'FlutterFramework')),
+        );
+      },
+    );
+
+    test(
       'stages plugin packages beside one FlutterFramework package',
       () async {
         const pluginManifest = '''
