@@ -1,5 +1,7 @@
 export 'build/compose_app_assembler.dart';
 export 'build/compose_info_plist.dart';
+export 'build/compose_pack_operation.dart';
+export 'build/compose_packer.dart';
 export 'build/gradle_klib_builder.dart';
 export 'build/konan_configuration.dart';
 export 'build/kotlin_framework_builder.dart';

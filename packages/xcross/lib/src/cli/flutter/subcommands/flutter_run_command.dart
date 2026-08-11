@@ -5,15 +5,13 @@ import 'package:build_cli_annotations/build_cli_annotations.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:xcross/src/cli/flutter/subcommands/flutter_build_command.dart';
+import 'package:xcross/src/cli/shared/device_selection.dart';
 import 'package:xcross/src/device/core_device_launch_profile.dart';
 import 'package:xcross/src/device/device_run_operation.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/flutter/flutter.dart';
 
 part 'flutter_run_command.g.dart';
-
-/// How `--device-connection` restricts device discovery.
-enum DeviceConnection { attached, wireless, both }
 
 /// Options for `xcross flutter run`.
 @CliOptions(createCommand: true)
@@ -66,15 +64,11 @@ final class FlutterRunCommand extends _$FlutterRunArgsCommand<void> {
 
   /// `--usb`/`--wifi` win over `--device-connection`; changing that precedence
   /// changes which device an existing user command line targets.
-  DeviceSearchMode get _searchMode {
-    if (_options.usb) return DeviceSearchMode.usb;
-    if (_options.wifi) return DeviceSearchMode.wifi;
-    return switch (_options.deviceConnection) {
-      DeviceConnection.attached => DeviceSearchMode.usb,
-      DeviceConnection.wireless => DeviceSearchMode.wifi,
-      DeviceConnection.both => DeviceSearchMode.all,
-    };
-  }
+  DeviceSearchMode get _searchMode => deviceSearchMode(
+    usb: _options.usb,
+    wifi: _options.wifi,
+    deviceConnection: _options.deviceConnection,
+  );
 
   /// App-level arguments passed to the launched binary (`--route`, then any
   /// `--dart-entrypoint-args`).

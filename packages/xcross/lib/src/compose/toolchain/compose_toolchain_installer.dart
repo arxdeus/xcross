@@ -21,6 +21,8 @@ typedef RunChecked =
     });
 typedef InstallRoot =
     Future<String> Function(ComposeSetupOptions options, {required bool force});
+typedef RenameDirectory =
+    Future<Directory> Function(Directory source, String newPath);
 
 final class ComposeToolchainInstaller {
   const ComposeToolchainInstaller()
@@ -28,7 +30,8 @@ final class ComposeToolchainInstaller {
       _extractArchive = null,
       _patchCompilerJar = null,
       _runChecked = null,
-      _installRoot = null;
+      _installRoot = null,
+      _renameDirectory = null;
 
   const ComposeToolchainInstaller.withSeams({
     DownloadToFile? downloadToFile,
@@ -36,17 +39,20 @@ final class ComposeToolchainInstaller {
     PatchCompilerJar? patchCompilerJar,
     RunChecked? runChecked,
     InstallRoot? installRoot,
+    RenameDirectory? renameDirectory,
   }) : _downloadToFile = downloadToFile,
        _extractArchive = extractArchive,
        _patchCompilerJar = patchCompilerJar,
        _runChecked = runChecked,
-       _installRoot = installRoot;
+       _installRoot = installRoot,
+       _renameDirectory = renameDirectory;
 
   final DownloadToFile? _downloadToFile;
   final ExtractArchive? _extractArchive;
   final PatchCompilerJar? _patchCompilerJar;
   final RunChecked? _runChecked;
   final InstallRoot? _installRoot;
+  final RenameDirectory? _renameDirectory;
 
   Future<String> install({
     required ComposeSetupOptions options,
@@ -142,6 +148,12 @@ final class ComposeToolchainInstaller {
     environment: environment,
   );
 
+  Future<Directory> _rename(Directory source, String newPath) =>
+      (_renameDirectory ?? ((source, newPath) => source.rename(newPath)))(
+        source,
+        newPath,
+      );
+
   static Future<void> _defaultDownload(String url, File file) =>
       Downloader.downloadToFile(url, file);
 
@@ -184,7 +196,7 @@ final class ComposeToolchainInstaller {
     if (destination.existsSync()) await destination.delete(recursive: true);
     await destination.parent.create(recursive: true);
     try {
-      await source.rename(destination.path);
+      await _rename(source, destination.path);
     } on FileSystemException {
       await _copyDirectory(source, destination);
     }
@@ -260,20 +272,47 @@ final class ComposeToolchainInstaller {
     Directory destination, {
     required bool force,
   }) async {
+    await destination.parent.create(recursive: true);
+    Directory? backupContainer;
+    String? backupPath;
     if (destination.existsSync()) {
       if (!force) {
         throw XcrossError(
           '${destination.path} already exists. Use force to reinstall.',
         );
       }
-      await destination.delete(recursive: true);
+      backupContainer = await destination.parent.createTemp(
+        '.${p.basename(destination.path)}.backup.',
+      );
+      backupPath = p.join(backupContainer.path, p.basename(destination.path));
+      await _rename(destination, backupPath);
     }
-    await destination.parent.create(recursive: true);
     try {
-      await staging.rename(destination.path);
+      await _rename(staging, destination.path);
     } on FileSystemException {
-      await _copyDirectory(staging, destination);
-      await staging.delete(recursive: true);
+      try {
+        await _copyDirectory(staging, destination);
+        await staging.delete(recursive: true);
+      } catch (copyError) {
+        await _restoreBackup(destination, backupPath);
+        throw XcrossError(
+          'Failed to replace Compose Kotlin/Native cache at ${destination.path}: $copyError',
+        );
+      }
+    } catch (error) {
+      await _restoreBackup(destination, backupPath);
+      rethrow;
+    }
+    if (backupContainer != null && backupContainer.existsSync()) {
+      await backupContainer.delete(recursive: true);
+    }
+  }
+
+  Future<void> _restoreBackup(Directory destination, String? backupPath) async {
+    if (backupPath == null) return;
+    if (destination.existsSync()) await destination.delete(recursive: true);
+    if (Directory(backupPath).existsSync()) {
+      await _rename(Directory(backupPath), destination.path);
     }
   }
 }

@@ -573,6 +573,78 @@ void main() {
         }
       },
     );
+
+    test(
+      'force moves an existing valid cache aside before replacement',
+      () async {
+        final home = Directory.systemTemp.createTempSync(
+          'xcross-compose-home-',
+        );
+        final project = Directory.systemTemp.createTempSync(
+          'xcross-compose-project-',
+        );
+        final moves = <String>[];
+        try {
+          final options = ComposeSetupOptions.resolve(
+            env: {'HOME': home.path, 'KN_VERSION': '2.2.20'},
+            projectRoot: project.path,
+            host: ComposeHost.linuxX64,
+          );
+          final oldKonanc =
+              File(options.host.konancExecutable(options.kotlinHome))
+                ..createSync(recursive: true)
+                ..writeAsStringSync('old');
+          final installer = ComposeToolchainInstaller.withSeams(
+            downloadToFile: (_, file) async =>
+                file.writeAsStringSync('archive'),
+            extractArchive: (archive, dest) async {
+              final root = Directory(
+                p.join(
+                  dest.path,
+                  p.basename(archive.path).contains('macos')
+                      ? 'kotlin-native-prebuilt-macos-x86_64-2.2.20'
+                      : 'kotlin-native-prebuilt-linux-x86_64-2.2.20',
+                ),
+              );
+              if (p.basename(archive.path).contains('macos')) {
+                File(p.join(root.path, 'konan', 'targets', 'ios_arm64', 't'))
+                  ..createSync(recursive: true)
+                  ..writeAsStringSync('t');
+                File(p.join(root.path, 'klib', 'platform', 'ios_arm64', 'p'))
+                  ..createSync(recursive: true)
+                  ..writeAsStringSync('p');
+              } else {
+                File(options.host.konancExecutable(root.path))
+                  ..createSync(recursive: true)
+                  ..writeAsStringSync('new');
+              }
+            },
+            patchCompilerJar: (_) async {},
+            runChecked: (_, __, {workingDirectory, environment}) async {},
+            renameDirectory: (source, newPath) {
+              if (source.path == options.kotlinHome) {
+                expect(oldKonanc.existsSync(), isTrue);
+                moves.add(newPath);
+              }
+              return source.rename(newPath);
+            },
+          );
+
+          await installer.install(options: options, force: true);
+
+          expect(moves.single, contains('.backup.'));
+          expect(
+            File(
+              options.host.konancExecutable(options.kotlinHome),
+            ).readAsStringSync(),
+            'new',
+          );
+        } finally {
+          home.deleteSync(recursive: true);
+          project.deleteSync(recursive: true);
+        }
+      },
+    );
   });
 
   test('compose.dart exports Task 4 public APIs', () {
