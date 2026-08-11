@@ -1,3 +1,8 @@
 export 'models/compose_build_options.dart';
 export 'project/ios_app_config.dart';
 export 'project/kmp_project.dart';
+export 'toolchain/archive_extractor.dart';
+export 'toolchain/compose_host.dart';
+export 'toolchain/compose_toolchain.dart';
+export 'toolchain/compose_toolchain_installer.dart';
+export 'toolchain/compose_toolchain_resolver.dart';

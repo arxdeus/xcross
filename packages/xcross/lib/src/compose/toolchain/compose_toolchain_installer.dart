@@ -19,28 +19,34 @@ typedef RunChecked =
       String? workingDirectory,
       Map<String, String>? environment,
     });
+typedef InstallRoot =
+    Future<String> Function(ComposeSetupOptions options, {required bool force});
 
 final class ComposeToolchainInstaller {
   const ComposeToolchainInstaller()
     : _downloadToFile = null,
       _extractArchive = null,
       _patchCompilerJar = null,
-      _runChecked = null;
+      _runChecked = null,
+      _installRoot = null;
 
   const ComposeToolchainInstaller.withSeams({
     DownloadToFile? downloadToFile,
     ExtractArchive? extractArchive,
     PatchCompilerJar? patchCompilerJar,
     RunChecked? runChecked,
+    InstallRoot? installRoot,
   }) : _downloadToFile = downloadToFile,
        _extractArchive = extractArchive,
        _patchCompilerJar = patchCompilerJar,
-       _runChecked = runChecked;
+       _runChecked = runChecked,
+       _installRoot = installRoot;
 
   final DownloadToFile? _downloadToFile;
   final ExtractArchive? _extractArchive;
   final PatchCompilerJar? _patchCompilerJar;
   final RunChecked? _runChecked;
+  final InstallRoot? _installRoot;
 
   Future<String> install({
     required ComposeSetupOptions options,
@@ -48,17 +54,23 @@ final class ComposeToolchainInstaller {
   }) async {
     _rejectUnsupported(options.host);
     if (!force && _isComplete(options)) return options.kotlinHome;
+    final installRoot = _installRoot;
+    if (installRoot != null) return installRoot(options, force: force);
 
     final cache = Directory(options.cacheRoot);
     await cache.create(recursive: true);
     final downloads = await cache.createTemp('compose-downloads-');
+    final hostExtract = Directory('${options.kotlinHome}.host');
     final staging = Directory('${options.kotlinHome}.staging');
-    final overlay = Directory('${options.kotlinHome}.overlay');
+    final overlayExtract = Directory('${options.kotlinHome}.overlay');
     try {
+      if (hostExtract.existsSync()) await hostExtract.delete(recursive: true);
       if (staging.existsSync()) await staging.delete(recursive: true);
-      if (overlay.existsSync()) await overlay.delete(recursive: true);
-      await staging.create(recursive: true);
-      await overlay.create(recursive: true);
+      if (overlayExtract.existsSync()) {
+        await overlayExtract.delete(recursive: true);
+      }
+      await hostExtract.create(recursive: true);
+      await overlayExtract.create(recursive: true);
 
       final hostArchive = File(
         p.join(downloads.path, options.host.hostArtifact(options.version)),
@@ -71,9 +83,10 @@ final class ComposeToolchainInstaller {
       );
       await _download(options.hostArchiveUrl, hostArchive);
       await _download(options.overlayArchiveUrl, overlayArchive);
-      await _extract(hostArchive, staging);
-      await _extract(overlayArchive, overlay);
-      await _copyOverlay(overlay, staging);
+      await _extract(hostArchive, hostExtract);
+      await _extract(overlayArchive, overlayExtract);
+      await _moveRoot(_archiveRoot(hostExtract), staging);
+      await _copyOverlay(_archiveRoot(overlayExtract), staging);
       _restoreExecutables(options.host, staging.path);
       await _patchJars(staging);
       await _warmDependencies(options, staging.path);
@@ -85,7 +98,10 @@ final class ComposeToolchainInstaller {
       return options.kotlinHome;
     } finally {
       if (downloads.existsSync()) await downloads.delete(recursive: true);
-      if (overlay.existsSync()) await overlay.delete(recursive: true);
+      if (hostExtract.existsSync()) await hostExtract.delete(recursive: true);
+      if (overlayExtract.existsSync()) {
+        await overlayExtract.delete(recursive: true);
+      }
       if (staging.existsSync()) await staging.delete(recursive: true);
     }
   }
@@ -156,6 +172,24 @@ final class ComposeToolchainInstaller {
     );
   }
 
+  Directory _archiveRoot(Directory extracted) {
+    final entries = extracted.listSync(followLinks: false);
+    if (entries.length == 1 && entries.single is Directory) {
+      return entries.single as Directory;
+    }
+    return extracted;
+  }
+
+  Future<void> _moveRoot(Directory source, Directory destination) async {
+    if (destination.existsSync()) await destination.delete(recursive: true);
+    await destination.parent.create(recursive: true);
+    try {
+      await source.rename(destination.path);
+    } on FileSystemException {
+      await _copyDirectory(source, destination);
+    }
+  }
+
   Future<void> _copyDirectory(Directory source, Directory destination) async {
     if (!source.existsSync()) {
       throw XcrossError('Kotlin/Native macOS overlay missing ${source.path}.');
@@ -204,10 +238,21 @@ final class ComposeToolchainInstaller {
     String stagingHome,
   ) async {
     final executable = options.host.konancExecutable(stagingHome);
-    final invocation = options.host.invokeExecutable(executable, const [
-      '-version',
-    ]);
-    await _run(invocation.first, invocation.skip(1).toList());
+    final scratch = await Directory(
+      options.cacheRoot,
+    ).createTemp('compose-konanc-warmup-');
+    try {
+      final source = File(p.join(scratch.path, 'hello.kt'));
+      await source.writeAsString('fun main() { println("hello") }\n');
+      final invocation = options.host.invokeExecutable(executable, [
+        source.path,
+        '-o',
+        p.join(scratch.path, 'hello'),
+      ]);
+      await _run(invocation.first, invocation.skip(1).toList());
+    } finally {
+      if (scratch.existsSync()) await scratch.delete(recursive: true);
+    }
   }
 
   Future<void> _atomicInstall(

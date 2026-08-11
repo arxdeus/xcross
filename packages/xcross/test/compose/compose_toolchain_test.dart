@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/compose/compose.dart' as compose;
 import 'package:xcross/src/compose/toolchain/archive_extractor.dart';
 import 'package:xcross/src/compose/toolchain/compose_host.dart';
 import 'package:xcross/src/compose/toolchain/compose_toolchain_installer.dart';
@@ -98,6 +99,40 @@ void main() {
   });
 
   group('ComposeToolchainResolver', () {
+    test('does not resolve when Kotlin/Native is not installed', () async {
+      final project = Directory.systemTemp.createTempSync(
+        'xcross-compose-project-',
+      );
+      final home = Directory.systemTemp.createTempSync('xcross-compose-home-');
+      try {
+        File(p.join(project.path, 'gradlew')).writeAsStringSync('#!/bin/sh');
+        final javaHome = p.join(home.path, 'jdk-21');
+        final sdk = FakeDarwinSdk('/sdk');
+        final resolver = _resolverWithPreflight(
+          javaHome: javaHome,
+          sdk: sdk,
+          home: home.path,
+        );
+
+        final toolchain = await resolver.resolve(
+          host: ComposeHost.linuxX64,
+          environment: {'HOME': home.path, 'JAVA_HOME': javaHome},
+          projectRoot: project.path,
+        );
+        final problems = await resolver.problems(
+          host: ComposeHost.linuxX64,
+          environment: {'HOME': home.path, 'JAVA_HOME': javaHome},
+          projectRoot: project.path,
+        );
+
+        expect(toolchain, isNull);
+        expect(problems, contains(contains('Kotlin/Native compiler')));
+      } finally {
+        project.deleteSync(recursive: true);
+        home.deleteSync(recursive: true);
+      }
+    });
+
     test(
       'reports actionable missing JDK, Gradle, Swift, clang, ld64.lld, and SDK problems',
       () async {
@@ -154,37 +189,21 @@ void main() {
             ..writeAsStringSync('@echo off');
           final javaHome = p.join(home.path, 'jdk-21');
           final sdk = FakeDarwinSdk('/sdk');
-          final resolver = ComposeToolchainResolver.withSeams(
-            which:
-                (
-                  name, {
-                  environment,
-                  windows,
-                  extraDirectories = const [],
-                }) async => switch (name) {
-                  'java' => p.join(javaHome, 'bin', 'java.exe'),
-                  'swiftc' => p.join(home.path, 'swiftc.exe'),
-                  'clang' => p.join(home.path, 'clang.exe'),
-                  _ => null,
-                },
-            run:
-                (
-                  executable,
-                  arguments, {
-                  workingDirectory,
-                  environment,
-                }) async =>
-                    executable.endsWith('java.exe') &&
-                        arguments.contains('-version')
-                    ? const ComposeProcessResult(
-                        0,
-                        '',
-                        'openjdk version "21.0.2"',
-                      )
-                    : const ComposeProcessResult(0, '', ''),
-            currentDarwinSdk: (_) => sdk,
-            resolveLd64Lld: (_, {runProcess}) async =>
-                p.join(home.path, 'ld64.lld.exe'),
+          final options = ComposeSetupOptions.resolve(
+            env: {'HOME': home.path, 'JAVA_HOME': javaHome},
+            projectRoot: project.path,
+            host: ComposeHost.windowsX64,
+          );
+          Directory(
+            p.join(options.kotlinHome, 'bin'),
+          ).createSync(recursive: true);
+          File(
+            options.host.konancExecutable(options.kotlinHome),
+          ).writeAsStringSync('konanc');
+          final resolver = _resolverWithPreflight(
+            javaHome: javaHome,
+            sdk: sdk,
+            home: home.path,
           );
 
           final toolchain = await resolver.resolve(
@@ -204,7 +223,7 @@ void main() {
           ]);
           expect(toolchain.swiftc, endsWith('swiftc.exe'));
           expect(toolchain.clang, endsWith('clang.exe'));
-          expect(toolchain.ld64Lld, endsWith('ld64.lld.exe'));
+          expect(toolchain.ld64Lld, endsWith('ld64.lld'));
           expect(toolchain.darwinSdkPath, '/sdk');
         } finally {
           project.deleteSync(recursive: true);
@@ -212,6 +231,54 @@ void main() {
         }
       },
     );
+
+    test('ensure installs on a fresh cache and re-runs preflight', () async {
+      final project = Directory.systemTemp.createTempSync(
+        'xcross-compose-project-',
+      );
+      final home = Directory.systemTemp.createTempSync('xcross-compose-home-');
+      var installs = 0;
+      try {
+        File(p.join(project.path, 'gradlew')).writeAsStringSync('#!/bin/sh');
+        final javaHome = p.join(home.path, 'jdk-21');
+        final sdk = FakeDarwinSdk('/sdk');
+        final installer = ComposeToolchainInstaller.withSeams(
+          downloadToFile: (_, _) async {},
+          extractArchive: (_, _) async {},
+          patchCompilerJar: (_) async {},
+          runChecked: (_, __, {workingDirectory, environment}) async {},
+          installRoot: (options, {required force}) async {
+            installs++;
+            Directory(
+              p.join(options.kotlinHome, 'bin'),
+            ).createSync(recursive: true);
+            File(
+              options.host.konancExecutable(options.kotlinHome),
+            ).writeAsStringSync('konanc');
+            return options.kotlinHome;
+          },
+        );
+        final resolver = _resolverWithPreflight(
+          javaHome: javaHome,
+          sdk: sdk,
+          home: home.path,
+          installer: installer,
+        );
+
+        final toolchain = await resolver.ensure(
+          host: ComposeHost.linuxX64,
+          environment: {'HOME': home.path, 'JAVA_HOME': javaHome},
+          projectRoot: project.path,
+        );
+
+        expect(installs, 1);
+        expect(toolchain.konancExecutable, isA<String>());
+        expect(File(toolchain.konancExecutable).existsSync(), isTrue);
+      } finally {
+        project.deleteSync(recursive: true);
+        home.deleteSync(recursive: true);
+      }
+    });
   });
 
   group('ArchiveExtractor', () {
@@ -291,7 +358,7 @@ void main() {
     );
 
     test(
-      'downloads host and overlay archives, copies iOS overlay, patches jars, warms dependencies, and installs atomically',
+      'normalizes upstream roots, overlays iOS files, patches jars, warms with a temporary hello world compile, and installs atomically',
       () async {
         final home = Directory.systemTemp.createTempSync(
           'xcross-compose-home-',
@@ -318,10 +385,18 @@ void main() {
             },
             extractArchive: (archive, dest) async {
               extracted.add(p.basename(archive.path));
+              final root = Directory(
+                p.join(
+                  dest.path,
+                  p.basename(archive.path).contains('macos')
+                      ? 'kotlin-native-prebuilt-macos-x86_64-2.2.20'
+                      : 'kotlin-native-prebuilt-windows-x86_64-2.2.20',
+                ),
+              );
               if (p.basename(archive.path).contains('macos')) {
                 File(
                     p.join(
-                      dest.path,
+                      root.path,
                       'konan',
                       'targets',
                       'ios_arm64',
@@ -332,7 +407,7 @@ void main() {
                   ..writeAsStringSync('target');
                 File(
                     p.join(
-                      dest.path,
+                      root.path,
                       'klib',
                       'platform',
                       'ios_arm64',
@@ -342,12 +417,12 @@ void main() {
                   ..createSync(recursive: true)
                   ..writeAsStringSync('platform');
               } else {
-                File(p.join(dest.path, 'bin', 'konanc.bat'))
+                File(p.join(root.path, 'bin', 'konanc.bat'))
                   ..createSync(recursive: true)
                   ..writeAsStringSync('konanc');
                 File(
                     p.join(
-                      dest.path,
+                      root.path,
                       'lib',
                       'kotlin-native-compiler-embeddable.jar',
                     ),
@@ -417,7 +492,9 @@ void main() {
             '/d',
             '/c',
             options.host.konancExecutable('${options.kotlinHome}.staging'),
-            '-version',
+            contains('hello.kt'),
+            '-o',
+            contains('hello'),
           ]);
           expect(
             Directory('${options.kotlinHome}.staging').existsSync(),
@@ -429,8 +506,113 @@ void main() {
         }
       },
     );
+
+    test(
+      'warms POSIX hosts with a temporary hello world compile and cleans it',
+      () async {
+        final home = Directory.systemTemp.createTempSync(
+          'xcross-compose-home-',
+        );
+        final project = Directory.systemTemp.createTempSync(
+          'xcross-compose-project-',
+        );
+        final commands = <List<String>>[];
+        String? warmDirectory;
+        try {
+          final options = ComposeSetupOptions.resolve(
+            env: {'HOME': home.path, 'KN_VERSION': '2.2.20'},
+            projectRoot: project.path,
+            host: ComposeHost.linuxX64,
+          );
+          final installer = ComposeToolchainInstaller.withSeams(
+            downloadToFile: (_, file) async =>
+                file.writeAsStringSync('archive'),
+            extractArchive: (archive, dest) async {
+              final root = Directory(
+                p.join(
+                  dest.path,
+                  p.basename(archive.path).contains('macos')
+                      ? 'kotlin-native-prebuilt-macos-x86_64-2.2.20'
+                      : 'kotlin-native-prebuilt-linux-x86_64-2.2.20',
+                ),
+              );
+              if (p.basename(archive.path).contains('macos')) {
+                File(p.join(root.path, 'konan', 'targets', 'ios_arm64', 't'))
+                  ..createSync(recursive: true)
+                  ..writeAsStringSync('t');
+                File(p.join(root.path, 'klib', 'platform', 'ios_arm64', 'p'))
+                  ..createSync(recursive: true)
+                  ..writeAsStringSync('p');
+              } else {
+                File(p.join(root.path, 'bin', 'konanc'))
+                  ..createSync(recursive: true)
+                  ..writeAsStringSync('konanc');
+              }
+            },
+            patchCompilerJar: (_) async {},
+            runChecked:
+                (executable, arguments, {workingDirectory, environment}) async {
+                  commands.add([executable, ...arguments]);
+                  warmDirectory = p.dirname(arguments.first);
+                },
+          );
+
+          await installer.install(options: options, force: true);
+
+          expect(
+            commands.single.first,
+            options.host.konancExecutable('${options.kotlinHome}.staging'),
+          );
+          expect(commands.single[1], endsWith('hello.kt'));
+          expect(commands.single[2], '-o');
+          expect(commands.single[3], contains('hello'));
+          expect(Directory(warmDirectory!).existsSync(), isFalse);
+        } finally {
+          home.deleteSync(recursive: true);
+          project.deleteSync(recursive: true);
+        }
+      },
+    );
+  });
+
+  test('compose.dart exports Task 4 public APIs', () {
+    expect(
+      compose.ComposeHost.linuxX64.hostArtifact('2.2.20'),
+      contains('linux-x86_64'),
+    );
+    expect(compose.ComposeToolchain, isNotNull);
+    expect(compose.ComposeToolchainResolver.resolve, isA<Function>());
+    expect(compose.ComposeSetupOptions.defaultKotlinNativeVersion, isNotEmpty);
+    expect(compose.ComposeToolchainInstaller, isNotNull);
+    expect(compose.ArchiveExtractor, isNotNull);
   });
 }
+
+InjectedComposeToolchainResolver _resolverWithPreflight({
+  required String javaHome,
+  required FakeDarwinSdk sdk,
+  required String home,
+  ComposeToolchainInstaller? installer,
+}) => ComposeToolchainResolver.withSeams(
+  which: (name, {environment, windows, extraDirectories = const []}) async =>
+      switch (name) {
+        'java' => p.join(
+          javaHome,
+          'bin',
+          windows == true ? 'java.exe' : 'java',
+        ),
+        'swiftc' => p.join(home, windows == true ? 'swiftc.exe' : 'swiftc'),
+        'clang' => p.join(home, windows == true ? 'clang.exe' : 'clang'),
+        _ => null,
+      },
+  run: (executable, arguments, {workingDirectory, environment}) async =>
+      executable.contains('java') && arguments.contains('-version')
+      ? const ComposeProcessResult(0, '', 'openjdk version "21.0.2"')
+      : const ComposeProcessResult(0, '', ''),
+  currentDarwinSdk: (_) => sdk,
+  resolveLd64Lld: (_, {runProcess}) async => p.join(home, 'ld64.lld'),
+  installer: installer,
+);
 
 final class FakeDarwinSdk {
   FakeDarwinSdk(this.swiftSdkPath);

@@ -306,6 +306,12 @@ final class InjectedComposeToolchainResolver {
     required ComposeSetupOptions options,
   }) async {
     final problems = <String>[];
+    final konancExecutable = host.konancExecutable(options.kotlinHome);
+    if (!File(konancExecutable).existsSync()) {
+      problems.add(
+        'Missing Kotlin/Native compiler at $konancExecutable. Run `xcross compose setup` or allow toolchain installation.',
+      );
+    }
     final java = await _resolveJava(host, environment, problems);
     final gradle = await _resolveGradle(
       host,
@@ -360,7 +366,7 @@ final class InjectedComposeToolchainResolver {
         host: host,
         kotlinHome: options.kotlinHome,
         konanCache: options.konanCache,
-        konancExecutable: host.konancExecutable(options.kotlinHome),
+        konancExecutable: konancExecutable,
         javaHome: java.home,
         javaExecutable: java.executable,
         gradleExecutable: gradle,
