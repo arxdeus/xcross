@@ -33,6 +33,20 @@ PRODUCT_BUNDLE_IDENTIFIER = org.example.$(PRODUCT_NAME)
       expect(config.bundleId, 'org.example.Shared App');
     });
 
+    test('expands variables recursively across multiple hops', () {
+      final config = IosAppConfig.parse(r'''
+ORG = org
+DOMAIN = $(ORG).example
+APP_SEGMENT = $(APP_NAME)
+APP_NAME = DeepApp
+PRODUCT_NAME = $(APP_NAME)
+PRODUCT_BUNDLE_IDENTIFIER = $(DOMAIN).$(APP_SEGMENT)
+''');
+
+      expect(config.productName, 'DeepApp');
+      expect(config.bundleId, 'org.example.DeepApp');
+    });
+
     test('defaults missing product and version values', () {
       final config = IosAppConfig.parse(
         'PRODUCT_BUNDLE_IDENTIFIER = org.example.app',

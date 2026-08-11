@@ -198,19 +198,22 @@ String _capitalize(String value) =>
 
 _Candidate _pickBySwiftImport(String projectRoot, List<_Candidate> candidates) {
   final iosAppDir = Directory(p.join(projectRoot, 'iosApp'));
+  final supported = <_Candidate>{};
   if (iosAppDir.existsSync()) {
     for (final file
         in iosAppDir
             .listSync(recursive: true)
             .whereType<File>()
-            .where((f) => f.path.endsWith('.swift'))) {
+            .where(
+              (f) => f.path.endsWith('.swift') && !_excludeSwiftPath(f.path),
+            )) {
       final source = file.readAsStringSync();
-      final matches = candidates
-          .where((c) => source.contains('import ${c.baseName}'))
-          .toList();
-      if (matches.length == 1) return matches.first;
+      supported.addAll(
+        candidates.where((c) => source.contains('import ${c.baseName}')),
+      );
     }
   }
+  if (supported.length == 1) return supported.single;
   throw XcrossError(
     'Found multiple KMP iOS framework modules: ${candidates.map((c) => c.moduleName).join(', ')}. Add an iosApp Swift import to disambiguate.',
   );

@@ -101,6 +101,55 @@ void main() {
       },
     );
 
+    test(
+      'throws ambiguity error for conflicting imports across Swift files',
+      () {
+        final root = _fixture();
+        _settings(root, 'include(":shared")\ninclude(":other")');
+        _framework(root, 'shared', baseName: 'Shared');
+        _framework(root, 'other', baseName: 'Other');
+        _swift(
+          root,
+          p.join('iosApp', 'App.swift'),
+          'import SwiftUI\nimport Shared',
+        );
+        _swift(root, p.join('iosApp', 'Feature.swift'), 'import Other');
+
+        expect(
+          () => KmpProject.detect(root.path),
+          throwsA(
+            isA<XcrossError>().having(
+              (e) => e.message,
+              'message',
+              contains('multiple'),
+            ),
+          ),
+        );
+      },
+    );
+
+    test('ignores preview and test Swift imports when disambiguating', () {
+      final root = _fixture();
+      _settings(root, 'include(":shared")\ninclude(":other")');
+      _framework(root, 'shared', baseName: 'Shared');
+      _framework(root, 'other', baseName: 'Other');
+      _swift(root, p.join('iosApp', 'App.swift'), 'import Shared');
+      _swift(
+        root,
+        p.join('iosApp', 'Preview Content', 'Preview.swift'),
+        'import Other',
+      );
+      _swift(
+        root,
+        p.join('iosApp', 'AppTests', 'AppTests.swift'),
+        'import Other',
+      );
+
+      final project = KmpProject.detect(root.path);
+
+      expect(project.moduleName, 'shared');
+    });
+
     test('resolves identity from explicit options before xcconfig', () {
       final root = _fixture();
       _settings(root, 'include(":shared")');
