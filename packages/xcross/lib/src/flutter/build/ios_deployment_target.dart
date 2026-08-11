@@ -50,7 +50,9 @@ final class IosDeploymentTarget {
   }
 
   static String? _minimumOsVersionFromPlist(String projectRoot) {
-    final file = File(p.join(projectRoot, 'ios', 'Runner', 'Info.plist'));
+    final file = File(
+      p.join(projectRoot, 'ios', 'Flutter', 'AppFrameworkInfo.plist'),
+    );
     if (!file.existsSync()) return null;
     final match = _minimumOsPattern.firstMatch(file.readAsStringSync());
     return _normalize(match?.group(1));
@@ -87,9 +89,15 @@ final class IosDeploymentTarget {
     );
     if (runner.existsSync()) return runner;
 
-    for (final entity in iosDir.listSync()) {
-      if (entity is! Directory) continue;
-      if (!entity.path.endsWith('.xcodeproj')) continue;
+    final alternates =
+        iosDir
+            .listSync()
+            .whereType<Directory>()
+            .where((entity) => entity.path.endsWith('.xcodeproj'))
+            .toList()
+          ..sort((left, right) => left.path.compareTo(right.path));
+
+    for (final entity in alternates) {
       final candidate = File(p.join(entity.path, 'project.pbxproj'));
       if (candidate.existsSync()) return candidate;
     }

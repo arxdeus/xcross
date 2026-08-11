@@ -17,10 +17,10 @@ void main() {
     if (tmp.existsSync()) await tmp.delete(recursive: true);
   });
 
-  Future<void> writePlist(String minimumOsVersion) async {
-    final dir = Directory(p.join(tmp.path, 'ios', 'Runner'));
+  Future<void> writeAppFrameworkInfoPlist(String minimumOsVersion) async {
+    final dir = Directory(p.join(tmp.path, 'ios', 'Flutter'));
     await dir.create(recursive: true);
-    await File(p.join(dir.path, 'Info.plist')).writeAsString(
+    await File(p.join(dir.path, 'AppFrameworkInfo.plist')).writeAsString(
       '<?xml version="1.0"?>\n'
       '<plist version="1.0">\n'
       '<dict>\n'
@@ -88,9 +88,9 @@ IPHONEOS_DEPLOYMENT_TARGET = 16.1;
     },
   );
 
-  test('falls back to MinimumOSVersion from Info.plist', () async {
+  test('falls back to MinimumOSVersion from AppFrameworkInfo.plist', () async {
     await writePbxproj('IPHONEOS_DEPLOYMENT_TARGET = ios15;\n');
-    await writePlist('12.4');
+    await writeAppFrameworkInfoPlist('12.4');
 
     expect(IosDeploymentTarget.resolve(tmp.path).version, '12.4');
   });
@@ -105,10 +105,39 @@ IPHONEOS_DEPLOYMENT_TARGET = 16.1;
   });
 
   test(
+    'prefers Runner.xcodeproj when alternate xcodeproj also exists',
+    () async {
+      await writePbxproj(
+        'IPHONEOS_DEPLOYMENT_TARGET = 17.0;\n',
+        xcodeproj: 'App.xcodeproj',
+      );
+      await writePbxproj('IPHONEOS_DEPLOYMENT_TARGET = 16.0;\n');
+
+      expect(IosDeploymentTarget.resolve(tmp.path).version, '16.0');
+    },
+  );
+
+  test(
+    'selects alternate xcodeproj deterministically by sorted path',
+    () async {
+      await writePbxproj(
+        'IPHONEOS_DEPLOYMENT_TARGET = 18.0;\n',
+        xcodeproj: 'Zed.xcodeproj',
+      );
+      await writePbxproj(
+        'IPHONEOS_DEPLOYMENT_TARGET = 17.0;\n',
+        xcodeproj: 'App.xcodeproj',
+      );
+
+      expect(IosDeploymentTarget.resolve(tmp.path).version, '17.0');
+    },
+  );
+
+  test(
     'returns 13.0 fallback when no deployment target source is usable',
     () async {
       await writePbxproj('IPHONEOS_DEPLOYMENT_TARGET = ios15;\n');
-      await writePlist(r'$(MINIMUM_OS_VERSION)');
+      await writeAppFrameworkInfoPlist(r'$(MINIMUM_OS_VERSION)');
 
       expect(IosDeploymentTarget.resolve(tmp.path).version, '13.0');
       expect(IosDeploymentTarget.fallback.version, '13.0');
