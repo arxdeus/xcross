@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:cli_kit/cli_kit.dart';
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/compose/project/kmp_project.dart';
 import 'package:xcross/src/compose/toolchain/compose_toolchain.dart';
@@ -32,6 +35,8 @@ final class KonanConfiguration {
   }) : _patchCompilerJar = patchCompilerJar,
        _makeExecutable = makeExecutable;
 
+  static int _stagingCounter = 0;
+
   final KonanPatchCompilerJar? _patchCompilerJar;
   final MakeExecutable? _makeExecutable;
 
@@ -39,18 +44,48 @@ final class KonanConfiguration {
     required KmpProject project,
     required ComposeToolchain toolchain,
   }) async {
-    final root = p.join(project.root, 'build', 'xcross-ios', 'toolchain');
-    final kotlinHome = p.join(root, 'kotlin-home');
-    final configDir = p.join(root, 'konan');
-    final shimsDir = p.join(root, 'shims');
-    if (Directory(root).existsSync()) {
-      Directory(root).deleteSync(recursive: true);
+    final baseDir = p.join(project.root, 'build', 'xcross-ios', 'toolchain');
+    final fingerprint = await _fingerprint(toolchain);
+    final root = p.join(baseDir, fingerprint);
+    final markerPath = p.join(root, '.xcross-complete');
+    if (File(markerPath).existsSync()) {
+      return _prepared(toolchain: toolchain, root: root);
     }
+
+    final stagingRoot = p.join(
+      baseDir,
+      '.$fingerprint.staging.$pid.${DateTime.now().microsecondsSinceEpoch}.${_stagingCounter++}',
+    );
+    try {
+      await _prepareStaging(stagingRoot, toolchain);
+      File(
+        p.join(stagingRoot, '.xcross-complete'),
+      ).writeAsStringSync('complete\n');
+      await Directory(stagingRoot).rename(root);
+    } on FileSystemException {
+      await _deleteIfExists(Directory(stagingRoot));
+      if (File(markerPath).existsSync()) {
+        return _prepared(toolchain: toolchain, root: root);
+      }
+      rethrow;
+    } catch (_) {
+      await _deleteIfExists(Directory(stagingRoot));
+      rethrow;
+    }
+    return _prepared(toolchain: toolchain, root: root);
+  }
+
+  Future<void> _prepareStaging(
+    String stagingRoot,
+    ComposeToolchain toolchain,
+  ) async {
+    final kotlinHome = p.join(stagingRoot, 'kotlin-home');
+    final configDir = p.join(stagingRoot, 'konan');
+    final shimsDir = p.join(stagingRoot, 'shims');
     Directory(p.join(kotlinHome, 'bin')).createSync(recursive: true);
     Directory(p.join(kotlinHome, 'konan', 'lib')).createSync(recursive: true);
     Directory(configDir).createSync(recursive: true);
     Directory(shimsDir).createSync(recursive: true);
-
     await _copyFileIfExists(
       toolchain.konancExecutable,
       p.join(kotlinHome, 'bin', p.basename(toolchain.konancExecutable)),
@@ -59,7 +94,15 @@ final class KonanConfiguration {
     await _patchJars(kotlinHome);
     _writeKonanProperties(p.join(configDir, 'konan.properties'), toolchain);
     _writeShims(shimsDir, toolchain);
+  }
 
+  PreparedKonanConfiguration _prepared({
+    required ComposeToolchain toolchain,
+    required String root,
+  }) {
+    final kotlinHome = p.join(root, 'kotlin-home');
+    final configDir = p.join(root, 'konan');
+    final shimsDir = p.join(root, 'shims');
     final pathSeparator = toolchain.host.isWindows ? ';' : ':';
     final parentPath = Platform.environment['PATH'] ?? '';
     final path = parentPath.isEmpty
@@ -82,6 +125,59 @@ final class KonanConfiguration {
         'PATH': path,
       },
     );
+  }
+
+  Future<void> _deleteIfExists(Directory directory) async {
+    if (directory.existsSync()) await directory.delete(recursive: true);
+  }
+
+  Future<String> _fingerprint(ComposeToolchain toolchain) async {
+    final bytes = BytesBuilder();
+    void addString(String value) {
+      bytes.add(utf8.encode(value));
+      bytes.addByte(0);
+    }
+
+    addString(toolchain.host.classifier);
+    addString(toolchain.kotlinHome);
+    addString(toolchain.konanCache);
+    addString(toolchain.konancExecutable);
+    addString(toolchain.javaHome);
+    addString(toolchain.javaExecutable);
+    addString(toolchain.gradleExecutable);
+    addString(toolchain.swiftc);
+    addString(toolchain.clang);
+    addString(toolchain.ld64Lld);
+    addString(toolchain.darwinSdkPath);
+    await _addFile(bytes, 'konanc', File(toolchain.konancExecutable));
+    await _addFile(
+      bytes,
+      'konan.properties',
+      File(p.join(toolchain.kotlinHome, 'konan', 'konan.properties')),
+    );
+    final lib = Directory(p.join(toolchain.kotlinHome, 'konan', 'lib'));
+    if (lib.existsSync()) {
+      final jars =
+          lib
+              .listSync(recursive: true, followLinks: false)
+              .whereType<File>()
+              .where((file) => p.basename(file.path).endsWith('.jar'))
+              .toList()
+            ..sort((a, b) => a.path.compareTo(b.path));
+      for (final jar in jars) {
+        await _addFile(bytes, p.relative(jar.path, from: lib.path), jar);
+      }
+    }
+    return sha256.convert(bytes.takeBytes()).toString();
+  }
+
+  Future<void> _addFile(BytesBuilder bytes, String label, File file) async {
+    bytes.add(utf8.encode(label));
+    bytes.addByte(0);
+    bytes.add(utf8.encode(file.existsSync() ? file.path : 'missing'));
+    bytes.addByte(0);
+    if (file.existsSync()) bytes.add(await file.readAsBytes());
+    bytes.addByte(0);
   }
 
   Future<void> _copyMutableKonanFiles(
@@ -153,6 +249,7 @@ toolchainDependency.appleSwift.ios_arm64=${_slash(toolchain.swiftc)}
       ['#!/bin/sh', 'exec "${_slash(tool)}" "\$@"', ''].join('\n'),
     );
     (_makeExecutable ?? ProcessRunner.makeExecutable)(file.path);
+    if (!Platform.isWindows) Process.runSync('chmod', ['755', file.path]);
   }
 
   void _writeWindowsShim(String dir, String name, String tool) {

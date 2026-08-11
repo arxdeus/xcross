@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -23,16 +24,24 @@ void main() {
         'xcross-ios',
         'toolchain',
       );
-      expect(prepared.kotlinHome, p.join(buildToolchain, 'kotlin-home'));
+      expect(
+        p.dirname(prepared.kotlinHome),
+        startsWith('$buildToolchain${p.separator}'),
+      );
+      expect(p.basename(p.dirname(prepared.kotlinHome)), hasLength(64));
+      expect(
+        prepared.kotlinHome,
+        p.join(p.dirname(prepared.kotlinHome), 'kotlin-home'),
+      );
       expect(
         prepared.konanConfigPath,
-        p.join(buildToolchain, 'konan', 'konan.properties'),
+        p.join(p.dirname(prepared.kotlinHome), 'konan', 'konan.properties'),
       );
       expect(prepared.environment['KONAN_DATA_DIR'], fixture.konanCache);
       expect(prepared.environment['JAVA_HOME'], fixture.javaHome);
       expect(
         prepared.environment['PATH'],
-        startsWith('${p.join(buildToolchain, 'shims')}:'),
+        startsWith('${p.join(p.dirname(prepared.kotlinHome), 'shims')}:'),
       );
 
       final config = File(prepared.konanConfigPath).readAsStringSync();
@@ -58,14 +67,20 @@ void main() {
       expect(config, isNot(contains('/usr/bin/xcrun')));
       expect(config, isNot(contains('/usr/libexec/PlistBuddy')));
 
-      expect(patched, [
-        p.join(
-          prepared.kotlinHome,
-          'konan',
-          'lib',
-          'kotlin-native-compiler-embeddable.jar',
-        ),
-      ]);
+      expect(patched, hasLength(1));
+      expect(patched.single, contains('.staging.'));
+      expect(patched.single, isNot(startsWith(fixture.kotlinHome)));
+      expect(
+        File(
+          p.join(
+            prepared.kotlinHome,
+            'konan',
+            'lib',
+            'kotlin-native-compiler-embeddable.jar',
+          ),
+        ).existsSync(),
+        isTrue,
+      );
       expect(
         File(
           p.join(fixture.kotlinHome, 'konan', 'konan.properties'),
@@ -74,6 +89,113 @@ void main() {
       );
     },
   );
+
+  test(
+    'reuses completed fingerprint root without deleting or rebuilding it',
+    () async {
+      final fixture = _Fixture.create(ComposeHost.linuxX64)..createKotlinHome();
+      final patched = <String>[];
+      addTearDown(fixture.dispose);
+
+      final configuration = KonanConfiguration.withSeams(
+        patchCompilerJar: (jar) async => patched.add(jar.path),
+        makeExecutable: (_) {},
+      );
+      final first = await configuration.prepare(
+        project: fixture.project,
+        toolchain: fixture.toolchain,
+      );
+      final sentinel = File(p.join(p.dirname(first.kotlinHome), 'sentinel.txt'))
+        ..writeAsStringSync('keep');
+      final second = await configuration.prepare(
+        project: fixture.project,
+        toolchain: fixture.toolchain,
+      );
+
+      expect(second.kotlinHome, first.kotlinHome);
+      expect(second.konanConfigPath, first.konanConfigPath);
+      expect(second.konancExecutable, first.konancExecutable);
+      expect(sentinel.readAsStringSync(), 'keep');
+      expect(patched, hasLength(1));
+      expect(
+        File(first.konanConfigPath).readAsStringSync(),
+        contains(_slash(fixture.sdk)),
+      );
+    },
+  );
+
+  test(
+    'overlapping prepares converge on one completed fingerprint root',
+    () async {
+      final fixture = _Fixture.create(ComposeHost.linuxX64)..createKotlinHome();
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      var patchCalls = 0;
+      addTearDown(fixture.dispose);
+
+      final configuration = KonanConfiguration.withSeams(
+        patchCompilerJar: (jar) async {
+          patchCalls += 1;
+          if (!entered.isCompleted) entered.complete();
+          await release.future;
+        },
+        makeExecutable: (_) {},
+      );
+      final firstFuture = configuration.prepare(
+        project: fixture.project,
+        toolchain: fixture.toolchain,
+      );
+      await entered.future;
+      final secondFuture = configuration.prepare(
+        project: fixture.project,
+        toolchain: fixture.toolchain,
+      );
+      release.complete();
+      final results = await Future.wait([firstFuture, secondFuture]);
+
+      expect(results[1].kotlinHome, results[0].kotlinHome);
+      expect(results[1].konanConfigPath, results[0].konanConfigPath);
+      expect(results[1].konancExecutable, results[0].konancExecutable);
+      expect(patchCalls, greaterThanOrEqualTo(1));
+      expect(
+        File(results[0].konanConfigPath).readAsStringSync(),
+        contains(_slash(fixture.ld64)),
+      );
+      expect(File(results[0].konancExecutable).readAsStringSync(), 'konanc');
+      expect(
+        Directory(p.join(fixture.root, 'build', 'xcross-ios', 'toolchain'))
+            .listSync()
+            .whereType<Directory>()
+            .where((d) => p.basename(d.path).contains('staging')),
+        isEmpty,
+      );
+    },
+  );
+
+  test('creates exact executable Linux shell shims', () async {
+    final fixture = _Fixture.create(ComposeHost.linuxX64)..createKotlinHome();
+    final executable = <String>{};
+    addTearDown(fixture.dispose);
+
+    final prepared = await KonanConfiguration.withSeams(
+      patchCompilerJar: (_) async {},
+      makeExecutable: executable.add,
+    ).prepare(project: fixture.project, toolchain: fixture.toolchain);
+
+    final shims = p.join(
+      p.dirname(p.dirname(prepared.konanConfigPath)),
+      'shims',
+    );
+    final xcrun = File(p.join(shims, 'xcrun'));
+    expect(
+      xcrun.readAsStringSync(),
+      '#!/bin/sh\nexec "${_slash(fixture.clang)}" "\$@"\n',
+    );
+    expect(executable, everyElement(contains('.staging.')));
+    if (!Platform.isWindows) {
+      expect(xcrun.statSync().mode & 0x49, 0x49);
+    }
+  });
 
   test('creates Windows cmd shims and invokes them through cmd.exe', () async {
     final fixture = _Fixture.create(ComposeHost.windowsX64)..createKotlinHome();
@@ -84,13 +206,7 @@ void main() {
       makeExecutable: (_) {},
     ).prepare(project: fixture.project, toolchain: fixture.toolchain);
 
-    final shims = p.join(
-      fixture.root,
-      'build',
-      'xcross-ios',
-      'toolchain',
-      'shims',
-    );
+    final shims = p.join(p.dirname(prepared.kotlinHome), 'shims');
     final xcrun = File(p.join(shims, 'xcrun.cmd'));
     expect(xcrun.existsSync(), isTrue);
     expect(xcrun.readAsStringSync(), contains('cmd.exe /d /c'));

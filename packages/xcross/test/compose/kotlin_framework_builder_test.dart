@@ -190,6 +190,59 @@ void main() {
       throwsA(isA<XcrossError>()),
     );
   });
+  test('throws when Kotlin Native omits the framework header', () async {
+    final fixture = _Fixture.create(ComposeHost.linuxX64)..createInputs();
+    addTearDown(fixture.dispose);
+
+    await expectLater(
+      KotlinFrameworkBuilder.withSeams(
+        runChecked:
+            (executable, arguments, {workingDirectory, environment}) async {
+              final framework = fixture.producedFramework('debugFramework');
+              Directory(framework).createSync(recursive: true);
+              File(p.join(framework, 'Shared')).writeAsStringSync('binary');
+            },
+        prepareKonan: ({required project, required toolchain}) async =>
+            fixture.prepared,
+      ).build(
+        project: fixture.project,
+        options: const ComposeBuildOptions(),
+        toolchain: fixture.toolchain,
+        klib: fixture.klib,
+      ),
+      throwsA(isA<XcrossError>()),
+    );
+  });
+
+  test('replaces stale framework-only destination contents', () async {
+    final fixture = _Fixture.create(ComposeHost.linuxX64)..createInputs();
+    final destination = Directory(
+      p.join(fixture.root, 'build', 'xcross-ios', 'Shared.framework'),
+    )..createSync(recursive: true);
+    File(p.join(destination.path, 'stale.txt')).writeAsStringSync('stale');
+    addTearDown(fixture.dispose);
+
+    final output =
+        await KotlinFrameworkBuilder.withSeams(
+          runChecked:
+              (executable, arguments, {workingDirectory, environment}) async {
+                fixture.createProducedFramework(
+                  'debugFramework',
+                  binary: 'fresh',
+                );
+              },
+          prepareKonan: ({required project, required toolchain}) async =>
+              fixture.prepared,
+        ).build(
+          project: fixture.project,
+          options: const ComposeBuildOptions(),
+          toolchain: fixture.toolchain,
+          klib: fixture.klib,
+        );
+
+    expect(File(p.join(output, 'stale.txt')).existsSync(), isFalse);
+    expect(File(p.join(output, 'Shared')).readAsStringSync(), 'fresh');
+  });
 }
 
 final class _Fixture {
@@ -310,10 +363,13 @@ final class _Fixture {
     'Shared.framework',
   );
 
-  void createProducedFramework(String configuration) {
+  void createProducedFramework(
+    String configuration, {
+    String binary = 'binary',
+  }) {
     final framework = producedFramework(configuration);
     Directory(p.join(framework, 'Headers')).createSync(recursive: true);
-    File(p.join(framework, 'Shared')).writeAsStringSync('binary');
+    File(p.join(framework, 'Shared')).writeAsStringSync(binary);
     File(p.join(framework, 'Headers', 'Shared.h')).writeAsStringSync('header');
   }
 
