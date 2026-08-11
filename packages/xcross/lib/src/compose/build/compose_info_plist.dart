@@ -41,8 +41,8 @@ abstract final class ComposeInfoPlist {
       'UIDeviceFamily': [1],
       'UILaunchScreen': <String, Object?>{},
       'DTPlatformName': 'iphoneos',
-      'DTSDKName': 'iphoneos26.5',
-      'DTPlatformVersion': '26.5',
+      'DTSDKName': IosDeploymentConstants.sdkTriple,
+      'DTPlatformVersion': IosDeploymentConstants.sdkVersion,
     };
   }
 

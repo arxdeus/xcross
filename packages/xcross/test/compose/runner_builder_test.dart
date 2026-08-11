@@ -187,6 +187,120 @@ void main() {
       );
     },
   );
+
+  for (final invalid in _invalidMachOOutputs) {
+    test('ObjC runner rejects ${invalid.name} Mach-O output', () async {
+      final fixture = _Fixture.create()..createSdk();
+      addTearDown(fixture.dispose);
+
+      await expectLater(
+        ObjcRunnerBuilder.withSeams(
+          runChecked: (executable, arguments, {workingDirectory}) async {
+            if (executable == fixture.toolchain.clang) {
+              File(p.join(fixture.objcBuildDir, 'main.o'))
+                ..createSync(recursive: true)
+                ..writeAsStringSync('object');
+            } else {
+              fixture.writeBytes(
+                p.join(fixture.objcBuildDir, 'Runner'),
+                invalid.bytes,
+              );
+            }
+          },
+        ).build(
+          project: fixture.objcProject,
+          frameworkPath: fixture.frameworkPath,
+          toolchain: fixture.toolchain,
+        ),
+        throwsA(isA<XcrossError>()),
+      );
+    });
+
+    test('Swift runner rejects ${invalid.name} Mach-O output', () async {
+      final fixture = _Fixture.create()..createSdk();
+      addTearDown(fixture.dispose);
+
+      await expectLater(
+        SwiftRunnerBuilder.withSeams(
+          runChecked: (executable, arguments, {workingDirectory}) async {
+            fixture.writeBytes(
+              p.join(fixture.root, 'build', 'xcross-compose', 'Runner'),
+              invalid.bytes,
+            );
+          },
+        ).build(
+          project: fixture.swiftProject,
+          frameworkPath: fixture.frameworkPath,
+          toolchain: fixture.toolchain,
+        ),
+        throwsA(isA<XcrossError>()),
+      );
+    });
+  }
+}
+
+const _invalidMachOOutputs = <_InvalidMachOOutput>[
+  _InvalidMachOOutput('empty', []),
+  _InvalidMachOOutput('4-byte', [0xfe, 0xed, 0xfa, 0xcf]),
+  _InvalidMachOOutput('truncated-header', [
+    0xfe,
+    0xed,
+    0xfa,
+    0xcf,
+    0,
+    0,
+    0,
+    12,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    2,
+  ]),
+  _InvalidMachOOutput('wrong-endian', [
+    0xcf,
+    0xfa,
+    0xed,
+    0xfe,
+    0,
+    0,
+    0,
+    12,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    2,
+    0,
+    0,
+    0,
+    2,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+  ]),
+];
+
+final class _InvalidMachOOutput {
+  const _InvalidMachOOutput(this.name, this.bytes);
+
+  final String name;
+  final List<int> bytes;
 }
 
 final class _Fixture {
@@ -291,7 +405,11 @@ final class _Fixture {
   }
 
   void writeMachO(String path) {
-    final bytes = Uint8List(8)..buffer.asByteData().setUint32(0, 0xfeedfacf);
+    final bytes = Uint8List(32)..buffer.asByteData().setUint32(0, 0xfeedfacf);
+    writeBytes(path, bytes);
+  }
+
+  void writeBytes(String path, List<int> bytes) {
     File(path)
       ..createSync(recursive: true)
       ..writeAsBytesSync(bytes);

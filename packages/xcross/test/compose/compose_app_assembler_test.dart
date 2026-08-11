@@ -96,6 +96,69 @@ void main() {
       throwsA(isA<XcrossError>()),
     );
   });
+
+  test(
+    'preserves prior app and cleans staging debris when framework copy fails',
+    () async {
+      final fixture = _Fixture.create()..createInputs();
+      final previousApp = fixture.createPreviousApp();
+      addTearDown(fixture.dispose);
+
+      await expectLater(
+        ComposeAppAssembler.withSeams(
+          copyDirectory: (source, destination) {
+            throw const FileSystemException('copy failed');
+          },
+        ).assemble(
+          project: fixture.project,
+          runnerPath: fixture.runnerPath,
+          frameworkPath: fixture.frameworkPath,
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+
+      expect(
+        File(p.join(previousApp, 'Runner')).readAsStringSync(),
+        'old-runner',
+      );
+      expect(
+        File(p.join(previousApp, 'Info.plist')).readAsStringSync(),
+        'old-plist',
+      );
+      expect(
+        Directory(
+          p.dirname(previousApp),
+        ).listSync(followLinks: false).map((entity) => p.basename(entity.path)),
+        everyElement(isNot(anyOf(contains('.staging'), contains('.backup')))),
+      );
+    },
+  );
+
+  test('successful assembly replaces stale output through staging', () async {
+    final fixture = _Fixture.create()..createInputs();
+    final previousApp = fixture.createPreviousApp();
+    addTearDown(fixture.dispose);
+
+    final appPath = await ComposeAppAssembler.withSeams().assemble(
+      project: fixture.project,
+      runnerPath: fixture.runnerPath,
+      frameworkPath: fixture.frameworkPath,
+    );
+
+    expect(appPath, previousApp);
+    expect(File(p.join(appPath, 'Runner')).readAsStringSync(), 'runner');
+    expect(
+      File(p.join(appPath, 'Info.plist')).readAsStringSync(),
+      isNot('old-plist'),
+    );
+    expect(File(p.join(appPath, 'old-only.txt')).existsSync(), isFalse);
+    expect(
+      Directory(
+        p.dirname(appPath),
+      ).listSync(followLinks: false).map((entity) => p.basename(entity.path)),
+      everyElement(isNot(anyOf(contains('.staging'), contains('.backup')))),
+    );
+  });
 }
 
 final class _Fixture {
@@ -137,6 +200,15 @@ final class _Fixture {
         p.join(frameworkPath, 'link'),
       ).createSync(p.join(frameworkPath, 'Shared'));
     }
+  }
+
+  String createPreviousApp() {
+    final appPath = p.join(root, 'build', 'xcross-ios', 'Example.app');
+    Directory(appPath).createSync(recursive: true);
+    File(p.join(appPath, 'Runner')).writeAsStringSync('old-runner');
+    File(p.join(appPath, 'Info.plist')).writeAsStringSync('old-plist');
+    File(p.join(appPath, 'old-only.txt')).writeAsStringSync('old');
+    return appPath;
   }
 
   Future<void> dispose() async {

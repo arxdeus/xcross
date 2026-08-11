@@ -1,8 +1,7 @@
 import 'dart:io';
-import 'dart:typed_data';
-
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/compose/build/mach_o_validator.dart';
 import 'package:xcross/src/compose/build/process_invocation.dart';
 import 'package:xcross/src/compose/project/kmp_project.dart';
 import 'package:xcross/src/compose/toolchain/compose_toolchain.dart';
@@ -116,7 +115,7 @@ final class ObjcRunnerBuilder {
       ld.arguments,
       workingDirectory: project.root,
     );
-    _validateMachO(runnerPath);
+    MachOValidator.validate64BitExecutable(runnerPath);
     if (!Platform.isWindows) ProcessRunner.makeExecutable(runnerPath);
     return runnerPath;
   }
@@ -204,24 +203,5 @@ void _validateFramework(KmpProject project, String frameworkPath) {
     throw XcrossError(
       'Compose framework binary not found: ${p.join(frameworkPath, project.baseName)}',
     );
-  }
-}
-
-void _validateMachO(String path) {
-  final file = File(path);
-  if (!file.existsSync() || file.lengthSync() < 4) {
-    throw XcrossError('Runner Mach-O output is empty or missing: $path');
-  }
-  final bytes = file.openSync()..setPositionSync(0);
-  try {
-    final header = bytes.readSync(4);
-    final data = ByteData.sublistView(Uint8List.fromList(header));
-    final big = data.getUint32(0);
-    final little = data.getUint32(0, Endian.little);
-    if (big != 0xfeedfacf && little != 0xfeedfacf) {
-      throw XcrossError('Runner output is not a 64-bit Mach-O: $path');
-    }
-  } finally {
-    bytes.closeSync();
   }
 }

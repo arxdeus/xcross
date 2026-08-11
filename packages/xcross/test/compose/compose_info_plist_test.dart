@@ -5,6 +5,7 @@ import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/compose/compose.dart';
 import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/flutter/constants.dart';
 
 void main() {
   test(
@@ -38,8 +39,8 @@ void main() {
       expect(plist['UIDeviceFamily'], [1]);
       expect(plist['UILaunchScreen'], isA<Map<Object?, Object?>>());
       expect(plist['DTPlatformName'], 'iphoneos');
-      expect(plist['DTSDKName'], 'iphoneos26.5');
-      expect(plist['DTPlatformVersion'], '26.5');
+      expect(plist['DTSDKName'], IosDeploymentConstants.sdkTriple);
+      expect(plist['DTPlatformVersion'], IosDeploymentConstants.sdkVersion);
       expect(plist['PreservedPartialString'], 'keep');
       expect(plist['CADisableMinimumFrameDurationOnPhone'], isTrue);
       expect(plist['CustomList'], ['one', 2, false]);
