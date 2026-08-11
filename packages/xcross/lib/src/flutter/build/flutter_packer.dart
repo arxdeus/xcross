@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/flutter_debug_bundler.dart';
 import 'package:xcross/src/flutter/build/info_plist.dart';
 import 'package:xcross/src/flutter/build/internal/runner_binary.dart';
+import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/build/ios_engine_cache.dart';
 import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/flutter/build/ios_plugins.dart';
@@ -183,6 +184,7 @@ final class FlutterPacker {
       plugins: spmPlugins,
       flutterXcframework: xcframework,
       outputDir: p.join(projectRoot, 'build', 'xcross-flutter-plugins'),
+      deploymentTarget: IosDeploymentTarget.fallback,
     );
   }
 
@@ -315,7 +317,11 @@ final class FlutterPacker {
     // storyboard stripping so $(VAR)-valued storyboard names are resolved
     // before the .storyboardc filesystem probe.
     plistXml = InfoPlist.expandVars(plistXml, await _buildSubstitutionMap());
-    plistXml = InfoPlist.applyIosRequiredKeys(plistXml, bundleId: bundleId);
+    plistXml = InfoPlist.applyIosRequiredKeys(
+      plistXml,
+      bundleId: bundleId,
+      deploymentTarget: IosDeploymentTarget.fallback,
+    );
     plistXml = InfoPlist.stripUnsatisfiableStoryboards(plistXml, bundleDir);
     plistXml = InfoPlist.normalizeObjCClassNames(plistXml);
 

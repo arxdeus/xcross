@@ -279,10 +279,9 @@ let package = Package(
           p.join(outputDir, 'Plugins', 'Package.swift'),
         );
         expect(pluginsManifestFile.existsSync(), isTrue);
-        expect(
-          pluginsManifestFile.readAsStringSync(),
-          contains('.package(name: "plugin_a", path:'),
-        );
+        final pluginsManifest = pluginsManifestFile.readAsStringSync();
+        expect(pluginsManifest, contains('.package(name: "plugin_a", path:'));
+        expect(pluginsManifest, contains('.iOS("15.6")'));
 
         final registrantFile = File(
           p.join(
