@@ -123,9 +123,9 @@ abstract final class GeneratedPluginsPackage {
     // (verified against a real published plugin: its manifest lists zero
     // dependencies, yet its Swift source does `import Flutter`). A plain
     // `swift build` has no such implicit project-wide behaviour, so we
-    // reproduce it ourselves with a build-wide `-Xswiftc -F` flag, applied
-    // uniformly to every target's compile step regardless of what that
-    // target's own manifest declares.
+    // reproduce it ourselves with build-wide framework search flags. Swift
+    // targets need `-Xswiftc -F`; C and Objective-C targets need the matching
+    // `-Xcc -F` pair so imports such as `<Flutter/Flutter.h>` resolve too.
     final flutterFrameworkSlice = p.join(flutterXcframework, 'ios-arm64');
     final linker = await DarwinSdk.resolveLd64Lld(sdk);
     final toolsetPath = await writeToolset(
@@ -188,6 +188,10 @@ abstract final class GeneratedPluginsPackage {
     '-Xswiftc',
     '-F',
     '-Xswiftc',
+    flutterFrameworkSlice,
+    '-Xcc',
+    '-F',
+    '-Xcc',
     flutterFrameworkSlice,
     '-Xswiftc',
     '-Xfrontend',

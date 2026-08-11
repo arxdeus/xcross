@@ -454,6 +454,15 @@ let package = Package(
           'Flutter.xcframework/ios-arm64',
         ]),
       );
+      expect(
+        arguments,
+        containsAllInOrder([
+          '-Xcc',
+          '-F',
+          '-Xcc',
+          'Flutter.xcframework/ios-arm64',
+        ]),
+      );
       expect(arguments, contains('-disable-availability-checking'));
       expect(arguments, isNot(contains('-install_name')));
     });
