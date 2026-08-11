@@ -645,6 +645,145 @@ void main() {
         }
       },
     );
+
+    test(
+      'force restores the original cache and cleans debris when staged replacement fails',
+      () async {
+        final home = Directory.systemTemp.createTempSync(
+          'xcross-compose-home-',
+        );
+        final project = Directory.systemTemp.createTempSync(
+          'xcross-compose-project-',
+        );
+        String? backupContainer;
+        try {
+          final options = ComposeSetupOptions.resolve(
+            env: {'HOME': home.path, 'KN_VERSION': '2.2.20'},
+            projectRoot: project.path,
+            host: ComposeHost.linuxX64,
+          );
+          _writeValidCache(options, binary: 'old-binary', marker: 'old-marker');
+          final originalBytes = _snapshotDirectory(
+            Directory(options.kotlinHome),
+          );
+          final installer = _installerThatBuildsNewCache(
+            options,
+            renameDirectory: (source, newPath) {
+              if (source.path == options.kotlinHome) {
+                backupContainer = p.dirname(newPath);
+                return source.rename(newPath);
+              }
+              if (source.path == '${options.kotlinHome}.staging') {
+                throw StateError('install rename failed');
+              }
+              return source.rename(newPath);
+            },
+          );
+
+          await expectLater(
+            installer.install(options: options, force: true),
+            throwsA(
+              isA<StateError>().having(
+                (error) => error.message,
+                'message',
+                'install rename failed',
+              ),
+            ),
+          );
+
+          expect(
+            _snapshotDirectory(Directory(options.kotlinHome)),
+            originalBytes,
+          );
+          expect(
+            Directory('${options.kotlinHome}.staging').existsSync(),
+            isFalse,
+          );
+          expect(backupContainer, isNotNull);
+          expect(Directory(backupContainer!).existsSync(), isFalse);
+        } finally {
+          home.deleteSync(recursive: true);
+          project.deleteSync(recursive: true);
+        }
+      },
+    );
+
+    test(
+      'force preserves backup path when staged replacement and restore both fail',
+      () async {
+        final home = Directory.systemTemp.createTempSync(
+          'xcross-compose-home-',
+        );
+        final project = Directory.systemTemp.createTempSync(
+          'xcross-compose-project-',
+        );
+        String? backupPath;
+        try {
+          final options = ComposeSetupOptions.resolve(
+            env: {'HOME': home.path, 'KN_VERSION': '2.2.20'},
+            projectRoot: project.path,
+            host: ComposeHost.linuxX64,
+          );
+          _writeValidCache(options, binary: 'old-binary', marker: 'old-marker');
+          final installer = _installerThatBuildsNewCache(
+            options,
+            renameDirectory: (source, newPath) {
+              if (source.path == options.kotlinHome) {
+                backupPath = newPath;
+                return source.rename(newPath);
+              }
+              if (source.path == '${options.kotlinHome}.staging') {
+                throw StateError('install rename failed');
+              }
+              if (source.path == backupPath) {
+                throw StateError('restore rename failed');
+              }
+              return source.rename(newPath);
+            },
+          );
+
+          Object? thrown;
+          try {
+            await installer.install(options: options, force: true);
+          } on Object catch (error) {
+            thrown = error;
+          }
+
+          expect(backupPath, isNotNull);
+          expect(
+            thrown,
+            isA<XcrossError>()
+                .having(
+                  (error) => error.message,
+                  'message',
+                  contains('install rename failed'),
+                )
+                .having(
+                  (error) => error.message,
+                  'message',
+                  contains('restore rename failed'),
+                )
+                .having(
+                  (error) => error.message,
+                  'message',
+                  contains(backupPath),
+                ),
+          );
+          expect(Directory(backupPath!).existsSync(), isTrue);
+          expect(
+            _snapshotDirectory(Directory(backupPath!)),
+            containsPair('bin/konanc', 'old-binary'),
+          );
+          expect(
+            Directory('${options.kotlinHome}.staging').existsSync(),
+            isFalse,
+          );
+        } finally {
+          home.deleteSync(recursive: true);
+          project.deleteSync(recursive: true);
+        }
+      },
+    );
   });
 
   test('compose.dart exports Task 4 public APIs', () {
@@ -659,6 +798,59 @@ void main() {
     expect(compose.ArchiveExtractor, isNotNull);
   });
 }
+
+ComposeToolchainInstaller _installerThatBuildsNewCache(
+  ComposeSetupOptions options, {
+  RenameDirectory? renameDirectory,
+}) => ComposeToolchainInstaller.withSeams(
+  downloadToFile: (_, file) async => file.writeAsStringSync('archive'),
+  extractArchive: (archive, dest) async {
+    final root = Directory(
+      p.join(
+        dest.path,
+        p.basename(archive.path).contains('macos')
+            ? 'kotlin-native-prebuilt-macos-x86_64-2.2.20'
+            : 'kotlin-native-prebuilt-linux-x86_64-2.2.20',
+      ),
+    );
+    if (p.basename(archive.path).contains('macos')) {
+      File(p.join(root.path, 'konan', 'targets', 'ios_arm64', 't'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('t');
+      File(p.join(root.path, 'klib', 'platform', 'ios_arm64', 'p'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('p');
+    } else {
+      File(options.host.konancExecutable(root.path))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('new-binary');
+      File(p.join(root.path, 'lib', 'marker.txt'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('new-marker');
+    }
+  },
+  patchCompilerJar: (_) async {},
+  runChecked: (_, __, {workingDirectory, environment}) async {},
+  renameDirectory: renameDirectory,
+);
+
+void _writeValidCache(
+  ComposeSetupOptions options, {
+  required String binary,
+  required String marker,
+}) {
+  File(options.host.konancExecutable(options.kotlinHome))
+    ..createSync(recursive: true)
+    ..writeAsStringSync(binary);
+  File(p.join(options.kotlinHome, 'lib', 'marker.txt'))
+    ..createSync(recursive: true)
+    ..writeAsStringSync(marker);
+}
+
+Map<String, String> _snapshotDirectory(Directory directory) => {
+  for (final file in directory.listSync(recursive: true).whereType<File>())
+    p.relative(file.path, from: directory.path): file.readAsStringSync(),
+};
 
 InjectedComposeToolchainResolver _resolverWithPreflight({
   required String javaHome,

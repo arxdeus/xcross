@@ -294,25 +294,43 @@ final class ComposeToolchainInstaller {
         await _copyDirectory(staging, destination);
         await staging.delete(recursive: true);
       } catch (copyError) {
-        await _restoreBackup(destination, backupPath);
+        await _restoreBackupOrThrow(destination, backupPath, copyError);
+        await _deleteBackupContainer(backupContainer);
         throw XcrossError(
           'Failed to replace Compose Kotlin/Native cache at ${destination.path}: $copyError',
         );
       }
     } catch (error) {
-      await _restoreBackup(destination, backupPath);
+      await _restoreBackupOrThrow(destination, backupPath, error);
+      await _deleteBackupContainer(backupContainer);
       rethrow;
     }
-    if (backupContainer != null && backupContainer.existsSync()) {
-      await backupContainer.delete(recursive: true);
+    await _deleteBackupContainer(backupContainer);
+  }
+
+  Future<void> _restoreBackupOrThrow(
+    Directory destination,
+    String? backupPath,
+    Object installError,
+  ) async {
+    if (backupPath == null) return;
+    try {
+      if (destination.existsSync()) await destination.delete(recursive: true);
+      if (Directory(backupPath).existsSync()) {
+        await _rename(Directory(backupPath), destination.path);
+      }
+    } catch (restoreError) {
+      throw XcrossError(
+        'Failed to replace Compose Kotlin/Native cache at ${destination.path} and failed to restore the previous cache. '
+        'Previous cache backup preserved at $backupPath. '
+        'Install error: $installError. Restore error: $restoreError',
+      );
     }
   }
 
-  Future<void> _restoreBackup(Directory destination, String? backupPath) async {
-    if (backupPath == null) return;
-    if (destination.existsSync()) await destination.delete(recursive: true);
-    if (Directory(backupPath).existsSync()) {
-      await _rename(Directory(backupPath), destination.path);
+  Future<void> _deleteBackupContainer(Directory? backupContainer) async {
+    if (backupContainer != null && backupContainer.existsSync()) {
+      await backupContainer.delete(recursive: true);
     }
   }
 }

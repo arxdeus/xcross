@@ -29,7 +29,7 @@ abstract final class XcrossCli {
   static CommandRunner<void> buildRunner() =>
       XcrossRunner(
           'xcross',
-          'Build, run, and hot-reload Flutter iOS apps without Xcode.',
+          'Build and run Flutter and Compose Multiplatform iOS apps without Xcode.',
         )
         ..addCommand(FlutterCommand())
         ..addCommand(ComposeCommand())

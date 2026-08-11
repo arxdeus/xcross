@@ -17,6 +17,15 @@ void main() {
       expect(XcrossCli.buildRunner().commands.keys, contains('compose'));
     });
 
+    test('top-level description covers Flutter and Compose Multiplatform', () {
+      final runner = XcrossCli.buildRunner();
+
+      expect(runner.description, contains('Flutter'));
+      expect(runner.description, contains('Compose Multiplatform'));
+      expect(runner.usage, contains('compose'));
+      expect(runner.usage, contains('flutter'));
+    });
+
     test('groups build, run, and setup', () {
       expect(
         ComposeCommand().subcommands.keys,
