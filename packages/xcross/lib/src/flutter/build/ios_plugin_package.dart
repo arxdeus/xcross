@@ -5,6 +5,7 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/build/ios_plugins.dart';
 import 'package:xcross/src/flutter/build/macho_dylib_rewriter.dart';
 import 'package:xcross/src/flutter/constants.dart';
@@ -66,6 +67,7 @@ abstract final class GeneratedPluginsPackage {
     required List<IosPlugin> plugins,
     required String flutterXcframework,
     required String outputDir,
+    required IosDeploymentTarget deploymentTarget,
   }) =>
       Log.logStep('Building Flutter plugins (Swift Package Manager)', () async {
         final spmPlugins = plugins
@@ -82,6 +84,7 @@ abstract final class GeneratedPluginsPackage {
           outputDir: outputDir,
           plugins: spmPlugins,
           flutterXcframework: flutterXcframework,
+          deploymentTarget: deploymentTarget,
         );
 
         final pluginsDir = p.join(outputDir, 'Plugins');
@@ -381,6 +384,7 @@ abstract final class GeneratedPluginsPackage {
     required String outputDir,
     required List<IosPlugin> plugins,
     required String flutterXcframework,
+    required IosDeploymentTarget deploymentTarget,
     bool? copyFlutterXcframework,
   }) async {
     final packagesDir = p.join(outputDir, 'Packages');
@@ -406,6 +410,7 @@ abstract final class GeneratedPluginsPackage {
       frameworkDir: frameworkDir,
       plugins: plugins,
       pluginPackageDirs: pluginPackageDirs,
+      deploymentTarget: deploymentTarget,
     );
   }
 
@@ -437,6 +442,7 @@ abstract final class GeneratedPluginsPackage {
     required String frameworkDir,
     required List<IosPlugin> plugins,
     required Map<String, String> pluginPackageDirs,
+    required IosDeploymentTarget deploymentTarget,
   }) async {
     final sourcesDir = p.join(pluginsDir, 'Sources', _pluginsProductName);
     await Directory(sourcesDir).create(recursive: true);
@@ -446,6 +452,7 @@ abstract final class GeneratedPluginsPackage {
         plugins,
         frameworkDir,
         pluginPackageDirs: pluginPackageDirs,
+        deploymentTarget: deploymentTarget,
       ),
     );
 
@@ -480,6 +487,7 @@ let package = Package(
   static String pluginsManifest(
     List<IosPlugin> plugins,
     String frameworkDir, {
+    required IosDeploymentTarget deploymentTarget,
     Map<String, String>? pluginPackageDirs,
   }) {
     final dependencies = StringBuffer()
@@ -515,7 +523,7 @@ import PackageDescription
 let package = Package(
     name: "$_pluginsProductName",
     platforms: [
-        .iOS("${IosDeploymentConstants.minDeploymentTarget}")
+        .iOS("${deploymentTarget.version}")
     ],
     products: [
         .library(name: "$_pluginsProductName", type: .dynamic, targets: ["$_pluginsProductName"])

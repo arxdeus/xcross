@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/flutter/build/info_plist.dart';
+import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/constants.dart';
 
 const _minimalPlist =
@@ -54,6 +55,7 @@ BAZ = a=b
       final result = InfoPlist.applyIosRequiredKeys(
         _minimalPlist,
         bundleId: 'com.example.app',
+        deploymentTarget: const IosDeploymentTarget('15.6'),
       );
 
       expect(
@@ -77,7 +79,7 @@ BAZ = a=b
         result,
         contains(
           '<key>${IosDeploymentConstants.minimumOsVersionKey}</key>\n'
-          '\t<string>${IosDeploymentConstants.minDeploymentTarget}</string>',
+          '\t<string>15.6</string>',
         ),
       );
       expect(result, contains('<key>LSRequiresIPhoneOS</key>'));
@@ -102,6 +104,7 @@ BAZ = a=b
       final result = InfoPlist.applyIosRequiredKeys(
         plist,
         bundleId: 'com.example.app',
+        deploymentTarget: const IosDeploymentTarget('15.6'),
       );
 
       expect(
@@ -117,10 +120,12 @@ BAZ = a=b
       final once = InfoPlist.applyIosRequiredKeys(
         _minimalPlist,
         bundleId: 'com.example.app',
+        deploymentTarget: IosDeploymentTarget.fallback,
       );
       final twice = InfoPlist.applyIosRequiredKeys(
         once,
         bundleId: 'com.example.app',
+        deploymentTarget: IosDeploymentTarget.fallback,
       );
 
       expect('<key>UIDeviceFamily</key>'.allMatches(twice).length, 1);

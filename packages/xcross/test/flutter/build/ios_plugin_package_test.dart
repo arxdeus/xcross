@@ -4,9 +4,9 @@ import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/flutter/build/ios_plugins.dart';
-import 'package:xcross/src/flutter/constants.dart';
 import 'package:xcross/src/flutter/errors.dart';
 
 String swiftPath(String path) => p.absolute(path).replaceAll(r'\', '/');
@@ -75,16 +75,16 @@ let package = Package(
       final pluginB = makePlugin('plugin_b');
       final frameworkDir = p.join(tmp.path, 'FlutterFramework');
 
-      final manifest = GeneratedPluginsPackage.pluginsManifest([
-        pluginA,
-        pluginB,
-      ], frameworkDir);
+      const target = IosDeploymentTarget('15.6');
+      final manifest = GeneratedPluginsPackage.pluginsManifest(
+        [pluginA, pluginB],
+        frameworkDir,
+        deploymentTarget: target,
+      );
 
       expect(manifest, contains('name: "FlutterPluginsGenerated"'));
-      expect(
-        manifest,
-        contains('.iOS("${IosDeploymentConstants.minDeploymentTarget}")'),
-      );
+      expect(manifest, contains('.iOS("15.6")'));
+      expect(manifest, isNot(contains('.iOS("13.0")')));
       expect(
         manifest,
         contains(
@@ -115,9 +115,11 @@ let package = Package(
       final pluginA = makePlugin('plugin_a');
       final frameworkDir = p.join(tmp.path, 'FlutterFramework');
 
-      final manifest = GeneratedPluginsPackage.pluginsManifest([
-        pluginA,
-      ], frameworkDir);
+      final manifest = GeneratedPluginsPackage.pluginsManifest(
+        [pluginA],
+        frameworkDir,
+        deploymentTarget: IosDeploymentTarget.fallback,
+      );
 
       expect(manifest, isNot(contains(r'\')));
     });
@@ -251,6 +253,7 @@ let package = Package(
             plugins: [pluginA],
             flutterXcframework: flutterXcframework,
             copyFlutterXcframework: false,
+            deploymentTarget: const IosDeploymentTarget('15.6'),
           );
         } on FileSystemException {
           // A locked-down Windows host cannot create the link, but forcing
@@ -323,6 +326,7 @@ let package = Package(
         plugins: [plugin],
         flutterXcframework: flutterXcframework,
         copyFlutterXcframework: true,
+        deploymentTarget: IosDeploymentTarget.fallback,
       );
 
       expect(Link(copiedFramework).existsSync(), isFalse);
@@ -591,6 +595,7 @@ let package = Package(
           plugins: const [],
           flutterXcframework: p.join(tmp.path, 'Flutter.xcframework'),
           outputDir: outputDir,
+          deploymentTarget: IosDeploymentTarget.fallback,
         );
 
         expect(result, isNull);
@@ -614,6 +619,7 @@ let package = Package(
           plugins: [plugin],
           flutterXcframework: p.join(tmp.path, 'Flutter.xcframework'),
           outputDir: outputDir,
+          deploymentTarget: IosDeploymentTarget.fallback,
         );
 
         expect(result, isNull);

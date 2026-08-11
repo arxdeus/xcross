@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/internal/required_plist_key.dart';
+import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/constants.dart';
 
 /// Plist / xcconfig text manipulation for the generated app bundle.
@@ -54,6 +55,7 @@ abstract final class InfoPlist {
   static String applyIosRequiredKeys(
     String plistXml, {
     required String bundleId,
+    required IosDeploymentTarget deploymentTarget,
   }) {
     var xml = _setPlistKey(
       plistXml,
@@ -66,7 +68,7 @@ abstract final class InfoPlist {
       xml = _setPlistKey(
         xml,
         IosDeploymentConstants.minimumOsVersionKey,
-        IosDeploymentConstants.minDeploymentTarget,
+        deploymentTarget.version,
       );
     }
     for (final entry in _requiredKeys) {
