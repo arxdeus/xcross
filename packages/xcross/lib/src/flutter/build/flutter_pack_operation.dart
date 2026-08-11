@@ -4,15 +4,7 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/flutter_packer.dart';
 import 'package:xcross/src/flutter/build/ios_bundle_id.dart';
 import 'package:xcross/src/flutter/models/flutter/flutter_build_options.dart';
-
-/// The `.app` path and the iOS bundle identifier produced by
-/// [FlutterPackOperation.pack].
-final class PackResult {
-  const PackResult({required this.appPath, required this.bundleId});
-
-  final String appPath;
-  final String bundleId;
-}
+import 'package:xcross/src/models/pack_result.dart';
 
 /// Groups the Flutter iOS `.app` packing entrypoint.
 abstract final class FlutterPackOperation {
@@ -38,6 +30,6 @@ abstract final class FlutterPackOperation {
     if (bundleDir.existsSync()) await bundleDir.delete(recursive: true);
 
     final appPath = await packer.pack();
-    return PackResult(appPath: appPath, bundleId: bundleId);
+    return PackResult(outputPath: appPath, bundleId: bundleId);
   }
 }

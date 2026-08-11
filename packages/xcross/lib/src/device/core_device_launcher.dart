@@ -6,6 +6,7 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:pure/pure.dart';
 import 'package:xcross/src/constants.dart';
+import 'package:xcross/src/device/core_device_launch_profile.dart';
 import 'package:xcross/src/device/session_console.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/flutter/flutter.dart';
@@ -30,8 +31,7 @@ abstract final class CoreDeviceLauncher {
   static Future<void> launch({
     required String udid,
     required String bundleId,
-    List<String> arguments = const [],
-    HotReloadConfig? hotReload,
+    required CoreDeviceLaunchProfile profile,
   }) async {
     if (!await Pymd.ensureInstalled()) {
       throw XcrossError(
@@ -46,8 +46,8 @@ abstract final class CoreDeviceLauncher {
       await _runSession(
         transport: transport,
         bundleId: bundleId,
-        arguments: arguments,
-        hotReload: hotReload,
+        arguments: profile.argumentsForLaunch(isDap: _isDap),
+        hotReload: profile.hotReload,
       );
     } finally {
       try {
@@ -242,22 +242,7 @@ abstract final class CoreDeviceLauncher {
   static List<String> _buildAppArgs({
     required List<String> arguments,
     required HotReloadConfig? hotReload,
-  }) => [
-    // VM Service must bind IPv6-any (::): the RSD tunnel is IPv6, and `::`
-    // accepts IPv4-mapped peers too, so the usbmux relay path also reaches it.
-    if (hotReload != null) ...[
-      '--vm-service-host=::',
-      '--vm-service-port=${TunnelConstants.vmServicePort}',
-      '--disable-service-auth-codes',
-    ],
-    // DAP only: hold the root isolate at startup so the debug adapter can
-    // register breakpoints before main() runs, then resume it — the flag
-    // the reference Flutter adapter passes for the same reason. This is a
-    // VM-level pause, separate from the GDB process resume above; the
-    // interactive CLI has nothing that would resume it, so it stays off.
-    if (hotReload != null && _isDap) '--start-paused',
-    '--enable-checked-mode', '--verify-entry-points', ...arguments,
-  ];
+  }) => arguments;
 
   /// Launch the app suspended and return its device PID.
   static Future<int> _launchSuspended({
