@@ -458,6 +458,19 @@ let package = Package(
         arguments,
         containsAllInOrder([
           '-Xswiftc',
+          '-Xclang-linker',
+          '-Xswiftc',
+          '-isysroot',
+          '-Xswiftc',
+          '-Xclang-linker',
+          '-Xswiftc',
+          'iPhoneOS.sdk',
+        ]),
+      );
+      expect(
+        arguments,
+        containsAllInOrder([
+          '-Xswiftc',
           '-F',
           '-Xswiftc',
           'Flutter.xcframework/ios-arm64',

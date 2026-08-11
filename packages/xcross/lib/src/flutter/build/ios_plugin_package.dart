@@ -207,6 +207,16 @@ abstract final class GeneratedPluginsPackage {
     '-Xfrontend',
     '-Xswiftc',
     '-disable-availability-checking',
+    // Swift uses clang as its link driver. Pin that driver too, otherwise a
+    // macOS host reselects MacOSX.sdk while linking iOS plugin products.
+    '-Xswiftc',
+    '-Xclang-linker',
+    '-Xswiftc',
+    '-isysroot',
+    '-Xswiftc',
+    '-Xclang-linker',
+    '-Xswiftc',
+    iosSdk,
     // The link runs through the toolchain's own clang, which resolves
     // `-use-ld=lld` to the `ld64.lld` sitting next to itself — swiftly's, the
     // one that refuses iOS (see [resolveLd64Lld]). `--ld-path` overrides that
