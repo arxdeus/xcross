@@ -64,13 +64,11 @@ abstract final class InfoPlist {
     );
     xml = setBundleIdentifier(xml, bundleId);
     xml = _setPlistKey(xml, 'CFBundlePackageType', 'APPL');
-    if (!xml.contains(IosDeploymentConstants.minimumOsVersionKey)) {
-      xml = _setPlistKey(
-        xml,
-        IosDeploymentConstants.minimumOsVersionKey,
-        deploymentTarget.version,
-      );
-    }
+    xml = _setPlistKey(
+      xml,
+      IosDeploymentConstants.minimumOsVersionKey,
+      deploymentTarget.version,
+    );
     for (final entry in _requiredKeys) {
       if (xml.contains(entry.key)) continue;
       xml = _insertBeforeEnd(

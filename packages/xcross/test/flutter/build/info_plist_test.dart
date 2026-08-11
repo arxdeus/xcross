@@ -91,28 +91,32 @@ BAZ = a=b
       expect(result, contains('<key>DTPlatformVersion</key>'));
     });
 
-    test('does not overwrite an existing MinimumOSVersion value', () {
-      const plist =
-          '<?xml version="1.0"?>\n'
-          '<plist version="1.0">\n'
-          '<dict>\n'
-          '\t<key>MinimumOSVersion</key>\n'
-          '\t<string>15.5</string>\n'
-          '</dict>\n'
-          '</plist>\n';
+    test(
+      'overwrites an existing MinimumOSVersion value with resolved target',
+      () {
+        const plist =
+            '<?xml version="1.0"?>\n'
+            '<plist version="1.0">\n'
+            '<dict>\n'
+            '\t<key>MinimumOSVersion</key>\n'
+            '\t<string>15.5</string>\n'
+            '</dict>\n'
+            '</plist>\n';
 
-      final result = InfoPlist.applyIosRequiredKeys(
-        plist,
-        bundleId: 'com.example.app',
-        deploymentTarget: const IosDeploymentTarget('15.6'),
-      );
+        final result = InfoPlist.applyIosRequiredKeys(
+          plist,
+          bundleId: 'com.example.app',
+          deploymentTarget: const IosDeploymentTarget('15.6'),
+        );
 
-      expect(
-        result,
-        contains('<key>MinimumOSVersion</key>\n\t<string>15.5</string>'),
-      );
-      expect('<key>MinimumOSVersion</key>'.allMatches(result).length, 1);
-    });
+        expect(
+          result,
+          contains('<key>MinimumOSVersion</key>\n\t<string>15.6</string>'),
+        );
+        expect(result, isNot(contains('<string>15.5</string>')));
+        expect('<key>MinimumOSVersion</key>'.allMatches(result).length, 1);
+      },
+    );
 
     // Regression check: this runs on every build, so without the presence
     // guards in `_ensureKey` a rebuild would pile up duplicate <key> pairs.
