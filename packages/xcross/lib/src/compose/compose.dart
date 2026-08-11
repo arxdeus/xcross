@@ -1,7 +1,11 @@
+export 'build/compose_app_assembler.dart';
+export 'build/compose_info_plist.dart';
 export 'build/gradle_klib_builder.dart';
 export 'build/konan_configuration.dart';
 export 'build/kotlin_framework_builder.dart';
+export 'build/objc_runner_builder.dart';
 export 'build/process_invocation.dart';
+export 'build/swift_runner_builder.dart';
 export 'models/compose_build_options.dart';
 export 'project/ios_app_config.dart';
 export 'project/kmp_project.dart';

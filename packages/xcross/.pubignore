@@ -17,10 +17,12 @@ tool/
 coverage/
 doc/api/
 
-# Build output only; lib/src/build/ is source.
+# Build output only; lib/src/build/ and lib/src/compose/build/ are source.
 build/
 !lib/src/build/
 !**/lib/src/build/
+!lib/src/compose/build/
+!**/lib/src/compose/build/
 
 .DS_Store
 ._*
