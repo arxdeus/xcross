@@ -60,10 +60,20 @@ final class FlutterPacker {
       Log.logTrace('building flavor "${options.flavor}"');
     }
 
-    final appFramework = await _buildAppFramework(flutterRoot);
-    final pluginsBuild = await _buildPlugins(flutterRoot);
+    final deploymentTarget = IosDeploymentTarget.resolve(projectRoot);
+    Log.logTrace('iOS deployment target: ${deploymentTarget.version}');
+
+    final appFramework = await _buildAppFramework(
+      flutterRoot,
+      deploymentTarget: deploymentTarget,
+    );
+    final pluginsBuild = await _buildPlugins(
+      flutterRoot,
+      deploymentTarget: deploymentTarget,
+    );
     final runnerResult = await _buildRunnerBinary(
       flutterRoot,
+      deploymentTarget: deploymentTarget,
       pluginsLibrary: pluginsBuild?.libraryPath,
     );
 
@@ -72,6 +82,7 @@ final class FlutterPacker {
       xcframework: runnerResult.xcframework,
       runnerBinary: runnerResult.runnerBinary,
       pluginLibraries: pluginsBuild?.dylibPaths ?? const [],
+      deploymentTarget: deploymentTarget,
     );
   }
 
@@ -135,7 +146,10 @@ final class FlutterPacker {
 
   /// Build `App.framework` via [FlutterDebugBundler].
   /// Returns the framework directory path.
-  Future<String> _buildAppFramework(String flutterRoot) async {
+  Future<String> _buildAppFramework(
+    String flutterRoot, {
+    required IosDeploymentTarget deploymentTarget,
+  }) async {
     final assembleOut = p.join(projectRoot, 'build', 'xcross-flutter-debug');
     final assembleDir = Directory(assembleOut);
     if (assembleDir.existsSync()) await assembleDir.delete(recursive: true);
@@ -145,6 +159,7 @@ final class FlutterPacker {
       projectRoot: projectRoot,
       flutterRoot: flutterRoot,
       outputDir: assembleOut,
+      deploymentTarget: deploymentTarget,
       entrypoint: options.target,
       dartDefines: options.dartDefines,
       flavor: options.flavor,
@@ -158,7 +173,10 @@ final class FlutterPacker {
   /// plugins at all, or only CocoaPods-only ones xcross doesn't support (a
   /// warning is logged for those; matching Flutter's own tool, this doesn't
   /// fail the build).
-  Future<GeneratedPluginsBuildResult?> _buildPlugins(String flutterRoot) async {
+  Future<GeneratedPluginsBuildResult?> _buildPlugins(
+    String flutterRoot, {
+    required IosDeploymentTarget deploymentTarget,
+  }) async {
     final plugins = await PluginDiscovery.discover(projectRoot);
     final spmPlugins = <IosPlugin>[];
     for (final plugin in plugins) {
@@ -184,7 +202,7 @@ final class FlutterPacker {
       plugins: spmPlugins,
       flutterXcframework: xcframework,
       outputDir: p.join(projectRoot, 'build', 'xcross-flutter-plugins'),
-      deploymentTarget: IosDeploymentTarget.fallback,
+      deploymentTarget: deploymentTarget,
     );
   }
 
@@ -192,6 +210,7 @@ final class FlutterPacker {
   /// linked Runner binary path.
   Future<RunnerBinary> _buildRunnerBinary(
     String flutterRoot, {
+    required IosDeploymentTarget deploymentTarget,
     String? pluginsLibrary,
   }) async {
     final xcframework = IosEngineCache(
@@ -211,6 +230,7 @@ final class FlutterPacker {
       sdk: darwin,
       flutterXcframework: xcframework,
       outputDir: p.join(projectRoot, 'build', 'xcross-flutter-runner-bin'),
+      deploymentTarget: deploymentTarget,
       pluginsLibrary: pluginsLibrary,
     );
 
@@ -224,6 +244,7 @@ final class FlutterPacker {
     required String xcframework,
     required String runnerBinary,
     required List<String> pluginLibraries,
+    required IosDeploymentTarget deploymentTarget,
   }) async {
     // Stage in a temp dir so the destination is only touched once everything
     // is in place.
@@ -235,6 +256,7 @@ final class FlutterPacker {
       flutterFramework: p.join(xcframework, 'ios-arm64', 'Flutter.framework'),
       runnerBinary: runnerBinary,
       pluginLibraries: pluginLibraries,
+      deploymentTarget: deploymentTarget,
     );
 
     final dest = p.join(projectRoot, 'build', 'xcross-ios', '$appName.app');
@@ -257,6 +279,7 @@ final class FlutterPacker {
     required String flutterFramework,
     required String runnerBinary,
     required List<String> pluginLibraries,
+    required IosDeploymentTarget deploymentTarget,
   }) async {
     final frameworksDir = p.join(bundleDir, 'Frameworks');
     await Directory(frameworksDir).create(recursive: true);
@@ -273,7 +296,7 @@ final class FlutterPacker {
     await copyPluginLibraries(pluginLibraries, frameworksDir);
 
     await _copyOptionalRunnerResources(bundleDir);
-    await _writeInfoPlist(bundleDir);
+    await _writeInfoPlist(bundleDir, deploymentTarget: deploymentTarget);
   }
 
   /// Copies every SwiftPM-produced dylib into the app's Frameworks directory.
@@ -309,7 +332,10 @@ final class FlutterPacker {
   /// Generate and write `Info.plist` into [bundleDir] with `$(VAR)`
   /// substitution, mandatory iOS keys, storyboard stripping, and ObjC class
   /// name normalization.
-  Future<void> _writeInfoPlist(String bundleDir) async {
+  Future<void> _writeInfoPlist(
+    String bundleDir, {
+    required IosDeploymentTarget deploymentTarget,
+  }) async {
     var plistXml = await _loadPlistTemplate();
 
     // ORDER MATTERS: vars must be expanded before forcing keys so that forced
@@ -320,7 +346,7 @@ final class FlutterPacker {
     plistXml = InfoPlist.applyIosRequiredKeys(
       plistXml,
       bundleId: bundleId,
-      deploymentTarget: IosDeploymentTarget.fallback,
+      deploymentTarget: deploymentTarget,
     );
     plistXml = InfoPlist.stripUnsatisfiableStoryboards(plistXml, bundleDir);
     plistXml = InfoPlist.normalizeObjCClassNames(plistXml);

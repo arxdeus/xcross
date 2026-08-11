@@ -22,7 +22,7 @@ final class IosDeploymentTarget {
 
   String get buildTriple => 'arm64-apple-ios$version';
 
-  static IosDeploymentTarget resolve(String projectRoot) {
+  factory IosDeploymentTarget.resolve(String projectRoot) {
     final fromPbxproj = _deploymentTargetFromPbxproj(projectRoot);
     if (fromPbxproj != null) return IosDeploymentTarget(fromPbxproj);
 
