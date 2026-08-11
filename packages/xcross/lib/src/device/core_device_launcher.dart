@@ -107,7 +107,7 @@ abstract final class CoreDeviceLauncher {
     final pid = await _launchSuspended(
       transport: transport,
       bundleId: resolvedBundleId,
-      appArgs: _buildAppArgs(arguments: arguments, hotReload: hotReload),
+      appArgs: arguments,
     );
 
     final gdb = await _attachDebugger(endpoint: debugproxy, pid: pid);
@@ -236,13 +236,6 @@ abstract final class CoreDeviceLauncher {
           ..sort(compare((id) => id.length));
     return matches.isNotEmpty ? matches.first : requested;
   }
-
-  /// Build the launch-argument list, prepending VM Service and checked-mode
-  /// flags as required.
-  static List<String> _buildAppArgs({
-    required List<String> arguments,
-    required HotReloadConfig? hotReload,
-  }) => arguments;
 
   /// Launch the app suspended and return its device PID.
   static Future<int> _launchSuspended({
