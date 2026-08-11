@@ -205,6 +205,7 @@ let package = Package(
           plugins: [pluginA],
           flutterXcframework: flutterXcframework,
           copyFlutterXcframework: true,
+          deploymentTarget: const IosDeploymentTarget('15.6'),
         );
 
         final packagesDir = p.join(outputDir, 'Packages');
