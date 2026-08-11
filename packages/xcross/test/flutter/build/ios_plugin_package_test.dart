@@ -409,6 +409,7 @@ let package = Package(
         pluginsDir: 'plugins',
         scratchPath: 'scratch',
         swiftSdksPath: 'xcross-swift-sdks',
+        iosSdk: 'iPhoneOS.sdk',
         flutterFrameworkSlice: 'Flutter.xcframework/ios-arm64',
         toolsetPath: 'toolset.json',
         linkerPath: '/usr/bin/ld64.lld',
@@ -444,6 +445,14 @@ let package = Package(
           '--scratch-path',
           'scratch',
         ]),
+      );
+      expect(
+        arguments,
+        containsAllInOrder(['-Xswiftc', '-sdk', '-Xswiftc', 'iPhoneOS.sdk']),
+      );
+      expect(
+        arguments,
+        containsAllInOrder(['-Xcc', '-isysroot', '-Xcc', 'iPhoneOS.sdk']),
       );
       expect(
         arguments,

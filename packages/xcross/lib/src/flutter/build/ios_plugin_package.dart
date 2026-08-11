@@ -144,6 +144,7 @@ abstract final class GeneratedPluginsPackage {
         pluginsDir: pluginsDir,
         scratchPath: scratchPath,
         swiftSdksPath: p.dirname(sdk.swiftSdkPath),
+        iosSdk: sdk.iPhoneOSSdk(),
         flutterFrameworkSlice: flutterFrameworkSlice,
         toolsetPath: toolsetPath,
         // Windows gets the same override from the toolset's `linker`.
@@ -161,6 +162,7 @@ abstract final class GeneratedPluginsPackage {
     required String pluginsDir,
     required String scratchPath,
     required String swiftSdksPath,
+    required String iosSdk,
     required String flutterFrameworkSlice,
     String? toolsetPath,
     String? linkerPath,
@@ -185,6 +187,18 @@ abstract final class GeneratedPluginsPackage {
     if (toolsetPath != null) ...['--toolset', toolsetPath],
     '--scratch-path',
     scratchPath,
+    // On macOS, SwiftPM's host toolchain can override the Swift SDK bundle's
+    // sdkRootPath with the host MacOSX SDK. Pin the installed iPhoneOS SDK for
+    // Swift imports and every C/Objective-C target so UIKit and Foundation are
+    // resolved from the target platform on every host.
+    '-Xswiftc',
+    '-sdk',
+    '-Xswiftc',
+    iosSdk,
+    '-Xcc',
+    '-isysroot',
+    '-Xcc',
+    iosSdk,
     '-Xswiftc',
     '-F',
     '-Xswiftc',
