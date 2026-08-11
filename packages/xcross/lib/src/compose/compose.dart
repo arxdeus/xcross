@@ -1,4 +1,6 @@
 export 'build/gradle_klib_builder.dart';
+export 'build/konan_configuration.dart';
+export 'build/kotlin_framework_builder.dart';
 export 'build/process_invocation.dart';
 export 'models/compose_build_options.dart';
 export 'project/ios_app_config.dart';
