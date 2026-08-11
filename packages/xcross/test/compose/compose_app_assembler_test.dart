@@ -159,6 +159,101 @@ void main() {
       everyElement(isNot(anyOf(contains('.staging'), contains('.backup')))),
     );
   });
+
+  test(
+    'install rename failure restores previous app and removes backup container',
+    () async {
+      final fixture = _Fixture.create()..createInputs();
+      final previousApp = fixture.createPreviousApp();
+      var failedInstall = false;
+      addTearDown(fixture.dispose);
+
+      await expectLater(
+        ComposeAppAssembler.withSeams(
+          renameDirectory: (source, newPath) {
+            if (!failedInstall &&
+                newPath == previousApp &&
+                source.path != previousApp) {
+              failedInstall = true;
+              throw const FileSystemException('install failed');
+            }
+            return source.rename(newPath);
+          },
+        ).assemble(
+          project: fixture.project,
+          runnerPath: fixture.runnerPath,
+          frameworkPath: fixture.frameworkPath,
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+
+      expect(failedInstall, isTrue);
+      expect(
+        File(p.join(previousApp, 'Runner')).readAsStringSync(),
+        'old-runner',
+      );
+      expect(
+        fixture.outputDirNames(),
+        everyElement(isNot(contains('.backup'))),
+      );
+      expect(
+        fixture.outputDirNames(),
+        everyElement(isNot(contains('.staging'))),
+      );
+    },
+  );
+
+  test(
+    'restore failure preserves backup container and reports its path',
+    () async {
+      final fixture = _Fixture.create()..createInputs();
+      final previousApp = fixture.createPreviousApp();
+      var installFailed = false;
+      addTearDown(fixture.dispose);
+
+      await expectLater(
+        ComposeAppAssembler.withSeams(
+          renameDirectory: (source, newPath) {
+            if (newPath == previousApp && source.path != previousApp) {
+              if (!installFailed) {
+                installFailed = true;
+                throw const FileSystemException('install failed');
+              }
+              throw const FileSystemException('restore failed');
+            }
+            return source.rename(newPath);
+          },
+        ).assemble(
+          project: fixture.project,
+          runnerPath: fixture.runnerPath,
+          frameworkPath: fixture.frameworkPath,
+        ),
+        throwsA(
+          isA<XcrossError>().having(
+            (error) => error.toString(),
+            'message',
+            allOf(contains('restore failed'), contains('.backup')),
+          ),
+        ),
+      );
+
+      final backups = fixture.outputDirNames().where(
+        (name) => name.contains('.backup'),
+      );
+      expect(backups, hasLength(1));
+      final backupContainer = p.join(fixture.outputDir, backups.single);
+      expect(
+        File(
+          p.join(backupContainer, 'Example.app', 'Runner'),
+        ).readAsStringSync(),
+        'old-runner',
+      );
+      expect(
+        fixture.outputDirNames(),
+        everyElement(isNot(contains('.staging'))),
+      );
+    },
+  );
 }
 
 final class _Fixture {
@@ -175,6 +270,8 @@ final class _Fixture {
   final String root;
   final String runnerPath;
   final String frameworkPath;
+
+  String get outputDir => p.join(root, 'build', 'xcross-ios');
 
   KmpProject get project => KmpProject(
     root: root,
@@ -203,13 +300,17 @@ final class _Fixture {
   }
 
   String createPreviousApp() {
-    final appPath = p.join(root, 'build', 'xcross-ios', 'Example.app');
+    final appPath = p.join(outputDir, 'Example.app');
     Directory(appPath).createSync(recursive: true);
     File(p.join(appPath, 'Runner')).writeAsStringSync('old-runner');
     File(p.join(appPath, 'Info.plist')).writeAsStringSync('old-plist');
     File(p.join(appPath, 'old-only.txt')).writeAsStringSync('old');
     return appPath;
   }
+
+  Iterable<String> outputDirNames() => Directory(
+    outputDir,
+  ).listSync(followLinks: false).map((entity) => p.basename(entity.path));
 
   Future<void> dispose() async {
     if (temp.existsSync()) await temp.delete(recursive: true);

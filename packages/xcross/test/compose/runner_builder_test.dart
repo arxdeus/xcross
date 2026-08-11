@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -188,6 +187,56 @@ void main() {
     },
   );
 
+  for (final valid in _validMachOOutputs) {
+    test('ObjC runner accepts ${valid.name} 64-bit Mach-O magic', () async {
+      final fixture = _Fixture.create()..createSdk();
+      addTearDown(fixture.dispose);
+
+      final output =
+          await ObjcRunnerBuilder.withSeams(
+            runChecked: (executable, arguments, {workingDirectory}) async {
+              if (executable == fixture.toolchain.clang) {
+                File(p.join(fixture.objcBuildDir, 'main.o'))
+                  ..createSync(recursive: true)
+                  ..writeAsStringSync('object');
+              } else {
+                fixture.writeBytes(
+                  p.join(fixture.objcBuildDir, 'Runner'),
+                  valid.bytes,
+                );
+              }
+            },
+          ).build(
+            project: fixture.objcProject,
+            frameworkPath: fixture.frameworkPath,
+            toolchain: fixture.toolchain,
+          );
+
+      expect(output, p.join(fixture.objcBuildDir, 'Runner'));
+    });
+
+    test('Swift runner accepts ${valid.name} 64-bit Mach-O magic', () async {
+      final fixture = _Fixture.create()..createSdk();
+      addTearDown(fixture.dispose);
+
+      final output =
+          await SwiftRunnerBuilder.withSeams(
+            runChecked: (executable, arguments, {workingDirectory}) async {
+              fixture.writeBytes(
+                p.join(fixture.root, 'build', 'xcross-compose', 'Runner'),
+                valid.bytes,
+              );
+            },
+          ).build(
+            project: fixture.swiftProject,
+            frameworkPath: fixture.frameworkPath,
+            toolchain: fixture.toolchain,
+          );
+
+      expect(output, p.join(fixture.root, 'build', 'xcross-compose', 'Runner'));
+    });
+  }
+
   for (final invalid in _invalidMachOOutputs) {
     test('ObjC runner rejects ${invalid.name} Mach-O output', () async {
       final fixture = _Fixture.create()..createSdk();
@@ -239,10 +288,15 @@ void main() {
   }
 }
 
-const _invalidMachOOutputs = <_InvalidMachOOutput>[
-  _InvalidMachOOutput('empty', []),
-  _InvalidMachOOutput('4-byte', [0xfe, 0xed, 0xfa, 0xcf]),
-  _InvalidMachOOutput('truncated-header', [
+final _validMachOOutputs = <_MachOOutput>[
+  _MachOOutput('little-endian', _machoBytes([0xcf, 0xfa, 0xed, 0xfe])),
+  _MachOOutput('big-endian', _machoBytes([0xfe, 0xed, 0xfa, 0xcf])),
+];
+
+final _invalidMachOOutputs = <_MachOOutput>[
+  const _MachOOutput('empty', []),
+  const _MachOOutput('4-byte', [0xfe, 0xed, 0xfa, 0xcf]),
+  const _MachOOutput('truncated-header', [
     0xfe,
     0xed,
     0xfa,
@@ -260,11 +314,12 @@ const _invalidMachOOutputs = <_InvalidMachOOutput>[
     0,
     2,
   ]),
-  _InvalidMachOOutput('wrong-endian', [
-    0xcf,
-    0xfa,
-    0xed,
+  _MachOOutput('reversed-32-bit-magic', _machoBytes([0xce, 0xfa, 0xed, 0xfe])),
+  const _MachOOutput('invalid-magic', [
+    0xca,
     0xfe,
+    0xba,
+    0xbe,
     0,
     0,
     0,
@@ -296,8 +351,13 @@ const _invalidMachOOutputs = <_InvalidMachOOutput>[
   ]),
 ];
 
-final class _InvalidMachOOutput {
-  const _InvalidMachOOutput(this.name, this.bytes);
+List<int> _machoBytes(List<int> magic) => [
+  ...magic,
+  ...List<int>.filled(28, 0),
+];
+
+final class _MachOOutput {
+  const _MachOOutput(this.name, this.bytes);
 
   final String name;
   final List<int> bytes;
@@ -405,8 +465,7 @@ final class _Fixture {
   }
 
   void writeMachO(String path) {
-    final bytes = Uint8List(32)..buffer.asByteData().setUint32(0, 0xfeedfacf);
-    writeBytes(path, bytes);
+    writeBytes(path, _machoBytes([0xfe, 0xed, 0xfa, 0xcf]));
   }
 
   void writeBytes(String path, List<int> bytes) {

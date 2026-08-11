@@ -11,6 +11,9 @@ typedef ComposeCopyDirectory =
 
 typedef ComposeMakeExecutable = void Function(String path);
 
+typedef ComposeRenameDirectory =
+    Future<Directory> Function(Directory source, String newPath);
+
 abstract final class ComposeAppAssembler {
   static Future<String> assemble({
     required KmpProject project,
@@ -25,10 +28,15 @@ abstract final class ComposeAppAssembler {
   static ComposeAppAssemblerWithSeams withSeams({
     ComposeCopyDirectory copyDirectory = _copyDirectoryNoSymlinks,
     ComposeMakeExecutable makeExecutable = ProcessRunner.makeExecutable,
+    ComposeRenameDirectory renameDirectory = _renameDirectory,
   }) => ComposeAppAssemblerWithSeams(
     copyDirectory: copyDirectory,
     makeExecutable: makeExecutable,
+    renameDirectory: renameDirectory,
   );
+
+  static Future<Directory> _renameDirectory(Directory source, String newPath) =>
+      source.rename(newPath);
 
   static Future<void> _copyDirectoryNoSymlinks(
     Directory source,
@@ -52,11 +60,14 @@ final class ComposeAppAssemblerWithSeams {
   const ComposeAppAssemblerWithSeams({
     required ComposeCopyDirectory copyDirectory,
     required ComposeMakeExecutable makeExecutable,
+    required ComposeRenameDirectory renameDirectory,
   }) : _copyDirectory = copyDirectory,
-       _makeExecutable = makeExecutable;
+       _makeExecutable = makeExecutable,
+       _renameDirectory = renameDirectory;
 
   final ComposeCopyDirectory _copyDirectory;
   final ComposeMakeExecutable _makeExecutable;
+  final ComposeRenameDirectory _renameDirectory;
 
   Future<String> assemble({
     required KmpProject project,
@@ -79,58 +90,73 @@ final class ComposeAppAssemblerWithSeams {
     }
 
     final outputDir = p.join(project.root, 'build', 'xcross-ios');
+    final outputDirectory = Directory(outputDir);
     final appPath = p.join(outputDir, '${project.appName}.app');
-    await Directory(outputDir).create(recursive: true);
-    final unique = '${DateTime.now().microsecondsSinceEpoch}.$pid';
-    final stagingPath = p.join(
-      outputDir,
-      '.${project.appName}.app.staging.$unique',
+    await outputDirectory.create(recursive: true);
+
+    final stagingContainer = await outputDirectory.createTemp(
+      '.${project.appName}.staging.',
     );
-    final backupPath = p.join(
-      outputDir,
-      '.${project.appName}.app.backup.$unique',
-    );
-    final stagingDir = Directory(stagingPath);
-    final backupDir = Directory(backupPath);
-    var finalMovedToBackup = false;
+    Directory? backupContainer;
+    var preserveBackup = false;
+
+    final stagingApp = p.join(stagingContainer.path, '${project.appName}.app');
+    String? backupApp;
 
     try {
       await _buildStagedApp(
         project: project,
         runner: runner,
         framework: framework,
-        stagingPath: stagingPath,
+        stagingPath: stagingApp,
       );
-      _validateStagedApp(project: project, appPath: stagingPath);
+      _validateStagedApp(project: project, appPath: stagingApp);
 
       final finalDir = Directory(appPath);
       if (finalDir.existsSync()) {
-        await finalDir.rename(backupPath);
-        finalMovedToBackup = true;
+        backupContainer = await outputDirectory.createTemp(
+          '.${project.appName}.backup.',
+        );
+        backupApp = p.join(backupContainer.path, '${project.appName}.app');
+        await _renameDirectory(finalDir, backupApp);
+        preserveBackup = true;
       }
+
       try {
-        await stagingDir.rename(appPath);
-      } catch (_) {
-        if (finalMovedToBackup && backupDir.existsSync()) {
-          await backupDir.rename(appPath);
-          finalMovedToBackup = false;
+        await _renameDirectory(Directory(stagingApp), appPath);
+      } catch (installError) {
+        if (backupApp != null && Directory(backupApp).existsSync()) {
+          try {
+            await _renameDirectory(Directory(backupApp), appPath);
+            preserveBackup = false;
+            if (backupContainer!.existsSync()) {
+              await backupContainer.delete(recursive: true);
+            }
+          } catch (restoreError) {
+            throw XcrossError(
+              'Failed to install staged Compose app at $appPath and failed to restore previous app. '
+              'Previous app backup preserved at ${backupContainer!.path}. '
+              'Install error: $installError. Restore error: $restoreError',
+            );
+          }
         }
         rethrow;
       }
-      if (backupDir.existsSync()) await backupDir.delete(recursive: true);
-      finalMovedToBackup = false;
-      return appPath;
-    } catch (_) {
-      if (finalMovedToBackup &&
-          backupDir.existsSync() &&
-          !Directory(appPath).existsSync()) {
-        await backupDir.rename(appPath);
-        finalMovedToBackup = false;
+
+      preserveBackup = false;
+      if (backupContainer != null && backupContainer.existsSync()) {
+        await backupContainer.delete(recursive: true);
       }
-      rethrow;
+      return appPath;
     } finally {
-      if (stagingDir.existsSync()) await stagingDir.delete(recursive: true);
-      if (backupDir.existsSync()) await backupDir.delete(recursive: true);
+      if (stagingContainer.existsSync()) {
+        await stagingContainer.delete(recursive: true);
+      }
+      if (!preserveBackup &&
+          backupContainer != null &&
+          backupContainer.existsSync()) {
+        await backupContainer.delete(recursive: true);
+      }
     }
   }
 
