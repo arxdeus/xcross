@@ -13,6 +13,7 @@ import 'package:xcross/src/flutter/build/ios_engine_cache.dart';
 import 'package:xcross/src/flutter/constants.dart';
 import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/flutter/models/pubspec_info.dart';
+import 'package:xcross/src/package_config_resolver.dart';
 
 /// Assembles `App.framework` (debug/JIT mode) for a Flutter iOS app without
 /// invoking `xcrun` or `flutter_tools.snapshot assemble`.
@@ -105,17 +106,7 @@ final class FlutterDebugBundler {
     _validateKernelDependencies(compiler, engineCache);
 
     final outputDill = await _prepareKernelScratch();
-    final packageConfig = p.join(
-      projectRoot,
-      '.dart_tool',
-      'package_config.json',
-    );
-    if (!File(packageConfig).existsSync()) {
-      throw FlutterBuildError(
-        'FlutterDebugBundler: package_config.json missing at $packageConfig; '
-        'run `dart pub get` first.',
-      );
-    }
+    final packageConfig = await PackageConfigResolver.require(projectRoot);
 
     final args = _frontendServerArgs(
       compiler: compiler,

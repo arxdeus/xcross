@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/flutter_packer.dart';
 import 'package:xcross/src/flutter/build/ios_engine_cache.dart';
 import 'package:xcross/src/flutter/models/hot_reload_config.dart';
+import 'package:xcross/src/package_config_resolver.dart';
 
 /// Groups hot-reload configuration setup.
 abstract final class HotReloadSetup {
@@ -34,11 +35,7 @@ abstract final class HotReloadSetup {
     }
 
     final sdkRoot = engineCache.patchedSdkRoot;
-    final packageConfig = p.join(
-      projectRoot,
-      '.dart_tool',
-      'package_config.json',
-    );
+    final packageConfig = await PackageConfigResolver.require(projectRoot);
     final entrypoint = p.isAbsolute(target)
         ? target
         : p.join(projectRoot, target);

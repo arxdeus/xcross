@@ -15,6 +15,7 @@ import 'package:xcross/src/flutter/constants.dart';
 import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/flutter/models/flutter/flutter_build_options.dart';
 import 'package:xcross/src/flutter/models/pubspec_info.dart';
+import 'package:xcross/src/package_config_resolver.dart';
 
 /// Builds a Flutter iOS `.app` bundle using Dart and xcross's cross-platform
 /// toolchain. Does NOT call `xcrun`.
@@ -98,11 +99,6 @@ final class FlutterPacker {
   /// Run `flutter pub get`. Tolerates failures when `package_config.json`
   /// already exists (container builds with ephemeral pub caches).
   Future<void> _runFlutterPubGet(String flutterRoot) {
-    final packageConfig = p.join(
-      projectRoot,
-      '.dart_tool',
-      'package_config.json',
-    );
     return Log.logStep('Resolving dependencies', () async {
       try {
         await ProcessRunner.runChecked(
@@ -122,7 +118,8 @@ final class FlutterPacker {
           label: 'flutter',
         );
       } on FlutterBuildError {
-        final packageConfigExists = File(packageConfig).existsSync();
+        final packageConfig = await PackageConfigResolver.find(projectRoot);
+        final packageConfigExists = packageConfig != null;
         if (packageConfigExists) {
           Log.logWarn(
             'Ignoring flutter pub get error because '

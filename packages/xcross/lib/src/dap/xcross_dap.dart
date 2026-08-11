@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:pure/pure.dart';
 import 'package:vm_service/vm_service.dart' as vm;
 import 'package:xcross/src/constants.dart';
+import 'package:xcross/src/package_config_resolver.dart';
 
 /// Spawns `xcross flutter run` and drives it: keypresses on its stdin for
 /// hot reload/restart/quit, plus a Dart VM Service connection (via
@@ -125,9 +126,8 @@ final class XcrossDap
   }
 
   Future<void> _prepareUriMappings(String cwd) async {
-    _packageUris ??= await PackageUris.load(
-      p.join(cwd, '.dart_tool', 'package_config.json'),
-    );
+    final packageConfig = await PackageConfigResolver.require(cwd);
+    _packageUris ??= await PackageUris.load(packageConfig);
     orgDartlangSdkMappings.clear();
   }
 
