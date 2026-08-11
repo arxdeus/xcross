@@ -125,6 +125,28 @@ let package = Package(
     });
   });
 
+  group('normalizeLinkerFlags', () {
+    test('normalizes SwiftPM Wl linker flags', () {
+      expect(
+        GeneratedPluginsPackage.normalizeLinkerFlags(
+          '.unsafeFlags(["-Wl,-undefined,dynamic_lookup"])',
+        ),
+        '.unsafeFlags(["-Xlinker", "-undefined", "-Xlinker", '
+        '"dynamic_lookup"])',
+      );
+      expect(
+        GeneratedPluginsPackage.normalizeLinkerFlags(
+          '.unsafeFlags(["-O3", "-Wl,-rpath,@loader_path"])',
+        ),
+        '.unsafeFlags(["-O3", "-Xlinker", "-rpath", "-Xlinker", '
+        '"@loader_path"])',
+      );
+
+      const escaped = r'.unsafeFlags(["-Wl,-rpath,\"quoted\""])';
+      expect(GeneratedPluginsPackage.normalizeLinkerFlags(escaped), escaped);
+    });
+  });
+
   group('registrantSource', () {
     test(
       'imports both plugins but registers only the one with a pluginClass',

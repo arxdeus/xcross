@@ -480,6 +480,20 @@ let package = Package(
 )
 ''';
 
+  /// Rewrites Clang-style `-Wl,<argument>...` manifest tokens into the
+  /// equivalent arguments accepted by the Swift compiler driver.
+  @visibleForTesting
+  static String normalizeLinkerFlags(String manifest) =>
+      manifest.replaceAllMapped(RegExp(r'"-Wl,([^"\\]+)"'), (match) {
+        final arguments = match.group(1)!.split(',');
+        if (arguments.any((argument) => argument.isEmpty)) {
+          return match.group(0)!;
+        }
+        return [
+          for (final argument in arguments) ...['"-Xlinker"', '"$argument"'],
+        ].join(', ');
+      });
+
   /// `Plugins/Package.swift` contents — aggregates every plugin's SPM package
   /// into one dynamic library product depending on [frameworkDir]'s
   /// `FlutterFramework` package plus every entry in [plugins].
