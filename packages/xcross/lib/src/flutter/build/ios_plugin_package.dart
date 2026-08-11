@@ -596,22 +596,18 @@ $targetDependencies            ]
 ''';
   }
 
-  /// `GeneratedPluginRegistrant.swift` contents — imports every plugin and
-  /// registers each one that has a non-null `pluginClassIos`. Plugins with no
-  /// `pluginClassIos` (facade/pure-Dart/FFI-only packages) are imported but
-  /// silently skipped in the registration body, since they have nothing to
-  /// register.
+  /// `GeneratedPluginRegistrant.swift` contents — imports and registers each
+  /// plugin that has a non-null `pluginClassIos`. Plugins with no class
+  /// (facade/pure-Dart/FFI-only packages) remain SwiftPM target dependencies,
+  /// but need no module import or registration call.
   @visibleForTesting
   static String registrantSource(List<IosPlugin> plugins) {
     final imports = StringBuffer();
-    for (final plugin in plugins) {
-      imports.writeln('import ${plugin.name}');
-    }
-
     final registrations = StringBuffer();
     for (final plugin in plugins) {
       final pluginClass = plugin.pluginClassIos;
       if (pluginClass == null) continue;
+      imports.writeln('import ${plugin.name}');
       registrations.writeln('''
     if let registrar = registry.registrar(forPlugin: "$pluginClass") {
         $pluginClass.register(with: registrar)

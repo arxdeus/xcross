@@ -148,31 +148,26 @@ let package = Package(
   });
 
   group('registrantSource', () {
-    test(
-      'imports both plugins but registers only the one with a pluginClass',
-      () {
-        final pluginA = makePlugin('plugin_a', pluginClass: 'PluginA');
-        final pluginB = makePlugin('plugin_b');
+    test('imports and registers only the plugin with a pluginClass', () {
+      final pluginA = makePlugin('plugin_a', pluginClass: 'PluginA');
+      final pluginB = makePlugin('plugin_b');
 
-        final source = GeneratedPluginsPackage.registrantSource([
-          pluginA,
-          pluginB,
-        ]);
+      final source = GeneratedPluginsPackage.registrantSource([
+        pluginA,
+        pluginB,
+      ]);
 
-        expect(source, contains('import plugin_a'));
-        expect(source, contains('import plugin_b'));
-        expect(
-          source,
-          contains(
-            'if let registrar = registry.registrar(forPlugin: "PluginA")',
-          ),
-        );
-        expect(source, contains('PluginA.register(with: registrar)'));
-        // Exactly one registration block: only plugin_a has a pluginClass.
-        expect('if let registrar'.allMatches(source).length, 1);
-        expect(source, contains('@_cdecl("XcrossRegisterGeneratedPlugins")'));
-      },
-    );
+      expect(source, contains('import plugin_a'));
+      expect(source, isNot(contains('import plugin_b')));
+      expect(
+        source,
+        contains('if let registrar = registry.registrar(forPlugin: "PluginA")'),
+      );
+      expect(source, contains('PluginA.register(with: registrar)'));
+      // Exactly one registration block: only plugin_a has a pluginClass.
+      expect('if let registrar'.allMatches(source).length, 1);
+      expect(source, contains('@_cdecl("XcrossRegisterGeneratedPlugins")'));
+    });
 
     test(
       'emits a function with an empty body when no plugin has a pluginClass',
@@ -181,7 +176,7 @@ let package = Package(
 
         final source = GeneratedPluginsPackage.registrantSource([pluginA]);
 
-        expect(source, contains('import plugin_a'));
+        expect(source, isNot(contains('import plugin_a')));
         expect(source, isNot(contains('if let registrar')));
         expect(
           source,
