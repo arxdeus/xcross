@@ -1987,42 +1987,15 @@ let package = Package(
           if (p.isWithin(target, nested)) await materialize(nested);
         }
       }
-      if (Platform.isWindows) {
-        final result = await Process.run('attrib', ['-R', link]);
-        if (result.exitCode != 0) {
-          throw FileSystemException(
-            'Could not clear read-only checkout placeholder: ${result.stderr}',
-            link,
-          );
-        }
-      }
-      await _deleteEntity(link);
+      // Re-materializing an already-correct placeholder would refresh its
+      // timestamp and rebuild every dependent, so each shape is checked
+      // before it is rewritten.
       if (Directory(target).existsSync()) {
+        await _clearPlaceholderAttributes(link);
+        await _deleteUnless(link, FileSystemEntityType.directory);
         await _syncDirectory(target, link);
       } else if (File(target).existsSync()) {
-        if (Platform.isWindows) {
-          final forwarder = _headerForwarder(link, target);
-          if (forwarder != null) {
-            await File(link).writeAsString(forwarder);
-          } else {
-            final result = await Process.run('cmd.exe', [
-              '/d',
-              '/c',
-              'mklink',
-              '/H',
-              link,
-              target,
-            ]);
-            if (result.exitCode != 0) {
-              throw FileSystemException(
-                'Could not create hard link: ${result.stderr}',
-                link,
-              );
-            }
-          }
-        } else {
-          await File(target).copy(link);
-        }
+        await _materializeFileLink(link, target);
       } else {
         throw FlutterBuildError(
           'Symlink target does not exist in SwiftPM checkout: $link -> $target',
@@ -2055,6 +2028,61 @@ let package = Package(
     }
     final relative = p.relative(target, from: p.dirname(link));
     return '#include "${relative.replaceAll(r'\', '/')}"\n';
+  }
+
+  /// Replaces a file placeholder with its materialized form: a forwarding
+  /// header, a hard link on Windows, or a plain copy elsewhere. A
+  /// placeholder whose content already matches is left untouched.
+  static Future<void> _materializeFileLink(String link, String target) async {
+    if (!Platform.isWindows) {
+      await _syncFile(File(target), link);
+      return;
+    }
+    final forwarder = _headerForwarder(link, target);
+    final expected = forwarder != null
+        ? utf8.encode(forwarder)
+        : await File(target).readAsBytes();
+    final existing = File(link);
+    if (existing.existsSync() &&
+        _sameBytes(await existing.readAsBytes(), expected)) {
+      return;
+    }
+    await _clearPlaceholderAttributes(link);
+    await _deleteEntity(link);
+    if (forwarder != null) {
+      await existing.writeAsString(forwarder);
+      return;
+    }
+    final result = await Process.run('cmd.exe', [
+      '/d',
+      '/c',
+      'mklink',
+      '/H',
+      link,
+      target,
+    ]);
+    if (result.exitCode != 0) {
+      throw FileSystemException(
+        'Could not create hard link: ${result.stderr}',
+        link,
+      );
+    }
+  }
+
+  /// Git for Windows checks out symlink placeholders read-only.
+  static Future<void> _clearPlaceholderAttributes(String path) async {
+    if (!Platform.isWindows) return;
+    if (FileSystemEntity.typeSync(path, followLinks: false) ==
+        FileSystemEntityType.notFound) {
+      return;
+    }
+    final result = await Process.run('attrib', ['-R', path]);
+    if (result.exitCode != 0) {
+      throw FileSystemException(
+        'Could not clear read-only checkout placeholder: ${result.stderr}',
+        path,
+      );
+    }
   }
 
   static Future<void> _cloneGitPackage(
