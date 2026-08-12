@@ -141,22 +141,84 @@ abstract final class GeneratedPluginsPackage {
           ? await DarwinSdk.resolveDarwinClang(sdk, name: 'clang++')
           : null,
     );
+    final swiftSdksPath = p.dirname(sdk.swiftSdkPath);
+    final environment = swiftProcessEnvironment(windows: Platform.isWindows);
+    if (Platform.isWindows) {
+      await ProcessRunner.runChecked(
+        swift,
+        swiftResolveArguments(
+          pluginsDir: pluginsDir,
+          scratchPath: scratchPath,
+          swiftSdksPath: swiftSdksPath,
+          toolsetPath: toolsetPath,
+        ),
+        environment: environment,
+        inheritStdio: Log.isVerbose,
+        label: 'swift package resolve',
+      );
+      await materializeCheckoutSymlinks(scratchPath);
+      for (final root in [
+        p.join(outputDir, 'Packages'),
+        p.join(outputDir, 'Vendor'),
+        p.join(scratchPath, 'checkouts'),
+      ]) {
+        await normalizeHostSwiftTree(root);
+      }
+    }
     await ProcessRunner.runChecked(
       swift,
       swiftBuildArguments(
         pluginsDir: pluginsDir,
         scratchPath: scratchPath,
-        swiftSdksPath: p.dirname(sdk.swiftSdkPath),
+        swiftSdksPath: swiftSdksPath,
         iosSdk: sdk.iPhoneOSSdk(),
         flutterFrameworkSlice: flutterFrameworkSlice,
         toolsetPath: toolsetPath,
         // Windows gets the same override from the toolset's `linker`.
         linkerPath: Platform.isWindows ? null : linker,
+        windows: Platform.isWindows,
       ),
+      environment: environment,
       inheritStdio: Log.isVerbose,
       label: 'swift build',
     );
   }
+
+  /// Process-local settings for Windows SwiftPM dependency checkout and
+  /// sentry-cocoa's source-build manifest lane.
+  @visibleForTesting
+  static Map<String, String>? swiftProcessEnvironment({bool? windows}) {
+    if (!(windows ?? Platform.isWindows)) return null;
+    return const {
+      'GIT_CONFIG_COUNT': '1',
+      'GIT_CONFIG_KEY_0': 'core.symlinks',
+      'GIT_CONFIG_VALUE_0': 'false',
+      'EXPERIMENTAL_SPM_BUILDS': '1',
+    };
+  }
+
+  /// Resolves Windows dependencies before tracked symlink placeholders are
+  /// materialized and automatic resolution is disabled for the build.
+  @visibleForTesting
+  static List<String> swiftResolveArguments({
+    required String pluginsDir,
+    required String scratchPath,
+    required String swiftSdksPath,
+    required String toolsetPath,
+  }) => [
+    'package',
+    '--package-path',
+    pluginsDir,
+    '--scratch-path',
+    scratchPath,
+    '--swift-sdks-path',
+    swiftSdksPath,
+    '--swift-sdk',
+    'arm64-apple-ios',
+    '--toolset',
+    toolsetPath,
+    'resolve',
+  ];
 
   /// Arguments shared by Linux and Windows SwiftPM builds. SDK-owned compiler
   /// flags stay in SDK metadata; only package-specific flags belong here.
@@ -169,6 +231,7 @@ abstract final class GeneratedPluginsPackage {
     required String flutterFrameworkSlice,
     String? toolsetPath,
     String? linkerPath,
+    bool? windows,
   }) => [
     'build',
     '--package-path',
@@ -190,6 +253,7 @@ abstract final class GeneratedPluginsPackage {
     if (toolsetPath != null) ...['--toolset', toolsetPath],
     '--scratch-path',
     scratchPath,
+    if (windows ?? Platform.isWindows) '--disable-automatic-resolution',
     // On macOS, SwiftPM's host toolchain can override the Swift SDK bundle's
     // sdkRootPath with the host MacOSX SDK. Pin the installed iPhoneOS SDK for
     // Swift imports and every C/Objective-C target so UIKit and Foundation are
@@ -379,6 +443,12 @@ abstract final class GeneratedPluginsPackage {
   /// registrant source, and the `Flutter.xcframework` link/copy) under
   /// [outputDir], without invoking `swift build`. Split out from [build] so
   /// the file-synthesis logic is testable without a Swift toolchain.
+  ///
+  /// When [vendorRemotePackages] is true (default on Windows), every
+  /// `.package(url:)` dependency in a plugin manifest is cloned under
+  /// `outputDir/Vendor/`, host-normalized, and rewritten to a `.package(path:)`
+  /// so SwiftPM never host-evaluates broken remote manifests (e.g. sentry-cocoa
+  /// `getenv` via removed `MSVCRT`).
   @visibleForTesting
   static Future<void> writeGeneratedPackages({
     required String outputDir,
@@ -386,28 +456,30 @@ abstract final class GeneratedPluginsPackage {
     required String flutterXcframework,
     required IosDeploymentTarget deploymentTarget,
     bool? copyFlutterXcframework,
+    bool? vendorRemotePackages,
   }) async {
     final packagesDir = p.join(outputDir, 'Packages');
     final frameworkDir = p.join(packagesDir, _flutterFrameworkPackageName);
     final pluginsDir = p.join(outputDir, 'Plugins');
+    final vendorDir = p.join(outputDir, 'Vendor');
+    final shouldVendor = vendorRemotePackages ?? Platform.isWindows;
 
     await Directory(packagesDir).create(recursive: true);
-
-    final pluginPackageDirs = <String, String>{};
-    for (final plugin in plugins) {
-      final packageAlias = p.join(packagesDir, plugin.name);
-      await _stagePluginPackage(
-        alias: packageAlias,
-        target: plugin.swiftPackageDir,
-      );
-      pluginPackageDirs[plugin.name] = packageAlias;
-    }
-
     await _writeFlutterFrameworkPackage(
       frameworkDir: frameworkDir,
       flutterXcframework: flutterXcframework,
       copyFlutterXcframework: copyFlutterXcframework ?? Platform.isWindows,
     );
+
+    final pluginPackageDirs = <String, String>{};
+    for (final plugin in plugins) {
+      final packageAlias = p.join(packagesDir, plugin.name);
+      pluginPackageDirs[plugin.name] = await _stagePluginPackage(
+        alias: packageAlias,
+        target: plugin.swiftPackageDir,
+        vendorDir: shouldVendor ? vendorDir : null,
+      );
+    }
     await _writePluginsPackage(
       pluginsDir: pluginsDir,
       frameworkDir: frameworkDir,
@@ -417,40 +489,127 @@ abstract final class GeneratedPluginsPackage {
     );
   }
 
-  /// Stages [target] at [alias], using a shallow overlay only when its Swift
-  /// manifest contains linker flags that the Swift driver cannot consume.
-  static Future<void> _stagePluginPackage({
+  /// Stages [target] at [alias], using a shallow overlay when the Swift
+  /// manifest needs host fixes (linker flags, Windows CRT imports) or when
+  /// remote URL dependencies are vendored to path deps.
+  static Future<String> _stagePluginPackage({
     required String alias,
     required String target,
+    String? vendorDir,
   }) async {
-    final manifest = await File(p.join(target, 'Package.swift')).readAsString();
-    final normalizedManifest = normalizeLinkerFlags(manifest);
-    if (normalizedManifest == manifest) {
-      await _createDirectoryAlias(alias, target);
-      return;
+    var stagedPackage = alias;
+    if (vendorDir != null) {
+      await _deleteEntity(alias);
+      final packageRoot = p.dirname(p.dirname(target));
+      await _stageAncestorOverlay(
+        sourceRoot: packageRoot,
+        destinationRoot: alias,
+        packageName: p.basename(target),
+      );
+      await _createDirectoryAlias(
+        p.join(alias, 'ios', _flutterFrameworkPackageName),
+        p.join(p.dirname(alias), _flutterFrameworkPackageName),
+      );
+      stagedPackage = p.join(alias, 'ios', p.basename(target));
     }
 
-    await _deleteEntity(alias);
-    await Directory(alias).create(recursive: true);
+    final manifest = await File(p.join(target, 'Package.swift')).readAsString();
+    var normalizedManifest = normalizeHostManifest(manifest);
+    if (vendorDir != null) {
+      normalizedManifest = await vendorUrlPackagesAsPathDeps(
+        normalizedManifest,
+        vendorDir: vendorDir,
+      );
+    }
+    if (normalizedManifest == manifest) {
+      if (vendorDir == null) {
+        await _createDirectoryAlias(stagedPackage, target);
+      } else {
+        await _deleteEntity(stagedPackage);
+        await _copyDirectory(target, stagedPackage);
+      }
+      return stagedPackage;
+    }
+
+    await _deleteEntity(stagedPackage);
+    await Directory(stagedPackage).create(recursive: true);
     await File(
-      p.join(alias, 'Package.swift'),
+      p.join(stagedPackage, 'Package.swift'),
     ).writeAsString(normalizedManifest);
 
     await for (final entity in Directory(target).list(followLinks: false)) {
+      if (p.basename(entity.path) == 'Package.swift') continue;
+      await _stageEntity(
+        entity,
+        p.join(stagedPackage, p.basename(entity.path)),
+        copyDirectories: vendorDir != null,
+      );
+    }
+    return stagedPackage;
+  }
+
+  static Future<void> _stageAncestorOverlay({
+    required String sourceRoot,
+    required String destinationRoot,
+    required String packageName,
+  }) async {
+    await Directory(p.join(destinationRoot, 'ios')).create(recursive: true);
+    await for (final entity in Directory(sourceRoot).list(followLinks: false)) {
       final name = p.basename(entity.path);
-      if (name == 'Package.swift') continue;
-      final destination = p.join(alias, name);
-      if (entity is Directory) {
+      if (name == 'ios') continue;
+      await _stageEntity(
+        entity,
+        p.join(destinationRoot, name),
+        copyDirectories: true,
+        excludedSourcePath: destinationRoot,
+      );
+    }
+    await for (final entity in Directory(
+      p.join(sourceRoot, 'ios'),
+    ).list(followLinks: false)) {
+      final name = p.basename(entity.path);
+      if (name == packageName || name == _flutterFrameworkPackageName) continue;
+      await _stageEntity(
+        entity,
+        p.join(destinationRoot, 'ios', name),
+        copyDirectories: true,
+        excludedSourcePath: destinationRoot,
+      );
+    }
+  }
+
+  static Future<void> _stageEntity(
+    FileSystemEntity entity,
+    String destination, {
+    required bool copyDirectories,
+    String? excludedSourcePath,
+  }) async {
+    if (entity is Directory) {
+      if (copyDirectories) {
+        await _copyDirectory(
+          entity.path,
+          destination,
+          excludedSourcePath: excludedSourcePath,
+        );
+      } else {
         await _createDirectoryAlias(destination, entity.path);
-      } else if (entity is File) {
-        await entity.copy(destination);
-      } else if (entity is Link) {
-        final resolved = entity.resolveSymbolicLinksSync();
-        if (Directory(resolved).existsSync()) {
-          await _createDirectoryAlias(destination, resolved);
+      }
+    } else if (entity is File) {
+      await entity.copy(destination);
+    } else if (entity is Link) {
+      final resolved = entity.resolveSymbolicLinksSync();
+      if (Directory(resolved).existsSync()) {
+        if (copyDirectories) {
+          await _copyDirectory(
+            resolved,
+            destination,
+            excludedSourcePath: excludedSourcePath,
+          );
         } else {
-          await File(resolved).copy(destination);
+          await _createDirectoryAlias(destination, resolved);
         }
+      } else {
+        await File(resolved).copy(destination);
       }
     }
   }
@@ -534,6 +693,620 @@ let package = Package(
           for (final argument in arguments) ...['"-Xlinker"', '"$argument"'],
         ].join(', ');
       });
+
+  /// Host-side Package.swift fixes for cross builds.
+  ///
+  /// Includes [normalizeLinkerFlags], plus Windows Swift 6+ CRT imports so
+  /// manifests that call `getenv` via removed `MSVCRT` (notably sentry-cocoa)
+  /// still compile on the host, and drops the Foundation-only
+  /// `String(cString:encoding:)` overload that manifests cannot use.
+  @visibleForTesting
+  static String normalizeHostManifest(String manifest) {
+    var result = normalizeLinkerFlags(manifest);
+    // sentry-cocoa and similar: Darwin/Glibc/MSVCRT — MSVCRT was replaced by
+    // CRT on Windows Swift 6 (https://github.com/apple/swift/pull/34299).
+    final beforeCrtNormalization = result;
+    result = result.replaceAllMapped(
+      RegExp(r'#elseif\s+canImport\(MSVCRT\)\r?\nimport MSVCRT'),
+      (match) {
+        final prefix = beforeCrtNormalization.substring(0, match.start);
+        if (prefix.endsWith(
+          '#elseif canImport(CRT)\n'
+          'import CRT\n'
+          '#elseif canImport(ucrt)\n'
+          'import ucrt\n',
+        )) {
+          return match.group(0)!;
+        }
+        return '#elseif canImport(CRT)\n'
+            'import CRT\n'
+            '#elseif canImport(ucrt)\n'
+            'import ucrt\n'
+            '#elseif canImport(MSVCRT)\n'
+            'import MSVCRT';
+      },
+    );
+    // Package manifests cannot import Foundation; stdlib String(cString:)
+    // already decodes UTF-8 (getsentry/sentry-cocoa#7797).
+    result = result.replaceAllMapped(
+      RegExp(r'String\(cString:\s*([^,]+),\s*encoding:\s*\.utf8\)'),
+      (match) => 'String(cString: ${match[1]})',
+    );
+    if (result.contains('EXPERIMENTAL_SPM_BUILDS') &&
+        result.contains('SentrySPM') &&
+        !result.contains('products.removeAll()')) {
+      final blockStart = result.lastIndexOf('{', result.indexOf('SentrySPM'));
+      if (blockStart >= 0) {
+        result = result.replaceRange(
+          blockStart + 1,
+          blockStart + 1,
+          '\n    products.removeAll()\n    targets.removeAll()',
+        );
+      }
+    }
+    return result;
+  }
+
+  /// Blanks Apple preview declarations while preserving source line endings.
+  @visibleForTesting
+  static String normalizeHostSwiftSource(String source) {
+    final code = _swiftCodeMask(source);
+    final blank = List<bool>.filled(source.length, false);
+    var searchFrom = 0;
+    while (true) {
+      final preview = source.indexOf('#Preview', searchFrom);
+      if (preview < 0) break;
+      searchFrom = preview + '#Preview'.length;
+      if (!code[preview] ||
+          !_allCode(code, preview, searchFrom) ||
+          (searchFrom < source.length &&
+              RegExp('[A-Za-z0-9_]').hasMatch(source[searchFrom]))) {
+        continue;
+      }
+
+      final stack = <String>[];
+      var closureFound = false;
+      var end = -1;
+      for (var i = searchFrom; i < source.length; i++) {
+        if (!code[i]) continue;
+        final character = source[i];
+        if ('([{'.contains(character)) {
+          if (character == '{' && stack.isEmpty) closureFound = true;
+          stack.add(character);
+        } else if (')]}'.contains(character)) {
+          if (stack.isEmpty ||
+              !_matchingDelimiters(stack.removeLast(), character)) {
+            throw FlutterBuildError(
+              'Could not safely disable Swift #Preview declaration.',
+            );
+          }
+          if (closureFound && stack.isEmpty) {
+            end = i + 1;
+            break;
+          }
+        }
+      }
+      if (!closureFound || end < 0) {
+        throw FlutterBuildError(
+          'Could not safely disable Swift #Preview declaration.',
+        );
+      }
+
+      var start =
+          (preview == 0 ? -1 : source.lastIndexOf('\n', preview - 1)) + 1;
+      while (start > 0) {
+        final previousStart =
+            (start < 2 ? -1 : source.lastIndexOf('\n', start - 2)) + 1;
+        final line = source.substring(previousStart, start).trim();
+        if (!RegExp(r'^@[A-Za-z_][\w.]*\s*(?:\(.*\))?$').hasMatch(line)) {
+          break;
+        }
+        start = previousStart;
+      }
+      for (var i = start; i < end; i++) {
+        if (source.codeUnitAt(i) != 10 && source.codeUnitAt(i) != 13) {
+          blank[i] = true;
+        }
+      }
+      searchFrom = end;
+    }
+
+    if (!blank.contains(true)) return source;
+    final units = source.codeUnits;
+    return String.fromCharCodes([
+      for (var i = 0; i < units.length; i++)
+        if (blank[i]) 32 else units[i],
+    ]);
+  }
+
+  /// Normalizes regular Swift source files below [root] without following
+  /// links. Every source is analyzed before any file is changed.
+  @visibleForTesting
+  static Future<void> normalizeHostSwiftTree(String root) async {
+    if (FileSystemEntity.typeSync(root, followLinks: false) !=
+        FileSystemEntityType.directory) {
+      return;
+    }
+    final files = <File>[];
+
+    Future<void> collect(String directory) async {
+      await for (final entity in Directory(
+        directory,
+      ).list(followLinks: false)) {
+        final type = FileSystemEntity.typeSync(entity.path, followLinks: false);
+        if (type == FileSystemEntityType.directory) {
+          await collect(entity.path);
+        } else if (type == FileSystemEntityType.file &&
+            p.extension(entity.path) == '.swift') {
+          final name = p.basename(entity.path);
+          if (name != 'Package.swift' &&
+              !(name.startsWith('Package@') && name.endsWith('.swift'))) {
+            files.add(File(entity.path));
+          }
+        }
+      }
+    }
+
+    await collect(root);
+    final changes = <File, String>{};
+    for (final file in files) {
+      final original = await file.readAsString();
+      final normalized = normalizeHostSwiftSource(original);
+      if (normalized != original) changes[file] = normalized;
+    }
+    for (final change in changes.entries) {
+      await change.key.writeAsString(change.value);
+    }
+  }
+
+  static List<bool> _swiftCodeMask(String source) {
+    final code = List<bool>.filled(source.length, true);
+    var i = 0;
+    while (i < source.length) {
+      if (source.startsWith('//', i)) {
+        final end = source.indexOf('\n', i + 2);
+        final limit = end < 0 ? source.length : end;
+        for (; i < limit; i++) {
+          code[i] = false;
+        }
+        continue;
+      }
+      if (source.startsWith('/*', i)) {
+        var depth = 0;
+        do {
+          if (source.startsWith('/*', i)) {
+            depth++;
+            code[i++] = false;
+            if (i < source.length) code[i++] = false;
+          } else if (source.startsWith('*/', i)) {
+            depth--;
+            code[i++] = false;
+            if (i < source.length) code[i++] = false;
+          } else {
+            code[i++] = false;
+          }
+        } while (i < source.length && depth > 0);
+        continue;
+      }
+
+      var hashes = 0;
+      while (i + hashes < source.length && source[i + hashes] == '#') {
+        hashes++;
+      }
+      final quote = i + hashes;
+      if (quote < source.length &&
+          source[quote] == '"' &&
+          (hashes == 0 || quote > i)) {
+        final quotes = source.startsWith('"""', quote) ? 3 : 1;
+        final delimiter =
+            '${quotes == 3 ? '"""' : '"'}${List.filled(hashes, '#').join()}';
+        var cursor = quote + quotes;
+        while (cursor < source.length) {
+          if (source.startsWith(delimiter, cursor)) {
+            cursor += delimiter.length;
+            break;
+          }
+          if (hashes == 0 && source[cursor] == r'\') {
+            cursor += 2;
+          } else {
+            cursor++;
+          }
+        }
+        final end = cursor.clamp(0, source.length);
+        for (var j = i; j < end; j++) {
+          code[j] = false;
+        }
+        i = end;
+        continue;
+      }
+      i++;
+    }
+    return code;
+  }
+
+  static bool _allCode(List<bool> code, int start, int end) {
+    for (var i = start; i < end; i++) {
+      if (!code[i]) return false;
+    }
+    return true;
+  }
+
+  static bool _matchingDelimiters(String open, String close) =>
+      (open == '(' && close == ')') ||
+      (open == '[' && close == ']') ||
+      (open == '{' && close == '}');
+
+  /// Parses remote `.package(url:)` entries out of a Swift manifest.
+  ///
+  /// Uses parenthesis balancing so nested forms like
+  /// `.upToNextMajor(from: "1.0.0")` are not truncated at the inner `)`.
+  @visibleForTesting
+  static List<({String? name, String url, String versionArgs, String match})>
+  parseUrlPackageDeps(String manifest) {
+    final deps =
+        <({String? name, String url, String versionArgs, String match})>[];
+    var searchFrom = 0;
+    final startPattern = RegExp(r'\.package\s*\(');
+    while (true) {
+      final startMatch = startPattern
+          .allMatches(manifest, searchFrom)
+          .firstOrNull;
+      if (startMatch == null) break;
+      final start = startMatch.start;
+      final open = startMatch.end - 1; // '('
+      final close = _indexOfMatchingParen(manifest, open);
+      if (close < 0) break;
+      final inner = manifest.substring(open + 1, close);
+      final urlMatch = RegExp(r'url:\s*"(?<url>[^"]+)"').firstMatch(inner);
+      if (urlMatch == null) {
+        searchFrom = close + 1;
+        continue;
+      }
+      final nameMatch = RegExp(r'name:\s*"(?<name>[^"]*)"').firstMatch(inner);
+      // Version args are everything in the call except an optional leading
+      // name: and the url: clause (order varies slightly across plugins).
+      var versionArgs = inner
+          .replaceFirst(RegExp(r'name:\s*"[^"]*"\s*,?\s*'), '')
+          .replaceFirst(RegExp(r'url:\s*"[^"]+"\s*,?\s*'), '')
+          .trim();
+      if (versionArgs.endsWith(',')) {
+        versionArgs = versionArgs.substring(0, versionArgs.length - 1).trim();
+      }
+      deps.add((
+        name: nameMatch?.namedGroup('name'),
+        url: urlMatch.namedGroup('url')!,
+        versionArgs: versionArgs,
+        match: manifest.substring(start, close + 1),
+      ));
+      searchFrom = close + 1;
+    }
+    return deps;
+  }
+
+  /// Index of the `)` that closes the `(` at [openIndex], or -1.
+  static int _indexOfMatchingParen(String source, int openIndex) {
+    var depth = 0;
+    var inString = false;
+    for (var i = openIndex; i < source.length; i++) {
+      final c = source[i];
+      if (inString) {
+        if (c == r'\' && i + 1 < source.length) {
+          i++;
+          continue;
+        }
+        if (c == '"') inString = false;
+        continue;
+      }
+      if (c == '"') {
+        inString = true;
+        continue;
+      }
+      if (c == '(') {
+        depth++;
+      } else if (c == ')') {
+        depth--;
+        if (depth == 0) return i;
+      }
+    }
+    return -1;
+  }
+
+  /// Picks a git ref from SwiftPM version-requirement syntax.
+  @visibleForTesting
+  static String? gitRefFromVersionArgs(String versionArgs) {
+    final exact = RegExp(r'exact:\s*"([^"]+)"').firstMatch(versionArgs);
+    if (exact != null) return exact[1];
+    final revision = RegExp(r'revision:\s*"([^"]+)"').firstMatch(versionArgs);
+    if (revision != null) return revision[1];
+    final branch = RegExp(r'branch:\s*"([^"]+)"').firstMatch(versionArgs);
+    if (branch != null) return branch[1];
+    final from = RegExp(r'from:\s*"([^"]+)"').firstMatch(versionArgs);
+    if (from != null) return from[1];
+    final range = RegExp(r'"([^"]+)"\s*\.\.<').firstMatch(versionArgs);
+    if (range != null) return range[1];
+    return null;
+  }
+
+  /// Folder name for a vendored checkout of [url] at [ref].
+  @visibleForTesting
+  static String vendorPackageDirName(String url, String ref) {
+    final safeRef = ref.replaceAll(RegExp(r'[^\w.\-]+'), '_');
+    return '${packageIdentityFromUrl(url)}@$safeRef';
+  }
+
+  /// SwiftPM package identity implied by a git URL (last path segment, no
+  /// `.git`). Used as `.package(name:)` so target `package:` references keep
+  /// matching after we vendor into a `name@version` directory.
+  @visibleForTesting
+  static String packageIdentityFromUrl(String url) {
+    var identity = Uri.parse(url).pathSegments.lastWhere(
+      (segment) => segment.isNotEmpty,
+      orElse: () => 'package',
+    );
+    if (identity.endsWith('.git')) {
+      identity = identity.substring(0, identity.length - 4);
+    }
+    return identity;
+  }
+
+  /// Clones each `.package(url:)` dependency under [vendorDir], normalizes its
+  /// host manifests, and rewrites the plugin manifest to `.package(path:)`.
+  @visibleForTesting
+  static Future<String> vendorUrlPackagesAsPathDeps(
+    String manifest, {
+    required String vendorDir,
+    Future<String> Function(String name)? locateTool,
+    Future<void> Function(
+      String git,
+      String url,
+      String ref,
+      String destination,
+    )?
+    clonePackage,
+  }) async {
+    final deps = parseUrlPackageDeps(manifest);
+    if (deps.isEmpty) return manifest;
+
+    final locate = locateTool ?? ProcessRunner.locateTool;
+    late final String git;
+    try {
+      git = await locate('git');
+    } on CliError {
+      throw FlutterBuildError(
+        'Git is required on Windows to vendor SwiftPM URL dependencies '
+        '(e.g. sentry-cocoa). Install Git and ensure it is on PATH.',
+      );
+    }
+
+    final clone = clonePackage ?? _cloneGitPackage;
+
+    var result = manifest;
+    final seen = <String>{};
+    for (final dep in deps) {
+      final ref = gitRefFromVersionArgs(dep.versionArgs);
+      if (ref == null) {
+        throw FlutterBuildError(
+          'Cannot vendor SwiftPM dependency ${dep.url}: unsupported version '
+          'requirement "${dep.versionArgs}".',
+        );
+      }
+      final dirName = vendorPackageDirName(dep.url, ref);
+      if (seen.add(dirName)) {
+        final destination = p.join(vendorDir, dirName);
+        await clone(git, dep.url, ref, destination);
+        await _normalizeVendoredPackageManifests(destination);
+      }
+      // Always set name: — without it SwiftPM uses the directory basename
+      // (`pkg@1.2.3`), which breaks `.product(..., package: "pkg")`.
+      final identity = dep.name ?? packageIdentityFromUrl(dep.url);
+      final pathDep =
+          '.package(name: "$identity", '
+          'path: "${_swiftPath(p.join(vendorDir, dirName))}")';
+      result = result.replaceFirst(dep.match, pathDep);
+    }
+    return result.replaceAll(
+      RegExp(r'\.product\(name:\s*"Sentry",\s*package:\s*"sentry-cocoa"\)'),
+      '.product(name: "SentrySPM", package: "sentry-cocoa")',
+    );
+  }
+
+  /// Replaces mode-120000 checkout placeholders produced by Git for Windows
+  /// with copies of their in-repository targets.
+  @visibleForTesting
+  static Future<void> materializeCheckoutSymlinks(
+    String scratchPath, {
+    String git = 'git',
+  }) async {
+    final checkouts = Directory(p.join(scratchPath, 'checkouts'));
+    if (!checkouts.existsSync()) return;
+    await for (final repo in checkouts.list(followLinks: false)) {
+      if (repo is! Directory) continue;
+      final index = await ProcessRunner.run(git, [
+        '-C',
+        repo.path,
+        'ls-files',
+        '-s',
+        '-z',
+      ]);
+      if (index.exitCode != 0) {
+        throw FlutterBuildError(
+          'Could not inspect SwiftPM checkout ${repo.path}: ${index.stderr}',
+        );
+      }
+      await _materializeGitSymlinks(repo.path, index.stdout, git);
+    }
+  }
+
+  static Future<void> _materializeGitSymlinks(
+    String repoPath,
+    String index,
+    String git,
+  ) async {
+    final root = p.normalize(p.absolute(repoPath));
+    final links = <String, String>{};
+    for (final record in index.split('\u0000')) {
+      final match = RegExp(
+        r'^120000 ([0-9a-f]+) \d+\t(.*)$',
+      ).firstMatch(record);
+      if (match != null) {
+        links[p.normalize(p.join(root, match[2]))] = match[1]!;
+      }
+    }
+
+    final targets = <String, String>{};
+    for (final link in links.entries) {
+      final blob = await ProcessRunner.run(git, [
+        '-C',
+        repoPath,
+        'cat-file',
+        'blob',
+        link.value,
+      ]);
+      if (blob.exitCode != 0) {
+        throw FlutterBuildError(
+          'Could not read symlink target in SwiftPM checkout $repoPath: '
+          '${blob.stderr}',
+        );
+      }
+      targets[link.key] = blob.stdout.replaceFirst(RegExp(r'[\r\n]+$'), '');
+    }
+
+    final resolved = <String, String>{};
+    String resolve(String source, Set<String> chain) {
+      if (!chain.add(source)) {
+        throw FlutterBuildError('Symlink cycle in SwiftPM checkout: $source');
+      }
+      final targetText = targets[source]!;
+      if (p.isAbsolute(targetText)) {
+        throw FlutterBuildError(
+          'Symlink escapes SwiftPM checkout: $source -> $targetText',
+        );
+      }
+      final target = p.normalize(p.absolute(p.dirname(source), targetText));
+      if (target != root && !p.isWithin(root, target)) {
+        throw FlutterBuildError(
+          'Symlink escapes SwiftPM checkout: $source -> $targetText',
+        );
+      }
+      final result = links.containsKey(target)
+          ? resolve(target, chain)
+          : target;
+      chain.remove(source);
+      return result;
+    }
+
+    for (final link in links.keys) {
+      resolved[link] = resolve(link, <String>{});
+    }
+
+    final materializing = <String>{};
+    final materialized = <String>{};
+    Future<void> materialize(String link) async {
+      if (materialized.contains(link)) return;
+      if (!materializing.add(link)) {
+        throw FlutterBuildError('Symlink cycle in SwiftPM checkout: $link');
+      }
+      final target = resolved[link]!;
+      if (Directory(target).existsSync()) {
+        for (final nested in links.keys) {
+          if (p.isWithin(target, nested)) await materialize(nested);
+        }
+      }
+      if (Platform.isWindows) {
+        final result = await Process.run('attrib', ['-R', link]);
+        if (result.exitCode != 0) {
+          throw FileSystemException(
+            'Could not clear read-only checkout placeholder: ${result.stderr}',
+            link,
+          );
+        }
+      }
+      await _deleteEntity(link);
+      if (Directory(target).existsSync()) {
+        await _copyDirectory(target, link);
+      } else if (File(target).existsSync()) {
+        await File(target).copy(link);
+      } else {
+        throw FlutterBuildError(
+          'Symlink target does not exist in SwiftPM checkout: $link -> $target',
+        );
+      }
+      materializing.remove(link);
+      materialized.add(link);
+    }
+
+    for (final link in links.keys) {
+      await materialize(link);
+    }
+  }
+
+  static Future<void> _cloneGitPackage(
+    String git,
+    String url,
+    String ref,
+    String destination,
+  ) async {
+    final destDir = Directory(destination);
+    final environment = swiftProcessEnvironment(windows: Platform.isWindows);
+    if (File(p.join(destination, '.git')).existsSync() ||
+        Directory(p.join(destination, '.git')).existsSync()) {
+      final head = await ProcessRunner.run(git, [
+        '-C',
+        destination,
+        'rev-parse',
+        '--verify',
+        'HEAD',
+      ], environment: environment);
+      if (head.exitCode == 0) return;
+    }
+    await _deleteEntity(destination);
+    await destDir.parent.create(recursive: true);
+
+    // Shallow clone of the pinned tag/branch. Falls back to a full clone +
+    // checkout when the ref is not advertised as a remote HEAD (some hosts).
+    final shallow = await ProcessRunner.run(git, [
+      'clone',
+      '--depth',
+      '1',
+      '--branch',
+      ref,
+      url,
+      destination,
+    ], environment: environment);
+    if (shallow.exitCode == 0) return;
+
+    await _deleteEntity(destination);
+    await ProcessRunner.runChecked(
+      git,
+      ['clone', url, destination],
+      environment: environment,
+      label: 'git clone $url',
+    );
+    await ProcessRunner.runChecked(
+      git,
+      ['-C', destination, 'checkout', ref],
+      environment: environment,
+      label: 'git checkout $ref',
+    );
+  }
+
+  static Future<void> _normalizeVendoredPackageManifests(
+    String packageDir,
+  ) async {
+    await for (final entity in Directory(packageDir).list(followLinks: false)) {
+      if (entity is! File) continue;
+      final name = p.basename(entity.path);
+      if (name != 'Package.swift' &&
+          !(name.startsWith('Package@') && name.endsWith('.swift'))) {
+        continue;
+      }
+      final original = await entity.readAsString();
+      final normalized = normalizeHostManifest(original);
+      if (normalized != original) {
+        await entity.writeAsString(normalized);
+      }
+    }
+  }
 
   /// `Plugins/Package.swift` contents — aggregates every plugin's SPM package
   /// into one dynamic library product depending on [frameworkDir]'s
@@ -664,18 +1437,42 @@ $registrations}
     await Link(alias).create(p.relative(target, from: p.dirname(alias)));
   }
 
-  static Future<void> _copyDirectory(String source, String destination) async {
+  static Future<void> _copyDirectory(
+    String source,
+    String destination, {
+    String? excludedSourcePath,
+  }) async {
+    final absoluteSource = p.normalize(p.absolute(source));
+    final absoluteDestination = p.normalize(p.absolute(destination));
+    if (p.equals(absoluteSource, absoluteDestination)) return;
+    final excluded = excludedSourcePath == null
+        ? (p.isWithin(absoluteSource, absoluteDestination)
+              ? absoluteDestination
+              : null)
+        : p.normalize(p.absolute(excludedSourcePath));
     await Directory(destination).create(recursive: true);
     await for (final entity in Directory(source).list(followLinks: false)) {
+      if (excluded != null &&
+          p.equals(p.normalize(p.absolute(entity.path)), excluded)) {
+        continue;
+      }
       final destinationPath = p.join(destination, p.basename(entity.path));
       if (entity is Directory) {
-        await _copyDirectory(entity.path, destinationPath);
+        await _copyDirectory(
+          entity.path,
+          destinationPath,
+          excludedSourcePath: excluded,
+        );
       } else if (entity is File) {
         await entity.copy(destinationPath);
       } else if (entity is Link) {
         final target = entity.resolveSymbolicLinksSync();
         if (Directory(target).existsSync()) {
-          await _copyDirectory(target, destinationPath);
+          await _copyDirectory(
+            target,
+            destinationPath,
+            excludedSourcePath: excluded,
+          );
         } else {
           await File(target).copy(destinationPath);
         }

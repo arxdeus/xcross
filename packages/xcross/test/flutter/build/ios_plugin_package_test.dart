@@ -147,6 +147,404 @@ let package = Package(
     });
   });
 
+  group('normalizeHostManifest', () {
+    test('inserts CRT and ucrt before MSVCRT', () {
+      const input = '''
+#if canImport(Darwin)
+import Darwin.C
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(MSVCRT)
+import MSVCRT
+#endif
+''';
+      final out = GeneratedPluginsPackage.normalizeHostManifest(input);
+      expect(
+        out,
+        contains(
+          '#elseif canImport(CRT)\n'
+          'import CRT\n'
+          '#elseif canImport(ucrt)\n'
+          'import ucrt\n'
+          '#elseif canImport(MSVCRT)\n'
+          'import MSVCRT',
+        ),
+      );
+      expect(out, isNot(contains('import Darwin.C\n#elseif canImport(CRT)')));
+    });
+
+    test('handles CRLF MSVCRT import blocks', () {
+      const input =
+          '#elseif canImport(MSVCRT)\r\n'
+          'import MSVCRT';
+      expect(
+        GeneratedPluginsPackage.normalizeHostManifest(input),
+        contains('import CRT\n'),
+      );
+    });
+
+    test('drops Foundation String(cString:encoding:) in manifests', () {
+      const input =
+          'if let env = env, String(cString: env, encoding: .utf8) == "1"';
+      expect(
+        GeneratedPluginsPackage.normalizeHostManifest(input),
+        'if let env = env, String(cString: env) == "1"',
+      );
+    });
+
+    test('normalization is idempotent', () {
+      const input = '''
+#elseif canImport(MSVCRT)
+import MSVCRT
+''';
+      final normalized = GeneratedPluginsPackage.normalizeHostManifest(input);
+      expect(
+        GeneratedPluginsPackage.normalizeHostManifest(normalized),
+        normalized,
+      );
+      expect('import CRT'.allMatches(normalized), hasLength(1));
+    });
+
+    test('enables Sentry source products without its binary target', () {
+      const input = '''
+var products: [Product] = [.library(name: "Sentry", targets: ["Sentry"])]
+var targets: [Target] = [.binaryTarget(name: "Sentry", url: "Sentry.xcframework.zip", checksum: "abc")]
+if getenv("EXPERIMENTAL_SPM_BUILDS") != nil {
+    targets.append(.target(name: "SentrySPM", path: "Sources"))
+    products.append(.library(name: "SentrySPM", targets: ["SentrySPM"]))
+}
+''';
+      final normalized = GeneratedPluginsPackage.normalizeHostManifest(input);
+      expect(
+        normalized,
+        contains(
+          'if getenv("EXPERIMENTAL_SPM_BUILDS") != nil {\n'
+          '    products.removeAll()\n'
+          '    targets.removeAll()',
+        ),
+      );
+      expect(
+        GeneratedPluginsPackage.normalizeHostManifest(normalized),
+        normalized,
+      );
+    });
+
+    test('still normalizes linker flags', () {
+      expect(
+        GeneratedPluginsPackage.normalizeHostManifest(
+          '.unsafeFlags(["-Wl,-rpath,@loader_path"])',
+        ),
+        '.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@loader_path"])',
+      );
+    });
+  });
+
+  group('normalizeHostSwiftSource', () {
+    test('blanks previews while retaining runtime code and non-code text', () {
+      const input = r'''
+let before = true
+// #Preview { broken( }
+let text = "#Preview { broken( }"
+let escaped = "quote: \" and brace }"
+let multiline = """
+#Preview { broken( }
+"""
+let raw = #"#Preview { broken( }"#
+/* outer { /* #Preview { */ } */
+@available(iOS 17.0, *)
+#Preview(
+  "Nested"
+) {
+  Container {
+    Button("Go") { run() }
+  }
+}
+#Preview { OtherView() }
+#Previewable @State var count = 0
+let after = true
+''';
+
+      final output = GeneratedPluginsPackage.normalizeHostSwiftSource(input);
+
+      expect(output, contains('let before = true'));
+      expect(output, contains('let after = true'));
+      expect(output, contains('// #Preview { broken( }'));
+      expect(output, contains('"#Preview { broken( }"'));
+      expect(output, contains('#"#Preview { broken( }"#'));
+      expect(output, contains('#Previewable @State'));
+      expect(output, isNot(contains('@available(iOS 17.0, *)')));
+      expect(output, isNot(contains('#Preview(\n')));
+      expect(output, isNot(contains('#Preview { OtherView() }')));
+      expect(GeneratedPluginsPackage.normalizeHostSwiftSource(output), output);
+    });
+
+    test('preserves LF and CRLF exactly', () {
+      for (final newline in ['\n', '\r\n']) {
+        final input = [
+          'let before = true',
+          '@available(iOS 17.0, *)',
+          '#Preview("One") {',
+          '  View()',
+          '}',
+          'let after = true',
+          '',
+        ].join(newline);
+        final output = GeneratedPluginsPackage.normalizeHostSwiftSource(input);
+        expect(
+          '\r\n'.allMatches(output).length,
+          '\r\n'.allMatches(input).length,
+        );
+        expect('\n'.allMatches(output).length, '\n'.allMatches(input).length);
+        expect(output, contains('let before = true$newline'));
+        expect(output, contains('${newline}let after = true$newline'));
+      }
+    });
+
+    test('throws on an unbalanced actual preview', () {
+      expect(
+        () => GeneratedPluginsPackage.normalizeHostSwiftSource(
+          '#Preview("Broken") {\n  VStack {\n',
+        ),
+        throwsA(isA<FlutterBuildError>()),
+      );
+    });
+  });
+
+  group('normalizeHostSwiftTree', () {
+    test('normalizes arbitrary checkout paths and skips manifests', () async {
+      final root = p.join(tmp.path, 'scratch', 'checkouts', 'generic-package');
+      final source = File(p.join(root, 'Sources', 'Feature', 'Widget.swift'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('let before = 1\n#Preview { Widget() }\n');
+      final manifest = File(p.join(root, 'Package.swift'))
+        ..writeAsStringSync('#Preview { Manifest() }\n');
+      final versionedManifest = File(p.join(root, 'Package@swift-6.0.swift'))
+        ..writeAsStringSync('#Preview { Manifest() }\n');
+
+      await GeneratedPluginsPackage.normalizeHostSwiftTree(
+        p.join(tmp.path, 'scratch', 'checkouts'),
+      );
+
+      expect(source.readAsStringSync(), contains('let before = 1'));
+      expect(source.readAsStringSync(), isNot(contains('#Preview')));
+      expect(manifest.readAsStringSync(), contains('#Preview'));
+      expect(versionedManifest.readAsStringSync(), contains('#Preview'));
+    });
+
+    test('does not partially write when any source is malformed', () async {
+      final root = p.join(tmp.path, 'tree');
+      final valid = File(p.join(root, 'A', 'Valid.swift'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('#Preview { Valid() }\n');
+      final malformed = File(p.join(root, 'B', 'Malformed.swift'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('#Preview { Broken(\n');
+      final validBefore = valid.readAsBytesSync();
+      final malformedBefore = malformed.readAsBytesSync();
+
+      await expectLater(
+        GeneratedPluginsPackage.normalizeHostSwiftTree(root),
+        throwsA(isA<FlutterBuildError>()),
+      );
+      expect(valid.readAsBytesSync(), validBefore);
+      expect(malformed.readAsBytesSync(), malformedBefore);
+    });
+  });
+
+  group('parseUrlPackageDeps / gitRefFromVersionArgs', () {
+    test('parses exact and from requirements', () {
+      const manifest = '''
+dependencies: [
+    .package(url: "https://github.com/getsentry/sentry-cocoa", exact: "8.58.1"),
+    .package(name: "Sentry", url: "https://github.com/getsentry/sentry-cocoa.git", from: "8.0.0"),
+    .package(url: "https://example.com/pkg", .upToNextMajor(from: "1.2.3")),
+]
+''';
+      final deps = GeneratedPluginsPackage.parseUrlPackageDeps(manifest);
+      expect(deps, hasLength(3));
+      expect(deps[0].url, 'https://github.com/getsentry/sentry-cocoa');
+      expect(deps[0].name, isNull);
+      expect(
+        GeneratedPluginsPackage.gitRefFromVersionArgs(deps[0].versionArgs),
+        '8.58.1',
+      );
+      expect(deps[1].name, 'Sentry');
+      expect(
+        GeneratedPluginsPackage.gitRefFromVersionArgs(deps[1].versionArgs),
+        '8.0.0',
+      );
+      expect(
+        GeneratedPluginsPackage.gitRefFromVersionArgs(deps[2].versionArgs),
+        '1.2.3',
+      );
+    });
+
+    test('vendorPackageDirName strips .git and sanitizes ref', () {
+      expect(
+        GeneratedPluginsPackage.vendorPackageDirName(
+          'https://github.com/getsentry/sentry-cocoa.git',
+          '8.58.1',
+        ),
+        'sentry-cocoa@8.58.1',
+      );
+    });
+
+    test('balances nested parens in multiline upToNextMajor deps', () {
+      const manifest = '''
+dependencies: [
+        .package(
+            url: "https://github.com/appmetrica/appmetrica-sdk-ios",
+            .upToNextMajor(from: "6.1.0")
+        ),
+]
+''';
+      final deps = GeneratedPluginsPackage.parseUrlPackageDeps(manifest);
+      expect(deps, hasLength(1));
+      expect(
+        deps.single.url,
+        'https://github.com/appmetrica/appmetrica-sdk-ios',
+      );
+      expect(
+        GeneratedPluginsPackage.gitRefFromVersionArgs(deps.single.versionArgs),
+        '6.1.0',
+      );
+      expect(deps.single.match, endsWith(')'));
+      expect(deps.single.match, isNot(contains('),')));
+      // Full call replaced — no leftover closing paren from the original.
+      final rewritten = manifest.replaceFirst(
+        deps.single.match,
+        '.package(path: "/vendor/appmetrica")',
+      );
+      expect(
+        rewritten,
+        contains(
+          'dependencies: [\n'
+          '        .package(path: "/vendor/appmetrica"),\n'
+          ']',
+        ),
+      );
+    });
+  });
+
+  group('vendorUrlPackagesAsPathDeps', () {
+    test('rewrites url deps to path after clone callback', () async {
+      final vendorDir = p.join(tmp.path, 'Vendor');
+      const manifest = '''
+// swift-tools-version: 5.9
+import PackageDescription
+let package = Package(
+    name: "plugin_a",
+    dependencies: [
+        .package(url: "https://github.com/getsentry/sentry-cocoa", exact: "8.58.1"),
+    ],
+    targets: [
+        .target(
+            name: "plugin_a",
+            dependencies: [
+                .product(name: "Sentry", package: "sentry-cocoa")
+            ]
+        )
+    ]
+)
+''';
+      final rewritten =
+          await GeneratedPluginsPackage.vendorUrlPackagesAsPathDeps(
+            manifest,
+            vendorDir: vendorDir,
+            locateTool: (name) async {
+              expect(name, 'git');
+              return 'git';
+            },
+            clonePackage: (git, url, ref, destination) async {
+              expect(git, 'git');
+              expect(url, 'https://github.com/getsentry/sentry-cocoa');
+              expect(ref, '8.58.1');
+              await Directory(destination).create(recursive: true);
+              await File(p.join(destination, 'Package.swift')).writeAsString('''
+#if canImport(Darwin)
+import Darwin.C
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(MSVCRT)
+import MSVCRT
+#endif
+import PackageDescription
+let env = getenv("X")
+let package = Package(name: "Sentry", products: [], targets: [])
+''');
+              await File(
+                p.join(destination, 'Package@swift-6.1.swift'),
+              ).writeAsString(
+                'String(cString: env, encoding: .utf8)\n'
+                '#elseif canImport(MSVCRT)\n'
+                'import MSVCRT\n',
+              );
+            },
+          );
+
+      expect(rewritten, isNot(contains('url:')));
+      expect(
+        rewritten,
+        contains(
+          '.package(name: "sentry-cocoa", '
+          'path: "${swiftPath(p.join(vendorDir, 'sentry-cocoa@8.58.1'))}")',
+        ),
+      );
+      expect(
+        rewritten,
+        contains('.product(name: "SentrySPM", package: "sentry-cocoa")'),
+      );
+      expect(
+        rewritten,
+        isNot(contains('.product(name: "Sentry", package: "sentry-cocoa")')),
+      );
+      final vendored = File(
+        p.join(vendorDir, 'sentry-cocoa@8.58.1', 'Package.swift'),
+      ).readAsStringSync();
+      expect(vendored, contains('import CRT'));
+      final vendored61 = File(
+        p.join(vendorDir, 'sentry-cocoa@8.58.1', 'Package@swift-6.1.swift'),
+      ).readAsStringSync();
+      expect(vendored61, contains('String(cString: env)'));
+      expect(vendored61, contains('import CRT'));
+    });
+  });
+
+  group('Windows checkout symlinks', () {
+    test('materializes tracked symlinks as copied files', () async {
+      final repo = p.join(tmp.path, 'scratch', 'checkouts', 'dependency');
+      Directory(repo).createSync(recursive: true);
+
+      ProcessResult git(List<String> arguments) {
+        final result = Process.runSync('git', ['-C', repo, ...arguments]);
+        expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+        return result;
+      }
+
+      git(['init']);
+      File(p.join(repo, 'target.txt')).writeAsStringSync('materialized');
+      final placeholder = File(p.join(repo, 'link.txt'))
+        ..writeAsStringSync('target.txt');
+      git(['add', 'target.txt', 'link.txt']);
+      final hash = (git(['hash-object', '-w', 'link.txt']).stdout as String)
+          .trim();
+      git(['update-index', '--cacheinfo', '120000', hash, 'link.txt']);
+      if (Platform.isWindows) {
+        final attrib = Process.runSync('attrib', ['+R', placeholder.path]);
+        expect(attrib.exitCode, 0, reason: '${attrib.stdout}${attrib.stderr}');
+      }
+
+      await GeneratedPluginsPackage.materializeCheckoutSymlinks(
+        p.join(tmp.path, 'scratch'),
+      );
+      await GeneratedPluginsPackage.materializeCheckoutSymlinks(
+        p.join(tmp.path, 'scratch'),
+      );
+
+      expect(placeholder.readAsStringSync(), 'materialized');
+    });
+  });
+
   group('registrantSource', () {
     test('imports and registers only the plugin with a pluginClass', () {
       final pluginA = makePlugin('plugin_a', pluginClass: 'PluginA');
@@ -230,6 +628,7 @@ let package = Package(
           plugins: [plugin],
           flutterXcframework: flutterXcframework,
           copyFlutterXcframework: true,
+          vendorRemotePackages: false,
           deploymentTarget: const IosDeploymentTarget('15.6'),
         );
 
@@ -258,6 +657,146 @@ let package = Package(
         );
       },
     );
+
+    test(
+      'copies unchanged Windows-lane sources before preview normalization',
+      () async {
+        const manifest = '''
+// swift-tools-version: 5.9
+import PackageDescription
+let package = Package(name: "generic_plugin")
+''';
+        final plugin = makePlugin('generic_plugin', packageManifest: manifest);
+        final original =
+            File(
+                p.join(
+                  plugin.swiftPackageDir,
+                  'Sources',
+                  'GenericPlugin',
+                  'Feature.swift',
+                ),
+              )
+              ..createSync(recursive: true)
+              ..writeAsStringSync(
+                'let runtime = true\r\n#Preview { FeatureView() }\r\n',
+              );
+        final originalBytes = original.readAsBytesSync();
+        final flutterXcframework = p.join(tmp.path, 'Flutter.xcframework');
+        Directory(flutterXcframework).createSync(recursive: true);
+        final outputDir = p.join(tmp.path, 'out');
+
+        await GeneratedPluginsPackage.writeGeneratedPackages(
+          outputDir: outputDir,
+          plugins: [plugin],
+          flutterXcframework: flutterXcframework,
+          copyFlutterXcframework: true,
+          vendorRemotePackages: true,
+          deploymentTarget: const IosDeploymentTarget('15.6'),
+        );
+        final staged = File(
+          p.join(
+            outputDir,
+            'Packages',
+            'generic_plugin',
+            'ios',
+            'generic_plugin',
+            'Sources',
+            'GenericPlugin',
+            'Feature.swift',
+          ),
+        );
+        expect(staged.existsSync(), isTrue);
+        expect(
+          FileSystemEntity.typeSync(
+            p.join(
+              outputDir,
+              'Packages',
+              'generic_plugin',
+              'ios',
+              'generic_plugin',
+            ),
+            followLinks: false,
+          ),
+          FileSystemEntityType.directory,
+        );
+
+        await GeneratedPluginsPackage.normalizeHostSwiftTree(
+          p.join(outputDir, 'Packages'),
+        );
+
+        expect(staged.readAsStringSync(), contains('let runtime = true'));
+        expect(staged.readAsStringSync(), isNot(contains('#Preview')));
+        expect(original.readAsBytesSync(), originalBytes);
+      },
+    );
+
+    test('preserves packageRoot/ios/package ancestry when vendoring', () async {
+      final plugin = makePlugin(
+        'plugin_a',
+        packageManifest: '''
+// swift-tools-version: 5.9
+import PackageDescription
+let package = Package(
+    name: "plugin_a",
+    dependencies: [.package(path: "../FlutterFramework")]
+)
+''',
+      );
+      File(p.join(plugin.packageRoot, 'src', 'flutter_soloud.cpp'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('source');
+      File(p.join(plugin.packageRoot, 'ios', 'FlutterFramework', 'stale'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('stale');
+      final flutterXcframework = p.join(tmp.path, 'Flutter.xcframework');
+      Directory(flutterXcframework).createSync(recursive: true);
+      final outputDir = p.join(tmp.path, 'out');
+
+      await GeneratedPluginsPackage.writeGeneratedPackages(
+        outputDir: outputDir,
+        plugins: [plugin],
+        flutterXcframework: flutterXcframework,
+        copyFlutterXcframework: true,
+        vendorRemotePackages: true,
+        deploymentTarget: const IosDeploymentTarget('15.6'),
+      );
+
+      final stagedPackage = p.join(
+        outputDir,
+        'Packages',
+        'plugin_a',
+        'ios',
+        'plugin_a',
+      );
+      expect(File(p.join(stagedPackage, 'Package.swift')).existsSync(), isTrue);
+      expect(
+        File(
+          p.normalize(
+            p.join(stagedPackage, '..', '..', 'src', 'flutter_soloud.cpp'),
+          ),
+        ).readAsStringSync(),
+        'source',
+      );
+      expect(
+        File(p.join(outputDir, 'Plugins', 'Package.swift')).readAsStringSync(),
+        contains(swiftPath(stagedPackage)),
+      );
+      final relativeFramework = Directory(
+        p.normalize(p.join(stagedPackage, '..', 'FlutterFramework')),
+      );
+      final sharedFramework = Directory(
+        p.join(outputDir, 'Packages', 'FlutterFramework'),
+      );
+      expect(relativeFramework.existsSync(), isTrue);
+      expect(
+        relativeFramework.resolveSymbolicLinksSync(),
+        sharedFramework.resolveSymbolicLinksSync(),
+      );
+      expect(
+        File(p.join(relativeFramework.path, 'stale')).existsSync(),
+        isFalse,
+      );
+    });
 
     test(
       'stages plugin packages beside one FlutterFramework package',
@@ -291,6 +830,7 @@ let package = Package(
           plugins: [pluginA],
           flutterXcframework: flutterXcframework,
           copyFlutterXcframework: true,
+          vendorRemotePackages: false,
           deploymentTarget: const IosDeploymentTarget('15.6'),
         );
 
@@ -340,6 +880,7 @@ let package = Package(
             plugins: [pluginA],
             flutterXcframework: flutterXcframework,
             copyFlutterXcframework: false,
+            vendorRemotePackages: false,
             deploymentTarget: const IosDeploymentTarget('15.6'),
           );
         } on FileSystemException {
@@ -412,6 +953,7 @@ let package = Package(
         plugins: [plugin],
         flutterXcframework: flutterXcframework,
         copyFlutterXcframework: true,
+        vendorRemotePackages: false,
         deploymentTarget: IosDeploymentTarget.fallback,
       );
 
@@ -520,7 +1062,9 @@ let package = Package(
       expect(toolset.keys, ['schemaVersion', 'rootPath', 'librarian']);
       expect(
         (toolset['librarian'] as Map<String, dynamic>)['path'],
-        File(toolPaths['llvm-ar']!).resolveSymbolicLinksSync(),
+        File(
+          toolPaths['llvm-ar']!,
+        ).resolveSymbolicLinksSync().replaceAll(r'\', '/'),
       );
     });
 
@@ -541,10 +1085,12 @@ let package = Package(
               as Map<String, dynamic>;
       expect(
         (toolset['librarian'] as Map<String, dynamic>)['path'],
-        p.join(
-          p.dirname(File(toolPaths['llvm-ar']!).resolveSymbolicLinksSync()),
-          'llvm-libtool-darwin',
-        ),
+        p
+            .join(
+              p.dirname(File(toolPaths['llvm-ar']!).resolveSymbolicLinksSync()),
+              'llvm-libtool-darwin',
+            )
+            .replaceAll(r'\', '/'),
       );
     });
 
@@ -569,6 +1115,7 @@ let package = Package(
         flutterFrameworkSlice: 'Flutter.xcframework/ios-arm64',
         toolsetPath: 'toolset.json',
         linkerPath: '/usr/bin/ld64.lld',
+        windows: true,
       );
 
       expect(arguments.take(5), [
@@ -642,7 +1189,39 @@ let package = Package(
         ]),
       );
       expect(arguments, contains('-disable-availability-checking'));
+      expect(arguments, contains('--disable-automatic-resolution'));
       expect(arguments, isNot(contains('-install_name')));
+    });
+
+    test('resolves with package options before the resolve subcommand', () {
+      expect(
+        GeneratedPluginsPackage.swiftResolveArguments(
+          pluginsDir: 'plugins',
+          scratchPath: 'scratch',
+          swiftSdksPath: 'xcross-swift-sdks',
+          toolsetPath: 'toolset.json',
+        ),
+        [
+          'package',
+          '--package-path',
+          'plugins',
+          '--scratch-path',
+          'scratch',
+          '--swift-sdks-path',
+          'xcross-swift-sdks',
+          '--swift-sdk',
+          'arm64-apple-ios',
+          '--toolset',
+          'toolset.json',
+          'resolve',
+        ],
+      );
+      expect(GeneratedPluginsPackage.swiftProcessEnvironment(windows: true), {
+        'GIT_CONFIG_COUNT': '1',
+        'GIT_CONFIG_KEY_0': 'core.symlinks',
+        'GIT_CONFIG_VALUE_0': 'false',
+        'EXPERIMENTAL_SPM_BUILDS': '1',
+      });
     });
   });
 
