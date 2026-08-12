@@ -165,7 +165,16 @@ abstract final class GeneratedPluginsPackage {
         await normalizeHostSwiftTree(root);
       }
     }
-    await ProcessRunner.runChecked(
+    final targetBuildDir = p.join(scratchPath, 'arm64-apple-ios', 'debug');
+    // A target that reaches a package's Objective-C headers through a
+    // generated compatibility module needs the interop headers Swift emits
+    // for that package, and SwiftPM does not put them on its search path.
+    // Those headers only exist once their own target has been built, so on
+    // Windows the build is retried with whatever is present: the first run
+    // emits them and fails at the target that needs them, the retry
+    // compiles that target. Builds are incremental, so the retry only
+    // builds what the first run could not.
+    Future<void> build() => ProcessRunner.runChecked(
       swift,
       swiftBuildArguments(
         pluginsDir: pluginsDir,
@@ -177,11 +186,30 @@ abstract final class GeneratedPluginsPackage {
         // Windows gets the same override from the toolset's `linker`.
         linkerPath: Platform.isWindows ? null : linker,
         windows: Platform.isWindows,
+        interopSearchPaths: Platform.isWindows
+            ? swiftInteropSearchPaths(targetBuildDir)
+            : const [],
       ),
       environment: environment,
       inheritStdio: Log.isVerbose,
       label: 'swift build',
     );
+
+    if (!Platform.isWindows) {
+      await build();
+      return;
+    }
+    final before = swiftInteropSearchPaths(targetBuildDir);
+    try {
+      await build();
+    } on Object {
+      // Only retry when the failed run emitted interop headers the next one
+      // can use, so a genuine compile error still fails once.
+      if (swiftInteropSearchPaths(targetBuildDir).length == before.length) {
+        rethrow;
+      }
+      await build();
+    }
   }
 
   /// Process-local settings for Windows SwiftPM dependency checkout and
@@ -220,6 +248,43 @@ abstract final class GeneratedPluginsPackage {
     'resolve',
   ];
 
+  /// Search-path arguments for the Objective-C interop modules SwiftPM
+  /// generates under [targetBuildDir].
+  ///
+  /// A package whose Objective-C headers forward-declare types its Swift
+  /// half implements leaves those declarations incomplete for anything that
+  /// reads the headers alone, which drops every member mentioning them.
+  /// Swift emits the completing declarations into `<Module>.build/include`,
+  /// and SwiftPM puts that directory on the search path of the targets it
+  /// knows consume the Swift module. A target reaching the same headers
+  /// through a generated compatibility module is not one of them, so Clang
+  /// never sees the completing declarations. Passing the directories to
+  /// Clang covers those targets as well.
+  ///
+  /// SwiftPM writes each directory before compiling the targets that depend
+  /// on it, so on a clean build this starts empty and fills in as the
+  /// dependencies are built.
+  @visibleForTesting
+  static List<String> swiftInteropSearchPaths(String targetBuildDir) {
+    final directory = Directory(targetBuildDir);
+    if (!directory.existsSync()) return const [];
+    final includes = <String>[];
+    for (final entity in directory.listSync(followLinks: false)) {
+      if (entity is! Directory) continue;
+      final name = p.basename(entity.path);
+      if (!name.endsWith('.build')) continue;
+      final include = p.join(entity.path, 'include');
+      final module = name.substring(0, name.length - '.build'.length);
+      if (File(p.join(include, '$module-Swift.h')).existsSync()) {
+        includes.add(include);
+      }
+    }
+    includes.sort();
+    return [
+      for (final include in includes) ...['-Xcc', '-I', '-Xcc', include],
+    ];
+  }
+
   /// Disables Clang's implicit-module lock files, whose POSIX lock
   /// protocol deadlocks competing frontends on Windows.
   ///
@@ -253,6 +318,7 @@ abstract final class GeneratedPluginsPackage {
     String? toolsetPath,
     String? linkerPath,
     bool? windows,
+    List<String> interopSearchPaths = const [],
   }) => [
     'build',
     '--package-path',
@@ -292,6 +358,7 @@ abstract final class GeneratedPluginsPackage {
       // implicit Clang modules through its own frontend, so it needs the
       // flag as well as the C/Objective-C targets.
       ...noImplicitModuleLockArguments,
+      ...interopSearchPaths,
     ],
     // On macOS, SwiftPM's host toolchain can override the Swift SDK bundle's
     // sdkRootPath with the host MacOSX SDK. Pin the installed iPhoneOS SDK for

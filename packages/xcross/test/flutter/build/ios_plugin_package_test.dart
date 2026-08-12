@@ -1504,6 +1504,45 @@ let package = Package(
       expect(arguments, isNot(contains('-install_name')));
     });
 
+    test('passes interop include dirs of built Swift targets', () {
+      final buildDir = p.join(tmp.path, 'arm64-apple-ios', 'debug');
+      // A Swift target that has been built: interop header emitted.
+      final built = p.join(buildDir, 'Impl.build', 'include');
+      Directory(built).createSync(recursive: true);
+      File(p.join(built, 'Impl-Swift.h')).writeAsStringSync('// generated');
+      // A target with no interop header contributes no search path.
+      Directory(
+        p.join(buildDir, 'PlainObjC.build', 'include'),
+      ).createSync(recursive: true);
+
+      expect(GeneratedPluginsPackage.swiftInteropSearchPaths(buildDir), [
+        '-Xcc',
+        '-I',
+        '-Xcc',
+        built,
+      ]);
+      // Nothing is built yet on a clean build.
+      expect(
+        GeneratedPluginsPackage.swiftInteropSearchPaths(
+          p.join(tmp.path, 'absent'),
+        ),
+        isEmpty,
+      );
+
+      expect(
+        GeneratedPluginsPackage.swiftBuildArguments(
+          pluginsDir: 'plugins',
+          scratchPath: 'scratch',
+          swiftSdksPath: 'xcross-swift-sdks',
+          iosSdk: 'iPhoneOS.sdk',
+          flutterFrameworkSlice: 'Flutter.xcframework/ios-arm64',
+          windows: true,
+          interopSearchPaths: ['-Xcc', '-I', '-Xcc', built],
+        ),
+        containsAllInOrder(['-Xcc', '-I', '-Xcc', built]),
+      );
+    });
+
     test('drops Clang implicit module locks only on Windows', () {
       List<String> argumentsFor({required bool windows}) =>
           GeneratedPluginsPackage.swiftBuildArguments(
