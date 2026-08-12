@@ -764,7 +764,8 @@ let package = Package(
           final normalizedProduct = sourceProduct
               .group(0)!
               .replaceFirst('"$sourceName"', '"$publicName"')
-              .replaceFirst('"$sourceTarget"', '"$publicName"');
+              .replaceFirst('"$sourceTarget"', '"$publicName"')
+              .replaceFirst(RegExp(r',\s*type:\s*\.dynamic'), '');
           result = result.replaceRange(
             sourceProduct.start,
             sourceProduct.end,

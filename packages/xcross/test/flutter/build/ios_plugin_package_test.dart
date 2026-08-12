@@ -229,11 +229,9 @@ if getenv("EXPERIMENTAL_SPM_BUILDS") != nil {
       );
       expect(
         normalized,
-        contains(
-          '.library(name: "PublicSDK", type: .dynamic, '
-          'targets: ["PublicSDK"])',
-        ),
+        contains('.library(name: "PublicSDK", targets: ["PublicSDK"])'),
       );
+      expect(normalized, isNot(contains('type: .dynamic')));
       expect(
         GeneratedPluginsPackage.normalizeHostManifest(normalized),
         normalized,
