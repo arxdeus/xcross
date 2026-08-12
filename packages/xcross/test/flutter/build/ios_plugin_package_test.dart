@@ -1454,6 +1454,44 @@ let package = Package(
       expect(arguments, isNot(contains('-install_name')));
     });
 
+    test('drops Clang implicit module locks only on Windows', () {
+      List<String> argumentsFor({required bool windows}) =>
+          GeneratedPluginsPackage.swiftBuildArguments(
+            pluginsDir: 'plugins',
+            scratchPath: 'scratch',
+            swiftSdksPath: 'xcross-swift-sdks',
+            iosSdk: 'iPhoneOS.sdk',
+            flutterFrameworkSlice: 'Flutter.xcframework/ios-arm64',
+            toolsetPath: 'toolset.json',
+            windows: windows,
+          );
+
+      // Clang's lock protocol hangs competing frontends on Windows, so
+      // the C/Objective-C targets and Swift's own frontend both opt out.
+      expect(
+        argumentsFor(windows: true),
+        containsAllInOrder([
+          '-Xcc',
+          '-Xclang',
+          '-Xcc',
+          '-fno-implicit-modules-use-lock',
+          '-Xswiftc',
+          '-Xcc',
+          '-Xswiftc',
+          '-Xclang',
+          '-Xswiftc',
+          '-Xcc',
+          '-Xswiftc',
+          '-fno-implicit-modules-use-lock',
+        ]),
+      );
+      // POSIX hosts keep the lock so parallel builds still share work.
+      expect(
+        argumentsFor(windows: false),
+        isNot(contains('-fno-implicit-modules-use-lock')),
+      );
+    });
+
     test('resolves with package options before the resolve subcommand', () {
       expect(
         GeneratedPluginsPackage.swiftResolveArguments(

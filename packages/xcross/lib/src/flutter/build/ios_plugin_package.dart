@@ -220,6 +220,27 @@ abstract final class GeneratedPluginsPackage {
     'resolve',
   ];
 
+  /// Disables Clang's implicit-module lock files, whose POSIX lock
+  /// protocol deadlocks competing frontends on Windows.
+  ///
+  /// Applied to the C/Objective-C targets and to Swift's own frontend,
+  /// which builds implicit Clang modules through the same cache.
+  @visibleForTesting
+  static const List<String> noImplicitModuleLockArguments = [
+    '-Xcc',
+    '-Xclang',
+    '-Xcc',
+    '-fno-implicit-modules-use-lock',
+    '-Xswiftc',
+    '-Xcc',
+    '-Xswiftc',
+    '-Xclang',
+    '-Xswiftc',
+    '-Xcc',
+    '-Xswiftc',
+    '-fno-implicit-modules-use-lock',
+  ];
+
   /// Arguments shared by Linux and Windows SwiftPM builds. SDK-owned compiler
   /// flags stay in SDK metadata; only package-specific flags belong here.
   @visibleForTesting
@@ -260,6 +281,17 @@ abstract final class GeneratedPluginsPackage {
       // The binary module is still emitted and used by this debug build.
       '-Xswiftc',
       '-no-verify-emitted-module-interface',
+      // Clang guards implicit module builds with filesystem lock files so
+      // competing invocations reuse one another's work instead of building
+      // the same module twice. That protocol assumes POSIX lock semantics
+      // and deadlocks on Windows: the frontend holding a module's lock
+      // stops progressing and every other frontend waits on it forever, so
+      // the build hangs with no diagnostic and no CPU use. Each build owns
+      // its module cache, so dropping the lock only risks building a module
+      // twice in parallel, which is far cheaper than hanging. Swift builds
+      // implicit Clang modules through its own frontend, so it needs the
+      // flag as well as the C/Objective-C targets.
+      ...noImplicitModuleLockArguments,
     ],
     // On macOS, SwiftPM's host toolchain can override the Swift SDK bundle's
     // sdkRootPath with the host MacOSX SDK. Pin the installed iPhoneOS SDK for
