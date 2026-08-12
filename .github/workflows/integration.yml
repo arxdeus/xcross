@@ -24,7 +24,7 @@ jobs:
     if: >-
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
-    name: Flutter SwiftPM build (${{ matrix.os }})
+    name: Flutter and Compose SwiftPM build (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -36,6 +36,30 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
           persist-credentials: false
+
+      - name: Use JDK 21 on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${JAVA_HOME_21_X64:-}"
+          echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
+          echo "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
+          "$JAVA_HOME_21_X64/bin/java" -version
+
+      - name: Use JDK 21 on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:JAVA_HOME_21_X64) {
+            throw 'JAVA_HOME_21_X64 is not available on this runner'
+          }
+          "JAVA_HOME=$env:JAVA_HOME_21_X64" |
+            Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "$env:JAVA_HOME_21_X64\bin" |
+            Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+          & "$env:JAVA_HOME_21_X64\bin\java.exe" -version
 
       - name: Install Flutter on Linux
         if: runner.os == 'Linux'
@@ -219,6 +243,46 @@ jobs:
 
       - name: Restore cached Darwin SDK
         uses: ./.github/actions/setup-darwin-sdk
+
+      - name: Build Compose smoke examples on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcross="$RUNNER_TEMP/xcross-bundle/bin/xcross"
+          cd "$GITHUB_WORKSPACE/examples/compose_app"
+          "$xcross" compose setup
+          "$xcross" compose build
+          cd "$GITHUB_WORKSPACE/examples/kmp_swift_app"
+          "$xcross" compose build
+          cd "$GITHUB_WORKSPACE"
+          test -f examples/compose_app/build/xcross-ios/ComposeApp.app/Runner
+          test -f examples/kmp_swift_app/build/xcross-ios/KmpSwiftApp.app/Runner
+
+      - name: Build Compose smoke examples on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $xcross = "$env:RUNNER_TEMP\xcross-bundle\bin\xcross.exe"
+          Set-Location "$env:GITHUB_WORKSPACE\examples\compose_app"
+          & $xcross compose setup
+          if ($LASTEXITCODE -ne 0) { throw 'xcross compose setup failed' }
+          & $xcross compose build
+          if ($LASTEXITCODE -ne 0) { throw 'xcross compose build compose_app failed' }
+          Set-Location "$env:GITHUB_WORKSPACE\examples\kmp_swift_app"
+          & $xcross compose build
+          if ($LASTEXITCODE -ne 0) { throw 'xcross compose build kmp_swift_app failed' }
+          Set-Location $env:GITHUB_WORKSPACE
+          $outputs = @(
+            'examples/compose_app/build/xcross-ios/ComposeApp.app/Runner',
+            'examples/kmp_swift_app/build/xcross-ios/KmpSwiftApp.app/Runner'
+          )
+          foreach ($output in $outputs) {
+            if (-not (Test-Path $output -PathType Leaf)) {
+              throw "Missing $output"
+            }
+          }
 
       - name: Create and build plugin sample on Linux
         if: runner.os == 'Linux'

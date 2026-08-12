@@ -193,6 +193,9 @@ With multiple iPhones connected, an interactive terminal shows a numbered device
 | `xcross auth clear` | Delete saved credentials, sessions, and signing material |
 | `xcross tunnel` | Mount the Developer Disk Image + start the iOS 17+ RSD tunnel |
 | `xcross flutter run` | Build → sign → install → launch → hot reload |
+| `xcross compose setup` | Install Kotlin/Compose iOS cross-build helpers |
+| `xcross compose build` | Build a KMP iOS framework or `.app` from the current Gradle project |
+| `xcross compose run -d <device>` | Build, sign, install, and launch a runnable KMP iOS app |
 | `xcross flutter dap` | Run the Debug Adapter Protocol server (used by IDEs) |
 | `xcross ide vscode` | Upsert `.vscode/*` for Run & Debug / Hot Reload |
 | `xcross ide idea` | Write a JetBrains DAP run configuration (needs LSP4IJ) |
@@ -220,6 +223,23 @@ With multiple iPhones connected, an interactive terminal shows a numbered device
 -v, --verbose
 ```
 </details>
+
+## Compose Multiplatform
+
+`xcross compose` builds Kotlin Multiplatform iOS targets on Windows x64 and Linux x64 using the same private Darwin SDK, Swift, LLVM, and `xcross auth` signing flow as Flutter. Linux arm64 can run the CLI, but Compose iOS builds are limited by missing upstream Kotlin/Native host artifacts.
+
+```sh
+xcross setup
+xcross sdk install /path/to/Xcode.xip
+xcross compose setup
+cd examples/compose_app        # or examples/kmp_swift_app
+xcross compose build
+xcross compose run -d <device>
+```
+
+Projects with a Kotlin `ComposeUIViewController` entry or a SwiftUI `@main` host produce an `.app`. Framework-only KMP modules still build the iOS framework, but `xcross compose run` and `--ipa` are unavailable until the project has a runnable app entry. Physical-device launch requires iOS 17 or later.
+
+Compose launches use native attached debugging to supervise the process after install. There is no Kotlin source DAP yet, and Compose hot reload is not implemented.
 
 ## Flutter plugins
 
@@ -281,7 +301,7 @@ It mounts the Developer Disk Image and starts the `pymobiledevice3` RSD tunnel -
 <details>
 <summary><b>Does it support Compose Multiplatform?</b></summary>
 
-Not yet. xcross currently builds Flutter applications.
+Yes. Use `xcross compose setup`, then `xcross compose build` or `xcross compose run -d <device>` from a KMP project. Windows x64 and Linux x64 are supported; Linux arm64 is blocked by upstream Kotlin/Native host artifacts.
 </details>
 
 <details>
