@@ -744,6 +744,9 @@ abstract final class GeneratedPluginsPackage {
     'windows',
     'linux',
     'web',
+    // pigeon input definitions: consumed by the pigeon generator at
+    // development time, never referenced by the generated iOS build
+    'pigeons',
   };
 
   static Future<void> _stageAncestorOverlay({
