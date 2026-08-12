@@ -470,6 +470,7 @@ if getenv("CROSS_HOST_SOURCE") != nil {
       );
       write('Sources/ObjC/Public/PublicSDK.h', '// public\n');
       write('Sources/ObjC/Hybrid/PrivateAPI.h', '// hybrid\n');
+      write('Sources/Swift/Implementation.swift', 'public struct API {}\n');
       write('Sources/Resources/PublicSDK.modulemap', '''
 framework module PublicSDK {
   umbrella header "PublicSDK.h"
@@ -514,7 +515,7 @@ framework module PublicSDK {
             'PublicSDK.h',
           ),
         ).readAsStringSync(),
-        '@import HeaderSurface;\n',
+        '@import HeaderSurface;\n@import SwiftImpl;\n',
       );
       final moduleMap = File(
         p.join(

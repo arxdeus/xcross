@@ -1293,9 +1293,7 @@ let package = Package(
         return '${match[1]}"${_swiftPath(resolved)}"';
       },
     );
-    return result.replaceAllMapped(RegExp(r'(umbrella\s+)"([^"]+)"'), (
-      match,
-    ) {
+    return result.replaceAllMapped(RegExp(r'(umbrella\s+)"([^"]+)"'), (match) {
       final resolved = _resolveModuleReference(
         packageDir,
         match[2]!,
@@ -1384,6 +1382,8 @@ let package = Package(
             List<String> dependencies,
             String path,
             String? headers,
+            List<String> sources,
+            List<String> excludes,
           })
         >{};
     for (final call in targetCalls) {
@@ -1394,6 +1394,8 @@ let package = Package(
         dependencies: _namedStringList(call.text, 'dependencies'),
         path: _namedString(call.text, 'path') ?? p.join('Sources', name),
         headers: _namedString(call.text, 'publicHeadersPath'),
+        sources: _namedStringList(call.text, 'sources'),
+        excludes: _namedStringList(call.text, 'exclude'),
       );
     }
 
@@ -1477,6 +1479,37 @@ let package = Package(
       );
     }
 
+    final swiftModules = <String>[];
+    for (final name in closure) {
+      final target = targets[name]!;
+      final root = Directory(p.join(packageDir, target.path));
+      if (!root.existsSync()) continue;
+      final sourceRoots = target.sources.isEmpty
+          ? [root.path]
+          : [for (final source in target.sources) p.join(root.path, source)];
+      final hasSwift = sourceRoots.any((sourceRoot) {
+        final directory = Directory(sourceRoot);
+        if (directory.existsSync()) {
+          return directory.listSync(recursive: true, followLinks: false).any((
+            entity,
+          ) {
+            if (entity is! File || !entity.path.endsWith('.swift')) {
+              return false;
+            }
+            final relative = p.relative(entity.path, from: root.path);
+            return !target.excludes.any(
+              (excluded) =>
+                  p.equals(relative, excluded) ||
+                  p.isWithin(excluded, relative),
+            );
+          });
+        }
+        return File(sourceRoot).path.endsWith('.swift') &&
+            File(sourceRoot).existsSync();
+      });
+      if (hasSwift) swiftModules.add(name);
+    }
+
     final synthetic = '_xcross_$product';
     if (targets.containsKey(synthetic)) return manifest;
     final compatibilityDir = p.join(packageDir, '.xcross', synthetic);
@@ -1496,9 +1529,9 @@ let package = Package(
     moduleMap.writeln('}');
 
     await Directory(includeDir).create(recursive: true);
-    await File(
-      p.join(includeDir, '$product.h'),
-    ).writeAsString('@import ${publicModules.single.modules.single};\n');
+    await File(p.join(includeDir, '$product.h')).writeAsString(
+      '${[publicModules.single.modules.single, ...swiftModules].map((module) => '@import $module;').join('\n')}\n',
+    );
     await File(
       p.join(includeDir, 'module.modulemap'),
     ).writeAsString(moduleMap.toString());
