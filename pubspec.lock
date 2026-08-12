@@ -265,6 +265,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "4.0.0"
+  embed:
+    dependency: transitive
+    description:
+      name: embed
+      sha256: fe35006cf54c075ae8166487f543b25fd26e3667b04c6bb8a60641c5fe38d85a
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.6.6"
+  embed_annotation:
+    dependency: transitive
+    description:
+      name: embed_annotation
+      sha256: "0c0d498e3371b5de25d9928c14ae6cb16b15dd7831ae8804e6e263ba3e662bf8"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.2.3"
   extension_discovery:
     dependency: transitive
     description:
@@ -513,6 +529,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.0"
+  recase:
+    dependency: transitive
+    description:
+      name: recase
+      sha256: e4eb4ec2dcdee52dcf99cb4ceabaffc631d7424ee55e56f280bc039737f89213
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.1.0"
   record_use:
     dependency: transitive
     description:
@@ -681,6 +705,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.6.19"
+  toml:
+    dependency: transitive
+    description:
+      name: toml
+      sha256: "35a35f782228656a2af31e8c73d1353cc4ef3d683fd68af1111b44631879c05e"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.18.0"
   typed_data:
     dependency: transitive
     description:

@@ -8,6 +8,7 @@ import 'package:test/test.dart';
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/flutter/build/ios_plugins.dart';
+import 'package:xcross/src/flutter/build/preview_macro_stub_source.dart';
 import 'package:xcross/src/flutter/errors.dart';
 
 String swiftPath(String path) => p.absolute(path).replaceAll(r'\', '/');
@@ -1754,6 +1755,25 @@ let package = Package(
         ),
         isNot(contains('-load-plugin-executable')),
       );
+    });
+
+    test('embedded stub source matches the tracked C file', () {
+      // The stub is kept as a real, standalone-compilable .c file so it
+      // can be edited and diffed like any other C source; embed.dart
+      // inlines it into previewMacroStubSource at build time. This guards
+      // against the embedded copy drifting from the tracked file, which
+      // would need `dart run build_runner build` to fix.
+      final tracked = File(
+        p.join(
+          'lib',
+          'src',
+          'flutter',
+          'build',
+          'assets',
+          'preview_macro_stub.c',
+        ),
+      ).readAsStringSync();
+      expect(previewMacroStubSource.trimRight(), tracked.trimRight());
     });
 
     test(
