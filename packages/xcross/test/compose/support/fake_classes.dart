@@ -25,7 +25,8 @@ import 'class_file_builder.dart';
 //  [15 = null, second slot of Long]
 //  16  UTF8 "LineNumberTable"
 
-Uint8List buildFakeHostManagerClass() => _buildFakeHostManagerClass(cpLong(0, 42));
+Uint8List buildFakeHostManagerClass() =>
+    _buildFakeHostManagerClass(cpLong(0, 42));
 
 Uint8List buildFakeHostManagerClassWithDouble() =>
     _buildFakeHostManagerClass(cpDouble(0x400921FB, 0x54442D18));

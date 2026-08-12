@@ -4,7 +4,7 @@ abstract final class XcrossVersion {
   /// `tool/stamp_version.dart`.
   ///
   /// A checkout that was never stamped keeps the `-dev` suffix.
-  static const String current = '1.0.3-dev';
+  static const String current = '1.0.4-dev';
 
   /// True when this binary was not built from a tagged release.
   static bool get isDev => current.contains('-dev');

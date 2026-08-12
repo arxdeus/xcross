@@ -5,14 +5,17 @@ import 'dart:typed_data';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:frontend_server_kit/frontend_server_kit.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:standard_message_codec/standard_message_codec.dart';
 import 'package:xcross/src/flutter/build/internal/kernel_compiler.dart';
 import 'package:xcross/src/flutter/build/internal/toolchain.dart';
+import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/build/ios_engine_cache.dart';
 import 'package:xcross/src/flutter/constants.dart';
 import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/flutter/models/pubspec_info.dart';
+import 'package:xcross/src/package_config_resolver.dart';
 
 /// Assembles `App.framework` (debug/JIT mode) for a Flutter iOS app without
 /// invoking `xcrun` or `flutter_tools.snapshot assemble`.
@@ -30,6 +33,7 @@ final class FlutterDebugBundler {
   final String projectRoot;
   final String flutterRoot;
   final String outputDir;
+  final IosDeploymentTarget deploymentTarget;
 
   /// Dart entrypoint to compile (default: `lib/main.dart`).
   final String entrypoint;
@@ -49,6 +53,7 @@ final class FlutterDebugBundler {
     required this.projectRoot,
     required this.flutterRoot,
     required this.outputDir,
+    required this.deploymentTarget,
     this.entrypoint = 'lib/main.dart',
     this.dartDefines = const [],
     this.flavor,
@@ -105,17 +110,7 @@ final class FlutterDebugBundler {
     _validateKernelDependencies(compiler, engineCache);
 
     final outputDill = await _prepareKernelScratch();
-    final packageConfig = p.join(
-      projectRoot,
-      '.dart_tool',
-      'package_config.json',
-    );
-    if (!File(packageConfig).existsSync()) {
-      throw FlutterBuildError(
-        'FlutterDebugBundler: package_config.json missing at $packageConfig; '
-        'run `dart pub get` first.',
-      );
-    }
+    final packageConfig = await PackageConfigResolver.require(projectRoot);
 
     final args = _frontendServerArgs(
       compiler: compiler,
@@ -426,10 +421,11 @@ final class FlutterDebugBundler {
         final outputBinary = p.join(appFramework, 'App');
 
         // Flags mirror flutter_tools `_createStubAppFramework`.
-        final args = _appStubClangArgs(
+        final args = appStubClangArgs(
           toolchain: toolchain,
           stubSource: stubSource,
           outputBinary: outputBinary,
+          deploymentTarget: deploymentTarget,
         );
 
         await ProcessRunner.runChecked(
@@ -450,10 +446,12 @@ final class FlutterDebugBundler {
       });
 
   /// Build the clang argument list for the App stub dylib.
-  static List<String> _appStubClangArgs({
+  @visibleForTesting
+  static List<String> appStubClangArgs({
     required Toolchain toolchain,
     required String stubSource,
     required String outputBinary,
+    required IosDeploymentTarget deploymentTarget,
   }) {
     return <String>[
       '-fuse-ld=lld',
@@ -461,10 +459,10 @@ final class FlutterDebugBundler {
       // ld64.lld happens to sit in that directory, and the Swift toolchain
       // ships one that cannot link Mach-O for iOS.
       '--ld-path=${toolchain.linker}',
-      '--target=${IosDeploymentConstants.buildTriple}',
+      '--target=${deploymentTarget.buildTriple}',
       '-arch',
       'arm64',
-      '-miphoneos-version-min=${IosDeploymentConstants.minDeploymentTarget}',
+      '-miphoneos-version-min=${deploymentTarget.version}',
       '-isysroot',
       toolchain.iosSdk,
       '-x',
@@ -488,8 +486,14 @@ final class FlutterDebugBundler {
   }
 
   void _writeAppFrameworkInfoPlist(String appFramework) {
-    const plist =
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
+    File(
+      p.join(appFramework, 'Info.plist'),
+    ).writeAsStringSync(appFrameworkInfoPlist(deploymentTarget));
+  }
+
+  @visibleForTesting
+  static String appFrameworkInfoPlist(IosDeploymentTarget deploymentTarget) {
+    return '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"'
         ' "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
         '<plist version="1.0">\n'
@@ -513,9 +517,8 @@ final class FlutterDebugBundler {
         '\t<key>CFBundleVersion</key>\n'
         '\t<string>1.0</string>\n'
         '\t<key>${IosDeploymentConstants.minimumOsVersionKey}</key>\n'
-        '\t<string>${IosDeploymentConstants.minDeploymentTarget}</string>\n'
+        '\t<string>${deploymentTarget.version}</string>\n'
         '</dict>\n'
         '</plist>\n';
-    File(p.join(appFramework, 'Info.plist')).writeAsStringSync(plist);
   }
 }

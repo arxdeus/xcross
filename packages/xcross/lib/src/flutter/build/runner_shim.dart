@@ -2,7 +2,9 @@ import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/constants.dart';
 import 'package:xcross/src/flutter/errors.dart';
 
@@ -31,6 +33,7 @@ final class RunnerShim {
     required DarwinSdk sdk,
     required String flutterXcframework,
     required String outputDir,
+    required IosDeploymentTarget deploymentTarget,
     String? pluginsLibrary,
   }) => Log.logStep('Compiling Runner', () async {
     final clang = await DarwinSdk.resolveDarwinClang(sdk);
@@ -54,6 +57,7 @@ final class RunnerShim {
       iosSdk: iosSdk,
       subframeworks: subframeworks,
       flutterSlice: flutterSlice,
+      deploymentTarget: deploymentTarget,
     );
 
     // _sdkVersion() returns null whenever the un-versioned iPhoneOS.sdk
@@ -68,6 +72,7 @@ final class RunnerShim {
       flutterSlice: flutterSlice,
       subframeworks: subframeworks,
       sdkVersion: sdkVersion,
+      deploymentTarget: deploymentTarget,
       pluginsLibrary: pluginsLibrary,
     );
 
@@ -93,32 +98,50 @@ final class RunnerShim {
     required String iosSdk,
     required String subframeworks,
     required String flutterSlice,
+    required IosDeploymentTarget deploymentTarget,
   }) async {
     Log.logTrace('[clang] compile Runner.m → Runner.o');
     await ProcessRunner.runChecked(
       clang,
-      [
-        '-target',
-        IosDeploymentConstants.buildTriple,
-        '-isysroot',
-        iosSdk,
-        '-F',
-        subframeworks,
-        '-F',
-        flutterSlice,
-        '-I',
-        p.join(flutterSlice, 'Flutter.framework', 'Headers'),
-        '-fobjc-arc',
-        '-miphoneos-version-min=${IosDeploymentConstants.minDeploymentTarget}',
-        '-c',
-        sourcePath,
-        '-o',
-        objectPath,
-      ],
+      compileArguments(
+        sourcePath: sourcePath,
+        objectPath: objectPath,
+        iosSdk: iosSdk,
+        subframeworks: subframeworks,
+        flutterSlice: flutterSlice,
+        deploymentTarget: deploymentTarget,
+      ),
       inheritStdio: Log.isVerbose,
       label: 'clang',
     );
   }
+
+  @visibleForTesting
+  static List<String> compileArguments({
+    required String sourcePath,
+    required String objectPath,
+    required String iosSdk,
+    required String subframeworks,
+    required String flutterSlice,
+    required IosDeploymentTarget deploymentTarget,
+  }) => [
+    '-target',
+    deploymentTarget.buildTriple,
+    '-isysroot',
+    iosSdk,
+    '-F',
+    subframeworks,
+    '-F',
+    flutterSlice,
+    '-I',
+    p.join(flutterSlice, 'Flutter.framework', 'Headers'),
+    '-fobjc-arc',
+    '-miphoneos-version-min=${deploymentTarget.version}',
+    '-c',
+    sourcePath,
+    '-o',
+    objectPath,
+  ];
 
   /// Link [objectPath] to [outputPath] via ld64.lld. When [pluginsLibrary] is
   /// given, it's passed straight to the linker as an extra input file — its
@@ -133,45 +156,67 @@ final class RunnerShim {
     required String flutterSlice,
     required String subframeworks,
     required String sdkVersion,
+    required IosDeploymentTarget deploymentTarget,
     String? pluginsLibrary,
   }) async {
     Log.logTrace('[ld64.lld] link Runner.o → Runner');
     await ProcessRunner.runChecked(
       ld64lld,
-      [
-        '-arch',
-        'arm64',
-        '-platform_version',
-        'ios',
-        IosDeploymentConstants.minDeploymentTarget,
-        sdkVersion,
-        '-syslibroot',
-        iosSdk,
-        '-o',
-        outputPath,
-        objectPath,
-        if (pluginsLibrary != null) pluginsLibrary,
-        '-F',
-        flutterSlice,
-        '-F',
-        p.join(iosSdk, 'System', 'Library', 'Frameworks'),
-        '-F',
-        subframeworks,
-        '-framework',
-        'Flutter',
-        '-framework',
-        'UIKit',
-        '-framework',
-        'Foundation',
-        '-lobjc',
-        '-lc',
-        '-rpath',
-        '@executable_path/Frameworks',
-      ],
+      linkArguments(
+        objectPath: objectPath,
+        outputPath: outputPath,
+        iosSdk: iosSdk,
+        flutterSlice: flutterSlice,
+        subframeworks: subframeworks,
+        sdkVersion: sdkVersion,
+        deploymentTarget: deploymentTarget,
+        pluginsLibrary: pluginsLibrary,
+      ),
       inheritStdio: Log.isVerbose,
       label: 'ld64.lld',
     );
   }
+
+  @visibleForTesting
+  static List<String> linkArguments({
+    required String objectPath,
+    required String outputPath,
+    required String iosSdk,
+    required String flutterSlice,
+    required String subframeworks,
+    required String sdkVersion,
+    required IosDeploymentTarget deploymentTarget,
+    String? pluginsLibrary,
+  }) => [
+    '-arch',
+    'arm64',
+    '-platform_version',
+    'ios',
+    deploymentTarget.version,
+    sdkVersion,
+    '-syslibroot',
+    iosSdk,
+    '-o',
+    outputPath,
+    objectPath,
+    if (pluginsLibrary != null) pluginsLibrary,
+    '-F',
+    flutterSlice,
+    '-F',
+    p.join(iosSdk, 'System', 'Library', 'Frameworks'),
+    '-F',
+    subframeworks,
+    '-framework',
+    'Flutter',
+    '-framework',
+    'UIKit',
+    '-framework',
+    'Foundation',
+    '-lobjc',
+    '-lc',
+    '-rpath',
+    '@executable_path/Frameworks',
+  ];
 
   /// Prefer the generic `iPhoneOS.sdk` symlink; fall back to the versioned SDK.
   static String _resolveIPhoneOsSDK(DarwinSdk sdk) {

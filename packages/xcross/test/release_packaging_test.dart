@@ -121,11 +121,7 @@ void main() {
     ]) {
       expect(installer, contains(expected));
     }
-    for (final removed in [
-      'zsign',
-      'ZSIGN',
-      'XCROSS_ZSIGN_PATH',
-    ]) {
+    for (final removed in ['zsign', 'ZSIGN', 'XCROSS_ZSIGN_PATH']) {
       expect(installer, isNot(contains(removed)));
     }
   });

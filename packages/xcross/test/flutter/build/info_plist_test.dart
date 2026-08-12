@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/flutter/build/info_plist.dart';
+import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/constants.dart';
 
 const _minimalPlist =
@@ -54,6 +55,7 @@ BAZ = a=b
       final result = InfoPlist.applyIosRequiredKeys(
         _minimalPlist,
         bundleId: 'com.example.app',
+        deploymentTarget: const IosDeploymentTarget('15.6'),
       );
 
       expect(
@@ -77,7 +79,7 @@ BAZ = a=b
         result,
         contains(
           '<key>${IosDeploymentConstants.minimumOsVersionKey}</key>\n'
-          '\t<string>${IosDeploymentConstants.minDeploymentTarget}</string>',
+          '\t<string>15.6</string>',
         ),
       );
       expect(result, contains('<key>LSRequiresIPhoneOS</key>'));
@@ -89,27 +91,32 @@ BAZ = a=b
       expect(result, contains('<key>DTPlatformVersion</key>'));
     });
 
-    test('does not overwrite an existing MinimumOSVersion value', () {
-      const plist =
-          '<?xml version="1.0"?>\n'
-          '<plist version="1.0">\n'
-          '<dict>\n'
-          '\t<key>MinimumOSVersion</key>\n'
-          '\t<string>15.5</string>\n'
-          '</dict>\n'
-          '</plist>\n';
+    test(
+      'overwrites an existing MinimumOSVersion value with resolved target',
+      () {
+        const plist =
+            '<?xml version="1.0"?>\n'
+            '<plist version="1.0">\n'
+            '<dict>\n'
+            '\t<key>MinimumOSVersion</key>\n'
+            '\t<string>15.5</string>\n'
+            '</dict>\n'
+            '</plist>\n';
 
-      final result = InfoPlist.applyIosRequiredKeys(
-        plist,
-        bundleId: 'com.example.app',
-      );
+        final result = InfoPlist.applyIosRequiredKeys(
+          plist,
+          bundleId: 'com.example.app',
+          deploymentTarget: const IosDeploymentTarget('15.6'),
+        );
 
-      expect(
-        result,
-        contains('<key>MinimumOSVersion</key>\n\t<string>15.5</string>'),
-      );
-      expect('<key>MinimumOSVersion</key>'.allMatches(result).length, 1);
-    });
+        expect(
+          result,
+          contains('<key>MinimumOSVersion</key>\n\t<string>15.6</string>'),
+        );
+        expect(result, isNot(contains('<string>15.5</string>')));
+        expect('<key>MinimumOSVersion</key>'.allMatches(result).length, 1);
+      },
+    );
 
     // Regression check: this runs on every build, so without the presence
     // guards in `_ensureKey` a rebuild would pile up duplicate <key> pairs.
@@ -117,10 +124,12 @@ BAZ = a=b
       final once = InfoPlist.applyIosRequiredKeys(
         _minimalPlist,
         bundleId: 'com.example.app',
+        deploymentTarget: IosDeploymentTarget.fallback,
       );
       final twice = InfoPlist.applyIosRequiredKeys(
         once,
         bundleId: 'com.example.app',
+        deploymentTarget: IosDeploymentTarget.fallback,
       );
 
       expect('<key>UIDeviceFamily</key>'.allMatches(twice).length, 1);

@@ -5,6 +5,7 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/build/ios_plugins.dart';
 import 'package:xcross/src/flutter/build/macho_dylib_rewriter.dart';
 import 'package:xcross/src/flutter/constants.dart';
@@ -66,6 +67,7 @@ abstract final class GeneratedPluginsPackage {
     required List<IosPlugin> plugins,
     required String flutterXcframework,
     required String outputDir,
+    required IosDeploymentTarget deploymentTarget,
   }) =>
       Log.logStep('Building Flutter plugins (Swift Package Manager)', () async {
         final spmPlugins = plugins
@@ -82,6 +84,7 @@ abstract final class GeneratedPluginsPackage {
           outputDir: outputDir,
           plugins: spmPlugins,
           flutterXcframework: flutterXcframework,
+          deploymentTarget: deploymentTarget,
         );
 
         final pluginsDir = p.join(outputDir, 'Plugins');
@@ -123,9 +126,9 @@ abstract final class GeneratedPluginsPackage {
     // (verified against a real published plugin: its manifest lists zero
     // dependencies, yet its Swift source does `import Flutter`). A plain
     // `swift build` has no such implicit project-wide behaviour, so we
-    // reproduce it ourselves with a build-wide `-Xswiftc -F` flag, applied
-    // uniformly to every target's compile step regardless of what that
-    // target's own manifest declares.
+    // reproduce it ourselves with build-wide framework search flags. Swift
+    // targets need `-Xswiftc -F`; C and Objective-C targets need the matching
+    // `-Xcc -F` pair so imports such as `<Flutter/Flutter.h>` resolve too.
     final flutterFrameworkSlice = p.join(flutterXcframework, 'ios-arm64');
     final linker = await DarwinSdk.resolveLd64Lld(sdk);
     final toolsetPath = await writeToolset(
@@ -144,6 +147,7 @@ abstract final class GeneratedPluginsPackage {
         pluginsDir: pluginsDir,
         scratchPath: scratchPath,
         swiftSdksPath: p.dirname(sdk.swiftSdkPath),
+        iosSdk: sdk.iPhoneOSSdk(),
         flutterFrameworkSlice: flutterFrameworkSlice,
         toolsetPath: toolsetPath,
         // Windows gets the same override from the toolset's `linker`.
@@ -161,6 +165,7 @@ abstract final class GeneratedPluginsPackage {
     required String pluginsDir,
     required String scratchPath,
     required String swiftSdksPath,
+    required String iosSdk,
     required String flutterFrameworkSlice,
     String? toolsetPath,
     String? linkerPath,
@@ -185,14 +190,40 @@ abstract final class GeneratedPluginsPackage {
     if (toolsetPath != null) ...['--toolset', toolsetPath],
     '--scratch-path',
     scratchPath,
+    // On macOS, SwiftPM's host toolchain can override the Swift SDK bundle's
+    // sdkRootPath with the host MacOSX SDK. Pin the installed iPhoneOS SDK for
+    // Swift imports and every C/Objective-C target so UIKit and Foundation are
+    // resolved from the target platform on every host.
+    '-Xswiftc',
+    '-sdk',
+    '-Xswiftc',
+    iosSdk,
+    '-Xcc',
+    '-isysroot',
+    '-Xcc',
+    iosSdk,
     '-Xswiftc',
     '-F',
     '-Xswiftc',
+    flutterFrameworkSlice,
+    '-Xcc',
+    '-F',
+    '-Xcc',
     flutterFrameworkSlice,
     '-Xswiftc',
     '-Xfrontend',
     '-Xswiftc',
     '-disable-availability-checking',
+    // Swift uses clang as its link driver. Pin that driver too, otherwise a
+    // macOS host reselects MacOSX.sdk while linking iOS plugin products.
+    '-Xswiftc',
+    '-Xclang-linker',
+    '-Xswiftc',
+    '-isysroot',
+    '-Xswiftc',
+    '-Xclang-linker',
+    '-Xswiftc',
+    iosSdk,
     // The link runs through the toolchain's own clang, which resolves
     // `-use-ld=lld` to the `ld64.lld` sitting next to itself — swiftly's, the
     // one that refuses iOS (see [resolveLd64Lld]). `--ld-path` overrides that
@@ -353,10 +384,24 @@ abstract final class GeneratedPluginsPackage {
     required String outputDir,
     required List<IosPlugin> plugins,
     required String flutterXcframework,
+    required IosDeploymentTarget deploymentTarget,
     bool? copyFlutterXcframework,
   }) async {
-    final frameworkDir = p.join(outputDir, _flutterFrameworkPackageName);
+    final packagesDir = p.join(outputDir, 'Packages');
+    final frameworkDir = p.join(packagesDir, _flutterFrameworkPackageName);
     final pluginsDir = p.join(outputDir, 'Plugins');
+
+    await Directory(packagesDir).create(recursive: true);
+
+    final pluginPackageDirs = <String, String>{};
+    for (final plugin in plugins) {
+      final packageAlias = p.join(packagesDir, plugin.name);
+      await _stagePluginPackage(
+        alias: packageAlias,
+        target: plugin.swiftPackageDir,
+      );
+      pluginPackageDirs[plugin.name] = packageAlias;
+    }
 
     await _writeFlutterFrameworkPackage(
       frameworkDir: frameworkDir,
@@ -367,7 +412,47 @@ abstract final class GeneratedPluginsPackage {
       pluginsDir: pluginsDir,
       frameworkDir: frameworkDir,
       plugins: plugins,
+      pluginPackageDirs: pluginPackageDirs,
+      deploymentTarget: deploymentTarget,
     );
+  }
+
+  /// Stages [target] at [alias], using a shallow overlay only when its Swift
+  /// manifest contains linker flags that the Swift driver cannot consume.
+  static Future<void> _stagePluginPackage({
+    required String alias,
+    required String target,
+  }) async {
+    final manifest = await File(p.join(target, 'Package.swift')).readAsString();
+    final normalizedManifest = normalizeLinkerFlags(manifest);
+    if (normalizedManifest == manifest) {
+      await _createDirectoryAlias(alias, target);
+      return;
+    }
+
+    await _deleteEntity(alias);
+    await Directory(alias).create(recursive: true);
+    await File(
+      p.join(alias, 'Package.swift'),
+    ).writeAsString(normalizedManifest);
+
+    await for (final entity in Directory(target).list(followLinks: false)) {
+      final name = p.basename(entity.path);
+      if (name == 'Package.swift') continue;
+      final destination = p.join(alias, name);
+      if (entity is Directory) {
+        await _createDirectoryAlias(destination, entity.path);
+      } else if (entity is File) {
+        await entity.copy(destination);
+      } else if (entity is Link) {
+        final resolved = entity.resolveSymbolicLinksSync();
+        if (Directory(resolved).existsSync()) {
+          await _createDirectoryAlias(destination, resolved);
+        } else {
+          await File(resolved).copy(destination);
+        }
+      }
+    }
   }
 
   /// Writes `FlutterFramework/Package.swift` and links or copies the real
@@ -397,13 +482,20 @@ abstract final class GeneratedPluginsPackage {
     required String pluginsDir,
     required String frameworkDir,
     required List<IosPlugin> plugins,
+    required Map<String, String> pluginPackageDirs,
+    required IosDeploymentTarget deploymentTarget,
   }) async {
     final sourcesDir = p.join(pluginsDir, 'Sources', _pluginsProductName);
     await Directory(sourcesDir).create(recursive: true);
 
-    await File(
-      p.join(pluginsDir, 'Package.swift'),
-    ).writeAsString(pluginsManifest(plugins, frameworkDir));
+    await File(p.join(pluginsDir, 'Package.swift')).writeAsString(
+      pluginsManifest(
+        plugins,
+        frameworkDir,
+        pluginPackageDirs: pluginPackageDirs,
+        deploymentTarget: deploymentTarget,
+      ),
+    );
 
     await File(
       p.join(sourcesDir, 'GeneratedPluginRegistrant.swift'),
@@ -429,20 +521,41 @@ let package = Package(
 )
 ''';
 
+  /// Rewrites Clang-style `-Wl,<argument>...` manifest tokens into the
+  /// equivalent arguments accepted by the Swift compiler driver.
+  @visibleForTesting
+  static String normalizeLinkerFlags(String manifest) =>
+      manifest.replaceAllMapped(RegExp(r'"-Wl,([^"\\]+)"'), (match) {
+        final arguments = match.group(1)!.split(',');
+        if (arguments.any((argument) => argument.isEmpty)) {
+          return match.group(0)!;
+        }
+        return [
+          for (final argument in arguments) ...['"-Xlinker"', '"$argument"'],
+        ].join(', ');
+      });
+
   /// `Plugins/Package.swift` contents — aggregates every plugin's SPM package
   /// into one dynamic library product depending on [frameworkDir]'s
   /// `FlutterFramework` package plus every entry in [plugins].
   @visibleForTesting
-  static String pluginsManifest(List<IosPlugin> plugins, String frameworkDir) {
+  static String pluginsManifest(
+    List<IosPlugin> plugins,
+    String frameworkDir, {
+    required IosDeploymentTarget deploymentTarget,
+    Map<String, String>? pluginPackageDirs,
+  }) {
     final dependencies = StringBuffer()
       ..writeln(
         '        .package(name: "$_flutterFrameworkPackageName", '
         'path: "${_swiftPath(frameworkDir)}"),',
       );
     for (final plugin in plugins) {
+      final packageDir =
+          pluginPackageDirs?[plugin.name] ?? plugin.swiftPackageDir;
       dependencies.writeln(
         '        .package(name: "${plugin.name}", '
-        'path: "${_swiftPath(plugin.swiftPackageDir)}"),',
+        'path: "${_swiftPath(packageDir)}"),',
       );
     }
 
@@ -465,7 +578,7 @@ import PackageDescription
 let package = Package(
     name: "$_pluginsProductName",
     platforms: [
-        .iOS("${IosDeploymentConstants.minDeploymentTarget}")
+        .iOS("${deploymentTarget.version}")
     ],
     products: [
         .library(name: "$_pluginsProductName", type: .dynamic, targets: ["$_pluginsProductName"])
@@ -483,22 +596,18 @@ $targetDependencies            ]
 ''';
   }
 
-  /// `GeneratedPluginRegistrant.swift` contents — imports every plugin and
-  /// registers each one that has a non-null `pluginClassIos`. Plugins with no
-  /// `pluginClassIos` (facade/pure-Dart/FFI-only packages) are imported but
-  /// silently skipped in the registration body, since they have nothing to
-  /// register.
+  /// `GeneratedPluginRegistrant.swift` contents — imports and registers each
+  /// plugin that has a non-null `pluginClassIos`. Plugins with no class
+  /// (facade/pure-Dart/FFI-only packages) remain SwiftPM target dependencies,
+  /// but need no module import or registration call.
   @visibleForTesting
   static String registrantSource(List<IosPlugin> plugins) {
     final imports = StringBuffer();
-    for (final plugin in plugins) {
-      imports.writeln('import ${plugin.name}');
-    }
-
     final registrations = StringBuffer();
     for (final plugin in plugins) {
       final pluginClass = plugin.pluginClassIos;
       if (pluginClass == null) continue;
+      imports.writeln('import ${plugin.name}');
       registrations.writeln('''
     if let registrar = registry.registrar(forPlugin: "$pluginClass") {
         $pluginClass.register(with: registrar)
@@ -527,6 +636,32 @@ $registrations}
     } else if (type == FileSystemEntityType.file) {
       await File(path).delete();
     }
+  }
+
+  /// Makes the staged Swift package appear directly beside FlutterFramework,
+  /// so every plugin's conventional `../FlutterFramework` dependency resolves
+  /// to the same package path. Directory junctions avoid Windows symlink
+  /// privilege requirements.
+  static Future<void> _createDirectoryAlias(String alias, String target) async {
+    await _deleteEntity(alias);
+    if (Platform.isWindows) {
+      final result = await Process.run('cmd.exe', [
+        '/c',
+        'mklink',
+        '/J',
+        p.windows.normalize(alias),
+        p.windows.normalize(p.absolute(target)),
+      ]);
+      if (result.exitCode != 0) {
+        throw FileSystemException(
+          'Could not create plugin package junction: ${result.stderr}',
+          alias,
+        );
+      }
+      return;
+    }
+
+    await Link(alias).create(p.relative(target, from: p.dirname(alias)));
   }
 
   static Future<void> _copyDirectory(String source, String destination) async {

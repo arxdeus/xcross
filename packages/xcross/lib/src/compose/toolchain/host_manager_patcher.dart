@@ -163,15 +163,16 @@ int? _findEndOfCentralDirectory(Uint8List bytes) {
 Uint8List _emitU2(int v) => Uint8List.fromList([(v >> 8) & 0xFF, v & 0xFF]);
 
 Uint8List _emitU4(int v) => Uint8List.fromList([
-      (v >> 24) & 0xFF,
-      (v >> 16) & 0xFF,
-      (v >> 8) & 0xFF,
-      v & 0xFF,
-    ]);
+  (v >> 24) & 0xFF,
+  (v >> 16) & 0xFF,
+  (v >> 8) & 0xFF,
+  v & 0xFF,
+]);
 
 void _addUnmodifiedEntry(ZipEncoder encoder, ArchiveFile entry) {
   final decodedTime = entry.lastModDateTime;
-  entry.lastModTime = DateTime(
+  entry.lastModTime =
+      DateTime(
         decodedTime.year,
         decodedTime.month,
         decodedTime.day,
@@ -254,19 +255,23 @@ class _ClassFile {
           cp.add(_CpEntry(tag: tag, str: str));
           off += 3 + len;
         case _cpInteger || _cpFloat:
-          cp.add(_CpEntry(
-            tag: tag,
-            rawData: Uint8List.sublistView(raw, off + 1, off + 5),
-          ));
+          cp.add(
+            _CpEntry(
+              tag: tag,
+              rawData: Uint8List.sublistView(raw, off + 1, off + 5),
+            ),
+          );
           off += 5;
         case _cpLong || _cpDouble:
           // Long and Double each occupy TWO constant-pool indices (JVM §4.4.5).
           // The extra `i++` here advances past the phantom second slot so that
           // subsequent entries are resolved at the correct 1-based index.
-          cp.add(_CpEntry(
-            tag: tag,
-            rawData: Uint8List.sublistView(raw, off + 1, off + 9),
-          ));
+          cp.add(
+            _CpEntry(
+              tag: tag,
+              rawData: Uint8List.sublistView(raw, off + 1, off + 9),
+            ),
+          );
           cp.add(null); // second slot — phantom entry for the double-width type
           off += 9;
           i++; // consumes two CP indices
@@ -274,23 +279,27 @@ class _ClassFile {
           cp.add(_CpEntry(tag: tag, idx1: _u2(raw, off + 1)));
           off += 3;
         case _cpFieldref ||
-              _cpMethodref ||
-              _cpIfMethodref ||
-              _cpNameAndType ||
-              _cpDynamic ||
-              _cpInvokeDynamic:
-          cp.add(_CpEntry(
-            tag: tag,
-            idx1: _u2(raw, off + 1),
-            idx2: _u2(raw, off + 3),
-          ));
+            _cpMethodref ||
+            _cpIfMethodref ||
+            _cpNameAndType ||
+            _cpDynamic ||
+            _cpInvokeDynamic:
+          cp.add(
+            _CpEntry(
+              tag: tag,
+              idx1: _u2(raw, off + 1),
+              idx2: _u2(raw, off + 3),
+            ),
+          );
           off += 5;
         case _cpMethodHandle:
-          cp.add(_CpEntry(
-            tag: tag,
-            idx1: raw[off + 1], // reference_kind (u1)
-            idx2: _u2(raw, off + 2), // reference_index
-          ));
+          cp.add(
+            _CpEntry(
+              tag: tag,
+              idx1: raw[off + 1], // reference_kind (u1)
+              idx2: _u2(raw, off + 2), // reference_index
+            ),
+          );
           off += 4;
         default:
           throw StateError('ClassFile: unknown CP tag $tag @ offset $off');
@@ -450,11 +459,7 @@ class _ClassFile {
   /// - The exception table is cleared.
   /// - The `StackMapTable` inner attribute is dropped; all other inner
   ///   attributes (e.g. `LineNumberTable`) are kept.
-  void replaceMethodCode(
-    String name,
-    String descriptor,
-    Uint8List newCode,
-  ) {
+  void replaceMethodCode(String name, String descriptor, Uint8List newCode) {
     final mIdx = _findMethod(name, descriptor);
     if (mIdx == null) {
       throw StateError('ClassFile: method $name$descriptor not found');
@@ -464,8 +469,9 @@ class _ClassFile {
       throw StateError("ClassFile: 'Code' UTF8 not in constant pool");
     }
     final method = methods[mIdx];
-    final codeAttrIdx =
-        method.attrs.indexWhere((a) => a.nameIdx == codeAttrNameIdx);
+    final codeAttrIdx = method.attrs.indexWhere(
+      (a) => a.nameIdx == codeAttrNameIdx,
+    );
     if (codeAttrIdx < 0) {
       throw StateError(
         'ClassFile: method $name$descriptor has no Code attribute',
@@ -501,8 +507,9 @@ class _ClassFile {
     final innerRes = _parseAttributes(body, innerOff, innerAttrCount);
     final innerAttrs = innerRes.$1;
     final stackMapIdx = _findUtf8Idx('StackMapTable');
-    final keptInner =
-        innerAttrs.where((a) => a.nameIdx != stackMapIdx).toList();
+    final keptInner = innerAttrs
+        .where((a) => a.nameIdx != stackMapIdx)
+        .toList();
 
     // Rebuild Code attribute body.
     final builder = BytesBuilder(copy: false);
@@ -626,11 +633,7 @@ Uint8List? patchObjCExportClassBytes(Uint8List classBytes) {
       // Non-void variant — unexpected; leave untouched.
       continue;
     }
-    cf.replaceMethodCode(
-      name,
-      descriptor,
-      Uint8List.fromList([_return]),
-    );
+    cf.replaceMethodCode(name, descriptor, Uint8List.fromList([_return]));
     patched = true;
   }
   return patched ? cf.serialize() : null;
@@ -661,7 +664,9 @@ bool patchKotlinNativeJar(String jarPath) {
     final names = <String>{};
     for (final entry in archive.files) {
       if (!names.add(entry.name)) {
-        throw StateError('HostManagerPatcher: duplicate JAR entry ${entry.name}');
+        throw StateError(
+          'HostManagerPatcher: duplicate JAR entry ${entry.name}',
+        );
       }
     }
 

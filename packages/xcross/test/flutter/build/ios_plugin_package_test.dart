@@ -4,10 +4,12 @@ import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/flutter/build/ios_plugins.dart';
-import 'package:xcross/src/flutter/constants.dart';
 import 'package:xcross/src/flutter/errors.dart';
+
+String swiftPath(String path) => p.absolute(path).replaceAll(r'\', '/');
 
 void main() {
   late Directory tmp;
@@ -21,12 +23,16 @@ void main() {
   /// Creates a fake plugin pub package with an `ios/<name>/Package.swift` and
   /// a `pubspec.yaml` whose `pluginClass` is [pluginClass] (or omitted when
   /// null).
-  IosPlugin makePlugin(String name, {String? pluginClass}) {
+  IosPlugin makePlugin(
+    String name, {
+    String? pluginClass,
+    String packageManifest = '',
+  }) {
     final packageRoot = p.join(tmp.path, name);
     Directory(p.join(packageRoot, 'ios', name)).createSync(recursive: true);
     File(
       p.join(packageRoot, 'ios', name, 'Package.swift'),
-    ).writeAsStringSync('');
+    ).writeAsStringSync(packageManifest);
 
     final pluginSection = pluginClass == null
         ? ''
@@ -69,16 +75,16 @@ let package = Package(
       final pluginB = makePlugin('plugin_b');
       final frameworkDir = p.join(tmp.path, 'FlutterFramework');
 
-      final manifest = GeneratedPluginsPackage.pluginsManifest([
-        pluginA,
-        pluginB,
-      ], frameworkDir);
+      const target = IosDeploymentTarget('15.6');
+      final manifest = GeneratedPluginsPackage.pluginsManifest(
+        [pluginA, pluginB],
+        frameworkDir,
+        deploymentTarget: target,
+      );
 
       expect(manifest, contains('name: "FlutterPluginsGenerated"'));
-      expect(
-        manifest,
-        contains('.iOS("${IosDeploymentConstants.minDeploymentTarget}")'),
-      );
+      expect(manifest, contains('.iOS("15.6")'));
+      expect(manifest, isNot(contains('.iOS("13.0")')));
       expect(
         manifest,
         contains(
@@ -109,40 +115,59 @@ let package = Package(
       final pluginA = makePlugin('plugin_a');
       final frameworkDir = p.join(tmp.path, 'FlutterFramework');
 
-      final manifest = GeneratedPluginsPackage.pluginsManifest([
-        pluginA,
-      ], frameworkDir);
+      final manifest = GeneratedPluginsPackage.pluginsManifest(
+        [pluginA],
+        frameworkDir,
+        deploymentTarget: IosDeploymentTarget.fallback,
+      );
 
       expect(manifest, isNot(contains(r'\')));
     });
   });
 
+  group('normalizeLinkerFlags', () {
+    test('normalizes SwiftPM Wl linker flags', () {
+      expect(
+        GeneratedPluginsPackage.normalizeLinkerFlags(
+          '.unsafeFlags(["-Wl,-undefined,dynamic_lookup"])',
+        ),
+        '.unsafeFlags(["-Xlinker", "-undefined", "-Xlinker", '
+        '"dynamic_lookup"])',
+      );
+      expect(
+        GeneratedPluginsPackage.normalizeLinkerFlags(
+          '.unsafeFlags(["-O3", "-Wl,-rpath,@loader_path"])',
+        ),
+        '.unsafeFlags(["-O3", "-Xlinker", "-rpath", "-Xlinker", '
+        '"@loader_path"])',
+      );
+
+      const escaped = r'.unsafeFlags(["-Wl,-rpath,\"quoted\""])';
+      expect(GeneratedPluginsPackage.normalizeLinkerFlags(escaped), escaped);
+    });
+  });
+
   group('registrantSource', () {
-    test(
-      'imports both plugins but registers only the one with a pluginClass',
-      () {
-        final pluginA = makePlugin('plugin_a', pluginClass: 'PluginA');
-        final pluginB = makePlugin('plugin_b');
+    test('imports and registers only the plugin with a pluginClass', () {
+      final pluginA = makePlugin('plugin_a', pluginClass: 'PluginA');
+      final pluginB = makePlugin('plugin_b');
 
-        final source = GeneratedPluginsPackage.registrantSource([
-          pluginA,
-          pluginB,
-        ]);
+      final source = GeneratedPluginsPackage.registrantSource([
+        pluginA,
+        pluginB,
+      ]);
 
-        expect(source, contains('import plugin_a'));
-        expect(source, contains('import plugin_b'));
-        expect(
-          source,
-          contains(
-            'if let registrar = registry.registrar(forPlugin: "PluginA")',
-          ),
-        );
-        expect(source, contains('PluginA.register(with: registrar)'));
-        // Exactly one registration block: only plugin_a has a pluginClass.
-        expect('if let registrar'.allMatches(source).length, 1);
-        expect(source, contains('@_cdecl("XcrossRegisterGeneratedPlugins")'));
-      },
-    );
+      expect(source, contains('import plugin_a'));
+      expect(source, isNot(contains('import plugin_b')));
+      expect(
+        source,
+        contains('if let registrar = registry.registrar(forPlugin: "PluginA")'),
+      );
+      expect(source, contains('PluginA.register(with: registrar)'));
+      // Exactly one registration block: only plugin_a has a pluginClass.
+      expect('if let registrar'.allMatches(source).length, 1);
+      expect(source, contains('@_cdecl("XcrossRegisterGeneratedPlugins")'));
+    });
 
     test(
       'emits a function with an empty body when no plugin has a pluginClass',
@@ -151,7 +176,7 @@ let package = Package(
 
         final source = GeneratedPluginsPackage.registrantSource([pluginA]);
 
-        expect(source, contains('import plugin_a'));
+        expect(source, isNot(contains('import plugin_a')));
         expect(source, isNot(contains('if let registrar')));
         expect(
           source,
@@ -166,7 +191,135 @@ let package = Package(
 
   group('writeGeneratedPackages', () {
     test(
-      'writes FlutterFramework/Plugins packages and the xcframework symlink',
+      'stages normalized plugin manifest without modifying source',
+      () async {
+        const pluginManifest = '''
+// swift-tools-version: 5.9
+import PackageDescription
+
+let package = Package(
+    name: "plugin_a",
+    targets: [
+        .target(
+            name: "plugin_a",
+            linkerSettings: [
+                .unsafeFlags(["-Wl,-undefined,dynamic_lookup"])
+            ]
+        )
+    ]
+)
+''';
+        final plugin = makePlugin('plugin_a', packageManifest: pluginManifest);
+        final source =
+            File(
+                p.join(
+                  plugin.swiftPackageDir,
+                  'Sources',
+                  'plugin_a',
+                  'source.m',
+                ),
+              )
+              ..createSync(recursive: true)
+              ..writeAsStringSync('source');
+        final flutterXcframework = p.join(tmp.path, 'Flutter.xcframework');
+        Directory(flutterXcframework).createSync(recursive: true);
+        final outputDir = p.join(tmp.path, 'out');
+
+        await GeneratedPluginsPackage.writeGeneratedPackages(
+          outputDir: outputDir,
+          plugins: [plugin],
+          flutterXcframework: flutterXcframework,
+          copyFlutterXcframework: true,
+          deploymentTarget: const IosDeploymentTarget('15.6'),
+        );
+
+        final stagedPluginDir = p.join(outputDir, 'Packages', 'plugin_a');
+        expect(Link(stagedPluginDir).existsSync(), isFalse);
+        expect(
+          File(p.join(stagedPluginDir, 'Package.swift')).readAsStringSync(),
+          contains('"-Xlinker", "-undefined", "-Xlinker", "dynamic_lookup"'),
+        );
+        expect(
+          File(
+            p.join(plugin.swiftPackageDir, 'Package.swift'),
+          ).readAsStringSync(),
+          pluginManifest,
+        );
+        expect(
+          File(
+            p.join(stagedPluginDir, 'Sources', 'plugin_a', 'source.m'),
+          ).readAsStringSync(),
+          'source',
+        );
+        expect(source.readAsStringSync(), 'source');
+        expect(
+          p.normalize(p.join(stagedPluginDir, '..', 'FlutterFramework')),
+          p.normalize(p.join(outputDir, 'Packages', 'FlutterFramework')),
+        );
+      },
+    );
+
+    test(
+      'stages plugin packages beside one FlutterFramework package',
+      () async {
+        const pluginManifest = '''
+// swift-tools-version: 5.9
+import PackageDescription
+
+let package = Package(
+    name: "plugin_a",
+    dependencies: [
+        .package(name: "FlutterFramework", path: "../FlutterFramework")
+    ],
+    targets: [
+        .target(
+            name: "plugin_a",
+            dependencies: [
+                .product(name: "FlutterFramework", package: "FlutterFramework")
+            ]
+        )
+    ]
+)
+''';
+        final pluginA = makePlugin('plugin_a', packageManifest: pluginManifest);
+        final flutterXcframework = p.join(tmp.path, 'Flutter.xcframework');
+        Directory(flutterXcframework).createSync(recursive: true);
+        final outputDir = p.join(tmp.path, 'out');
+
+        await GeneratedPluginsPackage.writeGeneratedPackages(
+          outputDir: outputDir,
+          plugins: [pluginA],
+          flutterXcframework: flutterXcframework,
+          copyFlutterXcframework: true,
+          deploymentTarget: const IosDeploymentTarget('15.6'),
+        );
+
+        final packagesDir = p.join(outputDir, 'Packages');
+        final stagedPluginDir = p.join(packagesDir, 'plugin_a');
+        final stagedFrameworkDir = p.join(packagesDir, 'FlutterFramework');
+        expect(
+          File(p.join(stagedPluginDir, 'Package.swift')).readAsStringSync(),
+          pluginManifest,
+        );
+        expect(
+          p.normalize(p.join(stagedPluginDir, '..', 'FlutterFramework')),
+          p.normalize(stagedFrameworkDir),
+        );
+
+        final aggregateManifest = File(
+          p.join(outputDir, 'Plugins', 'Package.swift'),
+        ).readAsStringSync();
+        expect(aggregateManifest, contains(swiftPath(stagedPluginDir)));
+        expect(aggregateManifest, contains(swiftPath(stagedFrameworkDir)));
+        expect(
+          aggregateManifest,
+          isNot(contains(swiftPath(pluginA.swiftPackageDir))),
+        );
+      },
+    );
+
+    test(
+      'writes shared packages and the Flutter xcframework symlink',
       () async {
         final pluginA = makePlugin('plugin_a', pluginClass: 'PluginA');
         final flutterXcframework = p.join(tmp.path, 'Flutter.xcframework');
@@ -174,6 +327,7 @@ let package = Package(
         final outputDir = p.join(tmp.path, 'out');
         final frameworkPath = p.join(
           outputDir,
+          'Packages',
           'FlutterFramework',
           'Flutter.xcframework',
         );
@@ -186,6 +340,7 @@ let package = Package(
             plugins: [pluginA],
             flutterXcframework: flutterXcframework,
             copyFlutterXcframework: false,
+            deploymentTarget: const IosDeploymentTarget('15.6'),
           );
         } on FileSystemException {
           // A locked-down Windows host cannot create the link, but forcing
@@ -195,7 +350,7 @@ let package = Package(
         }
 
         final frameworkManifest = File(
-          p.join(outputDir, 'FlutterFramework', 'Package.swift'),
+          p.join(outputDir, 'Packages', 'FlutterFramework', 'Package.swift'),
         );
         expect(frameworkManifest.existsSync(), isTrue);
         expect(
@@ -211,10 +366,9 @@ let package = Package(
           p.join(outputDir, 'Plugins', 'Package.swift'),
         );
         expect(pluginsManifestFile.existsSync(), isTrue);
-        expect(
-          pluginsManifestFile.readAsStringSync(),
-          contains('.package(name: "plugin_a", path:'),
-        );
+        final pluginsManifest = pluginsManifestFile.readAsStringSync();
+        expect(pluginsManifest, contains('.package(name: "plugin_a", path:'));
+        expect(pluginsManifest, contains('.iOS("15.6")'));
 
         final registrantFile = File(
           p.join(
@@ -246,6 +400,7 @@ let package = Package(
       final outputDir = p.join(tmp.path, 'out');
       final copiedFramework = p.join(
         outputDir,
+        'Packages',
         'FlutterFramework',
         'Flutter.xcframework',
       );
@@ -257,6 +412,7 @@ let package = Package(
         plugins: [plugin],
         flutterXcframework: flutterXcframework,
         copyFlutterXcframework: true,
+        deploymentTarget: IosDeploymentTarget.fallback,
       );
 
       expect(Link(copiedFramework).existsSync(), isFalse);
@@ -268,7 +424,7 @@ let package = Package(
       );
       expect(
         File(
-          p.join(outputDir, 'FlutterFramework', 'Package.swift'),
+          p.join(outputDir, 'Packages', 'FlutterFramework', 'Package.swift'),
         ).readAsStringSync(),
         GeneratedPluginsPackage.flutterFrameworkManifest(),
       );
@@ -409,6 +565,7 @@ let package = Package(
         pluginsDir: 'plugins',
         scratchPath: 'scratch',
         swiftSdksPath: 'xcross-swift-sdks',
+        iosSdk: 'iPhoneOS.sdk',
         flutterFrameworkSlice: 'Flutter.xcframework/ios-arm64',
         toolsetPath: 'toolset.json',
         linkerPath: '/usr/bin/ld64.lld',
@@ -447,10 +604,40 @@ let package = Package(
       );
       expect(
         arguments,
+        containsAllInOrder(['-Xswiftc', '-sdk', '-Xswiftc', 'iPhoneOS.sdk']),
+      );
+      expect(
+        arguments,
+        containsAllInOrder(['-Xcc', '-isysroot', '-Xcc', 'iPhoneOS.sdk']),
+      );
+      expect(
+        arguments,
+        containsAllInOrder([
+          '-Xswiftc',
+          '-Xclang-linker',
+          '-Xswiftc',
+          '-isysroot',
+          '-Xswiftc',
+          '-Xclang-linker',
+          '-Xswiftc',
+          'iPhoneOS.sdk',
+        ]),
+      );
+      expect(
+        arguments,
         containsAllInOrder([
           '-Xswiftc',
           '-F',
           '-Xswiftc',
+          'Flutter.xcframework/ios-arm64',
+        ]),
+      );
+      expect(
+        arguments,
+        containsAllInOrder([
+          '-Xcc',
+          '-F',
+          '-Xcc',
           'Flutter.xcframework/ios-arm64',
         ]),
       );
@@ -494,6 +681,7 @@ let package = Package(
           plugins: const [],
           flutterXcframework: p.join(tmp.path, 'Flutter.xcframework'),
           outputDir: outputDir,
+          deploymentTarget: IosDeploymentTarget.fallback,
         );
 
         expect(result, isNull);
@@ -517,6 +705,7 @@ let package = Package(
           plugins: [plugin],
           flutterXcframework: p.join(tmp.path, 'Flutter.xcframework'),
           outputDir: outputDir,
+          deploymentTarget: IosDeploymentTarget.fallback,
         );
 
         expect(result, isNull);

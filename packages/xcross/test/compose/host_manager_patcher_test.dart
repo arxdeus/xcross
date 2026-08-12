@@ -73,10 +73,7 @@ void main() {
     });
 
     test('isEnabled Code exception table is emptied', () {
-      expect(
-        parseForInspection(patched).isEnabledExceptionCount,
-        equals(0),
-      );
+      expect(parseForInspection(patched).isEnabledExceptionCount, equals(0));
     });
 
     test('isEnabled Code has no StackMapTable inner attribute', () {
@@ -102,8 +99,7 @@ void main() {
 
   group('getTargetValues Methodref resolution', () {
     test('resolves Methodref at CP index 10 in fake class', () {
-      final patched =
-          patchHostManagerClassBytes(buildFakeHostManagerClass());
+      final patched = patchHostManagerClassBytes(buildFakeHostManagerClass());
       final body = parseForInspection(patched).getEnabledCodeBody;
       final invokeIdx = (body[7] << 8) | body[8];
       expect(invokeIdx, equals(10));
@@ -140,10 +136,7 @@ void main() {
         ...member(nameIdx: 4, descIdx: 5, codeAttrBytes: codeAttr(body)),
         ...u2(0), // class attrs
       ]);
-      expect(
-        () => patchHostManagerClassBytes(raw),
-        throwsA(isA<StateError>()),
-      );
+      expect(() => patchHostManagerClassBytes(raw), throwsA(isA<StateError>()));
     });
   });
 
@@ -164,11 +157,7 @@ void main() {
         cpUtf8('java/lang/Object'), // 6
         cpClass(6), // 7
       ];
-      final body = codeBody(
-        maxStack: 0,
-        maxLocals: 0,
-        code: [vreturn],
-      );
+      final body = codeBody(maxStack: 0, maxLocals: 0, code: [vreturn]);
       final raw = Uint8List.fromList([
         ...classFileHeader,
         ...cpSection(cpEntries),
@@ -206,22 +195,24 @@ void main() {
 
     test('returns false when marker already present', () async {
       final jar = File('${tmpDir.path}/test.jar');
-      await jar.writeAsBytes(buildJar({
-        jarMarkerPath: [112, 97, 116, 99, 104, 101, 100, 10],
-        hostManagerClassEntry: buildFakeHostManagerClass().toList(),
-      }));
+      await jar.writeAsBytes(
+        buildJar({
+          jarMarkerPath: [112, 97, 116, 99, 104, 101, 100, 10],
+          hostManagerClassEntry: buildFakeHostManagerClass().toList(),
+        }),
+      );
       expect(patchKotlinNativeJar(jar.path), isFalse);
     });
 
     test('returns false when no patchable classes in JAR', () async {
       final jar = File('${tmpDir.path}/test.jar');
-      await jar.writeAsBytes(buildJar({
-        'some/other/Class.class': [0xCA, 0xFE, 0xBA, 0xBE],
-      }));
+      await jar.writeAsBytes(
+        buildJar({
+          'some/other/Class.class': [0xCA, 0xFE, 0xBA, 0xBE],
+        }),
+      );
       expect(patchKotlinNativeJar(jar.path), isFalse);
     });
-
-
 
     test('rejects duplicate archive entries before patching', () async {
       final jar = File('${tmpDir.path}/test.jar');
@@ -245,55 +236,65 @@ void main() {
       }
       await jar.writeAsBytes(bytes);
 
-      expect(
-        () => patchKotlinNativeJar(jar.path),
-        throwsA(isA<StateError>()),
-      );
+      expect(() => patchKotlinNativeJar(jar.path), throwsA(isA<StateError>()));
     });
 
-    test('ignores central-directory signature bytes in normal entry payload', () async {
-      final jar = File('${tmpDir.path}/test.jar');
-      final payload = <int>[
-        0x50, 0x4B, 0x01, 0x02,
-        ...List<int>.filled(24, 0),
-        ...u2('normal.bin'.length),
-        ...u2(0),
-        ...u2(0),
-        ...List<int>.filled(12, 0),
-        ...'normal.bin'.codeUnits,
-      ];
-      await jar.writeAsBytes(buildJar({
-        'normal.bin': payload,
-        hostManagerClassEntry: buildFakeHostManagerClass().toList(),
-      }));
+    test(
+      'ignores central-directory signature bytes in normal entry payload',
+      () async {
+        final jar = File('${tmpDir.path}/test.jar');
+        final payload = <int>[
+          0x50,
+          0x4B,
+          0x01,
+          0x02,
+          ...List<int>.filled(24, 0),
+          ...u2('normal.bin'.length),
+          ...u2(0),
+          ...u2(0),
+          ...List<int>.filled(12, 0),
+          ...'normal.bin'.codeUnits,
+        ];
+        await jar.writeAsBytes(
+          buildJar({
+            'normal.bin': payload,
+            hostManagerClassEntry: buildFakeHostManagerClass().toList(),
+          }),
+        );
 
-      expect(patchKotlinNativeJar(jar.path), isTrue);
-    });
+        expect(patchKotlinNativeJar(jar.path), isTrue);
+      },
+    );
 
     test('unmodified entries preserve decoded payload and metadata', () async {
       final jar = File('${tmpDir.path}/test.jar');
       final payload = [9, 8, 7, 6, 5];
-      final manifest = ArchiveFile('META-INF/MANIFEST.MF', payload.length, payload)
-        ..mode = 0x1ed
-        ..lastModTime = 0x5A4884C0
-        ..comment = 'keep metadata';
+      final manifest =
+          ArchiveFile('META-INF/MANIFEST.MF', payload.length, payload)
+            ..mode = 0x1ed
+            ..lastModTime = 0x5A4884C0
+            ..comment = 'keep metadata';
       final archive = Archive()
-        ..addFile(ArchiveFile(
-          hostManagerClassEntry,
-          buildFakeHostManagerClass().length,
-          buildFakeHostManagerClass(),
-        ))
+        ..addFile(
+          ArchiveFile(
+            hostManagerClassEntry,
+            buildFakeHostManagerClass().length,
+            buildFakeHostManagerClass(),
+          ),
+        )
         ..addFile(manifest);
       await jar.writeAsBytes(ZipEncoder().encode(archive));
       final original = ZipDecoder().decodeBytes(await jar.readAsBytes());
-      final originalManifest =
-          original.files.firstWhere((f) => f.name == 'META-INF/MANIFEST.MF');
+      final originalManifest = original.files.firstWhere(
+        (f) => f.name == 'META-INF/MANIFEST.MF',
+      );
 
       patchKotlinNativeJar(jar.path);
 
       final updated = ZipDecoder().decodeBytes(await jar.readAsBytes());
-      final updatedManifest =
-          updated.files.firstWhere((f) => f.name == 'META-INF/MANIFEST.MF');
+      final updatedManifest = updated.files.firstWhere(
+        (f) => f.name == 'META-INF/MANIFEST.MF',
+      );
       expect((updatedManifest.content as List).toList(), equals(payload));
       expect(updatedManifest.mode, equals(originalManifest.mode));
       expect(updatedManifest.lastModTime, equals(originalManifest.lastModTime));
@@ -302,10 +303,12 @@ void main() {
 
     test('returns true and adds marker when HostManager present', () async {
       final jar = File('${tmpDir.path}/test.jar');
-      await jar.writeAsBytes(buildJar({
-        hostManagerClassEntry: buildFakeHostManagerClass().toList(),
-        'other/Entry.class': [1, 2, 3, 4],
-      }));
+      await jar.writeAsBytes(
+        buildJar({
+          hostManagerClassEntry: buildFakeHostManagerClass().toList(),
+          'other/Entry.class': [1, 2, 3, 4],
+        }),
+      );
 
       expect(patchKotlinNativeJar(jar.path), isTrue);
 
@@ -315,34 +318,34 @@ void main() {
 
     test('is idempotent: second call returns false', () async {
       final jar = File('${tmpDir.path}/test.jar');
-      await jar.writeAsBytes(buildJar({
-        hostManagerClassEntry: buildFakeHostManagerClass().toList(),
-      }));
+      await jar.writeAsBytes(
+        buildJar({hostManagerClassEntry: buildFakeHostManagerClass().toList()}),
+      );
 
       expect(patchKotlinNativeJar(jar.path), isTrue);
       expect(patchKotlinNativeJar(jar.path), isFalse);
     });
 
     test('returns false for non-existent file', () {
-      expect(
-        patchKotlinNativeJar('${tmpDir.path}/missing.jar'),
-        isFalse,
-      );
+      expect(patchKotlinNativeJar('${tmpDir.path}/missing.jar'), isFalse);
     });
 
     test('non-patchable entries are copied unchanged', () async {
       final jar = File('${tmpDir.path}/test.jar');
       final payload = [9, 8, 7, 6, 5];
-      await jar.writeAsBytes(buildJar({
-        hostManagerClassEntry: buildFakeHostManagerClass().toList(),
-        'META-INF/MANIFEST.MF': payload,
-      }));
+      await jar.writeAsBytes(
+        buildJar({
+          hostManagerClassEntry: buildFakeHostManagerClass().toList(),
+          'META-INF/MANIFEST.MF': payload,
+        }),
+      );
 
       patchKotlinNativeJar(jar.path);
 
       final updated = ZipDecoder().decodeBytes(await jar.readAsBytes());
-      final manifest =
-          updated.files.firstWhere((f) => f.name == 'META-INF/MANIFEST.MF');
+      final manifest = updated.files.firstWhere(
+        (f) => f.name == 'META-INF/MANIFEST.MF',
+      );
       expect((manifest.content as List).toList(), equals(payload));
     });
   });

@@ -1,3 +1,14 @@
+## 1.0.4
+
+- Resolve Flutter package configs from workspace roots.
+- Pin the iOS SDK and sysroot for Flutter plugin linking, and expose Flutter
+  headers to Objective-C plugins.
+- Propagate the project's iOS deployment target through SwiftPM builds and
+  generated app metadata.
+- Normalize SwiftPM linker flags and stage normalized manifests for plugin
+  builds.
+- Skip generated imports for FFI-only Flutter plugins.
+
 ## 1.0.3
 
 - Teach `xcross setup` to install host requirements on macOS via Homebrew

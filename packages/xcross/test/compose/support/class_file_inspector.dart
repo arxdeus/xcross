@@ -73,9 +73,18 @@ int skipMembers(Uint8List raw, int off) {
       case 5 || 6: // Long, Double → two slots per §4.4.5
         o += 9;
         cpIdx++;
-      case 7 || 8 || 16 || 19 || 20: // Class, String, MethodType, Module, Package
+      case 7 ||
+          8 ||
+          16 ||
+          19 ||
+          20: // Class, String, MethodType, Module, Package
         o += 3;
-      case 9 || 10 || 11 || 12 || 17 || 18: // Fieldref, Methodref, InterfaceMethodref, NameAndType, Dynamic, InvokeDynamic
+      case 9 ||
+          10 ||
+          11 ||
+          12 ||
+          17 ||
+          18: // Fieldref, Methodref, InterfaceMethodref, NameAndType, Dynamic, InvokeDynamic
         o += 5;
       case 15: // MethodHandle
         o += 4;

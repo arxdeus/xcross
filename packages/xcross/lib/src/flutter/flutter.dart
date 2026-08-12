@@ -1,6 +1,8 @@
 /// Flutter iOS packing and hot reload, internal to xcross.
 library;
 
+export 'package:xcross/src/models/pack_result.dart';
+
 export 'build/flutter_debug_bundler.dart';
 export 'build/flutter_pack_operation.dart';
 export 'build/flutter_packer.dart';
@@ -20,6 +22,5 @@ export 'hot_reload/source_watcher.dart';
 export 'hot_reload/vm_service_output.dart';
 export 'models/flutter/dart_defines.dart';
 export 'models/flutter/flutter_build_options.dart';
-export 'package:xcross/src/models/pack_result.dart';
 export 'models/hot_reload_config.dart';
 export 'models/pubspec_info.dart';

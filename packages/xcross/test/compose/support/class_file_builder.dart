@@ -9,11 +9,11 @@ List<int> u2(int v) => [(v >> 8) & 0xFF, v & 0xFF];
 
 /// Big-endian u4 bytes.
 List<int> u4(int v) => [
-      (v >> 24) & 0xFF,
-      (v >> 16) & 0xFF,
-      (v >> 8) & 0xFF,
-      v & 0xFF,
-    ];
+  (v >> 24) & 0xFF,
+  (v >> 16) & 0xFF,
+  (v >> 8) & 0xFF,
+  v & 0xFF,
+];
 
 // ── Constant-pool entry builders ──────────────────────────────────────────────
 
@@ -27,12 +27,18 @@ List<int> cpUtf8(String s) {
 List<int> cpClass(int nameIdx) => [7, ...u2(nameIdx)];
 
 /// NameAndType entry (tag 12 + u2 name_idx + u2 desc_idx).
-List<int> cpNameAndType(int nameIdx, int descIdx) =>
-    [12, ...u2(nameIdx), ...u2(descIdx)];
+List<int> cpNameAndType(int nameIdx, int descIdx) => [
+  12,
+  ...u2(nameIdx),
+  ...u2(descIdx),
+];
 
 /// Methodref entry (tag 10 + u2 class_idx + u2 nat_idx).
-List<int> cpMethodref(int classIdx, int natIdx) =>
-    [10, ...u2(classIdx), ...u2(natIdx)];
+List<int> cpMethodref(int classIdx, int natIdx) => [
+  10,
+  ...u2(classIdx),
+  ...u2(natIdx),
+];
 
 /// Long entry (tag 5 + 8 bytes).  Consumes TWO CP slots per JVM spec §4.4.5.
 List<int> cpLong(int high, int low) => [5, ...u4(high), ...u4(low)];
@@ -103,14 +109,13 @@ List<int> member({
   required int nameIdx,
   required int descIdx,
   required List<int> codeAttrBytes,
-}) =>
-    [
-      ...u2(0x0001), // ACC_PUBLIC
-      ...u2(nameIdx),
-      ...u2(descIdx),
-      ...u2(1), // attrs_count = 1  (Code only)
-      ...codeAttrBytes,
-    ];
+}) => [
+  ...u2(0x0001), // ACC_PUBLIC
+  ...u2(nameIdx),
+  ...u2(descIdx),
+  ...u2(1), // attrs_count = 1  (Code only)
+  ...codeAttrBytes,
+];
 
 // ── Class-file header ─────────────────────────────────────────────────────────
 
