@@ -1637,11 +1637,14 @@ let package = Package(
     await Directory(includeDir).create(recursive: true);
     final shim = StringBuffer()
       ..writeln('@import ${publicModules.single.modules.single};');
-    if (swiftModules.isNotEmpty) {
-      shim
-        ..writeln('#ifndef __swift__')
-        ..writeln(swiftModules.map((module) => '@import $module;').join('\n'))
-        ..writeln('#endif');
+    // The fallback's Swift half completes the Objective-C surface: its
+    // headers refer to types the Swift module declares, so a consumer that
+    // sees only the headers imports those declarations as incomplete and
+    // loses every member that mentions them. Clang defines `__swift__` while
+    // importing into Swift, so guarding these imports with it withheld them
+    // from precisely the consumers that need them.
+    for (final module in swiftModules) {
+      shim.writeln('@import $module;');
     }
     await File(p.join(includeDir, '$product.h')).writeAsString(shim.toString());
     await File(
