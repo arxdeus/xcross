@@ -35,6 +35,34 @@ void main() {
       expect(project.baseName, 'B');
     });
 
+    test('parses Kotlin settings include call with multiple modules', () {
+      final root = _fixture();
+      _settings(root, 'include(":shared", ":other")');
+      _framework(root, 'shared', baseName: 'Shared');
+      _framework(root, 'other', baseName: 'Other');
+      _swift(root, p.join('iosApp', 'App.swift'), 'import Shared');
+
+      final project = KmpProject.detect(root.path);
+
+      expect(project.moduleName, 'shared');
+    });
+
+    test('parses Groovy settings include statement with multiple modules', () {
+      final root = _fixture();
+      _settings(
+        root,
+        "include ':shared', ':other'",
+        fileName: 'settings.gradle',
+      );
+      _framework(root, 'shared', baseName: 'Shared');
+      _framework(root, 'other', baseName: 'Other');
+      _swift(root, p.join('iosApp', 'App.swift'), 'import Other');
+
+      final project = KmpProject.detect(root.path);
+
+      expect(project.moduleName, 'other');
+    });
+
     test('detects Swift @main app and excludes Preview Content sources', () {
       final root = _fixture();
       _settings(root, 'include(":shared")');
@@ -243,8 +271,12 @@ Directory _fixture({String name = 'kmp_project'}) {
   return root;
 }
 
-void _settings(Directory root, String content) {
-  File(p.join(root.path, 'settings.gradle.kts')).writeAsStringSync(content);
+void _settings(
+  Directory root,
+  String content, {
+  String fileName = 'settings.gradle.kts',
+}) {
+  File(p.join(root.path, fileName)).writeAsStringSync(content);
 }
 
 void _framework(Directory root, String module, {String? baseName}) {

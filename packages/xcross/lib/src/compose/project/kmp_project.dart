@@ -170,15 +170,24 @@ File? _findFile(String dir, List<String> names) {
 
 List<_ModuleSpec> _parseIncludedModules(String content, String projectRoot) {
   final result = <_ModuleSpec>[];
-  final re = RegExp(r'''include\s*\(\s*["'](:[\w:]+)["']\s*\)''');
-  for (final match in re.allMatches(content)) {
-    final gradleId = match.group(1)!.substring(1);
-    result.add(
-      _ModuleSpec(
-        gradleId,
-        p.join(projectRoot, gradleId.replaceAll(':', p.separator)),
-      ),
-    );
+  final include = RegExp(
+    r'''(?:^|[;\n\r])\s*include\s*(?:\(([^)]*)\)|([^\r\n;]+))''',
+    multiLine: true,
+  );
+  final quotedModule = RegExp(
+    "[\"'](:[A-Za-z0-9_.-]+(?::[A-Za-z0-9_.-]+)*)[\"']",
+  );
+  for (final includeMatch in include.allMatches(content)) {
+    final args = includeMatch.group(1) ?? includeMatch.group(2) ?? '';
+    for (final moduleMatch in quotedModule.allMatches(args)) {
+      final gradleId = moduleMatch.group(1)!.substring(1);
+      result.add(
+        _ModuleSpec(
+          gradleId,
+          p.join(projectRoot, gradleId.replaceAll(':', p.separator)),
+        ),
+      );
+    }
   }
   return result;
 }
