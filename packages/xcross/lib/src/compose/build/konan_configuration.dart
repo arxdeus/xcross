@@ -284,12 +284,25 @@ final class KonanConfiguration {
   ) {
     final host = toolchain.host.konanTarget;
     final appleToolchain = _slash(p.join(root, 'apple-toolchain'));
-    return {
-      'targetSysRoot.ios_arm64': _slash(toolchain.darwinSdkPath),
-      'targetToolchain.$host-ios_arm64': appleToolchain,
+    final sdk = _slash(toolchain.darwinSdkPath);
+    final properties = <String, String>{
       'additionalToolsDir.$host': appleToolchain,
-      'linker.$host-ios_arm64': '$appleToolchain/bin/ld',
     };
+    // The patched HostManager reports every Apple-family KonanTarget as
+    // enabled for a non-macOS host (see host_manager_patcher.dart), so
+    // PlatformManager eagerly constructs an AppleConfigurablesImpl for each
+    // one during compiler startup, not just the ios_arm64 target xcross
+    // actually compiles for. Every one of those constructors requires
+    // non-null targetSysRoot/targetToolchain values, otherwise it throws a
+    // NullPointerException before konanc ever gets a chance to run. The
+    // xcross apple-toolchain/SDK shim is target-agnostic, so reuse it for
+    // every Apple target to keep those constructors happy.
+    for (final target in _appleKonanTargets) {
+      properties['targetSysRoot.$target'] = sdk;
+      properties['targetToolchain.$host-$target'] = appleToolchain;
+    }
+    properties['linker.$host-ios_arm64'] = '$appleToolchain/bin/ld';
+    return properties;
   }
 
   Future<void> _writeAppleToolchain(
@@ -339,6 +352,30 @@ final class KonanConfiguration {
     patchKotlinNativeJar(jar.path);
   }
 }
+
+/// Every Apple-family [org.jetbrains.kotlin.konan.target.KonanTarget] name.
+///
+/// The patched Kotlin/Native `HostManager` (see host_manager_patcher.dart)
+/// reports all of these as enabled regardless of host, so
+/// `PlatformManager`'s constructor builds an `AppleConfigurablesImpl` for
+/// every one of them, not just `ios_arm64`. Each of those constructors
+/// dereferences `targetSysRoot`/`targetToolchain` unconditionally, so every
+/// target listed here needs a non-null override.
+const _appleKonanTargets = [
+  'macos_x64',
+  'macos_arm64',
+  'ios_arm64',
+  'ios_x64',
+  'ios_simulator_arm64',
+  'tvos_arm64',
+  'tvos_x64',
+  'tvos_simulator_arm64',
+  'watchos_arm32',
+  'watchos_arm64',
+  'watchos_device_arm64',
+  'watchos_x64',
+  'watchos_simulator_arm64',
+];
 
 const _appleToolAliases = {
   'ld': 'XCROSS_APPLE_TOOL_LD',

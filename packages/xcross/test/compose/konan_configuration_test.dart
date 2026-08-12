@@ -80,6 +80,47 @@ void main() {
       expect(config, contains('targetToolchain.linux_x64-ios_arm64='));
       expect(config, contains('additionalToolsDir.linux_x64='));
       expect(config, contains('linker.linux_x64-ios_arm64='));
+      // The patched HostManager reports every Apple KonanTarget as enabled,
+      // so PlatformManager eagerly builds an AppleConfigurablesImpl for each
+      // one at compiler startup (not just ios_arm64). Every Apple target
+      // therefore needs a non-null targetSysRoot/targetToolchain override,
+      // or the compiler throws a NullPointerException before konanc runs.
+      for (final target in const [
+        'macos_x64',
+        'macos_arm64',
+        'ios_arm64',
+        'ios_x64',
+        'ios_simulator_arm64',
+        'tvos_arm64',
+        'tvos_x64',
+        'tvos_simulator_arm64',
+        'watchos_arm32',
+        'watchos_arm64',
+        'watchos_device_arm64',
+        'watchos_x64',
+        'watchos_simulator_arm64',
+      ]) {
+        expect(
+          config,
+          contains('targetSysRoot.$target=${_slash(fixture.sdk)}'),
+          reason: target,
+        );
+        expect(
+          config,
+          contains('targetToolchain.linux_x64-$target='),
+          reason: target,
+        );
+        expect(
+          prepared.konanPropertyOverrides,
+          contains('targetSysRoot.$target='),
+          reason: target,
+        );
+        expect(
+          prepared.konanPropertyOverrides,
+          contains('targetToolchain.linux_x64-$target='),
+          reason: target,
+        );
+      }
       expect(config, isNot(contains(r'\\')));
       expect(config, isNot(contains('/tmp/uni')));
       expect(config, isNot(contains('/usr/bin/xcrun')));
