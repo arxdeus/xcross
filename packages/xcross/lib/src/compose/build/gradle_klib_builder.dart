@@ -65,6 +65,7 @@ final class GradleKlibBuilder {
           ':${project.moduleName}:compileKotlinIosArm64',
           '-Pkotlin.native.enableKlibsCrossCompilation=true',
           '--no-daemon',
+          '--no-configuration-cache',
           '--console=plain',
         ],
         workingDirectory: project.root,

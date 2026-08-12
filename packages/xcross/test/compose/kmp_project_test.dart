@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -55,6 +56,37 @@ void main() {
       expect(project.swiftAppDir, p.join(root.path, 'iosApp'));
       expect(project.swiftSources, [p.join(root.path, 'iosApp', 'App.swift')]);
       expect(project.swiftImports, {'SwiftUI', 'Shared'});
+    });
+
+    test('detects committed Compose smoke examples', () {
+      final compose = KmpProject.detect(
+        p.join(_repoRoot, 'examples', 'compose_app'),
+      );
+      final swift = KmpProject.detect(
+        p.join(_repoRoot, 'examples', 'kmp_swift_app'),
+      );
+
+      expect(compose.moduleName, 'shared');
+      expect(compose.baseName, 'ComposeApp');
+      expect(compose.entryKind, KmpEntryKind.runnableApp);
+      expect(compose.entryClass, 'MainViewControllerKt');
+      expect(compose.appName, 'ComposeApp');
+      expect(compose.bundleId, 'org.example.ComposeApp');
+      expect(swift.moduleName, 'shared');
+      expect(swift.baseName, 'Shared');
+      expect(swift.entryKind, KmpEntryKind.swiftApp);
+      expect(swift.swiftSources, [
+        p.join(
+          _repoRoot,
+          'examples',
+          'kmp_swift_app',
+          'iosApp',
+          'KmpSwiftApp',
+          'KmpSwiftApp.swift',
+        ),
+      ]);
+      expect(swift.appName, 'KmpSwiftApp');
+      expect(swift.bundleId, 'org.example.KmpSwiftApp');
     });
 
     test('detects framework only module when no app entry exists', () {
@@ -198,6 +230,10 @@ void main() {
     });
   });
 }
+
+final String _repoRoot = File.fromUri(
+  Isolate.resolvePackageUriSync(Uri.parse('package:xcross/xcross.dart'))!,
+).parent.parent.parent.parent.path;
 
 Directory _fixture({String name = 'kmp_project'}) {
   final parent = Directory.systemTemp.createTempSync('xcross_fixture_');

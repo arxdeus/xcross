@@ -74,10 +74,17 @@ void main() {
         ':a:b:compileKotlinIosArm64',
         '-Pkotlin.native.enableKlibsCrossCompilation=true',
         '--no-daemon',
+        '--no-configuration-cache',
         '--console=plain',
       ]);
-      expect(calls[1].arguments.first, ':a:b:dumpIosDeps');
-      expect(calls[1].arguments, contains('--no-configuration-cache'));
+      expect(calls[1].arguments, [
+        ':a:b:dumpIosDeps',
+        '--init-script',
+        calls[1].initScriptPath,
+        '--no-daemon',
+        '--no-configuration-cache',
+        '--console=plain',
+      ]);
       expect(
         calls.every((call) => call.workingDirectory == fixture.root),
         isTrue,

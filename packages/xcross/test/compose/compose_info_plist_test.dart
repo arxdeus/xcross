@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
@@ -48,6 +49,27 @@ void main() {
     },
   );
 
+  test(
+    'real Swift host example preserves safe partial plist keys and overrides required keys',
+    () {
+      final project = KmpProject.detect(
+        p.join(_repoRoot, 'examples', 'kmp_swift_app'),
+      );
+
+      final xml = ComposeInfoPlist.build(project: project);
+      final plist =
+          PropertyListSerialization.propertyListWithString(xml) as Map;
+
+      expect(project.entryKind, KmpEntryKind.swiftApp);
+      expect(plist['XCROSSPreservedExampleKey'], 'kept from example partial');
+      expect(plist['CFBundleExecutable'], 'Runner');
+      expect(plist['CFBundleIdentifier'], 'org.example.KmpSwiftApp');
+      expect(plist['CFBundleName'], 'KmpSwiftApp');
+      expect(plist['MinimumOSVersion'], '15.0');
+      expect(plist['UILaunchScreen'], isA<Map<Object?, Object?>>());
+    },
+  );
+
   test('rejects unsafe extra and partial plist values', () {
     final fixture = _Fixture.create();
     addTearDown(fixture.dispose);
@@ -73,6 +95,10 @@ void main() {
     );
   });
 }
+
+final String _repoRoot = File.fromUri(
+  Isolate.resolvePackageUriSync(Uri.parse('package:xcross/xcross.dart'))!,
+).parent.parent.parent.parent.path;
 
 final class _Fixture {
   _Fixture._(this.temp) : root = temp.path;
