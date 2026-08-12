@@ -56,6 +56,32 @@ void main() {
       );
     });
 
+    test('pins Kotlin 2.4.0 smoke artifact digests', () {
+      final linux = ComposeSetupOptions.resolve(
+        env: {'HOME': home.path, 'KN_VERSION': '2.4.0'},
+        projectRoot: project.path,
+        host: ComposeHost.linuxX64,
+      );
+      final windows = ComposeSetupOptions.resolve(
+        env: {'HOME': home.path, 'KN_VERSION': '2.4.0'},
+        projectRoot: project.path,
+        host: ComposeHost.windowsX64,
+      );
+
+      expect(
+        linux.hostArchiveSha256,
+        '1fdad03264fc398d24df961bf6563e35b82706bb67cf3ba926eb7b768ce7d536',
+      );
+      expect(
+        windows.hostArchiveSha256,
+        'cf91af2dbe53767ec89d0eb0f744e588f316a8d115e5faba401ae3f2db7db535',
+      );
+      expect(
+        linux.overlayArchiveSha256,
+        'da0684965d6f33c55b5e6e85b6de8a5327dbd3ccfedcb1ab6c1131900e8b3e83',
+      );
+    });
+
     test(
       'falls back from Gradle version catalog to Gradle properties to default',
       () {

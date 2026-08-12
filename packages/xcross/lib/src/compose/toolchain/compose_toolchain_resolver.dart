@@ -77,6 +77,12 @@ final class ComposeSetupOptions {
         '2bf86caed1b5a67f0cd15c685cb8584a2e61f3221d0985f4fc6a590f51c398df',
     'kotlin-native-prebuilt-2.2.20-macos-x86_64.tar.gz':
         'ca9eb2dbb87703176bdbafaad887dc5036c9e5dbfd2eec113b7f4f4a346ca60b',
+    'kotlin-native-prebuilt-2.4.0-linux-x86_64.tar.gz':
+        '1fdad03264fc398d24df961bf6563e35b82706bb67cf3ba926eb7b768ce7d536',
+    'kotlin-native-prebuilt-2.4.0-windows-x86_64.zip':
+        'cf91af2dbe53767ec89d0eb0f744e588f316a8d115e5faba401ae3f2db7db535',
+    'kotlin-native-prebuilt-2.4.0-macos-x86_64.tar.gz':
+        'da0684965d6f33c55b5e6e85b6de8a5327dbd3ccfedcb1ab6c1131900e8b3e83',
   };
 
   static String _version(Map<String, String> env, String projectRoot) {
