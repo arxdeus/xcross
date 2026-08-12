@@ -752,12 +752,14 @@ abstract final class GeneratedPluginsPackage {
     required String packageName,
   }) async {
     await Directory(p.join(destinationRoot, 'ios')).create(recursive: true);
+    final staged = <String>{'ios'};
     await for (final entity in Directory(sourceRoot).list(followLinks: false)) {
       final name = p.basename(entity.path);
       if (name == 'ios' ||
           _iosUnreachableEntries.contains(name.toLowerCase())) {
         continue;
       }
+      staged.add(name);
       await _stageEntity(
         entity,
         p.join(destinationRoot, name),
@@ -765,17 +767,35 @@ abstract final class GeneratedPluginsPackage {
         excludedSourcePath: destinationRoot,
       );
     }
+    await _pruneUnexpected(destinationRoot, staged);
+
+    final stagedIos = <String>{packageName, _flutterFrameworkPackageName};
     await for (final entity in Directory(
       p.join(sourceRoot, 'ios'),
     ).list(followLinks: false)) {
       final name = p.basename(entity.path);
       if (name == packageName || name == _flutterFrameworkPackageName) continue;
+      stagedIos.add(name);
       await _stageEntity(
         entity,
         p.join(destinationRoot, 'ios', name),
         copyDirectories: true,
         excludedSourcePath: destinationRoot,
       );
+    }
+    await _pruneUnexpected(p.join(destinationRoot, 'ios'), stagedIos);
+  }
+
+  /// Deletes entries of [directory] not named in [expected], so previously
+  /// staged files that no longer qualify do not linger in the build tree.
+  static Future<void> _pruneUnexpected(
+    String directory,
+    Set<String> expected,
+  ) async {
+    await for (final entity in Directory(directory).list(followLinks: false)) {
+      if (!expected.contains(p.basename(entity.path))) {
+        await _deleteEntity(entity.path);
+      }
     }
   }
 
