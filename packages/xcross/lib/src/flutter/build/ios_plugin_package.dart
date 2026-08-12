@@ -678,17 +678,17 @@ abstract final class GeneratedPluginsPackage {
     await _writeStable(p.join(staged, 'Package.swift'), manifest);
   }
 
-  /// The host-compatibility source rewrite as a sync transform, applied to
-  /// Swift sources but never to package manifests.
+  /// The host-compatibility source rewrite as a sync transform, electing
+  /// Swift sources but never package manifests or binary files.
   static _SourceTransform _hostSwiftTransform(
     Map<String, List<String>> fallbackSwiftModules,
-  ) => (path, content) {
+  ) => (path) {
     final name = p.basename(path);
     final isManifest =
         name == 'Package.swift' ||
         (name.startsWith('Package@') && name.endsWith('.swift'));
-    if (p.extension(name) != '.swift' || isManifest) return content;
-    return normalizeHostSwiftSource(
+    if (p.extension(name) != '.swift' || isManifest) return null;
+    return (content) => normalizeHostSwiftSource(
       content,
       fallbackSwiftModules: fallbackSwiftModules,
     );
@@ -2262,19 +2262,22 @@ $registrations}
     await file.writeAsString(content);
   }
 
-  /// Copies [source] to [destination], applying [transform] when given,
-  /// and skipping the write when the destination already matches.
+  /// Copies [source] to [destination], applying [transform] when it elects
+  /// the file, and skipping the write when the destination already matches.
   ///
   /// The skip preserves destination timestamps, which SwiftPM invalidates
-  /// on, so unchanged files stay warm in its incremental state.
+  /// on, so unchanged files stay warm in its incremental state. Files the
+  /// transform declines are copied as raw bytes, so binaries are never
+  /// decoded.
   static Future<void> _syncFile(
     File source,
     String destination, {
     _SourceTransform? transform,
   }) async {
     List<int> bytes = await source.readAsBytes();
-    if (transform != null) {
-      bytes = utf8.encode(transform(source.path, utf8.decode(bytes)));
+    final rewrite = transform?.call(source.path);
+    if (rewrite != null) {
+      bytes = utf8.encode(rewrite(utf8.decode(bytes)));
     }
     final existing = File(destination);
     if (existing.existsSync() &&
@@ -2412,4 +2415,7 @@ $registrations}
   static String _hyphenate(String name) => name.replaceAll('_', '-');
 }
 
-typedef _SourceTransform = String Function(String path, String content);
+/// Elects and rewrites file content during a directory sync: returns null
+/// to copy [path] verbatim, or a rewriter for its decoded text.
+typedef _SourceTransform =
+    String Function(String content)? Function(String path);
