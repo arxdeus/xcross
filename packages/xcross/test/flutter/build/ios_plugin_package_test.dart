@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -251,17 +252,12 @@ if getenv("EXPERIMENTAL_SPM_BUILDS") != nil {
   });
 
   group('normalizeHostSwiftSource', () {
-    test('blanks previews while retaining runtime code and non-code text', () {
-      const input = r'''
+    test('leaves preview declarations and every other source untouched', () {
+      // #Preview no longer needs a source rewrite: writePreviewMacroStub
+      // answers it through Swift's own plugin protocol instead, so this is
+      // the identity transform whenever no fallback module applies.
+      const input = '''
 let before = true
-// #Preview { broken( }
-let text = "#Preview { broken( }"
-let escaped = "quote: \" and brace }"
-let multiline = """
-#Preview { broken( }
-"""
-let raw = #"#Preview { broken( }"#
-/* outer { /* #Preview { */ } */
 @available(iOS 17.0, *)
 #Preview(
   "Nested"
@@ -275,40 +271,7 @@ let raw = #"#Preview { broken( }"#
 let after = true
 ''';
 
-      final output = GeneratedPluginsPackage.normalizeHostSwiftSource(input);
-
-      expect(output, contains('let before = true'));
-      expect(output, contains('let after = true'));
-      expect(output, contains('// #Preview { broken( }'));
-      expect(output, contains('"#Preview { broken( }"'));
-      expect(output, contains('#"#Preview { broken( }"#'));
-      expect(output, contains('#Previewable @State'));
-      expect(output, isNot(contains('@available(iOS 17.0, *)')));
-      expect(output, isNot(contains('#Preview(\n')));
-      expect(output, isNot(contains('#Preview { OtherView() }')));
-      expect(GeneratedPluginsPackage.normalizeHostSwiftSource(output), output);
-    });
-
-    test('preserves LF and CRLF exactly', () {
-      for (final newline in ['\n', '\r\n']) {
-        final input = [
-          'let before = true',
-          '@available(iOS 17.0, *)',
-          '#Preview("One") {',
-          '  View()',
-          '}',
-          'let after = true',
-          '',
-        ].join(newline);
-        final output = GeneratedPluginsPackage.normalizeHostSwiftSource(input);
-        expect(
-          '\r\n'.allMatches(output).length,
-          '\r\n'.allMatches(input).length,
-        );
-        expect('\n'.allMatches(output).length, '\n'.allMatches(input).length);
-        expect(output, contains('let before = true$newline'));
-        expect(output, contains('${newline}let after = true$newline'));
-      }
+      expect(GeneratedPluginsPackage.normalizeHostSwiftSource(input), input);
     });
 
     test('imports fallback Swift modules before the compatibility parent', () {
@@ -340,55 +303,56 @@ let value = PublicAPI()
         output,
       );
     });
-
-    test('throws on an unbalanced actual preview', () {
-      expect(
-        () => GeneratedPluginsPackage.normalizeHostSwiftSource(
-          '#Preview("Broken") {\n  VStack {\n',
-        ),
-        throwsA(isA<FlutterBuildError>()),
-      );
-    });
   });
 
   group('normalizeHostSwiftTree', () {
-    test('normalizes arbitrary checkout paths and skips manifests', () async {
-      final root = p.join(tmp.path, 'scratch', 'checkouts', 'generic-package');
-      final source = File(p.join(root, 'Sources', 'Feature', 'Widget.swift'))
-        ..createSync(recursive: true)
-        ..writeAsStringSync('let before = 1\n#Preview { Widget() }\n');
-      final manifest = File(p.join(root, 'Package.swift'))
-        ..writeAsStringSync('#Preview { Manifest() }\n');
-      final versionedManifest = File(p.join(root, 'Package@swift-6.0.swift'))
-        ..writeAsStringSync('#Preview { Manifest() }\n');
+    test(
+      'injects fallback imports across a tree and skips manifests',
+      () async {
+        final root = p.join(
+          tmp.path,
+          'scratch',
+          'checkouts',
+          'generic-package',
+        );
+        final source = File(p.join(root, 'Sources', 'Feature', 'Widget.swift'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('import PublicSDK\nlet before = 1\n');
+        final manifest = File(p.join(root, 'Package.swift'))
+          ..writeAsStringSync('import PublicSDK\n');
+        final versionedManifest = File(p.join(root, 'Package@swift-6.0.swift'))
+          ..writeAsStringSync('import PublicSDK\n');
 
-      await GeneratedPluginsPackage.normalizeHostSwiftTree(
-        p.join(tmp.path, 'scratch', 'checkouts'),
-      );
+        await GeneratedPluginsPackage.normalizeHostSwiftTree(
+          p.join(tmp.path, 'scratch', 'checkouts'),
+          fallbackSwiftModules: const {
+            'PublicSDK': ['SwiftImpl'],
+          },
+        );
 
-      expect(source.readAsStringSync(), contains('let before = 1'));
-      expect(source.readAsStringSync(), isNot(contains('#Preview')));
-      expect(manifest.readAsStringSync(), contains('#Preview'));
-      expect(versionedManifest.readAsStringSync(), contains('#Preview'));
-    });
+        expect(source.readAsStringSync(), contains('let before = 1'));
+        expect(source.readAsStringSync(), contains('import SwiftImpl\n'));
+        // Package.swift and its versioned siblings are never rewritten: they
+        // execute on the host during resolution, so a rewrite here would
+        // apply too late to matter and could not be re-parsed as a manifest.
+        expect(manifest.readAsStringSync(), isNot(contains('SwiftImpl')));
+        expect(
+          versionedManifest.readAsStringSync(),
+          isNot(contains('SwiftImpl')),
+        );
+      },
+    );
 
-    test('does not partially write when any source is malformed', () async {
+    test('is a no-op tree walk without a fallback module', () async {
       final root = p.join(tmp.path, 'tree');
-      final valid = File(p.join(root, 'A', 'Valid.swift'))
+      final source = File(p.join(root, 'A', 'Source.swift'))
         ..createSync(recursive: true)
-        ..writeAsStringSync('#Preview { Valid() }\n');
-      final malformed = File(p.join(root, 'B', 'Malformed.swift'))
-        ..createSync(recursive: true)
-        ..writeAsStringSync('#Preview { Broken(\n');
-      final validBefore = valid.readAsBytesSync();
-      final malformedBefore = malformed.readAsBytesSync();
+        ..writeAsStringSync('let value = 1\n');
+      final before = source.readAsBytesSync();
 
-      await expectLater(
-        GeneratedPluginsPackage.normalizeHostSwiftTree(root),
-        throwsA(isA<FlutterBuildError>()),
-      );
-      expect(valid.readAsBytesSync(), validBefore);
-      expect(malformed.readAsBytesSync(), malformedBefore);
+      await GeneratedPluginsPackage.normalizeHostSwiftTree(root);
+
+      expect(source.readAsBytesSync(), before);
     });
   });
 
@@ -961,77 +925,68 @@ let package = Package(
       },
     );
 
-    test(
-      'copies unchanged Windows-lane sources before preview normalization',
-      () async {
-        const manifest = '''
+    test('stages a real directory copy on the Windows lane', () async {
+      const manifest = '''
 // swift-tools-version: 5.9
 import PackageDescription
 let package = Package(name: "generic_plugin")
 ''';
-        final plugin = makePlugin('generic_plugin', packageManifest: manifest);
-        final original =
-            File(
-                p.join(
-                  plugin.swiftPackageDir,
-                  'Sources',
-                  'GenericPlugin',
-                  'Feature.swift',
-                ),
-              )
-              ..createSync(recursive: true)
-              ..writeAsStringSync(
-                'let runtime = true\r\n#Preview { FeatureView() }\r\n',
-              );
-        final originalBytes = original.readAsBytesSync();
-        final flutterXcframework = p.join(tmp.path, 'Flutter.xcframework');
-        Directory(flutterXcframework).createSync(recursive: true);
-        final outputDir = p.join(tmp.path, 'out');
+      final plugin = makePlugin('generic_plugin', packageManifest: manifest);
+      final original =
+          File(
+              p.join(
+                plugin.swiftPackageDir,
+                'Sources',
+                'GenericPlugin',
+                'Feature.swift',
+              ),
+            )
+            ..createSync(recursive: true)
+            ..writeAsStringSync('let runtime = true\r\n');
+      final originalBytes = original.readAsBytesSync();
+      final flutterXcframework = p.join(tmp.path, 'Flutter.xcframework');
+      Directory(flutterXcframework).createSync(recursive: true);
+      final outputDir = p.join(tmp.path, 'out');
 
-        await GeneratedPluginsPackage.writeGeneratedPackages(
-          outputDir: outputDir,
-          plugins: [plugin],
-          flutterXcframework: flutterXcframework,
-          copyFlutterXcframework: true,
-          vendorRemotePackages: true,
-          deploymentTarget: const IosDeploymentTarget('15.6'),
-        );
-        final staged = File(
+      await GeneratedPluginsPackage.writeGeneratedPackages(
+        outputDir: outputDir,
+        plugins: [plugin],
+        flutterXcframework: flutterXcframework,
+        copyFlutterXcframework: true,
+        vendorRemotePackages: true,
+        deploymentTarget: const IosDeploymentTarget('15.6'),
+      );
+      final staged = File(
+        p.join(
+          outputDir,
+          'Packages',
+          'generic_plugin',
+          'ios',
+          'generic_plugin',
+          'Sources',
+          'GenericPlugin',
+          'Feature.swift',
+        ),
+      );
+      expect(staged.existsSync(), isTrue);
+      expect(staged.readAsBytesSync(), originalBytes);
+      expect(
+        FileSystemEntity.typeSync(
           p.join(
             outputDir,
             'Packages',
             'generic_plugin',
             'ios',
             'generic_plugin',
-            'Sources',
-            'GenericPlugin',
-            'Feature.swift',
           ),
-        );
-        expect(staged.existsSync(), isTrue);
-        expect(
-          FileSystemEntity.typeSync(
-            p.join(
-              outputDir,
-              'Packages',
-              'generic_plugin',
-              'ios',
-              'generic_plugin',
-            ),
-            followLinks: false,
-          ),
-          FileSystemEntityType.directory,
-        );
-
-        await GeneratedPluginsPackage.normalizeHostSwiftTree(
-          p.join(outputDir, 'Packages'),
-        );
-
-        expect(staged.readAsStringSync(), contains('let runtime = true'));
-        expect(staged.readAsStringSync(), isNot(contains('#Preview')));
-        expect(original.readAsBytesSync(), originalBytes);
-      },
-    );
+          followLinks: false,
+        ),
+        FileSystemEntityType.directory,
+      );
+      // The staged copy is independent: it holds the source's bytes at
+      // the time of staging, not an alias of the original.
+      expect(original.readAsBytesSync(), originalBytes);
+    });
 
     test('stages reachable siblings but not development directories', () async {
       const manifest = '''
@@ -1768,6 +1723,161 @@ let package = Package(
         'EXPERIMENTAL_SPM_BUILDS': '1',
       });
     });
+  });
+
+  group('preview macro stub', () {
+    test('threads the stub path onto the frontend', () {
+      final arguments = GeneratedPluginsPackage.swiftBuildArguments(
+        pluginsDir: 'plugins',
+        scratchPath: 'scratch',
+        swiftSdksPath: 'xcross-swift-sdks',
+        iosSdk: 'iPhoneOS.sdk',
+        flutterFrameworkSlice: 'Flutter.xcframework/ios-arm64',
+        previewMacroStubPath: 'stub.exe',
+      );
+      expect(
+        arguments,
+        containsAllInOrder([
+          '-Xswiftc',
+          '-load-plugin-executable',
+          '-Xswiftc',
+          'stub.exe#PreviewsMacros',
+        ]),
+      );
+      expect(
+        GeneratedPluginsPackage.swiftBuildArguments(
+          pluginsDir: 'plugins',
+          scratchPath: 'scratch',
+          swiftSdksPath: 'xcross-swift-sdks',
+          iosSdk: 'iPhoneOS.sdk',
+          flutterFrameworkSlice: 'Flutter.xcframework/ios-arm64',
+        ),
+        isNot(contains('-load-plugin-executable')),
+      );
+    });
+
+    test(
+      'compiles once, reuses the cached binary, and answers the wire protocol',
+      () async {
+        final lookup = Platform.isWindows
+            ? await Process.run('where', ['clang'])
+            : await Process.run('which', ['clang']);
+        final compiler = lookup.stdout
+            .toString()
+            .split('\n')
+            .map((line) => line.trim())
+            .firstWhere((line) => line.isNotEmpty, orElse: () => '');
+        if (lookup.exitCode != 0 || compiler.isEmpty) {
+          markTestSkipped('no C compiler on PATH');
+          return;
+        }
+        final outputDir = p.join(tmp.path, 'stub-out');
+
+        final stubPath = await GeneratedPluginsPackage.writePreviewMacroStub(
+          outputDir: outputDir,
+          cCompilerPath: compiler,
+        );
+        expect(File(stubPath).existsSync(), isTrue);
+        final builtAt = File(stubPath).lastModifiedSync();
+
+        // A second call with the same output dir must not recompile.
+        await Future<void>.delayed(const Duration(milliseconds: 1100));
+        final again = await GeneratedPluginsPackage.writePreviewMacroStub(
+          outputDir: outputDir,
+          cCompilerPath: compiler,
+        );
+        expect(again, stubPath);
+        expect(File(stubPath).lastModifiedSync(), builtAt);
+
+        // The compiled binary answers swift-syntax's wire protocol: an
+        // 8-byte little-endian length prefix, then a JSON payload, echoed
+        // back the same way. `getCapability` must not be answered with an
+        // error, and an expansion request must return empty source so the
+        // macro compiles away to nothing.
+        final process = await Process.start(stubPath, const []);
+        // stdout is a single-subscription Stream<List<int>> of arbitrarily
+        // sized chunks, not one event per byte, so exact-length reads need
+        // their own buffer over one shared subscription.
+        final incoming = <int>[];
+        var chunkArrived = Completer<void>();
+        final subscription = process.stdout.listen((chunk) {
+          incoming.addAll(chunk);
+          if (!chunkArrived.isCompleted) chunkArrived.complete();
+        });
+        addTearDown(subscription.cancel);
+        Future<Uint8List> readExact(int count) async {
+          while (incoming.length < count) {
+            await chunkArrived.future;
+            chunkArrived = Completer<void>();
+          }
+          final bytes = Uint8List.fromList(incoming.take(count).toList());
+          incoming.removeRange(0, count);
+          return bytes;
+        }
+
+        Uint8List frame(String json) {
+          final payload = utf8.encode(json);
+          final header = ByteData(8)
+            ..setUint64(0, payload.length, Endian.little);
+          return Uint8List.fromList([
+            ...header.buffer.asUint8List(),
+            ...payload,
+          ]);
+        }
+
+        Future<Map<String, dynamic>> roundTrip(String json) async {
+          process.stdin.add(frame(json));
+          await process.stdin.flush();
+          final header = await readExact(8);
+          final length = ByteData.sublistView(
+            header,
+          ).getUint64(0, Endian.little);
+          final body = await readExact(length);
+          return jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
+        }
+
+        final capability = await roundTrip(
+          '{"getCapability":{"capability":null}}',
+        );
+        expect(capability.keys.single, 'getCapabilityResult');
+
+        final expansion = await roundTrip(
+          jsonEncode({
+            'expandFreestandingMacro': {
+              'macro': {
+                'moduleName': 'PreviewsMacros',
+                'typeName': 'X',
+                'name': 'Preview',
+              },
+              'discriminator': 'd',
+              'syntax': {
+                'kind': 'declaration',
+                'source': '#Preview {}',
+                'location': {
+                  'fileID': 'a',
+                  'fileName': 'a',
+                  'offset': 0,
+                  'line': 1,
+                  'column': 1,
+                },
+              },
+            },
+          }),
+        );
+        expect(expansion.keys.single, 'expandMacroResult');
+        final result = expansion['expandMacroResult'] as Map<String, dynamic>;
+        expect(result['expandedSource'], '');
+
+        process.stdin.add(Uint8List(8));
+        await process.stdin.close();
+        await process.exitCode;
+        // Windows can briefly hold the executable's file handle open past
+        // process exit, racing the suite's temp-directory teardown.
+        if (Platform.isWindows) {
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+        }
+      },
+    );
   });
 
   group('built dylibs', () {
