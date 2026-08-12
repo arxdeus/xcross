@@ -1033,6 +1033,47 @@ let package = Package(name: "generic_plugin")
       },
     );
 
+    test('stages reachable siblings but not development directories', () async {
+      const manifest = '''
+// swift-tools-version: 5.9
+import PackageDescription
+let package = Package(name: "sibling_plugin")
+''';
+      final plugin = makePlugin('sibling_plugin', packageManifest: manifest);
+      final packageRoot = p.dirname(p.dirname(plugin.swiftPackageDir));
+      // Reachable sibling sources, like soloud's `../../src` includes.
+      File(p.join(packageRoot, 'src', 'engine.cpp'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('// native');
+      // Development-only trees the iOS build can never reference.
+      File(p.join(packageRoot, 'example', 'main.dart'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('void main() {}');
+      File(p.join(packageRoot, 'test', 'plugin_test.dart'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('void main() {}');
+      final flutterXcframework = p.join(tmp.path, 'Flutter.xcframework');
+      Directory(flutterXcframework).createSync(recursive: true);
+      final outputDir = p.join(tmp.path, 'out');
+
+      await GeneratedPluginsPackage.writeGeneratedPackages(
+        outputDir: outputDir,
+        plugins: [plugin],
+        flutterXcframework: flutterXcframework,
+        copyFlutterXcframework: true,
+        vendorRemotePackages: true,
+        deploymentTarget: const IosDeploymentTarget('15.6'),
+      );
+
+      final stagedRoot = p.join(outputDir, 'Packages', 'sibling_plugin');
+      expect(
+        File(p.join(stagedRoot, 'src', 'engine.cpp')).existsSync(),
+        isTrue,
+      );
+      expect(Directory(p.join(stagedRoot, 'example')).existsSync(), isFalse);
+      expect(Directory(p.join(stagedRoot, 'test')).existsSync(), isFalse);
+    });
+
     test('restaging unchanged sources keeps staged timestamps', () async {
       const manifest = '''
 // swift-tools-version: 5.9
@@ -1106,7 +1147,7 @@ let package = Package(name: "stable_plugin")
         expect(
           File(staged[i]).lastModifiedSync(),
           before[i],
-          reason: '\${staged[i]} was rewritten without a source change',
+          reason: '${staged[i]} was rewritten without a source change',
         );
       }
     });

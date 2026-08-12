@@ -714,6 +714,22 @@ abstract final class GeneratedPluginsPackage {
     }
   }
 
+  /// Package-root entries that are development-only by Flutter and pub
+  /// convention and thus can never be reached by the plugin's iOS build.
+  ///
+  /// The rest of the package root IS reachable: published plugins refer to
+  /// sibling directories from their iOS package (`../../src` sources,
+  /// `../../include` header search paths), so staging only `ios/` would
+  /// break them.
+  static const _developmentOnlyEntries = {
+    '.dart_tool',
+    '.git',
+    'build',
+    'example',
+    'test',
+    'tests',
+  };
+
   static Future<void> _stageAncestorOverlay({
     required String sourceRoot,
     required String destinationRoot,
@@ -722,7 +738,7 @@ abstract final class GeneratedPluginsPackage {
     await Directory(p.join(destinationRoot, 'ios')).create(recursive: true);
     await for (final entity in Directory(sourceRoot).list(followLinks: false)) {
       final name = p.basename(entity.path);
-      if (name == 'ios') continue;
+      if (name == 'ios' || _developmentOnlyEntries.contains(name)) continue;
       await _stageEntity(
         entity,
         p.join(destinationRoot, name),
