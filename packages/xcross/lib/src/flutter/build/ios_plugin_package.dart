@@ -1529,6 +1529,9 @@ let package = Package(
       for (final module in _directNestedModules(canonical.text, canonicalBlock))
         _absoluteNestedModuleHeaders(packageDir, module),
     ];
+    final nestedNames = [
+      for (final module in nested) ..._topLevelModuleNames(module),
+    ];
     final indentedNested = nested
         .map((module) => module.split('\n').map((line) => '  $line').join('\n'))
         .join('\n');
@@ -1536,6 +1539,9 @@ let package = Package(
       ..writeln('module $product {')
       ..writeln('  header "$product.h"')
       ..writeln('  export *');
+    for (final name in nestedNames) {
+      moduleMap.writeln('  export $name');
+    }
     if (indentedNested.isNotEmpty) moduleMap.writeln(indentedNested);
     moduleMap.writeln('}');
 

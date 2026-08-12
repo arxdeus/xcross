@@ -530,6 +530,7 @@ framework module PublicSDK {
         ),
       ).readAsStringSync();
       expect(moduleMap, contains('module PublicSDK {'));
+      expect(moduleMap, contains('  export _Hybrid\n'));
       expect(moduleMap, contains('explicit module _Hybrid'));
       expect(
         moduleMap,
