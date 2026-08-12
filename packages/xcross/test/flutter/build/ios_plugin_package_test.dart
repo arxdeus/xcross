@@ -1130,6 +1130,14 @@ let package = Package(
       expect(
         arguments,
         containsAllInOrder([
+          '--disable-automatic-resolution',
+          '-Xswiftc',
+          '-no-verify-emitted-module-interface',
+        ]),
+      );
+      expect(
+        arguments,
+        containsAllInOrder([
           '-Xswiftc',
           '-Xclang-linker',
           '-Xswiftc',

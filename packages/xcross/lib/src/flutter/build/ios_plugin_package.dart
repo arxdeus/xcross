@@ -253,7 +253,14 @@ abstract final class GeneratedPluginsPackage {
     if (toolsetPath != null) ...['--toolset', toolsetPath],
     '--scratch-path',
     scratchPath,
-    if (windows ?? Platform.isWindows) '--disable-automatic-resolution',
+    if (windows ?? Platform.isWindows) ...[
+      '--disable-automatic-resolution',
+      // Windows Swift's interface verifier does not inherit SwiftPM's search
+      // path for generated sibling Clang modules during Darwin cross builds.
+      // The binary module is still emitted and used by this debug build.
+      '-Xswiftc',
+      '-no-verify-emitted-module-interface',
+    ],
     // On macOS, SwiftPM's host toolchain can override the Swift SDK bundle's
     // sdkRootPath with the host MacOSX SDK. Pin the installed iPhoneOS SDK for
     // Swift imports and every C/Objective-C target so UIKit and Foundation are
