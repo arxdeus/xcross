@@ -62,6 +62,10 @@ void main() {
         p.join(p.dirname(fixture.ld64), 'llvm-libtool-darwin'),
       );
       expect(
+        prepared.environment['XCROSS_APPLE_TOOL_CLANGXX'],
+        p.join(p.dirname(fixture.clang), 'clang++'),
+      );
+      expect(
         prepared.environment['PATH'],
         startsWith(
           '${p.join(p.dirname(prepared.kotlinHome), 'apple-toolchain', 'bin')}:',

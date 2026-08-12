@@ -328,7 +328,10 @@ final class KonanConfiguration {
         'llvm-libtool-darwin$extension',
       ),
       'XCROSS_APPLE_TOOL_CLANG': toolchain.clang,
-      'XCROSS_APPLE_TOOL_CLANGXX': toolchain.clang,
+      'XCROSS_APPLE_TOOL_CLANGXX': p.join(
+        p.dirname(toolchain.clang),
+        'clang++$extension',
+      ),
     };
   }
 
