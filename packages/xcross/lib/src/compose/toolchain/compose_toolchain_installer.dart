@@ -72,23 +72,12 @@ final class ComposeToolchainInstaller {
     final cache = Directory(options.cacheRoot);
     await cache.create(recursive: true);
     final downloads = await cache.createTemp('compose-downloads-');
-    final hostExtract = Directory('${options.kotlinHome}.host');
-    final stagingContainer = await Directory(
+    final hostExtract = await cache.createTemp('compose-host-');
+    final staging = await Directory(
       p.dirname(options.kotlinHome),
-    ).createTemp('.${p.basename(options.kotlinHome)}.staging.');
-    final staging = Directory(
-      p.join(stagingContainer.path, p.basename(options.kotlinHome)),
-    );
-    final overlayExtract = Directory('${options.kotlinHome}.overlay');
+    ).createTemp('.compose-staging-');
+    final overlayExtract = await cache.createTemp('compose-overlay-');
     try {
-      if (hostExtract.existsSync()) await hostExtract.delete(recursive: true);
-      if (staging.existsSync()) await staging.delete(recursive: true);
-      if (overlayExtract.existsSync()) {
-        await overlayExtract.delete(recursive: true);
-      }
-      await hostExtract.create(recursive: true);
-      await overlayExtract.create(recursive: true);
-
       final hostArchive = File(
         p.join(downloads.path, options.host.hostArtifact(options.version)),
       );
@@ -131,9 +120,6 @@ final class ComposeToolchainInstaller {
         await overlayExtract.delete(recursive: true);
       }
       if (staging.existsSync()) await staging.delete(recursive: true);
-      if (stagingContainer.existsSync()) {
-        await stagingContainer.delete(recursive: true);
-      }
     }
   }
 
@@ -313,6 +299,8 @@ final class ComposeToolchainInstaller {
       await source.writeAsString('fun main() { println("hello") }\n');
       final invocation = options.host.invokeExecutable(executable, [
         source.path,
+        '-target',
+        options.host.konanTarget,
         '-o',
         p.join(scratch.path, 'hello'),
       ]);
@@ -356,10 +344,8 @@ final class ComposeToolchainInstaller {
           '${destination.path} already exists. Use force to reinstall.',
         );
       }
-      backupContainer = await destination.parent.createTemp(
-        '.${p.basename(destination.path)}.backup.',
-      );
-      backupPath = p.join(backupContainer.path, p.basename(destination.path));
+      backupContainer = await destination.parent.createTemp('.compose-backup-');
+      backupPath = p.join(backupContainer.path, 'toolchain');
       await _rename(destination, backupPath);
     }
     try {

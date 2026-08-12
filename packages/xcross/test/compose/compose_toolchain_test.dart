@@ -537,6 +537,7 @@ void main() {
         );
         final downloads = <String>[];
         final extracted = <String>[];
+        final extractionRoots = <String>[];
         final patched = <String>[];
         final commands = <List<String>>[];
         try {
@@ -555,6 +556,7 @@ void main() {
             digestFile: (file) async => _matchingSha256(file, options),
             extractArchive: (archive, dest) async {
               extracted.add(p.basename(archive.path));
+              extractionRoots.add(dest.path);
               final root = Directory(
                 p.join(
                   dest.path,
@@ -630,6 +632,10 @@ void main() {
             contains(ComposeHost.macosX64OverlayArtifact(options.version)),
           );
           expect(
+            extractionRoots,
+            everyElement(isNot(contains(p.basename(options.kotlinHome)))),
+          );
+          expect(
             File(
               p.join(
                 options.kotlinHome,
@@ -661,8 +667,10 @@ void main() {
             'cmd.exe',
             '/d',
             '/c',
-            allOf(contains('.staging.'), endsWith('bin/konanc.bat')),
+            allOf(contains('.compose-staging-'), endsWith('bin/konanc.bat')),
             contains('hello.kt'),
+            '-target',
+            'mingw_x64',
             '-o',
             contains('hello'),
           ]);
@@ -856,11 +864,13 @@ void main() {
 
           expect(
             commands.single.first,
-            allOf(contains('.staging.'), endsWith('bin/konanc')),
+            allOf(contains('.compose-staging-'), endsWith('bin/konanc')),
           );
           expect(commands.single[1], endsWith('hello.kt'));
-          expect(commands.single[2], '-o');
-          expect(commands.single[3], contains('hello'));
+          expect(commands.single[2], '-target');
+          expect(commands.single[3], 'linux_x64');
+          expect(commands.single[4], '-o');
+          expect(commands.single[5], contains('hello'));
           expect(Directory(warmDirectory!).existsSync(), isFalse);
         } finally {
           home.deleteSync(recursive: true);
@@ -928,7 +938,7 @@ void main() {
 
           await installer.install(options: options, force: true);
 
-          expect(moves.single, contains('.backup.'));
+          expect(moves.single, contains('.compose-backup-'));
           expect(
             File(
               options.host.konancExecutable(options.kotlinHome),
@@ -960,7 +970,7 @@ void main() {
           final installer = _installerThatBuildsNewCache(
             options,
             renameDirectory: (source, newPath) {
-              if (source.path.contains('.staging.')) {
+              if (source.path.contains('.compose-staging-')) {
                 throw const FileSystemException('rename interrupted');
               }
               return source.rename(newPath);
@@ -1013,7 +1023,7 @@ void main() {
                 backupContainer = p.dirname(newPath);
                 return source.rename(newPath);
               }
-              if (source.path.contains('.staging.')) {
+              if (source.path.contains('.compose-staging-')) {
                 throw StateError('install rename failed');
               }
               return source.rename(newPath);
@@ -1072,7 +1082,7 @@ void main() {
                 backupPath = newPath;
                 return source.rename(newPath);
               }
-              if (source.path.contains('.staging.')) {
+              if (source.path.contains('.compose-staging-')) {
                 throw StateError('install rename failed');
               }
               if (source.path == backupPath) {

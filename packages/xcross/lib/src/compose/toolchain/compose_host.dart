@@ -6,22 +6,30 @@ import 'package:xcross/src/errors.dart';
 enum ComposeHostOs { linux, windows }
 
 final class ComposeHost {
-  const ComposeHost._(this.os, this.classifier, this.archiveExtension);
+  const ComposeHost._(
+    this.os,
+    this.classifier,
+    this.archiveExtension,
+    this.konanTarget,
+  );
 
   static const linuxX64 = ComposeHost._(
     ComposeHostOs.linux,
     'linux-x86_64',
     'tar.gz',
+    'linux_x64',
   );
   static const windowsX64 = ComposeHost._(
     ComposeHostOs.windows,
     'windows-x86_64',
     'zip',
+    'mingw_x64',
   );
 
   final ComposeHostOs os;
   final String classifier;
   final String archiveExtension;
+  final String konanTarget;
 
   bool get isWindows => os == ComposeHostOs.windows;
 
