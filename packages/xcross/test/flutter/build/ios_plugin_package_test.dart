@@ -311,6 +311,36 @@ let after = true
       }
     });
 
+    test('imports fallback Swift modules before the compatibility parent', () {
+      const input = '''
+@_spi(Private) import PublicSDK
+import PublicSDK._Hybrid
+let value = PublicAPI()
+''';
+      final output = GeneratedPluginsPackage.normalizeHostSwiftSource(
+        input,
+        fallbackSwiftModules: const {
+          'PublicSDK': ['SwiftImpl'],
+        },
+      );
+
+      expect(output, '''
+@_spi(Private) import SwiftImpl
+@_spi(Private) import PublicSDK
+import PublicSDK._Hybrid
+let value = PublicAPI()
+''');
+      expect(
+        GeneratedPluginsPackage.normalizeHostSwiftSource(
+          output,
+          fallbackSwiftModules: const {
+            'PublicSDK': ['SwiftImpl'],
+          },
+        ),
+        output,
+      );
+    });
+
     test('throws on an unbalanced actual preview', () {
       expect(
         () => GeneratedPluginsPackage.normalizeHostSwiftSource(
@@ -482,13 +512,18 @@ framework module PublicSDK {
 }
 ''');
 
+      final fallbackSwiftModules = <String, List<String>>{};
       final output =
           await GeneratedPluginsPackage.synthesizeBinaryFallbackCompatibility(
             manifest,
             packageDir: tmp.path,
             consumedProducts: {'PublicSDK'},
+            fallbackSwiftModules: fallbackSwiftModules,
           );
 
+      expect(fallbackSwiftModules, {
+        'PublicSDK': ['SwiftImpl'],
+      });
       expect(
         output,
         contains('.library(name: "SourceProduct", targets: ["RootImpl"])'),
@@ -560,6 +595,33 @@ framework module PublicSDK {
         '#ifndef __swift__\n'
         '@import SwiftImpl;\n'
         '#endif\n',
+      );
+
+      final retainedName = manifest.replaceFirst('SourceProduct', 'PublicSDK');
+      final retained =
+          await GeneratedPluginsPackage.synthesizeBinaryFallbackCompatibility(
+            retainedName,
+            packageDir: tmp.path,
+            consumedProducts: {'PublicSDK'},
+          );
+      expect(
+        await GeneratedPluginsPackage.synthesizeBinaryFallbackCompatibility(
+          retained,
+          packageDir: tmp.path,
+          consumedProducts: {'PublicSDK'},
+        ),
+        retained,
+      );
+      expect(
+        await GeneratedPluginsPackage.synthesizeBinaryFallbackCompatibility(
+          retained.replaceFirst(
+            '"_xcross_PublicSDK"]',
+            '"_xcross_PublicSDK", "_xcross_PublicSDK"]',
+          ),
+          packageDir: tmp.path,
+          consumedProducts: {'PublicSDK'},
+        ),
+        retained,
       );
     });
 

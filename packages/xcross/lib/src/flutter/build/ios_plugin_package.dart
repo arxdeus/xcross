@@ -522,10 +522,12 @@ abstract final class GeneratedPluginsPackage {
 
     final manifest = await File(p.join(target, 'Package.swift')).readAsString();
     var normalizedManifest = normalizeHostManifest(manifest);
+    final fallbackSwiftModules = <String, List<String>>{};
     if (vendorDir != null) {
       normalizedManifest = await vendorUrlPackagesAsPathDeps(
         normalizedManifest,
         vendorDir: vendorDir,
+        fallbackSwiftModules: fallbackSwiftModules,
       );
     }
     if (normalizedManifest == manifest) {
@@ -535,6 +537,10 @@ abstract final class GeneratedPluginsPackage {
         await _deleteEntity(stagedPackage);
         await _copyDirectory(target, stagedPackage);
       }
+      await normalizeHostSwiftTree(
+        stagedPackage,
+        fallbackSwiftModules: fallbackSwiftModules,
+      );
       return stagedPackage;
     }
 
@@ -552,6 +558,10 @@ abstract final class GeneratedPluginsPackage {
         copyDirectories: vendorDir != null,
       );
     }
+    await normalizeHostSwiftTree(
+      stagedPackage,
+      fallbackSwiftModules: fallbackSwiftModules,
+    );
     return stagedPackage;
   }
 
@@ -759,7 +769,10 @@ let package = Package(
 
   /// Blanks Apple preview declarations while preserving source line endings.
   @visibleForTesting
-  static String normalizeHostSwiftSource(String source) {
+  static String normalizeHostSwiftSource(
+    String source, {
+    Map<String, List<String>> fallbackSwiftModules = const {},
+  }) {
     final code = _swiftCodeMask(source);
     final blank = List<bool>.filled(source.length, false);
     var searchFrom = 0;
@@ -821,18 +834,53 @@ let package = Package(
       searchFrom = end;
     }
 
-    if (!blank.contains(true)) return source;
-    final units = source.codeUnits;
-    return String.fromCharCodes([
-      for (var i = 0; i < units.length; i++)
-        if (blank[i]) 32 else units[i],
-    ]);
+    var result = source;
+    if (blank.contains(true)) {
+      final units = source.codeUnits;
+      result = String.fromCharCodes([
+        for (var i = 0; i < units.length; i++)
+          if (blank[i]) 32 else units[i],
+      ]);
+    }
+    if (fallbackSwiftModules.isEmpty) return result;
+
+    final importPattern = RegExp(
+      r'^([ \t]*(?:(?:@[A-Za-z_][\w.]*(?:\([^\r\n]*\))?[ \t]+)*)'
+      r'import[ \t]+)([A-Za-z_][A-Za-z0-9_]*)([ \t]*)(\r?\n|$)',
+      multiLine: true,
+    );
+    final importCode = _swiftCodeMask(result);
+    final seen = <String>{};
+    for (final match in importPattern.allMatches(result)) {
+      final importOffset = match.start + match[1]!.lastIndexOf('import');
+      if (importCode[importOffset]) {
+        seen.add('${match[1]}${match[2]}');
+      }
+    }
+    return result.replaceAllMapped(importPattern, (match) {
+      final importOffset = match.start + match[1]!.lastIndexOf('import');
+      if (!importCode[importOffset]) {
+        return match[0]!;
+      }
+      final modules = fallbackSwiftModules[match[2]];
+      if (modules == null) return match[0]!;
+      final imports = [
+        for (final module in modules)
+          if (seen.add('${match[1]}$module')) '${match[1]}$module',
+      ];
+      if (imports.isEmpty) return match[0]!;
+      final newline = match[4]!.isEmpty ? '\n' : match[4]!;
+      return '${imports.join(newline)}$newline${match[0]}';
+    });
   }
 
   /// Normalizes regular Swift source files below [root] without following
   /// links. Every source is analyzed before any file is changed.
   @visibleForTesting
-  static Future<void> normalizeHostSwiftTree(String root) async {
+  static Future<void> normalizeHostSwiftTree(
+    String root, {
+    Map<String, List<String>> fallbackSwiftModules = const {},
+  }) async {
     if (FileSystemEntity.typeSync(root, followLinks: false) !=
         FileSystemEntityType.directory) {
       return;
@@ -861,7 +909,10 @@ let package = Package(
     final changes = <File, String>{};
     for (final file in files) {
       final original = await file.readAsString();
-      final normalized = normalizeHostSwiftSource(original);
+      final normalized = normalizeHostSwiftSource(
+        original,
+        fallbackSwiftModules: fallbackSwiftModules,
+      );
       if (normalized != original) changes[file] = normalized;
     }
     for (final change in changes.entries) {
@@ -1310,6 +1361,7 @@ let package = Package(
     String manifest, {
     required String packageDir,
     required Set<String> consumedProducts,
+    Map<String, List<String>>? fallbackSwiftModules,
   }) async {
     var result = manifest;
     for (final product in consumedProducts) {
@@ -1317,6 +1369,7 @@ let package = Package(
         result,
         packageDir: packageDir,
         product: product,
+        fallbackSwiftModules: fallbackSwiftModules,
       );
     }
     return result;
@@ -1326,6 +1379,7 @@ let package = Package(
     String manifest, {
     required String packageDir,
     required String product,
+    Map<String, List<String>>? fallbackSwiftModules,
   }) async {
     final fallback = _fallbackBlock(manifest);
     if (fallback == null) return manifest;
@@ -1522,6 +1576,9 @@ let package = Package(
       });
       if (hasSwift) swiftModules.add(name);
     }
+    if (fallbackSwiftModules != null) {
+      fallbackSwiftModules[product] = swiftModules;
+    }
 
     final compatibilityDir = p.join(packageDir, '.xcross', synthetic);
     final includeDir = p.join(compatibilityDir, 'include');
@@ -1562,13 +1619,21 @@ let package = Package(
       p.join(compatibilityDir, '$synthetic.m'),
     ).writeAsString('#import "$product.h"\n');
 
+    final syntheticCount = fallbackProducts
+        .singleWhere((entry) => entry.call.start == sourceProduct.call.start)
+        .targets
+        .where((name) => name == synthetic)
+        .length;
     var rewrittenBlock = blockText;
-    if (sourceProduct.name == product &&
-        !sourceProduct.targets.contains(synthetic)) {
+    if (sourceProduct.name == product && syntheticCount != 1) {
       final targetsPattern = RegExp(r'targets\s*:\s*\[([^\]]*)\]');
-      final updatedProduct = sourceProduct.call.text.replaceFirstMapped(
+      final normalizedTargets = [
+        ...sourceProduct.targets,
+        synthetic,
+      ].map((name) => '"$name"').join(', ');
+      final updatedProduct = sourceProduct.call.text.replaceFirst(
         targetsPattern,
-        (match) => 'targets: [${match[1]!.trimRight()}, "$synthetic"]',
+        'targets: [$normalizedTargets]',
       );
       rewrittenBlock = rewrittenBlock.replaceRange(
         sourceProduct.call.start,
@@ -1606,6 +1671,7 @@ let package = Package(
   static Future<String> vendorUrlPackagesAsPathDeps(
     String manifest, {
     required String vendorDir,
+    Map<String, List<String>>? fallbackSwiftModules,
     Future<String> Function(String name)? locateTool,
     Future<void> Function(
       String git,
@@ -1651,6 +1717,7 @@ let package = Package(
         await _normalizeVendoredPackageManifests(
           destination,
           consumedProducts: _consumedProducts(manifest, identity),
+          fallbackSwiftModules: fallbackSwiftModules,
         );
       }
       final pathDep =
@@ -1861,6 +1928,7 @@ let package = Package(
   static Future<void> _normalizeVendoredPackageManifests(
     String packageDir, {
     required Set<String> consumedProducts,
+    Map<String, List<String>>? fallbackSwiftModules,
   }) async {
     await for (final entity in Directory(packageDir).list(followLinks: false)) {
       if (entity is! File) continue;
@@ -1874,6 +1942,7 @@ let package = Package(
         normalizeHostManifest(original),
         packageDir: packageDir,
         consumedProducts: consumedProducts,
+        fallbackSwiftModules: fallbackSwiftModules,
       );
       if (normalized != original) {
         await entity.writeAsString(normalized);
