@@ -534,6 +534,26 @@ framework module PublicSDK {
           swiftPath(p.join(tmp.path, 'Sources/ObjC/Hybrid/PrivateAPI.h')),
         ),
       );
+
+      final regenerated =
+          await GeneratedPluginsPackage.synthesizeBinaryFallbackCompatibility(
+            output,
+            packageDir: tmp.path,
+            consumedProducts: {'PublicSDK'},
+          );
+      expect(regenerated, output);
+      expect(
+        File(
+          p.join(
+            tmp.path,
+            '.xcross',
+            '_xcross_PublicSDK',
+            'include',
+            'PublicSDK.h',
+          ),
+        ).readAsStringSync(),
+        '@import HeaderSurface;\n@import SwiftImpl;\n',
+      );
     });
 
     test('does nothing when fallback already emits expected module', () async {

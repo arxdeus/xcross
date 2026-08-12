@@ -1349,6 +1349,7 @@ let package = Package(
     if (!binaryBacked) return manifest;
 
     final blockText = manifest.substring(fallback.open + 1, fallback.close);
+    final synthetic = '_xcross_$product';
     final productCalls = _swiftCalls(blockText, '.library');
     final fallbackProducts = [
       for (final call in productCalls)
@@ -1358,18 +1359,21 @@ let package = Package(
           targets: _namedStringList(call.text, 'targets'),
         ),
     ].where((entry) => entry.name != null && entry.targets.isNotEmpty).toList();
-    final matchingProducts = fallbackProducts
+    final sourceProducts = fallbackProducts
+        .where((entry) => !entry.targets.contains(synthetic))
+        .toList();
+    final matchingProducts = sourceProducts
         .where((entry) => entry.name == product)
         .toList();
     final sourceProduct = matchingProducts.length == 1
         ? matchingProducts.single
-        : fallbackProducts.length == 1
-        ? fallbackProducts.single
+        : sourceProducts.length == 1
+        ? sourceProducts.single
         : null;
     if (sourceProduct == null) {
       throw FlutterBuildError(
         'Cannot synthesize SwiftPM module "$product": the fallback product '
-        'is ambiguous (${fallbackProducts.map((entry) => entry.name).join(', ')}).',
+        'is ambiguous (${sourceProducts.map((entry) => entry.name).join(', ')}).',
       );
     }
 
@@ -1402,7 +1406,11 @@ let package = Package(
     final closure = <String>[];
     final visiting = <String>{};
     void visit(String name) {
-      if (!targets.containsKey(name) || !visiting.add(name)) return;
+      if (name == synthetic ||
+          !targets.containsKey(name) ||
+          !visiting.add(name)) {
+        return;
+      }
       closure.add(name);
       for (final dependency in targets[name]!.dependencies) {
         visit(dependency);
@@ -1510,8 +1518,6 @@ let package = Package(
       if (hasSwift) swiftModules.add(name);
     }
 
-    final synthetic = '_xcross_$product';
-    if (targets.containsKey(synthetic)) return manifest;
     final compatibilityDir = p.join(packageDir, '.xcross', synthetic);
     final includeDir = p.join(compatibilityDir, 'include');
     final nested = [
@@ -1540,7 +1546,8 @@ let package = Package(
     ).writeAsString('#import "$product.h"\n');
 
     var rewrittenBlock = blockText;
-    if (sourceProduct.name == product) {
+    if (sourceProduct.name == product &&
+        !sourceProduct.targets.contains(synthetic)) {
       final targetsPattern = RegExp(r'targets\s*:\s*\[([^\]]*)\]');
       final updatedProduct = sourceProduct.call.text.replaceFirstMapped(
         targetsPattern,
@@ -1554,17 +1561,20 @@ let package = Package(
     }
     final dependencyList = closure.map((name) => '"$name"').join(', ');
     final additions = StringBuffer();
-    if (sourceProduct.name != product) {
+    if (sourceProduct.name != product &&
+        !fallbackProducts.any((entry) => entry.name == product)) {
       additions.writeln(
         '    products.append(.library(name: "$product", '
         'targets: ["$synthetic"]))',
       );
     }
-    additions.writeln(
-      '    targets.append(.target(name: "$synthetic", '
-      'dependencies: [$dependencyList], path: ".xcross/$synthetic", '
-      'publicHeadersPath: "include"))',
-    );
+    if (!targets.containsKey(synthetic)) {
+      additions.writeln(
+        '    targets.append(.target(name: "$synthetic", '
+        'dependencies: [$dependencyList], path: ".xcross/$synthetic", '
+        'publicHeadersPath: "include"))',
+      );
+    }
     rewrittenBlock = '${rewrittenBlock.trimRight()}\n$additions';
     return manifest.replaceRange(
       fallback.open + 1,
