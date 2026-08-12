@@ -81,16 +81,15 @@ void main() {
         ).existsSync(),
         isTrue,
       );
+      final compilerShim = File(prepared.konancExecutable).readAsStringSync();
+      expect(compilerShim, contains('-Dkonan.home=${fixture.kotlinHome}'));
+      expect(compilerShim, contains('KONAN_SHIM_HOME'));
       expect(
-        File(
-          p.join(
-            prepared.kotlinHome,
-            'bin',
-            fixture.host.isWindows ? 'run_konan.bat' : 'run_konan',
-          ),
-        ).readAsStringSync(),
-        'run-konan',
+        compilerShim,
+        contains('/konan/lib/kotlin-native-compiler-embeddable.jar'),
       );
+      expect(compilerShim, isNot(contains('.staging.')));
+      expect(compilerShim, isNot(contains('run_konan')));
       expect(
         File(
           p.join(fixture.kotlinHome, 'konan', 'konan.properties'),
@@ -134,33 +133,6 @@ void main() {
     },
   );
 
-  test('launcher helper changes invalidate the prepared toolchain', () async {
-    final fixture = _Fixture.create(ComposeHost.linuxX64)..createKotlinHome();
-    addTearDown(fixture.dispose);
-    final configuration = KonanConfiguration.withSeams(
-      patchCompilerJar: (_) async {},
-      makeExecutable: (_) {},
-    );
-
-    final first = await configuration.prepare(
-      project: fixture.project,
-      toolchain: fixture.toolchain,
-    );
-    File(
-      p.join(fixture.kotlinHome, 'bin', 'run_konan'),
-    ).writeAsStringSync('updated-run-konan');
-    final second = await configuration.prepare(
-      project: fixture.project,
-      toolchain: fixture.toolchain,
-    );
-
-    expect(second.kotlinHome, isNot(first.kotlinHome));
-    expect(
-      File(p.join(second.kotlinHome, 'bin', 'run_konan')).readAsStringSync(),
-      'updated-run-konan',
-    );
-  });
-
   test(
     'overlapping prepares converge on one completed fingerprint root',
     () async {
@@ -198,7 +170,10 @@ void main() {
         File(results[0].konanConfigPath).readAsStringSync(),
         contains(_slash(fixture.ld64)),
       );
-      expect(File(results[0].konancExecutable).readAsStringSync(), 'konanc');
+      expect(
+        File(results[0].konancExecutable).readAsStringSync(),
+        contains('org.jetbrains.kotlin.cli.utilities.MainKt konanc'),
+      );
       expect(
         Directory(p.join(fixture.root, 'build', 'xcross-ios', 'toolchain'))
             .listSync()
@@ -247,6 +222,15 @@ void main() {
     final xcrun = File(p.join(shims, 'xcrun.cmd'));
     expect(xcrun.existsSync(), isTrue);
     expect(xcrun.readAsStringSync(), contains('cmd.exe /d /c'));
+    final compilerShim = File(prepared.konancExecutable).readAsStringSync();
+    expect(compilerShim, contains(_slash(fixture.javaHome)));
+    expect(
+      compilerShim,
+      contains('-Dkonan.home=${_slash(fixture.kotlinHome)}'),
+    );
+    expect(compilerShim, contains(r'%KONAN_SHIM_HOME%\konan\lib'));
+    expect(compilerShim, isNot(contains('.staging.')));
+    expect(compilerShim, isNot(contains('run_konan')));
     expect(prepared.environment['PATH'], startsWith('$shims;'));
   });
 }
