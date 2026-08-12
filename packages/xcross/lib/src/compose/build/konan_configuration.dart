@@ -86,10 +86,7 @@ final class KonanConfiguration {
     Directory(p.join(kotlinHome, 'konan', 'lib')).createSync(recursive: true);
     Directory(configDir).createSync(recursive: true);
     Directory(shimsDir).createSync(recursive: true);
-    await _copyFileIfExists(
-      toolchain.konancExecutable,
-      p.join(kotlinHome, 'bin', p.basename(toolchain.konancExecutable)),
-    );
+    await _copyBinFiles(toolchain, kotlinHome);
     await _copyMutableKonanFiles(toolchain.kotlinHome, kotlinHome);
     await _patchJars(kotlinHome);
     _writeKonanProperties(p.join(configDir, 'konan.properties'), toolchain);
@@ -149,7 +146,14 @@ final class KonanConfiguration {
     addString(toolchain.clang);
     addString(toolchain.ld64Lld);
     addString(toolchain.darwinSdkPath);
-    await _addFile(bytes, 'konanc', File(toolchain.konancExecutable));
+    final bin = Directory(p.join(toolchain.kotlinHome, 'bin'));
+    if (bin.existsSync()) {
+      final files = bin.listSync(recursive: true, followLinks: false)
+        ..sort((a, b) => a.path.compareTo(b.path));
+      for (final file in files.whereType<File>()) {
+        await _addFile(bytes, p.relative(file.path, from: bin.path), file);
+      }
+    }
     await _addFile(
       bytes,
       'konan.properties',
@@ -201,6 +205,29 @@ final class KonanConfiguration {
         entity.path,
         p.join(targetHome, 'konan', 'lib', relative),
       );
+    }
+  }
+
+  Future<void> _copyBinFiles(
+    ComposeToolchain toolchain,
+    String targetHome,
+  ) async {
+    final source = Directory(p.join(toolchain.kotlinHome, 'bin'));
+    if (!source.existsSync()) return;
+    await for (final entity in source.list(
+      recursive: true,
+      followLinks: false,
+    )) {
+      if (entity is! File) continue;
+      final target = p.join(
+        targetHome,
+        'bin',
+        p.relative(entity.path, from: source.path),
+      );
+      await _copyFileIfExists(entity.path, target);
+      if (!toolchain.host.isWindows) {
+        (_makeExecutable ?? ProcessRunner.makeExecutable)(target);
+      }
     }
   }
 

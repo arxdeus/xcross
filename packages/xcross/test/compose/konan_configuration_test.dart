@@ -83,6 +83,16 @@ void main() {
       );
       expect(
         File(
+          p.join(
+            prepared.kotlinHome,
+            'bin',
+            fixture.host.isWindows ? 'run_konan.bat' : 'run_konan',
+          ),
+        ).readAsStringSync(),
+        'run-konan',
+      );
+      expect(
+        File(
           p.join(fixture.kotlinHome, 'konan', 'konan.properties'),
         ).readAsStringSync(),
         'original=true\n',
@@ -123,6 +133,33 @@ void main() {
       );
     },
   );
+
+  test('launcher helper changes invalidate the prepared toolchain', () async {
+    final fixture = _Fixture.create(ComposeHost.linuxX64)..createKotlinHome();
+    addTearDown(fixture.dispose);
+    final configuration = KonanConfiguration.withSeams(
+      patchCompilerJar: (_) async {},
+      makeExecutable: (_) {},
+    );
+
+    final first = await configuration.prepare(
+      project: fixture.project,
+      toolchain: fixture.toolchain,
+    );
+    File(
+      p.join(fixture.kotlinHome, 'bin', 'run_konan'),
+    ).writeAsStringSync('updated-run-konan');
+    final second = await configuration.prepare(
+      project: fixture.project,
+      toolchain: fixture.toolchain,
+    );
+
+    expect(second.kotlinHome, isNot(first.kotlinHome));
+    expect(
+      File(p.join(second.kotlinHome, 'bin', 'run_konan')).readAsStringSync(),
+      'updated-run-konan',
+    );
+  });
 
   test(
     'overlapping prepares converge on one completed fingerprint root',
@@ -286,6 +323,9 @@ final class _Fixture {
     File(
       p.join(kotlinHome, 'bin', host.isWindows ? 'konanc.bat' : 'konanc'),
     ).writeAsStringSync('konanc');
+    File(
+      p.join(kotlinHome, 'bin', host.isWindows ? 'run_konan.bat' : 'run_konan'),
+    ).writeAsStringSync('run-konan');
     File(
       p.join(kotlinHome, 'konan', 'konan.properties'),
     ).writeAsStringSync('original=true\n');
