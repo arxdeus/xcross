@@ -515,7 +515,10 @@ framework module PublicSDK {
             'PublicSDK.h',
           ),
         ).readAsStringSync(),
-        '@import HeaderSurface;\n@import SwiftImpl;\n',
+        '@import HeaderSurface;\n'
+        '#ifndef __swift__\n'
+        '@import SwiftImpl;\n'
+        '#endif\n',
       );
       final moduleMap = File(
         p.join(
@@ -552,7 +555,10 @@ framework module PublicSDK {
             'PublicSDK.h',
           ),
         ).readAsStringSync(),
-        '@import HeaderSurface;\n@import SwiftImpl;\n',
+        '@import HeaderSurface;\n'
+        '#ifndef __swift__\n'
+        '@import SwiftImpl;\n'
+        '#endif\n',
       );
     });
 

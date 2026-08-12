@@ -1540,9 +1540,15 @@ let package = Package(
     moduleMap.writeln('}');
 
     await Directory(includeDir).create(recursive: true);
-    await File(p.join(includeDir, '$product.h')).writeAsString(
-      '${[publicModules.single.modules.single, ...swiftModules].map((module) => '@import $module;').join('\n')}\n',
-    );
+    final shim = StringBuffer()
+      ..writeln('@import ${publicModules.single.modules.single};');
+    if (swiftModules.isNotEmpty) {
+      shim
+        ..writeln('#ifndef __swift__')
+        ..writeln(swiftModules.map((module) => '@import $module;').join('\n'))
+        ..writeln('#endif');
+    }
+    await File(p.join(includeDir, '$product.h')).writeAsString(shim.toString());
     await File(
       p.join(includeDir, 'module.modulemap'),
     ).writeAsString(moduleMap.toString());
