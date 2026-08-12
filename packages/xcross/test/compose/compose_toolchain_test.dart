@@ -200,6 +200,7 @@ void main() {
           File(
             options.host.konancExecutable(options.kotlinHome),
           ).writeAsStringSync('konanc');
+          _writeCompleteMarker(options);
           final resolver = _resolverWithPreflight(
             javaHome: javaHome,
             sdk: sdk,
@@ -255,6 +256,7 @@ void main() {
             File(
               options.host.konancExecutable(options.kotlinHome),
             ).writeAsStringSync('konanc');
+            _writeCompleteMarker(options);
             return options.kotlinHome;
           },
         );
@@ -274,6 +276,109 @@ void main() {
         expect(installs, 1);
         expect(toolchain.konancExecutable, isA<String>());
         expect(File(toolchain.konancExecutable).existsSync(), isTrue);
+      } finally {
+        project.deleteSync(recursive: true);
+        home.deleteSync(recursive: true);
+      }
+    });
+
+    test('ensure reinstalls a markerless Kotlin Native cache', () async {
+      final project = Directory.systemTemp.createTempSync(
+        'xcross-compose-project-',
+      );
+      final home = Directory.systemTemp.createTempSync('xcross-compose-home-');
+      var installs = 0;
+      try {
+        File(p.join(project.path, 'gradlew')).writeAsStringSync('#!/bin/sh');
+        final javaHome = p.join(home.path, 'jdk-21');
+        final sdk = FakeDarwinSdk('/sdk');
+        final options = ComposeSetupOptions.resolve(
+          env: {'HOME': home.path, 'JAVA_HOME': javaHome},
+          projectRoot: project.path,
+          host: ComposeHost.linuxX64,
+        );
+        File(options.host.konancExecutable(options.kotlinHome))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('markerless-konanc');
+        final installer = ComposeToolchainInstaller.withSeams(
+          installRoot: (options, {required force}) async {
+            installs++;
+            File(options.host.konancExecutable(options.kotlinHome))
+              ..createSync(recursive: true)
+              ..writeAsStringSync('complete-konanc');
+            _writeCompleteMarker(options);
+            return options.kotlinHome;
+          },
+        );
+        final resolver = _resolverWithPreflight(
+          javaHome: javaHome,
+          sdk: sdk,
+          home: home.path,
+          installer: installer,
+        );
+
+        final toolchain = await resolver.ensure(
+          host: ComposeHost.linuxX64,
+          environment: {'HOME': home.path, 'JAVA_HOME': javaHome},
+          projectRoot: project.path,
+        );
+
+        expect(installs, 1);
+        expect(
+          File(toolchain.konancExecutable).readAsStringSync(),
+          'complete-konanc',
+        );
+      } finally {
+        project.deleteSync(recursive: true);
+        home.deleteSync(recursive: true);
+      }
+    });
+
+    test('ensure reports non-Kotlin prerequisites before installing', () async {
+      final project = Directory.systemTemp.createTempSync(
+        'xcross-compose-project-',
+      );
+      final home = Directory.systemTemp.createTempSync('xcross-compose-home-');
+      var installs = 0;
+      try {
+        final installer = ComposeToolchainInstaller.withSeams(
+          installRoot: (options, {required force}) async {
+            installs++;
+            Directory(
+              p.join(options.kotlinHome, 'bin'),
+            ).createSync(recursive: true);
+            File(
+              options.host.konancExecutable(options.kotlinHome),
+            ).writeAsStringSync('konanc');
+            return options.kotlinHome;
+          },
+        );
+        final resolver = ComposeToolchainResolver.withSeams(
+          which:
+              (_, {environment, windows, extraDirectories = const []}) async =>
+                  null,
+          currentDarwinSdk: (_) => null,
+          resolveLd64Lld: (_, {runProcess}) async =>
+              throw XcrossError('No ld64.lld that can link for iOS.'),
+          installer: installer,
+        );
+
+        await expectLater(
+          resolver.ensure(
+            host: ComposeHost.linuxX64,
+            environment: {'HOME': home.path},
+            projectRoot: project.path,
+          ),
+          throwsA(
+            isA<XcrossError>().having(
+              (error) => error.message,
+              'message',
+              contains('JDK 21+'),
+            ),
+          ),
+        );
+
+        expect(installs, 0);
       } finally {
         project.deleteSync(recursive: true);
         home.deleteSync(recursive: true);
@@ -335,6 +440,7 @@ void main() {
           File(
             options.host.konancExecutable(options.kotlinHome),
           ).writeAsStringSync('konanc');
+          _writeCompleteMarker(options);
 
           final installer = ComposeToolchainInstaller.withSeams(
             downloadToFile: (_, _) =>
@@ -350,6 +456,42 @@ void main() {
           final installed = await installer.install(options: options);
 
           expect(installed, options.kotlinHome);
+        } finally {
+          home.deleteSync(recursive: true);
+          project.deleteSync(recursive: true);
+        }
+      },
+    );
+
+    test(
+      'does not accept a cache that lacks the completeness marker',
+      () async {
+        final home = Directory.systemTemp.createTempSync(
+          'xcross-compose-home-',
+        );
+        final project = Directory.systemTemp.createTempSync(
+          'xcross-compose-project-',
+        );
+        var installs = 0;
+        try {
+          final options = ComposeSetupOptions.resolve(
+            env: {'HOME': home.path, 'KN_VERSION': '2.2.20'},
+            projectRoot: project.path,
+            host: ComposeHost.linuxX64,
+          );
+          File(options.host.konancExecutable(options.kotlinHome))
+            ..createSync(recursive: true)
+            ..writeAsStringSync('partial-konanc');
+          final installer = ComposeToolchainInstaller.withSeams(
+            installRoot: (options, {required force}) async {
+              installs++;
+              return options.kotlinHome;
+            },
+          );
+
+          await installer.install(options: options);
+
+          expect(installs, 1);
         } finally {
           home.deleteSync(recursive: true);
           project.deleteSync(recursive: true);
@@ -383,6 +525,7 @@ void main() {
               file.createSync(recursive: true);
               file.writeAsStringSync(p.basename(file.path));
             },
+            digestFile: (file) async => _matchingSha256(file, options),
             extractArchive: (archive, dest) async {
               extracted.add(p.basename(archive.path));
               final root = Directory(
@@ -491,7 +634,7 @@ void main() {
             'cmd.exe',
             '/d',
             '/c',
-            options.host.konancExecutable('${options.kotlinHome}.staging'),
+            allOf(contains('.staging.'), endsWith('bin/konanc.bat')),
             contains('hello.kt'),
             '-o',
             contains('hello'),
@@ -506,6 +649,97 @@ void main() {
         }
       },
     );
+
+    test('rejects host archive digest mismatch before extraction', () async {
+      final home = Directory.systemTemp.createTempSync('xcross-compose-home-');
+      final project = Directory.systemTemp.createTempSync(
+        'xcross-compose-project-',
+      );
+      try {
+        final options = ComposeSetupOptions.resolve(
+          env: {'HOME': home.path, 'KN_VERSION': '2.2.20'},
+          projectRoot: project.path,
+          host: ComposeHost.linuxX64,
+        );
+        final installer = ComposeToolchainInstaller.withSeams(
+          downloadToFile: (_, file) async => file.writeAsStringSync('tampered'),
+          extractArchive: (_, _) async =>
+              fail('extract must wait for digest verification'),
+          patchCompilerJar: (_) async =>
+              fail('patch must wait for digest verification'),
+          runChecked: (_, __, {workingDirectory, environment}) async =>
+              fail('warmup must wait for digest verification'),
+        );
+
+        await expectLater(
+          installer.install(options: options, force: true),
+          throwsA(
+            isA<XcrossError>()
+                .having(
+                  (error) => error.message,
+                  'message',
+                  contains('SHA-256 mismatch'),
+                )
+                .having(
+                  (error) => error.message,
+                  'message',
+                  contains(options.host.hostArtifact(options.version)),
+                ),
+          ),
+        );
+      } finally {
+        home.deleteSync(recursive: true);
+        project.deleteSync(recursive: true);
+      }
+    });
+
+    test('rejects overlay archive digest mismatch before extraction', () async {
+      final home = Directory.systemTemp.createTempSync('xcross-compose-home-');
+      final project = Directory.systemTemp.createTempSync(
+        'xcross-compose-project-',
+      );
+      try {
+        final options = ComposeSetupOptions.resolve(
+          env: {'HOME': home.path, 'KN_VERSION': '2.2.20'},
+          projectRoot: project.path,
+          host: ComposeHost.windowsX64,
+        );
+        final installer = ComposeToolchainInstaller.withSeams(
+          downloadToFile: (_, file) async => file.writeAsStringSync('archive'),
+          digestFile: (file) async => p.basename(file.path).contains('macos')
+              ? '0' * 64
+              : _matchingSha256(file, options),
+          extractArchive: (_, _) async =>
+              fail('extract must wait for overlay digest verification'),
+          patchCompilerJar: (_) async =>
+              fail('patch must wait for overlay digest verification'),
+          runChecked: (_, __, {workingDirectory, environment}) async =>
+              fail('warmup must wait for overlay digest verification'),
+        );
+
+        await expectLater(
+          installer.install(options: options, force: true),
+          throwsA(
+            isA<XcrossError>()
+                .having(
+                  (error) => error.message,
+                  'message',
+                  contains('SHA-256 mismatch'),
+                )
+                .having(
+                  (error) => error.message,
+                  'message',
+                  contains(
+                    ComposeHost.macosX64OverlayArtifact(options.version),
+                  ),
+                ),
+          ),
+        );
+      } finally {
+        home.deleteSync(recursive: true);
+        project.deleteSync(recursive: true);
+      }
+    });
 
     test(
       'warms POSIX hosts with a temporary hello world compile and cleans it',
@@ -527,6 +761,7 @@ void main() {
           final installer = ComposeToolchainInstaller.withSeams(
             downloadToFile: (_, file) async =>
                 file.writeAsStringSync('archive'),
+            digestFile: (file) async => _matchingSha256(file, options),
             extractArchive: (archive, dest) async {
               final root = Directory(
                 p.join(
@@ -561,7 +796,7 @@ void main() {
 
           expect(
             commands.single.first,
-            options.host.konancExecutable('${options.kotlinHome}.staging'),
+            allOf(contains('.staging.'), endsWith('bin/konanc')),
           );
           expect(commands.single[1], endsWith('hello.kt'));
           expect(commands.single[2], '-o');
@@ -597,6 +832,7 @@ void main() {
           final installer = ComposeToolchainInstaller.withSeams(
             downloadToFile: (_, file) async =>
                 file.writeAsStringSync('archive'),
+            digestFile: (file) async => _matchingSha256(file, options),
             extractArchive: (archive, dest) async {
               final root = Directory(
                 p.join(
@@ -647,6 +883,50 @@ void main() {
     );
 
     test(
+      'does not copy staged cache directly into the final destination',
+      () async {
+        final home = Directory.systemTemp.createTempSync(
+          'xcross-compose-home-',
+        );
+        final project = Directory.systemTemp.createTempSync(
+          'xcross-compose-project-',
+        );
+        try {
+          final options = ComposeSetupOptions.resolve(
+            env: {'HOME': home.path, 'KN_VERSION': '2.2.20'},
+            projectRoot: project.path,
+            host: ComposeHost.linuxX64,
+          );
+          final installer = _installerThatBuildsNewCache(
+            options,
+            renameDirectory: (source, newPath) {
+              if (source.path.contains('.staging.')) {
+                throw const FileSystemException('rename interrupted');
+              }
+              return source.rename(newPath);
+            },
+          );
+
+          await expectLater(
+            installer.install(options: options, force: true),
+            throwsA(
+              isA<XcrossError>().having(
+                (error) => error.message,
+                'message',
+                contains('rename interrupted'),
+              ),
+            ),
+          );
+
+          expect(Directory(options.kotlinHome).existsSync(), isFalse);
+        } finally {
+          home.deleteSync(recursive: true);
+          project.deleteSync(recursive: true);
+        }
+      },
+    );
+
+    test(
       'force restores the original cache and cleans debris when staged replacement fails',
       () async {
         final home = Directory.systemTemp.createTempSync(
@@ -673,7 +953,7 @@ void main() {
                 backupContainer = p.dirname(newPath);
                 return source.rename(newPath);
               }
-              if (source.path == '${options.kotlinHome}.staging') {
+              if (source.path.contains('.staging.')) {
                 throw StateError('install rename failed');
               }
               return source.rename(newPath);
@@ -732,7 +1012,7 @@ void main() {
                 backupPath = newPath;
                 return source.rename(newPath);
               }
-              if (source.path == '${options.kotlinHome}.staging') {
+              if (source.path.contains('.staging.')) {
                 throw StateError('install rename failed');
               }
               if (source.path == backupPath) {
@@ -804,6 +1084,7 @@ ComposeToolchainInstaller _installerThatBuildsNewCache(
   RenameDirectory? renameDirectory,
 }) => ComposeToolchainInstaller.withSeams(
   downloadToFile: (_, file) async => file.writeAsStringSync('archive'),
+  digestFile: (file) async => _matchingSha256(file, options),
   extractArchive: (archive, dest) async {
     final root = Directory(
       p.join(
@@ -845,12 +1126,32 @@ void _writeValidCache(
   File(p.join(options.kotlinHome, 'lib', 'marker.txt'))
     ..createSync(recursive: true)
     ..writeAsStringSync(marker);
+  _writeCompleteMarker(options);
+}
+
+void _writeCompleteMarker(ComposeSetupOptions options) {
+  File(ComposeToolchainInstaller.completionMarkerPath(options.kotlinHome))
+    ..createSync(recursive: true)
+    ..writeAsStringSync(
+      ComposeToolchainInstaller.completionMarkerContent(options),
+    );
 }
 
 Map<String, String> _snapshotDirectory(Directory directory) => {
   for (final file in directory.listSync(recursive: true).whereType<File>())
     p.relative(file.path, from: directory.path): file.readAsStringSync(),
 };
+
+String _matchingSha256(File file, ComposeSetupOptions options) {
+  final artifact = p.basename(file.path);
+  if (artifact == options.host.hostArtifact(options.version)) {
+    return options.hostArchiveSha256!;
+  }
+  if (artifact == ComposeHost.macosX64OverlayArtifact(options.version)) {
+    return options.overlayArchiveSha256!;
+  }
+  fail('unexpected archive $artifact');
+}
 
 InjectedComposeToolchainResolver _resolverWithPreflight({
   required String javaHome,

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/compose/toolchain/archive_extractor.dart';
 import 'package:xcross/src/compose/toolchain/compose_host.dart';
@@ -9,6 +10,7 @@ import 'package:xcross/src/compose/toolchain/host_manager_patcher.dart';
 import 'package:xcross/src/errors.dart';
 
 typedef DownloadToFile = Future<void> Function(String url, File file);
+typedef DigestFile = Future<String> Function(File file);
 typedef ExtractArchive =
     Future<void> Function(File archive, Directory destination);
 typedef PatchCompilerJar = Future<void> Function(File jar);
@@ -27,6 +29,7 @@ typedef RenameDirectory =
 final class ComposeToolchainInstaller {
   const ComposeToolchainInstaller()
     : _downloadToFile = null,
+      _digestFile = null,
       _extractArchive = null,
       _patchCompilerJar = null,
       _runChecked = null,
@@ -35,12 +38,14 @@ final class ComposeToolchainInstaller {
 
   const ComposeToolchainInstaller.withSeams({
     DownloadToFile? downloadToFile,
+    DigestFile? digestFile,
     ExtractArchive? extractArchive,
     PatchCompilerJar? patchCompilerJar,
     RunChecked? runChecked,
     InstallRoot? installRoot,
     RenameDirectory? renameDirectory,
   }) : _downloadToFile = downloadToFile,
+       _digestFile = digestFile,
        _extractArchive = extractArchive,
        _patchCompilerJar = patchCompilerJar,
        _runChecked = runChecked,
@@ -48,6 +53,7 @@ final class ComposeToolchainInstaller {
        _renameDirectory = renameDirectory;
 
   final DownloadToFile? _downloadToFile;
+  final DigestFile? _digestFile;
   final ExtractArchive? _extractArchive;
   final PatchCompilerJar? _patchCompilerJar;
   final RunChecked? _runChecked;
@@ -67,7 +73,12 @@ final class ComposeToolchainInstaller {
     await cache.create(recursive: true);
     final downloads = await cache.createTemp('compose-downloads-');
     final hostExtract = Directory('${options.kotlinHome}.host');
-    final staging = Directory('${options.kotlinHome}.staging');
+    final stagingContainer = await Directory(
+      p.dirname(options.kotlinHome),
+    ).createTemp('.${p.basename(options.kotlinHome)}.staging.');
+    final staging = Directory(
+      p.join(stagingContainer.path, p.basename(options.kotlinHome)),
+    );
     final overlayExtract = Directory('${options.kotlinHome}.overlay');
     try {
       if (hostExtract.existsSync()) await hostExtract.delete(recursive: true);
@@ -88,7 +99,9 @@ final class ComposeToolchainInstaller {
         ),
       );
       await _download(options.hostArchiveUrl, hostArchive);
+      await _verifyDigest(hostArchive, options.hostArchiveSha256);
       await _download(options.overlayArchiveUrl, overlayArchive);
+      await _verifyDigest(overlayArchive, options.overlayArchiveSha256);
       await _extract(hostArchive, hostExtract);
       await _extract(overlayArchive, overlayExtract);
       await _moveRoot(_archiveRoot(hostExtract), staging);
@@ -96,6 +109,7 @@ final class ComposeToolchainInstaller {
       _restoreExecutables(options.host, staging.path);
       await _patchJars(staging);
       await _warmDependencies(options, staging.path);
+      await _writeCompletionMarker(options, staging);
       await _atomicInstall(
         staging,
         Directory(options.kotlinHome),
@@ -109,11 +123,22 @@ final class ComposeToolchainInstaller {
         await overlayExtract.delete(recursive: true);
       }
       if (staging.existsSync()) await staging.delete(recursive: true);
+      if (stagingContainer.existsSync()) {
+        await stagingContainer.delete(recursive: true);
+      }
     }
   }
 
-  bool _isComplete(ComposeSetupOptions options) =>
-      File(options.host.konancExecutable(options.kotlinHome)).existsSync();
+  static bool isComplete(ComposeSetupOptions options) {
+    if (!File(options.host.konancExecutable(options.kotlinHome)).existsSync()) {
+      return false;
+    }
+    final marker = File(completionMarkerPath(options.kotlinHome));
+    if (!marker.existsSync()) return false;
+    return marker.readAsStringSync() == completionMarkerContent(options);
+  }
+
+  bool _isComplete(ComposeSetupOptions options) => isComplete(options);
 
   void _rejectUnsupported(ComposeHost host) {
     if (host != ComposeHost.linuxX64 && host != ComposeHost.windowsX64) {
@@ -126,6 +151,21 @@ final class ComposeToolchainInstaller {
 
   Future<void> _download(String url, File file) =>
       (_downloadToFile ?? _defaultDownload)(url, file);
+
+  Future<void> _verifyDigest(File file, String? expectedSha256) async {
+    final artifact = p.basename(file.path);
+    if (expectedSha256 == null) {
+      throw XcrossError(
+        'No pinned SHA-256 digest for Kotlin/Native $artifact.',
+      );
+    }
+    final actualSha256 = await (_digestFile ?? _defaultDigestFile)(file);
+    if (actualSha256.toLowerCase() != expectedSha256.toLowerCase()) {
+      throw XcrossError(
+        'Kotlin/Native archive SHA-256 mismatch for $artifact: expected $expectedSha256, got $actualSha256.',
+      );
+    }
+  }
 
   Future<void> _extract(File archive, Directory destination) =>
       (_extractArchive ?? ArchiveExtractor.extractArchive)(
@@ -156,6 +196,9 @@ final class ComposeToolchainInstaller {
 
   static Future<void> _defaultDownload(String url, File file) =>
       Downloader.downloadToFile(url, file);
+
+  static Future<String> _defaultDigestFile(File file) =>
+      sha256.bind(file.openRead()).first.then((digest) => digest.toString());
 
   static Future<void> _defaultPatchCompilerJar(File jar) async {
     patchKotlinNativeJar(jar.path);
@@ -267,6 +310,26 @@ final class ComposeToolchainInstaller {
     }
   }
 
+  Future<void> _writeCompletionMarker(
+    ComposeSetupOptions options,
+    Directory root,
+  ) async {
+    final marker = File(completionMarkerPath(root.path));
+    await marker.parent.create(recursive: true);
+    await marker.writeAsString(completionMarkerContent(options));
+  }
+
+  static String completionMarkerContent(ComposeSetupOptions options) =>
+      'version=${options.version}\n'
+      'host=${options.host.classifier}\n'
+      'hostArchive=${options.host.hostArtifact(options.version)}\n'
+      'hostSha256=${options.hostArchiveSha256}\n'
+      'overlayArchive=${ComposeHost.macosX64OverlayArtifact(options.version)}\n'
+      'overlaySha256=${options.overlayArchiveSha256}\n';
+
+  static String completionMarkerPath(String kotlinHome) =>
+      p.join(kotlinHome, '.xcross-compose-toolchain-complete');
+
   Future<void> _atomicInstall(
     Directory staging,
     Directory destination, {
@@ -289,17 +352,12 @@ final class ComposeToolchainInstaller {
     }
     try {
       await _rename(staging, destination.path);
-    } on FileSystemException {
-      try {
-        await _copyDirectory(staging, destination);
-        await staging.delete(recursive: true);
-      } catch (copyError) {
-        await _restoreBackupOrThrow(destination, backupPath, copyError);
-        await _deleteBackupContainer(backupContainer);
-        throw XcrossError(
-          'Failed to replace Compose Kotlin/Native cache at ${destination.path}: $copyError',
-        );
-      }
+    } on FileSystemException catch (error) {
+      await _restoreBackupOrThrow(destination, backupPath, error);
+      await _deleteBackupContainer(backupContainer);
+      throw XcrossError(
+        'Failed to replace Compose Kotlin/Native cache at ${destination.path}: $error',
+      );
     } catch (error) {
       await _restoreBackupOrThrow(destination, backupPath, error);
       await _deleteBackupContainer(backupContainer);

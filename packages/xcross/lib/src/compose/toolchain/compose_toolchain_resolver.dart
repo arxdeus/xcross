@@ -24,6 +24,8 @@ final class ComposeSetupOptions {
     required this.konanCache,
     required this.hostArchiveUrl,
     required this.overlayArchiveUrl,
+    required this.hostArchiveSha256,
+    required this.overlayArchiveSha256,
   });
 
   static const defaultKotlinNativeVersion = '2.2.20';
@@ -36,6 +38,8 @@ final class ComposeSetupOptions {
   final String konanCache;
   final String hostArchiveUrl;
   final String overlayArchiveUrl;
+  final String? hostArchiveSha256;
+  final String? overlayArchiveSha256;
 
   static ComposeSetupOptions resolve({
     required Map<String, String> env,
@@ -60,8 +64,20 @@ final class ComposeSetupOptions {
           '$kotlinNativeMavenBase/$version/${host.hostArtifact(version)}',
       overlayArchiveUrl:
           '$kotlinNativeMavenBase/$version/${ComposeHost.macosX64OverlayArtifact(version)}',
+      hostArchiveSha256: _sha256ByArtifact[host.hostArtifact(version)],
+      overlayArchiveSha256:
+          _sha256ByArtifact[ComposeHost.macosX64OverlayArtifact(version)],
     );
   }
+
+  static const Map<String, String> _sha256ByArtifact = {
+    'kotlin-native-prebuilt-2.2.20-linux-x86_64.tar.gz':
+        '5e2c25c7783f2a7f89aafeb3ccfb0fb5a671e0e32d283c3ab335dc5e29f19e32',
+    'kotlin-native-prebuilt-2.2.20-windows-x86_64.zip':
+        '2bf86caed1b5a67f0cd15c685cb8584a2e61f3221d0985f4fc6a590f51c398df',
+    'kotlin-native-prebuilt-2.2.20-macos-x86_64.tar.gz':
+        'ca9eb2dbb87703176bdbafaad887dc5036c9e5dbfd2eec113b7f4f4a346ca60b',
+  };
 
   static String _version(Map<String, String> env, String projectRoot) {
     final explicit = env['KN_VERSION'];
@@ -263,26 +279,34 @@ final class InjectedComposeToolchainResolver {
     bool allowInstall = true,
     bool force = false,
   }) async {
-    final existing = await resolve(
-      host: host,
-      environment: environment,
-      projectRoot: projectRoot,
-    );
-    if (existing != null && !force) return existing;
-    if (!allowInstall) {
-      throw XcrossError(
-        (await problems(
-          host: host,
-          environment: environment,
-          projectRoot: projectRoot,
-        )).join('\n'),
-      );
-    }
     final options = ComposeSetupOptions.resolve(
       env: environment,
       projectRoot: projectRoot,
       host: host,
     );
+    final found = await _resolved(
+      host: host,
+      environment: environment,
+      projectRoot: projectRoot,
+      options: options,
+    );
+    if (found.toolchain != null && !force) return found.toolchain!;
+    final kotlinProblem = found.problems.firstWhere(
+      (problem) => problem.contains('Kotlin/Native compiler'),
+      orElse: () => '',
+    );
+    final nonKotlinProblems = found.problems
+        .where((problem) => !problem.contains('Kotlin/Native compiler'))
+        .toList();
+    if (nonKotlinProblems.isNotEmpty) {
+      throw XcrossError(nonKotlinProblems.join('\n'));
+    }
+    if (!allowInstall) {
+      throw XcrossError(found.problems.join('\n'));
+    }
+    if (kotlinProblem.isEmpty && !force) {
+      throw XcrossError(found.problems.join('\n'));
+    }
     await _installer.install(options: options, force: force);
     final installed = await resolve(
       host: host,
@@ -307,9 +331,9 @@ final class InjectedComposeToolchainResolver {
   }) async {
     final problems = <String>[];
     final konancExecutable = host.konancExecutable(options.kotlinHome);
-    if (!File(konancExecutable).existsSync()) {
+    if (!ComposeToolchainInstaller.isComplete(options)) {
       problems.add(
-        'Missing Kotlin/Native compiler at $konancExecutable. Run `xcross compose setup` or allow toolchain installation.',
+        'Missing complete Kotlin/Native compiler cache at ${options.kotlinHome}. Run `xcross compose setup` or allow toolchain installation.',
       );
     }
     final java = await _resolveJava(host, environment, problems);
