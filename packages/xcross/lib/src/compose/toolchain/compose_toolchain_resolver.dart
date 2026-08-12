@@ -406,7 +406,7 @@ final class InjectedComposeToolchainResolver {
         swiftc: swiftc,
         clang: clang,
         ld64Lld: ld64,
-        darwinSdkPath: sdk.swiftSdkPath as String,
+        darwinSdkPath: sdk.iPhoneOSSdk() as String,
       ),
       problems,
     );

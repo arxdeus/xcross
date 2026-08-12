@@ -43,12 +43,15 @@ void main() {
         'header',
       );
       expect(calls, hasLength(1));
-      expect(
-        calls.single.executable,
-        p.join(fixture.prepared.kotlinHome, 'bin', 'konanc'),
-      );
+      expect(calls.single.executable, fixture.toolchain.javaExecutable);
       expect(calls.single.workingDirectory, fixture.root);
       expect(calls.single.environment, fixture.preparedEnvironment);
+      expect(
+        calls.single.arguments,
+        contains(
+          '-Xoverride-konan-properties=${fixture.prepared.konanPropertyOverrides}',
+        ),
+      );
       expect(
         calls.single.arguments,
         containsAllInOrder(['-target', 'ios_arm64']),
@@ -132,7 +135,7 @@ void main() {
     );
   });
 
-  test('wraps Windows konanc batch invocation through cmd.exe', () async {
+  test('invokes Java directly with a Kotlin argfile on Windows', () async {
     final fixture = _Fixture.create(ComposeHost.windowsX64)..createInputs();
     _Call? call;
     addTearDown(fixture.dispose);
@@ -152,12 +155,19 @@ void main() {
       klib: fixture.klib,
     );
 
-    expect(call!.executable, 'cmd.exe');
-    expect(call!.arguments.take(3), [
-      '/d',
-      '/c',
-      fixture.prepared.konancExecutable,
-    ]);
+    expect(call!.executable, fixture.toolchain.javaExecutable);
+    expect(
+      call!.arguments.take(fixture.prepared.compilerArguments.length),
+      fixture.prepared.compilerArguments,
+    );
+    expect(call!.arguments.last, startsWith('@'));
+    expect(call!.arguments.join(' '), isNot(contains('cmd.exe')));
+    final argFile = File(call!.arguments.last.substring(1));
+    expect(argFile.existsSync(), isTrue);
+    final contents = argFile.readAsStringSync();
+    expect(contents, contains('-Xoverride-konan-properties='));
+    expect(contents, contains('ios_arm64'));
+    expect(contents, contains('bundleId=dev.example.shared'));
   });
 
   test('throws when Kotlin Native omits the framework binary', () async {
@@ -297,15 +307,13 @@ final class _Fixture {
       'konan',
       'konan.properties',
     ),
-    konancExecutable: p.join(
-      root,
-      'build',
-      'xcross-ios',
-      'toolchain',
-      'kotlin-home',
-      'bin',
-      host.isWindows ? 'konanc.bat' : 'konanc',
-    ),
+    javaExecutable: toolchain.javaExecutable,
+    compilerArguments: const [
+      '-ea',
+      'org.jetbrains.kotlin.cli.utilities.MainKt',
+      'konanc',
+    ],
+    konanPropertyOverrides: 'targetSysRoot.ios_arm64=/sdk',
     environment: preparedEnvironment,
   );
 

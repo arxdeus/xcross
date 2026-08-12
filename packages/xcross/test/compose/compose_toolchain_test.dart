@@ -214,7 +214,7 @@ void main() {
           final gradlew = File(p.join(project.path, 'gradlew.bat'))
             ..writeAsStringSync('@echo off');
           final javaHome = p.join(home.path, 'jdk-21');
-          final sdk = FakeDarwinSdk('/sdk');
+          final sdk = FakeDarwinSdk('/sdk-bundle', '/sdk/iPhoneOS.sdk');
           final options = ComposeSetupOptions.resolve(
             env: {'HOME': home.path, 'JAVA_HOME': javaHome},
             projectRoot: project.path,
@@ -251,7 +251,7 @@ void main() {
           expect(toolchain.swiftc, endsWith('swiftc.exe'));
           expect(toolchain.clang, endsWith('clang.exe'));
           expect(toolchain.ld64Lld, endsWith('ld64.lld'));
-          expect(toolchain.darwinSdkPath, '/sdk');
+          expect(toolchain.darwinSdkPath, '/sdk/iPhoneOS.sdk');
         } finally {
           project.deleteSync(recursive: true);
           home.deleteSync(recursive: true);
@@ -1253,7 +1253,11 @@ InjectedComposeToolchainResolver _resolverWithPreflight({
 );
 
 final class FakeDarwinSdk {
-  FakeDarwinSdk(this.swiftSdkPath);
+  FakeDarwinSdk(this.swiftSdkPath, [String? iphoneSdk])
+    : _iphoneSdk = iphoneSdk ?? swiftSdkPath;
 
   final String swiftSdkPath;
+  final String _iphoneSdk;
+
+  String iPhoneOSSdk() => _iphoneSdk;
 }

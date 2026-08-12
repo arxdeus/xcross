@@ -7,6 +7,7 @@ import 'package:cli_util/cli_logging.dart';
 import 'package:completion/completion.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:path/path.dart' as p;
 import 'package:xcross/src/cli/basic/auth_command.dart';
 import 'package:xcross/src/cli/basic/completion_command.dart';
 import 'package:xcross/src/cli/basic/sdk_command.dart';
@@ -23,6 +24,50 @@ import 'package:xcross/src/update/install_layout.dart';
 import 'package:xcross/src/update/self_update.dart';
 import 'package:xcross/src/update/update_check.dart';
 import 'package:xcross/src/version.dart';
+
+typedef ToolAliasRun =
+    Future<int> Function(String executable, List<String> arguments);
+
+Future<int?> runPreparedToolAlias(
+  List<String> arguments, {
+  String? executablePath,
+  Map<String, String>? environment,
+  ToolAliasRun? run,
+}) async {
+  final path = executablePath ?? Platform.resolvedExecutable;
+  final name =
+      (path.contains(r'\')
+              ? p.windows.basenameWithoutExtension(path)
+              : p.basenameWithoutExtension(path))
+          .toLowerCase();
+  final variable = _toolAliasVariables[name];
+  if (variable == null) return null;
+  final target = (environment ?? Platform.environment)[variable];
+  if (target == null || target.isEmpty) {
+    stderr.writeln('error: missing trusted tool mapping $variable');
+    return 1;
+  }
+  final invoke = run ?? _runToolAlias;
+  return invoke(target, arguments);
+}
+
+Future<int> _runToolAlias(String executable, List<String> arguments) async {
+  final process = await Process.start(
+    executable,
+    arguments,
+    mode: ProcessStartMode.inheritStdio,
+  );
+  return process.exitCode;
+}
+
+const _toolAliasVariables = {
+  'ld': 'XCROSS_APPLE_TOOL_LD',
+  'strip': 'XCROSS_APPLE_TOOL_STRIP',
+  'dsymutil': 'XCROSS_APPLE_TOOL_DSYMUTIL',
+  'libtool': 'XCROSS_APPLE_TOOL_LIBTOOL',
+  'clang': 'XCROSS_APPLE_TOOL_CLANG',
+  'clang++': 'XCROSS_APPLE_TOOL_CLANGXX',
+};
 
 /// Namespace for building and running the xcross CLI.
 abstract final class XcrossCli {

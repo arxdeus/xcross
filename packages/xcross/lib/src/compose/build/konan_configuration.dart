@@ -16,29 +16,43 @@ final class PreparedKonanConfiguration {
   const PreparedKonanConfiguration({
     required this.kotlinHome,
     required this.konanConfigPath,
-    required this.konancExecutable,
+    required this.javaExecutable,
+    required this.compilerArguments,
+    required this.konanPropertyOverrides,
     required this.environment,
   });
 
   final String kotlinHome;
   final String konanConfigPath;
-  final String konancExecutable;
+  final String javaExecutable;
+  final List<String> compilerArguments;
+  final String konanPropertyOverrides;
   final Map<String, String> environment;
 }
 
 final class KonanConfiguration {
-  const KonanConfiguration() : _patchCompilerJar = null, _makeExecutable = null;
+  const KonanConfiguration()
+    : _patchCompilerJar = null,
+      _makeExecutable = null,
+      _parentEnvironment = null,
+      _runningExecutable = null;
 
   const KonanConfiguration.withSeams({
     KonanPatchCompilerJar? patchCompilerJar,
     MakeExecutable? makeExecutable,
+    Map<String, String>? parentEnvironment,
+    String? runningExecutable,
   }) : _patchCompilerJar = patchCompilerJar,
-       _makeExecutable = makeExecutable;
+       _makeExecutable = makeExecutable,
+       _parentEnvironment = parentEnvironment,
+       _runningExecutable = runningExecutable;
 
   static int _stagingCounter = 0;
 
   final KonanPatchCompilerJar? _patchCompilerJar;
   final MakeExecutable? _makeExecutable;
+  final Map<String, String>? _parentEnvironment;
+  final String? _runningExecutable;
 
   Future<PreparedKonanConfiguration> prepare({
     required KmpProject project,
@@ -57,7 +71,7 @@ final class KonanConfiguration {
       '.$fingerprint.staging.$pid.${DateTime.now().microsecondsSinceEpoch}.${_stagingCounter++}',
     );
     try {
-      await _prepareStaging(stagingRoot, toolchain);
+      await _prepareStaging(stagingRoot, root, toolchain);
       File(
         p.join(stagingRoot, '.xcross-complete'),
       ).writeAsStringSync('complete\n');
@@ -77,20 +91,22 @@ final class KonanConfiguration {
 
   Future<void> _prepareStaging(
     String stagingRoot,
+    String finalRoot,
     ComposeToolchain toolchain,
   ) async {
     final kotlinHome = p.join(stagingRoot, 'kotlin-home');
     final configDir = p.join(stagingRoot, 'konan');
-    final shimsDir = p.join(stagingRoot, 'shims');
     Directory(p.join(kotlinHome, 'bin')).createSync(recursive: true);
     Directory(p.join(kotlinHome, 'konan', 'lib')).createSync(recursive: true);
     Directory(configDir).createSync(recursive: true);
-    Directory(shimsDir).createSync(recursive: true);
     await _copyMutableKonanFiles(toolchain.kotlinHome, kotlinHome);
     await _patchJars(kotlinHome);
-    _writeCompilerShim(kotlinHome, toolchain);
-    _writeKonanProperties(p.join(configDir, 'konan.properties'), toolchain);
-    _writeShims(shimsDir, toolchain);
+    await _writeAppleToolchain(stagingRoot, toolchain);
+    _writeKonanProperties(
+      p.join(configDir, 'konan.properties'),
+      toolchain,
+      finalRoot,
+    );
   }
 
   PreparedKonanConfiguration _prepared({
@@ -99,26 +115,51 @@ final class KonanConfiguration {
   }) {
     final kotlinHome = p.join(root, 'kotlin-home');
     final configDir = p.join(root, 'konan');
-    final shimsDir = p.join(root, 'shims');
+    final appleBin = p.join(root, 'apple-toolchain', 'bin');
     final pathSeparator = toolchain.host.isWindows ? ';' : ':';
-    final parentPath = Platform.environment['PATH'] ?? '';
+    final parentEnvironment = _parentEnvironment ?? Platform.environment;
+    final parentPath = parentEnvironment['PATH'] ?? '';
     final path = parentPath.isEmpty
-        ? shimsDir
-        : '$shimsDir$pathSeparator$parentPath';
+        ? appleBin
+        : '$appleBin$pathSeparator$parentPath';
+    final compilerJar = p.join(
+      kotlinHome,
+      'konan',
+      'lib',
+      'kotlin-native-compiler-embeddable.jar',
+    );
+    final overrides = _konanProperties(toolchain, root);
+    final javaOptions = [
+      parentEnvironment['JDK_JAVA_OPTIONS'],
+      parentEnvironment['JAVA_OPTS'],
+    ].whereType<String>().where((value) => value.isNotEmpty).join(' ');
     return PreparedKonanConfiguration(
       kotlinHome: kotlinHome,
       konanConfigPath: p.join(configDir, 'konan.properties'),
-      konancExecutable: p.join(
-        kotlinHome,
-        'bin',
-        toolchain.host.isWindows ? 'konanc.bat' : 'konanc',
-      ),
+      javaExecutable: toolchain.javaExecutable,
+      compilerArguments: [
+        '-ea',
+        '-Xmx3G',
+        '-XX:TieredStopAtLevel=1',
+        '-Dfile.encoding=UTF-8',
+        '-Dkonan.home=${_slash(toolchain.kotlinHome)}',
+        '-cp',
+        compilerJar,
+        'org.jetbrains.kotlin.cli.utilities.MainKt',
+        'konanc',
+      ],
+      konanPropertyOverrides: overrides.entries
+          .map((entry) => '${entry.key}=${entry.value}')
+          .join(';'),
       environment: {
-        ...Platform.environment,
+        ...parentEnvironment,
         if (toolchain.javaHome.isNotEmpty) 'JAVA_HOME': toolchain.javaHome,
         if (toolchain.konanCache.isNotEmpty)
           'KONAN_DATA_DIR': toolchain.konanCache,
         'KONAN_CONFIG': configDir,
+        'KONAN_USE_INTERNAL_SERVER': '1',
+        if (javaOptions.isNotEmpty) 'JDK_JAVA_OPTIONS': javaOptions,
+        ..._appleToolEnvironment(toolchain),
         'PATH': path,
       },
     );
@@ -146,7 +187,14 @@ final class KonanConfiguration {
     addString(toolchain.clang);
     addString(toolchain.ld64Lld);
     addString(toolchain.darwinSdkPath);
-    addString('compiler-shim-v1');
+    addString('direct-java-apple-toolchain-v1');
+    if (toolchain.host.isWindows) {
+      await _addFile(
+        bytes,
+        'running-executable',
+        File(_runningExecutable ?? Platform.resolvedExecutable),
+      );
+    }
     await _addFile(
       bytes,
       'konan.properties',
@@ -208,40 +256,6 @@ final class KonanConfiguration {
     await file.copy(target);
   }
 
-  void _writeCompilerShim(String kotlinHome, ComposeToolchain toolchain) {
-    final compilerJar = p.join(
-      kotlinHome,
-      'konan',
-      'lib',
-      'kotlin-native-compiler-embeddable.jar',
-    );
-    final executable = File(
-      p.join(
-        kotlinHome,
-        'bin',
-        toolchain.host.isWindows ? 'konanc.bat' : 'konanc',
-      ),
-    );
-    if (toolchain.host.isWindows) {
-      executable.writeAsStringSync(
-        '@echo off\r\n'
-        'set "KONAN_SHIM_HOME=%~dp0.."\r\n'
-        '"${_slash(toolchain.javaExecutable)}" -ea -Xmx3G -XX:TieredStopAtLevel=1 -Dfile.encoding=UTF-8 '
-        '"-Dkonan.home=${_slash(toolchain.kotlinHome)}" -cp "%KONAN_SHIM_HOME%\\konan\\lib\\${p.basename(compilerJar)}" '
-        'org.jetbrains.kotlin.cli.utilities.MainKt konanc %*\r\n',
-      );
-      return;
-    }
-    executable.writeAsStringSync(
-      '#!/bin/sh\n'
-      'KONAN_SHIM_HOME=\$(CDPATH= cd -- "\$(dirname -- "\$0")/.." && pwd)\n'
-      'exec "${_slash(toolchain.javaExecutable)}" -ea -Xmx3G -XX:TieredStopAtLevel=1 -Dfile.encoding=UTF-8 '
-      '"-Dkonan.home=${_slash(toolchain.kotlinHome)}" -cp "\$KONAN_SHIM_HOME/konan/lib/${p.basename(compilerJar)}" '
-      'org.jetbrains.kotlin.cli.utilities.MainKt konanc "\$@"\n',
-    );
-    (_makeExecutable ?? ProcessRunner.makeExecutable)(executable.path);
-  }
-
   Future<void> _patchJars(String kotlinHome) async {
     final lib = Directory(p.join(kotlinHome, 'konan', 'lib'));
     if (!lib.existsSync()) return;
@@ -253,46 +267,84 @@ final class KonanConfiguration {
     }
   }
 
-  void _writeKonanProperties(String path, ComposeToolchain toolchain) {
-    File(path).writeAsStringSync('''
-targetSysRoot.ios_arm64=${_slash(toolchain.darwinSdkPath)}
-linker.ios_arm64=${_slash(toolchain.ld64Lld)}
-toolchainDependency.appleClang.ios_arm64=${_slash(toolchain.clang)}
-toolchainDependency.appleSwift.ios_arm64=${_slash(toolchain.swiftc)}
-''');
-  }
-
-  void _writeShims(String shimsDir, ComposeToolchain toolchain) {
-    if (toolchain.host.isWindows) {
-      _writeWindowsShim(shimsDir, 'xcrun', toolchain.clang);
-      _writeWindowsShim(shimsDir, 'xcode-select', toolchain.clang);
-      _writeWindowsShim(shimsDir, 'PlistBuddy', toolchain.clang);
-      return;
-    }
-    _writeShellShim(shimsDir, 'xcrun', toolchain.clang);
-    _writeShellShim(shimsDir, 'xcode-select', toolchain.clang);
-    _writeShellShim(shimsDir, 'PlistBuddy', toolchain.clang);
-  }
-
-  void _writeShellShim(String dir, String name, String tool) {
-    final file = File(p.join(dir, name));
-    file.writeAsStringSync(
-      ['#!/bin/sh', 'exec "${_slash(tool)}" "\$@"', ''].join('\n'),
+  void _writeKonanProperties(
+    String path,
+    ComposeToolchain toolchain,
+    String root,
+  ) {
+    final properties = _konanProperties(toolchain, root);
+    File(path).writeAsStringSync(
+      '${properties.entries.map((entry) => '${entry.key}=${entry.value}').join('\n')}\n',
     );
-    (_makeExecutable ?? ProcessRunner.makeExecutable)(file.path);
-    if (!Platform.isWindows) Process.runSync('chmod', ['755', file.path]);
   }
 
-  void _writeWindowsShim(String dir, String name, String tool) {
-    File(
-      p.join(dir, '$name.cmd'),
-    ).writeAsStringSync('@echo off\r\ncmd.exe /d /c "${_slash(tool)}" %*\r\n');
+  Map<String, String> _konanProperties(
+    ComposeToolchain toolchain,
+    String root,
+  ) {
+    final host = toolchain.host.konanTarget;
+    final appleToolchain = _slash(p.join(root, 'apple-toolchain'));
+    return {
+      'targetSysRoot.ios_arm64': _slash(toolchain.darwinSdkPath),
+      'targetToolchain.$host-ios_arm64': appleToolchain,
+      'additionalToolsDir.$host': appleToolchain,
+      'linker.$host-ios_arm64': '$appleToolchain/bin/ld',
+    };
+  }
+
+  Future<void> _writeAppleToolchain(
+    String stagingRoot,
+    ComposeToolchain toolchain,
+  ) async {
+    final bin = p.join(stagingRoot, 'apple-toolchain', 'bin');
+    Directory(bin).createSync(recursive: true);
+    for (final entry in _appleToolAliases.entries) {
+      final path = p.join(
+        bin,
+        toolchain.host.isWindows ? '${entry.key}.exe' : entry.key,
+      );
+      if (toolchain.host.isWindows) {
+        await File(
+          _runningExecutable ?? Platform.resolvedExecutable,
+        ).copy(path);
+      } else {
+        final file = File(path)
+          ..writeAsStringSync('#!/bin/sh\nexec "\$${entry.value}" "\$@"\n');
+        (_makeExecutable ?? ProcessRunner.makeExecutable)(file.path);
+        if (!Platform.isWindows) Process.runSync('chmod', ['755', file.path]);
+      }
+    }
+  }
+
+  Map<String, String> _appleToolEnvironment(ComposeToolchain toolchain) {
+    final directory = p.dirname(toolchain.ld64Lld);
+    final extension = toolchain.host.isWindows ? '.exe' : '';
+    return {
+      'XCROSS_APPLE_TOOL_LD': toolchain.ld64Lld,
+      'XCROSS_APPLE_TOOL_STRIP': p.join(directory, 'llvm-strip$extension'),
+      'XCROSS_APPLE_TOOL_DSYMUTIL': p.join(directory, 'dsymutil$extension'),
+      'XCROSS_APPLE_TOOL_LIBTOOL': p.join(
+        directory,
+        'llvm-libtool-darwin$extension',
+      ),
+      'XCROSS_APPLE_TOOL_CLANG': toolchain.clang,
+      'XCROSS_APPLE_TOOL_CLANGXX': toolchain.clang,
+    };
   }
 
   static Future<void> _defaultPatchCompilerJar(File jar) async {
     patchKotlinNativeJar(jar.path);
   }
 }
+
+const _appleToolAliases = {
+  'ld': 'XCROSS_APPLE_TOOL_LD',
+  'strip': 'XCROSS_APPLE_TOOL_STRIP',
+  'dsymutil': 'XCROSS_APPLE_TOOL_DSYMUTIL',
+  'libtool': 'XCROSS_APPLE_TOOL_LIBTOOL',
+  'clang': 'XCROSS_APPLE_TOOL_CLANG',
+  'clang++': 'XCROSS_APPLE_TOOL_CLANGXX',
+};
 
 String _slash(String value) =>
     p.normalize(value).replaceAll(String.fromCharCode(92), '/');

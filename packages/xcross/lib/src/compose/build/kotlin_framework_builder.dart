@@ -4,7 +4,6 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/compose/build/gradle_klib_builder.dart';
 import 'package:xcross/src/compose/build/konan_configuration.dart';
-import 'package:xcross/src/compose/build/process_invocation.dart';
 import 'package:xcross/src/compose/models/compose_build_options.dart';
 import 'package:xcross/src/compose/project/kmp_project.dart';
 import 'package:xcross/src/compose/toolchain/compose_toolchain.dart';
@@ -54,14 +53,19 @@ final class KotlinFrameworkBuilder {
       klib: klib,
       outputFramework: produced,
     );
-    final invocation = ProcessInvocation.forHost(
-      toolchain.host,
-      prepared.konancExecutable,
-      args,
-    );
+    final compilerArgs = [
+      '-Xoverride-konan-properties=${prepared.konanPropertyOverrides}',
+      ...args,
+    ];
+    final invocationArgs = toolchain.host.isWindows
+        ? [
+            ...prepared.compilerArguments,
+            '@${_writeArgumentFile(project, options, compilerArgs)}',
+          ]
+        : [...prepared.compilerArguments, ...compilerArgs];
     await _run(
-      invocation.executable,
-      invocation.arguments,
+      prepared.javaExecutable,
+      invocationArgs,
       workingDirectory: project.root,
       environment: prepared.environment,
     );
@@ -77,6 +81,25 @@ final class KotlinFrameworkBuilder {
     await _copyDirectory(Directory(produced), copiedDir);
     return copied;
   }
+
+  String _writeArgumentFile(
+    KmpProject project,
+    ComposeBuildOptions options,
+    List<String> arguments,
+  ) {
+    final path = p.join(
+      project.root,
+      'build',
+      'xcross-ios',
+      'konanc-${options.configuration.name}.args',
+    );
+    final file = File(path)..createSync(recursive: true);
+    file.writeAsStringSync('${arguments.map(_quoteArgument).join('\n')}\n');
+    return path;
+  }
+
+  String _quoteArgument(String argument) =>
+      '"${argument.replaceAll(r'\', r'\\').replaceAll('"', r'\"')}"';
 
   List<String> buildKonancArguments({
     required KmpProject project,

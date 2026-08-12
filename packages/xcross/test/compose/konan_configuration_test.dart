@@ -16,6 +16,11 @@ void main() {
       final prepared = await KonanConfiguration.withSeams(
         patchCompilerJar: (jar) async => patched.add(jar.path),
         makeExecutable: (_) {},
+        parentEnvironment: const {
+          'PATH': '/safe/path',
+          'JAVA_OPTS': '-Dreviewer.path="value with spaces"',
+          'JDK_JAVA_OPTIONS': '-Dexisting.option=true',
+        },
       ).prepare(project: fixture.project, toolchain: fixture.toolchain);
 
       final buildToolchain = p.join(
@@ -39,9 +44,28 @@ void main() {
       );
       expect(prepared.environment['KONAN_DATA_DIR'], fixture.konanCache);
       expect(prepared.environment['JAVA_HOME'], fixture.javaHome);
+      expect(prepared.environment['KONAN_USE_INTERNAL_SERVER'], '1');
+      expect(
+        prepared.environment['JDK_JAVA_OPTIONS'],
+        '-Dexisting.option=true -Dreviewer.path="value with spaces"',
+      );
+      expect(
+        prepared.environment['XCROSS_APPLE_TOOL_STRIP'],
+        p.join(p.dirname(fixture.ld64), 'llvm-strip'),
+      );
+      expect(
+        prepared.environment['XCROSS_APPLE_TOOL_DSYMUTIL'],
+        p.join(p.dirname(fixture.ld64), 'dsymutil'),
+      );
+      expect(
+        prepared.environment['XCROSS_APPLE_TOOL_LIBTOOL'],
+        p.join(p.dirname(fixture.ld64), 'llvm-libtool-darwin'),
+      );
       expect(
         prepared.environment['PATH'],
-        startsWith('${p.join(p.dirname(prepared.kotlinHome), 'shims')}:'),
+        startsWith(
+          '${p.join(p.dirname(prepared.kotlinHome), 'apple-toolchain', 'bin')}:',
+        ),
       );
 
       final config = File(prepared.konanConfigPath).readAsStringSync();
@@ -49,19 +73,9 @@ void main() {
         config,
         contains('targetSysRoot.ios_arm64=${_slash(fixture.sdk)}'),
       );
-      expect(config, contains('linker.ios_arm64=${_slash(fixture.ld64)}'));
-      expect(
-        config,
-        contains(
-          'toolchainDependency.appleClang.ios_arm64=${_slash(fixture.clang)}',
-        ),
-      );
-      expect(
-        config,
-        contains(
-          'toolchainDependency.appleSwift.ios_arm64=${_slash(fixture.swiftc)}',
-        ),
-      );
+      expect(config, contains('targetToolchain.linux_x64-ios_arm64='));
+      expect(config, contains('additionalToolsDir.linux_x64='));
+      expect(config, contains('linker.linux_x64-ios_arm64='));
       expect(config, isNot(contains(r'\\')));
       expect(config, isNot(contains('/tmp/uni')));
       expect(config, isNot(contains('/usr/bin/xcrun')));
@@ -81,15 +95,39 @@ void main() {
         ).existsSync(),
         isTrue,
       );
-      final compilerShim = File(prepared.konancExecutable).readAsStringSync();
-      expect(compilerShim, contains('-Dkonan.home=${fixture.kotlinHome}'));
-      expect(compilerShim, contains('KONAN_SHIM_HOME'));
+      expect(prepared.javaExecutable, fixture.toolchain.javaExecutable);
       expect(
-        compilerShim,
-        contains('/konan/lib/kotlin-native-compiler-embeddable.jar'),
+        prepared.compilerArguments,
+        containsAllInOrder([
+          '-Dkonan.home=${_slash(fixture.kotlinHome)}',
+          '-cp',
+          p.join(
+            prepared.kotlinHome,
+            'konan',
+            'lib',
+            'kotlin-native-compiler-embeddable.jar',
+          ),
+          'org.jetbrains.kotlin.cli.utilities.MainKt',
+          'konanc',
+        ]),
       );
-      expect(compilerShim, isNot(contains('.staging.')));
-      expect(compilerShim, isNot(contains('run_konan')));
+      expect(prepared.compilerArguments.join(' '), isNot(contains('#!/bin')));
+      expect(
+        prepared.konanPropertyOverrides,
+        contains('targetSysRoot.ios_arm64='),
+      );
+      expect(
+        prepared.konanPropertyOverrides,
+        contains('targetToolchain.linux_x64-ios_arm64='),
+      );
+      expect(
+        prepared.konanPropertyOverrides,
+        contains('additionalToolsDir.linux_x64='),
+      );
+      expect(
+        prepared.konanPropertyOverrides,
+        contains('linker.linux_x64-ios_arm64='),
+      );
       expect(
         File(
           p.join(fixture.kotlinHome, 'konan', 'konan.properties'),
@@ -123,7 +161,7 @@ void main() {
 
       expect(second.kotlinHome, first.kotlinHome);
       expect(second.konanConfigPath, first.konanConfigPath);
-      expect(second.konancExecutable, first.konancExecutable);
+      expect(second.compilerArguments, first.compilerArguments);
       expect(sentinel.readAsStringSync(), 'keep');
       expect(patched, hasLength(1));
       expect(
@@ -164,15 +202,15 @@ void main() {
 
       expect(results[1].kotlinHome, results[0].kotlinHome);
       expect(results[1].konanConfigPath, results[0].konanConfigPath);
-      expect(results[1].konancExecutable, results[0].konancExecutable);
+      expect(results[1].compilerArguments, results[0].compilerArguments);
       expect(patchCalls, greaterThanOrEqualTo(1));
       expect(
         File(results[0].konanConfigPath).readAsStringSync(),
-        contains(_slash(fixture.ld64)),
+        contains('/apple-toolchain/bin/ld'),
       );
       expect(
-        File(results[0].konancExecutable).readAsStringSync(),
-        contains('org.jetbrains.kotlin.cli.utilities.MainKt konanc'),
+        results[0].compilerArguments,
+        contains('org.jetbrains.kotlin.cli.utilities.MainKt'),
       );
       expect(
         Directory(p.join(fixture.root, 'build', 'xcross-ios', 'toolchain'))
@@ -184,7 +222,7 @@ void main() {
     },
   );
 
-  test('creates exact executable Linux shell shims', () async {
+  test('creates safe executable Linux Apple tool aliases', () async {
     final fixture = _Fixture.create(ComposeHost.linuxX64)..createKotlinHome();
     final executable = <String>{};
     addTearDown(fixture.dispose);
@@ -194,44 +232,84 @@ void main() {
       makeExecutable: executable.add,
     ).prepare(project: fixture.project, toolchain: fixture.toolchain);
 
-    final shims = p.join(
-      p.dirname(p.dirname(prepared.konanConfigPath)),
-      'shims',
+    final bin = p.join(
+      p.dirname(prepared.kotlinHome),
+      'apple-toolchain',
+      'bin',
     );
-    final xcrun = File(p.join(shims, 'xcrun'));
+    final ld = File(p.join(bin, 'ld'));
     expect(
-      xcrun.readAsStringSync(),
-      '#!/bin/sh\nexec "${_slash(fixture.clang)}" "\$@"\n',
+      ld.readAsStringSync(),
+      '#!/bin/sh\nexec "\$XCROSS_APPLE_TOOL_LD" "\$@"\n',
     );
+    for (final name in [
+      'ld',
+      'strip',
+      'dsymutil',
+      'libtool',
+      'clang',
+      'clang++',
+    ]) {
+      expect(File(p.join(bin, name)).existsSync(), isTrue, reason: name);
+    }
+    expect(prepared.environment['XCROSS_APPLE_TOOL_LD'], fixture.ld64);
+    expect(ld.readAsStringSync(), isNot(contains(fixture.ld64)));
     expect(executable, everyElement(contains('.staging.')));
     if (!Platform.isWindows) {
-      expect(xcrun.statSync().mode & 0x49, 0x49);
+      expect(ld.statSync().mode & 0x49, 0x49);
     }
   });
 
-  test('creates Windows cmd shims and invokes them through cmd.exe', () async {
+  test('creates Windows native Apple tool aliases without cmd shims', () async {
     final fixture = _Fixture.create(ComposeHost.windowsX64)..createKotlinHome();
+    final forwarder = File(p.join(fixture.root, 'xcross forwarder.exe'))
+      ..writeAsStringSync('forwarder');
     addTearDown(fixture.dispose);
 
     final prepared = await KonanConfiguration.withSeams(
       patchCompilerJar: (_) async {},
       makeExecutable: (_) {},
+      runningExecutable: forwarder.path,
     ).prepare(project: fixture.project, toolchain: fixture.toolchain);
 
-    final shims = p.join(p.dirname(prepared.kotlinHome), 'shims');
-    final xcrun = File(p.join(shims, 'xcrun.cmd'));
-    expect(xcrun.existsSync(), isTrue);
-    expect(xcrun.readAsStringSync(), contains('cmd.exe /d /c'));
-    final compilerShim = File(prepared.konancExecutable).readAsStringSync();
-    expect(compilerShim, contains(_slash(fixture.javaHome)));
-    expect(
-      compilerShim,
-      contains('-Dkonan.home=${_slash(fixture.kotlinHome)}'),
+    final bin = p.join(
+      p.dirname(prepared.kotlinHome),
+      'apple-toolchain',
+      'bin',
     );
-    expect(compilerShim, contains(r'%KONAN_SHIM_HOME%\konan\lib'));
-    expect(compilerShim, isNot(contains('.staging.')));
-    expect(compilerShim, isNot(contains('run_konan')));
-    expect(prepared.environment['PATH'], startsWith('$shims;'));
+    for (final name in [
+      'ld',
+      'strip',
+      'dsymutil',
+      'libtool',
+      'clang',
+      'clang++',
+    ]) {
+      expect(
+        File(p.join(bin, '$name.exe')).readAsStringSync(),
+        'forwarder',
+        reason: name,
+      );
+    }
+    expect(
+      Directory(bin).listSync().whereType<File>(),
+      everyElement(
+        isNot(predicate<File>((file) => file.path.endsWith('.cmd'))),
+      ),
+    );
+    expect(
+      prepared.konanPropertyOverrides,
+      contains('targetToolchain.mingw_x64-ios_arm64='),
+    );
+    expect(
+      prepared.konanPropertyOverrides,
+      contains('additionalToolsDir.mingw_x64='),
+    );
+    expect(
+      prepared.konanPropertyOverrides,
+      contains('linker.mingw_x64-ios_arm64='),
+    );
+    expect(prepared.environment['PATH'], startsWith('$bin;'));
   });
 }
 
@@ -245,9 +323,9 @@ final class _Fixture {
       konanCache = p.join(temp.path, 'konan-cache'),
       javaHome = p.join(temp.path, 'jdk'),
       sdk = p.join(temp.path, 'Apple SDKs', 'iPhoneOS.sdk'),
-      ld64 = p.join(temp.path, 'toolchain', 'bin', 'ld64.lld'),
-      clang = p.join(temp.path, 'toolchain', 'bin', 'clang'),
-      swiftc = p.join(temp.path, 'toolchain', 'bin', 'swiftc');
+      ld64 = p.join(temp.path, 'llvm', 'bin', 'ld64.lld'),
+      clang = p.join(temp.path, 'swift', 'bin', 'clang'),
+      swiftc = p.join(temp.path, 'swift', 'bin', 'swiftc');
 
   factory _Fixture.create(ComposeHost host) {
     final temp = Directory.systemTemp.createTempSync(
@@ -323,6 +401,7 @@ final class _Fixture {
     ).writeAsStringSync('jar');
     Directory(sdk).createSync(recursive: true);
     Directory(p.dirname(ld64)).createSync(recursive: true);
+    Directory(p.dirname(clang)).createSync(recursive: true);
     File(ld64).writeAsStringSync('ld64');
     File(clang).writeAsStringSync('clang');
     File(swiftc).writeAsStringSync('swiftc');
