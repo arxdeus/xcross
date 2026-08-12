@@ -1359,9 +1359,14 @@ let package = Package(
           targets: _namedStringList(call.text, 'targets'),
         ),
     ].where((entry) => entry.name != null && entry.targets.isNotEmpty).toList();
-    final sourceProducts = fallbackProducts
-        .where((entry) => !entry.targets.contains(synthetic))
-        .toList();
+    final sourceProducts = [
+      for (final entry in fallbackProducts)
+        (
+          call: entry.call,
+          name: entry.name,
+          targets: entry.targets.where((name) => name != synthetic).toList(),
+        ),
+    ].where((entry) => entry.targets.isNotEmpty).toList();
     final matchingProducts = sourceProducts
         .where((entry) => entry.name == product)
         .toList();
