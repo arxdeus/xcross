@@ -313,7 +313,10 @@ final class InjectedComposeToolchainResolver {
     if (kotlinProblem.isEmpty && !force) {
       throw XcrossError(found.problems.join('\n'));
     }
-    await _installer.install(options: options, force: force);
+    await _installer.install(
+      options: options,
+      force: force || Directory(options.kotlinHome).existsSync(),
+    );
     final installed = await resolve(
       host: host,
       environment: environment,

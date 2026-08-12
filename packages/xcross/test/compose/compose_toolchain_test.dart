@@ -328,6 +328,7 @@ void main() {
           ..writeAsStringSync('markerless-konanc');
         final installer = ComposeToolchainInstaller.withSeams(
           installRoot: (options, {required force}) async {
+            expect(force, isTrue);
             installs++;
             File(options.host.konancExecutable(options.kotlinHome))
               ..createSync(recursive: true)
@@ -713,6 +714,39 @@ void main() {
                 ),
           ),
         );
+      } finally {
+        home.deleteSync(recursive: true);
+        project.deleteSync(recursive: true);
+      }
+    });
+
+    test('rejects an unpinned Kotlin version before download', () async {
+      final home = Directory.systemTemp.createTempSync('xcross-compose-home-');
+      final project = Directory.systemTemp.createTempSync(
+        'xcross-compose-project-',
+      );
+      var downloads = 0;
+      try {
+        final options = ComposeSetupOptions.resolve(
+          env: {'HOME': home.path, 'KN_VERSION': '9.9.9'},
+          projectRoot: project.path,
+          host: ComposeHost.linuxX64,
+        );
+        final installer = ComposeToolchainInstaller.withSeams(
+          downloadToFile: (_, __) async => downloads++,
+        );
+
+        await expectLater(
+          installer.install(options: options, force: true),
+          throwsA(
+            isA<XcrossError>().having(
+              (error) => error.message,
+              'message',
+              contains('No pinned SHA-256 digest'),
+            ),
+          ),
+        );
+        expect(downloads, 0);
       } finally {
         home.deleteSync(recursive: true);
         project.deleteSync(recursive: true);

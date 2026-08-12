@@ -98,10 +98,18 @@ final class ComposeToolchainInstaller {
           ComposeHost.macosX64OverlayArtifact(options.version),
         ),
       );
+      final hostSha256 = _requireDigest(
+        p.basename(hostArchive.path),
+        options.hostArchiveSha256,
+      );
+      final overlaySha256 = _requireDigest(
+        p.basename(overlayArchive.path),
+        options.overlayArchiveSha256,
+      );
       await _download(options.hostArchiveUrl, hostArchive);
-      await _verifyDigest(hostArchive, options.hostArchiveSha256);
+      await _verifyDigest(hostArchive, hostSha256);
       await _download(options.overlayArchiveUrl, overlayArchive);
-      await _verifyDigest(overlayArchive, options.overlayArchiveSha256);
+      await _verifyDigest(overlayArchive, overlaySha256);
       await _extract(hostArchive, hostExtract);
       await _extract(overlayArchive, overlayExtract);
       await _moveRoot(_archiveRoot(hostExtract), staging);
@@ -152,13 +160,17 @@ final class ComposeToolchainInstaller {
   Future<void> _download(String url, File file) =>
       (_downloadToFile ?? _defaultDownload)(url, file);
 
-  Future<void> _verifyDigest(File file, String? expectedSha256) async {
-    final artifact = p.basename(file.path);
+  String _requireDigest(String artifact, String? expectedSha256) {
     if (expectedSha256 == null) {
       throw XcrossError(
         'No pinned SHA-256 digest for Kotlin/Native $artifact.',
       );
     }
+    return expectedSha256;
+  }
+
+  Future<void> _verifyDigest(File file, String expectedSha256) async {
+    final artifact = p.basename(file.path);
     final actualSha256 = await (_digestFile ?? _defaultDigestFile)(file);
     if (actualSha256.toLowerCase() != expectedSha256.toLowerCase()) {
       throw XcrossError(
