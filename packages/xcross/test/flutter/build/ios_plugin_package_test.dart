@@ -511,38 +511,54 @@ let package = Package(name: "Sentry", products: [], targets: [])
   });
 
   group('Windows checkout symlinks', () {
-    test('materializes tracked symlinks as copied files', () async {
-      final repo = p.join(tmp.path, 'scratch', 'checkouts', 'dependency');
-      Directory(repo).createSync(recursive: true);
+    test(
+      'materializes tracked file symlinks without duplicate files',
+      () async {
+        final repo = p.join(tmp.path, 'scratch', 'checkouts', 'dependency');
+        Directory(repo).createSync(recursive: true);
 
-      ProcessResult git(List<String> arguments) {
-        final result = Process.runSync('git', ['-C', repo, ...arguments]);
-        expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
-        return result;
-      }
+        ProcessResult git(List<String> arguments) {
+          final result = Process.runSync('git', ['-C', repo, ...arguments]);
+          expect(
+            result.exitCode,
+            0,
+            reason: '${result.stdout}${result.stderr}',
+          );
+          return result;
+        }
 
-      git(['init']);
-      File(p.join(repo, 'target.txt')).writeAsStringSync('materialized');
-      final placeholder = File(p.join(repo, 'link.txt'))
-        ..writeAsStringSync('target.txt');
-      git(['add', 'target.txt', 'link.txt']);
-      final hash = (git(['hash-object', '-w', 'link.txt']).stdout as String)
-          .trim();
-      git(['update-index', '--cacheinfo', '120000', hash, 'link.txt']);
-      if (Platform.isWindows) {
-        final attrib = Process.runSync('attrib', ['+R', placeholder.path]);
-        expect(attrib.exitCode, 0, reason: '${attrib.stdout}${attrib.stderr}');
-      }
+        git(['init']);
+        final target = File(p.join(repo, 'target.txt'))
+          ..writeAsStringSync('materialized');
+        final placeholder = File(p.join(repo, 'link.txt'))
+          ..writeAsStringSync('target.txt');
+        git(['add', 'target.txt', 'link.txt']);
+        final hash = (git(['hash-object', '-w', 'link.txt']).stdout as String)
+            .trim();
+        git(['update-index', '--cacheinfo', '120000', hash, 'link.txt']);
+        if (Platform.isWindows) {
+          final attrib = Process.runSync('attrib', ['+R', placeholder.path]);
+          expect(
+            attrib.exitCode,
+            0,
+            reason: '${attrib.stdout}${attrib.stderr}',
+          );
+        }
 
-      await GeneratedPluginsPackage.materializeCheckoutSymlinks(
-        p.join(tmp.path, 'scratch'),
-      );
-      await GeneratedPluginsPackage.materializeCheckoutSymlinks(
-        p.join(tmp.path, 'scratch'),
-      );
+        await GeneratedPluginsPackage.materializeCheckoutSymlinks(
+          p.join(tmp.path, 'scratch'),
+        );
+        await GeneratedPluginsPackage.materializeCheckoutSymlinks(
+          p.join(tmp.path, 'scratch'),
+        );
 
-      expect(placeholder.readAsStringSync(), 'materialized');
-    });
+        expect(placeholder.readAsStringSync(), 'materialized');
+        if (Platform.isWindows) {
+          target.writeAsStringSync('updated');
+          expect(placeholder.readAsStringSync(), 'updated');
+        }
+      },
+    );
   });
 
   group('registrantSource', () {

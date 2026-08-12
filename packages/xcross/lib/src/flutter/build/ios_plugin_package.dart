@@ -1118,7 +1118,7 @@ let package = Package(
   }
 
   /// Replaces mode-120000 checkout placeholders produced by Git for Windows
-  /// with copies of their in-repository targets.
+  /// with hard links to files or copies of directory targets.
   @visibleForTesting
   static Future<void> materializeCheckoutSymlinks(
     String scratchPath, {
@@ -1232,7 +1232,24 @@ let package = Package(
       if (Directory(target).existsSync()) {
         await _copyDirectory(target, link);
       } else if (File(target).existsSync()) {
-        await File(target).copy(link);
+        if (Platform.isWindows) {
+          final result = await Process.run('cmd.exe', [
+            '/d',
+            '/c',
+            'mklink',
+            '/H',
+            link,
+            target,
+          ]);
+          if (result.exitCode != 0) {
+            throw FileSystemException(
+              'Could not create hard link: ${result.stderr}',
+              link,
+            );
+          }
+        } else {
+          await File(target).copy(link);
+        }
       } else {
         throw FlutterBuildError(
           'Symlink target does not exist in SwiftPM checkout: $link -> $target',
