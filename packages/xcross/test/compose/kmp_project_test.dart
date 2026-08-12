@@ -93,6 +93,24 @@ void main() {
       final swift = KmpProject.detect(
         p.join(_repoRoot, 'examples', 'kmp_swift_app'),
       );
+      final composeBuild = File(
+        p.join(
+          _repoRoot,
+          'examples',
+          'compose_app',
+          'shared',
+          'build.gradle.kts',
+        ),
+      ).readAsStringSync();
+      final composeCatalog = File(
+        p.join(
+          _repoRoot,
+          'examples',
+          'compose_app',
+          'gradle',
+          'libs.versions.toml',
+        ),
+      ).readAsStringSync();
 
       expect(compose.moduleName, 'shared');
       expect(compose.baseName, 'ComposeApp');
@@ -100,6 +118,14 @@ void main() {
       expect(compose.entryClass, 'MainViewControllerKt');
       expect(compose.appName, 'ComposeApp');
       expect(compose.bundleId, 'org.example.ComposeApp');
+      expect(composeBuild, contains('implementation(libs.compose.material3)'));
+      expect(composeCatalog, contains('material3 = "1.9.0"'));
+      expect(
+        composeCatalog,
+        contains(
+          'compose-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "material3" }',
+        ),
+      );
       expect(swift.moduleName, 'shared');
       expect(swift.baseName, 'Shared');
       expect(swift.entryKind, KmpEntryKind.swiftApp);
