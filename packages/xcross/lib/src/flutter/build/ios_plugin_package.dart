@@ -132,14 +132,15 @@ abstract final class GeneratedPluginsPackage {
     // `-Xcc -F` pair so imports such as `<Flutter/Flutter.h>` resolve too.
     final flutterFrameworkSlice = p.join(flutterXcframework, 'ios-arm64');
     final linker = await DarwinSdk.resolveLd64Lld(sdk);
-    final darwinClang = Platform.isWindows
+    final windows = Platform.isWindows;
+    final darwinClang = windows
         ? await DarwinSdk.resolveDarwinClang(sdk)
         : null;
     final toolsetPath = await writeToolset(
       outputDir: outputDir,
       linkerPath: linker,
       cCompilerPath: darwinClang,
-      cxxCompilerPath: Platform.isWindows
+      cxxCompilerPath: windows
           ? await DarwinSdk.resolveDarwinClang(sdk, name: 'clang++')
           : null,
     );
@@ -153,38 +154,19 @@ abstract final class GeneratedPluginsPackage {
       cCompilerPath: darwinClang ?? await ProcessRunner.locateTool('cc'),
     );
     final swiftSdksPath = p.dirname(sdk.swiftSdkPath);
-    final environment = swiftProcessEnvironment(windows: Platform.isWindows);
-    if (Platform.isWindows) {
-      await ProcessRunner.runChecked(
-        swift,
-        swiftResolveArguments(
-          pluginsDir: pluginsDir,
-          scratchPath: scratchPath,
-          swiftSdksPath: swiftSdksPath,
-          toolsetPath: toolsetPath,
-        ),
+    final environment = swiftProcessEnvironment(windows: windows);
+    if (windows) {
+      await _resolveWindowsDependencies(
+        swift: swift,
+        pluginsDir: pluginsDir,
+        scratchPath: scratchPath,
+        swiftSdksPath: swiftSdksPath,
+        toolsetPath: toolsetPath,
+        outputDir: outputDir,
         environment: environment,
-        inheritStdio: Log.isVerbose,
-        label: 'swift package resolve',
       );
-      await materializeCheckoutSymlinks(scratchPath);
-      for (final root in [
-        p.join(outputDir, 'Packages'),
-        p.join(outputDir, 'Vendor'),
-        p.join(scratchPath, 'checkouts'),
-      ]) {
-        await normalizeHostSwiftTree(root);
-      }
     }
     final targetBuildDir = p.join(scratchPath, 'arm64-apple-ios', 'debug');
-    // A target that reaches a package's Objective-C headers through a
-    // generated compatibility module needs the interop headers Swift emits
-    // for that package, and SwiftPM does not put them on its search path.
-    // Those headers only exist once their own target has been built, so on
-    // Windows the build is retried with whatever is present: the first run
-    // emits them and fails at the target that needs them, the retry
-    // compiles that target. Builds are incremental, so the retry only
-    // builds what the first run could not.
     Future<void> build() => ProcessRunner.runChecked(
       swift,
       swiftBuildArguments(
@@ -195,9 +177,9 @@ abstract final class GeneratedPluginsPackage {
         flutterFrameworkSlice: flutterFrameworkSlice,
         toolsetPath: toolsetPath,
         // Windows gets the same override from the toolset's `linker`.
-        linkerPath: Platform.isWindows ? null : linker,
-        windows: Platform.isWindows,
-        interopSearchPaths: Platform.isWindows
+        linkerPath: windows ? null : linker,
+        windows: windows,
+        interopSearchPaths: windows
             ? swiftInteropSearchPaths(targetBuildDir)
             : const [],
         previewMacroStubPath: previewMacroStub,
@@ -207,16 +189,71 @@ abstract final class GeneratedPluginsPackage {
       label: 'swift build',
     );
 
-    if (!Platform.isWindows) {
+    if (!windows) {
       await build();
       return;
     }
+    await _buildWithInteropRetry(build: build, targetBuildDir: targetBuildDir);
+  }
+
+  /// Resolves Windows dependencies with the external toolset, materializes
+  /// the Git-for-Windows symlink placeholders the resolve leaves behind, and
+  /// normalizes the resulting Swift sources for host compatibility.
+  ///
+  /// Order matters: resolution must run before the placeholders are
+  /// materialized (see [materializeCheckoutSymlinks]'s own doc comment), and
+  /// normalization must run after, since it rewrites the materialized
+  /// sources, not the placeholders.
+  static Future<void> _resolveWindowsDependencies({
+    required String swift,
+    required String pluginsDir,
+    required String scratchPath,
+    required String swiftSdksPath,
+    required String toolsetPath,
+    required String outputDir,
+    required Map<String, String>? environment,
+  }) async {
+    await ProcessRunner.runChecked(
+      swift,
+      swiftResolveArguments(
+        pluginsDir: pluginsDir,
+        scratchPath: scratchPath,
+        swiftSdksPath: swiftSdksPath,
+        toolsetPath: toolsetPath,
+      ),
+      environment: environment,
+      inheritStdio: Log.isVerbose,
+      label: 'swift package resolve',
+    );
+    await materializeCheckoutSymlinks(scratchPath);
+    for (final root in [
+      p.join(outputDir, 'Packages'),
+      p.join(outputDir, 'Vendor'),
+      p.join(scratchPath, 'checkouts'),
+    ]) {
+      await normalizeHostSwiftTree(root);
+    }
+  }
+
+  /// Retries a Windows [build] once when it looks like it lost the race
+  /// against SwiftPM's own interop-header generation.
+  ///
+  /// A target that reaches a package's Objective-C headers through a
+  /// generated compatibility module needs the interop headers Swift emits
+  /// for that package, and SwiftPM does not put them on its search path.
+  /// Those headers only exist once their own target has been built, so the
+  /// first run can fail at the target that needs them while emitting them
+  /// for a retry to consume. Builds are incremental, so the retry only
+  /// builds what the first run could not — and a genuine compile error,
+  /// which emits no new headers, still fails once.
+  static Future<void> _buildWithInteropRetry({
+    required Future<void> Function() build,
+    required String targetBuildDir,
+  }) async {
     final before = swiftInteropSearchPaths(targetBuildDir);
     try {
       await build();
     } on Object {
-      // Only retry when the failed run emitted interop headers the next one
-      // can use, so a genuine compile error still fails once.
       if (swiftInteropSearchPaths(targetBuildDir).length == before.length) {
         rethrow;
       }
@@ -630,17 +667,18 @@ abstract final class GeneratedPluginsPackage {
     bool? copyFlutterXcframework,
     bool? vendorRemotePackages,
   }) async {
+    final windows = Platform.isWindows;
     final packagesDir = p.join(outputDir, 'Packages');
     final frameworkDir = p.join(packagesDir, _flutterFrameworkPackageName);
     final pluginsDir = p.join(outputDir, 'Plugins');
     final vendorDir = p.join(outputDir, 'Vendor');
-    final shouldVendor = vendorRemotePackages ?? Platform.isWindows;
+    final shouldVendor = vendorRemotePackages ?? windows;
 
     await Directory(packagesDir).create(recursive: true);
     await _writeFlutterFrameworkPackage(
       frameworkDir: frameworkDir,
       flutterXcframework: flutterXcframework,
-      copyFlutterXcframework: copyFlutterXcframework ?? Platform.isWindows,
+      copyFlutterXcframework: copyFlutterXcframework ?? windows,
     );
 
     final pluginPackageDirs = <String, String>{};
