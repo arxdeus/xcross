@@ -102,10 +102,10 @@ final class ComposeToolchainInstaller {
       await _extract(hostArchive, hostExtract);
       await _extract(overlayArchive, overlayExtract);
       await _moveRoot(_archiveRoot(hostExtract), staging);
-      await _copyOverlay(_archiveRoot(overlayExtract), staging);
       _restoreExecutables(options.host, staging.path);
-      await _patchJars(staging);
       await _warmDependencies(options, staging.path);
+      await _copyOverlay(_archiveRoot(overlayExtract), staging);
+      await _patchJars(staging);
       await _writeCompletionMarker(options, staging);
       await _atomicInstall(
         staging,

@@ -540,6 +540,7 @@ void main() {
         final extractionRoots = <String>[];
         final patched = <String>[];
         final commands = <List<String>>[];
+        final installEvents = <String>[];
         try {
           final options = ComposeSetupOptions.resolve(
             env: {'HOME': home.path, 'KN_VERSION': '2.2.20'},
@@ -603,14 +604,15 @@ void main() {
                   ..writeAsStringSync('jar');
               }
             },
-            patchCompilerJar: (file) async => patched.add(file.path),
+            patchCompilerJar: (file) async {
+              installEvents.add('patch');
+              patched.add(file.path);
+            },
             runChecked:
-                (
-                  executable,
-                  arguments, {
-                  workingDirectory,
-                  environment,
-                }) async => commands.add([executable, ...arguments]),
+                (executable, arguments, {workingDirectory, environment}) async {
+                  installEvents.add('warm');
+                  commands.add([executable, ...arguments]);
+                },
           );
 
           final installed = await installer.install(
@@ -663,6 +665,7 @@ void main() {
             patched.single,
             endsWith('kotlin-native-compiler-embeddable.jar'),
           );
+          expect(installEvents, ['warm', 'patch']);
           expect(commands.single, [
             'cmd.exe',
             '/d',
