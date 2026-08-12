@@ -1637,14 +1637,21 @@ let package = Package(
     await Directory(includeDir).create(recursive: true);
     final shim = StringBuffer()
       ..writeln('@import ${publicModules.single.modules.single};');
-    // The fallback's Swift half completes the Objective-C surface: its
-    // headers refer to types the Swift module declares, so a consumer that
-    // sees only the headers imports those declarations as incomplete and
-    // loses every member that mentions them. Clang defines `__swift__` while
-    // importing into Swift, so guarding these imports with it withheld them
-    // from precisely the consumers that need them.
+    // The fallback's Swift half completes the Objective-C surface: the
+    // headers refer to types the Swift target declares, so a consumer that
+    // sees the headers alone imports those declarations as incomplete and
+    // loses every member mentioning them. Swift emits an Objective-C
+    // interop header for such a target, and SwiftPM puts it on the include
+    // path of the targets that depend on it. Prefer that header, because a
+    // bare `@import` of a Swift module only resolves once that module is
+    // built, which is not the case while Swift builds this very module.
     for (final module in swiftModules) {
-      shim.writeln('@import $module;');
+      shim
+        ..writeln('#if __has_include("$module-Swift.h")')
+        ..writeln('#import "$module-Swift.h"')
+        ..writeln('#elif !defined(__swift__)')
+        ..writeln('@import $module;')
+        ..writeln('#endif');
     }
     await File(p.join(includeDir, '$product.h')).writeAsString(shim.toString());
     await File(

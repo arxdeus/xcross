@@ -550,7 +550,12 @@ framework module PublicSDK {
             'PublicSDK.h',
           ),
         ).readAsStringSync(),
-        '@import HeaderSurface;\n@import SwiftImpl;\n',
+        '@import HeaderSurface;\n'
+        '#if __has_include("SwiftImpl-Swift.h")\n'
+        '#import "SwiftImpl-Swift.h"\n'
+        '#elif !defined(__swift__)\n'
+        '@import SwiftImpl;\n'
+        '#endif\n',
       );
       final moduleMap = File(
         p.join(
@@ -588,7 +593,12 @@ framework module PublicSDK {
             'PublicSDK.h',
           ),
         ).readAsStringSync(),
-        '@import HeaderSurface;\n@import SwiftImpl;\n',
+        '@import HeaderSurface;\n'
+        '#if __has_include("SwiftImpl-Swift.h")\n'
+        '#import "SwiftImpl-Swift.h"\n'
+        '#elif !defined(__swift__)\n'
+        '@import SwiftImpl;\n'
+        '#endif\n',
       );
 
       final retainedName = manifest.replaceFirst('SourceProduct', 'PublicSDK');
