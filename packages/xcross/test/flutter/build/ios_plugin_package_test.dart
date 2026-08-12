@@ -205,7 +205,7 @@ import MSVCRT
       expect('import CRT'.allMatches(normalized), hasLength(1));
     });
 
-    test('preserves a binary product name for its source fallback', () {
+    test('preserves source fallback product and target names', () {
       const input = '''
 var products: [Product] = [.library(name: "PublicSDK", targets: ["PublicSDK"])]
 var targets: [Target] = [.binaryTarget(name: "PublicSDK", url: "SDK.xcframework.zip", checksum: "abc")]
@@ -225,13 +225,15 @@ if getenv("EXPERIMENTAL_SPM_BUILDS") != nil {
       );
       expect(
         normalized,
-        contains('.target(name: "PublicSDK", path: "Sources")'),
+        contains('.target(name: "SourceSDK", path: "Sources")'),
       );
       expect(
         normalized,
-        contains('.library(name: "PublicSDK", targets: ["PublicSDK"])'),
+        contains(
+          '.library(name: "SourceProduct", type: .dynamic, '
+          'targets: ["SourceSDK"])',
+        ),
       );
-      expect(normalized, isNot(contains('type: .dynamic')));
       expect(
         GeneratedPluginsPackage.normalizeHostManifest(normalized),
         normalized,
@@ -430,6 +432,146 @@ dependencies: [
           'dependencies: [\n'
           '        .package(path: "/vendor/appmetrica"),\n'
           ']',
+        ),
+      );
+    });
+  });
+
+  group('binary fallback compatibility module', () {
+    void write(String relative, String contents) {
+      final file = File(p.join(tmp.path, relative));
+      file.createSync(recursive: true);
+      file.writeAsStringSync(contents);
+    }
+
+    const manifest = '''
+var products: [Product] = [
+    .library(name: "PublicSDK", targets: ["BinaryArtifact"]),
+]
+var targets: [Target] = [
+    .binaryTarget(name: "BinaryArtifact", url: "SDK.zip", checksum: "abc"),
+]
+if getenv("CROSS_HOST_SOURCE") != nil {
+    products.removeAll()
+    targets.removeAll()
+    products.append(.library(name: "SourceProduct", targets: ["RootImpl"]))
+    targets.append(contentsOf: [
+        .target(name: "HeaderImpl", path: "Sources/ObjC", publicHeadersPath: "Public"),
+        .target(name: "SwiftImpl", dependencies: ["HeaderImpl"], path: "Sources/Swift"),
+        .target(name: "RootImpl", dependencies: ["SwiftImpl"], path: "Sources/Root"),
+    ])
+}
+''';
+
+    test('emits consumed module without renaming fallback topology', () async {
+      write(
+        'Sources/ObjC/Public/module.modulemap',
+        'module HeaderSurface { umbrella header "PublicSDK.h" export * }',
+      );
+      write('Sources/ObjC/Public/PublicSDK.h', '// public\n');
+      write('Sources/ObjC/Hybrid/PrivateAPI.h', '// hybrid\n');
+      write('Sources/Resources/PublicSDK.modulemap', '''
+framework module PublicSDK {
+  umbrella header "PublicSDK.h"
+  export *
+  explicit module _Hybrid {
+    header "PrivateAPI.h"
+    export *
+  }
+}
+''');
+
+      final output =
+          await GeneratedPluginsPackage.synthesizeBinaryFallbackCompatibility(
+            manifest,
+            packageDir: tmp.path,
+            consumedProducts: {'PublicSDK'},
+          );
+
+      expect(
+        output,
+        contains('.library(name: "SourceProduct", targets: ["RootImpl"])'),
+      );
+      expect(output, contains('.target(name: "HeaderImpl"'));
+      expect(
+        output,
+        contains('.library(name: "PublicSDK", targets: ["_xcross_PublicSDK"])'),
+      );
+      expect(
+        output,
+        contains(
+          '.target(name: "_xcross_PublicSDK", dependencies: '
+          '["RootImpl", "SwiftImpl", "HeaderImpl"]',
+        ),
+      );
+      expect(
+        File(
+          p.join(
+            tmp.path,
+            '.xcross',
+            '_xcross_PublicSDK',
+            'include',
+            'PublicSDK.h',
+          ),
+        ).readAsStringSync(),
+        '@import HeaderSurface;\n',
+      );
+      final moduleMap = File(
+        p.join(
+          tmp.path,
+          '.xcross',
+          '_xcross_PublicSDK',
+          'include',
+          'module.modulemap',
+        ),
+      ).readAsStringSync();
+      expect(moduleMap, contains('module PublicSDK {'));
+      expect(moduleMap, contains('explicit module _Hybrid'));
+      expect(
+        moduleMap,
+        contains(
+          swiftPath(p.join(tmp.path, 'Sources/ObjC/Hybrid/PrivateAPI.h')),
+        ),
+      );
+    });
+
+    test('does nothing when fallback already emits expected module', () async {
+      write(
+        'Sources/ObjC/Public/module.modulemap',
+        'module PublicSDK { umbrella header "PublicSDK.h" export * }',
+      );
+      write('Sources/ObjC/Public/PublicSDK.h', '// public\n');
+
+      final output =
+          await GeneratedPluginsPackage.synthesizeBinaryFallbackCompatibility(
+            manifest,
+            packageDir: tmp.path,
+            consumedProducts: {'PublicSDK'},
+          );
+
+      expect(output, manifest);
+      expect(Directory(p.join(tmp.path, '.xcross')).existsSync(), isFalse);
+    });
+
+    test('fails instead of guessing an ambiguous fallback product', () async {
+      final ambiguous = manifest.replaceFirst(
+        'products.append(.library(name: "SourceProduct", targets: ["RootImpl"]))',
+        'products.append(.library(name: "SourceA", targets: ["RootImpl"]))\n'
+            '    products.append(.library(name: "SourceB", targets: ["RootImpl"]))',
+      );
+
+      await expectLater(
+        GeneratedPluginsPackage.synthesizeBinaryFallbackCompatibility(
+          ambiguous,
+          packageDir: tmp.path,
+          consumedProducts: {'PublicSDK'},
+        ),
+        throwsA(
+          isA<FlutterBuildError>().having(
+            (error) => error.toString(),
+            'message',
+            contains('fallback product is ambiguous'),
+          ),
         ),
       );
     });

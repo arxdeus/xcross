@@ -739,61 +739,19 @@ let package = Package(
       RegExp(r'String\(cString:\s*([^,]+),\s*encoding:\s*\.utf8\)'),
       (match) => 'String(cString: ${match[1]})',
     );
-    final sourceProductPattern = RegExp(
-      r'products\.append\(\s*\.library\(\s*name:\s*"([^"]+)"'
-      r'([\s\S]*?)targets:\s*\[\s*"([^"]+)"\s*\]\s*\)\s*\)',
-    );
-    final sourceProduct = sourceProductPattern.firstMatch(result);
-    if (result.contains('EXPERIMENTAL_SPM_BUILDS') && sourceProduct != null) {
+    final sourceProduct = RegExp(
+      r'products\.append\(\s*\.library\([\s\S]*?\)\s*\)',
+    ).firstMatch(result);
+    if (result.contains('EXPERIMENTAL_SPM_BUILDS') &&
+        sourceProduct != null &&
+        !result.contains('products.removeAll()')) {
       final blockStart = result.lastIndexOf('{', sourceProduct.start);
       if (blockStart >= 0) {
-        RegExpMatch? originalProduct;
-        for (final match in RegExp(
-          r'\.library\(\s*name:\s*"([^"]+)"[\s\S]*?'
-          r'targets:\s*\[\s*"([^"]+)"',
-        ).allMatches(result.substring(0, blockStart))) {
-          if (match[1] == match[2]) {
-            originalProduct = match;
-            break;
-          }
-        }
-        if (originalProduct != null) {
-          final publicName = originalProduct[1]!;
-          final sourceName = sourceProduct[1]!;
-          final sourceTarget = sourceProduct[3]!;
-          final normalizedProduct = sourceProduct
-              .group(0)!
-              .replaceFirst('"$sourceName"', '"$publicName"')
-              .replaceFirst('"$sourceTarget"', '"$publicName"')
-              .replaceFirst(RegExp(r',\s*type:\s*\.dynamic'), '');
-          result = result.replaceRange(
-            sourceProduct.start,
-            sourceProduct.end,
-            normalizedProduct,
-          );
-          final targetPattern = RegExp(
-            '\\.target\\(\\s*name:\\s*"${RegExp.escape(sourceTarget)}"',
-          );
-          final target = targetPattern.firstMatch(result.substring(blockStart));
-          if (target != null) {
-            final start = blockStart + target.start;
-            final declaration = target
-                .group(0)!
-                .replaceFirst('"$sourceTarget"', '"$publicName"');
-            result = result.replaceRange(
-              start,
-              blockStart + target.end,
-              declaration,
-            );
-          }
-        }
-        if (!result.contains('products.removeAll()')) {
-          result = result.replaceRange(
-            blockStart + 1,
-            blockStart + 1,
-            '\n    products.removeAll()\n    targets.removeAll()',
-          );
-        }
+        result = result.replaceRange(
+          blockStart + 1,
+          blockStart + 1,
+          '\n    products.removeAll()\n    targets.removeAll()',
+        );
       }
     }
     return result;
@@ -1101,6 +1059,487 @@ let package = Package(
     return identity;
   }
 
+  static List<({int start, int end, String text})> _swiftCalls(
+    String source,
+    String name,
+  ) {
+    final calls = <({int start, int end, String text})>[];
+    final pattern = RegExp('${RegExp.escape(name)}\\s*\\(');
+    for (final match in pattern.allMatches(source)) {
+      final close = _indexOfMatchingParen(source, match.end - 1);
+      if (close >= 0) {
+        calls.add((
+          start: match.start,
+          end: close + 1,
+          text: source.substring(match.start, close + 1),
+        ));
+      }
+    }
+    return calls;
+  }
+
+  static String? _namedString(String call, String name) =>
+      RegExp('${RegExp.escape(name)}\\s*:\\s*"([^"]+)"').firstMatch(call)?[1];
+
+  static List<String> _namedStringList(String call, String name) {
+    final argument = RegExp('${RegExp.escape(name)}\\s*:').firstMatch(call);
+    if (argument == null) return const [];
+    final open = call.indexOf('[', argument.end);
+    if (open < 0) return const [];
+    final close = _indexOfMatchingDelimiter(call, open);
+    if (close < 0) return const [];
+    return [
+      for (final match in RegExp(
+        '"([^"]+)"',
+      ).allMatches(call.substring(open + 1, close)))
+        match[1]!,
+    ];
+  }
+
+  static int _indexOfMatchingDelimiter(String source, int openIndex) {
+    final open = source[openIndex];
+    final close = switch (open) {
+      '(' => ')',
+      '[' => ']',
+      '{' => '}',
+      _ => '',
+    };
+    if (close.isEmpty) return -1;
+    final code = _swiftCodeMask(source);
+    var depth = 0;
+    for (var i = openIndex; i < source.length; i++) {
+      if (!code[i]) continue;
+      if (source[i] == open) {
+        depth++;
+      } else if (source[i] == close && --depth == 0) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  static ({int open, int close})? _fallbackBlock(String manifest) {
+    final marker = manifest.indexOf('products.removeAll()');
+    if (marker < 0) return null;
+    final open = manifest.lastIndexOf('{', marker);
+    if (open < 0) return null;
+    final close = _indexOfMatchingDelimiter(manifest, open);
+    return close < 0 ? null : (open: open, close: close);
+  }
+
+  static Set<String> _consumedProducts(String manifest, String package) {
+    final products = <String>{};
+    for (final call in _swiftCalls(manifest, '.product')) {
+      if (_namedString(call.text, 'package') == package) {
+        final name = _namedString(call.text, 'name');
+        if (name != null) products.add(name);
+      }
+    }
+    return products;
+  }
+
+  static List<String> _topLevelModuleNames(String moduleMap) {
+    final code = _swiftCodeMask(moduleMap);
+    final names = <String>[];
+    var depth = 0;
+    var lineStart = 0;
+    for (var i = 0; i <= moduleMap.length; i++) {
+      if (i == moduleMap.length || moduleMap[i] == '\n') {
+        if (depth == 0) {
+          final line = moduleMap.substring(lineStart, i);
+          final match = RegExp(
+            r'^\s*(?:(?:framework|explicit)\s+)?module\s+'
+            r'([A-Za-z_][A-Za-z0-9_]*)\s*\{',
+          ).firstMatch(line);
+          if (match != null) names.add(match[1]!);
+        }
+        for (var j = lineStart; j < i; j++) {
+          if (!code[j]) continue;
+          if (moduleMap[j] == '{') depth++;
+          if (moduleMap[j] == '}') depth--;
+        }
+        lineStart = i + 1;
+      }
+    }
+    return names;
+  }
+
+  static ({int start, int open, int close})? _moduleBlock(
+    String moduleMap,
+    String name,
+  ) {
+    final declaration = RegExp(
+      r'^\s*(?:(?:framework|explicit)\s+)?module\s+'
+      '${RegExp.escape(name)}\\s*\\{',
+      multiLine: true,
+    ).firstMatch(moduleMap);
+    if (declaration == null) return null;
+    final open = moduleMap.indexOf('{', declaration.start);
+    final close = _indexOfMatchingDelimiter(moduleMap, open);
+    return close < 0
+        ? null
+        : (start: declaration.start, open: open, close: close);
+  }
+
+  static List<({String path, bool directory})> _directModuleHeaders(
+    String moduleMap,
+    ({int start, int open, int close}) block,
+  ) {
+    final code = _swiftCodeMask(moduleMap);
+    final headers = <({String path, bool directory})>[];
+    var depth = 1;
+    var lineStart = block.open + 1;
+    for (var i = block.open + 1; i <= block.close; i++) {
+      if (i != block.close && moduleMap[i] != '\n') continue;
+      final line = moduleMap.substring(lineStart, i);
+      if (depth == 1) {
+        final header = RegExp(
+          r'^\s*(?:umbrella\s+)?header\s+"([^"]+)"',
+        ).firstMatch(line);
+        final umbrella = RegExp(r'^\s*umbrella\s+"([^"]+)"').firstMatch(line);
+        if (header != null) {
+          headers.add((path: header[1]!, directory: false));
+        } else if (umbrella != null) {
+          headers.add((path: umbrella[1]!, directory: true));
+        }
+      }
+      for (var j = lineStart; j < i; j++) {
+        if (!code[j]) continue;
+        if (moduleMap[j] == '{') depth++;
+        if (moduleMap[j] == '}') depth--;
+      }
+      lineStart = i + 1;
+    }
+    return headers;
+  }
+
+  static int _braceDepthAt(String source, int offset) {
+    final code = _swiftCodeMask(source);
+    var depth = 0;
+    for (var i = 0; i < offset; i++) {
+      if (!code[i]) continue;
+      if (source[i] == '{') depth++;
+      if (source[i] == '}') depth--;
+    }
+    return depth;
+  }
+
+  static List<String> _directNestedModules(
+    String moduleMap,
+    ({int start, int open, int close}) parent,
+  ) {
+    final nested = <String>[];
+    final declaration = RegExp(
+      r'^\s*(?:(?:framework|explicit)\s+)?module\s+'
+      r'[A-Za-z_][A-Za-z0-9_]*\s*\{',
+      multiLine: true,
+    );
+    for (final match in declaration.allMatches(moduleMap, parent.open + 1)) {
+      if (match.start >= parent.close) break;
+      if (_braceDepthAt(moduleMap, match.start) != 1) continue;
+      final open = moduleMap.indexOf('{', match.start);
+      final close = _indexOfMatchingDelimiter(moduleMap, open);
+      if (close < 0 || close > parent.close) continue;
+      nested.add(moduleMap.substring(match.start, close + 1).trim());
+    }
+    return nested;
+  }
+
+  static bool _ignoredPackageEvidencePath(String packageDir, String path) {
+    final relative = p.relative(path, from: packageDir);
+    final parts = p.split(relative);
+    return parts.any(
+      (part) => part == '.git' || part == '.build' || part == '.xcross',
+    );
+  }
+
+  static String _resolveModuleReference(
+    String packageDir,
+    String reference, {
+    required bool directory,
+  }) {
+    final normalized = p.normalize(reference);
+    final matches = <String>[];
+    for (final entity in Directory(
+      packageDir,
+    ).listSync(recursive: true, followLinks: false)) {
+      if (_ignoredPackageEvidencePath(packageDir, entity.path)) continue;
+      if (directory ? entity is! Directory : entity is! File) continue;
+      final relative = p.normalize(p.relative(entity.path, from: packageDir));
+      if (relative == normalized ||
+          relative.endsWith('${p.separator}$normalized') ||
+          p.basename(relative) == p.basename(normalized)) {
+        matches.add(entity.path);
+      }
+    }
+    if (matches.length != 1) {
+      throw FlutterBuildError(
+        'Cannot synthesize SwiftPM module: ${directory ? 'directory' : 'header'} '
+        '"$reference" has ${matches.length} matches in $packageDir.',
+      );
+    }
+    return p.normalize(p.absolute(matches.single));
+  }
+
+  static String _absoluteNestedModuleHeaders(String packageDir, String nested) {
+    final result = nested.replaceAllMapped(
+      RegExp(r'((?:umbrella\s+)?header\s+)"([^"]+)"'),
+      (match) {
+        final resolved = _resolveModuleReference(
+          packageDir,
+          match[2]!,
+          directory: false,
+        );
+        return '${match[1]}"${_swiftPath(resolved)}"';
+      },
+    );
+    return result.replaceAllMapped(RegExp(r'(umbrella\s+)"([^"]+)"'), (
+      match,
+    ) {
+      final resolved = _resolveModuleReference(
+        packageDir,
+        match[2]!,
+        directory: true,
+      );
+      return '${match[1]}"${_swiftPath(resolved)}"';
+    });
+  }
+
+  /// Adds a dependency-scoped Clang module when a source fallback preserves
+  /// its implementation modules but no longer emits a consumed binary module.
+  @visibleForTesting
+  static Future<String> synthesizeBinaryFallbackCompatibility(
+    String manifest, {
+    required String packageDir,
+    required Set<String> consumedProducts,
+  }) async {
+    var result = manifest;
+    for (final product in consumedProducts) {
+      result = await _synthesizeBinaryFallbackProduct(
+        result,
+        packageDir: packageDir,
+        product: product,
+      );
+    }
+    return result;
+  }
+
+  static Future<String> _synthesizeBinaryFallbackProduct(
+    String manifest, {
+    required String packageDir,
+    required String product,
+  }) async {
+    final fallback = _fallbackBlock(manifest);
+    if (fallback == null) return manifest;
+    if (!RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(product)) {
+      throw FlutterBuildError(
+        'Cannot synthesize SwiftPM Clang module "$product": the binary '
+        'product name is not a Clang module identifier.',
+      );
+    }
+
+    final normalManifest = manifest.substring(0, fallback.open);
+    final binaryTargets = {
+      for (final call in _swiftCalls(normalManifest, '.binaryTarget'))
+        if (_namedString(call.text, 'name') case final String name) name,
+    };
+    final binaryBacked = _swiftCalls(normalManifest, '.library').any(
+      (call) =>
+          _namedString(call.text, 'name') == product &&
+          _namedStringList(call.text, 'targets').any(binaryTargets.contains),
+    );
+    if (!binaryBacked) return manifest;
+
+    final blockText = manifest.substring(fallback.open + 1, fallback.close);
+    final productCalls = _swiftCalls(blockText, '.library');
+    final fallbackProducts = [
+      for (final call in productCalls)
+        (
+          call: call,
+          name: _namedString(call.text, 'name'),
+          targets: _namedStringList(call.text, 'targets'),
+        ),
+    ].where((entry) => entry.name != null && entry.targets.isNotEmpty).toList();
+    final matchingProducts = fallbackProducts
+        .where((entry) => entry.name == product)
+        .toList();
+    final sourceProduct = matchingProducts.length == 1
+        ? matchingProducts.single
+        : fallbackProducts.length == 1
+        ? fallbackProducts.single
+        : null;
+    if (sourceProduct == null) {
+      throw FlutterBuildError(
+        'Cannot synthesize SwiftPM module "$product": the fallback product '
+        'is ambiguous (${fallbackProducts.map((entry) => entry.name).join(', ')}).',
+      );
+    }
+
+    final targetCalls = _swiftCalls(blockText, '.target');
+    final targets =
+        <
+          String,
+          ({
+            String call,
+            List<String> dependencies,
+            String path,
+            String? headers,
+          })
+        >{};
+    for (final call in targetCalls) {
+      final name = _namedString(call.text, 'name');
+      if (name == null) continue;
+      targets[name] = (
+        call: call.text,
+        dependencies: _namedStringList(call.text, 'dependencies'),
+        path: _namedString(call.text, 'path') ?? p.join('Sources', name),
+        headers: _namedString(call.text, 'publicHeadersPath'),
+      );
+    }
+
+    final closure = <String>[];
+    final visiting = <String>{};
+    void visit(String name) {
+      if (!targets.containsKey(name) || !visiting.add(name)) return;
+      closure.add(name);
+      for (final dependency in targets[name]!.dependencies) {
+        visit(dependency);
+      }
+    }
+
+    for (final target in sourceProduct.targets) {
+      visit(target);
+    }
+    if (closure.isEmpty) {
+      throw FlutterBuildError(
+        'Cannot synthesize SwiftPM module "$product": its fallback target '
+        'closure is empty.',
+      );
+    }
+
+    final headerTargets =
+        <({String name, String root, List<String> modules})>[];
+    for (final name in closure) {
+      final target = targets[name]!;
+      if (target.headers == null) continue;
+      final root = p.normalize(p.join(packageDir, target.path, target.headers));
+      final moduleMap = File(p.join(root, 'module.modulemap'));
+      final modules = moduleMap.existsSync()
+          ? _topLevelModuleNames(moduleMap.readAsStringSync())
+          : [name];
+      if (modules.contains(product)) return manifest;
+      if (modules.isNotEmpty) {
+        headerTargets.add((name: name, root: root, modules: modules));
+      }
+    }
+
+    final canonicalMaps = <({File file, String text})>[];
+    for (final entity in Directory(
+      packageDir,
+    ).listSync(recursive: true, followLinks: false)) {
+      if (entity is! File ||
+          _ignoredPackageEvidencePath(packageDir, entity.path) ||
+          !(p.basename(entity.path) == 'module.modulemap' ||
+              p.basename(entity.path).endsWith('.modulemap'))) {
+        continue;
+      }
+      final text = entity.readAsStringSync();
+      if (_moduleBlock(text, product) != null) {
+        canonicalMaps.add((file: entity, text: text));
+      }
+    }
+    if (canonicalMaps.length != 1) {
+      throw FlutterBuildError(
+        'Cannot synthesize SwiftPM module "$product": expected one canonical '
+        'module map, found ${canonicalMaps.length}.',
+      );
+    }
+    final canonical = canonicalMaps.single;
+    final canonicalBlock = _moduleBlock(canonical.text, product)!;
+    final publicHeaders = [
+      for (final header in _directModuleHeaders(canonical.text, canonicalBlock))
+        _resolveModuleReference(
+          packageDir,
+          header.path,
+          directory: header.directory,
+        ),
+    ];
+    final publicModules = headerTargets.where((target) {
+      return publicHeaders.every(
+        (header) =>
+            p.equals(header, target.root) || p.isWithin(target.root, header),
+      );
+    }).toList();
+    if (publicModules.length != 1 || publicModules.single.modules.length != 1) {
+      throw FlutterBuildError(
+        'Cannot synthesize SwiftPM module "$product": the fallback public '
+        'header module is ambiguous.',
+      );
+    }
+
+    final synthetic = '_xcross_$product';
+    if (targets.containsKey(synthetic)) return manifest;
+    final compatibilityDir = p.join(packageDir, '.xcross', synthetic);
+    final includeDir = p.join(compatibilityDir, 'include');
+    final nested = [
+      for (final module in _directNestedModules(canonical.text, canonicalBlock))
+        _absoluteNestedModuleHeaders(packageDir, module),
+    ];
+    final indentedNested = nested
+        .map((module) => module.split('\n').map((line) => '  $line').join('\n'))
+        .join('\n');
+    final moduleMap = StringBuffer()
+      ..writeln('module $product {')
+      ..writeln('  header "$product.h"')
+      ..writeln('  export *');
+    if (indentedNested.isNotEmpty) moduleMap.writeln(indentedNested);
+    moduleMap.writeln('}');
+
+    await Directory(includeDir).create(recursive: true);
+    await File(
+      p.join(includeDir, '$product.h'),
+    ).writeAsString('@import ${publicModules.single.modules.single};\n');
+    await File(
+      p.join(includeDir, 'module.modulemap'),
+    ).writeAsString(moduleMap.toString());
+    await File(
+      p.join(compatibilityDir, '$synthetic.m'),
+    ).writeAsString('#import "$product.h"\n');
+
+    var rewrittenBlock = blockText;
+    if (sourceProduct.name == product) {
+      final targetsPattern = RegExp(r'targets\s*:\s*\[([^\]]*)\]');
+      final updatedProduct = sourceProduct.call.text.replaceFirstMapped(
+        targetsPattern,
+        (match) => 'targets: [${match[1]!.trimRight()}, "$synthetic"]',
+      );
+      rewrittenBlock = rewrittenBlock.replaceRange(
+        sourceProduct.call.start,
+        sourceProduct.call.end,
+        updatedProduct,
+      );
+    }
+    final dependencyList = closure.map((name) => '"$name"').join(', ');
+    final additions = StringBuffer();
+    if (sourceProduct.name != product) {
+      additions.writeln(
+        '    products.append(.library(name: "$product", '
+        'targets: ["$synthetic"]))',
+      );
+    }
+    additions.writeln(
+      '    targets.append(.target(name: "$synthetic", '
+      'dependencies: [$dependencyList], path: ".xcross/$synthetic", '
+      'publicHeadersPath: "include"))',
+    );
+    rewrittenBlock = '${rewrittenBlock.trimRight()}\n$additions';
+    return manifest.replaceRange(
+      fallback.open + 1,
+      fallback.close,
+      rewrittenBlock,
+    );
+  }
+
   /// Clones each `.package(url:)` dependency under [vendorDir], normalizes its
   /// host manifests, and rewrites the plugin manifest to `.package(path:)`.
   @visibleForTesting
@@ -1143,14 +1582,17 @@ let package = Package(
         );
       }
       final dirName = vendorPackageDirName(dep.url, ref);
-      if (seen.add(dirName)) {
-        final destination = p.join(vendorDir, dirName);
-        await clone(git, dep.url, ref, destination);
-        await _normalizeVendoredPackageManifests(destination);
-      }
       // Always set name: — without it SwiftPM uses the directory basename
       // (`pkg@1.2.3`), which breaks `.product(..., package: "pkg")`.
       final identity = dep.name ?? packageIdentityFromUrl(dep.url);
+      if (seen.add(dirName)) {
+        final destination = p.join(vendorDir, dirName);
+        await clone(git, dep.url, ref, destination);
+        await _normalizeVendoredPackageManifests(
+          destination,
+          consumedProducts: _consumedProducts(manifest, identity),
+        );
+      }
       final pathDep =
           '.package(name: "$identity", '
           'path: "${_swiftPath(p.join(vendorDir, dirName))}")';
@@ -1357,8 +1799,9 @@ let package = Package(
   }
 
   static Future<void> _normalizeVendoredPackageManifests(
-    String packageDir,
-  ) async {
+    String packageDir, {
+    required Set<String> consumedProducts,
+  }) async {
     await for (final entity in Directory(packageDir).list(followLinks: false)) {
       if (entity is! File) continue;
       final name = p.basename(entity.path);
@@ -1367,7 +1810,11 @@ let package = Package(
         continue;
       }
       final original = await entity.readAsString();
-      final normalized = normalizeHostManifest(original);
+      final normalized = await synthesizeBinaryFallbackCompatibility(
+        normalizeHostManifest(original),
+        packageDir: packageDir,
+        consumedProducts: consumedProducts,
+      );
       if (normalized != original) {
         await entity.writeAsString(normalized);
       }
