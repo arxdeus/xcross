@@ -205,13 +205,13 @@ import MSVCRT
       expect('import CRT'.allMatches(normalized), hasLength(1));
     });
 
-    test('enables Sentry source products without its binary target', () {
+    test('preserves a binary product name for its source fallback', () {
       const input = '''
-var products: [Product] = [.library(name: "Sentry", targets: ["Sentry"])]
-var targets: [Target] = [.binaryTarget(name: "Sentry", url: "Sentry.xcframework.zip", checksum: "abc")]
+var products: [Product] = [.library(name: "PublicSDK", targets: ["PublicSDK"])]
+var targets: [Target] = [.binaryTarget(name: "PublicSDK", url: "SDK.xcframework.zip", checksum: "abc")]
 if getenv("EXPERIMENTAL_SPM_BUILDS") != nil {
-    targets.append(.target(name: "SentrySPM", path: "Sources"))
-    products.append(.library(name: "SentrySPM", targets: ["SentrySPM"]))
+    targets.append(.target(name: "SourceSDK", path: "Sources"))
+    products.append(.library(name: "SourceProduct", type: .dynamic, targets: ["SourceSDK"]))
 }
 ''';
       final normalized = GeneratedPluginsPackage.normalizeHostManifest(input);
@@ -221,6 +221,17 @@ if getenv("EXPERIMENTAL_SPM_BUILDS") != nil {
           'if getenv("EXPERIMENTAL_SPM_BUILDS") != nil {\n'
           '    products.removeAll()\n'
           '    targets.removeAll()',
+        ),
+      );
+      expect(
+        normalized,
+        contains('.target(name: "PublicSDK", path: "Sources")'),
+      );
+      expect(
+        normalized,
+        contains(
+          '.library(name: "PublicSDK", type: .dynamic, '
+          'targets: ["PublicSDK"])',
         ),
       );
       expect(
@@ -492,11 +503,7 @@ let package = Package(name: "Sentry", products: [], targets: [])
       );
       expect(
         rewritten,
-        contains('.product(name: "SentrySPM", package: "sentry-cocoa")'),
-      );
-      expect(
-        rewritten,
-        isNot(contains('.product(name: "Sentry", package: "sentry-cocoa")')),
+        contains('.product(name: "Sentry", package: "sentry-cocoa")'),
       );
       final vendored = File(
         p.join(vendorDir, 'sentry-cocoa@8.58.1', 'Package.swift'),

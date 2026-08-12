@@ -739,16 +739,60 @@ let package = Package(
       RegExp(r'String\(cString:\s*([^,]+),\s*encoding:\s*\.utf8\)'),
       (match) => 'String(cString: ${match[1]})',
     );
-    if (result.contains('EXPERIMENTAL_SPM_BUILDS') &&
-        result.contains('SentrySPM') &&
-        !result.contains('products.removeAll()')) {
-      final blockStart = result.lastIndexOf('{', result.indexOf('SentrySPM'));
+    final sourceProductPattern = RegExp(
+      r'products\.append\(\s*\.library\(\s*name:\s*"([^"]+)"'
+      r'([\s\S]*?)targets:\s*\[\s*"([^"]+)"\s*\]\s*\)\s*\)',
+    );
+    final sourceProduct = sourceProductPattern.firstMatch(result);
+    if (result.contains('EXPERIMENTAL_SPM_BUILDS') && sourceProduct != null) {
+      final blockStart = result.lastIndexOf('{', sourceProduct.start);
       if (blockStart >= 0) {
-        result = result.replaceRange(
-          blockStart + 1,
-          blockStart + 1,
-          '\n    products.removeAll()\n    targets.removeAll()',
-        );
+        RegExpMatch? originalProduct;
+        for (final match in RegExp(
+          r'\.library\(\s*name:\s*"([^"]+)"[\s\S]*?'
+          r'targets:\s*\[\s*"([^"]+)"',
+        ).allMatches(result.substring(0, blockStart))) {
+          if (match[1] == match[2]) {
+            originalProduct = match;
+            break;
+          }
+        }
+        if (originalProduct != null) {
+          final publicName = originalProduct[1]!;
+          final sourceName = sourceProduct[1]!;
+          final sourceTarget = sourceProduct[3]!;
+          final normalizedProduct = sourceProduct
+              .group(0)!
+              .replaceFirst('"$sourceName"', '"$publicName"')
+              .replaceFirst('"$sourceTarget"', '"$publicName"');
+          result = result.replaceRange(
+            sourceProduct.start,
+            sourceProduct.end,
+            normalizedProduct,
+          );
+          final targetPattern = RegExp(
+            '\\.target\\(\\s*name:\\s*"${RegExp.escape(sourceTarget)}"',
+          );
+          final target = targetPattern.firstMatch(result.substring(blockStart));
+          if (target != null) {
+            final start = blockStart + target.start;
+            final declaration = target
+                .group(0)!
+                .replaceFirst('"$sourceTarget"', '"$publicName"');
+            result = result.replaceRange(
+              start,
+              blockStart + target.end,
+              declaration,
+            );
+          }
+        }
+        if (!result.contains('products.removeAll()')) {
+          result = result.replaceRange(
+            blockStart + 1,
+            blockStart + 1,
+            '\n    products.removeAll()\n    targets.removeAll()',
+          );
+        }
       }
     }
     return result;
@@ -1111,10 +1155,7 @@ let package = Package(
           'path: "${_swiftPath(p.join(vendorDir, dirName))}")';
       result = result.replaceFirst(dep.match, pathDep);
     }
-    return result.replaceAll(
-      RegExp(r'\.product\(name:\s*"Sentry",\s*package:\s*"sentry-cocoa"\)'),
-      '.product(name: "SentrySPM", package: "sentry-cocoa")',
-    );
+    return result;
   }
 
   /// Replaces mode-120000 checkout placeholders produced by Git for Windows
