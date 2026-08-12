@@ -714,20 +714,36 @@ abstract final class GeneratedPluginsPackage {
     }
   }
 
-  /// Package-root entries that are development-only by Flutter and pub
-  /// convention and thus can never be reached by the plugin's iOS build.
+  /// Package-root entries a plugin's iOS SwiftPM build can never reach:
+  /// Dart code, other platforms, development trees, and pub metadata.
   ///
-  /// The rest of the package root IS reachable: published plugins refer to
-  /// sibling directories from their iOS package (`../../src` sources,
-  /// `../../include` header search paths), so staging only `ios/` would
-  /// break them.
-  static const _developmentOnlyEntries = {
+  /// This is a sparse checkout by exclusion rather than inclusion because
+  /// the reachable remainder has no fixed shape: published plugins refer
+  /// to arbitrary sibling directories from their iOS package (`../../src`
+  /// sources, `../../include` header search paths, shared `darwin/`
+  /// trees), so only the provably unreachable entries are skipped.
+  static const _iosUnreachableEntries = {
+    // development trees
     '.dart_tool',
     '.git',
+    '.github',
     'build',
     'example',
     'test',
     'tests',
+    // dart code and pub metadata
+    'lib',
+    'pubspec.yaml',
+    'pubspec.lock',
+    'analysis_options.yaml',
+    'readme.md',
+    'changelog.md',
+    // other platforms ('darwin' stays: it is shared with iOS)
+    'android',
+    'macos',
+    'windows',
+    'linux',
+    'web',
   };
 
   static Future<void> _stageAncestorOverlay({
@@ -738,7 +754,10 @@ abstract final class GeneratedPluginsPackage {
     await Directory(p.join(destinationRoot, 'ios')).create(recursive: true);
     await for (final entity in Directory(sourceRoot).list(followLinks: false)) {
       final name = p.basename(entity.path);
-      if (name == 'ios' || _developmentOnlyEntries.contains(name)) continue;
+      if (name == 'ios' ||
+          _iosUnreachableEntries.contains(name.toLowerCase())) {
+        continue;
+      }
       await _stageEntity(
         entity,
         p.join(destinationRoot, name),

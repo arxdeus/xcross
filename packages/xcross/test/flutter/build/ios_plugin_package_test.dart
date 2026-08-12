@@ -1045,13 +1045,28 @@ let package = Package(name: "sibling_plugin")
       File(p.join(packageRoot, 'src', 'engine.cpp'))
         ..createSync(recursive: true)
         ..writeAsStringSync('// native');
-      // Development-only trees the iOS build can never reference.
-      File(p.join(packageRoot, 'example', 'main.dart'))
+      // Shared Darwin sources are reachable from the iOS package too.
+      File(p.join(packageRoot, 'darwin', 'Shared.swift'))
         ..createSync(recursive: true)
-        ..writeAsStringSync('void main() {}');
-      File(p.join(packageRoot, 'test', 'plugin_test.dart'))
-        ..createSync(recursive: true)
-        ..writeAsStringSync('void main() {}');
+        ..writeAsStringSync('let shared = true');
+      // Entries no iOS SwiftPM build can reference.
+      for (final unreachable in [
+        p.join('example', 'main.dart'),
+        p.join('test', 'plugin_test.dart'),
+        p.join('lib', 'plugin.dart'),
+        p.join('android', 'build.gradle'),
+        p.join('macos', 'Info.plist'),
+        p.join('windows', 'CMakeLists.txt'),
+        p.join('linux', 'CMakeLists.txt'),
+        p.join('web', 'plugin_web.dart'),
+        'pubspec.yaml',
+        'analysis_options.yaml',
+        'README.md',
+      ]) {
+        File(p.join(packageRoot, unreachable))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('unreachable');
+      }
       final flutterXcframework = p.join(tmp.path, 'Flutter.xcframework');
       Directory(flutterXcframework).createSync(recursive: true);
       final outputDir = p.join(tmp.path, 'out');
@@ -1070,8 +1085,29 @@ let package = Package(name: "sibling_plugin")
         File(p.join(stagedRoot, 'src', 'engine.cpp')).existsSync(),
         isTrue,
       );
-      expect(Directory(p.join(stagedRoot, 'example')).existsSync(), isFalse);
-      expect(Directory(p.join(stagedRoot, 'test')).existsSync(), isFalse);
+      expect(
+        File(p.join(stagedRoot, 'darwin', 'Shared.swift')).existsSync(),
+        isTrue,
+      );
+      for (final excluded in [
+        'example',
+        'test',
+        'lib',
+        'android',
+        'macos',
+        'windows',
+        'linux',
+        'web',
+        'pubspec.yaml',
+        'analysis_options.yaml',
+        'README.md',
+      ]) {
+        expect(
+          FileSystemEntity.typeSync(p.join(stagedRoot, excluded)),
+          FileSystemEntityType.notFound,
+          reason: '$excluded should not be staged',
+        );
+      }
     });
 
     test('restaging unchanged sources keeps staged timestamps', () async {
