@@ -796,6 +796,45 @@ let package = Package(name: "Sentry", products: [], targets: [])
         }
       },
     );
+
+    test('forwards header placeholders to one Clang file identity', () async {
+      final repo = p.join(tmp.path, 'headers', 'checkouts', 'dependency');
+      Directory(p.join(repo, 'Sources')).createSync(recursive: true);
+      Directory(p.join(repo, 'include')).createSync(recursive: true);
+
+      ProcessResult git(List<String> arguments) {
+        final result = Process.runSync('git', ['-C', repo, ...arguments]);
+        expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+        return result;
+      }
+
+      git(['init']);
+      // A header with no include guard, published under two paths.
+      File(
+        p.join(repo, 'Sources', 'Types.h'),
+      ).writeAsStringSync('typedef enum { kOne } Value;\n');
+      final placeholder = File(p.join(repo, 'include', 'Types.h'))
+        ..writeAsStringSync('../Sources/Types.h');
+      git(['add', 'Sources/Types.h', 'include/Types.h']);
+      final hash =
+          (git(['hash-object', '-w', 'include/Types.h']).stdout as String)
+              .trim();
+      git(['update-index', '--cacheinfo', '120000', hash, 'include/Types.h']);
+
+      await GeneratedPluginsPackage.materializeCheckoutSymlinks(
+        p.join(tmp.path, 'headers'),
+      );
+
+      final materialized = placeholder.readAsStringSync();
+      if (Platform.isWindows) {
+        // Forwarding leaves one file to parse, so including both paths
+        // cannot redefine the declarations.
+        expect(materialized, '#include "../Sources/Types.h"\n');
+        expect(materialized, isNot(contains('typedef enum')));
+      } else {
+        expect(materialized, contains('typedef enum'));
+      }
+    });
   });
 
   group('registrantSource', () {

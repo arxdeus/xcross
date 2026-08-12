@@ -1876,19 +1876,24 @@ let package = Package(
         await _copyDirectory(target, link);
       } else if (File(target).existsSync()) {
         if (Platform.isWindows) {
-          final result = await Process.run('cmd.exe', [
-            '/d',
-            '/c',
-            'mklink',
-            '/H',
-            link,
-            target,
-          ]);
-          if (result.exitCode != 0) {
-            throw FileSystemException(
-              'Could not create hard link: ${result.stderr}',
+          final forwarder = _headerForwarder(link, target);
+          if (forwarder != null) {
+            await File(link).writeAsString(forwarder);
+          } else {
+            final result = await Process.run('cmd.exe', [
+              '/d',
+              '/c',
+              'mklink',
+              '/H',
               link,
-            );
+              target,
+            ]);
+            if (result.exitCode != 0) {
+              throw FileSystemException(
+                'Could not create hard link: ${result.stderr}',
+                link,
+              );
+            }
           }
         } else {
           await File(target).copy(link);
@@ -1905,6 +1910,26 @@ let package = Package(
     for (final link in links.keys) {
       await materialize(link);
     }
+  }
+
+  /// Windows source for a header placeholder that keeps one Clang file
+  /// identity, or null when [link] is not a header.
+  ///
+  /// Packages publish umbrella directories by symlinking headers to a
+  /// source tree, so the same header is reachable under two paths. Clang
+  /// suppresses the second inclusion by file identity, and on POSIX a
+  /// symlink shares one. Windows checkouts cannot use symlinks without
+  /// elevation, and Clang treats the two names of a hard link as separate
+  /// identities, so a header without an include guard is parsed twice and
+  /// every declaration in it collides with itself. Forwarding to the
+  /// target instead leaves exactly one file to parse under either path.
+  static String? _headerForwarder(String link, String target) {
+    const headerExtensions = {'.h', '.hh', '.hpp', '.hxx', '.h++'};
+    if (!headerExtensions.contains(p.extension(link).toLowerCase())) {
+      return null;
+    }
+    final relative = p.relative(target, from: p.dirname(link));
+    return '#include "${relative.replaceAll(r'\', '/')}"\n';
   }
 
   static Future<void> _cloneGitPackage(
