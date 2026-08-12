@@ -49,6 +49,35 @@ void main() {
     },
   );
 
+  test('uses resolved project identity over xcconfig identity', () {
+    final fixture = _Fixture.create();
+    addTearDown(fixture.dispose);
+    final project = KmpProject(
+      root: fixture.root,
+      modulePath: p.join(fixture.root, 'shared'),
+      moduleName: 'shared',
+      baseName: 'Shared',
+      entryKind: KmpEntryKind.swiftApp,
+      bundleId: 'dev.example.override',
+      appName: 'OverrideApp',
+      iosConfig: const IosAppConfig(
+        productName: 'XcconfigApp',
+        bundleId: 'dev.example.xcconfig',
+        marketingVersion: '2.0',
+        currentProjectVersion: '8',
+      ),
+    );
+
+    final xml = ComposeInfoPlist.build(project: project);
+    final plist = PropertyListSerialization.propertyListWithString(xml) as Map;
+
+    expect(plist['CFBundleIdentifier'], 'dev.example.override');
+    expect(plist['CFBundleName'], 'OverrideApp');
+    expect(plist['CFBundleDisplayName'], 'OverrideApp');
+    expect(plist['CFBundleShortVersionString'], '2.0');
+    expect(plist['CFBundleVersion'], '8');
+  });
+
   test(
     'real Swift host example preserves safe partial plist keys and overrides required keys',
     () {

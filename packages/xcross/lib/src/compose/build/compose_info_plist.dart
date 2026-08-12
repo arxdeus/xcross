@@ -20,12 +20,8 @@ abstract final class ComposeInfoPlist {
 
   static Map<String, Object?> _required(KmpProject project) {
     final config = project.iosConfig;
-    final appName = config?.productName.isNotEmpty == true
-        ? config!.productName
-        : project.appName;
-    final bundleId = config?.bundleId.isNotEmpty == true
-        ? config!.bundleId
-        : project.bundleId;
+    final appName = project.appName;
+    final bundleId = project.bundleId;
     return {
       'CFBundleExecutable': 'Runner',
       'CFBundleIdentifier': bundleId,
