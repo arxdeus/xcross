@@ -519,11 +519,12 @@ abstract final class GeneratedPluginsPackage {
       };
     }
 
-    final toolsetFile = File(p.join(outputDir, 'xcross-toolset.json'));
-    await toolsetFile.writeAsString(
+    final toolsetPath = p.join(outputDir, 'xcross-toolset.json');
+    await _writeStable(
+      toolsetPath,
       '${const JsonEncoder.withIndent('  ').convert(toolset)}\n',
     );
-    return toolsetFile.path;
+    return toolsetPath;
   }
 
   /// Picks the archiver for an Apple target: `llvm-libtool-darwin` when it is
@@ -605,7 +606,7 @@ abstract final class GeneratedPluginsPackage {
   }) async {
     var stagedPackage = alias;
     if (vendorDir != null) {
-      await _deleteEntity(alias);
+      await _deleteUnless(alias, FileSystemEntityType.directory);
       final packageRoot = p.dirname(p.dirname(target));
       await _stageAncestorOverlay(
         sourceRoot: packageRoot,
@@ -629,39 +630,88 @@ abstract final class GeneratedPluginsPackage {
         fallbackSwiftModules: fallbackSwiftModules,
       );
     }
-    if (normalizedManifest == manifest) {
-      if (vendorDir == null) {
-        await _createDirectoryAlias(stagedPackage, target);
-      } else {
-        await _deleteEntity(stagedPackage);
-        await _copyDirectory(target, stagedPackage);
-      }
+
+    if (vendorDir != null) {
+      // Normalizing during the mirror keeps re-runs byte-stable: copying
+      // first and normalizing after would rewrite (and re-timestamp) every
+      // normalized source on every build.
+      await _mirrorPluginPackage(
+        target,
+        stagedPackage,
+        normalizedManifest,
+        transform: _hostSwiftTransform(fallbackSwiftModules),
+      );
+    } else if (normalizedManifest == manifest) {
+      await _createDirectoryAlias(stagedPackage, target);
       await normalizeHostSwiftTree(
         stagedPackage,
         fallbackSwiftModules: fallbackSwiftModules,
       );
-      return stagedPackage;
+    } else {
+      await _overlayPluginManifest(target, stagedPackage, normalizedManifest);
+      await normalizeHostSwiftTree(
+        stagedPackage,
+        fallbackSwiftModules: fallbackSwiftModules,
+      );
     }
+    return stagedPackage;
+  }
 
-    await _deleteEntity(stagedPackage);
-    await Directory(stagedPackage).create(recursive: true);
-    await File(
-      p.join(stagedPackage, 'Package.swift'),
-    ).writeAsString(normalizedManifest);
+  /// Mirrors [target] at [staged] with [manifest] as its `Package.swift`.
+  ///
+  /// Only differing files are rewritten, so a rebuild presents SwiftPM with
+  /// the timestamps it already compiled and its incremental state stays
+  /// warm.
+  static Future<void> _mirrorPluginPackage(
+    String target,
+    String staged,
+    String manifest, {
+    _SourceTransform? transform,
+  }) async {
+    await _deleteUnless(staged, FileSystemEntityType.directory);
+    await _syncDirectory(
+      target,
+      staged,
+      preserve: const {'Package.swift'},
+      transform: transform,
+    );
+    await _writeStable(p.join(staged, 'Package.swift'), manifest);
+  }
 
+  /// The host-compatibility source rewrite as a sync transform, applied to
+  /// Swift sources but never to package manifests.
+  static _SourceTransform _hostSwiftTransform(
+    Map<String, List<String>> fallbackSwiftModules,
+  ) => (path, content) {
+    final name = p.basename(path);
+    final isManifest =
+        name == 'Package.swift' ||
+        (name.startsWith('Package@') && name.endsWith('.swift'));
+    if (p.extension(name) != '.swift' || isManifest) return content;
+    return normalizeHostSwiftSource(
+      content,
+      fallbackSwiftModules: fallbackSwiftModules,
+    );
+  };
+
+  /// Stages [target] at [staged] as per-entry aliases beneath a rewritten
+  /// `Package.swift`, for hosts where symbolic links are first-class.
+  static Future<void> _overlayPluginManifest(
+    String target,
+    String staged,
+    String manifest,
+  ) async {
+    await _deleteEntity(staged);
+    await Directory(staged).create(recursive: true);
+    await _writeStable(p.join(staged, 'Package.swift'), manifest);
     await for (final entity in Directory(target).list(followLinks: false)) {
       if (p.basename(entity.path) == 'Package.swift') continue;
       await _stageEntity(
         entity,
-        p.join(stagedPackage, p.basename(entity.path)),
-        copyDirectories: vendorDir != null,
+        p.join(staged, p.basename(entity.path)),
+        copyDirectories: false,
       );
     }
-    await normalizeHostSwiftTree(
-      stagedPackage,
-      fallbackSwiftModules: fallbackSwiftModules,
-    );
-    return stagedPackage;
   }
 
   static Future<void> _stageAncestorOverlay({
@@ -700,33 +750,19 @@ abstract final class GeneratedPluginsPackage {
     required bool copyDirectories,
     String? excludedSourcePath,
   }) async {
-    if (entity is Directory) {
-      if (copyDirectories) {
-        await _copyDirectory(
-          entity.path,
-          destination,
-          excludedSourcePath: excludedSourcePath,
-        );
-      } else {
-        await _createDirectoryAlias(destination, entity.path);
-      }
-    } else if (entity is File) {
-      await entity.copy(destination);
-    } else if (entity is Link) {
-      final resolved = entity.resolveSymbolicLinksSync();
-      if (Directory(resolved).existsSync()) {
-        if (copyDirectories) {
-          await _copyDirectory(
-            resolved,
-            destination,
-            excludedSourcePath: excludedSourcePath,
-          );
-        } else {
-          await _createDirectoryAlias(destination, resolved);
-        }
-      } else {
-        await File(resolved).copy(destination);
-      }
+    final resolved = entity is Link
+        ? entity.resolveSymbolicLinksSync()
+        : entity.path;
+    if (!Directory(resolved).existsSync()) {
+      await _syncFile(File(resolved), destination);
+    } else if (copyDirectories) {
+      await _syncDirectory(
+        resolved,
+        destination,
+        excludedSourcePath: excludedSourcePath,
+      );
+    } else {
+      await _createDirectoryAlias(destination, resolved);
     }
   }
 
@@ -739,15 +775,17 @@ abstract final class GeneratedPluginsPackage {
     required bool copyFlutterXcframework,
   }) async {
     await Directory(frameworkDir).create(recursive: true);
-    await File(
+    await _writeStable(
       p.join(frameworkDir, 'Package.swift'),
-    ).writeAsString(flutterFrameworkManifest());
+      flutterFrameworkManifest(),
+    );
 
     final frameworkPath = p.join(frameworkDir, 'Flutter.xcframework');
-    await _deleteEntity(frameworkPath);
     if (copyFlutterXcframework) {
-      await _copyDirectory(flutterXcframework, frameworkPath);
+      await _deleteUnless(frameworkPath, FileSystemEntityType.directory);
+      await _syncDirectory(flutterXcframework, frameworkPath);
     } else {
+      await _deleteEntity(frameworkPath);
       await Link(frameworkPath).create(flutterXcframework);
     }
   }
@@ -763,7 +801,8 @@ abstract final class GeneratedPluginsPackage {
     final sourcesDir = p.join(pluginsDir, 'Sources', _pluginsProductName);
     await Directory(sourcesDir).create(recursive: true);
 
-    await File(p.join(pluginsDir, 'Package.swift')).writeAsString(
+    await _writeStable(
+      p.join(pluginsDir, 'Package.swift'),
       pluginsManifest(
         plugins,
         frameworkDir,
@@ -772,9 +811,10 @@ abstract final class GeneratedPluginsPackage {
       ),
     );
 
-    await File(
+    await _writeStable(
       p.join(sourcesDir, 'GeneratedPluginRegistrant.swift'),
-    ).writeAsString(registrantSource(plugins));
+      registrantSource(plugins),
+    );
   }
 
   /// `FlutterFramework/Package.swift` contents — wraps `Flutter.xcframework`
@@ -1726,13 +1766,15 @@ let package = Package(
         ..writeln('@import $module;')
         ..writeln('#endif');
     }
-    await File(p.join(includeDir, '$product.h')).writeAsString(shim.toString());
-    await File(
+    await _writeStable(p.join(includeDir, '$product.h'), shim.toString());
+    await _writeStable(
       p.join(includeDir, 'module.modulemap'),
-    ).writeAsString(moduleMap.toString());
-    await File(
+      moduleMap.toString(),
+    );
+    await _writeStable(
       p.join(compatibilityDir, '$synthetic.m'),
-    ).writeAsString('#import "$product.h"\n');
+      '#import "$product.h"\n',
+    );
 
     final syntheticCount = fallbackProducts
         .singleWhere((entry) => entry.call.start == sourceProduct.call.start)
@@ -1956,7 +1998,7 @@ let package = Package(
       }
       await _deleteEntity(link);
       if (Directory(target).existsSync()) {
-        await _copyDirectory(target, link);
+        await _syncDirectory(target, link);
       } else if (File(target).existsSync()) {
         if (Platform.isWindows) {
           final forwarder = _headerForwarder(link, target);
@@ -2182,6 +2224,115 @@ $registrations}
 ''';
   }
 
+  /// Writes [content] to [path] only when it differs.
+  ///
+  /// SwiftPM invalidates on timestamps, so rewriting identical generated
+  /// files would recompile the whole plugin graph on every run.
+  static Future<void> _writeStable(String path, String content) async {
+    final file = File(path);
+    if (file.existsSync() && await file.readAsString() == content) return;
+    await file.writeAsString(content);
+  }
+
+  /// Copies [source] to [destination], applying [transform] when given,
+  /// and skipping the write when the destination already matches.
+  ///
+  /// The skip preserves destination timestamps, which SwiftPM invalidates
+  /// on, so unchanged files stay warm in its incremental state.
+  static Future<void> _syncFile(
+    File source,
+    String destination, {
+    _SourceTransform? transform,
+  }) async {
+    List<int> bytes = await source.readAsBytes();
+    if (transform != null) {
+      bytes = utf8.encode(transform(source.path, utf8.decode(bytes)));
+    }
+    final existing = File(destination);
+    if (existing.existsSync() &&
+        _sameBytes(await existing.readAsBytes(), bytes)) {
+      return;
+    }
+    await existing.writeAsBytes(bytes);
+  }
+
+  static bool _sameBytes(List<int> a, List<int> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  /// Mirrors [source] into [destination], resolving links to their
+  /// targets, rewriting only differing files, and pruning entries the
+  /// source no longer has. [preserve] names top-level entries the caller
+  /// owns; [excludedSourcePath] guards against copying a destination that
+  /// lives inside its own source.
+  static Future<void> _syncDirectory(
+    String source,
+    String destination, {
+    Set<String> preserve = const {},
+    String? excludedSourcePath,
+    _SourceTransform? transform,
+  }) async {
+    final absoluteSource = p.normalize(p.absolute(source));
+    final absoluteDestination = p.normalize(p.absolute(destination));
+    if (p.equals(absoluteSource, absoluteDestination)) return;
+    final excluded = excludedSourcePath == null
+        ? (p.isWithin(absoluteSource, absoluteDestination)
+              ? absoluteDestination
+              : null)
+        : p.normalize(p.absolute(excludedSourcePath));
+    await Directory(destination).create(recursive: true);
+
+    final expected = <String>{...preserve};
+    await for (final entity in Directory(source).list(followLinks: false)) {
+      if (excluded != null &&
+          p.equals(p.normalize(p.absolute(entity.path)), excluded)) {
+        continue;
+      }
+      final name = p.basename(entity.path);
+      if (preserve.contains(name)) continue;
+      expected.add(name);
+      final destinationPath = p.join(destination, name);
+      final resolved = entity is Link
+          ? entity.resolveSymbolicLinksSync()
+          : entity.path;
+      if (Directory(resolved).existsSync()) {
+        await _deleteUnless(destinationPath, FileSystemEntityType.directory);
+        await _syncDirectory(
+          resolved,
+          destinationPath,
+          excludedSourcePath: excluded,
+          transform: transform,
+        );
+      } else {
+        await _deleteUnless(destinationPath, FileSystemEntityType.file);
+        await _syncFile(File(resolved), destinationPath, transform: transform);
+      }
+    }
+
+    await for (final entity in Directory(
+      destination,
+    ).list(followLinks: false)) {
+      if (!expected.contains(p.basename(entity.path))) {
+        await _deleteEntity(entity.path);
+      }
+    }
+  }
+
+  /// Deletes whatever occupies [path] unless it already is a [keep] entry,
+  /// so links can become directories and vice versa without stale state.
+  static Future<void> _deleteUnless(
+    String path,
+    FileSystemEntityType keep,
+  ) async {
+    final type = FileSystemEntity.typeSync(path, followLinks: false);
+    if (type == FileSystemEntityType.notFound || type == keep) return;
+    await _deleteEntity(path);
+  }
+
   static Future<void> _deleteEntity(String path) async {
     final type = FileSystemEntity.typeSync(path, followLinks: false);
     if (type == FileSystemEntityType.link) {
@@ -2219,49 +2370,6 @@ $registrations}
     await Link(alias).create(p.relative(target, from: p.dirname(alias)));
   }
 
-  static Future<void> _copyDirectory(
-    String source,
-    String destination, {
-    String? excludedSourcePath,
-  }) async {
-    final absoluteSource = p.normalize(p.absolute(source));
-    final absoluteDestination = p.normalize(p.absolute(destination));
-    if (p.equals(absoluteSource, absoluteDestination)) return;
-    final excluded = excludedSourcePath == null
-        ? (p.isWithin(absoluteSource, absoluteDestination)
-              ? absoluteDestination
-              : null)
-        : p.normalize(p.absolute(excludedSourcePath));
-    await Directory(destination).create(recursive: true);
-    await for (final entity in Directory(source).list(followLinks: false)) {
-      if (excluded != null &&
-          p.equals(p.normalize(p.absolute(entity.path)), excluded)) {
-        continue;
-      }
-      final destinationPath = p.join(destination, p.basename(entity.path));
-      if (entity is Directory) {
-        await _copyDirectory(
-          entity.path,
-          destinationPath,
-          excludedSourcePath: excluded,
-        );
-      } else if (entity is File) {
-        await entity.copy(destinationPath);
-      } else if (entity is Link) {
-        final target = entity.resolveSymbolicLinksSync();
-        if (Directory(target).existsSync()) {
-          await _copyDirectory(
-            target,
-            destinationPath,
-            excludedSourcePath: excluded,
-          );
-        } else {
-          await File(target).copy(destinationPath);
-        }
-      }
-    }
-  }
-
   static String _jsonPath(String path) => path.replaceAll(r'\', '/');
 
   /// Forward-slash-safe absolute path for interpolation into a Swift string
@@ -2275,3 +2383,5 @@ $registrations}
   /// plugin's own unmodified `Package(name: ...)`.
   static String _hyphenate(String name) => name.replaceAll('_', '-');
 }
+
+typedef _SourceTransform = String Function(String path, String content);

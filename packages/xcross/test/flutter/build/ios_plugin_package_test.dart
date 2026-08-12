@@ -1033,6 +1033,84 @@ let package = Package(name: "generic_plugin")
       },
     );
 
+    test('restaging unchanged sources keeps staged timestamps', () async {
+      const manifest = '''
+// swift-tools-version: 5.9
+import PackageDescription
+let package = Package(name: "stable_plugin")
+''';
+      final plugin = makePlugin('stable_plugin', packageManifest: manifest);
+      File(
+          p.join(
+            plugin.swiftPackageDir,
+            'Sources',
+            'StablePlugin',
+            'Feature.swift',
+          ),
+        )
+        ..createSync(recursive: true)
+        ..writeAsStringSync('let runtime = true\n');
+      final flutterXcframework = p.join(tmp.path, 'Flutter.xcframework');
+      Directory(flutterXcframework).createSync(recursive: true);
+      File(
+        p.join(flutterXcframework, 'Info.plist'),
+      ).writeAsStringSync('<plist/>');
+      final outputDir = p.join(tmp.path, 'out');
+
+      Future<void> stage() => GeneratedPluginsPackage.writeGeneratedPackages(
+        outputDir: outputDir,
+        plugins: [plugin],
+        flutterXcframework: flutterXcframework,
+        copyFlutterXcframework: true,
+        vendorRemotePackages: true,
+        deploymentTarget: const IosDeploymentTarget('15.6'),
+      );
+
+      await stage();
+      final staged = [
+        p.join(
+          outputDir,
+          'Packages',
+          'stable_plugin',
+          'ios',
+          'stable_plugin',
+          'Sources',
+          'StablePlugin',
+          'Feature.swift',
+        ),
+        p.join(
+          outputDir,
+          'Packages',
+          'stable_plugin',
+          'ios',
+          'stable_plugin',
+          'Package.swift',
+        ),
+        p.join(outputDir, 'Plugins', 'Package.swift'),
+        p.join(
+          outputDir,
+          'Packages',
+          'FlutterFramework',
+          'Flutter.xcframework',
+          'Info.plist',
+        ),
+      ];
+      final before = [for (final path in staged) File(path).lastModifiedSync()];
+
+      // SwiftPM rebuilds what changed on disk, so an unchanged plugin must
+      // restage without touching a single staged file.
+      await Future<void>.delayed(const Duration(milliseconds: 1100));
+      await stage();
+
+      for (var i = 0; i < staged.length; i++) {
+        expect(
+          File(staged[i]).lastModifiedSync(),
+          before[i],
+          reason: '\${staged[i]} was rewritten without a source change',
+        );
+      }
+    });
+
     test('preserves packageRoot/ios/package ancestry when vendoring', () async {
       final plugin = makePlugin(
         'plugin_a',
