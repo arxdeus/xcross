@@ -1622,7 +1622,13 @@ let package = Package(
       for (final module in nested) ..._topLevelModuleNames(module),
     ];
     final indentedNested = nested
-        .map((module) => module.split('\n').map((line) => '  $line').join('\n'))
+        .map(
+          (module) => module
+              .replaceFirst(RegExp(r'\{'), '{\n  header "$product.h"')
+              .split('\n')
+              .map((line) => '  $line')
+              .join('\n'),
+        )
         .join('\n');
     final moduleMap = StringBuffer()
       ..writeln('module $product {')

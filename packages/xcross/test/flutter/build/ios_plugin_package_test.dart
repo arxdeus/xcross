@@ -569,6 +569,13 @@ framework module PublicSDK {
       expect(moduleMap, contains('module PublicSDK {'));
       expect(moduleMap, contains('  export _Hybrid\n'));
       expect(moduleMap, contains('explicit module _Hybrid'));
+      // A nested module is compiled on its own, so it does not inherit what
+      // the parent's header pulled in. Its headers name the same types, so
+      // it needs the shim header too.
+      expect(
+        moduleMap,
+        contains('explicit module _Hybrid {\n    header "PublicSDK.h"'),
+      );
       expect(
         moduleMap,
         contains(
