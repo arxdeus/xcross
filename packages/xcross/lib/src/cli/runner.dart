@@ -48,6 +48,18 @@ Future<int?> runPreparedToolAlias(
     return 1;
   }
   final invoke = run ?? _runToolAlias;
+  // dsymutil (unlike ld/strip/libtool/clang) is not on every LLVM
+  // distribution: the swift.org Windows LLVM installer's LLVM/bin has
+  // ld64.lld.exe and llvm-strip.exe but no dsymutil.exe (confirmed against
+  // a real CI run — Process.start fails with "The system cannot find the
+  // file specified"). Kotlin/Native's MacOSBasedLinker calls dsymutil
+  // unconditionally after every framework link and fails the whole compile
+  // on any nonzero exit, but nothing downstream in xcross reads the
+  // resulting .dSYM bundle, so a missing dsymutil should degrade to a
+  // silent no-op instead of a build failure.
+  if (name == 'dsymutil' && !File(target).existsSync()) {
+    return 0;
+  }
   return invoke(target, arguments);
 }
 
