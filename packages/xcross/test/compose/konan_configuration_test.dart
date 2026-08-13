@@ -71,6 +71,25 @@ void main() {
           '${p.join(p.dirname(prepared.kotlinHome), 'apple-toolchain', 'bin')}:',
         ),
       );
+      // AppleConfigurablesImpl.getAbsoluteTargetToolchain() appends "/usr"
+      // to the toolchain dir, and MacOSBasedLinker.compilerRtDir does
+      // File("$absoluteTargetToolchain/lib/clang/").getListFiles(), which
+      // throws NoSuchFileException (not an empty list) when the directory
+      // is entirely absent. The compiler tolerates an empty directory (it
+      // just means no compiler-rt library is provided at link time), so the
+      // staged apple-toolchain must include an empty usr/lib/clang dir.
+      expect(
+        Directory(
+          p.join(
+            p.dirname(prepared.kotlinHome),
+            'apple-toolchain',
+            'usr',
+            'lib',
+            'clang',
+          ),
+        ).existsSync(),
+        isTrue,
+      );
 
       final config = File(prepared.konanConfigPath).readAsStringSync();
       expect(

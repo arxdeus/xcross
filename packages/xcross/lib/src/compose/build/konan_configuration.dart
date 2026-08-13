@@ -311,6 +311,16 @@ final class KonanConfiguration {
   ) async {
     final bin = p.join(stagingRoot, 'apple-toolchain', 'bin');
     Directory(bin).createSync(recursive: true);
+    // AppleConfigurablesImpl.getAbsoluteTargetToolchain() resolves to
+    // "$appleToolchain/usr", and MacOSBasedLinker.compilerRtDir lists
+    // "$absoluteTargetToolchain/lib/clang/" via Kotlin's
+    // File.getListFiles(), which throws NoSuchFileException (rather than
+    // returning an empty list) when the directory doesn't exist at all.
+    // The compiler tolerates an empty directory fine, it just means no
+    // compiler-rt library gets linked in, so create the directory eagerly.
+    Directory(
+      p.join(stagingRoot, 'apple-toolchain', 'usr', 'lib', 'clang'),
+    ).createSync(recursive: true);
     for (final entry in _appleToolAliases.entries) {
       final path = p.join(
         bin,
