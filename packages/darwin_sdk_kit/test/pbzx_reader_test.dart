@@ -7,6 +7,19 @@ import 'package:test/test.dart';
 
 import 'test_fixtures.dart';
 
+/// Resolves a repo-relative path regardless of whether `dart test` was
+/// invoked from the repo root (Directory.current == repo root, so
+/// "packages/darwin_sdk_kit/..." resolves) or from inside this package
+/// (Directory.current == this package's root, so "test/..." resolves).
+/// CI always uses the former (`dart test packages/darwin_sdk_kit`, run from
+/// the repo root), but running `dart test` directly from this package
+/// directory is a normal local workflow that a single hardcoded form breaks.
+File _fixture(String repoRelativePath, String packageRelativePath) {
+  final fromRepoRoot = File(repoRelativePath);
+  if (fromRepoRoot.existsSync()) return fromRepoRoot;
+  return File(packageRelativePath);
+}
+
 /// Apple's fixed pbzx chunk size (16 MiB) — mirrors the private constant in
 /// pbzx_reader.dart; a chunk's `compressedSize` field equal to this exact
 /// value is the strict, size-based signal that it's stored raw.
@@ -59,9 +72,10 @@ void main() {
       // The fixture is 62,000 deterministic pseudo-random bytes repeated
       // twice and compressed with Python's standard XZ encoder. archive 4.0.9
       // fails when the second half references the first control-1 raw packet.
-      final xzBytes = await File(
+      final xzBytes = await _fixture(
         'packages/darwin_sdk_kit/test/fixtures/darwinsdk/'
-        'lzma2-initial-dictionary-reset.xz',
+            'lzma2-initial-dictionary-reset.xz',
+        'test/fixtures/darwinsdk/lzma2-initial-dictionary-reset.xz',
       ).readAsBytes();
       final pbzxBytes = buildPbzx([
         PbzxChunk(decompressedSize: 124000, bytes: xzBytes),
