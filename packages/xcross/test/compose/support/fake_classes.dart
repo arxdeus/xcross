@@ -130,6 +130,70 @@ Uint8List buildFakeObjCExportClass() {
   ]);
 }
 
+// ── Synthetic AppleConfigurablesImpl class ────────────────────────────────────
+//
+// Mirrors the real `getDependencies()` override's constant-pool shape closely
+// enough for `findMethodrefIdx` to resolve `CollectionsKt.emptyList()Ljava/util/List;`.
+//
+// Constant-pool layout (1-indexed):
+//   1  UTF8 "Code"
+//   2  UTF8 "org/jetbrains/kotlin/konan/target/AppleConfigurablesImpl"
+//   3  Class(2)
+//   4  UTF8 "java/lang/Object"
+//   5  Class(4)
+//   6  UTF8 "getDependencies"
+//   7  UTF8 "()Ljava/util/List;"
+//   8  UTF8 "kotlin/collections/CollectionsKt"
+//   9  Class(8)
+//  10  UTF8 "emptyList"
+//  11  NameAndType(10,7)
+//  12  Methodref(9,11)   ← CollectionsKt.emptyList  ← key for patcher
+//  13  UTF8 "listOf"     (present so the real "before" bytecode has a
+//                          candidate return path other than emptyList)
+
+Uint8List buildFakeAppleConfigurablesImplClass() {
+  final cpEntries = [
+    cpUtf8('Code'), // 1
+    cpUtf8('org/jetbrains/kotlin/konan/target/AppleConfigurablesImpl'), // 2
+    cpClass(2), // 3
+    cpUtf8('java/lang/Object'), // 4
+    cpClass(4), // 5
+    cpUtf8('getDependencies'), // 6
+    cpUtf8('()Ljava/util/List;'), // 7
+    cpUtf8('kotlin/collections/CollectionsKt'), // 8
+    cpClass(8), // 9
+    cpUtf8('emptyList'), // 10
+    cpNameAndType(10, 7), // 11
+    cpMethodref(9, 11), // 12
+    cpUtf8('listOf'), // 13
+  ];
+
+  // Original body stands in for the real "download the sysroot" branch:
+  // 12 NOPs, long enough that the 5-byte replacement fits with padding.
+  final getDependenciesBody = codeBody(
+    maxStack: 2,
+    maxLocals: 1,
+    code: List<int>.filled(12, 0),
+  );
+
+  return Uint8List.fromList([
+    ...classFileHeader,
+    ...cpSection(cpEntries),
+    ...u2(0x0021), // ACC_PUBLIC | ACC_SUPER
+    ...u2(3), // this  = AppleConfigurablesImpl
+    ...u2(5), // super = Object
+    ...u2(0), // interfaces
+    ...u2(0), // fields
+    ...u2(1), // 1 method
+    ...member(
+      nameIdx: 6,
+      descIdx: 7,
+      codeAttrBytes: codeAttr(getDependenciesBody),
+    ),
+    ...u2(0), // class attrs
+  ]);
+}
+
 // ── In-memory JAR (ZIP) builder ───────────────────────────────────────────────
 
 Uint8List buildJar(Map<String, List<int>> entries) {

@@ -190,11 +190,9 @@ InspectedClass parseForInspection(Uint8List raw) {
 
 // ── Single-method last-code-byte helper ───────────────────────────────────────
 
-/// Returns the last byte of the first method's code array in [classBytes].
-///
-/// Used to verify that `return` (0xB1) lands at the end after NOP-padding in
-/// the patched ObjCExportKt class.
-int findLastCodeByte(Uint8List raw) {
+/// Returns the Code body (max_stack..end of code array) of the first
+/// method's Code attribute in [classBytes].
+Uint8List lastMethodCodeBody(Uint8List raw) {
   var off = 8; // past magic + version
 
   final (afterCp, _) = _walkCp(raw, off);
@@ -218,9 +216,15 @@ int findLastCodeByte(Uint8List raw) {
     // CP slot 1 = "Code" in every fake class we build
     if (attrNameIdx == 1) {
       final codeLen = read32(raw, off + 4);
-      return raw[off + 8 + codeLen - 1];
+      return Uint8List.sublistView(raw, off + 8, off + 8 + codeLen);
     }
     off += attrLen;
   }
   throw StateError('Code attribute not found');
 }
+
+/// Returns the last byte of the first method's code array in [classBytes].
+///
+/// Used to verify that `return` (0xB1) lands at the end after NOP-padding in
+/// the patched ObjCExportKt class.
+int findLastCodeByte(Uint8List raw) => lastMethodCodeBody(raw).last;

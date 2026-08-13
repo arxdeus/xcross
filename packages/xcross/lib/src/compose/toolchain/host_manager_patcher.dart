@@ -18,11 +18,16 @@ const String hostManagerClassEntry =
 const String objcExportClassEntry =
     'org/jetbrains/kotlin/backend/konan/objcexport/ObjCExportKt.class';
 
+/// JAR-internal path of Kotlin/Native's AppleConfigurablesImpl class.
+const String appleConfigurablesImplClassEntry =
+    'org/jetbrains/kotlin/konan/target/AppleConfigurablesImpl.class';
+
 // ── JVM opcodes (only those we emit) ─────────────────────────────────────────
 
 const int _nop = 0x00;
 const int _iconst1 = 0x04;
 const int _aload0 = 0x2a;
+const int _invokeStatic = 0xb8;
 const int _invokeVirtual = 0xb6;
 const int _ireturn = 0xac;
 const int _areturn = 0xb0;
@@ -639,10 +644,57 @@ Uint8List? patchObjCExportClassBytes(Uint8List classBytes) {
   return patched ? cf.serialize() : null;
 }
 
+/// Patches raw [appleConfigurablesImplClassEntry] bytes by rewriting
+/// `getDependencies()Ljava/util/List;` to `return emptyList()`.
+///
+/// `KONAN_USE_INTERNAL_SERVER=1` (required for cross-host compilation with
+/// no local Xcode) forces `AppleConfigurablesImpl.getDependencies()` to list
+/// the literal `targetSysRoot`/`targetToolchain`/`additionalToolsDir`
+/// override VALUES as downloadable dependency names.
+/// `DependencyProcessor` then fetches `<basename>.tar.gz` from JetBrains'
+/// server for each, which 404s because those basenames are xcross's local
+/// SDK shim paths, not real hosted artifacts. The actual absolute-path
+/// resolution used during linking (`getAbsoluteTargetSysRoot` etc.) already
+/// special-cases absolute paths via `DependencyProcessor.resolve` and does
+/// not need this eager prefetch list, so it is safe to always return empty.
+///
+/// Returns `null` when the method is not found (non-fatal: the class may not
+/// be present, or its shape may differ, in other Kotlin/Native versions).
+Uint8List? patchAppleConfigurablesImplClassBytes(Uint8List classBytes) {
+  final cf = _ClassFile.parse(classBytes);
+  const name = 'getDependencies';
+  const descriptor = '()Ljava/util/List;';
+  if (cf._findMethod(name, descriptor) == null) return null;
+
+  final emptyListIdx = cf.findMethodrefIdx(
+    'kotlin/collections/CollectionsKt',
+    'emptyList',
+    '()Ljava/util/List;',
+  );
+  if (emptyListIdx == null) {
+    throw StateError(
+      'HostManagerPatcher: CollectionsKt.emptyList Methodref not in '
+      'constant pool',
+    );
+  }
+  cf.replaceMethodCode(
+    name,
+    descriptor,
+    Uint8List.fromList([
+      _invokeStatic,
+      (emptyListIdx >> 8) & 0xFF,
+      emptyListIdx & 0xFF,
+      _areturn,
+    ]),
+  );
+  return cf.serialize();
+}
+
 // ── Public JAR-level entry point ──────────────────────────────────────────────
 
-/// Patches [hostManagerClassEntry] (and optionally [objcExportClassEntry])
-/// inside [jarPath] in place so a `linux_x64` host enables all Apple targets.
+/// Patches [hostManagerClassEntry] (and optionally [objcExportClassEntry] and
+/// [appleConfigurablesImplClassEntry]) inside [jarPath] in place so a
+/// `linux_x64` host enables all Apple targets.
 ///
 /// Idempotent: if [jarMarkerPath] is already present the function returns
 /// `false` without touching the JAR.  Also returns `false` when neither
@@ -677,7 +729,10 @@ bool patchKotlinNativeJar(String jarPath) {
 
     final hasHm = archive.files.any((f) => f.name == hostManagerClassEntry);
     final hasObjC = archive.files.any((f) => f.name == objcExportClassEntry);
-    if (!hasHm && !hasObjC) {
+    final hasAcfg = archive.files.any(
+      (f) => f.name == appleConfigurablesImplClassEntry,
+    );
+    if (!hasHm && !hasObjC && !hasAcfg) {
       return false;
     }
 
@@ -697,6 +752,14 @@ bool patchKotlinNativeJar(String jarPath) {
           didPatch = true;
         } else if (name == objcExportClassEntry) {
           final patched = patchObjCExportClassBytes(entry.content);
+          if (patched != null) {
+            encoder.add(ArchiveFile(name, patched.length, patched));
+            didPatch = true;
+          } else {
+            _addUnmodifiedEntry(encoder, entry);
+          }
+        } else if (name == appleConfigurablesImplClassEntry) {
+          final patched = patchAppleConfigurablesImplClassBytes(entry.content);
           if (patched != null) {
             encoder.add(ArchiveFile(name, patched.length, patched));
             didPatch = true;

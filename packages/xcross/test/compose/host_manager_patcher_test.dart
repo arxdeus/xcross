@@ -16,6 +16,7 @@ const int aload0 = 0x2A; // ALOAD_0
 const int invokeVirtual = 0xB6; // INVOKEVIRTUAL
 const int areturn = 0xB0; // ARETURN
 const int vreturn = 0xB1; // RETURN (void)
+const int invokeStatic = 0xB8; // INVOKESTATIC
 
 void main() {
   // ── CP parser: Long/Double consume two slots ──────────────────────────────
@@ -138,6 +139,114 @@ void main() {
       ]);
       expect(() => patchHostManagerClassBytes(raw), throwsA(isA<StateError>()));
     });
+  });
+
+  // ── AppleConfigurablesImpl.getDependencies patch ──────────────────────────
+  //
+  // KONAN_USE_INTERNAL_SERVER=1 (required for cross-host compilation with no
+  // local Xcode) forces AppleConfigurablesImpl.getDependencies() to list the
+  // literal targetSysRoot/targetToolchain/additionalToolsDir override VALUES
+  // as downloadable dependency names. DependencyProcessor then fetches
+  // "<basename>.tar.gz" from JetBrains' server, which 404s because those
+  // basenames are xcross's local SDK shim paths, not real hosted artifacts.
+  // Neuter the eager prefetch list; the actual absolute-path resolution used
+  // during linking (getAbsoluteTargetSysRoot etc.) already special-cases
+  // absolute paths and does not need this list.
+
+  group('patchAppleConfigurablesImplClassBytes', () {
+    test('returns non-null for class with getDependencies', () {
+      expect(
+        patchAppleConfigurablesImplClassBytes(
+          buildFakeAppleConfigurablesImplClass(),
+        ),
+        isNotNull,
+      );
+    });
+
+    test('returns null for class without getDependencies', () {
+      final cpEntries = [
+        cpUtf8('Code'), // 1
+        cpUtf8('someOtherMethod'), // 2
+        cpUtf8('()V'), // 3
+        cpUtf8('Foo'), // 4
+        cpClass(4), // 5
+        cpUtf8('java/lang/Object'), // 6
+        cpClass(6), // 7
+      ];
+      final body = codeBody(maxStack: 0, maxLocals: 0, code: [vreturn]);
+      final raw = Uint8List.fromList([
+        ...classFileHeader,
+        ...cpSection(cpEntries),
+        ...u2(0x0021),
+        ...u2(5), // this = Foo
+        ...u2(7), // super = Object
+        ...u2(0), // interfaces
+        ...u2(0), // fields
+        ...u2(1), // 1 method
+        ...member(nameIdx: 2, descIdx: 3, codeAttrBytes: codeAttr(body)),
+        ...u2(0), // class attrs
+      ]);
+      expect(patchAppleConfigurablesImplClassBytes(raw), isNull);
+    });
+
+    test(
+      'throws StateError when CollectionsKt.emptyList Methodref is missing',
+      () {
+        final cpEntries = [
+          cpUtf8('Code'), // 1
+          cpUtf8('getDependencies'), // 2
+          cpUtf8('()Ljava/util/List;'), // 3
+          cpUtf8('SomeClass'), // 4
+          cpClass(4), // 5
+          cpUtf8('java/lang/Object'), // 6
+          cpClass(6), // 7
+        ];
+        final body = codeBody(
+          maxStack: 1,
+          maxLocals: 1,
+          code: List<int>.filled(5, 0),
+        );
+        final raw = Uint8List.fromList([
+          ...classFileHeader,
+          ...cpSection(cpEntries),
+          ...u2(0x0021),
+          ...u2(5), // this = SomeClass
+          ...u2(7), // super = Object
+          ...u2(0), // interfaces
+          ...u2(0), // fields
+          ...u2(1), // methods
+          ...member(nameIdx: 2, descIdx: 3, codeAttrBytes: codeAttr(body)),
+          ...u2(0), // class attrs
+        ]);
+        expect(
+          () => patchAppleConfigurablesImplClassBytes(raw),
+          throwsA(isA<StateError>()),
+        );
+      },
+    );
+
+    test('patched method code ends with ARETURN (0xB0)', () {
+      final patched = patchAppleConfigurablesImplClassBytes(
+        buildFakeAppleConfigurablesImplClass(),
+      )!;
+      expect(findLastCodeByte(patched), equals(areturn));
+    });
+
+    test(
+      'patched getDependencies body invokes CollectionsKt.emptyList then returns',
+      () {
+        final patched = patchAppleConfigurablesImplClassBytes(
+          buildFakeAppleConfigurablesImplClass(),
+        )!;
+        // New code is 4 bytes: [INVOKESTATIC, hi, lo, ARETURN], padded with
+        // 8 NOPs at the front (original code_length=12).
+        final body = lastMethodCodeBody(patched);
+        expect(body[8], equals(invokeStatic));
+        expect(body[9], equals(0x00)); // Methodref index high byte
+        expect(body[10], equals(0x0C)); // Methodref index low byte (= 12)
+        expect(body[11], equals(areturn));
+      },
+    );
   });
 
   // ── ObjCExport patch ──────────────────────────────────────────────────────
@@ -348,5 +457,45 @@ void main() {
       );
       expect((manifest.content as List).toList(), equals(payload));
     });
+
+    test(
+      'patches AppleConfigurablesImpl when present alongside HostManager',
+      () async {
+        final jar = File('${tmpDir.path}/test.jar');
+        await jar.writeAsBytes(
+          buildJar({
+            hostManagerClassEntry: buildFakeHostManagerClass().toList(),
+            appleConfigurablesImplClassEntry:
+                buildFakeAppleConfigurablesImplClass().toList(),
+          }),
+        );
+
+        expect(patchKotlinNativeJar(jar.path), isTrue);
+
+        final updated = ZipDecoder().decodeBytes(await jar.readAsBytes());
+        final patchedEntry = updated.files.firstWhere(
+          (f) => f.name == appleConfigurablesImplClassEntry,
+        );
+        final patchedBytes = Uint8List.fromList(
+          (patchedEntry.content as List).cast<int>(),
+        );
+        expect(findLastCodeByte(patchedBytes), equals(areturn));
+      },
+    );
+
+    test(
+      'patches AppleConfigurablesImpl alone even without HostManager/ObjCExport',
+      () async {
+        final jar = File('${tmpDir.path}/test.jar');
+        await jar.writeAsBytes(
+          buildJar({
+            appleConfigurablesImplClassEntry:
+                buildFakeAppleConfigurablesImplClass().toList(),
+          }),
+        );
+
+        expect(patchKotlinNativeJar(jar.path), isTrue);
+      },
+    );
   });
 }
