@@ -187,7 +187,10 @@ final class KonanConfiguration {
     addString(toolchain.clang);
     addString(toolchain.ld64Lld);
     addString(toolchain.darwinSdkPath);
-    addString('direct-java-apple-toolchain-v1');
+    // Bump when the staged shim contents change: the fingerprint is what
+    // decides whether an already-prepared toolchain root is reused, so a
+    // stale root would keep serving the previous shim scripts.
+    addString('direct-java-apple-toolchain-v2');
     if (toolchain.host.isWindows) {
       await _addFile(
         bytes,
@@ -365,7 +368,7 @@ final class KonanConfiguration {
           ).copy(path);
         } else {
           final file = File(path)
-            ..writeAsStringSync('#!/bin/sh\nexec "\$${entry.value}" "\$@"\n');
+            ..writeAsStringSync(_shimScript(entry.key, entry.value));
           (_makeExecutable ?? ProcessRunner.makeExecutable)(file.path);
           if (!Platform.isWindows) {
             Process.runSync('chmod', ['755', file.path]);
@@ -422,6 +425,24 @@ const _appleKonanTargets = [
   'watchos_x64',
   'watchos_simulator_arm64',
 ];
+
+/// The POSIX shim body staged into the fake Apple toolchain.
+///
+/// `dsymutil` is not shipped by every LLVM distribution (the swift.org
+/// toolchains xcross downloads on Linux have `ld64.lld` and `llvm-strip`
+/// but no `dsymutil`). Kotlin/Native's `MacOSBasedLinker` runs it
+/// unconditionally after each framework link and fails the build on a
+/// nonzero exit, while nothing downstream reads the `.dSYM` bundle, so a
+/// missing binary must degrade to a silent no-op (matching the same
+/// fallback in the Windows tool-alias dispatcher).
+String _shimScript(String tool, String variable) {
+  if (tool != 'dsymutil') {
+    return '#!/bin/sh\nexec "\$$variable" "\$@"\n';
+  }
+  return '#!/bin/sh\n'
+      'if [ ! -x "\$$variable" ]; then exit 0; fi\n'
+      'exec "\$$variable" "\$@"\n';
+}
 
 const _appleToolAliases = {
   'ld': 'XCROSS_APPLE_TOOL_LD',

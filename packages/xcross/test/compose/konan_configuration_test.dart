@@ -474,6 +474,20 @@ void main() {
     for (final name in ['ld', 'strip', 'dsymutil', 'libtool']) {
       expect(File(p.join(usrBin, name)).existsSync(), isTrue, reason: name);
     }
+
+    // The swift.org Linux LLVM has ld64.lld/llvm-strip but no dsymutil,
+    // and Kotlin/Native fails the link on its nonzero exit even though
+    // nothing reads the .dSYM, so the shim must no-op when it is absent.
+    final dsymutil = File(p.join(usrBin, 'dsymutil'));
+    expect(dsymutil.readAsStringSync(), contains('exit 0'));
+    if (!Platform.isWindows) {
+      final result = Process.runSync(
+        'sh',
+        [dsymutil.path],
+        environment: {'XCROSS_APPLE_TOOL_DSYMUTIL': '/nonexistent/dsymutil'},
+      );
+      expect(result.exitCode, 0);
+    }
   });
 
   test('creates Windows native Apple tool aliases without cmd shims', () async {
