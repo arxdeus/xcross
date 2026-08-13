@@ -49,6 +49,37 @@ void main() {
     },
   );
 
+  test('adds CADisableMinimumFrameDurationOnPhone without being asked', () {
+    // Compose UI's PlistSanityCheck throws at startup when this key is
+    // absent, which crashed the app (SIGABRT) to a black screen on device.
+    final fixture = _Fixture.create();
+    addTearDown(fixture.dispose);
+
+    final plist =
+        PropertyListSerialization.propertyListWithString(
+              ComposeInfoPlist.build(project: fixture.project),
+            )
+            as Map;
+
+    expect(plist['CADisableMinimumFrameDurationOnPhone'], isTrue);
+  });
+
+  test('lets the project opt out of the Compose plist defaults', () {
+    final fixture = _Fixture.create();
+    addTearDown(fixture.dispose);
+
+    final plist =
+        PropertyListSerialization.propertyListWithString(
+              ComposeInfoPlist.build(
+                project: fixture.project,
+                extras: {'CADisableMinimumFrameDurationOnPhone': false},
+              ),
+            )
+            as Map;
+
+    expect(plist['CADisableMinimumFrameDurationOnPhone'], isFalse);
+  });
+
   test('uses resolved project identity over xcconfig identity', () {
     final fixture = _Fixture.create();
     addTearDown(fixture.dispose);

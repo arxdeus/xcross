@@ -10,13 +10,28 @@ abstract final class ComposeInfoPlist {
     required KmpProject project,
     Map<String, Object?> extras = const {},
   }) {
-    final merged = <String, Object?>{};
+    final merged = <String, Object?>{..._composeDefaults};
     final partial = _readPartial(project.root);
     if (partial != null) merged.addAll(_safeMap(partial, 'partial plist'));
     merged.addAll(_safeMap(extras, 'extras'));
     merged.addAll(_required(project));
     return PropertyListSerialization.stringWithPropertyList(merged);
   }
+
+  /// Defaults a Compose app needs but Xcode templates normally supply.
+  ///
+  /// Compose UI runs `PlistSanityCheck` on startup and *throws* (SIGABRT
+  /// inside `terminateWithUnhandledException`, confirmed on device) when
+  /// `CADisableMinimumFrameDurationOnPhone` is missing, because without it
+  /// iOS caps the app at 60Hz on ProMotion displays. Xcode projects get the
+  /// key from the template's Info.plist, so a generated bundle must add it
+  /// or every Compose app crashes to a black screen at launch.
+  ///
+  /// These are defaults, not overrides: the project's own partial plist and
+  /// explicit extras are merged on top.
+  static const _composeDefaults = <String, Object?>{
+    'CADisableMinimumFrameDurationOnPhone': true,
+  };
 
   static Map<String, Object?> _required(KmpProject project) {
     final config = project.iosConfig;

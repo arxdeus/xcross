@@ -131,10 +131,6 @@ final class ObjcRunnerBuilder {
     label: p.basename(executable),
   );
 
-  /// Text shown by the native placeholder label under the Compose view.
-  static String _placeholderText(KmpProject project) =>
-      '${project.appName}\\nstarting…';
-
   static String _source(KmpProject project) {
     final objcClass =
         '${project.baseName}${project.entryClass ?? 'MainViewControllerKt'}';
@@ -152,24 +148,8 @@ final class ObjcRunnerBuilder {
         // transparent, and an uncoloured UIWindow shows through as pure
         // black, which reads as "the app launched to a black screen".
         '    self.window.backgroundColor = [UIColor systemBackgroundColor];\n'
-        '    UIViewController *root = [$objcClass $selector];\n'
-        // A native centered label sits *behind* the Compose view: it is the
-        // only thing on screen that does not depend on Skiko/Metal, so a
-        // blank launch is immediately diagnosable — visible text means UIKit
-        // is fine and Compose is not drawing, no text at all means the app
-        // never got a window on screen.
-        '    UILabel *placeholder = [[UILabel alloc] initWithFrame:self.window.bounds];\n'
-        '    placeholder.text = @"${_placeholderText(project)}";\n'
-        '    placeholder.textAlignment = NSTextAlignmentCenter;\n'
-        '    placeholder.numberOfLines = 0;\n'
-        '    placeholder.textColor = [UIColor labelColor];\n'
-        '    placeholder.backgroundColor = [UIColor systemBackgroundColor];\n'
-        '    placeholder.autoresizingMask =\n'
-        '        UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;\n'
-        '    [self.window addSubview:placeholder];\n'
-        '    self.window.rootViewController = root;\n'
+        '    self.window.rootViewController = [$objcClass $selector];\n'
         '    [self.window makeKeyAndVisible];\n'
-        '    [self.window sendSubviewToBack:placeholder];\n'
         '    return YES;\n'
         '}\n'
         '@end\n'
