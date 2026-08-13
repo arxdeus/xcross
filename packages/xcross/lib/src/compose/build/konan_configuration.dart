@@ -309,7 +309,8 @@ final class KonanConfiguration {
     String stagingRoot,
     ComposeToolchain toolchain,
   ) async {
-    final bin = p.join(stagingRoot, 'apple-toolchain', 'bin');
+    final appleToolchain = p.join(stagingRoot, 'apple-toolchain');
+    final bin = p.join(appleToolchain, 'bin');
     Directory(bin).createSync(recursive: true);
     // AppleConfigurablesImpl.getAbsoluteTargetToolchain() resolves to
     // "$appleToolchain/usr", and MacOSBasedLinker.compilerRtDir lists
@@ -319,22 +320,33 @@ final class KonanConfiguration {
     // The compiler tolerates an empty directory fine, it just means no
     // compiler-rt library gets linked in, so create the directory eagerly.
     Directory(
-      p.join(stagingRoot, 'apple-toolchain', 'usr', 'lib', 'clang'),
+      p.join(appleToolchain, 'usr', 'lib', 'clang'),
     ).createSync(recursive: true);
+    // MacOSBasedLinker's constructor also hardcodes linker/libtool/strip/
+    // dsymutil as "$absoluteTargetToolchain/bin/<tool>" (i.e.
+    // "$appleToolchain/usr/bin/<tool>"), bypassing any konan.properties
+    // override. Stage the same shims there too, or the link step fails
+    // with "Cannot run program ".../apple-toolchain/usr/bin/ld"".
+    final usrBin = p.join(appleToolchain, 'usr', 'bin');
+    Directory(usrBin).createSync(recursive: true);
+    const usrBinTools = {'ld', 'strip', 'dsymutil', 'libtool'};
     for (final entry in _appleToolAliases.entries) {
-      final path = p.join(
-        bin,
-        toolchain.host.isWindows ? '${entry.key}.exe' : entry.key,
-      );
-      if (toolchain.host.isWindows) {
-        await File(
-          _runningExecutable ?? Platform.resolvedExecutable,
-        ).copy(path);
-      } else {
-        final file = File(path)
-          ..writeAsStringSync('#!/bin/sh\nexec "\$${entry.value}" "\$@"\n');
-        (_makeExecutable ?? ProcessRunner.makeExecutable)(file.path);
-        if (!Platform.isWindows) Process.runSync('chmod', ['755', file.path]);
+      final name = toolchain.host.isWindows ? '${entry.key}.exe' : entry.key;
+      final targets = [bin, if (usrBinTools.contains(entry.key)) usrBin];
+      for (final directory in targets) {
+        final path = p.join(directory, name);
+        if (toolchain.host.isWindows) {
+          await File(
+            _runningExecutable ?? Platform.resolvedExecutable,
+          ).copy(path);
+        } else {
+          final file = File(path)
+            ..writeAsStringSync('#!/bin/sh\nexec "\$${entry.value}" "\$@"\n');
+          (_makeExecutable ?? ProcessRunner.makeExecutable)(file.path);
+          if (!Platform.isWindows) {
+            Process.runSync('chmod', ['755', file.path]);
+          }
+        }
       }
     }
   }

@@ -322,6 +322,23 @@ void main() {
     if (!Platform.isWindows) {
       expect(ld.statSync().mode & 0x49, 0x49);
     }
+
+    // MacOSBasedLinker's constructor hardcodes linker/libtool/strip/dsymutil
+    // as "$absoluteTargetToolchain/bin/<tool>", and
+    // AppleConfigurables.getAbsoluteTargetToolchain() resolves to
+    // "$appleToolchain/usr" (confirmed by decompiling the real compiler
+    // jar), so those four tools must also exist under apple-toolchain's
+    // usr/bin, not just bin. Without this, the linker step fails with
+    // "Cannot run program ".../apple-toolchain/usr/bin/ld": No such file".
+    final usrBin = p.join(
+      p.dirname(prepared.kotlinHome),
+      'apple-toolchain',
+      'usr',
+      'bin',
+    );
+    for (final name in ['ld', 'strip', 'dsymutil', 'libtool']) {
+      expect(File(p.join(usrBin, name)).existsSync(), isTrue, reason: name);
+    }
   });
 
   test('creates Windows native Apple tool aliases without cmd shims', () async {
@@ -374,6 +391,24 @@ void main() {
       contains('linker.mingw_x64-ios_arm64='),
     );
     expect(prepared.environment['PATH'], startsWith('$bin;'));
+
+    // Same absoluteTargetToolchain/usr/bin requirement as Linux (see the
+    // Linux test above): MacOSBasedLinker resolves linker/libtool/strip/
+    // dsymutil relative to "$absoluteTargetToolchain/bin", which is
+    // "$appleToolchain/usr/bin" once AppleConfigurables appends "/usr".
+    final usrBin = p.join(
+      p.dirname(prepared.kotlinHome),
+      'apple-toolchain',
+      'usr',
+      'bin',
+    );
+    for (final name in ['ld', 'strip', 'dsymutil', 'libtool']) {
+      expect(
+        File(p.join(usrBin, '$name.exe')).existsSync(),
+        isTrue,
+        reason: name,
+      );
+    }
   });
 }
 
