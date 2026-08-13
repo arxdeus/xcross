@@ -133,8 +133,9 @@ class TunnelDaemon {
   /// so it is safe as a pre-flight check from stdio-sensitive callers (the DAP).
   static Future<bool> isReachable() async {
     try {
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 3);
+      final client = LocalHttp.client(
+        connectionTimeout: const Duration(seconds: 3),
+      );
       try {
         final req = await client.getUrl(Uri.parse(TunnelConstants.tunneldUrl));
         final resp = await req.close();

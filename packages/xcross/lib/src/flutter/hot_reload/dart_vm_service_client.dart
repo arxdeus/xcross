@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:cli_kit/cli_kit.dart';
+import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/flutter/hot_reload/internal/pending_call.dart';
@@ -32,7 +33,17 @@ final class DartVmServiceClient {
     Duration timeout = const Duration(seconds: 30),
   }) async {
     try {
-      _channel = WebSocketChannel.connect(url);
+      // dart:io's WebSocket honours http_proxy for ws:// too, and Dart's
+      // no_proxy parsing does not understand the usual 127.0.0.0/8 entry,
+      // so a system-wide proxy would swallow the forwarded VM Service on
+      // loopback. Route local sockets around the proxy explicitly.
+      _channel = LocalHttp.isLoopback(url.host)
+          ? IOWebSocketChannel.connect(
+              url,
+              customClient: LocalHttp.client(),
+              connectTimeout: timeout,
+            )
+          : WebSocketChannel.connect(url);
       await _channel!.ready.timeout(timeout);
     } catch (e) {
       throw FlutterBuildError('VM Service connect failed: $e');

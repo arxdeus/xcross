@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/constants.dart';
@@ -148,8 +147,9 @@ abstract final class TunnelDiscovery {
       );
 
   static Future<Map<String, dynamic>> _fetch(String url) async {
-    final client = HttpClient();
-    client.connectionTimeout = const Duration(seconds: 5);
+    final client = LocalHttp.client(
+      connectionTimeout: const Duration(seconds: 5),
+    );
     // /start-tunnel can block while creating the TUN — allow longer.
     client.idleTimeout = const Duration(seconds: 60);
     try {

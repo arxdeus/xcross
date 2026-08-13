@@ -302,8 +302,9 @@ final class HotReloadController {
     final gz = GZipCodec().encode(raw);
     Log.logTrace('[timing] devfs-bytes raw=${raw.length} gz=${gz.length}');
 
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 10);
+    final client = LocalHttp.client(
+      connectionTimeout: const Duration(seconds: 10),
+    );
     try {
       await _putDevFsFile(client, targetUri: targetUri, body: gz);
     } catch (e) {
