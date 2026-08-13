@@ -43,6 +43,12 @@ void main() {
         contains('[SharedMainViewControllerKt MainViewController]'),
       );
       expect(mainSource, contains('UIApplicationMain'));
+      // The native label is the launch-time canary: it renders without
+      // Skiko, so it distinguishes "Compose did not draw" from "the app
+      // never presented a window".
+      expect(mainSource, contains('UILabel'));
+      expect(mainSource, contains('NSTextAlignmentCenter'));
+      expect(mainSource, contains('sendSubviewToBack'));
       // A transparent Compose layer over a colourless UIWindow renders as a
       // black screen on device, so the runner must colour the window.
       expect(

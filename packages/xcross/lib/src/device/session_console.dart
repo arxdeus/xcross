@@ -120,7 +120,20 @@ final class SessionConsole {
             Log.logInfo('App exited ${Log.ansi.subtle('(${reply.payload})')}');
             _stop();
             finish();
-          case GdbReply.stopped || GdbReply.other:
+          case GdbReply.stopped:
+            // A crash arrives as a T-packet, not as W/X: the process is
+            // stopped, not gone. Ignoring it (the old behaviour) left the
+            // app frozen on a black screen with no output at all, which is
+            // indistinguishable from a hang. Report it and end the session.
+            if (reply.isFatalStop) {
+              Log.logError(
+                'App crashed: ${reply.stopDescription}. '
+                'The process is stopped at the fault.',
+              );
+              _stop();
+              finish();
+            }
+          case GdbReply.other:
             break;
         }
       },

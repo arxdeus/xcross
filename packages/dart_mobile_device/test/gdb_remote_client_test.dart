@@ -59,6 +59,7 @@ Stream<String> _incomingFrames(Socket socket, {List<int>? rawBytes}) {
 }
 
 void main() {
+  _stopSignalTests();
   // Pins the checksum format against a hand-computed value, independent of
   // the _frame() helper above — a shared bug in both would otherwise pass.
   test(
@@ -266,5 +267,37 @@ void main() {
         expect(events, isEmpty);
       },
     );
+  });
+}
+
+void _stopSignalTests() {
+  group('GdbReplyPacket stop signals', () {
+    // A crashing iOS app reports through a T-packet ("T0b..." = SIGSEGV),
+    // never through W/X, so this decoding is what makes a crash visible
+    // instead of looking like a silent hang.
+    test('decodes SIGSEGV from a T packet', () {
+      const packet = GdbReplyPacket(GdbReply.stopped, 'T0bthread:1;name:main;');
+      expect(packet.stopSignal, 11);
+      expect(packet.stopDescription, contains('SIGSEGV'));
+      expect(packet.isFatalStop, isTrue);
+    });
+
+    test('decodes SIGABRT', () {
+      const packet = GdbReplyPacket(GdbReply.stopped, 'T06thread:1;');
+      expect(packet.stopSignal, 6);
+      expect(packet.isFatalStop, isTrue);
+    });
+
+    test('does not treat SIGTRAP as a crash', () {
+      const packet = GdbReplyPacket(GdbReply.stopped, 'T05thread:1;');
+      expect(packet.stopSignal, 5);
+      expect(packet.isFatalStop, isFalse);
+    });
+
+    test('ignores non-stop packets', () {
+      const packet = GdbReplyPacket(GdbReply.stdout, 'O68690a');
+      expect(packet.stopSignal, isNull);
+      expect(packet.isFatalStop, isFalse);
+    });
   });
 }

@@ -30,6 +30,34 @@ final class GdbReplyPacket {
   final GdbReply type;
   final String payload;
 
+  /// For [GdbReply.stopped]: the POSIX signal number in a `T`/`S` packet,
+  /// e.g. 11 (SIGSEGV) or 6 (SIGABRT). Null when the payload has no
+  /// parseable signal byte.
+  int? get stopSignal {
+    if (type != GdbReply.stopped || payload.length < 3) return null;
+    return int.tryParse(payload.substring(1, 3), radix: 16);
+  }
+
+  /// Human name for [stopSignal], for the signals a launch actually hits.
+  String get stopDescription => switch (stopSignal) {
+    4 => 'SIGILL',
+    5 => 'SIGTRAP',
+    6 => 'SIGABRT (uncaught exception or Kotlin/Native crash)',
+    8 => 'SIGFPE',
+    10 => 'SIGBUS',
+    11 => 'SIGSEGV (bad memory access)',
+    final int s => 'signal $s',
+    null => 'unknown signal',
+  };
+
+  /// Whether this stop is a fatal fault rather than a debugger-expected
+  /// pause. SIGTRAP is how the debugger's own breakpoints report, so it must
+  /// not be treated as a crash.
+  bool get isFatalStop => switch (stopSignal) {
+    null || 5 || 0 => false,
+    _ => true,
+  };
+
   /// For [GdbReply.stdout]: hex-decoded bytes of the `O` payload.
   Uint8List get stdoutBytes => _hexDecode(payload.substring(1));
 
