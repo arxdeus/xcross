@@ -40,7 +40,7 @@ void main() {
         '--enable-vm-service=0',
         '--disable-service-auth-codes',
         script.path,
-      ]);
+      ], environment: _noLoopbackProxy());
       addTearDown(() => child.kill(ProcessSignal.sigkill));
 
       // "The Dart VM service is listening on http://127.0.0.1:<port>/"
@@ -78,4 +78,20 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 60)),
   );
+}
+
+/// Environment for the child VM with loopback exempted from any proxy.
+///
+/// The VM boots DDS by connecting to its own service on 127.0.0.1, and
+/// dart:io honours `http_proxy` while its `no_proxy` parser understands only
+/// literal hosts (not the usual `127.0.0.0/8`). On a machine with a
+/// system-wide proxy the child dies with "Could not start the VM service:
+/// Connection closed before full header was received" and this test times
+/// out for reasons that have nothing to do with the code under test.
+Map<String, String> _noLoopbackProxy() {
+  final env = Map<String, String>.from(Platform.environment)
+    ..removeWhere((key, _) => key.toLowerCase().endsWith('_proxy'));
+  env['no_proxy'] = 'localhost,127.0.0.1,::1';
+  env['NO_PROXY'] = env['no_proxy']!;
+  return env;
 }
