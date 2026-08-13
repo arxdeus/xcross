@@ -259,6 +259,43 @@ jobs:
           test -f examples/compose_app/build/xcross-ios/ComposeApp.app/Runner
           test -f examples/kmp_swift_app/build/xcross-ios/KmpSwiftApp.app/Runner
 
+      - name: Inspect Compose smoke examples on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The build pipeline itself gates on Mach-O validity
+          # (MachOValidator.validate64BitExecutable) and Info.plist/framework
+          # presence (ComposeAppAssembler._validateStagedApp) before ever
+          # writing an .app, and both are unit-tested. This step is the
+          # independent, external half of that acceptance criterion: verify
+          # the actual bundles CI just produced, the same way the Flutter
+          # plugin sample below is inspected, rather than trusting the
+          # internal gate alone.
+          declare -A apps=(
+            [examples/compose_app/build/xcross-ios/ComposeApp.app]=ComposeApp
+            [examples/kmp_swift_app/build/xcross-ios/KmpSwiftApp.app]=Shared
+          )
+          for app in "${!apps[@]}"; do
+            base=${apps[$app]}
+            runner="$app/Runner"
+            plist="$app/Info.plist"
+            framework="$app/Frameworks/$base.framework/$base"
+            test -f "$runner"
+            test -f "$plist"
+            test -f "$framework"
+            llvm-readobj --file-headers "$runner" | tee "$(basename "$app")-runner-headers.txt"
+            grep -Eq 'Format: Mach-O arm64|Arch: aarch64' "$(basename "$app")-runner-headers.txt"
+            python3 -c 'import plistlib, sys
+            parsed = plistlib.load(open(sys.argv[1], "rb"))
+            missing = [k for k in ("CFBundleExecutable", "CFBundleIdentifier", "CFBundleName") if not parsed.get(k)]
+            if missing:
+                sys.exit("Info.plist missing " + repr(missing) + ": " + repr(parsed))
+            executable = parsed["CFBundleExecutable"]
+            if executable != "Runner":
+                sys.exit("CFBundleExecutable is " + repr(executable) + ", not Runner")' "$plist"
+          done
+
       - name: Build Compose smoke examples on Windows
         if: runner.os == 'Windows'
         shell: pwsh
@@ -281,6 +318,49 @@ jobs:
           foreach ($output in $outputs) {
             if (-not (Test-Path $output -PathType Leaf)) {
               throw "Missing $output"
+            }
+          }
+
+      - name: Inspect Compose smoke examples on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # See the matching Linux step's comment: the build pipeline
+          # already gates Mach-O validity and Info.plist/framework presence
+          # internally (and both are unit-tested); this is the independent,
+          # external verification of the bundles this job just produced.
+          $apps = @{
+            'examples/compose_app/build/xcross-ios/ComposeApp.app' = 'ComposeApp'
+            'examples/kmp_swift_app/build/xcross-ios/KmpSwiftApp.app' = 'Shared'
+          }
+          foreach ($app in $apps.Keys) {
+            $base = $apps[$app]
+            $runner = Join-Path $app 'Runner'
+            $plist = Join-Path $app 'Info.plist'
+            $framework = Join-Path $app "Frameworks/$base.framework/$base"
+            if (-not (Test-Path $runner -PathType Leaf)) {
+              throw "Missing $runner"
+            }
+            if (-not (Test-Path $plist -PathType Leaf)) {
+              throw "Missing $plist"
+            }
+            if (-not (Test-Path $framework -PathType Leaf)) {
+              throw "Missing $framework"
+            }
+            $headers = (& llvm-readobj --file-headers $runner | Out-String)
+            if ($LASTEXITCODE -ne 0) { throw 'llvm-readobj failed' }
+            $isMachO = $headers -match 'Format:\s+Mach-O arm64'
+            $isArm64 = $headers -match 'Arch:\s+aarch64'
+            if (-not $isMachO -and -not $isArm64) {
+              throw "Runner is not ARM64 Mach-O:`n$headers"
+            }
+            $plistText = Get-Content $plist -Raw
+            if ($plistText -notmatch '<key>CFBundleExecutable</key>\s*<string>Runner</string>') {
+              throw "Info.plist missing CFBundleExecutable=Runner:`n$plistText"
+            }
+            if ($plistText -notmatch '<key>CFBundleIdentifier</key>') {
+              throw "Info.plist missing CFBundleIdentifier:`n$plistText"
             }
           }
 
