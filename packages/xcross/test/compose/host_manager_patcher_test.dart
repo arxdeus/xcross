@@ -16,7 +16,7 @@ const int aload0 = 0x2A; // ALOAD_0
 const int invokeVirtual = 0xB6; // INVOKEVIRTUAL
 const int areturn = 0xB0; // ARETURN
 const int vreturn = 0xB1; // RETURN (void)
-const int invokeStatic = 0xB8; // INVOKESTATIC
+const int invokeSpecial = 0xB7; // INVOKESPECIAL
 
 void main() {
   // ── CP parser: Long/Double consume two slots ──────────────────────────────
@@ -144,14 +144,23 @@ void main() {
   // ── AppleConfigurablesImpl.getDependencies patch ──────────────────────────
   //
   // KONAN_USE_INTERNAL_SERVER=1 (required for cross-host compilation with no
-  // local Xcode) forces AppleConfigurablesImpl.getDependencies() to list the
-  // literal targetSysRoot/targetToolchain/additionalToolsDir override VALUES
-  // as downloadable dependency names. DependencyProcessor then fetches
+  // local Xcode) forces AppleConfigurablesImpl.getDependencies() to append
+  // the literal targetSysRoot/targetToolchain/additionalToolsDir override
+  // VALUES to the dependency list as downloadable dependency names. Dependency
+  // Processor then fetches
   // "<basename>.tar.gz" from JetBrains' server, which 404s because those
   // basenames are xcross's local SDK shim paths, not real hosted artifacts.
-  // Neuter the eager prefetch list; the actual absolute-path resolution used
-  // during linking (getAbsoluteTargetSysRoot etc.) already special-cases
-  // absolute paths and does not need this list.
+  // Drop just that InternalServer-only addition; the actual absolute-path
+  // resolution used during linking (getAbsoluteTargetSysRoot etc.) already
+  // special-cases absolute paths and does not need it. Crucially, keep the
+  // leading super.getDependencies() call: that base-class call is what
+  // declares the compiler's own LLVM toolchain dependency
+  // (KonanPropertiesLoader.getDependencies() resolves llvmHome.<host>'s
+  // predefined distribution name), so replacing the whole method body with
+  // `emptyList()` (as an earlier version of this patch did) silently drops
+  // that declaration and makes DependencyProcessor later throw
+  // "<llvm package> not declared as dependency" once the compiler resolves
+  // absoluteLlvmHome.
 
   group('patchAppleConfigurablesImplClassBytes', () {
     test('returns non-null for class with getDependencies', () {
@@ -190,7 +199,7 @@ void main() {
     });
 
     test(
-      'throws StateError when CollectionsKt.emptyList Methodref is missing',
+      'throws StateError when superclass getDependencies Methodref is missing',
       () {
         final cpEntries = [
           cpUtf8('Code'), // 1
@@ -233,17 +242,18 @@ void main() {
     });
 
     test(
-      'patched getDependencies body invokes CollectionsKt.emptyList then returns',
+      'patched getDependencies body invokes super.getDependencies then returns',
       () {
         final patched = patchAppleConfigurablesImplClassBytes(
           buildFakeAppleConfigurablesImplClass(),
         )!;
-        // New code is 4 bytes: [INVOKESTATIC, hi, lo, ARETURN], padded with
-        // 8 NOPs at the front (original code_length=12).
+        // New code is 5 bytes: [ALOAD_0, INVOKESPECIAL, hi, lo, ARETURN],
+        // padded with 7 NOPs at the front (original code_length=12).
         final body = lastMethodCodeBody(patched);
-        expect(body[8], equals(invokeStatic));
+        expect(body[7], equals(aload0));
+        expect(body[8], equals(invokeSpecial));
         expect(body[9], equals(0x00)); // Methodref index high byte
-        expect(body[10], equals(0x0C)); // Methodref index low byte (= 12)
+        expect(body[10], equals(0x0F)); // Methodref index low byte (= 15)
         expect(body[11], equals(areturn));
       },
     );

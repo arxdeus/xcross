@@ -27,7 +27,7 @@ const String appleConfigurablesImplClassEntry =
 const int _nop = 0x00;
 const int _iconst1 = 0x04;
 const int _aload0 = 0x2a;
-const int _invokeStatic = 0xb8;
+const int _invokeSpecial = 0xb7;
 const int _invokeVirtual = 0xb6;
 const int _ireturn = 0xac;
 const int _areturn = 0xb0;
@@ -414,6 +414,15 @@ class _ClassFile {
     return e.str ?? '';
   }
 
+  /// Returns the binary/internal name (e.g. `java/lang/Object`) of this
+  /// class's direct superclass, or `null` if [superClass] does not point at
+  /// a well-formed `CONSTANT_Class` entry.
+  String? get superClassName {
+    final cls = cp[superClass];
+    if (cls == null || cls.tag != _cpClass || cls.idx1 == null) return null;
+    return _utf8(cls.idx1!);
+  }
+
   /// Returns the 1-based CP index of the Methodref matching [owner]/[name]/[descriptor],
   /// or `null` if not present.
   int? findMethodrefIdx(String owner, String name, String descriptor) {
@@ -645,18 +654,40 @@ Uint8List? patchObjCExportClassBytes(Uint8List classBytes) {
 }
 
 /// Patches raw [appleConfigurablesImplClassEntry] bytes by rewriting
-/// `getDependencies()Ljava/util/List;` to `return emptyList()`.
+/// `getDependencies()Ljava/util/List;` to `return super.getDependencies();`.
 ///
 /// `KONAN_USE_INTERNAL_SERVER=1` (required for cross-host compilation with
-/// no local Xcode) forces `AppleConfigurablesImpl.getDependencies()` to list
-/// the literal `targetSysRoot`/`targetToolchain`/`additionalToolsDir`
-/// override VALUES as downloadable dependency names.
+/// no local Xcode) forces `AppleConfigurablesImpl.getDependencies()` to
+/// append the literal `targetSysRoot`/`targetToolchain`/`additionalToolsDir`
+/// override VALUES to the dependency list as downloadable dependency names.
 /// `DependencyProcessor` then fetches `<basename>.tar.gz` from JetBrains'
 /// server for each, which 404s because those basenames are xcross's local
 /// SDK shim paths, not real hosted artifacts. The actual absolute-path
 /// resolution used during linking (`getAbsoluteTargetSysRoot` etc.) already
 /// special-cases absolute paths via `DependencyProcessor.resolve` and does
-/// not need this eager prefetch list, so it is safe to always return empty.
+/// not need this eager prefetch list, so it is safe to drop it.
+///
+/// Earlier this method's whole body was replaced with `return emptyList()`,
+/// which *also* discarded the `super.getDependencies()` call it starts
+/// with. That base-class call is what declares the compiler's own LLVM
+/// toolchain dependency (`KonanPropertiesLoader.getDependencies()` ==
+/// `hostTargetList("dependencies") + compilerDependencies()`, and
+/// `compilerDependencies()` resolves `llvmHome.<host>`'s predefined
+/// distribution name, e.g. `llvm-21-x86_64-linux-essentials-116` on the
+/// real Linux Kotlin/Native 2.4.0 distribution, whose `konan.properties`
+/// sets `llvmHome.linux_x64 = $llvm.linux_x64.user`). With that call
+/// removed, `DependencyProcessor` never learns this package exists, so any
+/// later resolution of `absoluteLlvmHome` (needed while compiling for
+/// `ios_arm64`, since `AppleConfigurablesImpl.absoluteTargetToolchain` etc.
+/// all route through the shared `DependencyProcessor`) throws
+/// `IllegalStateException: llvm-21-x86_64-linux-essentials-116 not declared
+/// as dependency` (confirmed against exact-head CI run 31659757134, and by
+/// diffing the real Linux/Windows Kotlin/Native 2.4.0 `konan.properties`
+/// against the local macOS one, where `llvmHome.linux_x64`/`llvmHome.
+/// mingw_x64` default to the `.user` (essentials) variant instead of
+/// `.dev`). Keeping `super.getDependencies()` and only dropping the
+/// InternalServer-only sdk/toolchain/xcodeAddon addition fixes this while
+/// still avoiding the 404s from `6be03f2`.
 ///
 /// Returns `null` when the method is not found (non-fatal: the class may not
 /// be present, or its shape may differ, in other Kotlin/Native versions).
@@ -666,14 +697,21 @@ Uint8List? patchAppleConfigurablesImplClassBytes(Uint8List classBytes) {
   const descriptor = '()Ljava/util/List;';
   if (cf._findMethod(name, descriptor) == null) return null;
 
-  final emptyListIdx = cf.findMethodrefIdx(
-    'kotlin/collections/CollectionsKt',
-    'emptyList',
-    '()Ljava/util/List;',
-  );
-  if (emptyListIdx == null) {
+  final superName = cf.superClassName;
+  if (superName == null) {
     throw StateError(
-      'HostManagerPatcher: CollectionsKt.emptyList Methodref not in '
+      'HostManagerPatcher: AppleConfigurablesImpl has no resolvable '
+      'superclass',
+    );
+  }
+  final superGetDependenciesIdx = cf.findMethodrefIdx(
+    superName,
+    'getDependencies',
+    descriptor,
+  );
+  if (superGetDependenciesIdx == null) {
+    throw StateError(
+      'HostManagerPatcher: $superName.getDependencies Methodref not in '
       'constant pool',
     );
   }
@@ -681,9 +719,10 @@ Uint8List? patchAppleConfigurablesImplClassBytes(Uint8List classBytes) {
     name,
     descriptor,
     Uint8List.fromList([
-      _invokeStatic,
-      (emptyListIdx >> 8) & 0xFF,
-      emptyListIdx & 0xFF,
+      _aload0,
+      _invokeSpecial,
+      (superGetDependenciesIdx >> 8) & 0xFF,
+      superGetDependenciesIdx & 0xFF,
       _areturn,
     ]),
   );
