@@ -211,6 +211,57 @@ void main() {
   });
 
   test(
+    'Swift runner picks the newest clang version directory deterministically '
+    'when multiple exist',
+    () async {
+      // _compilerRtIos sorts candidate version directories rather than
+      // trusting Directory.listSync()'s filesystem-dependent order, so this
+      // must pick "21" over "19" regardless of listing order. Mirrors the
+      // matching konan_configuration_test.dart test for
+      // _findCompilerRtDarwinDir.
+      final fixture = _Fixture.create()
+        ..createSdk()
+        ..createCompilerRt();
+      final olderDir = p.join(
+        fixture.darwinSdkBundle,
+        'Developer',
+        'Toolchains',
+        'XcodeDefault.xctoolchain',
+        'usr',
+        'lib',
+        'clang',
+        '19',
+        'lib',
+        'darwin',
+      );
+      Directory(olderDir).createSync(recursive: true);
+      File(
+        p.join(olderDir, 'libclang_rt.ios.a'),
+      ).writeAsStringSync('WRONG-should-not-be-picked');
+      final calls = <_Call>[];
+      addTearDown(fixture.dispose);
+
+      await SwiftRunnerBuilder.withSeams(
+        runChecked: (executable, arguments, {workingDirectory}) async {
+          calls.add(_Call(executable, arguments, workingDirectory));
+          fixture.writeMachO(
+            p.join(fixture.root, 'build', 'xcross-compose', 'Runner'),
+          );
+        },
+      ).build(
+        project: fixture.swiftProject,
+        frameworkPath: fixture.frameworkPath,
+        toolchain: fixture.toolchain,
+      );
+
+      expect(
+        calls.single.arguments,
+        containsAllInOrder(['-Xlinker', fixture.compilerRtIosPath]),
+      );
+    },
+  );
+
+  test(
     'rejects missing inputs and non Mach-O runner output without invoking file',
     () async {
       final fixture = _Fixture.create()..createSdk();

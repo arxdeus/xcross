@@ -469,8 +469,16 @@ String? _findCompilerRtDarwinDir(String darwinSdkBundle) {
     ),
   );
   if (!clang.existsSync()) return null;
-  for (final entry in clang.listSync()) {
-    if (entry is! Directory) continue;
+  // Sorted for determinism: Directory.listSync()'s order is filesystem-
+  // dependent, and a real Xcode toolchain only ever ships one clang version
+  // subdirectory today (confirmed against a live Darwin SDK bundle), so
+  // this is inert in practice, but matches the sorted-listing convention
+  // DarwinSdk._firstSdk already uses for the analogous iPhoneOS.sdk pick,
+  // for the same reason: an unsorted pick from a directory listing is
+  // nondeterministic the moment there's ever more than one candidate.
+  final versions = clang.listSync().whereType<Directory>().toList()
+    ..sort((a, b) => b.path.compareTo(a.path));
+  for (final entry in versions) {
     final darwin = p.join(entry.path, 'lib', 'darwin');
     if (Directory(darwin).existsSync()) return darwin;
   }

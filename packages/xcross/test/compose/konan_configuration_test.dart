@@ -281,6 +281,61 @@ void main() {
     },
   );
 
+  test('picks the newest clang version directory deterministically when '
+      'multiple exist', () async {
+    // _findCompilerRtDarwinDir sorts candidate version directories rather
+    // than trusting Directory.listSync()'s filesystem-dependent order, so
+    // this must pick "21" over "19" regardless of listing order. A real
+    // Xcode toolchain only ever ships one, so this only matters if that
+    // ever changes, but a deterministic pick beats a flaky one either way.
+    final fixture = _Fixture.create(ComposeHost.linuxX64)
+      ..createKotlinHome()
+      ..createCompilerRt();
+    final olderDir = p.join(
+      fixture.sdkBundle,
+      'Developer',
+      'Toolchains',
+      'XcodeDefault.xctoolchain',
+      'usr',
+      'lib',
+      'clang',
+      '19',
+      'lib',
+      'darwin',
+    );
+    Directory(olderDir).createSync(recursive: true);
+    File(
+      p.join(olderDir, 'libclang_rt.ios.a'),
+    ).writeAsStringSync('WRONG-should-not-be-picked');
+    addTearDown(fixture.dispose);
+
+    final prepared = await KonanConfiguration.withSeams(
+      patchCompilerJar: (jar) async {},
+      makeExecutable: (_) {},
+    ).prepare(project: fixture.project, toolchain: fixture.toolchain);
+
+    final staged = File(
+      p.join(
+        p.dirname(prepared.kotlinHome),
+        'apple-toolchain',
+        'usr',
+        'lib',
+        'clang',
+        'xcross',
+        'lib',
+        'darwin',
+        'libclang_rt.ios.a',
+      ),
+    );
+    expect(
+      staged.readAsStringSync(),
+      File(
+        p.join(fixture.compilerRtDarwinDir, 'libclang_rt.ios.a'),
+      ).readAsStringSync(),
+    );
+    expect(staged.readAsStringSync(), isNot(contains('WRONG')));
+  });
+
   test(
     'reuses completed fingerprint root without deleting or rebuilding it',
     () async {

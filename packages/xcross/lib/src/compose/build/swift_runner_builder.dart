@@ -197,8 +197,12 @@ String? _compilerRtIos(String darwinSdkBundle) {
     ),
   );
   if (!clang.existsSync()) return null;
-  for (final entry in clang.listSync()) {
-    if (entry is! Directory) continue;
+  // Sorted for determinism, matching konan_configuration.dart's
+  // _findCompilerRtDarwinDir and DarwinSdk._firstSdk's sorted-listing
+  // convention — see the comment there for why.
+  final versions = clang.listSync().whereType<Directory>().toList()
+    ..sort((a, b) => b.path.compareTo(a.path));
+  for (final entry in versions) {
     final candidate = p.join(entry.path, 'lib', 'darwin', 'libclang_rt.ios.a');
     if (File(candidate).existsSync()) return candidate;
   }
