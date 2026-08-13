@@ -7,6 +7,7 @@ import 'package:dart_mobile_device/src/errors.dart';
 import 'package:dart_mobile_device/src/pymd/pymd.dart';
 import 'package:dart_mobile_device/src/tunnel/tunnel_daemon.dart';
 import 'package:dart_mobile_device/src/tunnel/tunnel_discovery.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
 /// One-shot iOS 17+ host prep: mount the Developer Disk Image and start the
@@ -79,10 +80,14 @@ abstract final class DevicePrepare {
         environment: Pymd.usbmuxEnvironment(),
       );
       Log.logTrace(result.stdout.trim());
-      if (result.exitCode != 0) {
+      // auto-mount exits 0 even when it never reached the device (it just
+      // logs "ERROR Device is not connected"), which otherwise shows a green
+      // checkmark and defers the real failure to the tunnel step.
+      final stderr = result.stderr.trim();
+      if (result.exitCode != 0 || _isDeviceMissing(stderr)) {
         throw TunnelError(
           'mounter auto-mount failed (exit ${result.exitCode}).\n'
-          '${result.stderr.trim()}\n'
+          '${explainTunnelExit(stderr.isEmpty ? const [] : stderr.split('\n'))}'
           'Retry manually:\n'
           '    ${Pymd.elevatedCommand('mounter auto-mount')}',
         );
@@ -149,10 +154,17 @@ abstract final class DevicePrepare {
     final logSink = logFile.openWrite(mode: FileMode.append);
     final ready = Completer<void>();
 
+    // pymobiledevice3 reports real failures ("Device is not connected",
+    // "Failed to connect to usbmuxd socket") on stderr and then exits 0, so
+    // the exit code says nothing. Keep the last lines to explain *why* it
+    // stopped instead of pointing at a log file the user has to open.
+    final recent = <String>[];
     void onLine(String line) {
       final trimmed = line.trimRight();
       if (trimmed.isEmpty) return;
       Log.logTrace(trimmed);
+      recent.add(trimmed);
+      if (recent.length > 5) recent.removeAt(0);
       if (!ready.isCompleted && _tunnelReadyPattern.hasMatch(trimmed)) {
         ready.complete();
       }
@@ -168,7 +180,8 @@ abstract final class DevicePrepare {
         if (!ready.isCompleted) {
           ready.completeError(
             TunnelError(
-              'lockdown start-tunnel exited early (code $code). '
+              'lockdown start-tunnel exited early (code $code).\n'
+              '${explainTunnelExit(recent)}'
               'See $logPath',
             ),
           );
@@ -193,6 +206,31 @@ abstract final class DevicePrepare {
       '[pymobiledevice3] lockdown RSD tunnel is up '
       '(pid ${proc.pid}; leave it running)',
     );
+  }
+
+  /// Whether pymobiledevice3 output says the device vanished from usbmux.
+  static bool _isDeviceMissing(String output) =>
+      output.contains('Device is not connected') ||
+      output.contains('Failed to connect to usbmuxd socket');
+
+  /// Turn the daemon's last output lines into an actionable hint.
+  @visibleForTesting
+  static String explainTunnelExit(List<String> recent) {
+    final detail = recent.join('\n');
+    final buffer = StringBuffer();
+    if (detail.isNotEmpty) buffer.writeln(detail);
+    if (detail.contains('Device is not connected')) {
+      buffer.writeln(
+        'The device is no longer visible to usbmuxd. Unplug and replug the '
+        'cable (or unlock and re-trust the phone), then retry.',
+      );
+    } else if (detail.contains('usbmuxd')) {
+      buffer.writeln(
+        'usbmuxd is not reachable. Start it with '
+        '"sudo systemctl start usbmuxd", then retry.',
+      );
+    }
+    return buffer.toString();
   }
 
   /// Tee the raw bytes of both output streams to [logSink], then decode a
