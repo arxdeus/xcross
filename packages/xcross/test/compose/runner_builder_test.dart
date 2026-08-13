@@ -165,12 +165,50 @@ void main() {
           '@executable_path/Frameworks',
         ]),
       );
+      // No .../lib/clang/<version>/lib/darwin/libclang_rt.ios.a exists
+      // under this fixture's darwinSdkBundle (createSdk() never calls
+      // createCompilerRt()), so _compilerRtIos must find nothing and the
+      // build must not fail or inject a bogus path.
+      expect(calls.single.arguments, isNot(contains('libclang_rt.ios.a')));
       expect(
         calls.single.arguments,
         containsAll(fixture.swiftProject.swiftSources),
       );
     },
   );
+
+  test('Swift runner links the real compiler-rt static library when the '
+      'Darwin SDK bundle has one', () async {
+    // A non-Apple clang driving the swiftc link (Ubuntu's packaged clang,
+    // the Windows swift.org LLVM's clang) doesn't auto-link
+    // libclang_rt.ios.a the way Apple's own clang does, and the link then
+    // fails with "undefined symbol: ___isPlatformVersionAtLeast" (a
+    // symbol libclang_rt.ios.a provides). Confirm the builder passes it
+    // explicitly via -Xlinker when the Darwin SDK bundle has one staged.
+    final fixture = _Fixture.create()
+      ..createSdk()
+      ..createCompilerRt();
+    final calls = <_Call>[];
+    addTearDown(fixture.dispose);
+
+    await SwiftRunnerBuilder.withSeams(
+      runChecked: (executable, arguments, {workingDirectory}) async {
+        calls.add(_Call(executable, arguments, workingDirectory));
+        fixture.writeMachO(
+          p.join(fixture.root, 'build', 'xcross-compose', 'Runner'),
+        );
+      },
+    ).build(
+      project: fixture.swiftProject,
+      frameworkPath: fixture.frameworkPath,
+      toolchain: fixture.toolchain,
+    );
+
+    expect(
+      calls.single.arguments,
+      containsAllInOrder(['-Xlinker', fixture.compilerRtIosPath]),
+    );
+  });
 
   test(
     'rejects missing inputs and non Mach-O runner output without invoking file',
@@ -415,6 +453,23 @@ final class _Fixture {
   );
   String get objcBuildDir => p.join(root, 'iosApp', '.build', 'runner');
 
+  /// Where `_compilerRtIos` looks for `libclang_rt.ios.a`, mirroring the
+  /// real `.../XcodeDefault.xctoolchain/usr/lib/clang/<version>/lib/darwin/`
+  /// layout under a versioned clang subdirectory.
+  String get compilerRtIosPath => p.join(
+    darwinSdkBundle,
+    'Developer',
+    'Toolchains',
+    'XcodeDefault.xctoolchain',
+    'usr',
+    'lib',
+    'clang',
+    '21',
+    'lib',
+    'darwin',
+    'libclang_rt.ios.a',
+  );
+
   ComposeToolchain get toolchain => ComposeToolchain(
     host: ComposeHost.linuxX64,
     kotlinHome: p.join(root, 'kotlin'),
@@ -480,6 +535,11 @@ final class _Fixture {
         ..createSync(recursive: true)
         ..writeAsStringSync('import SwiftUI');
     }
+  }
+
+  void createCompilerRt() {
+    Directory(p.dirname(compilerRtIosPath)).createSync(recursive: true);
+    File(compilerRtIosPath).writeAsStringSync('fake-compiler-rt');
   }
 
   void writeMachO(String path) {

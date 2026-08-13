@@ -56,6 +56,7 @@ final class SwiftRunnerBuilder {
     final moduleCache = p.join(buildDir, 'swift-module-cache');
     await Directory(moduleCache).create(recursive: true);
     final clangBuiltins = _clangBuiltins(resourceDir);
+    final compilerRtIos = _compilerRtIos(toolchain.darwinSdkBundle);
 
     final swiftc = ProcessInvocation.forHost(toolchain.host, toolchain.swiftc, [
       '-sdk',
@@ -107,6 +108,18 @@ final class SwiftRunnerBuilder {
       _iosMinimumVersion,
       '-Xlinker',
       _sdkVersion(iphoneSdk) ?? '26.5',
+      // Same non-Apple-clang gap as above, one layer further in: Apple
+      // clang's Darwin driver also auto-links the platform's compiler-rt
+      // static archive (libclang_rt.ios.a, which provides
+      // __isPlatformVersionAtLeast among other runtime helpers), and the
+      // Ubuntu-packaged clang doesn't do that either — confirmed against a
+      // real CI run failing with "undefined symbol:
+      // ___isPlatformVersionAtLeast" only after the -arch/-platform_version
+      // fix above let the link get this far. Pass the same real
+      // libclang_rt.ios.a konan_configuration.dart already stages from the
+      // Darwin SDK bundle's own Xcode toolchain (see
+      // _findCompilerRtDarwinDir there for the exact layout/rationale).
+      if (compilerRtIos != null) ...['-Xlinker', compilerRtIos],
       '-Xlinker',
       '-rpath',
       '-Xlinker',
@@ -161,6 +174,35 @@ String? _sdkVersion(String sdkPath) {
   if (!name.startsWith('iPhoneOS')) return null;
   final version = name.substring('iPhoneOS'.length);
   return version.isEmpty ? null : version;
+}
+
+/// `libclang_rt.ios.a` under
+/// `.../XcodeDefault.xctoolchain/usr/lib/clang/<version>/lib/darwin/` in a
+/// Darwin SDK artifact bundle, or null when that layout isn't there (e.g.
+/// test fixtures, a stripped-down bundle). A non-Apple clang driving the
+/// Swift link doesn't auto-link this the way Apple's own clang does; see
+/// the call site's comment. Mirrors konan_configuration.dart's
+/// _findCompilerRtDarwinDir, duplicated rather than shared for the same
+/// reason as _sdkVersion above.
+String? _compilerRtIos(String darwinSdkBundle) {
+  final clang = Directory(
+    p.join(
+      darwinSdkBundle,
+      'Developer',
+      'Toolchains',
+      'XcodeDefault.xctoolchain',
+      'usr',
+      'lib',
+      'clang',
+    ),
+  );
+  if (!clang.existsSync()) return null;
+  for (final entry in clang.listSync()) {
+    if (entry is! Directory) continue;
+    final candidate = p.join(entry.path, 'lib', 'darwin', 'libclang_rt.ios.a');
+    if (File(candidate).existsSync()) return candidate;
+  }
+  return null;
 }
 
 void _validateFramework(KmpProject project, String frameworkPath) {
