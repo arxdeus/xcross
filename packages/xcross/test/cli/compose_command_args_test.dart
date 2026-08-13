@@ -169,6 +169,7 @@ void main() {
                 required selector,
                 required mode,
                 required launchProfile,
+                onRestartRequested,
               }) async {
                 launchedPack = pack;
                 launchedSelectors.add(selector);

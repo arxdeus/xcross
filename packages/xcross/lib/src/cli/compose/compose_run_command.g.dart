@@ -28,6 +28,7 @@ ComposeRunArgs _$parseComposeRunArgsResult(ArgResults result) =>
         result['device-connection'] as String,
       )
       ..appArgument = result['app-argument'] as List<String>
+      ..watch = result['watch'] as bool
       ..verbose = result['verbose'] as bool;
 
 const _$DeviceConnectionEnumMapBuildCli = <DeviceConnection, String>{
@@ -55,6 +56,12 @@ ArgParser _$populateComposeRunArgsParser(ArgParser parser) => parser
     'app-argument',
     abbr: 'a',
     help: 'Pass arguments to the app main() (repeatable).',
+  )
+  ..addFlag(
+    'watch',
+    help:
+        'Watch Kotlin sources and rebuild, reinstall, and relaunch on "r". Kotlin/Native is AOT-compiled, so this is a fast restart, not an in-place hot reload.',
+    negatable: false,
   )
   ..addFlag('verbose', abbr: 'v', help: 'Verbose output.', negatable: false);
 

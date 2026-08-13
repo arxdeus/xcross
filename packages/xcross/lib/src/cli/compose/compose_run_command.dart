@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:args/command_runner.dart';
 import 'package:build_cli_annotations/build_cli_annotations.dart';
 import 'package:cli_kit/cli_kit.dart';
@@ -6,6 +8,8 @@ import 'package:xcross/src/cli/compose/compose_build_command.dart';
 import 'package:xcross/src/cli/shared/device_selection.dart';
 import 'package:xcross/src/compose/build/compose_pack_operation.dart';
 import 'package:xcross/src/compose/models/compose_build_options.dart';
+import 'package:xcross/src/compose/watch/compose_watch_session.dart';
+import 'package:xcross/src/compose/watch/kotlin_source_watcher.dart';
 import 'package:xcross/src/device/core_device_launch_profile.dart';
 import 'package:xcross/src/device/device_run_operation.dart';
 import 'package:xcross/src/models/pack_result.dart';
@@ -18,6 +22,7 @@ typedef ComposeRunDevice =
       required String? selector,
       required DeviceSearchMode mode,
       required CoreDeviceLaunchProfile launchProfile,
+      Future<bool> Function()? onRestartRequested,
     });
 
 @CliOptions(createCommand: true)
@@ -42,6 +47,15 @@ final class ComposeRunArgs {
 
   @CliOption(abbr: 'a', help: 'Pass arguments to the app main() (repeatable).')
   late List<String> appArgument;
+
+  @CliOption(
+    help:
+        'Watch Kotlin sources and rebuild, reinstall, and relaunch on "r". '
+        'Kotlin/Native is AOT-compiled, so this is a fast restart, not an '
+        'in-place hot reload.',
+    negatable: false,
+  )
+  late bool watch;
 
   @CliOption(abbr: 'v', help: 'Verbose output.', negatable: false)
   late bool verbose;
@@ -89,14 +103,39 @@ final class ComposeRunCommand extends _$ComposeRunArgsCommand<void> {
       'App',
       '${pack.bundleId} ${Log.ansi.subtle('native, attached via CoreDevice')}',
     );
-    await _runDevice(
-      pack: pack,
-      selector: _deviceSelector,
-      mode: _searchMode,
-      launchProfile: CoreDeviceLaunchProfile.native(
-        arguments: _options.appArgument,
+    final profile = CoreDeviceLaunchProfile.native(
+      arguments: _options.appArgument,
+    );
+    if (!_options.watch) {
+      await _runDevice(
+        pack: pack,
+        selector: _deviceSelector,
+        mode: _searchMode,
+        launchProfile: profile,
+      );
+      return;
+    }
+
+    Log.logInfo(
+      'Watching',
+      'Kotlin sources '
+          '${Log.ansi.subtle('— press r to rebuild and restart, q to quit')}',
+    );
+    final session = ComposeWatchSession(
+      watcher: KotlinSourceWatcher(pack.projectRoot ?? Directory.current.path),
+      rebuild: () => _packOperation(
+        options: const ComposeBuildOptions(),
+        requireRunnableApp: true,
+      ),
+      runSession: ({required pack, required onRestartRequested}) => _runDevice(
+        pack: pack,
+        selector: _deviceSelector,
+        mode: _searchMode,
+        launchProfile: profile,
+        onRestartRequested: onRestartRequested,
       ),
     );
+    await session.run(pack);
   }
 
   static Future<void> _defaultRunDevice({
@@ -104,6 +143,7 @@ final class ComposeRunCommand extends _$ComposeRunArgsCommand<void> {
     required String? selector,
     required DeviceSearchMode mode,
     required CoreDeviceLaunchProfile launchProfile,
+    Future<bool> Function()? onRestartRequested,
   }) async {
     final operation = await DeviceRunOperation.resolve();
     await operation.run(
@@ -111,6 +151,7 @@ final class ComposeRunCommand extends _$ComposeRunArgsCommand<void> {
       selector: selector,
       mode: mode,
       launchProfile: launchProfile,
+      onRestartRequested: onRestartRequested,
     );
   }
 }

@@ -14,6 +14,7 @@ typedef LaunchInstalledApp =
       required String udid,
       required String bundleId,
       required CoreDeviceLaunchProfile profile,
+      Future<bool> Function()? onRestartRequested,
     });
 
 final class DeviceRunOperation {
@@ -39,6 +40,7 @@ final class DeviceRunOperation {
     required String? selector,
     required DeviceSearchMode mode,
     required CoreDeviceLaunchProfile launchProfile,
+    Future<bool> Function()? onRestartRequested,
   }) async {
     if (pack.kind != PackOutputKind.app) {
       throw XcrossError(
@@ -68,6 +70,7 @@ final class DeviceRunOperation {
       udid: device.udid,
       bundleId: pack.bundleId,
       profile: launchProfile,
+      onRestartRequested: onRestartRequested,
     );
     return device;
   }

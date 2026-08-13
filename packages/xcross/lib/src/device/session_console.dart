@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:meta/meta.dart';
 import 'package:pure/pure.dart';
 import 'package:xcross/src/constants.dart';
 import 'package:xcross/src/flutter/flutter.dart';
@@ -15,6 +16,7 @@ final class SessionConsole {
     required this.gdb,
     required this.hotReload,
     this.hotReloadUnavailable,
+    this.onRestartRequested,
   });
 
   /// Drain and keypress loops are already unwinding via [_stop] by the time we
@@ -24,6 +26,14 @@ final class SessionConsole {
 
   final GdbRemoteClient gdb;
   final HotReloadController? hotReload;
+
+  /// Rebuild-and-relaunch hook for runtimes without in-place hot reload
+  /// (Kotlin/Native Compose is AOT-compiled, so `r` can only mean "build the
+  /// new binary and restart the app").
+  ///
+  /// Returning `true` means the session should end so the caller can relaunch;
+  /// `false` keeps the current session running (e.g. the build failed).
+  final Future<bool> Function()? onRestartRequested;
 
   /// Why [hotReload] is null, shown when `r`/`R` are pressed anyway.
   ///
@@ -173,7 +183,7 @@ final class SessionConsole {
     // subscription leaves this listen dead on arrival — onDone fires at once
     // and the session quits the moment the app launches.
     final sub = ProcessRunner.sharedStdin.listen(
-      _handleKeyByte,
+      handleKeyByte,
       onDone: () {
         _stop();
         _finishKeypressLoop();
@@ -239,7 +249,8 @@ final class SessionConsole {
   /// Handle a single raw [bytes] chunk from stdin. Quit keys stop the session;
   /// reload/restart keys are ignored while one is already in flight, so presses
   /// don't overlap and corrupt frontend_server state.
-  Future<void> _handleKeyByte(List<int> bytes) async {
+  @visibleForTesting
+  Future<void> handleKeyByte(List<int> bytes) async {
     for (final ch in bytes) {
       if (_stopped) return _finishKeypressLoop();
       switch (ch) {
@@ -250,6 +261,9 @@ final class SessionConsole {
           Log.logInfo('Quitting');
           _stop();
           return _finishKeypressLoop();
+        case DeviceConstants.keyR || DeviceConstants.keyBigR
+            when !_busy && onRestartRequested != null:
+          await _runExclusive(_handleRestartRequest);
         case DeviceConstants.keyR when !_busy:
           await _runExclusive(_handleHotReload);
         case DeviceConstants.keyBigR when !_busy:
@@ -268,6 +282,18 @@ final class SessionConsole {
   void _reportHotReloadUnavailable() => Log.logWarn(
     hotReloadUnavailable ?? 'hot reload is not available in this session.',
   );
+
+  /// Ask the owner to rebuild and relaunch, then end this session when it
+  /// agrees. The console cannot relaunch by itself: the app's process, the
+  /// debugger attachment, and the install all belong to the caller.
+  Future<void> _handleRestartRequest() async {
+    final handler = onRestartRequested;
+    if (handler == null) return;
+    if (await handler()) {
+      _stop();
+      _finishKeypressLoop();
+    }
+  }
 
   Future<void> _handleHotReload() async {
     final controller = hotReload;

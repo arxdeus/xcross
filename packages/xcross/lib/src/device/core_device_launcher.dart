@@ -32,6 +32,7 @@ abstract final class CoreDeviceLauncher {
     required String udid,
     required String bundleId,
     required CoreDeviceLaunchProfile profile,
+    Future<bool> Function()? onRestartRequested,
   }) async {
     if (!await Pymd.ensureInstalled()) {
       throw XcrossError(
@@ -48,6 +49,7 @@ abstract final class CoreDeviceLauncher {
         bundleId: bundleId,
         arguments: profile.argumentsForLaunch(isDap: _isDap),
         hotReload: profile.hotReload,
+        onRestartRequested: onRestartRequested,
       );
     } finally {
       try {
@@ -100,6 +102,7 @@ abstract final class CoreDeviceLauncher {
     required String bundleId,
     required List<String> arguments,
     required HotReloadConfig? hotReload,
+    Future<bool> Function()? onRestartRequested,
   }) async {
     final resolvedBundleId = await _resolveBundleId(bundleId);
     final debugproxy = await transport.debugproxyEndpoint();
@@ -134,6 +137,7 @@ abstract final class CoreDeviceLauncher {
         gdb: gdb,
         hotReload: hotReloadController,
         hotReloadUnavailable: hotReloadSetup.unavailable,
+        onRestartRequested: onRestartRequested,
       ).run();
     } finally {
       // Every step is timed out: a single hung flush/close on Windows left `q`
@@ -273,9 +277,13 @@ abstract final class CoreDeviceLauncher {
       );
       return (
         controller: null,
+        // Compose (Kotlin/Native, AOT) has no in-place reload at all, so the
+        // Flutter-specific "frontend_server artifacts missing" wording would
+        // be actively misleading there. The Compose path supplies its own
+        // rebuild-and-restart handler instead, and never reaches this text.
         unavailable:
-            'hot reload is off for this session: the Flutter frontend_server '
-            'artifacts it needs were not found.',
+            'this session has no in-place reload: press Ctrl-C and run again '
+            'after changing sources.',
       );
     }
     DartVmServiceClient? vm;

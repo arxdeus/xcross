@@ -19,9 +19,15 @@ void main() {
       terminate: ({required udid, required bundleId}) async {
         events.add('terminate:$udid:$bundleId');
       },
-      launch: ({required udid, required bundleId, required profile}) async {
-        events.add('launch:$udid:$bundleId:${profile.arguments.single}');
-      },
+      launch:
+          ({
+            required udid,
+            required bundleId,
+            required profile,
+            onRestartRequested,
+          }) async {
+            events.add('launch:$udid:$bundleId:${profile.arguments.single}');
+          },
     );
 
     await operation.run(
@@ -57,9 +63,15 @@ void main() {
       terminate: ({required udid, required bundleId}) async {
         events.add('terminate');
       },
-      launch: ({required udid, required bundleId, required profile}) async {
-        events.add('launch');
-      },
+      launch:
+          ({
+            required udid,
+            required bundleId,
+            required profile,
+            onRestartRequested,
+          }) async {
+            events.add('launch');
+          },
     );
 
     await expectLater(
@@ -92,9 +104,15 @@ void main() {
       terminate: ({required udid, required bundleId}) async {
         events.add('terminate');
       },
-      launch: ({required udid, required bundleId, required profile}) async {
-        events.add('launch');
-      },
+      launch:
+          ({
+            required udid,
+            required bundleId,
+            required profile,
+            onRestartRequested,
+          }) async {
+            events.add('launch');
+          },
     );
 
     await expectLater(

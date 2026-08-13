@@ -114,6 +114,7 @@ final class ComposePacker {
         outputPath: frameworkPath,
         bundleId: project.bundleId,
         kind: PackOutputKind.framework,
+        projectRoot: project.root,
       );
     }
 
@@ -137,7 +138,11 @@ final class ComposePacker {
       runnerPath: runnerPath,
       frameworkPath: frameworkPath,
     );
-    return PackResult(outputPath: appPath, bundleId: project.bundleId);
+    return PackResult(
+      outputPath: appPath,
+      bundleId: project.bundleId,
+      projectRoot: project.root,
+    );
   }
 
   static Future<ComposeToolchain> _defaultEnsureToolchain({
