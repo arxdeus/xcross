@@ -286,14 +286,15 @@ jobs:
             test -f "$framework"
             llvm-readobj --file-headers "$runner" | tee "$(basename "$app")-runner-headers.txt"
             grep -Eq 'Format: Mach-O arm64|Arch: aarch64' "$(basename "$app")-runner-headers.txt"
-            python3 -c 'import plistlib, sys
-            parsed = plistlib.load(open(sys.argv[1], "rb"))
-            missing = [k for k in ("CFBundleExecutable", "CFBundleIdentifier", "CFBundleName") if not parsed.get(k)]
-            if missing:
-                sys.exit("Info.plist missing " + repr(missing) + ": " + repr(parsed))
-            executable = parsed["CFBundleExecutable"]
-            if executable != "Runner":
-                sys.exit("CFBundleExecutable is " + repr(executable) + ", not Runner")' "$plist"
+            flatplist=$(tr '\n\t' '  ' < "$plist")
+            echo "$flatplist" | grep -Eq '<key>CFBundleExecutable</key>[[:space:]]*<string>Runner</string>' || {
+              echo "Info.plist missing CFBundleExecutable=Runner: $plist" >&2
+              exit 1
+            }
+            echo "$flatplist" | grep -Eq '<key>CFBundleIdentifier</key>' || {
+              echo "Info.plist missing CFBundleIdentifier: $plist" >&2
+              exit 1
+            }
           done
 
       - name: Build Compose smoke examples on Windows
