@@ -70,6 +70,10 @@ void main() {
       );
       expect(
         calls.single.arguments,
+        contains('-Xbinary=enableDebugTransparentStepping=false'),
+      );
+      expect(
+        calls.single.arguments,
         containsAllInOrder([
           '-library',
           fixture.depOne,
@@ -119,6 +123,10 @@ void main() {
 
     expect(call!.arguments, contains('-opt'));
     expect(call!.arguments, contains('-Xbinary=bundleId=dev.example.shared'));
+    expect(
+      call!.arguments,
+      contains('-Xbinary=enableDebugTransparentStepping=false'),
+    );
     expect(
       call!.arguments,
       containsAllInOrder([

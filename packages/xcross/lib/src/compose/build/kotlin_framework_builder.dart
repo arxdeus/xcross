@@ -114,6 +114,14 @@ final class KotlinFrameworkBuilder {
       'framework',
       '-Xinclude=${klib.moduleKlibPath}',
       '-Xbinary=bundleId=${options.bundleId ?? project.bundleId}',
+      // Kotlin/Native's DICreateFunctionShared() asserts(false) when asked
+      // for transparent-stepping debug info on a host whose LLVM wasn't
+      // built with __APPLE__ defined (see DebugInfoC.cpp). The compiler
+      // enables this by default for any Apple-family *target* regardless
+      // of host, which crashes cross-compilation from Linux/Windows hosts.
+      // xcross only ever cross-compiles from non-Apple hosts, so it is
+      // always safe to disable it here.
+      '-Xbinary=enableDebugTransparentStepping=false',
     ];
     for (final dependency in klib.dependencies) {
       args.addAll(['-library', dependency]);
