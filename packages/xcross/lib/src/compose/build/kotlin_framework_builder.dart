@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/compose/build/framework_build_stamp.dart';
 import 'package:xcross/src/compose/build/gradle_klib_builder.dart';
 import 'package:xcross/src/compose/build/konan_configuration.dart';
 import 'package:xcross/src/compose/models/compose_build_options.dart';
@@ -63,12 +64,32 @@ final class KotlinFrameworkBuilder {
             '@${_writeArgumentFile(project, options, compilerArgs)}',
           ]
         : [...prepared.compilerArguments, ...compilerArgs];
-    await _run(
-      prepared.javaExecutable,
-      invocationArgs,
-      workingDirectory: project.root,
-      environment: prepared.environment,
-    );
+
+    // konanc compiles the whole program ahead of time (~133s for the Compose
+    // sample), and Gradle's UP-TO-DATE check upstream does not stop us from
+    // running it again on identical inputs. Skipping an unchanged compile is
+    // what makes `compose run --watch` usable.
+    final stampInputs = [klib.moduleKlibPath, ...klib.dependencies];
+    final stamp = FrameworkBuildStamp.forFramework(produced);
+    if (stamp.isUpToDate(
+      frameworkPath: produced,
+      inputs: stampInputs,
+      arguments: compilerArgs,
+    )) {
+      Log.logTrace('framework is up to date; skipping konanc');
+    } else {
+      // Drop the stamp first: a crash or Ctrl-C mid-compile must not leave a
+      // stamp that claims the half-written framework is current.
+      stamp.invalidate();
+      await _run(
+        prepared.javaExecutable,
+        invocationArgs,
+        workingDirectory: project.root,
+        environment: prepared.environment,
+      );
+      _validateFramework(produced, project.baseName);
+      stamp.write(inputs: stampInputs, arguments: compilerArgs);
+    }
     _validateFramework(produced, project.baseName);
     final copied = p.join(
       project.root,
