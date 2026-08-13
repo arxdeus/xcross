@@ -143,6 +143,11 @@ final class ObjcRunnerBuilder {
         '@implementation AppDelegate\n'
         '- (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {\n'
         '    self.window = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];\n'
+        // Compose only paints the pixels its content draws: a composable
+        // tree without a Surface/Box background leaves the Skiko layer
+        // transparent, and an uncoloured UIWindow shows through as pure
+        // black, which reads as "the app launched to a black screen".
+        '    self.window.backgroundColor = [UIColor systemBackgroundColor];\n'
         '    self.window.rootViewController = [$objcClass $selector];\n'
         '    [self.window makeKeyAndVisible];\n'
         '    return YES;\n'

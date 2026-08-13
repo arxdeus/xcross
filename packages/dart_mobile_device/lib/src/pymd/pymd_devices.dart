@@ -40,7 +40,28 @@ abstract final class PymdDevices {
   /// }
   /// ```
   static List<Device> parseDevices(String output) {
-    final Object? json = jsonDecode(output);
+    // `usbmux list` exits 0 even when it cannot reach usbmuxd: it logs
+    // "Failed to connect to usbmuxd socket" to stderr and prints nothing,
+    // so Pymd.run's exit-code check passes and jsonDecode('') would blow up
+    // with a bare FormatException stack trace. Turn the empty case into the
+    // actionable message instead.
+    if (output.trim().isEmpty) {
+      throw TunnelError(
+        'pymobiledevice3 could not list devices — usbmuxd is not reachable.\n'
+        'Start it, then retry:\n'
+        '    sudo systemctl start usbmuxd\n'
+        'If the phone is attached over usbipd, also check '
+        'USBMUXD_SOCKET_ADDRESS.',
+      );
+    }
+    final Object? json;
+    try {
+      json = jsonDecode(output);
+    } on FormatException catch (e) {
+      throw TunnelError(
+        'pymobiledevice3 usbmux list printed non-JSON output ($e): $output',
+      );
+    }
     if (json is! List) {
       throw TunnelError(
         'pymobiledevice3 usbmux list: expected a JSON array, got: $output',

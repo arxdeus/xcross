@@ -58,6 +58,28 @@ void main() {
       expect(devices[1].type, ConnectionType.wifi);
     });
 
+    test('explains that usbmuxd is down when output is empty', () {
+      // `usbmux list` exits 0 and prints nothing when usbmuxd is not
+      // running, which used to surface as a raw FormatException trace.
+      expect(
+        () => PymdDevices.parseDevices('   \n'),
+        throwsA(
+          isA<TunnelError>().having(
+            (e) => e.toString(),
+            'message',
+            contains('usbmuxd'),
+          ),
+        ),
+      );
+    });
+
+    test('throws TunnelError for non-JSON output', () {
+      expect(
+        () => PymdDevices.parseDevices('Traceback (most recent call last):'),
+        throwsA(isA<TunnelError>()),
+      );
+    });
+
     test('throws TunnelError when the top-level JSON is not an array', () {
       expect(() => PymdDevices.parseDevices('{}'), throwsA(isA<TunnelError>()));
     });

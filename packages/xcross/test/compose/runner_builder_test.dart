@@ -43,6 +43,14 @@ void main() {
         contains('[SharedMainViewControllerKt MainViewController]'),
       );
       expect(mainSource, contains('UIApplicationMain'));
+      // A transparent Compose layer over a colourless UIWindow renders as a
+      // black screen on device, so the runner must colour the window.
+      expect(
+        mainSource,
+        contains(
+          'self.window.backgroundColor = [UIColor systemBackgroundColor];',
+        ),
+      );
 
       expect(calls.first.executable, fixture.toolchain.clang);
       expect(calls.first.workingDirectory, fixture.root);
