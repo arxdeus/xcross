@@ -376,7 +376,10 @@ void main() {
         await ProcessRunner.whichAll(
           'ld64.lld',
           environment: {'PATH': onPath.path},
-          windows: false,
+          // The PATH entry is a real host path, so it has to be split with
+          // the host's own separator: ':' would cut a Windows drive letter
+          // off its own directory and drop the entry.
+          windows: Platform.isWindows,
           extraDirectories: [extra.path],
         ),
         [p.join(onPath.path, 'ld64.lld'), p.join(extra.path, 'ld64.lld')],

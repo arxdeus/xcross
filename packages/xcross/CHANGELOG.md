@@ -1,3 +1,22 @@
+## 1.0.5
+
+- Enhance Windows SwiftPM support and normalize staged plugin manifests.
+- Synthesize fallback Clang/Swift modules for SwiftPM checkouts, including
+  nested modules, module shims, and Swift interop headers for Objective-C
+  and Swift consumers.
+- Infer fallback module topology and linkage from sources, and preserve
+  source fallback module names across rebuilds.
+- Implement `#Preview` through a compiler plugin instead of patching plugin
+  sources.
+- Make Flutter plugin staging incremental, staging only iOS-reachable
+  package entries, pruning entries the filter no longer stages, and skipping
+  development-only trees and `pigeons/`.
+- Keep binary files out of the sync transform, and preserve checkout symlink
+  identity and materialized checkout placeholders.
+- Forward symlinked headers and avoid a Clang module lock deadlock on
+  Windows.
+- Skip cross-host Swift interface verification.
+
 ## 1.0.4
 
 - Resolve Flutter package configs from workspace roots.
