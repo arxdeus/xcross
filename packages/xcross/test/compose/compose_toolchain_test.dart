@@ -252,6 +252,7 @@ void main() {
           expect(toolchain.clang, endsWith('clang.exe'));
           expect(toolchain.ld64Lld, endsWith('ld64.lld'));
           expect(toolchain.darwinSdkPath, '/sdk/iPhoneOS.sdk');
+          expect(toolchain.darwinSdkBundle, '/sdk-bundle');
         } finally {
           project.deleteSync(recursive: true);
           home.deleteSync(recursive: true);

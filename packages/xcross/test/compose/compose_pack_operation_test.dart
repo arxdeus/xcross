@@ -352,4 +352,5 @@ const _toolchain = ComposeToolchain(
   clang: '/llvm/bin/clang',
   ld64Lld: '/llvm/bin/ld64.lld',
   darwinSdkPath: '/sdk',
+  darwinSdkBundle: '/sdk-bundle',
 );

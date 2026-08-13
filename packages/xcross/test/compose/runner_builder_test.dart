@@ -386,9 +386,9 @@ final class _Fixture {
     'SDKs',
     'iPhoneOS.sdk',
   );
+  String get darwinSdkBundle => p.join(root, 'DarwinSDK');
   String get resourceDir => p.join(
-    root,
-    'DarwinSDK',
+    darwinSdkBundle,
     'Developer',
     'Toolchains',
     'XcodeDefault.xctoolchain',
@@ -409,7 +409,8 @@ final class _Fixture {
     swiftc: p.join(root, 'swiftc'),
     clang: p.join(root, 'clang'),
     ld64Lld: p.join(root, 'ld64.lld'),
-    darwinSdkPath: p.join(root, 'DarwinSDK'),
+    darwinSdkPath: iphoneSdk,
+    darwinSdkBundle: darwinSdkBundle,
   );
 
   KmpProject get objcProject => KmpProject(

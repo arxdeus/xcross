@@ -44,7 +44,7 @@ final class SwiftRunnerBuilder {
     await Directory(buildDir).create(recursive: true);
     final runnerPath = p.join(buildDir, 'Runner');
     final resourceDir = p.join(
-      toolchain.darwinSdkPath,
+      toolchain.darwinSdkBundle,
       'Developer',
       'Toolchains',
       'XcodeDefault.xctoolchain',
@@ -117,17 +117,12 @@ String? _clangBuiltins(String resourceDir) {
 }
 
 String _iphoneSdk(ComposeToolchain toolchain) {
-  final generic = p.join(
-    toolchain.darwinSdkPath,
-    'Developer',
-    'Platforms',
-    'iPhoneOS.platform',
-    'Developer',
-    'SDKs',
-    'iPhoneOS.sdk',
-  );
-  if (Directory(generic).existsSync()) return generic;
-  throw XcrossError('iPhoneOS SDK not found under ${toolchain.darwinSdkPath}');
+  // See the matching comment in objc_runner_builder.dart: darwinSdkPath is
+  // already the resolved "iPhoneOS(.\d+)?.sdk" leaf.
+  if (Directory(toolchain.darwinSdkPath).existsSync()) {
+    return toolchain.darwinSdkPath;
+  }
+  throw XcrossError('iPhoneOS SDK not found at ${toolchain.darwinSdkPath}');
 }
 
 void _validateFramework(KmpProject project, String frameworkPath) {

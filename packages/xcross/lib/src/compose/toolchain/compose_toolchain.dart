@@ -13,6 +13,7 @@ final class ComposeToolchain {
     required this.clang,
     required this.ld64Lld,
     required this.darwinSdkPath,
+    required this.darwinSdkBundle,
   });
 
   final ComposeHost host;
@@ -25,7 +26,21 @@ final class ComposeToolchain {
   final String swiftc;
   final String clang;
   final String ld64Lld;
+
+  /// The resolved `iPhoneOS(.\d+)?.sdk` leaf, e.g.
+  /// `.../xcross-darwin.artifactbundle/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk`.
+  ///
+  /// This is `-isysroot`/`targetSysRoot`, a specific SDK version, not the
+  /// artifact bundle. Use [darwinSdkBundle] for anything that needs to reach
+  /// other bundle contents (the Xcode toolchain, compiler-rt libraries).
   final String darwinSdkPath;
+
+  /// Root of the `xcross-darwin.artifactbundle` Swift SDK artifact bundle
+  /// that [darwinSdkPath] was resolved from, e.g.
+  /// `Developer/Toolchains/XcodeDefault.xctoolchain/...` and
+  /// `Developer/Platforms/iPhoneOS.platform/Developer/SDKs/<version>.sdk`
+  /// both live under this root.
+  final String darwinSdkBundle;
 
   List<String> get gradleInvocation =>
       host.invokeExecutable(gradleExecutable, const []);

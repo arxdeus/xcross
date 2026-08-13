@@ -202,6 +202,86 @@ void main() {
   );
 
   test(
+    'stages real compiler-rt static libraries from the Darwin SDK bundle',
+    () async {
+      // MacOSBasedLinker.provideCompilerRtLibrary builds
+      // "$compilerRtDir/libclang_rt.<platform>.a" and MacOSBasedLinker's
+      // link step fails with "undefined symbol: __isPlatformVersionAtLeast"
+      // (a symbol compiler-rt provides) unless that file is the real one
+      // Xcode ships. Confirm KonanConfiguration copies it from the local
+      // Darwin SDK artifact bundle's own Xcode toolchain rather than
+      // leaving the staged directory empty.
+      final fixture = _Fixture.create(ComposeHost.linuxX64)
+        ..createKotlinHome()
+        ..createCompilerRt();
+      addTearDown(fixture.dispose);
+
+      final prepared = await KonanConfiguration.withSeams(
+        patchCompilerJar: (jar) async {},
+        makeExecutable: (_) {},
+      ).prepare(project: fixture.project, toolchain: fixture.toolchain);
+
+      final stagedDarwin = p.join(
+        p.dirname(prepared.kotlinHome),
+        'apple-toolchain',
+        'usr',
+        'lib',
+        'clang',
+        'xcross',
+        'lib',
+        'darwin',
+      );
+      for (final name in const [
+        'libclang_rt.ios.a',
+        'libclang_rt.iossim.a',
+        'libclang_rt.watchos.a',
+        'libclang_rt.watchossim.a',
+        'libclang_rt.tvos.a',
+        'libclang_rt.tvossim.a',
+        'libclang_rt.osx.a',
+      ]) {
+        final staged = File(p.join(stagedDarwin, name));
+        expect(staged.existsSync(), isTrue, reason: name);
+        expect(
+          staged.readAsStringSync(),
+          File(p.join(fixture.compilerRtDarwinDir, name)).readAsStringSync(),
+          reason: name,
+        );
+      }
+    },
+  );
+
+  test(
+    'leaves compiler-rt directory empty when the Darwin SDK bundle has none',
+    () async {
+      // The fixture's darwinSdkBundle points at a directory that never gets
+      // createCompilerRt() called on it, so _findCompilerRtDarwinDir can't
+      // find an XcodeDefault.xctoolchain/usr/lib/clang/<version>/lib/darwin
+      // under it. Confirm KonanConfiguration degrades to the pre-fix
+      // behavior (an existing but empty clang dir) rather than throwing.
+      final fixture = _Fixture.create(ComposeHost.linuxX64)..createKotlinHome();
+      addTearDown(fixture.dispose);
+
+      final prepared = await KonanConfiguration.withSeams(
+        patchCompilerJar: (jar) async {},
+        makeExecutable: (_) {},
+      ).prepare(project: fixture.project, toolchain: fixture.toolchain);
+
+      final clangDir = Directory(
+        p.join(
+          p.dirname(prepared.kotlinHome),
+          'apple-toolchain',
+          'usr',
+          'lib',
+          'clang',
+        ),
+      );
+      expect(clangDir.existsSync(), isTrue);
+      expect(clangDir.listSync(), isEmpty);
+    },
+  );
+
+  test(
     'reuses completed fingerprint root without deleting or rebuilding it',
     () async {
       final fixture = _Fixture.create(ComposeHost.linuxX64)..createKotlinHome();
@@ -421,6 +501,7 @@ final class _Fixture {
       kotlinHome = p.join(temp.path, 'global-kotlin'),
       konanCache = p.join(temp.path, 'konan-cache'),
       javaHome = p.join(temp.path, 'jdk'),
+      sdkBundle = p.join(temp.path, 'Apple SDKs'),
       sdk = p.join(temp.path, 'Apple SDKs', 'iPhoneOS.sdk'),
       ld64 = p.join(temp.path, 'llvm', 'bin', 'ld64.lld'),
       clang = p.join(temp.path, 'swift', 'bin', 'clang'),
@@ -440,6 +521,7 @@ final class _Fixture {
   final String kotlinHome;
   final String konanCache;
   final String javaHome;
+  final String sdkBundle;
   final String sdk;
   final String ld64;
   final String clang;
@@ -475,7 +557,42 @@ final class _Fixture {
     clang: clang,
     ld64Lld: ld64,
     darwinSdkPath: sdk,
+    darwinSdkBundle: sdkBundle,
   );
+
+  /// The exact `.../usr/lib/clang/<version>/lib/darwin` layout Xcode ships
+  /// compiler-rt static libraries in, so `_findCompilerRtDarwinDir` can find
+  /// them under [sdkBundle] the same way it would under a real Darwin SDK
+  /// artifact bundle.
+  String get compilerRtDarwinDir => p.join(
+    sdkBundle,
+    'Developer',
+    'Toolchains',
+    'XcodeDefault.xctoolchain',
+    'usr',
+    'lib',
+    'clang',
+    '21',
+    'lib',
+    'darwin',
+  );
+
+  void createCompilerRt() {
+    Directory(compilerRtDarwinDir).createSync(recursive: true);
+    for (final name in const [
+      'libclang_rt.ios.a',
+      'libclang_rt.iossim.a',
+      'libclang_rt.watchos.a',
+      'libclang_rt.watchossim.a',
+      'libclang_rt.tvos.a',
+      'libclang_rt.tvossim.a',
+      'libclang_rt.osx.a',
+    ]) {
+      File(
+        p.join(compilerRtDarwinDir, name),
+      ).writeAsStringSync('fake-compiler-rt-$name');
+    }
+  }
 
   void createKotlinHome() {
     Directory(p.join(modulePath)).createSync(recursive: true);

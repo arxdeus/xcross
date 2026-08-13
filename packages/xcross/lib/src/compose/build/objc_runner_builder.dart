@@ -155,37 +155,17 @@ final class ObjcRunnerBuilder {
 }
 
 String _iphoneSdk(ComposeToolchain toolchain) {
-  final generic = p.join(
-    toolchain.darwinSdkPath,
-    'Developer',
-    'Platforms',
-    'iPhoneOS.platform',
-    'Developer',
-    'SDKs',
-    'iPhoneOS.sdk',
-  );
-  if (Directory(generic).existsSync()) return generic;
-  final sdkDir = Directory(
-    p.join(
-      toolchain.darwinSdkPath,
-      'Developer',
-      'Platforms',
-      'iPhoneOS.platform',
-      'Developer',
-      'SDKs',
-    ),
-  );
-  if (sdkDir.existsSync()) {
-    final candidates =
-        sdkDir
-            .listSync()
-            .whereType<Directory>()
-            .where((dir) => p.basename(dir.path).startsWith('iPhoneOS'))
-            .toList()
-          ..sort((a, b) => a.path.compareTo(b.path));
-    if (candidates.isNotEmpty) return candidates.last.path;
+  // ComposeToolchainResolver already resolves darwinSdkPath down to the
+  // specific "iPhoneOS(.\d+)?.sdk" leaf (DarwinSdk.iPhoneOSSdk()), so use it
+  // directly. Previously this re-derived a path by joining darwinSdkPath
+  // with "Developer/Platforms/iPhoneOS.platform/..." again, which only
+  // worked by coincidence in tests that pointed darwinSdkPath at a bundle
+  // root; against a real resolved toolchain darwinSdkPath is already the
+  // leaf SDK, so that join produced a nonexistent nested path.
+  if (Directory(toolchain.darwinSdkPath).existsSync()) {
+    return toolchain.darwinSdkPath;
   }
-  throw XcrossError('iPhoneOS SDK not found under ${toolchain.darwinSdkPath}');
+  throw XcrossError('iPhoneOS SDK not found at ${toolchain.darwinSdkPath}');
 }
 
 String? _sdkVersion(String sdkPath) {

@@ -355,6 +355,7 @@ final class _Fixture {
     clang: p.join(root, 'clang'),
     ld64Lld: p.join(root, 'ld64.lld'),
     darwinSdkPath: p.join(root, 'sdk'),
+    darwinSdkBundle: p.join(root, 'sdk-bundle'),
   );
 
   GradleKlibResult get klib => GradleKlibResult(

@@ -313,15 +313,39 @@ final class KonanConfiguration {
     final bin = p.join(appleToolchain, 'bin');
     Directory(bin).createSync(recursive: true);
     // AppleConfigurablesImpl.getAbsoluteTargetToolchain() resolves to
-    // "$appleToolchain/usr", and MacOSBasedLinker.compilerRtDir lists
-    // "$absoluteTargetToolchain/lib/clang/" via Kotlin's
-    // File.getListFiles(), which throws NoSuchFileException (rather than
-    // returning an empty list) when the directory doesn't exist at all.
-    // The compiler tolerates an empty directory fine, it just means no
-    // compiler-rt library gets linked in, so create the directory eagerly.
-    Directory(
-      p.join(appleToolchain, 'usr', 'lib', 'clang'),
-    ).createSync(recursive: true);
+    // "$appleToolchain/usr", and MacOSBasedLinker.compilerRtDir does
+    // File("$absoluteTargetToolchain/lib/clang/").getListFiles().firstOrNull()
+    // + "/lib/darwin/" — it picks whatever single subdirectory happens to
+    // exist under lib/clang (there's normally exactly one, the clang version)
+    // and expects Xcode's compiler-rt layout underneath. Kotlin's
+    // getListFiles() throws NoSuchFileException (rather than returning an
+    // empty list) when lib/clang itself doesn't exist at all, so it must
+    // exist; MacOSBasedLinker.provideCompilerRtLibrary then builds an exact
+    // filename from there — "$compilerRtDir/libclang_rt.<platform><sim
+    // suffix>.a" for a static (non-asan/tsan) link, e.g.
+    // ".../lib/clang/<version>/lib/darwin/libclang_rt.ios.a" — and the link
+    // step fails with "undefined symbol: __isPlatformVersionAtLeast" (a
+    // symbol compiler-rt provides) if that file isn't the real one. Stage
+    // the real libclang_rt.*.a files from the local Darwin SDK artifact
+    // bundle's own Xcode toolchain into a same-shaped versioned directory,
+    // for every Family MacOSBasedLinker's provideCompilerRtLibrary switches
+    // on (ios, watchos, tvos, osx — confirmed via its WhenMappings; this
+    // compiler has no xrOS/visionOS case, so libclang_rt.xros*.a is never
+    // requested and is skipped to keep staging small).
+    final clangDir = Directory(p.join(appleToolchain, 'usr', 'lib', 'clang'))
+      ..createSync(recursive: true);
+    final darwinRt = _findCompilerRtDarwinDir(toolchain.darwinSdkBundle);
+    if (darwinRt != null) {
+      final stagedDarwin = Directory(
+        p.join(clangDir.path, 'xcross', 'lib', 'darwin'),
+      )..createSync(recursive: true);
+      for (final name in _compilerRtLibraryNames) {
+        final source = File(p.join(darwinRt, name));
+        if (source.existsSync()) {
+          source.copySync(p.join(stagedDarwin.path, name));
+        }
+      }
+    }
     // MacOSBasedLinker's constructor also hardcodes linker/libtool/strip/
     // dsymutil as "$absoluteTargetToolchain/bin/<tool>" (i.e.
     // "$appleToolchain/usr/bin/<tool>"), bypassing any konan.properties
@@ -410,3 +434,45 @@ const _appleToolAliases = {
 
 String _slash(String value) =>
     p.normalize(value).replaceAll(String.fromCharCode(92), '/');
+
+/// The `libclang_rt.*.a` names `MacOSBasedLinker.provideCompilerRtLibrary`
+/// can request for a non-sanitizer static link, one per `Family` it
+/// switches on: ios/watchos/tvos/osx, each with a `sim` variant for the
+/// simulator triples the patched HostManager also reports as enabled.
+const _compilerRtLibraryNames = [
+  'libclang_rt.ios.a',
+  'libclang_rt.iossim.a',
+  'libclang_rt.watchos.a',
+  'libclang_rt.watchossim.a',
+  'libclang_rt.tvos.a',
+  'libclang_rt.tvossim.a',
+  'libclang_rt.osx.a',
+];
+
+/// Finds `.../XcodeDefault.xctoolchain/usr/lib/clang/<version>/lib/darwin`
+/// under a Darwin SDK artifact bundle root, the directory Xcode's own clang
+/// ships its compiler-rt static libraries in. Returns null when the bundle
+/// doesn't have one (e.g. test fixtures, or a stripped-down bundle), in
+/// which case the staged `apple-toolchain` simply ends up with an empty
+/// compiler-rt directory again, same as before this fix — no compiler-rt
+/// library gets linked in, rather than failing to stage at all.
+String? _findCompilerRtDarwinDir(String darwinSdkBundle) {
+  final clang = Directory(
+    p.join(
+      darwinSdkBundle,
+      'Developer',
+      'Toolchains',
+      'XcodeDefault.xctoolchain',
+      'usr',
+      'lib',
+      'clang',
+    ),
+  );
+  if (!clang.existsSync()) return null;
+  for (final entry in clang.listSync()) {
+    if (entry is! Directory) continue;
+    final darwin = p.join(entry.path, 'lib', 'darwin');
+    if (Directory(darwin).existsSync()) return darwin;
+  }
+  return null;
+}
