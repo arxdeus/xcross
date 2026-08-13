@@ -15,6 +15,7 @@ typedef SwiftRunnerRunChecked =
     });
 
 const _iosTargetTriple = 'arm64-apple-ios15.0';
+const _iosMinimumVersion = '15.0';
 
 final class SwiftRunnerBuilder {
   SwiftRunnerBuilder() : _runChecked = _defaultRunChecked;
@@ -80,6 +81,32 @@ final class SwiftRunnerBuilder {
       '-Xcc',
       iphoneSdk,
       if (clangBuiltins != null) ...['-Xcc', '-isystem', '-Xcc', clangBuiltins],
+      // swiftc hands the final link off to whatever clang is on the driving
+      // host, asking it to invoke ld64.lld. On macOS that clang is Apple's
+      // own and already knows how to synthesize "-arch"/"-platform_version"
+      // for a Darwin target from -target alone. The Ubuntu-packaged clang
+      // CI installs has no such Darwin-target-inference logic (it isn't an
+      // Apple clang), so it passes neither flag through and ld64.lld fails
+      // with "must specify -platform_version" / "missing or unsupported
+      // -arch arm64". ObjcRunnerBuilder never hits this because it invokes
+      // ld64.lld directly with both flags explicit; do the same for the
+      // Swift link by forcing them through as literal linker arguments,
+      // which works identically on every host (confirmed locally: the
+      // macOS-clang-driven link produces byte-identical linker invocation
+      // whether or not these are passed explicitly, so this is safe there
+      // too).
+      '-Xlinker',
+      '-arch',
+      '-Xlinker',
+      'arm64',
+      '-Xlinker',
+      '-platform_version',
+      '-Xlinker',
+      'ios',
+      '-Xlinker',
+      _iosMinimumVersion,
+      '-Xlinker',
+      _sdkVersion(iphoneSdk) ?? '26.5',
       '-Xlinker',
       '-rpath',
       '-Xlinker',
@@ -123,6 +150,17 @@ String _iphoneSdk(ComposeToolchain toolchain) {
     return toolchain.darwinSdkPath;
   }
   throw XcrossError('iPhoneOS SDK not found at ${toolchain.darwinSdkPath}');
+}
+
+/// The SDK version suffix off an `iPhoneOS<version>.sdk` leaf name, or null
+/// for a bare `iPhoneOS.sdk` with no version in its name. Duplicated from
+/// objc_runner_builder.dart's identical helper rather than shared, to keep
+/// each runner builder file self-contained.
+String? _sdkVersion(String sdkPath) {
+  final name = p.basenameWithoutExtension(sdkPath);
+  if (!name.startsWith('iPhoneOS')) return null;
+  final version = name.substring('iPhoneOS'.length);
+  return version.isEmpty ? null : version;
 }
 
 void _validateFramework(KmpProject project, String frameworkPath) {

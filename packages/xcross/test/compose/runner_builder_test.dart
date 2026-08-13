@@ -143,6 +143,23 @@ void main() {
         calls.single.arguments,
         containsAllInOrder([
           '-Xlinker',
+          '-arch',
+          '-Xlinker',
+          'arm64',
+          '-Xlinker',
+          '-platform_version',
+          '-Xlinker',
+          'ios',
+          '-Xlinker',
+          '15.0',
+          '-Xlinker',
+          '26.5',
+        ]),
+      );
+      expect(
+        calls.single.arguments,
+        containsAllInOrder([
+          '-Xlinker',
           '-rpath',
           '-Xlinker',
           '@executable_path/Frameworks',
