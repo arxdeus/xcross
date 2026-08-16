@@ -50,8 +50,15 @@ abstract final class DeviceTransportResolver {
           // tunnel cannot always carry hot reload, and a user who never sees
           // why is left with an app that runs and keys that do nothing.
           Log.logWarn(
-            'kernel RSD tunnel unusable — continuing over the userspace '
-            'tunnel (usbmux + loopback):\n${_firstLine(error.message)}',
+            error is TunnelPrivilegeError
+                ? 'no Administrator rights for the kernel RSD tunnel — '
+                      'continuing over the userspace tunnel '
+                      '(usbmux + loopback).\n'
+                      'For the kernel tunnel, run `xcross tunnel` once from an '
+                      'elevated terminal.'
+                : 'kernel RSD tunnel unusable — continuing over the userspace '
+                      'tunnel (usbmux + loopback):\n'
+                      '${_firstLine(error.message)}',
           );
           Log.logTrace(error.message);
           return UserspaceTunnelTransport(udid: udid);

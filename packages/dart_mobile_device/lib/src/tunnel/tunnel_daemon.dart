@@ -27,15 +27,7 @@ class TunnelDaemon {
       return;
     }
 
-    await HostPrivileges.ensureDeviceToolAccess(
-      posixManualHint:
-          'Start tunneld manually:\n'
-          '    ${Pymd.elevatedCommand('remote tunneld')}',
-      windowsDeniedMessage:
-          'xcross needs Administrator rights to create the Windows RSD tunnel.\n'
-          'Open PowerShell with "Run as administrator", then run:\n'
-          '    xcross tunnel',
-    );
+    await _ensureElevated();
     final sudo = await Sudo.resolve();
 
     // Cache sudo credentials interactively first, then start the long-lived
@@ -56,6 +48,29 @@ class TunnelDaemon {
     // The sudo prompt above must never be hidden behind the spinner, so the
     // step only covers the spawn + readiness poll.
     await Log.logStep('Starting RSD tunnel daemon', () => _startDaemon(argv));
+  }
+
+  /// Demand the rights tunneld needs, as a [TunnelPrivilegeError].
+  ///
+  /// [HostPrivileges] speaks in [CliError], which aborts the whole command.
+  /// That is right for `xcross tunnel`, whose only job is the tunnel, and
+  /// wrong for a run session: `auto` transport mode has a working userspace
+  /// fallback and only reaches it through [TunnelError].
+  static Future<void> _ensureElevated() async {
+    try {
+      await HostPrivileges.ensureDeviceToolAccess(
+        posixManualHint:
+            'Start tunneld manually:\n'
+            '    ${Pymd.elevatedCommand('remote tunneld')}',
+        windowsDeniedMessage:
+            'xcross needs Administrator rights to create the Windows RSD '
+            'tunnel.\n'
+            'Open PowerShell with "Run as administrator", then run:\n'
+            '    xcross tunnel',
+      );
+    } on CliError catch (error) {
+      throw TunnelPrivilegeError(error.message);
+    }
   }
 
   /// Spawn tunneld with [argv] and poll until its REST API answers.
