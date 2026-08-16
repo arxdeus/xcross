@@ -82,6 +82,13 @@ abstract final class Log {
     return _active = Step._(label);
   }
 
+  /// The phase currently on screen, or null when nothing is running.
+  ///
+  /// Lets a helper deep in a call stack stream its subprocess output into the
+  /// phase its caller already opened, instead of every layer in between having
+  /// to pass a [Step] down purely to keep the tail alive.
+  static Step? get activeStep => _active;
+
   /// Erases any running spinner so direct stdout writers get a clean line.
   static void stopStep() {
     final step = _active;

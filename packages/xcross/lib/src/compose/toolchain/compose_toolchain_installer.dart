@@ -207,7 +207,7 @@ final class ComposeToolchainInstaller {
     List<String> arguments, {
     String? workingDirectory,
     Map<String, String>? environment,
-  }) => ProcessRunner.runChecked(
+  }) => ProcessRunner.runTool(
     executable,
     arguments,
     workingDirectory: workingDirectory,

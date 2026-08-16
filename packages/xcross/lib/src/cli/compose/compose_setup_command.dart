@@ -26,6 +26,13 @@ final class ComposeSetupArgs {
     negatable: false,
   )
   late bool force;
+
+  @CliOption(
+    abbr: 'v',
+    help: 'Show full toolchain download and warm-up output.',
+    negatable: false,
+  )
+  late bool verbose;
 }
 
 final class ComposeSetupCommand extends _$ComposeSetupArgsCommand<void> {
@@ -57,6 +64,7 @@ final class ComposeSetupCommand extends _$ComposeSetupArgsCommand<void> {
 
   @override
   Future<void> run() async {
+    if (_options.verbose) Log.setVerbose();
     if (_options.check) {
       final problems = await _problems();
       if (problems.isNotEmpty) {

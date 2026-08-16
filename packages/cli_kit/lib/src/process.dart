@@ -105,6 +105,35 @@ abstract final class ProcessRunner {
     );
   }
 
+  /// Runs a build tool as a phase of the current [Step], throwing [CliError]
+  /// on a non-zero exit.
+  ///
+  /// The output policy every compiler, linker, and build driver should share:
+  ///
+  /// * `--verbose` hands the tool this terminal, so its own progress rendering
+  ///   and any crash message survive intact.
+  /// * Otherwise output collapses into the running phase's grey tail, and is
+  ///   quoted in full only if the tool fails.
+  ///
+  /// Never forwards stdin: `compose run --watch` reads `r`/`q` from the same
+  /// terminal, and a build child holding stdin swallows those keys.
+  static Future<void> runTool(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+    Map<String, String>? environment,
+    String? label,
+  }) => runChecked(
+    executable,
+    arguments,
+    workingDirectory: workingDirectory,
+    environment: environment,
+    inheritStdio: Log.isVerbose,
+    tail: Log.isVerbose ? null : Log.activeStep,
+    forwardStdin: false,
+    label: label ?? p.basename(executable),
+  );
+
   static Future<void> _runInheritingStdio(
     String executable,
     List<String> arguments, {

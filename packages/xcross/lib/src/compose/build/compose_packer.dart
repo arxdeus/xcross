@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:xcross/src/compose/build/compose_app_assembler.dart';
 import 'package:xcross/src/compose/build/gradle_klib_builder.dart';
 import 'package:xcross/src/compose/build/kotlin_framework_builder.dart';
@@ -90,23 +91,38 @@ final class ComposePacker {
   final ComposeBuildSwiftRunner? _buildSwiftRunner;
   final ComposeAssembleApp? _assembleApp;
 
+  /// Build the project, reporting each stage as its own phase.
+  ///
+  /// Every stage shells out to a build tool that narrates itself at length —
+  /// Gradle alone prints a screenful of task lines per run. Naming the stages
+  /// here is what lets [ProcessRunner.runTool] collapse all of that into one
+  /// spinner per stage, and keeps the raw logs one `--verbose` away.
   Future<PackResult> pack() async {
-    final toolchain = await (_ensureToolchain ?? _defaultEnsureToolchain)(
-      host: (_currentHost ?? ComposeHost.current)(),
-      environment: (_environment ?? (() => Platform.environment))(),
-      projectRoot: project.root,
-      allowInstall: true,
-      force: false,
+    final toolchain = await Log.logStep(
+      'Resolving toolchain',
+      () => (_ensureToolchain ?? _defaultEnsureToolchain)(
+        host: (_currentHost ?? ComposeHost.current)(),
+        environment: (_environment ?? (() => Platform.environment))(),
+        projectRoot: project.root,
+        allowInstall: true,
+        force: false,
+      ),
     );
-    final klib = await (_buildKlib ?? _defaultBuildKlib)(
-      project: project,
-      toolchain: toolchain,
+    final klib = await Log.logStep(
+      'Compiling Kotlin sources',
+      () => (_buildKlib ?? _defaultBuildKlib)(
+        project: project,
+        toolchain: toolchain,
+      ),
     );
-    final frameworkPath = await (_buildFramework ?? _defaultBuildFramework)(
-      project: project,
-      options: options,
-      toolchain: toolchain,
-      klib: klib,
+    final frameworkPath = await Log.logStep(
+      'Building ${project.baseName}.framework',
+      () => (_buildFramework ?? _defaultBuildFramework)(
+        project: project,
+        options: options,
+        toolchain: toolchain,
+        klib: klib,
+      ),
     );
 
     if (project.entryKind == KmpEntryKind.frameworkOnly) {
@@ -118,25 +134,31 @@ final class ComposePacker {
       );
     }
 
-    final runnerPath = switch (project.entryKind) {
-      KmpEntryKind.runnableApp =>
-        await (_buildObjcRunner ?? _defaultBuildObjcRunner)(
-          project: project,
-          frameworkPath: frameworkPath,
-          toolchain: toolchain,
-        ),
-      KmpEntryKind.swiftApp =>
-        await (_buildSwiftRunner ?? _defaultBuildSwiftRunner)(
-          project: project,
-          frameworkPath: frameworkPath,
-          toolchain: toolchain,
-        ),
-      KmpEntryKind.frameworkOnly => throw StateError('unreachable'),
-    };
-    final appPath = await (_assembleApp ?? _defaultAssembleApp)(
-      project: project,
-      runnerPath: runnerPath,
-      frameworkPath: frameworkPath,
+    final runnerPath = await Log.logStep(
+      'Compiling Runner',
+      () => switch (project.entryKind) {
+        KmpEntryKind.runnableApp =>
+          (_buildObjcRunner ?? _defaultBuildObjcRunner)(
+            project: project,
+            frameworkPath: frameworkPath,
+            toolchain: toolchain,
+          ),
+        KmpEntryKind.swiftApp =>
+          (_buildSwiftRunner ?? _defaultBuildSwiftRunner)(
+            project: project,
+            frameworkPath: frameworkPath,
+            toolchain: toolchain,
+          ),
+        KmpEntryKind.frameworkOnly => throw StateError('unreachable'),
+      },
+    );
+    final appPath = await Log.logStep(
+      'Assembling ${project.appName}.app',
+      () => (_assembleApp ?? _defaultAssembleApp)(
+        project: project,
+        runnerPath: runnerPath,
+        frameworkPath: frameworkPath,
+      ),
     );
     return PackResult(
       outputPath: appPath,

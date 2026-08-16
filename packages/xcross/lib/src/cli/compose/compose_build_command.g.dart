@@ -25,7 +25,8 @@ ComposeBuildArgs _$parseComposeBuildArgsResult(ArgResults result) =>
       )
       ..bundleId = result['bundle-id'] as String?
       ..appName = result['app-name'] as String?
-      ..ipa = result['ipa'] as bool;
+      ..ipa = result['ipa'] as bool
+      ..verbose = result['verbose'] as bool;
 
 const _$ComposeConfigurationEnumMapBuildCli = <ComposeConfiguration, String>{
   ComposeConfiguration.debug: 'debug',
@@ -45,6 +46,12 @@ ArgParser _$populateComposeBuildArgsParser(ArgParser parser) => parser
     'ipa',
     help:
         'Output a .ipa file instead of a .app when the project produces an app.',
+    negatable: false,
+  )
+  ..addFlag(
+    'verbose',
+    abbr: 'v',
+    help: 'Show full Gradle, Kotlin/Native, and linker output.',
     negatable: false,
   );
 

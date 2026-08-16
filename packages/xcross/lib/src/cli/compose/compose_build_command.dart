@@ -36,6 +36,13 @@ final class ComposeBuildArgs {
         'Output a .ipa file instead of a .app when the project produces an app.',
   )
   late bool ipa;
+
+  @CliOption(
+    abbr: 'v',
+    help: 'Show full Gradle, Kotlin/Native, and linker output.',
+    negatable: false,
+  )
+  late bool verbose;
 }
 
 final class ComposeBuildCommand extends _$ComposeBuildArgsCommand<void> {
@@ -67,6 +74,7 @@ final class ComposeBuildCommand extends _$ComposeBuildArgsCommand<void> {
 
   @override
   Future<void> run() async {
+    if (_options.verbose) Log.setVerbose();
     final options = ComposeBuildOptions(
       configuration: _options.configuration,
       bundleId: _options.bundleId,

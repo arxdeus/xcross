@@ -9,7 +9,8 @@ part of 'compose_setup_command.dart';
 ComposeSetupArgs _$parseComposeSetupArgsResult(ArgResults result) =>
     ComposeSetupArgs()
       ..check = result['check'] as bool
-      ..force = result['force'] as bool;
+      ..force = result['force'] as bool
+      ..verbose = result['verbose'] as bool;
 
 ArgParser _$populateComposeSetupArgsParser(ArgParser parser) => parser
   ..addFlag(
@@ -20,6 +21,12 @@ ArgParser _$populateComposeSetupArgsParser(ArgParser parser) => parser
   ..addFlag(
     'force',
     help: 'Refresh the Compose Kotlin/Native cache atomically.',
+    negatable: false,
+  )
+  ..addFlag(
+    'verbose',
+    abbr: 'v',
+    help: 'Show full toolchain download and warm-up output.',
     negatable: false,
   );
 

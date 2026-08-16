@@ -142,11 +142,10 @@ final class SwiftRunnerBuilder {
     String executable,
     List<String> arguments, {
     String? workingDirectory,
-  }) => ProcessRunner.runChecked(
+  }) => ProcessRunner.runTool(
     executable,
     arguments,
     workingDirectory: workingDirectory,
-    label: p.basename(executable),
   );
 }
 

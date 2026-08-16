@@ -151,13 +151,11 @@ final class GradleKlibBuilder {
         environment: environment,
       );
     }
-    return ProcessRunner.runChecked(
+    return ProcessRunner.runTool(
       executable,
       arguments,
       workingDirectory: workingDirectory,
       environment: environment,
-      inheritStdio: true,
-      label: p.basename(executable),
     );
   }
 
