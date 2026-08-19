@@ -13,7 +13,7 @@
 
 No Mac. No Xcode. No WSL.
 
-[Install](#installation) • [Quick start](#quick-start) • [Commands](#command-reference) • [IDE](#ide-integration) • [FAQ](#faq) • [Under the hood](#under-the-hood)
+[Watch the demo](https://youtu.be/L8xhsSMJ8fU) • [Install](#installation) • [Quick start](#quick-start) • [Commands](#command-reference) • [IDE](#ide-integration) • [FAQ](#faq) • [Under the hood](#under-the-hood)
 
 </div>
 
