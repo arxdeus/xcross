@@ -149,12 +149,24 @@ final class AscClient implements DevelopmentProvisioningClient {
   );
 
   @override
-  Future<AscBundleId?> findBundleId(String identifier) async => _firstOrNull(
-    await _get(
-      '/bundleIds?filter[identifier]=${Uri.encodeQueryComponent(identifier)}',
-    ),
-    AscBundleId.fromJson,
-  );
+  Future<AscBundleId?> findBundleId(String identifier) async {
+    // `filter[identifier]` is a prefix match, not an exact one: querying
+    // `com.example.App` also returns `com.example.App.Share-Extension`, and
+    // the app's own id is not necessarily first. Taking the first row would
+    // sign the app with an extension's App ID, so the exact match is picked
+    // out here (mirroring the developerservices2 client).
+    final page = await _get(
+      '/bundleIds?filter[identifier]=${Uri.encodeQueryComponent(identifier)}'
+      '&limit=200',
+    );
+    for (final entry in page['data'] as List) {
+      final bundleId = AscBundleId.fromJson(
+        (entry as Map).cast<String, dynamic>(),
+      );
+      if (bundleId.identifier == identifier) return bundleId;
+    }
+    return null;
+  }
 
   @override
   Future<AscBundleId> registerBundleId({
@@ -170,23 +182,29 @@ final class AscClient implements DevelopmentProvisioningClient {
   );
 
   @override
-  Future<AscAppGroup?> findAppGroup(String identifier) async => _firstOrNull(
-    await _get(
-      '/appGroups?filter[identifier]=${Uri.encodeQueryComponent(identifier)}',
-    ),
-    AscAppGroup.fromJson,
-  );
+  Future<AscAppGroup?> findAppGroup(String identifier) async {
+    // App Store Connect exposes no App Groups resource: every spelling and
+    // version of `/appGroups` answers 404. Groups therefore cannot be looked
+    // up or created with an API key, only enabled as a capability (see
+    // [assignAppGroups]), so report "not registered" instead of failing.
+    return null;
+  }
 
   @override
   Future<AscAppGroup> registerAppGroup({
     required String identifier,
     required String name,
-  }) async => AscAppGroup.fromJson(
-    _data(
-      await _post(
-        '/appGroups',
-        AscPayloads.appGroup(identifier: identifier, name: name),
-      ),
+  }) => Future.error(
+    // There is no `/appGroups` resource to POST to; the request would only
+    // ever come back 404. Reporting it directly keeps the caller's handling
+    // identical without a pointless round-trip. It is a rejected future
+    // rather than a synchronous throw so callers can rely on the usual
+    // async error path.
+    const AppleApiError(
+      404,
+      'The App Store Connect API exposes no App Groups resource, so groups '
+      'cannot be registered with an API key. Add the group to the App ID at '
+      'developer.apple.com, or sign in with `xcross auth --apple-id`.',
     ),
   );
 
@@ -195,11 +213,17 @@ final class AscClient implements DevelopmentProvisioningClient {
     required String bundleIdResourceId,
     required List<String> appGroupResourceIds,
   }) async {
+    // With no App Groups resource to relate to, the most an API key can do is
+    // turn the capability on for the App ID. That alone makes Apple issue
+    // profiles carrying `com.apple.security.application-groups`, which is what
+    // lets the app and its extensions be signed with a shared-container
+    // entitlement at all. The concrete group values still have to be attached
+    // on developer.apple.com or through an Apple ID session.
     await _post(
       '/bundleIdCapabilities',
-      AscPayloads.appGroupsCapability(
+      AscPayloads.enableCapability(
         bundleIdResourceId: bundleIdResourceId,
-        appGroupResourceIds: appGroupResourceIds,
+        capabilityType: 'APP_GROUPS',
       ),
     );
   }

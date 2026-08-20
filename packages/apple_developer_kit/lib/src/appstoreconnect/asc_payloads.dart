@@ -108,4 +108,25 @@ abstract final class AscPayloads {
       },
     },
   };
+
+  /// Turns a capability on for a bundle id without configuring it.
+  ///
+  /// Used for `APP_GROUPS` on the App Store Connect key path, where the
+  /// groups themselves cannot be enumerated (`/appGroups` does not exist) and
+  /// so cannot be linked. Enabling the capability is still what makes Apple
+  /// issue profiles carrying `com.apple.security.application-groups`.
+  static Map<String, dynamic> enableCapability({
+    required String bundleIdResourceId,
+    required String capabilityType,
+  }) => {
+    'data': {
+      'type': 'bundleIdCapabilities',
+      'attributes': {'capabilityType': capabilityType},
+      'relationships': {
+        'bundleId': {
+          'data': {'type': 'bundleIds', 'id': bundleIdResourceId},
+        },
+      },
+    },
+  };
 }

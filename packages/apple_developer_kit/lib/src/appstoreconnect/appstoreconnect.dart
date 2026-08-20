@@ -151,6 +151,7 @@ abstract final class AscProvisioning {
   }) async {
     if (appGroups.isEmpty) return;
 
+    var groupsLinked = true;
     try {
       final resourceIds = <String>[];
       for (final identifier in appGroups) {
@@ -159,17 +160,36 @@ abstract final class AscProvisioning {
           resourceIds.add(existing.id);
           continue;
         }
-        final created = await client.registerAppGroup(
-          identifier: identifier,
-          name: ProvisioningIdentifiers.appName(identifier),
-        );
-        resourceIds.add(created.id);
+        try {
+          final created = await client.registerAppGroup(
+            identifier: identifier,
+            name: ProvisioningIdentifiers.appName(identifier),
+          );
+          resourceIds.add(created.id);
+        } on AppleApiError catch (error) {
+          // App Store Connect has no App Groups resource to register into.
+          // The capability can still be switched on below, which is what
+          // makes Apple issue an application-groups entitlement at all, so
+          // this is a partial success rather than a failure.
+          if (error.statusCode != 404) rethrow;
+          groupsLinked = false;
+        }
       }
 
       await client.assignAppGroups(
         bundleIdResourceId: bundleIdResource.id,
         appGroupResourceIds: resourceIds,
       );
+      if (!groupsLinked) {
+        onProgress?.call(
+          'App Groups capability enabled on ${bundleIdResource.identifier}, '
+          'but the group values (${appGroups.join(', ')}) could not be '
+          'attached: the App Store Connect API exposes no App Groups '
+          'resource. Add them to the App IDs at developer.apple.com, or sign '
+          'in with `xcross auth --apple-id`, to share data between the app '
+          'and its extensions.',
+        );
+      }
     } on Object catch (error) {
       // developerservices2 (the Apple ID path) answers 403 "The API key in
       // use does not allow this request" here on every team tried, free and
