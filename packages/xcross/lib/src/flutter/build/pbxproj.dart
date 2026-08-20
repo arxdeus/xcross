@@ -174,6 +174,93 @@ final class PbxProject {
     return null;
   }
 
+  /// Absolute on-disk paths contributed to [target] by Xcode 16 synchronized
+  /// folder groups (`PBXFileSystemSynchronizedRootGroup`).
+  ///
+  /// Xcode 16 stopped listing every file in `PBXSourcesBuildPhase`: a target
+  /// can instead point at a folder whose contents are members implicitly, so
+  /// the build phase is empty and only the folder is named. Walking the folder
+  /// is therefore the only way to recover the target's files, and skipping it
+  /// is what makes such a target look like it has no sources at all.
+  ///
+  /// Files listed in a `membershipExceptions` set for [target] are excluded,
+  /// matching Xcode's own "remove from target" behaviour.
+  List<String> synchronizedFiles(PbxObject target) {
+    final paths = <String>[];
+    for (final groupId in target.stringList('fileSystemSynchronizedGroups')) {
+      final group = object(groupId);
+      if (group == null) continue;
+      final root = resolveFileReference(groupId);
+      if (root == null || !Directory(root).existsSync()) continue;
+
+      final excluded = _membershipExceptions(group, target);
+      for (final path in _walkSynchronizedRoot(root)) {
+        final relative = p.relative(path, from: root);
+        if (excluded.contains(relative)) continue;
+        paths.add(path);
+      }
+    }
+    paths.sort();
+    return paths;
+  }
+
+  /// Group-relative paths [group] excludes from [target].
+  Set<String> _membershipExceptions(PbxObject group, PbxObject target) {
+    final excluded = <String>{};
+    for (final exceptionId in group.stringList('exceptions')) {
+      final exception = object(exceptionId);
+      if (exception == null) continue;
+      // An exception set names the one target it applies to; sets belonging to
+      // a sibling target must not hide files from this one.
+      if (exception.string('target') != target.id) continue;
+      excluded.addAll(
+        exception.stringList('membershipExceptions').map(p.normalize),
+      );
+    }
+    return excluded;
+  }
+
+  /// Files under a synchronized root, treating bundle-shaped directories as
+  /// single entries so an `.xcassets` is one resource, not its loose contents.
+  static List<String> _walkSynchronizedRoot(String root) {
+    const bundleDirectories = {
+      '.xcassets',
+      '.storyboardc',
+      '.framework',
+      '.bundle',
+      '.xcdatamodeld',
+      '.docc',
+    };
+
+    final found = <String>[];
+    final pending = <String>[root];
+    // Bounded walk: pbxproj folders are shallow and this never follows links.
+    while (pending.isNotEmpty) {
+      final directory = Directory(pending.removeLast());
+      final List<FileSystemEntity> entries;
+      try {
+        entries = directory.listSync(followLinks: false);
+      } on FileSystemException {
+        continue;
+      }
+      for (final entry in entries) {
+        final name = p.basename(entry.path);
+        // Xcode ignores dotfiles in synchronized folders.
+        if (name.startsWith('.')) continue;
+        if (entry is Directory) {
+          if (bundleDirectories.contains(p.extension(name))) {
+            found.add(entry.path);
+          } else {
+            pending.add(entry.path);
+          }
+          continue;
+        }
+        if (entry is File) found.add(entry.path);
+      }
+    }
+    return found;
+  }
+
   /// Path prefix contributed by the `PBXGroup` chain above the object [id].
   String? _groupPrefix(String id) {
     final segments = <String>[];

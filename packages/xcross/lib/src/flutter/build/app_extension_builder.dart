@@ -140,7 +140,7 @@ abstract final class AppExtensionBuilder {
       deploymentTarget: target,
       versions: versions,
     );
-    await _copyResources(extension: extension, bundleDir: bundleDir);
+    await copyResources(extension: extension, bundleDir: bundleDir);
 
     return BuiltAppExtension(extension: extension, bundlePath: bundleDir);
   }
@@ -427,19 +427,24 @@ abstract final class AppExtensionBuilder {
   /// only, so uncompiled `.storyboard`/`.xcassets` inputs are skipped with a
   /// warning rather than shipped in a form iOS cannot read. A precompiled
   /// `.storyboardc`/`.car` sitting next to the source is used when present.
-  static Future<void> _copyResources({
+  @visibleForTesting
+  static Future<void> copyResources({
     required IosAppExtension extension,
     required String bundleDir,
   }) async {
     for (final resource in extension.resources) {
       final name = p.basename(resource);
+      // Localized resources keep their `<lang>.lproj` directory: it is how
+      // iOS selects a language, and flattening it would also make every
+      // language's copy of a file collide on one bundle-root name.
+      final destination = p.joinAll([bundleDir, ?_lprojOf(resource), name]);
       if (name.endsWith('.storyboard')) {
         // Handled by replaceStoryboardWithPrincipalClass above.
         final compiled = '${p.withoutExtension(resource)}.storyboardc';
         if (Directory(compiled).existsSync()) {
           await _copyDirectory(
             compiled,
-            p.join(bundleDir, p.basename(compiled)),
+            p.join(p.dirname(destination), p.basename(compiled)),
           );
         } else {
           Log.logWarn(
@@ -459,11 +464,19 @@ abstract final class AppExtensionBuilder {
       }
 
       if (Directory(resource).existsSync()) {
-        await _copyDirectory(resource, p.join(bundleDir, name));
+        await _copyDirectory(resource, destination);
       } else if (File(resource).existsSync()) {
-        await File(resource).copy(p.join(bundleDir, name));
+        await Directory(p.dirname(destination)).create(recursive: true);
+        await File(resource).copy(destination);
       }
     }
+  }
+
+  /// The `<lang>.lproj` directory [resource] sits in, or null when it is not
+  /// a localized resource.
+  static String? _lprojOf(String resource) {
+    final parent = p.basename(p.dirname(resource));
+    return parent.endsWith('.lproj') ? parent : null;
   }
 
   /// Locate `swiftc`, which the Swift toolchain puts on PATH.

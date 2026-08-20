@@ -13,6 +13,22 @@ const _extensionProductTypes = {'com.apple.product-type.app-extension'};
 
 const _applicationProductType = 'com.apple.product-type.application';
 
+/// Extensions of files that belong in a target's compile-sources phase.
+const _sourceExtensions = {'.swift', '.m', '.mm', '.c', '.cpp'};
+
+/// Extensions that are never a compiled source nor a copyable resource:
+/// build inputs Xcode consumes itself.
+const _nonResourceExtensions = {
+  '.h',
+  '.hpp',
+  '.plist',
+  '.entitlements',
+  '.modulemap',
+  '.xcconfig',
+  '.md',
+  '.swiftinterface',
+};
+
 /// One iOS app-extension target discovered in `project.pbxproj`.
 @immutable
 final class IosAppExtension {
@@ -113,6 +129,24 @@ abstract final class IosAppExtensions {
         project.buildSetting(target, 'CODE_SIGN_ENTITLEMENTS'),
       );
 
+      // Xcode 16 targets may list files explicitly, via a synchronized folder
+      // group, or both; merging the two keeps either project style building.
+      final synchronized = project.synchronizedFiles(target);
+      final sources = <String>{
+        ...project.buildPhaseFiles(target, 'PBXSourcesBuildPhase'),
+        ...synchronized.where(
+          (file) => _sourceExtensions.contains(p.extension(file)),
+        ),
+      }.toList();
+      final resources = <String>{
+        ...project.buildPhaseFiles(target, 'PBXResourcesBuildPhase'),
+        ...synchronized.where((file) {
+          final extension = p.extension(file);
+          return !_sourceExtensions.contains(extension) &&
+              !_nonResourceExtensions.contains(extension);
+        }),
+      }.toList();
+
       extensions.add(
         IosAppExtension(
           name: name,
@@ -121,8 +155,8 @@ abstract final class IosAppExtensions {
             project,
             project.buildSetting(target, 'INFOPLIST_FILE'),
           ),
-          sources: project.buildPhaseFiles(target, 'PBXSourcesBuildPhase'),
-          resources: project.buildPhaseFiles(target, 'PBXResourcesBuildPhase'),
+          sources: sources,
+          resources: resources,
           entitlementsPath: entitlements,
           swiftVersion: project.buildSetting(target, 'SWIFT_VERSION') ?? '5.0',
           deploymentTarget: project.buildSetting(

@@ -316,4 +316,114 @@ void main() {
       expect(RegExp('<key>CFBundleIdentifier</key>').allMatches(xml).length, 1);
     });
   });
+
+  group('copyResources', () {
+    late Directory tmp;
+    late Directory bundle;
+
+    setUp(() async {
+      tmp = await Directory.systemTemp.createTemp('xcross_copy_resources-');
+      bundle = Directory(p.join(tmp.path, 'Share Extension.appex'));
+      await bundle.create(recursive: true);
+    });
+
+    tearDown(() async {
+      if (tmp.existsSync()) await tmp.delete(recursive: true);
+    });
+
+    Future<String> writeResource(String relative, String contents) async {
+      final file = File(p.join(tmp.path, 'src', relative));
+      await file.parent.create(recursive: true);
+      await file.writeAsString(contents);
+      return file.path;
+    }
+
+    test('keeps localized resources inside their .lproj directory', () async {
+      final english = await writeResource(
+        p.join('en.lproj', 'Localizable.strings'),
+        '"key" = "english";',
+      );
+      final german = await writeResource(
+        p.join('de.lproj', 'Localizable.strings'),
+        '"key" = "german";',
+      );
+
+      await AppExtensionBuilder.copyResources(
+        extension: _extension(resources: [english, german]),
+        bundleDir: bundle.path,
+      );
+
+      // Flattening onto the bundle root would make one language overwrite the
+      // other, and iOS would find no localization at all.
+      expect(
+        File(
+          p.join(bundle.path, 'en.lproj', 'Localizable.strings'),
+        ).readAsStringSync(),
+        '"key" = "english";',
+      );
+      expect(
+        File(
+          p.join(bundle.path, 'de.lproj', 'Localizable.strings'),
+        ).readAsStringSync(),
+        '"key" = "german";',
+      );
+    });
+
+    test('copies unlocalized resources to the bundle root', () async {
+      final resource = await writeResource('config.json', '{}');
+
+      await AppExtensionBuilder.copyResources(
+        extension: _extension(resources: [resource]),
+        bundleDir: bundle.path,
+      );
+
+      expect(File(p.join(bundle.path, 'config.json')).existsSync(), isTrue);
+    });
+
+    test('places a compiled storyboard next to its localization', () async {
+      final storyboard = await writeResource(
+        p.join('Base.lproj', 'MainInterface.storyboard'),
+        '<document/>',
+      );
+      final compiled = Directory(
+        p.join(p.dirname(storyboard), 'MainInterface.storyboardc'),
+      );
+      await compiled.create(recursive: true);
+      await File(p.join(compiled.path, 'Info.plist')).writeAsString('<plist/>');
+
+      await AppExtensionBuilder.copyResources(
+        extension: _extension(resources: [storyboard]),
+        bundleDir: bundle.path,
+      );
+
+      expect(
+        File(
+          p.join(
+            bundle.path,
+            'Base.lproj',
+            'MainInterface.storyboardc',
+            'Info.plist',
+          ),
+        ).existsSync(),
+        isTrue,
+      );
+    });
+
+    test('skips an uncompiled storyboard rather than shipping it', () async {
+      final storyboard = await writeResource(
+        'MainInterface.storyboard',
+        '<document/>',
+      );
+
+      await AppExtensionBuilder.copyResources(
+        extension: _extension(resources: [storyboard]),
+        bundleDir: bundle.path,
+      );
+
+      expect(
+        File(p.join(bundle.path, 'MainInterface.storyboard')).existsSync(),
+        isFalse,
+      );
+    });
+  });
 }

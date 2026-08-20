@@ -230,4 +230,157 @@ void main() {
   test('finds the application target name', () {
     expect(IosAppExtensions.applicationTargetName(tmp.path), 'Runner');
   });
+
+  group('Xcode 16 synchronized folder groups', () {
+    late Directory synced;
+
+    /// A project whose extension target lists no files in its build phases and
+    /// instead points at a synchronized folder group, the shape Xcode 16
+    /// writes for a target added with "folder" references.
+    Future<void> writeSyncedProject({String exceptions = ''}) async {
+      await File(
+        p.join(tmp.path, 'ios', 'Runner.xcodeproj', 'project.pbxproj'),
+      ).writeAsString('''
+// !\$*UTF8*\$!
+{
+	archiveVersion = 1;
+	objectVersion = 77;
+	objects = {
+		AA01 = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BB01;
+			buildPhases = (
+				SS01,
+			);
+			fileSystemSynchronizedGroups = (
+				SG01,
+			);
+			name = "Share Extension";
+			productType = "com.apple.product-type.app-extension";
+		};
+		SG01 = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Share Extension";
+			sourceTree = "<group>";
+$exceptions
+		};
+		SS01 = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+		CC01 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_BUNDLE_IDENTIFIER = "com.example.App.Share-Extension";
+			};
+			name = Debug;
+		};
+		BB01 = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CC01,
+			);
+		};
+	};
+	rootObject = PP01;
+}
+''');
+    }
+
+    setUp(() async {
+      synced = Directory(p.join(tmp.path, 'ios', 'Share Extension'));
+      await Directory(p.join(synced.path, 'Base.lproj')).create(recursive: true);
+      await File(
+        p.join(synced.path, 'ShareViewController.swift'),
+      ).writeAsString('class ShareViewController {}');
+      await File(
+        p.join(synced.path, 'Base.lproj', 'MainInterface.storyboard'),
+      ).writeAsString('<document/>');
+      await File(p.join(synced.path, 'Info.plist')).writeAsString('<plist/>');
+    });
+
+    test('recovers sources from a synchronized folder group', () async {
+      await writeSyncedProject();
+
+      final extension = IosAppExtensions.discover(tmp.path).single;
+
+      expect(extension.sources, [
+        p.join(synced.path, 'ShareViewController.swift'),
+      ]);
+    });
+
+    test('classifies synchronized files as sources or resources', () async {
+      await writeSyncedProject();
+
+      final extension = IosAppExtensions.discover(tmp.path).single;
+
+      // Nested folders contribute, and Info.plist is a build input, not a
+      // resource to copy: the builder writes the bundle's plist itself.
+      expect(extension.resources, [
+        p.join(synced.path, 'Base.lproj', 'MainInterface.storyboard'),
+      ]);
+      expect(extension.resources, isNot(contains(endsWith('Info.plist'))));
+    });
+
+    test('honours membership exceptions for this target', () async {
+      await writeSyncedProject(
+        exceptions: '''
+			exceptions = (
+				EX01,
+			);''',
+      );
+      final pbxproj = File(
+        p.join(tmp.path, 'ios', 'Runner.xcodeproj', 'project.pbxproj'),
+      );
+      await pbxproj.writeAsString(
+        pbxproj.readAsStringSync().replaceFirst('		SS01 = {', '''
+		EX01 = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			target = AA01;
+			membershipExceptions = (
+				ShareViewController.swift,
+			);
+		};
+		SS01 = {'''),
+      );
+
+      expect(IosAppExtensions.discover(tmp.path).single.sources, isEmpty);
+    });
+
+    test('ignores exceptions belonging to a different target', () async {
+      await writeSyncedProject(
+        exceptions: '''
+			exceptions = (
+				EX01,
+			);''',
+      );
+      final pbxproj = File(
+        p.join(tmp.path, 'ios', 'Runner.xcodeproj', 'project.pbxproj'),
+      );
+      await pbxproj.writeAsString(
+        pbxproj.readAsStringSync().replaceFirst('		SS01 = {', '''
+		EX01 = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			target = AA99;
+			membershipExceptions = (
+				ShareViewController.swift,
+			);
+		};
+		SS01 = {'''),
+      );
+
+      expect(IosAppExtensions.discover(tmp.path).single.sources, hasLength(1));
+    });
+
+    test('tolerates a synchronized group with no folder on disk', () async {
+      await writeSyncedProject();
+      await synced.delete(recursive: true);
+
+      final extension = IosAppExtensions.discover(tmp.path).single;
+
+      expect(extension.sources, isEmpty);
+      expect(extension.resources, isEmpty);
+    });
+  });
 }
