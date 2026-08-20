@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:apple_developer_kit/src/appstoreconnect/appstoreconnect.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/asc_client.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/asc_models.dart';
+import 'package:apple_developer_kit/src/errors.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -162,8 +163,7 @@ void main() {
   test('keeps installing when Apple rejects the credentials', () async {
     final temp = Directory.systemTemp.createTempSync('xcross_app_groups_403');
     addTearDown(() => temp.deleteSync(recursive: true));
-    // Both backends now reach App Groups over the same legacy protocol, so a
-    // 401/403 means the session or key was refused rather than the API not
+    // A 401/403 means the session was refused rather than the API not
     // supporting the operation. It must still never cost the user the build:
     // only the shared container is lost.
     final client = _FakeProvisioningClient()
@@ -184,7 +184,31 @@ void main() {
     );
 
     expect(File(result.profilePath).existsSync(), isTrue);
-    expect(warnings, anyElement(contains('Apple rejected the credentials')));
+    expect(warnings, anyElement(contains('Apple rejected these credentials')));
+  });
+
+  test('states the API key limitation once, and still installs', () async {
+    final temp = Directory.systemTemp.createTempSync('xcross_app_groups_unsup');
+    addTearDown(() => temp.deleteSync(recursive: true));
+    // An App Store Connect API key cannot provision App Groups at all, which
+    // is a property of Apple's APIs rather than a failure to retry. The user
+    // gets one plain sentence naming the fix, and still gets their build.
+    final client = _FakeProvisioningClient()
+      ..findAppGroupFailure = const AppGroupsUnsupported();
+    final warnings = <String>[];
+
+    final result = await AscProvisioning.provisionDevelopmentIdentity(
+      client: client,
+      bundleId: 'com.example.app',
+      deviceUdids: const ['UDID'],
+      outputDir: temp.path,
+      appGroups: const ['group.com.example.Shared'],
+      onProgress: warnings.add,
+    );
+
+    expect(File(result.profilePath).existsSync(), isTrue);
+    expect(warnings, hasLength(1));
+    expect(warnings.single, contains('xcross auth --apple-id'));
   });
 
   test('installs anyway when an App Group lookup fails', () async {

@@ -5,7 +5,6 @@ import 'package:apple_developer_kit/src/appstoreconnect/asc_config.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/asc_jwt.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/asc_models.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/asc_payloads.dart';
-import 'package:apple_developer_kit/src/appstoreconnect/legacy_app_groups.dart';
 import 'package:apple_developer_kit/src/errors.dart';
 import 'package:http/http.dart' as http;
 
@@ -182,74 +181,49 @@ final class AscClient implements DevelopmentProvisioningClient {
     ),
   );
 
-  /// App Groups over the pre-JSON `QH65B2` protocol.
+  /// App Groups cannot be provisioned with an App Store Connect API key.
   ///
-  /// `api.appstoreconnect.apple.com` has no App Groups resource at all:
-  /// Apple's own OpenAPI specification declares 966 paths and none of them
-  /// mentions one, and `CapabilitySetting.key` has no
-  /// `APP_GROUP_IDENTIFIERS` member, so even the `APP_GROUPS` capability
-  /// cannot be pointed at a specific group there.
+  /// Every route was tried against a live key and each is a dead end:
   ///
-  /// developerservices2's legacy endpoints can, and they accept an ordinary
-  /// App Store Connect API key: an unknown key is refused with the identical
-  /// "Make sure a bearer token was provided, it is properly configured and
-  /// signed" text `api.appstoreconnect.apple.com` returns, i.e. the same key
-  /// validator backs both hosts. Resource ids match across the two APIs, so
-  /// an App ID registered here can be handed straight to the legacy call.
+  /// * `api.appstoreconnect.apple.com` has no App Groups resource. Apple's
+  ///   own OpenAPI specification declares 966 paths and not one mentions App
+  ///   Groups; `/v1/appGroups` and `/v1/applicationGroups` both 404.
+  /// * The `APP_GROUPS` capability *can* be switched on through
+  ///   `/v1/bundleIdCapabilities` (it answers 201), but it cannot be pointed
+  ///   at a group: `CapabilitySetting.key` accepts only `ICLOUD_VERSION`,
+  ///   `DATA_PROTECTION_PERMISSION_LEVEL` and `APPLE_ID_AUTH_APP_CONSENT`,
+  ///   and Apple rejects `APP_GROUP_IDENTIFIERS` with a 409 naming those
+  ///   three.
+  /// * With the capability on but no group linked, an issued profile grants
+  ///   `com.apple.security.application-groups: []`, an empty array. Signing
+  ///   an app with a real group against such a profile is refused by installd
+  ///   with `0xe8008015 (A valid provisioning profile for this executable was
+  ///   not found)`, so the empty array cannot be worked around locally.
+  /// * developerservices2, which does expose App Groups, refuses API keys.
+  ///   Its 403 quotes the same "properly configured and signed" wording
+  ///   api.appstoreconnect.apple.com uses, but a key that works there is
+  ///   rejected here under every JWT audience tried, so the shared wording is
+  ///   coincidental rather than a shared validator.
+  ///
+  /// Reporting this as a distinct error lets the provisioning layer print one
+  /// clear message instead of a confusing HTTP failure. Signing in with
+  /// `xcross auth --apple-id` is the only path that provisions App Groups.
   @override
   Future<AscAppGroup?> findAppGroup(String identifier) =>
-      _appGroups.find(identifier);
+      Future.error(const AppGroupsUnsupported());
 
   @override
   Future<AscAppGroup> registerAppGroup({
     required String identifier,
     required String name,
-  }) => _appGroups.register(identifier: identifier, name: name);
+  }) => Future.error(const AppGroupsUnsupported());
 
   @override
   Future<void> assignAppGroups({
     required String bundleIdResourceId,
     required List<String> appGroupResourceIds,
-  }) => _appGroups.assign(
-    appIdResourceId: bundleIdResourceId,
-    appGroupResourceIds: appGroupResourceIds,
-  );
+  }) => Future.error(const AppGroupsUnsupported());
 
-  late final LegacyAppGroups _appGroups = LegacyAppGroups(
-    httpClient: _http,
-    authHeaders: () async => {
-      'Authorization': 'Bearer ${await AscJwt.generate(credentials)}',
-    },
-    teamId: _resolveTeamId,
-  );
-
-  /// The team the API key belongs to, which the legacy protocol wants in
-  /// every request body.
-  ///
-  /// An API key is already team-scoped, so unlike an Apple ID session it
-  /// never carries a team id of its own. Apple returns it as a bundle id's
-  /// `seedId`, which is why this reads one rather than asking for a team
-  /// resource: there is no `/teams` endpoint on App Store Connect.
-  Future<String> _resolveTeamId() async {
-    final cached = _teamId;
-    if (cached != null) return cached;
-
-    final page = (await _get('/bundleIds?limit=1'))['data'];
-    if (page is List) {
-      for (final entry in page) {
-        if (entry is! Map) continue;
-        final seedId = (entry['attributes'] as Map?)?['seedId'];
-        if (seedId is String && seedId.isNotEmpty) return _teamId = seedId;
-      }
-    }
-    throw const AppleError(
-      'Could not determine the team id for this App Store Connect API key: '
-      'the team has no bundle ids to read a seedId from. Register one app '
-      'first, or sign in with `xcross auth --apple-id`.',
-    );
-  }
-
-  String? _teamId;
 
   @override
   Future<List<String>> listProfileIdsForBundle(

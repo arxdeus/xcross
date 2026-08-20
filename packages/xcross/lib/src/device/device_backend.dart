@@ -34,6 +34,18 @@ final class NativeBackend implements DeviceBackend {
 
   final PymdDeviceResolver _resolver;
 
+  /// Warnings already shown this install.
+  ///
+  /// Provisioning runs once per App ID (the app plus one per extension), so a
+  /// condition that is really a property of the account — App Groups being
+  /// unavailable to API keys, say — would otherwise be printed three times in
+  /// a row.
+  final Set<String> _warned = {};
+
+  void _warnOnce(String message) {
+    if (_warned.add(message)) Log.logWarn(message);
+  }
+
   @override
   Future<Device> resolveDevice({
     required DeviceSearchMode mode,
@@ -121,7 +133,7 @@ final class NativeBackend implements DeviceBackend {
         outputDir: outputDir,
         identityDir: signing.identityDir,
         appGroups: appGroups,
-        onProgress: Log.logWarn,
+        onProgress: _warnOnce,
       );
       final asset = await SigningAsset.load(
         privateKeyPemPath: identity.privateKeyPemPath,
@@ -339,7 +351,7 @@ final class NativeBackend implements DeviceBackend {
   /// Each extension is a separate App ID on the portal, so it gets its own
   /// profile. Free Apple developer accounts cap App IDs, hence the explicit
   /// hint when the portal refuses one.
-  static Future<Map<String, SigningAsset>> _provisionExtensions(
+  Future<Map<String, SigningAsset>> _provisionExtensions(
     List<EmbeddedExtension> extensions, {
     required SigningSession signing,
     required String udid,
@@ -360,7 +372,7 @@ final class NativeBackend implements DeviceBackend {
           outputDir: p.join(profilesDir, extensionBundleId),
           identityDir: signing.identityDir,
           appGroups: appGroups,
-          onProgress: Log.logWarn,
+          onProgress: _warnOnce,
         );
         assets[extensionBundleId] = await SigningAsset.load(
           privateKeyPemPath: identity.privateKeyPemPath,

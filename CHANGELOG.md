@@ -22,14 +22,21 @@
   developer.apple.com. Without the shared container a share extension can
   hand nothing back to the app, which is the whole point of
   `receive_sharing_intent`. (#23)
-- This works with **both** credential types. App Groups have no modern API at
-  all (Apple's App Store Connect OpenAPI spec declares 966 paths and none
-  mentions them; `CapabilitySetting.key` has no `APP_GROUP_IDENTIFIERS`), so
-  xcross reaches them over the pre-JSON `QH65B2` protocol Xcode itself uses.
-  That protocol authenticates with an Apple ID session *or* an ordinary
-  `Authorization: Bearer` App Store Connect API key JWT, and returns the same
-  resource ids the JSON:API does. An API key carries no team id, so xcross
-  reads one from a bundle id's `seedId` and caches it.
+  App Groups are reached over the pre-JSON `QH65B2` protocol Xcode itself
+  uses, because they have no modern API at all: Apple's App Store Connect
+  OpenAPI specification declares 966 paths and none mentions App Groups.
+- **App Groups require an Apple ID session.** An App Store Connect API key
+  cannot provision them, and xcross now says so in one clear sentence instead
+  of failing obscurely. Verified against a live key: `/v1/appGroups` 404s, the
+  `APP_GROUPS` capability can be enabled but not pointed at a group
+  (`settings[].key` accepts only `ICLOUD_VERSION`,
+  `DATA_PROTECTION_PERMISSION_LEVEL`, `APPLE_ID_AUTH_APP_CONSENT`), the
+  resulting profile grants an empty `application-groups` array, and signing a
+  real group against it is refused by iOS with `0xe8008015`.
+  developerservices2 does expose App Groups but rejects API keys under every
+  JWT audience tried. Everything else about an API key build is unaffected.
+- Warnings that describe an account-wide condition are printed once per run
+  rather than once per App ID (an app with two extensions provisions three).
 
 ## 1.1.1
 

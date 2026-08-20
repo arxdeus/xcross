@@ -170,25 +170,25 @@ abstract final class AscProvisioning {
         bundleIdResourceId: bundleIdResource.id,
         appGroupResourceIds: resourceIds,
       );
+    } on AppGroupsUnsupported catch (error) {
+      // Not a failure to retry: this credential type simply cannot do it.
+      // Said once, plainly, with the fix.
+      onProgress?.call('$error');
     } on Object catch (error) {
-      // Never fatal: the app, its extensions and their profiles are all
-      // valid without a shared container. Only the data hand-off between an
+      // Never fatal: the app, its extensions and their profiles are all valid
+      // without a shared container. Only the data hand-off between an
       // extension and its host app is missing, so an App Groups problem must
       // not cost the user their build.
-      //
-      // Both backends reach App Groups over the same legacy protocol now, so
-      // a failure here is a real error (an expired session, a revoked key, a
-      // team that cannot register more identifiers) rather than the API
-      // simply not supporting it.
       final unauthorized =
           error is AppleApiError &&
           (error.statusCode == 401 || error.statusCode == 403);
       onProgress?.call(
         unauthorized
             ? 'App Groups (${appGroups.join(', ')}) could not be enabled: '
-                  'Apple rejected the credentials for the legacy provisioning '
-                  'endpoint ($error). The app and its extensions still '
-                  'install, but they cannot share data until this is fixed.'
+                  'Apple rejected these credentials for the legacy '
+                  'provisioning endpoint ($error). The app and its extensions '
+                  'still install, but they cannot share data until this is '
+                  'fixed.'
             : 'Could not enable App Groups (${appGroups.join(', ')}) on '
                   '${bundleIdResource.identifier}: $error',
       );
