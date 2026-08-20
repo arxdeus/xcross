@@ -183,6 +183,53 @@ void main() {
     expect(warnings, anyElement(contains('developer.apple.com')));
   });
 
+  test('installs anyway when the API has no App Groups resource', () async {
+    final temp = Directory.systemTemp.createTempSync('xcross_app_groups_404');
+    addTearDown(() => temp.deleteSync(recursive: true));
+    // App Store Connect exposes no /appGroups resource at all, so the very
+    // first lookup 404s. That used to escape and abort the whole install,
+    // because only the capability assignment was guarded.
+    final client = _FakeProvisioningClient()
+      ..findAppGroupFailure = const AppleApiError(
+        404,
+        'The path provided does not match a defined resource type.',
+      );
+    final warnings = <String>[];
+
+    final result = await AscProvisioning.provisionDevelopmentIdentity(
+      client: client,
+      bundleId: 'com.example.app',
+      deviceUdids: const ['UDID'],
+      outputDir: temp.path,
+      appGroups: const ['group.com.example.Shared'],
+      onProgress: warnings.add,
+    );
+
+    expect(File(result.profilePath).existsSync(), isTrue);
+    expect(warnings, anyElement(contains('App Groups')));
+    expect(warnings, anyElement(contains('developer.apple.com')));
+  });
+
+  test('survives a failure while registering a new App Group', () async {
+    final temp = Directory.systemTemp.createTempSync('xcross_app_groups_reg');
+    addTearDown(() => temp.deleteSync(recursive: true));
+    final client = _FakeProvisioningClient()
+      ..registerAppGroupFailure = Exception('boom');
+    final warnings = <String>[];
+
+    final result = await AscProvisioning.provisionDevelopmentIdentity(
+      client: client,
+      bundleId: 'com.example.app',
+      deviceUdids: const ['UDID'],
+      outputDir: temp.path,
+      appGroups: const ['group.com.example.Shared'],
+      onProgress: warnings.add,
+    );
+
+    expect(File(result.profilePath).existsSync(), isTrue);
+    expect(warnings, anyElement(contains('App Groups')));
+  });
+
   test('revokes team certificates and reissues on create 409', () async {
     final temp = Directory.systemTemp.createTempSync('xcross_cert_409');
     addTearDown(() => temp.deleteSync(recursive: true));
@@ -311,6 +358,8 @@ class _FakeProvisioningClient implements DevelopmentProvisioningClient {
   List<String>? assignedAppGroupIds;
   String? appGroupsBundleResourceId;
   Object? assignAppGroupsFailure;
+  Object? findAppGroupFailure;
+  Object? registerAppGroupFailure;
   final teamSerials = <String, String>{};
   int certificateCreations = 0;
   String? registeredBundleName;
@@ -319,14 +368,21 @@ class _FakeProvisioningClient implements DevelopmentProvisioningClient {
   List<String>? lastProfileDeviceIds;
 
   @override
-  Future<AscAppGroup?> findAppGroup(String identifier) async =>
-      existingAppGroups[identifier];
+  Future<AscAppGroup?> findAppGroup(String identifier) async {
+    final failure = findAppGroupFailure;
+    // ignore: only_throw_errors
+    if (failure != null) throw failure;
+    return existingAppGroups[identifier];
+  }
 
   @override
   Future<AscAppGroup> registerAppGroup({
     required String identifier,
     required String name,
   }) async {
+    final failure = registerAppGroupFailure;
+    // ignore: only_throw_errors
+    if (failure != null) throw failure;
     registeredAppGroups.add(identifier);
     final group = AscAppGroup(
       id: 'group-resource-$identifier',

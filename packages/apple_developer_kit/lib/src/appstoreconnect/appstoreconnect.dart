@@ -151,21 +151,21 @@ abstract final class AscProvisioning {
   }) async {
     if (appGroups.isEmpty) return;
 
-    final resourceIds = <String>[];
-    for (final identifier in appGroups) {
-      final existing = await client.findAppGroup(identifier);
-      if (existing != null) {
-        resourceIds.add(existing.id);
-        continue;
-      }
-      final created = await client.registerAppGroup(
-        identifier: identifier,
-        name: ProvisioningIdentifiers.appName(identifier),
-      );
-      resourceIds.add(created.id);
-    }
-
     try {
+      final resourceIds = <String>[];
+      for (final identifier in appGroups) {
+        final existing = await client.findAppGroup(identifier);
+        if (existing != null) {
+          resourceIds.add(existing.id);
+          continue;
+        }
+        final created = await client.registerAppGroup(
+          identifier: identifier,
+          name: ProvisioningIdentifiers.appName(identifier),
+        );
+        resourceIds.add(created.id);
+      }
+
       await client.assignAppGroups(
         bundleIdResourceId: bundleIdResource.id,
         appGroupResourceIds: resourceIds,
@@ -178,18 +178,35 @@ abstract final class AscProvisioning {
       // hand on developer.apple.com works and is picked up on the next run,
       // since the group is looked up before being registered.
       //
+      // The App Store Connect key path cannot do this at all: api.apple.com
+      // exposes no App Groups resource, so even looking one up 404s. That is
+      // a permanent property of the API rather than a transient failure, and
+      // it used to abort the whole install because only the capability
+      // assignment below was guarded, not the lookup and registration above.
+      //
       // Never fatal: the app, its extensions and their profiles are all
       // valid without it. Only the shared container is missing.
       final forbidden = error is AppleApiError && error.statusCode == 403;
+      final unsupported = error is AppleApiError && error.statusCode == 404;
       onProgress?.call(
-        forbidden
-            ? 'App Groups (${appGroups.join(', ')}) could not be enabled '
-                  "automatically: Apple's developer session API refuses "
-                  'capability changes. Add the group to the App IDs at '
-                  'developer.apple.com and re-run to share data between the '
-                  'app and its extensions.'
-            : 'Could not enable App Groups (${appGroups.join(', ')}) on '
-                  '${bundleIdResource.identifier}: $error',
+        switch ((forbidden, unsupported)) {
+          (true, _) =>
+            'App Groups (${appGroups.join(', ')}) could not be enabled '
+                "automatically: Apple's developer session API refuses "
+                'capability changes. Add the group to the App IDs at '
+                'developer.apple.com and re-run to share data between the '
+                'app and its extensions.',
+          (_, true) =>
+            'App Groups (${appGroups.join(', ')}) could not be enabled '
+                'automatically: the App Store Connect API exposes no App '
+                'Groups resource. Add the group to the App IDs at '
+                'developer.apple.com, or sign in with `xcross auth '
+                '--apple-id`, to share data between the app and its '
+                'extensions.',
+          _ =>
+            'Could not enable App Groups (${appGroups.join(', ')}) on '
+                '${bundleIdResource.identifier}: $error',
+        },
       );
     }
   }
