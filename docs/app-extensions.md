@@ -87,19 +87,36 @@ match. No source changes are needed.
 
 ### Which API this uses
 
-App Groups are only reachable over the pre-JSON `QH65B2` plist protocol that
-Xcode itself speaks (`ios/listApplicationGroups.action`,
-`ios/addApplicationGroup.action`, `ios/updateAppId.action`,
-`ios/assignApplicationGroupToAppId.action`). The JSON:API surface of
-developerservices2 answers `403 The API key in use does not allow this
-request` for capability changes, and App Store Connect API keys have no App
-Groups resource at all. Both protocols return the same resource ids, so
-xcross mixes them.
+App Groups are the one provisioning resource with no modern representation.
+Apple's own App Store Connect OpenAPI specification declares 966 paths and
+none of them mentions App Groups, and `CapabilitySetting.key` has no
+`APP_GROUP_IDENTIFIERS` member, so even the `APP_GROUPS` capability cannot be
+pointed at a particular group there. The JSON:API surface of
+developerservices2 refuses capability changes outright with `403 The API key
+in use does not allow this request`.
 
-This means App Groups need an **Apple ID session**
-(`xcross auth --apple-id <email>`). With an App Store Connect API key the app
-and its extensions still build, install and run, but the shared container is
-missing and xcross says so.
+The only surface that can create a group and attach it to an App ID is the
+pre-JSON `QH65B2` plist protocol Xcode itself speaks:
+
+```
+ios/listApplicationGroups.action
+ios/addApplicationGroup.action
+ios/updateAppId.action                    (feature key APG3427HIY)
+ios/assignApplicationGroupToAppId.action
+```
+
+**Both credential types work.** That protocol accepts an Apple ID GrandSlam
+session *and* an ordinary `Authorization: Bearer <JWT>` signed with an App
+Store Connect API key: an unknown key is refused there with the identical
+"Make sure a bearer token was provided, it is properly configured and signed"
+text `api.appstoreconnect.apple.com` returns, i.e. one key validator backs
+both hosts. Resource ids are the same across the two APIs, so xcross mixes
+them freely.
+
+An API key carries no team id of its own, so xcross reads one from a bundle
+id's `seedId` (there is no `/teams` endpoint on App Store Connect) and caches
+it. A brand-new team with no registered identifiers therefore cannot resolve
+a team id yet; register one app, or use an Apple ID session.
 
 ## Storyboards and asset catalogs
 
@@ -138,9 +155,9 @@ sets one from the target name, so this should not occur; please report it.
 **The extension appears but the app never receives the shared file.**
 The two are not in the same App Group. Check that the app binary and the
 `.appex` both carry `com.apple.security.application-groups` with the same
-value (see above). If they do not, you are most likely signing with an App
-Store Connect API key: sign in with `xcross auth --apple-id <email>` instead
-and re-run.
+value (see above). If they do not, xcross will have printed why on the run
+that signed them: usually rejected credentials (an expired Apple ID session
+or a revoked API key) or an identifier quota.
 
 **`Could not provision the app extension …`.**
 Usually the free-account App ID quota (10 per 7 days). Either wait, or delete

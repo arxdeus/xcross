@@ -159,19 +159,22 @@ void main() {
     expect(warnings, anyElement(contains('App Groups')));
   });
 
-  test('explains how to add App Groups by hand when refused', () async {
+  test('keeps installing when Apple rejects the credentials', () async {
     final temp = Directory.systemTemp.createTempSync('xcross_app_groups_403');
     addTearDown(() => temp.deleteSync(recursive: true));
+    // Both backends now reach App Groups over the same legacy protocol, so a
+    // 401/403 means the session or key was refused rather than the API not
+    // supporting the operation. It must still never cost the user the build:
+    // only the shared container is lost.
     final client = _FakeProvisioningClient()
       ..assignAppGroupsFailure = const AppleApiError(
         403,
-        'The API key in use does not allow this request',
+        'Make sure a bearer token was provided, it is properly configured '
+        'and signed, and it has not expired.',
       );
     final warnings = <String>[];
 
-    // Apple answers 403 "The API key in use does not allow this request";
-    // the raw message is useless, so it becomes an actionable instruction.
-    await AscProvisioning.provisionDevelopmentIdentity(
+    final result = await AscProvisioning.provisionDevelopmentIdentity(
       client: client,
       bundleId: 'com.example.app',
       deviceUdids: const ['UDID'],
@@ -180,15 +183,15 @@ void main() {
       onProgress: warnings.add,
     );
 
-    expect(warnings, anyElement(contains('developer.apple.com')));
+    expect(File(result.profilePath).existsSync(), isTrue);
+    expect(warnings, anyElement(contains('Apple rejected the credentials')));
   });
 
-  test('installs anyway when the API has no App Groups resource', () async {
+  test('installs anyway when an App Group lookup fails', () async {
     final temp = Directory.systemTemp.createTempSync('xcross_app_groups_404');
     addTearDown(() => temp.deleteSync(recursive: true));
-    // App Store Connect exposes no /appGroups resource at all, so the very
-    // first lookup 404s. That used to escape and abort the whole install,
-    // because only the capability assignment was guarded.
+    // A lookup failure used to escape and abort the whole install, because
+    // only the capability assignment was guarded, not the lookup.
     final client = _FakeProvisioningClient()
       ..findAppGroupFailure = const AppleApiError(
         404,
@@ -207,7 +210,6 @@ void main() {
 
     expect(File(result.profilePath).existsSync(), isTrue);
     expect(warnings, anyElement(contains('App Groups')));
-    expect(warnings, anyElement(contains('developer.apple.com')));
   });
 
   test('survives a failure while registering a new App Group', () async {

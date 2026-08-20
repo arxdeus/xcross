@@ -5,6 +5,7 @@ import 'package:apple_developer_kit/src/apple_http_client.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/asc_client.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/asc_models.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/asc_payloads.dart';
+import 'package:apple_developer_kit/src/appstoreconnect/legacy_app_groups.dart';
 import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/anisette_state.dart';
 import 'package:apple_developer_kit/src/grandslam/app_token_exchange.dart';
@@ -56,15 +57,9 @@ final class DeveloperServicesClient implements DevelopmentProvisioningClient {
   );
 
   static const _baseUrl = 'https://developerservices2.apple.com/services';
-  static const _legacyBaseUrl = '$_baseUrl/QH65B2';
   static const _legacyClientId = 'XABBG36SBA';
   static const _appIdentifier = 'com.apple.gs.xcode.auth';
   static const _xcodeVersion = '16.2 (16C5031c)';
-
-  /// Apple's internal feature key for the App Groups capability, as sent by
-  /// Xcode to `ios/updateAppId.action`. Cross-checked against AltSign's
-  /// `ALTFeatureAppGroups`.
-  static const _appGroupsFeature = 'APG3427HIY';
   static const _clientInfo =
       '<VirtualMac2,1> <macOS;15.1.1;24B91> '
       '<com.apple.AuthKit/1 (com.apple.dt.Xcode/23505)>';
@@ -90,11 +85,13 @@ final class DeveloperServicesClient implements DevelopmentProvisioningClient {
     final client = httpClient ?? AppleHttp.createAppleHttpClient();
     try {
       final response = await client.post(
-        Uri.parse('$_baseUrl/QH65B2/listTeams.action?clientId=XABBG36SBA'),
+        Uri.parse(
+          '$_baseUrl/QH65B2/listTeams.action?clientId=$_legacyClientId',
+        ),
         headers: {...anisette, ..._legacyHeaders(token)},
         body: PropertyListSerialization.stringWithPropertyList({
           'requestId': AnisetteState.generateUuidV4(),
-          'clientId': 'XABBG36SBA',
+          'clientId': _legacyClientId,
           'protocolVersion': 'QH65B2',
           'userLocale': [Platform.localeName],
         }),
@@ -206,91 +203,36 @@ final class DeveloperServicesClient implements DevelopmentProvisioningClient {
     ),
   );
 
-  /// App Groups live only on the pre-JSON `QH65B2` plist protocol.
-  ///
-  /// The JSON:API surface of developerservices2 answers 403 "The API key in
-  /// use does not allow this request" for every capability mutation, and
-  /// api.apple.com has no `/appGroups` resource at all. The legacy actions
-  /// Xcode itself uses (`ios/listApplicationGroups.action` and friends) work
-  /// on the same Apple ID session, and return the very same resource ids the
-  /// JSON:API returns, so the two can be mixed freely.
+  /// App Groups live only on the pre-JSON `QH65B2` plist protocol, which
+  /// this session authenticates with its GrandSlam token plus Anisette
+  /// headers. See [LegacyAppGroups] for why no modern surface can do it.
   @override
-  Future<AscAppGroup?> findAppGroup(String identifier) async {
-    final response = await _legacyAction('ios/listApplicationGroups.action');
-    final groups = response['applicationGroupList'];
-    if (groups is! List) return null;
-    for (final entry in groups) {
-      if (entry is! Map) continue;
-      if (entry['identifier'] != identifier) continue;
-      return _appGroupFromLegacy(entry);
-    }
-    return null;
-  }
+  Future<AscAppGroup?> findAppGroup(String identifier) =>
+      _appGroups.find(identifier);
 
   @override
   Future<AscAppGroup> registerAppGroup({
     required String identifier,
     required String name,
-  }) async {
-    final response = await _legacyAction('ios/addApplicationGroup.action', {
-      'identifier': identifier,
-      // Apple rejects punctuation in App Group names the same way it does
-      // App ID names.
-      'name': _sanitizeName(name),
-    });
-    final group = response['applicationGroup'];
-    if (group is! Map) {
-      throw const AppleError(
-        'Developer Services add App Group response is missing the group',
-      );
-    }
-    return _appGroupFromLegacy(group);
-  }
+  }) => _appGroups.register(identifier: identifier, name: name);
 
-  /// Turns the App Groups capability on for the App ID and links the groups.
-  ///
-  /// Both steps are required: `updateAppId.action` flips the feature flag
-  /// that makes Apple issue an `com.apple.security.application-groups`
-  /// entitlement at all, while `assignApplicationGroupToAppId.action`
-  /// decides which groups end up inside it.
   @override
   Future<void> assignAppGroups({
     required String bundleIdResourceId,
     required List<String> appGroupResourceIds,
-  }) async {
-    await _legacyAction('ios/updateAppId.action', {
-      'appIdId': bundleIdResourceId,
-      _appGroupsFeature: true,
-    });
-    if (appGroupResourceIds.isEmpty) return;
-    await _legacyAction('ios/assignApplicationGroupToAppId.action', {
-      'appIdId': bundleIdResourceId,
-      'applicationGroups': appGroupResourceIds,
-    });
-  }
+  }) => _appGroups.assign(
+    appIdResourceId: bundleIdResourceId,
+    appGroupResourceIds: appGroupResourceIds,
+  );
 
-  /// A legacy group entry names the resource id `applicationGroup` and the
-  /// `group.…` string `identifier`, the opposite way round from JSON:API.
-  static AscAppGroup _appGroupFromLegacy(Map<dynamic, dynamic> entry) {
-    final id = entry['applicationGroup'];
-    final identifier = entry['identifier'];
-    if (id is! String || identifier is! String) {
-      throw const AppleError(
-        'Developer Services App Group entry is missing an identifier',
-      );
-    }
-    return AscAppGroup(
-      id: id,
-      identifier: identifier,
-      name: entry['name'] as String? ?? '',
-    );
-  }
-
-  /// Apple's App ID/App Group names accept alphanumerics and spaces only.
-  static String _sanitizeName(String name) {
-    final sanitized = name.replaceAll(RegExp('[^A-Za-z0-9 ]'), ' ').trim();
-    return sanitized.isEmpty ? 'xcross group' : sanitized;
-  }
+  late final LegacyAppGroups _appGroups = LegacyAppGroups(
+    httpClient: _http,
+    authHeaders: () async => {
+      ..._legacyHeaders(token),
+      ...await _fetchAnisetteHeaders(),
+    },
+    teamId: () => Future.value(teamId),
+  );
 
   @override
   Future<List<String>> listProfileIdsForBundle(
@@ -334,41 +276,6 @@ final class DeveloperServicesClient implements DevelopmentProvisioningClient {
 
   Future<Map<String, dynamic>> _get(String path) =>
       _withMethodOverride(path, 'GET');
-
-  /// Calls one of the pre-JSON `QH65B2` actions.
-  ///
-  /// This protocol POSTs an XML plist, always answers HTTP 200, and reports
-  /// failure through `resultCode` rather than a status code, exactly like
-  /// [listTeams]. It is the only surface that exposes App Groups.
-  Future<Map<String, Object?>> _legacyAction(
-    String action, [
-    Map<String, Object?> parameters = const {},
-  ]) async {
-    _rejectExpired(token);
-    final response = await _http.post(
-      Uri.parse('$_legacyBaseUrl/$action?clientId=$_legacyClientId'),
-      headers: {..._legacyHeaders(token), ...await _fetchAnisetteHeaders()},
-      body: PropertyListSerialization.stringWithPropertyList({
-        'clientId': _legacyClientId,
-        'protocolVersion': 'QH65B2',
-        'requestId': AnisetteState.generateUuidV4().toUpperCase(),
-        'teamId': teamId,
-        ...parameters,
-      }),
-    );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw AppleApiError(
-        response.statusCode,
-        'Developer Services $action failed (HTTP ${response.statusCode})',
-      );
-    }
-    final plist = GrandSlamResponse.decodePlist(
-      response.body,
-      context: 'Developer Services $action response',
-    );
-    _rejectLegacyFailure(plist, action: action);
-    return plist;
-  }
 
   /// developerservices2 only accepts POST; other verbs ride along in
   /// `X-HTTP-Method-Override`, with the query string moved into the body.
@@ -525,7 +432,7 @@ final class DeveloperServicesClient implements DevelopmentProvisioningClient {
       response.body,
       context: 'Developer Services list teams response',
     );
-    _rejectLegacyFailure(plist);
+    LegacyAppGroups.rejectFailure(plist, action: 'list teams');
 
     final teams = plist['teams'];
     if (teams is! List) {
@@ -542,32 +449,6 @@ final class DeveloperServicesClient implements DevelopmentProvisioningClient {
             status: _requiredString(team, 'status'),
           ),
     ];
-  }
-
-  /// The legacy protocol always answers HTTP 200 and reports failure through
-  /// `resultCode` instead - and sends it as an int or a string depending on
-  /// the error.
-  static void _rejectLegacyFailure(
-    Map<String, Object?> plist, {
-    String action = 'list teams',
-  }) {
-    final resultCode = switch (plist['resultCode']) {
-      final int value => value,
-      final String value => int.tryParse(value),
-      _ => null,
-    };
-    if (resultCode == null) {
-      throw AppleError(
-        'Developer Services $action response has an invalid resultCode',
-      );
-    }
-    if (resultCode != 0) {
-      final message =
-          plist['userString'] ?? plist['resultString'] ?? 'unknown error';
-      throw AppleError(
-        'Developer Services $action failed ($resultCode): $message',
-      );
-    }
   }
 
   static Map<String, dynamic> _decode(http.Response response) {

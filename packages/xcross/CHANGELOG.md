@@ -19,12 +19,17 @@
   account (`group.XCR-<TEAM>.…`) because App Group ids are globally unique,
   and enable the App Groups capability on every App ID automatically, so the
   app and its extensions share a container with no manual step on
-  developer.apple.com. App Groups are reached over the pre-JSON `QH65B2`
-  protocol Xcode itself uses: the JSON:API surface refuses capability changes
-  with `403 The API key in use does not allow this request`, and App Store
-  Connect exposes no App Groups resource at all. Without the shared container
-  a share extension can hand nothing back to the app, which is the whole
-  point of `receive_sharing_intent`. (#23)
+  developer.apple.com. Without the shared container a share extension can
+  hand nothing back to the app, which is the whole point of
+  `receive_sharing_intent`. (#23)
+- This works with **both** credential types. App Groups have no modern API at
+  all (Apple's App Store Connect OpenAPI spec declares 966 paths and none
+  mentions them; `CapabilitySetting.key` has no `APP_GROUP_IDENTIFIERS`), so
+  xcross reaches them over the pre-JSON `QH65B2` protocol Xcode itself uses.
+  That protocol authenticates with an Apple ID session *or* an ordinary
+  `Authorization: Bearer` App Store Connect API key JWT, and returns the same
+  resource ids the JSON:API does. An API key carries no team id, so xcross
+  reads one from a bundle id's `seedId` and caches it.
 
 ## 1.1.1
 
