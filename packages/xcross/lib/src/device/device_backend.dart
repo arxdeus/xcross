@@ -72,6 +72,17 @@ final class NativeBackend implements DeviceBackend {
           'App ID',
           '$bundleId ${Log.ansi.subtle('→')} $signedBundleId',
         );
+        // Custom URL schemes are conventionally derived from the bundle id
+        // (`ShareMedia-<bundle id>`), and an extension builds the URL it
+        // opens from its *own* qualified host id at runtime. Leaving the
+        // app's declared scheme on the unqualified id means nothing is
+        // registered to handle that URL, so the hand-off back into the app
+        // silently does nothing.
+        await _rewriteUrlSchemes(
+          appOrIpaPath,
+          from: bundleId,
+          to: signedBundleId,
+        );
       }
       // Embedded extensions must be renamed under the qualified app id and
       // provisioned in their own right before the app can be signed.
@@ -381,6 +392,23 @@ final class NativeBackend implements DeviceBackend {
       bundleId,
     );
     await plist.writeAsString(updated);
+  }
+
+  /// Re-point `CFBundleURLSchemes` entries that embed the unqualified bundle
+  /// id at the qualified one.
+  ///
+  /// Only schemes containing [from] are touched, so unrelated schemes (OAuth
+  /// callbacks, `fb<app-id>`, deep links) are left exactly as declared.
+  static Future<void> _rewriteUrlSchemes(
+    String appPath, {
+    required String from,
+    required String to,
+  }) async {
+    final plist = File(p.join(appPath, 'Info.plist'));
+    if (!plist.existsSync()) return;
+    final xml = await plist.readAsString();
+    final rewritten = InfoPlist.rewriteUrlSchemes(xml, from: from, to: to);
+    if (rewritten != xml) await plist.writeAsString(rewritten);
   }
 
   static AnisetteProvider _anisetteForSession(GrandSlamSession session) {

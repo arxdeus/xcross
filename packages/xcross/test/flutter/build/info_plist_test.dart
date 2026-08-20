@@ -232,6 +232,121 @@ BAZ = a=b
     });
   });
 
+  group('setPlistString', () {
+    test('replaces every occurrence of a duplicated key', () {
+      // Apple's plist parser resolves a duplicated key to the *last* entry,
+      // so rewriting only the first would leave the stale value in force.
+      const xml =
+          '<?xml version="1.0"?>\n'
+          '<plist version="1.0">\n'
+          '<dict>\n'
+          '\t<key>AppGroupId</key>\n'
+          '\t<string>group.original</string>\n'
+          '\t<key>AppGroupId</key>\n'
+          '\t<string>group.original</string>\n'
+          '</dict>\n'
+          '</plist>\n';
+
+      final updated = InfoPlist.setPlistString(
+        xml,
+        'AppGroupId',
+        'group.qualified',
+      );
+
+      expect(updated, isNot(contains('group.original')));
+      expect(
+        RegExp('group.qualified').allMatches(updated).length,
+        2,
+        reason: 'both declarations must be rewritten',
+      );
+    });
+
+    test('inserts the key when the template lacks it', () {
+      final updated = InfoPlist.setPlistString(
+        _minimalPlist,
+        'AppGroupId',
+        'group.qualified',
+      );
+
+      expect(updated, contains('<key>AppGroupId</key>'));
+      expect(updated, contains('<string>group.qualified</string>'));
+    });
+  });
+
+  group('rewriteUrlSchemes', () {
+    const xml =
+        '<?xml version="1.0"?>\n'
+        '<plist version="1.0">\n'
+        '<dict>\n'
+        '\t<key>CFBundleIdentifier</key>\n'
+        '\t<string>com.example.App</string>\n'
+        '\t<key>CFBundleURLTypes</key>\n'
+        '\t<array>\n'
+        '\t\t<dict>\n'
+        '\t\t\t<key>CFBundleURLSchemes</key>\n'
+        '\t\t\t<array>\n'
+        '\t\t\t\t<string>ShareMedia-com.example.App</string>\n'
+        '\t\t\t\t<string>myapp</string>\n'
+        '\t\t\t</array>\n'
+        '\t\t</dict>\n'
+        '\t</array>\n'
+        '</dict>\n'
+        '</plist>\n';
+
+    test('qualifies a scheme derived from the bundle id', () {
+      // The extension opens ShareMedia-<qualified id> at runtime, so the app
+      // has to declare that exact scheme or nothing handles the redirect.
+      final updated = InfoPlist.rewriteUrlSchemes(
+        xml,
+        from: 'com.example.App',
+        to: 'XCR-ABC.com.example.App',
+      );
+
+      expect(
+        updated,
+        contains('<string>ShareMedia-XCR-ABC.com.example.App</string>'),
+      );
+    });
+
+    test('leaves unrelated schemes alone', () {
+      final updated = InfoPlist.rewriteUrlSchemes(
+        xml,
+        from: 'com.example.App',
+        to: 'XCR-ABC.com.example.App',
+      );
+
+      expect(updated, contains('<string>myapp</string>'));
+    });
+
+    test('never touches values outside the scheme arrays', () {
+      // CFBundleIdentifier is rewritten by its own dedicated step; a blanket
+      // replace would corrupt any key that mentions the original id.
+      final updated = InfoPlist.rewriteUrlSchemes(
+        xml,
+        from: 'com.example.App',
+        to: 'XCR-ABC.com.example.App',
+      );
+
+      expect(
+        updated,
+        contains(
+          '<key>CFBundleIdentifier</key>\n\t<string>com.example.App</string>',
+        ),
+      );
+    });
+
+    test('is a no-op when the id is unchanged', () {
+      expect(
+        InfoPlist.rewriteUrlSchemes(
+          xml,
+          from: 'com.example.App',
+          to: 'com.example.App',
+        ),
+        xml,
+      );
+    });
+  });
+
   group('fallback', () {
     test('is a well-formed plist that includes UILaunchScreen', () {
       expect(InfoPlist.fallback, contains('UILaunchScreen'));

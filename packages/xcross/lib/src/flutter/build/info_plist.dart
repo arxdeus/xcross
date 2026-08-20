@@ -28,6 +28,36 @@ abstract final class InfoPlist {
     return (value == null || value.isEmpty) ? null : value;
   }
 
+  /// Replace [from] with [to] inside `CFBundleURLSchemes` values only.
+  ///
+  /// Schemes are conventionally derived from the bundle id
+  /// (`ShareMedia-<bundle id>`), so qualifying the App ID at sign time also
+  /// has to qualify the scheme, or the extension's redirect back into the
+  /// app resolves to a scheme nothing has registered.
+  ///
+  /// The rewrite is deliberately confined to the scheme arrays: replacing
+  /// [from] across the whole plist would also rewrite unrelated keys that
+  /// legitimately mention the original bundle id.
+  static String rewriteUrlSchemes(
+    String plistXml, {
+    required String from,
+    required String to,
+  }) {
+    if (from == to || from.isEmpty) return plistXml;
+
+    final arrays = RegExp(
+      r'(<key>\s*CFBundleURLSchemes\s*</key>\s*<array>)(.*?)(</array>)',
+      dotAll: true,
+    );
+    return plistXml.replaceAllMapped(arrays, (match) {
+      final body = match.group(2)!.replaceAllMapped(
+        RegExp('<string>([^<]*)</string>'),
+        (scheme) => '<string>${scheme.group(1)!.replaceAll(from, to)}</string>',
+      );
+      return '${match.group(1)}$body${match.group(3)}';
+    });
+  }
+
   /// Keys Xcode would inject at build time, added only when the template
   /// doesn't already declare them, in this exact order.
   ///
@@ -132,7 +162,11 @@ abstract final class InfoPlist {
     );
     final replacement = '<key>$key</key>\n\t<string>$value</string>';
     if (xml.contains('<key>$key</key>')) {
-      return xml.replaceFirst(pattern, replacement);
+      // Every occurrence, not just the first: a template that declares the
+      // same key twice (hand-edited plists do) would otherwise keep a stale
+      // second copy, and CFBundle resolves duplicates to the *last* one, so
+      // the value actually read back at runtime would be the one left behind.
+      return xml.replaceAll(pattern, replacement);
     }
     return _insertBeforeEnd(xml, '\t$replacement\n');
   }

@@ -483,6 +483,16 @@ final class FlutterPacker {
       'CURRENT_PROJECT_VERSION': _versions.bundleVersion,
     };
 
+    // `receive_sharing_intent` and friends point the app's `AppGroupId` key
+    // at `$(CUSTOM_GROUP_ID)`, which Xcode expands from the target's build
+    // settings. The extension build already substitutes it; doing the same
+    // here keeps both sides naming one container, instead of the app reading
+    // back the literal `$(CUSTOM_GROUP_ID)` and finding nothing shared.
+    final hostGroups = _hostAppGroups();
+    if (hostGroups.isNotEmpty) {
+      subs['CUSTOM_GROUP_ID'] = hostGroups.first;
+    }
+
     final xcconfigFile = File(
       p.join(projectRoot, 'ios', 'Flutter', 'Generated.xcconfig'),
     );
