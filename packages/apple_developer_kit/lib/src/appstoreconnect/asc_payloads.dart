@@ -40,47 +40,6 @@ abstract final class AscPayloads {
     },
   };
 
-  static Map<String, dynamic> appGroup({
-    required String identifier,
-    required String name,
-  }) => {
-    'data': {
-      'type': 'appGroups',
-      'attributes': {'identifier': identifier, 'name': name},
-    },
-  };
-
-  /// Turns on the App Groups capability for a bundle id and links the groups.
-  ///
-  /// Posted to `/bundleIds/<id>/bundleIdCapabilities`: the capability is a
-  /// sub-resource of the bundle id, not an inline relationship on it. Without
-  /// it the groups never reach the issued profile's entitlements, and the app
-  /// and its extensions stay in separate containers.
-  static Map<String, dynamic> appGroupsCapability({
-    required String bundleIdResourceId,
-    required List<String> appGroupResourceIds,
-  }) => {
-    'data': {
-      'type': 'bundleIdCapabilities',
-      'attributes': {
-        'capabilityType': 'APP_GROUPS',
-        'settings': [
-          {
-            'key': 'APP_GROUP_IDENTIFIERS',
-            'options': [
-              for (final id in appGroupResourceIds) {'key': id},
-            ],
-          },
-        ],
-      },
-      'relationships': {
-        'bundleId': {
-          'data': {'type': 'bundleIds', 'id': bundleIdResourceId},
-        },
-      },
-    },
-  };
-
   static Map<String, dynamic> profile({
     required String name,
     required String bundleIdResourceId,

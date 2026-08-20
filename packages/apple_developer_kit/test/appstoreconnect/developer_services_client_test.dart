@@ -273,6 +273,214 @@ void main() {
     });
   });
 
+  group('DeveloperServicesClient App Groups', () {
+    test('looks a group up over the legacy plist protocol', () async {
+      final client = DeveloperServicesClient(
+        token: _token(),
+        teamId: 'TEAM',
+        fetchAnisetteHeaders: () async => {'X-Apple-I-MD': 'fresh'},
+        httpClient: MockClient((request) async {
+          expect(
+            request.url.toString(),
+            'https://developerservices2.apple.com/services/QH65B2/'
+            'ios/listApplicationGroups.action?clientId=XABBG36SBA',
+          );
+          expect(request.headers['X-Apple-I-MD'], 'fresh');
+          final body =
+              PropertyListSerialization.propertyListWithString(request.body)
+                  as Map;
+          expect(body['teamId'], 'TEAM');
+          expect(body['protocolVersion'], 'QH65B2');
+          return http.Response(
+            PropertyListSerialization.stringWithPropertyList({
+              'resultCode': 0,
+              'applicationGroupList': [
+                {
+                  'applicationGroup': 'OTHERID',
+                  'identifier': 'group.com.example.Other',
+                  'name': 'Other',
+                },
+                {
+                  'applicationGroup': 'GROUPID',
+                  'identifier': 'group.com.example.Shared',
+                  'name': 'Shared',
+                },
+              ],
+            }),
+            200,
+          );
+        }),
+      );
+
+      final group = await client.findAppGroup('group.com.example.Shared');
+      // The legacy protocol swaps the two names: the resource id arrives as
+      // `applicationGroup` and the `group.…` string as `identifier`.
+      expect(group?.id, 'GROUPID');
+      expect(group?.identifier, 'group.com.example.Shared');
+      client.close();
+    });
+
+    test('reports no group when the team has none matching', () async {
+      final client = DeveloperServicesClient(
+        token: _token(),
+        teamId: 'TEAM',
+        fetchAnisetteHeaders: () async => {},
+        httpClient: MockClient(
+          (_) async => http.Response(
+            PropertyListSerialization.stringWithPropertyList({
+              'resultCode': 0,
+              'applicationGroupList': <Object>[],
+            }),
+            200,
+          ),
+        ),
+      );
+
+      expect(await client.findAppGroup('group.com.example.Shared'), isNull);
+      client.close();
+    });
+
+    test('registers a group with a punctuation-free name', () async {
+      final client = DeveloperServicesClient(
+        token: _token(),
+        teamId: 'TEAM',
+        fetchAnisetteHeaders: () async => {},
+        httpClient: MockClient((request) async {
+          expect(
+            request.url.toString(),
+            'https://developerservices2.apple.com/services/QH65B2/'
+            'ios/addApplicationGroup.action?clientId=XABBG36SBA',
+          );
+          final body =
+              PropertyListSerialization.propertyListWithString(request.body)
+                  as Map;
+          expect(body['identifier'], 'group.com.example.Shared');
+          // Apple rejects punctuation in group names.
+          expect(body['name'], 'xcross group com example Shared');
+          return http.Response(
+            PropertyListSerialization.stringWithPropertyList({
+              'resultCode': 0,
+              'applicationGroup': {
+                'applicationGroup': 'NEWID',
+                'identifier': 'group.com.example.Shared',
+                'name': 'xcross group com example Shared',
+              },
+            }),
+            200,
+          );
+        }),
+      );
+
+      final group = await client.registerAppGroup(
+        identifier: 'group.com.example.Shared',
+        name: 'xcross group.com.example.Shared',
+      );
+      expect(group.id, 'NEWID');
+      client.close();
+    });
+
+    test('enables the capability and links the groups', () async {
+      final actions = <String>[];
+      final client = DeveloperServicesClient(
+        token: _token(),
+        teamId: 'TEAM',
+        fetchAnisetteHeaders: () async => {},
+        httpClient: MockClient((request) async {
+          final action = request.url.pathSegments.last;
+          actions.add(action);
+          final body =
+              PropertyListSerialization.propertyListWithString(request.body)
+                  as Map;
+          expect(body['appIdId'], 'APPID');
+          if (action == 'updateAppId.action') {
+            // Apple's internal feature key for App Groups.
+            expect(body['APG3427HIY'], true);
+          } else {
+            expect(body['applicationGroups'], ['GROUPID']);
+          }
+          return http.Response(
+            PropertyListSerialization.stringWithPropertyList({
+              'resultCode': 0,
+            }),
+            200,
+          );
+        }),
+      );
+
+      await client.assignAppGroups(
+        bundleIdResourceId: 'APPID',
+        appGroupResourceIds: ['GROUPID'],
+      );
+      // Enabling the feature must come first: it is what makes Apple issue an
+      // application-groups entitlement at all.
+      expect(actions, [
+        'updateAppId.action',
+        'assignApplicationGroupToAppId.action',
+      ]);
+      client.close();
+    });
+
+    test('only enables the capability when no groups resolved', () async {
+      final actions = <String>[];
+      final client = DeveloperServicesClient(
+        token: _token(),
+        teamId: 'TEAM',
+        fetchAnisetteHeaders: () async => {},
+        httpClient: MockClient((request) async {
+          actions.add(request.url.pathSegments.last);
+          return http.Response(
+            PropertyListSerialization.stringWithPropertyList({
+              'resultCode': 0,
+            }),
+            200,
+          );
+        }),
+      );
+
+      await client.assignAppGroups(
+        bundleIdResourceId: 'APPID',
+        appGroupResourceIds: const [],
+      );
+      expect(actions, ['updateAppId.action']);
+      client.close();
+    });
+
+    test('surfaces a legacy resultCode failure', () async {
+      final client = DeveloperServicesClient(
+        token: _token(),
+        teamId: 'TEAM',
+        fetchAnisetteHeaders: () async => {},
+        httpClient: MockClient(
+          (_) async => http.Response(
+            PropertyListSerialization.stringWithPropertyList({
+              'resultCode': 9401,
+              'userString': 'App Group unavailable',
+            }),
+            200,
+          ),
+        ),
+      );
+
+      await expectLater(
+        client.registerAppGroup(
+          identifier: 'group.com.example.Shared',
+          name: 'Shared',
+        ),
+        throwsA(
+          isA<AppleError>().having(
+            (error) => error.toString(),
+            'message',
+            allOf(
+              contains('addApplicationGroup.action'),
+              contains('App Group unavailable'),
+            ),
+          ),
+        ),
+      );
+      client.close();
+    });
+  });
+
   group('DeveloperServicesClient.listTeams', () {
     test('sends legacy plist request and parses teams', () async {
       var anisetteCalls = 0;

@@ -16,10 +16,15 @@
   their version string. Embedded extensions inherit the app's versions, which
   iOS requires them to match.
 - Register App Groups declared by an app or its extensions, qualified per
-  account (`group.XCR-<TEAM>.…`) because App Group ids are globally unique.
-  Enabling the capability on the App IDs is still a manual step on
-  developer.apple.com; xcross reuses an existing group, so the next run picks
-  it up.
+  account (`group.XCR-<TEAM>.…`) because App Group ids are globally unique,
+  and enable the App Groups capability on every App ID automatically, so the
+  app and its extensions share a container with no manual step on
+  developer.apple.com. App Groups are reached over the pre-JSON `QH65B2`
+  protocol Xcode itself uses: the JSON:API surface refuses capability changes
+  with `403 The API key in use does not allow this request`, and App Store
+  Connect exposes no App Groups resource at all. Without the shared container
+  a share extension can hand nothing back to the app, which is the whole
+  point of `receive_sharing_intent`. (#23)
 
 ## 1.1.1
 
