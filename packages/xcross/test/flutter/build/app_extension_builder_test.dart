@@ -33,6 +33,7 @@ void main() {
     List<String> argumentsWith({
       String? pluginsLibrary,
       String? pluginModulesDir,
+      String moduleName = 'Share_Extension',
     }) => AppExtensionBuilder.compileArguments(
       iosSdk: '/sdk/iPhoneOS.sdk',
       resourceDir: '/sdk/toolchain/usr/lib/swift',
@@ -41,11 +42,23 @@ void main() {
       deploymentTarget: const IosDeploymentTarget('15.0'),
       flutterSlice: '/engine/Flutter.xcframework/ios-arm64',
       moduleCache: '/out/.module-cache',
+      moduleName: moduleName,
       ld64lld: '/usr/bin/ld64.lld',
       sdkVersion: '26.5',
       pluginsLibrary: pluginsLibrary,
       pluginModulesDir: pluginModulesDir,
     );
+
+    test('names the Swift module after the target', () {
+      // swiftc otherwise infers the module from the output file name and
+      // falls back to `main` for `Share Extension`, so the real principal
+      // class stops matching the one written into the Info.plist and iOS
+      // shows a black screen instead of the share sheet.
+      expect(
+        argumentsWith(),
+        containsAllInOrder(['-module-name', 'Share_Extension']),
+      );
+    });
 
     test('marks the binary as app-extension safe', () {
       final arguments = argumentsWith();

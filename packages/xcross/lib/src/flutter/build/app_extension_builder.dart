@@ -132,6 +132,7 @@ abstract final class AppExtensionBuilder {
       pluginsLibrary: pluginsLibrary,
       pluginModulesDir: pluginModulesDir,
       moduleCache: p.join(outputDir, '.module-cache'),
+      moduleName: extension.moduleName,
     );
 
     await _writeInfoPlist(
@@ -153,6 +154,7 @@ abstract final class AppExtensionBuilder {
     required IosDeploymentTarget deploymentTarget,
     required String flutterXcframework,
     required String moduleCache,
+    required String moduleName,
     String? pluginsLibrary,
     String? pluginModulesDir,
   }) async {
@@ -171,6 +173,7 @@ abstract final class AppExtensionBuilder {
       deploymentTarget: deploymentTarget,
       flutterSlice: flutterSlice,
       moduleCache: moduleCache,
+      moduleName: moduleName,
       ld64lld: await DarwinSdk.resolveLd64Lld(sdk),
       sdkVersion: _sdkVersion(iosSdk) ?? '26.5',
       pluginsLibrary: pluginsLibrary,
@@ -209,6 +212,7 @@ abstract final class AppExtensionBuilder {
     required String moduleCache,
     required String ld64lld,
     required String sdkVersion,
+    required String moduleName,
     String? clangBuiltins,
     String? compilerRtIos,
     String? pluginsLibrary,
@@ -218,6 +222,14 @@ abstract final class AppExtensionBuilder {
     iosSdk,
     '-target',
     deploymentTarget.buildTriple,
+    // Without this swiftc infers the module name from the output file, and
+    // falls back to `main` whenever that is not a valid Swift identifier —
+    // which is exactly the case for a target named `Share Extension`. The
+    // principal class would then really be `main.ShareViewController` while
+    // the Info.plist names `Share_Extension.ShareViewController`, so iOS
+    // fails to instantiate it and the extension shows a black screen.
+    '-module-name',
+    moduleName,
     // Without the Darwin SDK's own Swift resources the host toolchain tries
     // to rebuild the SDK's `Swift.swiftmodule` from its .swiftinterface and
     // fails ("no such module 'SwiftShims'" / SDK-compiler version mismatch).
