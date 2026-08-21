@@ -170,10 +170,11 @@ abstract final class AscProvisioning {
         bundleIdResourceId: bundleIdResource.id,
         appGroupResourceIds: resourceIds,
       );
-    } on AppGroupsUnsupported catch (error) {
-      // Not a failure to retry: this credential type simply cannot do it.
-      // Said once, plainly, with the fix.
-      onProgress?.call('$error');
+    } on AppGroupsUnsupported {
+      // Not a failure to retry: this credential type simply cannot attach a
+      // group. Stay quiet here — the caller inspects the issued profile and
+      // reports what was actually granted, which is the fact that matters and
+      // covers the case where a group was attached by other means.
     } on Object catch (error) {
       // Never fatal: the app, its extensions and their profiles are all valid
       // without a shared container. Only the data hand-off between an

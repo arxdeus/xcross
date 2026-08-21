@@ -37,6 +37,23 @@ class SigningAsset {
   final Uint8List profilePlistBytes;
   final Map<String, Object?> profile;
   final Map<String, Object?> entitlements;
+
+  /// App Groups this profile actually grants.
+  ///
+  /// Authoritative in a way the provisioning calls are not: iOS honours what
+  /// the profile says, not what xcross asked for. A profile whose App ID has
+  /// the App Groups capability enabled but no group attached carries an empty
+  /// list, and signing a real group against it makes installd reject the app
+  /// with `0xe8008015`. Callers can therefore check here whether a shared
+  /// container will actually work before promising the user one.
+  List<String> get grantedAppGroups => switch (entitlements['com.apple.security'
+      '.application-groups']) {
+    final List<Object?> groups => [
+      for (final group in groups)
+        if (group is String && group.isNotEmpty) group,
+    ],
+    _ => const [],
+  };
   final String teamIdentifier;
   final String applicationIdentifier;
   final String applicationIdentifierPrefix;

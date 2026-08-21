@@ -105,27 +105,30 @@ final class NativeBackend implements DeviceBackend {
       );
       // The app and its extensions must share the same App Groups, or the
       // extension has no way to hand data back to the app.
-      // App Group ids are globally unique across all developers, so the
-      // project's literal group is usually taken. Qualify it per account the
-      // same way the App ID is.
-      final appGroups =
+      final declaredGroups =
           {
-                ...AppExtensionEntitlements.appGroupsOf(appOrIpaPath),
-                for (final extension in extensions) ...extension.appGroups,
-              }
-              .map(
-                (group) => ProvisioningIdentifiers.qualifyAppGroup(
-                  group,
-                  signing.identityId,
-                ),
-              )
-              .toList()
+            ...AppExtensionEntitlements.appGroupsOf(appOrIpaPath),
+            for (final extension in extensions) ...extension.appGroups,
+          }.toList()
             ..sort();
-      // The app and extension read the group name back at runtime from the
-      // AppGroupId Info.plist key, so it has to be rewritten to match.
-      if (appGroups.isNotEmpty) {
-        await _rewriteAppGroupId(appOrIpaPath, appGroups.first);
-      }
+      // App Group ids are globally unique across all developers, so a
+      // project's literal `group.com.example.Shared` is usually already
+      // registered to somebody else and xcross qualifies it per account.
+      //
+      // XCROSS_APP_GROUP opts out of that. It names a group the account
+      // already owns, which is the only way an App Store Connect API key can
+      // get one: keys cannot create or attach App Groups, but they do issue
+      // profiles that carry a group attached by other means. Set it to a
+      // group you added to these App IDs in Xcode or at developer.apple.com
+      // and the whole share flow works on an API key.
+      final override = Platform.environment['XCROSS_APP_GROUP']?.trim();
+      final appGroups = switch (override) {
+        final String group when group.isNotEmpty => [group],
+        _ => [
+          for (final group in declaredGroups)
+            ProvisioningIdentifiers.qualifyAppGroup(group, signing.identityId),
+        ],
+      };
       final identity = await AscProvisioning.provisionDevelopmentIdentity(
         client: signing.client,
         bundleId: signedBundleId,
@@ -147,6 +150,36 @@ final class NativeBackend implements DeviceBackend {
         profilesDir: profilesDir,
         appGroups: appGroups,
       );
+      // Trust the profile over our own request. Provisioning may have failed
+      // to attach a group (an API key cannot attach one at all), and it may
+      // equally have granted a group that was attached by other means under a
+      // name we never asked for. Only the profile decides what iOS will
+      // accept, so the runtime `AppGroupId` is taken from it.
+      final granted = asset.grantedAppGroups;
+      if (granted.isNotEmpty) {
+        await _rewriteAppGroupId(appOrIpaPath, granted.first);
+        // Each extension is signed with its own profile, so a group the app
+        // has but an extension lacks would silently break the hand-off at
+        // runtime rather than at install time.
+        for (final entry in extensionAssets.entries) {
+          if (entry.value.grantedAppGroups.contains(granted.first)) continue;
+          _warnOnce(
+            '"${entry.key}" is not provisioned for ${granted.first}, so it '
+            'cannot share data with the app. Re-run to re-issue its profile, '
+            'or add the group to that App ID at developer.apple.com.',
+          );
+        }
+      } else if (appGroups.isNotEmpty) {
+        _warnOnce(
+          'No App Group is provisioned, so the app and its extensions cannot '
+          'share data. Everything else still installs and runs.\n'
+          '  Apple exposes no App Groups API to App Store Connect keys. Add a '
+          'group to these App IDs in Xcode or at developer.apple.com, then '
+          'set XCROSS_APP_GROUP=<group.your.id> to use it, or sign in with '
+          '`xcross auth --apple-id <email>` and xcross will do it all for '
+          'you.',
+        );
+      }
       await Log.logStep(
         'Signing app',
         () => BundleSigner(

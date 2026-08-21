@@ -63,10 +63,10 @@ group to each, and issues profiles carrying the resulting
 `com.apple.security.application-groups` entitlement. Nothing to configure and
 nothing to click on developer.apple.com.
 
-> **App Store Connect API keys cannot provision App Groups.** This is a limit
-> of Apple's APIs, not of xcross; see below. The app and its extensions still
-> build, install and run, but they cannot share data, so the share sheet
-> hand-off will not work. xcross says so once during the run.
+> **With an App Store Connect API key** Apple exposes no App Groups API, so
+> xcross cannot create the group for you. You can still use one you added
+> yourself: see [App Store Connect API keys](#app-store-connect-api-keys)
+> below.
 
 You can confirm the entitlement landed:
 
@@ -91,28 +91,41 @@ Plugins read the group name at runtime from the `AppGroupId` key in
 `Info.plist`, so xcross rewrites that key in the app and in every `.appex` to
 match. No source changes are needed.
 
-### Why an API key cannot do this
+### App Store Connect API keys
 
-App Groups are the one provisioning resource with no modern API. Every route
-was checked against a live key:
+An API key cannot *create* an App Group or attach one to an App ID. Every
+route was checked against a live key:
 
 | Route | Result |
 | --- | --- |
-| `GET /v1/appGroups` (and `/v1/applicationGroups`) | `404` — no such resource. Apple's own OpenAPI spec declares 966 paths and none mentions App Groups |
+| `GET /v1/appGroups`, `/v1/applicationGroups` | `404` — no such resource. Apple's own OpenAPI spec declares 966 paths and none mentions App Groups |
 | `POST /v1/bundleIdCapabilities` `APP_GROUPS` | `201` — the capability turns on, but nothing can be linked to it |
-| … with `settings[].key = APP_GROUP_IDENTIFIERS` | `409` — only `ICLOUD_VERSION`, `DATA_PROTECTION_PERMISSION_LEVEL`, `APPLE_ID_AUTH_APP_CONSENT` are accepted |
-| Profile issued with the capability on | grants `com.apple.security.application-groups: []`, an empty array |
-| Signing a real group against that profile | installd refuses: `0xe8008015 (A valid provisioning profile for this executable was not found)` |
-| developerservices2 `QH65B2` (which *does* expose App Groups) | `403` for API keys under every JWT audience tried |
+| … with `settings[].key = APP_GROUP_IDENTIFIERS` (POST and PATCH) | `409` — only `ICLOUD_VERSION`, `DATA_PROTECTION_PERMISSION_LEVEL`, `APPLE_ID_AUTH_APP_CONSENT` are accepted |
+| `POST /v1/bundleIds` with a `group.` identifier | `201` — but it is an App ID, and no relationship links it as a group |
+| Profile issued with the capability on, no group | grants `com.apple.security.application-groups: []` |
+| Signing a real group against that profile | installd refuses: `0xe8008015` |
+| developerservices2 / portal hosts (which *do* expose App Groups) | `403`/`401` for API keys under every audience and header set tried |
 
-The last row is the one that would otherwise look promising: that host's 403
-quotes the same "Make sure a bearer token was provided, it is properly
-configured and signed" wording `api.appstoreconnect.apple.com` uses, but a key
-that works on the latter is still rejected by the former. The shared wording is
-coincidental.
+**But you can still use one.** xcross reads the group out of the issued
+profile rather than assuming, so a group attached to your App IDs by any other
+means flows straight through:
 
-So the Apple ID session is not a preference, it is the only credential that can
-provision an App Group. Everything else about an API key build is unaffected.
+1. Add the App Group to the app's App ID **and every extension's** — in Xcode
+   (Signing & Capabilities) or at
+   [developer.apple.com](https://developer.apple.com/account/resources/identifiers/list).
+2. Tell xcross to use that exact group instead of qualifying its own:
+
+```sh
+XCROSS_APP_GROUP=group.com.example.Shared xcross flutter run
+```
+
+`XCROSS_APP_GROUP` skips the per-account rewrite described above, because the
+group already exists and is already yours. From then on the full share flow
+works on an API key.
+
+If no group is provisioned, xcross says so once and leaves the entitlement
+out, because signing with an ungranted group is what produces `0xe8008015`.
+The app and its extensions still build, install and run.
 
 ### Which API this uses
 
@@ -166,9 +179,9 @@ sets one from the target name, so this should not occur; please report it.
 **The extension appears but the app never receives the shared file.**
 The two are not in the same App Group. Check that the app binary and the
 `.appex` both carry `com.apple.security.application-groups` with the same
-value (see above). The usual cause is signing with an App Store Connect API
-key, which cannot provision App Groups at all: sign in with
-`xcross auth --apple-id <email>` and re-run.
+value (see above). If they carry none, xcross said so during the run: either
+sign in with an Apple ID, or attach a group yourself and pass
+`XCROSS_APP_GROUP`.
 
 **`Could not provision the app extension …`.**
 Usually the free-account App ID quota (10 per 7 days). Either wait, or delete

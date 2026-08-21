@@ -187,12 +187,14 @@ void main() {
     expect(warnings, anyElement(contains('Apple rejected these credentials')));
   });
 
-  test('states the API key limitation once, and still installs', () async {
+  test('stays silent when the credentials simply cannot do it', () async {
     final temp = Directory.systemTemp.createTempSync('xcross_app_groups_unsup');
     addTearDown(() => temp.deleteSync(recursive: true));
-    // An App Store Connect API key cannot provision App Groups at all, which
-    // is a property of Apple's APIs rather than a failure to retry. The user
-    // gets one plain sentence naming the fix, and still gets their build.
+    // An App Store Connect API key cannot attach an App Group. That is not
+    // worth a warning here: the caller inspects the issued profile and reports
+    // what was actually granted, which also covers a group attached by other
+    // means. Warning here too would say the same thing twice, and would be
+    // wrong whenever the profile does carry a group.
     final client = _FakeProvisioningClient()
       ..findAppGroupFailure = const AppGroupsUnsupported();
     final warnings = <String>[];
@@ -207,8 +209,7 @@ void main() {
     );
 
     expect(File(result.profilePath).existsSync(), isTrue);
-    expect(warnings, hasLength(1));
-    expect(warnings.single, contains('xcross auth --apple-id'));
+    expect(warnings, isEmpty);
   });
 
   test('installs anyway when an App Group lookup fails', () async {

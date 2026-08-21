@@ -70,6 +70,75 @@ void main() {
     expect(asset.certificateCommonName, 'xcross Test Developer');
   });
 
+  group('grantedAppGroups', () {
+    // Only the profile decides what iOS accepts. An App ID with the App
+    // Groups capability enabled but no group attached yields an empty array,
+    // and signing a real group against that makes installd reject the app
+    // with 0xe8008015 — so "capability enabled" must never be mistaken for
+    // "group available".
+    test('reads the groups the profile actually grants', () async {
+      final paths = await _writeFixture(
+        temporaryDirectory,
+        'groups-granted',
+        privateKeyPem: privateKeyPem,
+        certificatePem: certificatePem,
+        developerCertificates: [certificateDer],
+        appGroups: const ['group.dev.xcross.shared'],
+      );
+
+      final asset = await SigningAsset.load(
+        privateKeyPemPath: paths.key,
+        certificatePemPath: paths.certificate,
+        provisioningProfilePath: paths.profile,
+        now: now,
+        trustedRootCertificates: [certificateDer],
+      );
+
+      expect(asset.grantedAppGroups, ['group.dev.xcross.shared']);
+    });
+
+    test('treats an empty array as no group', () async {
+      final paths = await _writeFixture(
+        temporaryDirectory,
+        'groups-empty',
+        privateKeyPem: privateKeyPem,
+        certificatePem: certificatePem,
+        developerCertificates: [certificateDer],
+        appGroups: const [],
+      );
+
+      final asset = await SigningAsset.load(
+        privateKeyPemPath: paths.key,
+        certificatePemPath: paths.certificate,
+        provisioningProfilePath: paths.profile,
+        now: now,
+        trustedRootCertificates: [certificateDer],
+      );
+
+      expect(asset.grantedAppGroups, isEmpty);
+    });
+
+    test('treats a missing entitlement as no group', () async {
+      final paths = await _writeFixture(
+        temporaryDirectory,
+        'groups-absent',
+        privateKeyPem: privateKeyPem,
+        certificatePem: certificatePem,
+        developerCertificates: [certificateDer],
+      );
+
+      final asset = await SigningAsset.load(
+        privateKeyPemPath: paths.key,
+        certificatePemPath: paths.certificate,
+        provisioningProfilePath: paths.profile,
+        now: now,
+        trustedRootCertificates: [certificateDer],
+      );
+
+      expect(asset.grantedAppGroups, isEmpty);
+    });
+  });
+
   test('loads a binary profile plist', () async {
     final paths = await _writeFixture(
       temporaryDirectory,
@@ -567,6 +636,7 @@ Future<({String key, String certificate, String profile})> _writeFixture(
   DateTime? expirationDate,
   bool binaryPlist = false,
   Uint8List? profileCmsOverride,
+  List<String>? appGroups,
 }) async {
   final directory = Directory('${root.path}/$name')..createSync();
   final keyPath = '${directory.path}/key.pem';
@@ -584,6 +654,8 @@ Future<({String key, String certificate, String profile})> _writeFixture(
     'Entitlements': <String, Object>{
       'application-identifier': 'TESTTEAM123.dev.xcross.test',
       'get-task-allow': true,
+      if (appGroups != null)
+        'com.apple.security.application-groups': appGroups,
     },
     'DeveloperCertificates': [
       for (final certificate in developerCertificates)
