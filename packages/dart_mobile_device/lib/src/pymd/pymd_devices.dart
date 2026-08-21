@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/errors.dart';
@@ -61,18 +62,57 @@ abstract final class PymdDevices {
   /// `pymobiledevice3 bonjour mobdev2` — paired devices advertising
   /// `_apple-mobdev2._tcp` on the local network. Best-effort: a browse that
   /// fails (no mDNS responder, no permission) is treated as "found nothing".
+  ///
+  /// `mobdev2` matches an advertised device against locally stored pair
+  /// records, defaulting to `~/.pymobiledevice3`. usbmuxd writes its records
+  /// somewhere else entirely (`/var/lib/lockdown` on Linux, `/var/db/lockdown`
+  /// on macOS), so a phone paired through usbmuxd is invisible to the default
+  /// browse. Retry with each system directory via `--pair-records`.
   static Future<List<Device>> _bonjourDevices() async {
+    for (final records in <String?>[null, ...pairRecordDirectories()]) {
+      try {
+        final result = await Pymd.run([
+          'bonjour',
+          'mobdev2',
+          '--timeout',
+          '$_bonjourTimeout',
+          if (records != null) ...['--pair-records', records],
+        ]);
+        final devices = parseBonjourDevices(result.stdout);
+        if (devices.isNotEmpty) return devices;
+      } on Object catch (e) {
+        Log.logTrace('bonjour mobdev2 browse failed ($records): $e');
+      }
+    }
+    return const [];
+  }
+
+  /// Readable directories holding usbmuxd pair records, most specific first.
+  ///
+  /// Only existing, readable paths are returned: pymobiledevice3 rejects a
+  /// missing `--pair-records` path outright, and `/var/lib/lockdown` is
+  /// root-only on most distros, where the browse has to run under sudo.
+  @visibleForTesting
+  static List<String> pairRecordDirectories() {
+    const candidates = <String>[
+      '/var/lib/lockdown',
+      '/var/db/lockdown',
+      '/var/root/.pymobiledevice3',
+    ];
+    return [
+      for (final path in candidates)
+        if (_isReadableDirectory(path)) path,
+    ];
+  }
+
+  static bool _isReadableDirectory(String path) {
+    final dir = Directory(path);
+    if (!dir.existsSync()) return false;
     try {
-      final result = await Pymd.run([
-        'bonjour',
-        'mobdev2',
-        '--timeout',
-        '$_bonjourTimeout',
-      ]);
-      return parseBonjourDevices(result.stdout);
-    } on Object catch (e) {
-      Log.logTrace('bonjour mobdev2 browse failed: $e');
-      return const [];
+      dir.listSync(followLinks: false);
+      return true;
+    } on FileSystemException {
+      return false;
     }
   }
 

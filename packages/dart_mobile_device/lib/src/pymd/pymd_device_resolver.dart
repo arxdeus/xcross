@@ -80,9 +80,13 @@ class PymdDeviceResolver {
         'bridged VM or WSL, use a bridged/host network, since mDNS does '
         'not cross NAT;',
       )
-      ..write(
+      ..writeln(
         '  - `pymobiledevice3 bonjour mobdev2` finds it; if that is empty '
         'too, the host cannot see the device at all.',
+      )
+      ..write(
+        'On Linux, usbmuxd keeps pair records in /var/lib/lockdown, which '
+        'is root-only, so try the same command under sudo.',
       );
     return buffer.toString();
   }
