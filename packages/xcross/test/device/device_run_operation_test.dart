@@ -44,7 +44,8 @@ void main() {
       'resolve',
       'terminate:U1:com.example.app',
       'install:/build/App.app:U1:com.example.app',
-      'launch:U1:com.example.app:arg',
+      // Launched with the id install() returned, not the requested one.
+      'launch:U1:XCR-TEST.com.example.app:arg',
     ]);
   });
 
@@ -148,11 +149,12 @@ final class FakeDeviceBackend implements DeviceBackend {
   }
 
   @override
-  Future<void> install(
+  Future<String> install(
     String appOrIpaPath, {
     required Device device,
     required String bundleId,
   }) async {
     events.add('install:$appOrIpaPath:${device.udid}:$bundleId');
+    return 'XCR-TEST.$bundleId';
   }
 }

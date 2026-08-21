@@ -16,7 +16,12 @@ abstract interface class DeviceBackend {
     String? selector,
   });
 
-  Future<void> install(
+  /// Installs and returns the bundle id the app actually carries on the
+  /// device — the team-qualified (`XCR-<identity>.<id>`) one when the signer
+  /// rewrote it. The launch that follows must use exactly this id: a device
+  /// can hold several team-qualified builds of the same app, and resolving
+  /// the base id by suffix can land on a stale one from another identity.
+  Future<String> install(
     String appOrIpaPath, {
     required Device device,
     required String bundleId,
@@ -52,7 +57,7 @@ final class NativeBackend implements DeviceBackend {
   }) => _resolver.resolveDevice(selector: selector, mode: mode);
 
   @override
-  Future<void> install(
+  Future<String> install(
     String appOrIpaPath, {
     required Device device,
     required String bundleId,
@@ -189,6 +194,7 @@ final class NativeBackend implements DeviceBackend {
         udid: udid,
         overTunnel: device.source == DeviceSource.tunneld,
       );
+      return signedBundleId;
     } finally {
       signing.client.close();
       signing.anisette?.close();

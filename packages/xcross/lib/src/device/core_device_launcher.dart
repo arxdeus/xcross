@@ -92,6 +92,14 @@ abstract final class CoreDeviceLauncher {
         await transport.close();
       }
     } on Object catch (e) {
+      // A not-yet-mounted Developer Disk Image is the normal state here on a
+      // fresh (especially wireless) boot: the launch that follows mounts it
+      // with a proper budget. Its long "run xcross tunnel" message would be
+      // pure noise for a condition this method expects.
+      if ('$e'.contains('Developer Disk Image not mounted')) {
+        Log.logTrace('skipping pre-install terminate: DDI not mounted yet');
+        return;
+      }
       Log.logWarn('could not check/terminate running app: $e');
     }
   }
@@ -250,6 +258,19 @@ abstract final class CoreDeviceLauncher {
     final matches =
         ids.where((id) => id == base || id.endsWith(suffix)).toList()
           ..sort(compare((id) => id.length));
+    // Several identities' builds of one app are indistinguishable by suffix,
+    // and picking the wrong one launches a stale binary whose engine can be
+    // a whole SDK behind — hot restart then fails with kernel-version
+    // mismatches ("Could not run configuration in engine"). Run/install
+    // callers avoid this by passing the exact installed id; anything else
+    // (attach-style flows) at least gets told the guess was ambiguous.
+    if (matches.length > 1) {
+      Log.logWarn(
+        'several installed builds match "$requested": '
+        '${matches.join(', ')} — using ${matches.first}. Delete the stale '
+        'ones on the device if this picks wrong.',
+      );
+    }
     return matches.isNotEmpty ? matches.first : requested;
   }
 
