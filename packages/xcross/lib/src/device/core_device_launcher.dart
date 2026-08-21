@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:apple_developer_kit/apple_developer_kit.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:meta/meta.dart';
 import 'package:pure/pure.dart';
 import 'package:xcross/src/constants.dart';
 import 'package:xcross/src/device/core_device_launch_profile.dart';
@@ -222,7 +223,7 @@ abstract final class CoreDeviceLauncher {
     }
   }
 
-  /// Resolve team-prefixed bundle id from the installed-app list.
+  /// Resolve the qualified bundle id from the installed-app list.
   /// Returns [bundleId] unchanged on failure.
   static Future<String> _resolveBundleId(
     String bundleId, {
@@ -250,13 +251,32 @@ abstract final class CoreDeviceLauncher {
     final ids = await Pymd.listInstalledApps(
       deviceArgs: transport.sideChannelDeviceArgs ?? const [],
     );
-    if (ids.contains(requested)) return requested;
+    return pickInstalledBundleId(installed: ids, requested: requested);
+  }
+
+  /// Pick the installed app that belongs to xcross.
+  ///
+  /// An `XCR-<identity>.<base>` entry always wins over a bare `<base>` one:
+  /// the bare id is typically the user's App Store/TestFlight build, which is
+  /// signed without `get-task-allow` and cannot be debugged (issue #26).
+  /// Only when no qualified build is installed do we fall back to the exact
+  /// requested id.
+  @visibleForTesting
+  static String pickInstalledBundleId({
+    required List<String> installed,
+    required String requested,
+  }) {
     final base = ProvisioningIdentifiers.sanitize(requested);
-    final suffix = '.$base';
-    // Shortest suffix match wins: on a device carrying several team-prefixed
-    // builds of the same app, the longest match resolves to the wrong one.
-    final matches =
-        ids.where((id) => id == base || id.endsWith(suffix)).toList()
+    if (installed.contains(requested) &&
+        requested.startsWith(ProvisioningIdentifiers.idPrefix)) {
+      return requested;
+    }
+    // Shortest match wins: on a device carrying several team-prefixed builds
+    // of the same app, the longest match resolves to the wrong one.
+    final qualified =
+        installed
+            .where((id) => ProvisioningIdentifiers.isQualifiedForm(id, base))
+            .toList()
           ..sort(compare((id) => id.length));
     // Several identities' builds of one app are indistinguishable by suffix,
     // and picking the wrong one launches a stale binary whose engine can be
@@ -264,14 +284,15 @@ abstract final class CoreDeviceLauncher {
     // mismatches ("Could not run configuration in engine"). Run/install
     // callers avoid this by passing the exact installed id; anything else
     // (attach-style flows) at least gets told the guess was ambiguous.
-    if (matches.length > 1) {
+    if (qualified.length > 1) {
       Log.logWarn(
         'several installed builds match "$requested": '
-        '${matches.join(', ')} — using ${matches.first}. Delete the stale '
+        '${qualified.join(', ')} — using ${qualified.first}. Delete the stale '
         'ones on the device if this picks wrong.',
       );
     }
-    return matches.isNotEmpty ? matches.first : requested;
+    if (qualified.isNotEmpty) return qualified.first;
+    return requested;
   }
 
   /// Launch the app suspended and return its device PID.

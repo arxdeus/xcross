@@ -40,4 +40,35 @@ void main() {
       'xcross com example my app',
     );
   });
+
+  test('isQualifiedForm only matches XCR-prefixed forms of the base id', () {
+    expect(
+      ProvisioningIdentifiers.isQualifiedForm(
+        'XCR-ABCD.com.example.App',
+        'com.example.App',
+      ),
+      isTrue,
+    );
+    expect(
+      ProvisioningIdentifiers.isQualifiedForm(
+        'com.example.App',
+        'com.example.App',
+      ),
+      isFalse,
+    );
+    expect(
+      ProvisioningIdentifiers.isQualifiedForm(
+        'XCR-ABCD.com.example.App.Share-Extension',
+        'com.example.App',
+      ),
+      isFalse,
+    );
+    expect(
+      ProvisioningIdentifiers.isQualifiedForm(
+        'other.com.example.App',
+        'com.example.App',
+      ),
+      isFalse,
+    );
+  });
 }

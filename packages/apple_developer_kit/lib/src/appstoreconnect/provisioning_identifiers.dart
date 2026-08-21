@@ -56,4 +56,19 @@ abstract final class ProvisioningIdentifiers {
     ).replaceAll(RegExp('[^A-Za-z0-9]+'), ' ').trim();
     return '$namePrefix$words';
   }
+
+  /// Whether [identifier] is an xcross-qualified form of [base]
+  /// (`XCR-<identity>.<base>`).
+  ///
+  /// Deliberately strict: a device can carry the user's *production* build
+  /// under the bare `base` id, and that one is signed without
+  /// `get-task-allow`. Treating it as xcross' app makes the debugger fail
+  /// with "Permission to debug … was denied".
+  @useResult
+  static bool isQualifiedForm(String identifier, String base) {
+    if (!identifier.startsWith(idPrefix)) return false;
+    final dot = identifier.indexOf('.');
+    if (dot < 0 || dot == idPrefix.length) return false;
+    return identifier.substring(dot + 1) == sanitize(base);
+  }
 }
