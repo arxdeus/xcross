@@ -1,11 +1,12 @@
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/errors.dart';
 import 'package:dart_mobile_device/src/models/device.dart';
+import 'package:dart_mobile_device/src/pymd/pymd.dart';
 import 'package:dart_mobile_device/src/pymd/pymd_devices.dart';
+import 'package:dart_mobile_device/src/pymd/remote_pairing.dart';
 import 'package:dart_mobile_device/src/tunnel/tunnel_daemon.dart';
-
-import 'package:cli_kit/cli_kit.dart';
 
 /// Resolves a target [Device] via pymobiledevice3-backed listing.
 class PymdDeviceResolver {
@@ -30,6 +31,16 @@ class PymdDeviceResolver {
   /// (the component that finds `_remotepairing._tcp` devices over mDNS and
   /// builds their RSD tunnels — the only Wi-Fi path on Linux/Windows) and
   /// polls until the device appears or [wirelessDiscoveryTimeout] passes.
+  ///
+  /// Before that search, `--wifi` bootstraps what it can:
+  ///
+  /// * Phone on USB right now → the cable does the setup: Wi-Fi connections
+  ///   are switched on over usbmux, and tunneld (started next) pairs and
+  ///   builds the first tunnel through the cable's NCM interface. This run
+  ///   connects immediately, and later runs work with no cable at all.
+  /// * No USB and no pairing record → wireless cannot possibly succeed, so
+  ///   the host advertises for device-initiated pairing (iOS 27+) and walks
+  ///   the user through accepting it on the phone.
   Future<Device> resolveDevice({
     String? selector,
     DeviceSearchMode mode = DeviceSearchMode.all,
@@ -39,6 +50,7 @@ class PymdDeviceResolver {
     // `all` mode an empty list usually means "forgot to plug the phone in",
     // and starting a root daemon plus a 45 s scan there would be hostile.
     if (mode == DeviceSearchMode.wifi && _matches(list, selector).isEmpty) {
+      await _prepareWireless(selector);
       list = await _bringUpWireless(mode: mode, selector: selector);
     }
 
@@ -78,6 +90,70 @@ class PymdDeviceResolver {
             device.name == selector)
           device,
     ];
+  }
+
+  /// Bootstrap wireless connectivity before the tunneld search, using
+  /// whatever is available: the USB cable when the phone is plugged in,
+  /// device-initiated pairing when it is not. Best-effort — the search runs
+  /// either way, and its error message covers the manual routes.
+  Future<void> _prepareWireless(String? selector) async {
+    final overUsb = _matches(await _usbDevices(), selector);
+    if (overUsb.isNotEmpty) {
+      await _enableWifiConnectionsOverUsb(overUsb.first);
+      return;
+    }
+    if (!RemotePairing.shouldOfferPairing(selector)) return;
+    if (!stdout.hasTerminal) {
+      Log.logTrace(
+        'wireless bring-up: no pairing record and no terminal to run '
+        'device-initiated pairing on — skipping pair-host',
+      );
+      return;
+    }
+    await RemotePairing.advertisePairHost();
+  }
+
+  /// USB-attached devices, or an empty list when usbmuxd is unreachable
+  /// (routine on Linux with no cable plugged in).
+  Future<List<Device>> _usbDevices() async {
+    try {
+      return await PymdDevices.devices(mode: DeviceSearchMode.usb);
+    } on TunnelError {
+      return const [];
+    }
+  }
+
+  /// Switch `EnableWifiConnections` on through the cable — the lockdown
+  /// setting Finder calls "Show this iPhone when on Wi-Fi", without which
+  /// the phone stops advertising itself once the cable is out. Idempotent.
+  ///
+  /// tunneld (started right after) does the rest over the same cable: its
+  /// USB monitor pairs RemotePairing and builds this session's tunnel, and
+  /// the saved records let both wireless monitors reconnect cable-free.
+  Future<void> _enableWifiConnectionsOverUsb(Device device) async {
+    Log.logInfo(
+      'Wireless',
+      'phone found on USB — setting Wi-Fi connections up over the cable',
+    );
+    try {
+      await Pymd.run([
+        'lockdown',
+        'wifi-connections',
+        '--state',
+        'on',
+        '--udid',
+        device.udid,
+      ]);
+    } on TunnelError catch (e) {
+      // A trust prompt the user dismissed, a locked phone, a password-set
+      // requirement: all leave wireless possibly working anyway (tunneld
+      // pairs on its own), so warn and continue rather than abort.
+      Log.logWarn(
+        'could not enable Wi-Fi connections over USB — unlock the phone '
+        'and tap Trust, then re-run if wireless discovery fails.',
+      );
+      Log.logTrace(e.message);
+    }
   }
 
   /// Start tunneld and poll discovery until a (matching) wireless device
@@ -146,7 +222,12 @@ class PymdDeviceResolver {
       ..writeln()
       ..writeln('         pymobiledevice3 lockdown pair')
       ..writeln()
-      ..writeln('  3. Retry with the phone unlocked, on the same network.');
+      ..writeln('  3. Retry with the phone unlocked, on the same network.')
+      ..writeln()
+      ..writeln(
+        'Plugging the phone in over USB and re-running with --wifi also '
+        'works: xcross then sets up everything over the cable automatically.',
+      );
     if (!advertised) {
       buffer
         ..writeln()

@@ -12,6 +12,7 @@ export 'src/os_version.dart';
 export 'src/pymd/pymd.dart';
 export 'src/pymd/pymd_device_resolver.dart';
 export 'src/pymd/pymd_devices.dart';
+export 'src/pymd/remote_pairing.dart';
 export 'src/transport/device_transport.dart';
 export 'src/transport/device_transport_resolver.dart';
 export 'src/tunnel/kernel_tunnel_transport.dart';
