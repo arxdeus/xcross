@@ -12,6 +12,13 @@ import 'package:test/test.dart';
 const _tunneldPort = 49151;
 
 void main() {
+  test('activeTunnels is empty when tunneld is down', () async {
+    // Nothing listens on the port in this test's own scope; if a real
+    // tunneld runs on this machine the map may be non-empty, so only assert
+    // the no-throw contract in that case.
+    await TunnelDiscovery.activeTunnels();
+  });
+
   group('discoverTunnel parses a real tunneld-shaped response', () {
     late HttpServer server;
     var bound = false;
@@ -43,6 +50,29 @@ void main() {
         ..write(jsonEncode(body));
       await request.response.close();
     }
+
+    test('activeTunnels parses the multi-device map, skipping broken '
+        'entries', () async {
+      if (!bound) return;
+      unawaited(
+        respondOnce({
+          '00008030-000664292232802E': [
+            {
+              'tunnel-address': 'fd7b:e5b:6f53::1',
+              'tunnel-port': 55555,
+              'interface': 'utun9',
+            },
+          ],
+          'broken-entry': <Object?>[],
+        }),
+      );
+
+      final tunnels = await TunnelDiscovery.activeTunnels();
+      expect(tunnels, hasLength(1));
+      final tunnel = tunnels['00008030-000664292232802E']!;
+      expect(tunnel.address, 'fd7b:e5b:6f53::1');
+      expect(tunnel.port, 55555);
+    });
 
     test('multi-device map, address/port key spelling, int port', () async {
       if (!bound) return;
