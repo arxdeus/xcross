@@ -240,7 +240,7 @@ abstract final class CoreDeviceLauncher {
     required DeviceTransport transport,
   }) async {
     final ids = await Pymd.listInstalledApps(
-      deviceArgs: transport.pymdDeviceArgs,
+      deviceArgs: transport.sideChannelDeviceArgs ?? const [],
     );
     if (ids.contains(requested)) return requested;
     final base = ProvisioningIdentifiers.sanitize(requested);

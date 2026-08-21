@@ -7,6 +7,17 @@ abstract interface class DeviceTransport {
   /// e.g. `--rsd <host> <port>` or `--userspace --udid <udid>`.
   List<String> get pymdDeviceArgs;
 
+  /// [pymdDeviceArgs] for *extra* one-shot commands run alongside the live
+  /// session, or null when this transport has none that are safe to reuse.
+  ///
+  /// The userspace transport's args (`--userspace --udid …`) establish a new
+  /// in-process tunnel per invocation: fine for the session's own commands,
+  /// which is what those args exist for, but a second concurrent tunnel to a
+  /// device that already has one stalls for minutes. Convenience lookups
+  /// (installed-app lists and the like) must fall back to plain usbmux
+  /// instead of paying that cost.
+  List<String>? get sideChannelDeviceArgs => pymdDeviceArgs;
+
   /// Short transport name for logs and error messages.
   String get description;
 

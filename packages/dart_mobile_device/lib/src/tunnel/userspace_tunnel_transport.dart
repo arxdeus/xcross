@@ -43,6 +43,13 @@ class UserspaceTunnelTransport implements DeviceTransport {
   @override
   List<String> get pymdDeviceArgs => ['--userspace', '--udid', udid];
 
+  /// Every `--userspace` invocation builds its own tunnel, and a second one
+  /// to a device that already has one stalls for minutes. Side-channel
+  /// lookups therefore get no device args at all: they run over usbmux, which
+  /// is exactly what this transport already relies on.
+  @override
+  List<String>? get sideChannelDeviceArgs => null;
+
   @override
   String get description => 'userspace tunnel over usbmux (loopback relays)';
 

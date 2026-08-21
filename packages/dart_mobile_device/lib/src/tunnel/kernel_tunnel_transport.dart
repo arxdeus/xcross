@@ -28,6 +28,11 @@ class KernelTunnelTransport implements DeviceTransport {
     '${_tunnel.port}',
   ];
 
+  /// The tunnel is a real host interface, so a one-shot command dialing the
+  /// same RSD address costs nothing extra.
+  @override
+  List<String>? get sideChannelDeviceArgs => pymdDeviceArgs;
+
   @override
   String get description => 'kernel RSD tunnel (${_tunnel.address})';
 
