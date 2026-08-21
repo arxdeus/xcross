@@ -159,59 +159,6 @@ abstract final class PymdDevices {
     }).toList();
   }
 
-  /// `pymobiledevice3 bonjour mobdev2` — devices advertising
-  /// `_apple-mobdev2._tcp` on the local network. Diagnostics only: visibility
-  /// here proves the network path works, not that the device is usable (that
-  /// needs a pairing and an RSD tunnel). Best-effort: a failed browse is
-  /// "found nothing".
-  static Future<List<Device>> bonjourDevices() async {
-    try {
-      final result = await Pymd.run([
-        'bonjour',
-        'mobdev2',
-        '--timeout',
-        '$_bonjourTimeout',
-      ]);
-      return parseBonjourDevices(result.stdout);
-    } on Object catch (e) {
-      Log.logTrace('bonjour mobdev2 browse failed: $e');
-      return const [];
-    }
-  }
-
-  /// Parse the JSON array printed by `pymobiledevice3 bonjour mobdev2`. Each
-  /// entry is a lockdown "short info" map plus the discovered `ip`:
-  /// ```json
-  /// [{"Identifier": "00008030-…", "DeviceName": "iPhone", "ip": "10.0.0.4"}]
-  /// ```
-  /// Everything found this way is, by definition, a network device.
-  @visibleForTesting
-  static List<Device> parseBonjourDevices(String output) {
-    if (output.trim().isEmpty) return const [];
-    final Object? json;
-    try {
-      json = jsonDecode(output);
-    } on FormatException {
-      return const [];
-    }
-    if (json is! List) return const [];
-    final devices = <Device>[];
-    for (final entry in json) {
-      if (entry is! Map) continue;
-      final udid =
-          (entry['UniqueDeviceID'] ?? entry['Identifier']) as String? ?? '';
-      if (udid.isEmpty) continue;
-      devices.add(
-        Device(
-          name: (entry['DeviceName'] as String?) ?? udid,
-          udid: udid,
-          type: ConnectionType.wifi,
-        ),
-      );
-    }
-    return devices;
-  }
-
   /// True when some iOS device advertises `_remotepairing._tcp` on this
   /// network: it is reachable and wireless-debugging capable, whether or not
   /// this host is paired with it. Diagnostics only; never throws.

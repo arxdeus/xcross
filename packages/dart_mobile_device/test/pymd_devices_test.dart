@@ -103,37 +103,4 @@ void main() {
       );
     });
   });
-
-  group('PymdDevices.parseBonjourDevices', () {
-    test('parses mobdev2 entries as wifi devices', () {
-      const sample = '''
-[
-    {
-        "Identifier": "00008030-000664292232802E",
-        "DeviceName": "iPhone Mind",
-        "ProductVersion": "26.6",
-        "UniqueDeviceID": "00008030-000664292232802E",
-        "ip": "192.168.1.42"
-    }
-]''';
-      final devices = PymdDevices.parseBonjourDevices(sample);
-      expect(devices, hasLength(1));
-      expect(devices.single.name, 'iPhone Mind');
-      expect(devices.single.udid, '00008030-000664292232802E');
-      expect(devices.single.type, ConnectionType.wifi);
-    });
-
-    test('falls back to Identifier when UniqueDeviceID is absent', () {
-      final devices = PymdDevices.parseBonjourDevices('[{"Identifier":"ABC"}]');
-      expect(devices.single.udid, 'ABC');
-      expect(devices.single.name, 'ABC');
-    });
-
-    test('ignores empty, non-JSON, and malformed output', () {
-      expect(PymdDevices.parseBonjourDevices(''), isEmpty);
-      expect(PymdDevices.parseBonjourDevices('Traceback:'), isEmpty);
-      expect(PymdDevices.parseBonjourDevices('{}'), isEmpty);
-      expect(PymdDevices.parseBonjourDevices('[{"ip": "1.2.3.4"}]'), isEmpty);
-    });
-  });
 }
