@@ -76,6 +76,34 @@ abstract final class PymdDevices {
     }
   }
 
+  /// True when some iOS device advertises `_remotepairing._tcp` on this
+  /// network: it is reachable and wireless-enabled, but this host has no
+  /// usable pair record for it (otherwise `mobdev2` would have resolved it).
+  ///
+  /// Only used to make the "no devices" message actionable; never throws.
+  static Future<bool> wirelessPairingAdvertised() async {
+    for (final service in const [
+      'remotepairing',
+      'remotepairing-manual-pairing',
+    ]) {
+      try {
+        final result = await Pymd.run([
+          'bonjour',
+          service,
+          '--timeout',
+          '$_bonjourTimeout',
+        ]);
+        final json = jsonDecode(
+          result.stdout.trim().isEmpty ? '[]' : result.stdout,
+        );
+        if (json is List && json.isNotEmpty) return true;
+      } on Object catch (e) {
+        Log.logTrace('bonjour $service browse failed: $e');
+      }
+    }
+    return false;
+  }
+
   /// Parse the JSON array printed by `pymobiledevice3 bonjour mobdev2`. Each
   /// entry is a lockdown "short info" map plus the discovered `ip`:
   /// ```json

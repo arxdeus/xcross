@@ -27,22 +27,64 @@ class PymdDeviceResolver {
       return match.first;
     }
     if (list.isEmpty) {
-      throw TunnelError(switch (mode) {
-        DeviceSearchMode.usb =>
+      if (mode == DeviceSearchMode.usb) {
+        throw TunnelError(
           'No devices connected. Connect an iPhone (and tap Trust), '
-              'then retry.',
-        DeviceSearchMode.wifi || DeviceSearchMode.all =>
-          'No devices connected over USB or found over Wi-Fi.\n'
-              'For a wireless device, check that:\n'
-              '  - the iPhone is paired with this host (plug it in once and '
-              'tap Trust);\n'
-              '  - "Connect via network" is enabled for it in Xcode/Finder;\n'
-              '  - the phone is unlocked and on the same network, with mDNS '
-              '(UDP 5353) allowed by the firewall.',
-      });
+          'then retry.',
+        );
+      }
+      throw TunnelError(await _noWirelessDeviceMessage());
     }
     if (list.length == 1) return list.first;
     return _pickDeviceInteractively(list);
+  }
+
+  /// Explain an empty wireless search.
+  ///
+  /// No Xcode or Finder is assumed: everything here is doable from a Linux
+  /// host with pymobiledevice3 alone. When the phone is visibly advertising
+  /// `_remotepairing._tcp` the problem is a missing pair record, not the
+  /// network, so say exactly that instead of a generic checklist.
+  static Future<String> _noWirelessDeviceMessage() async {
+    final advertised = await PymdDevices.wirelessPairingAdvertised();
+    final buffer = StringBuffer(
+      'No devices connected over USB or found over Wi-Fi.\n',
+    );
+    if (advertised) {
+      buffer
+        ..writeln(
+          'An iPhone is advertising itself on this network, but this host '
+          'has no pair record for it.',
+        )
+        ..writeln('Plug it in once over USB and pair:')
+        ..writeln()
+        ..writeln('    pymobiledevice3 lockdown pair')
+        ..writeln('    pymobiledevice3 lockdown wifi-connections on')
+        ..writeln()
+        ..write(
+          'Then unplug and retry — the pair record under '
+          '~/.pymobiledevice3 is what makes wireless discovery work.',
+        );
+      return buffer.toString();
+    }
+    buffer
+      ..writeln('For a wireless device, check that:')
+      ..writeln(
+        '  - the iPhone was paired with this host over USB at least once '
+        '(pymobiledevice3 lockdown pair) and wireless connections are on '
+        '(pymobiledevice3 lockdown wifi-connections on);',
+      )
+      ..writeln('  - the phone is unlocked and on the same subnet;')
+      ..writeln(
+        '  - mDNS (UDP 5353) is allowed and reaches the phone — on a '
+        'bridged VM or WSL, use a bridged/host network, since mDNS does '
+        'not cross NAT;',
+      )
+      ..write(
+        '  - `pymobiledevice3 bonjour mobdev2` finds it; if that is empty '
+        'too, the host cannot see the device at all.',
+      );
+    return buffer.toString();
   }
 
   /// Prompt the user to pick a device from [list].
