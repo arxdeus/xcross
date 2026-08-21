@@ -161,30 +161,67 @@ class PymdDeviceResolver {
   ///
   /// tunneld needs root for its TUN interface; without it this quietly
   /// returns, and the final error message explains the manual route.
+  ///
+  /// tunneld's own output goes to a log file, not this terminal, so the poll
+  /// tails that file into the step (and into `--verbose` trace): a tunnel
+  /// failing per-attempt — stale pairing record, wrong protocol, throttling —
+  /// is otherwise indistinguishable from a phone that simply is not there.
+  /// The one failure with a *known* automatic fix gets fixed on the spot: a
+  /// pre-existing xcross tunneld still speaking QUIC to an iOS that removed
+  /// it (18.2+) is restarted with `--protocol tcp`.
   Future<List<Device>> _bringUpWireless({
     required DeviceSearchMode mode,
     required String? selector,
   }) async {
+    final daemon = TunnelDaemon();
     try {
-      await TunnelDaemon().ensureRunning();
+      await daemon.ensureRunning();
     } on TunnelError catch (e) {
       Log.logTrace('wireless bring-up: tunneld unavailable: $e');
       return PymdDevices.devices(mode: mode);
     }
 
-    final step = Log.beginStep('Searching for wireless devices');
+    final tail = TunneldLogTail.start();
+    var step = Log.beginStep('Searching for wireless devices');
     var list = <Device>[];
+    var restartedForQuic = false;
     try {
-      final deadline = DateTime.now().add(wirelessDiscoveryTimeout);
+      var deadline = DateTime.now().add(wirelessDiscoveryTimeout);
       while (DateTime.now().isBefore(deadline)) {
         list = await PymdDevices.devices(mode: mode);
         if (_matches(list, selector).isNotEmpty) {
           step.done();
           return list;
         }
+        final chunk = tail.readNew();
+        if (chunk.isNotEmpty) step.log(chunk);
+        if (!restartedForQuic && tail.sawQuicUnsupported) {
+          restartedForQuic = true;
+          // restartStale opens its own steps, so close this one first and
+          // reopen (with a fresh discovery budget) after.
+          step.fail();
+          Log.logWarn(
+            'tunneld is speaking QUIC to an iOS that removed it — '
+            'restarting it with --protocol tcp',
+          );
+          if (!await daemon.restartStale()) {
+            throw TunnelError(
+              'tunneld is running with the QUIC protocol, which iOS 18.2+ '
+              'removed, so its wireless tunnels always fail. Restart it '
+              'with TCP:\n'
+              '    ${Pymd.elevatedCommand('remote tunneld -p tcp')}',
+            );
+          }
+          step = Log.beginStep('Searching for wireless devices');
+          deadline = DateTime.now().add(wirelessDiscoveryTimeout);
+        }
         await Future<void>.delayed(_pollInterval);
       }
       step.fail();
+      final log = tail.seen.trim();
+      if (log.isNotEmpty) {
+        Log.logTrace('tunneld output during the search:\n$log');
+      }
       return list;
     } on Object {
       step.fail();
