@@ -133,33 +133,6 @@ abstract final class TunnelDiscovery {
     return result;
   }
 
-  /// Ask tunneld to create a tunnel for [udid] over [connectionType]
-  /// (`usbmux`, `usb`, or `wifi`; null lets tunneld try everything).
-  ///
-  /// Wraps `GET /start-tunnel`, which blocks while tunneld pairs with the
-  /// device over RemotePairing and builds the tunnel. Returns null when
-  /// tunneld is unreachable or refused.
-  static Future<Tunnel?> requestTunnel({
-    required String udid,
-    String? connectionType,
-    Duration timeout = const Duration(seconds: 60),
-  }) async {
-    final uri = Uri.parse(TunnelConstants.tunneldUrl).replace(
-      path: '/start-tunnel',
-      queryParameters: <String, String>{
-        'udid': udid,
-        if (connectionType != null) 'connection_type': connectionType,
-      },
-    );
-    try {
-      final data = await _fetch(uri.toString(), requestTimeout: timeout);
-      return _tunnelFromJson(data);
-    } on Object catch (e) {
-      Log.logTrace('tunneld /start-tunnel ($connectionType) failed: $e');
-      return null;
-    }
-  }
-
   /// `GET /start-tunnel?udid=` — a `{address,port}` tunnel, or the reason
   /// tunneld refused to create one (typically 404/501).
   ///
@@ -196,15 +169,12 @@ abstract final class TunnelDiscovery {
         'tunneld said: $detail',
       );
 
-  static Future<Map<String, dynamic>> _fetch(
-    String url, {
-    Duration requestTimeout = const Duration(seconds: 60),
-  }) async {
+  static Future<Map<String, dynamic>> _fetch(String url) async {
     final client = LocalHttp.client(
       connectionTimeout: const Duration(seconds: 5),
     );
     // /start-tunnel can block while creating the TUN — allow longer.
-    client.idleTimeout = requestTimeout;
+    client.idleTimeout = const Duration(seconds: 60);
     try {
       final request = await client.getUrl(Uri.parse(url));
       final response = await request.close();
