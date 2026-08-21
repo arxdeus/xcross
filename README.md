@@ -265,7 +265,7 @@ With multiple iPhones connected, an interactive terminal shows a numbered device
 -i, --ipa                    package an .ipa instead of an .app
 -d, --device-id              device id or name
 -u, --udid                   device UDID; wins if both selectors are set
-    --usb / --wifi
+    --usb / --wifi           search USB-attached or wireless devices only
     --device-connection      attached | wireless | both
     --route
 -a, --dart-entrypoint-args   repeatable
@@ -363,6 +363,12 @@ Flutter's `gen_snapshot` for iOS AOT only runs on macOS hosts - Dart does not cr
 <summary><b>What does <code>xcross tunnel</code> do, and why does it need elevation?</b></summary>
 
 It mounts the Developer Disk Image and starts the `pymobiledevice3` RSD tunnel - the encrypted QUIC/TUN tunnel iOS 17+ requires for developer services. Creating the TUN interface needs an Administrator PowerShell on Windows or root on Linux. Run it once per device reconnect.
+</details>
+
+<details>
+<summary><b>How does <code>--wifi</code> (wireless run) work?</b></summary>
+
+Wireless devices are discovered and reached through `pymobiledevice3 remote tunneld`, which finds the phone over mDNS (RemotePairing) and builds the RSD tunnel - usbmuxd is not involved, since the open-source usbmuxd on Linux and Windows never sees network devices. Requirements: iOS 17+, Developer Mode enabled, a one-time pairing with the host (`pymobiledevice3 remote pair` over Wi-Fi, or plug in USB once and `pymobiledevice3 lockdown pair`), and the phone unlocked on the same subnet (mDNS/UDP 5353 does not cross NAT - use bridged networking in a VM). `xcross flutter run --wifi` starts tunneld itself when needed; it requires root/Administrator for the TUN interface, same as `xcross tunnel`.
 </details>
 
 <details>
