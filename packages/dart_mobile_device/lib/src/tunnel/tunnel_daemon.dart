@@ -36,6 +36,20 @@ class TunnelDaemon {
   /// Ensure a tunneld REST API is reachable; start one if needed.
   Future<void> ensureRunning() async {
     if (await isReachable()) {
+      // A reachable daemon can still be useless: an xcross-started tunneld
+      // from an earlier run may speak QUIC (removed in iOS 18.2) or run on a
+      // python < 3.13 whose TCP tunnels fail with SSL: NO_CIPHERS_AVAILABLE
+      // — a failure tunneld logs at DEBUG only, so it *looks* healthy while
+      // every wireless tunnel dies. When today's launch decision differs
+      // from what that daemon runs, replace it (never a user-started one).
+      if (!_ownsDaemon && await _staleDaemonIncompatible()) {
+        Log.logWarn(
+          'an xcross-started tunneld from a previous run is incompatible '
+          'with wireless tunnels on modern iOS — replacing it',
+        );
+        if (await restartStale()) return;
+        Log.logTrace('stale tunneld replacement failed; reusing it as-is');
+      }
       Log.logTrace('RSD tunnel daemon already running (reusing it)');
       return;
     }
@@ -56,12 +70,27 @@ class TunnelDaemon {
     // QUIC, which iOS 18.2 removed: every wireless tunnel then fails with
     // QuicProtocolNotSupportedError while USB (always TCP) keeps working.
     // On python >= 3.13 TCP is already the default, so this is a no-op.
+    //
+    // The interpreter matters as much as the protocol: TCP tunnels need
+    // python 3.13's native TLS-PSK. On an older python they fail with
+    // `SSL: NO_CIPHERS_AVAILABLE` — logged by tunneld at DEBUG only, so the
+    // daemon looks healthy while every wireless tunnel silently dies.
+    final tunneld = await Pymd.tunneldInvocation();
+    if (!tunneld.modernPython) {
+      Log.logWarn(
+        'no python >= 3.13 with pymobiledevice3 found — wireless (Wi-Fi) '
+        'tunnels will likely fail on iOS 18.2+, which only speaks the TCP '
+        'tunnel protocol that needs python 3.13. USB devices are '
+        'unaffected. Fix: install python3.13+ and '
+        '`pip install pymobiledevice3` into it.',
+      );
+    }
     final argv = await Pymd.elevatedArgs([
       'remote',
       'tunneld',
       '--protocol',
       'tcp',
-    ]);
+    ], invocation: tunneld.invocation);
 
     Log.logTrace(
       '[pymobiledevice3] starting RSD tunnel daemon'
@@ -151,6 +180,28 @@ class TunnelDaemon {
     } on Object catch (e) {
       Log.logTrace('could not write tunneld pid file: $e');
     }
+  }
+
+  /// Whether the pid-file daemon was launched differently from how tunneld
+  /// would be launched right now — older xcross versions used the default
+  /// QUIC protocol, and pre-modern-python ones an interpreter whose TCP
+  /// tunnels cannot work. False when there is no (live) pid-file daemon.
+  static Future<bool> _staleDaemonIncompatible() async {
+    if (Platform.isWindows) return false;
+    final String cmdline;
+    try {
+      final pid = int.parse(File(pidFilePath).readAsStringSync().trim());
+      cmdline = File('/proc/$pid/cmdline').readAsStringSync();
+    } on Object {
+      return false;
+    }
+    if (!cmdline.contains('tunneld')) return false;
+    // /proc cmdline is NUL-separated; compare per-argument.
+    final args = cmdline.split('\x00');
+    if (!args.contains('tcp')) return true;
+    final tunneld = await Pymd.tunneldInvocation();
+    return tunneld.modernPython &&
+        !args.contains(tunneld.invocation.executable);
   }
 
   /// Replace an xcross-started tunneld from a *previous* run with a fresh

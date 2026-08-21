@@ -12,6 +12,20 @@ class PymdInvocation {
   final List<String> prefixArgs;
 }
 
+/// The invocation to run `remote tunneld` with, and whether it satisfies
+/// tunneld's real requirement of python >= 3.13.
+///
+/// The TCP tunnel protocol — the only one modern iOS still accepts (18.2+
+/// removed QUIC) — needs python 3.13's native TLS-PSK API. On older pythons
+/// pymobiledevice3 falls back to `sslpsk_pmd3`, which fails against current
+/// OpenSSL with `SSL: NO_CIPHERS_AVAILABLE`, and tunneld logs that failure
+/// at DEBUG level only: every wireless tunnel dies silently, forever.
+class TunneldInvocation {
+  const TunneldInvocation(this.invocation, {required this.modernPython});
+  final PymdInvocation invocation;
+  final bool modernPython;
+}
+
 /// One-shot invocations of `pymobiledevice3` for DVT ProcessControl,
 /// RSD service discovery, and the installed-app list.
 abstract final class Pymd {
@@ -28,6 +42,7 @@ abstract final class Pymd {
   static final _digitsPattern = RegExp(r'\d+');
 
   static PymdInvocation? _cached;
+  static TunneldInvocation? _tunneldCached;
 
   static String get _installCommand => Platform.isWindows
       ? 'py -m pip install -U pymobiledevice3'
@@ -77,6 +92,56 @@ abstract final class Pymd {
 
     _cached = PymdInvocation(py, ['-m', 'pymobiledevice3']);
     return _cached!;
+  }
+
+  /// One-line probe: succeeds (printing the real interpreter path) only on
+  /// a python that is both >= 3.13 and has pymobiledevice3 installed.
+  /// `sys.executable` unwraps version-manager shims (mise, pyenv), whose
+  /// shim scripts need the user's environment and would break under sudo.
+  static const _modernPythonProbe =
+      'import sys; '
+      'assert sys.version_info >= (3, 13); '
+      'import pymobiledevice3; '
+      'print(sys.executable)';
+
+  /// Resolve the invocation to run `remote tunneld` with.
+  ///
+  /// Prefers a python >= 3.13 that can import pymobiledevice3 — searched
+  /// separately from [resolve], because the bare `pymobiledevice3` CLI (or
+  /// launcher shims around it) may pin an older python that breaks only for
+  /// tunneld's TCP tunnels. Falls back to the regular invocation with
+  /// `modernPython: false` when no such python exists.
+  static Future<TunneldInvocation> tunneldInvocation() async {
+    if (_tunneldCached != null) return _tunneldCached!;
+    for (final name in const [
+      'python3.14',
+      'python3.13',
+      'python3',
+      'python',
+      'py',
+    ]) {
+      final candidate = await ProcessRunner.which(name);
+      if (candidate == null) continue;
+      try {
+        final probe = await ProcessRunner.run(candidate, [
+          '-c',
+          _modernPythonProbe,
+        ]);
+        if (probe.exitCode != 0) continue;
+        final real = probe.stdout.trim().split('\n').last.trim();
+        if (real.isEmpty || !File(real).existsSync()) continue;
+        return _tunneldCached = TunneldInvocation(
+          PymdInvocation(real, const ['-m', 'pymobiledevice3']),
+          modernPython: true,
+        );
+      } on Object {
+        continue;
+      }
+    }
+    return _tunneldCached = TunneldInvocation(
+      await resolve(),
+      modernPython: false,
+    );
   }
 
   /// True if pymobiledevice3 is invocable (CLI on PATH, or importable by a
@@ -329,8 +394,14 @@ abstract final class Pymd {
       '${Platform.isWindows ? '' : 'sudo '}pymobiledevice3 $arguments';
 
   /// `[sudo -n] [env USBMUXD_SOCKET_ADDRESS=…] <pymd> …args`.
-  static Future<List<String>> elevatedArgs(List<String> pymdArgs) async {
-    final inv = await resolve();
+  ///
+  /// [invocation] overrides which pymobiledevice3 runs (tunneld needs a
+  /// python the regular resolution may not pick).
+  static Future<List<String>> elevatedArgs(
+    List<String> pymdArgs, {
+    PymdInvocation? invocation,
+  }) async {
+    final inv = invocation ?? await resolve();
     final sudo = await Sudo.resolve();
     final usbmux = resolvedUsbmuxAddress();
     return <String>[
