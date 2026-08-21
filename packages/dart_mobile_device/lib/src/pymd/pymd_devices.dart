@@ -4,6 +4,7 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/errors.dart';
 import 'package:dart_mobile_device/src/models/device.dart';
 import 'package:dart_mobile_device/src/pymd/pymd.dart';
+import 'package:meta/meta.dart';
 
 /// pymobiledevice3-backed device enumeration and app install.
 ///
@@ -12,10 +13,20 @@ import 'package:dart_mobile_device/src/pymd/pymd.dart';
 /// (not added to [Pymd] itself) since Dart can't extend an `abstract final`
 /// class from another file.
 abstract final class PymdDevices {
+  /// How long `bonjour mobdev2` is allowed to browse the local network.
+  static const _bonjourTimeout = 5;
+
   /// `pymobiledevice3 usbmux list [--usb|--network]`.
   ///
   /// Unlike `--simple` (bare UDID array), the default output includes device
   /// names and connection type, which is what's needed for [Device].
+  ///
+  /// Wireless devices do not need usbmuxd at all: when it is unreachable (on
+  /// Linux the daemon is socket-activated and only runs while a phone is
+  /// plugged in) or simply knows about no network device, fall back to
+  /// `pymobiledevice3 bonjour mobdev2`, which finds paired devices over
+  /// mDNS. USB-only searches keep the old usbmuxd error, since without the
+  /// daemon they truly cannot work.
   static Future<List<Device>> devices({
     DeviceSearchMode mode = DeviceSearchMode.all,
   }) async {
@@ -25,8 +36,77 @@ abstract final class PymdDevices {
       if (mode == DeviceSearchMode.usb) '--usb',
       if (mode == DeviceSearchMode.wifi) '--network',
     ];
-    final result = await Pymd.run(args);
-    return parseDevices(result.stdout);
+    final wirelessAllowed = mode != DeviceSearchMode.usb;
+
+    List<Device> viaUsbmux;
+    try {
+      final result = await Pymd.run(args);
+      viaUsbmux = parseDevices(
+        result.stdout,
+        allowEmptyOutput: wirelessAllowed,
+      );
+    } on TunnelError {
+      if (!wirelessAllowed) rethrow;
+      viaUsbmux = const [];
+    }
+    if (!wirelessAllowed || viaUsbmux.isNotEmpty) return viaUsbmux;
+
+    final viaBonjour = await _bonjourDevices();
+    if (viaBonjour.isEmpty) return viaUsbmux;
+
+    final known = viaUsbmux.map((d) => d.udid).toSet();
+    return [...viaUsbmux, ...viaBonjour.where((d) => !known.contains(d.udid))];
+  }
+
+  /// `pymobiledevice3 bonjour mobdev2` — paired devices advertising
+  /// `_apple-mobdev2._tcp` on the local network. Best-effort: a browse that
+  /// fails (no mDNS responder, no permission) is treated as "found nothing".
+  static Future<List<Device>> _bonjourDevices() async {
+    try {
+      final result = await Pymd.run([
+        'bonjour',
+        'mobdev2',
+        '--timeout',
+        '$_bonjourTimeout',
+      ]);
+      return parseBonjourDevices(result.stdout);
+    } on Object catch (e) {
+      Log.logTrace('bonjour mobdev2 browse failed: $e');
+      return const [];
+    }
+  }
+
+  /// Parse the JSON array printed by `pymobiledevice3 bonjour mobdev2`. Each
+  /// entry is a lockdown "short info" map plus the discovered `ip`:
+  /// ```json
+  /// [{"Identifier": "00008030-…", "DeviceName": "iPhone", "ip": "10.0.0.4"}]
+  /// ```
+  /// Everything found this way is, by definition, a network device.
+  @visibleForTesting
+  static List<Device> parseBonjourDevices(String output) {
+    if (output.trim().isEmpty) return const [];
+    final Object? json;
+    try {
+      json = jsonDecode(output);
+    } on FormatException {
+      return const [];
+    }
+    if (json is! List) return const [];
+    final devices = <Device>[];
+    for (final entry in json) {
+      if (entry is! Map) continue;
+      final udid =
+          (entry['UniqueDeviceID'] ?? entry['Identifier']) as String? ?? '';
+      if (udid.isEmpty) continue;
+      devices.add(
+        Device(
+          name: (entry['DeviceName'] as String?) ?? udid,
+          udid: udid,
+          type: ConnectionType.wifi,
+        ),
+      );
+    }
+    return devices;
   }
 
   /// Parse the JSON array printed by `pymobiledevice3 usbmux list` (without
@@ -39,13 +119,17 @@ abstract final class PymdDevices {
   ///   ...
   /// }
   /// ```
-  static List<Device> parseDevices(String output) {
+  static List<Device> parseDevices(
+    String output, {
+    bool allowEmptyOutput = false,
+  }) {
     // `usbmux list` exits 0 even when it cannot reach usbmuxd: it logs
     // "Failed to connect to usbmuxd socket" to stderr and prints nothing,
     // so Pymd.run's exit-code check passes and jsonDecode('') would blow up
     // with a bare FormatException stack trace. Turn the empty case into the
     // actionable message instead.
     if (output.trim().isEmpty) {
+      if (allowEmptyOutput) return const [];
       throw TunnelError(
         'pymobiledevice3 could not list devices — usbmuxd is not reachable.\n'
         'Start it, then retry:\n'

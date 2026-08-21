@@ -27,9 +27,19 @@ class PymdDeviceResolver {
       return match.first;
     }
     if (list.isEmpty) {
-      throw TunnelError(
-        'No devices connected. Connect an iPhone (and tap Trust), then retry.',
-      );
+      throw TunnelError(switch (mode) {
+        DeviceSearchMode.usb =>
+          'No devices connected. Connect an iPhone (and tap Trust), '
+              'then retry.',
+        DeviceSearchMode.wifi || DeviceSearchMode.all =>
+          'No devices connected over USB or found over Wi-Fi.\n'
+              'For a wireless device, check that:\n'
+              '  - the iPhone is paired with this host (plug it in once and '
+              'tap Trust);\n'
+              '  - "Connect via network" is enabled for it in Xcode/Finder;\n'
+              '  - the phone is unlocked and on the same network, with mDNS '
+              '(UDP 5353) allowed by the firewall.',
+      });
     }
     if (list.length == 1) return list.first;
     return _pickDeviceInteractively(list);
