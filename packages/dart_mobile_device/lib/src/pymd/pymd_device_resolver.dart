@@ -59,7 +59,7 @@ class PymdDeviceResolver {
         ..writeln('Plug it in once over USB and pair:')
         ..writeln()
         ..writeln('    pymobiledevice3 lockdown pair')
-        ..writeln('    pymobiledevice3 lockdown wifi-connections on')
+        ..writeln('    pymobiledevice3 lockdown wifi-connections --state on')
         ..writeln()
         ..write(
           'Then unplug and retry — the pair record under '
@@ -72,7 +72,7 @@ class PymdDeviceResolver {
       ..writeln(
         '  - the iPhone was paired with this host over USB at least once '
         '(pymobiledevice3 lockdown pair) and wireless connections are on '
-        '(pymobiledevice3 lockdown wifi-connections on);',
+        '(pymobiledevice3 lockdown wifi-connections --state on);',
       )
       ..writeln('  - the phone is unlocked and on the same subnet;')
       ..writeln(
