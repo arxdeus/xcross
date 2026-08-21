@@ -58,7 +58,7 @@ class PymdDeviceResolver {
       final match = _matches(list, selector);
       if (match.isEmpty) {
         if (list.isEmpty && mode == DeviceSearchMode.wifi) {
-          throw TunnelError(await _noWirelessDeviceMessage());
+          throw TunnelError(await _noWirelessDeviceMessage(_daemonFailure));
         }
         throw TunnelError('No connected device matching "$selector".');
       }
@@ -66,7 +66,7 @@ class PymdDeviceResolver {
     }
     if (list.isEmpty) {
       throw TunnelError(switch (mode) {
-        DeviceSearchMode.wifi => await _noWirelessDeviceMessage(),
+        DeviceSearchMode.wifi => await _noWirelessDeviceMessage(_daemonFailure),
         DeviceSearchMode.usb =>
           'No devices connected. Connect an iPhone (and tap Trust), '
               'then retry.',
@@ -78,6 +78,11 @@ class PymdDeviceResolver {
     if (list.length == 1) return list.first;
     return _pickDeviceInteractively(list);
   }
+
+  /// Why tunneld could not be started this session, when it could not be.
+  /// Wireless discovery is impossible without it, so the final "no device"
+  /// message must lead with this instead of guessing at pairing problems.
+  TunnelError? _daemonFailure;
 
   /// Devices matching [selector] (UDID with or without dashes, or name).
   /// With a null selector: the whole list.
@@ -177,6 +182,7 @@ class PymdDeviceResolver {
     try {
       await daemon.ensureRunning();
     } on TunnelError catch (e) {
+      _daemonFailure = e;
       Log.logTrace('wireless bring-up: tunneld unavailable: $e');
       return PymdDevices.devices(mode: mode);
     }
@@ -234,7 +240,18 @@ class PymdDeviceResolver {
   ///
   /// When the phone is visibly advertising `_remotepairing._tcp` the problem
   /// is pairing, not the network, so say exactly that.
-  static Future<String> _noWirelessDeviceMessage() async {
+  ///
+  /// When tunneld itself never started ([daemonFailure]), pairing hints are
+  /// noise: nothing was going to be discovered no matter what, so lead with
+  /// the daemon's own error instead.
+  static Future<String> _noWirelessDeviceMessage([
+    TunnelError? daemonFailure,
+  ]) async {
+    if (daemonFailure != null) {
+      return 'No wireless device found — the RSD tunnel daemon (tunneld) '
+          'could not be started, and wireless discovery is impossible '
+          'without it:\n${daemonFailure.message}';
+    }
     final advertised = await PymdDevices.wirelessPairingAdvertised();
     final buffer = StringBuffer('No wireless device found.\n');
     if (advertised) {
