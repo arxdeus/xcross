@@ -159,6 +159,14 @@ enum LinuxPackageManager {
         final known = await _known(wanted);
         return [
           command(['apt-get', 'install', '-y', ...known]),
+          // A mirror that has already rotated to a newer point release still
+          // advertises the old .deb in this host's cached index, and apt
+          // aborts the whole transaction on that single 404
+          // ("Failed to fetch … 404 Not Found"). Refreshing the index first
+          // is the documented fix ("maybe run apt-get update"), and it is
+          // exactly what the retry does — cheap, and only reached after a
+          // real failure.
+          command(['sh', '-c', _aptUpdateThenInstall(known)]),
         ];
       case LinuxPackageManager.dnf:
         return [
@@ -184,23 +192,31 @@ enum LinuxPackageManager {
   /// hits — so one query classifies the whole list either way.
   Future<List<String>> _known(List<String> wanted) async {
     final Set<String?> missing;
-    switch (this) {
-      case LinuxPackageManager.apt:
-        final result = await ProcessRunner.run('apt-cache', ['pkgnames']);
-        final indexed = const LineSplitter()
-            .convert(result.stdout)
-            .map((line) => line.trim())
-            .toSet();
-        if (indexed.isEmpty) return wanted;
-        missing = wanted.where((name) => !indexed.contains(name)).toSet();
-      case LinuxPackageManager.pacman:
-        final result = await ProcessRunner.run('pacman', ['-Si', ...wanted]);
-        missing = _pacmanNotFoundPattern
-            .allMatches(result.stderr)
-            .map((match) => match.group(1))
-            .toSet();
-      case LinuxPackageManager.dnf:
-        return wanted;
+    // The query is an optimisation — it only trims names this host cannot
+    // install anyway. A missing query binary must therefore degrade to "keep
+    // every name" rather than abort setup with a raw ProcessException.
+    try {
+      switch (this) {
+        case LinuxPackageManager.apt:
+          final result = await ProcessRunner.run('apt-cache', ['pkgnames']);
+          final indexed = const LineSplitter()
+              .convert(result.stdout)
+              .map((line) => line.trim())
+              .toSet();
+          if (indexed.isEmpty) return wanted;
+          missing = wanted.where((name) => !indexed.contains(name)).toSet();
+        case LinuxPackageManager.pacman:
+          final result = await ProcessRunner.run('pacman', ['-Si', ...wanted]);
+          missing = _pacmanNotFoundPattern
+              .allMatches(result.stderr)
+              .map((match) => match.group(1))
+              .toSet();
+        case LinuxPackageManager.dnf:
+          return wanted;
+      }
+    } on Object catch (e) {
+      Log.logTrace('[$name] package index query failed ($e); keeping all');
+      return wanted;
     }
     if (missing.isEmpty) return wanted;
 
@@ -217,4 +233,13 @@ enum LinuxPackageManager {
   static final _pacmanNotFoundPattern = RegExp(
     "package '([^']+)' was not found",
   );
+
+  /// `apt-get update && apt-get install -y …`, quoted for `sh -c`.
+  ///
+  /// One shell command, not two vectors: the update must run under the same
+  /// privilege escalation as the install that follows it.
+  static String _aptUpdateThenInstall(List<String> packages) {
+    final quoted = packages.map((name) => "'$name'").join(' ');
+    return 'apt-get update && apt-get install -y $quoted';
+  }
 }
