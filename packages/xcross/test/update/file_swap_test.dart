@@ -86,11 +86,9 @@ void main() {
     );
     await swap.discardBackups();
 
-    expect(
-      installed.listSync().map((e) => p.basename(e.path)),
-      ['xcross'],
-      reason: 'no .new- or .old- leftovers',
-    );
+    expect(installed.listSync().map((e) => p.basename(e.path)), [
+      'xcross',
+    ], reason: 'no .new- or .old- leftovers');
   });
 
   test('rollback removes a file the update newly added', () async {

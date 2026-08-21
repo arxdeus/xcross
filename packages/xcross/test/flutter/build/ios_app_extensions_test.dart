@@ -290,7 +290,9 @@ $exceptions
 
     setUp(() async {
       synced = Directory(p.join(tmp.path, 'ios', 'Share Extension'));
-      await Directory(p.join(synced.path, 'Base.lproj')).create(recursive: true);
+      await Directory(
+        p.join(synced.path, 'Base.lproj'),
+      ).create(recursive: true);
       await File(
         p.join(synced.path, 'ShareViewController.swift'),
       ).writeAsString('class ShareViewController {}');

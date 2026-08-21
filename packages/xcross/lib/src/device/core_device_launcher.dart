@@ -29,6 +29,8 @@ const _terminateDiscoveryTimeout = Duration(seconds: 8);
 abstract final class CoreDeviceLauncher {
   static bool get _isDap => Platform.environment['XCROSS_DAP'] == '1';
 
+  /// [bundleId] must be the id the app is actually installed under — the
+  /// value returned by `DeviceBackend.install`. Nothing here guesses it.
   static Future<void> launch({
     required String udid,
     required String bundleId,
@@ -113,15 +115,11 @@ abstract final class CoreDeviceLauncher {
     required HotReloadConfig? hotReload,
     Future<bool> Function()? onRestartRequested,
   }) async {
-    final resolvedBundleId = await _resolveBundleId(
-      bundleId,
-      transport: transport,
-    );
     final debugproxy = await transport.debugproxyEndpoint();
 
     final pid = await _launchSuspended(
       transport: transport,
-      bundleId: resolvedBundleId,
+      bundleId: bundleId,
       appArgs: arguments,
     );
 
@@ -224,6 +222,9 @@ abstract final class CoreDeviceLauncher {
   }
 
   /// Resolve the qualified bundle id from the installed-app list.
+  ///
+  /// Only [terminateIfRunning] needs this: it runs *before* install, so the
+  /// signing identity (and with it the qualified id) is not known yet.
   /// Returns [bundleId] unchanged on failure.
   static Future<String> _resolveBundleId(
     String bundleId, {

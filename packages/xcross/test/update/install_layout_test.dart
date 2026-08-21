@@ -32,22 +32,18 @@ void main() {
     expect(File(layout.binaryPath).existsSync(), isTrue);
   });
 
-  test(
-    'resolves a symlink so the real file is the update target',
-    () {
-      final linkDir = Directory(p.join(prefix.path, 'link'))..createSync();
-      final link = Link(p.join(linkDir.path, _exeName()))
-        ..createSync(p.join(prefix.path, 'bin', _exeName()));
+  test('resolves a symlink so the real file is the update target', () {
+    final linkDir = Directory(p.join(prefix.path, 'link'))..createSync();
+    final link = Link(p.join(linkDir.path, _exeName()))
+      ..createSync(p.join(prefix.path, 'bin', _exeName()));
 
-      final layout = InstallLayout.forExecutable(link.path);
-      expect(p.basename(layout.binDir), 'bin');
-      expect(
-        layout.binaryPath,
-        File(p.join(prefix.path, 'bin', _exeName())).resolveSymbolicLinksSync(),
-      );
-    },
-    onPlatform: const {'windows': Skip('symlinks need elevation')},
-  );
+    final layout = InstallLayout.forExecutable(link.path);
+    expect(p.basename(layout.binDir), 'bin');
+    expect(
+      layout.binaryPath,
+      File(p.join(prefix.path, 'bin', _exeName())).resolveSymbolicLinksSync(),
+    );
+  }, onPlatform: const {'windows': Skip('symlinks need elevation')});
 
   test('refuses a dart run checkout', () {
     final dart = File(p.join(prefix.path, 'bin', 'dart'))
@@ -102,10 +98,8 @@ void main() {
       p.join(prefix.path, 'bin', _exeName()),
     );
     expect(layout.isWritable, isTrue);
-    expect(
-      Directory(layout.binDir).listSync().map((e) => p.basename(e.path)),
-      [_exeName()],
-      reason: 'the write probe must not leave anything behind',
-    );
+    expect(Directory(layout.binDir).listSync().map((e) => p.basename(e.path)), [
+      _exeName(),
+    ], reason: 'the write probe must not leave anything behind');
   });
 }
