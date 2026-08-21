@@ -144,6 +144,20 @@ Use `xcross update --to <tag>` to pin a specific release, and `--force` to reins
 
 xcross talks to Apple's Developer Services directly. Two options:
 
+|  | Apple ID | App Store Connect API key |
+| --- | --- | --- |
+| Apple account needed | free account works | paid Developer Program |
+| Interactive login | password + 2FA once | none, good for CI |
+| Protocol | the one Xcode speaks, undocumented | official and documented |
+| Build, sign, install, run | yes | yes |
+| **App Groups** (share extensions) | **created and attached automatically** | cannot be created; use one you attached yourself, see [app extensions](docs/app-extensions.md#app-store-connect-api-keys) |
+
+The App Groups row is the only functional difference, and it is Apple's doing
+rather than xcross's: the public App Store Connect API has no App Groups
+resource at all, while the older protocol Xcode itself uses does. It only
+matters if your app ships a share or action extension that hands data back to
+the app.
+
 ### Apple ID (free account works)
 
 ```sh
@@ -165,6 +179,17 @@ Machine attestation uses Android ADI libraries (`libCoreADI.so`, `libstoreservic
 ```sh
 xcross auth --issuer-id <uuid> --key-id <id> --private-key /path/to/AuthKey.p8
 ```
+
+Non-interactive, so this is the one to use on CI. It provisions everything
+except App Groups, which Apple's public API cannot manage at all. If your app
+has a share extension, attach the group to your App IDs once (in Xcode or at
+developer.apple.com) and point xcross at it:
+
+```sh
+XCROSS_APP_GROUP=group.com.example.Shared xcross flutter run
+```
+
+See [iOS app extensions](docs/app-extensions.md) for the details.
 
 ### Sign out
 
@@ -285,7 +310,7 @@ Plugins that only ship a CocoaPods podspec are currently **skipped with a warnin
 
 Share and action extensions are built, embedded under `PlugIns/`, signed with their own provisioning profiles and installed alongside the app, so plugins like [receive_sharing_intent](https://github.com/KasemJaffer/receive_sharing_intent) put your app in the iOS share sheet. No configuration needed.
 
-Sharing data back to the app needs an App Group, which requires one manual step. See **[docs/app-extensions.md](docs/app-extensions.md)**.
+Sharing data back to the app needs an App Group. Signed in with an Apple ID, xcross registers and attaches it for you. With an App Store Connect API key, Apple's public API cannot manage App Groups at all, so attach one yourself and pass `XCROSS_APP_GROUP`. See **[docs/app-extensions.md](docs/app-extensions.md)**.
 
 ## Bundle identity
 
@@ -350,6 +375,16 @@ Yes. Use `xcross compose setup`, then `xcross compose build` or `xcross compose 
 <summary><b>Is my Apple password stored anywhere?</b></summary>
 
 No. `xcross auth` performs the login handshake locally and persists only the resulting Developer Services session token.
+</details>
+
+<details>
+<summary><b>Why does an App Store Connect API key have fewer capabilities than an Apple ID?</b></summary>
+
+Only for App Groups, and the cause is Apple's. The public App Store Connect API has no App Groups resource at all: its OpenAPI specification declares 966 paths and none of them mentions one, so a key cannot create a group or attach it to an App ID. The older protocol Xcode itself speaks does expose them, and that is what an Apple ID session uses.
+
+So the documented, officially supported credential is the less capable one here, and the undocumented path is the complete one, with the stability caveat that implies.
+
+It only matters if your app ships a share or action extension. A key still issues profiles that carry a group attached by other means, so attach one once in Xcode or at developer.apple.com and pass `XCROSS_APP_GROUP=group.your.id`. Everything else works identically. See [docs/app-extensions.md](docs/app-extensions.md).
 </details>
 
 <details>

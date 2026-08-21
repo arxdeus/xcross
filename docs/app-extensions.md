@@ -76,6 +76,29 @@ strings "build/xcross-ios/<app>.app/PlugIns/<Name>.appex/<Name>" \
   | grep application-groups
 ```
 
+### The profile decides, not the request
+
+xcross signs with the App Group the **issued provisioning profile grants**,
+not the one it asked Apple for. Those differ more often than you would expect:
+a request can fail, a capability can be enabled without any group attached, or
+a group can already be there under a name xcross never chose.
+
+This matters because iOS enforces the profile. Signing an app with a group the
+profile does not grant makes `installd` refuse the install outright:
+
+```
+0xe8008015 (A valid provisioning profile for this executable was not found.)
+```
+
+So when nothing is granted, xcross leaves the entitlement out, says so once,
+and the app still installs and runs without a shared container. And when a
+group *is* granted, it is used verbatim, including the runtime `AppGroupId`
+key, which is what makes the API key workflow below possible at all.
+
+Each extension has its own profile, so xcross also checks every `.appex`
+against the app's group and warns if one is missing. Otherwise the mismatch
+would only show up as a share that silently does nothing.
+
 ### Why the group name is rewritten
 
 App Group identifiers are globally unique across **all** Apple developers, so a
@@ -141,6 +164,12 @@ ios/assignApplicationGroupToAppId.action
 
 Resource ids are shared with the JSON:API, so xcross mixes the two: App IDs and
 profiles come from the modern endpoints, App Groups from these.
+
+There is an irony worth stating plainly. The **official** App Store Connect
+API cannot manage App Groups, while the **undocumented** protocol Xcode itself
+speaks can. That is why signing in with an Apple ID gives you more capability
+than a paid API key here, and also why that path carries no stability
+guarantee: Apple can change it whenever they like.
 
 ## Storyboards and asset catalogs
 
