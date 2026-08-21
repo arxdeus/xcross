@@ -193,10 +193,17 @@ abstract final class Pymd {
 
   /// Return set of installed bundle identifiers.
   ///
+  /// [deviceArgs] selects the device (`--rsd <host> <port>`, `--tunnel
+  /// <udid>`, or `--userspace --udid <udid>`); without it pymobiledevice3
+  /// falls back to the first usbmux device, which does not exist for a
+  /// wireless connection on Linux/Windows.
+  ///
   /// pymobiledevice3 renamed the `--user`/`--system` filters to `--userspace`
   /// in newer releases (9.x); try the current flag first and fall back to the
   /// legacy flags so both versions work.
-  static Future<List<String>> listInstalledApps() async {
+  static Future<List<String>> listInstalledApps({
+    List<String> deviceArgs = const [],
+  }) async {
     const attempts = <List<String>>[
       ['apps', 'list', '--type', 'User'],
       ['apps', 'list', '--userspace'],
@@ -204,7 +211,7 @@ abstract final class Pymd {
     ];
     for (final args in attempts) {
       try {
-        final result = await run(args);
+        final result = await run([...args, ...deviceArgs]);
         if (jsonDecode(result.stdout) case final Map<Object?, Object?> json) {
           return json.keys.cast<String>().toList();
         }

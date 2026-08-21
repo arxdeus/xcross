@@ -92,7 +92,10 @@ abstract final class DeviceTransportResolver {
         allowTunnelRepair: allowTunnelRepair,
       );
       Log.logTrace('connecting to RSD at ${tunnel.address}:${tunnel.port}');
-      final debugproxyPort = await _debugproxyPort(tunnel);
+      final debugproxyPort = await _debugproxyPortWithMountRepair(
+        tunnel,
+        allowTunnelRepair: allowTunnelRepair,
+      );
       return KernelTunnelTransport(
         tunnel: tunnel,
         debugproxyPort: debugproxyPort,
@@ -101,6 +104,43 @@ abstract final class DeviceTransportResolver {
     } on Object {
       daemon.stop();
       rethrow;
+    }
+  }
+
+  /// [_debugproxyPort], retried once after mounting the Developer Disk Image
+  /// through the tunnel itself.
+  ///
+  /// A missing debugproxy means the DDI is not mounted. The usbmux-based
+  /// `mounter auto-mount` cannot reach a wireless-only device, but the RSD
+  /// tunnel we already hold can: `--rsd <host> <port>` routes the mount over
+  /// it regardless of how the device is connected.
+  static Future<int> _debugproxyPortWithMountRepair(
+    Tunnel tunnel, {
+    required bool allowTunnelRepair,
+  }) async {
+    try {
+      return await _debugproxyPort(tunnel);
+    } on TunnelError catch (error) {
+      if (!allowTunnelRepair || !_deviceIsMissingDebugproxy(error.message)) {
+        rethrow;
+      }
+      Log.logTrace('debugproxy missing — mounting the DDI over the RSD tunnel');
+      try {
+        await Log.logStep(
+          'Mounting Developer Disk Image',
+          () => Pymd.run([
+            'mounter',
+            'auto-mount',
+            '--rsd',
+            tunnel.address,
+            '${tunnel.port}',
+          ]),
+        );
+      } on Object catch (mountFailure) {
+        Log.logTrace('tunnel-routed auto-mount failed: $mountFailure');
+        throw error;
+      }
+      return _debugproxyPort(tunnel);
     }
   }
 

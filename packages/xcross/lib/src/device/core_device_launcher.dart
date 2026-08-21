@@ -81,7 +81,7 @@ abstract final class CoreDeviceLauncher {
       try {
         final pid = await Pymd.processIdForBundleId(
           deviceArgs: transport.pymdDeviceArgs,
-          bundleId: await _resolveBundleId(bundleId),
+          bundleId: await _resolveBundleId(bundleId, transport: transport),
         );
         if (pid == null) return;
         Log.logTrace(
@@ -104,7 +104,10 @@ abstract final class CoreDeviceLauncher {
     required HotReloadConfig? hotReload,
     Future<bool> Function()? onRestartRequested,
   }) async {
-    final resolvedBundleId = await _resolveBundleId(bundleId);
+    final resolvedBundleId = await _resolveBundleId(
+      bundleId,
+      transport: transport,
+    );
     final debugproxy = await transport.debugproxyEndpoint();
 
     final pid = await _launchSuspended(
@@ -213,10 +216,16 @@ abstract final class CoreDeviceLauncher {
 
   /// Resolve team-prefixed bundle id from the installed-app list.
   /// Returns [bundleId] unchanged on failure.
-  static Future<String> _resolveBundleId(String bundleId) async {
+  static Future<String> _resolveBundleId(
+    String bundleId, {
+    required DeviceTransport transport,
+  }) async {
     String resolved;
     try {
-      resolved = await _resolveInstalledBundleId(requested: bundleId);
+      resolved = await _resolveInstalledBundleId(
+        requested: bundleId,
+        transport: transport,
+      );
     } catch (_) {
       resolved = bundleId;
     }
@@ -228,8 +237,11 @@ abstract final class CoreDeviceLauncher {
 
   static Future<String> _resolveInstalledBundleId({
     required String requested,
+    required DeviceTransport transport,
   }) async {
-    final ids = await Pymd.listInstalledApps();
+    final ids = await Pymd.listInstalledApps(
+      deviceArgs: transport.pymdDeviceArgs,
+    );
     if (ids.contains(requested)) return requested;
     final base = ProvisioningIdentifiers.sanitize(requested);
     final suffix = '.$base';
