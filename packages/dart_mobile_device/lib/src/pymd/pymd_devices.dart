@@ -1,10 +1,10 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/errors.dart';
 import 'package:dart_mobile_device/src/models/device.dart';
 import 'package:dart_mobile_device/src/pymd/pymd.dart';
+import 'package:dart_mobile_device/src/tunnel/tunnel_discovery.dart';
 import 'package:meta/meta.dart';
 
 /// pymobiledevice3-backed device enumeration and app install.
@@ -14,20 +14,26 @@ import 'package:meta/meta.dart';
 /// (not added to [Pymd] itself) since Dart can't extend an `abstract final`
 /// class from another file.
 abstract final class PymdDevices {
-  /// How long `bonjour mobdev2` is allowed to browse the local network.
+  /// How long a bonjour browse is allowed to look around the local network.
   static const _bonjourTimeout = 5;
 
-  /// `pymobiledevice3 usbmux list [--usb|--network]`.
+  /// Cached `DeviceName` per tunneled UDID, so discovery polling does not
+  /// spawn a `lockdown info` subprocess on every tick.
+  static final Map<String, String?> _tunnelNameCache = {};
+
+  /// Enumerate reachable devices.
   ///
-  /// Unlike `--simple` (bare UDID array), the default output includes device
-  /// names and connection type, which is what's needed for [Device].
+  /// Two sources are merged:
   ///
-  /// Wireless devices do not need usbmuxd at all: when it is unreachable (on
-  /// Linux the daemon is socket-activated and only runs while a phone is
-  /// plugged in) or simply knows about no network device, fall back to
-  /// `pymobiledevice3 bonjour mobdev2`, which finds paired devices over
-  /// mDNS. USB-only searches keep the old usbmuxd error, since without the
-  /// daemon they truly cannot work.
+  /// * `pymobiledevice3 usbmux list [--usb|--network]` — devices known to
+  ///   usbmuxd. On Linux the open-source usbmuxd only ever knows USB devices
+  ///   (and is often not even running without one plugged in), so for
+  ///   searches that allow wireless devices an unreachable usbmuxd is not an
+  ///   error.
+  /// * the tunneld REST API — devices with an active RSD tunnel. This is how
+  ///   wireless devices appear on Linux/Windows: tunneld's RemotePairing
+  ///   monitor finds them over mDNS and builds the tunnel, no usbmuxd
+  ///   involved.
   static Future<List<Device>> devices({
     DeviceSearchMode mode = DeviceSearchMode.all,
   }) async {
@@ -50,132 +56,55 @@ abstract final class PymdDevices {
       if (!wirelessAllowed) rethrow;
       viaUsbmux = const [];
     }
-    if (!wirelessAllowed || viaUsbmux.isNotEmpty) return viaUsbmux;
+    if (!wirelessAllowed) return viaUsbmux;
 
-    final viaBonjour = await _bonjourDevices();
-    if (viaBonjour.isEmpty) return viaUsbmux;
-
-    final known = viaUsbmux.map((d) => d.udid).toSet();
-    return [...viaUsbmux, ...viaBonjour.where((d) => !known.contains(d.udid))];
+    final viaTunneld = await _tunneldDevices(known: viaUsbmux);
+    return [...viaUsbmux, ...viaTunneld];
   }
 
-  /// `pymobiledevice3 bonjour mobdev2` — paired devices advertising
-  /// `_apple-mobdev2._tcp` on the local network. Best-effort: a browse that
-  /// fails (no mDNS responder, no permission) is treated as "found nothing".
+  /// Devices with an active RSD tunnel in tunneld, excluding [known] ones.
   ///
-  /// `mobdev2` matches an advertised device against locally stored pair
-  /// records, defaulting to `~/.pymobiledevice3`. usbmuxd writes its records
-  /// somewhere else entirely (`/var/lib/lockdown` on Linux, `/var/db/lockdown`
-  /// on macOS), so a phone paired through usbmuxd is invisible to the default
-  /// browse. Retry with each system directory via `--pair-records`.
-  static Future<List<Device>> _bonjourDevices() async {
-    for (final records in <String?>[null, ...pairRecordDirectories()]) {
-      try {
-        final result = await Pymd.run([
-          'bonjour',
-          'mobdev2',
-          '--timeout',
-          '$_bonjourTimeout',
-          if (records != null) ...['--pair-records', records],
-        ]);
-        final devices = parseBonjourDevices(result.stdout);
-        if (devices.isNotEmpty) return devices;
-      } on Object catch (e) {
-        Log.logTrace('bonjour mobdev2 browse failed ($records): $e');
-      }
-    }
-    return const [];
-  }
-
-  /// Readable directories holding usbmuxd pair records, most specific first.
-  ///
-  /// Only existing, readable paths are returned: pymobiledevice3 rejects a
-  /// missing `--pair-records` path outright, and `/var/lib/lockdown` is
-  /// root-only on most distros, where the browse has to run under sudo.
-  @visibleForTesting
-  static List<String> pairRecordDirectories() {
-    const candidates = <String>[
-      '/var/lib/lockdown',
-      '/var/db/lockdown',
-      '/var/root/.pymobiledevice3',
-    ];
-    return [
-      for (final path in candidates)
-        if (_isReadableDirectory(path)) path,
-    ];
-  }
-
-  static bool _isReadableDirectory(String path) {
-    final dir = Directory(path);
-    if (!dir.existsSync()) return false;
-    try {
-      dir.listSync(followLinks: false);
-      return true;
-    } on FileSystemException {
-      return false;
-    }
-  }
-
-  /// True when some iOS device advertises `_remotepairing._tcp` on this
-  /// network: it is reachable and wireless-enabled, but this host has no
-  /// usable pair record for it (otherwise `mobdev2` would have resolved it).
-  ///
-  /// Only used to make the "no devices" message actionable; never throws.
-  static Future<bool> wirelessPairingAdvertised() async {
-    for (final service in const [
-      'remotepairing',
-      'remotepairing-manual-pairing',
-    ]) {
-      try {
-        final result = await Pymd.run([
-          'bonjour',
-          service,
-          '--timeout',
-          '$_bonjourTimeout',
-        ]);
-        final json = jsonDecode(
-          result.stdout.trim().isEmpty ? '[]' : result.stdout,
-        );
-        if (json is List && json.isNotEmpty) return true;
-      } on Object catch (e) {
-        Log.logTrace('bonjour $service browse failed: $e');
-      }
-    }
-    return false;
-  }
-
-  /// Parse the JSON array printed by `pymobiledevice3 bonjour mobdev2`. Each
-  /// entry is a lockdown "short info" map plus the discovered `ip`:
-  /// ```json
-  /// [{"Identifier": "00008030-…", "DeviceName": "iPhone", "ip": "10.0.0.4"}]
-  /// ```
-  /// Everything found this way is, by definition, a network device.
-  @visibleForTesting
-  static List<Device> parseBonjourDevices(String output) {
-    if (output.trim().isEmpty) return const [];
-    final Object? json;
-    try {
-      json = jsonDecode(output);
-    } on FormatException {
-      return const [];
-    }
-    if (json is! List) return const [];
-    final devices = <Device>[];
-    for (final entry in json) {
-      if (entry is! Map) continue;
-      final udid =
-          (entry['UniqueDeviceID'] ?? entry['Identifier']) as String? ?? '';
-      if (udid.isEmpty) continue;
-      devices.add(
+  /// Best-effort: when tunneld is not running this is simply an empty list.
+  static Future<List<Device>> _tunneldDevices({
+    required List<Device> known,
+  }) async {
+    final tunnels = await TunnelDiscovery.activeTunnels();
+    if (tunnels.isEmpty) return const [];
+    final knownUdids = known.map((d) => normalizeUdid(d.udid)).toSet();
+    final result = <Device>[];
+    for (final udid in tunnels.keys) {
+      if (knownUdids.contains(normalizeUdid(udid))) continue;
+      result.add(
         Device(
-          name: (entry['DeviceName'] as String?) ?? udid,
+          name: await _tunneledDeviceName(udid) ?? udid,
           udid: udid,
           type: ConnectionType.wifi,
+          source: DeviceSource.tunneld,
         ),
       );
     }
-    return devices;
+    return result;
   }
+
+  /// `DeviceName` of a tunneled device via `lockdown info --tunnel`.
+  static Future<String?> _tunneledDeviceName(String udid) async {
+    if (_tunnelNameCache.containsKey(udid)) return _tunnelNameCache[udid];
+    String? name;
+    try {
+      final result = await Pymd.run(['lockdown', 'info', '--tunnel', udid]);
+      if (jsonDecode(result.stdout) case {'DeviceName': final String n}) {
+        name = n;
+      }
+    } on Object catch (e) {
+      Log.logTrace('lockdown info --tunnel $udid failed: $e');
+    }
+    return _tunnelNameCache[udid] = name;
+  }
+
+  /// Linux usbmuxd sometimes reports UDIDs without the `-` separator, while
+  /// tunneld and lockdown keep it. Compare without it.
+  @visibleForTesting
+  static String normalizeUdid(String udid) => udid.replaceAll('-', '');
 
   /// Parse the JSON array printed by `pymobiledevice3 usbmux list` (without
   /// `--simple`). Each entry looks like:
@@ -230,16 +159,100 @@ abstract final class PymdDevices {
     }).toList();
   }
 
-  /// `pymobiledevice3 apps install <path> [--udid <udid>]`.
+  /// `pymobiledevice3 bonjour mobdev2` — devices advertising
+  /// `_apple-mobdev2._tcp` on the local network. Diagnostics only: visibility
+  /// here proves the network path works, not that the device is usable (that
+  /// needs a pairing and an RSD tunnel). Best-effort: a failed browse is
+  /// "found nothing".
+  static Future<List<Device>> bonjourDevices() async {
+    try {
+      final result = await Pymd.run([
+        'bonjour',
+        'mobdev2',
+        '--timeout',
+        '$_bonjourTimeout',
+      ]);
+      return parseBonjourDevices(result.stdout);
+    } on Object catch (e) {
+      Log.logTrace('bonjour mobdev2 browse failed: $e');
+      return const [];
+    }
+  }
+
+  /// Parse the JSON array printed by `pymobiledevice3 bonjour mobdev2`. Each
+  /// entry is a lockdown "short info" map plus the discovered `ip`:
+  /// ```json
+  /// [{"Identifier": "00008030-…", "DeviceName": "iPhone", "ip": "10.0.0.4"}]
+  /// ```
+  /// Everything found this way is, by definition, a network device.
+  @visibleForTesting
+  static List<Device> parseBonjourDevices(String output) {
+    if (output.trim().isEmpty) return const [];
+    final Object? json;
+    try {
+      json = jsonDecode(output);
+    } on FormatException {
+      return const [];
+    }
+    if (json is! List) return const [];
+    final devices = <Device>[];
+    for (final entry in json) {
+      if (entry is! Map) continue;
+      final udid =
+          (entry['UniqueDeviceID'] ?? entry['Identifier']) as String? ?? '';
+      if (udid.isEmpty) continue;
+      devices.add(
+        Device(
+          name: (entry['DeviceName'] as String?) ?? udid,
+          udid: udid,
+          type: ConnectionType.wifi,
+        ),
+      );
+    }
+    return devices;
+  }
+
+  /// True when some iOS device advertises `_remotepairing._tcp` on this
+  /// network: it is reachable and wireless-debugging capable, whether or not
+  /// this host is paired with it. Diagnostics only; never throws.
+  static Future<bool> wirelessPairingAdvertised() async {
+    try {
+      final result = await Pymd.run([
+        'bonjour',
+        'remotepairing',
+        '--timeout',
+        '$_bonjourTimeout',
+      ]);
+      final json = jsonDecode(
+        result.stdout.trim().isEmpty ? '[]' : result.stdout,
+      );
+      return json is List && json.isNotEmpty;
+    } on Object catch (e) {
+      Log.logTrace('bonjour remotepairing browse failed: $e');
+      return false;
+    }
+  }
+
+  /// `pymobiledevice3 apps install <path> [--udid <udid>|--tunnel <udid>]`.
+  ///
+  /// [overTunnel] routes the install through tunneld's RSD tunnel instead of
+  /// usbmuxd — the only path that works for a wireless device on
+  /// Linux/Windows.
   ///
   /// Shows a spinner whose grey tail streams pymobiledevice3's own progress
   /// and surfaces failures as [TunnelError]. Does not forward stdin — install
   /// is non-interactive, and a cooked-mode sharedStdin listen here leaves the
   /// later hot-reload `r`/`R`/`q` loop deaf on Windows.
-  static Future<void> install(String appOrIpaPath, {String? udid}) async {
+  static Future<void> install(
+    String appOrIpaPath, {
+    String? udid,
+    bool overTunnel = false,
+  }) async {
     final inv = await Pymd.resolve();
     final args = <String>['apps', 'install', appOrIpaPath];
-    if (udid != null) args.addAll(['--udid', udid]);
+    if (udid != null) {
+      args.addAll(overTunnel ? ['--tunnel', udid] : ['--udid', udid]);
+    }
 
     final step = Log.beginStep('Installing to device');
     try {

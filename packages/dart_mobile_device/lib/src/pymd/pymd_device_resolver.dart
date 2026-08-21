@@ -3,9 +3,19 @@ import 'dart:io';
 import 'package:dart_mobile_device/src/errors.dart';
 import 'package:dart_mobile_device/src/models/device.dart';
 import 'package:dart_mobile_device/src/pymd/pymd_devices.dart';
+import 'package:dart_mobile_device/src/tunnel/tunnel_daemon.dart';
+
+import 'package:cli_kit/cli_kit.dart';
 
 /// Resolves a target [Device] via pymobiledevice3-backed listing.
 class PymdDeviceResolver {
+  /// How long the wireless bring-up waits for tunneld to find the device and
+  /// build its RSD tunnel. tunneld's Wi-Fi monitor rescans every 5 s and the
+  /// RemotePairing handshake takes a few more, so this needs to be generous.
+  static const Duration wirelessDiscoveryTimeout = Duration(seconds: 45);
+
+  static const Duration _pollInterval = Duration(seconds: 2);
+
   /// Resolve a single target device.
   ///
   /// If [selector] is given it must match a connected device by UDID or name
@@ -14,87 +24,140 @@ class PymdDeviceResolver {
   /// TTY, an interactive numbered picker is shown; on non-TTY (CI, piped)
   /// stdin, an error listing the candidates is thrown so the caller can pass
   /// `--udid`/`-d` to disambiguate.
+  ///
+  /// When the search allows wireless devices and nothing (matching) is found,
+  /// the resolver actively brings wireless discovery up: it starts tunneld
+  /// (the component that finds `_remotepairing._tcp` devices over mDNS and
+  /// builds their RSD tunnels — the only Wi-Fi path on Linux/Windows) and
+  /// polls until the device appears or [wirelessDiscoveryTimeout] passes.
   Future<Device> resolveDevice({
     String? selector,
     DeviceSearchMode mode = DeviceSearchMode.all,
   }) async {
-    final list = await PymdDevices.devices(mode: mode);
+    var list = await PymdDevices.devices(mode: mode);
+    // Active bring-up only when the user explicitly asked for Wi-Fi: in
+    // `all` mode an empty list usually means "forgot to plug the phone in",
+    // and starting a root daemon plus a 45 s scan there would be hostile.
+    if (mode == DeviceSearchMode.wifi && _matches(list, selector).isEmpty) {
+      list = await _bringUpWireless(mode: mode, selector: selector);
+    }
+
     if (selector != null) {
-      final match = list.where((d) => d.udid == selector || d.name == selector);
+      final match = _matches(list, selector);
       if (match.isEmpty) {
+        if (list.isEmpty && mode == DeviceSearchMode.wifi) {
+          throw TunnelError(await _noWirelessDeviceMessage());
+        }
         throw TunnelError('No connected device matching "$selector".');
       }
       return match.first;
     }
     if (list.isEmpty) {
-      if (mode == DeviceSearchMode.usb) {
-        throw TunnelError(
+      throw TunnelError(switch (mode) {
+        DeviceSearchMode.wifi => await _noWirelessDeviceMessage(),
+        DeviceSearchMode.usb =>
           'No devices connected. Connect an iPhone (and tap Trust), '
-          'then retry.',
-        );
-      }
-      throw TunnelError(await _noWirelessDeviceMessage());
+              'then retry.',
+        DeviceSearchMode.all =>
+          'No devices connected. Connect an iPhone over USB (and tap '
+              'Trust), or use --wifi for a wireless device, then retry.',
+      });
     }
     if (list.length == 1) return list.first;
     return _pickDeviceInteractively(list);
   }
 
-  /// Explain an empty wireless search.
+  /// Devices matching [selector] (UDID with or without dashes, or name).
+  /// With a null selector: the whole list.
+  List<Device> _matches(List<Device> list, String? selector) {
+    if (selector == null) return list;
+    final normalized = PymdDevices.normalizeUdid(selector);
+    return [
+      for (final device in list)
+        if (PymdDevices.normalizeUdid(device.udid) == normalized ||
+            device.name == selector)
+          device,
+    ];
+  }
+
+  /// Start tunneld and poll discovery until a (matching) wireless device
+  /// appears or the timeout passes. Returns the last device list either way.
   ///
-  /// No Xcode or Finder is assumed: everything here is doable from a Linux
-  /// host with pymobiledevice3 alone. When the phone is visibly advertising
-  /// `_remotepairing._tcp` the problem is a missing pair record, not the
-  /// network, so say exactly that instead of a generic checklist.
+  /// tunneld needs root for its TUN interface; without it this quietly
+  /// returns, and the final error message explains the manual route.
+  Future<List<Device>> _bringUpWireless({
+    required DeviceSearchMode mode,
+    required String? selector,
+  }) async {
+    try {
+      await TunnelDaemon().ensureRunning();
+    } on TunnelError catch (e) {
+      Log.logTrace('wireless bring-up: tunneld unavailable: $e');
+      return PymdDevices.devices(mode: mode);
+    }
+
+    final step = Log.beginStep('Searching for wireless devices');
+    var list = <Device>[];
+    try {
+      final deadline = DateTime.now().add(wirelessDiscoveryTimeout);
+      while (DateTime.now().isBefore(deadline)) {
+        list = await PymdDevices.devices(mode: mode);
+        if (_matches(list, selector).isNotEmpty) {
+          step.done();
+          return list;
+        }
+        await Future<void>.delayed(_pollInterval);
+      }
+      step.fail();
+      return list;
+    } on Object {
+      step.fail();
+      rethrow;
+    }
+  }
+
+  /// Explain an empty wireless search, assuming no Xcode or Finder: every
+  /// step here works on a bare Linux/Windows host with pymobiledevice3.
+  ///
+  /// When the phone is visibly advertising `_remotepairing._tcp` the problem
+  /// is pairing, not the network, so say exactly that.
   static Future<String> _noWirelessDeviceMessage() async {
     final advertised = await PymdDevices.wirelessPairingAdvertised();
-    final buffer = StringBuffer(
-      'No devices connected over USB or found over Wi-Fi.\n',
-    );
+    final buffer = StringBuffer('No wireless device found.\n');
     if (advertised) {
-      buffer
-        ..writeln(
-          'An iPhone is advertising itself on this network, but this host '
-          'has no pair record for it.',
-        )
-        ..writeln('Plug it in once over USB and pair:')
-        ..writeln()
-        ..writeln('    pymobiledevice3 lockdown pair')
-        ..writeln('    pymobiledevice3 lockdown wifi-connections --state on')
-        ..writeln()
-        ..write(
-          'Then unplug and retry — the pair record under '
-          '~/.pymobiledevice3 is what makes wireless discovery work.',
-        );
-      return buffer.toString();
+      buffer.writeln(
+        'An iPhone on this network is advertising wireless debugging, but '
+        'this host is not paired with it.',
+      );
     }
     buffer
-      ..writeln('For a wireless device, check that:')
+      ..writeln('Wireless debugging needs a one-time pairing:')
+      ..writeln()
+      ..writeln('  1. On the iPhone, enable Developer Mode')
+      ..writeln('     (Settings > Privacy & Security > Developer Mode).')
       ..writeln(
-        '  - the iPhone was paired with this host over USB at least once '
-        '(pymobiledevice3 lockdown pair) and wireless connections are on '
-        '(pymobiledevice3 lockdown wifi-connections --state on);',
+        '  2. Pair this host over Wi-Fi (a Trust dialog appears on '
+        'the phone):',
       )
-      ..writeln('  - the phone is unlocked and on the same subnet;')
-      ..writeln(
-        '  - mDNS (UDP 5353) is allowed and reaches the phone — on a '
-        'bridged VM or WSL, use a bridged/host network, since mDNS does '
-        'not cross NAT;',
-      )
-      ..writeln(
-        '  - `pymobiledevice3 bonjour mobdev2` finds it; if that is empty '
-        'too, the host cannot see the device at all.',
-      )
-      ..writeln(
-        'On Linux, usbmuxd keeps pair records in /var/lib/lockdown (root-'
-        'only, and absent until the device has been paired), so try the '
-        'same command under sudo.',
-      )
-      ..write(
-        'Wireless browsing also needs the optional `ifaddr` Python package '
-        'in the pymobiledevice3 environment; without it every discovered '
-        'address is dropped and the browse is always empty.',
-      );
-    return buffer.toString();
+      ..writeln()
+      ..writeln('         pymobiledevice3 remote pair')
+      ..writeln()
+      ..writeln('     Or plug the phone in over USB once and run:')
+      ..writeln()
+      ..writeln('         pymobiledevice3 lockdown pair')
+      ..writeln()
+      ..writeln('  3. Retry with the phone unlocked, on the same network.');
+    if (!advertised) {
+      buffer
+        ..writeln()
+        ..write(
+          'No device is advertising wireless debugging right now: also check '
+          'that the phone is unlocked, on the same subnet, and that mDNS '
+          '(UDP 5353) is not blocked — it does not cross NAT, so bridged '
+          'networking is required in a VM or WSL.',
+        );
+    }
+    return buffer.toString().trimRight();
   }
 
   /// Prompt the user to pick a device from [list].

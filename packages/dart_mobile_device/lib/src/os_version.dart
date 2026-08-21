@@ -7,12 +7,27 @@ import 'package:dart_mobile_device/src/pymd/pymd.dart';
 abstract final class OsVersion {
   /// Major OS version for [udid], via `lockdown info` then `ideviceinfo`.
   /// Returns null if neither tool can provide [ProductVersion].
-  static Future<int?> deviceOSMajorVersion(String udid) async =>
-      await _majorFromPymdLockdown(udid) ?? await _majorFromIdeviceinfo(udid);
+  ///
+  /// [overTunnel] reads through tunneld's RSD tunnel (`--tunnel`) instead of
+  /// usbmuxd (`--udid`) — required for wireless devices on Linux/Windows,
+  /// where usbmuxd cannot reach them at all.
+  static Future<int?> deviceOSMajorVersion(
+    String udid, {
+    bool overTunnel = false,
+  }) async =>
+      await _majorFromPymdLockdown(udid, overTunnel: overTunnel) ??
+      (overTunnel ? null : await _majorFromIdeviceinfo(udid));
 
-  static Future<int?> _majorFromPymdLockdown(String udid) async {
+  static Future<int?> _majorFromPymdLockdown(
+    String udid, {
+    required bool overTunnel,
+  }) async {
     try {
-      final result = await Pymd.run(['lockdown', 'info', '--udid', udid]);
+      final result = await Pymd.run([
+        'lockdown',
+        'info',
+        if (overTunnel) ...['--tunnel', udid] else ...['--udid', udid],
+      ]);
       final stdout = result.stdout.trim();
       if (stdout.isEmpty) {
         Log.logWarn(

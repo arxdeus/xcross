@@ -110,6 +110,56 @@ abstract final class TunnelDiscovery {
     }
   }
 
+  /// All active tunnels tunneld currently has, keyed by UDID.
+  ///
+  /// Empty (never throws) when tunneld is down: callers use this to merge
+  /// tunneled devices into discovery, where an unreachable tunneld simply
+  /// means "no wireless devices yet".
+  static Future<Map<String, Tunnel>> activeTunnels() async {
+    final Map<String, dynamic> data;
+    try {
+      data = await _fetch(TunnelConstants.tunneldUrl);
+    } on Object catch (e) {
+      Log.logTrace('tunneld list request failed: $e');
+      return const {};
+    }
+    final result = <String, Tunnel>{};
+    for (final MapEntry(:key, :value) in data.entries) {
+      if (value case [final Map<Object?, Object?> first, ...]) {
+        final tunnel = _tunnelFromJson(first);
+        if (tunnel != null) result[key] = tunnel;
+      }
+    }
+    return result;
+  }
+
+  /// Ask tunneld to create a tunnel for [udid] over [connectionType]
+  /// (`usbmux`, `usb`, or `wifi`; null lets tunneld try everything).
+  ///
+  /// Wraps `GET /start-tunnel`, which blocks while tunneld pairs with the
+  /// device over RemotePairing and builds the tunnel. Returns null when
+  /// tunneld is unreachable or refused.
+  static Future<Tunnel?> requestTunnel({
+    required String udid,
+    String? connectionType,
+    Duration timeout = const Duration(seconds: 60),
+  }) async {
+    final uri = Uri.parse(TunnelConstants.tunneldUrl).replace(
+      path: '/start-tunnel',
+      queryParameters: <String, String>{
+        'udid': udid,
+        if (connectionType != null) 'connection_type': connectionType,
+      },
+    );
+    try {
+      final data = await _fetch(uri.toString(), requestTimeout: timeout);
+      return _tunnelFromJson(data);
+    } on Object catch (e) {
+      Log.logTrace('tunneld /start-tunnel ($connectionType) failed: $e');
+      return null;
+    }
+  }
+
   /// `GET /start-tunnel?udid=` — a `{address,port}` tunnel, or the reason
   /// tunneld refused to create one (typically 404/501).
   ///
@@ -146,12 +196,15 @@ abstract final class TunnelDiscovery {
         'tunneld said: $detail',
       );
 
-  static Future<Map<String, dynamic>> _fetch(String url) async {
+  static Future<Map<String, dynamic>> _fetch(
+    String url, {
+    Duration requestTimeout = const Duration(seconds: 60),
+  }) async {
     final client = LocalHttp.client(
       connectionTimeout: const Duration(seconds: 5),
     );
     // /start-tunnel can block while creating the TUN — allow longer.
-    client.idleTimeout = const Duration(seconds: 60);
+    client.idleTimeout = requestTimeout;
     try {
       final request = await client.getUrl(Uri.parse(url));
       final response = await request.close();

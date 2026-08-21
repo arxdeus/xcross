@@ -150,10 +150,9 @@ final class FakeDeviceBackend implements DeviceBackend {
   @override
   Future<void> install(
     String appOrIpaPath, {
-    required String udid,
-    required DeviceSearchMode mode,
+    required Device device,
     required String bundleId,
   }) async {
-    events.add('install:$appOrIpaPath:$udid:$bundleId');
+    events.add('install:$appOrIpaPath:${device.udid}:$bundleId');
   }
 }

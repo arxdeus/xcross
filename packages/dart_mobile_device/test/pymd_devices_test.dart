@@ -95,6 +95,15 @@ void main() {
     );
   });
 
+  group('PymdDevices.normalizeUdid', () {
+    test('strips dashes so usbmuxd and tunneld spellings compare equal', () {
+      expect(
+        PymdDevices.normalizeUdid('00008030-000664292232802E'),
+        PymdDevices.normalizeUdid('00008030000664292232802E'),
+      );
+    });
+  });
+
   group('PymdDevices.parseBonjourDevices', () {
     test('parses mobdev2 entries as wifi devices', () {
       const sample = '''

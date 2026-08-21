@@ -18,8 +18,7 @@ abstract interface class DeviceBackend {
 
   Future<void> install(
     String appOrIpaPath, {
-    required String udid,
-    required DeviceSearchMode mode,
+    required Device device,
     required String bundleId,
   });
 
@@ -55,10 +54,10 @@ final class NativeBackend implements DeviceBackend {
   @override
   Future<void> install(
     String appOrIpaPath, {
-    required String udid,
-    required DeviceSearchMode mode,
+    required Device device,
     required String bundleId,
   }) async {
+    final udid = device.udid;
     if (!appOrIpaPath.endsWith('.app') ||
         !Directory(appOrIpaPath).existsSync()) {
       throw XcrossError(
@@ -105,12 +104,10 @@ final class NativeBackend implements DeviceBackend {
       );
       // The app and its extensions must share the same App Groups, or the
       // extension has no way to hand data back to the app.
-      final declaredGroups =
-          {
-            ...AppExtensionEntitlements.appGroupsOf(appOrIpaPath),
-            for (final extension in extensions) ...extension.appGroups,
-          }.toList()
-            ..sort();
+      final declaredGroups = {
+        ...AppExtensionEntitlements.appGroupsOf(appOrIpaPath),
+        for (final extension in extensions) ...extension.appGroups,
+      }.toList()..sort();
       // App Group ids are globally unique across all developers, so a
       // project's literal `group.com.example.Shared` is usually already
       // registered to somebody else and xcross qualifies it per account.
@@ -187,7 +184,11 @@ final class NativeBackend implements DeviceBackend {
           extensionAssets: extensionAssets,
         ).signApp(appOrIpaPath),
       );
-      await PymdDevices.install(appOrIpaPath, udid: udid);
+      await PymdDevices.install(
+        appOrIpaPath,
+        udid: udid,
+        overTunnel: device.source == DeviceSource.tunneld,
+      );
     } finally {
       signing.client.close();
       signing.anisette?.close();
