@@ -84,9 +84,15 @@ class PymdDeviceResolver {
         '  - `pymobiledevice3 bonjour mobdev2` finds it; if that is empty '
         'too, the host cannot see the device at all.',
       )
+      ..writeln(
+        'On Linux, usbmuxd keeps pair records in /var/lib/lockdown (root-'
+        'only, and absent until the device has been paired), so try the '
+        'same command under sudo.',
+      )
       ..write(
-        'On Linux, usbmuxd keeps pair records in /var/lib/lockdown, which '
-        'is root-only, so try the same command under sudo.',
+        'Wireless browsing also needs the optional `ifaddr` Python package '
+        'in the pymobiledevice3 environment; without it every discovered '
+        'address is dropped and the browse is always empty.',
       );
     return buffer.toString();
   }
