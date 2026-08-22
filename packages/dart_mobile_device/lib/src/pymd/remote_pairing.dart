@@ -152,7 +152,10 @@ abstract final class RemotePairing {
           '--timeout',
           '${timeout.inSeconds}',
         ],
-        environment: Pymd.usbmuxEnvironment(),
+        // PYTHONUNBUFFERED: with piped stdio python block-buffers stdout, so
+        // the 6-digit code would sit invisible in a 4 KB buffer until exit —
+        // the one line the whole flow exists to show.
+        environment: {...Pymd.usbmuxEnvironment(), 'PYTHONUNBUFFERED': '1'},
         mode: onLine == null
             ? ProcessStartMode.inheritStdio
             : ProcessStartMode.normal,
