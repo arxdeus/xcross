@@ -5,6 +5,7 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/device/internal/embedded_extension.dart';
+import 'package:xcross/src/device/internal/signed_bundle_identity.dart';
 import 'package:xcross/src/device/internal/signing_session.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/flutter/flutter.dart';
@@ -74,17 +75,20 @@ final class NativeBackend implements DeviceBackend {
     final signing = await _resolveSigningSession();
     // xtool-style: qualify with XCR-<identity> so two accounts can share a
     // project bundle id without racing on a globally unique App ID.
-    final signedBundleId = ProvisioningIdentifiers.qualify(
-      bundleId,
-      signing.identityId,
+    final bundleIdentity = SignedBundleIdentity.qualify(
+      requested: bundleId,
+      signingIdentityId: signing.identityId,
     );
     final profilesDir = p.join(p.dirname(signing.identityDir), 'profiles');
-    final outputDir = p.join(profilesDir, signedBundleId);
+    final outputDir = p.join(profilesDir, bundleIdentity.exact);
 
     try {
-      await _rewriteBundleIdentifier(appOrIpaPath, signedBundleId);
-      if (signedBundleId != bundleId) {
-        Log.logInfo('App ID', '$bundleId ${Log.dim('→')} $signedBundleId');
+      await _rewriteBundleIdentifier(appOrIpaPath, bundleIdentity.exact);
+      if (bundleIdentity.exact != bundleIdentity.requested) {
+        Log.logInfo(
+          'App ID',
+          '${bundleIdentity.requested} ${Log.dim('→')} ${bundleIdentity.exact}',
+        );
         // Custom URL schemes are conventionally derived from the bundle id
         // (`ShareMedia-<bundle id>`), and an extension builds the URL it
         // opens from its *own* qualified host id at runtime. Leaving the
@@ -93,16 +97,16 @@ final class NativeBackend implements DeviceBackend {
         // silently does nothing.
         await _rewriteUrlSchemes(
           appOrIpaPath,
-          from: bundleId,
-          to: signedBundleId,
+          from: bundleIdentity.requested,
+          to: bundleIdentity.exact,
         );
       }
       // Embedded extensions must be renamed under the qualified app id and
       // provisioned in their own right before the app can be signed.
       final extensions = await _rewriteExtensionIdentifiers(
         appOrIpaPath,
-        hostBundleId: bundleId,
-        signedHostBundleId: signedBundleId,
+        hostBundleId: bundleIdentity.requested,
+        signedHostBundleId: bundleIdentity.exact,
       );
       // The app and its extensions must share the same App Groups, or the
       // extension has no way to hand data back to the app.
@@ -130,7 +134,7 @@ final class NativeBackend implements DeviceBackend {
       };
       final identity = await AscProvisioning.provisionDevelopmentIdentity(
         client: signing.client,
-        bundleId: signedBundleId,
+        bundleId: bundleIdentity.exact,
         deviceUdids: [udid],
         outputDir: outputDir,
         identityDir: signing.identityDir,
@@ -186,12 +190,20 @@ final class NativeBackend implements DeviceBackend {
           extensionAssets: extensionAssets,
         ).signApp(appOrIpaPath),
       );
+      final signedInfoPlist = File(p.join(appOrIpaPath, 'Info.plist'));
+      bundleIdentity.verifyArtifact(
+        signedInfoPlist.existsSync()
+            ? InfoPlist.readBundleIdentifier(
+                await signedInfoPlist.readAsString(),
+              )
+            : null,
+      );
       await PymdDevices.install(
         appOrIpaPath,
         udid: udid,
         overTunnel: device.source == DeviceSource.tunneld,
       );
-      return signedBundleId;
+      return bundleIdentity.exact;
     } finally {
       signing.client.close();
       signing.anisette?.close();
