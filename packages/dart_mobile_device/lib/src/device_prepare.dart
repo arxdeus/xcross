@@ -64,18 +64,9 @@ abstract final class DevicePrepare {
         'pymobiledevice3 is required but could not be installed automatically.',
       );
     }
-    // Root first (tunneld's TUN interface): the sudo prompt must not fight
-    // the pairing advertisement's output for the terminal.
-    await HostPrivileges.ensureDeviceToolAccess(
-      posixManualHint:
-          'Start tunneld manually:\n'
-          '    ${Pymd.elevatedCommand('remote tunneld -p tcp')}',
-      windowsDeniedMessage:
-          'xcross needs Administrator rights to create the Windows RSD '
-          'tunnel.\n'
-          'Open PowerShell with "Run as administrator", then run:\n'
-          '    xcross tunnel --wifi',
-    );
+    // [TunnelDaemon.ensureRunning] requests elevation only when it actually
+    // needs to start or replace the daemon. Reusing an already-reachable
+    // tunneld must not prompt for sudo again.
     await TunnelDaemon().ensureRunning();
 
     var tunnel = await TunnelDiscovery.findExistingTunnel();
