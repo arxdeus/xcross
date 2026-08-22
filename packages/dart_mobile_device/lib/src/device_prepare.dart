@@ -6,6 +6,7 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/errors.dart';
 import 'package:dart_mobile_device/src/models/tunnel.dart';
 import 'package:dart_mobile_device/src/pymd/pymd.dart';
+import 'package:dart_mobile_device/src/pymd/pymd_devices.dart';
 import 'package:dart_mobile_device/src/pymd/remote_pairing.dart';
 import 'package:dart_mobile_device/src/tunnel/tunnel_daemon.dart';
 import 'package:dart_mobile_device/src/tunnel/tunnel_discovery.dart';
@@ -100,9 +101,14 @@ abstract final class DevicePrepare {
     if (tunnel == null) {
       throw TunnelError(
         'No wireless device connected.\n'
-        'On the iPhone: unlock it, keep it on this Wi-Fi network, enable '
-        'Developer Mode, and pair via Settings > Developer > Paired Macs '
-        'while this command runs. USB setup instead: xcross tunnel',
+        'If the iPhone already lists this host (Settings > Developer > '
+        'Paired Macs): just unlock the phone and keep the screen on — a '
+        'locked iPhone drops off the network, and no code is shown for an '
+        'existing pairing; the tunnel connects by itself.\n'
+        'To pair fresh instead: delete the entry on the phone first, rerun '
+        'this command, and tap "${RemotePairing.advertiseName}" under '
+        '"Other Devices" — the 6-digit code then appears here.\n'
+        'USB setup instead: xcross tunnel',
       );
     }
     await _autoMountOverRsd(tunnel);
@@ -116,14 +122,41 @@ abstract final class DevicePrepare {
   /// Forward the advertisement's output: the lines the user must act on
   /// (the 6-digit code, the pairing result) interrupt whatever step is on
   /// screen; the boilerplate and 15 s heartbeat go to `--verbose` trace.
+  ///
+  /// One line gets special handling: upstream's "Pairing attempt from …
+  /// failed" WARNING is the signature of a phone resuming an *old* pairing
+  /// against this advertisement (which holds fresh keys every run) — the
+  /// user must delete the entry on the phone, and without this hint the tap
+  /// looks like it simply did nothing.
   static void _onPairHostLine(String line) {
-    const visible = ['Enter this code', 'Paired with device', 'Pairing record'];
+    if (line.contains('Pairing attempt from')) {
+      Log.logTrace('[pair-host] $line');
+      if (!_warnedPairResumeFailure) {
+        _warnedPairResumeFailure = true;
+        Log.logWarn(
+          'the iPhone tried to resume an old pairing with this host and '
+          'failed. On the phone, delete "${RemotePairing.advertiseName}" '
+          'under Settings > Developer > Paired Macs, then tap it under '
+          '"Other Devices" to pair fresh (the 6-digit code appears here).',
+        );
+      }
+      return;
+    }
+    const visible = [
+      'Enter this code',
+      'Paired with device',
+      'Pairing record',
+      // The phone reached us: acknowledge the tap immediately.
+      'Device connected',
+    ];
     if (visible.any(line.contains)) {
       Log.logStatus(line);
     } else {
       Log.logTrace('[pair-host] $line');
     }
   }
+
+  static bool _warnedPairResumeFailure = false;
 
   /// The same steps as [prepare], without the closing banner.
   ///
@@ -165,6 +198,10 @@ abstract final class DevicePrepare {
     if (pairHost == null && !hasRecord) return null;
 
     final step = Log.beginStep('Waiting for a wireless device');
+    final diagnostics = _WirelessWaitDiagnostics(
+      step: step,
+      hasRecord: hasRecord,
+    );
     try {
       if (pairHost != null) {
         // Phase 1: while the advertisement runs. Ends on pairing completion
@@ -185,6 +222,7 @@ abstract final class DevicePrepare {
             step.done();
             return tunnel;
           }
+          await diagnostics.tick();
           await Future<void>.delayed(_pollInterval);
         }
         if (exited && exitCode != 0 && !hasRecord) {
@@ -201,6 +239,7 @@ abstract final class DevicePrepare {
           step.done();
           return tunnel;
         }
+        await diagnostics.tick();
         await Future<void>.delayed(_pollInterval);
       }
       step.fail();
@@ -446,6 +485,50 @@ abstract final class DevicePrepare {
       return result.exitCode == 0 && result.stdout.trim().isNotEmpty;
     } on Object {
       return false;
+    }
+  }
+}
+
+/// Periodic "what is actually going on" reporting for the wireless wait.
+///
+/// The wait has three invisible states that all render as one spinner: the
+/// phone is not on this network at all, the phone is here but not connecting
+/// (locked, or its pairing was deleted), and the phone is mid-handshake. A
+/// browse for `_remotepairing._tcp` every ~20 s tells the first two apart,
+/// and the message updates once per state change — locked phones drop off
+/// mDNS entirely, which is by far the most common reason this wait hangs.
+final class _WirelessWaitDiagnostics {
+  _WirelessWaitDiagnostics({required this.step, required this.hasRecord});
+
+  static const _browseEvery = Duration(seconds: 20);
+
+  final Step step;
+  final bool hasRecord;
+  DateTime _nextBrowse = DateTime.now();
+  bool? _lastAdvertised;
+
+  Future<void> tick() async {
+    if (DateTime.now().isBefore(_nextBrowse)) return;
+    _nextBrowse = DateTime.now().add(_browseEvery);
+    final advertised = await PymdDevices.wirelessPairingAdvertised();
+    if (advertised == _lastAdvertised) return;
+    _lastAdvertised = advertised;
+    if (!advertised) {
+      step.log(
+        'no iPhone is visible on this network — unlock the phone and keep '
+        'its screen on (a locked iPhone leaves Wi-Fi), and check it is on '
+        'this network',
+      );
+    } else if (hasRecord) {
+      step.log(
+        'iPhone visible on the network — waiting for it to connect '
+        '(existing pairing: no code will be shown; give it ~30 s)',
+      );
+    } else {
+      step.log(
+        'iPhone visible on the network — pair it now: Settings > Developer '
+        '> Paired Macs > "Other Devices"',
+      );
     }
   }
 }
