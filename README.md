@@ -13,7 +13,7 @@
 
 No Mac. No Xcode. No WSL.
 
-[Watch the demo](https://youtu.be/L8xhsSMJ8fU) • [Install](#installation) • [Quick start](#quick-start) • [Commands](#command-reference) • [IDE](#ide-integration) • [FAQ](#faq) • [Under the hood](#under-the-hood)
+[Watch the demo](https://youtu.be/L8xhsSMJ8fU) • [Install](#installation) • [Quick start](#quick-start) • [Wi-Fi](#run-over-wi-fi) • [Commands](#command-reference) • [IDE](#ide-integration) • [FAQ](#faq) • [Under the hood](#under-the-hood)
 
 </div>
 
@@ -26,6 +26,7 @@ xcross reimplements the Flutter iOS build pipeline and the iOS 17+ CoreDevice la
 | **Native Windows & Linux** | Runs directly on the host with official Swift and LLVM toolchains - no VM, no WSL, no macOS anywhere |
 | **Hot reload & hot restart** | Full `r` / `R` workflow on a real iPhone over an iOS 17+ RSD tunnel |
 | **Native signing & install** | Apple ID (free account works) or App Store Connect API key; signing runs in-process |
+| **USB and Wi-Fi devices** | Pair wirelessly over a trusted USB connection, or directly from Paired Macs on iOS 27+ |
 | **SwiftPM plugins** | Swift Package Manager iOS plugins compile on both Windows and Linux |
 | **IDE debugging** | One command sets up VS Code (F5, breakpoints, DevTools) or JetBrains IDEs via DAP |
 | **Direct build pipeline** | `frontend_server` → `clang` → `ld64.lld` → `.app` / `.ipa` - no Xcode build system involved |
@@ -231,6 +232,39 @@ While the app is running:
 
 With multiple iPhones connected, an interactive terminal shows a numbered device picker; pass `-u <UDID>` for CI or piped runs.
 
+## Run over Wi-Fi
+
+Prepare the wireless pairing and RSD tunnel first:
+
+```sh
+xcross tunnel --wifi
+```
+
+The command automatically follows this order:
+
+1. **USB connected:** pairs RemotePairing through the iPhone's trusted lockdown connection, enables Wi-Fi connections, opens the RSD tunnel, and mounts the Developer Disk Image. Unplug USB when it reports that the device is ready.
+2. **No USB, saved pairing available:** tries to reconnect to the saved wireless device.
+3. **Saved device does not reconnect:** starts a fresh, suffixed `remote pair-host` advertisement so iOS does not reuse the stale entry.
+4. **No USB and no saved pairing:** starts `remote pair-host` immediately.
+
+Then run the app over Wi-Fi:
+
+```sh
+xcross flutter run --wifi
+```
+
+Device-initiated pairing without USB requires **iOS 27 or later**. When prompted, open **Settings > Developer > Paired Macs > Other Devices**, tap the exact `xcross-...` name printed in the terminal, and enter the six-digit code. On iOS 17 through 26, connect USB once and run `xcross tunnel --wifi` to create the wireless pairing through lockdown.
+
+Keep the iPhone unlocked and on the same local subnet during setup. Wireless discovery uses mDNS on UDP port 5353, so guest-network isolation, VPN routing, firewalls, NAT, and unbridged VM or WSL networking can block it. For diagnostics, put the verbose flag at the end:
+
+```sh
+xcross tunnel --wifi -v
+```
+
+Without an explicit transport flag, `xcross flutter run` prefers a locally attached USB device and falls back to Wi-Fi when no USB device is available. Use `--wifi` or `--usb` to force one transport.
+
+See the full [Wi-Fi setup and troubleshooting guide](https://xcross.sh/docs/wireless).
+
 ## Command reference
 
 | Command | Description |
@@ -239,7 +273,8 @@ With multiple iPhones connected, an interactive terminal shows a numbered device
 | `xcross sdk install <Xcode.xip>` | Extract a private Darwin Swift SDK from an Xcode archive, patched against the Swift toolchain currently on `PATH` |
 | `xcross auth` | Save Apple ID or App Store Connect credentials |
 | `xcross auth clear` | Delete saved credentials, sessions, and signing material |
-| `xcross tunnel` | Mount the Developer Disk Image + start the iOS 17+ RSD tunnel |
+| `xcross tunnel` | Mount the Developer Disk Image + start the iOS 17+ RSD tunnel over USB |
+| `xcross tunnel --wifi` | Prepare wireless pairing, reconnect or advertise pair-host, mount DDI, and open the Wi-Fi RSD tunnel |
 | `xcross flutter run` | Build → sign → install → launch → hot reload |
 | `xcross compose setup` | Install Kotlin/Compose iOS cross-build helpers |
 | `xcross compose build` | Build a KMP iOS framework or `.app` from the current Gradle project |
