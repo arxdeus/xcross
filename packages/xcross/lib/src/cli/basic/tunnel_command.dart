@@ -15,7 +15,7 @@ import 'package:dart_mobile_device/dart_mobile_device.dart';
 ///
 /// With `--wifi`, an attached phone is paired for RemotePairing through its
 /// USB lockdown connection. Without USB, saved devices are reconnected first;
-/// only a host with no saved devices advertises device-initiated pairing
+/// if that fails, device-initiated pairing is advertised with a fresh identity
 /// (iOS 27+, the 6-digit code prints here).
 final class TunnelCommand extends Command<void> {
   TunnelCommand() {

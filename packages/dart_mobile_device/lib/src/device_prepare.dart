@@ -61,8 +61,9 @@ abstract final class DevicePrepare {
   ///
   /// 1. USB phone: bootstrap RemotePairing through its trusted lockdown
   ///    connection and open the remote tunnel.
-  /// 2. No USB, saved RemotePairing records: reconnect to those devices.
-  /// 3. No USB and no saved device: advertise `remote pair-host` for iOS 27+.
+  /// 2. No USB, saved RemotePairing records: try those devices first, then
+  ///    advertise a fresh `remote pair-host` if none reconnects.
+  /// 3. No USB and no saved device: advertise `remote pair-host` immediately.
   ///
   /// Finally, mounts the DDI through the resulting RSD tunnel.
   static Future<void> prepareWireless() async {
@@ -74,11 +75,11 @@ abstract final class DevicePrepare {
 
     final usbDevice = await _firstUsbDevice();
     final savedPairings = RemotePairing.pairingRecordIds();
-    final bootstrapPath = selectWirelessBootstrapPath(
+    final bootstrapSequence = wirelessBootstrapSequence(
       hasUsbDevice: usbDevice != null,
       hasSavedPairings: savedPairings.isNotEmpty,
     );
-    if (bootstrapPath == WirelessBootstrapPath.usbLockdown) {
+    if (bootstrapSequence.first == WirelessBootstrapPath.usbLockdown) {
       await _prepareWirelessOverUsb(usbDevice!);
       return;
     }
@@ -89,7 +90,8 @@ abstract final class DevicePrepare {
     await TunnelDaemon().ensureRunning();
 
     var tunnel = await TunnelDiscovery.findExistingTunnel();
-    if (tunnel == null && bootstrapPath == WirelessBootstrapPath.savedPairing) {
+    if (tunnel == null &&
+        bootstrapSequence.contains(WirelessBootstrapPath.savedPairing)) {
       Log.logInfo(
         'Wireless',
         'no USB device — reconnecting to ${savedPairings.length} saved '
@@ -97,10 +99,20 @@ abstract final class DevicePrepare {
       );
       tunnel = await _awaitWirelessTunnel();
     }
-    if (tunnel == null && bootstrapPath == WirelessBootstrapPath.pairHost) {
-      final name = RemotePairing.advertiseName;
+    if (tunnel == null &&
+        bootstrapSequence.contains(WirelessBootstrapPath.pairHost)) {
+      final fresh = savedPairings.isNotEmpty;
+      final name = fresh
+          ? RemotePairing.freshAdvertiseName()
+          : RemotePairing.advertiseName;
+      if (fresh) {
+        Log.logWarn(
+          'saved wireless devices did not reconnect — starting fresh pairing',
+        );
+      }
       final pairHost = await RemotePairing.startPairHost(
         onLine: _onPairHostLine,
+        fresh: fresh,
         name: name,
       );
       if (pairHost != null) {
@@ -115,6 +127,14 @@ abstract final class DevicePrepare {
           'device-initiated pairing requires iOS 27+; on older iOS, connect '
               'the iPhone over USB once and rerun this command',
         );
+        if (fresh) {
+          Log.logInfo(
+            'Wireless',
+            'tap exactly "$name" under "Other Devices"; delete the older '
+                '"${RemotePairing.advertiseName}" entry because its saved '
+                'pairing no longer reconnects',
+          );
+        }
       }
       try {
         tunnel = await _awaitWirelessTunnel(pairHost: pairHost);
@@ -142,16 +162,21 @@ abstract final class DevicePrepare {
     Log.logInfo('Next', Log.dim('xcross flutter run --wifi'));
   }
 
-  /// USB always wins, then reusable records, with pair-host reserved for a
-  /// completely unpaired cable-free host.
+  /// USB always wins. Without it, saved records get the first attempt and a
+  /// failed reconnect falls through to a fresh pair-host advertisement.
   @visibleForTesting
-  static WirelessBootstrapPath selectWirelessBootstrapPath({
+  static List<WirelessBootstrapPath> wirelessBootstrapSequence({
     required bool hasUsbDevice,
     required bool hasSavedPairings,
   }) {
-    if (hasUsbDevice) return WirelessBootstrapPath.usbLockdown;
-    if (hasSavedPairings) return WirelessBootstrapPath.savedPairing;
-    return WirelessBootstrapPath.pairHost;
+    if (hasUsbDevice) return const [WirelessBootstrapPath.usbLockdown];
+    if (hasSavedPairings) {
+      return const [
+        WirelessBootstrapPath.savedPairing,
+        WirelessBootstrapPath.pairHost,
+      ];
+    }
+    return const [WirelessBootstrapPath.pairHost];
   }
 
   /// First USB-attached phone, or null when usbmuxd is unavailable/no cable is

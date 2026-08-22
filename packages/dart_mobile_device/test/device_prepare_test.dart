@@ -5,31 +5,31 @@ void main() {
   group('DevicePrepare wireless bootstrap', () {
     test('USB lockdown wins even when saved pairings exist', () {
       expect(
-        DevicePrepare.selectWirelessBootstrapPath(
+        DevicePrepare.wirelessBootstrapSequence(
           hasUsbDevice: true,
           hasSavedPairings: true,
         ),
-        WirelessBootstrapPath.usbLockdown,
+        [WirelessBootstrapPath.usbLockdown],
       );
     });
 
-    test('reuses saved pairing when there is no USB device', () {
+    test('tries saved pairing then falls back to pair-host without USB', () {
       expect(
-        DevicePrepare.selectWirelessBootstrapPath(
+        DevicePrepare.wirelessBootstrapSequence(
           hasUsbDevice: false,
           hasSavedPairings: true,
         ),
-        WirelessBootstrapPath.savedPairing,
+        [WirelessBootstrapPath.savedPairing, WirelessBootstrapPath.pairHost],
       );
     });
 
     test('pair-host is only used without USB or saved pairings', () {
       expect(
-        DevicePrepare.selectWirelessBootstrapPath(
+        DevicePrepare.wirelessBootstrapSequence(
           hasUsbDevice: false,
           hasSavedPairings: false,
         ),
-        WirelessBootstrapPath.pairHost,
+        [WirelessBootstrapPath.pairHost],
       );
     });
 
