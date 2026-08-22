@@ -20,6 +20,8 @@ final class TunnelCommand extends Command<void> {
   String get description =>
       'Mount the Developer Disk Image and start the iOS 17+ RSD tunnel '
       '(mounter auto-mount + lockdown start-tunnel + tunneld). '
+      'Also advertises this host for wireless pairing (iOS 27+) while it '
+      'runs, and finishes over Wi-Fi when no USB device is attached. '
       'Requires sudo on POSIX or an Administrator terminal on Windows.';
 
   @override

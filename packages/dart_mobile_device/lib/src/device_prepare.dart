@@ -4,7 +4,9 @@ import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/errors.dart';
+import 'package:dart_mobile_device/src/models/tunnel.dart';
 import 'package:dart_mobile_device/src/pymd/pymd.dart';
+import 'package:dart_mobile_device/src/pymd/remote_pairing.dart';
 import 'package:dart_mobile_device/src/tunnel/tunnel_daemon.dart';
 import 'package:dart_mobile_device/src/tunnel/tunnel_discovery.dart';
 import 'package:meta/meta.dart';
@@ -26,10 +28,37 @@ abstract final class DevicePrepare {
     caseSensitive: false,
   );
 
+  /// How long the wireless fallback waits for tunneld to build a tunnel once
+  /// a pairing record exists (tunneld rescans mDNS every 5 s, then the
+  /// RemotePairing handshake takes a few more).
+  static const _wirelessTunnelTimeout = Duration(seconds: 45);
+
+  static const _pollInterval = Duration(seconds: 2);
+
   /// Mount DDI, ensure tunneld, and start a lockdown RSD tunnel in the
   /// background. Leaves long-lived processes running after return.
+  ///
+  /// The whole run doubles as a pairing window: device-initiated pairing is
+  /// advertised in the background from the first moment (no root needed, so
+  /// it is up while the user is still typing their sudo password). A phone
+  /// already paired with this host recognizes the advertised identifier and
+  /// never connects, so this costs nothing in the common case — and with no
+  /// cable it is what makes `xcross tunnel` possible at all: pair from the
+  /// phone, tunneld builds the wireless tunnel, and the DDI mounts over it.
   static Future<void> prepare() async {
-    await _prepareSteps();
+    final pairHost = await RemotePairing.startPairHost(onLine: _onPairHostLine);
+    if (pairHost != null) {
+      Log.logInfo(
+        'Wireless',
+        'pairing available — on the iPhone (iOS 27+): Settings > Developer '
+            '> Paired Macs > "${RemotePairing.advertiseName}"',
+      );
+    }
+    try {
+      await _prepareSteps(pairHost: pairHost);
+    } finally {
+      pairHost?.kill();
+    }
     Log.logDone(
       'Device ready '
       '${Log.ansi.subtle('— DDI mounted, RSD tunnel up')}',
@@ -37,14 +66,29 @@ abstract final class DevicePrepare {
     Log.logInfo('Next', Log.ansi.subtle('xcross flutter run -u <UDID>'));
   }
 
+  /// Forward the advertisement's output: the lines the user must act on
+  /// (the 6-digit code, the pairing result) interrupt whatever step is on
+  /// screen; the boilerplate and 15 s heartbeat go to `--verbose` trace.
+  static void _onPairHostLine(String line) {
+    const visible = ['Enter this code', 'Paired with device', 'Pairing record'];
+    if (visible.any(line.contains)) {
+      Log.logStatus(line);
+    } else {
+      Log.logTrace('[pair-host] $line');
+    }
+  }
+
   /// The same steps as [prepare], without the closing banner.
   ///
   /// Called mid-session when tunneld itself refused to create a tunnel: every
   /// step is idempotent, so a session that only lacks the Developer Disk Image
-  /// or a lockdown tunnel repairs itself instead of silently degrading.
+  /// or a lockdown tunnel repairs itself instead of silently degrading. No
+  /// pairing advertisement and no wireless wait here: the repair runs inside
+  /// a session that already resolved its device, so a missing USB device is
+  /// a hard failure, not a pairing opportunity.
   static Future<void> repairRsdTunnel() => _prepareSteps();
 
-  static Future<void> _prepareSteps() async {
+  static Future<void> _prepareSteps({Process? pairHost}) async {
     if (!await Pymd.ensureInstalled()) {
       throw TunnelError(
         'pymobiledevice3 is required but could not be installed automatically.',
@@ -62,10 +106,99 @@ abstract final class DevicePrepare {
           '    xcross tunnel',
     );
 
-    await _autoMount();
+    // tunneld first: it needs no device, and the wireless fallback below
+    // depends on it watching mDNS while the user pairs.
     await TunnelDaemon().ensureRunning();
+    try {
+      await _autoMount();
+    } on TunnelError {
+      // No reachable USB device. With the pairing advertisement running (or
+      // a pairing record a known phone may reconnect on), the wireless path
+      // can still finish the job: wait for tunneld's RSD tunnel and mount
+      // the DDI through it.
+      final tunnel = await _awaitWirelessTunnel(pairHost: pairHost);
+      if (tunnel == null) rethrow;
+      await _autoMountOverRsd(tunnel);
+      // No lockdown tunnel needed: tunneld already carries the RSD tunnel.
+      return;
+    }
     await _ensureLockdownTunnel();
   }
+
+  /// Wait for tunneld to have any RSD tunnel, while the pairing
+  /// advertisement (when running) gives the user the chance to create the
+  /// pairing it needs. Null when waiting is pointless or nothing appeared.
+  static Future<Tunnel?> _awaitWirelessTunnel({Process? pairHost}) async {
+    final existing = await TunnelDiscovery.findExistingTunnel();
+    if (existing != null) return existing;
+    final hasRecord = RemotePairing.pairingRecordIds().isNotEmpty;
+    if (pairHost == null && !hasRecord) return null;
+
+    Log.logInfo(
+      'Wireless',
+      'no USB device — waiting for a wireless device'
+          '${pairHost != null ? ' (pair from the iPhone: Settings > Developer > Paired Macs)' : ''}',
+    );
+    final step = Log.beginStep('Waiting for a wireless device');
+    try {
+      if (pairHost != null) {
+        // Phase 1: while the advertisement runs. Ends on pairing completion
+        // (exit 0), advertisement timeout (non-zero), or a tunnel appearing
+        // because the phone silently reconnected on the old record.
+        var exitCode = -1;
+        var exited = false;
+        unawaited(
+          pairHost.exitCode.then((code) {
+            exitCode = code;
+            exited = true;
+          }),
+        );
+        final deadline = DateTime.now().add(RemotePairing.pairHostTimeout);
+        while (!exited && DateTime.now().isBefore(deadline)) {
+          final tunnel = await TunnelDiscovery.findExistingTunnel();
+          if (tunnel != null) {
+            step.done();
+            return tunnel;
+          }
+          await Future<void>.delayed(_pollInterval);
+        }
+        if (exited && exitCode != 0 && !hasRecord) {
+          step.fail();
+          return null;
+        }
+      }
+      // Phase 2: a pairing record exists (fresh or old) — give tunneld one
+      // discovery cycle to find the phone and build the tunnel.
+      final deadline = DateTime.now().add(_wirelessTunnelTimeout);
+      while (DateTime.now().isBefore(deadline)) {
+        final tunnel = await TunnelDiscovery.findExistingTunnel();
+        if (tunnel != null) {
+          step.done();
+          return tunnel;
+        }
+        await Future<void>.delayed(_pollInterval);
+      }
+      step.fail();
+      return null;
+    } on Object {
+      step.fail();
+      rethrow;
+    }
+  }
+
+  /// `pymobiledevice3 mounter auto-mount --rsd <host> <port>` — mounts the
+  /// DDI through the RSD tunnel itself, the only route that reaches a
+  /// wireless-only device. Needs no root.
+  static Future<void> _autoMountOverRsd(Tunnel tunnel) => Log.logStep(
+    'Mounting Developer Disk Image',
+    () => Pymd.run([
+      'mounter',
+      'auto-mount',
+      '--rsd',
+      tunnel.address,
+      '${tunnel.port}',
+    ]),
+  );
 
   /// `sudo pymobiledevice3 mounter auto-mount` (one-shot).
   static Future<void> _autoMount() async {

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
@@ -98,13 +99,19 @@ abstract final class RemotePairing {
   /// Start the pair-host advertisement as a child process the caller owns,
   /// or null when it cannot run (pymobiledevice3 missing or too old).
   ///
-  /// Runs `pymobiledevice3 remote pair-host` with inherited stdio: it prints
-  /// the on-phone steps and the 6-digit code the user must type, so its
-  /// output must reach the terminal verbatim. No root needed. Callers that
-  /// can detect the phone connecting by other means (tunneld reusing a
-  /// still-valid record) should kill the process the moment it does.
+  /// Runs `pymobiledevice3 remote pair-host`. By default with inherited
+  /// stdio: it prints the on-phone steps and the 6-digit code the user must
+  /// type, so its output must reach the terminal verbatim. With [onLine] the
+  /// process runs piped instead and every output line is forwarded — for
+  /// running the advertisement *in the background* of other steps whose
+  /// spinners inherited stdio would corrupt. No root needed either way.
+  ///
+  /// Callers that can detect the phone connecting by other means (tunneld
+  /// reusing a still-valid record) should kill the process the moment it
+  /// does.
   static Future<Process?> startPairHost({
     Duration timeout = pairHostTimeout,
+    void Function(String line)? onLine,
   }) async {
     final PymdInvocation inv;
     try {
@@ -121,19 +128,20 @@ abstract final class RemotePairing {
       return null;
     }
 
-    Log.logWarn(
-      'Device-initiated pairing requires iOS 27 or later. On older iOS, '
-      'plug the phone in over USB once and re-run with --wifi, or run '
-      '`pymobiledevice3 remote pair`.\n'
-      'If this host was paired before, remove it on the phone first '
-      '(Settings > Developer > Paired Macs), or it will not reappear.',
-    );
-
-    // The subprocess owns the terminal: it prints the pairing steps, the
-    // PIN, and a waiting heartbeat. Any spinner would corrupt that.
-    Log.stopStep();
+    if (onLine == null) {
+      Log.logWarn(
+        'Device-initiated pairing requires iOS 27 or later. On older iOS, '
+        'plug the phone in over USB once and re-run with --wifi, or run '
+        '`pymobiledevice3 remote pair`.\n'
+        'If this host was paired before, remove it on the phone first '
+        '(Settings > Developer > Paired Macs), or it will not reappear.',
+      );
+      // The subprocess owns the terminal: it prints the pairing steps, the
+      // PIN, and a waiting heartbeat. Any spinner would corrupt that.
+      Log.stopStep();
+    }
     try {
-      return await Process.start(
+      final process = await Process.start(
         inv.executable,
         [
           ...inv.prefixArgs,
@@ -145,8 +153,26 @@ abstract final class RemotePairing {
           '${timeout.inSeconds}',
         ],
         environment: Pymd.usbmuxEnvironment(),
-        mode: ProcessStartMode.inheritStdio,
+        mode: onLine == null
+            ? ProcessStartMode.inheritStdio
+            : ProcessStartMode.normal,
       );
+      if (onLine != null) {
+        try {
+          await process.stdin.close();
+        } catch (_) {}
+        for (final stream in [process.stdout, process.stderr]) {
+          stream
+              // Lossy on purpose: a strict decoder would drop a whole chunk
+              // over one bad byte, losing the PIN line with it.
+              .transform(const Utf8Decoder(allowMalformed: true))
+              .transform(const LineSplitter())
+              .listen((line) {
+                if (line.trim().isNotEmpty) onLine(line);
+              }, onError: (_) {});
+        }
+      }
+      return process;
     } on Object catch (e) {
       Log.logWarn('could not start `pymobiledevice3 remote pair-host`: $e');
       return null;
