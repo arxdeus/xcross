@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/pymd/pymd.dart';
@@ -109,15 +111,29 @@ abstract final class RemotePairing {
   /// Callers that can detect the phone connecting by other means (tunneld
   /// reusing a still-valid record) should kill the process the moment it
   /// does.
+  ///
+  /// [fresh] advertises a random host identifier instead of this machine's
+  /// deterministic one, forcing pair-*setup* (which shows a PIN) even when
+  /// the phone still lists a stale entry for this host. Requires the bundled
+  /// runner script; falls back to the plain CLI when it is unavailable.
   static Future<Process?> startPairHost({
     Duration timeout = pairHostTimeout,
     void Function(String line)? onLine,
+    bool fresh = false,
   }) async {
     final PymdInvocation inv;
     try {
       inv = await Pymd.resolve();
     } on Object {
       return null;
+    }
+    if (fresh) {
+      final process = await _startFreshPairHost(timeout: timeout);
+      if (process != null) {
+        if (onLine != null) _pipeLines(process, onLine);
+        return process;
+      }
+      Log.logTrace('fresh pair-host runner unavailable; using the plain CLI');
     }
     if (!await _supportsPairHost()) {
       Log.logWarn(
@@ -161,25 +177,76 @@ abstract final class RemotePairing {
             : ProcessStartMode.normal,
       );
       if (onLine != null) {
-        try {
-          await process.stdin.close();
-        } catch (_) {}
-        for (final stream in [process.stdout, process.stderr]) {
-          stream
-              // Lossy on purpose: a strict decoder would drop a whole chunk
-              // over one bad byte, losing the PIN line with it.
-              .transform(const Utf8Decoder(allowMalformed: true))
-              .transform(const LineSplitter())
-              .listen((line) {
-                if (line.trim().isNotEmpty) onLine(line);
-              }, onError: (_) {});
-        }
+        _pipeLines(process, onLine);
       }
       return process;
     } on Object catch (e) {
       Log.logWarn('could not start `pymobiledevice3 remote pair-host`: $e');
       return null;
     }
+  }
+
+  /// Forward both output streams of [process] to [onLine], one line at a
+  /// time, and close its stdin (it never reads any).
+  static void _pipeLines(Process process, void Function(String) onLine) {
+    try {
+      unawaited(process.stdin.close().catchError((Object _) {}));
+    } catch (_) {}
+    for (final stream in [process.stdout, process.stderr]) {
+      stream
+          // Lossy on purpose: a strict decoder would drop a whole chunk
+          // over one bad byte, losing the PIN line with it.
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .transform(const LineSplitter())
+          .listen((line) {
+            if (line.trim().isNotEmpty) onLine(line);
+          }, onError: (_) {});
+    }
+  }
+
+  /// Run the bundled `pair_host.py`, which can advertise a random
+  /// identifier — something the pymobiledevice3 CLI cannot express.
+  static Future<Process?> _startFreshPairHost({
+    required Duration timeout,
+  }) async {
+    final script = await _pairHostScriptPath();
+    if (script == null) return null;
+    final python = (await Pymd.tunneldInvocation()).invocation.executable;
+    try {
+      return await Process.start(
+        python,
+        [script, advertiseName, '--fresh', '--timeout', '${timeout.inSeconds}'],
+        environment: {...Pymd.usbmuxEnvironment(), 'PYTHONUNBUFFERED': '1'},
+      );
+    } on Object catch (e) {
+      Log.logTrace('could not start the fresh pair-host runner: $e');
+      return null;
+    }
+  }
+
+  /// Absolute path to the bundled `pair_host.py`, or null when it cannot be
+  /// located (an AOT build resolves it relative to the executable).
+  static Future<String?> _pairHostScriptPath() async {
+    const relative = 'src/pymd/scripts/pair_host.py';
+    final candidates = <String>[
+      // Running from source / `dart run`.
+      if (await Isolate.resolvePackageUri(
+            Uri.parse('package:dart_mobile_device/$relative'),
+          )
+          case final Uri resolved when resolved.scheme == 'file')
+        resolved.toFilePath(),
+      // AOT bundle: shipped alongside the executable.
+      p.join(p.dirname(Platform.resolvedExecutable), 'scripts', 'pair_host.py'),
+      p.join(
+        p.dirname(p.dirname(Platform.resolvedExecutable)),
+        'scripts',
+        'pair_host.py',
+      ),
+    ];
+    for (final candidate in candidates) {
+      if (File(candidate).existsSync()) return candidate;
+    }
+    return null;
   }
 
   /// Whether the resolved pymobiledevice3 knows `remote pair-host`

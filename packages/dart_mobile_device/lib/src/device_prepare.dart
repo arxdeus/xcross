@@ -80,16 +80,30 @@ abstract final class DevicePrepare {
 
     var tunnel = await TunnelDiscovery.findExistingTunnel();
     if (tunnel == null) {
+      // A record for this host already exists, yet no tunnel came up: the
+      // phone either is not here, or (far more often) still lists this host
+      // and silently fails pair-verify against our advertisement. Advertise
+      // a fresh identifier so the phone must run pair-setup and show a PIN.
+      final fresh = RemotePairing.pairingRecordIds().isNotEmpty;
       final pairHost = await RemotePairing.startPairHost(
         onLine: _onPairHostLine,
+        fresh: fresh,
       );
       if (pairHost != null) {
         Log.logInfo(
           'Wireless',
-          'to pair, on the iPhone (iOS 27+): Settings > Developer > '
-              'Paired Macs > "${RemotePairing.advertiseName}" — the 6-digit '
-              'code appears here when the phone connects',
+          'to pair, on the iPhone (iOS 27+): Settings > Developer > Paired '
+              'Macs > "Other Devices" > "${RemotePairing.advertiseName}" — '
+              'the 6-digit code appears here when the phone connects',
         );
+        if (fresh) {
+          Log.logInfo(
+            'Wireless',
+            'if the phone already lists "${RemotePairing.advertiseName}" '
+                'under Paired Macs, delete that entry first — tapping it '
+                'resumes a pairing this host no longer has',
+          );
+        }
       }
       try {
         tunnel = await _awaitWirelessTunnel(pairHost: pairHost);
@@ -128,6 +142,11 @@ abstract final class DevicePrepare {
   /// user must delete the entry on the phone, and without this hint the tap
   /// looks like it simply did nothing.
   static void _onPairHostLine(String line) {
+    // Protocol lines from the bundled runner (see scripts/pair_host.py).
+    if (line.startsWith('XCROSS-PAIR-')) {
+      _onPairProtocolLine(line);
+      return;
+    }
     if (line.contains('Pairing attempt from')) {
       Log.logTrace('[pair-host] $line');
       if (!_warnedPairResumeFailure) {
@@ -156,6 +175,33 @@ abstract final class DevicePrepare {
   }
 
   static bool _warnedPairResumeFailure = false;
+
+  /// Render the bundled runner's machine-readable protocol.
+  static void _onPairProtocolLine(String line) {
+    final rest = line.split(' ').skip(1).join(' ');
+    switch (line.split(' ').first) {
+      case 'XCROSS-PAIR-PIN':
+        Log.stopStep();
+        Log.logStatus('');
+        Log.logStatus(
+          '  Enter this code on the iPhone: '
+          '${Log.ansi.bold}${Log.ansi.green}$rest${Log.ansi.none}',
+        );
+        Log.logStatus('');
+      case 'XCROSS-PAIR-OK':
+        Log.logDone('Paired with $rest');
+      case 'XCROSS-PAIR-FAIL':
+        Log.logTrace('[pair-host] failed: $rest');
+      case 'XCROSS-PAIR-ADVERTISING':
+        Log.logTrace('[pair-host] advertising $rest');
+      case 'XCROSS-PAIR-WAITING':
+        Log.logTrace('[pair-host] waiting ${rest}s');
+      case 'XCROSS-PAIR-RECORD':
+        Log.logTrace('[pair-host] record: $rest');
+      default:
+        Log.logTrace('[pair-host] $line');
+    }
+  }
 
   /// The same steps as [prepare], without the closing banner.
   ///
