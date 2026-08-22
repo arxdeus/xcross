@@ -113,7 +113,7 @@ final class ProgressBar {
     final detail =
         '$percent%  ${_format(_current)} / ${_format(total)}'
         '${_note.isEmpty ? '' : '  $_note'}';
-    Log.logStatus('$_glyph$label ${Log.ansi.subtle(detail)}');
+    Log.logStatus('$_glyph$label ${Log.dim(detail)}');
   }
 
   void _render(int elapsedMs) {
@@ -138,7 +138,7 @@ final class ProgressBar {
       write(
         '━' * barWidth,
         '${Log.ansi.cyan}${'━' * filled}${Log.ansi.none}'
-        '${Log.ansi.subtle('━' * (barWidth - filled))}',
+        '${Log.dim('━' * (barWidth - filled))}',
       );
       write(' ${(fraction * 100).round()}%'.padLeft(5));
     }
@@ -156,7 +156,7 @@ final class ProgressBar {
     ];
     for (final extra in extras) {
       if (width + extra.length > columns - 1) break;
-      write(extra, Log.ansi.subtle(extra));
+      write(extra, Log.dim(extra));
     }
     stdout.write('\r$buf\x1B[K');
   }

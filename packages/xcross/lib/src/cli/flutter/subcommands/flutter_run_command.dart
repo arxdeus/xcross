@@ -105,7 +105,7 @@ final class FlutterRunCommand extends _$FlutterRunArgsCommand<void> {
     final mode = hotReload != null
         ? 'debug/JIT, hot reload'
         : 'debug/JIT, attached via CoreDevice';
-    Log.logInfo('App', '${pack.bundleId} ${Log.ansi.subtle(mode)}');
+    Log.logInfo('App', '${pack.bundleId} ${Log.dim(mode)}');
 
     final operation = await DeviceRunOperation.resolve();
     await operation.run(

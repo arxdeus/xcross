@@ -127,7 +127,7 @@ final class SessionConsole {
           case GdbReply.stdout:
             _writeAppOutput(reply.stdoutBytes);
           case GdbReply.exited || GdbReply.terminated:
-            Log.logInfo('App exited ${Log.ansi.subtle('(${reply.payload})')}');
+            Log.logInfo('App exited ${Log.dim('(${reply.payload})')}');
             _stop();
             finish();
           case GdbReply.stopped:

@@ -224,7 +224,6 @@ final class AscClient implements DevelopmentProvisioningClient {
     required List<String> appGroupResourceIds,
   }) => Future.error(const AppGroupsUnsupported());
 
-
   @override
   Future<List<String>> listProfileIdsForBundle(
     String bundleIdResourceId,

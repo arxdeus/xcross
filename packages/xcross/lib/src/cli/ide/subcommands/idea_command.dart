@@ -34,7 +34,7 @@ final class IdeaCommand extends Command<void> {
 
     Log.logInfo(
       'Next',
-      Log.ansi.subtle(
+      Log.dim(
         'install LSP4IJ (plugins.jetbrains.com/plugin/23257-lsp4ij), '
         'then Debug the "xcross: iOS device" run configuration '
         "(not Flutter's Run button)",

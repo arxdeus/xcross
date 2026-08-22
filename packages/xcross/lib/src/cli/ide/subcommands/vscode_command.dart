@@ -35,7 +35,7 @@ final class VscodeCommand extends Command<void> {
 
     Log.logInfo(
       'Next',
-      Log.ansi.subtle(
+      Log.dim(
         'open the project in VS Code and press F5, '
         "then 'Hot Reload' / 'Restart' in the debug toolbar",
       ),

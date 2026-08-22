@@ -21,7 +21,7 @@ abstract final class Sudo {
 
     Log.logInfo(
       'Confirming sudo access '
-      '${Log.ansi.subtle('— you may be asked for your password once')}',
+      '${Log.dim('— you may be asked for your password once')}',
     );
     final proc = await Process.start(sudo, const [
       '-v',

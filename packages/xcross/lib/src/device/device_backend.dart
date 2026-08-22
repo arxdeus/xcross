@@ -84,10 +84,7 @@ final class NativeBackend implements DeviceBackend {
     try {
       await _rewriteBundleIdentifier(appOrIpaPath, signedBundleId);
       if (signedBundleId != bundleId) {
-        Log.logInfo(
-          'App ID',
-          '$bundleId ${Log.ansi.subtle('→')} $signedBundleId',
-        );
+        Log.logInfo('App ID', '$bundleId ${Log.dim('→')} $signedBundleId');
         // Custom URL schemes are conventionally derived from the bundle id
         // (`ShareMedia-<bundle id>`), and an extension builds the URL it
         // opens from its *own* qualified host id at runtime. Leaving the

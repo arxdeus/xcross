@@ -54,7 +54,7 @@ final class DeviceRunOperation {
       );
     }
     final device = await backend.resolveDevice(selector: selector, mode: mode);
-    Log.logInfo('Device', '${device.name} ${Log.ansi.subtle(device.udid)}');
+    Log.logInfo('Device', '${device.name} ${Log.dim(device.udid)}');
     final major = await _osMajorVersion(device);
     if (major == null) {
       Log.logWarn(

@@ -48,7 +48,8 @@ final class LegacyAppGroups {
        _authHeaders = authHeaders,
        _teamId = teamId;
 
-  static const _baseUrl = 'https://developerservices2.apple.com/services/QH65B2';
+  static const _baseUrl =
+      'https://developerservices2.apple.com/services/QH65B2';
   static const _clientId = 'XABBG36SBA';
 
   /// Apple's internal feature key for the App Groups capability, as sent by

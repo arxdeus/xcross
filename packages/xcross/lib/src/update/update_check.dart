@@ -44,9 +44,7 @@ abstract final class UpdateCheck {
     final latest = _read()?.latest;
     if (latest == null) return;
     if (!isNewerThanCurrent(latest)) return;
-    Log.logStatus(
-      Log.ansi.subtle("update available: $latest (run 'xcross update')"),
-    );
+    Log.logStatus(Log.dim("update available: $latest (run 'xcross update')"));
   }
 
   /// True when [tag] is a release newer than the running build.

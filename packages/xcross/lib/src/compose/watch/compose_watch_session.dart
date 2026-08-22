@@ -65,13 +65,13 @@ final class ComposeWatchSession {
   Future<PackResult?> _rebuildIfChanged() async {
     final changed = watcher.changedFiles();
     if (changed.isEmpty) {
-      Log.logInfo('No source changes ${Log.ansi.subtle('— app left running')}');
+      Log.logInfo('No source changes ${Log.dim('— app left running')}');
       return null;
     }
     Log.logInfo(
       'Changed',
       '${changed.length} file${changed.length == 1 ? '' : 's'} '
-          '${Log.ansi.subtle('— rebuilding')}',
+          '${Log.dim('— rebuilding')}',
     );
     try {
       return await rebuild();

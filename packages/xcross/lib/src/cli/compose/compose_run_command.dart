@@ -101,7 +101,7 @@ final class ComposeRunCommand extends _$ComposeRunArgsCommand<void> {
     );
     Log.logInfo(
       'App',
-      '${pack.bundleId} ${Log.ansi.subtle('native, attached via CoreDevice')}',
+      '${pack.bundleId} ${Log.dim('native, attached via CoreDevice')}',
     );
     final profile = CoreDeviceLaunchProfile.native(
       arguments: _options.appArgument,
@@ -119,7 +119,7 @@ final class ComposeRunCommand extends _$ComposeRunArgsCommand<void> {
     Log.logInfo(
       'Watching',
       'Kotlin sources '
-          '${Log.ansi.subtle('— press r to rebuild and restart, q to quit')}',
+          '${Log.dim('— press r to rebuild and restart, q to quit')}',
     );
     final session = ComposeWatchSession(
       watcher: KotlinSourceWatcher(pack.projectRoot ?? Directory.current.path),

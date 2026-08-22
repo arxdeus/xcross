@@ -305,9 +305,7 @@ abstract final class CoreDeviceLauncher {
     required DeviceTransport transport,
   }) async {
     if (hotReload == null) {
-      Log.logInfo(
-        'Streaming app output ${Log.ansi.subtle('— Ctrl-C to stop')}',
-      );
+      Log.logInfo('Streaming app output ${Log.dim('— Ctrl-C to stop')}');
       return (
         controller: null,
         // Compose (Kotlin/Native, AOT) has no in-place reload at all, so the
@@ -350,7 +348,7 @@ abstract final class CoreDeviceLauncher {
       await controller.initialSync();
       Log.logInfo(
         'Hot reload ready '
-        '${Log.ansi.subtle('— r reload  ·  R restart  ·  q quit')}',
+        '${Log.dim('— r reload  ·  R restart  ·  q quit')}',
       );
       return (controller: controller, unavailable: null);
     } catch (e) {

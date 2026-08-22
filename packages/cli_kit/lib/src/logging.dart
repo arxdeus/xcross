@@ -7,6 +7,21 @@ import 'package:cli_util/cli_logging.dart';
 abstract final class Log {
   static Logger _logger = Logger.standard();
 
+  /// Bright black (SGR 90), the readable "dim" on both dark and light
+  /// terminals.
+  ///
+  /// cli_util's own `ansi.gray` is `1;30` — *bold black* — which renders as
+  /// pure black on a dark background: `--verbose` trace output and every
+  /// subtle detail were invisible. SGR 90 is the modern bright-black slot
+  /// every terminal that supports ANSI colors renders as a real grey.
+  static const _dim = '\u001B[90m';
+  static const _reset = '\u001B[0m';
+
+  /// [message] in a readable grey, or unchanged when ANSI is off (piped
+  /// output, dumb terminal).
+  static String dim(String message) =>
+      ansi.useAnsi ? '$_dim$message$_reset' : message;
+
   /// Whether `--verbose` was passed.
   static bool get isVerbose => _logger.isVerbose;
 
@@ -27,7 +42,7 @@ abstract final class Log {
     final pad = message.length < _detailColumn
         ? ' ' * (_detailColumn - message.length)
         : ' ';
-    return '$message$pad${ansi.subtle(detail)}';
+    return '$message$pad${dim(detail)}';
   }
 
   /// A user-facing fact: `› Device   iPhone 15 Pro`.
@@ -48,7 +63,13 @@ abstract final class Log {
   }
 
   /// A detail line, shown only with `--verbose`.
-  static void logTrace(String message) => _logger.trace(message);
+  ///
+  /// Routed through [stdout] rather than `trace`: cli_util colors trace with
+  /// its invisible bold-black, so the whole verbose stream was unreadable.
+  static void logTrace(String message) {
+    if (!_logger.isVerbose) return;
+    _logger.stdout(dim(message));
+  }
 
   /// A warning on stderr.
   static void logWarn(String message) {
@@ -176,7 +197,7 @@ final class Step {
     stdout.write(
       renderBlock(
         head: '${Log.ansi.cyan}$frame${Log.ansi.none} $label',
-        tail: [for (final line in tail) Log.ansi.subtle(_fit(line))],
+        tail: [for (final line in tail) Log.dim(_fit(line))],
         previousRows: _drawn,
       ),
     );

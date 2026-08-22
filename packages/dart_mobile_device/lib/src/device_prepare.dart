@@ -4,7 +4,6 @@ import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/errors.dart';
-import 'package:dart_mobile_device/src/models/tunnel.dart';
 import 'package:dart_mobile_device/src/pymd/pymd.dart';
 import 'package:dart_mobile_device/src/pymd/pymd_devices.dart';
 import 'package:dart_mobile_device/src/pymd/remote_pairing.dart';
@@ -47,9 +46,9 @@ abstract final class DevicePrepare {
     await _prepareSteps();
     Log.logDone(
       'Device ready '
-      '${Log.ansi.subtle('— DDI mounted, RSD tunnel up')}',
+      '${Log.dim('— DDI mounted, RSD tunnel up')}',
     );
-    Log.logInfo('Next', Log.ansi.subtle('xcross flutter run -u <UDID>'));
+    Log.logInfo('Next', Log.dim('xcross flutter run -u <UDID>'));
   }
 
   /// `xcross tunnel --wifi`: bring a wireless device up without a cable.
@@ -114,9 +113,9 @@ abstract final class DevicePrepare {
     await _autoMountOverRsd(tunnel);
     Log.logDone(
       'Device ready '
-      '${Log.ansi.subtle('— DDI mounted, wireless RSD tunnel up')}',
+      '${Log.dim('— DDI mounted, wireless RSD tunnel up')}',
     );
-    Log.logInfo('Next', Log.ansi.subtle('xcross flutter run --wifi'));
+    Log.logInfo('Next', Log.dim('xcross flutter run --wifi'));
   }
 
   /// Forward the advertisement's output: the lines the user must act on
