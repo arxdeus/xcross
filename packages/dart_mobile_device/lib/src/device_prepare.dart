@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/errors.dart';
+import 'package:dart_mobile_device/src/models/device.dart';
 import 'package:dart_mobile_device/src/pymd/pymd.dart';
 import 'package:dart_mobile_device/src/pymd/pymd_devices.dart';
 import 'package:dart_mobile_device/src/pymd/remote_pairing.dart';
@@ -11,6 +12,9 @@ import 'package:dart_mobile_device/src/tunnel/tunnel_daemon.dart';
 import 'package:dart_mobile_device/src/tunnel/tunnel_discovery.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
+
+/// Bootstrap route selected by `xcross tunnel --wifi`.
+enum WirelessBootstrapPath { usbLockdown, savedPairing, pairHost }
 
 /// One-shot iOS 17+ host prep: mount the Developer Disk Image and start the
 /// RSD tunnel(s) that [CoreDeviceLauncher] needs.
@@ -53,39 +57,50 @@ abstract final class DevicePrepare {
 
   /// `xcross tunnel --wifi`: bring a wireless device up without a cable.
   ///
-  /// Starts tunneld, advertises this host for device-initiated pairing
-  /// (iOS 27+, printing the 6-digit code when the phone connects), waits for
-  /// the RSD tunnel — from a fresh pairing or a phone reconnecting on an
-  /// existing record — and mounts the DDI through it. The lockdown tunnel is
-  /// skipped: tunneld's own tunnel already fills that role.
+  /// Priority order:
+  ///
+  /// 1. USB phone: establish lockdown trust, bootstrap RemotePairing through
+  ///    lockdown, and open its remote tunnel.
+  /// 2. No USB, saved RemotePairing records: reconnect to those devices.
+  /// 3. No USB and no saved device: advertise `remote pair-host` for iOS 27+.
+  ///
+  /// Finally, mounts the DDI through the resulting RSD tunnel.
   static Future<void> prepareWireless() async {
     if (!await Pymd.ensureInstalled()) {
       throw TunnelError(
         'pymobiledevice3 is required but could not be installed automatically.',
       );
     }
+
+    final usbDevice = await _firstUsbDevice();
+    final savedPairings = RemotePairing.pairingRecordIds();
+    final bootstrapPath = selectWirelessBootstrapPath(
+      hasUsbDevice: usbDevice != null,
+      hasSavedPairings: savedPairings.isNotEmpty,
+    );
+    if (bootstrapPath == WirelessBootstrapPath.usbLockdown) {
+      await _prepareWirelessOverUsb(usbDevice!);
+      return;
+    }
+
     // [TunnelDaemon.ensureRunning] requests elevation only when it actually
     // needs to start or replace the daemon. Reusing an already-reachable
     // tunneld must not prompt for sudo again.
     await TunnelDaemon().ensureRunning();
 
     var tunnel = await TunnelDiscovery.findExistingTunnel();
-    if (tunnel == null) {
-      // A record for this host already exists, yet no tunnel came up: the
-      // phone either is not here, or (far more often) still lists this host
-      // and silently fails pair-verify against our advertisement. Advertise
-      // a fresh identifier so the phone must run pair-setup and show a PIN.
-      final fresh = RemotePairing.pairingRecordIds().isNotEmpty;
-      // A fresh advertisement gets a distinct name: the phone's stale entry
-      // carries the plain one, and tapping that stale entry never even
-      // connects — indistinguishable, from the user's side, from a broken
-      // advertisement.
-      final name = fresh
-          ? RemotePairing.freshAdvertiseName()
-          : RemotePairing.advertiseName;
+    if (tunnel == null && bootstrapPath == WirelessBootstrapPath.savedPairing) {
+      Log.logInfo(
+        'Wireless',
+        'no USB device — reconnecting to ${savedPairings.length} saved '
+            'wireless ${savedPairings.length == 1 ? 'device' : 'devices'}',
+      );
+      tunnel = await _awaitWirelessTunnel();
+    }
+    if (tunnel == null && bootstrapPath == WirelessBootstrapPath.pairHost) {
+      final name = RemotePairing.advertiseName;
       final pairHost = await RemotePairing.startPairHost(
         onLine: _onPairHostLine,
-        fresh: fresh,
         name: name,
       );
       if (pairHost != null) {
@@ -95,14 +110,11 @@ abstract final class DevicePrepare {
               'Macs > "Other Devices" > "$name" — the 6-digit code appears '
               'here when the phone connects',
         );
-        if (fresh) {
-          Log.logInfo(
-            'Wireless',
-            'tap exactly "$name" — an older "${RemotePairing.advertiseName}" '
-                'entry in the paired list is dead and tapping it does '
-                'nothing; delete it while you are there',
-          );
-        }
+        Log.logInfo(
+          'Wireless',
+          'device-initiated pairing requires iOS 27+; on older iOS, connect '
+              'the iPhone over USB once and rerun this command',
+        );
       }
       try {
         tunnel = await _awaitWirelessTunnel(pairHost: pairHost);
@@ -111,17 +123,16 @@ abstract final class DevicePrepare {
       }
     }
     if (tunnel == null) {
-      throw TunnelError(
-        'No wireless device connected.\n'
-        'If the iPhone already lists this host (Settings > Developer > '
-        'Paired Macs): just unlock the phone and keep the screen on — a '
-        'locked iPhone drops off the network, and no code is shown for an '
-        'existing pairing; the tunnel connects by itself.\n'
-        'To pair fresh instead: delete the entry on the phone first, rerun '
-        'this command, and tap "${RemotePairing.advertiseName}" under '
-        '"Other Devices" — the 6-digit code then appears here.\n'
-        'USB setup instead: xcross tunnel',
-      );
+      final guidance = savedPairings.isNotEmpty
+          ? 'Saved pairing records were found, but none of those devices '
+                'connected. Unlock the iPhone, keep its screen on, and verify '
+                'it is on the same network.\nTo refresh the pairing, connect '
+                'it over USB and rerun this command.'
+          : 'No saved pairing exists. Device-initiated pairing requires '
+                'iOS 27+: use Settings > Developer > Paired Macs > Other '
+                'Devices. On older iOS, connect the iPhone over USB once and '
+                'rerun this command.';
+      throw TunnelError('No wireless device connected.\n$guidance');
     }
     await _autoMountOverRsd(tunnel);
     Log.logDone(
@@ -130,6 +141,98 @@ abstract final class DevicePrepare {
     );
     Log.logInfo('Next', Log.dim('xcross flutter run --wifi'));
   }
+
+  /// USB always wins, then reusable records, with pair-host reserved for a
+  /// completely unpaired cable-free host.
+  @visibleForTesting
+  static WirelessBootstrapPath selectWirelessBootstrapPath({
+    required bool hasUsbDevice,
+    required bool hasSavedPairings,
+  }) {
+    if (hasUsbDevice) return WirelessBootstrapPath.usbLockdown;
+    if (hasSavedPairings) return WirelessBootstrapPath.savedPairing;
+    return WirelessBootstrapPath.pairHost;
+  }
+
+  /// First USB-attached phone, or null when usbmuxd is unavailable/no cable is
+  /// attached. A missing usbmuxd is routine for the cable-free pairing path.
+  static Future<Device?> _firstUsbDevice() async {
+    try {
+      final devices = await PymdDevices.devices(mode: DeviceSearchMode.usb);
+      return devices.isEmpty ? null : devices.first;
+    } on TunnelError catch (e) {
+      Log.logTrace('USB probe before wireless pairing failed: ${e.message}');
+      return null;
+    }
+  }
+
+  /// Bootstrap RemotePairing over an already-trusted USB lockdown connection.
+  ///
+  /// Classic `lockdown pair` establishes/refreshes USB trust. Then `lockdown
+  /// remotepairing --pair` writes the separate RemotePairing record consumed
+  /// by tunneld, without the iOS 27+ Paired Macs flow or a six-digit PIN.
+  /// Enabling Wi-Fi connections keeps the device discoverable after unplug.
+  static Future<void> _prepareWirelessOverUsb(Device device) async {
+    Log.logInfo(
+      'Wireless',
+      '${device.name} found on USB — pairing wireless services over lockdown',
+    );
+    await Log.logStep(
+      'Pairing device over USB',
+      () => Pymd.run(lockdownPairArgs(device.udid)),
+    );
+    await Log.logStep(
+      'Pairing wireless services over USB',
+      () => Pymd.run(lockdownRemotePairArgs(device.udid)),
+    );
+    await Log.logStep(
+      'Enabling Wi-Fi connections',
+      () => Pymd.run(lockdownWifiArgs(device.udid)),
+    );
+
+    await TunnelDaemon().ensureRunning();
+    final tunnel = await TunnelDiscovery.discoverTunnel(
+      udid: device.udid,
+      timeout: _wirelessTunnelTimeout,
+      pollInterval: _pollInterval,
+    );
+    await _autoMountOverRsd(tunnel);
+    Log.logDone(
+      'Device ready '
+      '${Log.dim('— paired over USB, wireless RSD tunnel up')}',
+    );
+    Log.logInfo('Next', Log.dim('unplug USB, then xcross flutter run --wifi'));
+  }
+
+  @visibleForTesting
+  static List<String> lockdownPairArgs(String udid) => [
+    'lockdown',
+    'pair',
+    '--udid',
+    udid,
+  ];
+
+  /// Arguments kept explicit and testable because classic `lockdown pair`
+  /// creates only the usbmux pairing record. Wireless tunneld also requires
+  /// this newer RemotePairing-over-lockdown command.
+  @visibleForTesting
+  static List<String> lockdownRemotePairArgs(String udid) => [
+    'lockdown',
+    'remotepairing',
+    '--pair',
+    '--udid',
+    udid,
+  ];
+
+  @visibleForTesting
+  static List<String> lockdownWifiArgs(String udid) => [
+    'lockdown',
+    'wifi-connections',
+    '--state',
+    'on',
+    '--udid',
+    udid,
+  ];
 
   /// Forward the advertisement's output: the lines the user must act on
   /// (the 6-digit code, the pairing result) interrupt whatever step is on

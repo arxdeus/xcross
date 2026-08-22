@@ -13,17 +13,18 @@ import 'package:dart_mobile_device/dart_mobile_device.dart';
 /// used by CoreDevice launch). Long-lived tunnel processes are left running
 /// after the command exits.
 ///
-/// With `--wifi` the cable is not used at all: tunneld is started, this host
-/// is advertised for device-initiated pairing (iOS 27+, the 6-digit code
-/// prints here), and the DDI is mounted through the wireless RSD tunnel.
+/// With `--wifi`, an attached phone is paired for RemotePairing through its
+/// USB lockdown connection. Without USB, saved devices are reconnected first;
+/// only a host with no saved devices advertises device-initiated pairing
+/// (iOS 27+, the 6-digit code prints here).
 final class TunnelCommand extends Command<void> {
   TunnelCommand() {
     argParser.addFlag(
       'wifi',
       negatable: false,
       help:
-          'Set up a wireless device: advertise this host for pairing '
-          '(iOS 27+) and build the tunnel over Wi-Fi, no cable involved.',
+          'Set up a wireless device: bootstrap pairing over USB when attached, '
+          'otherwise reconnect a saved device or advertise pairing on iOS 27+.',
     );
   }
 
@@ -34,7 +35,8 @@ final class TunnelCommand extends Command<void> {
   String get description =>
       'Mount the Developer Disk Image and start the iOS 17+ RSD tunnel '
       '(mounter auto-mount + lockdown start-tunnel + tunneld). '
-      'With --wifi: pair and tunnel over Wi-Fi instead, no cable needed. '
+      'With --wifi: pair over USB when available, otherwise reconnect a saved '
+      'device or pair on-device, then tunnel over Wi-Fi. '
       'Requires sudo on POSIX or an Administrator terminal on Windows.';
 
   @override

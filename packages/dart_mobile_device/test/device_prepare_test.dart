@@ -2,6 +2,63 @@ import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:test/test.dart';
 
 void main() {
+  group('DevicePrepare wireless bootstrap', () {
+    test('USB lockdown wins even when saved pairings exist', () {
+      expect(
+        DevicePrepare.selectWirelessBootstrapPath(
+          hasUsbDevice: true,
+          hasSavedPairings: true,
+        ),
+        WirelessBootstrapPath.usbLockdown,
+      );
+    });
+
+    test('reuses saved pairing when there is no USB device', () {
+      expect(
+        DevicePrepare.selectWirelessBootstrapPath(
+          hasUsbDevice: false,
+          hasSavedPairings: true,
+        ),
+        WirelessBootstrapPath.savedPairing,
+      );
+    });
+
+    test('pair-host is only used without USB or saved pairings', () {
+      expect(
+        DevicePrepare.selectWirelessBootstrapPath(
+          hasUsbDevice: false,
+          hasSavedPairings: false,
+        ),
+        WirelessBootstrapPath.pairHost,
+      );
+    });
+
+    test('USB bootstrap uses classic and remote lockdown pairing', () {
+      const udid = '00008030-TEST';
+      expect(DevicePrepare.lockdownPairArgs(udid), [
+        'lockdown',
+        'pair',
+        '--udid',
+        udid,
+      ]);
+      expect(DevicePrepare.lockdownRemotePairArgs(udid), [
+        'lockdown',
+        'remotepairing',
+        '--pair',
+        '--udid',
+        udid,
+      ]);
+      expect(DevicePrepare.lockdownWifiArgs(udid), [
+        'lockdown',
+        'wifi-connections',
+        '--state',
+        'on',
+        '--udid',
+        udid,
+      ]);
+    });
+  });
+
   group('DevicePrepare.explainTunnelExit', () {
     // `lockdown start-tunnel` exits 0 on these failures, so the captured
     // stderr is the only signal about what actually went wrong.
