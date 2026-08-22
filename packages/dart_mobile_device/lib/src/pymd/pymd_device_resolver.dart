@@ -7,6 +7,7 @@ import 'package:dart_mobile_device/src/pymd/pymd.dart';
 import 'package:dart_mobile_device/src/pymd/pymd_devices.dart';
 import 'package:dart_mobile_device/src/pymd/remote_pairing.dart';
 import 'package:dart_mobile_device/src/tunnel/tunnel_daemon.dart';
+import 'package:meta/meta.dart';
 
 /// Resolves a target [Device] via pymobiledevice3-backed listing.
 class PymdDeviceResolver {
@@ -81,8 +82,27 @@ class PymdDeviceResolver {
               'Trust), or use --wifi for a wireless device, then retry.',
       });
     }
-    if (list.length == 1) return list.first;
-    return _pickDeviceInteractively(list);
+    // Default `all` discovery is a fallback policy, not an invitation to pick
+    // Wi-Fi while the same workstation has a local cable available. Keep an
+    // explicit selector authoritative, but otherwise prefer attached devices;
+    // wireless remains the fallback when no USB phone is present.
+    final candidates = preferUsbCandidates(list, mode: mode);
+    if (candidates.length == 1) return candidates.first;
+    return _pickDeviceInteractively(candidates);
+  }
+
+  /// In `all` mode, narrow selection to attached USB devices whenever at least
+  /// one exists. Explicit USB/Wi-Fi modes are already filtered by discovery.
+  @visibleForTesting
+  static List<Device> preferUsbCandidates(
+    List<Device> devices, {
+    required DeviceSearchMode mode,
+  }) {
+    if (mode != DeviceSearchMode.all) return devices;
+    final attached = devices
+        .where((device) => device.type == ConnectionType.usb)
+        .toList();
+    return attached.isEmpty ? devices : attached;
   }
 
   /// Why tunneld could not be started this session, when it could not be.
