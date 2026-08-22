@@ -330,6 +330,14 @@ abstract final class CoreDeviceLauncher {
         '${vmService.port}/ws',
       );
       vm = await _waitForVmService(wsUri);
+      // A wireless session dies quietly when the phone locks, sleeps off the
+      // network, or the tunnel drops. Without this, `r`/`R` just start
+      // failing with opaque RPC errors while the console looks healthy.
+      vm.onConnectionLost = () => Log.logWarn(
+        'lost the connection to the app on the device — the phone locked, '
+        'left the network, or the tunnel dropped. Hot reload is gone for '
+        'this session: unlock the phone and run again.',
+      );
       // `print` and `log()` reach us only over these streams — the debugger
       // attached to an already-launched process, so it owns no stdio for the
       // app.

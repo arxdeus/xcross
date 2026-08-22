@@ -50,10 +50,13 @@ abstract final class InfoPlist {
       dotAll: true,
     );
     return plistXml.replaceAllMapped(arrays, (match) {
-      final body = match.group(2)!.replaceAllMapped(
-        RegExp('<string>([^<]*)</string>'),
-        (scheme) => '<string>${scheme.group(1)!.replaceAll(from, to)}</string>',
-      );
+      final body = match
+          .group(2)!
+          .replaceAllMapped(
+            RegExp('<string>([^<]*)</string>'),
+            (scheme) =>
+                '<string>${scheme.group(1)!.replaceAll(from, to)}</string>',
+          );
       return '${match.group(1)}$body${match.group(3)}';
     });
   }

@@ -20,6 +20,12 @@ final class DartVmServiceClient {
   int _nextId = 0;
   final Map<int, PendingCall> _pending = {};
   final Map<String, VmServiceHandler> _services = {};
+  bool _closedByUs = false;
+
+  /// Called when the connection closes without [close] being asked for it —
+  /// the phone locked, left the network, or the tunnel died. Lets the
+  /// session say why `r`/`R` stopped working instead of failing silently.
+  void Function()? onConnectionLost;
 
   // Broadcast of VM Service stream events (`streamNotify`). Callers must
   // [streamListen] first, then await [events].
@@ -56,6 +62,7 @@ final class DartVmServiceClient {
   }
 
   Future<void> close() async {
+    _closedByUs = true;
     try {
       await _channel?.sink.close().timeout(const Duration(milliseconds: 500));
     } on Object catch (e) {
@@ -244,6 +251,12 @@ final class DartVmServiceClient {
     }
     _subscription?.cancel();
     if (!_events.isClosed) _events.close();
+    final hadChannel = _channel != null;
     _channel = null;
+    if (hadChannel && !_closedByUs) {
+      final callback = onConnectionLost;
+      onConnectionLost = null;
+      callback?.call();
+    }
   }
 }

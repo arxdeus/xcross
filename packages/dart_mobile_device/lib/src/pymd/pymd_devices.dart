@@ -87,16 +87,30 @@ abstract final class PymdDevices {
   }
 
   /// `DeviceName` of a tunneled device via `lockdown info --tunnel`.
+  ///
+  /// Hard 15 s bound: this cosmetic lookup rides the wireless tunnel, and a
+  /// phone napping in Wi-Fi power save can stretch the RemoteXPC handshake
+  /// arbitrarily — discovery polling (and with it the whole run) would sit
+  /// on "resolving a name" while looking simply stuck. The UDID is a fine
+  /// name until a later poll fills the cache.
   static Future<String?> _tunneledDeviceName(String udid) async {
     if (_tunnelNameCache.containsKey(udid)) return _tunnelNameCache[udid];
     String? name;
     try {
-      final result = await Pymd.run(['lockdown', 'info', '--tunnel', udid]);
+      final result = await Pymd.run([
+        'lockdown',
+        'info',
+        '--tunnel',
+        udid,
+      ], timeout: const Duration(seconds: 15));
       if (jsonDecode(result.stdout) case {'DeviceName': final String n}) {
         name = n;
       }
     } on Object catch (e) {
       Log.logTrace('lockdown info --tunnel $udid failed: $e');
+      // Transient (power save, mid-handshake kill): retry on a later poll
+      // rather than caching the failure forever.
+      return null;
     }
     return _tunnelNameCache[udid] = name;
   }

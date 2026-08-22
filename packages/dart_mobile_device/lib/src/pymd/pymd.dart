@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -276,7 +277,13 @@ abstract final class Pymd {
     ];
     for (final args in attempts) {
       try {
-        final result = await run([...args, ...deviceArgs]);
+        // Bounded per attempt: over a wireless tunnel a phone napping in
+        // Wi-Fi power save can hang one RemoteXPC exchange for minutes, and
+        // three unbounded attempts in a row would freeze the run silently.
+        final result = await run([
+          ...args,
+          ...deviceArgs,
+        ], timeout: const Duration(seconds: 45));
         if (jsonDecode(result.stdout) case final Map<Object?, Object?> json) {
           return json.keys.cast<String>().toList();
         }
@@ -324,13 +331,15 @@ abstract final class Pymd {
   }) async {
     final CapturedProcess result;
     try {
+      // Bounded: this best-effort pre-install check rides the tunnel and
+      // must not stall the run when the phone naps in Wi-Fi power save.
       result = await run([
         'developer',
         'dvt',
         'process-id-for-bundle-id',
         ...deviceArgs,
         bundleId,
-      ]);
+      ], timeout: const Duration(seconds: 30));
     } on TunnelError {
       return null;
     }
@@ -354,7 +363,14 @@ abstract final class Pymd {
 
   /// Run arbitrary pymobiledevice3 [args], returning captured output.
   /// Throws [TunnelError] on non-zero exit.
-  static Future<CapturedProcess> run(List<String> args) async {
+  ///
+  /// [timeout] bounds the whole subprocess and kills it when exceeded —
+  /// required for anything routed over a wireless tunnel, where a phone in
+  /// Wi-Fi power save can stretch one RemoteXPC handshake past a minute.
+  static Future<CapturedProcess> run(
+    List<String> args, {
+    Duration? timeout,
+  }) async {
     final inv = await resolve();
     final executable = inv.executable;
     final arguments = [...inv.prefixArgs, ...args];
@@ -362,11 +378,13 @@ abstract final class Pymd {
       '[pymobiledevice3] running: '
       '${ProcessRunner.commandLine(executable, arguments)}',
     );
-    final result = await ProcessRunner.run(
-      executable,
-      arguments,
-      environment: usbmuxEnvironment(),
-    );
+    final result = timeout == null
+        ? await ProcessRunner.run(
+            executable,
+            arguments,
+            environment: usbmuxEnvironment(),
+          )
+        : await _runWithTimeout(executable, arguments, timeout);
     if (result.exitCode != 0) {
       final msg = result.stderr.isNotEmpty ? result.stderr : result.stdout;
       throw TunnelError(
@@ -374,6 +392,43 @@ abstract final class Pymd {
       );
     }
     return result;
+  }
+
+  /// [ProcessRunner.run], except the subprocess is killed when [timeout]
+  /// passes (a plain `Future.timeout` would leak it, and a leaked
+  /// pymobiledevice3 holding a tunnel connection keeps hanging around).
+  static Future<CapturedProcess> _runWithTimeout(
+    String executable,
+    List<String> arguments,
+    Duration timeout,
+  ) async {
+    final process = await Process.start(
+      executable,
+      arguments,
+      environment: usbmuxEnvironment(),
+    );
+    final stdout = process.stdout.transform(utf8.decoder).join();
+    final stderr = process.stderr.transform(utf8.decoder).join();
+    try {
+      await process.stdin.close();
+    } catch (_) {}
+    final int exitCode;
+    try {
+      exitCode = await process.exitCode.timeout(timeout);
+    } on TimeoutException {
+      process.kill();
+      // SIGTERM may be ignored mid-handshake; escalate shortly after.
+      unawaited(
+        Future<void>.delayed(const Duration(seconds: 2)).then((_) {
+          process.kill(ProcessSignal.sigkill);
+        }),
+      );
+      throw TunnelError(
+        'pymobiledevice3 ${arguments.join(' ')} timed out after '
+        '${timeout.inSeconds}s',
+      );
+    }
+    return CapturedProcess(exitCode, await stdout, await stderr);
   }
 
   /// Env for child pymobiledevice3 processes.

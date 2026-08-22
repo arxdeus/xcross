@@ -23,11 +23,14 @@ abstract final class OsVersion {
     required bool overTunnel,
   }) async {
     try {
+      // Bounded: over a wireless tunnel a napping phone can stretch this
+      // read arbitrarily, and the version gate must not hang the run — a
+      // null answer already degrades gracefully at the caller.
       final result = await Pymd.run([
         'lockdown',
         'info',
         if (overTunnel) ...['--tunnel', udid] else ...['--udid', udid],
-      ]);
+      ], timeout: const Duration(seconds: 30));
       final stdout = result.stdout.trim();
       if (stdout.isEmpty) {
         Log.logWarn(

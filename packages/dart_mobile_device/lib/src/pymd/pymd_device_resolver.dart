@@ -45,7 +45,13 @@ class PymdDeviceResolver {
     String? selector,
     DeviceSearchMode mode = DeviceSearchMode.all,
   }) async {
-    var list = await PymdDevices.devices(mode: mode);
+    // Listing is not instant: the tunneld merge resolves device names over
+    // the wireless tunnel (bounded, but up to ~15 s against a napping
+    // phone), which reads as a dead hang without a spinner.
+    var list = await Log.logStep(
+      'Finding devices',
+      () => PymdDevices.devices(mode: mode),
+    );
     // Active bring-up only when the user explicitly asked for Wi-Fi: in
     // `all` mode an empty list usually means "forgot to plug the phone in",
     // and starting a root daemon plus a 45 s scan there would be hostile.
