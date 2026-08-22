@@ -115,7 +115,77 @@ class PymdDeviceResolver {
       );
       return;
     }
+    Log.logInfo(
+      'Wireless',
+      'no pairing with this host yet — starting device-initiated pairing',
+    );
+    _offeredPairHost = true;
     await RemotePairing.advertisePairHost();
+  }
+
+  /// Whether this resolution already ran a pair-host advertisement, so the
+  /// post-search rescue does not immediately ask the user to pair twice.
+  bool _offeredPairHost = false;
+
+  /// Last resort after a fruitless search: the phone is not connecting to
+  /// tunneld, which (network aside) means the pairing is gone on the phone's
+  /// side — deleting the host entry there leaves our record behind, and the
+  /// pre-flight "record exists, all good" check cannot see that. Advertise
+  /// for a fresh device-initiated pairing and keep polling discovery while
+  /// the user pairs; a phone that silently reconnects on the old record wins
+  /// the race and the advertisement is killed.
+  Future<List<Device>> _rescueWithPairHost({
+    required DeviceSearchMode mode,
+    required String? selector,
+    required List<Device> last,
+  }) async {
+    if (_offeredPairHost || !stdout.hasTerminal) return last;
+    _offeredPairHost = true;
+
+    Log.logInfo(
+      'Wireless',
+      'no device connected — its pairing with this host may have been '
+          'removed on the phone. Starting device-initiated pairing.',
+    );
+    final process = await RemotePairing.startPairHost();
+    if (process == null) return last;
+
+    var exited = false;
+    final exitFuture = process.exitCode.then((code) {
+      exited = true;
+      return code;
+    });
+    var list = last;
+    final deadline = DateTime.now().add(RemotePairing.pairHostTimeout);
+    while (DateTime.now().isBefore(deadline)) {
+      list = await PymdDevices.devices(mode: mode);
+      if (_matches(list, selector).isNotEmpty) {
+        process.kill();
+        return list;
+      }
+      if (exited) break;
+      await Future<void>.delayed(_pollInterval);
+    }
+    if (!exited) {
+      process.kill();
+      return list;
+    }
+    if (await exitFuture != 0) return list;
+
+    // Paired: the record is fresh, so give tunneld one more full search to
+    // notice the phone and build its tunnel.
+    final step = Log.beginStep('Searching for wireless devices');
+    final searchDeadline = DateTime.now().add(wirelessDiscoveryTimeout);
+    while (DateTime.now().isBefore(searchDeadline)) {
+      list = await PymdDevices.devices(mode: mode);
+      if (_matches(list, selector).isNotEmpty) {
+        step.done();
+        return list;
+      }
+      await Future<void>.delayed(_pollInterval);
+    }
+    step.fail();
+    return list;
   }
 
   /// USB-attached devices, or an empty list when usbmuxd is unreachable
@@ -228,7 +298,11 @@ class PymdDeviceResolver {
       if (log.isNotEmpty) {
         Log.logTrace('tunneld output during the search:\n$log');
       }
-      return list;
+      return await _rescueWithPairHost(
+        mode: mode,
+        selector: selector,
+        last: list,
+      );
     } on Object {
       step.fail();
       rethrow;

@@ -16,6 +16,13 @@ abstract final class RemotePairing {
   /// pairing on the phone before giving up.
   static const Duration pairHostTimeout = Duration(minutes: 3);
 
+  /// Name advertised on the phone, `xcross-` prefixed so the entry is
+  /// recognizable among real Macs in Settings > Developer > Paired Macs.
+  static String get advertiseName {
+    final host = Platform.localHostname;
+    return host.startsWith('xcross-') ? host : 'xcross-$host';
+  }
+
   /// Test override for [homeFolder].
   @visibleForTesting
   static String? homeOverride;
@@ -80,18 +87,30 @@ abstract final class RemotePairing {
   /// Advertise this host for device-initiated pairing and block until the
   /// user completes it on the phone (or [timeout] passes). Returns whether a
   /// pairing record was created.
+  static Future<bool> advertisePairHost({
+    Duration timeout = pairHostTimeout,
+  }) async {
+    final process = await startPairHost(timeout: timeout);
+    if (process == null) return false;
+    return await process.exitCode == 0;
+  }
+
+  /// Start the pair-host advertisement as a child process the caller owns,
+  /// or null when it cannot run (pymobiledevice3 missing or too old).
   ///
   /// Runs `pymobiledevice3 remote pair-host` with inherited stdio: it prints
   /// the on-phone steps and the 6-digit code the user must type, so its
-  /// output must reach the terminal verbatim. No root needed.
-  static Future<bool> advertisePairHost({
+  /// output must reach the terminal verbatim. No root needed. Callers that
+  /// can detect the phone connecting by other means (tunneld reusing a
+  /// still-valid record) should kill the process the moment it does.
+  static Future<Process?> startPairHost({
     Duration timeout = pairHostTimeout,
   }) async {
     final PymdInvocation inv;
     try {
       inv = await Pymd.resolve();
     } on Object {
-      return false;
+      return null;
     }
     if (!await _supportsPairHost()) {
       Log.logWarn(
@@ -99,13 +118,9 @@ abstract final class RemotePairing {
         '(e.g. `pipx upgrade pymobiledevice3`) to pair from the phone, or '
         'pair over USB instead.',
       );
-      return false;
+      return null;
     }
 
-    Log.logInfo(
-      'Wireless',
-      'no pairing with this host yet — starting device-initiated pairing',
-    );
     Log.logWarn(
       'Device-initiated pairing requires iOS 27 or later. On older iOS, '
       'plug the phone in over USB once and re-run with --wifi, or run '
@@ -117,14 +132,15 @@ abstract final class RemotePairing {
     // The subprocess owns the terminal: it prints the pairing steps, the
     // PIN, and a waiting heartbeat. Any spinner would corrupt that.
     Log.stopStep();
-    final Process process;
     try {
-      process = await Process.start(
+      return await Process.start(
         inv.executable,
         [
           ...inv.prefixArgs,
           'remote',
           'pair-host',
+          '--name',
+          advertiseName,
           '--timeout',
           '${timeout.inSeconds}',
         ],
@@ -133,9 +149,8 @@ abstract final class RemotePairing {
       );
     } on Object catch (e) {
       Log.logWarn('could not start `pymobiledevice3 remote pair-host`: $e');
-      return false;
+      return null;
     }
-    return await process.exitCode == 0;
   }
 
   /// Whether the resolved pymobiledevice3 knows `remote pair-host`

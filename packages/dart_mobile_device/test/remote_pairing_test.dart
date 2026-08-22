@@ -70,6 +70,13 @@ void main() {
     });
   });
 
+  group('RemotePairing.advertiseName', () {
+    test('is xcross- prefixed exactly once', () {
+      expect(RemotePairing.advertiseName, startsWith('xcross-'));
+      expect(RemotePairing.advertiseName, isNot(startsWith('xcross-xcross-')));
+    });
+  });
+
   group('RemotePairing.looksLikeUdid', () {
     test('accepts modern and legacy UDIDs', () {
       expect(RemotePairing.looksLikeUdid('00008030-000664292232802E'), isTrue);
