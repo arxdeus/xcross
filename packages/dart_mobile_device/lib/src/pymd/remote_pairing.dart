@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/pymd/pymd.dart';
@@ -24,6 +25,21 @@ abstract final class RemotePairing {
   static String get advertiseName {
     final host = Platform.localHostname;
     return host.startsWith('xcross-') ? host : 'xcross-$host';
+  }
+
+  /// A [advertiseName] variant carrying a short random suffix.
+  ///
+  /// A fresh advertisement is a *different* host to the phone, but it would
+  /// otherwise carry the same name as the stale entry already sitting in
+  /// Paired Macs — and tapping that stale entry does nothing at all (it
+  /// pair-verifies against an identifier no longer advertised, so no
+  /// connection is even attempted). The suffix makes the new entry
+  /// unmistakable in the phone's list.
+  static String freshAdvertiseName() {
+    final suffix = (Random().nextInt(0xFFFF) + 0x10000)
+        .toRadixString(16)
+        .substring(1);
+    return '$advertiseName-$suffix';
   }
 
   /// Test override for [homeFolder].
@@ -120,6 +136,7 @@ abstract final class RemotePairing {
     Duration timeout = pairHostTimeout,
     void Function(String line)? onLine,
     bool fresh = false,
+    String? name,
   }) async {
     final PymdInvocation inv;
     try {
@@ -128,7 +145,10 @@ abstract final class RemotePairing {
       return null;
     }
     if (fresh) {
-      final process = await _startFreshPairHost(timeout: timeout);
+      final process = await _startFreshPairHost(
+        timeout: timeout,
+        name: name ?? advertiseName,
+      );
       if (process != null) {
         if (onLine != null) _pipeLines(process, onLine);
         return process;
@@ -164,7 +184,7 @@ abstract final class RemotePairing {
           'remote',
           'pair-host',
           '--name',
-          advertiseName,
+          name ?? advertiseName,
           '--timeout',
           '${timeout.inSeconds}',
         ],
@@ -208,6 +228,7 @@ abstract final class RemotePairing {
   /// identifier — something the pymobiledevice3 CLI cannot express.
   static Future<Process?> _startFreshPairHost({
     required Duration timeout,
+    required String name,
   }) async {
     final script = await _pairHostScriptPath();
     if (script == null) return null;
@@ -215,7 +236,7 @@ abstract final class RemotePairing {
     try {
       return await Process.start(
         python,
-        [script, advertiseName, '--fresh', '--timeout', '${timeout.inSeconds}'],
+        [script, name, '--fresh', '--timeout', '${timeout.inSeconds}'],
         environment: {...Pymd.usbmuxEnvironment(), 'PYTHONUNBUFFERED': '1'},
       );
     } on Object catch (e) {

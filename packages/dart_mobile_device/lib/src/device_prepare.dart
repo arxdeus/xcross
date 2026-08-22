@@ -85,23 +85,31 @@ abstract final class DevicePrepare {
       // and silently fails pair-verify against our advertisement. Advertise
       // a fresh identifier so the phone must run pair-setup and show a PIN.
       final fresh = RemotePairing.pairingRecordIds().isNotEmpty;
+      // A fresh advertisement gets a distinct name: the phone's stale entry
+      // carries the plain one, and tapping that stale entry never even
+      // connects — indistinguishable, from the user's side, from a broken
+      // advertisement.
+      final name = fresh
+          ? RemotePairing.freshAdvertiseName()
+          : RemotePairing.advertiseName;
       final pairHost = await RemotePairing.startPairHost(
         onLine: _onPairHostLine,
         fresh: fresh,
+        name: name,
       );
       if (pairHost != null) {
         Log.logInfo(
           'Wireless',
           'to pair, on the iPhone (iOS 27+): Settings > Developer > Paired '
-              'Macs > "Other Devices" > "${RemotePairing.advertiseName}" — '
-              'the 6-digit code appears here when the phone connects',
+              'Macs > "Other Devices" > "$name" — the 6-digit code appears '
+              'here when the phone connects',
         );
         if (fresh) {
           Log.logInfo(
             'Wireless',
-            'if the phone already lists "${RemotePairing.advertiseName}" '
-                'under Paired Macs, delete that entry first — tapping it '
-                'resumes a pairing this host no longer has',
+            'tap exactly "$name" — an older "${RemotePairing.advertiseName}" '
+                'entry in the paired list is dead and tapping it does '
+                'nothing; delete it while you are there',
           );
         }
       }
@@ -188,6 +196,10 @@ abstract final class DevicePrepare {
           '${Log.ansi.bold}${Log.ansi.green}$rest${Log.ansi.none}',
         );
         Log.logStatus('');
+      case 'XCROSS-PAIR-CONNECTED':
+        Log.logStatus('${Glyph.info} the iPhone connected — pairing…');
+      case 'XCROSS-PAIR-RETRY':
+        Log.logTrace('[pair-host] attempt failed, still advertising: $rest');
       case 'XCROSS-PAIR-OK':
         Log.logDone('Paired with $rest');
       case 'XCROSS-PAIR-FAIL':

@@ -13,8 +13,12 @@ Usage: python3 pair_host.py <name> [--timeout SECONDS] [--fresh]
            when the phone still lists a stale entry for this host.
 
 Output lines are contract with the Dart side; keep them stable:
+  XCROSS-PAIR-ADVERTISING <name> <identifier>
   XCROSS-PAIR-PIN <code>
+  XCROSS-PAIR-CONNECTED
+  XCROSS-PAIR-RETRY <reason>
   XCROSS-PAIR-OK <udid> <name>
+  XCROSS-PAIR-RECORD <path>
   XCROSS-PAIR-FAIL <reason>
 """
 
@@ -22,6 +26,7 @@ import argparse
 import asyncio
 import platform
 import sys
+import time
 import uuid
 
 try:
@@ -51,32 +56,43 @@ def main() -> int:
     print(f"XCROSS-PAIR-ADVERTISING {info.name} {info.identifier}", flush=True)
 
     def pin_callback(pin: str) -> None:
+        print(f"XCROSS-PAIR-CONNECTED", flush=True)
         print(f"XCROSS-PAIR-PIN {pin}", flush=True)
 
     def waiting_callback(elapsed: float) -> None:
         print(f"XCROSS-PAIR-WAITING {int(elapsed)}", flush=True)
 
     async def run() -> int:
-        try:
-            result = await serve_pairable_host(
-                info,
-                pin_callback=pin_callback,
-                waiting_callback=waiting_callback,
-                timeout=args.timeout,
-            )
-        except asyncio.TimeoutError:
-            print("XCROSS-PAIR-FAIL timeout", flush=True)
-            return 1
-        except Exception as exc:  # noqa: BLE001 - surfaced verbatim to the user
-            print(f"XCROSS-PAIR-FAIL {type(exc).__name__}: {exc}", flush=True)
-            return 1
-        device = result.peer_device
-        print(
-            f"XCROSS-PAIR-OK {device.udid} {device.name}",
-            flush=True,
-        )
-        print(f"XCROSS-PAIR-RECORD {result.record_path}", flush=True)
-        return 0
+        deadline = time.monotonic() + args.timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                print("XCROSS-PAIR-FAIL timeout", flush=True)
+                return 1
+            try:
+                result = await serve_pairable_host(
+                    info,
+                    pin_callback=pin_callback,
+                    waiting_callback=waiting_callback,
+                    timeout=remaining,
+                )
+            except asyncio.TimeoutError:
+                print("XCROSS-PAIR-FAIL timeout", flush=True)
+                return 1
+            except Exception as exc:  # noqa: BLE001
+                # A half-open probe, a port scanner, or a phone that gave up
+                # mid-handshake all land here and would otherwise end the
+                # advertisement after a single stray packet. Keep serving:
+                # the user is still standing at the phone.
+                print(
+                    f"XCROSS-PAIR-RETRY {type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+                continue
+            device = result.peer_device
+            print(f"XCROSS-PAIR-OK {device.udid} {device.name}", flush=True)
+            print(f"XCROSS-PAIR-RECORD {result.record_path}", flush=True)
+            return 0
 
     try:
         return asyncio.run(run())
