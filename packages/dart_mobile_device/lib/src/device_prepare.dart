@@ -59,8 +59,8 @@ abstract final class DevicePrepare {
   ///
   /// Priority order:
   ///
-  /// 1. USB phone: establish lockdown trust, bootstrap RemotePairing through
-  ///    lockdown, and open its remote tunnel.
+  /// 1. USB phone: bootstrap RemotePairing through its trusted lockdown
+  ///    connection and open the remote tunnel.
   /// 2. No USB, saved RemotePairing records: reconnect to those devices.
   /// 3. No USB and no saved device: advertise `remote pair-host` for iOS 27+.
   ///
@@ -168,18 +168,16 @@ abstract final class DevicePrepare {
 
   /// Bootstrap RemotePairing over an already-trusted USB lockdown connection.
   ///
-  /// Classic `lockdown pair` establishes/refreshes USB trust. Then `lockdown
-  /// remotepairing --pair` writes the separate RemotePairing record consumed
-  /// by tunneld, without the iOS 27+ Paired Macs flow or a six-digit PIN.
-  /// Enabling Wi-Fi connections keeps the device discoverable after unplug.
+  /// `lockdown remotepairing --pair` uses the existing USB trust and writes the
+  /// separate RemotePairing record consumed by tunneld, without the iOS 27+
+  /// Paired Macs flow or a six-digit PIN. Do not run classic `lockdown pair`
+  /// here: rewriting an existing usbmux pair record is rejected by some Linux
+  /// usbmuxd versions with `BadDevError`. Enabling Wi-Fi connections keeps the
+  /// device discoverable after unplug.
   static Future<void> _prepareWirelessOverUsb(Device device) async {
     Log.logInfo(
       'Wireless',
       '${device.name} found on USB — pairing wireless services over lockdown',
-    );
-    await Log.logStep(
-      'Pairing device over USB',
-      () => Pymd.run(lockdownPairArgs(device.udid)),
     );
     await Log.logStep(
       'Pairing wireless services over USB',
@@ -204,17 +202,8 @@ abstract final class DevicePrepare {
     Log.logInfo('Next', Log.dim('unplug USB, then xcross flutter run --wifi'));
   }
 
-  @visibleForTesting
-  static List<String> lockdownPairArgs(String udid) => [
-    'lockdown',
-    'pair',
-    '--udid',
-    udid,
-  ];
-
-  /// Arguments kept explicit and testable because classic `lockdown pair`
-  /// creates only the usbmux pairing record. Wireless tunneld also requires
-  /// this newer RemotePairing-over-lockdown command.
+  /// Arguments kept explicit and testable because wireless tunneld requires
+  /// this RemotePairing-over-lockdown command, not classic `lockdown pair`.
   @visibleForTesting
   static List<String> lockdownRemotePairArgs(String udid) => [
     'lockdown',

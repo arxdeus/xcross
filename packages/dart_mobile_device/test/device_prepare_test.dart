@@ -33,14 +33,8 @@ void main() {
       );
     });
 
-    test('USB bootstrap uses classic and remote lockdown pairing', () {
+    test('USB bootstrap uses remote pairing over existing lockdown trust', () {
       const udid = '00008030-TEST';
-      expect(DevicePrepare.lockdownPairArgs(udid), [
-        'lockdown',
-        'pair',
-        '--udid',
-        udid,
-      ]);
       expect(DevicePrepare.lockdownRemotePairArgs(udid), [
         'lockdown',
         'remotepairing',
