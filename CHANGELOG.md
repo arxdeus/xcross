@@ -1,6 +1,6 @@
 ## Unreleased
 
-- Replace `xcross update --to` with `xcross update --ref`, where release tags still install verified release assets and branch or commit refs build from source before the same atomic install step.
+- Replace the old tag-only update selector with `--ref`, so release tags still install verified release assets while branch and commit refs build from source before the same atomic install step.
 
 ## 1.2.0
 
