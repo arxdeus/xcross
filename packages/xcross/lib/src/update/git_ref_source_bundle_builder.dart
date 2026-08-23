@@ -27,18 +27,24 @@ final class GitRefSourceBundleBuilder {
     required BuildGitRefBundleCallback<T> onBundle,
   }) async {
     if (ref.kind == GitUpdateRefKind.tag) {
-      throw XcrossError('build updates from source only supports non-tag git update refs');
+      throw XcrossError(
+        'build updates from source only supports non-tag git update refs',
+      );
     }
 
     final tempDirectory = await _createTempDirectory('xcross-update-source-');
     try {
       final repoDirectory = Directory(p.join(tempDirectory.path, 'xcross'));
-      await _runChecked('git', ['clone', repoUrl, repoDirectory.path], action: 'clone update source');
+      await _runChecked('git', [
+        'clone',
+        repoUrl,
+        repoDirectory.path,
+      ], action: 'clone update source');
       await _runChecked(
         'git',
-        ['fetch', '--depth', '1', 'origin', ref.fetchRef],
+        ['fetch', '--depth', '1', 'origin', ref.commitSha],
         workingDirectory: repoDirectory.path,
-        action: 'fetch update ref ${ref.fetchRef}',
+        action: 'fetch update commit ${ref.commitSha}',
       );
       await _runChecked(
         'git',
@@ -52,7 +58,9 @@ final class GitRefSourceBundleBuilder {
         workingDirectory: repoDirectory.path,
         action: 'run dart pub get for update source',
       );
-      final packageDirectory = Directory(p.join(repoDirectory.path, 'packages', 'xcross'));
+      final packageDirectory = Directory(
+        p.join(repoDirectory.path, 'packages', 'xcross'),
+      );
       await _runChecked(
         'dart',
         ['build', 'cli', '-t', 'bin/xcross.dart'],
@@ -66,7 +74,9 @@ final class GitRefSourceBundleBuilder {
   }
 
   Directory _findBundle(Directory packageDirectory) {
-    final buildCliDirectory = Directory(p.join(packageDirectory.path, 'build', 'cli'));
+    final buildCliDirectory = Directory(
+      p.join(packageDirectory.path, 'build', 'cli'),
+    );
     final matches = <Directory>[];
     if (buildCliDirectory.existsSync()) {
       for (final entry in buildCliDirectory.listSync(followLinks: false)) {
@@ -89,8 +99,8 @@ final class GitRefSourceBundleBuilder {
   Future<void> _runChecked(
     String executable,
     List<String> arguments, {
-    String? workingDirectory,
     required String action,
+    String? workingDirectory,
   }) async {
     final result = await _run(
       executable,

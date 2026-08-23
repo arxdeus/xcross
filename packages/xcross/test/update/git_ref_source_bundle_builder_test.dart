@@ -8,182 +8,191 @@ import 'package:xcross/src/update/git_update_ref_resolver.dart';
 
 void main() {
   group('GitRefSourceBundleBuilder.build', () {
-    test('builds a branch ref and exposes the bundle only inside the callback', () async {
-      final scratch = await Directory.systemTemp.createTemp('git-ref-bundle-test-');
-      addTearDown(() async {
-        if (await scratch.exists()) {
-          await scratch.delete(recursive: true);
-        }
-      });
-      final staging = Directory(p.join(scratch.path, 'staging'));
-      final repo = Directory(p.join(staging.path, 'xcross'));
-      final bundle = Directory(
-        p.join(repo.path, 'packages', 'xcross', 'build', 'cli', 'linux-x64', 'bundle'),
-      );
-      final runner = _FakeProcessRunner(onRun: (call) async {
-        if (call.arguments.first == 'build') {
-          await Directory(p.join(bundle.path, 'bin')).create(recursive: true);
-          await Directory(p.join(bundle.path, 'lib')).create(recursive: true);
-        }
-        return _result();
-      });
-      final deleted = <String>[];
-      final builder = GitRefSourceBundleBuilder(
-        run: runner.run,
-        createTempDirectory: (_) async {
-          await staging.create(recursive: true);
-          return staging;
-        },
-        deleteDirectory: (directory) async {
-          deleted.add(directory.path);
-          if (await directory.exists()) {
-            await directory.delete(recursive: true);
-          }
-        },
-      );
-
-      Directory? seenBundle;
-      var callbackSawExistingBundle = false;
-      await builder.build<void>(
-        ref: const GitUpdateRef(
-          kind: GitUpdateRefKind.branch,
-          displayName: 'main',
-          fetchRef: 'refs/heads/main',
-          commitSha: '1234567890abcdef1234567890abcdef12345678',
-        ),
-        onBundle: (bundleDirectory) async {
-          seenBundle = bundleDirectory;
-          callbackSawExistingBundle = await bundleDirectory.exists();
-          expect(p.basename(bundleDirectory.path), 'bundle');
-          expect(await Directory(p.join(bundleDirectory.path, 'bin')).exists(), isTrue);
-          expect(await Directory(p.join(bundleDirectory.path, 'lib')).exists(), isTrue);
-        },
-      );
-
-      expect(
-        runner.calls,
-        equals([
-          _ProcessCall('git', [
-            'clone',
-            'https://github.com/arxdeus/xcross.git',
+    test(
+      'builds a branch ref and exposes the bundle only inside the callback',
+      () async {
+        final scratch = _createScratchDirectory();
+        final staging = Directory(p.join(scratch.path, 'staging'));
+        final repo = Directory(p.join(staging.path, 'xcross'));
+        final bundle = Directory(
+          p.join(
             repo.path,
-          ]),
-          _ProcessCall(
-            'git',
-            const [
+            'packages',
+            'xcross',
+            'build',
+            'cli',
+            'linux-x64',
+            'bundle',
+          ),
+        );
+        final runner = _FakeProcessRunner(
+          onRun: (call) async {
+            if (call.arguments.first == 'build') {
+              _createBundle(bundle);
+            }
+            return _result();
+          },
+        );
+        final deleted = <String>[];
+        final builder = GitRefSourceBundleBuilder(
+          run: runner.run,
+          createTempDirectory: (_) =>
+              Future.value(staging..createSync(recursive: true)),
+          deleteDirectory: (directory) async {
+            deleted.add(directory.path);
+            if (directory.existsSync()) {
+              directory.deleteSync(recursive: true);
+            }
+          },
+        );
+
+        Directory? seenBundle;
+        var callbackSawExistingBundle = false;
+        await builder.build<void>(
+          ref: const GitUpdateRef(
+            kind: GitUpdateRefKind.branch,
+            displayName: 'main',
+            fetchRef: 'refs/heads/main',
+            commitSha: '1234567890abcdef1234567890abcdef12345678',
+          ),
+          onBundle: (bundleDirectory) async {
+            seenBundle = bundleDirectory;
+            callbackSawExistingBundle = bundleDirectory.existsSync();
+            expect(p.basename(bundleDirectory.path), 'bundle');
+            expect(
+              Directory(p.join(bundleDirectory.path, 'bin')).existsSync(),
+              isTrue,
+            );
+            expect(
+              Directory(p.join(bundleDirectory.path, 'lib')).existsSync(),
+              isTrue,
+            );
+          },
+        );
+
+        expect(
+          runner.calls,
+          equals([
+            _ProcessCall('git', [
+              'clone',
+              'https://github.com/arxdeus/xcross.git',
+              repo.path,
+            ]),
+            _ProcessCall('git', const [
               'fetch',
               '--depth',
               '1',
               'origin',
-              'refs/heads/main',
-            ],
-            workingDirectory: repo.path,
-          ),
-          _ProcessCall(
-            'git',
-            const ['checkout', '--detach', '1234567890abcdef1234567890abcdef12345678'],
-            workingDirectory: repo.path,
-          ),
-          _ProcessCall(
-            'dart',
-            const ['pub', 'get'],
-            workingDirectory: repo.path,
-          ),
-          _ProcessCall(
-            'dart',
-            const ['build', 'cli', '-t', 'bin/xcross.dart'],
-            workingDirectory: p.join(repo.path, 'packages', 'xcross'),
-          ),
-        ]),
-      );
-      expect(callbackSawExistingBundle, isTrue);
-      expect(await seenBundle!.exists(), isFalse);
-      expect(deleted, [staging.path]);
-    });
+              '1234567890abcdef1234567890abcdef12345678',
+            ], workingDirectory: repo.path),
+            _ProcessCall('git', const [
+              'checkout',
+              '--detach',
+              '1234567890abcdef1234567890abcdef12345678',
+            ], workingDirectory: repo.path),
+            _ProcessCall('dart', const [
+              'pub',
+              'get',
+            ], workingDirectory: repo.path),
+            _ProcessCall('dart', const [
+              'build',
+              'cli',
+              '-t',
+              'bin/xcross.dart',
+            ], workingDirectory: p.join(repo.path, 'packages', 'xcross')),
+          ]),
+        );
+        expect(callbackSawExistingBundle, isTrue);
+        expect(seenBundle!.existsSync(), isFalse);
+        expect(deleted, [staging.path]);
+      },
+    );
 
-    test('builds a commit ref using its fetchRef and detached commit sha', () async {
-      final scratch = await Directory.systemTemp.createTemp('git-ref-bundle-test-');
-      addTearDown(() async {
-        if (await scratch.exists()) {
-          await scratch.delete(recursive: true);
-        }
-      });
-      final staging = Directory(p.join(scratch.path, 'staging'));
-      final repo = Directory(p.join(staging.path, 'xcross'));
-      final bundle = Directory(
-        p.join(repo.path, 'packages', 'xcross', 'build', 'cli', 'macos-arm64', 'bundle'),
-      );
-      final runner = _FakeProcessRunner(onRun: (call) async {
-        if (call.arguments.first == 'build') {
-          await Directory(p.join(bundle.path, 'bin')).create(recursive: true);
-          await Directory(p.join(bundle.path, 'lib')).create(recursive: true);
-        }
-        return _result();
-      });
-      final builder = GitRefSourceBundleBuilder(
-        run: runner.run,
-        createTempDirectory: (_) async {
-          await staging.create(recursive: true);
-          return staging;
-        },
-        deleteDirectory: (directory) async => directory.delete(recursive: true),
-      );
+    test(
+      'fetches and checks out the exact commit sha even when fetchRef differs',
+      () async {
+        final scratch = _createScratchDirectory();
+        final staging = Directory(p.join(scratch.path, 'staging'));
+        final repo = Directory(p.join(staging.path, 'xcross'));
+        final bundle = Directory(
+          p.join(
+            repo.path,
+            'packages',
+            'xcross',
+            'build',
+            'cli',
+            'macos-arm64',
+            'bundle',
+          ),
+        );
+        final runner = _FakeProcessRunner(
+          onRun: (call) async {
+            if (call.arguments.first == 'build') {
+              _createBundle(bundle);
+            }
+            return _result();
+          },
+        );
+        final builder = GitRefSourceBundleBuilder(
+          run: runner.run,
+          createTempDirectory: (_) =>
+              Future.value(staging..createSync(recursive: true)),
+          deleteDirectory: _deleteDirectorySync,
+        );
 
-      await builder.build<void>(
-        ref: const GitUpdateRef(
-          kind: GitUpdateRefKind.commit,
-          displayName: 'feature-head',
-          fetchRef: 'pull/42/head',
-          commitSha: 'abcdefabcdefabcdefabcdefabcdefabcdefabcd',
-        ),
-        onBundle: (_) async {},
-      );
+        await builder.build<void>(
+          ref: const GitUpdateRef(
+            kind: GitUpdateRefKind.commit,
+            displayName: 'feature-head',
+            fetchRef: 'pull/42/head',
+            commitSha: 'abcdefabcdefabcdefabcdefabcdefabcdefabcd',
+          ),
+          onBundle: (_) async {},
+        );
 
-      expect(
-        runner.calls[1],
-        _ProcessCall(
-          'git',
-          const ['fetch', '--depth', '1', 'origin', 'pull/42/head'],
-          workingDirectory: repo.path,
-        ),
-      );
-      expect(
-        runner.calls[2],
-        _ProcessCall(
-          'git',
-          const ['checkout', '--detach', 'abcdefabcdefabcdefabcdefabcdefabcdefabcd'],
-          workingDirectory: repo.path,
-        ),
-      );
-    });
+        expect(
+          runner.calls[1],
+          _ProcessCall('git', const [
+            'fetch',
+            '--depth',
+            '1',
+            'origin',
+            'abcdefabcdefabcdefabcdefabcdefabcdefabcd',
+          ], workingDirectory: repo.path),
+        );
+        expect(
+          runner.calls[2],
+          _ProcessCall('git', const [
+            'checkout',
+            '--detach',
+            'abcdefabcdefabcdefabcdefabcdefabcdefabcd',
+          ], workingDirectory: repo.path),
+        );
+      },
+    );
 
     test('deletes the temp directory when the build command fails', () async {
-      final scratch = await Directory.systemTemp.createTemp('git-ref-bundle-test-');
-      addTearDown(() async {
-        if (await scratch.exists()) {
-          await scratch.delete(recursive: true);
-        }
-      });
+      final scratch = _createScratchDirectory();
       final staging = Directory(p.join(scratch.path, 'staging'));
       final repo = Directory(p.join(staging.path, 'xcross'));
       final deleted = <String>[];
       final builder = GitRefSourceBundleBuilder(
-        run: _FakeProcessRunner(onRun: (call) async {
-          if (call.executable == 'git' && call.arguments.first == 'clone') {
-            await repo.create(recursive: true);
-          }
-          if (call.executable == 'dart' && call.arguments.first == 'build') {
-            return _result(exitCode: 78, stderr: 'compile failed');
-          }
-          return _result();
-        }).run,
-        createTempDirectory: (_) async {
-          await staging.create(recursive: true);
-          return staging;
-        },
+        run: _FakeProcessRunner(
+          onRun: (call) async {
+            if (call.executable == 'git' && call.arguments.first == 'clone') {
+              repo.createSync(recursive: true);
+            }
+            if (call.executable == 'dart' && call.arguments.first == 'build') {
+              return _result(exitCode: 78, stderr: 'compile failed');
+            }
+            return _result();
+          },
+        ).run,
+        createTempDirectory: (_) =>
+            Future.value(staging..createSync(recursive: true)),
         deleteDirectory: (directory) async {
           deleted.add(directory.path);
-          await directory.delete(recursive: true);
+          directory.deleteSync(recursive: true);
         },
       );
 
@@ -209,41 +218,43 @@ void main() {
     });
 
     test('deletes the temp directory when the callback fails', () async {
-      final scratch = await Directory.systemTemp.createTemp('git-ref-bundle-test-');
-      addTearDown(() async {
-        if (await scratch.exists()) {
-          await scratch.delete(recursive: true);
-        }
-      });
+      final scratch = _createScratchDirectory();
       final staging = Directory(p.join(scratch.path, 'staging'));
       final repo = Directory(p.join(staging.path, 'xcross'));
       final bundle = Directory(
-        p.join(repo.path, 'packages', 'xcross', 'build', 'cli', 'linux-x64', 'bundle'),
+        p.join(
+          repo.path,
+          'packages',
+          'xcross',
+          'build',
+          'cli',
+          'linux-x64',
+          'bundle',
+        ),
       );
       final deleted = <String>[];
       final builder = GitRefSourceBundleBuilder(
-        run: _FakeProcessRunner(onRun: (call) async {
-          if (call.executable == 'git' && call.arguments.first == 'clone') {
-            await repo.create(recursive: true);
-          }
-          if (call.executable == 'dart' && call.arguments.first == 'build') {
-            await Directory(p.join(bundle.path, 'bin')).create(recursive: true);
-            await Directory(p.join(bundle.path, 'lib')).create(recursive: true);
-          }
-          return _result();
-        }).run,
-        createTempDirectory: (_) async {
-          await staging.create(recursive: true);
-          return staging;
-        },
+        run: _FakeProcessRunner(
+          onRun: (call) async {
+            if (call.executable == 'git' && call.arguments.first == 'clone') {
+              repo.createSync(recursive: true);
+            }
+            if (call.executable == 'dart' && call.arguments.first == 'build') {
+              _createBundle(bundle);
+            }
+            return _result();
+          },
+        ).run,
+        createTempDirectory: (_) =>
+            Future.value(staging..createSync(recursive: true)),
         deleteDirectory: (directory) async {
           deleted.add(directory.path);
-          await directory.delete(recursive: true);
+          directory.deleteSync(recursive: true);
         },
       );
 
-      try {
-        await builder.build<void>(
+      await expectLater(
+        () => builder.build<void>(
           ref: const GitUpdateRef(
             kind: GitUpdateRefKind.branch,
             displayName: 'main',
@@ -251,11 +262,15 @@ void main() {
             commitSha: '1234567890abcdef1234567890abcdef12345678',
           ),
           onBundle: (_) async => throw StateError('callback exploded'),
-        );
-        fail('expected callback failure');
-      } on StateError catch (error) {
-        expect(error.message, 'callback exploded');
-      }
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            'callback exploded',
+          ),
+        ),
+      );
       expect(deleted, [staging.path]);
     });
 
@@ -285,26 +300,21 @@ void main() {
     });
 
     test('throws when no built bundle exists', () async {
-      final scratch = await Directory.systemTemp.createTemp('git-ref-bundle-test-');
-      addTearDown(() async {
-        if (await scratch.exists()) {
-          await scratch.delete(recursive: true);
-        }
-      });
+      final scratch = _createScratchDirectory();
       final staging = Directory(p.join(scratch.path, 'staging'));
       final repo = Directory(p.join(staging.path, 'xcross'));
       final builder = GitRefSourceBundleBuilder(
-        run: _FakeProcessRunner(onRun: (call) async {
-          if (call.executable == 'git' && call.arguments.first == 'clone') {
-            await repo.create(recursive: true);
-          }
-          return _result();
-        }).run,
-        createTempDirectory: (_) async {
-          await staging.create(recursive: true);
-          return staging;
-        },
-        deleteDirectory: (directory) async => directory.delete(recursive: true),
+        run: _FakeProcessRunner(
+          onRun: (call) async {
+            if (call.executable == 'git' && call.arguments.first == 'clone') {
+              repo.createSync(recursive: true);
+            }
+            return _result();
+          },
+        ).run,
+        createTempDirectory: (_) =>
+            Future.value(staging..createSync(recursive: true)),
+        deleteDirectory: _deleteDirectorySync,
       );
 
       await expectLater(
@@ -328,36 +338,49 @@ void main() {
     });
 
     test('throws when multiple built bundles exist', () async {
-      final scratch = await Directory.systemTemp.createTemp('git-ref-bundle-test-');
-      addTearDown(() async {
-        if (await scratch.exists()) {
-          await scratch.delete(recursive: true);
-        }
-      });
+      final scratch = _createScratchDirectory();
       final staging = Directory(p.join(scratch.path, 'staging'));
       final repo = Directory(p.join(staging.path, 'xcross'));
       final builder = GitRefSourceBundleBuilder(
-        run: _FakeProcessRunner(onRun: (call) async {
-          if (call.executable == 'git' && call.arguments.first == 'clone') {
-            await repo.create(recursive: true);
-          }
-          if (call.executable == 'dart' && call.arguments.first == 'build') {
-            for (final target in ['linux-x64', 'macos-arm64']) {
-              await Directory(
-                p.join(repo.path, 'packages', 'xcross', 'build', 'cli', target, 'bundle', 'bin'),
-              ).create(recursive: true);
-              await Directory(
-                p.join(repo.path, 'packages', 'xcross', 'build', 'cli', target, 'bundle', 'lib'),
-              ).create(recursive: true);
+        run: _FakeProcessRunner(
+          onRun: (call) async {
+            if (call.executable == 'git' && call.arguments.first == 'clone') {
+              repo.createSync(recursive: true);
             }
-          }
-          return _result();
-        }).run,
-        createTempDirectory: (_) async {
-          await staging.create(recursive: true);
-          return staging;
-        },
-        deleteDirectory: (directory) async => directory.delete(recursive: true),
+            if (call.executable == 'dart' && call.arguments.first == 'build') {
+              for (final target in ['linux-x64', 'macos-arm64']) {
+                Directory(
+                  p.join(
+                    repo.path,
+                    'packages',
+                    'xcross',
+                    'build',
+                    'cli',
+                    target,
+                    'bundle',
+                    'bin',
+                  ),
+                ).createSync(recursive: true);
+                Directory(
+                  p.join(
+                    repo.path,
+                    'packages',
+                    'xcross',
+                    'build',
+                    'cli',
+                    target,
+                    'bundle',
+                    'lib',
+                  ),
+                ).createSync(recursive: true);
+              }
+            }
+            return _result();
+          },
+        ).run,
+        createTempDirectory: (_) =>
+            Future.value(staging..createSync(recursive: true)),
+        deleteDirectory: _deleteDirectorySync,
       );
 
       await expectLater(
@@ -382,8 +405,30 @@ void main() {
   });
 }
 
-ProcessResult _result({int exitCode = 0, String stdout = '', String stderr = ''}) =>
-    ProcessResult(1, exitCode, stdout, stderr);
+Directory _createScratchDirectory() {
+  final scratch = Directory.systemTemp.createTempSync('git-ref-bundle-test-');
+  addTearDown(() {
+    if (scratch.existsSync()) {
+      scratch.deleteSync(recursive: true);
+    }
+  });
+  return scratch;
+}
+
+void _createBundle(Directory bundle) {
+  Directory(p.join(bundle.path, 'bin')).createSync(recursive: true);
+  Directory(p.join(bundle.path, 'lib')).createSync(recursive: true);
+}
+
+Future<void> _deleteDirectorySync(Directory directory) async {
+  directory.deleteSync(recursive: true);
+}
+
+ProcessResult _result({
+  int exitCode = 0,
+  String stdout = '',
+  String stderr = '',
+}) => ProcessResult(1, exitCode, stdout, stderr);
 
 final class _FakeProcessRunner {
   _FakeProcessRunner({required this.onRun});
@@ -395,7 +440,7 @@ final class _FakeProcessRunner {
     String executable,
     List<String> arguments, {
     String? workingDirectory,
-  }) async {
+  }) {
     final call = _ProcessCall(
       executable,
       List<String>.unmodifiable(arguments),
@@ -421,7 +466,8 @@ final class _ProcessCall {
       other.workingDirectory == workingDirectory;
 
   @override
-  int get hashCode => Object.hash(executable, Object.hashAll(arguments), workingDirectory);
+  int get hashCode =>
+      Object.hash(executable, Object.hashAll(arguments), workingDirectory);
 
   @override
   String toString() => '$executable ${arguments.join(' ')} @ $workingDirectory';
