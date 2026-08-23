@@ -62,24 +62,24 @@ final class GitUpdateRefResolver {
     }
 
     final tagRef = _tagRef(ref);
-    final tagProbe = await _probeTag(tagRef);
-    if (tagProbe != null) {
+    final tagCommitSha = await _lookupCommitSha(tagRef, preferPeeledTag: true);
+    if (tagCommitSha != null) {
       return GitUpdateRef(
         kind: GitUpdateRefKind.tag,
         displayName: _displayName(tagRef, 'refs/tags/'),
         fetchRef: tagRef,
-        commitSha: tagProbe.commitSha,
+        commitSha: tagCommitSha,
       );
     }
 
     final branchRef = _branchRef(ref);
-    final branchProbe = await _probe(branchRef);
-    if (branchProbe != null) {
+    final branchCommitSha = await _lookupCommitSha(branchRef);
+    if (branchCommitSha != null) {
       return GitUpdateRef(
         kind: GitUpdateRefKind.branch,
         displayName: _displayName(branchRef, 'refs/heads/'),
         fetchRef: branchRef,
-        commitSha: branchProbe.commitSha,
+        commitSha: branchCommitSha,
       );
     }
 
@@ -104,10 +104,8 @@ final class GitUpdateRefResolver {
     GitUpdateRefKind kind,
     String prefix,
   ) async {
-    final probe = kind == GitUpdateRefKind.tag
-        ? await _probeTag(ref)
-        : await _probe(ref);
-    if (probe == null) {
+    final commitSha = await _resolveExactCommitSha(ref, kind: kind);
+    if (commitSha == null) {
       throw XcrossError(
         'failed to resolve update ref "$ref": git did not return an exact '
         'full 40-character commit SHA',
@@ -117,22 +115,35 @@ final class GitUpdateRefResolver {
       kind: kind,
       displayName: _displayName(ref, prefix),
       fetchRef: ref,
-      commitSha: probe.commitSha,
+      commitSha: commitSha,
     );
   }
 
-  Future<_ProbeResult?> _probeTag(String ref) async {
-    final result = await _run('git', ['ls-remote', repoUrl, ref, '$ref^{}']);
-    if (result.exitCode != 0) return null;
-    final commitSha = _commitSha('${result.stdout}', ref, allowPeeled: true);
-    return commitSha == null ? null : _ProbeResult(commitSha);
+  Future<String?> _resolveExactCommitSha(
+    String ref, {
+    required GitUpdateRefKind kind,
+  }) {
+    return kind == GitUpdateRefKind.tag
+        ? _lookupCommitSha(ref, preferPeeledTag: true)
+        : _lookupCommitSha(ref);
   }
 
-  Future<_ProbeResult?> _probe(String ref) async {
-    final result = await _lsRemote(ref);
+  Future<String?> _lookupCommitSha(
+    String ref, {
+    bool preferPeeledTag = false,
+  }) async {
+    final result = await _run('git', [
+      'ls-remote',
+      repoUrl,
+      ref,
+      if (preferPeeledTag) '$ref^{}',
+    ]);
     if (result.exitCode != 0) return null;
-    final commitSha = _commitSha('${result.stdout}', ref);
-    return commitSha == null ? null : _ProbeResult(commitSha);
+    return _parseLsRemoteCommitSha(
+      '${result.stdout}',
+      ref,
+      preferPeeledTag: preferPeeledTag,
+    );
   }
 
   Future<String> _fetchCommit(String ref) async {
@@ -174,8 +185,8 @@ final class GitUpdateRefResolver {
     } finally {
       try {
         await _deleteDirectory(directory);
-      } on Object catch (error) {
-        _ignoreCleanupError(error);
+      } on Object catch (_) {
+        // ignore: empty_catches
       }
     }
   }
@@ -189,8 +200,25 @@ final class GitUpdateRefResolver {
     );
   }
 
-  Future<ProcessResult> _lsRemote(String ref) =>
-      _run('git', ['ls-remote', repoUrl, ref]);
+  static String _displayName(String ref, String prefix) =>
+      ref.substring(prefix.length);
+
+  static String? _parseLsRemoteCommitSha(
+    String output,
+    String ref, {
+    bool preferPeeledTag = false,
+  }) {
+    String? direct;
+    String? peeled;
+    for (final line in output.split('\n').map((line) => line.trim())) {
+      if (line.isEmpty) continue;
+      final fields = line.split(RegExp(r'\s+'));
+      if (fields.length != 2 || !_fullCommitSha.hasMatch(fields[0])) continue;
+      if (fields[1] == ref) direct = fields[0];
+      if (preferPeeledTag && fields[1] == '$ref^{}') peeled = fields[0];
+    }
+    return peeled ?? direct;
+  }
 
   static Future<Directory> _defaultCreateTempDirectory(String prefix) =>
       Directory.systemTemp.createTemp(prefix);
@@ -202,35 +230,7 @@ final class GitUpdateRefResolver {
 
   static String _branchRef(String ref) => 'refs/heads/$ref';
 
-  static String _displayName(String ref, String prefix) =>
-      ref.substring(prefix.length);
-
-  static String? _commitSha(
-    String output,
-    String ref, {
-    bool allowPeeled = false,
-  }) {
-    String? direct;
-    String? peeled;
-    for (final line in output.split('\n').map((line) => line.trim())) {
-      if (line.isEmpty) continue;
-      final fields = line.split(RegExp(r'\s+'));
-      if (fields.length != 2 || !_fullCommitSha.hasMatch(fields[0])) continue;
-      if (fields[1] == ref) direct = fields[0];
-      if (allowPeeled && fields[1] == '$ref^{}') peeled = fields[0];
-    }
-    return peeled ?? direct;
-  }
-
   static final _wildcard = RegExp(r'[?*\[]');
   static final _hex = RegExp(r'^[0-9a-fA-F]+$');
   static final _fullCommitSha = RegExp(r'^[0-9a-fA-F]{40}$');
-
-  static void _ignoreCleanupError(Object _) {}
-}
-
-final class _ProbeResult {
-  const _ProbeResult(this.commitSha);
-
-  final String commitSha;
 }
