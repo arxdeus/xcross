@@ -170,6 +170,16 @@ let package = Package(
   });
 
   group('normalizeHostManifest', () {
+    test('finds dependency products that may emit Swift headers', () {
+      expect(
+        GeneratedPluginsPackage.dependencyProductNames('''
+.product(name: "FirebaseFirestore", package: "firebase-ios-sdk"),
+.product(name: "firebase-core", package: "firebase_core"),
+'''),
+        {'FirebaseFirestore', 'firebase-core'},
+      );
+    });
+
     test('inserts CRT and ucrt before MSVCRT', () {
       const input = '''
 #if canImport(Darwin)
@@ -1419,6 +1429,76 @@ let package = Package(
       },
     );
 
+    test('copies plugin packages that need interop source repair', () async {
+      final plugin = makePlugin(
+        'cloud_firestore',
+        packageManifest: '''
+// swift-tools-version: 5.9
+import PackageDescription
+let package = Package(
+    name: "cloud_firestore",
+    dependencies: [
+        .package(url: "https://example.com/firebase.git", from: "1.0.0"),
+        .package(name: "firebase_core", path: "../firebase_core")
+    ],
+    targets: [
+        .target(
+            name: "cloud_firestore",
+            dependencies: [.product(name: "FirebaseFirestore", package: "firebase")]
+        )
+    ]
+)
+''',
+      );
+      final source = File(p.join(plugin.swiftPackageDir, 'Sources', 'Plugin.m'))
+        ..createSync(recursive: true);
+      source.writeAsStringSync('@import FirebaseFirestore;\n');
+      final firebaseCore = makePlugin('firebase_core');
+      final flutterXcframework = p.join(tmp.path, 'Flutter.xcframework');
+      Directory(flutterXcframework).createSync(recursive: true);
+      final outputDir = p.join(tmp.path, 'out');
+
+      await GeneratedPluginsPackage.writeGeneratedPackages(
+        outputDir: outputDir,
+        plugins: [plugin, firebaseCore],
+        flutterXcframework: flutterXcframework,
+        copyFlutterXcframework: true,
+        vendorRemotePackages: false,
+        copyPluginPackages: const {'cloud_firestore'},
+        deploymentTarget: const IosDeploymentTarget('15.6'),
+      );
+
+      final staged = File(
+        p.join(
+          outputDir,
+          'Packages',
+          'cloud_firestore',
+          'ios',
+          'cloud_firestore',
+          'Sources',
+          'Plugin.m',
+        ),
+      );
+      expect(staged.readAsStringSync(), '@import FirebaseFirestore;\n');
+      staged.writeAsStringSync('// repaired\n');
+      expect(source.readAsStringSync(), '@import FirebaseFirestore;\n');
+      expect(
+        File(
+          p.join(
+            outputDir,
+            'Packages',
+            'cloud_firestore',
+            'ios',
+            'cloud_firestore',
+            'Package.swift',
+          ),
+        ).readAsStringSync(),
+        contains(
+          'path: "${swiftPath(p.join(outputDir, 'Packages', 'firebase_core'))}"',
+        ),
+      );
+    });
+
     test(
       'writes shared packages and the Flutter xcframework symlink',
       () async {
@@ -1762,7 +1842,7 @@ let package = Package(
       expect(arguments, isNot(contains('-install_name')));
     });
 
-    test('passes interop include dirs of built Swift targets', () {
+    test('passes interop include dirs on POSIX hosts', () {
       final buildDir = p.join(tmp.path, 'arm64-apple-ios', 'debug');
       // A Swift target that has been built: interop header emitted.
       final built = p.join(buildDir, 'Impl.build', 'include');
@@ -1794,52 +1874,154 @@ let package = Package(
           swiftSdksPath: 'xcross-swift-sdks',
           iosSdk: 'iPhoneOS.sdk',
           flutterFrameworkSlice: 'Flutter.xcframework/ios-arm64',
-          windows: true,
+          windows: false,
           interopSearchPaths: ['-Xcc', '-I', '-Xcc', built],
         ),
         containsAllInOrder(['-Xcc', '-I', '-Xcc', built]),
       );
     });
 
-    test('retries when a failed build emits a Swift interop header', () async {
-      final buildDir = p.join(tmp.path, 'arm64-apple-ios', 'debug');
-      var attempts = 0;
+    test(
+      'repairs transitive imports exposed by generated Swift headers',
+      () async {
+        final buildDir = p.join(tmp.path, 'arm64-apple-ios', 'debug');
+        final include = p.join(buildDir, 'FirebaseFirestore.build', 'include');
+        Directory(include).createSync(recursive: true);
+        File(p.join(include, 'FirebaseFirestore-Swift.h')).writeAsStringSync('''
+@import FirebaseFirestoreInternal;
+''');
+        final consumer = p.join(tmp.path, 'cloud_firestore');
+        final source = File(p.join(consumer, 'Sources', 'Plugin.m'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('''
+@import FirebaseFirestore;
+void registerPlugin(void) {}
+''');
+        final unrelated = File(p.join(consumer, 'Sources', 'Other.m'))
+          ..writeAsStringSync('@import FirebaseCore;\n');
 
-      await GeneratedPluginsPackage.buildWithInteropRetry(
-        targetBuildDir: buildDir,
-        windows: false,
-        build: () async {
-          attempts++;
-          if (attempts != 1) return;
-          final include = p.join(
-            buildDir,
-            'FirebaseFirestore.build',
-            'include',
-          );
-          Directory(include).createSync(recursive: true);
-          File(
-            p.join(include, 'FirebaseFirestore-Swift.h'),
-          ).writeAsStringSync('// generated');
-          throw StateError(
-            "header '$include/FirebaseFirestore-Swift.h' not found",
-          );
-        },
-      );
+        await GeneratedPluginsPackage.repairSwiftInteropConsumers(
+          targetBuildDir: buildDir,
+          consumerProducts: {
+            consumer: const {'FirebaseFirestore'},
+          },
+        );
+        await GeneratedPluginsPackage.repairSwiftInteropConsumers(
+          targetBuildDir: buildDir,
+          consumerProducts: {
+            consumer: const {'FirebaseFirestore'},
+          },
+        );
 
-      expect(attempts, 2);
-    });
+        expect(source.readAsStringSync(), '''
+@import FirebaseFirestore;
+@import FirebaseFirestoreInternal;
+void registerPlugin(void) {}
+''');
+        expect(unrelated.readAsStringSync(), '@import FirebaseCore;\n');
+      },
+    );
+
+    test(
+      'prebuilds a Swift target whose generated header is missing',
+      () async {
+        final buildDir = p.join(tmp.path, 'arm64-apple-ios', 'debug');
+        final include = p.join(buildDir, 'FirebaseFirestore.build', 'include');
+        Directory(include).createSync(recursive: true);
+        File(p.join(include, 'module.modulemap')).writeAsStringSync('''
+module FirebaseFirestore {
+  header "FirebaseFirestore-Swift.h"
+}
+''');
+        final unrelated = p.join(buildDir, 'FirebaseAI.build', 'include');
+        Directory(unrelated).createSync(recursive: true);
+        File(p.join(unrelated, 'module.modulemap')).writeAsStringSync('''
+module FirebaseAI {
+  header "FirebaseAI-Swift.h"
+}
+''');
+        var attempts = 0;
+        final prebuilt = <String>[];
+        final events = <String>[];
+
+        await GeneratedPluginsPackage.buildWithInteropRecovery(
+          targetBuildDir: buildDir,
+          interopTargetCandidates: const {'FirebaseFirestore'},
+          windows: false,
+          build: () async {
+            events.add('build');
+            attempts++;
+          },
+          buildTarget: (target) async {
+            events.add('target');
+            prebuilt.add(target);
+            File(
+              p.join(include, 'FirebaseFirestore-Swift.h'),
+            ).writeAsStringSync('// generated');
+          },
+          repairConsumers: () async => events.add('repair'),
+        );
+
+        expect(prebuilt, ['FirebaseFirestore']);
+        expect(attempts, 1);
+        expect(events, ['repair', 'target', 'repair', 'build']);
+      },
+    );
+
+    test(
+      'prebuilds and retries when a build exposes a missing header',
+      () async {
+        final buildDir = p.join(tmp.path, 'arm64-apple-ios', 'debug');
+        final include = p.join(buildDir, 'FirebaseFirestore.build', 'include');
+        var attempts = 0;
+        final events = <String>[];
+
+        await GeneratedPluginsPackage.buildWithInteropRecovery(
+          targetBuildDir: buildDir,
+          interopTargetCandidates: const {'FirebaseFirestore'},
+          windows: false,
+          build: () async {
+            attempts++;
+            events.add('build$attempts');
+            if (attempts != 1) return;
+            Directory(include).createSync(recursive: true);
+            File(p.join(include, 'module.modulemap')).writeAsStringSync('''
+module FirebaseFirestore {
+  header "$include/FirebaseFirestore-Swift.h"
+}
+''');
+            throw StateError(
+              "header '$include/FirebaseFirestore-Swift.h' not found",
+            );
+          },
+          buildTarget: (target) async {
+            events.add('target');
+            expect(target, 'FirebaseFirestore');
+            File(
+              p.join(include, 'FirebaseFirestore-Swift.h'),
+            ).writeAsStringSync('// generated');
+          },
+          repairConsumers: () async => events.add('repair'),
+        );
+
+        expect(attempts, 2);
+        expect(events, ['repair', 'build1', 'target', 'repair', 'build2']);
+      },
+    );
 
     test('does not retry a failure that emits no interop header', () async {
       var attempts = 0;
 
       await expectLater(
-        GeneratedPluginsPackage.buildWithInteropRetry(
+        GeneratedPluginsPackage.buildWithInteropRecovery(
           targetBuildDir: p.join(tmp.path, 'arm64-apple-ios', 'debug'),
+          interopTargetCandidates: const {'FirebaseFirestore'},
           windows: false,
           build: () {
             attempts++;
             return Future<void>.error(StateError('real compile failure'));
           },
+          buildTarget: (_) async => fail('no target should be prebuilt'),
         ),
         throwsStateError,
       );
@@ -1848,14 +2030,48 @@ let package = Package(
     });
 
     test(
+      'does not retry an unrelated failure that exposes a missing header',
+      () async {
+        final buildDir = p.join(tmp.path, 'arm64-apple-ios', 'debug');
+        final include = p.join(buildDir, 'FirebaseFirestore.build', 'include');
+        var attempts = 0;
+
+        await expectLater(
+          GeneratedPluginsPackage.buildWithInteropRecovery(
+            targetBuildDir: buildDir,
+            interopTargetCandidates: const {'FirebaseFirestore'},
+            windows: false,
+            build: () {
+              attempts++;
+              Directory(include).createSync(recursive: true);
+              File(p.join(include, 'module.modulemap')).writeAsStringSync('''
+module FirebaseFirestore {
+  header "FirebaseFirestore-Swift.h"
+}
+''');
+              return Future<void>.error(
+                StateError('unrelated compile failure'),
+              );
+            },
+            buildTarget: (_) async => fail('no target should be prebuilt'),
+          ),
+          throwsStateError,
+        );
+
+        expect(attempts, 1);
+      },
+    );
+
+    test(
       'does not retry an unrelated POSIX failure as headers build',
       () async {
         final buildDir = p.join(tmp.path, 'arm64-apple-ios', 'debug');
         var attempts = 0;
 
         await expectLater(
-          GeneratedPluginsPackage.buildWithInteropRetry(
+          GeneratedPluginsPackage.buildWithInteropRecovery(
             targetBuildDir: buildDir,
+            interopTargetCandidates: const {'FirebaseFirestore'},
             windows: false,
             build: () {
               attempts++;
@@ -1868,6 +2084,7 @@ let package = Package(
                 StateError('unrelated compile failure'),
               );
             },
+            buildTarget: (_) async => fail('no target should be prebuilt'),
           ),
           throwsStateError,
         );

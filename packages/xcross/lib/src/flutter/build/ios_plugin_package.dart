@@ -89,10 +89,25 @@ abstract final class GeneratedPluginsPackage {
           'spmPlugins=${[for (final plugin in spmPlugins) plugin.name]}',
         );
 
+        final interopProductsByPlugin = <String, Set<String>>{};
+        for (final plugin in spmPlugins) {
+          final manifest = await File(
+            p.join(plugin.swiftPackageDir, 'Package.swift'),
+          ).readAsString();
+          final products = dependencyProductNames(manifest);
+          if (products.isNotEmpty) {
+            interopProductsByPlugin[plugin.name] = products;
+          }
+        }
+        final interopTargetCandidates = {
+          for (final products in interopProductsByPlugin.values) ...products,
+        };
+
         await writeGeneratedPackages(
           outputDir: outputDir,
           plugins: spmPlugins,
           flutterXcframework: flutterXcframework,
+          copyPluginPackages: interopProductsByPlugin.keys.toSet(),
           deploymentTarget: deploymentTarget,
           verbose: verbose,
         );
@@ -104,6 +119,18 @@ abstract final class GeneratedPluginsPackage {
           pluginsDir: pluginsDir,
           scratchPath: scratchPath,
           flutterXcframework: flutterXcframework,
+          interopTargetCandidates: interopTargetCandidates,
+          interopConsumers: {
+            for (final plugin in spmPlugins)
+              if (interopProductsByPlugin[plugin.name] case final products?)
+                p.join(
+                  outputDir,
+                  'Packages',
+                  plugin.name,
+                  plugin.platformDirectoryName,
+                  p.basename(plugin.swiftPackageDir),
+                ): products,
+          },
         );
 
         return discoverAndRewriteDylibs(
@@ -118,6 +145,8 @@ abstract final class GeneratedPluginsPackage {
     required String pluginsDir,
     required String scratchPath,
     required String flutterXcframework,
+    required Set<String> interopTargetCandidates,
+    required Map<String, Set<String>> interopConsumers,
   }) async {
     final sdk = DarwinSdk.current();
     if (sdk == null) {
@@ -183,32 +212,40 @@ abstract final class GeneratedPluginsPackage {
       );
     }
     final targetBuildDir = p.join(scratchPath, 'arm64-apple-ios', 'debug');
-    Future<void> build() => ProcessRunner.runChecked(
-      swift,
-      swiftBuildArguments(
-        pluginsDir: pluginsDir,
-        scratchPath: scratchPath,
-        swiftSdksPath: swiftSdksPath,
-        iosSdk: sdk.iPhoneOSSdk(),
-        flutterFrameworkSlice: flutterFrameworkSlice,
-        toolsetPath: toolsetPath,
-        // Windows gets the same override from the toolset's `linker`.
-        linkerPath: windows ? null : linker,
-        windows: windows,
-        interopSearchPaths: windows
-            ? swiftInteropSearchPaths(targetBuildDir)
-            : const [],
-        previewMacroStubPath: previewMacroStub,
-      ),
-      environment: environment,
-      inheritStdio: Log.isVerbose,
-      label: 'swift build',
-    );
+    Future<void> runBuild([List<String> selection = const []]) =>
+        ProcessRunner.runChecked(
+          swift,
+          [
+            ...swiftBuildArguments(
+              pluginsDir: pluginsDir,
+              scratchPath: scratchPath,
+              swiftSdksPath: swiftSdksPath,
+              iosSdk: sdk.iPhoneOSSdk(),
+              flutterFrameworkSlice: flutterFrameworkSlice,
+              toolsetPath: toolsetPath,
+              // Windows gets the same override from the toolset's `linker`.
+              linkerPath: windows ? null : linker,
+              windows: windows,
+              interopSearchPaths: swiftInteropSearchPaths(targetBuildDir),
+              previewMacroStubPath: previewMacroStub,
+            ),
+            ...selection,
+          ],
+          environment: environment,
+          inheritStdio: windows && Log.isVerbose,
+          label: 'swift build',
+        );
 
     await buildTranslatingSdkMismatch(
-      () => buildWithInteropRetry(
-        build: build,
+      () => buildWithInteropRecovery(
+        build: runBuild,
+        buildTarget: (target) => runBuild(['--target', target]),
         targetBuildDir: targetBuildDir,
+        interopTargetCandidates: interopTargetCandidates,
+        repairConsumers: () => repairSwiftInteropConsumers(
+          targetBuildDir: targetBuildDir,
+          consumerProducts: interopConsumers,
+        ),
         windows: windows,
       ),
     );
@@ -270,50 +307,191 @@ abstract final class GeneratedPluginsPackage {
     }
   }
 
-  /// Retries a [build] once when it looks like it lost the race against
-  /// SwiftPM's own interop-header generation.
+  /// Repairs and retries a [build] whose generated Swift interop header is
+  /// missing.
   ///
-  /// A target that reaches a package's Objective-C headers through a
-  /// generated compatibility module needs the interop headers Swift emits
-  /// for that package, and SwiftPM does not put them on its search path.
-  /// Those headers only exist once their own target has been built, so the
-  /// first run can fail at the target that needs them while emitting them
-  /// for a retry to consume. POSIX hosts additionally require the failure to
-  /// name a missing `-Swift.h`; Windows retains the broader header-emission
-  /// check because its compatibility-module failures do not always name it.
-  /// Builds are incremental, so the retry only builds what the first run
-  /// could not.
+  /// SwiftPM can schedule an Objective-C consumer after writing a Swift
+  /// target's module map but before compiling the target that emits the
+  /// referenced `-Swift.h`. Prebuilding each affected target establishes the
+  /// missing output before the aggregate build resumes. Windows retains its
+  /// existing one-retry fallback for compatibility modules whose failure does
+  /// not leave a missing generated-header reference behind.
   @visibleForTesting
-  static Future<void> buildWithInteropRetry({
+  static Future<void> buildWithInteropRecovery({
     required Future<void> Function() build,
+    required Future<void> Function(String target) buildTarget,
     required String targetBuildDir,
+    required Set<String> interopTargetCandidates,
+    Future<void> Function()? repairConsumers,
     bool? windows,
   }) async {
+    final repair = repairConsumers ?? () async {};
+
+    Future<bool> recoverMissingTargets([Object? failure]) async {
+      final targets = missingSwiftInteropTargets(
+        targetBuildDir,
+        candidates: interopTargetCandidates,
+      );
+      if (failure != null &&
+          !(windows ?? Platform.isWindows) &&
+          !isMissingSwiftInteropHeaderFailure(failure, targets)) {
+        return false;
+      }
+      for (final target in targets) {
+        await buildTarget(target);
+      }
+      if (targets.isNotEmpty) await repair();
+      return targets.isNotEmpty;
+    }
+
+    await repair();
+    if (await recoverMissingTargets()) {
+      await build();
+      return;
+    }
+
     final before = swiftInteropSearchPaths(targetBuildDir).toSet();
     try {
       await build();
     } on Object catch (error) {
-      if (!(windows ?? Platform.isWindows) &&
-          !_isMissingSwiftInteropHeaderError(error)) {
-        rethrow;
+      if (await recoverMissingTargets(error)) {
+        await build();
+        return;
       }
       final emitted = swiftInteropSearchPaths(
         targetBuildDir,
       ).toSet().difference(before);
-      if (emitted.isEmpty) {
+      if (!(windows ?? Platform.isWindows) || emitted.isEmpty) {
         rethrow;
       }
+      await repair();
       await build();
     }
   }
 
-  static bool _isMissingSwiftInteropHeaderError(Object error) {
+  @visibleForTesting
+  static bool isMissingSwiftInteropHeaderFailure(
+    Object error,
+    Iterable<String> targets,
+  ) {
     final message = '$error';
-    return message.contains('-Swift.h') &&
-        RegExp(
-          r'\b(?:file )?not found\b',
-          caseSensitive: false,
-        ).hasMatch(message);
+    return targets.any(
+      (target) =>
+          message.contains('$target-Swift.h') && message.contains('not found'),
+    );
+  }
+
+  @visibleForTesting
+  static List<String> missingSwiftInteropTargets(
+    String targetBuildDir, {
+    required Set<String> candidates,
+  }) {
+    final directory = Directory(targetBuildDir);
+    if (!directory.existsSync()) return const [];
+    final targets = <String>{};
+    final headerPattern = RegExp(r'\bheader\s+"([^"]+-Swift\.h)"');
+    for (final entity in directory.listSync(followLinks: false)) {
+      if (entity is! Directory || !p.basename(entity.path).endsWith('.build')) {
+        continue;
+      }
+      final include = p.join(entity.path, 'include');
+      final moduleMap = File(p.join(include, 'module.modulemap'));
+      if (!moduleMap.existsSync()) continue;
+      for (final match in headerPattern.allMatches(
+        moduleMap.readAsStringSync(),
+      )) {
+        final reference = match.group(1)!;
+        final header = p.isAbsolute(reference)
+            ? reference
+            : p.join(include, reference);
+        if (File(header).existsSync()) continue;
+        final basename = p.basename(reference);
+        final target = basename.substring(
+          0,
+          basename.length - '-Swift.h'.length,
+        );
+        if (candidates.contains(target)) targets.add(target);
+      }
+    }
+    final sorted = targets.toList()..sort();
+    return sorted;
+  }
+
+  @visibleForTesting
+  static Set<String> dependencyProductNames(String manifest) => {
+    for (final call in _swiftCalls(manifest, '.product'))
+      if (_namedString(call.text, 'name') case final String name) name,
+  };
+
+  @visibleForTesting
+  static Future<void> repairSwiftInteropConsumers({
+    required String targetBuildDir,
+    required Map<String, Set<String>> consumerProducts,
+  }) async {
+    final importsByProduct = <String, List<String>>{};
+    final importPattern = RegExp(
+      r'^\s*@import\s+([A-Za-z_][A-Za-z0-9_]*)\s*;',
+      multiLine: true,
+    );
+    for (final product in {
+      for (final products in consumerProducts.values) ...products,
+    }) {
+      final header = File(
+        p.join(targetBuildDir, '$product.build', 'include', '$product-Swift.h'),
+      );
+      if (!header.existsSync()) continue;
+      final imports = {
+        for (final match in importPattern.allMatches(header.readAsStringSync()))
+          if (match.group(1)! != product) match.group(1)!,
+      }.toList()..sort();
+      if (imports.isNotEmpty) importsByProduct[product] = imports;
+    }
+
+    for (final MapEntry(key: consumer, value: products)
+        in consumerProducts.entries) {
+      final directory = Directory(consumer);
+      if (!directory.existsSync()) continue;
+      await for (final entity in directory.list(
+        recursive: true,
+        followLinks: false,
+      )) {
+        if (entity is! File ||
+            !const {'.h', '.m', '.mm'}.contains(p.extension(entity.path))) {
+          continue;
+        }
+        var source = await entity.readAsString();
+        final newline = source.contains('\r\n') ? '\r\n' : '\n';
+        final original = source;
+        for (final product in products) {
+          final imports = importsByProduct[product];
+          if (imports == null) continue;
+          final marker = '@import $product;';
+          final markerStart = source.indexOf(marker);
+          if (markerStart == -1) continue;
+          final missing = [
+            for (final imported in imports)
+              if (!source.contains('@import $imported;')) '@import $imported;',
+          ];
+          if (missing.isEmpty) continue;
+          var insertAt = markerStart + marker.length;
+          if (source.startsWith('\r\n', insertAt)) {
+            insertAt += 2;
+          } else if (source.startsWith('\n', insertAt) ||
+              source.startsWith('\r', insertAt)) {
+            insertAt++;
+          } else {
+            source = source.replaceRange(insertAt, insertAt, newline);
+            insertAt += newline.length;
+          }
+          source = source.replaceRange(
+            insertAt,
+            insertAt,
+            '${missing.join(newline)}$newline',
+          );
+        }
+        if (source != original) await _writeStable(entity.path, source);
+      }
+    }
   }
 
   /// Process-local settings for Windows SwiftPM dependency checkout and
@@ -509,8 +687,8 @@ abstract final class GeneratedPluginsPackage {
       // implicit Clang modules through its own frontend, so it needs the
       // flag as well as the C/Objective-C targets.
       ...noImplicitModuleLockArguments,
-      ...interopSearchPaths,
     ],
+    ...interopSearchPaths,
     // Apple's `PreviewsMacros` plugin ships only inside Xcode, so `#Preview`
     // needs the stub on every cross host, not just Windows.
     if (previewMacroStubPath != null) ...[
@@ -728,6 +906,7 @@ abstract final class GeneratedPluginsPackage {
     bool verbose = false,
     bool? copyFlutterXcframework,
     bool? vendorRemotePackages,
+    Set<String> copyPluginPackages = const {},
   }) async {
     final windows = Platform.isWindows;
     final packagesDir = p.join(outputDir, 'Packages');
@@ -751,7 +930,35 @@ abstract final class GeneratedPluginsPackage {
         target: plugin.swiftPackageDir,
         platformDir: plugin.platformDirectoryName,
         vendorDir: shouldVendor ? vendorDir : null,
+        copySources: copyPluginPackages.contains(plugin.name),
       );
+    }
+    final packagesByDirectoryName = {
+      for (final package in pluginPackageDirs.values)
+        p.basename(package): package,
+    };
+    for (final plugin in plugins) {
+      if (!copyPluginPackages.contains(plugin.name)) continue;
+      final stagedPackage = pluginPackageDirs[plugin.name]!;
+      final manifestFile = File(p.join(stagedPackage, 'Package.swift'));
+      var manifest = await manifestFile.readAsString();
+      final original = manifest;
+      for (final call in _swiftCalls(manifest, '.package').reversed) {
+        final relativePath = _namedString(call.text, 'path');
+        if (relativePath == null || p.isAbsolute(relativePath)) continue;
+        final dependencyPath = p.normalize(p.join(stagedPackage, relativePath));
+        final sharedPackage =
+            packagesByDirectoryName[p.basename(dependencyPath)];
+        if (sharedPackage == null || p.equals(dependencyPath, sharedPackage)) {
+          continue;
+        }
+        final rewritten = call.text.replaceFirst(
+          RegExp(r'path\s*:\s*"[^"]+"'),
+          'path: "${_swiftPath(sharedPackage)}"',
+        );
+        manifest = manifest.replaceRange(call.start, call.end, rewritten);
+      }
+      if (manifest != original) await _writeStable(manifestFile.path, manifest);
     }
     await _writePluginsPackage(
       pluginsDir: pluginsDir,
@@ -776,9 +983,11 @@ abstract final class GeneratedPluginsPackage {
     required String target,
     String platformDir = 'ios',
     String? vendorDir,
+    bool copySources = false,
   }) async {
     var stagedPackage = alias;
-    if (vendorDir != null) {
+    final shouldCopySources = vendorDir != null || copySources;
+    if (shouldCopySources) {
       await _deleteUnless(alias, FileSystemEntityType.directory);
       final packageRoot = p.dirname(p.dirname(target));
       await _stageAncestorOverlay(
@@ -805,7 +1014,7 @@ abstract final class GeneratedPluginsPackage {
       );
     }
 
-    if (vendorDir != null) {
+    if (shouldCopySources) {
       // Normalizing during the mirror keeps re-runs byte-stable: copying
       // first and normalizing after would rewrite (and re-timestamp) every
       // normalized source on every build.
