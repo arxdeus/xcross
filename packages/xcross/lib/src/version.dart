@@ -1,15 +1,10 @@
-/// Build identity of this xcross binary.
+part 'version.g.dart';
+
 abstract final class XcrossVersion {
-  /// Release version, stamped from the git tag at build time by
-  /// `tool/stamp_version.dart`.
-  ///
-  /// A checkout that was never stamped keeps the `-dev` suffix.
-  static const String current = '1.2.1-dev';
+  static const String current = _xcrossBuildVersion;
+  static const bool isReleased = _xcrossBuildReleased;
+  static bool get isDev => !isReleased;
 
-  /// True when this binary was not built from a tagged release.
-  static bool get isDev => current.contains('-dev');
-
-  /// One-line `xcross --version` output.
   static String describe() =>
-      isDev ? 'xcross $current (unreleased build)' : 'xcross $current';
+      isReleased ? 'xcross $current' : 'xcross $current (unreleased build)';
 }
