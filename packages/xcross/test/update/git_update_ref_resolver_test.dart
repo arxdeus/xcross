@@ -15,6 +15,7 @@ void main() {
               'ls-remote',
               'https://github.com/arxdeus/xcross.git',
               'refs/tags/release',
+              'refs/tags/release^{}',
             ],
             result: _result(
               stdout:
@@ -41,6 +42,7 @@ void main() {
             'ls-remote',
             'https://github.com/arxdeus/xcross.git',
             'refs/tags/v1.2.3',
+            'refs/tags/v1.2.3^{}',
           ],
           result: _result(
             stdout:
@@ -66,6 +68,7 @@ void main() {
             'ls-remote',
             'https://github.com/arxdeus/xcross.git',
             'refs/tags/main',
+            'refs/tags/main^{}',
           ],
           result: _result(exitCode: 2, stderr: 'no tag'),
         ),
@@ -96,6 +99,7 @@ void main() {
             'ls-remote',
             'https://github.com/arxdeus/xcross.git',
             'refs/tags/main',
+            'refs/tags/main^{}',
           ],
           [
             'ls-remote',
@@ -130,43 +134,69 @@ void main() {
       expect(resolved.commitSha, '3333333333333333333333333333333333333333');
     });
 
-    test('classifies a commit sha through the fallback probe', () async {
-      const sha = '4444444444444444444444444444444444444444';
-      final runner = _FakeGitRunner([
-        _GitCall(
-          arguments: const [
-            'ls-remote',
-            'https://github.com/arxdeus/xcross.git',
-            'refs/tags/$sha',
-          ],
-          result: _result(exitCode: 2),
-        ),
-        _GitCall(
-          arguments: const [
-            'ls-remote',
-            'https://github.com/arxdeus/xcross.git',
-            'refs/heads/$sha',
-          ],
-          result: _result(exitCode: 2),
-        ),
-        _GitCall(
-          arguments: const [
-            'ls-remote',
-            'https://github.com/arxdeus/xcross.git',
-            sha,
-          ],
-          result: _result(stdout: '$sha\t$sha\n'),
-        ),
-      ]);
-      final resolver = GitUpdateRefResolver(run: runner.run);
+    test(
+      'resolves a commit sha through a temporary fetch and rev-parse',
+      () async {
+        const sha = '4444444444444444444444444444444444444444';
+        final runner = _FakeGitRunner([
+          _GitCall(
+            arguments: const [
+              'ls-remote',
+              'https://github.com/arxdeus/xcross.git',
+              'refs/tags/$sha',
+              'refs/tags/$sha^{}',
+            ],
+            result: _result(exitCode: 2),
+          ),
+          _GitCall(
+            arguments: const [
+              'ls-remote',
+              'https://github.com/arxdeus/xcross.git',
+              'refs/heads/$sha',
+            ],
+            result: _result(exitCode: 2),
+          ),
+          _GitCall(
+            arguments: const ['init'],
+            workingDirectory: '/tmp/fake-xcross-update-1',
+            result: _result(),
+          ),
+          _GitCall(
+            arguments: const [
+              'fetch',
+              '--depth=1',
+              'https://github.com/arxdeus/xcross.git',
+              sha,
+            ],
+            workingDirectory: '/tmp/fake-xcross-update-1',
+            result: _result(),
+          ),
+          _GitCall(
+            arguments: const ['rev-parse', 'FETCH_HEAD'],
+            workingDirectory: '/tmp/fake-xcross-update-1',
+            result: _result(stdout: '$sha\n'),
+          ),
+        ]);
+        final tempDirs = _FakeTempDirectories([
+          Directory('/tmp/fake-xcross-update-1'),
+        ]);
+        final deleted = <String>[];
+        final resolver = GitUpdateRefResolver(
+          run: runner.run,
+          createTempDirectory: tempDirs.create,
+          deleteDirectory: (directory) async => deleted.add(directory.path),
+        );
 
-      final resolved = await resolver.resolve(sha);
+        final resolved = await resolver.resolve(sha);
 
-      expect(resolved.kind, GitUpdateRefKind.commit);
-      expect(resolved.displayName, sha);
-      expect(resolved.fetchRef, sha);
-      expect(resolved.commitSha, sha);
-    });
+        expect(resolved.kind, GitUpdateRefKind.commit);
+        expect(resolved.displayName, sha);
+        expect(resolved.fetchRef, sha);
+        expect(resolved.commitSha, sha);
+        expect(tempDirs.prefixes, ['xcross-update-ref-']);
+        expect(deleted, ['/tmp/fake-xcross-update-1']);
+      },
+    );
 
     test('treats any other fetchable ref as a commit kind', () async {
       final runner = _FakeGitRunner([
@@ -175,6 +205,7 @@ void main() {
             'ls-remote',
             'https://github.com/arxdeus/xcross.git',
             'refs/tags/pull/12/head',
+            'refs/tags/pull/12/head^{}',
           ],
           result: _result(exitCode: 2),
         ),
@@ -187,18 +218,35 @@ void main() {
           result: _result(exitCode: 2),
         ),
         _GitCall(
+          arguments: const ['init'],
+          workingDirectory: '/tmp/fake-xcross-update-2',
+          result: _result(),
+        ),
+        _GitCall(
           arguments: const [
-            'ls-remote',
+            'fetch',
+            '--depth=1',
             'https://github.com/arxdeus/xcross.git',
             'pull/12/head',
           ],
-          result: _result(
-            stdout:
-                '5555555555555555555555555555555555555555\trefs/pull/12/head\n',
-          ),
+          workingDirectory: '/tmp/fake-xcross-update-2',
+          result: _result(),
+        ),
+        _GitCall(
+          arguments: const ['rev-parse', 'FETCH_HEAD'],
+          workingDirectory: '/tmp/fake-xcross-update-2',
+          result: _result(stdout: '5555555555555555555555555555555555555555\n'),
         ),
       ]);
-      final resolver = GitUpdateRefResolver(run: runner.run);
+      final tempDirs = _FakeTempDirectories([
+        Directory('/tmp/fake-xcross-update-2'),
+      ]);
+      final deleted = <String>[];
+      final resolver = GitUpdateRefResolver(
+        run: runner.run,
+        createTempDirectory: tempDirs.create,
+        deleteDirectory: (directory) async => deleted.add(directory.path),
+      );
 
       final resolved = await resolver.resolve('pull/12/head');
 
@@ -206,17 +254,19 @@ void main() {
       expect(resolved.displayName, 'pull/12/head');
       expect(resolved.fetchRef, 'pull/12/head');
       expect(resolved.commitSha, '5555555555555555555555555555555555555555');
+      expect(deleted, ['/tmp/fake-xcross-update-2']);
     });
 
-    test('throws a useful error when the fallback fetch fails', () async {
+    test('deletes the temporary directory when fallback fetch fails', () async {
       final runner = _FakeGitRunner([
         _GitCall(
           arguments: const [
             'ls-remote',
             'https://github.com/arxdeus/xcross.git',
             'refs/tags/missing',
+            'refs/tags/missing^{}',
           ],
-          result: _result(exitCode: 2, stderr: 'no tag'),
+          result: _result(exitCode: 2),
         ),
         _GitCall(
           arguments: const [
@@ -224,21 +274,36 @@ void main() {
             'https://github.com/arxdeus/xcross.git',
             'refs/heads/missing',
           ],
-          result: _result(exitCode: 2, stderr: 'no branch'),
+          result: _result(exitCode: 2),
+        ),
+        _GitCall(
+          arguments: const ['init'],
+          workingDirectory: '/tmp/fake-xcross-update-3',
+          result: _result(),
         ),
         _GitCall(
           arguments: const [
-            'ls-remote',
+            'fetch',
+            '--depth=1',
             'https://github.com/arxdeus/xcross.git',
             'missing',
           ],
+          workingDirectory: '/tmp/fake-xcross-update-3',
           result: _result(
             exitCode: 128,
             stderr: 'fatal: could not find remote ref missing',
           ),
         ),
       ]);
-      final resolver = GitUpdateRefResolver(run: runner.run);
+      final tempDirs = _FakeTempDirectories([
+        Directory('/tmp/fake-xcross-update-3'),
+      ]);
+      final deleted = <String>[];
+      final resolver = GitUpdateRefResolver(
+        run: runner.run,
+        createTempDirectory: tempDirs.create,
+        deleteDirectory: (directory) async => deleted.add(directory.path),
+      );
 
       await expectLater(
         () => resolver.resolve('missing'),
@@ -250,6 +315,7 @@ void main() {
           ),
         ),
       );
+      expect(deleted, ['/tmp/fake-xcross-update-3']);
     });
   });
 }
@@ -260,29 +326,51 @@ ProcessResult _result({
   String stderr = '',
 }) => ProcessResult(1, exitCode, stdout, stderr);
 
-typedef _RunGit =
-    Future<ProcessResult> Function(String executable, List<String> arguments);
-
 final class _FakeGitRunner {
   _FakeGitRunner(this._calls);
 
   final List<_GitCall> _calls;
   final calls = <List<String>>[];
 
-  Future<ProcessResult> run(String executable, List<String> arguments) async {
+  Future<ProcessResult> run(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+  }) async {
     expect(executable, 'git');
     final index = calls.length;
-    if (index >= _calls.length) fail('unexpected git call: $arguments');
+    if (index >= _calls.length) {
+      fail('unexpected git call: $arguments @ $workingDirectory');
+    }
     final call = _calls[index];
     calls.add(arguments);
     expect(arguments, call.arguments);
+    expect(workingDirectory, call.workingDirectory);
     return call.result;
   }
 }
 
 final class _GitCall {
-  const _GitCall({required this.arguments, required this.result});
+  const _GitCall({
+    required this.arguments,
+    required this.result,
+    this.workingDirectory,
+  });
 
   final List<String> arguments;
   final ProcessResult result;
+  final String? workingDirectory;
+}
+
+final class _FakeTempDirectories {
+  _FakeTempDirectories(this._directories);
+
+  final List<Directory> _directories;
+  final prefixes = <String>[];
+
+  Future<Directory> create(String prefix) async {
+    prefixes.add(prefix);
+    if (_directories.isEmpty) fail('unexpected temp directory request');
+    return _directories.removeAt(0);
+  }
 }

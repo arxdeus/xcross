@@ -21,14 +21,29 @@ final class GitUpdateRef {
 }
 
 typedef RunGitProcess =
-    Future<ProcessResult> Function(String executable, List<String> arguments);
+    Future<ProcessResult> Function(
+      String executable,
+      List<String> arguments, {
+      String? workingDirectory,
+    });
+typedef CreateTempDirectory = Future<Directory> Function(String prefix);
+typedef DeleteDirectory = Future<void> Function(Directory directory);
 
 final class GitUpdateRefResolver {
-  GitUpdateRefResolver({RunGitProcess? run}) : _run = run ?? _defaultRun;
+  GitUpdateRefResolver({
+    RunGitProcess? run,
+    CreateTempDirectory? createTempDirectory,
+    DeleteDirectory? deleteDirectory,
+  }) : _run = run ?? _defaultRun,
+       _createTempDirectory =
+           createTempDirectory ?? _defaultCreateTempDirectory,
+       _deleteDirectory = deleteDirectory ?? _defaultDeleteDirectory;
 
   static const repoUrl = 'https://github.com/arxdeus/xcross.git';
 
   final RunGitProcess _run;
+  final CreateTempDirectory _createTempDirectory;
+  final DeleteDirectory _deleteDirectory;
 
   Future<GitUpdateRef> resolve(String ref) async {
     if (ref.startsWith('refs/tags/')) {
@@ -39,7 +54,7 @@ final class GitUpdateRefResolver {
     }
 
     final tagRef = _tagRef(ref);
-    final tagProbe = await _probe(tagRef);
+    final tagProbe = await _probeTag(tagRef);
     if (tagProbe != null) {
       return GitUpdateRef(
         kind: GitUpdateRefKind.tag,
@@ -60,23 +75,7 @@ final class GitUpdateRefResolver {
       );
     }
 
-    final fallback = await _lsRemote(ref);
-    if (fallback.exitCode != 0) {
-      final stderr = '${fallback.stderr}'.trim();
-      throw XcrossError(
-        stderr.isEmpty
-            ? 'failed to resolve update ref "$ref"'
-            : 'failed to resolve update ref "$ref": $stderr',
-      );
-    }
-
-    final commitSha = _commitSha('${fallback.stdout}');
-    if (commitSha == null) {
-      throw XcrossError(
-        'failed to resolve update ref "$ref": empty git output',
-      );
-    }
-
+    final commitSha = await _fetchCommit(ref);
     return GitUpdateRef(
       kind: GitUpdateRefKind.commit,
       displayName: ref,
@@ -90,7 +89,9 @@ final class GitUpdateRefResolver {
     GitUpdateRefKind kind,
     String prefix,
   ) async {
-    final probe = await _probe(ref);
+    final probe = kind == GitUpdateRefKind.tag
+        ? await _probeTag(ref)
+        : await _probe(ref);
     if (probe == null) {
       throw XcrossError(
         'failed to resolve update ref "$ref": empty git output',
@@ -104,6 +105,13 @@ final class GitUpdateRefResolver {
     );
   }
 
+  Future<_ProbeResult?> _probeTag(String ref) async {
+    final result = await _run('git', ['ls-remote', repoUrl, ref, '$ref^{}']);
+    if (result.exitCode != 0) return null;
+    final commitSha = _commitSha('${result.stdout}');
+    return commitSha == null ? null : _ProbeResult(commitSha);
+  }
+
   Future<_ProbeResult?> _probe(String ref) async {
     final result = await _lsRemote(ref);
     if (result.exitCode != 0) return null;
@@ -111,13 +119,69 @@ final class GitUpdateRefResolver {
     return commitSha == null ? null : _ProbeResult(commitSha);
   }
 
+  Future<String> _fetchCommit(String ref) async {
+    final directory = await _createTempDirectory('xcross-update-ref-');
+    try {
+      final init = await _run('git', [
+        'init',
+      ], workingDirectory: directory.path);
+      if (init.exitCode != 0) {
+        throw _gitFailure('initialize update ref repository', ref, init);
+      }
+
+      final fetch = await _run('git', [
+        'fetch',
+        '--depth=1',
+        repoUrl,
+        ref,
+      ], workingDirectory: directory.path);
+      if (fetch.exitCode != 0) {
+        throw _gitFailure('resolve update ref', ref, fetch);
+      }
+
+      final head = await _run('git', [
+        'rev-parse',
+        'FETCH_HEAD',
+      ], workingDirectory: directory.path);
+      if (head.exitCode != 0) {
+        throw _gitFailure('read fetched update commit', ref, head);
+      }
+
+      final commitSha = '${head.stdout}'.trim();
+      if (commitSha.isEmpty) {
+        throw XcrossError(
+          'failed to resolve update ref "$ref": empty git output',
+        );
+      }
+      return commitSha;
+    } finally {
+      await _deleteDirectory(directory);
+    }
+  }
+
+  XcrossError _gitFailure(String action, String ref, ProcessResult result) {
+    final stderr = '${result.stderr}'.trim();
+    return XcrossError(
+      stderr.isEmpty
+          ? 'failed to $action "$ref"'
+          : 'failed to $action "$ref": $stderr',
+    );
+  }
+
   Future<ProcessResult> _lsRemote(String ref) =>
       _run('git', ['ls-remote', repoUrl, ref]);
 
   static Future<ProcessResult> _defaultRun(
     String executable,
-    List<String> arguments,
-  ) => Process.run(executable, arguments);
+    List<String> arguments, {
+    String? workingDirectory,
+  }) => Process.run(executable, arguments, workingDirectory: workingDirectory);
+
+  static Future<Directory> _defaultCreateTempDirectory(String prefix) =>
+      Directory.systemTemp.createTemp(prefix);
+
+  static Future<void> _defaultDeleteDirectory(Directory directory) =>
+      directory.delete(recursive: true);
 
   static String _tagRef(String ref) => 'refs/tags/$ref';
 
