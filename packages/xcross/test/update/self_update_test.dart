@@ -6,7 +6,6 @@ import 'package:test/test.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/update/install_layout.dart';
 import 'package:xcross/src/update/self_update.dart';
-import 'package:xcross/src/update/semver.dart';
 import 'package:xcross/src/update/update_check.dart';
 
 String _exeName() => Platform.isWindows ? 'xcross.exe' : 'xcross';
@@ -94,7 +93,11 @@ void main() {
             arguments: arguments,
             environment: environment,
             timeout: timeout,
-            result: const CapturedProcess(0, 'xcross 9.9.9-dev', ''),
+            result: const CapturedProcess(
+              0,
+              'xcross main (unreleased build)\n',
+              '',
+            ),
           ),
     );
 
@@ -136,7 +139,11 @@ void main() {
               arguments: arguments,
               environment: environment,
               timeout: timeout,
-              result: const CapturedProcess(1, 'xcross 9.9.9-dev', 'boom'),
+              result: const CapturedProcess(
+                1,
+                'xcross other (unreleased build)\n',
+                'boom',
+              ),
             ),
       ),
       throwsA(isA<XcrossError>()),
@@ -171,7 +178,11 @@ void main() {
             arguments: arguments,
             environment: environment,
             timeout: timeout,
-            result: const CapturedProcess(0, 'xcross 1.2.3-dev', ''),
+            result: const CapturedProcess(
+              0,
+              'xcross main (unreleased build)\n',
+              '',
+            ),
           ),
     );
 
@@ -187,13 +198,14 @@ void main() {
   });
 
   test(
-    'release verification still requires the expected tag version',
+    'release verification still requires the exact expected identity',
     () async {
       await expectLater(
         SelfUpdate.verifyInstalledBinary(
           layout: layout,
           label: 'xcross 1.2.3',
-          expectedVersion: XcrossSemver.tryParse('1.2.3'),
+          expectedIdentity: '1.2.3',
+          expectedReleased: true,
           runProcess:
               ({
                 required executable,
@@ -202,7 +214,7 @@ void main() {
                 required timeout,
               }) async => const CapturedProcess(
                 0,
-                'xcross credits banner xcross 1.2.4',
+                'xcross credits banner\nxcross 1.2.4',
                 '',
               ),
         ),
@@ -210,56 +222,157 @@ void main() {
           isA<XcrossError>().having(
             (e) => e.message,
             'message',
-            contains('did not report version 1.2.3'),
+            contains('did not report xcross 1.2.3'),
           ),
         ),
       );
     },
   );
 
-  test('source verification accepts a dev semver', () async {
+  test('source verification requires the exact arbitrary identity', () async {
     await SelfUpdate.verifyInstalledBinary(
       layout: layout,
-      label: 'source build',
+      label: 'xcross main',
+      expectedIdentity: 'main',
+      expectedReleased: false,
       runProcess:
           ({
             required executable,
             required arguments,
             required environment,
             required timeout,
-          }) async => const CapturedProcess(
-            0,
-            'xcross credits banner\nxcross 2.0.0-dev+abc123',
-            '',
-          ),
+          }) async =>
+              const CapturedProcess(0, 'xcross main (unreleased build)\n', ''),
     );
   });
 
-  test('source verification rejects failed or versionless output', () async {
-    Future<void> expectInvalid(CapturedProcess result) => expectLater(
+  test('source verification rejects a mismatched arbitrary identity', () async {
+    await expectLater(
       SelfUpdate.verifyInstalledBinary(
         layout: layout,
-        label: 'source build',
+        label: 'xcross main',
+        expectedIdentity: 'main',
+        expectedReleased: false,
         runProcess:
             ({
               required executable,
               required arguments,
               required environment,
               required timeout,
-            }) async => result,
+            }) async => const CapturedProcess(
+              0,
+              'xcross other (unreleased build)\n',
+              '',
+            ),
       ),
-      throwsA(
-        isA<XcrossError>().having(
-          (e) => e.message,
-          'message',
-          contains('did not report a parseable xcross version'),
-        ),
+      throwsA(isA<XcrossError>()),
+    );
+  });
+
+  test('source verification rejects a released marker mismatch', () async {
+    await expectLater(
+      SelfUpdate.verifyInstalledBinary(
+        layout: layout,
+        label: 'xcross 1.2.3',
+        expectedIdentity: '1.2.3',
+        expectedReleased: true,
+        runProcess:
+            ({
+              required executable,
+              required arguments,
+              required environment,
+              required timeout,
+            }) async => const CapturedProcess(
+              0,
+              'xcross 1.2.3 (unreleased build)\n',
+              '',
+            ),
       ),
+      throwsA(isA<XcrossError>()),
+    );
+  });
+
+  test('installBundle rolls back on identity mismatch', () async {
+    installedBin('old-bin');
+    installedLib('libkeep.so', 'old-lib');
+    bundleBin('new-bin');
+    bundleLib('libkeep.so', 'new-lib');
+    bundleLib('libnew.so', 'fresh-lib');
+
+    await expectLater(
+      SelfUpdate.installBundle(
+        bundleRoot: bundle,
+        layout: layout,
+        label: 'xcross main',
+        expectedIdentity: 'main',
+        expectedReleased: false,
+        runProcess:
+            ({
+              required executable,
+              required arguments,
+              required environment,
+              required timeout,
+            }) => recordRun(
+              executable: executable,
+              arguments: arguments,
+              environment: environment,
+              timeout: timeout,
+              result: const CapturedProcess(
+                0,
+                'xcross other (unreleased build)\n',
+                '',
+              ),
+            ),
+      ),
+      throwsA(isA<XcrossError>()),
     );
 
-    await expectInvalid(const CapturedProcess(1, 'xcross 2.0.0-dev', 'boom'));
-    await expectInvalid(
-      const CapturedProcess(0, 'xcross build from source', ''),
+    expect(File(layout.binaryPath).readAsStringSync(), 'old-bin');
+    expect(
+      File(p.join(layout.libDir, 'libkeep.so')).readAsStringSync(),
+      'old-lib',
+    );
+    expect(File(p.join(layout.libDir, 'libnew.so')).existsSync(), isFalse);
+  });
+
+  test('installBundle rolls back on release marker mismatch', () async {
+    installedBin('old-bin');
+    installedLib('libkeep.so', 'old-lib');
+    bundleBin('new-bin');
+    bundleLib('libkeep.so', 'new-lib');
+
+    await expectLater(
+      SelfUpdate.installBundle(
+        bundleRoot: bundle,
+        layout: layout,
+        label: 'xcross 1.2.3',
+        expectedIdentity: '1.2.3',
+        expectedReleased: true,
+        runProcess:
+            ({
+              required executable,
+              required arguments,
+              required environment,
+              required timeout,
+            }) => recordRun(
+              executable: executable,
+              arguments: arguments,
+              environment: environment,
+              timeout: timeout,
+              result: const CapturedProcess(
+                0,
+                'xcross 1.2.3 (unreleased build)\n',
+                '',
+              ),
+            ),
+      ),
+      throwsA(isA<XcrossError>()),
+    );
+
+    expect(File(layout.binaryPath).readAsStringSync(), 'old-bin');
+    expect(
+      File(p.join(layout.libDir, 'libkeep.so')).readAsStringSync(),
+      'old-lib',
     );
   });
 }

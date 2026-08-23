@@ -66,6 +66,7 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
     })?
     reportResolvedRef,
     String Function()? currentVersion,
+    bool Function()? currentIsReleased,
   }) : _latestTagLookup = latestTagLookup ?? _defaultLatestTag,
        _resolveRef = resolveRef ?? _defaultResolveRef,
        _resolveInstallLayout =
@@ -74,7 +75,8 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
        _releaseInstaller = installRelease ?? _defaultInstallRelease,
        _sourceInstaller = installSourceRef ?? _defaultInstallSourceRef,
        _resolvedRefReporter = reportResolvedRef ?? _defaultReportResolvedRef,
-       _currentVersion = currentVersion ?? _defaultCurrentVersion;
+       _currentVersion = currentVersion ?? _defaultCurrentVersion,
+       _currentIsReleased = currentIsReleased ?? _defaultCurrentIsReleased;
 
   final Future<String> Function() _latestTagLookup;
   final Future<GitUpdateRef> Function(String ref) _resolveRef;
@@ -96,6 +98,7 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
   })
   _resolvedRefReporter;
   final String Function() _currentVersion;
+  final bool Function() _currentIsReleased;
 
   @override
   String get name => 'update';
@@ -206,6 +209,7 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
   }
 
   bool _isUpgrade(XcrossSemver target) {
+    if (!_currentIsReleased()) return true;
     final current = XcrossSemver.tryParse(_currentVersion());
     return current == null || target.isNewerThan(current);
   }
@@ -232,6 +236,8 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
 
   static String _defaultCurrentVersion() => XcrossVersion.current;
 
+  static bool _defaultCurrentIsReleased() => XcrossVersion.isReleased;
+
   static Future<void> _defaultInstallRelease({
     required InstallLayout layout,
     required String tag,
@@ -248,6 +254,8 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
         bundleRoot: bundleRoot,
         layout: layout,
         label: 'xcross ${ref.displayName} (${ref.commitSha})',
+        expectedIdentity: ref.displayName,
+        expectedReleased: false,
       ),
     );
   }

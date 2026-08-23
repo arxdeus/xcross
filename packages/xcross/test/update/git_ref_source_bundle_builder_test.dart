@@ -27,7 +27,7 @@ void main() {
         );
         final runner = _FakeProcessRunner(
           onRun: (call) async {
-            if (call.arguments.first == 'build') {
+            if (call.arguments.contains('tool/build_xcross.dart')) {
               _createBundle(bundle);
             }
             return _result();
@@ -95,10 +95,10 @@ void main() {
               'get',
             ], workingDirectory: repo.path),
             _ProcessCall('dart', const [
-              'build',
-              'cli',
-              '-t',
-              'bin/xcross.dart',
+              'run',
+              '-DXCROSS_VERSION=main',
+              '-DXCROSS_RELEASED=false',
+              'tool/build_xcross.dart',
             ], workingDirectory: p.join(repo.path, 'packages', 'xcross')),
           ]),
         );
@@ -107,6 +107,57 @@ void main() {
         expect(deleted, [staging.path]);
       },
     );
+
+    test('encodes the ref display name into XCROSS_VERSION', () async {
+      final scratch = _createScratchDirectory();
+      final staging = Directory(p.join(scratch.path, 'staging'));
+      final repo = Directory(p.join(staging.path, 'xcross'));
+      final bundle = Directory(
+        p.join(
+          repo.path,
+          'packages',
+          'xcross',
+          'build',
+          'cli',
+          'linux-x64',
+          'bundle',
+        ),
+      );
+      final runner = _FakeProcessRunner(
+        onRun: (call) async {
+          if (call.arguments.contains('tool/build_xcross.dart')) {
+            _createBundle(bundle);
+          }
+          return _result();
+        },
+      );
+      final builder = GitRefSourceBundleBuilder(
+        run: runner.run,
+        createTempDirectory: (_) =>
+            Future.value(staging..createSync(recursive: true)),
+        deleteDirectory: _deleteDirectorySync,
+      );
+
+      await builder.build<void>(
+        ref: const GitUpdateRef(
+          kind: GitUpdateRefKind.branch,
+          displayName: 'feature/a,b=c',
+          fetchRef: 'refs/heads/feature/a,b=c',
+          commitSha: '1234567890abcdef1234567890abcdef12345678',
+        ),
+        onBundle: (_) async {},
+      );
+
+      expect(
+        runner.calls.last,
+        _ProcessCall('dart', const [
+          'run',
+          '-DXCROSS_VERSION=feature%2Fa%2Cb%3Dc',
+          '-DXCROSS_RELEASED=false',
+          'tool/build_xcross.dart',
+        ], workingDirectory: p.join(repo.path, 'packages', 'xcross')),
+      );
+    });
 
     test('cleanup failure does not replace the callback result', () async {
       final scratch = _createScratchDirectory();
@@ -126,7 +177,8 @@ void main() {
       final builder = GitRefSourceBundleBuilder(
         run: _FakeProcessRunner(
           onRun: (call) async {
-            if (call.arguments.first == 'build') _createBundle(bundle);
+            if (call.arguments.contains('tool/build_xcross.dart'))
+              _createBundle(bundle);
             return _result();
           },
         ).run,
@@ -166,7 +218,7 @@ void main() {
         );
         final runner = _FakeProcessRunner(
           onRun: (call) async {
-            if (call.arguments.first == 'build') {
+            if (call.arguments.contains('tool/build_xcross.dart')) {
               _createBundle(bundle);
             }
             return _result();
@@ -221,7 +273,8 @@ void main() {
             if (call.executable == 'git' && call.arguments.first == 'clone') {
               repo.createSync(recursive: true);
             }
-            if (call.executable == 'dart' && call.arguments.first == 'build') {
+            if (call.executable == 'dart' &&
+                call.arguments.contains('tool/build_xcross.dart')) {
               return _result(exitCode: 78, stderr: 'compile failed');
             }
             return _result();
@@ -266,7 +319,8 @@ void main() {
             if (call.executable == 'git' && call.arguments.first == 'clone') {
               repo.createSync(recursive: true);
             }
-            if (call.executable == 'dart' && call.arguments.first == 'build') {
+            if (call.executable == 'dart' &&
+                call.arguments.contains('tool/build_xcross.dart')) {
               return _result(exitCode: 78, stderr: 'original build failed');
             }
             return _result();
@@ -318,7 +372,8 @@ void main() {
             if (call.executable == 'git' && call.arguments.first == 'clone') {
               repo.createSync(recursive: true);
             }
-            if (call.executable == 'dart' && call.arguments.first == 'build') {
+            if (call.executable == 'dart' &&
+                call.arguments.contains('tool/build_xcross.dart')) {
               _createBundle(bundle);
             }
             return _result();
@@ -377,7 +432,7 @@ void main() {
                 repo.createSync(recursive: true);
               }
               if (call.executable == 'dart' &&
-                  call.arguments.first == 'build') {
+                  call.arguments.contains('tool/build_xcross.dart')) {
                 _createBundle(bundle);
               }
               return _result();
@@ -482,7 +537,8 @@ void main() {
             if (call.executable == 'git' && call.arguments.first == 'clone') {
               repo.createSync(recursive: true);
             }
-            if (call.executable == 'dart' && call.arguments.first == 'build') {
+            if (call.executable == 'dart' &&
+                call.arguments.contains('tool/build_xcross.dart')) {
               for (final target in ['linux-x64', 'macos-arm64']) {
                 Directory(
                   p.join(

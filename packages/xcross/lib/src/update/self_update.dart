@@ -98,7 +98,8 @@ abstract final class SelfUpdate {
         bundleRoot: payload,
         layout: layout,
         label: 'xcross $tag',
-        expectedVersion: XcrossSemver.tryParse(tag),
+        expectedIdentity: tag,
+        expectedReleased: true,
       );
     } finally {
       await _bestEffortDelete(staging);
@@ -114,7 +115,8 @@ abstract final class SelfUpdate {
     required Directory bundleRoot,
     required InstallLayout layout,
     required String label,
-    XcrossSemver? expectedVersion,
+    String? expectedIdentity,
+    bool expectedReleased = false,
     Future<CapturedProcess> Function({
       required String executable,
       required List<String> arguments,
@@ -149,7 +151,8 @@ abstract final class SelfUpdate {
       await verifyInstalledBinary(
         layout: layout,
         label: label,
-        expectedVersion: expectedVersion,
+        expectedIdentity: expectedIdentity,
+        expectedReleased: expectedReleased,
         runProcess: runProcess,
       );
     } on Object {
@@ -196,7 +199,8 @@ abstract final class SelfUpdate {
   static Future<CapturedProcess> verifyInstalledBinary({
     required InstallLayout layout,
     required String label,
-    XcrossSemver? expectedVersion,
+    String? expectedIdentity,
+    bool expectedReleased = false,
     Future<CapturedProcess> Function({
       required String executable,
       required List<String> arguments,
@@ -210,19 +214,22 @@ abstract final class SelfUpdate {
     // with the word "xcross", and a false negative here would roll back a
     // perfectly good update.
     final reported = result.stdout
-        .split(RegExp(r'\s+'))
-        .map(XcrossSemver.tryParse)
-        .nonNulls;
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.startsWith('xcross '));
     if (result.exitCode != 0) {
       throw XcrossError(
-        'the installed binary did not report a parseable xcross version for '
+        'the installed binary did not report xcross identity for '
         '$label (exit ${result.exitCode}); restoring the previous version',
       );
     }
-    if (expectedVersion != null) {
-      if (!reported.contains(expectedVersion)) {
+    if (expectedIdentity != null) {
+      final expected = expectedReleased
+          ? 'xcross $expectedIdentity'
+          : 'xcross $expectedIdentity (unreleased build)';
+      if (!reported.contains(expected)) {
         throw XcrossError(
-          'the installed binary did not report version $expectedVersion '
+          'the installed binary did not report $expected '
           '(exit ${result.exitCode}); restoring the previous version',
         );
       }
@@ -230,7 +237,7 @@ abstract final class SelfUpdate {
     }
     if (reported.isEmpty) {
       throw XcrossError(
-        'the installed binary did not report a parseable xcross version for '
+        'the installed binary did not report xcross identity for '
         '$label (exit ${result.exitCode}); restoring the previous version',
       );
     }

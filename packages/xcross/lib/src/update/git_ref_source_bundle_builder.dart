@@ -60,9 +60,15 @@ final class GitRefSourceBundleBuilder {
       final packageDirectory = Directory(
         p.join(repoDirectory.path, 'packages', 'xcross'),
       );
+      final encodedVersion = Uri.encodeComponent(ref.displayName);
       await _runChecked(
         'dart',
-        ['build', 'cli', '-t', 'bin/xcross.dart'],
+        [
+          'run',
+          '-DXCROSS_VERSION=$encodedVersion',
+          '-DXCROSS_RELEASED=false',
+          'tool/build_xcross.dart',
+        ],
         workingDirectory: packageDirectory.path,
         action: 'build update bundle',
       );

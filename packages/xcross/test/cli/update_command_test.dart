@@ -298,6 +298,28 @@ void main() {
     );
 
     test(
+      'unreleased build always installs the latest official release',
+      () async {
+        final installed = <String>[];
+        final command = UpdateCommand.withSeams(
+          latestTagLookup: () async => '1.2.1',
+          resolveInstallLayout: () => _layout,
+          assetName: () => 'xcross-linux-x64.tar.gz',
+          installRelease: ({required layout, required tag}) async {
+            installed.add(tag);
+          },
+          installSourceRef: ({required layout, required ref}) async {},
+          currentVersion: () => '9.9.9',
+          currentIsReleased: () => false,
+        );
+
+        await _run(command, ['update', '--yes']);
+
+        expect(installed, ['1.2.1']);
+      },
+    );
+
+    test(
       'without --ref and without force skips install when already current',
       () async {
         var latestLookups = 0;
@@ -314,6 +336,7 @@ void main() {
           },
           installSourceRef: ({required layout, required ref}) async {},
           currentVersion: () => '1.2.0',
+          currentIsReleased: () => true,
         );
 
         await _run(command, ['update']);
