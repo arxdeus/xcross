@@ -1,3 +1,7 @@
+## Unreleased
+
+- Replace `xcross update --to` with `xcross update --ref`, where release tags still install verified release assets and branch or commit refs build from source before the same atomic install step.
+
 ## 1.2.0
 
 - Add first-class wireless device support with `xcross tunnel --wifi` and
