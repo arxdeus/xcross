@@ -8,20 +8,21 @@ part of 'update_command.dart';
 
 UpdateArgs _$parseUpdateArgsResult(ArgResults result) => UpdateArgs()
   ..check = result['check'] as bool
-  ..to = result['to'] as String?
+  ..ref = result['ref'] as String?
   ..force = result['force'] as bool
   ..yes = result['yes'] as bool;
 
 ArgParser _$populateUpdateArgsParser(ArgParser parser) => parser
   ..addFlag(
     'check',
-    help: 'Report the latest version without installing anything.',
+    help: 'Report the target version or resolved git ref without installing.',
     negatable: false,
   )
   ..addOption(
-    'to',
-    help: 'Install a specific release tag instead of the latest.',
-    valueHelp: 'tag',
+    'ref',
+    help:
+        'Install a specific git ref such as a release tag, branch, or commit.',
+    valueHelp: 'ref',
   )
   ..addFlag(
     'force',
