@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/update/git_update_ref_resolver.dart';
 import 'package:xcross/src/update/internal/update_process.dart';
+import 'package:xcross/src/update/update_progress.dart';
 
 final class GitRefSourceBundleBuilder {
   GitRefSourceBundleBuilder({
@@ -23,7 +24,8 @@ final class GitRefSourceBundleBuilder {
 
   Future<T> build<T>({
     required GitUpdateRef ref,
-    required Future<T> Function(Directory bundle) onBundle,
+    required Future<T> Function(Directory bundle, UpdateProgress progress)
+    onBundle,
   }) async {
     if (ref.kind == GitUpdateRefKind.tag) {
       throw XcrossError(
@@ -32,47 +34,63 @@ final class GitRefSourceBundleBuilder {
     }
 
     final tempDirectory = await _createTempDirectory('xcross-update-source-');
+    final progress = UpdateProgress('Source', UpdatePhases.source.length);
     try {
       final repoDirectory = Directory(p.join(tempDirectory.path, 'xcross'));
-      await _runChecked('git', [
-        'clone',
-        repoUrl,
-        repoDirectory.path,
-      ], action: 'clone update source');
-      await _runChecked(
-        'git',
-        ['fetch', '--depth', '1', 'origin', ref.commitSha],
-        workingDirectory: repoDirectory.path,
-        action: 'fetch update commit ${ref.commitSha}',
+      await progress.run(
+        'Clone repository',
+        () => _runChecked('git', [
+          'clone',
+          repoUrl,
+          repoDirectory.path,
+        ], action: 'clone update source'),
       );
-      await _runChecked(
-        'git',
-        ['checkout', '--detach', ref.commitSha],
-        workingDirectory: repoDirectory.path,
-        action: 'checkout update commit ${ref.commitSha}',
+      await progress.run(
+        'Fetch commit',
+        () => _runChecked(
+          'git',
+          ['fetch', '--depth', '1', 'origin', ref.commitSha],
+          workingDirectory: repoDirectory.path,
+          action: 'fetch update commit ${ref.commitSha}',
+        ),
       );
-      await _runChecked(
-        'dart',
-        ['pub', 'get'],
-        workingDirectory: repoDirectory.path,
-        action: 'run dart pub get for update source',
+      await progress.run(
+        'Check out commit',
+        () => _runChecked(
+          'git',
+          ['checkout', '--detach', ref.commitSha],
+          workingDirectory: repoDirectory.path,
+          action: 'checkout update commit ${ref.commitSha}',
+        ),
+      );
+      await progress.run(
+        'Resolve dependencies',
+        () => _runChecked(
+          'dart',
+          ['pub', 'get'],
+          workingDirectory: repoDirectory.path,
+          action: 'run dart pub get for update source',
+        ),
       );
       final packageDirectory = Directory(
         p.join(repoDirectory.path, 'packages', 'xcross'),
       );
       final encodedVersion = Uri.encodeComponent(ref.displayName);
-      await _runChecked(
-        'dart',
-        [
-          'run',
-          '-DXCROSS_VERSION=$encodedVersion',
-          '-DXCROSS_RELEASED=false',
-          'tool/build_xcross.dart',
-        ],
-        workingDirectory: packageDirectory.path,
-        action: 'build update bundle',
+      await progress.run(
+        'Build xcross ${ref.displayName}',
+        () => _runChecked(
+          'dart',
+          [
+            'run',
+            '-DXCROSS_VERSION=$encodedVersion',
+            '-DXCROSS_RELEASED=false',
+            'tool/build_xcross.dart',
+          ],
+          workingDirectory: packageDirectory.path,
+          action: 'build update bundle',
+        ),
       );
-      return await onBundle(_findBundle(packageDirectory));
+      return await onBundle(_findBundle(packageDirectory), progress);
     } finally {
       try {
         await _deleteDirectory(tempDirectory);

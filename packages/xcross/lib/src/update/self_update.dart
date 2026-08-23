@@ -11,6 +11,7 @@ import 'package:xcross/src/update/internal/release_payload.dart';
 import 'package:xcross/src/update/release_lookup.dart';
 import 'package:xcross/src/update/semver.dart';
 import 'package:xcross/src/update/update_check.dart';
+import 'package:xcross/src/update/update_progress.dart';
 
 /// Downloads a release archive and swaps it over the running installation.
 abstract final class SelfUpdate {
@@ -62,24 +63,25 @@ abstract final class SelfUpdate {
       throw XcrossError('refusing to install from a non-release tag: "$tag"');
     }
     final asset = assetName();
+    final progress = UpdateProgress('Release', UpdatePhases.release.length);
     final staging = await Directory.systemTemp.createTemp('xcross-update-');
     try {
       final archiveFile = File(p.join(staging.path, asset));
       await Downloader.downloadToFile(
         '${xcrossAssetBaseUrl(tag)}/$asset',
         archiveFile,
-        label: asset,
+        label: progress.nextLabel('Download release archive'),
       );
 
       final sums = File(p.join(staging.path, checksumAsset));
       await Downloader.downloadToFile(
         '${xcrossAssetBaseUrl(tag)}/$checksumAsset',
         sums,
-        label: checksumAsset,
+        label: progress.nextLabel('Download checksum manifest'),
       );
 
       final bytes = await archiveFile.readAsBytes();
-      await Log.logStep('Verifying $asset', () async {
+      await progress.run('Verify archive', () async {
         Checksums.verify(
           name: asset,
           bytes: bytes,
@@ -88,11 +90,14 @@ abstract final class SelfUpdate {
       });
 
       final payload = Directory(p.join(staging.path, 'payload'));
-      await ReleasePayload.extract(
-        bytes: bytes,
-        asset: asset,
-        destination: payload,
-        executableName: _executableName,
+      await progress.run(
+        'Extract release bundle',
+        () => ReleasePayload.extract(
+          bytes: bytes,
+          asset: asset,
+          destination: payload,
+          executableName: _executableName,
+        ),
       );
       await installBundle(
         bundleRoot: payload,
@@ -100,6 +105,7 @@ abstract final class SelfUpdate {
         label: 'xcross $tag',
         expectedIdentity: tag,
         expectedReleased: true,
+        progress: progress,
       );
     } finally {
       await _bestEffortDelete(staging);
@@ -117,6 +123,7 @@ abstract final class SelfUpdate {
     required String label,
     String? expectedIdentity,
     bool expectedReleased = false,
+    UpdateProgress? progress,
     Future<CapturedProcess> Function({
       required String executable,
       required List<String> arguments,
@@ -133,7 +140,9 @@ abstract final class SelfUpdate {
 
     final swap = FileSwap(useSudo: useSudo);
     try {
-      await Log.logStep('Installing $label', () async {
+      final installLabel =
+          progress?.nextLabel('Install $label') ?? 'Installing $label';
+      await Log.logStep(installLabel, () async {
         await swap.replace(
           source: p.join(bundleRoot.path, 'bin', _executableName),
           target: p.join(layout.binDir, p.basename(layout.binaryPath)),
@@ -153,6 +162,7 @@ abstract final class SelfUpdate {
         label: label,
         expectedIdentity: expectedIdentity,
         expectedReleased: expectedReleased,
+        progress: progress,
         runProcess: runProcess,
       );
     } on Object {
@@ -201,6 +211,7 @@ abstract final class SelfUpdate {
     required String label,
     String? expectedIdentity,
     bool expectedReleased = false,
+    UpdateProgress? progress,
     Future<CapturedProcess> Function({
       required String executable,
       required List<String> arguments,
@@ -209,7 +220,12 @@ abstract final class SelfUpdate {
     })?
     runProcess,
   }) async {
-    final result = await _runVersionCheck(layout, runProcess: runProcess);
+    final verifyLabel =
+        progress?.nextLabel('Verify $label') ?? 'Verifying $label';
+    final result = await Log.logStep(
+      verifyLabel,
+      () => _runVersionCheck(layout, runProcess: runProcess),
+    );
     // Scanned rather than parsed positionally: the credits banner also starts
     // with the word "xcross", and a false negative here would roll back a
     // perfectly good update.

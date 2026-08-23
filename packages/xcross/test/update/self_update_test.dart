@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
@@ -7,8 +8,20 @@ import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/update/install_layout.dart';
 import 'package:xcross/src/update/self_update.dart';
 import 'package:xcross/src/update/update_check.dart';
+import 'package:xcross/src/update/update_progress.dart';
 
 String _exeName() => Platform.isWindows ? 'xcross.exe' : 'xcross';
+
+Future<List<String>> _captureAsync(Future<void> Function() body) async {
+  final lines = <String>[];
+  await runZoned(
+    body,
+    zoneSpecification: ZoneSpecification(
+      print: (_, __, ___, line) => lines.add(line),
+    ),
+  );
+  return lines;
+}
 
 typedef _RunRequest = ({
   String executable,
@@ -71,6 +84,57 @@ void main() {
     ));
     return result;
   }
+
+  test('consumes the final source install and verify phases', () async {
+    bundleBin('new-bin');
+    bundleLib('libkeep.so', 'new-lib');
+
+    final progress = UpdateProgress('Source', 7);
+    for (final action in const [
+      'Clone repository',
+      'Fetch commit',
+      'Check out commit',
+      'Resolve dependencies',
+      'Build xcross main',
+    ]) {
+      progress.nextLabel(action);
+    }
+
+    final lines = await _captureAsync(() async {
+      await SelfUpdate.installBundle(
+        bundleRoot: bundle,
+        layout: layout,
+        label: 'xcross main',
+        expectedIdentity: 'main',
+        progress: progress,
+        runProcess:
+            ({
+              required executable,
+              required arguments,
+              required environment,
+              required timeout,
+            }) => recordRun(
+              executable: executable,
+              arguments: arguments,
+              environment: environment,
+              timeout: timeout,
+              result: const CapturedProcess(
+                0,
+                'xcross main (unreleased build)\n',
+                '',
+              ),
+            ),
+      );
+    });
+
+    expect(
+      lines.where((line) => line.contains('Source [')),
+      containsAllInOrder([
+        contains('[6/7] Install xcross main'),
+        contains('[7/7] Verify xcross main'),
+      ]),
+    );
+  });
 
   test('source bundle install swaps bin and lib payloads', () async {
     installedBin('old-bin');

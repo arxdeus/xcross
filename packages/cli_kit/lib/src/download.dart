@@ -47,6 +47,7 @@ abstract final class Downloader {
     String? label,
   }) async {
     final client = HttpClient();
+    ProgressBar? reporter;
     try {
       final response = await _openStream(
         client,
@@ -55,7 +56,7 @@ abstract final class Downloader {
         retryDelay: retryDelay,
       );
       await dest.parent.create(recursive: true);
-      final reporter = ProgressBar(
+      reporter = ProgressBar(
         label ?? _labelFromUrl(url),
         total: response.contentLength,
       );
@@ -63,7 +64,7 @@ abstract final class Downloader {
       try {
         await sink.addStream(
           response.map((chunk) {
-            reporter.add(chunk.length);
+            reporter!.add(chunk.length);
             return chunk;
           }),
         );
@@ -72,6 +73,9 @@ abstract final class Downloader {
         await sink.close();
       }
       reporter.finish();
+    } catch (_) {
+      reporter?.fail();
+      rethrow;
     } finally {
       client.close(force: true);
     }

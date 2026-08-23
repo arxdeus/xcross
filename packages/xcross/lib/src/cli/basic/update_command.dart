@@ -67,8 +67,12 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
     reportResolvedRef,
     String Function()? currentVersion,
     bool Function()? currentIsReleased,
-  }) : _latestTagLookup = latestTagLookup ?? _defaultLatestTag,
-       _resolveRef = resolveRef ?? _defaultResolveRef,
+  }) : _latestTagLookup = _withLatestTagStep(
+         latestTagLookup ?? ReleaseLookup.latestTag,
+       ),
+       _resolveRef = _withResolveRefStep(
+         resolveRef ?? (ref) => GitUpdateRefResolver().resolve(ref),
+       ),
        _resolveInstallLayout =
            resolveInstallLayout ?? _defaultResolveInstallLayout,
        _assetName = assetName ?? _defaultAssetName,
@@ -223,11 +227,15 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
     return answer == 'y' || answer == 'yes';
   }
 
-  static Future<String> _defaultLatestTag() =>
-      Log.logStep('Checking for updates', ReleaseLookup.latestTag);
+  static Future<String> Function() _withLatestTagStep(
+    Future<String> Function() lookup,
+  ) =>
+      () => Log.logStep('Checking latest release', lookup);
 
-  static Future<GitUpdateRef> _defaultResolveRef(String ref) =>
-      GitUpdateRefResolver().resolve(ref);
+  static Future<GitUpdateRef> Function(String ref) _withResolveRefStep(
+    Future<GitUpdateRef> Function(String ref) resolve,
+  ) =>
+      (ref) => Log.logStep('Resolving ref $ref', () => resolve(ref));
 
   static InstallLayout _defaultResolveInstallLayout() =>
       InstallLayout.resolve();
@@ -250,12 +258,13 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
     final builder = GitRefSourceBundleBuilder();
     return builder.build<void>(
       ref: ref,
-      onBundle: (bundleRoot) => SelfUpdate.installBundle(
+      onBundle: (bundleRoot, progress) => SelfUpdate.installBundle(
         bundleRoot: bundleRoot,
         layout: layout,
         label: 'xcross ${ref.displayName} (${ref.commitSha})',
         expectedIdentity: ref.displayName,
         expectedReleased: false,
+        progress: progress,
       ),
     );
   }

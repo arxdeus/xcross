@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:xcross/src/errors.dart';
 
 Future<ProcessResult> runUpdateProcess(
@@ -8,10 +9,31 @@ Future<ProcessResult> runUpdateProcess(
   String? workingDirectory,
 }) async {
   try {
-    return await Process.run(
+    final process = await Process.start(
       executable,
       arguments,
       workingDirectory: workingDirectory,
+    );
+    final stdoutBuffer = StringBuffer();
+    final stderrBuffer = StringBuffer();
+
+    Future<void> collect(Stream<List<int>> stream, StringBuffer buffer) async {
+      await for (final chunk in stream.transform(systemEncoding.decoder)) {
+        buffer.write(chunk);
+        Log.activeStep?.log(chunk);
+      }
+    }
+
+    await Future.wait([
+      collect(process.stdout, stdoutBuffer),
+      collect(process.stderr, stderrBuffer),
+    ]);
+    final code = await process.exitCode;
+    return ProcessResult(
+      process.pid,
+      code,
+      stdoutBuffer.toString(),
+      stderrBuffer.toString(),
     );
   } on ProcessException {
     throw XcrossError(

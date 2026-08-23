@@ -3,10 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
-import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/errors.dart';
-import 'package:xcross/src/update/internal/update_process.dart';
 
 Future<List<String>> _captureAsync(Future<void> Function() body) async {
   final sink = _LineCaptureStdout();
@@ -101,55 +98,36 @@ final class _LineCaptureStdout implements Stdout {
 
 void main() {
   test(
-    'missing required executable becomes an actionable XcrossError',
+    'download progress is marked failed when writing the destination fails',
     () async {
-      const executable = 'xcross-guaranteed-missing-update-executable';
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(server.close);
+      server.listen((request) async {
+        request.response.headers.contentLength = 5;
+        request.response.write('hello');
+        await request.response.close();
+      });
 
-      await expectLater(
-        () => runUpdateProcess(executable, const []),
-        throwsA(
-          isA<XcrossError>()
-              .having((error) => error.message, 'message', contains(executable))
-              .having((error) => error.message, 'message', contains('PATH')),
-        ),
-      );
-    },
-  );
-
-  test(
-    'streams stdout and stderr into the active step while preserving capture',
-    () async {
-      final temp = await Directory.systemTemp.createTemp(
-        'update-process-test-',
-      );
+      final temp = await Directory.systemTemp.createTemp('download-test-');
       addTearDown(() async {
         if (temp.existsSync()) {
           await temp.delete(recursive: true);
         }
       });
-      final script = File(p.join(temp.path, 'emit.dart'))
-        ..writeAsStringSync(
-          "import 'dart:io';\n"
-          'void main() {\n'
-          "  stdout.writeln('stdout-line');\n"
-          "  stderr.writeln('stderr-line');\n"
-          '}\n',
-        );
+      final destination = File(temp.path);
 
-      Log.setVerbose();
-      final loggedLines = await _captureAsync(() async {
-        final step = Log.beginStep('Streaming process');
-        final result = await runUpdateProcess(Platform.resolvedExecutable, [
-          'run',
-          script.path,
-        ]);
-        expect(result.stdout, contains('stdout-line'));
-        expect(result.stderr, contains('stderr-line'));
-        step.done();
+      final lines = await _captureAsync(() async {
+        await expectLater(
+          () => Downloader.downloadToFile(
+            'http://${server.address.host}:${server.port}/file.txt',
+            destination,
+            label: 'file.txt',
+          ),
+          throwsA(isA<FileSystemException>()),
+        );
       });
 
-      expect(loggedLines, contains(contains('stdout-line')));
-      expect(loggedLines, contains(contains('stderr-line')));
+      expect(lines, ['file.txt']);
     },
   );
 }

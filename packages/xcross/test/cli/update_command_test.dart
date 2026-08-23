@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:args/command_runner.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/cli/basic/update_command.dart';
@@ -25,6 +27,41 @@ void main() {
   });
 
   group('UpdateCommand', () {
+    test('latest release lookup runs inside a step', () async {
+      final command = UpdateCommand.withSeams(
+        latestTagLookup: () async => '1.3.0',
+        currentVersion: () => '1.2.0',
+      );
+
+      final lines = await _captureAsync(() async {
+        await _run(command, ['update', '--check']);
+      });
+
+      expect(
+        lines.where((line) => line.contains('Checking latest release')),
+        isNotEmpty,
+      );
+    });
+
+    test('ref resolution runs inside a step', () async {
+      final command = UpdateCommand.withSeams(
+        resolveRef: (ref) async => const GitUpdateRef(
+          kind: GitUpdateRefKind.branch,
+          displayName: 'main',
+          fetchRef: 'refs/heads/main',
+          commitSha: _shaB,
+        ),
+      );
+
+      final lines = await _captureAsync(() async {
+        await _run(command, ['update', '--check', '--ref', 'main']);
+      });
+
+      expect(
+        lines.where((line) => line.contains('Resolving ref main')),
+        isNotEmpty,
+      );
+    });
     test(
       'without --ref and --check looks up latest release and does not install',
       () async {
@@ -362,3 +399,14 @@ const _layout = InstallLayout(
 const _shaA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const _shaB = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 const _shaC = 'cccccccccccccccccccccccccccccccccccccccc';
+
+Future<List<String>> _captureAsync(Future<void> Function() body) async {
+  final lines = <String>[];
+  await runZoned(
+    body,
+    zoneSpecification: ZoneSpecification(
+      print: (_, __, ___, line) => lines.add(line),
+    ),
+  );
+  return lines;
+}

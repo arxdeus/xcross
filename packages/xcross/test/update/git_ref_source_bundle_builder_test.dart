@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -6,8 +7,73 @@ import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/update/git_ref_source_bundle_builder.dart';
 import 'package:xcross/src/update/git_update_ref_resolver.dart';
 
+Future<List<String>> _captureAsync(Future<void> Function() body) async {
+  final lines = <String>[];
+  await runZoned(
+    body,
+    zoneSpecification: ZoneSpecification(
+      print: (_, __, ___, line) => lines.add(line),
+    ),
+  );
+  return lines;
+}
+
 void main() {
   group('GitRefSourceBundleBuilder.build', () {
+    test('reports numbered source phases in order', () async {
+      final scratch = _createScratchDirectory();
+      final staging = Directory(p.join(scratch.path, 'staging'));
+      final repo = Directory(p.join(staging.path, 'xcross'));
+      final bundle = Directory(
+        p.join(
+          repo.path,
+          'packages',
+          'xcross',
+          'build',
+          'cli',
+          'linux-x64',
+          'bundle',
+        ),
+      );
+      final runner = _FakeProcessRunner(
+        onRun: (call) async {
+          if (call.arguments.contains('tool/build_xcross.dart')) {
+            _createBundle(bundle);
+          }
+          return _result();
+        },
+      );
+      final builder = GitRefSourceBundleBuilder(
+        run: runner.run,
+        createTempDirectory: (_) =>
+            Future.value(staging..createSync(recursive: true)),
+        deleteDirectory: _deleteDirectorySync,
+      );
+
+      final output = await _captureAsync(() async {
+        await builder.build<void>(
+          ref: const GitUpdateRef(
+            kind: GitUpdateRefKind.branch,
+            displayName: 'main',
+            fetchRef: 'refs/heads/main',
+            commitSha: '1234567890abcdef1234567890abcdef12345678',
+          ),
+          onBundle: (_, __) async {},
+        );
+      });
+
+      expect(
+        output.where((line) => line.contains('Source [')),
+        containsAllInOrder([
+          contains('[1/7] Clone repository'),
+          contains('[2/7] Fetch commit'),
+          contains('[3/7] Check out commit'),
+          contains('[4/7] Resolve dependencies'),
+          contains('[5/7] Build xcross main'),
+        ]),
+      );
+    });
+
     test(
       'builds a branch ref and exposes the bundle only inside the callback',
       () async {
@@ -55,7 +121,7 @@ void main() {
             fetchRef: 'refs/heads/main',
             commitSha: '1234567890abcdef1234567890abcdef12345678',
           ),
-          onBundle: (bundleDirectory) async {
+          onBundle: (bundleDirectory, _) async {
             seenBundle = bundleDirectory;
             callbackSawExistingBundle = bundleDirectory.existsSync();
             expect(p.basename(bundleDirectory.path), 'bundle');
@@ -145,7 +211,7 @@ void main() {
           fetchRef: 'refs/heads/feature/a,b=c',
           commitSha: '1234567890abcdef1234567890abcdef12345678',
         ),
-        onBundle: (_) async {},
+        onBundle: (_, __) async {},
       );
 
       expect(
@@ -177,8 +243,9 @@ void main() {
       final builder = GitRefSourceBundleBuilder(
         run: _FakeProcessRunner(
           onRun: (call) async {
-            if (call.arguments.contains('tool/build_xcross.dart'))
+            if (call.arguments.contains('tool/build_xcross.dart')) {
               _createBundle(bundle);
+            }
             return _result();
           },
         ).run,
@@ -193,7 +260,7 @@ void main() {
           fetchRef: 'refs/heads/main',
           commitSha: '1234567890abcdef1234567890abcdef12345678',
         ),
-        onBundle: (_) async => 'installed',
+        onBundle: (_, __) async => 'installed',
       );
 
       expect(result, 'installed');
@@ -238,7 +305,7 @@ void main() {
             fetchRef: 'pull/42/head',
             commitSha: 'abcdefabcdefabcdefabcdefabcdefabcdefabcd',
           ),
-          onBundle: (_) async {},
+          onBundle: (_, __) async {},
         );
 
         expect(
@@ -296,7 +363,7 @@ void main() {
             fetchRef: 'refs/heads/main',
             commitSha: '1234567890abcdef1234567890abcdef12345678',
           ),
-          onBundle: (_) async {},
+          onBundle: (_, __) async {},
         ),
         throwsA(
           isA<XcrossError>().having(
@@ -338,7 +405,7 @@ void main() {
             fetchRef: 'refs/heads/main',
             commitSha: '1234567890abcdef1234567890abcdef12345678',
           ),
-          onBundle: (_) async {},
+          onBundle: (_, __) async {},
         ),
         throwsA(
           isA<XcrossError>().having(
@@ -395,7 +462,7 @@ void main() {
             fetchRef: 'refs/heads/main',
             commitSha: '1234567890abcdef1234567890abcdef12345678',
           ),
-          onBundle: (_) async => throw StateError('callback exploded'),
+          onBundle: (_, __) async => throw StateError('callback exploded'),
         ),
         throwsA(
           isA<StateError>().having(
@@ -451,7 +518,7 @@ void main() {
               fetchRef: 'refs/heads/main',
               commitSha: '1234567890abcdef1234567890abcdef12345678',
             ),
-            onBundle: (_) async => throw StateError('callback exploded'),
+            onBundle: (_, __) async => throw StateError('callback exploded'),
           ),
           throwsA(
             isA<StateError>().having(
@@ -477,7 +544,7 @@ void main() {
             fetchRef: 'refs/tags/v1.2.3',
             commitSha: '1234567890abcdef1234567890abcdef12345678',
           ),
-          onBundle: (_) async {},
+          onBundle: (_, __) async {},
         ),
         throwsA(
           isA<XcrossError>().having(
@@ -515,7 +582,7 @@ void main() {
             fetchRef: 'refs/heads/main',
             commitSha: '1234567890abcdef1234567890abcdef12345678',
           ),
-          onBundle: (_) async {},
+          onBundle: (_, __) async {},
         ),
         throwsA(
           isA<XcrossError>().having(
@@ -582,7 +649,7 @@ void main() {
             fetchRef: 'refs/heads/main',
             commitSha: '1234567890abcdef1234567890abcdef12345678',
           ),
-          onBundle: (_) async {},
+          onBundle: (_, __) async {},
         ),
         throwsA(
           isA<XcrossError>().having(
