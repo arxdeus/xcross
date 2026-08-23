@@ -5,8 +5,6 @@ import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/update/git_update_ref_resolver.dart';
 import 'package:xcross/src/update/internal/update_process.dart';
 
-typedef BuildGitRefBundleCallback<T> = Future<T> Function(Directory bundle);
-
 final class GitRefSourceBundleBuilder {
   GitRefSourceBundleBuilder({
     RunGitProcess? run,
@@ -25,7 +23,7 @@ final class GitRefSourceBundleBuilder {
 
   Future<T> build<T>({
     required GitUpdateRef ref,
-    required BuildGitRefBundleCallback<T> onBundle,
+    required Future<T> Function(Directory bundle) onBundle,
   }) async {
     if (ref.kind == GitUpdateRefKind.tag) {
       throw XcrossError(
@@ -72,8 +70,8 @@ final class GitRefSourceBundleBuilder {
     } finally {
       try {
         await _deleteDirectory(tempDirectory);
-      } on Object catch (error) {
-        _ignoreCleanupError(error);
+      } on Object {
+        // Best effort cleanup. The bundle result or original failure still wins.
       }
     }
   }
@@ -124,6 +122,4 @@ final class GitRefSourceBundleBuilder {
 
   static Future<void> _defaultDeleteDirectory(Directory directory) =>
       directory.delete(recursive: true);
-
-  static void _ignoreCleanupError(Object _) {}
 }

@@ -27,22 +27,17 @@ import 'package:xcross/src/update/update_check.dart';
 
 typedef ToolAliasRun =
     Future<int> Function(String executable, List<String> arguments);
-typedef UpdateLeftoverLayoutResolver = InstallLayout Function();
-typedef UpdateLeftoverSweep = void Function(InstallLayout layout);
-
 @internal
 void sweepUpdateLeftovers({
-  UpdateLeftoverLayoutResolver resolveLayout = InstallLayout.resolve,
-  UpdateLeftoverSweep sweep = SelfUpdate.sweepStaleBackups,
+  InstallLayout Function() resolveLayout = InstallLayout.resolve,
+  void Function(InstallLayout layout) sweep = SelfUpdate.sweepStaleBackups,
 }) {
   try {
     sweep(resolveLayout());
-  } on Object catch (error) {
-    _ignoreUpdateLeftoverError(error);
+  } on Object {
+    // Best effort cleanup. Update completion should not be blocked by stale backup cleanup.
   }
 }
-
-void _ignoreUpdateLeftoverError(Object _) {}
 
 Future<int?> runPreparedToolAlias(
   List<String> arguments, {

@@ -14,24 +14,6 @@ import 'package:xcross/src/version.dart';
 
 part 'update_command.g.dart';
 
-typedef UpdateLatestTagLookup = Future<String> Function();
-typedef UpdateRefResolver = Future<GitUpdateRef> Function(String ref);
-typedef UpdateLayoutResolver = InstallLayout Function();
-typedef UpdateAssetNameResolver = String Function();
-typedef UpdateReleaseInstaller =
-    Future<void> Function({required InstallLayout layout, required String tag});
-typedef UpdateSourceInstaller =
-    Future<void> Function({
-      required InstallLayout layout,
-      required GitUpdateRef ref,
-    });
-typedef UpdateResolvedRefReporter =
-    void Function({
-      required String requestedRef,
-      required GitUpdateRef resolvedRef,
-    });
-typedef UpdateCurrentVersion = String Function();
-
 /// Options for `xcross update`.
 @CliOptions(createCommand: true)
 final class UpdateArgs {
@@ -64,44 +46,56 @@ final class UpdateArgs {
 /// Release archives are verified against `SHA256SUMS.txt` before any file is
 /// touched. Non-tag refs are built from source and then installed atomically.
 final class UpdateCommand extends _$UpdateArgsCommand<void> {
-  UpdateCommand()
-    : this.withSeams(
-        latestTagLookup: _defaultLatestTag,
-        resolveRef: GitUpdateRefResolver().resolve,
-        resolveInstallLayout: InstallLayout.resolve,
-        assetName: SelfUpdate.assetName,
-        installRelease: _defaultInstallRelease,
-        installSourceRef: _defaultInstallSourceRef,
-        reportResolvedRef: _defaultReportResolvedRef,
-        currentVersion: () => XcrossVersion.current,
-      );
+  UpdateCommand() : this.withSeams();
 
   UpdateCommand.withSeams({
-    UpdateLatestTagLookup? latestTagLookup,
-    UpdateRefResolver? resolveRef,
-    UpdateLayoutResolver? resolveInstallLayout,
-    UpdateAssetNameResolver? assetName,
-    UpdateReleaseInstaller? installRelease,
-    UpdateSourceInstaller? installSourceRef,
-    UpdateResolvedRefReporter? reportResolvedRef,
-    UpdateCurrentVersion? currentVersion,
+    Future<String> Function()? latestTagLookup,
+    Future<GitUpdateRef> Function(String ref)? resolveRef,
+    InstallLayout Function()? resolveInstallLayout,
+    String Function()? assetName,
+    Future<void> Function({required InstallLayout layout, required String tag})?
+    installRelease,
+    Future<void> Function({
+      required InstallLayout layout,
+      required GitUpdateRef ref,
+    })?
+    installSourceRef,
+    void Function({
+      required String requestedRef,
+      required GitUpdateRef resolvedRef,
+    })?
+    reportResolvedRef,
+    String Function()? currentVersion,
   }) : _latestTagLookup = latestTagLookup ?? _defaultLatestTag,
-       _resolveRef = resolveRef ?? GitUpdateRefResolver().resolve,
-       _resolveInstallLayout = resolveInstallLayout ?? InstallLayout.resolve,
-       _assetName = assetName ?? SelfUpdate.assetName,
+       _resolveRef = resolveRef ?? _defaultResolveRef,
+       _resolveInstallLayout =
+           resolveInstallLayout ?? _defaultResolveInstallLayout,
+       _assetName = assetName ?? _defaultAssetName,
        _releaseInstaller = installRelease ?? _defaultInstallRelease,
        _sourceInstaller = installSourceRef ?? _defaultInstallSourceRef,
        _resolvedRefReporter = reportResolvedRef ?? _defaultReportResolvedRef,
-       _currentVersion = currentVersion ?? (() => XcrossVersion.current);
+       _currentVersion = currentVersion ?? _defaultCurrentVersion;
 
-  final UpdateLatestTagLookup _latestTagLookup;
-  final UpdateRefResolver _resolveRef;
-  final UpdateLayoutResolver _resolveInstallLayout;
-  final UpdateAssetNameResolver _assetName;
-  final UpdateReleaseInstaller _releaseInstaller;
-  final UpdateSourceInstaller _sourceInstaller;
-  final UpdateResolvedRefReporter _resolvedRefReporter;
-  final UpdateCurrentVersion _currentVersion;
+  final Future<String> Function() _latestTagLookup;
+  final Future<GitUpdateRef> Function(String ref) _resolveRef;
+  final InstallLayout Function() _resolveInstallLayout;
+  final String Function() _assetName;
+  final Future<void> Function({
+    required InstallLayout layout,
+    required String tag,
+  })
+  _releaseInstaller;
+  final Future<void> Function({
+    required InstallLayout layout,
+    required GitUpdateRef ref,
+  })
+  _sourceInstaller;
+  final void Function({
+    required String requestedRef,
+    required GitUpdateRef resolvedRef,
+  })
+  _resolvedRefReporter;
+  final String Function() _currentVersion;
 
   @override
   String get name => 'update';
@@ -227,6 +221,16 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
 
   static Future<String> _defaultLatestTag() =>
       Log.logStep('Checking for updates', ReleaseLookup.latestTag);
+
+  static Future<GitUpdateRef> _defaultResolveRef(String ref) =>
+      GitUpdateRefResolver().resolve(ref);
+
+  static InstallLayout _defaultResolveInstallLayout() =>
+      InstallLayout.resolve();
+
+  static String _defaultAssetName() => SelfUpdate.assetName();
+
+  static String _defaultCurrentVersion() => XcrossVersion.current;
 
   static Future<void> _defaultInstallRelease({
     required InstallLayout layout,
