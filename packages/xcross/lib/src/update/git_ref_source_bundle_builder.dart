@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/update/git_update_ref_resolver.dart';
+import 'package:xcross/src/update/internal/update_process.dart';
 
 typedef BuildGitRefBundleCallback<T> = Future<T> Function(Directory bundle);
 
@@ -11,7 +12,7 @@ final class GitRefSourceBundleBuilder {
     RunGitProcess? run,
     CreateTempDirectory? createTempDirectory,
     DeleteDirectory? deleteDirectory,
-  }) : _run = run ?? _defaultRun,
+  }) : _run = run ?? runUpdateProcess,
        _createTempDirectory =
            createTempDirectory ?? _defaultCreateTempDirectory,
        _deleteDirectory = deleteDirectory ?? _defaultDeleteDirectory;
@@ -69,7 +70,11 @@ final class GitRefSourceBundleBuilder {
       );
       return await onBundle(_findBundle(packageDirectory));
     } finally {
-      await _deleteDirectory(tempDirectory);
+      try {
+        await _deleteDirectory(tempDirectory);
+      } on Object catch (error) {
+        _ignoreCleanupError(error);
+      }
     }
   }
 
@@ -114,15 +119,11 @@ final class GitRefSourceBundleBuilder {
     );
   }
 
-  static Future<ProcessResult> _defaultRun(
-    String executable,
-    List<String> arguments, {
-    String? workingDirectory,
-  }) => Process.run(executable, arguments, workingDirectory: workingDirectory);
-
   static Future<Directory> _defaultCreateTempDirectory(String prefix) =>
       Directory.systemTemp.createTemp(prefix);
 
   static Future<void> _defaultDeleteDirectory(Directory directory) =>
       directory.delete(recursive: true);
+
+  static void _ignoreCleanupError(Object _) {}
 }

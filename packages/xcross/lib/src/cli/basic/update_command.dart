@@ -44,7 +44,8 @@ final class UpdateArgs {
   @CliOption(
     valueHelp: 'ref',
     help:
-        'Install a specific git ref such as a release tag, branch, or commit.',
+        'Install a specific git ref such as a release tag, branch, or full '
+        '40-character commit SHA.',
   )
   late String? ref;
 

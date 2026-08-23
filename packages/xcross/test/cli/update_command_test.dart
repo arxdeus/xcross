@@ -13,6 +13,15 @@ void main() {
       expect(command.argParser.options, contains('ref'));
       expect(command.argParser.options, isNot(contains('to')));
     });
+
+    test('--ref help requires a full commit SHA', () {
+      final command = UpdateCommand();
+
+      expect(
+        command.argParser.options['ref']!.help,
+        contains('full 40-character commit SHA'),
+      );
+    });
   });
 
   group('UpdateCommand', () {

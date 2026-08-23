@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:meta/meta.dart';
 import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/update/internal/update_process.dart';
 
 enum GitUpdateRefKind { tag, branch, commit }
 
@@ -34,7 +35,7 @@ final class GitUpdateRefResolver {
     RunGitProcess? run,
     CreateTempDirectory? createTempDirectory,
     DeleteDirectory? deleteDirectory,
-  }) : _run = run ?? _defaultRun,
+  }) : _run = run ?? runUpdateProcess,
        _createTempDirectory =
            createTempDirectory ?? _defaultCreateTempDirectory,
        _deleteDirectory = deleteDirectory ?? _defaultDeleteDirectory;
@@ -46,6 +47,13 @@ final class GitUpdateRefResolver {
   final DeleteDirectory _deleteDirectory;
 
   Future<GitUpdateRef> resolve(String ref) async {
+    if (_wildcard.hasMatch(ref)) {
+      throw XcrossError(
+        'invalid update ref "$ref": wildcard patterns are not supported; '
+        'provide a concrete tag, branch, full ref, or full 40-character '
+        'commit SHA',
+      );
+    }
     if (ref.startsWith('refs/tags/')) {
       return _resolveExact(ref, GitUpdateRefKind.tag, 'refs/tags/');
     }
@@ -75,6 +83,13 @@ final class GitUpdateRefResolver {
       );
     }
 
+    if (_hex.hasMatch(ref) && !_fullCommitSha.hasMatch(ref)) {
+      throw XcrossError(
+        'failed to resolve update ref "$ref": abbreviated commit SHAs are '
+        'not supported; provide the full 40-character commit SHA',
+      );
+    }
+
     final commitSha = await _fetchCommit(ref);
     return GitUpdateRef(
       kind: GitUpdateRefKind.commit,
@@ -94,7 +109,8 @@ final class GitUpdateRefResolver {
         : await _probe(ref);
     if (probe == null) {
       throw XcrossError(
-        'failed to resolve update ref "$ref": empty git output',
+        'failed to resolve update ref "$ref": git did not return an exact '
+        'full 40-character commit SHA',
       );
     }
     return GitUpdateRef(
@@ -108,14 +124,14 @@ final class GitUpdateRefResolver {
   Future<_ProbeResult?> _probeTag(String ref) async {
     final result = await _run('git', ['ls-remote', repoUrl, ref, '$ref^{}']);
     if (result.exitCode != 0) return null;
-    final commitSha = _commitSha('${result.stdout}');
+    final commitSha = _commitSha('${result.stdout}', ref, allowPeeled: true);
     return commitSha == null ? null : _ProbeResult(commitSha);
   }
 
   Future<_ProbeResult?> _probe(String ref) async {
     final result = await _lsRemote(ref);
     if (result.exitCode != 0) return null;
-    final commitSha = _commitSha('${result.stdout}');
+    final commitSha = _commitSha('${result.stdout}', ref);
     return commitSha == null ? null : _ProbeResult(commitSha);
   }
 
@@ -148,14 +164,19 @@ final class GitUpdateRefResolver {
       }
 
       final commitSha = '${head.stdout}'.trim();
-      if (commitSha.isEmpty) {
+      if (!_fullCommitSha.hasMatch(commitSha)) {
         throw XcrossError(
-          'failed to resolve update ref "$ref": empty git output',
+          'failed to resolve update ref "$ref": git did not return a full '
+          '40-character commit SHA',
         );
       }
       return commitSha;
     } finally {
-      await _deleteDirectory(directory);
+      try {
+        await _deleteDirectory(directory);
+      } on Object catch (error) {
+        _ignoreCleanupError(error);
+      }
     }
   }
 
@@ -171,12 +192,6 @@ final class GitUpdateRefResolver {
   Future<ProcessResult> _lsRemote(String ref) =>
       _run('git', ['ls-remote', repoUrl, ref]);
 
-  static Future<ProcessResult> _defaultRun(
-    String executable,
-    List<String> arguments, {
-    String? workingDirectory,
-  }) => Process.run(executable, arguments, workingDirectory: workingDirectory);
-
   static Future<Directory> _defaultCreateTempDirectory(String prefix) =>
       Directory.systemTemp.createTemp(prefix);
 
@@ -190,20 +205,28 @@ final class GitUpdateRefResolver {
   static String _displayName(String ref, String prefix) =>
       ref.substring(prefix.length);
 
-  static String? _commitSha(String output) {
-    final lines = output
-        .split('\n')
-        .map((line) => line.trim())
-        .where((line) => line.isNotEmpty)
-        .toList();
-    for (final line in lines) {
+  static String? _commitSha(
+    String output,
+    String ref, {
+    bool allowPeeled = false,
+  }) {
+    String? direct;
+    String? peeled;
+    for (final line in output.split('\n').map((line) => line.trim())) {
+      if (line.isEmpty) continue;
       final fields = line.split(RegExp(r'\s+'));
-      if (fields.length >= 2 && fields[1].endsWith('^{}')) return fields[0];
+      if (fields.length != 2 || !_fullCommitSha.hasMatch(fields[0])) continue;
+      if (fields[1] == ref) direct = fields[0];
+      if (allowPeeled && fields[1] == '$ref^{}') peeled = fields[0];
     }
-    if (lines.isEmpty) return null;
-    final fields = lines.first.split(RegExp(r'\s+'));
-    return fields.isEmpty ? null : fields.first;
+    return peeled ?? direct;
   }
+
+  static final _wildcard = RegExp(r'[?*\[]');
+  static final _hex = RegExp(r'^[0-9a-fA-F]+$');
+  static final _fullCommitSha = RegExp(r'^[0-9a-fA-F]{40}$');
+
+  static void _ignoreCleanupError(Object _) {}
 }
 
 final class _ProbeResult {

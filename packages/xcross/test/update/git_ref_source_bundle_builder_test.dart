@@ -108,6 +108,45 @@ void main() {
       },
     );
 
+    test('cleanup failure does not replace the callback result', () async {
+      final scratch = _createScratchDirectory();
+      final staging = Directory(p.join(scratch.path, 'staging'));
+      final repo = Directory(p.join(staging.path, 'xcross'));
+      final bundle = Directory(
+        p.join(
+          repo.path,
+          'packages',
+          'xcross',
+          'build',
+          'cli',
+          'linux-x64',
+          'bundle',
+        ),
+      );
+      final builder = GitRefSourceBundleBuilder(
+        run: _FakeProcessRunner(
+          onRun: (call) async {
+            if (call.arguments.first == 'build') _createBundle(bundle);
+            return _result();
+          },
+        ).run,
+        createTempDirectory: (_) async => staging..createSync(recursive: true),
+        deleteDirectory: (_) async => throw StateError('cleanup failed'),
+      );
+
+      final result = await builder.build<String>(
+        ref: const GitUpdateRef(
+          kind: GitUpdateRefKind.branch,
+          displayName: 'main',
+          fetchRef: 'refs/heads/main',
+          commitSha: '1234567890abcdef1234567890abcdef12345678',
+        ),
+        onBundle: (_) async => 'installed',
+      );
+
+      expect(result, 'installed');
+    });
+
     test(
       'fetches and checks out the exact commit sha even when fetchRef differs',
       () async {
@@ -217,6 +256,46 @@ void main() {
       expect(deleted, [staging.path]);
     });
 
+    test('cleanup failure does not replace the original build error', () async {
+      final scratch = _createScratchDirectory();
+      final staging = Directory(p.join(scratch.path, 'staging'));
+      final repo = Directory(p.join(staging.path, 'xcross'));
+      final builder = GitRefSourceBundleBuilder(
+        run: _FakeProcessRunner(
+          onRun: (call) async {
+            if (call.executable == 'git' && call.arguments.first == 'clone') {
+              repo.createSync(recursive: true);
+            }
+            if (call.executable == 'dart' && call.arguments.first == 'build') {
+              return _result(exitCode: 78, stderr: 'original build failed');
+            }
+            return _result();
+          },
+        ).run,
+        createTempDirectory: (_) async => staging..createSync(recursive: true),
+        deleteDirectory: (_) async => throw StateError('cleanup failed'),
+      );
+
+      await expectLater(
+        () => builder.build<void>(
+          ref: const GitUpdateRef(
+            kind: GitUpdateRefKind.branch,
+            displayName: 'main',
+            fetchRef: 'refs/heads/main',
+            commitSha: '1234567890abcdef1234567890abcdef12345678',
+          ),
+          onBundle: (_) async {},
+        ),
+        throwsA(
+          isA<XcrossError>().having(
+            (error) => error.message,
+            'message',
+            contains('original build failed'),
+          ),
+        ),
+      );
+    });
+
     test('deletes the temp directory when the callback fails', () async {
       final scratch = _createScratchDirectory();
       final staging = Directory(p.join(scratch.path, 'staging'));
@@ -273,6 +352,62 @@ void main() {
       );
       expect(deleted, [staging.path]);
     });
+
+    test(
+      'cleanup failure does not replace the original callback error',
+      () async {
+        final scratch = _createScratchDirectory();
+        final staging = Directory(p.join(scratch.path, 'staging'));
+        final repo = Directory(p.join(staging.path, 'xcross'));
+        final bundle = Directory(
+          p.join(
+            repo.path,
+            'packages',
+            'xcross',
+            'build',
+            'cli',
+            'linux-x64',
+            'bundle',
+          ),
+        );
+        final builder = GitRefSourceBundleBuilder(
+          run: _FakeProcessRunner(
+            onRun: (call) async {
+              if (call.executable == 'git' && call.arguments.first == 'clone') {
+                repo.createSync(recursive: true);
+              }
+              if (call.executable == 'dart' &&
+                  call.arguments.first == 'build') {
+                _createBundle(bundle);
+              }
+              return _result();
+            },
+          ).run,
+          createTempDirectory: (_) async =>
+              staging..createSync(recursive: true),
+          deleteDirectory: (_) async => throw StateError('cleanup failed'),
+        );
+
+        await expectLater(
+          () => builder.build<void>(
+            ref: const GitUpdateRef(
+              kind: GitUpdateRefKind.branch,
+              displayName: 'main',
+              fetchRef: 'refs/heads/main',
+              commitSha: '1234567890abcdef1234567890abcdef12345678',
+            ),
+            onBundle: (_) async => throw StateError('callback exploded'),
+          ),
+          throwsA(
+            isA<StateError>().having(
+              (error) => error.message,
+              'message',
+              'callback exploded',
+            ),
+          ),
+        );
+      },
+    );
 
     test('rejects tag refs defensively', () async {
       final builder = GitRefSourceBundleBuilder(

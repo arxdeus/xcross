@@ -139,12 +139,12 @@ xcross update             # download, verify, and swap it in
 
 Other commands print a one-line hint when a newer release exists. That hint comes from a cache refreshed at most once a day, so it costs no time on the command you actually ran. Set `XCROSS_NO_UPDATE_CHECK=1` to turn it off; it is already off in CI, for non-interactive output, and for builds from source.
 
-Use `xcross update --ref <ref>` to target a specific git ref. `<ref>` may be a released tag, a branch name, a commit SHA, or a full ref such as `refs/tags/1.2.0` or `refs/heads/main`.
+Use `xcross update --ref <ref>` to target a specific git ref. `<ref>` may be a released tag, a branch name, a full 40-character commit SHA, or a full ref such as `refs/tags/1.2.0` or `refs/heads/main`.
 
 ```sh
 xcross update --ref 1.2.0                    # install verified assets from release tag 1.2.0
 xcross update --ref main                     # build and install from the main branch tip
-xcross update --ref 85e325f                  # build and install from a specific commit
+xcross update --ref 85e325fb487cc816c9839bf64439f65771c92f62  # build and install from a specific commit
 xcross update --check --ref refs/heads/main  # report ref kind + commit, do not install
 ```
 

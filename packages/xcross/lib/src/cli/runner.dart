@@ -7,6 +7,7 @@ import 'package:cli_util/cli_logging.dart';
 import 'package:completion/completion.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/cli/basic/auth_command.dart';
 import 'package:xcross/src/cli/basic/completion_command.dart';
@@ -23,10 +24,25 @@ import 'package:xcross/src/flutter/flutter.dart';
 import 'package:xcross/src/update/install_layout.dart';
 import 'package:xcross/src/update/self_update.dart';
 import 'package:xcross/src/update/update_check.dart';
-import 'package:xcross/src/version.dart';
 
 typedef ToolAliasRun =
     Future<int> Function(String executable, List<String> arguments);
+typedef UpdateLeftoverLayoutResolver = InstallLayout Function();
+typedef UpdateLeftoverSweep = void Function(InstallLayout layout);
+
+@internal
+void sweepUpdateLeftovers({
+  UpdateLeftoverLayoutResolver resolveLayout = InstallLayout.resolve,
+  UpdateLeftoverSweep sweep = SelfUpdate.sweepStaleBackups,
+}) {
+  try {
+    sweep(resolveLayout());
+  } on Object catch (error) {
+    _ignoreUpdateLeftoverError(error);
+  }
+}
+
+void _ignoreUpdateLeftoverError(Object _) {}
 
 Future<int?> runPreparedToolAlias(
   List<String> arguments, {
@@ -121,19 +137,8 @@ abstract final class XcrossCli {
       // After the command, never before: neither of these is worth a millisecond
       // of startup latency, and the sweep is deliberately not tied to the
       // update-check opt-out, which says nothing about disk hygiene.
-      _sweepUpdateLeftovers();
+      sweepUpdateLeftovers();
       if (checkUpdates) await UpdateCheck.refreshIfStale();
-    }
-  }
-
-  /// Windows cannot delete the executable it is running, so a previous update
-  /// may have left its predecessor behind for this run to collect.
-  static void _sweepUpdateLeftovers() {
-    if (XcrossVersion.isDev) return;
-    try {
-      SelfUpdate.sweepStaleBackups(InstallLayout.resolve());
-    } on Object {
-      // A dev checkout or an unrecognised layout has nothing to sweep.
     }
   }
 
