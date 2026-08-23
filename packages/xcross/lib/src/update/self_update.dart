@@ -2,7 +2,6 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
-import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/update/checksums.dart';
@@ -15,23 +14,6 @@ import 'package:xcross/src/update/update_check.dart';
 
 /// Downloads a release archive and swaps it over the running installation.
 abstract final class SelfUpdate {
-  @visibleForTesting
-  static Future<CapturedProcess> Function({
-    required String executable,
-    required List<String> arguments,
-    required Map<String, String> environment,
-    required Duration timeout,
-  }) processRunner = ({
-    required String executable,
-    required List<String> arguments,
-    required Map<String, String> environment,
-    required Duration timeout,
-  }) => ProcessRunner.run(
-    executable,
-    arguments,
-    environment: environment,
-  ).timeout(timeout);
-
   /// Name of the release asset for the host platform.
   ///
   /// Throws [XcrossError] on platforms that have no prebuilt release.
@@ -134,10 +116,12 @@ abstract final class SelfUpdate {
     required String label,
     XcrossSemver? expectedVersion,
     Future<CapturedProcess> Function({
-      required InstallLayout layout,
-      required XcrossSemver? expectedVersion,
+      required String executable,
+      required List<String> arguments,
+      required Map<String, String> environment,
+      required Duration timeout,
     })?
-    verifyInstalledBinary,
+    runProcess,
   }) async {
     // Windows has no sudo to fall back on: elevation there means the user
     // relaunching in an Administrator terminal, which _requestElevation asks
@@ -162,15 +146,11 @@ abstract final class SelfUpdate {
           );
         }
       });
-      await (verifyInstalledBinary ??
-              ({required layout, required expectedVersion}) =>
-                  SelfUpdate.verifyInstalledBinary(
-                    layout: layout,
-                    label: label,
-                    expectedVersion: expectedVersion,
-                  ))(
+      await verifyInstalledBinary(
         layout: layout,
+        label: label,
         expectedVersion: expectedVersion,
+        runProcess: runProcess,
       );
     } on Object {
       await swap.rollback();
@@ -225,12 +205,7 @@ abstract final class SelfUpdate {
     })?
     runProcess,
   }) async {
-    final result = await (runProcess ?? processRunner)(
-      executable: layout.binaryPath,
-      arguments: const ['--version'],
-      environment: {UpdateCheck.disableEnvVar: '1'},
-      timeout: const Duration(seconds: 30),
-    );
+    final result = await _runVersionCheck(layout, runProcess: runProcess);
     // Scanned rather than parsed positionally: the credits banner also starts
     // with the word "xcross", and a false negative here would roll back a
     // perfectly good update.
@@ -261,4 +236,31 @@ abstract final class SelfUpdate {
     }
     return result;
   }
+
+  static Future<CapturedProcess> _runVersionCheck(
+    InstallLayout layout, {
+    Future<CapturedProcess> Function({
+      required String executable,
+      required List<String> arguments,
+      required Map<String, String> environment,
+      required Duration timeout,
+    })?
+    runProcess,
+  }) => (runProcess ?? _defaultRunProcess)(
+    executable: layout.binaryPath,
+    arguments: const ['--version'],
+    environment: {UpdateCheck.disableEnvVar: '1'},
+    timeout: const Duration(seconds: 30),
+  );
+
+  static Future<CapturedProcess> _defaultRunProcess({
+    required String executable,
+    required List<String> arguments,
+    required Map<String, String> environment,
+    required Duration timeout,
+  }) => ProcessRunner.run(
+    executable,
+    arguments,
+    environment: environment,
+  ).timeout(timeout);
 }
