@@ -1,4 +1,4 @@
-## Unreleased
+## 1.2.2
 
 - Phase release and update identity work so source-ref installs report injected normalized refs, tagged release archives report the release tag, and unreleased builds stay clearly marked until the next official update.
 - Build Linux and Windows release artifacts through the shared compile-time identity wrapper, remove the hardcoded dev version fallback from stamped release automation, and keep unreleased installs returning to the latest official release.
