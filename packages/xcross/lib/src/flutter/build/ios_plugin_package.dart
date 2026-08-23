@@ -205,13 +205,12 @@ abstract final class GeneratedPluginsPackage {
       label: 'swift build',
     );
 
-    if (!windows) {
-      await buildTranslatingSdkMismatch(build);
-      return;
-    }
     await buildTranslatingSdkMismatch(
-      () =>
-          _buildWithInteropRetry(build: build, targetBuildDir: targetBuildDir),
+      () => buildWithInteropRetry(
+        build: build,
+        targetBuildDir: targetBuildDir,
+        windows: windows,
+      ),
     );
   }
 
@@ -271,30 +270,50 @@ abstract final class GeneratedPluginsPackage {
     }
   }
 
-  /// Retries a Windows [build] once when it looks like it lost the race
-  /// against SwiftPM's own interop-header generation.
+  /// Retries a [build] once when it looks like it lost the race against
+  /// SwiftPM's own interop-header generation.
   ///
   /// A target that reaches a package's Objective-C headers through a
   /// generated compatibility module needs the interop headers Swift emits
   /// for that package, and SwiftPM does not put them on its search path.
   /// Those headers only exist once their own target has been built, so the
   /// first run can fail at the target that needs them while emitting them
-  /// for a retry to consume. Builds are incremental, so the retry only
-  /// builds what the first run could not — and a genuine compile error,
-  /// which emits no new headers, still fails once.
-  static Future<void> _buildWithInteropRetry({
+  /// for a retry to consume. POSIX hosts additionally require the failure to
+  /// name a missing `-Swift.h`; Windows retains the broader header-emission
+  /// check because its compatibility-module failures do not always name it.
+  /// Builds are incremental, so the retry only builds what the first run
+  /// could not.
+  @visibleForTesting
+  static Future<void> buildWithInteropRetry({
     required Future<void> Function() build,
     required String targetBuildDir,
+    bool? windows,
   }) async {
-    final before = swiftInteropSearchPaths(targetBuildDir);
+    final before = swiftInteropSearchPaths(targetBuildDir).toSet();
     try {
       await build();
-    } on Object {
-      if (swiftInteropSearchPaths(targetBuildDir).length == before.length) {
+    } on Object catch (error) {
+      if (!(windows ?? Platform.isWindows) &&
+          !_isMissingSwiftInteropHeaderError(error)) {
+        rethrow;
+      }
+      final emitted = swiftInteropSearchPaths(
+        targetBuildDir,
+      ).toSet().difference(before);
+      if (emitted.isEmpty) {
         rethrow;
       }
       await build();
     }
+  }
+
+  static bool _isMissingSwiftInteropHeaderError(Object error) {
+    final message = '$error';
+    return message.contains('-Swift.h') &&
+        RegExp(
+          r'\b(?:file )?not found\b',
+          caseSensitive: false,
+        ).hasMatch(message);
   }
 
   /// Process-local settings for Windows SwiftPM dependency checkout and

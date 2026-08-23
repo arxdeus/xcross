@@ -1801,6 +1801,81 @@ let package = Package(
       );
     });
 
+    test('retries when a failed build emits a Swift interop header', () async {
+      final buildDir = p.join(tmp.path, 'arm64-apple-ios', 'debug');
+      var attempts = 0;
+
+      await GeneratedPluginsPackage.buildWithInteropRetry(
+        targetBuildDir: buildDir,
+        windows: false,
+        build: () async {
+          attempts++;
+          if (attempts != 1) return;
+          final include = p.join(
+            buildDir,
+            'FirebaseFirestore.build',
+            'include',
+          );
+          Directory(include).createSync(recursive: true);
+          File(
+            p.join(include, 'FirebaseFirestore-Swift.h'),
+          ).writeAsStringSync('// generated');
+          throw StateError(
+            "header '$include/FirebaseFirestore-Swift.h' not found",
+          );
+        },
+      );
+
+      expect(attempts, 2);
+    });
+
+    test('does not retry a failure that emits no interop header', () async {
+      var attempts = 0;
+
+      await expectLater(
+        GeneratedPluginsPackage.buildWithInteropRetry(
+          targetBuildDir: p.join(tmp.path, 'arm64-apple-ios', 'debug'),
+          windows: false,
+          build: () {
+            attempts++;
+            return Future<void>.error(StateError('real compile failure'));
+          },
+        ),
+        throwsStateError,
+      );
+
+      expect(attempts, 1);
+    });
+
+    test(
+      'does not retry an unrelated POSIX failure as headers build',
+      () async {
+        final buildDir = p.join(tmp.path, 'arm64-apple-ios', 'debug');
+        var attempts = 0;
+
+        await expectLater(
+          GeneratedPluginsPackage.buildWithInteropRetry(
+            targetBuildDir: buildDir,
+            windows: false,
+            build: () {
+              attempts++;
+              final include = p.join(buildDir, 'OtherSwift.build', 'include');
+              Directory(include).createSync(recursive: true);
+              File(
+                p.join(include, 'OtherSwift-Swift.h'),
+              ).writeAsStringSync('// generated');
+              return Future<void>.error(
+                StateError('unrelated compile failure'),
+              );
+            },
+          ),
+          throwsStateError,
+        );
+
+        expect(attempts, 1);
+      },
+    );
+
     test('drops Clang implicit module locks only on Windows', () {
       List<String> argumentsFor({required bool windows}) =>
           GeneratedPluginsPackage.swiftBuildArguments(
