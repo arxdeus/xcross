@@ -59,19 +59,19 @@ jobs:
         working-directory: packages/xcross
         run: dart pub publish --dry-run
 
-      # Runs after every check above, so analyze/test/publish --dry-run all see
-      # the clean committed tree. github.ref_name is the tag itself, which is
-      # authoritative and needs no tag fetch on the default shallow checkout.
-      - name: Stamp release version
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Build xcross
         working-directory: packages/xcross
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: dart run tool/stamp_version.dart "$RELEASE_TAG"
+          XCROSS_BUILD_VERSION: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'unreleased' }}
+          XCROSS_BUILD_RELEASED: ${{ startsWith(github.ref, 'refs/tags/') }}
+        run: >-
+          dart run
+          "-DXCROSS_VERSION=${XCROSS_BUILD_VERSION}"
+          "-DXCROSS_RELEASED=${XCROSS_BUILD_RELEASED}"
+          tool/build_xcross.dart
 
       - name: Compile binary
         run: |
-          (cd packages/xcross && dart build cli -t bin/xcross.dart)
           mkdir -p dist
           # Bundle layout is bin/ + lib/ (native assets). Ship as tar.gz.
           tar -C packages/xcross/build/cli/*/bundle \
@@ -129,20 +129,21 @@ jobs:
           dart test packages/dart_mobile_device
           dart test packages/frontend_server_kit
 
-      - name: Stamp release version
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Build xcross
         shell: pwsh
         working-directory: packages/xcross
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: dart run tool/stamp_version.dart $env:RELEASE_TAG
+          XCROSS_BUILD_VERSION: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'unreleased' }}
+          XCROSS_BUILD_RELEASED: ${{ startsWith(github.ref, 'refs/tags/') }}
+        run: |
+          dart run `
+            "-DXCROSS_VERSION=$env:XCROSS_BUILD_VERSION" `
+            "-DXCROSS_RELEASED=$env:XCROSS_BUILD_RELEASED" `
+            tool/build_xcross.dart
 
-      - name: Build xcross
+      - name: Compile binary
         shell: pwsh
         run: |
-          Push-Location packages/xcross
-          dart build cli -t bin/xcross.dart
-          Pop-Location
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item -Recurse `
             packages/xcross/build/cli/windows_x64/bundle/bin dist/bin

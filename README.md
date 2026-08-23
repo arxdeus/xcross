@@ -148,7 +148,9 @@ xcross update --ref 85e325fb487cc816c9839bf64439f65771c92f62  # build and instal
 xcross update --check --ref refs/heads/main  # report ref kind + commit, do not install
 ```
 
-If a tag and branch share the same short name, the exact tag wins. Tag refs install the existing verified release assets for that version. Branch and commit refs clone the official `arxdeus/xcross` repository into temporary storage, fetch the exact commit, run local `dart pub get` and `dart build cli`, install the resulting bundle with the same atomic swap and rollback path as release updates, and delete the temporary checkout whether the install succeeds or fails.
+If a tag and branch share the same short name, the exact tag wins. Tag refs install the existing verified release assets for that version. Branch and commit refs clone the official `arxdeus/xcross` repository into temporary storage, fetch the exact commit, run local `dart pub get` and the shared `tool/build_xcross.dart` wrapper, install the resulting bundle with the same atomic swap and rollback path as release updates, and delete the temporary checkout whether the install succeeds or fails.
+
+A source-ref install reports the normalized ref, for example `xcross main (unreleased build)`. Running `xcross update` from any unreleased build always returns to the latest official release.
 
 Source refs require both `git` and `dart` on `PATH`. `xcross update --check --ref <ref>` resolves the ref first, then reports its kind and commit without installing anything. Use `--force` to reinstall the current release when you are updating without `--ref`.
 
