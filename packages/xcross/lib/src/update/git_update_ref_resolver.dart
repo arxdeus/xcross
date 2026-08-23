@@ -185,8 +185,9 @@ final class GitUpdateRefResolver {
     } finally {
       try {
         await _deleteDirectory(directory);
-      } on Object catch (_) {
-        // ignore: empty_catches
+      } on Object {
+        // Temporary clone cleanup is best effort and must not hide the
+        // original resolve result or failure.
       }
     }
   }

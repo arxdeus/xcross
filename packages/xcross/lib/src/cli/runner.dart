@@ -7,7 +7,6 @@ import 'package:cli_util/cli_logging.dart';
 import 'package:completion/completion.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
-import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/cli/basic/auth_command.dart';
 import 'package:xcross/src/cli/basic/completion_command.dart';
@@ -27,17 +26,6 @@ import 'package:xcross/src/update/update_check.dart';
 
 typedef ToolAliasRun =
     Future<int> Function(String executable, List<String> arguments);
-@internal
-void sweepUpdateLeftovers({
-  InstallLayout Function() resolveLayout = InstallLayout.resolve,
-  void Function(InstallLayout layout) sweep = SelfUpdate.sweepStaleBackups,
-}) {
-  try {
-    sweep(resolveLayout());
-  } on Object {
-    // Best effort cleanup. Update completion should not be blocked by stale backup cleanup.
-  }
-}
 
 Future<int?> runPreparedToolAlias(
   List<String> arguments, {
@@ -132,7 +120,11 @@ abstract final class XcrossCli {
       // After the command, never before: neither of these is worth a millisecond
       // of startup latency, and the sweep is deliberately not tied to the
       // update-check opt-out, which says nothing about disk hygiene.
-      sweepUpdateLeftovers();
+      try {
+        SelfUpdate.sweepStaleBackups(InstallLayout.resolve());
+      } on Object {
+        // Best effort cleanup. Update completion should not be blocked by stale backup cleanup.
+      }
       if (checkUpdates) await UpdateCheck.refreshIfStale();
     }
   }
