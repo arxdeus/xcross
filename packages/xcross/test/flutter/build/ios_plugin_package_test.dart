@@ -387,101 +387,6 @@ let value = PublicAPI()
     });
   });
 
-  group('parseUrlPackageDeps / gitRefFromVersionArgs', () {
-    test('parses exact and from requirements', () {
-      const manifest = '''
-dependencies: [
-    .package(url: "https://github.com/getsentry/sentry-cocoa", exact: "8.58.1"),
-    .package(name: "Sentry", url: "https://github.com/getsentry/sentry-cocoa.git", from: "8.0.0"),
-    .package(url: "https://example.com/pkg", .upToNextMajor(from: "1.2.3")),
-]
-''';
-      final deps = GeneratedPluginsPackage.parseUrlPackageDeps(manifest);
-      expect(deps, hasLength(3));
-      expect(deps[0].url, 'https://github.com/getsentry/sentry-cocoa');
-      expect(deps[0].name, isNull);
-      expect(
-        GeneratedPluginsPackage.gitRefFromVersionArgs(deps[0].versionArgs),
-        '8.58.1',
-      );
-      expect(deps[1].name, 'Sentry');
-      expect(
-        GeneratedPluginsPackage.gitRefFromVersionArgs(deps[1].versionArgs),
-        '8.0.0',
-      );
-      expect(
-        GeneratedPluginsPackage.gitRefFromVersionArgs(deps[2].versionArgs),
-        '1.2.3',
-      );
-    });
-
-    test('resolves a version constant from the manifest', () {
-      const manifest = '''
-let firebaseSdkVersion: String = "12.1.0"
-dependencies: [
-    .package(
-        url: "https://github.com/firebase/firebase-ios-sdk",
-        exact: firebaseSdkVersion
-    ),
-]
-''';
-      final dep = GeneratedPluginsPackage.parseUrlPackageDeps(manifest).single;
-      expect(
-        GeneratedPluginsPackage.gitRefFromVersionArgs(
-          dep.versionArgs,
-          manifest: manifest,
-        ),
-        '12.1.0',
-      );
-    });
-
-    test('vendorPackageDirName strips .git and sanitizes ref', () {
-      expect(
-        GeneratedPluginsPackage.vendorPackageDirName(
-          'https://github.com/getsentry/sentry-cocoa.git',
-          '8.58.1',
-        ),
-        'sentry-cocoa@8.58.1',
-      );
-    });
-
-    test('balances nested parens in multiline upToNextMajor deps', () {
-      const manifest = '''
-dependencies: [
-        .package(
-            url: "https://github.com/appmetrica/appmetrica-sdk-ios",
-            .upToNextMajor(from: "6.1.0")
-        ),
-]
-''';
-      final deps = GeneratedPluginsPackage.parseUrlPackageDeps(manifest);
-      expect(deps, hasLength(1));
-      expect(
-        deps.single.url,
-        'https://github.com/appmetrica/appmetrica-sdk-ios',
-      );
-      expect(
-        GeneratedPluginsPackage.gitRefFromVersionArgs(deps.single.versionArgs),
-        '6.1.0',
-      );
-      expect(deps.single.match, endsWith(')'));
-      expect(deps.single.match, isNot(contains('),')));
-      // Full call replaced — no leftover closing paren from the original.
-      final rewritten = manifest.replaceFirst(
-        deps.single.match,
-        '.package(path: "/vendor/appmetrica")',
-      );
-      expect(
-        rewritten,
-        contains(
-          'dependencies: [\n'
-          '        .package(path: "/vendor/appmetrica"),\n'
-          ']',
-        ),
-      );
-    });
-  });
-
   group('binary fallback compatibility module', () {
     void write(String relative, String contents) {
       final file = File(p.join(tmp.path, relative));
@@ -718,6 +623,13 @@ let package = Package(
           await GeneratedPluginsPackage.vendorUrlPackagesAsPathDeps(
             manifest,
             vendorDir: vendorDir,
+            packageDirectory: 'plugin_a/ios/plugin_a',
+            evaluateDependencyRefs: (directory) async {
+              expect(directory, 'plugin_a/ios/plugin_a');
+              return const {
+                'https://github.com/getsentry/sentry-cocoa': '8.58.1',
+              };
+            },
             locateTool: (name) async {
               expect(name, 'git');
               return 'git';

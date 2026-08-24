@@ -1577,10 +1577,10 @@ let package = Package(
   /// Uses parenthesis balancing so nested forms like
   /// `.upToNextMajor(from: "1.0.0")` are not truncated at the inner `)`.
   @visibleForTesting
-  static List<({String? name, String url, String versionArgs, String match})>
-  parseUrlPackageDeps(String manifest) {
-    final deps =
-        <({String? name, String url, String versionArgs, String match})>[];
+  static List<({String? name, String url, String match})> parseUrlPackageDeps(
+    String manifest,
+  ) {
+    final deps = <({String? name, String url, String match})>[];
     var searchFrom = 0;
     final startPattern = RegExp(r'\.package\s*\(');
     while (true) {
@@ -1599,19 +1599,9 @@ let package = Package(
         continue;
       }
       final nameMatch = RegExp(r'name:\s*"(?<name>[^"]*)"').firstMatch(inner);
-      // Version args are everything in the call except an optional leading
-      // name: and the url: clause (order varies slightly across plugins).
-      var versionArgs = inner
-          .replaceFirst(RegExp(r'name:\s*"[^"]*"\s*,?\s*'), '')
-          .replaceFirst(RegExp(r'url:\s*"[^"]+"\s*,?\s*'), '')
-          .trim();
-      if (versionArgs.endsWith(',')) {
-        versionArgs = versionArgs.substring(0, versionArgs.length - 1).trim();
-      }
       deps.add((
         name: nameMatch?.namedGroup('name'),
         url: urlMatch.namedGroup('url')!,
-        versionArgs: versionArgs,
         match: manifest.substring(start, close + 1),
       ));
       searchFrom = close + 1;
@@ -1645,33 +1635,6 @@ let package = Package(
       }
     }
     return -1;
-  }
-
-  /// Picks a git ref from SwiftPM version-requirement syntax.
-  @visibleForTesting
-  static String? gitRefFromVersionArgs(String versionArgs, {String? manifest}) {
-    for (final label in const ['exact', 'revision', 'branch', 'from']) {
-      final value = RegExp(
-        '$label:\\s*("[^"]+"|[A-Za-z_][A-Za-z0-9_]*)',
-      ).firstMatch(versionArgs)?[1];
-      if (value == null) continue;
-      if (value.startsWith('"')) return value.substring(1, value.length - 1);
-      final resolved = _manifestStringConstant(manifest, value);
-      if (resolved != null) return resolved;
-    }
-    final range = RegExp(
-      r'("[^"]+"|[A-Za-z_][A-Za-z0-9_]*)\s*\.\.<',
-    ).firstMatch(versionArgs)?[1];
-    if (range == null) return null;
-    if (range.startsWith('"')) return range.substring(1, range.length - 1);
-    return _manifestStringConstant(manifest, range);
-  }
-
-  static String? _manifestStringConstant(String? manifest, String name) {
-    if (manifest == null) return null;
-    return RegExp(
-      '(?:let|var)\\s+$name(?:\\s*:\\s*String)?\\s*=\\s*"([^"]+)"',
-    ).firstMatch(manifest)?[1];
   }
 
   /// Folder name for a vendored checkout of [url] at [ref].
@@ -2336,7 +2299,7 @@ let package = Package(
   static Future<String> vendorUrlPackagesAsPathDeps(
     String manifest, {
     required String vendorDir,
-    String? packageDirectory,
+    required String packageDirectory,
     Map<String, List<String>>? fallbackSwiftModules,
     Future<String> Function(String name)? locateTool,
     Future<Map<String, String>> Function(String packageDirectory)?
@@ -2353,12 +2316,10 @@ let package = Package(
     if (deps.isEmpty) return manifest;
 
     final locate = locateTool ?? ProcessRunner.locateTool;
-    final evaluatedRefs = packageDirectory == null
-        ? const <String, String>{}
-        : await (evaluateDependencyRefs ??
-              (directory) => _evaluatedDependencyRefs(directory, locate))(
-            packageDirectory,
-          );
+    final evaluatedRefs =
+        await (evaluateDependencyRefs ??
+            (directory) =>
+                _evaluatedDependencyRefs(directory, locate))(packageDirectory);
     late final String git;
     try {
       git = await locate('git');
@@ -2374,13 +2335,11 @@ let package = Package(
     var result = manifest;
     final seen = <String>{};
     for (final dep in deps) {
-      final ref =
-          evaluatedRefs[dep.url] ??
-          gitRefFromVersionArgs(dep.versionArgs, manifest: manifest);
+      final ref = evaluatedRefs[dep.url];
       if (ref == null) {
         throw FlutterBuildError(
-          'Cannot vendor SwiftPM dependency ${dep.url}: unsupported version '
-          'requirement "${dep.versionArgs}".',
+          'Cannot vendor SwiftPM dependency ${dep.url}: `swift package '
+          'dump-package` returned no supported source-control requirement.',
         );
       }
       final dirName = vendorPackageDirName(dep.url, ref);
