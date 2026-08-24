@@ -81,11 +81,13 @@ final class FlutterPacker {
     final pluginsBuild = await _buildPlugins(
       flutterRoot,
       deploymentTarget: deploymentTarget,
+      verbose: Log.isVerbose,
     );
     final runnerResult = await _buildRunnerBinary(
       flutterRoot,
       deploymentTarget: deploymentTarget,
       pluginsLibrary: pluginsBuild?.libraryPath,
+      verbose: Log.isVerbose,
     );
 
     final extensions = await _buildAppExtensions(
@@ -194,6 +196,7 @@ final class FlutterPacker {
   Future<GeneratedPluginsBuildResult?> _buildPlugins(
     String flutterRoot, {
     required IosDeploymentTarget deploymentTarget,
+    required bool verbose,
   }) async {
     final plugins = await PluginDiscovery.discover(projectRoot);
     final spmPlugins = <IosPlugin>[];
@@ -234,6 +237,7 @@ final class FlutterPacker {
       flutterXcframework: xcframework,
       outputDir: p.join(projectRoot, 'build', 'xcross-flutter-plugins'),
       deploymentTarget: deploymentTarget,
+      verbose: verbose,
     );
   }
 
@@ -279,6 +283,7 @@ final class FlutterPacker {
   Future<RunnerBinary> _buildRunnerBinary(
     String flutterRoot, {
     required IosDeploymentTarget deploymentTarget,
+    required bool verbose,
     String? pluginsLibrary,
   }) async {
     final xcframework = IosEngineCache(
@@ -300,6 +305,7 @@ final class FlutterPacker {
       outputDir: p.join(projectRoot, 'build', 'xcross-flutter-runner-bin'),
       deploymentTarget: deploymentTarget,
       pluginsLibrary: pluginsLibrary,
+      verbose: verbose,
     );
 
     return RunnerBinary(xcframework: xcframework, runnerBinary: runnerBinary);

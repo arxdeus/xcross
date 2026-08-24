@@ -853,6 +853,28 @@ let package = Package(name: "Sentry", products: [], targets: [])
       // Exactly one registration block: only plugin_a has a pluginClass.
       expect('if let registrar'.allMatches(source).length, 1);
       expect(source, contains('@_cdecl("XcrossRegisterGeneratedPlugins")'));
+      expect(source, isNot(contains('[xcross] registering plugin')));
+    });
+
+    test('verbose source tracks each plugin and prints a summary', () {
+      final source = GeneratedPluginsPackage.registrantSource([
+        makePlugin('plugin_a', pluginClass: 'PluginA'),
+      ], verbose: true);
+
+      expect(
+        source,
+        contains('[xcross] registering plugin plugin_a (PluginA)'),
+      );
+      expect(source, contains('[xcross] registered plugin plugin_a (PluginA)'));
+      expect(
+        source,
+        contains(
+          '[xcross] failed plugin plugin_a (PluginA): registrar unavailable',
+        ),
+      );
+      expect(source, contains(r'1 attempted, \(registered) registered'));
+      expect(source, contains(r'\(failures.count) failed'));
+      expect(source, contains(r'plugin registration failure: \(failure)'));
     });
 
     test(

@@ -76,6 +76,7 @@ abstract final class GeneratedPluginsPackage {
     required String flutterXcframework,
     required String outputDir,
     required IosDeploymentTarget deploymentTarget,
+    bool verbose = false,
   }) =>
       Log.logStep('Building Flutter plugins (Swift Package Manager)', () async {
         final spmPlugins = plugins
@@ -93,6 +94,7 @@ abstract final class GeneratedPluginsPackage {
           plugins: spmPlugins,
           flutterXcframework: flutterXcframework,
           deploymentTarget: deploymentTarget,
+          verbose: verbose,
         );
 
         final pluginsDir = p.join(outputDir, 'Plugins');
@@ -704,6 +706,7 @@ abstract final class GeneratedPluginsPackage {
     required List<IosPlugin> plugins,
     required String flutterXcframework,
     required IosDeploymentTarget deploymentTarget,
+    bool verbose = false,
     bool? copyFlutterXcframework,
     bool? vendorRemotePackages,
   }) async {
@@ -737,6 +740,7 @@ abstract final class GeneratedPluginsPackage {
       plugins: plugins,
       pluginPackageDirs: pluginPackageDirs,
       deploymentTarget: deploymentTarget,
+      verbose: verbose,
     );
   }
 
@@ -1009,6 +1013,7 @@ abstract final class GeneratedPluginsPackage {
     required List<IosPlugin> plugins,
     required Map<String, String> pluginPackageDirs,
     required IosDeploymentTarget deploymentTarget,
+    required bool verbose,
   }) async {
     final sourcesDir = p.join(pluginsDir, 'Sources', _pluginsProductName);
     await Directory(sourcesDir).create(recursive: true);
@@ -1025,7 +1030,7 @@ abstract final class GeneratedPluginsPackage {
 
     await _writeStable(
       p.join(sourcesDir, 'GeneratedPluginRegistrant.swift'),
-      registrantSource(plugins),
+      registrantSource(plugins, verbose: verbose),
     );
   }
 
@@ -2364,18 +2369,50 @@ $targetDependencies            ]
   /// (facade/pure-Dart/FFI-only packages) remain SwiftPM target dependencies,
   /// but need no module import or registration call.
   @visibleForTesting
-  static String registrantSource(List<IosPlugin> plugins) {
+  static String registrantSource(
+    List<IosPlugin> plugins, {
+    bool verbose = false,
+  }) {
     final imports = StringBuffer();
     final registrations = StringBuffer();
+    var pluginCount = 0;
     for (final plugin in plugins) {
       final pluginClass = plugin.pluginClassIos;
       if (pluginClass == null) continue;
+      pluginCount++;
       imports.writeln('import ${plugin.name}');
-      registrations.writeln('''
+      if (verbose) {
+        registrations.writeln('''
+    NSLog("[xcross] registering plugin ${plugin.name} ($pluginClass)")
+    if let registrar = registry.registrar(forPlugin: "$pluginClass") {
+        $pluginClass.register(with: registrar)
+        registered += 1
+        NSLog("[xcross] registered plugin ${plugin.name} ($pluginClass)")
+    } else {
+        failures.append("${plugin.name} ($pluginClass): registrar unavailable")
+        NSLog("[xcross] failed plugin ${plugin.name} ($pluginClass): registrar unavailable")
+    }''');
+      } else {
+        registrations.writeln('''
     if let registrar = registry.registrar(forPlugin: "$pluginClass") {
         $pluginClass.register(with: registrar)
     }''');
+      }
     }
+
+    final diagnosticsStart = verbose
+        ? '    var registered = 0\n'
+              '    var failures: [String] = []\n'
+        : '';
+    final diagnosticsEnd = verbose
+        ? '    NSLog("[xcross] plugin registration summary: '
+              '$pluginCount attempted, \\(registered) registered, '
+              '\\(failures.count) failed")\n'
+              '    for failure in failures {\n'
+              '        NSLog("[xcross] plugin registration failure: '
+              '\\(failure)")\n'
+              '    }\n'
+        : '';
 
     return '''
 //
@@ -2386,7 +2423,7 @@ import UIKit
 $imports
 @_cdecl("${GeneratedPluginsConstants.registrantSymbol}")
 public func xcrossRegisterGeneratedPlugins(_ registry: FlutterPluginRegistry) {
-$registrations}
+$diagnosticsStart$registrations$diagnosticsEnd}
 ''';
   }
 
