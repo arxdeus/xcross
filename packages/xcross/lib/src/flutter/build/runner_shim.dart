@@ -276,15 +276,23 @@ ${hasPlugins ? _pluginsExternDeclaration : _emptyPluginRegistrantStub}
 @end
 @implementation AppDelegate
 - (BOOL)application:(UIApplication*)application didFinishLaunchingWithOptions:(NSDictionary*)launchOptions {
+  NSLog(@"[xcross] application launch started");
   FlutterViewController* flutterViewController = [[FlutterViewController alloc] initWithProject:nil nibName:nil bundle:nil];
+  [flutterViewController setFlutterViewDidRenderCallback:^{
+    NSLog(@"[xcross] first Flutter frame rendered");
+  }];
   UIWindow* window = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
   window.rootViewController = flutterViewController;
   [window makeKeyAndVisible];
   self.window = window;
-  return [super application:application didFinishLaunchingWithOptions:launchOptions];
+  BOOL launched = [super application:application didFinishLaunchingWithOptions:launchOptions];
+  NSLog(@"[xcross] application launch completed: %@", launched ? @"YES" : @"NO");
+  return launched;
 }
 - (void)didInitializeImplicitFlutterEngine:(NSObject<FlutterImplicitEngineBridge>*)engineBridge {
+  NSLog(@"[xcross] Flutter engine initialized; registering plugins");
   ${hasPlugins ? '${GeneratedPluginsConstants.registrantSymbol}(engineBridge.pluginRegistry);' : '[GeneratedPluginRegistrant registerWithRegistry:engineBridge.pluginRegistry];'}
+  NSLog(@"[xcross] plugin registration completed");
 }
 @end
 

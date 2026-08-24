@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:apple_developer_kit/apple_developer_kit.dart';
@@ -122,40 +123,46 @@ abstract final class CoreDeviceLauncher {
       bundleId: bundleId,
       appArgs: arguments,
     );
-
-    final gdb = await _attachDebugger(endpoint: debugproxy, pid: pid);
-
-    ({HotReloadController? controller, String? unavailable}) hotReloadSetup = (
-      controller: null,
-      unavailable: null,
+    final deviceLog = await _DeviceLog.start(
+      deviceArgs: transport.pymdDeviceArgs,
+      pid: pid,
     );
-    HotReloadController? hotReloadController;
-    PortForwarder? vmService;
-    // Hot-reload setup is inside the same cleanup boundary as the session. A
-    // failed VM connection must not leak the attached debugger or leave a DAP
-    // launch paused forever.
+
     try {
-      hotReloadSetup = await _trySpinUpHotReload(
-        hotReload: hotReload,
-        transport: transport,
-      );
-      hotReloadController = hotReloadSetup.controller;
-      if (hotReloadController != null) {
-        vmService = await _publishVmService(transport: transport);
+      final gdb = await _attachDebugger(endpoint: debugproxy, pid: pid);
+
+      ({HotReloadController? controller, String? unavailable}) hotReloadSetup =
+          (controller: null, unavailable: null);
+      HotReloadController? hotReloadController;
+      PortForwarder? vmService;
+      // Hot-reload setup is inside the same cleanup boundary as the session. A
+      // failed VM connection must not leak the attached debugger or leave a DAP
+      // launch paused forever.
+      try {
+        hotReloadSetup = await _trySpinUpHotReload(
+          hotReload: hotReload,
+          transport: transport,
+        );
+        hotReloadController = hotReloadSetup.controller;
+        if (hotReloadController != null) {
+          vmService = await _publishVmService(transport: transport);
+        }
+        await SessionConsole(
+          gdb: gdb,
+          hotReload: hotReloadController,
+          hotReloadUnavailable: hotReloadSetup.unavailable,
+          onRestartRequested: onRestartRequested,
+        ).run();
+      } finally {
+        // Every step is timed out: a single hung flush/close on Windows left
+        // `q` in a silent stuck state (no further input or output).
+        await _cleanupStep('vm-service', () => vmService?.close());
+        await _cleanupStep('hot-reload', () => hotReloadController?.close());
+        await _cleanupStep('gdb-kill', gdb.kill);
+        await _cleanupStep('gdb-close', gdb.close);
       }
-      await SessionConsole(
-        gdb: gdb,
-        hotReload: hotReloadController,
-        hotReloadUnavailable: hotReloadSetup.unavailable,
-        onRestartRequested: onRestartRequested,
-      ).run();
     } finally {
-      // Every step is timed out: a single hung flush/close on Windows left `q`
-      // in a silent stuck state (no further input or output).
-      await _cleanupStep('vm-service', () => vmService?.close());
-      await _cleanupStep('hot-reload', () => hotReloadController?.close());
-      await _cleanupStep('gdb-kill', gdb.kill);
-      await _cleanupStep('gdb-close', gdb.close);
+      await deviceLog?.close();
     }
   }
 
@@ -412,5 +419,66 @@ abstract final class CoreDeviceLauncher {
     // ignore: only_throw_errors
     if (lastError case final Object error?) throw error;
     throw XcrossError('VM Service did not become available');
+  }
+}
+
+final class _DeviceLog {
+  _DeviceLog(this._process);
+
+  final Process _process;
+  late final StreamSubscription<String> _stdout;
+  late final StreamSubscription<String> _stderr;
+
+  static Future<_DeviceLog?> start({
+    required List<String> deviceArgs,
+    required int pid,
+  }) async {
+    try {
+      final invocation = await Pymd.resolve();
+      final process = await Process.start(invocation.executable, [
+        ...invocation.prefixArgs,
+        'developer',
+        'dvt',
+        'oslog',
+        ...deviceArgs,
+        '--pid',
+        '$pid',
+      ], environment: Pymd.usbmuxEnvironment());
+      final log = _DeviceLog(process).._listen();
+      unawaited(
+        process.exitCode.then((code) {
+          if (code != 0) {
+            Log.logTrace('device log stream exited with code $code');
+          }
+        }),
+      );
+      Log.logInfo('Device logs', 'streaming for pid $pid');
+      return log;
+    } on Object catch (e) {
+      Log.logWarn('could not stream device logs: $e');
+      return null;
+    }
+  }
+
+  void _listen() {
+    _stdout = _process.stdout
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .listen((line) => stdout.writeln('[device] $line'));
+    _stderr = _process.stderr
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .listen((line) => stderr.writeln('[device] $line'));
+  }
+
+  Future<void> close() async {
+    _process.kill();
+    await _stdout.cancel();
+    await _stderr.cancel();
+    try {
+      await _process.exitCode.timeout(_cleanupTimeout);
+    } on TimeoutException {
+      Log.logTrace('cleanup device-log timed out');
+    }
   }
 }
