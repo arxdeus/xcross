@@ -731,6 +731,14 @@ abstract final class GeneratedPluginsPackage {
     '-Xclang-linker',
     '-Xswiftc',
     iosSdk,
+    '-Xswiftc',
+    '-Xlinker',
+    '-Xswiftc',
+    '-ObjC',
+    '-Xswiftc',
+    '-Xlinker',
+    '-Xswiftc',
+    '-no_objc_category_merging',
     // The link runs through the toolchain's own clang, which resolves
     // `-use-ld=lld` to the `ld64.lld` sitting next to itself — swiftly's, the
     // one that refuses iOS (see [resolveLd64Lld]). `--ld-path` overrides that

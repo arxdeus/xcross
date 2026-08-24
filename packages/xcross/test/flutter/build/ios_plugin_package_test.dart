@@ -1780,11 +1780,25 @@ let package = Package(
         arguments,
         containsAllInOrder([
           '-Xswiftc',
+          '-Xlinker',
+          '-Xswiftc',
+          '-ObjC',
+          '-Xswiftc',
+          '-Xlinker',
+          '-Xswiftc',
+          '-no_objc_category_merging',
+        ]),
+      );
+      expect(
+        arguments,
+        containsAllInOrder([
+          '-Xswiftc',
           '-Xclang-linker',
           '-Xswiftc',
           '--ld-path=/usr/bin/ld64.lld',
         ]),
       );
+
       expect(
         arguments,
         containsAllInOrder([
