@@ -953,6 +953,9 @@ abstract final class GeneratedPluginsPackage {
       copyFlutterXcframework: copyFlutterXcframework ?? windows,
     );
 
+    final pluginTargets = {
+      for (final plugin in plugins) plugin.name: plugin.swiftPackageDir,
+    };
     final pluginPackageDirs = <String, String>{};
     for (final plugin in plugins) {
       final packageAlias = p.join(packagesDir, plugin.name);
@@ -961,6 +964,7 @@ abstract final class GeneratedPluginsPackage {
         target: plugin.swiftPackageDir,
         platformDir: plugin.platformDirectoryName,
         vendorDir: shouldVendor ? vendorDir : null,
+        packageTargets: pluginTargets,
         copySources: copyPluginPackages.contains(plugin.name),
       );
     }
@@ -969,17 +973,17 @@ abstract final class GeneratedPluginsPackage {
         p.basename(package): package,
     };
     for (final plugin in plugins) {
-      if (!copyPluginPackages.contains(plugin.name)) continue;
+      if (!shouldVendor && !copyPluginPackages.contains(plugin.name)) continue;
       final stagedPackage = pluginPackageDirs[plugin.name]!;
       final manifestFile = File(p.join(stagedPackage, 'Package.swift'));
       var manifest = await manifestFile.readAsString();
       final original = manifest;
       for (final call in _swiftCalls(manifest, '.package').reversed) {
-        final relativePath = _namedString(call.text, 'path');
-        if (relativePath == null || p.isAbsolute(relativePath)) continue;
-        final dependencyPath = p.normalize(p.join(stagedPackage, relativePath));
-        final sharedPackage =
-            packagesByDirectoryName[p.basename(dependencyPath)];
+        final dependencyPath = _namedString(call.text, 'path');
+        if (dependencyPath == null) continue;
+        final dependencyName =
+            _namedString(call.text, 'name') ?? p.basename(dependencyPath);
+        final sharedPackage = packagesByDirectoryName[dependencyName];
         if (sharedPackage == null || p.equals(dependencyPath, sharedPackage)) {
           continue;
         }
@@ -1014,6 +1018,7 @@ abstract final class GeneratedPluginsPackage {
     required String target,
     String platformDir = 'ios',
     String? vendorDir,
+    Map<String, String> packageTargets = const {},
     bool copySources = false,
   }) async {
     var stagedPackage = alias;
@@ -1039,6 +1044,23 @@ abstract final class GeneratedPluginsPackage {
       normalizeHostManifest(manifest),
       target,
     );
+    for (final call in _swiftCalls(normalizedManifest, '.package').reversed) {
+      final relativePath = _namedString(call.text, 'path');
+      if (relativePath == null || p.isAbsolute(relativePath)) continue;
+      final dependencyName =
+          _namedString(call.text, 'name') ?? p.basename(relativePath);
+      final targetPath = packageTargets[dependencyName];
+      if (targetPath == null) continue;
+      final rewritten = call.text.replaceFirst(
+        RegExp(r'path\s*:\s*"[^"]+"'),
+        'path: "${_swiftPath(targetPath)}"',
+      );
+      normalizedManifest = normalizedManifest.replaceRange(
+        call.start,
+        call.end,
+        rewritten,
+      );
+    }
     final fallbackSwiftModules = <String, List<String>>{};
     if (vendorDir != null) {
       await _mirrorPluginPackage(target, stagedPackage, normalizedManifest);
