@@ -11,27 +11,28 @@ import 'package:xcross/src/flutter/errors.dart';
 ///
 /// On macOS, `flutter precache --ios` downloads these into
 /// `bin/cache/artifacts/engine/ios/`. On Linux, Flutter skips iOS artifacts,
-/// so we fetch them ourselves from `storage.googleapis.com`.
+/// so we fetch them ourselves from `storage.googleapis.com`. Missing artifacts
+/// are stored outside the Flutter SDK so read-only installations work.
 final class IosEngineCache {
-  final String flutterRoot;
-  final String cacheRoot;
-
   IosEngineCache({required this.flutterRoot, String? cacheRoot})
     : cacheRoot = cacheRoot ?? _defaultCacheRoot;
 
-  String get _sdkEngineRoot =>
+  final String flutterRoot;
+  final String cacheRoot;
+
+  String get _flutterSdkEngineRoot =>
       p.join(flutterRoot, 'bin', 'cache', 'artifacts', 'engine');
 
-  String get _cachedEngineRoot =>
-      p.join(cacheRoot, _engineHash(), 'artifacts', 'engine');
+  String get _userEngineRoot =>
+      p.join(cacheRoot, _readEngineHash(), 'artifacts', 'engine');
 
-  /// `bin/cache/artifacts/engine/ios/` — debug/JIT artifacts only.
+  /// Directory containing the debug/JIT iOS engine artifacts.
   String get _engineDir {
-    final sdkDir = p.join(_sdkEngineRoot, 'ios');
-    if (Directory(p.join(sdkDir, 'Flutter.xcframework')).existsSync()) {
-      return sdkDir;
-    }
-    return p.join(_cachedEngineRoot, 'ios');
+    final flutterSdkDirectory = p.join(_flutterSdkEngineRoot, 'ios');
+    final flutterFramework = p.join(flutterSdkDirectory, 'Flutter.xcframework');
+    if (Directory(flutterFramework).existsSync()) return flutterSdkDirectory;
+
+    return p.join(_userEngineRoot, 'ios');
   }
 
   /// Flutter.xcframework inside [_engineDir].
@@ -45,14 +46,20 @@ final class IosEngineCache {
   String get isolateSnapshotData =>
       p.join(_hostEngineDir, 'isolate_snapshot.bin');
 
-  /// Host engine cache dir — where Flutter caches the host Dart engine.
+  /// Directory containing snapshot data for the host Dart engine.
   String get _hostEngineDir {
-    final sdkDir = p.join(_sdkEngineRoot, _hostEngineCacheDir);
-    if (File(p.join(sdkDir, 'vm_isolate_snapshot.bin')).existsSync() &&
-        File(p.join(sdkDir, 'isolate_snapshot.bin')).existsSync()) {
-      return sdkDir;
-    }
-    return p.join(_cachedEngineRoot, _hostEngineCacheDir);
+    final flutterSdkDirectory = p.join(
+      _flutterSdkEngineRoot,
+      _hostEngineCacheDir,
+    );
+    final hasSnapshotData =
+        File(
+          p.join(flutterSdkDirectory, 'vm_isolate_snapshot.bin'),
+        ).existsSync() &&
+        File(p.join(flutterSdkDirectory, 'isolate_snapshot.bin')).existsSync();
+    if (hasSnapshotData) return flutterSdkDirectory;
+
+    return p.join(_userEngineRoot, _hostEngineCacheDir);
   }
 
   /// Path to the Dart frontend_server snapshot. Prefers the AOT variant
@@ -78,15 +85,20 @@ final class IosEngineCache {
 
   /// Patched SDK platform .dill — debug uses `flutter_patched_sdk/`.
   String get patchedSdkRoot {
-    final sdkDir = p.join(_sdkEngineRoot, 'common', 'flutter_patched_sdk');
-    if (Directory(sdkDir).existsSync()) return sdkDir;
-    return p.join(_cachedEngineRoot, 'common', 'flutter_patched_sdk');
+    final flutterSdkDirectory = p.join(
+      _flutterSdkEngineRoot,
+      'common',
+      'flutter_patched_sdk',
+    );
+    if (Directory(flutterSdkDirectory).existsSync()) {
+      return flutterSdkDirectory;
+    }
+
+    return p.join(_userEngineRoot, 'common', 'flutter_patched_sdk');
   }
 
-  /// Engine hash that pins the artifact set. Read from
-  /// `bin/internal/engine.version` (stable/beta) or `bin/cache/engine.stamp`
-  /// (written by flutter_tools at runtime).
-  String _engineHash() {
+  /// Reads the engine hash that pins the artifact set.
+  String _readEngineHash() {
     for (final rel in [
       p.join('bin', 'internal', 'engine.version'),
       p.join('bin', 'cache', 'engine.stamp'),
@@ -121,7 +133,7 @@ final class IosEngineCache {
   }
 
   Future<void> _downloadHostArtifacts() async {
-    final hash = _engineHash();
+    final hash = _readEngineHash();
     final url =
         '$flutterArtifactBaseUrl/$hash/$_hostEngineCacheDir/artifacts.zip';
     Log.logTrace('downloading Flutter host engine artifacts from $url');
@@ -134,7 +146,7 @@ final class IosEngineCache {
   }
 
   Future<void> _downloadIosArtifacts() async {
-    final hash = _engineHash();
+    final hash = _readEngineHash();
     final url = '$flutterArtifactBaseUrl/$hash/ios/artifacts.zip';
     Log.logTrace('downloading Flutter iOS engine artifacts from $url');
     await _fetchAndExtract(
@@ -146,7 +158,7 @@ final class IosEngineCache {
   }
 
   Future<void> _downloadPatchedSdk() async {
-    final hash = _engineHash();
+    final hash = _readEngineHash();
     final leaf = p.basename(patchedSdkRoot);
     final url = '$flutterArtifactBaseUrl/$hash/$leaf.zip';
     Log.logTrace('downloading Flutter patched SDK from $url');
@@ -187,6 +199,7 @@ final class IosEngineCache {
     await tmp.delete(recursive: true);
   }
 
+  /// Per-user directory for artifacts missing from the Flutter SDK.
   static String get _defaultCacheRoot {
     if (Platform.isWindows) {
       final localAppData = Platform.environment['LOCALAPPDATA'];
