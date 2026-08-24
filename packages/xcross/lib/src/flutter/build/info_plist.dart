@@ -222,6 +222,125 @@ abstract final class InfoPlist {
     return result;
   }
 
+  static String applySceneLifecycle(String xml) {
+    const manifestKey = '<key>UIApplicationSceneManifest</key>';
+    final manifestKeyStart = xml.indexOf(manifestKey);
+    if (manifestKeyStart < 0) return _insertBeforeEnd(xml, _sceneManifest);
+
+    final manifest = _containerAfterKey(
+      xml,
+      manifestKeyStart,
+      manifestKey,
+      'dict',
+    );
+    if (manifest == null) return xml;
+    if (manifest.selfClosing) {
+      return xml.replaceRange(
+        manifestKeyStart,
+        manifest.end,
+        _sceneManifest.trimRight(),
+      );
+    }
+
+    const roleKey = '<key>UIWindowSceneSessionRoleApplication</key>';
+    final roleKeyStart = xml.indexOf(roleKey, manifest.start);
+    if (roleKeyStart >= 0 && roleKeyStart < manifest.end) {
+      final role = _containerAfterKey(xml, roleKeyStart, roleKey, 'array');
+      if (role != null && role.end <= manifest.end) {
+        return xml.replaceRange(
+          roleKeyStart,
+          role.end,
+          _applicationSceneConfiguration.trim(),
+        );
+      }
+    }
+
+    const configurationsKey = '<key>UISceneConfigurations</key>';
+    final configurationsKeyStart = xml.indexOf(
+      configurationsKey,
+      manifest.start,
+    );
+    if (configurationsKeyStart >= 0 && configurationsKeyStart < manifest.end) {
+      final configurations = _containerAfterKey(
+        xml,
+        configurationsKeyStart,
+        configurationsKey,
+        'dict',
+      );
+      if (configurations != null && configurations.end <= manifest.end) {
+        if (configurations.selfClosing) {
+          return xml.replaceRange(
+            configurations.start,
+            configurations.end,
+            '<dict>\n$_applicationSceneConfiguration\t\t</dict>',
+          );
+        }
+        return xml.replaceRange(
+          configurations.end - '</dict>'.length,
+          configurations.end - '</dict>'.length,
+          _applicationSceneConfiguration,
+        );
+      }
+    }
+
+    return xml.replaceRange(
+      manifest.end - '</dict>'.length,
+      manifest.end - '</dict>'.length,
+      '\t\t<key>UISceneConfigurations</key>\n'
+      '\t\t<dict>\n'
+      '$_applicationSceneConfiguration'
+      '\t\t</dict>\n',
+    );
+  }
+
+  static ({int start, int end, bool selfClosing})? _containerAfterKey(
+    String xml,
+    int keyStart,
+    String key,
+    String tag,
+  ) {
+    final valueStart = keyStart + key.length;
+    final value = RegExp('\\s*<$tag(/?)>').matchAsPrefix(xml, valueStart);
+    if (value == null) return null;
+    if (value.group(1) == '/') {
+      return (start: value.start, end: value.end, selfClosing: true);
+    }
+
+    var depth = 0;
+    for (final match in RegExp('</?$tag>').allMatches(xml, value.start)) {
+      if (match.group(0) == '<$tag>') {
+        depth++;
+      } else if (--depth == 0) {
+        return (start: value.start, end: match.end, selfClosing: false);
+      }
+    }
+    return null;
+  }
+
+  static const _applicationSceneConfiguration =
+      '\t\t\t<key>UIWindowSceneSessionRoleApplication</key>\n'
+      '\t\t\t<array>\n'
+      '\t\t\t\t<dict>\n'
+      '\t\t\t\t\t<key>UISceneClassName</key>\n'
+      '\t\t\t\t\t<string>UIWindowScene</string>\n'
+      '\t\t\t\t\t<key>UISceneDelegateClassName</key>\n'
+      '\t\t\t\t\t<string>SceneDelegate</string>\n'
+      '\t\t\t\t\t<key>UISceneConfigurationName</key>\n'
+      '\t\t\t\t\t<string>flutter</string>\n'
+      '\t\t\t\t</dict>\n'
+      '\t\t\t</array>\n';
+
+  static const _sceneManifest =
+      '\t<key>UIApplicationSceneManifest</key>\n'
+      '\t<dict>\n'
+      '\t\t<key>UIApplicationSupportsMultipleScenes</key>\n'
+      '\t\t<false/>\n'
+      '\t\t<key>UISceneConfigurations</key>\n'
+      '\t\t<dict>\n'
+      '$_applicationSceneConfiguration'
+      '\t\t</dict>\n'
+      '\t</dict>\n';
+
   /// Drop Swift module prefix from ObjC class names in the plist.
   /// The Runner shim registers `AppDelegate` / `SceneDelegate` without a module
   /// prefix, so `Runner.SceneDelegate` from the stock template would fail
@@ -260,6 +379,7 @@ abstract final class InfoPlist {
       ' "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
       '<plist version="1.0">\n'
       '<dict>\n'
+      '$_sceneManifest'
       '\t<key>UILaunchScreen</key>\n'
       '\t<dict/>\n'
       '\t<key>UISupportedInterfaceOrientations</key>\n'
