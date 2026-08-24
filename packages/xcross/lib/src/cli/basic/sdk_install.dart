@@ -284,6 +284,11 @@ abstract final class SdkInstall {
     final relativeSdkRoot = p
         .relative(sdkRoot, from: artifactRoot)
         .replaceAll(r'\', '/');
+    final toolchainCxx = p.join(artifactRoot, _toolchain, 'usr/include/c++/v1');
+    final sdkCxx = p.join(sdkRoot, 'usr/include/c++/v1');
+    final cxxInclude = Directory(toolchainCxx).existsSync()
+        ? '$_toolchain/usr/include/c++/v1'
+        : p.relative(sdkCxx, from: artifactRoot).replaceAll(r'\', '/');
 
     await _writeJson(p.join(artifactRoot, 'swift-sdk.json'), {
       'schemaVersion': '4.0',
@@ -292,10 +297,7 @@ abstract final class SdkInstall {
           'sdkRootPath': relativeSdkRoot,
           'swiftResourcesPath': _swiftResources,
           'swiftStaticResourcesPath': _swiftStaticResources,
-          'includeSearchPaths': [
-            '$_platformDeveloper/usr/lib',
-            '$_toolchain/usr/include/c++/v1',
-          ],
+          'includeSearchPaths': ['$_platformDeveloper/usr/lib', cxxInclude],
           'librarySearchPaths': ['$_platformDeveloper/usr/lib'],
           'toolsetPaths': ['toolset.json'],
         },

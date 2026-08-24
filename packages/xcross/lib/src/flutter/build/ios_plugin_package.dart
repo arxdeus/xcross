@@ -1012,7 +1012,10 @@ abstract final class GeneratedPluginsPackage {
     }
 
     final manifest = await File(p.join(target, 'Package.swift')).readAsString();
-    var normalizedManifest = normalizeHostManifest(manifest);
+    var normalizedManifest = removeMissingResources(
+      normalizeHostManifest(manifest),
+      target,
+    );
     final fallbackSwiftModules = <String, List<String>>{};
     if (vendorDir != null) {
       normalizedManifest = await vendorUrlPackagesAsPathDeps(
@@ -1302,6 +1305,20 @@ let package = Package(
           for (final argument in arguments) ...['"-Xlinker"', '"$argument"'],
         ].join(', ');
       });
+
+  @visibleForTesting
+  static String removeMissingResources(String manifest, String packageDir) {
+    return manifest.replaceAllMapped(
+      RegExp(r'\.((?:process|copy))\(\s*"([^"]+)"\s*\)\s*,?'),
+      (match) {
+        final resource = p.joinAll([packageDir, ...match.group(2)!.split('/')]);
+        return FileSystemEntity.typeSync(resource) ==
+                FileSystemEntityType.notFound
+            ? ''
+            : match.group(0)!;
+      },
+    );
+  }
 
   /// Host-side Package.swift fixes for cross builds.
   ///
