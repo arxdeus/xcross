@@ -212,7 +212,7 @@ class TunnelDaemon {
   /// Only the pid-file daemon is ever killed — a tunneld the user started
   /// in their own terminal is never touched.
   Future<bool> restartStale() async {
-    if (Platform.isWindows) return false;
+    if (_ownsDaemon || Platform.isWindows) return false;
     final int pid;
     try {
       pid = int.parse(File(pidFilePath).readAsStringSync().trim());
