@@ -2266,6 +2266,8 @@ let package = Package(
     Future<String> Function(String name) locateTool,
   ) async {
     final swift = await locateTool('swift');
+    final resolvedFile = File(p.join(packageDirectory, 'Package.resolved'));
+    if (resolvedFile.existsSync()) await resolvedFile.delete();
     final result = await ProcessRunner.run(swift, [
       'package',
       '--package-path',
@@ -2278,7 +2280,6 @@ let package = Package(
         '${result.stderr.trim()}',
       );
     }
-    final resolvedFile = File(p.join(packageDirectory, 'Package.resolved'));
     try {
       return dependencyRefsFromPackageResolved(
         await resolvedFile.readAsString(),
@@ -2583,8 +2584,6 @@ let package = Package(
     await _deleteEntity(destination);
     await destDir.parent.create(recursive: true);
 
-    // Shallow clone of the pinned tag/branch. Falls back to a full clone +
-    // checkout when the ref is not advertised as a remote HEAD (some hosts).
     final shallow = await ProcessRunner.run(git, [
       'clone',
       '--depth',
@@ -2595,6 +2594,35 @@ let package = Package(
       destination,
     ], environment: environment);
     if (shallow.exitCode == 0) return;
+
+    await _deleteEntity(destination);
+    await Directory(destination).create(recursive: true);
+    final init = await ProcessRunner.run(git, [
+      '-C',
+      destination,
+      'init',
+    ], environment: environment);
+    final fetch = init.exitCode == 0
+        ? await ProcessRunner.run(git, [
+            '-C',
+            destination,
+            'fetch',
+            '--depth',
+            '1',
+            url,
+            ref,
+          ], environment: environment)
+        : init;
+    final checkout = fetch.exitCode == 0
+        ? await ProcessRunner.run(git, [
+            '-C',
+            destination,
+            'checkout',
+            '--detach',
+            'FETCH_HEAD',
+          ], environment: environment)
+        : fetch;
+    if (checkout.exitCode == 0) return;
 
     await _deleteEntity(destination);
     await ProcessRunner.runChecked(
