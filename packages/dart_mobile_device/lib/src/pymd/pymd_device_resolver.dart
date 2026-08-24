@@ -284,13 +284,14 @@ class PymdDeviceResolver {
       return PymdDevices.devices(mode: mode);
     }
 
-    if (await TunnelDiscovery.activeTunnels().then(
-          (tunnels) => tunnels.isEmpty,
-        ) &&
-        await daemon.restartStale()) {
-      Log.logTrace(
-        'restarted the xcross-managed tunnel daemon after it lost all tunnels',
-      );
+    final activeTunnels = await TunnelDiscovery.activeTunnels();
+    if (activeTunnels.isEmpty) {
+      final restarted = await daemon.restartStale();
+      if (restarted) {
+        Log.logTrace(
+          'restarted the xcross-managed tunnel daemon after it lost all tunnels',
+        );
+      }
     }
 
     final tail = TunneldLogTail.start();
