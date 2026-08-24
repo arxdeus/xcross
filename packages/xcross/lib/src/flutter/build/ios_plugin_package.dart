@@ -1041,10 +1041,11 @@ abstract final class GeneratedPluginsPackage {
     );
     final fallbackSwiftModules = <String, List<String>>{};
     if (vendorDir != null) {
+      await _mirrorPluginPackage(target, stagedPackage, normalizedManifest);
       normalizedManifest = await vendorUrlPackagesAsPathDeps(
         normalizedManifest,
         vendorDir: vendorDir,
-        packageDirectory: target,
+        packageDirectory: stagedPackage,
         fallbackSwiftModules: fallbackSwiftModules,
       );
     }
@@ -2241,8 +2242,23 @@ let package = Package(
           'location': final String location,
           'state': {'revision': final String revision},
         })
-          location: revision,
+          _canonicalGitUrl(location): revision,
     };
+  }
+
+  static String _canonicalGitUrl(String url) {
+    var canonical = url.replaceFirst(RegExp(r'/+$'), '');
+    if (canonical.toLowerCase().endsWith('.git')) {
+      canonical = canonical.substring(0, canonical.length - 4);
+    }
+    final parsed = Uri.tryParse(canonical);
+    if (parsed == null || !parsed.hasScheme) return canonical;
+    return parsed
+        .replace(
+          scheme: parsed.scheme.toLowerCase(),
+          host: parsed.host.toLowerCase(),
+        )
+        .toString();
   }
 
   static Future<Map<String, String>> _evaluatedDependencyRefs(
@@ -2314,7 +2330,7 @@ let package = Package(
     var result = manifest;
     final seen = <String>{};
     for (final dep in deps) {
-      final ref = evaluatedRefs[dep.url];
+      final ref = evaluatedRefs[_canonicalGitUrl(dep.url)];
       if (ref == null) {
         throw FlutterBuildError(
           'Cannot vendor SwiftPM dependency ${dep.url}: Package.resolved '
@@ -2559,7 +2575,10 @@ let package = Package(
         '--verify',
         'HEAD',
       ], environment: environment);
-      if (head.exitCode == 0) return;
+      if (head.exitCode == 0 &&
+          head.stdout.trim().toLowerCase() == ref.toLowerCase()) {
+        return;
+      }
     }
     await _deleteEntity(destination);
     await destDir.parent.create(recursive: true);

@@ -689,7 +689,7 @@ let package = Package(name: "Sentry", products: [], targets: [])
         jsonEncode({
           'pins': [
             for (final entry in const [
-              ('https://example.com/exact', 'exact-sha', '1.2.3'),
+              ('https://EXAMPLE.com/exact.git/', 'exact-sha', '1.2.3'),
               ('https://example.com/branch', 'branch-sha', null),
               ('https://example.com/revision', 'revision-sha', null),
               ('https://example.com/range', 'range-sha', '2.4.0'),
