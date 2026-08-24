@@ -139,6 +139,143 @@ BAZ = a=b
     });
   });
 
+  group('applySceneLifecycle', () {
+    test('adds a programmatic SceneDelegate manifest', () {
+      final result = InfoPlist.applySceneLifecycle(_minimalPlist);
+
+      expect(result, contains('<key>UIApplicationSceneManifest</key>'));
+      expect(result, contains('<string>UIWindowScene</string>'));
+      expect(
+        result,
+        contains(
+          '<key>UISceneDelegateClassName</key>\n'
+          '\t\t\t\t\t<string>SceneDelegate</string>',
+        ),
+      );
+      expect(result, isNot(contains('UISceneStoryboardFile')));
+    });
+
+    test('completes an existing empty manifest', () {
+      const xml =
+          '<?xml version="1.0"?>\n'
+          '<plist version="1.0">\n'
+          '<dict>\n'
+          '\t<key>UIApplicationSceneManifest</key>\n'
+          '\t<dict/>\n'
+          '</dict>\n'
+          '</plist>\n';
+
+      final result = InfoPlist.applySceneLifecycle(xml);
+
+      expect('UIApplicationSceneManifest'.allMatches(result).length, 1);
+      expect(result, contains('<string>SceneDelegate</string>'));
+    });
+
+    test('replaces only the application scene role', () {
+      const xml =
+          '<?xml version="1.0"?>\n'
+          '<plist version="1.0">\n'
+          '<dict>\n'
+          '\t<key>UIApplicationSceneManifest</key>\n'
+          '\t<dict>\n'
+          '\t\t<key>UISceneConfigurations</key>\n'
+          '\t\t<dict>\n'
+          '\t\t\t<key>UIWindowSceneSessionRoleApplication</key>\n'
+          '\t\t\t<array><dict>\n'
+          '\t\t\t\t<key>UISceneDelegateClassName</key>\n'
+          '\t\t\t\t<string>Runner.CustomSceneDelegate</string>\n'
+          '\t\t\t</dict></array>\n'
+          '\t\t\t<key>UIWindowSceneSessionRoleExternalDisplay</key>\n'
+          '\t\t\t<array><dict>\n'
+          '\t\t\t\t<key>UISceneDelegateClassName</key>\n'
+          '\t\t\t\t<string>Runner.ExternalSceneDelegate</string>\n'
+          '\t\t\t</dict></array>\n'
+          '\t\t</dict>\n'
+          '\t</dict>\n'
+          '</dict>\n'
+          '</plist>\n';
+
+      final result = InfoPlist.applySceneLifecycle(xml);
+
+      expect(result, contains('<string>SceneDelegate</string>'));
+      expect(result, isNot(contains('CustomSceneDelegate')));
+      expect(result, contains('UIWindowSceneSessionRoleExternalDisplay'));
+      expect(result, contains('Runner.ExternalSceneDelegate'));
+    });
+
+    test(
+      'replaces a self-closing application role without touching others',
+      () {
+        const xml =
+            '<?xml version="1.0"?>\n'
+            '<plist version="1.0">\n'
+            '<dict>\n'
+            '\t<key>UIApplicationSceneManifest</key>\n'
+            '\t<dict>\n'
+            '\t\t<key>UISceneConfigurations</key>\n'
+            '\t\t<dict>\n'
+            '\t\t\t<key>UIWindowSceneSessionRoleApplication</key>\n'
+            '\t\t\t<array/>\n'
+            '\t\t\t<key>UIWindowSceneSessionRoleExternalDisplay</key>\n'
+            '\t\t\t<array><dict>\n'
+            '\t\t\t\t<key>UISceneDelegateClassName</key>\n'
+            '\t\t\t\t<string>Runner.ExternalSceneDelegate</string>\n'
+            '\t\t\t</dict></array>\n'
+            '\t\t</dict>\n'
+            '\t</dict>\n'
+            '</dict>\n'
+            '</plist>\n';
+
+        final result = InfoPlist.applySceneLifecycle(xml);
+
+        expect(result, contains('<string>SceneDelegate</string>'));
+        expect(result, contains('UIWindowSceneSessionRoleExternalDisplay'));
+        expect(result, contains('Runner.ExternalSceneDelegate'));
+      },
+    );
+
+    test('leaves a malformed manifest untouched', () {
+      const xml =
+          '<?xml version="1.0"?>\n'
+          '<plist version="1.0">\n'
+          '<dict>\n'
+          '\t<key>UIApplicationSceneManifest</key>\n'
+          '\t<string>invalid</string>\n'
+          '\t<key>UILaunchScreen</key>\n'
+          '\t<dict/>\n'
+          '</dict>\n'
+          '</plist>\n';
+
+      expect(InfoPlist.applySceneLifecycle(xml), xml);
+    });
+
+    test('adds the application role to a partial manifest', () {
+      const xml =
+          '<?xml version="1.0"?>\n'
+          '<plist version="1.0">\n'
+          '<dict>\n'
+          '\t<key>UIApplicationSceneManifest</key>\n'
+          '\t<dict>\n'
+          '\t\t<key>UISceneConfigurations</key>\n'
+          '\t\t<dict/>\n'
+          '\t</dict>\n'
+          '</dict>\n'
+          '</plist>\n';
+
+      final result = InfoPlist.applySceneLifecycle(xml);
+
+      expect(result, contains('UIWindowSceneSessionRoleApplication'));
+      expect(result, contains('<string>SceneDelegate</string>'));
+    });
+
+    test('is idempotent', () {
+      final once = InfoPlist.applySceneLifecycle(_minimalPlist);
+      final twice = InfoPlist.applySceneLifecycle(once);
+
+      expect(twice, once);
+    });
+  });
+
   group('normalizeObjCClassNames', () {
     test('strips the Swift module prefix from NSPrincipalClass', () {
       const xml =

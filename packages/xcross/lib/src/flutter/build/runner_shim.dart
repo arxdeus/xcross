@@ -282,14 +282,6 @@ ${hasPlugins ? _pluginsExternDeclaration : _emptyPluginRegistrantStub}
 @implementation AppDelegate
 - (BOOL)application:(UIApplication*)application didFinishLaunchingWithOptions:(NSDictionary*)launchOptions {
   ${verbose ? 'NSLog(@"[xcross] application launch started");' : ''}
-  FlutterViewController* flutterViewController = [[FlutterViewController alloc] initWithProject:nil nibName:nil bundle:nil];
-  [flutterViewController setFlutterViewDidRenderCallback:^{
-    NSLog(@"[xcross] first Flutter frame rendered");
-  }];
-  UIWindow* window = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
-  window.rootViewController = flutterViewController;
-  [window makeKeyAndVisible];
-  self.window = window;
   BOOL launched = [super application:application didFinishLaunchingWithOptions:launchOptions];
   ${verbose ? 'NSLog(@"[xcross] FlutterAppDelegate didFinishLaunching returned: %@", launched ? @"YES" : @"NO");' : ''}
   return launched;
@@ -305,6 +297,19 @@ ${hasPlugins ? _pluginsExternDeclaration : _emptyPluginRegistrantStub}
 @interface SceneDelegate : FlutterSceneDelegate
 @end
 @implementation SceneDelegate
+- (void)scene:(UIScene*)scene willConnectToSession:(UISceneSession*)session options:(UISceneConnectionOptions*)connectionOptions {
+  if (![scene isKindOfClass:[UIWindowScene class]]) return;
+  UIWindowScene* windowScene = (UIWindowScene*)scene;
+  FlutterViewController* flutterViewController = [[FlutterViewController alloc] initWithProject:nil nibName:nil bundle:nil];
+  [flutterViewController setFlutterViewDidRenderCallback:^{
+    NSLog(@"[xcross] first Flutter frame rendered");
+  }];
+  UIWindow* window = [[UIWindow alloc] initWithWindowScene:windowScene];
+  window.rootViewController = flutterViewController;
+  self.window = window;
+  [window makeKeyAndVisible];
+  [super scene:scene willConnectToSession:session options:connectionOptions];
+}
 @end
 
 int main(int argc, char * argv[]) {

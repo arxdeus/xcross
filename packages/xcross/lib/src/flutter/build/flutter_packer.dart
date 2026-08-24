@@ -444,6 +444,7 @@ final class FlutterPacker {
       deploymentTarget: deploymentTarget,
     );
     plistXml = InfoPlist.stripUnsatisfiableStoryboards(plistXml, bundleDir);
+    plistXml = InfoPlist.applySceneLifecycle(plistXml);
     plistXml = InfoPlist.normalizeObjCClassNames(plistXml);
     // Carry the app's own App Groups forward so the sign/install stage can
     // provision them alongside its extensions'.
