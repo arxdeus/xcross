@@ -772,11 +772,62 @@ let package = Package(name: "Sentry", products: [], targets: [])
       expect(vendored61, contains('import CRT'));
     });
 
-    test('resolves Firebase exact version constant before cloning', () async {
+    test('parses evaluated SwiftPM requirement variants', () {
+      final refs = GeneratedPluginsPackage.dependencyRefsFromDumpPackage(
+        jsonEncode({
+          'dependencies': [
+            for (final entry in const [
+              ('exact', 'https://example.com/exact', '1.2.3'),
+              ('branch', 'https://example.com/branch', 'main'),
+              ('revision', 'https://example.com/revision', 'abc123'),
+            ])
+              {
+                'sourceControl': [
+                  {
+                    'location': {
+                      'remote': [
+                        {'urlString': entry.$2},
+                      ],
+                    },
+                    'requirement': {
+                      entry.$1: [entry.$3],
+                    },
+                  },
+                ],
+              },
+            {
+              'sourceControl': [
+                {
+                  'location': {
+                    'remote': [
+                      {'urlString': 'https://example.com/range'},
+                    ],
+                  },
+                  'requirement': {
+                    'range': [
+                      {'lowerBound': '2.0.0', 'upperBound': '3.0.0'},
+                    ],
+                  },
+                },
+              ],
+            },
+          ],
+        }),
+      );
+
+      expect(refs, {
+        'https://example.com/exact': '1.2.3',
+        'https://example.com/branch': 'main',
+        'https://example.com/revision': 'abc123',
+        'https://example.com/range': '2.0.0',
+      });
+    });
+
+    test('uses Swift-evaluated Firebase version before cloning', () async {
       final vendorDir = p.join(tmp.path, 'Vendor');
       const manifest = '''
 import PackageDescription
-let firebaseSdkVersion = "12.1.0"
+let firebaseSdkVersion = Version(12, 1, 0)
 let package = Package(
     name: "firebase_core",
     dependencies: [
@@ -792,7 +843,14 @@ let package = Package(
           await GeneratedPluginsPackage.vendorUrlPackagesAsPathDeps(
             manifest,
             vendorDir: vendorDir,
+            packageDirectory: 'firebase_core/ios/firebase_core',
             locateTool: (_) async => 'git',
+            evaluateDependencyRefs: (directory) async {
+              expect(directory, 'firebase_core/ios/firebase_core');
+              return const {
+                'https://github.com/firebase/firebase-ios-sdk': '12.1.0',
+              };
+            },
             clonePackage: (_, url, ref, destination) async {
               expect(url, 'https://github.com/firebase/firebase-ios-sdk');
               expect(ref, '12.1.0');

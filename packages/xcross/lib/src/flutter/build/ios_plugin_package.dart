@@ -1044,6 +1044,7 @@ abstract final class GeneratedPluginsPackage {
       normalizedManifest = await vendorUrlPackagesAsPathDeps(
         normalizedManifest,
         vendorDir: vendorDir,
+        packageDirectory: target,
         fallbackSwiftModules: fallbackSwiftModules,
       );
     }
@@ -2268,14 +2269,78 @@ let package = Package(
     );
   }
 
+  @visibleForTesting
+  static Map<String, String> dependencyRefsFromDumpPackage(String output) {
+    final package = jsonDecode(output) as Map<String, dynamic>;
+    final refs = <String, String>{};
+    for (final dependency
+        in package['dependencies'] as List<dynamic>? ?? const []) {
+      final entry = dependency as Map<String, dynamic>;
+      final controls = entry['sourceControl'] as List<dynamic>?;
+      if (controls == null) continue;
+      for (final controlValue in controls) {
+        final control = controlValue as Map<String, dynamic>;
+        final location = control['location'] as Map<String, dynamic>?;
+        final remotes = location?['remote'] as List<dynamic>?;
+        final remote = remotes?.firstOrNull as Map<String, dynamic>?;
+        final url = remote?['urlString'] as String?;
+        final requirement = control['requirement'] as Map<String, dynamic>?;
+        if (url == null || requirement == null) continue;
+        String? ref;
+        for (final kind in const ['exact', 'revision', 'branch']) {
+          final values = requirement[kind] as List<dynamic>?;
+          if (values?.firstOrNull case final String value) {
+            ref = value;
+            break;
+          }
+        }
+        final ranges = requirement['range'] as List<dynamic>?;
+        final range = ranges?.firstOrNull as Map<String, dynamic>?;
+        ref ??= range?['lowerBound'] as String?;
+        if (ref != null) refs[url] = ref;
+      }
+    }
+    return refs;
+  }
+
+  static Future<Map<String, String>> _evaluatedDependencyRefs(
+    String packageDirectory,
+    Future<String> Function(String name) locateTool,
+  ) async {
+    final swift = await locateTool('swift');
+    final result = await ProcessRunner.run(swift, [
+      'package',
+      '--package-path',
+      packageDirectory,
+      'dump-package',
+    ]);
+    if (result.exitCode != 0) {
+      throw FlutterBuildError(
+        'Cannot evaluate SwiftPM dependencies in $packageDirectory:\n'
+        '${result.stderr.trim()}',
+      );
+    }
+    try {
+      return dependencyRefsFromDumpPackage(result.stdout);
+    } on Object catch (error) {
+      throw FlutterBuildError(
+        'Cannot parse `swift package dump-package` output for '
+        '$packageDirectory: $error',
+      );
+    }
+  }
+
   /// Clones each `.package(url:)` dependency under [vendorDir], normalizes its
   /// host manifests, and rewrites the plugin manifest to `.package(path:)`.
   @visibleForTesting
   static Future<String> vendorUrlPackagesAsPathDeps(
     String manifest, {
     required String vendorDir,
+    String? packageDirectory,
     Map<String, List<String>>? fallbackSwiftModules,
     Future<String> Function(String name)? locateTool,
+    Future<Map<String, String>> Function(String packageDirectory)?
+    evaluateDependencyRefs,
     Future<void> Function(
       String git,
       String url,
@@ -2288,6 +2353,12 @@ let package = Package(
     if (deps.isEmpty) return manifest;
 
     final locate = locateTool ?? ProcessRunner.locateTool;
+    final evaluatedRefs = packageDirectory == null
+        ? const <String, String>{}
+        : await (evaluateDependencyRefs ??
+              (directory) => _evaluatedDependencyRefs(directory, locate))(
+            packageDirectory,
+          );
     late final String git;
     try {
       git = await locate('git');
@@ -2303,7 +2374,9 @@ let package = Package(
     var result = manifest;
     final seen = <String>{};
     for (final dep in deps) {
-      final ref = gitRefFromVersionArgs(dep.versionArgs, manifest: manifest);
+      final ref =
+          evaluatedRefs[dep.url] ??
+          gitRefFromVersionArgs(dep.versionArgs, manifest: manifest);
       if (ref == null) {
         throw FlutterBuildError(
           'Cannot vendor SwiftPM dependency ${dep.url}: unsupported version '
