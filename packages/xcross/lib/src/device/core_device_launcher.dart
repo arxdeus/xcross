@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:apple_developer_kit/apple_developer_kit.dart';
@@ -9,6 +8,7 @@ import 'package:meta/meta.dart';
 import 'package:pure/pure.dart';
 import 'package:xcross/src/constants.dart';
 import 'package:xcross/src/device/core_device_launch_profile.dart';
+import 'package:xcross/src/device/device_log.dart';
 import 'package:xcross/src/device/session_console.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/flutter/flutter.dart';
@@ -123,7 +123,7 @@ abstract final class CoreDeviceLauncher {
       bundleId: bundleId,
       appArgs: arguments,
     );
-    final deviceLog = await _DeviceLog.start(
+    final deviceLog = await DeviceLog.start(
       deviceArgs: transport.pymdDeviceArgs,
       pid: pid,
     );
@@ -419,66 +419,5 @@ abstract final class CoreDeviceLauncher {
     // ignore: only_throw_errors
     if (lastError case final Object error?) throw error;
     throw XcrossError('VM Service did not become available');
-  }
-}
-
-final class _DeviceLog {
-  _DeviceLog(this._process);
-
-  final Process _process;
-  late final StreamSubscription<String> _stdout;
-  late final StreamSubscription<String> _stderr;
-
-  static Future<_DeviceLog?> start({
-    required List<String> deviceArgs,
-    required int pid,
-  }) async {
-    try {
-      final invocation = await Pymd.resolve();
-      final process = await Process.start(invocation.executable, [
-        ...invocation.prefixArgs,
-        'developer',
-        'dvt',
-        'oslog',
-        ...deviceArgs,
-        '--pid',
-        '$pid',
-      ], environment: Pymd.usbmuxEnvironment());
-      final log = _DeviceLog(process).._listen();
-      unawaited(
-        process.exitCode.then((code) {
-          if (code != 0) {
-            Log.logTrace('device log stream exited with code $code');
-          }
-        }),
-      );
-      Log.logInfo('Device logs', 'streaming for pid $pid');
-      return log;
-    } on Object catch (e) {
-      Log.logWarn('could not stream device logs: $e');
-      return null;
-    }
-  }
-
-  void _listen() {
-    _stdout = _process.stdout
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .listen((line) => stdout.writeln('[device] $line'));
-    _stderr = _process.stderr
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .listen((line) => stderr.writeln('[device] $line'));
-  }
-
-  Future<void> close() async {
-    _process.kill();
-    await _stdout.cancel();
-    await _stderr.cancel();
-    try {
-      await _process.exitCode.timeout(_cleanupTimeout);
-    } on TimeoutException {
-      Log.logTrace('cleanup device-log timed out');
-    }
   }
 }
