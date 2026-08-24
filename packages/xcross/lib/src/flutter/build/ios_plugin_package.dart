@@ -2233,37 +2233,16 @@ let package = Package(
   }
 
   @visibleForTesting
-  static Map<String, String> dependencyRefsFromDumpPackage(String output) {
-    final package = jsonDecode(output) as Map<String, dynamic>;
-    final refs = <String, String>{};
-    for (final dependency
-        in package['dependencies'] as List<dynamic>? ?? const []) {
-      final entry = dependency as Map<String, dynamic>;
-      final controls = entry['sourceControl'] as List<dynamic>?;
-      if (controls == null) continue;
-      for (final controlValue in controls) {
-        final control = controlValue as Map<String, dynamic>;
-        final location = control['location'] as Map<String, dynamic>?;
-        final remotes = location?['remote'] as List<dynamic>?;
-        final remote = remotes?.firstOrNull as Map<String, dynamic>?;
-        final url = remote?['urlString'] as String?;
-        final requirement = control['requirement'] as Map<String, dynamic>?;
-        if (url == null || requirement == null) continue;
-        String? ref;
-        for (final kind in const ['exact', 'revision', 'branch']) {
-          final values = requirement[kind] as List<dynamic>?;
-          if (values?.firstOrNull case final String value) {
-            ref = value;
-            break;
-          }
-        }
-        final ranges = requirement['range'] as List<dynamic>?;
-        final range = ranges?.firstOrNull as Map<String, dynamic>?;
-        ref ??= range?['lowerBound'] as String?;
-        if (ref != null) refs[url] = ref;
-      }
-    }
-    return refs;
+  static Map<String, String> dependencyRefsFromPackageResolved(String output) {
+    final resolved = jsonDecode(output) as Map<String, dynamic>;
+    return {
+      for (final pinValue in resolved['pins'] as List<dynamic>? ?? const [])
+        if (pinValue case {
+          'location': final String location,
+          'state': {'revision': final String revision},
+        })
+          location: revision,
+    };
   }
 
   static Future<Map<String, String>> _evaluatedDependencyRefs(
@@ -2275,21 +2254,21 @@ let package = Package(
       'package',
       '--package-path',
       packageDirectory,
-      'dump-package',
+      'resolve',
     ]);
     if (result.exitCode != 0) {
       throw FlutterBuildError(
-        'Cannot evaluate SwiftPM dependencies in $packageDirectory:\n'
+        'Cannot resolve SwiftPM dependencies in $packageDirectory:\n'
         '${result.stderr.trim()}',
       );
     }
+    final resolvedFile = File(p.join(packageDirectory, 'Package.resolved'));
     try {
-      return dependencyRefsFromDumpPackage(result.stdout);
-    } on Object catch (error) {
-      throw FlutterBuildError(
-        'Cannot parse `swift package dump-package` output for '
-        '$packageDirectory: $error',
+      return dependencyRefsFromPackageResolved(
+        await resolvedFile.readAsString(),
       );
+    } on Object catch (error) {
+      throw FlutterBuildError('Cannot read ${resolvedFile.path}: $error');
     }
   }
 
@@ -2338,8 +2317,8 @@ let package = Package(
       final ref = evaluatedRefs[dep.url];
       if (ref == null) {
         throw FlutterBuildError(
-          'Cannot vendor SwiftPM dependency ${dep.url}: `swift package '
-          'dump-package` returned no supported source-control requirement.',
+          'Cannot vendor SwiftPM dependency ${dep.url}: Package.resolved '
+          'contains no matching source-control revision.',
         );
       }
       final dirName = vendorPackageDirName(dep.url, ref);

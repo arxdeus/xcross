@@ -684,54 +684,35 @@ let package = Package(name: "Sentry", products: [], targets: [])
       expect(vendored61, contains('import CRT'));
     });
 
-    test('parses evaluated SwiftPM requirement variants', () {
-      final refs = GeneratedPluginsPackage.dependencyRefsFromDumpPackage(
+    test('uses resolved revisions for every SwiftPM requirement variant', () {
+      final refs = GeneratedPluginsPackage.dependencyRefsFromPackageResolved(
         jsonEncode({
-          'dependencies': [
+          'pins': [
             for (final entry in const [
-              ('exact', 'https://example.com/exact', '1.2.3'),
-              ('branch', 'https://example.com/branch', 'main'),
-              ('revision', 'https://example.com/revision', 'abc123'),
+              ('https://example.com/exact', 'exact-sha', '1.2.3'),
+              ('https://example.com/branch', 'branch-sha', null),
+              ('https://example.com/revision', 'revision-sha', null),
+              ('https://example.com/range', 'range-sha', '2.4.0'),
             ])
               {
-                'sourceControl': [
-                  {
-                    'location': {
-                      'remote': [
-                        {'urlString': entry.$2},
-                      ],
-                    },
-                    'requirement': {
-                      entry.$1: [entry.$3],
-                    },
-                  },
-                ],
-              },
-            {
-              'sourceControl': [
-                {
-                  'location': {
-                    'remote': [
-                      {'urlString': 'https://example.com/range'},
-                    ],
-                  },
-                  'requirement': {
-                    'range': [
-                      {'lowerBound': '2.0.0', 'upperBound': '3.0.0'},
-                    ],
-                  },
+                'identity': Uri.parse(entry.$1).pathSegments.last,
+                'kind': 'remoteSourceControl',
+                'location': entry.$1,
+                'state': {
+                  'revision': entry.$2,
+                  if (entry.$3 != null) 'version': entry.$3,
                 },
-              ],
-            },
+              },
           ],
+          'version': 2,
         }),
       );
 
       expect(refs, {
-        'https://example.com/exact': '1.2.3',
-        'https://example.com/branch': 'main',
-        'https://example.com/revision': 'abc123',
-        'https://example.com/range': '2.0.0',
+        'https://example.com/exact': 'exact-sha',
+        'https://example.com/branch': 'branch-sha',
+        'https://example.com/revision': 'revision-sha',
+        'https://example.com/range': 'range-sha',
       });
     });
 
@@ -760,12 +741,13 @@ let package = Package(
             evaluateDependencyRefs: (directory) async {
               expect(directory, 'firebase_core/ios/firebase_core');
               return const {
-                'https://github.com/firebase/firebase-ios-sdk': '12.1.0',
+                'https://github.com/firebase/firebase-ios-sdk':
+                    'b9bf3adac18e6e3059167194aeb632f15a5ba4b2',
               };
             },
             clonePackage: (_, url, ref, destination) async {
               expect(url, 'https://github.com/firebase/firebase-ios-sdk');
-              expect(ref, '12.1.0');
+              expect(ref, 'b9bf3adac18e6e3059167194aeb632f15a5ba4b2');
               await Directory(destination).create(recursive: true);
               await File(
                 p.join(destination, 'Package.swift'),
@@ -778,7 +760,7 @@ let package = Package(
         rewritten,
         contains(
           '.package(name: "firebase-ios-sdk", '
-          'path: "${swiftPath(p.join(vendorDir, 'firebase-ios-sdk@12.1.0'))}")',
+          'path: "${swiftPath(p.join(vendorDir, 'firebase-ios-sdk@b9bf3adac18e6e3059167194aeb632f15a5ba4b2'))}")',
         ),
       );
     });
