@@ -1648,18 +1648,29 @@ let package = Package(
 
   /// Picks a git ref from SwiftPM version-requirement syntax.
   @visibleForTesting
-  static String? gitRefFromVersionArgs(String versionArgs) {
-    final exact = RegExp(r'exact:\s*"([^"]+)"').firstMatch(versionArgs);
-    if (exact != null) return exact[1];
-    final revision = RegExp(r'revision:\s*"([^"]+)"').firstMatch(versionArgs);
-    if (revision != null) return revision[1];
-    final branch = RegExp(r'branch:\s*"([^"]+)"').firstMatch(versionArgs);
-    if (branch != null) return branch[1];
-    final from = RegExp(r'from:\s*"([^"]+)"').firstMatch(versionArgs);
-    if (from != null) return from[1];
-    final range = RegExp(r'"([^"]+)"\s*\.\.<').firstMatch(versionArgs);
-    if (range != null) return range[1];
-    return null;
+  static String? gitRefFromVersionArgs(String versionArgs, {String? manifest}) {
+    for (final label in const ['exact', 'revision', 'branch', 'from']) {
+      final value = RegExp(
+        '$label:\\s*("[^"]+"|[A-Za-z_][A-Za-z0-9_]*)',
+      ).firstMatch(versionArgs)?[1];
+      if (value == null) continue;
+      if (value.startsWith('"')) return value.substring(1, value.length - 1);
+      final resolved = _manifestStringConstant(manifest, value);
+      if (resolved != null) return resolved;
+    }
+    final range = RegExp(
+      r'("[^"]+"|[A-Za-z_][A-Za-z0-9_]*)\s*\.\.<',
+    ).firstMatch(versionArgs)?[1];
+    if (range == null) return null;
+    if (range.startsWith('"')) return range.substring(1, range.length - 1);
+    return _manifestStringConstant(manifest, range);
+  }
+
+  static String? _manifestStringConstant(String? manifest, String name) {
+    if (manifest == null) return null;
+    return RegExp(
+      '(?:let|var)\\s+$name(?:\\s*:\\s*String)?\\s*=\\s*"([^"]+)"',
+    ).firstMatch(manifest)?[1];
   }
 
   /// Folder name for a vendored checkout of [url] at [ref].
@@ -2292,7 +2303,7 @@ let package = Package(
     var result = manifest;
     final seen = <String>{};
     for (final dep in deps) {
-      final ref = gitRefFromVersionArgs(dep.versionArgs);
+      final ref = gitRefFromVersionArgs(dep.versionArgs, manifest: manifest);
       if (ref == null) {
         throw FlutterBuildError(
           'Cannot vendor SwiftPM dependency ${dep.url}: unsupported version '

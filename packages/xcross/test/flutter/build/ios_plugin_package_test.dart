@@ -415,6 +415,26 @@ dependencies: [
       );
     });
 
+    test('resolves a version constant from the manifest', () {
+      const manifest = '''
+let firebaseSdkVersion: String = "12.1.0"
+dependencies: [
+    .package(
+        url: "https://github.com/firebase/firebase-ios-sdk",
+        exact: firebaseSdkVersion
+    ),
+]
+''';
+      final dep = GeneratedPluginsPackage.parseUrlPackageDeps(manifest).single;
+      expect(
+        GeneratedPluginsPackage.gitRefFromVersionArgs(
+          dep.versionArgs,
+          manifest: manifest,
+        ),
+        '12.1.0',
+      );
+    });
+
     test('vendorPackageDirName strips .git and sanitizes ref', () {
       expect(
         GeneratedPluginsPackage.vendorPackageDirName(
@@ -750,6 +770,47 @@ let package = Package(name: "Sentry", products: [], targets: [])
       ).readAsStringSync();
       expect(vendored61, contains('String(cString: env)'));
       expect(vendored61, contains('import CRT'));
+    });
+
+    test('resolves Firebase exact version constant before cloning', () async {
+      final vendorDir = p.join(tmp.path, 'Vendor');
+      const manifest = '''
+import PackageDescription
+let firebaseSdkVersion = "12.1.0"
+let package = Package(
+    name: "firebase_core",
+    dependencies: [
+        .package(
+            url: "https://github.com/firebase/firebase-ios-sdk",
+            exact: firebaseSdkVersion
+        ),
+    ],
+    targets: []
+)
+''';
+      final rewritten =
+          await GeneratedPluginsPackage.vendorUrlPackagesAsPathDeps(
+            manifest,
+            vendorDir: vendorDir,
+            locateTool: (_) async => 'git',
+            clonePackage: (_, url, ref, destination) async {
+              expect(url, 'https://github.com/firebase/firebase-ios-sdk');
+              expect(ref, '12.1.0');
+              await Directory(destination).create(recursive: true);
+              await File(
+                p.join(destination, 'Package.swift'),
+              ).writeAsString('import PackageDescription\n');
+            },
+          );
+
+      expect(rewritten, isNot(contains('url:')));
+      expect(
+        rewritten,
+        contains(
+          '.package(name: "firebase-ios-sdk", '
+          'path: "${swiftPath(p.join(vendorDir, 'firebase-ios-sdk@12.1.0'))}")',
+        ),
+      );
     });
   });
 
