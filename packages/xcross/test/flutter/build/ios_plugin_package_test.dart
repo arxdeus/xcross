@@ -833,6 +833,29 @@ let package = Package(name: "Sentry", products: [], targets: [])
     });
   });
 
+  group('removeMissingResources', () {
+    test('drops missing resources and preserves existing resources', () {
+      final package = Directory(p.join(tmp.path, 'resources'))
+        ..createSync(recursive: true);
+      File(p.join(package.path, 'PrivacyInfo.xcprivacy'))
+        ..createSync()
+        ..writeAsStringSync('{}');
+      const manifest = '''
+resources: [
+    .process("PrivacyInfo.xcprivacy"),
+    .copy("Resources/Missing.bundle"),
+]
+''';
+
+      final normalized = GeneratedPluginsPackage.removeMissingResources(
+        manifest,
+        package.path,
+      );
+      expect(normalized, contains('.process("PrivacyInfo.xcprivacy")'));
+      expect(normalized, isNot(contains('Missing.bundle')));
+    });
+  });
+
   group('registrantSource', () {
     test('imports and registers only the plugin with a pluginClass', () {
       final pluginA = makePlugin('plugin_a', pluginClass: 'PluginA');

@@ -408,6 +408,9 @@ void main() {
     await Directory(
       p.join(sdkRoot, 'System', 'Library', 'Frameworks'),
     ).create(recursive: true);
+    await Directory(
+      p.join(sdkRoot, 'usr', 'include', 'c++', 'v1'),
+    ).create(recursive: true);
     final layout = File(
       p.join(
         bundle.path,
@@ -469,7 +472,7 @@ void main() {
     );
     expect(target['includeSearchPaths'], [
       'Developer/Platforms/iPhoneOS.platform/Developer/usr/lib',
-      'Developer/Toolchains/XcodeDefault.xctoolchain/usr/include/c++/v1',
+      'Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.2.sdk/usr/include/c++/v1',
     ]);
     expect(target['librarySearchPaths'], [
       'Developer/Platforms/iPhoneOS.platform/Developer/usr/lib',
