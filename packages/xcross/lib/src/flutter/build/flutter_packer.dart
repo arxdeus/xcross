@@ -7,8 +7,10 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/app_extension_builder.dart';
 import 'package:xcross/src/flutter/build/flutter_debug_bundler.dart';
 import 'package:xcross/src/flutter/build/info_plist.dart';
+import 'package:xcross/src/flutter/build/internal/recursive_directory_copy.dart';
 import 'package:xcross/src/flutter/build/internal/runner_binary.dart';
 import 'package:xcross/src/flutter/build/ios_app_extensions.dart';
+import 'package:xcross/src/flutter/build/ios_bundle_resources.dart';
 import 'package:xcross/src/flutter/build/ios_bundle_versions.dart';
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/build/ios_engine_cache.dart';
@@ -358,7 +360,7 @@ final class FlutterPacker {
       await destDir.delete(recursive: true);
     }
     await Directory(p.dirname(dest)).create(recursive: true);
-    await _copyDirectory(tmp.path, dest);
+    await copyDirectoryPreservingSymlinks(tmp.path, dest);
     await tmp.delete(recursive: true);
 
     return dest;
@@ -383,16 +385,22 @@ final class FlutterPacker {
     await File(runnerBinary).copy(runnerDest);
     ProcessRunner.makeExecutable(runnerDest);
 
-    await _copyDirectory(
+    await copyDirectoryPreservingSymlinks(
       flutterFramework,
       p.join(frameworksDir, 'Flutter.framework'),
     );
-    await _copyDirectory(appFramework, p.join(frameworksDir, 'App.framework'));
+    await copyDirectoryPreservingSymlinks(
+      appFramework,
+      p.join(frameworksDir, 'App.framework'),
+    );
     await copyPluginLibraries(pluginLibraries, frameworksDir);
     await copyNativeAssetFrameworks(nativeAssetFrameworks, frameworksDir);
 
     await _embedAppExtensions(bundleDir, extensions);
-    await copyOptionalRunnerResources(projectRoot, bundleDir);
+    await stageIosBundleResources(
+      projectRoot: projectRoot,
+      bundleDir: bundleDir,
+    );
     await _writeInfoPlist(bundleDir, deploymentTarget: deploymentTarget);
   }
 
@@ -406,7 +414,7 @@ final class FlutterPacker {
     final plugInsDir = p.join(bundleDir, 'PlugIns');
     await Directory(plugInsDir).create(recursive: true);
     for (final extension in extensions) {
-      await _copyDirectory(
+      await copyDirectoryPreservingSymlinks(
         extension.bundlePath,
         p.join(plugInsDir, extension.extension.bundleName),
       );
@@ -431,47 +439,12 @@ final class FlutterPacker {
     String frameworksDir,
   ) async {
     for (final framework in frameworks) {
-      await _copyDirectory(
+      await copyDirectoryPreservingSymlinks(
         framework,
         p.join(frameworksDir, p.basename(framework)),
       );
     }
   }
-
-  /// Copy optional Runner resources into the app bundle.
-  @visibleForTesting
-  static Future<void> copyOptionalRunnerResources(
-    String projectRoot,
-    String bundleDir,
-  ) async {
-    final runnerDir = p.join(projectRoot, 'ios', 'Runner');
-    const storyboards = [
-      'Base.lproj/LaunchScreen.storyboardc',
-      'Base.lproj/Main.storyboardc',
-    ];
-    for (final rel in storyboards) {
-      final src = p.join(runnerDir, rel);
-      if (!Directory(src).existsSync()) continue;
-      final dst = p.join(bundleDir, p.basename(src));
-      final dstDir = Directory(dst);
-      if (dstDir.existsSync()) {
-        await dstDir.delete(recursive: true);
-      }
-      await _copyDirectory(src, dst);
-    }
-
-    final firebasePlistCandidates = [
-      p.join(runnerDir, 'GoogleService-Info.plist'),
-      p.join(projectRoot, 'ios', 'GoogleService-Info.plist'),
-    ];
-    for (final source in firebasePlistCandidates) {
-      final file = File(source);
-      if (!file.existsSync()) continue;
-      await file.copy(p.join(bundleDir, 'GoogleService-Info.plist'));
-      break;
-    }
-  }
-
   /// Generate and write `Info.plist` into [bundleDir] with `$(VAR)`
   /// substitution, mandatory iOS keys, storyboard stripping, and ObjC class
   /// name normalization.
@@ -565,23 +538,5 @@ final class FlutterPacker {
     }
 
     return subs;
-  }
-
-  /// Recursively copy [src] to [dst], preserving symlinks.
-  static Future<void> _copyDirectory(String src, String dst) async {
-    await Directory(dst).create(recursive: true);
-    await for (final entity in Directory(src).list()) {
-      final name = p.basename(entity.path);
-      final destPath = p.join(dst, name);
-      if (entity is Directory) {
-        await _copyDirectory(entity.path, destPath);
-      } else if (entity is File) {
-        await entity.copy(destPath);
-      } else if (entity is Link) {
-        final link = Link(destPath);
-        if (link.existsSync()) await link.delete();
-        await link.create(await entity.target());
-      }
-    }
   }
 }

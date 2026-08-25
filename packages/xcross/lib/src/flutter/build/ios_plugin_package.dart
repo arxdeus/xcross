@@ -7,9 +7,11 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/cli/basic/sdk_install.dart';
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
+import 'package:xcross/src/flutter/build/ios_linker_compatibility.dart';
 import 'package:xcross/src/flutter/build/ios_plugins.dart';
 import 'package:xcross/src/flutter/build/macho_dylib_rewriter.dart';
 import 'package:xcross/src/flutter/build/preview_macro_stub_source.dart';
+import 'package:xcross/src/flutter/build/swift_package_host_patches.dart';
 import 'package:xcross/src/flutter/constants.dart';
 import 'package:xcross/src/flutter/errors.dart';
 
@@ -754,18 +756,7 @@ abstract final class GeneratedPluginsPackage {
     '-Xclang-linker',
     '-Xswiftc',
     iosSdk,
-    '-Xswiftc',
-    '-Xlinker',
-    '-Xswiftc',
-    '-ObjC',
-    '-Xswiftc',
-    '-Xlinker',
-    '-Xswiftc',
-    '-no_objc_category_merging',
-    '-Xswiftc',
-    '-Xlinker',
-    '-Xswiftc',
-    '-objc_stubs_small',
+    ...objectiveCLinkerSwiftDriverArguments,
     // The link runs through the toolchain's own clang, which resolves
     // `-use-ld=lld` to the `ld64.lld` sitting next to itself — swiftly's, the
     // one that refuses iOS (see [resolveLd64Lld]). `--ld-path` overrides that
@@ -1419,17 +1410,7 @@ let package = Package(
             'import MSVCRT';
       },
     );
-    if (result.contains('name: "Firebase"') &&
-        result.contains(
-          '// Add Apple-only products when building on macOS hosts.',
-        )) {
-      result = result
-          .replaceAll(RegExp(r'^\s*#if os\(macOS\)\s*$', multiLine: true), '')
-          .replaceAll(
-            RegExp(r'^\s*#endif // os\(macOS\)\s*$', multiLine: true),
-            '',
-          );
-    }
+    result = patchFirebaseManifestForCrossHost(result);
     // Package manifests cannot import Foundation; stdlib String(cString:)
     // already decodes UTF-8 (getsentry/sentry-cocoa#7797).
     result = result.replaceAllMapped(
