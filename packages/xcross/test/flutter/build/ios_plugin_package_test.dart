@@ -1777,6 +1777,7 @@ let package = Package(
         swiftSdksPath: 'xcross-swift-sdks',
         iosSdk: 'iPhoneOS.sdk',
         flutterFrameworkSlice: 'Flutter.xcframework/ios-arm64',
+        objectiveCCompatibilityHeader: 'objective-c-compatibility.h',
         toolsetPath: 'toolset.json',
         linkerPath: '/usr/bin/ld64.lld',
         windows: true,
@@ -1842,6 +1843,15 @@ let package = Package(
       expect(
         arguments,
         containsAllInOrder(['-Xcc', '-isysroot', '-Xcc', 'iPhoneOS.sdk']),
+      );
+      expect(
+        arguments,
+        containsAllInOrder([
+          '-Xcc',
+          '-include',
+          '-Xcc',
+          'objective-c-compatibility.h',
+        ]),
       );
       expect(
         arguments,
@@ -2197,6 +2207,19 @@ module FirebaseFirestore {
         'GIT_CONFIG_VALUE_0': 'false',
         'EXPERIMENTAL_SPM_BUILDS': '1',
       });
+    });
+  });
+
+  group('Objective-C compatibility header', () {
+    test('imports Foundation only for Objective-C compilations', () async {
+      final path =
+          await GeneratedPluginsPackage.writeObjectiveCCompatibilityHeader(
+            tmp.path,
+          );
+      expect(
+        File(path).readAsStringSync(),
+        '#ifdef __OBJC__\n#import <Foundation/Foundation.h>\n#endif\n',
+      );
     });
   });
 

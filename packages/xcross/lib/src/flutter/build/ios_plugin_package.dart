@@ -198,6 +198,8 @@ abstract final class GeneratedPluginsPackage {
       outputDir: outputDir,
       cCompilerPath: darwinClang ?? await ProcessRunner.locateTool('cc'),
     );
+    final objectiveCCompatibilityHeader =
+        await writeObjectiveCCompatibilityHeader(outputDir);
     final swiftSdksPath = p.dirname(sdk.swiftSdkPath);
     final environment = swiftProcessEnvironment(windows: windows);
     if (windows) {
@@ -222,6 +224,7 @@ abstract final class GeneratedPluginsPackage {
               swiftSdksPath: swiftSdksPath,
               iosSdk: sdk.iPhoneOSSdk(),
               flutterFrameworkSlice: flutterFrameworkSlice,
+              objectiveCCompatibilityHeader: objectiveCCompatibilityHeader,
               toolsetPath: toolsetPath,
               // Windows gets the same override from the toolset's `linker`.
               linkerPath: windows ? null : linker,
@@ -576,6 +579,19 @@ abstract final class GeneratedPluginsPackage {
     return exePath;
   }
 
+  @visibleForTesting
+  static Future<String> writeObjectiveCCompatibilityHeader(
+    String outputDir,
+  ) async {
+    final path = p.join(outputDir, '.xcross', 'objective-c-compatibility.h');
+    await Directory(p.dirname(path)).create(recursive: true);
+    await _writeStable(
+      path,
+      '#ifdef __OBJC__\n#import <Foundation/Foundation.h>\n#endif\n',
+    );
+    return path;
+  }
+
   /// Search-path arguments for the Objective-C interop modules SwiftPM
   /// generates under [targetBuildDir].
   ///
@@ -643,6 +659,7 @@ abstract final class GeneratedPluginsPackage {
     required String swiftSdksPath,
     required String iosSdk,
     required String flutterFrameworkSlice,
+    String? objectiveCCompatibilityHeader,
     String? toolsetPath,
     String? linkerPath,
     bool? windows,
@@ -709,6 +726,12 @@ abstract final class GeneratedPluginsPackage {
     '-isysroot',
     '-Xcc',
     iosSdk,
+    if (objectiveCCompatibilityHeader != null) ...[
+      '-Xcc',
+      '-include',
+      '-Xcc',
+      objectiveCCompatibilityHeader,
+    ],
     '-Xswiftc',
     '-F',
     '-Xswiftc',
