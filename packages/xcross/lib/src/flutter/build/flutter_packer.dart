@@ -392,7 +392,7 @@ final class FlutterPacker {
     await copyNativeAssetFrameworks(nativeAssetFrameworks, frameworksDir);
 
     await _embedAppExtensions(bundleDir, extensions);
-    await _copyOptionalRunnerResources(bundleDir);
+    await copyOptionalRunnerResources(projectRoot, bundleDir);
     await _writeInfoPlist(bundleDir, deploymentTarget: deploymentTarget);
   }
 
@@ -438,8 +438,12 @@ final class FlutterPacker {
     }
   }
 
-  /// Copy compiled storyboards from `ios/Runner/` into the bundle, if present.
-  Future<void> _copyOptionalRunnerResources(String bundleDir) async {
+  /// Copy optional Runner resources into the app bundle.
+  @visibleForTesting
+  static Future<void> copyOptionalRunnerResources(
+    String projectRoot,
+    String bundleDir,
+  ) async {
     final runnerDir = p.join(projectRoot, 'ios', 'Runner');
     const storyboards = [
       'Base.lproj/LaunchScreen.storyboardc',
@@ -454,6 +458,17 @@ final class FlutterPacker {
         await dstDir.delete(recursive: true);
       }
       await _copyDirectory(src, dst);
+    }
+
+    final firebasePlistCandidates = [
+      p.join(runnerDir, 'GoogleService-Info.plist'),
+      p.join(projectRoot, 'ios', 'GoogleService-Info.plist'),
+    ];
+    for (final source in firebasePlistCandidates) {
+      final file = File(source);
+      if (!file.existsSync()) continue;
+      await file.copy(p.join(bundleDir, 'GoogleService-Info.plist'));
+      break;
     }
   }
 

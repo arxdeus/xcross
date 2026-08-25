@@ -762,6 +762,10 @@ abstract final class GeneratedPluginsPackage {
     '-Xlinker',
     '-Xswiftc',
     '-no_objc_category_merging',
+    '-Xswiftc',
+    '-Xlinker',
+    '-Xswiftc',
+    '-objc_stubs_small',
     // The link runs through the toolchain's own clang, which resolves
     // `-use-ld=lld` to the `ld64.lld` sitting next to itself — swiftly's, the
     // one that refuses iOS (see [resolveLd64Lld]). `--ld-path` overrides that
@@ -944,7 +948,7 @@ abstract final class GeneratedPluginsPackage {
     final frameworkDir = p.join(packagesDir, _flutterFrameworkPackageName);
     final pluginsDir = p.join(outputDir, 'Plugins');
     final vendorDir = p.join(outputDir, 'Vendor');
-    final shouldVendor = vendorRemotePackages ?? windows;
+    final shouldVendor = vendorRemotePackages ?? true;
 
     await Directory(packagesDir).create(recursive: true);
     await _writeFlutterFrameworkPackage(
@@ -1415,6 +1419,17 @@ let package = Package(
             'import MSVCRT';
       },
     );
+    if (result.contains('name: "Firebase"') &&
+        result.contains(
+          '// Add Apple-only products when building on macOS hosts.',
+        )) {
+      result = result
+          .replaceAll(RegExp(r'^\s*#if os\(macOS\)\s*$', multiLine: true), '')
+          .replaceAll(
+            RegExp(r'^\s*#endif // os\(macOS\)\s*$', multiLine: true),
+            '',
+          );
+    }
     // Package manifests cannot import Foundation; stdlib String(cString:)
     // already decodes UTF-8 (getsentry/sentry-cocoa#7797).
     result = result.replaceAllMapped(
@@ -2343,8 +2358,8 @@ let package = Package(
       git = await locate('git');
     } on CliError {
       throw FlutterBuildError(
-        'Git is required on Windows to vendor SwiftPM URL dependencies '
-        '(e.g. sentry-cocoa). Install Git and ensure it is on PATH.',
+        'Git is required to vendor SwiftPM URL dependencies '
+        '(e.g. Firebase or sentry-cocoa). Install Git and ensure it is on PATH.',
       );
     }
 

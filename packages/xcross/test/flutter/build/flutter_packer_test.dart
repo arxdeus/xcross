@@ -95,6 +95,62 @@ void main() {
     }
   });
 
+  test('copies GoogleService-Info.plist into the app bundle', () async {
+    final tmp = await Directory.systemTemp.createTemp('flutter_packer_test-');
+    try {
+      final project = Directory(p.join(tmp.path, 'project'))..createSync();
+      final ios = Directory(p.join(project.path, 'ios'))..createSync();
+      final bundle = Directory(p.join(tmp.path, 'Runner.app'))..createSync();
+      File(
+        p.join(ios.path, 'GoogleService-Info.plist'),
+      ).writeAsStringSync('firebase');
+
+      await FlutterPacker.copyOptionalRunnerResources(
+        project.path,
+        bundle.path,
+      );
+
+      expect(
+        File(
+          p.join(bundle.path, 'GoogleService-Info.plist'),
+        ).readAsStringSync(),
+        'firebase',
+      );
+    } finally {
+      await tmp.delete(recursive: true);
+    }
+  });
+
+  test('prefers Runner GoogleService-Info.plist', () async {
+    final tmp = await Directory.systemTemp.createTemp('flutter_packer_test-');
+    try {
+      final project = Directory(p.join(tmp.path, 'project'))..createSync();
+      final ios = Directory(p.join(project.path, 'ios'))..createSync();
+      final runner = Directory(p.join(ios.path, 'Runner'))..createSync();
+      final bundle = Directory(p.join(tmp.path, 'Runner.app'))..createSync();
+      File(
+        p.join(ios.path, 'GoogleService-Info.plist'),
+      ).writeAsStringSync('ios');
+      File(
+        p.join(runner.path, 'GoogleService-Info.plist'),
+      ).writeAsStringSync('runner');
+
+      await FlutterPacker.copyOptionalRunnerResources(
+        project.path,
+        bundle.path,
+      );
+
+      expect(
+        File(
+          p.join(bundle.path, 'GoogleService-Info.plist'),
+        ).readAsStringSync(),
+        'runner',
+      );
+    } finally {
+      await tmp.delete(recursive: true);
+    }
+  });
+
   test('uses xcross build, temp, and DevFS names', () {
     final debugBundler = _read('build/flutter_debug_bundler.dart');
     final packOperation = _read('build/flutter_pack_operation.dart');
