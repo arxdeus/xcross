@@ -864,6 +864,57 @@ resources: [
       expect(normalized, contains('.process("PrivacyInfo.xcprivacy")'));
       expect(normalized, isNot(contains('Missing.bundle')));
     });
+
+    test('resolves resources relative to their target path', () {
+      final package = Directory(p.join(tmp.path, 'target-resources'))
+        ..createSync(recursive: true);
+      File(
+          p.join(
+            package.path,
+            'Sources',
+            'flutter_inappwebview_ios',
+            'Resources',
+            'WebView.storyboard',
+          ),
+        )
+        ..createSync(recursive: true)
+        ..writeAsStringSync('<storyboard/>');
+      const manifest = '''
+let package = Package(targets: [
+    .target(
+        name: "flutter_inappwebview_ios",
+        path: "Sources/flutter_inappwebview_ios",
+        resources: [
+            .process("Resources/WebView.storyboard"),
+            .process("Resources/Missing.xcprivacy"),
+        ]
+    )
+])
+''';
+
+      final normalized = GeneratedPluginsPackage.removeMissingResources(
+        manifest,
+        package.path,
+      );
+      expect(normalized, contains('.process("Resources/WebView.storyboard")'));
+      expect(normalized, isNot(contains('Missing.xcprivacy')));
+    });
+
+    test('uses the conventional Sources target directory', () {
+      final package = Directory(p.join(tmp.path, 'default-target-resources'))
+        ..createSync(recursive: true);
+      File(p.join(package.path, 'Sources', 'Plugin', 'Resources', 'Data.json'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('{}');
+      const manifest = '''
+.target(name: "Plugin", resources: [.copy("Resources/Data.json")])
+''';
+
+      expect(
+        GeneratedPluginsPackage.removeMissingResources(manifest, package.path),
+        manifest,
+      );
+    });
   });
 
   group('registrantSource', () {

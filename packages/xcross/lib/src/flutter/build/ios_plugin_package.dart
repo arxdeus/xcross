@@ -1331,16 +1331,32 @@ let package = Package(
 
   @visibleForTesting
   static String removeMissingResources(String manifest, String packageDir) {
-    return manifest.replaceAllMapped(
-      RegExp(r'\.((?:process|copy))\(\s*"([^"]+)"\s*\)\s*,?'),
-      (match) {
-        final resource = p.joinAll([packageDir, ...match.group(2)!.split('/')]);
-        return FileSystemEntity.typeSync(resource) ==
-                FileSystemEntityType.notFound
-            ? ''
-            : match.group(0)!;
-      },
+    final targets = _swiftCalls(manifest, '.target');
+    final resourcePattern = RegExp(
+      r'\.((?:process|copy))\(\s*"([^"]+)"\s*\)\s*,?',
     );
+    var result = manifest;
+    for (final match
+        in resourcePattern.allMatches(manifest).toList().reversed) {
+      var root = packageDir;
+      for (final target in targets) {
+        if (target.start > match.start || target.end < match.end) continue;
+        final explicitPath = _namedString(target.text, 'path');
+        final name = _namedString(target.text, 'name');
+        if (explicitPath != null) {
+          root = p.joinAll([packageDir, ...explicitPath.split('/')]);
+        } else if (name != null) {
+          root = p.join(packageDir, 'Sources', name);
+        }
+        break;
+      }
+      final resource = p.joinAll([root, ...match.group(2)!.split('/')]);
+      if (FileSystemEntity.typeSync(resource) ==
+          FileSystemEntityType.notFound) {
+        result = result.replaceRange(match.start, match.end, '');
+      }
+    }
+    return result;
   }
 
   /// Host-side Package.swift fixes for cross builds.
