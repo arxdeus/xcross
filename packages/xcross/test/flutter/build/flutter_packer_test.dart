@@ -62,6 +62,39 @@ void main() {
     }
   });
 
+  test('copies native-asset frameworks recursively into Frameworks', () async {
+    final tmp = await Directory.systemTemp.createTemp('native_framework_test-');
+    try {
+      final source = Directory(p.join(tmp.path, 'Foo.framework'))..createSync();
+      File(p.join(source.path, 'Foo')).writeAsStringSync('binary');
+      Directory(p.join(source.path, 'Resources')).createSync();
+      File(
+        p.join(source.path, 'Resources', 'Info.plist'),
+      ).writeAsStringSync('plist');
+      final destination = Directory(p.join(tmp.path, 'Frameworks'))
+        ..createSync();
+
+      await FlutterPacker.copyNativeAssetFrameworks([
+        source.path,
+      ], destination.path);
+
+      expect(
+        File(
+          p.join(destination.path, 'Foo.framework', 'Foo'),
+        ).readAsStringSync(),
+        'binary',
+      );
+      expect(
+        File(
+          p.join(destination.path, 'Foo.framework', 'Resources', 'Info.plist'),
+        ).readAsStringSync(),
+        'plist',
+      );
+    } finally {
+      await tmp.delete(recursive: true);
+    }
+  });
+
   test('uses xcross build, temp, and DevFS names', () {
     final debugBundler = _read('build/flutter_debug_bundler.dart');
     final packOperation = _read('build/flutter_pack_operation.dart');
@@ -80,6 +113,11 @@ void main() {
         .join('\n');
 
     expect(debugBundler, contains("'xcross-flutter-debug'"));
+    expect(
+      debugBundler,
+      isNot(contains("'NativeAssetsManifest.json'")),
+      reason: 'the native-assets builder owns this manifest',
+    );
     expect(debugBundler, contains("'xcross-flutter-stub-'"));
     expect(packOperation, contains("'xcross-ios'"));
     expect(hotReload, contains("'xcross-flutter-debug'"));

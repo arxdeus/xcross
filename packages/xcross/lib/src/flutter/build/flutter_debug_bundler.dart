@@ -434,11 +434,6 @@ final class FlutterDebugBundler {
       p.join(assetsDir, 'FontManifest.json'),
     ).writeAsStringSync(jsonEncode(fonts));
 
-    // NativeAssetsManifest.json — minimal valid shape expected by the engine.
-    File(
-      p.join(assetsDir, 'NativeAssetsManifest.json'),
-    ).writeAsStringSync('{"format-version":[1,0,0],"native-assets":{}}');
-
     // NOTICES.Z — empty zlib stream (LicensePage handles empty content fine).
     File(p.join(assetsDir, 'NOTICES.Z')).writeAsBytesSync(_emptyZlibBytes);
   }

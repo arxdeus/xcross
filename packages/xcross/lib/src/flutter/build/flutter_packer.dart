@@ -12,6 +12,7 @@ import 'package:xcross/src/flutter/build/ios_app_extensions.dart';
 import 'package:xcross/src/flutter/build/ios_bundle_versions.dart';
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/build/ios_engine_cache.dart';
+import 'package:xcross/src/flutter/build/ios_native_assets.dart';
 import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/flutter/build/ios_plugins.dart';
 import 'package:xcross/src/flutter/build/runner_shim.dart';
@@ -78,6 +79,18 @@ final class FlutterPacker {
       flutterRoot,
       deploymentTarget: deploymentTarget,
     );
+    final nativeAssets = await Log.logStep(
+      'Building native assets',
+      () => IosNativeAssetsBuilder(
+        projectRoot: projectRoot,
+        flutterRoot: flutterRoot,
+        deploymentTarget: deploymentTarget,
+        entrypoint: options.target,
+      ).build(),
+    );
+    await File(
+      nativeAssets.manifestPath,
+    ).copy(p.join(appFramework, 'flutter_assets', 'NativeAssetsManifest.json'));
     final pluginsBuild = await _buildPlugins(
       flutterRoot,
       deploymentTarget: deploymentTarget,
@@ -101,6 +114,7 @@ final class FlutterPacker {
       xcframework: runnerResult.xcframework,
       runnerBinary: runnerResult.runnerBinary,
       pluginLibraries: pluginsBuild?.dylibPaths ?? const [],
+      nativeAssetFrameworks: nativeAssets.frameworks,
       deploymentTarget: deploymentTarget,
       extensions: extensions,
     );
@@ -318,6 +332,7 @@ final class FlutterPacker {
     required String xcframework,
     required String runnerBinary,
     required List<String> pluginLibraries,
+    required List<String> nativeAssetFrameworks,
     required IosDeploymentTarget deploymentTarget,
     required List<BuiltAppExtension> extensions,
   }) async {
@@ -331,6 +346,7 @@ final class FlutterPacker {
       flutterFramework: p.join(xcframework, 'ios-arm64', 'Flutter.framework'),
       runnerBinary: runnerBinary,
       pluginLibraries: pluginLibraries,
+      nativeAssetFrameworks: nativeAssetFrameworks,
       deploymentTarget: deploymentTarget,
       extensions: extensions,
     );
@@ -355,6 +371,7 @@ final class FlutterPacker {
     required String flutterFramework,
     required String runnerBinary,
     required List<String> pluginLibraries,
+    required List<String> nativeAssetFrameworks,
     required IosDeploymentTarget deploymentTarget,
     required List<BuiltAppExtension> extensions,
   }) async {
@@ -371,6 +388,7 @@ final class FlutterPacker {
     );
     await _copyDirectory(appFramework, p.join(frameworksDir, 'App.framework'));
     await copyPluginLibraries(pluginLibraries, frameworksDir);
+    await copyNativeAssetFrameworks(nativeAssetFrameworks, frameworksDir);
 
     await _embedAppExtensions(bundleDir, extensions);
     await _copyOptionalRunnerResources(bundleDir);
@@ -402,6 +420,20 @@ final class FlutterPacker {
   ) async {
     for (final library in pluginLibraries) {
       await File(library).copy(p.join(frameworksDir, p.basename(library)));
+    }
+  }
+
+  /// Copies every native-asset framework into the app's Frameworks directory.
+  @visibleForTesting
+  static Future<void> copyNativeAssetFrameworks(
+    Iterable<String> frameworks,
+    String frameworksDir,
+  ) async {
+    for (final framework in frameworks) {
+      await _copyDirectory(
+        framework,
+        p.join(frameworksDir, p.basename(framework)),
+      );
     }
   }
 
