@@ -13,22 +13,6 @@ const _extensionProductTypes = {'com.apple.product-type.app-extension'};
 
 const _applicationProductType = 'com.apple.product-type.application';
 
-/// Extensions of files that belong in a target's compile-sources phase.
-const _sourceExtensions = {'.swift', '.m', '.mm', '.c', '.cpp'};
-
-/// Extensions that are never a compiled source nor a copyable resource:
-/// build inputs Xcode consumes itself.
-const _nonResourceExtensions = {
-  '.h',
-  '.hpp',
-  '.plist',
-  '.entitlements',
-  '.modulemap',
-  '.xcconfig',
-  '.md',
-  '.swiftinterface',
-};
-
 /// One iOS app-extension target discovered in `project.pbxproj`.
 @immutable
 final class IosAppExtension {
@@ -106,7 +90,7 @@ abstract final class IosAppExtensions {
   /// the pbxproj cannot be parsed: extensions are an optional feature and a
   /// parse failure must never break an otherwise fine app build.
   static List<IosAppExtension> discover(String projectRoot) {
-    final pbxprojPath = findPbxproj(projectRoot);
+    final pbxprojPath = PbxProject.findPbxproj(projectRoot);
     if (pbxprojPath == null) return const [];
     final project = PbxProject.parseFile(pbxprojPath);
     if (project == null) return const [];
@@ -128,33 +112,34 @@ abstract final class IosAppExtensions {
         project,
         project.buildSetting(target, 'CODE_SIGN_ENTITLEMENTS'),
       );
+      final infoPlist = _resolveProjectPath(
+        project,
+        project.buildSetting(target, 'INFOPLIST_FILE'),
+      );
 
       // Xcode 16 targets may list files explicitly, via a synchronized folder
       // group, or both; merging the two keeps either project style building.
       final synchronized = project.synchronizedFiles(target);
       final sources = <String>{
         ...project.buildPhaseFiles(target, 'PBXSourcesBuildPhase'),
-        ...synchronized.where(
-          (file) => _sourceExtensions.contains(p.extension(file)),
-        ),
+        ...synchronized.where(PbxProject.isTargetSource),
       }.toList();
-      final resources = <String>{
-        ...project.buildPhaseFiles(target, 'PBXResourcesBuildPhase'),
-        ...synchronized.where((file) {
-          final extension = p.extension(file);
-          return !_sourceExtensions.contains(extension) &&
-              !_nonResourceExtensions.contains(extension);
-        }),
-      }.toList();
+      final resources =
+          <String>{
+                ...project.buildPhaseFiles(target, 'PBXResourcesBuildPhase'),
+                ...synchronized.where(PbxProject.isTargetResource),
+              }
+              .where(
+                (resource) =>
+                    infoPlist == null || !p.equals(resource, infoPlist),
+              )
+              .toList();
 
       extensions.add(
         IosAppExtension(
           name: name,
           bundleId: bundleId,
-          infoPlistPath: _resolveProjectPath(
-            project,
-            project.buildSetting(target, 'INFOPLIST_FILE'),
-          ),
+          infoPlistPath: infoPlist,
           sources: sources,
           resources: resources,
           entitlementsPath: entitlements,
@@ -176,7 +161,7 @@ abstract final class IosAppExtensions {
   /// The application target's name, used to tell the host app apart from its
   /// extensions. Returns null when no application target is present.
   static String? applicationTargetName(String projectRoot) {
-    final pbxprojPath = findPbxproj(projectRoot);
+    final pbxprojPath = PbxProject.findPbxproj(projectRoot);
     if (pbxprojPath == null) return null;
     final project = PbxProject.parseFile(pbxprojPath);
     if (project == null) return null;
@@ -191,7 +176,7 @@ abstract final class IosAppExtensions {
   /// Absolute path to the application target's `CODE_SIGN_ENTITLEMENTS`, or
   /// null when the project declares none.
   static String? applicationEntitlements(String projectRoot) {
-    final pbxprojPath = findPbxproj(projectRoot);
+    final pbxprojPath = PbxProject.findPbxproj(projectRoot);
     if (pbxprojPath == null) return null;
     final project = PbxProject.parseFile(pbxprojPath);
     if (project == null) return null;
@@ -237,21 +222,7 @@ abstract final class IosAppExtensions {
   }
 
   /// Path to the project's `project.pbxproj`, preferring `Runner.xcodeproj`.
-  static String? findPbxproj(String projectRoot) {
-    final iosDir = Directory(p.join(projectRoot, 'ios'));
-    if (!iosDir.existsSync()) return null;
-
-    final runner = File(
-      p.join(iosDir.path, 'Runner.xcodeproj', 'project.pbxproj'),
-    );
-    if (runner.existsSync()) return runner.path;
-
-    for (final entity in iosDir.listSync()) {
-      if (entity is! Directory) continue;
-      if (!entity.path.endsWith('.xcodeproj')) continue;
-      final candidate = File(p.join(entity.path, 'project.pbxproj'));
-      if (candidate.existsSync()) return candidate.path;
-    }
-    return null;
-  }
+  @Deprecated('Use PbxProject.findPbxproj instead.')
+  static String? findPbxproj(String projectRoot) =>
+      PbxProject.findPbxproj(projectRoot);
 }

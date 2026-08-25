@@ -1410,7 +1410,7 @@ let package = Package(
             'import MSVCRT';
       },
     );
-    result = patchFirebaseManifestForCrossHost(result);
+    result = exposeMacOSPackageGraphEntries(result);
     // Package manifests cannot import Foundation; stdlib String(cString:)
     // already decodes UTF-8 (getsentry/sentry-cocoa#7797).
     result = result.replaceAllMapped(

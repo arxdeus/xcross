@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:meta/meta.dart';
-import 'package:xcross/src/flutter/build/ios_app_extensions.dart';
 import 'package:xcross/src/flutter/build/pbxproj.dart';
 
 /// The version pair every bundle in an app must agree on.
@@ -54,7 +53,7 @@ final class IosBundleVersions {
   }
 
   static Map<String, Object?> _applicationBuildSettings(String projectRoot) {
-    final pbxprojPath = IosAppExtensions.findPbxproj(projectRoot);
+    final pbxprojPath = PbxProject.findPbxproj(projectRoot);
     if (pbxprojPath == null) return const {};
     final project = PbxProject.parseFile(pbxprojPath);
     if (project == null) return const {};

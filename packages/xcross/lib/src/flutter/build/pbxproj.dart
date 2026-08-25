@@ -51,6 +51,61 @@ final class PbxObject {
 final class PbxProject {
   const PbxProject(this.objects, this.rootObjectId, this.projectDirectory);
 
+  /// Path to the iOS project's pbxproj, preferring an application project.
+  ///
+  /// `Runner.xcodeproj` wins only when it is parseable and contains an
+  /// application target. Otherwise another valid application project is used.
+  /// Non-application consumers receive the first parseable project in stable
+  /// path order (or the first candidate if every project is malformed).
+  static String? findPbxproj(String projectRoot) {
+    final iosDir = Directory(p.join(projectRoot, 'ios'));
+    if (!iosDir.existsSync()) return null;
+
+    final candidates =
+        iosDir
+            .listSync()
+            .whereType<Directory>()
+            .where((directory) => directory.path.endsWith('.xcodeproj'))
+            .map((directory) => File(p.join(directory.path, 'project.pbxproj')))
+            .where((file) => file.existsSync())
+            .toList()
+          ..sort((a, b) => a.path.compareTo(b.path));
+    if (candidates.isEmpty) return null;
+
+    final parsed = <File, PbxProject?>{
+      for (final candidate in candidates) candidate: parseFile(candidate.path),
+    };
+    final applicationProjects = candidates
+        .where((candidate) => parsed[candidate]?.applicationTarget != null)
+        .toList();
+    if (applicationProjects.isNotEmpty) {
+      return applicationProjects
+          .firstWhere(
+            (candidate) =>
+                p.basename(candidate.parent.path) == 'Runner.xcodeproj',
+            orElse: () => applicationProjects.first,
+          )
+          .path;
+    }
+
+    return candidates
+        .firstWhere(
+          (candidate) => parsed[candidate] != null,
+          orElse: () => candidates.first,
+        )
+        .path;
+  }
+
+  /// Whether [path] is a source file compiled by an iOS target.
+  static bool isTargetSource(String path) =>
+      _sourceExtensions.contains(p.extension(path));
+
+  /// Whether [path] is conservatively safe to copy as a target resource.
+  static bool isTargetResource(String path) {
+    final extension = p.extension(path);
+    return !isTargetSource(path) && !_nonResourceExtensions.contains(extension);
+  }
+
   final Map<String, PbxObject> objects;
 
   /// Id of the `PBXProject` object (`rootObject` at the archive top level).
@@ -107,6 +162,17 @@ final class PbxProject {
   /// Every `PBXNativeTarget` in the project.
   Iterable<PbxObject> get nativeTargets => byIsa('PBXNativeTarget');
 
+  /// The first native target that produces an application bundle.
+  PbxObject? get applicationTarget {
+    for (final target in nativeTargets) {
+      if (target.string('productType') ==
+          'com.apple.product-type.application') {
+        return target;
+      }
+    }
+    return null;
+  }
+
   /// The `buildSettings` of [target]'s build configurations, preferring the
   /// configuration named [preferredConfiguration] (usually `Debug`).
   Map<String, Object?> buildSettings(
@@ -149,7 +215,16 @@ final class PbxProject {
       for (final buildFileId in phase!.stringList('files')) {
         final buildFile = object(buildFileId);
         if (buildFile == null) continue;
-        final path = resolveFileReference(buildFile.string('fileRef'));
+        final referenceId = buildFile.string('fileRef');
+        final reference = object(referenceId);
+        if (reference?.isa == 'PBXVariantGroup') {
+          for (final childId in reference!.stringList('children')) {
+            final path = resolveFileReference(childId);
+            if (path != null) paths.add(path);
+          }
+          continue;
+        }
+        final path = resolveFileReference(referenceId);
         if (path != null) paths.add(path);
       }
     }
@@ -269,7 +344,9 @@ final class PbxProject {
     for (var depth = 0; depth < objects.length; depth++) {
       final parent = _parentGroupOf(childId);
       if (parent == null) break;
-      final path = parent.string('path');
+      // A variant group's path is the logical resource name, not an on-disk
+      // directory. Its children already include their localized paths.
+      final path = parent.isa == 'PBXGroup' ? parent.string('path') : null;
       if (path != null && path.isNotEmpty) segments.insert(0, path);
       childId = parent.id;
     }
@@ -285,6 +362,20 @@ final class PbxProject {
     return null;
   }
 }
+
+/// Extensions of files that belong in a target's compile-sources phase.
+const _sourceExtensions = {'.swift', '.m', '.mm', '.c', '.cpp'};
+
+/// Build inputs Xcode consumes itself rather than target resources.
+const _nonResourceExtensions = {
+  '.h',
+  '.hpp',
+  '.entitlements',
+  '.modulemap',
+  '.xcconfig',
+  '.md',
+  '.swiftinterface',
+};
 
 /// Recursive-descent parser for the OpenStep property list dialect Xcode
 /// writes. Handles quoted strings with escapes, `//` comments, `/* */`

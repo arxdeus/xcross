@@ -215,21 +215,24 @@ import MSVCRT
       );
     });
 
-    test('enables Firebase source products on cross hosts', () {
+    test('exposes package graph entries on cross hosts', () {
       const input = '''
-let package = Package(name: "Firebase")
-func packageProducts() -> [Product] {
-  var products: [Product] = []
+#if os(macOS)
+let unrelated = true
+#endif
+func packageDependencies() -> [Package.Dependency] {
   #if os(macOS)
-  // Add Apple-only products when building on macOS hosts.
-  products.append(.library(name: "FirebaseStorage", targets: ["FirebaseStorage"]))
-  #endif // os(macOS)
-  return products
+  return [.package(url: dependencyURL, from: "1.0.0")]
+  #endif
 }
 ''';
       final normalized = GeneratedPluginsPackage.normalizeHostManifest(input);
-      expect(normalized, isNot(contains('#if os(macOS)')));
-      expect(normalized, contains('name: "FirebaseStorage"'));
+      expect(normalized, startsWith('#if os(macOS)\nlet unrelated'));
+      expect(
+        normalized,
+        contains('return [.package(url: dependencyURL, from: "1.0.0")]'),
+      );
+      expect('#if os(macOS)'.allMatches(normalized), hasLength(1));
     });
 
     test('drops Foundation String(cString:encoding:) in manifests', () {

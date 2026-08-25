@@ -272,6 +272,7 @@ $exceptions
 		CC01 = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				INFOPLIST_FILE = "Share Extension/Info.plist";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.example.App.Share-Extension";
 			};
 			name = Debug;
@@ -300,6 +301,9 @@ $exceptions
         p.join(synced.path, 'Base.lproj', 'MainInterface.storyboard'),
       ).writeAsString('<document/>');
       await File(p.join(synced.path, 'Info.plist')).writeAsString('<plist/>');
+      await File(
+        p.join(synced.path, 'Settings.plist'),
+      ).writeAsString('<plist/>');
     });
 
     test('recovers sources from a synchronized folder group', () async {
@@ -317,10 +321,11 @@ $exceptions
 
       final extension = IosAppExtensions.discover(tmp.path).single;
 
-      // Nested folders contribute, and Info.plist is a build input, not a
-      // resource to copy: the builder writes the bundle's plist itself.
+      // Nested folders and arbitrary plists contribute, while the target's
+      // Info.plist remains a build input that the builder writes itself.
       expect(extension.resources, [
         p.join(synced.path, 'Base.lproj', 'MainInterface.storyboard'),
+        p.join(synced.path, 'Settings.plist'),
       ]);
       expect(extension.resources, isNot(contains(endsWith('Info.plist'))));
     });
