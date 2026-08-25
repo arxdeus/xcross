@@ -473,6 +473,7 @@ xcross flutter run
    ├─ FlutterPacker
    │    ├─ IosEngineCache        download engine artifacts pinned to the SDK's engine hash
    │    ├─ FlutterDebugBundler   frontend_server → app.dill → App.framework (JIT)
+   │    ├─ Native assets         Dart build hooks → arm64 frameworks + manifest
    │    ├─ SwiftPM plugins       swift build (Darwin SDK) → libFlutterPluginsGenerated.dylib
    │    ├─ RunnerShim            clang / ld64.lld → Runner Mach-O
    │    └─ assemble              Flutter.framework + Info.plist + flutter_assets → .app
@@ -500,6 +501,7 @@ Because the app is pure JIT, no `gen_snapshot` is needed - which is precisely wh
 
 - **Darwin SDK** - `darwin_sdk_kit` unpacks `Xcode.xip` with pure-Dart **xar**, **pbzx**, and **cpio** readers and assembles a Swift SDK bundle (iOS sysroot + frameworks) usable by upstream Swift/LLVM on Windows and Linux.
 - **Runner** - the `Runner` executable (Flutter's `AppDelegate`/`main` shim) is compiled with `clang` and linked with `ld64.lld`, LLVM's Mach-O linker, against `Flutter.xcframework` from the SDK above.
+- **Native assets** - Dart package build hooks run through Flutter's native-assets target with cross-platform Apple tool shims. Their output is thinned to arm64, embedded as frameworks, and recorded in `NativeAssetsManifest.json`.
 - **Plugins** - SwiftPM iOS plugins are built with `swift build` against the same SDK into a single `libFlutterPluginsGenerated.dylib`, with a generated registrant mirroring Flutter's `GeneratedPluginRegistrant`. A Mach-O rewriter fixes install names and rpaths so the dylibs resolve inside the `.app` bundle.
 
 ### 4. Signing and device install, natively

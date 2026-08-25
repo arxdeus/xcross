@@ -29,11 +29,12 @@ import 'package:xcross/src/package_config_resolver.dart';
 ///   1. Resolve `FLUTTER_ROOT` and run `flutter pub get`.
 ///   2. Build `App.framework` via [FlutterDebugBundler] (frontend_server
 ///      one-shot + clang stub dylib + ld64.lld from PATH).
-///   3. Discover iOS plugins and build the aggregate Swift Package Manager
+///   3. Run Dart build hooks and package their native asset frameworks.
+///   4. Discover iOS plugins and build the aggregate Swift Package Manager
 ///      plugins library via [GeneratedPluginsPackage], if any exist.
-///   4. Compile the ObjC Runner shim via [RunnerShim], linking in the
+///   5. Compile the ObjC Runner shim via [RunnerShim], linking in the
 ///      plugins library when present.
-///   5. Assemble the `.app` bundle and write `Info.plist`.
+///   6. Assemble the `.app` bundle and write `Info.plist`.
 final class FlutterPacker {
   final String projectRoot;
   final String bundleId;
