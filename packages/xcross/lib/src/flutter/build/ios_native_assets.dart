@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
@@ -140,10 +141,35 @@ final class IosNativeAssetsBuilder {
               .map((directory) => directory.path)
               .toList()
         : <String>[];
+    for (final framework in frameworks) {
+      final binary = p.join(framework, p.basenameWithoutExtension(framework));
+      if (await isFatMachO(binary)) {
+        final thin = '$binary.thin';
+        await ProcessRunner.runChecked(lipo, [
+          '-thin',
+          'arm64',
+          binary,
+          '-output',
+          thin,
+        ], label: 'llvm-lipo');
+        await File(thin).rename(binary);
+      }
+    }
     return IosNativeAssetsBuildResult(
       manifestPath: manifest,
       frameworks: frameworks,
     );
+  }
+
+  @visibleForTesting
+  static Future<bool> isFatMachO(String path) async {
+    final file = File(path);
+    if (!file.existsSync() || await file.length() < 4) return false;
+    final bytes = await file
+        .openRead(0, 4)
+        .fold<List<int>>(<int>[], (all, chunk) => all..addAll(chunk));
+    final magic = ByteData.sublistView(Uint8List.fromList(bytes)).getUint32(0);
+    return magic == 0xcafebabe || magic == 0xbebafeca;
   }
 
   /// Whether any package in the resolved package graph has a build hook.

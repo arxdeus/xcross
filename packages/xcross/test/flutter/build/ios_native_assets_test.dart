@@ -31,6 +31,20 @@ void main() {
     }
   });
 
+  test('detects FAT Mach-O binaries', () async {
+    final tmp = await Directory.systemTemp.createTemp('fat_macho_test-');
+    try {
+      final fat = File(p.join(tmp.path, 'fat'))
+        ..writeAsBytesSync([0xca, 0xfe, 0xba, 0xbe]);
+      final thin = File(p.join(tmp.path, 'thin'))
+        ..writeAsBytesSync([0xcf, 0xfa, 0xed, 0xfe]);
+      expect(await IosNativeAssetsBuilder.isFatMachO(fat.path), isTrue);
+      expect(await IosNativeAssetsBuilder.isFatMachO(thin.path), isFalse);
+    } finally {
+      await tmp.delete(recursive: true);
+    }
+  });
+
   test('Apple tool shims expose the Darwin SDK and configured tools', () async {
     if (Platform.isWindows) return;
     final tmp = await Directory.systemTemp.createTemp('apple_shims_test-');
