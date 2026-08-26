@@ -12,6 +12,7 @@ final class PubspecInfo {
     required this.usesMaterialDesign,
     this.assets = const [],
     this.fonts = const [],
+    this.dependencies = const [],
   });
 
   /// Sync so it can be used from a constructor initializer list.
@@ -27,6 +28,7 @@ final class PubspecInfo {
       usesMaterialDesign: flutter?['uses-material-design'] == true,
       assets: _parseAssets(flutter?['assets']),
       fonts: _parseFonts(flutter?['fonts']),
+      dependencies: _parseDependencies(projectRoot, doc['dependencies']),
     );
   }
 
@@ -43,6 +45,9 @@ final class PubspecInfo {
 
   /// `flutter: fonts:` entries.
   final List<PubspecFontFamily> fonts;
+
+  /// Package names under `dependencies:` (excluding `dev_dependencies`).
+  final List<String> dependencies;
 
   static YamlMap _loadYamlMap(String projectRoot) {
     final file = File(p.join(projectRoot, 'pubspec.yaml'));
@@ -74,6 +79,28 @@ final class PubspecInfo {
           entry
         else if (entry is YamlMap)
           ?_valueOf<String>(entry['path']),
+    ];
+  }
+
+  static List<String> _parseDependencies(String projectRoot, Object? node) {
+    final direct = node is YamlMap
+        ? {
+            for (final key in node.keys)
+              if (key is String) key,
+          }
+        : <String>{};
+    final lockFile = File(p.join(projectRoot, 'pubspec.lock'));
+    if (!lockFile.existsSync()) return direct.toList();
+
+    final lock = loadYaml(lockFile.readAsStringSync());
+    final packages = lock is YamlMap ? lock['packages'] : null;
+    if (packages is! YamlMap) return direct.toList();
+    return [
+      for (final entry in packages.entries)
+        if (entry.key is String &&
+            entry.value is YamlMap &&
+            (entry.value as YamlMap)['dependency'] != 'direct dev')
+          entry.key as String,
     ];
   }
 

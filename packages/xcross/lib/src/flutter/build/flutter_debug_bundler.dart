@@ -6,6 +6,7 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:frontend_server_kit/frontend_server_kit.dart';
 import 'package:meta/meta.dart';
+import 'package:package_config/package_config.dart';
 import 'package:path/path.dart' as p;
 import 'package:standard_message_codec/standard_message_codec.dart';
 import 'package:xcross/src/flutter/build/dart_plugin_registrant.dart';
@@ -95,7 +96,7 @@ final class FlutterDebugBundler {
     await Log.logStep('Bundling assets', () async {
       await _copyDataAssets(assetsDir, engineCache, appDill);
       final assetManifest = await _copyPubspecAssets(assetsDir, pubspec);
-      final fonts = await _copyFonts(assetsDir, pubspec);
+      final fonts = await copyFonts(assetsDir, pubspec);
       _writeManifests(assetsDir, assetManifest, fonts);
     });
 
@@ -355,7 +356,8 @@ final class FlutterDebugBundler {
 
   /// Copy `MaterialIcons-Regular.otf` (if material design is used) and any
   /// `flutter: fonts:` families, returning `FontManifest.json` descriptors.
-  Future<List<Map<String, Object?>>> _copyFonts(
+  @visibleForTesting
+  Future<List<Map<String, Object?>>> copyFonts(
     String assetsDir,
     PubspecInfo pubspec,
   ) async {
@@ -394,6 +396,36 @@ final class FlutterDebugBundler {
         await _copyAssetFile(src, assetsDir, font.asset);
       }
       fonts.add(family.descriptor);
+    }
+
+    final packageConfigPath = await PackageConfigResolver.require(projectRoot);
+    final packageConfig = await loadPackageConfig(File(packageConfigPath));
+    for (final packageName in pubspec.dependencies) {
+      final package = packageConfig[packageName];
+      if (package == null || package.root.scheme != 'file') continue;
+      final packageRoot = package.root.toFilePath();
+      final packagePubspec = File(p.join(packageRoot, 'pubspec.yaml'));
+      if (!packagePubspec.existsSync()) continue;
+
+      final packageInfo = PubspecInfo.loadSync(packageRoot);
+      for (final family in packageInfo.fonts) {
+        final descriptors = <Map<String, Object>>[];
+        for (final font in family.fonts) {
+          final key = p.url.join('packages', packageName, font.asset);
+          final src = p.join(packageRoot, font.asset);
+          if (!File(src).existsSync()) {
+            throw FlutterBuildError(
+              '$packageName/pubspec.yaml: font asset not found: ${font.asset}',
+            );
+          }
+          await _copyAssetFile(src, assetsDir, key);
+          descriptors.add({...font.descriptor, 'asset': key});
+        }
+        fonts.add({
+          'family': 'packages/$packageName/${family.family}',
+          'fonts': descriptors,
+        });
+      }
     }
 
     return fonts;

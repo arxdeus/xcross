@@ -1,8 +1,11 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:standard_message_codec/standard_message_codec.dart';
 import 'package:test/test.dart';
+import 'package:xcross/src/flutter/build/flutter_debug_bundler.dart';
+import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/models/pubspec_info.dart';
 
 void main() {
@@ -47,6 +50,30 @@ flutter:
     });
   });
 
+  test('reads non-dev dependencies from pubspec.lock', () {
+    File(p.join(tmp.path, 'pubspec.yaml')).writeAsStringSync('''
+name: demo
+dependencies:
+  direct_package: any
+dev_dependencies:
+  dev_package: any
+''');
+    File(p.join(tmp.path, 'pubspec.lock')).writeAsStringSync('''
+packages:
+  direct_package:
+    dependency: direct main
+  transitive_package:
+    dependency: transitive
+  dev_package:
+    dependency: direct dev
+''');
+
+    expect(PubspecInfo.loadSync(tmp.path).dependencies, [
+      'direct_package',
+      'transitive_package',
+    ]);
+  });
+
   test('defaults to no assets/fonts when flutter: section is absent', () {
     File(p.join(tmp.path, 'pubspec.yaml')).writeAsStringSync('name: demo\n');
 
@@ -55,6 +82,85 @@ flutter:
     expect(info.usesMaterialDesign, isFalse);
     expect(info.assets, isEmpty);
     expect(info.fonts, isEmpty);
+  });
+
+  test('bundles fonts declared by package dependencies', () async {
+    final packageRoot = Directory(p.join(tmp.path, 'package_font'))
+      ..createSync();
+    Directory(p.join(packageRoot.path, 'assets')).createSync();
+    File(
+      p.join(packageRoot.path, 'assets', 'PackageIcons.ttf'),
+    ).writeAsBytesSync([1, 2, 3]);
+    File(p.join(packageRoot.path, 'pubspec.yaml')).writeAsStringSync('''
+name: package_font
+flutter:
+  fonts:
+    - family: PackageIcons
+      fonts:
+        - asset: assets/PackageIcons.ttf
+          weight: 700
+''');
+
+    File(p.join(tmp.path, 'pubspec.yaml')).writeAsStringSync('''
+name: demo
+dependencies:
+  package_font: any
+''');
+    File(p.join(tmp.path, 'pubspec.lock')).writeAsStringSync('''
+packages:
+  package_font:
+    dependency: direct main
+''');
+    final dartTool = Directory(p.join(tmp.path, '.dart_tool'))..createSync();
+    File(p.join(dartTool.path, 'package_config.json')).writeAsStringSync(
+      jsonEncode({
+        'configVersion': 2,
+        'packages': [
+          {
+            'name': 'package_font',
+            'rootUri': packageRoot.uri.toString(),
+            'packageUri': 'lib/',
+            'languageVersion': '3.0',
+          },
+        ],
+      }),
+    );
+    final assetsDir = Directory(p.join(tmp.path, 'output'))..createSync();
+    final bundler = FlutterDebugBundler(
+      projectRoot: tmp.path,
+      flutterRoot: p.join(tmp.path, 'flutter'),
+      outputDir: p.join(tmp.path, 'build'),
+      deploymentTarget: const IosDeploymentTarget('15.0'),
+    );
+
+    final fonts = await bundler.copyFonts(
+      assetsDir.path,
+      PubspecInfo.loadSync(tmp.path),
+    );
+
+    expect(
+      File(
+        p.join(
+          assetsDir.path,
+          'packages',
+          'package_font',
+          'assets',
+          'PackageIcons.ttf',
+        ),
+      ).readAsBytesSync(),
+      [1, 2, 3],
+    );
+    expect(fonts, [
+      {
+        'family': 'packages/package_font/PackageIcons',
+        'fonts': [
+          {
+            'asset': 'packages/package_font/assets/PackageIcons.ttf',
+            'weight': 700,
+          },
+        ],
+      },
+    ]);
   });
 
   // Regression check for the manifest byte layout FlutterDebugBundler writes:
