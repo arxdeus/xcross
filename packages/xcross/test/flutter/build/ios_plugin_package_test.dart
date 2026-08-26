@@ -988,11 +988,17 @@ let package = Package(
           );
         }
 
-        await GeneratedPluginsPackage.materializeCheckoutSymlinks(
-          p.join(tmp.path, 'scratch'),
+        expect(
+          await GeneratedPluginsPackage.materializeCheckoutSymlinks(
+            p.join(tmp.path, 'scratch'),
+          ),
+          isTrue,
         );
-        await GeneratedPluginsPackage.materializeCheckoutSymlinks(
-          p.join(tmp.path, 'scratch'),
+        expect(
+          await GeneratedPluginsPackage.materializeCheckoutSymlinks(
+            p.join(tmp.path, 'scratch'),
+          ),
+          isFalse,
         );
 
         expect(placeholder.readAsStringSync(), 'materialized');
@@ -1027,8 +1033,11 @@ let package = Package(
               .trim();
       git(['update-index', '--cacheinfo', '120000', hash, 'include/Types.h']);
 
-      await GeneratedPluginsPackage.materializeCheckoutSymlinks(
-        p.join(tmp.path, 'headers'),
+      expect(
+        await GeneratedPluginsPackage.materializeCheckoutSymlinks(
+          p.join(tmp.path, 'headers'),
+        ),
+        isTrue,
       );
 
       final materialized = placeholder.readAsStringSync();

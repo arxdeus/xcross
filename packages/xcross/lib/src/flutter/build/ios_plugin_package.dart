@@ -252,11 +252,12 @@ abstract final class GeneratedPluginsPackage {
         await invoke();
       } on Object {
         if (!windows) rethrow;
-        await repairWindowsGeneratedBuildFiles(
+        final repaired = await repairWindowsGeneratedBuildFiles(
           scratchPath,
           targetBuildDir,
           windows: true,
         );
+        if (!repaired) rethrow;
         await invoke();
       }
     }
@@ -277,14 +278,15 @@ abstract final class GeneratedPluginsPackage {
   }
 
   @visibleForTesting
-  static Future<void> repairWindowsGeneratedBuildFiles(
+  static Future<bool> repairWindowsGeneratedBuildFiles(
     String scratchPath,
     String targetBuildDir, {
     bool? windows,
   }) async {
-    if (!(windows ?? Platform.isWindows)) return;
+    if (!(windows ?? Platform.isWindows)) return false;
     final root = Directory(targetBuildDir);
-    if (!root.existsSync()) return;
+    if (!root.existsSync()) return false;
+    var changed = false;
     for (final json in [
       File(p.join(targetBuildDir, 'description.json')),
       File(
@@ -299,7 +301,10 @@ abstract final class GeneratedPluginsPackage {
       if (!json.existsSync()) continue;
       final original = await json.readAsString();
       final normalized = original.replaceAll(r'\\?\C:\?\C:\', r'C:\');
-      if (normalized != original) await json.writeAsString(normalized);
+      if (normalized != original) {
+        await json.writeAsString(normalized);
+        changed = true;
+      }
     }
     for (final buildDir in root.listSync(followLinks: false)) {
       if (buildDir is! Directory || !buildDir.path.endsWith('.build')) continue;
@@ -309,8 +314,12 @@ abstract final class GeneratedPluginsPackage {
       if (!accessor.existsSync()) continue;
       final original = await accessor.readAsString();
       final normalized = original.replaceAll(r'\', '/');
-      if (normalized != original) await accessor.writeAsString(normalized);
+      if (normalized != original) {
+        await accessor.writeAsString(normalized);
+        changed = true;
+      }
     }
+    return changed;
   }
 
   /// Swift reports a toolchain/SDK ABI mismatch once per importing file and
@@ -365,26 +374,30 @@ abstract final class GeneratedPluginsPackage {
       if (!await repairWindowsBinaryArtifacts(scratchPath)) rethrow;
       await resolve();
     }
-    await materializeCheckoutSymlinks(scratchPath);
-    await normalizeResolvedPackageManifests(scratchPath);
-    await resolve();
+    final materialized = await materializeCheckoutSymlinks(scratchPath);
+    final normalized = await normalizeResolvedPackageManifests(scratchPath);
+    if (materialized || normalized) await resolve();
   }
 
   @visibleForTesting
-  static Future<void> normalizeResolvedPackageManifests(
+  static Future<bool> normalizeResolvedPackageManifests(
     String scratchPath,
   ) async {
     final checkouts = Directory(p.join(scratchPath, 'checkouts'));
+    var changed = false;
     if (checkouts.existsSync()) {
       for (final checkout in checkouts.listSync(followLinks: false)) {
         if (checkout is Directory) {
-          await _normalizeVendoredPackageManifests(
-            checkout.path,
-            consumedProducts: const {},
-          );
+          changed =
+              await _normalizeVendoredPackageManifests(
+                checkout.path,
+                consumedProducts: const {},
+              ) ||
+              changed;
         }
       }
     }
+    return changed;
   }
 
   /// Repairs and retries a [build] whose generated Swift interop header is
@@ -1029,6 +1042,7 @@ abstract final class GeneratedPluginsPackage {
       for (final plugin in plugins) plugin.name: plugin.swiftPackageDir,
     };
     final pluginPackageDirs = <String, String>{};
+    final vendorNormalizationCache = <String, Map<String, List<String>>>{};
     for (final plugin in plugins) {
       final packageAlias = p.join(packagesDir, plugin.name);
       pluginPackageDirs[plugin.name] = await _stagePluginPackage(
@@ -1038,6 +1052,7 @@ abstract final class GeneratedPluginsPackage {
         vendorDir: shouldVendor ? vendorDir : null,
         packageTargets: pluginTargets,
         copySources: copyPluginPackages.contains(plugin.name),
+        vendorNormalizationCache: vendorNormalizationCache,
       );
     }
     final packagesByDirectoryName = {
@@ -1092,6 +1107,7 @@ abstract final class GeneratedPluginsPackage {
     String? vendorDir,
     Map<String, String> packageTargets = const {},
     bool copySources = false,
+    Map<String, Map<String, List<String>>>? vendorNormalizationCache,
   }) async {
     var stagedPackage = alias;
     final shouldCopySources = vendorDir != null || copySources;
@@ -1141,6 +1157,7 @@ abstract final class GeneratedPluginsPackage {
         vendorDir: vendorDir,
         packageDirectory: stagedPackage,
         fallbackSwiftModules: fallbackSwiftModules,
+        normalizationCache: vendorNormalizationCache,
       );
     }
 
@@ -2415,6 +2432,7 @@ let package = Package(
       String destination,
     )?
     clonePackage,
+    Map<String, Map<String, List<String>>>? normalizationCache,
   }) async {
     final deps = parseUrlPackageDeps(manifest);
     if (deps.isEmpty) return manifest;
@@ -2453,11 +2471,33 @@ let package = Package(
       if (seen.add(dirName)) {
         final destination = p.join(vendorDir, dirName);
         await clone(git, dep.url, ref, destination);
-        await _normalizeVendoredPackageManifests(
-          destination,
-          consumedProducts: _consumedProducts(manifest, identity),
-          fallbackSwiftModules: fallbackSwiftModules,
-        );
+        final consumedProducts = _consumedProducts(manifest, identity);
+        final cacheKey = [
+          p.normalize(destination),
+          ...(consumedProducts.toList()..sort()),
+        ].join('\u0000');
+        final cachedModules = normalizationCache?[cacheKey];
+        if (cachedModules == null) {
+          final existingModules =
+              fallbackSwiftModules?.keys.toSet() ?? const {};
+          await _normalizeVendoredPackageManifests(
+            destination,
+            consumedProducts: consumedProducts,
+            fallbackSwiftModules: fallbackSwiftModules,
+          );
+          normalizationCache?[cacheKey] = fallbackSwiftModules == null
+              ? {}
+              : {
+                  for (final entry in fallbackSwiftModules.entries)
+                    if (!existingModules.contains(entry.key))
+                      entry.key: List<String>.of(entry.value),
+                };
+        } else {
+          fallbackSwiftModules?.addAll({
+            for (final entry in cachedModules.entries)
+              entry.key: List<String>.of(entry.value),
+          });
+        }
       }
       final pathDep =
           '.package(name: "$identity", '
@@ -2483,8 +2523,9 @@ let package = Package(
     for (final package in Directory(
       artifactsRoot,
     ).listSync(followLinks: false)) {
-      if (package is! Directory || p.basename(package.path) == 'extract')
+      if (package is! Directory || p.basename(package.path) == 'extract') {
         continue;
+      }
       for (final target in package.listSync(followLinks: false)) {
         if (target is! Directory) continue;
         archives.addAll(
@@ -2600,12 +2641,13 @@ $deviceLibrary
   }
 
   @visibleForTesting
-  static Future<void> materializeCheckoutSymlinks(
+  static Future<bool> materializeCheckoutSymlinks(
     String scratchPath, {
     String git = 'git',
   }) async {
     final checkouts = Directory(p.join(scratchPath, 'checkouts'));
-    if (!checkouts.existsSync()) return;
+    if (!checkouts.existsSync()) return false;
+    var changed = false;
     await for (final repo in checkouts.list(followLinks: false)) {
       if (repo is! Directory) continue;
       final index = await ProcessRunner.run(git, [
@@ -2620,11 +2662,14 @@ $deviceLibrary
           'Could not inspect SwiftPM checkout ${repo.path}: ${index.stderr}',
         );
       }
-      await _materializeGitSymlinks(repo.path, index.stdout, git);
+      changed =
+          await _materializeGitSymlinks(repo.path, index.stdout, git) ||
+          changed;
     }
+    return changed;
   }
 
-  static Future<void> _materializeGitSymlinks(
+  static Future<bool> _materializeGitSymlinks(
     String repoPath,
     String index,
     String git,
@@ -2688,6 +2733,7 @@ $deviceLibrary
 
     final materializing = <String>{};
     final materialized = <String>{};
+    var changed = false;
     Future<void> materialize(String link) async {
       if (materialized.contains(link)) return;
       if (!materializing.add(link)) {
@@ -2704,10 +2750,17 @@ $deviceLibrary
       // before it is rewritten.
       if (Directory(target).existsSync()) {
         await _clearPlaceholderAttributes(link);
+        final existingType = FileSystemEntity.typeSync(
+          link,
+          followLinks: false,
+        );
         await _deleteUnless(link, FileSystemEntityType.directory);
-        await _syncDirectory(target, link);
+        changed =
+            await _syncDirectory(target, link) ||
+            existingType != FileSystemEntityType.directory ||
+            changed;
       } else if (File(target).existsSync()) {
-        await _materializeFileLink(link, target);
+        changed = await _materializeFileLink(link, target) || changed;
       } else {
         throw FlutterBuildError(
           'Symlink target does not exist in SwiftPM checkout: $link -> $target',
@@ -2720,6 +2773,7 @@ $deviceLibrary
     for (final link in links.keys) {
       await materialize(link);
     }
+    return changed;
   }
 
   /// Windows source for a header placeholder that keeps one Clang file
@@ -2745,10 +2799,9 @@ $deviceLibrary
   /// Replaces a file placeholder with its materialized form: a forwarding
   /// header, a hard link on Windows, or a plain copy elsewhere. A
   /// placeholder whose content already matches is left untouched.
-  static Future<void> _materializeFileLink(String link, String target) async {
+  static Future<bool> _materializeFileLink(String link, String target) async {
     if (!Platform.isWindows) {
-      await _syncFile(File(target), link);
-      return;
+      return _syncFile(File(target), link);
     }
     final forwarder = _headerForwarder(link, target);
     final expected = forwarder != null
@@ -2757,13 +2810,13 @@ $deviceLibrary
     final existing = File(link);
     if (existing.existsSync() &&
         _sameBytes(await existing.readAsBytes(), expected)) {
-      return;
+      return false;
     }
     await _clearPlaceholderAttributes(link);
     await _deleteEntity(link);
     if (forwarder != null) {
       await existing.writeAsString(forwarder);
-      return;
+      return true;
     }
     final result = await Process.run('cmd.exe', [
       '/d',
@@ -2779,6 +2832,7 @@ $deviceLibrary
         link,
       );
     }
+    return true;
   }
 
   /// Git for Windows checks out symlink placeholders read-only.
@@ -2877,11 +2931,12 @@ $deviceLibrary
     );
   }
 
-  static Future<void> _normalizeVendoredPackageManifests(
+  static Future<bool> _normalizeVendoredPackageManifests(
     String packageDir, {
     required Set<String> consumedProducts,
     Map<String, List<String>>? fallbackSwiftModules,
   }) async {
+    var changed = false;
     await for (final entity in Directory(packageDir).list(followLinks: false)) {
       if (entity is! File) continue;
       final name = p.basename(entity.path);
@@ -2899,8 +2954,10 @@ $deviceLibrary
       if (normalized != original) {
         await _clearPlaceholderAttributes(entity.path);
         await entity.writeAsString(normalized);
+        changed = true;
       }
     }
+    return changed;
   }
 
   /// `Plugins/Package.swift` contents — aggregates every plugin's SPM package
@@ -3044,7 +3101,7 @@ $diagnosticsStart$registrations$diagnosticsEnd}
   /// on, so unchanged files stay warm in its incremental state. Files the
   /// transform declines are copied as raw bytes, so binaries are never
   /// decoded.
-  static Future<void> _syncFile(
+  static Future<bool> _syncFile(
     File source,
     String destination, {
     _SourceTransform? transform,
@@ -3057,9 +3114,10 @@ $diagnosticsStart$registrations$diagnosticsEnd}
     final existing = File(destination);
     if (existing.existsSync() &&
         _sameBytes(await existing.readAsBytes(), bytes)) {
-      return;
+      return false;
     }
     await existing.writeAsBytes(bytes);
+    return true;
   }
 
   static bool _sameBytes(List<int> a, List<int> b) {
@@ -3075,7 +3133,7 @@ $diagnosticsStart$registrations$diagnosticsEnd}
   /// source no longer has. [preserve] names top-level entries the caller
   /// owns; [excludedSourcePath] guards against copying a destination that
   /// lives inside its own source.
-  static Future<void> _syncDirectory(
+  static Future<bool> _syncDirectory(
     String source,
     String destination, {
     Set<String> preserve = const {},
@@ -3084,7 +3142,8 @@ $diagnosticsStart$registrations$diagnosticsEnd}
   }) async {
     final absoluteSource = p.normalize(p.absolute(source));
     final absoluteDestination = p.normalize(p.absolute(destination));
-    if (p.equals(absoluteSource, absoluteDestination)) return;
+    if (p.equals(absoluteSource, absoluteDestination)) return false;
+    var changed = !Directory(destination).existsSync();
     final excluded = excludedSourcePath == null
         ? (p.isWithin(absoluteSource, absoluteDestination)
               ? absoluteDestination
@@ -3106,16 +3165,34 @@ $diagnosticsStart$registrations$diagnosticsEnd}
           ? entity.resolveSymbolicLinksSync()
           : entity.path;
       if (Directory(resolved).existsSync()) {
-        await _deleteUnless(destinationPath, FileSystemEntityType.directory);
-        await _syncDirectory(
-          resolved,
+        final existingType = FileSystemEntity.typeSync(
           destinationPath,
-          excludedSourcePath: excluded,
-          transform: transform,
+          followLinks: false,
         );
+        await _deleteUnless(destinationPath, FileSystemEntityType.directory);
+        changed =
+            await _syncDirectory(
+              resolved,
+              destinationPath,
+              excludedSourcePath: excluded,
+              transform: transform,
+            ) ||
+            existingType != FileSystemEntityType.directory ||
+            changed;
       } else {
+        final existingType = FileSystemEntity.typeSync(
+          destinationPath,
+          followLinks: false,
+        );
         await _deleteUnless(destinationPath, FileSystemEntityType.file);
-        await _syncFile(File(resolved), destinationPath, transform: transform);
+        changed =
+            await _syncFile(
+              File(resolved),
+              destinationPath,
+              transform: transform,
+            ) ||
+            existingType != FileSystemEntityType.file ||
+            changed;
       }
     }
 
@@ -3124,8 +3201,10 @@ $diagnosticsStart$registrations$diagnosticsEnd}
     ).list(followLinks: false)) {
       if (!expected.contains(p.basename(entity.path))) {
         await _deleteEntity(entity.path);
+        changed = true;
       }
     }
+    return changed;
   }
 
   /// Deletes whatever occupies [path] unless it already is a [keep] entry,
