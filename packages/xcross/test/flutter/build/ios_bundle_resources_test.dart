@@ -21,6 +21,18 @@ void main() {
 
   tearDown(() => tmp.delete(recursive: true));
 
+  test('finds a uniquely relocated target resource', () async {
+    _file(runner, 'ServiceConfig.plist', 'config');
+    _writeProject(project, appRefs: ['SERVICE_CONFIG']);
+
+    await _stage(project, bundle);
+
+    expect(
+      _bundleFile(bundle, 'ServiceConfig.plist').readAsStringSync(),
+      'config',
+    );
+  });
+
   test('copies arbitrary resources only from the application target', () async {
     _file(runner, 'Included.plist', 'included');
     _file(runner, 'NotAMember.plist', 'loose');
@@ -224,6 +236,7 @@ void _writeProject(
     'SETTINGS': 'Settings.plist',
     'FRAMEWORK_INFO': '../Flutter/AppFrameworkInfo.plist',
     'STORYBOARD': 'Base.lproj/Main.storyboard',
+    'SERVICE_CONFIG': 'ServiceConfig.plist',
   };
   final objects = StringBuffer(r'''
 // !$*UTF8*$!

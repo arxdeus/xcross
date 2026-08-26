@@ -5,7 +5,7 @@ import 'dart:typed_data';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/apple/mach_o.dart';
-import 'package:xcross/src/flutter/build/objc_fast_stub_rewriter.dart';
+
 import 'package:xcross/src/flutter/errors.dart';
 
 /// Rewrites install names in 64-bit little-endian Mach-O dynamic libraries.
@@ -65,10 +65,7 @@ abstract final class MachODylibRewriter {
         );
       }
     }
-    if (machO.cpuType == MachOConstants.cpuTypeArm64 &&
-        machO.fileType == MachOConstants.mhDylib) {
-      changed |= ObjCFastStubRewriter.repair(machO);
-    }
+
     return changed;
   }
 

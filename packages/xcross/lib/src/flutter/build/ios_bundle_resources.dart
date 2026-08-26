@@ -35,8 +35,13 @@ Future<void> stageIosBundleResources({
       source = p.setExtension(source, '.storyboardc');
     }
 
-    final sourceType = FileSystemEntity.typeSync(source, followLinks: false);
-    if (sourceType == FileSystemEntityType.notFound) continue;
+    var sourceType = FileSystemEntity.typeSync(source, followLinks: false);
+    if (sourceType == FileSystemEntityType.notFound) {
+      final relocated = _findRelocatedResource(projectRoot, source);
+      if (relocated == null) continue;
+      source = relocated;
+      sourceType = FileSystemEntity.typeSync(source, followLinks: false);
+    }
 
     final localization = _nearestLocalization(source);
     final isBaseStoryboard =
@@ -57,6 +62,18 @@ Future<void> stageIosBundleResources({
       await File(source).copy(destination);
     }
   }
+}
+
+String? _findRelocatedResource(String projectRoot, String unresolved) {
+  final ios = Directory(p.join(projectRoot, 'ios'));
+  if (!ios.existsSync()) return null;
+  final name = p.basename(unresolved);
+  final matches = ios
+      .listSync(recursive: true, followLinks: false)
+      .where((entity) => p.basename(entity.path) == name)
+      .map((entity) => entity.path)
+      .toList();
+  return matches.length == 1 ? matches.single : null;
 }
 
 String? _resolveBuildSettingPath(PbxProject project, String? value) {

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:archive/archive.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:meta/meta.dart';
@@ -115,7 +116,9 @@ abstract final class GeneratedPluginsPackage {
         );
 
         final pluginsDir = p.join(outputDir, 'Plugins');
-        final scratchPath = p.join(pluginsDir, '.build');
+        final scratchPath = Platform.isWindows
+            ? p.join(projectRoot, 'build', '.xcross-spm-v2')
+            : p.join(pluginsDir, '.build');
         await _runSwiftBuild(
           outputDir: outputDir,
           pluginsDir: pluginsDir,
@@ -216,30 +219,47 @@ abstract final class GeneratedPluginsPackage {
       );
     }
     final targetBuildDir = p.join(scratchPath, 'arm64-apple-ios', 'debug');
-    Future<void> runBuild([List<String> selection = const []]) =>
-        ProcessRunner.runChecked(
-          swift,
-          [
-            ...swiftBuildArguments(
-              pluginsDir: pluginsDir,
-              scratchPath: scratchPath,
-              swiftSdksPath: swiftSdksPath,
-              iosSdk: sdk.iPhoneOSSdk(),
-              flutterFrameworkSlice: flutterFrameworkSlice,
-              objectiveCCompatibilityHeader: objectiveCCompatibilityHeader,
-              toolsetPath: toolsetPath,
-              // Windows gets the same override from the toolset's `linker`.
-              linkerPath: windows ? null : linker,
-              windows: windows,
-              interopSearchPaths: swiftInteropSearchPaths(targetBuildDir),
-              previewMacroStubPath: previewMacroStub,
-            ),
-            ...selection,
-          ],
-          environment: environment,
-          inheritStdio: windows && Log.isVerbose,
-          label: 'swift build',
+    Future<void> runBuild([List<String> selection = const []]) async {
+      final arguments = <String>[
+        ...swiftBuildArguments(
+          pluginsDir: pluginsDir,
+          scratchPath: scratchPath,
+          swiftSdksPath: swiftSdksPath,
+          iosSdk: sdk.iPhoneOSSdk(),
+          flutterFrameworkSlice: flutterFrameworkSlice,
+          objectiveCCompatibilityHeader: objectiveCCompatibilityHeader,
+          toolsetPath: toolsetPath,
+          linkerPath: windows ? null : linker,
+          windows: windows,
+          interopSearchPaths: swiftInteropSearchPaths(targetBuildDir),
+          previewMacroStubPath: previewMacroStub,
+        ),
+        ...selection,
+      ];
+      Future<void> invoke() => ProcessRunner.runChecked(
+        swift,
+        arguments,
+        environment: environment,
+        inheritStdio: windows && Log.isVerbose,
+        label: 'swift build',
+      );
+      await repairWindowsGeneratedBuildFiles(
+        scratchPath,
+        targetBuildDir,
+        windows: windows,
+      );
+      try {
+        await invoke();
+      } on Object {
+        if (!windows) rethrow;
+        await repairWindowsGeneratedBuildFiles(
+          scratchPath,
+          targetBuildDir,
+          windows: true,
         );
+        await invoke();
+      }
+    }
 
     await buildTranslatingSdkMismatch(
       () => buildWithInteropRecovery(
@@ -254,6 +274,43 @@ abstract final class GeneratedPluginsPackage {
         windows: windows,
       ),
     );
+  }
+
+  @visibleForTesting
+  static Future<void> repairWindowsGeneratedBuildFiles(
+    String scratchPath,
+    String targetBuildDir, {
+    bool? windows,
+  }) async {
+    if (!(windows ?? Platform.isWindows)) return;
+    final root = Directory(targetBuildDir);
+    if (!root.existsSync()) return;
+    for (final json in [
+      File(p.join(targetBuildDir, 'description.json')),
+      File(
+        p.join(
+          scratchPath,
+          'x86_64-unknown-windows-msvc',
+          'debug',
+          'plugin-tools-description.json',
+        ),
+      ),
+    ]) {
+      if (!json.existsSync()) continue;
+      final original = await json.readAsString();
+      final normalized = original.replaceAll(r'\\?\C:\?\C:\', r'C:\');
+      if (normalized != original) await json.writeAsString(normalized);
+    }
+    for (final buildDir in root.listSync(followLinks: false)) {
+      if (buildDir is! Directory || !buildDir.path.endsWith('.build')) continue;
+      final accessor = File(
+        p.join(buildDir.path, 'DerivedSources', 'resource_bundle_accessor.m'),
+      );
+      if (!accessor.existsSync()) continue;
+      final original = await accessor.readAsString();
+      final normalized = original.replaceAll(r'\', '/');
+      if (normalized != original) await accessor.writeAsString(normalized);
+    }
   }
 
   /// Swift reports a toolchain/SDK ABI mismatch once per importing file and
@@ -290,7 +347,7 @@ abstract final class GeneratedPluginsPackage {
     required String outputDir,
     required Map<String, String>? environment,
   }) async {
-    await ProcessRunner.runChecked(
+    Future<void> resolve() => ProcessRunner.runChecked(
       swift,
       swiftResolveArguments(
         pluginsDir: pluginsDir,
@@ -302,13 +359,31 @@ abstract final class GeneratedPluginsPackage {
       inheritStdio: Log.isVerbose,
       label: 'swift package resolve',
     );
+    try {
+      await resolve();
+    } on Object {
+      if (!await repairWindowsBinaryArtifacts(scratchPath)) rethrow;
+      await resolve();
+    }
     await materializeCheckoutSymlinks(scratchPath);
-    for (final root in [
-      p.join(outputDir, 'Packages'),
-      p.join(outputDir, 'Vendor'),
-      p.join(scratchPath, 'checkouts'),
-    ]) {
-      await normalizeHostSwiftTree(root);
+    await normalizeResolvedPackageManifests(scratchPath);
+    await resolve();
+  }
+
+  @visibleForTesting
+  static Future<void> normalizeResolvedPackageManifests(
+    String scratchPath,
+  ) async {
+    final checkouts = Directory(p.join(scratchPath, 'checkouts'));
+    if (checkouts.existsSync()) {
+      for (final checkout in checkouts.listSync(followLinks: false)) {
+        if (checkout is Directory) {
+          await _normalizeVendoredPackageManifests(
+            checkout.path,
+            consumedProducts: const {},
+          );
+        }
+      }
     }
   }
 
@@ -938,7 +1013,9 @@ abstract final class GeneratedPluginsPackage {
     final packagesDir = p.join(outputDir, 'Packages');
     final frameworkDir = p.join(packagesDir, _flutterFrameworkPackageName);
     final pluginsDir = p.join(outputDir, 'Plugins');
-    final vendorDir = p.join(outputDir, 'Vendor');
+    final vendorDir = Platform.isWindows
+        ? p.join(p.dirname(p.dirname(outputDir)), '.xcross-vendor')
+        : p.join(outputDir, 'Vendor');
     final shouldVendor = vendorRemotePackages ?? true;
 
     await Directory(packagesDir).create(recursive: true);
@@ -1411,6 +1488,19 @@ let package = Package(
       },
     );
     result = exposeMacOSPackageGraphEntries(result);
+    result = result.replaceAllMapped(
+      RegExp(r'(path:\s*"FirebaseSessions/Sources",)(\s*)(cSettings:)'),
+      (match) => '${match[1]}${match[2]}sources: ["."],${match[2]}${match[3]}',
+    );
+    result = result.replaceAllMapped(
+      RegExp(r'(name:\s*"GoogleDataTransport",)(\s*)(platforms:)'),
+      (match) =>
+          '${match[1]}${match[2]}defaultLocalization: "en",${match[2]}${match[3]}',
+    );
+    result = result.replaceAllMapped(
+      RegExp(r'"([^"\r\n]+)/"'),
+      (match) => '"${match[1]}"',
+    );
     // Package manifests cannot import Foundation; stdlib String(cString:)
     // already decodes UTF-8 (getsentry/sentry-cocoa#7797).
     result = result.replaceAllMapped(
@@ -2379,6 +2469,136 @@ let package = Package(
 
   /// Replaces mode-120000 checkout placeholders produced by Git for Windows
   /// with hard links to files or copies of directory targets.
+  /// SwiftPM's Foundation ZIP extraction cannot move XCFrameworks containing
+  /// Unix framework symlinks on Windows (Cocoa I/O error 514). The extraction
+  /// itself is complete, so retain the device slice needed by this build and
+  /// let a second resolve validate it from the normal artifact location.
+  @visibleForTesting
+  static Future<bool> repairWindowsBinaryArtifacts(String scratchPath) async {
+    final artifactsRoot = p.join(scratchPath, 'artifacts');
+    final extractRoot = Directory(p.join(artifactsRoot, 'extract'));
+    if (!extractRoot.existsSync()) return false;
+    var repaired = false;
+    final archives = <File>[];
+    for (final package in Directory(
+      artifactsRoot,
+    ).listSync(followLinks: false)) {
+      if (package is! Directory || p.basename(package.path) == 'extract')
+        continue;
+      for (final target in package.listSync(followLinks: false)) {
+        if (target is! Directory) continue;
+        archives.addAll(
+          target
+              .listSync(followLinks: false)
+              .whereType<File>()
+              .where((file) => file.path.endsWith('.zip')),
+        );
+      }
+    }
+    for (final archive in archives) {
+      final target = p.join(
+        p.dirname(archive.path),
+        p.basenameWithoutExtension(archive.path),
+      );
+      await _deleteEntity(target);
+      final zip = ZipDecoder().decodeBytes(await archive.readAsBytes());
+      for (final entry in zip.files) {
+        if (!entry.isFile || entry.isSymbolicLink) continue;
+        final segments = p.url.split(entry.name);
+        final slice = segments.indexOf('ios-arm64');
+        if (segments.last != 'Info.plist' && slice < 0) continue;
+        final output = p.joinAll([target, ...segments]);
+        await Directory(p.dirname(output)).create(recursive: true);
+        await File(output).writeAsBytes(entry.content as List<int>);
+      }
+      repaired = true;
+    }
+    final frameworks = <Directory>[];
+    for (final package in extractRoot.listSync(followLinks: false)) {
+      if (package is! Directory) continue;
+      for (final target in package.listSync(followLinks: false)) {
+        if (target is! Directory) continue;
+        for (final extraction in target.listSync(followLinks: false)) {
+          if (extraction is! Directory) continue;
+          for (final artifact in extraction.listSync(followLinks: false)) {
+            if (artifact is Directory &&
+                artifact.path.endsWith('.xcframework')) {
+              frameworks.add(artifact);
+            }
+          }
+        }
+      }
+    }
+    for (final entity in frameworks) {
+      final relative = p.relative(entity.path, from: extractRoot.path);
+      final parts = p.split(relative);
+      if (parts.length < 4) continue;
+      final deviceSlice = Directory(p.join(entity.path, 'ios-arm64'));
+      final info = File(p.join(entity.path, 'Info.plist'));
+      if (!deviceSlice.existsSync() || !info.existsSync()) continue;
+      final destination = p.join(
+        scratchPath,
+        'artifacts',
+        parts[0],
+        parts[1],
+        parts.last,
+      );
+      await _deleteEntity(destination);
+      await Directory(destination).create(recursive: true);
+      if (Platform.isWindows) {
+        final result = await Process.run('robocopy', [
+          deviceSlice.path,
+          p.join(destination, 'ios-arm64'),
+          '/E',
+          '/NFL',
+          '/NDL',
+          '/NJH',
+          '/NJS',
+          '/NP',
+        ]);
+        if (result.exitCode > 7) {
+          throw FileSystemException(
+            'Could not copy extracted binary artifact: ${result.stderr}',
+            deviceSlice.path,
+          );
+        }
+      } else {
+        await _syncDirectory(
+          deviceSlice.path,
+          p.join(destination, 'ios-arm64'),
+        );
+      }
+      final plist = await info.readAsString();
+      final identifier = plist.indexOf('<string>ios-arm64</string>');
+      final deviceStart = identifier < 0
+          ? -1
+          : plist.lastIndexOf('<dict>', identifier);
+      final deviceEnd = identifier < 0
+          ? -1
+          : plist.indexOf('</dict>', identifier);
+      if (deviceStart < 0 || deviceEnd < 0) continue;
+      final deviceLibrary = plist.substring(deviceStart, deviceEnd + 7);
+      await File(p.join(destination, 'Info.plist')).writeAsString('''
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>AvailableLibraries</key>
+  <array>
+$deviceLibrary
+  </array>
+  <key>CFBundlePackageType</key>
+  <string>XFWK</string>
+  <key>XCFrameworkFormatVersion</key>
+  <string>1.0</string>
+</dict>
+</plist>
+''');
+      repaired = true;
+    }
+    return repaired;
+  }
+
   @visibleForTesting
   static Future<void> materializeCheckoutSymlinks(
     String scratchPath, {
@@ -2677,6 +2897,7 @@ let package = Package(
         fallbackSwiftModules: fallbackSwiftModules,
       );
       if (normalized != original) {
+        await _clearPlaceholderAttributes(entity.path);
         await entity.writeAsString(normalized);
       }
     }

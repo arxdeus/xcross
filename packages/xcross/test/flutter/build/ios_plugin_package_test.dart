@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:archive/archive.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -289,6 +290,30 @@ if getenv("EXPERIMENTAL_SPM_BUILDS") != nil {
       expect(
         GeneratedPluginsPackage.normalizeHostManifest(normalized),
         normalized,
+      );
+    });
+
+    test('normalizes Firebase Sessions and GoogleDataTransport manifests', () {
+      const input = '''
+let package = Package(
+  name: "GoogleDataTransport",
+  platforms: [.iOS(.v12)],
+  targets: [
+    .target(
+    name: "FirebaseSessions",
+    path: "FirebaseSessions/Sources",
+    cSettings: []
+    )
+  ]
+)
+''';
+      final normalized = GeneratedPluginsPackage.normalizeHostManifest(input);
+      expect(normalized, contains('defaultLocalization: "en"'));
+      expect(
+        normalized,
+        contains(
+          RegExp(r'path: "FirebaseSessions/Sources",\s+sources: \["\."\],'),
+        ),
       );
     });
 
@@ -782,6 +807,148 @@ let package = Package(
           '.package(name: "firebase-ios-sdk", '
           'path: "${swiftPath(p.join(vendorDir, 'firebase-ios-sdk@b9bf3adac18e6e3059167194aeb632f15a5ba4b2'))}")',
         ),
+      );
+    });
+  });
+
+  group('Windows binary artifacts', () {
+    test(
+      'repairs a failed extraction from its complete iOS device slice',
+      () async {
+        final scratch = p.join(tmp.path, '.build');
+        final extracted = p.join(
+          scratch,
+          'artifacts',
+          'extract',
+          'firebase-ios-sdk',
+          'FirebaseAnalytics',
+          'UUID',
+          'FirebaseAnalytics.xcframework',
+        );
+        await File(p.join(extracted, 'Info.plist'))
+            .create(recursive: true)
+            .then(
+              (file) => file.writeAsString('''
+<plist><dict><key>AvailableLibraries</key><array><dict>
+<key>LibraryIdentifier</key><string>ios-arm64</string>
+<key>LibraryPath</key><string>FirebaseAnalytics.framework</string>
+<key>SupportedArchitectures</key><array><string>arm64</string></array>
+<key>SupportedPlatform</key><string>ios</string>
+</dict></array></dict></plist>
+'''),
+            );
+        await File(
+          p.join(
+            extracted,
+            'ios-arm64',
+            'FirebaseAnalytics.framework',
+            'FirebaseAnalytics',
+          ),
+        ).create(recursive: true).then((file) => file.writeAsString('binary'));
+        await File(
+          p.join(extracted, 'macos-arm64_x86_64', 'broken-link'),
+        ).create(recursive: true);
+
+        expect(
+          await GeneratedPluginsPackage.repairWindowsBinaryArtifacts(scratch),
+          isTrue,
+        );
+        final repaired = p.join(
+          scratch,
+          'artifacts',
+          'firebase-ios-sdk',
+          'FirebaseAnalytics',
+          'FirebaseAnalytics.xcframework',
+        );
+        expect(
+          File(p.join(repaired, 'Info.plist')).readAsStringSync(),
+          contains('<string>ios-arm64</string>'),
+        );
+        expect(
+          File(
+            p.join(
+              repaired,
+              'ios-arm64',
+              'FirebaseAnalytics.framework',
+              'FirebaseAnalytics',
+            ),
+          ).readAsStringSync(),
+          'binary',
+        );
+        expect(
+          Directory(p.join(repaired, 'macos-arm64_x86_64')).existsSync(),
+          isFalse,
+        );
+      },
+    );
+
+    test('extracts only the iOS device slice from a cached ZIP', () async {
+      final scratch = p.join(tmp.path, '.build');
+      final archive = Archive()
+        ..add(
+          ArchiveFile.string('Target.xcframework/Info.plist', '''
+<plist><dict><key>AvailableLibraries</key><array><dict>
+<key>LibraryIdentifier</key><string>ios-arm64</string>
+</dict></array></dict></plist>
+'''),
+        )
+        ..add(
+          ArchiveFile.string(
+            'Target.xcframework/ios-arm64/Target.framework/Target',
+            'binary',
+          ),
+        )
+        ..add(
+          ArchiveFile.string(
+            'Target.xcframework/macos-arm64/Target.framework/Target',
+            'macos',
+          ),
+        );
+      final zip = File(
+        p.join(scratch, 'artifacts', 'package', 'Target', 'Target.zip'),
+      );
+      await zip.create(recursive: true);
+      await zip.writeAsBytes(ZipEncoder().encode(archive));
+      await Directory(p.join(scratch, 'artifacts', 'extract')).create();
+
+      expect(
+        await GeneratedPluginsPackage.repairWindowsBinaryArtifacts(scratch),
+        isTrue,
+      );
+      final target = p.join(
+        scratch,
+        'artifacts',
+        'package',
+        'Target',
+        'Target',
+        'Target.xcframework',
+      );
+      expect(
+        File(
+          p.join(target, 'ios-arm64', 'Target.framework', 'Target'),
+        ).readAsStringSync(),
+        'binary',
+      );
+      expect(Directory(p.join(target, 'macos-arm64')).existsSync(), isFalse);
+    });
+
+    test('ignores incomplete extraction directories', () async {
+      final scratch = p.join(tmp.path, '.build');
+      await Directory(
+        p.join(
+          scratch,
+          'artifacts',
+          'extract',
+          'package',
+          'target',
+          'UUID',
+          'Target.xcframework',
+        ),
+      ).create(recursive: true);
+
+      expect(
+        await GeneratedPluginsPackage.repairWindowsBinaryArtifacts(scratch),
+        isFalse,
       );
     });
   });
@@ -1895,10 +2062,6 @@ let package = Package(
           '-Xlinker',
           '-Xswiftc',
           '-no_objc_category_merging',
-          '-Xswiftc',
-          '-Xlinker',
-          '-Xswiftc',
-          '-objc_stubs_small',
         ]),
       );
       expect(

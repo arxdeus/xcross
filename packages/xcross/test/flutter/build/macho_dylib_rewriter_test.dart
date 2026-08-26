@@ -66,25 +66,10 @@ void main() {
     );
   });
 
-  test('repairs a unique malformed dedicated Objective-C selref', () {
-    final fixture = _objcMacho();
+  test('does not rewrite Objective-C selector references', () {
+    final fixture = _objcMacho(hasMatchingSelref: true);
+    final original = Uint8List.fromList(fixture.bytes);
 
-    expect(
-      MachODylibRewriter.rewriteBytes(
-        fixture.bytes,
-        dylibName: 'libPlugin.dylib',
-        producedDylibNames: const {},
-      ),
-      isTrue,
-    );
-    expect(
-      ByteData.sublistView(
-        fixture.bytes,
-      ).getUint64(fixture.firstSelrefOffset, Endian.little),
-      fixture.fooAddress,
-    );
-
-    final repaired = Uint8List.fromList(fixture.bytes);
     expect(
       MachODylibRewriter.rewriteBytes(
         fixture.bytes,
@@ -93,53 +78,7 @@ void main() {
       ),
       isFalse,
     );
-    expect(fixture.bytes, repaired);
-  });
-
-  test('retargets a fast stub to an existing matching selref', () {
-    final fixture = _objcMacho(hasMatchingSelref: true);
-    final data = ByteData.sublistView(fixture.bytes);
-    final oldAdrp = data.getUint32(fixture.stubOffset, Endian.little);
-    final oldLdr = data.getUint32(fixture.stubOffset + 4, Endian.little);
-
-    expect(
-      MachODylibRewriter.rewriteBytes(
-        fixture.bytes,
-        dylibName: 'libPlugin.dylib',
-        producedDylibNames: const {},
-      ),
-      isTrue,
-    );
-    expect((
-      data.getUint32(fixture.stubOffset, Endian.little),
-      data.getUint32(fixture.stubOffset + 4, Endian.little),
-    ), isNot((oldAdrp, oldLdr)));
-    expect(
-      data.getUint64(fixture.firstSelrefOffset, Endian.little),
-      fixture.barAddress,
-      reason: 'the wrong but valid selref must not be overwritten',
-    );
-  });
-
-  test('rejects repair of a malformed selref shared by fast stubs', () {
-    final fixture = _objcMacho(sharedMalformedSelref: true);
-    final original = Uint8List.fromList(fixture.bytes);
-
-    expect(
-      () => MachODylibRewriter.rewriteBytes(
-        fixture.bytes,
-        dylibName: 'libPlugin.dylib',
-        producedDylibNames: const {},
-      ),
-      throwsA(
-        isA<FlutterBuildError>().having(
-          (error) => error.message,
-          'message',
-          contains('no safe selref repair'),
-        ),
-      ),
-    );
-    expect(fixture.bytes, original, reason: 'validation must precede mutation');
+    expect(fixture.bytes, original);
   });
 
   test('ignores Objective-C data in non-ARM64 Mach-O files', () {
