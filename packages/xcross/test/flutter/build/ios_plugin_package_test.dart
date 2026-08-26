@@ -729,6 +729,98 @@ let package = Package(name: "Sentry", products: [], targets: [])
       expect(vendored61, contains('import CRT'));
     });
 
+    test('caches equivalent dependency evaluations within a build', () async {
+      final vendorDir = p.join(tmp.path, 'cached-vendor');
+      final first = p.join(tmp.path, 'first');
+      final second = p.join(tmp.path, 'second');
+      await Directory(first).create();
+      await Directory(second).create();
+      const manifest = '''
+import PackageDescription
+let package = Package(
+    name: "plugin",
+    dependencies: [.package(url: "https://example.com/dependency", exact: "1.0.0")],
+    targets: []
+)
+''';
+      final cache = <String, Future<Map<String, String>>>{};
+      var evaluations = 0;
+
+      Future<Map<String, String>> evaluate(String _) async {
+        evaluations++;
+        return const {'https://example.com/dependency': 'revision'};
+      }
+
+      Future<void> clone(
+        String _,
+        String _,
+        String _,
+        String destination,
+      ) async {
+        await Directory(destination).create(recursive: true);
+        await File(
+          p.join(destination, 'Package.swift'),
+        ).writeAsString('import PackageDescription\n');
+      }
+
+      for (final packageDirectory in [first, second]) {
+        await GeneratedPluginsPackage.vendorUrlPackagesAsPathDeps(
+          manifest,
+          vendorDir: vendorDir,
+          packageDirectory: packageDirectory,
+          locateTool: (_) async => 'git',
+          evaluateDependencyRefs: evaluate,
+          clonePackage: clone,
+          evaluationCache: cache,
+        );
+      }
+
+      expect(evaluations, 1);
+    });
+
+    test('invalidates dependency evaluation for manifest variants', () async {
+      final vendorDir = p.join(tmp.path, 'variant-vendor');
+      final packageDirectory = p.join(tmp.path, 'variant-package');
+      await Directory(packageDirectory).create();
+      final variant = File(p.join(packageDirectory, 'Package@swift-6.0.swift'));
+      await variant.writeAsString('let version = 1\n');
+      const manifest = '''
+import PackageDescription
+let package = Package(
+    name: "plugin",
+    dependencies: [.package(url: "https://example.com/dependency", exact: "1.0.0")],
+    targets: []
+)
+''';
+      final cache = <String, Future<Map<String, String>>>{};
+      var evaluations = 0;
+
+      Future<void> run() => GeneratedPluginsPackage.vendorUrlPackagesAsPathDeps(
+        manifest,
+        vendorDir: vendorDir,
+        packageDirectory: packageDirectory,
+        locateTool: (_) async => 'git',
+        evaluateDependencyRefs: (_) async {
+          evaluations++;
+          return const {'https://example.com/dependency': 'revision'};
+        },
+        clonePackage: (_, _, _, destination) async {
+          await Directory(destination).create(recursive: true);
+          await File(
+            p.join(destination, 'Package.swift'),
+          ).writeAsString('import PackageDescription\n');
+        },
+        evaluationCache: cache,
+      ).then((_) {});
+
+      await run();
+      await run();
+      await variant.writeAsString('let version = 2\n');
+      await run();
+
+      expect(evaluations, 2);
+    });
+
     test('uses resolved revisions for every SwiftPM requirement variant', () {
       final refs = GeneratedPluginsPackage.dependencyRefsFromPackageResolved(
         jsonEncode({
@@ -1002,6 +1094,26 @@ let package = Package(
         );
 
         expect(placeholder.readAsStringSync(), 'materialized');
+        final updatedPlaceholder = File(p.join(repo, 'updated-link.txt'))
+          ..writeAsStringSync('target.txt');
+        git(['add', 'updated-link.txt']);
+        final updatedHash =
+            (git(['hash-object', '-w', 'updated-link.txt']).stdout as String)
+                .trim();
+        git([
+          'update-index',
+          '--cacheinfo',
+          '120000',
+          updatedHash,
+          'updated-link.txt',
+        ]);
+        expect(
+          await GeneratedPluginsPackage.materializeCheckoutSymlinks(
+            p.join(tmp.path, 'scratch'),
+          ),
+          isTrue,
+        );
+        expect(updatedPlaceholder.readAsStringSync(), 'materialized');
         if (Platform.isWindows) {
           target.writeAsStringSync('updated');
           expect(placeholder.readAsStringSync(), 'updated');

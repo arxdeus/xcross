@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:cli_kit/cli_kit.dart';
+import 'package:crypto/crypto.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
@@ -1043,6 +1044,7 @@ abstract final class GeneratedPluginsPackage {
     };
     final pluginPackageDirs = <String, String>{};
     final vendorNormalizationCache = <String, Map<String, List<String>>>{};
+    final dependencyEvaluationCache = <String, Future<Map<String, String>>>{};
     for (final plugin in plugins) {
       final packageAlias = p.join(packagesDir, plugin.name);
       pluginPackageDirs[plugin.name] = await _stagePluginPackage(
@@ -1053,6 +1055,7 @@ abstract final class GeneratedPluginsPackage {
         packageTargets: pluginTargets,
         copySources: copyPluginPackages.contains(plugin.name),
         vendorNormalizationCache: vendorNormalizationCache,
+        dependencyEvaluationCache: dependencyEvaluationCache,
       );
     }
     final packagesByDirectoryName = {
@@ -1108,6 +1111,7 @@ abstract final class GeneratedPluginsPackage {
     Map<String, String> packageTargets = const {},
     bool copySources = false,
     Map<String, Map<String, List<String>>>? vendorNormalizationCache,
+    Map<String, Future<Map<String, String>>>? dependencyEvaluationCache,
   }) async {
     var stagedPackage = alias;
     final shouldCopySources = vendorDir != null || copySources;
@@ -1158,6 +1162,7 @@ abstract final class GeneratedPluginsPackage {
         packageDirectory: stagedPackage,
         fallbackSwiftModules: fallbackSwiftModules,
         normalizationCache: vendorNormalizationCache,
+        evaluationCache: dependencyEvaluationCache,
       );
     }
 
@@ -2386,6 +2391,35 @@ let package = Package(
         .toString();
   }
 
+  static Future<String> _dependencyEvaluationKey(
+    String manifest,
+    String packageDirectory,
+  ) async {
+    final variants = <String>[];
+    final directory = Directory(packageDirectory);
+    if (directory.existsSync()) {
+      await for (final entity in directory.list(followLinks: false)) {
+        if (entity is! File) continue;
+        final name = p.basename(entity.path);
+        if (name.startsWith('Package@') && name.endsWith('.swift')) {
+          variants.add('$name\u0000${await entity.readAsString()}');
+        }
+      }
+    }
+    variants.sort();
+    return sha256
+        .convert(
+          utf8.encode(
+            [
+              'xcross-dependency-evaluation-v1',
+              manifest,
+              ...variants,
+            ].join('\u0000'),
+          ),
+        )
+        .toString();
+  }
+
   static Future<Map<String, String>> _evaluatedDependencyRefs(
     String packageDirectory,
     Future<String> Function(String name) locateTool,
@@ -2433,15 +2467,36 @@ let package = Package(
     )?
     clonePackage,
     Map<String, Map<String, List<String>>>? normalizationCache,
+    Map<String, Future<Map<String, String>>>? evaluationCache,
   }) async {
     final deps = parseUrlPackageDeps(manifest);
     if (deps.isEmpty) return manifest;
 
     final locate = locateTool ?? ProcessRunner.locateTool;
-    final evaluatedRefs =
-        await (evaluateDependencyRefs ??
-            (directory) =>
-                _evaluatedDependencyRefs(directory, locate))(packageDirectory);
+    final evaluate =
+        evaluateDependencyRefs ??
+        (directory) => _evaluatedDependencyRefs(directory, locate);
+    final evaluationKey = await _dependencyEvaluationKey(
+      manifest,
+      packageDirectory,
+    );
+    late final Map<String, String> evaluatedRefs;
+    if (evaluationCache == null) {
+      evaluatedRefs = await evaluate(packageDirectory);
+    } else {
+      final pending = evaluationCache.putIfAbsent(
+        evaluationKey,
+        () => evaluate(packageDirectory),
+      );
+      try {
+        evaluatedRefs = await pending;
+      } on Object {
+        if (identical(evaluationCache[evaluationKey], pending)) {
+          final _ = evaluationCache.remove(evaluationKey);
+        }
+        rethrow;
+      }
+    }
     late final String git;
     try {
       git = await locate('git');
@@ -2662,8 +2717,14 @@ $deviceLibrary
           'Could not inspect SwiftPM checkout ${repo.path}: ${index.stderr}',
         );
       }
+      final stampName = sha256.convert(utf8.encode(repo.path)).toString();
       changed =
-          await _materializeGitSymlinks(repo.path, index.stdout, git) ||
+          await _materializeGitSymlinks(
+            repo.path,
+            index.stdout,
+            git,
+            File(p.join(scratchPath, '.xcross-symlinks', stampName)),
+          ) ||
           changed;
     }
     return changed;
@@ -2673,6 +2734,7 @@ $deviceLibrary
     String repoPath,
     String index,
     String git,
+    File stamp,
   ) async {
     final root = p.normalize(p.absolute(repoPath));
     final links = <String, String>{};
@@ -2685,23 +2747,25 @@ $deviceLibrary
       }
     }
 
-    final targets = <String, String>{};
-    for (final link in links.entries) {
-      final blob = await ProcessRunner.run(git, [
-        '-C',
-        repoPath,
-        'cat-file',
-        'blob',
-        link.value,
-      ]);
-      if (blob.exitCode != 0) {
-        throw FlutterBuildError(
-          'Could not read symlink target in SwiftPM checkout $repoPath: '
-          '${blob.stderr}',
-        );
-      }
-      targets[link.key] = blob.stdout.replaceFirst(RegExp(r'[\r\n]+$'), '');
+    final fingerprint = sha256
+        .convert(
+          utf8.encode(
+            'xcross-symlink-materialization-v1\u0000'
+            '${Platform.operatingSystem}\u0000$index',
+          ),
+        )
+        .toString();
+    if (stamp.existsSync() && await stamp.readAsString() == fingerprint) {
+      return false;
     }
+
+    final blobs = await _readGitBlobs(repoPath, links.values.toSet(), git);
+    final targets = <String, String>{
+      for (final link in links.entries)
+        link.key: utf8
+            .decode(blobs[link.value]!)
+            .replaceFirst(RegExp(r'[\r\n]+$'), ''),
+    };
 
     final resolved = <String, String>{};
     String resolve(String source, Set<String> chain) {
@@ -2773,7 +2837,72 @@ $deviceLibrary
     for (final link in links.keys) {
       await materialize(link);
     }
+    await stamp.parent.create(recursive: true);
+    await stamp.writeAsString(fingerprint);
     return changed;
+  }
+
+  static Future<Map<String, List<int>>> _readGitBlobs(
+    String repoPath,
+    Set<String> objectIds,
+    String git,
+  ) async {
+    if (objectIds.isEmpty) return const {};
+    final process = await Process.start(git, [
+      '-C',
+      repoPath,
+      'cat-file',
+      '--batch',
+    ]);
+    for (final objectId in objectIds) {
+      process.stdin.writeln(objectId);
+    }
+    await process.stdin.close();
+    final output = await process.stdout.fold<List<int>>(
+      <int>[],
+      (bytes, chunk) => bytes..addAll(chunk),
+    );
+    final error = await process.stderr.transform(utf8.decoder).join();
+    final exitCode = await process.exitCode;
+    if (exitCode != 0) {
+      throw FlutterBuildError(
+        'Could not read symlink targets in SwiftPM checkout $repoPath: $error',
+      );
+    }
+
+    var offset = 0;
+    final blobs = <String, List<int>>{};
+    for (final requested in objectIds) {
+      final newline = output.indexOf(10, offset);
+      if (newline < 0) {
+        throw FlutterBuildError(
+          'Malformed Git object response in SwiftPM checkout $repoPath.',
+        );
+      }
+      final header = utf8.decode(output.sublist(offset, newline));
+      final fields = header.split(' ');
+      if (fields.length != 3 || fields[1] != 'blob') {
+        throw FlutterBuildError(
+          'Could not read symlink target $requested in SwiftPM checkout '
+          '$repoPath: $header',
+        );
+      }
+      final size = int.tryParse(fields[2]);
+      if (size == null || size < 0 || newline + 1 + size >= output.length) {
+        throw FlutterBuildError(
+          'Malformed Git object response in SwiftPM checkout $repoPath.',
+        );
+      }
+      final end = newline + 1 + size;
+      blobs[requested] = output.sublist(newline + 1, end);
+      if (output[end] != 10) {
+        throw FlutterBuildError(
+          'Malformed Git object response in SwiftPM checkout $repoPath.',
+        );
+      }
+      offset = end + 1;
+    }
+    return blobs;
   }
 
   /// Windows source for a header placeholder that keeps one Clang file
