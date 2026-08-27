@@ -19,7 +19,7 @@ resolution: workspace
 dependencies:
   archive: ^4.0.9
   basic_utils: ^5.8.2
-  code_assets: ^1.2.1
+  code_assets: ^2.0.0
   crypto: ^3.0.7
   ffi: ^2.1.3
   hooks: ^2.1.0
