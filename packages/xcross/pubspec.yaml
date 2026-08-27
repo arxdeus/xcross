@@ -21,7 +21,7 @@ executables:
   xcrun:
 
 dependencies:
-  archive: ^4.0.9
+  archive: ^4.2.0
   args: ^2.7.0
   async: ^2.13.1
   completion: ^1.0.2

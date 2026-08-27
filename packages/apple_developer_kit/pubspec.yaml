@@ -17,7 +17,7 @@ environment:
 resolution: workspace
 
 dependencies:
-  archive: ^4.0.9
+  archive: ^4.2.0
   basic_utils: ^5.8.2
   code_assets: ^2.0.0
   crypto: ^3.0.7
