@@ -41,7 +41,7 @@ dependencies:
   build_cli_annotations: ^2.1.1
   pure: ^1.0.0
   dds: ^5.4.0
-  vm_service: ^15.2.0
+  vm_service: ^15.3.0
 
   apple_developer_kit: ^1.0.0
   cli_kit: ^1.0.0
