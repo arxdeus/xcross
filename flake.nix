@@ -24,7 +24,10 @@
         if system == "x86_64-linux"
         then inputs.xcross-linux-x64
         else inputs.xcross-linux-arm64;
-      pkgsFor = system: import nixpkgs { inherit system; };
+      pkgsFor = system: import nixpkgs {
+        inherit system;
+        config.problems.handlers.pyimg4.broken = "ignore";
+      };
       outputsFor = system:
         let
           pkgs = pkgsFor system;

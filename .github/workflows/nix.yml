@@ -47,20 +47,6 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/determinate-nix-action@2a0be2498974c2b6327e19780488744384637d88 # v3.21.7
 
-      - name: Configure Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
-
-      - name: Generate lock file
-        if: hashFiles('flake.lock') == ''
-        run: nix flake lock
-
-      - name: Upload lock file
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: flake-lock-${{ matrix.system }}
-          path: flake.lock
-          if-no-files-found: error
-
       - name: Check flake
         run: nix flake check --print-build-logs
 
