@@ -114,44 +114,29 @@ Both installers download the latest release, install it, **add xcross to your `P
 
    The SDK is tied to the Swift you had active here. If you later switch Swift versions, re-run `xcross sdk install`.
 
-### Nix development shell
+### Nix
 
-On `x86_64-linux` and `aarch64-linux`, the flake provides the prebuilt xcross
-release and its complete development environment:
+Use the xcross development shell from your project's flake without cloning this
+repository:
 
-```sh
-nix develop
-xcross --version
-xcross sdk install ~/Downloads/Xcode.xip
+```nix
+{
+  inputs.xcross.url = "github:arxdeus/xcross";
+
+  outputs = { nixpkgs, xcross, ... }:
+    let
+      system = "x86_64-linux";
+      pkgs = nixpkgs.legacyPackages.${system};
+    in {
+      devShells.${system}.default = pkgs.mkShell {
+        inputsFrom = [ xcross.devShells.${system}.default ];
+      };
+    };
+}
 ```
 
-The default shell is for application developers. It includes Flutter, Swift,
-LLVM/`ld64.lld`, `pymobiledevice3`, USB device tools, and the native build
-libraries normally installed by `xcross setup`. Do not run `xcross setup`
-inside the Nix shell; it expects a mutable distro package manager and `sudo`.
-
-Contributors working on xcross itself can additionally enter the repository
-tooling shell:
-
-```sh
-nix develop .#contributor
-```
-
-That shell adds Dart and the build/test utilities used by this workspace.
-
-The x64 and ARM64 release archives are separate locked inputs and must always
-use the same tag. To select another release, update both URLs in `flake.nix`,
-then refresh both locks together:
-
-```sh
-nix flake lock \
-  --update-input xcross-linux-x64 \
-  --update-input xcross-linux-arm64
-
-nix flake check
-```
-
-Changing only one archive input creates an unsupported mixed-version flake.
+Run `nix develop`, then use `xcross` normally. `aarch64-linux` is also
+supported.
 
 ### Verifying a release
 
