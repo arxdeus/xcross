@@ -53,16 +53,17 @@ jobs:
       - name: Build and run xcross
         run: |
           nix build .#xcross --print-build-logs
-          nix run . -- --help
-          nix run . -- --version
+          nix run . -- --help | grep -F "Usage: xcross"
+          nix run . -- --version | grep -F "xcross 1.3.2"
 
       - name: Probe development tools
         run: |
           nix develop --command bash -euo pipefail -c '
-            for tool in xcross xcrun dart flutter swift swiftc clang clang++ llvm-ar ld64.lld python3 pymobiledevice3 usbmuxd idevice_id pkg-config gpg; do
+            for tool in xcross xcrun flutter swift swiftc clang clang++ llvm-ar ld64.lld python3 pymobiledevice3 usbmuxd idevice_id pkg-config gpg; do
               command -v "$tool"
             done
-            xcross --help >/dev/null
+            xcross --help | grep -F "Usage: xcross"
+            xcross --version | grep -F "xcross 1.3.2"
           '
 
       - name: Verify Dart workspace

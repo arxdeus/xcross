@@ -53,6 +53,7 @@
             buildInputs = [ pkgs.stdenv.cc.cc.lib ];
 
             dontBuild = true;
+            dontStrip = true;
 
             installPhase = ''
               runHook preInstall
@@ -110,6 +111,8 @@
             test -x ${xcross}/bin/xcross
             test -x ${xcross}/bin/xcrun
             test -d ${xcross}/lib
+            ${xcross}/bin/xcross --help | grep -F "Usage: xcross" >/dev/null
+            ${xcross}/bin/xcross --version | grep -F "xcross ${version}" >/dev/null
             touch "$out"
           '';
         in {
