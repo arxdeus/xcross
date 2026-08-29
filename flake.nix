@@ -26,7 +26,19 @@
         else inputs.xcross-linux-arm64;
       pkgsFor = system: import nixpkgs {
         inherit system;
-        config.problems.handlers.pyimg4.broken = "ignore";
+        overlays = [
+          (final: prev: {
+            python313 = prev.python313.override {
+              packageOverrides = pyFinal: pyPrev: {
+                pyimg4 = pyPrev.pyimg4.overridePythonAttrs (old: {
+                  pythonRelaxDeps = (old.pythonRelaxDeps or [ ]) ++ [ "asn1" ];
+                  meta = old.meta // { broken = false; };
+                });
+              };
+            };
+            python313Packages = final.python313.pkgs;
+          })
+        ];
       };
       outputsFor = system:
         let
