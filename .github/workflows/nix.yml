@@ -1,0 +1,94 @@
+name: Nix
+
+on:
+  pull_request:
+    paths:
+      - flake.nix
+      - flake.lock
+      - .github/workflows/nix.yml
+      - README.md
+  push:
+    branches: [main]
+    paths:
+      - flake.nix
+      - flake.lock
+      - .github/workflows/nix.yml
+      - README.md
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: nix-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Check (${{ matrix.system }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            system: x86_64-linux
+          - runner: ubuntu-24.04-arm
+            system: aarch64-linux
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          submodules: true
+
+      - name: Install Nix
+        uses: DeterminateSystems/determinate-nix-action@2a0be2498974c2b6327e19780488744384637d88 # v3.21.7
+
+      - name: Configure Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
+
+      - name: Generate lock file
+        if: hashFiles('flake.lock') == ''
+        run: nix flake lock
+
+      - name: Upload generated lock file
+        if: hashFiles('flake.lock') == ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: flake-lock-${{ matrix.system }}
+          path: flake.lock
+          if-no-files-found: error
+
+      - name: Check flake
+        run: nix flake check --print-build-logs
+
+      - name: Build and run xcross
+        run: |
+          nix build .#xcross --print-build-logs
+          nix run . -- --help
+          nix run . -- --version
+
+      - name: Probe development tools
+        run: |
+          nix develop --command bash -euo pipefail -c '
+            for tool in xcross xcrun dart flutter swift swiftc clang clang++ llvm-ar ld64.lld python3 pymobiledevice3 usbmuxd idevice_id pkg-config gpg; do
+              command -v "$tool"
+            done
+            xcross --help >/dev/null
+          '
+
+      - name: Verify Dart workspace
+        run: |
+          nix develop --command bash -euo pipefail -c '
+            dart pub get
+            dart analyze
+            dart test packages/xcross
+            dart test packages/cli_kit
+            dart test packages/apple_developer_kit
+            dart test packages/darwin_sdk_kit
+            dart test packages/dart_mobile_device
+            dart test packages/frontend_server_kit
+          '

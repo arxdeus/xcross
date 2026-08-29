@@ -114,6 +114,36 @@ Both installers download the latest release, install it, **add xcross to your `P
 
    The SDK is tied to the Swift you had active here. If you later switch Swift versions, re-run `xcross sdk install`.
 
+### Nix development shell
+
+On `x86_64-linux` and `aarch64-linux`, the flake provides the prebuilt xcross
+release and its complete development environment:
+
+```sh
+nix develop
+xcross --version
+xcross sdk install ~/Downloads/Xcode.xip
+```
+
+The shell includes Flutter, Swift, LLVM/`ld64.lld`, `pymobiledevice3`, USB
+device tools, and the native build libraries normally installed by
+`xcross setup`. Do not run `xcross setup` inside the Nix shell; it expects a
+mutable distro package manager and `sudo`.
+
+The x64 and ARM64 release archives are separate locked inputs and must always
+use the same tag. To select another release, update both URLs in `flake.nix`,
+then refresh both locks together:
+
+```sh
+nix flake lock \
+  --update-input xcross-linux-x64 \
+  --update-input xcross-linux-arm64
+
+nix flake check
+```
+
+Changing only one archive input creates an unsupported mixed-version flake.
+
 ### Verifying a release
 
 Every release archive is built by [`release.yml`](.github/workflows/release.yml) and signed with a [SLSA build provenance attestation](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations) that binds the archive's digest to the commit it was built from. The release job refuses to publish an artifact whose provenance does not match, so a bundle produced outside this repository can never reach the release page.
