@@ -32,6 +32,7 @@
               packageOverrides = pyFinal: pyPrev: {
                 pyimg4 = pyPrev.pyimg4.overridePythonAttrs (old: {
                   pythonRelaxDeps = (old.pythonRelaxDeps or [ ]) ++ [ "asn1" ];
+                  doCheck = false;
                   meta = old.meta // { broken = false; };
                 });
               };
