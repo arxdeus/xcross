@@ -125,10 +125,19 @@ xcross --version
 xcross sdk install ~/Downloads/Xcode.xip
 ```
 
-The shell includes Flutter, Swift, LLVM/`ld64.lld`, `pymobiledevice3`, USB
-device tools, and the native build libraries normally installed by
-`xcross setup`. Do not run `xcross setup` inside the Nix shell; it expects a
-mutable distro package manager and `sudo`.
+The default shell is for application developers. It includes Flutter, Swift,
+LLVM/`ld64.lld`, `pymobiledevice3`, USB device tools, and the native build
+libraries normally installed by `xcross setup`. Do not run `xcross setup`
+inside the Nix shell; it expects a mutable distro package manager and `sudo`.
+
+Contributors working on xcross itself can additionally enter the repository
+tooling shell:
+
+```sh
+nix develop .#contributor
+```
+
+That shell adds Dart and the build/test utilities used by this workspace.
 
 The x64 and ARM64 release archives are separate locked inputs and must always
 use the same tag. To select another release, update both URLs in `flake.nix`,

@@ -57,22 +57,20 @@
               platforms = systems;
             };
           };
-          toolPackages = with pkgs; [
+          userPackages = with pkgs; [
             xcross
-            dart
             flutter
             swift
             llvmPackages.clang
             llvmPackages.llvm
             llvmPackages.lld
-            python3
-            python3Packages.pymobiledevice3
+            python313
+            python313Packages.pymobiledevice3
             usbmuxd
             libimobiledevice
             usbutils
             pkg-config
             zlib
-            python3Packages.setuptools
             gcc
             libxml2
             ncurses
@@ -81,15 +79,17 @@
             glibc
             curl
             openssl
+          ];
+          contributorPackages = userPackages ++ (with pkgs; [
+            dart
             cmake
             ninja
             git
             unzip
             xz
-          ];
-          toolPath = pkgs.lib.makeBinPath toolPackages;
+          ]);
           smokeCheck = pkgs.runCommand "xcross-smoke-check" {
-            nativeBuildInputs = toolPackages;
+            nativeBuildInputs = userPackages;
           } ''
             test -x ${xcross}/bin/xcross
             test -x ${xcross}/bin/xcrun
@@ -102,7 +102,7 @@
             touch "$out"
           '';
         in {
-          inherit pkgs xcross toolPackages toolPath smokeCheck;
+          inherit pkgs xcross userPackages contributorPackages smokeCheck;
         };
     in {
       packages = forAllSystems (system:
@@ -129,7 +129,11 @@
         let output = outputsFor system;
         in {
           default = output.pkgs.mkShell {
-            packages = output.toolPackages;
+            packages = output.userPackages;
+            FLUTTER_ROOT = "${output.pkgs.flutter}";
+          };
+          contributor = output.pkgs.mkShell {
+            packages = output.contributorPackages;
             FLUTTER_ROOT = "${output.pkgs.flutter}";
           };
         });

@@ -54,8 +54,7 @@ jobs:
         if: hashFiles('flake.lock') == ''
         run: nix flake lock
 
-      - name: Upload generated lock file
-        if: hashFiles('flake.lock') == ''
+      - name: Upload lock file
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: flake-lock-${{ matrix.system }}
@@ -82,7 +81,7 @@ jobs:
 
       - name: Verify Dart workspace
         run: |
-          nix develop --command bash -euo pipefail -c '
+          nix develop .#contributor --command bash -euo pipefail -c '
             dart pub get
             dart analyze
             dart test packages/xcross
