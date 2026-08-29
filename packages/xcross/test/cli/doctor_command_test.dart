@@ -1,0 +1,204 @@
+import 'dart:io';
+
+import 'package:args/command_runner.dart';
+import 'package:cli_util/cli_logging.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:test/test.dart';
+import 'package:xcross/src/cli/basic/doctor_command.dart';
+import 'package:xcross/src/cli/runner.dart';
+import 'package:xcross/src/errors.dart';
+
+void main() {
+  test('doctor is registered by the top-level runner', () {
+    expect(XcrossCli.buildRunner().commands.keys, contains('doctor'));
+  });
+
+  test('colors status markers like Flutter doctor', () {
+    expect(
+      DoctorCommand.formatCheck(
+        const DoctorCheck.success('SDK', 'ready'),
+        ansi: Ansi(true),
+      ),
+      '\u001b[32m[✓]\u001b[0m SDK: ready',
+    );
+    expect(
+      DoctorCommand.formatCheck(
+        const DoctorCheck.warning('Project', 'missing'),
+        ansi: Ansi(true),
+      ),
+      '\u001b[33m[!]\u001b[0m Project: missing',
+    );
+    expect(
+      DoctorCommand.formatCheck(
+        const DoctorCheck.failure('Swift', 'missing'),
+        ansi: Ansi(true),
+      ),
+      '\u001b[31m[✗]\u001b[0m Swift: missing',
+    );
+  });
+
+  test('prints a path dimmed below its status line', () {
+    expect(
+      DoctorCommand.formatCheck(
+        const DoctorCheck.success('Flutter SDK', 'Found', path: '/opt/flutter'),
+        ansi: Ansi(true),
+        dim: (value) => '<dim>$value</dim>',
+      ),
+      '\u001b[32m[✓]\u001b[0m Flutter SDK: Found\n'
+      '    <dim>/opt/flutter</dim>',
+    );
+  });
+
+  test('prints a path plainly below its status when ANSI is unavailable', () {
+    expect(
+      DoctorCommand.formatCheck(
+        const DoctorCheck.success('Flutter SDK', 'Found', path: '/opt/flutter'),
+        ansi: Ansi(false),
+        dim: (value) => value,
+      ),
+      '[✓] Flutter SDK: Found\n    /opt/flutter',
+    );
+  });
+
+  test('keeps status markers plain when ANSI is unavailable', () {
+    expect(
+      DoctorCommand.formatCheck(
+        const DoctorCheck.failure('Swift', 'missing'),
+        ansi: Ansi(false),
+      ),
+      '[✗] Swift: missing',
+    );
+  });
+
+  test('warnings do not fail doctor', () async {
+    final lines = <String>[];
+    final command = DoctorCommand.withSeams(
+      examine: () async => const [
+        DoctorCheck.warning('Project', 'No Flutter or Compose project found.'),
+      ],
+      writeLine: lines.add,
+    );
+    final runner = CommandRunner<void>('xcross', 'test')..addCommand(command);
+
+    await runner.run(['doctor']);
+
+    expect(lines, [
+      '[!] Project: No Flutter or Compose project found.',
+      'Doctor found 1 warning.',
+    ]);
+  });
+
+  test('failures are all reported and fail doctor', () async {
+    final lines = <String>[];
+    final command = DoctorCommand.withSeams(
+      examine: () async => const [
+        DoctorCheck.failure('Swift', 'swift was not found on PATH.'),
+        DoctorCheck.success('SDK', 'Darwin SDK is installed.'),
+        DoctorCheck.failure('Device tools', 'pymobiledevice3 was not found.'),
+      ],
+      writeLine: lines.add,
+    );
+    final runner = CommandRunner<void>('xcross', 'test')..addCommand(command);
+
+    await expectLater(
+      runner.run(['doctor']),
+      throwsA(
+        isA<XcrossError>().having(
+          (error) => error.message,
+          'message',
+          'Doctor found 2 failures.',
+        ),
+      ),
+    );
+    expect(lines, [
+      '[✗] Swift: swift was not found on PATH.',
+      '[✓] SDK: Darwin SDK is installed.',
+      '[✗] Device tools: pymobiledevice3 was not found.',
+    ]);
+  });
+
+  test('missing project is a warning', () async {
+    final examiner = DoctorExaminer.withSeams(
+      hostChecks: () async => const [],
+      detectProject: () async => null,
+      projectChecks: (_) => throw StateError('project checks must not run'),
+      runChecks: () async => const [],
+    );
+
+    final results = await examiner.examine();
+
+    expect(results.single.status, DoctorStatus.warning);
+    expect(results.single.name, 'Project');
+  });
+
+  test('detects Flutter and Compose projects from the current directory', () {
+    final flutter = Directory.systemTemp.createTempSync('doctor_flutter');
+    final compose = Directory.systemTemp.createTempSync('doctor_compose');
+    addTearDown(() {
+      flutter.deleteSync(recursive: true);
+      compose.deleteSync(recursive: true);
+    });
+    File('${flutter.path}/pubspec.yaml').writeAsStringSync('name: demo');
+    File('${compose.path}/settings.gradle.kts').writeAsStringSync('');
+
+    expect(
+      DoctorExaminer.detectProjectAt(flutter.path),
+      isA<DoctorProject>().having(
+        (project) => project.kind,
+        'kind',
+        DoctorProjectKind.flutter,
+      ),
+    );
+    expect(
+      DoctorExaminer.detectProjectAt(compose.path),
+      isA<DoctorProject>().having(
+        (project) => project.kind,
+        'kind',
+        DoctorProjectKind.compose,
+      ),
+    );
+  });
+
+  test('device checks reject connected devices older than iOS 17', () async {
+    final checks = await DoctorExaminer.deviceChecks(const [
+      Device(name: 'Old iPhone', udid: 'old', type: ConnectionType.usb),
+      Device(name: 'New iPhone', udid: 'new', type: ConnectionType.usb),
+    ], osMajorVersion: (device) async => device.udid == 'old' ? 16 : 17);
+
+    expect(checks.map((check) => check.status), [
+      DoctorStatus.failure,
+      DoctorStatus.success,
+    ]);
+  });
+
+  test(
+    'default examiner validates a detected project without building it',
+    () async {
+      final calls = <String>[];
+      final examiner = DoctorExaminer.withSeams(
+        hostChecks: () async {
+          calls.add('host');
+          return const [DoctorCheck.success('Host', 'ready')];
+        },
+        detectProject: () async => const DoctorProject.flutter('/project'),
+        projectChecks: (project) async {
+          calls.add('project:${project.root}');
+          return const [DoctorCheck.success('Flutter project', 'ready')];
+        },
+        runChecks: () async {
+          calls.add('run');
+          return const [DoctorCheck.warning('Device', 'not connected')];
+        },
+      );
+
+      final results = await examiner.examine();
+
+      expect(calls, ['host', 'project:/project', 'run']);
+      expect(results.map((result) => result.name), [
+        'Host',
+        'Flutter project',
+        'Device',
+      ]);
+    },
+  );
+}
