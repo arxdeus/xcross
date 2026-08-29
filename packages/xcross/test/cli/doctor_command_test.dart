@@ -5,6 +5,7 @@ import 'package:cli_util/cli_logging.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/cli/basic/doctor_command.dart';
+import 'package:xcross/src/cli/basic/doctor_environment_checks.dart';
 import 'package:xcross/src/cli/runner.dart';
 import 'package:xcross/src/errors.dart';
 
@@ -157,6 +158,42 @@ void main() {
         DoctorProjectKind.compose,
       ),
     );
+  });
+
+  test('Windows host checks resolve PATHEXT executable names', () async {
+    final requested = <String>[];
+    final checks = await DoctorEnvironmentChecks.hostWithSeams(
+      operatingSystem: 'windows',
+      windows: true,
+      locateTool: (name, {windows, accept, extraDirectories = const []}) async {
+        requested.add(name);
+        return 'C:\\Tools\\$name.exe';
+      },
+      darwinSdk: () async => const DoctorCheck.success(
+        'Darwin SDK',
+        'Installed',
+        path: r'C:\xcross\sdk',
+      ),
+    );
+
+    expect(requested, ['swift', 'clang', 'clang++', 'llvm-ar', 'ld64.lld']);
+    expect(checks.first.status, DoctorStatus.success);
+    expect(checks.where((check) => check.path != null), hasLength(6));
+  });
+
+  test('Windows Flutter checks require the Flutter launcher', () async {
+    final checks = await DoctorEnvironmentChecks.flutterToolWithSeams(
+      windows: true,
+      locateTool: (name, {windows, accept, extraDirectories = const []}) async {
+        expect(name, 'flutter');
+        expect(windows, isTrue);
+        return r'C:\flutter\bin\flutter.bat';
+      },
+    );
+
+    expect(checks, isA<DoctorCheck>());
+    expect(checks.status, DoctorStatus.success);
+    expect(checks.path, r'C:\flutter\bin\flutter.bat');
   });
 
   test('device checks reject connected devices older than iOS 17', () async {

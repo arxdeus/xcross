@@ -266,6 +266,17 @@ jobs:
             "$env:RUNNER_TEMP\xcross-bundle"
           & "$env:RUNNER_TEMP\xcross-bundle\bin\xcross.exe" setup
 
+      - name: Test doctor on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location packages/xcross
+          dart test test/cli/doctor_command_test.dart
+          Pop-Location
+          & "$env:RUNNER_TEMP\xcross-bundle\bin\xcross.exe" doctor --help
+          if ($LASTEXITCODE -ne 0) { throw 'doctor help failed' }
+
       - name: Restore cached Darwin SDK
         uses: ./.github/actions/setup-darwin-sdk
 

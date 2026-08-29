@@ -7,6 +7,15 @@ import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:xcross/src/cli/basic/doctor_models.dart';
 import 'package:xcross/src/cli/basic/sdk_install.dart';
 
+typedef DoctorLocateTool =
+    Future<String?> Function(
+      String name, {
+      bool? windows,
+      bool Function(String path)? accept,
+      Iterable<String> extraDirectories,
+    });
+typedef DoctorSingleCheck = Future<DoctorCheck> Function();
+
 abstract final class DoctorEnvironmentChecks {
   static const _requiredTools = [
     'swift',
@@ -16,29 +25,48 @@ abstract final class DoctorEnvironmentChecks {
     'ld64.lld',
   ];
 
-  static Future<List<DoctorCheck>> host() async {
-    final checks = <DoctorCheck>[_hostPlatform()];
+  static Future<List<DoctorCheck>> host() => hostWithSeams(
+    operatingSystem: Platform.operatingSystem,
+    windows: Platform.isWindows,
+    locateTool: ProcessRunner.which,
+    darwinSdk: _darwinSdk,
+  );
+
+  static Future<List<DoctorCheck>> hostWithSeams({
+    required String operatingSystem,
+    required bool windows,
+    required DoctorLocateTool locateTool,
+    required DoctorSingleCheck darwinSdk,
+  }) async {
+    final checks = <DoctorCheck>[_hostPlatform(operatingSystem)];
     for (final tool in _requiredTools) {
-      checks.add(await _tool(tool));
+      checks.add(await _tool(tool, windows: windows, locateTool: locateTool));
     }
-    checks.add(await _darwinSdk());
+    checks.add(await darwinSdk());
     return checks;
   }
 
-  static DoctorCheck _hostPlatform() {
-    final supported =
-        Platform.isLinux || Platform.isMacOS || Platform.isWindows;
+  static DoctorCheck _hostPlatform(String operatingSystem) {
+    final supported = const {
+      'linux',
+      'macos',
+      'windows',
+    }.contains(operatingSystem);
     final message =
-        '${Platform.operatingSystem} is '
-        '${supported ? 'supported' : 'not supported'}.';
+        '$operatingSystem is ${supported ? 'supported' : 'not supported'}.';
     return supported
         ? DoctorCheck.success('Host', message)
         : DoctorCheck.failure('Host', message);
   }
 
-  static Future<DoctorCheck> _tool(String name) async {
-    final path = await ProcessRunner.which(
+  static Future<DoctorCheck> _tool(
+    String name, {
+    required bool windows,
+    required DoctorLocateTool locateTool,
+  }) async {
+    final path = await locateTool(
       name,
+      windows: windows,
       accept: name == 'ld64.lld' ? DarwinSdk.usableLd64Lld : null,
       extraDirectories: DarwinSdk.llvmToolDirs(),
     );
@@ -48,6 +76,26 @@ abstract final class DoctorEnvironmentChecks {
             'Not found. Run `xcross setup` after installing Swift.',
           )
         : DoctorCheck.success(name, 'Found', path: path);
+  }
+
+  static Future<DoctorCheck> flutterTool() =>
+      flutterToolWithSeams(windows: Platform.isWindows);
+
+  static Future<DoctorCheck> flutterToolWithSeams({
+    required bool windows,
+    DoctorLocateTool locateTool = ProcessRunner.which,
+  }) async {
+    final path = await locateTool(
+      'flutter',
+      windows: windows,
+      extraDirectories: const [],
+    );
+    return path == null
+        ? const DoctorCheck.failure(
+            'Flutter SDK',
+            'Flutter was not found on PATH.',
+          )
+        : DoctorCheck.success('Flutter SDK', 'Found', path: path);
   }
 
   static Future<DoctorCheck> _darwinSdk() async {
