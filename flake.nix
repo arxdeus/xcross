@@ -111,8 +111,8 @@
             test -x ${xcross}/bin/xcrun
             test -d ${xcross}/lib
             ${xcross}/bin/xcross --help >/dev/null
-            ${xcross}/bin/xcross --version | grep -F ${version} >/dev/null
-            for tool in xcross xcrun dart flutter swift swiftc clang clang++ llvm-ar ld64.lld python3 pymobiledevice3 usbmuxd idevice_id pkg-config gpg; do
+            test "$(${xcross}/bin/xcross --version)" = "xcross ${version}"
+            for tool in xcross xcrun flutter swift swiftc clang clang++ llvm-ar ld64.lld python3 pymobiledevice3 usbmuxd idevice_id pkg-config gpg; do
               command -v "$tool" >/dev/null
             done
             touch "$out"
