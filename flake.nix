@@ -49,10 +49,10 @@
             inherit version;
             src = releaseFor system;
 
-            nativeBuildInputs = [ pkgs.autoPatchelfHook ];
-            buildInputs = [ pkgs.stdenv.cc.cc.lib ];
+            nativeBuildInputs = [ pkgs.patchelf pkgs.python3 ];
 
             dontBuild = true;
+            dontPatchELF = true;
             dontStrip = true;
 
             installPhase = ''
@@ -63,6 +63,41 @@
               install -m 0644 ${./LICENSE} "$out/share/licenses/xcross/LICENSE"
               install -m 0644 ${./packages/apple_developer_kit/ADI_LICENSE} \
                 "$out/share/licenses/xcross/provision-dart.txt"
+
+              for executable in xcross xcrun; do
+                python3 - "$out/bin/$executable" "$TMPDIR/$executable.snapshot" <<'PY'
+import pathlib
+import struct
+import sys
+
+binary = pathlib.Path(sys.argv[1])
+snapshot = pathlib.Path(sys.argv[2])
+data = binary.read_bytes()
+offset = struct.unpack_from("<Q", data, len(data) - 16)[0]
+if offset <= 0 or offset >= len(data) - 16:
+    raise ValueError(f"invalid Dart snapshot offset: {offset}")
+snapshot.write_bytes(data[offset:])
+binary.write_bytes(data[:offset])
+PY
+                patchelf \
+                  --set-interpreter "$(cat "$NIX_CC/nix-support/dynamic-linker")" \
+                  --set-rpath '$ORIGIN/../lib:${pkgs.lib.getLib pkgs.stdenv.cc.cc}/lib' \
+                  "$out/bin/$executable"
+                python3 - "$out/bin/$executable" "$TMPDIR/$executable.snapshot" <<'PY'
+import pathlib
+import struct
+import sys
+
+binary = pathlib.Path(sys.argv[1])
+snapshot = pathlib.Path(sys.argv[2]).read_bytes()
+runtime = binary.read_bytes()
+offset = (len(runtime) + 65535) & ~65535
+combined = runtime + bytes(offset - len(runtime)) + snapshot
+combined = combined[:-16] + struct.pack("<Q", offset) + combined[-8:]
+binary.write_bytes(combined)
+PY
+              done
+              patchelf --set-rpath '$ORIGIN' "$out/lib/libsysv_abi_bridge.so"
               runHook postInstall
             '';
 
@@ -113,6 +148,7 @@
             test -d ${xcross}/lib
             ${xcross}/bin/xcross --help | grep -F "Usage: xcross" >/dev/null
             ${xcross}/bin/xcross --version | grep -F "xcross ${version}" >/dev/null
+            ${xcross}/bin/xcrun 2>&1 | grep -F "xcrun: no Darwin SDK installed" >/dev/null
             touch "$out"
           '';
         in {
