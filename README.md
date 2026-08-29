@@ -223,15 +223,18 @@ xcross setup
 xcross sdk install ~/Downloads/Xcode.xip
 xcross auth --apple-id you@example.com
 
-# 2. Once per device reconnect: mount DDI + start the RSD tunnel
+# 2. Check build and run requirements without changing anything
+cd my_flutter_app
+xcross doctor
+
+# 3. Once per device reconnect: mount DDI + start the RSD tunnel
 #    (Administrator PowerShell on Windows; root on Linux)
 xcross tunnel
 
-# 3. Build, sign, install, launch, hot-reload
-cd my_flutter_app
+# 4. Build, sign, install, launch, hot-reload
 xcross flutter run
 
-# 4. Optional: wire up your IDE
+# 5. Optional: wire up your IDE
 xcross ide vscode      # or: xcross ide idea
 ```
 
@@ -244,6 +247,8 @@ While the app is running:
 | `q` / `Ctrl-C` / `Ctrl-D` | Quit |
 
 With multiple iPhones connected, an interactive terminal shows a numbered device picker; pass `-u <UDID>` for CI or piped runs.
+
+`xcross doctor` is read-only: it checks Linux or Windows host tools, the Darwin SDK, the current Flutter or Compose project, authentication, device tooling, and connected iOS versions without building, installing, or launching. Missing project or device context is a warning; failed requirements return a nonzero exit code.
 
 ## Run over Wi-Fi
 
@@ -286,6 +291,7 @@ See the full [Wi-Fi setup and troubleshooting guide](https://xcross.sh/docs/wire
 | `xcross sdk install <Xcode.xip>` | Extract a private Darwin Swift SDK from an Xcode archive, patched against the Swift toolchain currently on `PATH` |
 | `xcross auth` | Save Apple ID or App Store Connect credentials |
 | `xcross auth clear` | Delete saved credentials, sessions, and signing material |
+| `xcross doctor` | Read-only check of host, SDK, project, authentication, and device requirements for build and run |
 | `xcross tunnel` | Mount the Developer Disk Image + start the iOS 17+ RSD tunnel over USB |
 | `xcross tunnel --wifi` | Prepare wireless pairing, reconnect or advertise pair-host, mount DDI, and open the Wi-Fi RSD tunnel |
 | `xcross flutter run` | Build → sign → install → launch → hot reload |
