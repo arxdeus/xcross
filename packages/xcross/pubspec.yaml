@@ -2,7 +2,7 @@ name: xcross
 description: >-
   Build, run, and hot-reload Flutter iOS apps natively from Linux and Windows
   with official Swift and LLVM toolchains and no xtool runtime.
-version: 1.3.2
+version: 1.3.3
 repository: https://github.com/arxdeus/xcross
 homepage: https://github.com/arxdeus/xcross
 topics:

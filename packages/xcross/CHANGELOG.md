@@ -1,3 +1,7 @@
+## 1.3.3
+
+- Add `xcross doctor` with cross-platform checks and remediation guidance for required and optional tooling.
+
 ## 1.3.2
 
 - Stabilize Flutter iOS builds on Windows with native-asset tool shims, `xcrun` compatibility, shorter SwiftPM workspaces, reusable staged builds, and resilient transitive binary-artifact recovery.

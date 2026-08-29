@@ -11,6 +11,7 @@ import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/cli/basic/auth_command.dart';
 import 'package:xcross/src/cli/basic/completion_command.dart';
+import 'package:xcross/src/cli/basic/doctor_command.dart';
 import 'package:xcross/src/cli/basic/sdk_command.dart';
 import 'package:xcross/src/cli/basic/setup_command.dart';
 import 'package:xcross/src/cli/basic/tunnel_command.dart';
@@ -154,6 +155,7 @@ abstract final class XcrossCli {
         ..addCommand(FlutterCommand())
         ..addCommand(ComposeCommand())
         ..addCommand(TunnelCommand())
+        ..addCommand(DoctorCommand())
         ..addCommand(SetupCommand())
         ..addCommand(AuthCommand())
         ..addCommand(SdkCommand())
