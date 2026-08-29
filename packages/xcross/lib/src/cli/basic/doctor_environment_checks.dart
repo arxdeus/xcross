@@ -1,0 +1,185 @@
+import 'dart:io';
+
+import 'package:apple_developer_kit/apple_developer_kit.dart';
+import 'package:cli_kit/cli_kit.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:xcross/src/cli/basic/doctor_models.dart';
+import 'package:xcross/src/cli/basic/sdk_install.dart';
+
+abstract final class DoctorEnvironmentChecks {
+  static const _requiredTools = [
+    'swift',
+    'clang',
+    'clang++',
+    'llvm-ar',
+    'ld64.lld',
+  ];
+
+  static Future<List<DoctorCheck>> host() async {
+    final checks = <DoctorCheck>[_hostPlatform()];
+    for (final tool in _requiredTools) {
+      checks.add(await _tool(tool));
+    }
+    checks.add(await _darwinSdk());
+    return checks;
+  }
+
+  static DoctorCheck _hostPlatform() {
+    final supported =
+        Platform.isLinux || Platform.isMacOS || Platform.isWindows;
+    final message =
+        '${Platform.operatingSystem} is '
+        '${supported ? 'supported' : 'not supported'}.';
+    return supported
+        ? DoctorCheck.success('Host', message)
+        : DoctorCheck.failure('Host', message);
+  }
+
+  static Future<DoctorCheck> _tool(String name) async {
+    final path = await ProcessRunner.which(
+      name,
+      accept: name == 'ld64.lld' ? DarwinSdk.usableLd64Lld : null,
+      extraDirectories: DarwinSdk.llvmToolDirs(),
+    );
+    return path == null
+        ? DoctorCheck.failure(
+            name,
+            'Not found. Run `xcross setup` after installing Swift.',
+          )
+        : DoctorCheck.success(name, 'Found', path: path);
+  }
+
+  static Future<DoctorCheck> _darwinSdk() async {
+    final path = DarwinSdk.nativeInstallDir();
+    if (!DarwinSdk.isValidBundle(path)) {
+      return const DoctorCheck.failure(
+        'Darwin SDK',
+        'Missing or incomplete. Run `xcross sdk install <Xcode.xip>`.',
+      );
+    }
+    final mismatch = await SdkInstall.hostToolchainMismatch(path);
+    return mismatch == null
+        ? DoctorCheck.success('Darwin SDK', 'Installed', path: path)
+        : DoctorCheck.failure(
+            'Darwin SDK',
+            '$mismatch Reinstall it with `xcross sdk install <Xcode.xip>`.',
+          );
+  }
+
+  static Future<List<DoctorCheck>> run() async {
+    final deviceTools = await _deviceTools();
+    if (deviceTools.status == DoctorStatus.failure) return [deviceTools];
+
+    final checks = <DoctorCheck>[deviceTools, await _authentication()];
+    try {
+      checks.addAll(await devices(await PymdDevices.devices()));
+    } on Object catch (error) {
+      checks.add(DoctorCheck.warning('Device', 'Discovery failed: $error'));
+    }
+    return checks;
+  }
+
+  static Future<DoctorCheck> _deviceTools() async {
+    try {
+      final invocation = await Pymd.resolve();
+      return DoctorCheck.success(
+        'Device tools',
+        'Found',
+        path: invocation.executable,
+      );
+    } on Object catch (error) {
+      return DoctorCheck.failure('Device tools', '$error');
+    }
+  }
+
+  static Future<List<DoctorCheck>> devices(
+    List<Device> found, {
+    Future<int?> Function(Device device)? osMajorVersion,
+  }) async {
+    if (found.isEmpty) {
+      return const [
+        DoctorCheck.warning('Device', 'No connected iOS device found.'),
+      ];
+    }
+    final resolveVersion = osMajorVersion ?? _deviceOsMajorVersion;
+    final checks = <DoctorCheck>[];
+    for (final device in found) {
+      checks.add(_deviceCheck(device, await resolveVersion(device)));
+    }
+    return checks;
+  }
+
+  static Future<int?> _deviceOsMajorVersion(Device device) =>
+      OsVersion.deviceOSMajorVersion(
+        device.udid,
+        overTunnel: device.source == DeviceSource.tunneld,
+      );
+
+  static DoctorCheck _deviceCheck(Device device, int? osMajor) {
+    final label = '${device.name} (${device.udid})';
+    if (osMajor == null) {
+      return DoctorCheck.warning(
+        'Device',
+        '$label: could not read the iOS version.',
+      );
+    }
+    if (osMajor < 17) {
+      return DoctorCheck.failure(
+        'Device',
+        '$label runs iOS $osMajor; iOS 17 or later is required.',
+      );
+    }
+    return DoctorCheck.success('Device', '$label runs iOS $osMajor.');
+  }
+
+  static Future<DoctorCheck> _authentication() async {
+    final appleId = await _appleIdAuthentication();
+    if (appleId != null) return appleId;
+    return _appStoreConnectAuthentication();
+  }
+
+  static Future<DoctorCheck?> _appleIdAuthentication() async {
+    try {
+      final session = await GrandSlamSessionStore().load();
+      if (session == null || session.isExpired) return null;
+      return const DoctorCheck.success(
+        'Authentication',
+        'Apple ID session is available.',
+      );
+    } on Object catch (error) {
+      return DoctorCheck.failure(
+        'Authentication',
+        'Apple ID session is unusable: $error',
+      );
+    }
+  }
+
+  static Future<DoctorCheck> _appStoreConnectAuthentication() async {
+    final path = AscCredentials.defaultConfigPath();
+    if (!File(path).existsSync()) {
+      return const DoctorCheck.failure(
+        'Authentication',
+        'No credentials found. Run `xcross auth`.',
+      );
+    }
+    try {
+      final credentials = await AscCredentials.fromFile(path);
+      final client = AscClient(credentials);
+      try {
+        await client.listDevices();
+      } finally {
+        client.close();
+      }
+      return const DoctorCheck.success(
+        'Authentication',
+        'App Store Connect credentials are valid.',
+      );
+    } on Object catch (error) {
+      return DoctorCheck.failure(
+        'Authentication',
+        'App Store Connect credentials are unusable: $error',
+      );
+    }
+  }
+}
