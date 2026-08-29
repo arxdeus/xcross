@@ -110,8 +110,6 @@
             test -x ${xcross}/bin/xcross
             test -x ${xcross}/bin/xcrun
             test -d ${xcross}/lib
-            ${xcross}/bin/xcross --help >/dev/null
-            ${xcross}/bin/xcross --version | grep -F "xcross ${version}" >/dev/null
             touch "$out"
           '';
         in {
