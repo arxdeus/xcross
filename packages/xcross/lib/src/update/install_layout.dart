@@ -54,10 +54,10 @@ final class InstallLayout {
     // Merely existing is not enough: `dart compile exe -o packages/xcross/bin/`
     // in a source checkout also produces a sibling `lib/`, and that one holds
     // the package's Dart sources.
-    if (!_holdsNativeLibraries(libDir)) {
+    if (!_isNativeLibraryDirectory(libDir)) {
       throw XcrossError(
-        'unrecognised xcross installation: expected native libraries in '
-        '$libDir (next to $binDir).\n'
+        'unrecognised xcross installation: expected a native library directory '
+        'at $libDir (next to $binDir).\n'
         'Reinstall with install.sh or install.ps1, then retry.',
       );
     }
@@ -65,15 +65,31 @@ final class InstallLayout {
     return InstallLayout(binaryPath: resolved, binDir: binDir, libDir: libDir);
   }
 
-  static bool _holdsNativeLibraries(String libDir) {
+  static bool _isNativeLibraryDirectory(String libDir) {
     try {
-      return Directory(libDir).listSync().whereType<File>().any(
-        (f) => _nativeLibrary.hasMatch(p.basename(f.path)),
-      );
+      final files = Directory(libDir).listSync().whereType<File>().toList();
+      return files.isEmpty || files.any(_isNativeLibrary);
     } on FileSystemException {
       return false;
     }
   }
+
+  /// Whether at least one native asset remains installed.
+  ///
+  /// An empty library directory is still a recognised installation so
+  /// `xcross update` can repair it by downloading the release again.
+  bool get hasNativeLibraries {
+    try {
+      return Directory(
+        libDir,
+      ).listSync().whereType<File>().any(_isNativeLibrary);
+    } on FileSystemException {
+      return false;
+    }
+  }
+
+  static bool _isNativeLibrary(File file) =>
+      _nativeLibrary.hasMatch(p.basename(file.path));
 
   static final _nativeLibrary = RegExp(r'\.(?:so|dll|dylib)(?:\.[0-9.]+)?$');
 

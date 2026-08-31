@@ -77,6 +77,22 @@ void main() {
     expect(swap.entries, isEmpty);
   });
 
+  test('rollback keeps the replacement when its backup is missing', () async {
+    File(target('xcross')).writeAsStringSync('old');
+    stagedFile('xcross', 'new');
+
+    final swap = FileSwap(useSudo: false);
+    await swap.replace(
+      source: p.join(staged.path, 'xcross'),
+      target: target('xcross'),
+    );
+    File(swap.entries.single.backup!).deleteSync();
+
+    await swap.rollback();
+
+    expect(File(target('xcross')).readAsStringSync(), 'new');
+  });
+
   test('a successful swap leaves only the installed files behind', () async {
     File(target('xcross')).writeAsStringSync('old');
     stagedFile('xcross', 'new');
