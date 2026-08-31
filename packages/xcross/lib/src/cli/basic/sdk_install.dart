@@ -432,6 +432,7 @@ abstract final class SdkInstall {
       metadata[relative.replaceAll(r'\', '/')] = {
         'size': stat.size,
         'modified': stat.modified.microsecondsSinceEpoch,
+        'changed': stat.changed.microsecondsSinceEpoch,
         'digest': sha256.convert(file.readAsBytesSync()).toString(),
       };
     }
@@ -472,6 +473,7 @@ abstract final class SdkInstall {
       'path': file.path,
       'size': stat.size,
       'modified': stat.modified.microsecondsSinceEpoch,
+      'changed': stat.changed.microsecondsSinceEpoch,
       'digest': sha256.convert(file.readAsBytesSync()).toString(),
     });
   }

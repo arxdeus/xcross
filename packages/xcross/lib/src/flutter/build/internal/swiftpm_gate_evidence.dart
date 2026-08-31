@@ -196,7 +196,7 @@ Future<Map<String, Object?>?> _defaultRuntimeBinding({
   final sdk = _decodedMap(sdkIdentity);
   if (toolchain == null || sdk == null) return null;
   if (!await validSwiftPmGateToolchainIdentity(toolchain) ||
-      !await _validSdkIdentity(sdk)) {
+      !await validSwiftPmGateSdkIdentity(sdk)) {
     return null;
   }
   await Directory(root).create(recursive: true);
@@ -244,6 +244,7 @@ Future<bool> validSwiftPmGateToolchainIdentity(
         executable['path'] is! String ||
         executable['size'] is! int ||
         executable['modified'] is! int ||
+        executable['changed'] is! int ||
         executable['digest'] is! String ||
         (versionedTools.contains(name) && executable['version'] is! String)) {
       return false;
@@ -255,15 +256,14 @@ Future<bool> validSwiftPmGateToolchainIdentity(
     if (p.normalize(resolved) != p.normalize(executable['path'] as String) ||
         stat.size != executable['size'] ||
         stat.modified.microsecondsSinceEpoch != executable['modified'] ||
-        sha256.convert(File(resolved).readAsBytesSync()).toString() !=
-            executable['digest']) {
+        stat.changed.microsecondsSinceEpoch != executable['changed']) {
       return false;
     }
   }
   return true;
 }
 
-Future<bool> _validSdkIdentity(Map<String, Object?> identity) async {
+Future<bool> validSwiftPmGateSdkIdentity(Map<String, Object?> identity) async {
   if (identity['path'] is! String || identity['metadata'] is! Map) return false;
   final root = identity['path']! as String;
   if (!DarwinSdk.isValidBundle(root)) return false;
@@ -274,6 +274,7 @@ Future<bool> _validSdkIdentity(Map<String, Object?> identity) async {
     final expected = entry.value as Map;
     if (expected['size'] is! int ||
         expected['modified'] is! int ||
+        expected['changed'] is! int ||
         expected['digest'] is! String) {
       return false;
     }
@@ -282,8 +283,7 @@ Future<bool> _validSdkIdentity(Map<String, Object?> identity) async {
     final stat = file.statSync();
     if (stat.size != expected['size'] ||
         stat.modified.microsecondsSinceEpoch != expected['modified'] ||
-        sha256.convert(file.readAsBytesSync()).toString() !=
-            expected['digest']) {
+        stat.changed.microsecondsSinceEpoch != expected['changed']) {
       return false;
     }
   }
@@ -324,7 +324,6 @@ Future<bool> _isJunction(String path) async {
   ], timeout: const Duration(seconds: 5));
   return result.exitCode == 0 &&
       RegExp('0xa0000003', caseSensitive: false).hasMatch('${result.stdout}');
-
 }
 
 Future<bool> probeSwiftPmGate({
