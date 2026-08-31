@@ -1,3 +1,8 @@
+## 1.3.6
+
+- Repair Kotlin native-asset builds on Linux, including Objective-C small-stub arguments and Mach-O fast-stub rewriting.
+- Strengthen release update verification, rollback, and recovery of missing native libraries.
+
 ## 1.3.5
 
 - Normalize native asset framework install names and Mach-O dylib references for correct runtime loading.
