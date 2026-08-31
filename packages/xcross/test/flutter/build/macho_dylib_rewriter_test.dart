@@ -47,6 +47,45 @@ void main() {
     ]);
   });
 
+  test('preserves an existing relocatable dylib ID', () {
+    final bytes = _macho([(_idDylib, '@rpath/libsqlite3.dylib')]);
+
+    expect(
+      MachODylibRewriter.rewriteBytes(
+        bytes,
+        dylibName: 'sqlite3',
+        producedDylibNames: const {},
+        installName: '@rpath/sqlite3.framework/sqlite3',
+      ),
+      isFalse,
+    );
+    expect(_dylibNames(bytes), ['@rpath/libsqlite3.dylib']);
+  });
+
+  test('rewrites framework IDs and dependencies to framework paths', () {
+    final bytes = _macho([
+      (_idDylib, '/private/tmp/libAsset.dylib'),
+      (_loadDylib, '/private/tmp/libDependency.dylib'),
+    ]);
+
+    expect(
+      MachODylibRewriter.rewriteBytes(
+        bytes,
+        dylibName: 'Asset',
+        producedDylibNames: const {},
+        installName: '@rpath/Asset.framework/Asset',
+        producedInstallNames: const {
+          'libDependency.dylib': '@rpath/Dependency.framework/Dependency',
+        },
+      ),
+      isTrue,
+    );
+    expect(_dylibNames(bytes), [
+      '@rpath/Asset.framework/Asset',
+      '@rpath/Dependency.framework/Dependency',
+    ]);
+  });
+
   test('rejects a replacement longer than the existing string', () {
     final bytes = _macho([(_idDylib, 'x')]);
 
@@ -66,8 +105,87 @@ void main() {
     );
   });
 
-  test('does not rewrite Objective-C selector references', () {
+  test('repairs a unique malformed dedicated Objective-C selref', () {
+    final fixture = _objcMacho();
+
+    expect(
+      MachODylibRewriter.rewriteBytes(
+        fixture.bytes,
+        dylibName: 'libPlugin.dylib',
+        producedDylibNames: const {},
+        repairObjCFastStubs: true,
+      ),
+      isTrue,
+    );
+    expect(
+      ByteData.sublistView(
+        fixture.bytes,
+      ).getUint64(fixture.firstSelrefOffset, Endian.little),
+      fixture.fooAddress,
+    );
+
+    final repaired = Uint8List.fromList(fixture.bytes);
+    expect(
+      MachODylibRewriter.rewriteBytes(
+        fixture.bytes,
+        dylibName: 'libPlugin.dylib',
+        producedDylibNames: const {},
+        repairObjCFastStubs: true,
+      ),
+      isFalse,
+    );
+    expect(fixture.bytes, repaired);
+  });
+
+  test('retargets a fast stub to an existing matching selref', () {
     final fixture = _objcMacho(hasMatchingSelref: true);
+    final data = ByteData.sublistView(fixture.bytes);
+    final oldAdrp = data.getUint32(fixture.stubOffset, Endian.little);
+    final oldLdr = data.getUint32(fixture.stubOffset + 4, Endian.little);
+
+    expect(
+      MachODylibRewriter.rewriteBytes(
+        fixture.bytes,
+        dylibName: 'libPlugin.dylib',
+        producedDylibNames: const {},
+        repairObjCFastStubs: true,
+      ),
+      isTrue,
+    );
+    expect((
+      data.getUint32(fixture.stubOffset, Endian.little),
+      data.getUint32(fixture.stubOffset + 4, Endian.little),
+    ), isNot((oldAdrp, oldLdr)));
+    expect(
+      data.getUint64(fixture.firstSelrefOffset, Endian.little),
+      fixture.barAddress,
+    );
+  });
+
+  test('rejects repair of a malformed selref shared by fast stubs', () {
+    final fixture = _objcMacho(sharedMalformedSelref: true);
+    final original = Uint8List.fromList(fixture.bytes);
+
+    expect(
+      () => MachODylibRewriter.rewriteBytes(
+        fixture.bytes,
+        dylibName: 'libPlugin.dylib',
+        producedDylibNames: const {},
+        repairObjCFastStubs: true,
+      ),
+      throwsA(
+        isA<FlutterBuildError>().having(
+          (error) => error.message,
+          'message',
+          contains('no safe selref repair'),
+        ),
+      ),
+    );
+    expect(fixture.bytes, original);
+  });
+
+  test('leaves Objective-C fast stubs unchanged by default', () {
+    final fixture = _objcMacho();
     final original = Uint8List.fromList(fixture.bytes);
 
     expect(
@@ -91,6 +209,7 @@ void main() {
         fixture.bytes,
         dylibName: 'libPlugin.dylib',
         producedDylibNames: const {},
+        repairObjCFastStubs: true,
       ),
       isFalse,
     );

@@ -374,12 +374,36 @@ void main() {
           installSourceRef: ({required layout, required ref}) async {},
           currentVersion: () => '1.2.0',
           currentIsReleased: () => true,
+          hasNativeLibraries: (_) => true,
         );
 
         await _run(command, ['update']);
 
         expect(latestLookups, 1);
         expect(releaseInstalls, 0);
+      },
+    );
+
+    test(
+      'reinstalls the current release when native libraries are missing',
+      () async {
+        final installed = <String>[];
+        final command = UpdateCommand.withSeams(
+          latestTagLookup: () async => '1.2.0',
+          resolveInstallLayout: () => _layout,
+          assetName: () => 'xcross-linux-x64.tar.gz',
+          installRelease: ({required layout, required tag}) async {
+            installed.add(tag);
+          },
+          installSourceRef: ({required layout, required ref}) async {},
+          currentVersion: () => '1.2.0',
+          currentIsReleased: () => true,
+          hasNativeLibraries: (_) => false,
+        );
+
+        await _run(command, ['update', '--yes']);
+
+        expect(installed, ['1.2.0']);
       },
     );
   });

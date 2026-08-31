@@ -46,6 +46,12 @@ abstract final class SelfUpdate {
   /// Name of the checksum manifest published alongside every release asset.
   static const checksumAsset = 'SHA256SUMS.txt';
 
+  /// Marks the child process used to verify a newly installed binary.
+  static const verificationEnvVar = 'XCROSS_SELF_UPDATE_VERIFY';
+
+  static bool isVerificationProcess([Map<String, String>? environment]) =>
+      (environment ?? Platform.environment).containsKey(verificationEnvVar);
+
   /// Replaces [layout] with release [tag].
   ///
   /// Downloads the asset and its checksum manifest, refuses to continue unless
@@ -59,7 +65,8 @@ abstract final class SelfUpdate {
     // segments would fetch the archive *and* its checksums from somewhere
     // else entirely, leaving verification to compare an attacker's file with
     // that same attacker's manifest.
-    if (XcrossSemver.tryParse(tag) == null) {
+    final version = XcrossSemver.tryParse(tag);
+    if (version == null) {
       throw XcrossError('refusing to install from a non-release tag: "$tag"');
     }
     final asset = assetName();
@@ -103,7 +110,7 @@ abstract final class SelfUpdate {
         bundleRoot: payload,
         layout: layout,
         label: 'xcross $tag',
-        expectedIdentity: tag,
+        expectedIdentity: version.toString(),
         expectedReleased: true,
         progress: progress,
       );
@@ -246,8 +253,11 @@ abstract final class SelfUpdate {
       );
     }
     if (expectedIdentity != null) {
+      final releasedIdentity = expectedReleased
+          ? XcrossSemver.tryParse(expectedIdentity)?.toString()
+          : null;
       final expected = expectedReleased
-          ? 'xcross $expectedIdentity'
+          ? 'xcross ${releasedIdentity ?? expectedIdentity}'
           : 'xcross $expectedIdentity (unreleased build)';
       if (!reported.contains(expected)) {
         throw XcrossError(
@@ -278,7 +288,7 @@ abstract final class SelfUpdate {
   }) => (runProcess ?? _defaultRunProcess)(
     executable: layout.binaryPath,
     arguments: const ['--version'],
-    environment: {UpdateCheck.disableEnvVar: '1'},
+    environment: {UpdateCheck.disableEnvVar: '1', verificationEnvVar: '1'},
     timeout: const Duration(seconds: 30),
   );
 

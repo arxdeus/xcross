@@ -14,6 +14,9 @@ final class SwiftPmWorkspace {
       p.join(cacheRoot, 'swiftpm', 'binary-artifacts-v1');
   String get binaryArtifactFallback => p.join(root, 'binary-artifacts');
   String get gateEvidence => p.join(cacheRoot, 'swiftpm', 'gate-evidence-v2');
+  String get gateIdentityCache => p.join(gateEvidence, 'build-identities.json');
+  String get gateCapabilityCache => p.join(gateEvidence, 'capabilities.json');
+
   String get packages => p.join(root, 'plugins');
   String get scratch => p.join(root, 'scratch');
   String get vendor => p.join(root, 'vendor');

@@ -13,5 +13,11 @@ void main() {
       '-Xswiftc',
       '-no_objc_category_merging',
     ]);
+    expect(objectiveCSmallStubSwiftDriverArguments, [
+      '-Xswiftc',
+      '-Xlinker',
+      '-Xswiftc',
+      '-objc_stubs_small',
+    ]);
   });
 }

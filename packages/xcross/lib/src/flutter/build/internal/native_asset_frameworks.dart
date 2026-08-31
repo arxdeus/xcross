@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/flutter/build/macho_dylib_rewriter.dart';
 
 const _fatMachOMagics = <int>{
   0xcafebabe, // FAT_MAGIC
@@ -28,6 +29,31 @@ Future<bool> isFatMachO(String path) async {
   final bytes = await file.openRead(0, 4).expand((chunk) => chunk).toList();
   final magic = ByteData.sublistView(Uint8List.fromList(bytes)).getUint32(0);
   return _fatMachOMagics.contains(magic);
+}
+
+Future<void> normalizeNativeAssetInstallNames(
+  Iterable<String> frameworks,
+) async {
+  final installNames = <String, String>{};
+  final binaries = <String, String>{};
+  for (final framework in frameworks) {
+    final name = p.basenameWithoutExtension(framework);
+    final binary = p.join(framework, name);
+    binaries[name] = binary;
+    final installName = '@rpath/$name.framework/$name';
+    installNames[name] = installName;
+    installNames['$name.dylib'] = installName;
+    installNames['lib$name.dylib'] = installName;
+  }
+  for (final entry in binaries.entries) {
+    await MachODylibRewriter.rewriteFile(
+      entry.value,
+      producedDylibNames: const {},
+      installName: installNames[entry.key],
+
+      producedInstallNames: installNames,
+    );
+  }
 }
 
 Future<void> thinFrameworksToArm64(

@@ -5,7 +5,7 @@ import 'dart:typed_data';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/apple/mach_o.dart';
-
+import 'package:xcross/src/flutter/build/objc_fast_stub_rewriter.dart';
 import 'package:xcross/src/flutter/errors.dart';
 
 /// Rewrites install names in 64-bit little-endian Mach-O dynamic libraries.
@@ -29,6 +29,9 @@ abstract final class MachODylibRewriter {
   static Future<void> rewriteFile(
     String path, {
     required Set<String> producedDylibNames,
+    String? installName,
+    Map<String, String> producedInstallNames = const {},
+    bool repairObjCFastStubs = false,
   }) async {
     final file = File(path);
     final bytes = await file.readAsBytes();
@@ -36,6 +39,9 @@ abstract final class MachODylibRewriter {
       bytes,
       dylibName: p.basename(path),
       producedDylibNames: producedDylibNames,
+      installName: installName,
+      producedInstallNames: producedInstallNames,
+      repairObjCFastStubs: repairObjCFastStubs,
       source: path,
     );
     if (changed) await file.writeAsBytes(bytes, flush: true);
@@ -47,6 +53,9 @@ abstract final class MachODylibRewriter {
     Uint8List bytes, {
     required String dylibName,
     required Set<String> producedDylibNames,
+    String? installName,
+    Map<String, String> producedInstallNames = const {},
+    bool repairObjCFastStubs = false,
     String source = 'Mach-O data',
   }) {
     Never invalid(String message) => _invalid(source, message);
@@ -61,9 +70,16 @@ abstract final class MachODylibRewriter {
           command,
           isId: isId,
           dylibName: dylibName,
+          installName: installName,
           producedDylibNames: producedDylibNames,
+          producedInstallNames: producedInstallNames,
         );
       }
+    }
+    if (repairObjCFastStubs &&
+        machO.cpuType == MachOConstants.cpuTypeArm64 &&
+        machO.fileType == MachOConstants.mhDylib) {
+      changed |= ObjCFastStubRewriter.repair(machO);
     }
 
     return changed;
@@ -78,7 +94,9 @@ abstract final class MachODylibRewriter {
     MachOLoadCommand command, {
     required bool isId,
     required String dylibName,
+    required String? installName,
     required Set<String> producedDylibNames,
+    required Map<String, String> producedInstallNames,
   }) {
     if (command.size < _dylibCommandHeaderSize) {
       file.invalid(
@@ -101,11 +119,14 @@ abstract final class MachODylibRewriter {
       'dylib command ${command.index} name is not null-terminated',
     );
     final basename = oldName.substring(oldName.lastIndexOf('/') + 1);
+    if (isId && oldName.startsWith('@rpath/')) return false;
     final replacement = isId
-        ? '@rpath/$dylibName'
-        : producedDylibNames.contains(basename)
-        ? '@rpath/$basename'
-        : null;
+        ? installName ?? '@rpath/$dylibName'
+        : producedInstallNames[basename] ??
+              (producedDylibNames.contains(basename)
+                  ? '@rpath/$basename'
+                  : null);
+
     if (replacement == null || replacement == oldName) return false;
 
     final replacementBytes = utf8.encode(replacement);

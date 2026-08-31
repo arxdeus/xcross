@@ -67,6 +67,7 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
     reportResolvedRef,
     String Function()? currentVersion,
     bool Function()? currentIsReleased,
+    bool Function(InstallLayout layout)? hasNativeLibraries,
   }) : _latestTagLookup = _withLatestTagStep(
          latestTagLookup ?? ReleaseLookup.latestTag,
        ),
@@ -80,7 +81,9 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
        _sourceInstaller = installSourceRef ?? _defaultInstallSourceRef,
        _resolvedRefReporter = reportResolvedRef ?? _defaultReportResolvedRef,
        _currentVersion = currentVersion ?? _defaultCurrentVersion,
-       _currentIsReleased = currentIsReleased ?? _defaultCurrentIsReleased;
+       _currentIsReleased = currentIsReleased ?? _defaultCurrentIsReleased,
+       _hasNativeLibraries =
+           hasNativeLibraries ?? ((layout) => layout.hasNativeLibraries);
 
   final Future<String> Function() _latestTagLookup;
   final Future<GitUpdateRef> Function(String ref) _resolveRef;
@@ -103,6 +106,7 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
   _resolvedRefReporter;
   final String Function() _currentVersion;
   final bool Function() _currentIsReleased;
+  final bool Function(InstallLayout layout) _hasNativeLibraries;
 
   @override
   String get name => 'update';
@@ -132,12 +136,16 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
       return;
     }
 
-    if (!args.force && !_isUpgrade(target)) {
+    final layout = _resolveInstallLayout();
+    final hasNativeLibraries = _hasNativeLibraries(layout);
+    if (!args.force && !_isUpgrade(target) && hasNativeLibraries) {
       Log.logDone('xcross ${_currentVersion()} is already the latest');
       return;
     }
 
-    final layout = _resolveInstallLayout();
+    if (!hasNativeLibraries) {
+      Log.logWarn('Native libraries are missing; reinstalling $tag');
+    }
     final asset = _assetName();
     Log.logInfo('Release', '$tag (installed: ${_currentVersion()})');
     Log.logInfo('Asset', asset);

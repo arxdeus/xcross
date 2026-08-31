@@ -75,6 +75,12 @@ final class FileSwap {
           await _tryDelete(entry.target);
           continue;
         }
+        if (!File(backup).existsSync()) {
+          Log.logWarn(
+            'could not restore ${entry.target}: backup $backup is missing',
+          );
+          continue;
+        }
         // Windows refuses to replace a file the verification child may still
         // have mapped, but it always allows renaming it away first.
         await _tryMoveAside(entry.target);

@@ -68,7 +68,7 @@ void main() {
 
   // `dart compile exe -o packages/xcross/bin/xcross` in a source checkout also
   // yields a sibling lib/, holding the package's Dart sources.
-  test('refuses a sibling lib/ that holds no native libraries', () {
+  test('refuses a sibling lib/ that only holds non-native files', () {
     final lib = Directory(p.join(prefix.path, 'lib'));
     lib.deleteSync(recursive: true);
     lib.createSync();
@@ -83,6 +83,26 @@ void main() {
         ),
       ),
     );
+  });
+
+  test('accepts an empty lib/ so update can repair missing libraries', () {
+    final lib = Directory(p.join(prefix.path, 'lib'));
+    lib.deleteSync(recursive: true);
+    lib.createSync();
+
+    final layout = InstallLayout.forExecutable(
+      p.join(prefix.path, 'bin', _exeName()),
+    );
+
+    expect(layout.hasNativeLibraries, isFalse);
+  });
+
+  test('reports installed native libraries', () {
+    final layout = InstallLayout.forExecutable(
+      p.join(prefix.path, 'bin', _exeName()),
+    );
+
+    expect(layout.hasNativeLibraries, isTrue);
   });
 
   test('refuses a layout with no sibling lib/', () {

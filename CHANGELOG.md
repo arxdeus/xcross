@@ -1,4 +1,18 @@
+## 1.3.6
+
+- Repair Kotlin native-asset builds on Linux, including Objective-C small-stub arguments and Mach-O fast-stub rewriting.
+- Strengthen release update verification, rollback, and recovery of missing native libraries.
+
+## 1.3.5
+
+- Normalize native asset framework install names and Mach-O dylib references for correct runtime loading.
+- Cache SwiftPM build identities and artifact-junction capabilities to reduce repeated build work.
+- Strengthen toolchain and SDK cache invalidation using filesystem change metadata.
+- Update the examples repository reference.
+
 ## 1.3.4
+
+
 
 - Add `xcross clean` to clear project-local native asset and SwiftPM build caches while preserving shared caches and unrelated build output.
 - Expand `xcross doctor` with Windows iOS tool checks and remediation guidance.
