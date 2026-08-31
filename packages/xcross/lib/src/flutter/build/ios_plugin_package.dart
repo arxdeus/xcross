@@ -196,6 +196,10 @@ abstract final class GeneratedPluginsPackage {
           Log.logTrace('reusing unchanged SwiftPM plugin build');
           return discoverAndRewriteDylibs(targetDebugDir);
         }
+        final targetDirectory = Directory(targetDebugDir);
+        if (targetDirectory.existsSync()) {
+          await targetDirectory.delete(recursive: true);
+        }
 
         final interopProductsByPlugin = <String, Set<String>>{};
 
@@ -285,7 +289,8 @@ abstract final class GeneratedPluginsPackage {
       input.add(const [0]);
     }
 
-    add('xcross-swiftpm-build-v2');
+    add('xcross-swiftpm-build-v3');
+    add(objectiveCLinkerSwiftDriverArguments.join('\u0001'));
     add(deploymentTarget.version);
     add(verbose.toString());
     final sdk = DarwinSdk.current();

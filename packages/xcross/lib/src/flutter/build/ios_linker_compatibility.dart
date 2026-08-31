@@ -12,4 +12,8 @@ const List<String> objectiveCLinkerSwiftDriverArguments = [
   '-Xlinker',
   '-Xswiftc',
   '-no_objc_category_merging',
+  '-Xswiftc',
+  '-Xlinker',
+  '-Xswiftc',
+  '-objc_stubs_small',
 ];
