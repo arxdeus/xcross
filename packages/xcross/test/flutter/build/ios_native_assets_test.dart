@@ -1,5 +1,7 @@
 import 'dart:convert';
+
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -46,6 +48,43 @@ void main() {
             contains('malformed JSON'),
           ),
         ),
+      );
+    } finally {
+      await tmp.delete(recursive: true);
+    }
+  });
+
+  test('normalizes native asset framework install names', () async {
+    final tmp = await Directory.systemTemp.createTemp('native_framework_test-');
+    try {
+      final asset = Directory(p.join(tmp.path, 'Asset.framework'))
+        ..createSync();
+      final dependency = Directory(p.join(tmp.path, 'Dependency.framework'))
+        ..createSync();
+      final assetBytes = _dylibMachO([
+        '/very/long/native/assets/path/libAsset.dylib',
+        '/very/long/native/assets/path/libDependency.dylib',
+      ]);
+      final dependencyBytes = _dylibMachO([
+        '/very/long/native/assets/path/libDependency.dylib',
+      ]);
+
+      File(p.join(asset.path, 'Asset')).writeAsBytesSync(assetBytes);
+      File(
+        p.join(dependency.path, 'Dependency'),
+      ).writeAsBytesSync(dependencyBytes);
+
+      await normalizeNativeAssetInstallNames([asset.path, dependency.path]);
+
+      expect(_dylibNames(File(p.join(asset.path, 'Asset')).readAsBytesSync()), [
+        '@rpath/Asset.framework/Asset',
+        '@rpath/Dependency.framework/Dependency',
+      ]);
+      expect(
+        _dylibNames(
+          File(p.join(dependency.path, 'Dependency')).readAsBytesSync(),
+        ),
+        ['@rpath/Dependency.framework/Dependency'],
       );
     } finally {
       await tmp.delete(recursive: true);
@@ -304,4 +343,47 @@ void main() {
       await tmp.delete(recursive: true);
     }
   });
+}
+
+Uint8List _dylibMachO(List<String> names) {
+  final encoded = names.map(utf8.encode).toList();
+  final sizes = [for (final name in encoded) (24 + name.length + 1 + 7) & ~7];
+  final commandsSize = sizes.fold(0, (sum, size) => sum + size);
+  final bytes = Uint8List(32 + commandsSize);
+  final data = ByteData.sublistView(bytes)
+    ..setUint32(0, 0xfeedfacf, Endian.little)
+    ..setUint32(16, names.length, Endian.little)
+    ..setUint32(20, commandsSize, Endian.little);
+  var offset = 32;
+  for (var index = 0; index < names.length; index++) {
+    data
+      ..setUint32(offset, index == 0 ? 0x0d : 0x0c, Endian.little)
+      ..setUint32(offset + 4, sizes[index], Endian.little)
+      ..setUint32(offset + 8, 24, Endian.little);
+    bytes.setRange(
+      offset + 24,
+      offset + 24 + encoded[index].length,
+      encoded[index],
+    );
+    offset += sizes[index];
+  }
+  return bytes;
+}
+
+List<String> _dylibNames(Uint8List bytes) {
+  final data = ByteData.sublistView(bytes);
+  final count = data.getUint32(16, Endian.little);
+  final names = <String>[];
+  var offset = 32;
+  for (var index = 0; index < count; index++) {
+    final size = data.getUint32(offset + 4, Endian.little);
+    final start = offset + data.getUint32(offset + 8, Endian.little);
+    var end = start;
+    while (bytes[end] != 0) {
+      end++;
+    }
+    names.add(utf8.decode(bytes.sublist(start, end)));
+    offset += size;
+  }
+  return names;
 }

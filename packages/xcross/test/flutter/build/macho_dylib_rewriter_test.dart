@@ -47,6 +47,45 @@ void main() {
     ]);
   });
 
+  test('preserves an existing relocatable dylib ID', () {
+    final bytes = _macho([(_idDylib, '@rpath/libsqlite3.dylib')]);
+
+    expect(
+      MachODylibRewriter.rewriteBytes(
+        bytes,
+        dylibName: 'sqlite3',
+        producedDylibNames: const {},
+        installName: '@rpath/sqlite3.framework/sqlite3',
+      ),
+      isFalse,
+    );
+    expect(_dylibNames(bytes), ['@rpath/libsqlite3.dylib']);
+  });
+
+  test('rewrites framework IDs and dependencies to framework paths', () {
+    final bytes = _macho([
+      (_idDylib, '/private/tmp/libAsset.dylib'),
+      (_loadDylib, '/private/tmp/libDependency.dylib'),
+    ]);
+
+    expect(
+      MachODylibRewriter.rewriteBytes(
+        bytes,
+        dylibName: 'Asset',
+        producedDylibNames: const {},
+        installName: '@rpath/Asset.framework/Asset',
+        producedInstallNames: const {
+          'libDependency.dylib': '@rpath/Dependency.framework/Dependency',
+        },
+      ),
+      isTrue,
+    );
+    expect(_dylibNames(bytes), [
+      '@rpath/Asset.framework/Asset',
+      '@rpath/Dependency.framework/Dependency',
+    ]);
+  });
+
   test('rejects a replacement longer than the existing string', () {
     final bytes = _macho([(_idDylib, 'x')]);
 
