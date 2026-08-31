@@ -113,6 +113,7 @@ void main() {
         fixture.bytes,
         dylibName: 'libPlugin.dylib',
         producedDylibNames: const {},
+        repairObjCFastStubs: true,
       ),
       isTrue,
     );
@@ -129,6 +130,7 @@ void main() {
         fixture.bytes,
         dylibName: 'libPlugin.dylib',
         producedDylibNames: const {},
+        repairObjCFastStubs: true,
       ),
       isFalse,
     );
@@ -146,6 +148,7 @@ void main() {
         fixture.bytes,
         dylibName: 'libPlugin.dylib',
         producedDylibNames: const {},
+        repairObjCFastStubs: true,
       ),
       isTrue,
     );
@@ -168,6 +171,7 @@ void main() {
         fixture.bytes,
         dylibName: 'libPlugin.dylib',
         producedDylibNames: const {},
+        repairObjCFastStubs: true,
       ),
       throwsA(
         isA<FlutterBuildError>().having(
@@ -176,6 +180,21 @@ void main() {
           contains('no safe selref repair'),
         ),
       ),
+    );
+    expect(fixture.bytes, original);
+  });
+
+  test('leaves Objective-C fast stubs unchanged by default', () {
+    final fixture = _objcMacho();
+    final original = Uint8List.fromList(fixture.bytes);
+
+    expect(
+      MachODylibRewriter.rewriteBytes(
+        fixture.bytes,
+        dylibName: 'libPlugin.dylib',
+        producedDylibNames: const {},
+      ),
+      isFalse,
     );
     expect(fixture.bytes, original);
   });
@@ -190,6 +209,7 @@ void main() {
         fixture.bytes,
         dylibName: 'libPlugin.dylib',
         producedDylibNames: const {},
+        repairObjCFastStubs: true,
       ),
       isFalse,
     );

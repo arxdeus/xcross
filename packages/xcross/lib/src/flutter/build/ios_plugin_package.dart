@@ -289,8 +289,11 @@ abstract final class GeneratedPluginsPackage {
       input.add(const [0]);
     }
 
-    add('xcross-swiftpm-build-v3');
+    add('xcross-swiftpm-build-v4');
     add(objectiveCLinkerSwiftDriverArguments.join('\u0001'));
+    if (Platform.isLinux) {
+      add(objectiveCSmallStubSwiftDriverArguments.join('\u0001'));
+    }
     add(deploymentTarget.version);
     add(verbose.toString());
     final sdk = DarwinSdk.current();
@@ -1575,6 +1578,8 @@ abstract final class GeneratedPluginsPackage {
     '-Xswiftc',
     iosSdk,
     ...objectiveCLinkerSwiftDriverArguments,
+    if (!(windows ?? Platform.isWindows))
+      ...objectiveCSmallStubSwiftDriverArguments,
     // The link runs through the toolchain's own clang, which resolves
     // `-use-ld=lld` to the `ld64.lld` sitting next to itself — swiftly's, the
     // one that refuses iOS (see [resolveLd64Lld]). `--ld-path` overrides that
@@ -1616,6 +1621,7 @@ abstract final class GeneratedPluginsPackage {
       await MachODylibRewriter.rewriteFile(
         path,
         producedDylibNames: dylibNames,
+        repairObjCFastStubs: Platform.isLinux,
       );
     }
     // SwiftPM emits .swiftmodule files into a sibling `Modules` directory;

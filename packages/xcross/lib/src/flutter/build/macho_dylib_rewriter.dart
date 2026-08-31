@@ -31,6 +31,7 @@ abstract final class MachODylibRewriter {
     required Set<String> producedDylibNames,
     String? installName,
     Map<String, String> producedInstallNames = const {},
+    bool repairObjCFastStubs = false,
   }) async {
     final file = File(path);
     final bytes = await file.readAsBytes();
@@ -40,6 +41,7 @@ abstract final class MachODylibRewriter {
       producedDylibNames: producedDylibNames,
       installName: installName,
       producedInstallNames: producedInstallNames,
+      repairObjCFastStubs: repairObjCFastStubs,
       source: path,
     );
     if (changed) await file.writeAsBytes(bytes, flush: true);
@@ -53,6 +55,7 @@ abstract final class MachODylibRewriter {
     required Set<String> producedDylibNames,
     String? installName,
     Map<String, String> producedInstallNames = const {},
+    bool repairObjCFastStubs = false,
     String source = 'Mach-O data',
   }) {
     Never invalid(String message) => _invalid(source, message);
@@ -73,7 +76,8 @@ abstract final class MachODylibRewriter {
         );
       }
     }
-    if (machO.cpuType == MachOConstants.cpuTypeArm64 &&
+    if (repairObjCFastStubs &&
+        machO.cpuType == MachOConstants.cpuTypeArm64 &&
         machO.fileType == MachOConstants.mhDylib) {
       changed |= ObjCFastStubRewriter.repair(machO);
     }

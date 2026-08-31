@@ -12,6 +12,8 @@ void main() {
       '-Xlinker',
       '-Xswiftc',
       '-no_objc_category_merging',
+    ]);
+    expect(objectiveCSmallStubSwiftDriverArguments, [
       '-Xswiftc',
       '-Xlinker',
       '-Xswiftc',
