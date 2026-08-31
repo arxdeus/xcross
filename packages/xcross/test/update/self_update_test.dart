@@ -182,6 +182,10 @@ void main() {
       runRequests.single.environment,
       containsPair(UpdateCheck.disableEnvVar, '1'),
     );
+    expect(
+      runRequests.single.environment,
+      containsPair(SelfUpdate.verificationEnvVar, '1'),
+    );
     expect(runRequests.single.timeout, const Duration(seconds: 30));
   });
 
@@ -277,7 +281,7 @@ void main() {
         SelfUpdate.verifyInstalledBinary(
           layout: layout,
           label: 'xcross 1.2.3',
-          expectedIdentity: '1.2.3',
+          expectedIdentity: 'v1.2.3',
           expectedReleased: true,
           runProcess:
               ({
@@ -301,6 +305,30 @@ void main() {
       );
     },
   );
+
+  test('release verification normalizes a v-prefixed tag', () async {
+    await SelfUpdate.verifyInstalledBinary(
+      layout: layout,
+      label: 'xcross v1.2.3',
+      expectedIdentity: 'v1.2.3',
+      expectedReleased: true,
+      runProcess:
+          ({
+            required executable,
+            required arguments,
+            required environment,
+            required timeout,
+          }) async => const CapturedProcess(0, 'xcross 1.2.3\n', ''),
+    );
+  });
+
+  test('detects the self-update verification process', () {
+    expect(SelfUpdate.isVerificationProcess({}), isFalse);
+    expect(
+      SelfUpdate.isVerificationProcess({SelfUpdate.verificationEnvVar: '1'}),
+      isTrue,
+    );
+  });
 
   test('source verification requires the exact arbitrary identity', () async {
     await SelfUpdate.verifyInstalledBinary(

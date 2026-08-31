@@ -189,7 +189,9 @@ abstract final class XcrossCli {
       // of startup latency, and the sweep is deliberately not tied to the
       // update-check opt-out, which says nothing about disk hygiene.
       try {
-        SelfUpdate.sweepStaleBackups(InstallLayout.resolve());
+        if (!SelfUpdate.isVerificationProcess()) {
+          SelfUpdate.sweepStaleBackups(InstallLayout.resolve());
+        }
       } on Object {
         // Best effort cleanup. Update completion should not be blocked by stale backup cleanup.
       }
