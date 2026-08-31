@@ -346,6 +346,25 @@ final class DarwinSdk {
     Future<CapturedProcess> Function(String, List<String>)? runProcess,
   }) async {
     final sysroot = sdk.iPhoneOSSdk();
+
+    // An explicit CC/CXX override takes precedence over the PATH search
+    // below — this matters on systems (e.g. Nix) where a stray system
+    // compiler sits ahead of the intended one on PATH.
+    final envVar = name == 'clang++' ? 'CXX' : 'CC';
+    final override = Platform.environment[envVar];
+    if (override != null && override.isNotEmpty) {
+      final failure = await probeDarwinDriver(
+        override,
+        sysroot: sysroot,
+        runProcess: runProcess,
+      );
+      if (failure == null) return override;
+      throw DarwinSdkError(
+        "\$$envVar is set to '$override' but it cannot target iOS.\n"
+        '  $failure',
+      );
+    }
+
     final searched = llvmToolDirs();
     final candidates = await ProcessRunner.whichAll(
       name,
