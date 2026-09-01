@@ -9,3 +9,4 @@ export 'src/logging.dart';
 export 'src/process.dart';
 export 'src/progress.dart';
 export 'src/sudo.dart';
+export 'src/tui.dart';

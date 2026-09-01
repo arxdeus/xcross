@@ -1,6 +1,8 @@
+import 'dart:collection';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
+import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/cli/basic/config_command.dart';
@@ -26,40 +28,160 @@ void main() {
   });
 
   test(
-    'interactive numbered menu saves optional roots and PATH list',
+    'controller switches tabs in both directions and clamps selection',
     () async {
-      final input = <String>[
-        '1',
-        '2',
-        '/opt/flutter',
-        '3',
-        'llvm',
-        '/llvm/one, /llvm/two',
-        '4',
-        'PATH',
-        '/one, /two',
-        '8',
-        '10',
-      ].iterator;
-      final output = <String>[];
-      final command = ConfigCommand(
-        store: store,
-        readLine: () => input.moveNext() ? input.current : null,
-        writeLine: output.add,
-        isInteractive: () => true,
+      final controller = ConfigTuiController(XcrossConfig());
+      await handle(controller, TuiKey.backTab);
+      expect(controller.tab, ConfigTab.environment);
+      await handle(controller, TuiKey.tab);
+      await handle(controller, TuiKey.right);
+      expect(controller.tab, ConfigTab.toolchains);
+      await handle(controller, TuiKey.left);
+      expect(controller.tab, ConfigTab.roots);
+      await handle(controller, TuiKey.up);
+      expect(controller.selection, controller.itemCount - 1);
+      await handle(controller, TuiKey.down);
+      expect(controller.selection, 0);
+    },
+  );
+
+  test('controller edits fixed rows and adds and edits map entries', () async {
+    final controller = ConfigTuiController(XcrossConfig());
+    await handle(controller, TuiKey.enter, answers: ['/opt/darwin']);
+    expect(controller.config.roots.darwinSdk, '/opt/darwin');
+
+    controller.tab = ConfigTab.toolchains;
+    controller.selection = 1;
+    await handle(controller, TuiKey.enter, answers: ['/llvm/a, /llvm/b']);
+    expect(controller.config.toolchains.llvm, ['/llvm/a', '/llvm/b']);
+
+    controller.tab = ConfigTab.tools;
+    controller.selection = 0;
+    await handle(
+      controller,
+      TuiKey.enter,
+      answers: ['Clang.EXE', '/bin/clang'],
+    );
+    expect(controller.config.tools, {'clang': '/bin/clang'});
+    controller.selection = 0;
+    await handle(controller, TuiKey.enter, answers: ['/usr/bin/clang']);
+    expect(controller.config.tools['clang'], '/usr/bin/clang');
+
+    controller.tab = ConfigTab.environment;
+    controller.selection = 0;
+    await handle(controller, TuiKey.enter, answers: ['PATH', '/one, /two']);
+    expect(controller.config.environment['PATH'], ['/one', '/two']);
+  });
+
+  test('delete requires confirmation and ignores Add row', () async {
+    final controller = ConfigTuiController(
+      XcrossConfig(tools: const {'clang': '/bin/clang'}),
+    )..tab = ConfigTab.tools;
+    await handle(controller, TuiKey.delete, confirmations: [false]);
+    expect(controller.config.tools, contains('clang'));
+    await handle(controller, TuiKey.delete, confirmations: [true]);
+    expect(controller.config.tools, isEmpty);
+    expect(controller.dirty, isTrue);
+    await handle(controller, TuiKey.delete, confirmations: [true]);
+    expect(controller.config.tools, isEmpty);
+  });
+
+  test('save resets dirty state and discard restores saved state', () async {
+    final controller = ConfigTuiController(XcrossConfig());
+    XcrossConfig? saved;
+    await handle(controller, TuiKey.enter, answers: ['/first']);
+    expect(controller.dirty, isTrue);
+    await handle(
+      controller,
+      TuiKey.save,
+      save: (config) async {
+        saved = config;
+        return '/config.yaml';
+      },
+    );
+    expect(controller.dirty, isFalse);
+    expect(controller.status, 'Saved /config.yaml');
+    expect(saved!.roots.darwinSdk, '/first');
+
+    await handle(controller, TuiKey.enter, answers: ['/second']);
+    await handle(controller, TuiKey.discard, confirmations: [false]);
+    expect(controller.config.roots.darwinSdk, '/second');
+    await handle(controller, TuiKey.discard, confirmations: [true]);
+    expect(controller.config.roots.darwinSdk, '/first');
+    expect(controller.dirty, isFalse);
+  });
+
+  test('quit confirms only when dirty and validate reports status', () async {
+    final clean = ConfigTuiController(XcrossConfig());
+    expect(await handle(clean, TuiKey.quit), isTrue);
+    await handle(clean, TuiKey.validate);
+    expect(clean.status, 'Configuration is valid.');
+
+    await handle(clean, TuiKey.enter, answers: ['/changed']);
+    expect(await handle(clean, TuiKey.quit, confirmations: [false]), isFalse);
+    expect(await handle(clean, TuiKey.quit, confirmations: [true]), isTrue);
+  });
+
+  test('render includes ANSI redraw, tabs, rows, actions, and selection', () {
+    final controller =
+        ConfigTuiController(
+            XcrossConfig(
+              tools: const {'clang': '/bin/clang'},
+              environment: const {
+                'PATH': ['/one', '/two'],
+              },
+            ),
+          )
+          ..tab = ConfigTab.tools
+          ..selection = 1;
+    final output = controller.render();
+    final plain = output.replaceAll(RegExp(r'\x1b\[[0-9;]*[A-Za-z]'), '');
+    expect(output, startsWith(AnsiTuiRenderer.clearScreen));
+    expect(output, contains(AnsiTuiStyle.title));
+    expect(output, contains(AnsiTuiStyle.selectedTab));
+    expect(output, contains(AnsiTuiStyle.selectedRow));
+    expect(output, contains(AnsiTuiStyle.actionBackgrounds.first));
+    expect(plain, contains('xcross config'));
+    expect(plain, contains('Tools'));
+    expect(plain, contains('clang: /bin/clang'));
+    expect(plain, contains('› + Add'));
+    expect(plain, contains('Save'));
+    expect(plain, contains('Validate'));
+    expect(plain, contains('Discard'));
+    expect(plain, contains('Quit'));
+    expect(plain, contains('Tab/←/→ tabs'));
+  });
+
+  test('plain rendering emits one frame and incremental updates', () {
+    final controller = ConfigTuiController(XcrossConfig());
+    final frame = controller.render(ansi: false);
+    final update = controller.renderPlainUpdate();
+
+    expect(frame, contains('=== xcross config ==='));
+    expect(update, '[Roots] > darwinSdk: <unset>');
+    expect(update, isNot(contains('\x1b[')));
+  });
+
+  test(
+    'interactive command restores terminal modes around prompts and exit',
+    () async {
+      final terminal = FakeTerminal(
+        bytes: [13, 113],
+        lines: ['/opt/flutter', 'y'],
       );
-
-      await (CommandRunner<void>(
-        'xcross',
-        'test',
-      )..addCommand(command)).run(['config']);
-
-      final config = await store.load();
-      expect(config!.roots.flutterSdk, '/opt/flutter');
-      expect(config.roots.darwinSdk, isNull);
-      expect(config.toolchains.llvm, ['/llvm/one', '/llvm/two']);
-      expect(config.environment['PATH'], ['/one', '/two']);
-      expect(output, contains(startsWith('Saved ')));
+      final runner = CommandRunner<void>('xcross', 'test')
+        ..addCommand(ConfigCommand(store: store, terminal: terminal));
+      await runner.run(['config']);
+      expect(terminal.modeChanges, [
+        'raw',
+        'cooked',
+        'raw',
+        'cooked',
+        'raw',
+        'cooked',
+      ]);
+      expect(terminal.output.join(), contains('\x1b[2J\x1b[H'));
+      expect(store.selectedFile(), isNull);
     },
   );
 
@@ -86,14 +208,10 @@ void main() {
     expect(output, ['Configuration is valid.']);
   });
 
-  test('interactive command requires an injected TTY', () async {
+  test('interactive command requires a TTY', () async {
     final runner = CommandRunner<void>('xcross', 'test')
       ..addCommand(
-        ConfigCommand(
-          store: store,
-          isInteractive: () => false,
-          writeLine: (_) {},
-        ),
+        ConfigCommand(store: store, terminal: FakeTerminal(interactive: false)),
       );
     await expectLater(
       runner.run(['config']),
@@ -103,36 +221,67 @@ void main() {
     );
   });
 
-  test('dirty exit warns and can retain editing session', () async {
-    final input = ['1', '2', '/opt/flutter', '10', 'n', '10', 'y'].iterator;
-    final output = <String>[];
-    final runner = CommandRunner<void>('xcross', 'test')
-      ..addCommand(
-        ConfigCommand(
-          store: store,
-          readLine: () => input.moveNext() ? input.current : null,
-          writeLine: output.add,
-          isInteractive: () => true,
-        ),
-      );
-    await runner.run(['config']);
-    expect(
-      output.where((line) => line.startsWith('Unsaved changes.')).length,
-      2,
-    );
-    expect(store.selectedFile(), isNull);
-  });
-
   test('validate rejects a missing configured tool', () async {
     await store.save(
       XcrossConfig(tools: {'missing': p.join(temporary.path, 'missing')}),
     );
     final runner = CommandRunner<void>('xcross', 'test')
       ..addCommand(ConfigCommand(store: store, writeLine: (_) {}));
-
     await expectLater(
       runner.run(['config', 'validate']),
       throwsA(isA<XcrossConfigException>()),
     );
   });
+}
+
+Future<bool> handle(
+  ConfigTuiController controller,
+  TuiKey key, {
+  List<String> answers = const [],
+  List<bool> confirmations = const [],
+  Future<String> Function(XcrossConfig config)? save,
+}) {
+  final answerQueue = Queue<String>.of(answers);
+  final confirmationQueue = Queue<bool>.of(confirmations);
+  return controller.handle(
+    key,
+    prompt: (_) => answerQueue.isEmpty ? null : answerQueue.removeFirst(),
+    confirm: (_) =>
+        confirmationQueue.isNotEmpty && confirmationQueue.removeFirst(),
+    save: save ?? (_) async => '/config.yaml',
+    validate: (_) {},
+  );
+}
+
+final class FakeTerminal implements TuiTerminal {
+  FakeTerminal({
+    this.interactive = true,
+    List<int> bytes = const [],
+    List<String> lines = const [],
+  }) : _bytes = Queue<int>.of(bytes),
+       _lines = Queue<String>.of(lines);
+
+  final bool interactive;
+  final Queue<int> _bytes;
+  final Queue<String> _lines;
+  final output = <String>[];
+  final modeChanges = <String>[];
+
+  @override
+  bool get isInteractive => interactive;
+
+  @override
+  void enterRaw() => modeChanges.add('raw');
+
+  @override
+  void leaveRaw() => modeChanges.add('cooked');
+
+  @override
+  int readByte() => _bytes.removeFirst();
+
+  @override
+  String? readLine() => _lines.isEmpty ? null : _lines.removeFirst();
+
+  @override
+  void write(String value) => output.add(value);
 }
