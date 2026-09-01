@@ -172,12 +172,7 @@ abstract final class Pymd {
 
     for (final attempt in await _buildInstallAttempts(py)) {
       Log.logTrace('[python] running: ${attempt.join(' ')}');
-      final result = await Process.run(
-        attempt[0],
-        attempt.sublist(1),
-        stderrEncoding: utf8,
-        stdoutEncoding: utf8,
-      );
+      final result = await ProcessRunner.run(attempt[0], attempt.sublist(1));
       if (result.exitCode == 0) {
         _cached = null;
         if (await _isInstalled()) {
@@ -402,7 +397,7 @@ abstract final class Pymd {
     List<String> arguments,
     Duration timeout,
   ) async {
-    final process = await Process.start(
+    final process = await ProcessRunner.start(
       executable,
       arguments,
       environment: usbmuxEnvironment(),

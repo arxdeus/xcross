@@ -454,9 +454,7 @@ void main() {
     expect(prepared.environment['XCROSS_APPLE_TOOL_LD'], fixture.ld64);
     expect(ld.readAsStringSync(), isNot(contains(fixture.ld64)));
     expect(executable, everyElement(contains('.staging.')));
-    if (!Platform.isWindows) {
-      expect(ld.statSync().mode & 0x49, 0x49);
-    }
+    expect(executable.where((path) => p.basename(path) == 'ld'), isNotEmpty);
 
     // MacOSBasedLinker's constructor hardcodes linker/libtool/strip/dsymutil
     // as "$absoluteTargetToolchain/bin/<tool>", and

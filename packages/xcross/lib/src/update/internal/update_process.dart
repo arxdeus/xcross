@@ -9,7 +9,7 @@ Future<ProcessResult> runUpdateProcess(
   String? workingDirectory,
 }) async {
   try {
-    final process = await Process.start(
+    final process = await ProcessRunner.start(
       executable,
       arguments,
       workingDirectory: workingDirectory,

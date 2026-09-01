@@ -198,7 +198,10 @@ enum LinuxPackageManager {
     try {
       switch (this) {
         case LinuxPackageManager.apt:
-          final result = await ProcessRunner.run('apt-cache', ['pkgnames']);
+          final result = await ProcessRunner.run(
+            await ProcessRunner.locateTool('apt-cache'),
+            ['pkgnames'],
+          );
           final indexed = const LineSplitter()
               .convert(result.stdout)
               .map((line) => line.trim())
@@ -206,7 +209,10 @@ enum LinuxPackageManager {
           if (indexed.isEmpty) return wanted;
           missing = wanted.where((name) => !indexed.contains(name)).toSet();
         case LinuxPackageManager.pacman:
-          final result = await ProcessRunner.run('pacman', ['-Si', ...wanted]);
+          final result = await ProcessRunner.run(
+            await ProcessRunner.locateTool('pacman'),
+            ['-Si', ...wanted],
+          );
           missing = _pacmanNotFoundPattern
               .allMatches(result.stderr)
               .map((match) => match.group(1))

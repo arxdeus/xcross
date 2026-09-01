@@ -4,9 +4,9 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
+import 'package:xcross/src/flutter/build/internal/flutter_tool_workspace.dart';
 import 'package:xcross/src/flutter/build/internal/native_asset_frameworks.dart';
 import 'package:xcross/src/flutter/build/internal/native_assets_hook_discovery.dart';
-import 'package:xcross/src/flutter/build/internal/recursive_directory_copy.dart';
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 
 import 'package:xcross/src/flutter/build/ios_engine_cache.dart';
@@ -57,22 +57,10 @@ final class IosNativeAssetsBuilder {
     final tools = await AppleToolShimConfig.resolve(deploymentTarget.version);
     final engineCache = IosEngineCache(flutterRoot: flutterRoot);
     await engineCache.ensureArtifactsAvailable();
-    final flutterCachedFramework = p.join(
-      flutterRoot,
-      'bin',
-      'cache',
-      'artifacts',
-      'engine',
-      'ios',
-      'Flutter.xcframework',
+    final workspace = await FlutterToolWorkspace.create(
+      flutterRoot: flutterRoot,
+      engineCache: engineCache,
     );
-    final stagedEngine = !Directory(flutterCachedFramework).existsSync();
-    if (stagedEngine) {
-      await copyDirectoryPreservingSymlinks(
-        engineCache.flutterXcframework,
-        flutterCachedFramework,
-      );
-    }
     final shims = await Directory.systemTemp.createTemp('xcross-apple-tools-');
     try {
       await installAppleToolShims(
@@ -82,12 +70,10 @@ final class IosNativeAssetsBuilder {
           Platform.resolvedExecutable,
         ),
       );
-      await _runFlutterAssemble(output, shims.path, tools.iosSdk);
+      await _runFlutterAssemble(output, shims.path, tools.iosSdk, workspace);
     } finally {
       await shims.delete(recursive: true);
-      if (stagedEngine) {
-        await Directory(flutterCachedFramework).delete(recursive: true);
-      }
+      await workspace.dispose();
     }
 
     final manifest = p.join(
@@ -116,15 +102,12 @@ final class IosNativeAssetsBuilder {
     String output,
     String shimDirectory,
     String iosSdk,
+    FlutterToolWorkspace workspace,
   ) async {
-    final flutter = p.join(
-      flutterRoot,
-      'bin',
-      ProcessRunner.hostExecutableName('flutter', windowsExtension: '.bat'),
-    );
     await ProcessRunner.runChecked(
-      flutter,
+      workspace.dart,
       [
+        workspace.flutterToolsSnapshot,
         'assemble',
         '--no-version-check',
         '-o',
@@ -141,13 +124,21 @@ final class IosNativeAssetsBuilder {
       // Flutter's hook runner sanitizes its environment. Tool shims therefore
       // embed resolved paths rather than reading xcross-specific variables.
       environment: {
-        'PATH':
-            '$shimDirectory${Platform.isWindows ? ';' : ':'}${Platform.environment['PATH'] ?? ''}',
+        'FLUTTER_ROOT': workspace.flutterRoot,
+        'PATH': _prependPath(
+          shimDirectory,
+          ProcessRunner.effectiveEnvironment['PATH'],
+        ),
       },
       inheritStdio: Log.isVerbose,
       label: 'Flutter native assets',
     );
   }
+
+  String _prependPath(String directory, String? base) =>
+      base == null || base.isEmpty
+      ? directory
+      : '$directory${Platform.isWindows ? ';' : ':'}$base';
 
   Future<String> _writeEmptyManifest(String output) async {
     final manifest = p.join(output, 'NativeAssetsManifest.json');

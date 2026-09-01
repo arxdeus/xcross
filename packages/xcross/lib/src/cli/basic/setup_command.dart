@@ -275,7 +275,7 @@ final class SetupCommand extends Command<void> {
           ..sort(compare((entry) => entry.path));
     if (versioned.isEmpty) return;
 
-    await ProcessRunner.runChecked('sudo', [
+    await ProcessRunner.runChecked(await ProcessRunner.locateTool('sudo'), [
       'ln',
       '-sf',
       versioned.last.path,

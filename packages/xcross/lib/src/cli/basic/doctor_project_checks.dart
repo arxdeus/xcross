@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/cli/basic/doctor_environment_checks.dart';
 import 'package:xcross/src/cli/basic/doctor_models.dart';
@@ -105,7 +106,7 @@ abstract final class DoctorProjectChecks {
       }
       final problems = await ComposeToolchainResolver.problems(
         host: host.value!,
-        environment: Platform.environment,
+        environment: ProcessRunner.effectiveEnvironment,
         projectRoot: root,
       );
       return [projectCheck, _composeToolchain(problems)];

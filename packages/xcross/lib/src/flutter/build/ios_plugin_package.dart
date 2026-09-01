@@ -3844,12 +3844,15 @@ let package = Package(
     String scratchPath, {
     String git = 'git',
   }) async {
+    final gitExecutable = git == 'git'
+        ? await ProcessRunner.locateTool(git)
+        : git;
     final checkouts = Directory(p.join(scratchPath, 'checkouts'));
     if (!checkouts.existsSync()) return false;
     var changed = false;
     await for (final repo in checkouts.list(followLinks: false)) {
       if (repo is! Directory) continue;
-      final index = await ProcessRunner.run(git, [
+      final index = await ProcessRunner.run(gitExecutable, [
         '-C',
         repo.path,
         'ls-files',
@@ -3866,7 +3869,7 @@ let package = Package(
           await _materializeGitSymlinks(
             repo.path,
             index.stdout,
-            git,
+            gitExecutable,
             File(p.join(scratchPath, '.xcross-symlinks', stampName)),
           ) ||
           changed;
@@ -3992,7 +3995,7 @@ let package = Package(
     String git,
   ) async {
     if (objectIds.isEmpty) return const {};
-    final process = await Process.start(git, [
+    final process = await ProcessRunner.start(git, [
       '-C',
       repoPath,
       'cat-file',
@@ -4093,14 +4096,10 @@ let package = Package(
       await existing.writeAsString(forwarder);
       return true;
     }
-    final result = await Process.run('cmd.exe', [
-      '/d',
-      '/c',
-      'mklink',
-      '/H',
-      link,
-      target,
-    ]);
+    final result = await ProcessRunner.run(
+      await ProcessRunner.locateTool('cmd.exe'),
+      ['/d', '/c', 'mklink', '/H', link, target],
+    );
     if (result.exitCode != 0) {
       throw FileSystemException(
         'Could not create hard link: ${result.stderr}',
@@ -4117,7 +4116,10 @@ let package = Package(
         FileSystemEntityType.notFound) {
       return;
     }
-    final result = await Process.run('attrib', ['-R', path]);
+    final result = await ProcessRunner.run(
+      await ProcessRunner.locateTool('attrib'),
+      ['-R', path],
+    );
     if (result.exitCode != 0) {
       throw FileSystemException(
         'Could not clear read-only checkout placeholder: ${result.stderr}',
@@ -4633,13 +4635,14 @@ $diagnosticsStart$registrations$diagnosticsEnd}
   static Future<void> _createDirectoryAlias(String alias, String target) async {
     await _deleteEntity(alias);
     if (Platform.isWindows) {
-      final result = await Process.run('cmd.exe', [
-        '/c',
-        'mklink',
-        '/J',
-        p.windows.normalize(alias),
-        p.windows.normalize(p.absolute(target)),
-      ]);
+      final result =
+          await ProcessRunner.run(await ProcessRunner.locateTool('cmd.exe'), [
+            '/c',
+            'mklink',
+            '/J',
+            p.windows.normalize(alias),
+            p.windows.normalize(p.absolute(target)),
+          ]);
       if (result.exitCode != 0) {
         throw FileSystemException(
           'Could not create plugin package junction: ${result.stderr}',

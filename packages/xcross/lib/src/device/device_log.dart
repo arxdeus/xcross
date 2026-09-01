@@ -43,7 +43,7 @@ final class DeviceLog {
     if (!enabled) return null;
     try {
       final invocation = await Pymd.resolve();
-      final process = await Process.start(invocation.executable, [
+      final process = await ProcessRunner.start(invocation.executable, [
         ...invocation.prefixArgs,
         'developer',
         'dvt',

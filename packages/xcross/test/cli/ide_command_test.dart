@@ -6,9 +6,27 @@ import 'package:test/test.dart';
 import 'package:xcross/src/cli/ide/subcommands/idea_command.dart';
 import 'package:xcross/src/cli/ide/subcommands/vscode_command.dart';
 import 'package:xcross/src/cli/ide/subcommands/vscode_json_merge.dart';
+import 'package:xcross/src/cli/ide/xcross_executable.dart';
 import 'package:xcross/src/errors.dart';
 
 void main() {
+  test('uses configured IDE launcher and selector overrides', () {
+    addTearDown(resetXcrossLauncherOverride);
+    configureXcrossLauncherOverride(
+      '/configured/xcross',
+      configPath: '/configured/config.yaml',
+      declarative: true,
+    );
+
+    expect(
+      resolveXcrossExecutable(subcommand: 'vscode', brokenFeature: 'debugging'),
+      '/configured/xcross',
+    );
+    expect(generatedIdeEnvironment, {
+      'XCROSS_CONFIG': '/configured/config.yaml',
+    });
+  });
+
   group('VscodeJsonMerge.stripJsonc / VscodeJsonMerge.parseJsonc', () {
     test('strips line and block comments outside strings', () {
       const raw = '''
@@ -46,6 +64,18 @@ void main() {
         ...VscodeJsonMerge.xcrossLaunchFields(),
         'env': {'XCROSS': 'true'},
         'args': <Object?>[],
+      });
+    });
+
+    test('propagates configured selector into generated environment', () {
+      final doc = VscodeJsonMerge.mergeLaunchDoc(
+        null,
+        generatedEnvironment: const {'XCROSS_CONFIG': '/config.yaml'},
+      );
+      final config = (doc['configurations']! as List).single as Map;
+      expect(config['env'], {
+        'XCROSS_CONFIG': '/config.yaml',
+        'XCROSS': 'true',
       });
     });
 
@@ -212,6 +242,17 @@ void main() {
       expect(xml, contains(r'$PROJECT_DIR$'));
       expect(xml, contains('debugServerWaitStrategy" value="TIMEOUT"'));
       expect(xml, contains('connectTimeout" value="0"'));
+    });
+
+    test('embeds configured selector in launch environment', () {
+      final xml = IdeaCommand.buildIdeaRunXml(
+        '/xcross',
+        environment: const {'XCROSS_CONFIG': '/config.yaml'},
+      );
+      expect(
+        xml,
+        contains('&quot;XCROSS_CONFIG&quot;:&quot;/config.yaml&quot;'),
+      );
     });
 
     test('quotes paths with spaces', () {

@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:cli_kit/cli_kit.dart';
 import 'package:xcross/src/compose/build/compose_app_assembler.dart';
 import 'package:xcross/src/compose/build/gradle_klib_builder.dart';
@@ -102,7 +100,8 @@ final class ComposePacker {
       'Resolving toolchain',
       () => (_ensureToolchain ?? _defaultEnsureToolchain)(
         host: (_currentHost ?? ComposeHost.current)(),
-        environment: (_environment ?? (() => Platform.environment))(),
+        environment:
+            (_environment ?? (() => ProcessRunner.effectiveEnvironment))(),
         projectRoot: project.root,
         allowInstall: true,
         force: false,

@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit.dart';
+
 /// Kill [process] together with everything it spawned.
 abstract final class ProcessKill {
   /// [Process.kill] signals one pid only. On Windows that can leave AOT
@@ -9,12 +11,16 @@ abstract final class ProcessKill {
       process.kill();
       return;
     }
-    await Process.run('taskkill', [
-      '/PID',
-      '${process.pid}',
-      '/T',
-      '/F',
-    ]).catchError((Object _) => ProcessResult(0, 1, '', ''));
+    try {
+      await ProcessRunner.run(await ProcessRunner.locateTool('taskkill'), [
+        '/PID',
+        '${process.pid}',
+        '/T',
+        '/F',
+      ]);
+    } on Object {
+      // Best effort; the direct kill below still handles the parent.
+    }
     process.kill();
   }
 }

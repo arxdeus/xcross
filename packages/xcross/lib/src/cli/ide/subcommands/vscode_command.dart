@@ -26,7 +26,10 @@ final class VscodeCommand extends Command<void> {
     await _writeShim(dir);
     await upsertJsonFile(
       p.join(dir.path, 'launch.json'),
-      VscodeJsonMerge.mergeLaunchDoc,
+      (existing) => VscodeJsonMerge.mergeLaunchDoc(
+        existing,
+        generatedEnvironment: generatedIdeEnvironment,
+      ),
     );
     await upsertJsonFile(
       p.join(dir.path, 'settings.json'),
@@ -52,7 +55,13 @@ final class VscodeCommand extends Command<void> {
     // The shim embeds the path as a non-raw Dart string literal, so `$` needs
     // escaping on top of what jsonEncode does.
     await shim.writeAsString(
-      _shim.replaceAll('<XCROSS>', jsonEncode(exe).replaceAll(r'$', r'\$')),
+      _shim
+          .replaceAll('<XCROSS>', jsonEncode(exe).replaceAll(r'$', r'\$'))
+          .replaceAll(
+            '<ENVIRONMENT>',
+            jsonEncode(generatedIdeEnvironment).replaceAll(r'$', r'\$'),
+          )
+          .replaceAll('<INHERIT_PARENT>', '$inheritIdeParentEnvironment'),
     );
     Log.logDone('Wrote ${p.relative(shim.path)}');
   }
@@ -128,6 +137,8 @@ Future<void> main(List<String> args) async {
       '$flutterRoot/bin/flutter',
       ['debug-adapter', ...args.where((a) => a != 'debug_adapter')],
       mode: ProcessStartMode.inheritStdio,
+      environment: <ENVIRONMENT>,
+      includeParentEnvironment: <INHERIT_PARENT>,
     );
     exit(await flutter.exitCode);
   }
@@ -137,6 +148,8 @@ Future<void> main(List<String> args) async {
       <XCROSS>,
       ['flutter', 'dap'],
       mode: ProcessStartMode.inheritStdio,
+      environment: <ENVIRONMENT>,
+      includeParentEnvironment: <INHERIT_PARENT>,
     );
     exit(await dap.exitCode);
   } on ProcessException catch (e) {

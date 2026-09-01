@@ -13,21 +13,35 @@ final class DarwinSdk {
   final String bundle;
 
   static final RegExp _digitPattern = RegExp('[0-9]');
+  static String? _installBundleOverride;
+
+  /// Configures the bundle used by [nativeInstallDir] and [current].
+  ///
+  /// Intended for embedders and tests that need an isolated SDK installation.
+  static void configureInstallBundleOverride(String? bundle) {
+    _installBundleOverride = bundle;
+  }
+
+  /// Removes the configured install-bundle override.
+  static void resetInstallBundleOverride() => _installBundleOverride = null;
 
   /// Artifact bundle path whose parent is passed to `--swift-sdks-path`.
   String get swiftSdkPath => bundle;
 
   /// Where `xcross sdk install <Xcode.xip>` installs the Swift SDK bundle.
-  static String nativeInstallDir({String? configDir}) => p.join(
-    configDir ?? _configDir(),
-    'xcross',
-    'swift-sdks',
-    'xcross-darwin.artifactbundle',
-  );
+  static String nativeInstallDir({String? configDir}) =>
+      configDir == null && _installBundleOverride != null
+      ? _installBundleOverride!
+      : p.join(
+          configDir ?? _configDir(),
+          'xcross',
+          'swift-sdks',
+          'xcross-darwin.artifactbundle',
+        );
 
   /// Resolve the SDK installed and owned by xcross, or null when incomplete.
   static DarwinSdk? current({String? bundle}) {
-    final candidate = bundle ?? nativeInstallDir();
+    final candidate = bundle ?? _installBundleOverride ?? nativeInstallDir();
     final source = _canonicalLayout(candidate);
     final destination = _runtimeLayout(candidate);
     try {
@@ -346,6 +360,25 @@ final class DarwinSdk {
     Future<CapturedProcess> Function(String, List<String>)? runProcess,
   }) async {
     final sysroot = sdk.iPhoneOSSdk();
+
+    // An explicit CC/CXX override takes precedence over the PATH search
+    // below — this matters on systems (e.g. Nix) where a stray system
+    // compiler sits ahead of the intended one on PATH.
+    final envVar = name == 'clang++' ? 'CXX' : 'CC';
+    final override = ProcessRunner.effectiveEnvironment[envVar];
+    if (override != null && override.isNotEmpty) {
+      final failure = await probeDarwinDriver(
+        override,
+        sysroot: sysroot,
+        runProcess: runProcess,
+      );
+      if (failure == null) return override;
+      throw DarwinSdkError(
+        "\$$envVar is set to '$override' but it cannot target iOS.\n"
+        '  $failure',
+      );
+    }
+
     final searched = llvmToolDirs();
     final candidates = await ProcessRunner.whichAll(
       name,

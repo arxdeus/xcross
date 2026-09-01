@@ -9,6 +9,7 @@ import 'dart:typed_data';
 import 'package:apple_developer_kit/src/config_dir.dart';
 import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/secure/secure_file.dart';
+import 'package:cli_kit/cli_kit.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:pointycastle/export.dart' as pc;
@@ -326,12 +327,15 @@ final class LocalCipher {
             '';
       }
       if (Platform.isWindows) {
-        final result = await Process.run('reg', const [
-          'query',
-          r'HKLM\SOFTWARE\Microsoft\Cryptography',
-          '/v',
-          'MachineGuid',
-        ]);
+        final result = await ProcessRunner.run(
+          await ProcessRunner.locateTool('reg'),
+          const [
+            'query',
+            r'HKLM\SOFTWARE\Microsoft\Cryptography',
+            '/v',
+            'MachineGuid',
+          ],
+        );
         if (result.exitCode != 0) return '';
         return RegExp(
               r'MachineGuid\s+REG_SZ\s+(\S+)',

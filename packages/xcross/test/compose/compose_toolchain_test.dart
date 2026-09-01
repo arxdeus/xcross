@@ -56,6 +56,28 @@ void main() {
       );
     });
 
+    test('prefers explicit and configured Konan data roots', () {
+      addTearDown(ComposeSetupOptions.resetCacheRootOverride);
+      ComposeSetupOptions.configureCacheRootOverride('/configured/konan');
+
+      expect(
+        ComposeSetupOptions.resolve(
+          env: {'HOME': home.path, 'KONAN_DATA_DIR': '/explicit/konan'},
+          projectRoot: project.path,
+          host: ComposeHost.linuxX64,
+        ).cacheRoot,
+        '/configured/konan',
+      );
+      expect(
+        ComposeSetupOptions.resolve(
+          env: {'HOME': home.path},
+          projectRoot: project.path,
+          host: ComposeHost.linuxX64,
+        ).cacheRoot,
+        '/configured/konan',
+      );
+    });
+
     test('pins Kotlin 2.4.0 smoke artifact digests', () {
       final linux = ComposeSetupOptions.resolve(
         env: {'HOME': home.path, 'KN_VERSION': '2.4.0'},

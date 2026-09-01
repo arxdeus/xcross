@@ -285,9 +285,31 @@ See the full [Wi-Fi setup and troubleshooting guide](https://xcross.sh/docs/wire
 
 ## Command reference
 
+xcross optionally reads YAML configuration from `XCROSS_CONFIG`, or from `config.yaml`/`config.yml` under the platform xcross config directory. It overlays explicit tool and root choices onto normal discovery: a configured executable takes precedence and must be a valid executable path, while unspecified tools (including `git`, device utilities, and system commands) continue to resolve through the wrapper or invoking user's `PATH`. `environment.PATH` prepends its entries to that inherited `PATH` for child processes.
+
+```yaml
+toolchains:
+  swift: /absolute/swift/bin
+  llvm:
+    - /absolute/clang/bin
+    - /absolute/lld/bin
+    - /absolute/llvm/bin
+roots:
+  darwinSdk: /absolute/path/to/xcross-darwin.artifactbundle
+  flutterSdk: /absolute/path/to/flutter
+  xcross: /absolute/path/to/xcross
+  javaHome: /absolute/path/to/jdk
+  konanData: /absolute/path/to/konan-data
+environment:
+  PATH:
+    - /absolute/toolchain/bin
+```
+
 | Command | Description |
 |---|---|
 | `xcross setup` | Install host dependencies (apt/dnf/pacman packages, `pipx`, `pymobiledevice3`). Requires Swift on `PATH`; `--no-swift-check` skips that to bootstrap Swift's own dependencies |
+| `xcross config` | Interactively create or edit executable overrides, Swift/LLVM toolchain directories, roots, and child-environment paths |
+| `xcross config show` / `validate` | Print the selected YAML configuration or validate all configured paths |
 | `xcross sdk install <Xcode.xip>` | Extract a private Darwin Swift SDK from an Xcode archive, patched against the Swift toolchain currently on `PATH` |
 | `xcross auth` | Save Apple ID or App Store Connect credentials |
 | `xcross auth clear` | Delete saved credentials, sessions, and signing material |

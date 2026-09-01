@@ -4,8 +4,10 @@ import 'package:xcross/xcross.dart';
 
 Future<void> main(List<String> args) async {
   final aliasCode = await runPreparedToolAlias(args);
-  if (aliasCode != null) {
-    exit(aliasCode);
+  if (aliasCode != null) exit(aliasCode);
+
+  if (args.isEmpty || args.first != 'config') {
+    await XcrossRuntimeConfig.initialize();
   }
   final code = await XcrossCli.run(args);
   exit(code);

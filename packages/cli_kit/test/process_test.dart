@@ -7,6 +7,9 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
+  setUp(ProcessRunner.resetConfiguration);
+  tearDown(ProcessRunner.resetConfiguration);
+
   group('commandLine', () {
     test('quotes an empty-string argument as a pair of empty quotes', () {
       expect(ProcessRunner.commandLine('ls', ['']), "ls ''");
@@ -295,6 +298,166 @@ void main() {
     });
   });
 
+  group('configured process lookup', () {
+    test('copies its inputs and can be reset', () {
+      final tools = {'dart': Platform.resolvedExecutable};
+      final environment = {'DECLARED': 'yes'};
+      ProcessRunner.configure(
+        normalizedTools: tools,
+        effectiveChildEnvironment: environment,
+      );
+      tools.clear();
+      environment.clear();
+
+      expect(ProcessRunner.configuration?.normalizedTools, contains('dart'));
+      expect(
+        ProcessRunner.configuration?.effectiveChildEnvironment,
+        containsPair('DECLARED', 'yes'),
+      );
+      ProcessRunner.resetConfiguration();
+      expect(ProcessRunner.configuration, isNull);
+    });
+
+    test(
+      'uses exact extension-aware overrides before configured PATH',
+      () async {
+        const configured = '/declared/python.exe';
+        ProcessRunner.configure(
+          normalizedTools: const {'python': configured},
+          effectiveChildEnvironment: const {
+            'PATH': '/directory/that/must/not/be/searched',
+            'PATHEXT': '.EXE;.BAT',
+          },
+        );
+
+        expect(await ProcessRunner.which('python', windows: true), configured);
+        expect(await ProcessRunner.whichAll('python.exe', windows: true), [
+          configured,
+        ]);
+        expect(
+          await ProcessRunner.which(
+            'python',
+            windows: true,
+            accept: (_) => false,
+            extraDirectories: [p.dirname(Platform.resolvedExecutable)],
+          ),
+          isNull,
+        );
+        expect(await ProcessRunner.which('dart', windows: false), isNull);
+      },
+    );
+
+    test('run resolves an explicit bare executable override', () async {
+      ProcessRunner.configure(
+        normalizedTools: {'dart': Platform.resolvedExecutable},
+        effectiveChildEnvironment: const {},
+      );
+
+      expect(
+        (await ProcessRunner.run('dart', const ['--version'])).exitCode,
+        0,
+      );
+      expect(
+        ProcessRunner.run('missing', const []),
+        throwsA(isA<ProcessException>()),
+      );
+    });
+
+    test('explicit tools override toolchain directories', () async {
+      final temporary = Directory.systemTemp.createTempSync('toolchains-');
+      addTearDown(() => temporary.deleteSync(recursive: true));
+      final llvm = Directory(p.join(temporary.path, 'llvm'))..createSync();
+      File(p.join(llvm.path, 'clang')).createSync();
+      const explicit = '/explicit/clang';
+      ProcessRunner.configure(
+        normalizedTools: const {'clang': explicit},
+        toolchainDirectories: {
+          'llvm': [llvm.path],
+        },
+        effectiveChildEnvironment: const {},
+      );
+
+      expect(await ProcessRunner.which('clang'), explicit);
+    });
+
+    test('uses toolchains before PATH and maps cc to clang', () async {
+      final temporary = Directory.systemTemp.createTempSync('toolchains-');
+      addTearDown(() => temporary.deleteSync(recursive: true));
+      final llvm = Directory(p.join(temporary.path, 'llvm'))..createSync();
+      final path = Directory(p.join(temporary.path, 'path'))..createSync();
+      final toolchainClang = File(p.join(llvm.path, 'clang'))..createSync();
+      final llvmStrip = File(p.join(llvm.path, 'llvm-strip'))..createSync();
+      File(p.join(path.path, 'clang')).createSync();
+      ProcessRunner.configure(
+        normalizedTools: const {},
+        toolchainDirectories: {
+          'llvm': [llvm.path],
+        },
+        effectiveChildEnvironment: {'PATH': path.path},
+      );
+
+      expect(await ProcessRunner.which('clang'), toolchainClang.path);
+      expect(await ProcessRunner.which('cc'), toolchainClang.path);
+      expect(await ProcessRunner.which('llvm-strip'), llvmStrip.path);
+    });
+
+    test('falls back to PATH for an unspecified tool', () async {
+      final directory = p.dirname(Platform.resolvedExecutable);
+      final name = p.basenameWithoutExtension(Platform.resolvedExecutable);
+      ProcessRunner.configure(
+        normalizedTools: const {},
+        effectiveChildEnvironment: {'PATH': directory},
+      );
+
+      expect(await ProcessRunner.which(name), isNotNull);
+      expect(await ProcessRunner.locateTool(name), isNotEmpty);
+    });
+  });
+
+  group('effectiveEnvironment', () {
+    test('preserves host environment without configuration', () {
+      expect(ProcessRunner.effectiveEnvironment, same(Platform.environment));
+    });
+
+    test('exposes only configured child environment', () {
+      ProcessRunner.configure(
+        normalizedTools: const {},
+        effectiveChildEnvironment: const {'SAFE': 'value'},
+      );
+
+      expect(ProcessRunner.effectiveEnvironment, const {'SAFE': 'value'});
+    });
+  });
+
+  group('start', () {
+    test(
+      'merges configured child environment without inheriting parent',
+      () async {
+        ProcessRunner.configure(
+          normalizedTools: const {},
+          effectiveChildEnvironment: const {'START_VALUE': 'configured'},
+        );
+
+        final directory = Directory.systemTemp.createTempSync('process-start-');
+        addTearDown(() => directory.deleteSync(recursive: true));
+        final script = File(p.join(directory.path, 'environment.dart'))
+          ..writeAsStringSync(
+            "import 'dart:io'; void main() { "
+            "stdout.write(Platform.environment['START_VALUE']); }",
+          );
+        final process = await ProcessRunner.start(Platform.resolvedExecutable, [
+          script.path,
+        ]);
+        final output = await process.stdout
+            .transform(systemEncoding.decoder)
+            .join();
+
+        expect(await process.exitCode, 0);
+        expect(output, 'configured');
+      },
+    );
+  });
+
   group('run', () {
     test(
       'captures stdout/stderr and the exit code of a real process',
@@ -304,6 +467,37 @@ void main() {
         ]);
         expect(result.exitCode, 0);
         expect(result.stdout + result.stderr, contains('Dart'));
+      },
+    );
+
+    test(
+      'merges configured child environment with local values winning',
+      () async {
+        final directory = Directory.systemTemp.createTempSync('process-env-');
+        addTearDown(() => directory.deleteSync(recursive: true));
+        final script = File(p.join(directory.path, 'environment.dart'))
+          ..writeAsStringSync(
+            "import 'dart:io'; void main() { stdout.write([ "
+            "Platform.environment['BASE'], "
+            "Platform.environment['OVERRIDE'], "
+            "Platform.environment['LOCAL']].join('|')); }",
+          );
+        ProcessRunner.configure(
+          normalizedTools: const {},
+          effectiveChildEnvironment: const {
+            'BASE': 'configured',
+            'OVERRIDE': 'configured',
+          },
+        );
+
+        final result = await ProcessRunner.run(
+          Platform.resolvedExecutable,
+          [script.path],
+          environment: const {'OVERRIDE': 'local', 'LOCAL': 'present'},
+        );
+
+        expect(result.exitCode, 0);
+        expect(result.stdout, 'configured|local|present');
       },
     );
 

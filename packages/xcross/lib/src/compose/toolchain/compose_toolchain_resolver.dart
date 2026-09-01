@@ -29,6 +29,15 @@ final class ComposeSetupOptions {
   });
 
   static const defaultKotlinNativeVersion = '2.2.20';
+  static String? _cacheRootOverride;
+
+  /// Configures the Kotlin/Native data root used when no explicit root is set.
+  static void configureCacheRootOverride(String? root) {
+    _cacheRootOverride = root;
+  }
+
+  /// Removes the configured Kotlin/Native data-root override.
+  static void resetCacheRootOverride() => _cacheRootOverride = null;
 
   final ComposeHost host;
   final String version;
@@ -47,9 +56,16 @@ final class ComposeSetupOptions {
     required ComposeHost host,
   }) {
     final version = _version(env, projectRoot);
-    final home =
-        env['KONAN_DATA_DIR'] ?? env['HOME'] ?? env['USERPROFILE'] ?? '.';
-    final cacheRoot = p.join(home, '.konan');
+    final configuredRoot =
+        _nonEmpty(_cacheRootOverride) ??
+        _nonEmpty(env['KONAN_DATA_DIR']) ??
+        _nonEmpty(env['XCROSS_KONAN_DATA_DIR']);
+    final cacheRoot =
+        configuredRoot ??
+        p.join(
+          _nonEmpty(env['HOME']) ?? _nonEmpty(env['USERPROFILE']) ?? '.',
+          '.konan',
+        );
     return ComposeSetupOptions(
       host: host,
       version: version,
@@ -84,6 +100,9 @@ final class ComposeSetupOptions {
     'kotlin-native-prebuilt-2.4.0-macos-x86_64.tar.gz':
         'da0684965d6f33c55b5e6e85b6de8a5327dbd3ccfedcb1ab6c1131900e8b3e83',
   };
+
+  static String? _nonEmpty(String? value) =>
+      value != null && value.trim().isNotEmpty ? value : null;
 
   static String _version(Map<String, String> env, String projectRoot) {
     final explicit = env['KN_VERSION'];

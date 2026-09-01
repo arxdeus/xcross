@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:dds/dap.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/dap/dap_router.dart';
@@ -11,6 +12,34 @@ import 'package:xcross/src/dap/dap_router.dart';
 /// duplicate responses for already-acked seqs.
 final class DapRouter {
   DapRouter(this._input, this._output, this._startXcross);
+
+  static String? _flutterRootOverride;
+  static String? _flutterEnvironmentRoot;
+  static String? _flutterToolOverride;
+  static bool _declarative = false;
+
+  static void configureFlutterResolution({
+    required bool declarative,
+    String? root,
+    String? environmentRoot,
+    String? tool,
+  }) {
+    _flutterRootOverride = root;
+    _flutterEnvironmentRoot = environmentRoot;
+    _flutterToolOverride = tool;
+    _declarative = declarative;
+  }
+
+  static void configureFlutterRootOverride(String? root) {
+    _flutterRootOverride = root;
+  }
+
+  static void resetConfiguration() {
+    _flutterRootOverride = null;
+    _flutterEnvironmentRoot = null;
+    _flutterToolOverride = null;
+    _declarative = false;
+  }
 
   final Stream<List<int>> _input;
   final StreamSink<List<int>> _output;
@@ -144,22 +173,35 @@ final class DapRouter {
     Stream<List<int>> inbound,
     DapResponseFilter outbound,
   ) async {
-    final flutterRoot = Platform.environment['FLUTTER_ROOT'];
+    var flutterRoot =
+        _flutterRootOverride ??
+        (_declarative
+            ? _flutterEnvironmentRoot
+            : Platform.environment['FLUTTER_ROOT']);
     if (flutterRoot == null) {
+      final fvm = p.join(Directory.current.path, '.fvm', 'flutter_sdk');
+      if (Directory(fvm).existsSync() || Link(fvm).existsSync()) {
+        flutterRoot = Link(fvm).resolveSymbolicLinksSync();
+      }
+    }
+    final flutter = flutterRoot == null
+        ? _flutterToolOverride
+        : p.join(
+            flutterRoot,
+            'bin',
+            Platform.isWindows ? 'flutter.bat' : 'flutter',
+          );
+    if (flutter == null) {
       stderr.writeln(
         'xcross dap: launch config is missing "env": {"XCROSS": "true"} '
-        'and FLUTTER_ROOT is unset — cannot fall back to the Flutter DAP.\n'
-        'Add that env entry to this config, or fix FLUTTER_ROOT.',
+        'and no Flutter SDK is configured — cannot fall back to the Flutter '
+        'DAP.\nConfigure roots.flutterSdk, environment FLUTTER_ROOT, or '
+        'tools.flutter.',
       );
       await outbound.close();
       return false;
     }
-    final flutter = p.join(
-      flutterRoot,
-      'bin',
-      Platform.isWindows ? 'flutter.bat' : 'flutter',
-    );
-    final child = await Process.start(flutter, const ['debug-adapter']);
+    final child = await ProcessRunner.start(flutter, const ['debug-adapter']);
     child.stderr.listen(stderr.add, onError: (_) {});
     inbound.listen(
       child.stdin.add,

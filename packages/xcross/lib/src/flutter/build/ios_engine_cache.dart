@@ -23,8 +23,10 @@ final class IosEngineCache {
   String get _flutterSdkEngineRoot =>
       p.join(flutterRoot, 'bin', 'cache', 'artifacts', 'engine');
 
+  String get engineHash => _readEngineHash();
+
   String get _userEngineRoot =>
-      p.join(cacheRoot, _readEngineHash(), 'artifacts', 'engine');
+      p.join(cacheRoot, engineHash, 'artifacts', 'engine');
 
   /// Directory containing the debug/JIT iOS engine artifacts.
   String get _engineDir {

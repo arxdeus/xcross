@@ -12,6 +12,7 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/cli/basic/auth_command.dart';
 import 'package:xcross/src/cli/basic/clean_command.dart';
 import 'package:xcross/src/cli/basic/completion_command.dart';
+import 'package:xcross/src/cli/basic/config_command.dart';
 import 'package:xcross/src/cli/basic/doctor_command.dart';
 import 'package:xcross/src/cli/basic/sdk_command.dart';
 import 'package:xcross/src/cli/basic/setup_command.dart';
@@ -157,6 +158,7 @@ abstract final class XcrossCli {
         ..addCommand(ComposeCommand())
         ..addCommand(TunnelCommand())
         ..addCommand(CleanCommand())
+        ..addCommand(ConfigCommand())
         ..addCommand(DoctorCommand())
         ..addCommand(SetupCommand())
         ..addCommand(AuthCommand())

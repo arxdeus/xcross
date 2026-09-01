@@ -33,6 +33,73 @@ Future<void> _deleteTemp(Directory directory) async {
 }
 
 void main() {
+  test(
+    'resolves explicit and configured Flutter roots before environment roots',
+    () async {
+      addTearDown(FlutterPacker.resetFlutterRootOverride);
+      FlutterPacker.configureFlutterRootOverride('/configured/flutter');
+
+      expect(
+        await FlutterPacker.resolveFlutterRoot(
+          projectRoot: Directory.systemTemp.path,
+          root: '/explicit/flutter',
+        ),
+        '/explicit/flutter',
+      );
+      expect(
+        await FlutterPacker.resolveFlutterRoot(
+          projectRoot: Directory.systemTemp.path,
+        ),
+        '/configured/flutter',
+      );
+    },
+  );
+
+  test(
+    'declarative Flutter resolution uses configured environment then FVM',
+    () async {
+      final temp = Directory.systemTemp.createTempSync('flutter-resolution-');
+      addTearDown(() {
+        FlutterPacker.resetFlutterRootOverride();
+        temp.deleteSync(recursive: true);
+      });
+      FlutterPacker.configureFlutterResolution(
+        environmentRoot: '/configured/environment/flutter',
+        declarative: true,
+      );
+      expect(
+        await FlutterPacker.resolveFlutterRoot(projectRoot: temp.path),
+        '/configured/environment/flutter',
+      );
+
+      final sdk = Directory(p.join(temp.path, 'sdk'))..createSync();
+      Directory(p.join(temp.path, '.fvm')).createSync();
+      Link(p.join(temp.path, '.fvm', 'flutter_sdk')).createSync(sdk.path);
+      FlutterPacker.configureFlutterResolution(declarative: true);
+      expect(
+        await FlutterPacker.resolveFlutterRoot(projectRoot: temp.path),
+        sdk.resolveSymbolicLinksSync(),
+      );
+    },
+  );
+
+  test(
+    'declarative Flutter resolution uses configured tool after FVM',
+    () async {
+      addTearDown(FlutterPacker.resetFlutterRootOverride);
+      FlutterPacker.configureFlutterResolution(
+        tool: '/configured/flutter/bin/flutter',
+        declarative: true,
+      );
+      expect(
+        await FlutterPacker.resolveFlutterRoot(
+          projectRoot: p.join(Directory.systemTemp.path, 'missing-project'),
+        ),
+        '/configured/flutter',
+      );
+    },
+  );
+
   test('Windows no longer rejects native iOS plugins', () {
     final source = _read('build/flutter_packer.dart');
 

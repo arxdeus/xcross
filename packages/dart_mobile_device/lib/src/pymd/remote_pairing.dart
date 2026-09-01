@@ -177,7 +177,7 @@ abstract final class RemotePairing {
       Log.stopStep();
     }
     try {
-      final process = await Process.start(
+      final process = await ProcessRunner.start(
         inv.executable,
         [
           ...inv.prefixArgs,
@@ -234,7 +234,7 @@ abstract final class RemotePairing {
     if (script == null) return null;
     final python = (await Pymd.tunneldInvocation()).invocation.executable;
     try {
-      return await Process.start(
+      return await ProcessRunner.start(
         python,
         [script, name, '--fresh', '--timeout', '${timeout.inSeconds}'],
         environment: {...Pymd.usbmuxEnvironment(), 'PYTHONUNBUFFERED': '1'},
