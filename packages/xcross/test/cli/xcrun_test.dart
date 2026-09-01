@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:test/test.dart';
 
 import '../../bin/xcrun.dart' as xcrun;
@@ -19,5 +20,20 @@ void main() {
       ),
       37,
     );
+  });
+
+  test('prefers build shims on PATH for known Apple tools', () async {
+    final sdk = DarwinSdk('/unused');
+    for (final tool in const ['clang', 'otool']) {
+      final shim = '/build/shims/$tool';
+      expect(
+        await xcrun.runXcrun(
+          ['--find', tool],
+          sdk: sdk,
+          findOnPath: (name) async => name == tool ? shim : null,
+        ),
+        0,
+      );
+    }
   });
 }

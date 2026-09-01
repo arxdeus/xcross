@@ -21,8 +21,12 @@ Future<void> main(List<String> arguments) async {
   }
 }
 
-Future<int> runXcrun(List<String> arguments) async {
-  final sdk = DarwinSdk.current();
+Future<int> runXcrun(
+  List<String> arguments, {
+  DarwinSdk? sdk,
+  Future<String?> Function(String name)? findOnPath,
+}) async {
+  sdk ??= DarwinSdk.current();
   if (sdk == null) {
     stderr.writeln(
       'xcrun: no Darwin SDK installed; run `xcross sdk install` first',
@@ -38,7 +42,11 @@ Future<int> runXcrun(List<String> arguments) async {
   final find = arguments.indexOf('--find');
   if (find >= 0) {
     if (find + 1 >= arguments.length) return 1;
-    final tool = await _resolveTool(sdk, arguments[find + 1]);
+    final tool = await _resolveTool(
+      sdk,
+      arguments[find + 1],
+      findOnPath: findOnPath,
+    );
     if (tool == null) return 1;
     stdout.writeln(tool);
     return 0;
@@ -46,7 +54,11 @@ Future<int> runXcrun(List<String> arguments) async {
 
   final toolIndex = _toolIndex(arguments);
   if (toolIndex == -1) return 1;
-  final tool = await _resolveTool(sdk, arguments[toolIndex]);
+  final tool = await _resolveTool(
+    sdk,
+    arguments[toolIndex],
+    findOnPath: findOnPath,
+  );
   if (tool == null) {
     stderr.writeln('xcrun: unknown tool ${arguments[toolIndex]}');
     return 1;
@@ -78,9 +90,17 @@ int _toolIndex(List<String> arguments) {
   return -1;
 }
 
-Future<String?> _findOnPath(String name) => ProcessRunner.which(name);
+Future<String?> _findOnPath(String name) =>
+    ProcessRunner.which(name, useConfiguration: false);
 
-Future<String?> _resolveTool(DarwinSdk sdk, String name) async {
+Future<String?> _resolveTool(
+  DarwinSdk sdk,
+  String name, {
+  Future<String?> Function(String name)? findOnPath,
+}) async {
+  final pathTool = await (findOnPath ?? _findOnPath)(name);
+  if (pathTool != null && !_isCurrentExecutable(pathTool)) return pathTool;
+
   switch (name) {
     case 'clang':
     case 'clang++':
@@ -117,12 +137,9 @@ Future<String?> _resolveTool(DarwinSdk sdk, String name) async {
     case 'codesign':
       return null;
     default:
-      final pathTool = await _findOnPath(name);
-      if (pathTool != null &&
-          p.canonicalize(pathTool) !=
-              p.canonicalize(Platform.resolvedExecutable)) {
-        return pathTool;
-      }
       return DarwinSdk.locateLlvmTool(Platform.isWindows ? '$name.exe' : name);
   }
 }
+
+bool _isCurrentExecutable(String path) =>
+    p.canonicalize(path) == p.canonicalize(Platform.resolvedExecutable);

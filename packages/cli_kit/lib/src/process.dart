@@ -470,12 +470,14 @@ abstract final class ProcessRunner {
     bool? windows,
     bool Function(String path)? accept,
     Iterable<String> extraDirectories = const [],
+    bool useConfiguration = true,
   }) async => (await whichAll(
     name,
     environment: environment,
     windows: windows,
     accept: accept,
     extraDirectories: extraDirectories,
+    useConfiguration: useConfiguration,
   )).firstOrNull;
 
   /// Every match for [name] on PATH, in PATH order, then in
@@ -490,8 +492,9 @@ abstract final class ProcessRunner {
     bool? windows,
     bool Function(String path)? accept,
     Iterable<String> extraDirectories = const [],
+    bool useConfiguration = true,
   }) async {
-    final configured = _configuration;
+    final configured = useConfiguration ? _configuration : null;
     final env = configured == null
         ? environment ?? effectiveEnvironment
         : {...effectiveEnvironment, ...?environment};

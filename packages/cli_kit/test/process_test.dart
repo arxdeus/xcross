@@ -401,6 +401,21 @@ void main() {
       expect(await ProcessRunner.which('llvm-strip'), llvmStrip.path);
     });
 
+    test('can bypass configured tools and search PATH directly', () async {
+      final temporary = Directory.systemTemp.createTempSync('process-path-');
+      addTearDown(() => temporary.deleteSync(recursive: true));
+      final pathTool = File(p.join(temporary.path, 'clang'))..createSync();
+      ProcessRunner.configure(
+        normalizedTools: const {'clang': '/configured/clang'},
+        effectiveChildEnvironment: {'PATH': temporary.path},
+      );
+
+      expect(
+        await ProcessRunner.which('clang', useConfiguration: false),
+        pathTool.path,
+      );
+    });
+
     test('falls back to PATH for an unspecified tool', () async {
       final directory = p.dirname(Platform.resolvedExecutable);
       final name = p.basenameWithoutExtension(Platform.resolvedExecutable);
