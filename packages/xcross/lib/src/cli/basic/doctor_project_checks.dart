@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/cli/basic/doctor_environment_checks.dart';
 import 'package:xcross/src/cli/basic/doctor_models.dart';
 import 'package:xcross/src/compose/project/kmp_project.dart';
 import 'package:xcross/src/compose/toolchain/compose_host.dart';
@@ -37,7 +36,6 @@ abstract final class DoctorProjectChecks {
     return [
       projectCheck,
       _flutterEntrypoint(root),
-      await DoctorEnvironmentChecks.flutterTool(),
       await _flutterSdk(root),
       await _flutterPackages(root),
     ];
