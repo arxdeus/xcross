@@ -5,8 +5,9 @@
 #
 # WHAT THIS DOES
 #   1. Works out which prebuilt release asset matches this machine.
-#   2. Downloads that asset (plus the ADI license notice) from GitHub Releases.
-#   3. Unpacks it into place, using sudo only if the target dirs need it.
+#   2. Downloads that asset (plus the ADI license notice) from GitHub Releases,
+#      or with --local builds the equivalent bundle from this checkout.
+#   3. Stages it for installation, using sudo only if the target dirs need it.
 #   4. Runs `xcross --help` to prove the install works.
 #   5. Adds the install dir to your PATH and lists any missing prerequisites.
 #
@@ -19,6 +20,12 @@
 #
 #   # Pin a version and/or install somewhere else:
 #   XCROSS_VERSION=v1.2.3 INSTALL_DIR="$HOME/.local/bin" sh install.sh
+#
+#   # Build and install the current checkout instead of downloading a release:
+#   ./install.sh --local
+#
+# OPTIONS
+#   --local             Build xcross and its native libraries from this checkout.
 #
 # ENVIRONMENT VARIABLES
 #   XCROSS_VERSION      Release tag to install, e.g. v1.2.3.  Default: latest
@@ -33,6 +40,22 @@
 # -e: stop at the first failing command.  -u: treat unset variables as errors.
 # (No `pipefail`: this script must stay POSIX sh, not bash.)
 set -eu
+
+local_install=false
+for arg in "$@"; do
+	case "$arg" in
+	--local) local_install=true ;;
+	-h | --help)
+		printf 'Usage: %s [--local]\n' "$0"
+		exit 0
+		;;
+	*)
+		printf 'error: unknown option: %s\n' "$arg" >&2
+		printf 'Usage: %s [--local]\n' "$0" >&2
+		exit 1
+		;;
+	esac
+done
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -121,53 +144,70 @@ esac
 info "Detected: $os_name/$cpu_arch -> $archive_name"
 
 # ---------------------------------------------------------------------------
-# Step 2 — download the release assets into a scratch directory
+# Step 2 — stage a release bundle in a scratch directory
 # ---------------------------------------------------------------------------
-
-# GitHub exposes the newest release under a stable `/latest/download/` path,
-# while pinned versions live under `/download/<tag>/`.
-if [ "$VERSION" = "latest" ]; then
-	base_url="https://github.com/$REPO/releases/latest/download"
-else
-	base_url="https://github.com/$REPO/releases/download/$VERSION"
-fi
-
-# Define `download <url> <output-file>` on top of whichever fetcher exists.
-# Both variants fail loudly on HTTP errors instead of writing an error page to
-# disk (curl needs -f for that, wget does it by default).
-if command -v curl >/dev/null 2>&1; then
-	download() { curl -fsSL "$1" -o "$2"; }
-elif command -v wget >/dev/null 2>&1; then
-	download() { wget -qO "$2" "$1"; }
-else
-	err "need curl or wget to download"
-fi
 
 # Everything is staged in a temp dir that is removed on any exit path, so a
 # failed install never leaves half-downloaded files behind.
 staging_dir="$(mktemp -d)"
 trap 'rm -rf "$staging_dir"' EXIT HUP INT TERM
 
-info "Downloading $VERSION $archive_name..."
+if [ "$local_install" = true ]; then
+	command -v dart >/dev/null 2>&1 || err "need Dart to build with --local"
+	script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+	package_dir="$script_dir/packages/xcross"
+	license_source="$script_dir/packages/apple_developer_kit/$LICENSE_ASSET"
+	[ -f "$package_dir/tool/build_xcross.dart" ] ||
+		err "--local must be run from an xcross repository checkout"
+	[ -f "$license_source" ] || err "local checkout missing $LICENSE_ASSET"
 
-# The size check guards against a proxy or mirror handing back a 0-byte file
-# with a 200 status.
-download "$base_url/$archive_name" "$staging_dir/$archive_name" ||
-	err "download failed: $base_url/$archive_name"
-[ -s "$staging_dir/$archive_name" ] ||
-	err "downloaded file is empty: $base_url/$archive_name"
+	info "Building xcross from $script_dir..."
+	(cd "$script_dir" && dart pub get) || err "dart pub get failed"
+	(cd "$package_dir" && dart run -DXCROSS_VERSION=unreleased \
+		-DXCROSS_RELEASED=false tool/build_xcross.dart) || err "local build failed"
 
-download "$base_url/$LICENSE_ASSET" "$staging_dir/$LICENSE_ASSET" ||
-	err "download failed: $base_url/$LICENSE_ASSET"
-[ -s "$staging_dir/$LICENSE_ASSET" ] ||
-	err "downloaded file is empty: $base_url/$LICENSE_ASSET"
+	bundle_bin=$(find "$package_dir/build/cli" -type f \
+		-path '*/bundle/bin/xcross' -print 2>/dev/null | head -n 1)
+	[ -n "$bundle_bin" ] || err "local build did not produce bin/xcross"
+	bundle_dir=$(dirname "$(dirname "$bundle_bin")")
+	mkdir -p "$staging_dir/bin" "$staging_dir/lib"
+	cp -a "$bundle_dir/bin/." "$staging_dir/bin/"
+	cp -a "$bundle_dir/lib/." "$staging_dir/lib/"
+	cp "$license_source" "$staging_dir/$LICENSE_ASSET"
+else
+	# GitHub exposes the newest release under a stable `/latest/download/` path,
+	# while pinned versions live under `/download/<tag>/`.
+	if [ "$VERSION" = "latest" ]; then
+		base_url="https://github.com/$REPO/releases/latest/download"
+	else
+		base_url="https://github.com/$REPO/releases/download/$VERSION"
+	fi
+
+	# Define `download <url> <output-file>` on top of whichever fetcher exists.
+	if command -v curl >/dev/null 2>&1; then
+		download() { curl -fsSL "$1" -o "$2"; }
+	elif command -v wget >/dev/null 2>&1; then
+		download() { wget -qO "$2" "$1"; }
+	else
+		err "need curl or wget to download"
+	fi
+
+	info "Downloading $VERSION $archive_name..."
+	download "$base_url/$archive_name" "$staging_dir/$archive_name" ||
+		err "download failed: $base_url/$archive_name"
+	[ -s "$staging_dir/$archive_name" ] ||
+		err "downloaded file is empty: $base_url/$archive_name"
+	download "$base_url/$LICENSE_ASSET" "$staging_dir/$LICENSE_ASSET" ||
+		err "download failed: $base_url/$LICENSE_ASSET"
+	[ -s "$staging_dir/$LICENSE_ASSET" ] ||
+		err "downloaded file is empty: $base_url/$LICENSE_ASSET"
+	tar -C "$staging_dir" -xzf "$staging_dir/$archive_name" ||
+		err "failed to extract $archive_name"
+fi
 
 # ---------------------------------------------------------------------------
-# Step 3 — unpack and sanity-check the archive
+# Step 3 — sanity-check the staged bundle
 # ---------------------------------------------------------------------------
-
-tar -C "$staging_dir" -xzf "$staging_dir/$archive_name" ||
-	err "failed to extract $archive_name"
 
 # Verify the bundle really has both halves before touching the system, so a
 # malformed release cannot leave a binary installed without its libraries.
