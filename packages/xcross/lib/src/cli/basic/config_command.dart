@@ -11,6 +11,12 @@ typedef ConfigConfirm = bool Function(String label);
 
 enum ConfigTab { roots, toolchains, tools, environment, setup, commands }
 
+enum _ConfigAction { save, validate, discard, quit }
+
+enum _Toolchain { swift, llvm }
+
+enum _ConfigRoot { darwinSdk, flutterSdk, xcross, javaHome, konanData }
+
 extension on ConfigTab {
   String get label => switch (this) {
     ConfigTab.roots => 'Roots',
@@ -22,16 +28,17 @@ extension on ConfigTab {
   };
 }
 
+extension on _ConfigAction {
+  String get label => switch (this) {
+    _ConfigAction.save => 'Save',
+    _ConfigAction.validate => 'Validate',
+    _ConfigAction.discard => 'Discard',
+    _ConfigAction.quit => 'Quit',
+  };
+}
+
 final class ConfigTuiController {
   ConfigTuiController(XcrossConfig config) : config = config, _saved = config;
-
-  static const rootNames = [
-    'darwinSdk',
-    'flutterSdk',
-    'xcross',
-    'javaHome',
-    'konanData',
-  ];
 
   XcrossConfig config;
   XcrossConfig _saved;
@@ -65,15 +72,15 @@ final class ConfigTuiController {
   };
 
   int get rowCount => switch (tab) {
-    ConfigTab.roots => rootNames.length,
-    ConfigTab.toolchains => 2,
+    ConfigTab.roots => _ConfigRoot.values.length,
+    ConfigTab.toolchains => _Toolchain.values.length,
     ConfigTab.setup => 1,
     ConfigTab.tools ||
     ConfigTab.environment ||
     ConfigTab.commands => _entries.length + 1,
   };
 
-  int get itemCount => rowCount + 4;
+  int get itemCount => rowCount + _ConfigAction.values.length;
 
   Future<bool> handle(
     TuiKey key, {
@@ -94,20 +101,45 @@ final class ConfigTuiController {
           selection = (selection + 1) % itemCount;
         case TuiKey.enter:
           if (selection < rowCount) {
-            _edit(prompt);
+            _editSelectedRow(prompt);
           } else {
-            return await _action(selection - rowCount, confirm, save, validate);
+            return await _performAction(
+              _ConfigAction.values[selection - rowCount],
+              confirm,
+              save,
+              validate,
+            );
           }
         case TuiKey.delete:
-          _delete(confirm);
+          _deleteSelectedRow(confirm);
         case TuiKey.save:
-          return await _action(0, confirm, save, validate);
+          return await _performAction(
+            _ConfigAction.save,
+            confirm,
+            save,
+            validate,
+          );
         case TuiKey.validate:
-          return await _action(1, confirm, save, validate);
+          return await _performAction(
+            _ConfigAction.validate,
+            confirm,
+            save,
+            validate,
+          );
         case TuiKey.discard:
-          return await _action(2, confirm, save, validate);
+          return await _performAction(
+            _ConfigAction.discard,
+            confirm,
+            save,
+            validate,
+          );
         case TuiKey.quit:
-          return await _action(3, confirm, save, validate);
+          return await _performAction(
+            _ConfigAction.quit,
+            confirm,
+            save,
+            validate,
+          );
         case TuiKey.other:
           break;
       }
@@ -124,76 +156,108 @@ final class ConfigTuiController {
     status = '';
   }
 
-  void _edit(ConfigPrompt prompt) {
+  void _editSelectedRow(ConfigPrompt prompt) {
     switch (tab) {
       case ConfigTab.roots:
-        final roots = Map<String, String>.from(config.roots.toMap());
-        final name = rootNames[selection];
-        final value = prompt('$name absolute path (empty removes)');
-        if (value == null) return;
-        value.trim().isEmpty ? roots.remove(name) : roots[name] = value.trim();
-        config = _copy(roots: roots);
+        _editRoot(prompt);
       case ConfigTab.toolchains:
-        final value = prompt(
-          selection == 0
-              ? 'Swift bin directory (empty removes)'
-              : 'LLVM bin directories, comma-separated (empty removes)',
-        );
-        if (value == null) return;
-        config = _copy(
-          toolchains: XcrossConfigToolchains(
-            swift: selection == 0
-                ? (value.trim().isEmpty ? null : value.trim())
-                : config.toolchains.swift,
-            llvm: selection == 1 ? _split(value) : config.toolchains.llvm,
-          ),
-        );
+        _editToolchain(prompt);
       case ConfigTab.tools:
-        final entries = _entries;
-        if (selection == entries.length) {
-          final name = prompt('Tool name')?.trim();
-          if (name == null || name.isEmpty) return;
-          _setTool(name, prompt('Executable path')?.trim());
-        } else {
-          final entry = entries[selection];
-          _setTool(entry.key, prompt('${entry.key} executable path')?.trim());
-        }
+        _editTool(prompt);
       case ConfigTab.environment:
-        final entries = _entries;
-        if (selection == entries.length) {
-          final name = prompt('Environment key')?.trim().toUpperCase();
-          if (name == null || name.isEmpty) return;
-          if (!XcrossConfig.environmentAllowlist.contains(name)) {
-            status = '$name is not allowlisted.';
-            return;
-          }
-          _setEnvironment(name, prompt(_environmentLabel(name))?.trim());
-        } else {
-          final entry = entries[selection];
-          _setEnvironment(
-            entry.key,
-            prompt(_environmentLabel(entry.key))?.trim(),
-          );
-        }
+        _editEnvironment(prompt);
       case ConfigTab.setup:
-        final value = prompt(
-          'Setup script absolute path or HTTP(S) URL (empty removes)',
-        );
-        if (value == null) return;
-        config = _withSetup(value.trim().isEmpty ? null : value.trim());
+        _editSetup(prompt);
       case ConfigTab.commands:
-        final entries = _entries;
-        final command = prompt(
-          selection == entries.length
-              ? 'Command to exclude'
-              : 'Excluded command name (empty removes)',
-        )?.trim().toLowerCase();
-        if (command == null) return;
-        final commands = config.excludedCommands.toSet();
-        if (selection < entries.length) commands.remove(entries[selection].key);
-        if (command.isNotEmpty) commands.add(command);
-        config = _copy(excludedCommands: commands);
+        _editExcludedCommand(prompt);
     }
+  }
+
+  void _editRoot(ConfigPrompt prompt) {
+    final root = _ConfigRoot.values[selection];
+    final value = prompt('${root.name} absolute path (empty removes)');
+    if (value == null) return;
+    final path = value.trim().isEmpty ? null : value.trim();
+    final roots = switch (root) {
+      _ConfigRoot.darwinSdk => config.roots.copyWith(darwinSdk: path),
+      _ConfigRoot.flutterSdk => config.roots.copyWith(flutterSdk: path),
+      _ConfigRoot.xcross => config.roots.copyWith(xcross: path),
+      _ConfigRoot.javaHome => config.roots.copyWith(javaHome: path),
+      _ConfigRoot.konanData => config.roots.copyWith(konanData: path),
+    };
+    config = config.copyWith(roots: roots);
+  }
+
+  void _editToolchain(ConfigPrompt prompt) {
+    final toolchain = _Toolchain.values[selection];
+    final value = prompt(switch (toolchain) {
+      _Toolchain.swift => 'Swift bin directory (empty removes)',
+      _Toolchain.llvm =>
+        'LLVM bin directories, comma-separated (empty removes)',
+    });
+    if (value == null) return;
+    config = config.copyWith(
+      toolchains: switch (toolchain) {
+        _Toolchain.swift => XcrossConfigToolchains(
+          swift: value.trim().isEmpty ? null : value.trim(),
+          llvm: config.toolchains.llvm,
+        ),
+        _Toolchain.llvm => XcrossConfigToolchains(
+          swift: config.toolchains.swift,
+          llvm: _split(value),
+        ),
+      },
+    );
+  }
+
+  void _editTool(ConfigPrompt prompt) {
+    final entries = _entries;
+    if (selection == entries.length) {
+      final name = prompt('Tool name')?.trim();
+      if (name == null || name.isEmpty) return;
+      _setTool(name, prompt('Executable path')?.trim());
+    } else {
+      final entry = entries[selection];
+      _setTool(entry.key, prompt('${entry.key} executable path')?.trim());
+    }
+  }
+
+  void _editEnvironment(ConfigPrompt prompt) {
+    final entries = _entries;
+    if (selection == entries.length) {
+      final name = prompt('Environment key')?.trim().toUpperCase();
+      if (name == null || name.isEmpty) return;
+      if (!XcrossConfig.environmentAllowlist.contains(name)) {
+        status = '$name is not allowlisted.';
+        return;
+      }
+      _setEnvironment(name, prompt(_environmentLabel(name))?.trim());
+    } else {
+      final entry = entries[selection];
+      _setEnvironment(entry.key, prompt(_environmentLabel(entry.key))?.trim());
+    }
+  }
+
+  void _editSetup(ConfigPrompt prompt) {
+    final value = prompt(
+      'Setup script absolute path or HTTP(S) URL (empty removes)',
+    );
+    if (value == null) return;
+    config = config.copyWith(setup: value.trim().isEmpty ? null : value.trim());
+  }
+
+  void _editExcludedCommand(ConfigPrompt prompt) {
+    final entries = _entries;
+    final command = prompt(
+      selection == entries.length
+          ? 'Command to exclude'
+          : 'Excluded command name (empty removes)',
+    )?.trim().toLowerCase();
+    if (command == null) return;
+    final commands = config.excludedCommands.toSet();
+    if (selection < entries.length) commands.remove(entries[selection].key);
+    if (command.isNotEmpty) commands.add(command);
+    config = config.copyWith(excludedCommands: commands);
   }
 
   void _setTool(String name, String? value) {
@@ -201,7 +265,7 @@ final class ConfigTuiController {
     final tools = Map<String, String>.from(config.tools);
     final key = XcrossConfig.normalizeToolName(name);
     value.isEmpty ? tools.remove(key) : tools[key] = value;
-    config = _copy(tools: tools);
+    config = config.copyWith(tools: tools);
   }
 
   void _setEnvironment(String name, String? value) {
@@ -210,14 +274,14 @@ final class ConfigTuiController {
     value.isEmpty
         ? environment.remove(name)
         : environment[name] = name == 'PATH' ? _split(value) : value;
-    config = _copy(environment: environment);
+    config = config.copyWith(environment: environment);
   }
 
   String _environmentLabel(String name) => name == 'PATH'
       ? 'PATH entries, comma-separated (empty removes)'
       : '$name value (empty removes)';
 
-  void _delete(ConfigConfirm confirm) {
+  void _deleteSelectedRow(ConfigConfirm confirm) {
     if (selection >= rowCount) return;
     final entries = _entries;
     if ((tab == ConfigTab.tools ||
@@ -227,100 +291,77 @@ final class ConfigTuiController {
       return;
     }
     final name = switch (tab) {
-      ConfigTab.roots => rootNames[selection],
-      ConfigTab.toolchains => selection == 0 ? 'swift' : 'llvm',
+      ConfigTab.roots => _ConfigRoot.values[selection].name,
+      ConfigTab.toolchains => _Toolchain.values[selection].name,
       ConfigTab.setup => 'setup',
       _ => entries[selection].key,
     };
     if (!confirm('Delete $name? [y/N]')) return;
     switch (tab) {
       case ConfigTab.roots:
-        config = _copy(
-          roots: Map<String, String>.from(config.roots.toMap())..remove(name),
-        );
+        final root = _ConfigRoot.values[selection];
+        final roots = switch (root) {
+          _ConfigRoot.darwinSdk => config.roots.copyWith(darwinSdk: null),
+          _ConfigRoot.flutterSdk => config.roots.copyWith(flutterSdk: null),
+          _ConfigRoot.xcross => config.roots.copyWith(xcross: null),
+          _ConfigRoot.javaHome => config.roots.copyWith(javaHome: null),
+          _ConfigRoot.konanData => config.roots.copyWith(konanData: null),
+        };
+        config = config.copyWith(roots: roots);
       case ConfigTab.toolchains:
-        config = _copy(
-          toolchains: XcrossConfigToolchains(
-            swift: selection == 0 ? null : config.toolchains.swift,
-            llvm: selection == 1 ? const [] : config.toolchains.llvm,
-          ),
+        config = config.copyWith(
+          toolchains: switch (_Toolchain.values[selection]) {
+            _Toolchain.swift => XcrossConfigToolchains(
+              llvm: config.toolchains.llvm,
+            ),
+            _Toolchain.llvm => XcrossConfigToolchains(
+              swift: config.toolchains.swift,
+            ),
+          },
         );
       case ConfigTab.tools:
-        config = _copy(
+        config = config.copyWith(
           tools: Map<String, String>.from(config.tools)..remove(name),
         );
       case ConfigTab.environment:
-        config = _copy(
+        config = config.copyWith(
           environment: Map<String, Object>.from(config.environment)
             ..remove(name),
         );
       case ConfigTab.setup:
-        config = _withSetup(null);
+        config = config.copyWith(setup: null);
       case ConfigTab.commands:
-        config = _copy(
+        config = config.copyWith(
           excludedCommands: config.excludedCommands.toSet()..remove(name),
         );
     }
     selection = selection.clamp(0, itemCount - 1);
   }
 
-  Future<bool> _action(
-    int action,
+  Future<bool> _performAction(
+    _ConfigAction action,
     ConfigConfirm confirm,
     Future<String> Function(XcrossConfig config) save,
     void Function(XcrossConfig config) validate,
   ) async {
     switch (action) {
-      case 0:
+      case _ConfigAction.save:
         validate(config);
         status = 'Saved ${await save(config)}';
         _saved = config;
-      case 1:
+      case _ConfigAction.validate:
         validate(config);
         status = 'Configuration is valid.';
-      case 2:
+      case _ConfigAction.discard:
         if (dirty && !confirm('Discard unsaved changes? [y/N]')) return false;
         config = _saved;
         status = 'Discarded unsaved changes.';
         selection = selection.clamp(0, itemCount - 1);
-      case 3:
+      case _ConfigAction.quit:
         return !dirty || confirm('Unsaved changes. Exit without saving? [y/N]');
     }
     return false;
   }
-
-  XcrossConfig _copy({
-    Map<String, String>? roots,
-    XcrossConfigToolchains? toolchains,
-    Map<String, String>? tools,
-    Map<String, Object>? environment,
-    Iterable<String>? excludedCommands,
-  }) {
-    final values = roots ?? config.roots.toMap();
-    return XcrossConfig(
-      roots: XcrossConfigRoots(
-        darwinSdk: values['darwinSdk'],
-        flutterSdk: values['flutterSdk'],
-        xcross: values['xcross'],
-        javaHome: values['javaHome'],
-        konanData: values['konanData'],
-      ),
-      toolchains: toolchains ?? config.toolchains,
-      tools: tools ?? config.tools,
-      environment: environment ?? config.environment,
-      setup: config.setup,
-      excludedCommands: excludedCommands ?? config.excludedCommands,
-    );
-  }
-
-  XcrossConfig _withSetup(String? setup) => XcrossConfig(
-    roots: config.roots,
-    toolchains: config.toolchains,
-    tools: config.tools,
-    environment: config.environment,
-    setup: setup,
-    excludedCommands: config.excludedCommands,
-  );
 
   static List<String> _split(String value) => value
       .split(',')
@@ -334,7 +375,7 @@ final class ConfigTuiController {
     selectedTab: tab.index,
     rows: _renderRows(),
     selection: selection,
-    actions: const ['Save', 'Validate', 'Discard', 'Quit'],
+    actions: _ConfigAction.values.map((action) => action.label).toList(),
     help:
         'Tab/←/→ tabs  ↑/↓ select  Enter edit  Delete remove  s/v/r/q actions',
     status: status,
@@ -344,7 +385,7 @@ final class ConfigTuiController {
 
   String renderPlainUpdate() {
     final rows = _renderRows();
-    const actions = ['Save', 'Validate', 'Discard', 'Quit'];
+    final actions = _ConfigAction.values.map((action) => action.label).toList();
     final item = selection < rows.length
         ? rows[selection]
         : '[${actions[selection - rows.length]}]';
@@ -357,8 +398,8 @@ final class ConfigTuiController {
 
   List<String> _renderRows() => switch (tab) {
     ConfigTab.roots => [
-      for (final name in rootNames)
-        '$name: ${config.roots.toMap()[name] ?? '<unset>'}',
+      for (final root in _ConfigRoot.values)
+        '${root.name}: ${config.roots.toMap()[root.name] ?? '<unset>'}',
     ],
     ConfigTab.toolchains => [
       'swift: ${config.toolchains.swift ?? '<unset>'}',

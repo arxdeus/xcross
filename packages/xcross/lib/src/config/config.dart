@@ -4,6 +4,14 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
+const _notProvided = _NotProvided();
+const _windowsExecutableExtensions = {'.exe', '.com', '.bat', '.cmd'};
+const _maximumEnvironmentExpansionDepth = 32;
+
+final class _NotProvided {
+  const _NotProvided();
+}
+
 /// A malformed or incomplete xcross configuration.
 final class XcrossConfigException implements Exception {
   const XcrossConfigException(this.message, {this.path});
@@ -32,6 +40,26 @@ final class XcrossConfigRoots {
   final String? xcross;
   final String? javaHome;
   final String? konanData;
+
+  XcrossConfigRoots copyWith({
+    Object? darwinSdk = _notProvided,
+    Object? flutterSdk = _notProvided,
+    Object? xcross = _notProvided,
+    Object? javaHome = _notProvided,
+    Object? konanData = _notProvided,
+  }) => XcrossConfigRoots(
+    darwinSdk: darwinSdk == _notProvided
+        ? this.darwinSdk
+        : darwinSdk as String?,
+    flutterSdk: flutterSdk == _notProvided
+        ? this.flutterSdk
+        : flutterSdk as String?,
+    xcross: xcross == _notProvided ? this.xcross : xcross as String?,
+    javaHome: javaHome == _notProvided ? this.javaHome : javaHome as String?,
+    konanData: konanData == _notProvided
+        ? this.konanData
+        : konanData as String?,
+  );
 
   Map<String, String> toMap() => {
     if (darwinSdk != null) 'darwinSdk': darwinSdk!,
@@ -98,6 +126,22 @@ final class XcrossConfig {
   final String? setup;
   final Set<String> excludedCommands;
 
+  XcrossConfig copyWith({
+    XcrossConfigRoots? roots,
+    XcrossConfigToolchains? toolchains,
+    Map<String, String>? tools,
+    Map<String, Object>? environment,
+    Object? setup = _notProvided,
+    Iterable<String>? excludedCommands,
+  }) => XcrossConfig(
+    roots: roots ?? this.roots,
+    toolchains: toolchains ?? this.toolchains,
+    tools: tools ?? this.tools,
+    environment: environment ?? this.environment,
+    setup: setup == _notProvided ? this.setup : setup as String?,
+    excludedCommands: excludedCommands ?? this.excludedCommands,
+  );
+
   String? tool(String name) => tools[normalizeToolName(name)];
 
   /// Validates paths needed by the configured operations.
@@ -107,6 +151,16 @@ final class XcrossConfig {
   void validate({bool? windows}) {
     final isWindows = windows ?? Platform.isWindows;
     final pathContext = isWindows ? p.windows : p.posix;
+
+    _validateRoots(pathContext);
+    _validateToolchains(pathContext);
+    _validateTools(pathContext, isWindows);
+    if (setup case final value?) _validateSetupScript(value, pathContext);
+    _validateExcludedCommands();
+    _validateEnvironment(pathContext);
+  }
+
+  void _validateRoots(p.Context pathContext) {
     for (final entry in roots.toMap().entries) {
       _rejectUnsafeString(entry.value, 'Root ${entry.key}');
       if (!pathContext.isAbsolute(entry.value)) {
@@ -115,11 +169,14 @@ final class XcrossConfig {
         );
       }
     }
-    final toolchainDirectories = <MapEntry<String, String>>[
+  }
+
+  void _validateToolchains(p.Context pathContext) {
+    final directories = <MapEntry<String, String>>[
       if (toolchains.swift case final swift?) MapEntry('swift', swift),
       for (final llvm in toolchains.llvm) MapEntry('llvm', llvm),
     ];
-    for (final entry in toolchainDirectories) {
+    for (final entry in directories) {
       _rejectUnsafeString(entry.value, 'Toolchain ${entry.key} directory');
       if (!pathContext.isAbsolute(entry.value)) {
         throw XcrossConfigException(
@@ -127,6 +184,9 @@ final class XcrossConfig {
         );
       }
     }
+  }
+
+  void _validateTools(p.Context pathContext, bool windows) {
     for (final entry in tools.entries) {
       _rejectUnsafeString(entry.key, 'Tool name');
       _rejectUnsafeString(entry.value, 'Tool ${entry.key} path');
@@ -141,13 +201,10 @@ final class XcrossConfig {
           'Tool ${entry.key} must be a regular file: ${entry.value}',
         );
       }
-      final executable = isWindows
-          ? const {
-              '.exe',
-              '.com',
-              '.bat',
-              '.cmd',
-            }.contains(p.windows.extension(entry.value).toLowerCase())
+      final executable = windows
+          ? _windowsExecutableExtensions.contains(
+              p.windows.extension(entry.value).toLowerCase(),
+            )
           : stat.mode & 0x49 != 0;
       if (!executable) {
         throw XcrossConfigException(
@@ -155,9 +212,9 @@ final class XcrossConfig {
         );
       }
     }
-    if (setup case final value?) {
-      _validateSetupScript(value, pathContext);
-    }
+  }
+
+  void _validateExcludedCommands() {
     for (final command in excludedCommands) {
       _rejectUnsafeString(command, 'Excluded command');
       if (command.isEmpty || command.contains(RegExp(r'\s'))) {
@@ -166,6 +223,9 @@ final class XcrossConfig {
         );
       }
     }
+  }
+
+  void _validateEnvironment(p.Context pathContext) {
     for (final entry in environment.entries) {
       if (entry.value case final List<String> paths) {
         for (final value in paths) {
@@ -201,7 +261,7 @@ final class XcrossConfig {
 
   static String normalizeToolName(String name) {
     var normalized = name.trim().toLowerCase();
-    for (final extension in const ['.exe', '.cmd', '.bat', '.com']) {
+    for (final extension in _windowsExecutableExtensions) {
       if (normalized.endsWith(extension)) {
         normalized = normalized.substring(
           0,
@@ -230,172 +290,12 @@ final class XcrossConfig {
         path: sourcePath,
       );
     }
-    final root = _stringMap(document, r'$', sourcePath);
-    _onlyKeys(
-      root,
-      const {
-        'roots',
-        'toolchains',
-        'tools',
-        'environment',
-        'excluded_commands',
-        'setup',
-      },
-      r'$',
-      sourcePath,
-    );
-    final env = environment ?? Platform.environment;
-    final isWindows = windows ?? Platform.isWindows;
-    final rootsNode = root['roots'] == null
-        ? <String, Object?>{}
-        : _stringMap(root['roots'], r'$.roots', sourcePath);
-    _onlyKeys(
-      rootsNode,
-      const {'darwinSdk', 'flutterSdk', 'xcross', 'javaHome', 'konanData'},
-      r'$.roots',
-      sourcePath,
-    );
-    String? rootValue(String key) {
-      final value = rootsNode[key];
-      if (value == null) return null;
-      return _expandedString(
-        value,
-        r'$.roots.' + key,
-        env,
-        isWindows,
-        sourcePath,
-      );
-    }
-
-    final toolchainsNode = root['toolchains'] == null
-        ? <String, Object?>{}
-        : _stringMap(root['toolchains'], r'$.toolchains', sourcePath);
-    _onlyKeys(
-      toolchainsNode,
-      const {'swift', 'llvm'},
-      r'$.toolchains',
-      sourcePath,
-    );
-    final swift = toolchainsNode['swift'] == null
-        ? null
-        : _expandedString(
-            toolchainsNode['swift'],
-            r'$.toolchains.swift',
-            env,
-            isWindows,
-            sourcePath,
-          );
-    final llvmValue = toolchainsNode['llvm'];
-    final llvm = llvmValue == null
-        ? <String>[]
-        : llvmValue is String
-        ? <String>[
-            _expandedString(
-              llvmValue,
-              r'$.toolchains.llvm',
-              env,
-              isWindows,
-              sourcePath,
-            ),
-          ]
-        : _expandedStringList(
-            llvmValue,
-            r'$.toolchains.llvm',
-            env,
-            isWindows,
-            sourcePath,
-          );
-
-    final toolsNode = root['tools'] == null
-        ? <String, Object?>{}
-        : _stringMap(root['tools'], r'$.tools', sourcePath);
-    final tools = <String, String>{};
-    for (final entry in toolsNode.entries) {
-      final name = normalizeToolName(entry.key);
-      if (name.isEmpty) {
-        throw XcrossConfigException(
-          'Tool names must not be empty',
-          path: sourcePath,
-        );
-      }
-      if (tools.containsKey(name)) {
-        throw XcrossConfigException(
-          'Duplicate tool after executable-extension normalization: ${entry.key}',
-          path: sourcePath,
-        );
-      }
-      tools[name] = _expandedString(
-        entry.value,
-        r'$.tools.' + entry.key,
-        env,
-        isWindows,
-        sourcePath,
-      );
-    }
-
-    final environmentNode = root['environment'] == null
-        ? <String, Object?>{}
-        : _stringMap(root['environment'], r'$.environment', sourcePath);
-    final configuredEnvironment = <String, Object>{};
-    for (final entry in environmentNode.entries) {
-      if (!environmentAllowlist.contains(entry.key)) {
-        throw XcrossConfigException(
-          'Environment variable ${entry.key} is not allowlisted',
-          path: sourcePath,
-        );
-      }
-      configuredEnvironment[entry.key] = entry.key == 'PATH'
-          ? _expandedStringList(
-              entry.value,
-              r'$.environment.PATH',
-              env,
-              isWindows,
-              sourcePath,
-            )
-          : _expandedString(
-              entry.value,
-              r'$.environment.' + entry.key,
-              env,
-              isWindows,
-              sourcePath,
-            );
-    }
-
-    final setup = root['setup'] == null
-        ? null
-        : _expandedString(
-            root['setup'],
-            r'$.setup',
-            env,
-            isWindows,
-            sourcePath,
-          );
-    final excludedCommands = root['excluded_commands'] == null
-        ? <String>[]
-        : _expandedStringList(
-            root['excluded_commands'],
-            r'$.excluded_commands',
-            env,
-            isWindows,
-            sourcePath,
-          );
-
-    final config = XcrossConfig(
-      roots: XcrossConfigRoots(
-        darwinSdk: rootValue('darwinSdk'),
-        flutterSdk: rootValue('flutterSdk'),
-        xcross: rootValue('xcross'),
-        javaHome: rootValue('javaHome'),
-        konanData: rootValue('konanData'),
-      ),
-      toolchains: XcrossConfigToolchains(swift: swift, llvm: llvm),
-      tools: tools,
-      environment: configuredEnvironment,
-      setup: setup,
-      excludedCommands: excludedCommands,
-    );
-    config.validate(windows: isWindows);
-    return config;
+    return _ConfigDecoder(
+      document: document,
+      sourcePath: sourcePath,
+      environment: environment ?? Platform.environment,
+      windows: windows ?? Platform.isWindows,
+    ).decode();
   }
 
   /// Alias suitable for callers that treat parsing as deserialization.
@@ -515,6 +415,140 @@ final class XcrossConfig {
     }
     return result;
   }
+}
+
+final class _ConfigDecoder {
+  const _ConfigDecoder({
+    required this.document,
+    required this.sourcePath,
+    required this.environment,
+    required this.windows,
+  });
+
+  static const _rootKeys = {
+    'roots',
+    'toolchains',
+    'tools',
+    'environment',
+    'excluded_commands',
+    'setup',
+  };
+  static const _rootsKeys = {
+    'darwinSdk',
+    'flutterSdk',
+    'xcross',
+    'javaHome',
+    'konanData',
+  };
+  static const _toolchainKeys = {'swift', 'llvm'};
+
+  final Object? document;
+  final String? sourcePath;
+  final Map<String, String> environment;
+  final bool windows;
+
+  XcrossConfig decode() {
+    final root = _stringMap(document, r'$', sourcePath);
+    _onlyKeys(root, _rootKeys, r'$', sourcePath);
+
+    final config = XcrossConfig(
+      roots: _decodeRoots(root['roots']),
+      toolchains: _decodeToolchains(root['toolchains']),
+      tools: _decodeTools(root['tools']),
+      environment: _decodeEnvironment(root['environment']),
+      setup: _optionalString(root['setup'], r'$.setup'),
+      excludedCommands: _optionalStringList(
+        root['excluded_commands'],
+        r'$.excluded_commands',
+      ),
+    );
+    config.validate(windows: windows);
+    return config;
+  }
+
+  XcrossConfigRoots _decodeRoots(Object? value) {
+    final roots = _optionalMap(value, r'$.roots');
+    _onlyKeys(roots, _rootsKeys, r'$.roots', sourcePath);
+
+    return XcrossConfigRoots(
+      darwinSdk: _optionalString(roots['darwinSdk'], r'$.roots.darwinSdk'),
+      flutterSdk: _optionalString(roots['flutterSdk'], r'$.roots.flutterSdk'),
+      xcross: _optionalString(roots['xcross'], r'$.roots.xcross'),
+      javaHome: _optionalString(roots['javaHome'], r'$.roots.javaHome'),
+      konanData: _optionalString(roots['konanData'], r'$.roots.konanData'),
+    );
+  }
+
+  XcrossConfigToolchains _decodeToolchains(Object? value) {
+    final toolchains = _optionalMap(value, r'$.toolchains');
+    _onlyKeys(toolchains, _toolchainKeys, r'$.toolchains', sourcePath);
+
+    final llvm = toolchains['llvm'];
+    return XcrossConfigToolchains(
+      swift: _optionalString(toolchains['swift'], r'$.toolchains.swift'),
+      llvm: llvm == null
+          ? const []
+          : llvm is String
+          ? [_requiredString(llvm, r'$.toolchains.llvm')]
+          : _requiredStringList(llvm, r'$.toolchains.llvm'),
+    );
+  }
+
+  Map<String, String> _decodeTools(Object? value) {
+    final node = _optionalMap(value, r'$.tools');
+    final tools = <String, String>{};
+    for (final entry in node.entries) {
+      final name = XcrossConfig.normalizeToolName(entry.key);
+      if (name.isEmpty) {
+        throw XcrossConfigException(
+          'Tool names must not be empty',
+          path: sourcePath,
+        );
+      }
+      if (tools.containsKey(name)) {
+        throw XcrossConfigException(
+          'Duplicate tool after executable-extension normalization: ${entry.key}',
+          path: sourcePath,
+        );
+      }
+      tools[name] = _requiredString(entry.value, r'$.tools.' + entry.key);
+    }
+    return tools;
+  }
+
+  Map<String, Object> _decodeEnvironment(Object? value) {
+    final node = _optionalMap(value, r'$.environment');
+    final configured = <String, Object>{};
+    for (final entry in node.entries) {
+      if (!XcrossConfig.environmentAllowlist.contains(entry.key)) {
+        throw XcrossConfigException(
+          'Environment variable ${entry.key} is not allowlisted',
+          path: sourcePath,
+        );
+      }
+      configured[entry.key] = entry.key == 'PATH'
+          ? _requiredStringList(entry.value, r'$.environment.PATH')
+          : _requiredString(entry.value, r'$.environment.' + entry.key);
+    }
+    return configured;
+  }
+
+  Map<String, Object?> _optionalMap(Object? value, String field) =>
+      value == null
+      ? <String, Object?>{}
+      : _stringMap(value, field, sourcePath);
+
+  String? _optionalString(Object? value, String field) =>
+      value == null ? null : _requiredString(value, field);
+
+  String _requiredString(Object? value, String field) =>
+      _expandedString(value, field, environment, windows, sourcePath);
+
+  List<String> _optionalStringList(Object? value, String field) =>
+      value == null ? const [] : _requiredStringList(value, field);
+
+  List<String> _requiredStringList(Object? value, String field) =>
+      _expandedStringList(value, field, environment, windows, sourcePath);
 }
 
 /// Discovers, loads, and atomically stores xcross configuration files.
@@ -743,7 +777,7 @@ String expandNativeEnvironment(
     result = '${variable('HOME')}${result.substring(1)}';
   }
   final seen = <String>{};
-  for (var depth = 0; depth < 32; depth++) {
+  for (var depth = 0; depth < _maximumEnvironmentExpansionDepth; depth++) {
     if (!seen.add(result)) {
       throw XcrossConfigException(
         'Environment expansion contains a cycle',
@@ -757,7 +791,7 @@ String expandNativeEnvironment(
     );
   }
   throw XcrossConfigException(
-    'Environment expansion exceeded 32 levels or remains unresolved',
+    'Environment expansion exceeded $_maximumEnvironmentExpansionDepth levels or remains unresolved',
     path: sourcePath,
   );
 }

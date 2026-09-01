@@ -59,6 +59,28 @@ environment:
     expect(config.excludedCommands, {'setup', 'config'});
   });
 
+  test('copyWith preserves immutable values and can clear nullable fields', () {
+    final original = XcrossConfig(
+      roots: const XcrossConfigRoots(
+        darwinSdk: '/opt/darwin',
+        flutterSdk: '/opt/flutter',
+      ),
+      setup: '/opt/setup.sh',
+      excludedCommands: const ['config'],
+    );
+
+    final updated = original.copyWith(
+      roots: original.roots.copyWith(flutterSdk: null),
+      setup: null,
+    );
+
+    expect(updated.roots.darwinSdk, '/opt/darwin');
+    expect(updated.roots.flutterSdk, isNull);
+    expect(updated.setup, isNull);
+    expect(updated.excludedCommands, {'config'});
+    expect(() => updated.excludedCommands.add('setup'), throwsUnsupportedError);
+  });
+
   test(
     'allows roots and operation-specific roots to be omitted while parsing',
     () {
