@@ -27,6 +27,25 @@ void main() {
     expect(XcrossCli.buildRunner().commands['config'], isA<ConfigCommand>());
   });
 
+  test('entrypoint reports runtime config initialization failures', () async {
+    final malformed = File(p.join(temporary.path, 'malformed.yaml'))
+      ..writeAsStringSync('roots: [');
+    final result = await Process.run(
+      Platform.resolvedExecutable,
+      ['run', 'bin/xcross.dart', '--version'],
+      workingDirectory: Directory.current.path,
+      environment: {
+        XcrossConfigStore.selectorVariable: malformed.path,
+        'NO_COLOR': '1',
+      },
+    );
+
+    expect(result.exitCode, 1);
+    expect(result.stderr, contains('error: ${malformed.path}: Invalid YAML:'));
+    expect(result.stderr, isNot(contains('Unhandled exception')));
+    expect(result.stderr, isNot(contains('XcrossConfigException')));
+  });
+
   test('runner omits configured top-level commands', () async {
     final runner = XcrossCli.buildRunner(
       excludedCommands: const ['setup', 'config'],
@@ -147,6 +166,35 @@ void main() {
     expect(await handle(clean, TuiKey.quit, confirmations: [true]), isTrue);
   });
 
+  test('controller reports expected config and file failures', () async {
+    final controller = ConfigTuiController(XcrossConfig());
+    await handle(
+      controller,
+      TuiKey.validate,
+      validate: (_) => throw const XcrossConfigException('invalid value'),
+    );
+    expect(controller.status, contains('invalid value'));
+
+    await handle(
+      controller,
+      TuiKey.save,
+      save: (_) async => throw const FileSystemException('write failed'),
+    );
+    expect(controller.status, contains('write failed'));
+  });
+
+  test('controller does not hide unexpected programming errors', () async {
+    final controller = ConfigTuiController(XcrossConfig());
+    await expectLater(
+      handle(
+        controller,
+        TuiKey.validate,
+        validate: (_) => throw StateError('unexpected'),
+      ),
+      throwsStateError,
+    );
+  });
+
   test('render includes ANSI redraw, tabs, rows, actions, and selection', () {
     final controller =
         ConfigTuiController(
@@ -210,7 +258,7 @@ void main() {
     },
   );
 
-  test('show emits serializer output and validate reports success', () async {
+  test('show separates its header from exact YAML output', () async {
     final executable = File(p.join(temporary.path, 'tool'))
       ..writeAsStringSync('#!/bin/sh\n');
     Process.runSync('chmod', ['755', executable.path]);
@@ -219,18 +267,18 @@ void main() {
       tools: {'tool': executable.path},
     );
     await store.save(config);
-    final output = <String>[];
+    final output = StringBuffer();
     final runner = CommandRunner<void>('xcross', 'test')
-      ..addCommand(ConfigCommand(store: store, writeLine: output.add));
+      ..addCommand(ConfigCommand(store: store, writeLine: output.writeln));
 
     await runner.run(['config', 'show']);
-    expect(output, [
-      'Selected: ${store.selectedFile()!.path}',
-      config.toYaml(),
-    ]);
+    expect(
+      output.toString(),
+      'Selected: ${store.selectedFile()!.path}\n${config.toYaml()}',
+    );
     output.clear();
     await runner.run(['config', 'validate']);
-    expect(output, ['Configuration is valid.']);
+    expect(output.toString(), 'Configuration is valid.\n');
   });
 
   test('interactive command requires a TTY', () async {
@@ -265,6 +313,7 @@ Future<bool> handle(
   List<String> answers = const [],
   List<bool> confirmations = const [],
   Future<String> Function(XcrossConfig config)? save,
+  void Function(XcrossConfig config)? validate,
 }) {
   final answerQueue = Queue<String>.of(answers);
   final confirmationQueue = Queue<bool>.of(confirmations);
@@ -274,7 +323,7 @@ Future<bool> handle(
     confirm: (_) =>
         confirmationQueue.isNotEmpty && confirmationQueue.removeFirst(),
     save: save ?? (_) async => '/config.yaml',
-    validate: (_) {},
+    validate: validate ?? (_) {},
   );
 }
 

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -14,6 +15,9 @@ typedef SetupScriptExecute =
     Future<void> Function(String executable, List<String> arguments);
 
 final class SetupScriptManager {
+  static const _downloadTimeout = Duration(seconds: 30);
+  static final _contentHashPattern = RegExp(r'^[0-9a-f]{64}$');
+
   SetupScriptManager({
     String? source,
     Map<String, String>? environment,
@@ -58,12 +62,12 @@ final class SetupScriptManager {
     }
 
     final contentHash = sha256.convert(contents).toString();
-    final cachedScript = File(p.join(_cacheDirectory, '$contentHash.sh'));
+    final cachedScript = _cachedFile(contentHash);
     cachedScript.parent.createSync(recursive: true);
-    if (!cachedScript.existsSync()) {
-      cachedScript.writeAsBytesSync(contents, flush: true);
+    if (!_hasDigest(cachedScript, contentHash)) {
+      _writeBytesAtomically(cachedScript, contents);
     }
-    _cachePointer(uri).writeAsStringSync(contentHash, flush: true);
+    _writeStringAtomically(_cachePointer(uri), contentHash);
     return cachedScript;
   }
 
@@ -104,9 +108,80 @@ final class SetupScriptManager {
     final pointer = _cachePointer(uri);
     if (!pointer.existsSync()) return null;
 
-    final contentHash = pointer.readAsStringSync().trim();
-    final script = File(p.join(_cacheDirectory, '$contentHash.sh'));
-    return script.existsSync() ? script : null;
+    try {
+      final contentHash = pointer.readAsStringSync().trim();
+      if (!_contentHashPattern.hasMatch(contentHash)) return null;
+
+      final script = _cachedFile(contentHash);
+      return _hasDigest(script, contentHash) ? script : null;
+    } on FileSystemException {
+      return null;
+    }
+  }
+
+  File _cachedFile(String contentHash) =>
+      File(p.join(_cacheDirectory, '$contentHash${windows ? '.ps1' : '.sh'}'));
+
+  bool _hasDigest(File file, String expected) {
+    if (!file.existsSync()) return false;
+    try {
+      return sha256.convert(file.readAsBytesSync()).toString() == expected;
+    } on FileSystemException {
+      return false;
+    }
+  }
+
+  void _writeBytesAtomically(File destination, List<int> contents) {
+    final temporary = _temporaryFile(destination);
+    try {
+      temporary.writeAsBytesSync(contents, flush: true);
+      _replaceAtomically(temporary, destination);
+    } finally {
+      _deleteTemporaryFile(temporary);
+    }
+  }
+
+  void _writeStringAtomically(File destination, String contents) {
+    final temporary = _temporaryFile(destination);
+    try {
+      temporary.writeAsStringSync(contents, flush: true);
+      _replaceAtomically(temporary, destination);
+    } finally {
+      _deleteTemporaryFile(temporary);
+    }
+  }
+
+  void _deleteTemporaryFile(File temporary) {
+    try {
+      if (temporary.existsSync()) temporary.deleteSync();
+    } on FileSystemException {
+      return;
+    }
+  }
+
+  File _temporaryFile(File destination) => File(
+    '${destination.path}.$pid.${DateTime.now().microsecondsSinceEpoch}.tmp',
+  );
+
+  void _replaceAtomically(File temporary, File destination) {
+    try {
+      temporary.renameSync(destination.path);
+      return;
+    } on FileSystemException {
+      if (!windows || !destination.existsSync()) rethrow;
+    }
+
+    final backup = _temporaryFile(destination);
+    destination.renameSync(backup.path);
+    try {
+      temporary.renameSync(destination.path);
+      backup.deleteSync();
+    } on FileSystemException {
+      if (!destination.existsSync() && backup.existsSync()) {
+        backup.renameSync(destination.path);
+      }
+      rethrow;
+    }
   }
 
   File _cachePointer(Uri uri) {
@@ -134,13 +209,39 @@ final class SetupScriptManager {
       XcrossConfig.remoteSetupScriptUri(value);
 
   static Future<List<int>> _downloadBytes(Uri uri) async {
-    final response = await http.get(uri);
-    if (response.statusCode < 200 || response.statusCode >= 300) {
+    try {
+      final response = await http.get(uri).timeout(_downloadTimeout);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw XcrossError(
+          'Failed to download configured setup script: '
+          'HTTP ${response.statusCode}',
+        );
+      }
+      return response.bodyBytes;
+    } on XcrossError {
+      rethrow;
+    } on TimeoutException {
       throw XcrossError(
-        'Failed to download configured setup script: HTTP ${response.statusCode}',
+        'Failed to download configured setup script: '
+        'request timed out after ${_downloadTimeout.inSeconds} seconds '
+        '(${_displayUri(uri)})',
+      );
+    } on Exception catch (error) {
+      throw XcrossError(
+        'Failed to download configured setup script from '
+        '${_displayUri(uri)}: $error',
       );
     }
-    return response.bodyBytes;
+  }
+
+  static String _displayUri(Uri uri) {
+    final sanitized = Uri(
+      scheme: uri.scheme,
+      host: uri.host,
+      port: uri.hasPort ? uri.port : null,
+      path: uri.path,
+    );
+    return sanitized.toString();
   }
 
   static Future<void> _executeScript(

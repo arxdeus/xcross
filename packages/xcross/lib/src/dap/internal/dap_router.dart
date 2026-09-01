@@ -41,6 +41,30 @@ final class DapRouter {
     _declarative = false;
   }
 
+  static String? resolveFlutterExecutable({String? projectRoot}) {
+    var flutterRoot =
+        _flutterRootOverride ??
+        _flutterEnvironmentRoot ??
+        (_declarative ? null : Platform.environment['FLUTTER_ROOT']);
+    if (flutterRoot == null) {
+      final fvm = p.join(
+        projectRoot ?? Directory.current.path,
+        '.fvm',
+        'flutter_sdk',
+      );
+      if (Directory(fvm).existsSync() || Link(fvm).existsSync()) {
+        flutterRoot = Link(fvm).resolveSymbolicLinksSync();
+      }
+    }
+    return flutterRoot == null
+        ? _flutterToolOverride
+        : p.join(
+            flutterRoot,
+            'bin',
+            Platform.isWindows ? 'flutter.bat' : 'flutter',
+          );
+  }
+
   final Stream<List<int>> _input;
   final StreamSink<List<int>> _output;
   final void Function(ByteStreamServerChannel channel) _startXcross;
@@ -173,24 +197,7 @@ final class DapRouter {
     Stream<List<int>> inbound,
     DapResponseFilter outbound,
   ) async {
-    var flutterRoot =
-        _flutterRootOverride ??
-        (_declarative
-            ? _flutterEnvironmentRoot
-            : Platform.environment['FLUTTER_ROOT']);
-    if (flutterRoot == null) {
-      final fvm = p.join(Directory.current.path, '.fvm', 'flutter_sdk');
-      if (Directory(fvm).existsSync() || Link(fvm).existsSync()) {
-        flutterRoot = Link(fvm).resolveSymbolicLinksSync();
-      }
-    }
-    final flutter = flutterRoot == null
-        ? _flutterToolOverride
-        : p.join(
-            flutterRoot,
-            'bin',
-            Platform.isWindows ? 'flutter.bat' : 'flutter',
-          );
+    final flutter = resolveFlutterExecutable();
     if (flutter == null) {
       stderr.writeln(
         'xcross dap: launch config is missing "env": {"XCROSS": "true"} '

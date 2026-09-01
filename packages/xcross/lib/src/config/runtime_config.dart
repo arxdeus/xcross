@@ -143,7 +143,7 @@ final class XcrossRuntimeConfig {
       root: roots.flutterSdk,
       environmentRoot: flutterEnvironment,
       tool: config.tool('flutter'),
-      declarative: false,
+      declarative: true,
     );
     ComposeSetupOptions.configureCacheRootOverride(roots.konanData);
     configureXcrossLauncherOverride(
@@ -160,7 +160,7 @@ final class XcrossRuntimeConfig {
       root: roots.flutterSdk,
       environmentRoot: flutterEnvironment,
       tool: config.tool('flutter'),
-      declarative: false,
+      declarative: true,
     );
     XcrossDap.configureLauncherOverride(roots.xcross);
   }

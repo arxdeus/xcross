@@ -22,28 +22,41 @@ final class FlutterToolWorkspace {
     required IosEngineCache engineCache,
   }) async {
     final root = await _createWorkspaceRoot(engineCache);
-    final cache = await _createCacheDirectory(root);
-    await _overlaySdkMetadata(flutterRoot: flutterRoot, workspaceRoot: root);
+    try {
+      final cache = await _createCacheDirectory(root);
+      await _overlaySdkMetadata(flutterRoot: flutterRoot, workspaceRoot: root);
 
-    final sdkCache = p.join(flutterRoot, 'bin', 'cache');
-    await _overlaySdkCache(
-      sdkCache: sdkCache,
-      workspaceCache: cache,
-      engineCache: engineCache,
-    );
+      final sdkCache = p.join(flutterRoot, 'bin', 'cache');
+      await _overlaySdkCache(
+        sdkCache: sdkCache,
+        workspaceCache: cache,
+        engineCache: engineCache,
+      );
 
-    return FlutterToolWorkspace._(
-      flutterRoot: root,
-      dart: p.join(
-        flutterRoot,
-        'bin',
-        'cache',
-        'dart-sdk',
-        'bin',
-        Platform.isWindows ? 'dart.exe' : 'dart',
-      ),
-      flutterToolsSnapshot: p.join(sdkCache, 'flutter_tools.snapshot'),
-    );
+      return FlutterToolWorkspace._(
+        flutterRoot: root,
+        dart: p.join(
+          flutterRoot,
+          'bin',
+          'cache',
+          'dart-sdk',
+          'bin',
+          Platform.isWindows ? 'dart.exe' : 'dart',
+        ),
+        flutterToolsSnapshot: p.join(sdkCache, 'flutter_tools.snapshot'),
+      );
+    } on Object {
+      await _deleteFailedWorkspace(root);
+      rethrow;
+    }
+  }
+
+  static Future<void> _deleteFailedWorkspace(String root) async {
+    try {
+      await Directory(root).delete(recursive: true);
+    } on FileSystemException {
+      return;
+    }
   }
 
   static Future<String> _createWorkspaceRoot(IosEngineCache engineCache) async {

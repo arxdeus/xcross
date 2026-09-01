@@ -143,7 +143,9 @@ final class ConfigTuiController {
         case TuiKey.other:
           break;
       }
-    } on Object catch (error) {
+    } on XcrossConfigException catch (error) {
+      status = error.toString();
+    } on FileSystemException catch (error) {
       status = error.toString();
     }
     return false;
@@ -473,7 +475,7 @@ final class ConfigCommand extends Command<void> {
 final class ConfigShowCommand extends Command<void> {
   ConfigShowCommand({XcrossConfigStore? store, ConfigWriteLine? writeLine})
     : _store = store ?? const XcrossConfigStore(),
-      _writeLine = writeLine ?? stdout.write;
+      _writeLine = writeLine ?? stdout.writeln;
 
   final XcrossConfigStore _store;
   final ConfigWriteLine _writeLine;
@@ -492,7 +494,7 @@ final class ConfigShowCommand extends Command<void> {
       throw XcrossError('No xcross configuration found.');
     }
     _writeLine('Selected: ${selected.path}');
-    _writeLine(config.toYaml());
+    _writeLine(config.toYaml().trimRight());
   }
 }
 

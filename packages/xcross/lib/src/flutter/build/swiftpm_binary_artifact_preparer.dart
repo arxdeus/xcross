@@ -214,7 +214,7 @@ final class SwiftPmBinaryArtifactPreparer {
       if (result.exitCode != 0) {
         throw FileSystemException(
           'Could not create SwiftPM binary artifact junction: '
-          '${_boundedDiagnostic('${result.stderr}')}',
+          '${_boundedDiagnostic(result.stderr)}',
           alias,
         );
       }
@@ -250,7 +250,7 @@ final class SwiftPmBinaryArtifactPreparer {
       ['reparsepoint', 'query', alias],
     );
     return result.exitCode == 0 &&
-        isWindowsMountPointReparseOutput('${result.stdout}');
+        isWindowsMountPointReparseOutput(result.stdout);
   }
 
   Future<void> _deleteVerifiedAlias(String alias) async {
@@ -262,7 +262,7 @@ final class SwiftPmBinaryArtifactPreparer {
       if (result.exitCode != 0) {
         throw FileSystemException(
           'Could not remove SwiftPM binary artifact junction: '
-          '${_boundedDiagnostic('${result.stderr}')}',
+          '${_boundedDiagnostic(result.stderr)}',
           alias,
         );
       }

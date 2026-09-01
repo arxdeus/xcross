@@ -178,11 +178,17 @@ final class FlutterPacker {
     if (configuredRoot != null && configuredRoot.isNotEmpty) {
       return configuredRoot;
     }
-    final environmentRoot = _declarative
-        ? _flutterEnvironmentRoot
-        : Platform.environment['FLUTTER_ROOT'];
-    if (environmentRoot != null && environmentRoot.isNotEmpty) {
-      return environmentRoot;
+    final configuredEnvironmentRoot = _flutterEnvironmentRoot;
+    if (configuredEnvironmentRoot != null &&
+        configuredEnvironmentRoot.isNotEmpty) {
+      return configuredEnvironmentRoot;
+    }
+    if (!_declarative) {
+      final inheritedEnvironmentRoot = Platform.environment['FLUTTER_ROOT'];
+      if (inheritedEnvironmentRoot != null &&
+          inheritedEnvironmentRoot.isNotEmpty) {
+        return inheritedEnvironmentRoot;
+      }
     }
 
     final fvmLink = p.join(projectRoot, '.fvm', 'flutter_sdk');

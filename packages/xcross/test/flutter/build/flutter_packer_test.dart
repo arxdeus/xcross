@@ -56,6 +56,24 @@ void main() {
   );
 
   test(
+    'configured Flutter environment wins with legacy fallbacks enabled',
+    () async {
+      addTearDown(FlutterPacker.resetFlutterRootOverride);
+      FlutterPacker.configureFlutterResolution(
+        environmentRoot: '/configured/environment/flutter',
+        declarative: false,
+      );
+
+      expect(
+        await FlutterPacker.resolveFlutterRoot(
+          projectRoot: Directory.systemTemp.path,
+        ),
+        '/configured/environment/flutter',
+      );
+    },
+  );
+
+  test(
     'declarative Flutter resolution uses configured environment then FVM',
     () async {
       final temp = Directory.systemTemp.createTempSync('flutter-resolution-');

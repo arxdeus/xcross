@@ -339,7 +339,7 @@ final class LocalCipher {
         if (result.exitCode != 0) return '';
         return RegExp(
               r'MachineGuid\s+REG_SZ\s+(\S+)',
-            ).firstMatch('${result.stdout}')?[1] ??
+            ).firstMatch(result.stdout)?[1] ??
             '';
       }
     } on Object {

@@ -22,6 +22,7 @@ import 'package:xcross/src/cli/compose/compose_command.dart';
 import 'package:xcross/src/cli/flutter/flutter_command.dart';
 import 'package:xcross/src/cli/ide/ide_command.dart';
 import 'package:xcross/src/cli/internal/xcross_runner.dart';
+import 'package:xcross/src/config/config.dart';
 import 'package:xcross/src/config/runtime_config.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/flutter/flutter.dart';
@@ -250,22 +251,24 @@ abstract final class XcrossCli {
     );
   }
 
-  /// Errors carrying a finished user-facing message print without a Dart
-  /// stack trace; anything else is a bug and gets the full trace.
-  static void _reportFailure(Object error, StackTrace stackTrace) {
-    switch (error) {
-      case CliError(:final message) ||
-          AppleError(:final message) ||
-          DarwinSdkError(:final message) ||
-          TunnelError(:final message) ||
-          FlutterBuildError(:final message) ||
-          XcrossError(:final message):
-        _cliError('error: $message');
-      default:
-        _cliError('error: $error');
-        _cliError('$stackTrace');
-    }
+  /// Formats errors consistently for the CLI entrypoint and command runner.
+  /// User-facing errors omit a Dart stack trace; unexpected failures retain it.
+  static String formatFailure(Object error, StackTrace stackTrace) {
+    return switch (error) {
+      CliError(:final message) ||
+      AppleError(:final message) ||
+      DarwinSdkError(:final message) ||
+      TunnelError(:final message) ||
+      FlutterBuildError(:final message) ||
+      XcrossError(:final message) => 'error: $message',
+      XcrossConfigException(:final message, :final path) =>
+        'error: ${path == null ? message : '$path: $message'}',
+      _ => 'error: $error\n$stackTrace',
+    };
   }
+
+  static void _reportFailure(Object error, StackTrace stackTrace) =>
+      _cliError(formatFailure(error, stackTrace));
 
   static void _cliError(String message) => stderr.writeln(message);
 }

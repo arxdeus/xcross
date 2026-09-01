@@ -72,8 +72,11 @@ final class IosNativeAssetsBuilder {
       );
       await _runFlutterAssemble(output, shims.path, tools.iosSdk, workspace);
     } finally {
-      await shims.delete(recursive: true);
-      await workspace.dispose();
+      try {
+        await shims.delete(recursive: true);
+      } finally {
+        await workspace.dispose();
+      }
     }
 
     final manifest = p.join(

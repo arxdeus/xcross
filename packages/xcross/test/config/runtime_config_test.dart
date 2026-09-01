@@ -8,6 +8,7 @@ import 'package:test/test.dart';
 import 'package:xcross/src/cli/ide/xcross_executable.dart';
 import 'package:xcross/src/compose/toolchain/compose_host.dart';
 import 'package:xcross/src/compose/toolchain/compose_toolchain_resolver.dart';
+import 'package:xcross/src/dap/internal/dap_router.dart';
 import 'package:xcross/src/flutter/build/flutter_packer.dart';
 import 'package:xcross/xcross.dart';
 
@@ -139,6 +140,35 @@ environment:
       );
     },
   );
+
+  test('configured FLUTTER_ROOT reaches packer and DAP resolution', () async {
+    File(p.join(temporary.path, 'config.yaml')).writeAsStringSync('''
+environment:
+  FLUTTER_ROOT: /configured/flutter
+''');
+
+    await XcrossRuntimeConfig.initialize(
+      configDirectory: temporary.path,
+      environment: const {
+        'HOME': '/home/test',
+        'FLUTTER_ROOT': '/inherited/flutter',
+      },
+      windows: false,
+    );
+
+    expect(
+      await FlutterPacker.resolveFlutterRoot(projectRoot: temporary.path),
+      '/configured/flutter',
+    );
+    expect(
+      DapRouter.resolveFlutterExecutable(projectRoot: temporary.path),
+      p.join(
+        '/configured/flutter',
+        'bin',
+        Platform.isWindows ? 'flutter.bat' : 'flutter',
+      ),
+    );
+  });
 
   test('rejects an explicit invalid tool override', () async {
     File(p.join(temporary.path, 'config.yaml')).writeAsStringSync('''

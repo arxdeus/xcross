@@ -1,10 +1,31 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:dds/dap.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/dap/dap_router.dart';
+import 'package:xcross/src/dap/internal/dap_router.dart';
 
 void main() {
+  tearDown(DapRouter.resetConfiguration);
+
+  test('configured Flutter environment wins with legacy fallbacks enabled', () {
+    DapRouter.configureFlutterResolution(
+      environmentRoot: '/configured/environment/flutter',
+      declarative: false,
+    );
+
+    expect(
+      DapRouter.resolveFlutterExecutable(),
+      p.join(
+        '/configured/environment/flutter',
+        'bin',
+        Platform.isWindows ? 'flutter.bat' : 'flutter',
+      ),
+    );
+  });
+
   test('DapFrameParser splits Content-Length frames across chunks', () {
     final parser = DapFrameParser();
     final msg = DapFrame.encode({
