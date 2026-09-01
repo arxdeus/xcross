@@ -350,10 +350,11 @@ void main() {
         File('${clang.path}.path').readAsStringSync(),
         r'C:\LLVM\clang.exe',
       );
-      expect(
-        jsonDecode(File('${clang.path}.args').readAsStringSync()),
-        contains(r'--ld-path=C:\LLVM\ld64.lld.exe'),
+      final arguments = jsonDecode(
+        File('${clang.path}.args').readAsStringSync(),
       );
+      expect(arguments, contains('--target=arm64-apple-ios13.0'));
+      expect(arguments, contains(r'--ld-path=C:\LLVM\ld64.lld.exe'));
     } finally {
       await tmp.delete(recursive: true);
     }

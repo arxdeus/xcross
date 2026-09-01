@@ -214,6 +214,7 @@ Future<void> _installWindowsToolShims(
       if (entry.key == 'clang' || entry.key == 'cc') {
         await File('$executable.args').writeAsString(
           jsonEncode([
+            '--target=arm64-apple-ios${config.deploymentTarget}',
             '-isysroot',
             config.iosSdk,
             '-miphoneos-version-min=${config.deploymentTarget}',
