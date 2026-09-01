@@ -220,43 +220,8 @@ run_privileged install -m 0644 "$staging_dir/$LICENSE_ASSET" "$installed_license
 	err "installed xcross failed verification"
 info "Installed and verified: $installed_binary (license: $installed_license)"
 
-if [ -n "${XCROSS_CONFIG:-}" ] && [ -f "$XCROSS_CONFIG" ]; then
-	if ! "$installed_binary" setup --refresh-script; then
-		printf '%s\n' 'warning: could not refresh the configured remote setup script' >&2
-	fi
-fi
-
 # ---------------------------------------------------------------------------
-# Step 6 — install package-manager-specific host requirements
-# ---------------------------------------------------------------------------
-
-setup_name=""
-if command -v apt-get >/dev/null 2>&1; then
-	setup_name="apt"
-elif command -v dnf >/dev/null 2>&1; then
-	setup_name="dnf"
-elif command -v pacman >/dev/null 2>&1; then
-	setup_name="pacman"
-fi
-
-if [ -n "$setup_name" ]; then
-	setup_url="https://raw.githubusercontent.com/$REPO/main/setup/$setup_name.sh"
-	setup_script="$staging_dir/setup-$setup_name.sh"
-	info "Downloading $setup_name setup script..."
-	download "$setup_url" "$setup_script" || err "download failed: $setup_url"
-	[ -s "$setup_script" ] || err "downloaded setup script is empty: $setup_url"
-	info "Running $setup_name setup script..."
-	sh "$setup_script"
-else
-	printf '%s\n' 'warning: no supported package manager found (apt, dnf, or pacman).' >&2
-	printf '%s\n' 'Provide a custom local script path or HTTP(S) URL in the xcross configuration:' >&2
-	printf '%s\n' '  setup: /absolute/path/to/setup.sh' >&2
-	printf '%s\n' '  setup: https://example.invalid/xcross-setup.sh' >&2
-	printf '%s\n' 'Then run: xcross setup' >&2
-fi
-
-# ---------------------------------------------------------------------------
-# Step 7 — make sure INSTALL_DIR is on PATH
+# Step 6 — make sure INSTALL_DIR is on PATH
 # ---------------------------------------------------------------------------
 
 # True when $1 appears as a complete entry in PATH.  Wrapping both sides in
