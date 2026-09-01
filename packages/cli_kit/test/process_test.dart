@@ -380,24 +380,28 @@ void main() {
       expect(await ProcessRunner.which('clang'), explicit);
     });
 
-    test('uses toolchains before PATH and maps cc to clang', () async {
+    test('resolves known Swift and LLVM toolchain executables', () async {
       final temporary = Directory.systemTemp.createTempSync('toolchains-');
       addTearDown(() => temporary.deleteSync(recursive: true));
+      final swift = Directory(p.join(temporary.path, 'swift'))..createSync();
       final llvm = Directory(p.join(temporary.path, 'llvm'))..createSync();
       final path = Directory(p.join(temporary.path, 'path'))..createSync();
-      final toolchainClang = File(p.join(llvm.path, 'clang'))..createSync();
+      final swiftCompiler = File(p.join(swift.path, 'swiftc'))..createSync();
+      final clang = File(p.join(llvm.path, 'clang'))..createSync();
       final llvmStrip = File(p.join(llvm.path, 'llvm-strip'))..createSync();
       File(p.join(path.path, 'clang')).createSync();
       ProcessRunner.configure(
         normalizedTools: const {},
         toolchainDirectories: {
+          'swift': [swift.path],
           'llvm': [llvm.path],
         },
         effectiveChildEnvironment: {'PATH': path.path},
       );
 
-      expect(await ProcessRunner.which('clang'), toolchainClang.path);
-      expect(await ProcessRunner.which('cc'), toolchainClang.path);
+      expect(await ProcessRunner.which('swiftc'), swiftCompiler.path);
+      expect(await ProcessRunner.which('clang'), clang.path);
+      expect(await ProcessRunner.which('cc'), clang.path);
       expect(await ProcessRunner.which('llvm-strip'), llvmStrip.path);
     });
 

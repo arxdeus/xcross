@@ -503,10 +503,9 @@ abstract final class ProcessRunner {
       name,
       onWindows ? _pathExtensions(env) : const [],
     );
-    final override = _toolOverride(
+    final override = _configuredToolOverride(
       configured?.normalizedTools,
       names,
-      caseInsensitive: onWindows,
     );
     if (override != null && (accept == null || accept(override))) {
       return [override];
@@ -549,42 +548,58 @@ abstract final class ProcessRunner {
     return found;
   }
 
+  static const _swiftExecutables = {
+    'swift',
+    'swiftc',
+    'swift-package',
+    'swift-build',
+    'swift-frontend',
+  };
+  static const _llvmExecutables = {'clang', 'clang++', 'ld64.lld', 'dsymutil'};
+  static const _windowsExecutableExtensions = ['.exe', '.cmd', '.bat', '.com'];
+
   static String? _toolchainOverride(
     String name,
     ProcessConfiguration configuration,
     bool windows, {
     bool Function(String path)? accept,
   }) {
+    final executable = _toolchainExecutable(name);
+    if (executable == null) return null;
+
+    final directories =
+        configuration.toolchainDirectories[executable.toolchain];
+    if (directories == null) return null;
+
+    final extensions = windows
+        ? _pathExtensions(configuration.effectiveChildEnvironment)
+        : const <String>[];
+    final candidates = _candidateNames(executable.basename, extensions);
+    return _firstAcceptedTool(directories, candidates, accept);
+  }
+
+  static ({String toolchain, String basename})? _toolchainExecutable(
+    String name,
+  ) {
     final normalized = _normalizedToolName(name);
-    String? basename;
-    List<String>? directories;
-    if (const {
-      'swift',
-      'swiftc',
-      'swift-package',
-      'swift-build',
-      'swift-frontend',
-    }.contains(normalized)) {
-      basename = normalized;
-      directories = configuration.toolchainDirectories['swift'];
-    } else if (normalized == 'cc') {
-      basename = 'clang';
-      directories = configuration.toolchainDirectories['llvm'];
-    } else if (normalized == 'clang' ||
-        normalized == 'clang++' ||
-        normalized == 'ld64.lld' ||
-        normalized == 'dsymutil' ||
-        normalized.startsWith('llvm-')) {
-      basename = normalized;
-      directories = configuration.toolchainDirectories['llvm'];
+    if (_swiftExecutables.contains(normalized)) {
+      return (toolchain: 'swift', basename: normalized);
     }
-    if (basename == null || directories == null) return null;
-    final candidates = _candidateNames(
-      basename,
-      windows
-          ? _pathExtensions(configuration.effectiveChildEnvironment)
-          : const [],
-    );
+    if (normalized == 'cc') {
+      return (toolchain: 'llvm', basename: 'clang');
+    }
+    if (_llvmExecutables.contains(normalized) ||
+        normalized.startsWith('llvm-')) {
+      return (toolchain: 'llvm', basename: normalized);
+    }
+    return null;
+  }
+
+  static String? _firstAcceptedTool(
+    Iterable<String> directories,
+    Iterable<String> candidates,
+    bool Function(String path)? accept,
+  ) {
     for (final directory in directories) {
       for (final candidate in candidates) {
         final path = p.join(directory, candidate);
@@ -596,28 +611,21 @@ abstract final class ProcessRunner {
     return null;
   }
 
-  static String? _toolOverride(
+  static String? _configuredToolOverride(
     Map<String, String>? tools,
-    List<String> candidateNames, {
-    required bool caseInsensitive,
-  }) {
+    Iterable<String> candidateNames,
+  ) {
     if (tools == null) return null;
     for (final candidate in candidateNames) {
-      final normalized = _normalizedToolName(candidate);
-      final exact = tools[normalized] ?? tools[candidate];
-      if (exact != null) return exact;
-      if (caseInsensitive) {
-        for (final entry in tools.entries) {
-          if (_normalizedToolName(entry.key) == normalized) return entry.value;
-        }
-      }
+      final override = tools[_normalizedToolName(candidate)];
+      if (override != null) return override;
     }
     return null;
   }
 
   static String _normalizedToolName(String name) {
     final normalized = name.trim().toLowerCase();
-    for (final extension in const ['.exe', '.cmd', '.bat', '.com']) {
+    for (final extension in _windowsExecutableExtensions) {
       if (normalized.endsWith(extension)) {
         return normalized.substring(0, normalized.length - extension.length);
       }
