@@ -22,6 +22,7 @@ import 'package:xcross/src/cli/compose/compose_command.dart';
 import 'package:xcross/src/cli/flutter/flutter_command.dart';
 import 'package:xcross/src/cli/ide/ide_command.dart';
 import 'package:xcross/src/cli/internal/xcross_runner.dart';
+import 'package:xcross/src/config/runtime_config.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/flutter/flutter.dart';
 import 'package:xcross/src/update/install_layout.dart';
@@ -149,27 +150,45 @@ const _toolAliasVariables = {
 
 /// Namespace for building and running the xcross CLI.
 abstract final class XcrossCli {
-  static CommandRunner<void> buildRunner() =>
-      XcrossRunner(
-          'xcross',
-          'Build and run Flutter and Compose Multiplatform iOS apps without Xcode.',
-        )
-        ..addCommand(FlutterCommand())
-        ..addCommand(ComposeCommand())
-        ..addCommand(TunnelCommand())
-        ..addCommand(CleanCommand())
-        ..addCommand(ConfigCommand())
-        ..addCommand(DoctorCommand())
-        ..addCommand(SetupCommand())
-        ..addCommand(AuthCommand())
-        ..addCommand(SdkCommand())
-        ..addCommand(IdeCommand())
-        ..addCommand(UpdateCommand())
-        ..addCommand(CompletionCommand());
+  static CommandRunner<void> buildRunner({
+    Iterable<String> excludedCommands = const [],
+  }) {
+    final excluded = excludedCommands
+        .map((command) => command.trim().toLowerCase())
+        .toSet();
+    final runner = XcrossRunner(
+      'xcross',
+      'Build and run Flutter and Compose Multiplatform iOS apps without Xcode.',
+    );
+    final commands = <Command<void>>[
+      FlutterCommand(),
+      ComposeCommand(),
+      TunnelCommand(),
+      CleanCommand(),
+      ConfigCommand(),
+      DoctorCommand(),
+      SetupCommand(),
+      AuthCommand(),
+      SdkCommand(),
+      IdeCommand(),
+      UpdateCommand(),
+      CompletionCommand(),
+    ];
+    for (final command in commands) {
+      if (!excluded.contains(command.name.toLowerCase())) {
+        runner.addCommand(command);
+      }
+    }
+    return runner;
+  }
 
   /// Entry point used by `bin/xcross.dart`.
   static Future<int> run(List<String> args) async {
-    final runner = buildRunner();
+    final excludedCommands = XcrossRuntimeConfig.isInitialized
+        ? XcrossRuntimeConfig.current.config?.excludedCommands ??
+              const <String>{}
+        : const <String>{};
+    final runner = buildRunner(excludedCommands: excludedCommands);
     _completeArgs(args, runner);
     final ownsStdout = _ownsStdout(args);
     if (!ownsStdout) _printCredits();

@@ -102,6 +102,24 @@ void main() {
       },
     );
 
+    test('refreshes configured setup script after release install', () async {
+      final events = <String>[];
+      final command = UpdateCommand.withSeams(
+        latestTagLookup: () async => '1.3.0',
+        currentVersion: () => '1.2.0',
+        resolveInstallLayout: () => _layout,
+        assetName: () => 'xcross-linux-x64.tar.gz',
+        installRelease: ({required layout, required tag}) async {
+          events.add('install');
+        },
+        refreshSetupScript: () async => events.add('refresh'),
+      );
+
+      await _run(command, ['update', '--yes']);
+
+      expect(events, ['install', 'refresh']);
+    });
+
     test('routes explicit tag refs to release installs', () async {
       final releaseTags = <String>[];
       final sourceInstalls = <GitUpdateRef>[];

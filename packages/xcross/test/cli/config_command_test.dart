@@ -27,12 +27,32 @@ void main() {
     expect(XcrossCli.buildRunner().commands['config'], isA<ConfigCommand>());
   });
 
+  test('runner omits configured top-level commands', () async {
+    final runner = XcrossCli.buildRunner(
+      excludedCommands: const ['setup', 'config'],
+    );
+
+    expect(runner.commands, isNot(contains('setup')));
+    expect(runner.commands, isNot(contains('config')));
+    expect(runner.commands, contains('doctor'));
+    await expectLater(
+      runner.run(['setup']),
+      throwsA(
+        isA<UsageException>().having(
+          (error) => error.message,
+          'message',
+          contains('Could not find a command named "setup"'),
+        ),
+      ),
+    );
+  });
+
   test(
     'controller switches tabs in both directions and clamps selection',
     () async {
       final controller = ConfigTuiController(XcrossConfig());
       await handle(controller, TuiKey.backTab);
-      expect(controller.tab, ConfigTab.environment);
+      expect(controller.tab, ConfigTab.commands);
       await handle(controller, TuiKey.tab);
       await handle(controller, TuiKey.right);
       expect(controller.tab, ConfigTab.toolchains);
@@ -71,6 +91,11 @@ void main() {
     controller.selection = 0;
     await handle(controller, TuiKey.enter, answers: ['PATH', '/one, /two']);
     expect(controller.config.environment['PATH'], ['/one', '/two']);
+
+    controller.tab = ConfigTab.commands;
+    controller.selection = 0;
+    await handle(controller, TuiKey.enter, answers: ['setup']);
+    expect(controller.config.excludedCommands, {'setup'});
   });
 
   test('delete requires confirmation and ignores Add row', () async {

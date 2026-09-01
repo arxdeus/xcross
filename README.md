@@ -51,7 +51,6 @@ Both platforms need the same five ingredients:
 >
 > `xcross sdk install` patches the Darwin SDK with the *selected* Swift toolchain's clang headers and records which toolchain that was. The resulting SDK is only usable by that toolchain, so changing Swift afterwards (`swiftly use`, `mise use`, a distro upgrade) means re-running `xcross sdk install`. Pick your Swift version first and stay on it.
 >
-> On Linux, `xcross setup` can also install Swift's *own* build dependencies. If that is why you are running it before Swift exists, use `xcross setup --no-swift-check`.
 
 > [!NOTE]
 > Download the Xcode archive from [xcodereleases.com](https://xcodereleases.com/) (requires an Apple ID). It is only used as SDK *input* - neither Xcode nor macOS is ever installed or executed. xcross extracts the iOS SDK and frameworks from the archive with its own pure-Dart xar/pbzx/cpio readers. Don't redistribute the extracted Apple SDK.
@@ -101,7 +100,6 @@ Both installers download the latest release, install it, **add xcross to your `P
    swift --version   # must work before the next step
    ```
 
-   Swift needs a few distro packages of its own. If it will not start, run `xcross setup --no-swift-check` first, then install Swift and continue.
 
 3. Let xcross install its distro dependencies and `pymobiledevice3` (via `pipx`), and build the Darwin SDK:
 
@@ -307,7 +305,7 @@ environment:
 
 | Command | Description |
 |---|---|
-| `xcross setup` | Install host dependencies (apt/dnf/pacman packages, `pipx`, `pymobiledevice3`). Requires Swift on `PATH`; `--no-swift-check` skips that to bootstrap Swift's own dependencies |
+| `xcross setup` | Install host dependencies (apt/dnf/pacman packages, `pipx`, `pymobiledevice3`). Requires Swift on `PATH` |
 | `xcross config` | Interactively create or edit executable overrides, Swift/LLVM toolchain directories, roots, and child-environment paths |
 | `xcross config show` / `validate` | Print the selected YAML configuration or validate all configured paths |
 | `xcross sdk install <Xcode.xip>` | Extract a private Darwin Swift SDK from an Xcode archive, patched against the Swift toolchain currently on `PATH` |

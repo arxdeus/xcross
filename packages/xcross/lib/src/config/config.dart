@@ -59,12 +59,17 @@ final class XcrossConfig {
     XcrossConfigToolchains toolchains = const XcrossConfigToolchains(),
     Map<String, String> tools = const {},
     Map<String, Object> environment = const {},
+    this.setup,
+    Iterable<String> excludedCommands = const [],
   }) : toolchains = XcrossConfigToolchains(
          swift: toolchains.swift,
          llvm: List.unmodifiable(toolchains.llvm),
        ),
        tools = Map.unmodifiable(_normalizeTools(tools)),
-       environment = Map.unmodifiable(_normalizeEnvironment(environment));
+       environment = Map.unmodifiable(_normalizeEnvironment(environment)),
+       excludedCommands = Set.unmodifiable(
+         excludedCommands.map(_normalizeCommandName).toSet(),
+       );
 
   /// Variables that configured child processes may inherit.
   ///
@@ -90,6 +95,8 @@ final class XcrossConfig {
 
   /// Allowlisted environment values. `PATH` is a list; all others are strings.
   final Map<String, Object> environment;
+  final String? setup;
+  final Set<String> excludedCommands;
 
   String? tool(String name) => tools[normalizeToolName(name)];
 
@@ -148,6 +155,17 @@ final class XcrossConfig {
         );
       }
     }
+    if (setup case final value?) {
+      _validateSetupScript(value, pathContext);
+    }
+    for (final command in excludedCommands) {
+      _rejectUnsafeString(command, 'Excluded command');
+      if (command.isEmpty || command.contains(RegExp(r'\s'))) {
+        throw XcrossConfigException(
+          'Excluded commands must be non-empty top-level command names: $command',
+        );
+      }
+    }
     for (final entry in environment.entries) {
       if (entry.value case final List<String> paths) {
         for (final value in paths) {
@@ -163,6 +181,23 @@ final class XcrossConfig {
       }
     }
   }
+
+  static Uri? remoteSetupScriptUri(String value) {
+    final uri = Uri.tryParse(value);
+    if (uri == null || uri.host.isEmpty) return null;
+    return uri.scheme == 'https' || uri.scheme == 'http' ? uri : null;
+  }
+
+  static void _validateSetupScript(String value, p.Context pathContext) {
+    _rejectUnsafeString(value, 'Setup script');
+    if (remoteSetupScriptUri(value) == null && !pathContext.isAbsolute(value)) {
+      throw XcrossConfigException(
+        'Setup script must be an absolute local path or HTTP(S) URL: $value',
+      );
+    }
+  }
+
+  static String _normalizeCommandName(String name) => name.trim().toLowerCase();
 
   static String normalizeToolName(String name) {
     var normalized = name.trim().toLowerCase();
@@ -198,7 +233,14 @@ final class XcrossConfig {
     final root = _stringMap(document, r'$', sourcePath);
     _onlyKeys(
       root,
-      const {'roots', 'toolchains', 'tools', 'environment'},
+      const {
+        'roots',
+        'toolchains',
+        'tools',
+        'environment',
+        'excluded_commands',
+        'setup',
+      },
       r'$',
       sourcePath,
     );
@@ -319,6 +361,25 @@ final class XcrossConfig {
             );
     }
 
+    final setup = root['setup'] == null
+        ? null
+        : _expandedString(
+            root['setup'],
+            r'$.setup',
+            env,
+            isWindows,
+            sourcePath,
+          );
+    final excludedCommands = root['excluded_commands'] == null
+        ? <String>[]
+        : _expandedStringList(
+            root['excluded_commands'],
+            r'$.excluded_commands',
+            env,
+            isWindows,
+            sourcePath,
+          );
+
     final config = XcrossConfig(
       roots: XcrossConfigRoots(
         darwinSdk: rootValue('darwinSdk'),
@@ -330,6 +391,8 @@ final class XcrossConfig {
       toolchains: XcrossConfigToolchains(swift: swift, llvm: llvm),
       tools: tools,
       environment: configuredEnvironment,
+      setup: setup,
+      excludedCommands: excludedCommands,
     );
     config.validate(windows: isWindows);
     return config;
@@ -371,6 +434,13 @@ final class XcrossConfig {
       buffer.writeln(
         '  ${_yamlString(entry.key)}: ${_yamlString(entry.value)}',
       );
+    }
+    if (setup case final value?) {
+      buffer.writeln('setup: ${_yamlString(value)}');
+    }
+    buffer.writeln('excluded_commands:');
+    for (final command in excludedCommands.toList()..sort()) {
+      buffer.writeln('  - ${_yamlString(command)}');
     }
     buffer.writeln('environment:');
     for (final entry in _sortedObjects(environment).entries) {

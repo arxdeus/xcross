@@ -9,7 +9,18 @@ typedef ConfigWriteLine = void Function(String value);
 typedef ConfigPrompt = String? Function(String label);
 typedef ConfigConfirm = bool Function(String label);
 
-enum ConfigTab { roots, toolchains, tools, environment }
+enum ConfigTab { roots, toolchains, tools, environment, setup, commands }
+
+extension on ConfigTab {
+  String get label => switch (this) {
+    ConfigTab.roots => 'Roots',
+    ConfigTab.toolchains => 'Toolchains',
+    ConfigTab.tools => 'Tools',
+    ConfigTab.environment => 'Environment',
+    ConfigTab.setup => 'Setup',
+    ConfigTab.commands => 'Commands',
+  };
+}
 
 final class ConfigTuiController {
   ConfigTuiController(XcrossConfig config) : config = config, _saved = config;
@@ -45,13 +56,21 @@ final class ConfigTuiController {
           )
           .toList()
         ..sort((a, b) => a.key.compareTo(b.key)),
+    ConfigTab.setup => const [],
+    ConfigTab.commands => [
+      for (final command in config.excludedCommands.toList()..sort())
+        MapEntry(command, 'excluded'),
+    ],
     _ => const [],
   };
 
   int get rowCount => switch (tab) {
     ConfigTab.roots => rootNames.length,
     ConfigTab.toolchains => 2,
-    ConfigTab.tools || ConfigTab.environment => _entries.length + 1,
+    ConfigTab.setup => 1,
+    ConfigTab.tools ||
+    ConfigTab.environment ||
+    ConfigTab.commands => _entries.length + 1,
   };
 
   int get itemCount => rowCount + 4;
@@ -156,6 +175,24 @@ final class ConfigTuiController {
             prompt(_environmentLabel(entry.key))?.trim(),
           );
         }
+      case ConfigTab.setup:
+        final value = prompt(
+          'Setup script absolute path or HTTP(S) URL (empty removes)',
+        );
+        if (value == null) return;
+        config = _withSetup(value.trim().isEmpty ? null : value.trim());
+      case ConfigTab.commands:
+        final entries = _entries;
+        final command = prompt(
+          selection == entries.length
+              ? 'Command to exclude'
+              : 'Excluded command name (empty removes)',
+        )?.trim().toLowerCase();
+        if (command == null) return;
+        final commands = config.excludedCommands.toSet();
+        if (selection < entries.length) commands.remove(entries[selection].key);
+        if (command.isNotEmpty) commands.add(command);
+        config = _copy(excludedCommands: commands);
     }
   }
 
@@ -183,13 +220,16 @@ final class ConfigTuiController {
   void _delete(ConfigConfirm confirm) {
     if (selection >= rowCount) return;
     final entries = _entries;
-    if ((tab == ConfigTab.tools || tab == ConfigTab.environment) &&
+    if ((tab == ConfigTab.tools ||
+            tab == ConfigTab.environment ||
+            tab == ConfigTab.commands) &&
         selection == entries.length) {
       return;
     }
     final name = switch (tab) {
       ConfigTab.roots => rootNames[selection],
       ConfigTab.toolchains => selection == 0 ? 'swift' : 'llvm',
+      ConfigTab.setup => 'setup',
       _ => entries[selection].key,
     };
     if (!confirm('Delete $name? [y/N]')) return;
@@ -213,6 +253,12 @@ final class ConfigTuiController {
         config = _copy(
           environment: Map<String, Object>.from(config.environment)
             ..remove(name),
+        );
+      case ConfigTab.setup:
+        config = _withSetup(null);
+      case ConfigTab.commands:
+        config = _copy(
+          excludedCommands: config.excludedCommands.toSet()..remove(name),
         );
     }
     selection = selection.clamp(0, itemCount - 1);
@@ -248,6 +294,7 @@ final class ConfigTuiController {
     XcrossConfigToolchains? toolchains,
     Map<String, String>? tools,
     Map<String, Object>? environment,
+    Iterable<String>? excludedCommands,
   }) {
     final values = roots ?? config.roots.toMap();
     return XcrossConfig(
@@ -261,8 +308,19 @@ final class ConfigTuiController {
       toolchains: toolchains ?? config.toolchains,
       tools: tools ?? config.tools,
       environment: environment ?? config.environment,
+      setup: config.setup,
+      excludedCommands: excludedCommands ?? config.excludedCommands,
     );
   }
+
+  XcrossConfig _withSetup(String? setup) => XcrossConfig(
+    roots: config.roots,
+    toolchains: config.toolchains,
+    tools: config.tools,
+    environment: config.environment,
+    setup: setup,
+    excludedCommands: config.excludedCommands,
+  );
 
   static List<String> _split(String value) => value
       .split(',')
@@ -272,7 +330,7 @@ final class ConfigTuiController {
 
   String render({bool ansi = true, bool color = true}) => AnsiTuiRenderer.frame(
     title: 'xcross config${dirty ? ' *' : ''}',
-    tabs: const ['Roots', 'Toolchains', 'Tools', 'Environment'],
+    tabs: ConfigTab.values.map((tab) => tab.label).toList(),
     selectedTab: tab.index,
     rows: _renderRows(),
     selection: selection,
@@ -291,7 +349,7 @@ final class ConfigTuiController {
         ? rows[selection]
         : '[${actions[selection - rows.length]}]';
     return AnsiTuiRenderer.plainUpdate(
-      tab: const ['Roots', 'Toolchains', 'Tools', 'Environment'][tab.index],
+      tab: tab.label,
       item: item,
       status: status,
     );
@@ -310,6 +368,8 @@ final class ConfigTuiController {
       for (final entry in _entries) '${entry.key}: ${entry.value}',
       '+ Add',
     ],
+    ConfigTab.setup => ['script: ${config.setup ?? '<unset>'}'],
+    ConfigTab.commands => [for (final entry in _entries) entry.key, '+ Add'],
   };
 }
 

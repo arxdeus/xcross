@@ -25,6 +25,10 @@ toolchains:
     - /opt/llvm/bin
     - /opt/llvm-extra/bin
 tools: {}
+setup: https://example.com/setup.sh
+excluded_commands:
+  - setup
+  - config
 environment:
   PATH:
     - /opt/bin
@@ -51,6 +55,8 @@ environment:
     expect(config.toolchains.llvm, ['/opt/llvm/bin', '/opt/llvm-extra/bin']);
     expect(config.environment['PATH'], ['/opt/bin', '/home/test/bin']);
     expect(config.environment['LIBRARY_PATH'], '/opt/lib');
+    expect(config.setup, 'https://example.com/setup.sh');
+    expect(config.excludedCommands, {'setup', 'config'});
   });
 
   test(
@@ -170,6 +176,9 @@ environment:
       'environment:\n  PATH: [relative/bin]\n',
       'environment:\n  CC: "bad\\nvalue"\n',
       'environment:\n  CXX: "bad\\u0000value"\n',
+      'excluded_commands: setup\n',
+      'excluded_commands: ["bad command"]\n',
+      'setup: relative/setup.sh\n',
     ]) {
       expect(
         () => XcrossConfig.parse(source, environment: const {}, windows: false),
@@ -273,6 +282,8 @@ environment:
     expect(yaml, startsWith('roots:\n  darwinSdk: "/opt/darwin"'));
     expect(yaml, contains('swift: "/opt/swift/bin"'));
     expect(yaml, contains('llvm:\n    - "/opt/llvm/bin"'));
+    expect(yaml, contains('setup: "https://example.com/setup.sh"'));
+    expect(yaml, contains('excluded_commands:\n  - "config"\n  - "setup"'));
     expect(yaml, contains('PATH:\n    - "/opt/bin"'));
     expect(
       yaml.indexOf('C_INCLUDE_PATH:'),
