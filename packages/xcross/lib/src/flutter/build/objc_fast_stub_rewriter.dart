@@ -131,8 +131,14 @@ abstract final class ObjCFastStubRewriter {
         ifAbsent: () => 1,
       );
     }
+
+    // Phase 1: every stub that already has a correct ref, or can adopt an
+    // existing valid ref elsewhere, is resolved first. A stub retargeted
+    // this way stops reading its old ref, which can free that ref up for
+    // whichever other stub still shares it.
     final instructionRepairs = <(_FastObjCStub, int)>[];
-    final pointerRepairs = <(int, int)>[];
+    final vacatedCounts = <int, int>{};
+    final unresolved = <_FastObjCStub>[];
     for (final stub in fastStubs) {
       final refFileOffset =
           selectorRefs.fileOffset + stub.refAddress - selectorRefs.address;
@@ -142,9 +148,27 @@ abstract final class ObjCFastStubRewriter {
       final matchingRefs = validRefsByName[stub.selector];
       if (matchingRefs != null && matchingRefs.isNotEmpty) {
         instructionRepairs.add((stub, matchingRefs.first));
+        vacatedCounts.update(
+          stub.refAddress,
+          (count) => count + 1,
+          ifAbsent: () => 1,
+        );
         continue;
       }
-      if (refUseCounts[stub.refAddress] != 1) {
+      unresolved.add(stub);
+    }
+
+    // Phase 2: everything left still needs its ref rewritten in place.
+    // That is only safe once every stub resolved in phase 1 that used to
+    // share it has moved away, leaving exactly one remaining reader.
+    final pointerRepairs = <(int, int)>[];
+    for (final stub in unresolved) {
+      final refFileOffset =
+          selectorRefs.fileOffset + stub.refAddress - selectorRefs.address;
+      final remainingUsers =
+          refUseCounts[stub.refAddress]! -
+          (vacatedCounts[stub.refAddress] ?? 0);
+      if (remainingUsers != 1) {
         fileInvalid(
           file,
           'fast stub "${stub.selector}" has no safe selref repair',
