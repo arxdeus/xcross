@@ -7,11 +7,84 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/flutter/build/internal/apple_tool_shim_templates.dart';
 import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
+import 'package:xcross/src/flutter/build/internal/flutter_tool_workspace.dart';
 import 'package:xcross/src/flutter/build/internal/native_asset_frameworks.dart';
 import 'package:xcross/src/flutter/build/internal/native_assets_hook_discovery.dart';
+import 'package:xcross/src/flutter/build/ios_engine_cache.dart';
 import 'package:xcross/src/flutter/errors.dart';
 
 void main() {
+  test(
+    'creates a writable Flutter tool workspace without changing SDK',
+    () async {
+      if (Platform.isWindows) return;
+      final tmp = await Directory.systemTemp.createTemp(
+        'flutter_workspace_test-',
+      );
+      try {
+        final flutterRoot = p.join(tmp.path, 'flutter');
+        final cacheRoot = p.join(tmp.path, 'cache');
+        final sdkCache = Directory(p.join(flutterRoot, 'bin', 'cache'))
+          ..createSync(recursive: true);
+        Directory(p.join(flutterRoot, 'packages')).createSync();
+        File(
+          p.join(flutterRoot, 'bin', 'flutter'),
+        ).writeAsStringSync('flutter');
+        File(p.join(flutterRoot, 'bin', 'internal', 'engine.version'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('engine-hash\n');
+        File(
+          p.join(sdkCache.path, 'flutter_tools.snapshot'),
+        ).writeAsStringSync('snapshot');
+        Directory(p.join(sdkCache.path, 'dart-sdk')).createSync();
+        final engineCache = IosEngineCache(
+          flutterRoot: flutterRoot,
+          cacheRoot: cacheRoot,
+        );
+        Directory(engineCache.flutterXcframework).createSync(recursive: true);
+        final before = await _tree(flutterRoot);
+
+        final workspace = await FlutterToolWorkspace.create(
+          flutterRoot: flutterRoot,
+          engineCache: engineCache,
+        );
+
+        expect(workspace.flutterRoot, isNot(flutterRoot));
+        expect(
+          await Directory(
+            p.join(workspace.flutterRoot, 'packages'),
+          ).resolveSymbolicLinks(),
+          await Directory(
+            p.join(flutterRoot, 'packages'),
+          ).resolveSymbolicLinks(),
+        );
+        expect(
+          File(
+            p.join(workspace.flutterRoot, 'bin', 'internal', 'engine.version'),
+          ).readAsStringSync(),
+          'engine-hash\n',
+        );
+        expect(
+          Directory(
+            p.join(
+              workspace.flutterRoot,
+              'bin',
+              'cache',
+              'artifacts',
+              'engine',
+              'ios',
+              'Flutter.xcframework',
+            ),
+          ).existsSync(),
+          isTrue,
+        );
+        expect(await _tree(flutterRoot), before);
+      } finally {
+        await tmp.delete(recursive: true);
+      }
+    },
+  );
+
   test('detects build hooks through package_config root URIs', () async {
     final tmp = await Directory.systemTemp.createTemp('hook_detection_test-');
     try {
@@ -343,6 +416,15 @@ void main() {
       await tmp.delete(recursive: true);
     }
   });
+}
+
+Future<List<String>> _tree(String root) async {
+  final entries = await Directory(root)
+      .list(recursive: true, followLinks: false)
+      .map((entity) => p.relative(entity.path, from: root))
+      .toList();
+  entries.sort();
+  return entries;
 }
 
 Uint8List _dylibMachO(List<String> names) {

@@ -87,19 +87,24 @@ Future<void> _buildWithSystemCc({
 
 /// Prefer absolute system compilers that are not swiftly shims.
 String _resolveSystemCc() {
-  for (final candidate in const [
-    '/usr/bin/cc',
-    '/usr/bin/gcc',
-    '/usr/bin/clang',
-  ]) {
-    final file = File(candidate);
-    if (!file.existsSync()) continue;
-    final real = file.resolveSymbolicLinksSync();
-    if (real.endsWith('/swiftly') || real.contains('/swiftly/')) continue;
-    return candidate;
+  // Hardcoded /usr/bin paths don't exist on all Linux distros (e.g. NixOS
+  // has no /usr/bin at all), so search PATH generically instead, filtering
+  // out the swiftly clang shim by the same symlink check as before.
+  final pathEnv = Platform.environment['PATH'] ?? '';
+  final dirs = pathEnv.split(Platform.isWindows ? ';' : ':');
+
+  for (final name in const ['cc', 'gcc', 'clang']) {
+    for (final dir in dirs) {
+      if (dir.isEmpty) continue;
+      final file = File('$dir/$name');
+      if (!file.existsSync()) continue;
+      final real = file.resolveSymbolicLinksSync();
+      if (real.endsWith('/swiftly') || real.contains('/swiftly/')) continue;
+      return file.path;
+    }
   }
   throw StateError(
-    'No usable system C compiler found (/usr/bin/cc|gcc|clang). '
+    'No usable system C compiler found (cc|gcc|clang) on PATH. '
     "Install build-essential, or remove swiftly's clang shim from PATH.",
   );
 }

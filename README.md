@@ -114,6 +114,35 @@ Both installers download the latest release, install it, **add xcross to your `P
 
    The SDK is tied to the Swift you had active here. If you later switch Swift versions, re-run `xcross sdk install`.
 
+### Nix
+
+Add xcross to your project's development shell alongside your chosen Flutter
+package:
+
+```nix
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    xcross.url = "github:arxdeus/xcross";
+  };
+
+  outputs = { nixpkgs, xcross, ... }:
+    let
+      system = "x86_64-linux";
+      pkgs = nixpkgs.legacyPackages.${system};
+    in {
+      devShells.${system}.default = pkgs.mkShell {
+        inputsFrom = [ xcross.devShells.${system}.default ];
+        packages = [ pkgs.flutter ];
+      };
+    };
+}
+```
+
+Run `nix develop`, then use `xcross` normally. Pin a separate Nixpkgs input and
+replace `pkgs.flutter` if your project needs a different Flutter version. xcross
+does not provide Flutter or Dart. `aarch64-linux` is also supported.
+
 ### Verifying a release
 
 Every release archive is built by [`release.yml`](.github/workflows/release.yml) and signed with a [SLSA build provenance attestation](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations) that binds the archive's digest to the commit it was built from. The release job refuses to publish an artifact whose provenance does not match, so a bundle produced outside this repository can never reach the release page.
