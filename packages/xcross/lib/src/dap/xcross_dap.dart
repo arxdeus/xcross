@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:dds/dap.dart';
 import 'package:frontend_server_kit/frontend_server_kit.dart';
@@ -23,6 +24,14 @@ final class XcrossDap
   XcrossDap(ByteStreamServerChannel channel) : super(channel) {
     channel.closed.then((_) => _quitChild());
   }
+
+  static String? _launcherOverride;
+
+  static void configureLauncherOverride(String? launcher) {
+    _launcherOverride = launcher;
+  }
+
+  static void resetLauncherOverride() => _launcherOverride = null;
 
   @override
   final parseLaunchArgs = DartLaunchRequestArguments.fromJson;
@@ -107,8 +116,8 @@ final class XcrossDap
     final target = p.isAbsolute(program)
         ? p.relative(program, from: cwd)
         : program;
-    return Process.start(
-      Platform.resolvedExecutable,
+    return ProcessRunner.start(
+      _launcherOverride ?? Platform.resolvedExecutable,
       ['flutter', 'run', '--target', target, ...?launchArgs.args],
       workingDirectory: cwd,
       environment: const {'XCROSS_DAP': '1'},

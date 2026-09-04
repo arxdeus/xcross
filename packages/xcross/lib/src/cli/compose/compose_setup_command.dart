@@ -84,7 +84,7 @@ final class ComposeSetupCommand extends _$ComposeSetupArgsCommand<void> {
     if (host.problem != null) return [host.problem!];
     return ComposeToolchainResolver.problems(
       host: host.host!,
-      environment: Platform.environment,
+      environment: ProcessRunner.effectiveEnvironment,
       projectRoot: Directory.current.path,
     );
   }
@@ -94,7 +94,7 @@ final class ComposeSetupCommand extends _$ComposeSetupArgsCommand<void> {
     if (host.problem != null) throw XcrossError(host.problem!);
     await ComposeToolchainResolver.ensure(
       host: host.host!,
-      environment: Platform.environment,
+      environment: ProcessRunner.effectiveEnvironment,
       projectRoot: Directory.current.path,
       force: force,
     );

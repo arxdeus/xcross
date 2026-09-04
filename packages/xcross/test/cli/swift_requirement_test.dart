@@ -59,23 +59,6 @@ void main() {
       // an empty line where the fix should be.
       expect(await hintFor('haiku'), contains('swift.org/install/'));
     });
-
-    test("appends the caller's escape hatch when there is one", () async {
-      await expectLater(
-        SwiftRequirement.require(
-          'set up this host',
-          locate: (_) async => null,
-          extra: 'Re-run with `xcross setup --no-swift-check`.',
-        ),
-        throwsA(
-          isA<XcrossError>().having(
-            (error) => error.message,
-            'message',
-            contains('--no-swift-check'),
-          ),
-        ),
-      );
-    });
   });
 
   group('SwiftRequirement.requireSiblingClang', () {

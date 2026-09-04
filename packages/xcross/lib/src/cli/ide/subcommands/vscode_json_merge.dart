@@ -132,9 +132,13 @@ abstract final class VscodeJsonMerge {
   };
 
   /// The xcross marker merged onto the entry's own `env` entries.
-  static Map<String, Object?> _withMarker(Object? env) => {
+  static Map<String, Object?> _withMarker(
+    Object? env,
+    Map<String, String> generatedEnvironment,
+  ) => {
     if (env case final Map<Object?, Object?> existing)
       for (final e in existing.entries) '${e.key}': e.value,
+    ...generatedEnvironment,
     xcrossEnvKey: xcrossEnvValue,
   };
 
@@ -144,12 +148,13 @@ abstract final class VscodeJsonMerge {
   /// The legacy top-level `xcross` flag is migrated into `env`.
   static Map<String, Object?> _withCanonicalFields(
     Map<Object?, Object?> entry,
+    Map<String, String> generatedEnvironment,
   ) {
     final merged = <String, Object?>{
       for (final e in entry.entries) '${e.key}': e.value,
     };
     final args = merged.containsKey('args') ? merged['args'] : <Object?>[];
-    final env = _withMarker(merged['env']);
+    final env = _withMarker(merged['env'], generatedEnvironment);
     return merged
       ..remove('xcross')
       ..addAll(xcrossLaunchFields())
@@ -165,7 +170,10 @@ abstract final class VscodeJsonMerge {
               (config['env']! as Map)[xcrossEnvKey] == xcrossEnvValue));
 
   /// Upsert the xcross launch configuration into a launch.json document.
-  static Map<String, Object?> mergeLaunchDoc(Map<String, Object?>? existing) {
+  static Map<String, Object?> mergeLaunchDoc(
+    Map<String, Object?>? existing, {
+    Map<String, String> generatedEnvironment = const {},
+  }) {
     final doc = <String, Object?>{...?existing};
     doc.putIfAbsent('version', () => '0.2.0');
 
@@ -174,11 +182,14 @@ abstract final class VscodeJsonMerge {
     if (index < 0) {
       configs.add({
         ...xcrossLaunchFields(),
-        'env': _withMarker(null),
+        'env': _withMarker(null, generatedEnvironment),
         'args': <Object?>[],
       });
     } else {
-      configs[index] = _withCanonicalFields(configs[index]! as Map);
+      configs[index] = _withCanonicalFields(
+        configs[index]! as Map,
+        generatedEnvironment,
+      );
     }
 
     doc['configurations'] = configs;

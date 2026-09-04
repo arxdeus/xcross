@@ -24,6 +24,12 @@ void main() {
       r'install -m 0755 "$staging_dir/bin/xcrun" "$INSTALL_DIR/xcrun"',
       r'install -m 0644 "$staging_dir/$LICENSE_ASSET" "$installed_license"',
       r'"$installed_binary" --help',
+      '--local',
+      r'(cd "$script_dir" && dart pub get)',
+      r'tool/build_xcross.dart',
+      r'cp -a "$bundle_dir/bin/." "$staging_dir/bin/"',
+      r'cp -a "$bundle_dir/lib/." "$staging_dir/lib/"',
+      r'setup_script="$script_dir/setup/$setup_name.sh"',
     ]) {
       expect(installer, contains(expected));
     }

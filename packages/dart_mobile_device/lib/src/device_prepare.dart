@@ -505,7 +505,7 @@ abstract final class DevicePrepare {
     try {
       // Piped (never inheritStdio): an inherited stdin steals `r`/`R`/`q` from
       // the hot-reload keypress loop for the whole session.
-      proc = await Process.start(
+      proc = await ProcessRunner.start(
         argv.first,
         argv.sublist(1),
         environment: Pymd.usbmuxEnvironment(),
@@ -627,10 +627,10 @@ abstract final class DevicePrepare {
       return _windowsLockdownTunnelLooksAlive();
     }
     try {
-      final result = await ProcessRunner.run('pgrep', [
-        '-f',
-        'pymobiledevice3.*lockdown.*start-tunnel',
-      ]);
+      final result = await ProcessRunner.run(
+        await ProcessRunner.locateTool('pgrep'),
+        ['-f', 'pymobiledevice3.*lockdown.*start-tunnel'],
+      );
       return result.exitCode == 0 && result.stdout.trim().isNotEmpty;
     } on Object {
       return false;

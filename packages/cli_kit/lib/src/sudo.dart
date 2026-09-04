@@ -23,7 +23,7 @@ abstract final class Sudo {
       'Confirming sudo access '
       '${Log.dim('— you may be asked for your password once')}',
     );
-    final proc = await Process.start(sudo, const [
+    final proc = await ProcessRunner.start(sudo, const [
       '-v',
     ], mode: ProcessStartMode.inheritStdio);
     final code = await proc.exitCode;

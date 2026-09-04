@@ -36,6 +36,15 @@ void main() {
       expect(DarwinSdk(expected).swiftSdkPath, expected);
     });
 
+    test('configured bundle overrides the native install location', () {
+      final bundle = p.join(tmp.path, 'configured.artifactbundle');
+      addTearDown(DarwinSdk.resetInstallBundleOverride);
+
+      DarwinSdk.configureInstallBundleOverride(bundle);
+
+      expect(DarwinSdk.nativeInstallDir(), bundle);
+    });
+
     test('current accepts only a complete bundle', () async {
       final bundle = p.join(tmp.path, 'xcross-darwin.artifactbundle');
       final frameworks = p.join(

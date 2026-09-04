@@ -4,6 +4,7 @@ import 'package:args/command_runner.dart';
 import 'package:build_cli_annotations/build_cli_annotations.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/setup/setup_script.dart';
 import 'package:xcross/src/update/git_ref_source_bundle_builder.dart';
 import 'package:xcross/src/update/git_update_ref_resolver.dart';
 import 'package:xcross/src/update/install_layout.dart';
@@ -68,6 +69,7 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
     String Function()? currentVersion,
     bool Function()? currentIsReleased,
     bool Function(InstallLayout layout)? hasNativeLibraries,
+    Future<void> Function()? refreshSetupScript,
   }) : _latestTagLookup = _withLatestTagStep(
          latestTagLookup ?? ReleaseLookup.latestTag,
        ),
@@ -83,7 +85,8 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
        _currentVersion = currentVersion ?? _defaultCurrentVersion,
        _currentIsReleased = currentIsReleased ?? _defaultCurrentIsReleased,
        _hasNativeLibraries =
-           hasNativeLibraries ?? ((layout) => layout.hasNativeLibraries);
+           hasNativeLibraries ?? ((layout) => layout.hasNativeLibraries),
+       _refreshSetupScript = refreshSetupScript ?? _defaultRefreshSetupScript;
 
   final Future<String> Function() _latestTagLookup;
   final Future<GitUpdateRef> Function(String ref) _resolveRef;
@@ -107,6 +110,7 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
   final String Function() _currentVersion;
   final bool Function() _currentIsReleased;
   final bool Function(InstallLayout layout) _hasNativeLibraries;
+  final Future<void> Function() _refreshSetupScript;
 
   @override
   String get name => 'update';
@@ -155,6 +159,7 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
     }
 
     await _releaseInstaller(layout: layout, tag: tag);
+    await _refreshSetupScript();
     Log.logDone('Updated xcross to $tag', layout.binaryPath);
   }
 
@@ -187,6 +192,7 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
       final asset = _assetName();
       Log.logInfo('Asset', asset);
       await _releaseInstaller(layout: layout, tag: resolvedRef.displayName);
+      await _refreshSetupScript();
       Log.logDone(
         'Updated xcross to ${resolvedRef.displayName}',
         layout.binaryPath,
@@ -195,6 +201,7 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
     }
 
     await _sourceInstaller(layout: layout, ref: resolvedRef);
+    await _refreshSetupScript();
     Log.logDone(
       'Updated xcross to ${resolvedRef.displayName} (${resolvedRef.commitSha})',
       layout.binaryPath,
@@ -253,6 +260,11 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
   static String _defaultCurrentVersion() => XcrossVersion.current;
 
   static bool _defaultCurrentIsReleased() => XcrossVersion.isReleased;
+
+  static Future<void> _defaultRefreshSetupScript() async {
+    final manager = SetupScriptManager();
+    if (manager.isRemote) await manager.refresh();
+  }
 
   static Future<void> _defaultInstallRelease({
     required InstallLayout layout,

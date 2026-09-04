@@ -108,8 +108,7 @@
   with a message naming the cause and the command that fixes it.
 - Require Swift on `PATH` before `xcross setup` and `xcross sdk install`,
   which previously failed only after a sudo prompt and a full package
-  transaction, or after extracting tens of gigabytes. `xcross setup
-  --no-swift-check` still bootstraps Swift's own build dependencies.
+  transaction, or after extracting tens of gigabytes.
 - Verify the Xcode archive before `xcross sdk install` removes the previous
   SDK, so a wrong path or a partial download no longer leaves the host with
   no SDK at all.

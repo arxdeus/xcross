@@ -42,14 +42,14 @@ final class GradleKlibBuilder {
     final depsOutPath = p.join(tmpDir.path, 'iosDeps.txt');
     final initScriptPath = p.join(tmpDir.path, 'dumpDeps.init.gradle.kts');
     final env = <String, String>{
-      ...Platform.environment,
+      ...ProcessRunner.effectiveEnvironment,
       if (toolchain.javaHome.isNotEmpty) 'JAVA_HOME': toolchain.javaHome,
       if (toolchain.konanCache.isNotEmpty)
         'KONAN_DATA_DIR': toolchain.konanCache,
       'XCROSS_DEPS_OUT': depsOutPath,
     };
     if (toolchain.javaHome.isNotEmpty) {
-      final parentPath = Platform.environment['PATH'] ?? '';
+      final parentPath = ProcessRunner.effectiveEnvironment['PATH'] ?? '';
       final javaBin = p.join(toolchain.javaHome, 'bin');
       final pathSeparator = toolchain.host.isWindows ? ';' : ':';
       env['PATH'] = parentPath.isEmpty

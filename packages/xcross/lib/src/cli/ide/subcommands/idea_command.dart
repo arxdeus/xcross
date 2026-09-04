@@ -29,7 +29,7 @@ final class IdeaCommand extends Command<void> {
 
     await _writeIfAbsent(
       p.join(dir.path, 'xcross_ios_device.run.xml'),
-      buildIdeaRunXml(exe),
+      buildIdeaRunXml(exe, environment: generatedIdeEnvironment),
     );
 
     Log.logInfo(
@@ -57,7 +57,10 @@ final class IdeaCommand extends Command<void> {
   }
 
   /// Shared `.run/*.run.xml` body for LSP4IJ's `DAPConfiguration` type.
-  static String buildIdeaRunXml(String xcrossExe) {
+  static String buildIdeaRunXml(
+    String xcrossExe, {
+    Map<String, String> environment = const {},
+  }) {
     final command = '${_quoteCmd(xcrossExe)} flutter dap';
     final launch = jsonEncode({
       'type': 'dart',
@@ -65,7 +68,7 @@ final class IdeaCommand extends Command<void> {
       'request': 'launch',
       'program': 'lib/main.dart',
       'cwd': r'${workspaceFolder}',
-      'env': {xcrossEnvKey: xcrossEnvValue},
+      'env': {...environment, xcrossEnvKey: xcrossEnvValue},
       'args': <String>[],
     });
 

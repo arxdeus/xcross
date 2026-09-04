@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:crypto/crypto.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
@@ -556,7 +557,7 @@ Future<ProcessResult> _runBounded(
   required Duration timeout,
   Map<String, String>? environment,
 }) async {
-  final process = await Process.start(
+  final process = await ProcessRunner.start(
     executable,
     arguments,
     environment: environment,

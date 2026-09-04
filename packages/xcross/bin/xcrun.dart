@@ -1,7 +1,9 @@
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/xcross.dart';
 
 Future<void> main(List<String> arguments) async {
   if (Platform.isMacOS) {
@@ -11,6 +13,7 @@ Future<void> main(List<String> arguments) async {
   }
 
   try {
+    await XcrossRuntimeConfig.initialize();
     exitCode = await runXcrun(arguments);
   } on Object catch (error) {
     stderr.writeln('xcrun: $error');
@@ -18,8 +21,12 @@ Future<void> main(List<String> arguments) async {
   }
 }
 
-Future<int> runXcrun(List<String> arguments) async {
-  final sdk = DarwinSdk.current();
+Future<int> runXcrun(
+  List<String> arguments, {
+  DarwinSdk? sdk,
+  Future<String?> Function(String name)? findOnPath,
+}) async {
+  sdk ??= DarwinSdk.current();
   if (sdk == null) {
     stderr.writeln(
       'xcrun: no Darwin SDK installed; run `xcross sdk install` first',
@@ -35,7 +42,11 @@ Future<int> runXcrun(List<String> arguments) async {
   final find = arguments.indexOf('--find');
   if (find >= 0) {
     if (find + 1 >= arguments.length) return 1;
-    final tool = await _resolveTool(sdk, arguments[find + 1]);
+    final tool = await _resolveTool(
+      sdk,
+      arguments[find + 1],
+      findOnPath: findOnPath,
+    );
     if (tool == null) return 1;
     stdout.writeln(tool);
     return 0;
@@ -43,18 +54,30 @@ Future<int> runXcrun(List<String> arguments) async {
 
   final toolIndex = _toolIndex(arguments);
   if (toolIndex == -1) return 1;
-  final tool = await _resolveTool(sdk, arguments[toolIndex]);
+  final tool = await _resolveTool(
+    sdk,
+    arguments[toolIndex],
+    findOnPath: findOnPath,
+  );
   if (tool == null) {
     stderr.writeln('xcrun: unknown tool ${arguments[toolIndex]}');
     return 1;
   }
-  final process = await Process.start(
-    tool,
-    arguments.sublist(toolIndex + 1),
-    mode: ProcessStartMode.inheritStdio,
-  );
-  return process.exitCode;
+  return runResolvedTool(tool, arguments.sublist(toolIndex + 1));
 }
+
+/// Streams a resolved tool directly and preserves its exact exit status.
+Future<int> runResolvedTool(
+  String tool,
+  List<String> arguments, {
+  Future<Process> Function(String tool, List<String> arguments)? start,
+}) async {
+  final child = await (start ?? _startInherited)(tool, arguments);
+  return child.exitCode;
+}
+
+Future<Process> _startInherited(String tool, List<String> arguments) =>
+    ProcessRunner.start(tool, arguments, mode: ProcessStartMode.inheritStdio);
 
 int _toolIndex(List<String> arguments) {
   for (var index = 0; index < arguments.length; index++) {
@@ -67,20 +90,17 @@ int _toolIndex(List<String> arguments) {
   return -1;
 }
 
-Future<String?> _findOnPath(String name) async {
-  final executable = Platform.isWindows ? 'where' : 'which';
-  final result = await Process.run(executable, [name]);
-  if (result.exitCode != 0) return null;
-  final first = result.stdout.toString().split(RegExp(r'[\r\n]+')).first.trim();
-  return first.isEmpty ? null : first;
-}
+Future<String?> _findOnPath(String name) =>
+    ProcessRunner.which(name, useConfiguration: false);
 
-Future<String?> _resolveTool(DarwinSdk sdk, String name) async {
-  final pathTool = await _findOnPath(name);
-  if (pathTool != null &&
-      p.canonicalize(pathTool) != p.canonicalize(Platform.resolvedExecutable)) {
-    return pathTool;
-  }
+Future<String?> _resolveTool(
+  DarwinSdk sdk,
+  String name, {
+  Future<String?> Function(String name)? findOnPath,
+}) async {
+  final pathTool = await (findOnPath ?? _findOnPath)(name);
+  if (pathTool != null && !_isCurrentExecutable(pathTool)) return pathTool;
+
   switch (name) {
     case 'clang':
     case 'clang++':
@@ -120,3 +140,6 @@ Future<String?> _resolveTool(DarwinSdk sdk, String name) async {
       return DarwinSdk.locateLlvmTool(Platform.isWindows ? '$name.exe' : name);
   }
 }
+
+bool _isCurrentExecutable(String path) =>
+    p.canonicalize(path) == p.canonicalize(Platform.resolvedExecutable);

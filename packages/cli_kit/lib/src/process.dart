@@ -19,9 +19,85 @@ final class CapturedProcess {
   final String stderr;
 }
 
+/// Process lookup and child-environment overlay supplied by an embedding app.
+@immutable
+final class ProcessConfiguration {
+  ProcessConfiguration({
+    required Map<String, String> normalizedTools,
+    required Map<String, List<String>> toolchainDirectories,
+    required Map<String, String> effectiveChildEnvironment,
+  }) : normalizedTools = Map.unmodifiable(normalizedTools),
+       toolchainDirectories = Map.unmodifiable({
+         for (final entry in toolchainDirectories.entries)
+           entry.key: List<String>.unmodifiable(entry.value),
+       }),
+       effectiveChildEnvironment = Map.unmodifiable(effectiveChildEnvironment);
+
+  final Map<String, String> normalizedTools;
+  final Map<String, List<String>> toolchainDirectories;
+  final Map<String, String> effectiveChildEnvironment;
+}
+
 /// Wrappers around `dart:io` [Process] with consistent UTF-8 decoding and
 /// error reporting.
 abstract final class ProcessRunner {
+  static ProcessConfiguration? _configuration;
+
+  /// Installs process inputs owned by the embedding application.
+  ///
+  /// This is opt-in; without a call to [configure], all behavior remains based
+  /// on the host process environment. Operation-local environment entries take
+  /// precedence over [effectiveChildEnvironment].
+  static void configure({
+    required Map<String, String> normalizedTools,
+    required Map<String, String> effectiveChildEnvironment,
+    Map<String, List<String>> toolchainDirectories = const {},
+  }) {
+    _configuration = ProcessConfiguration(
+      normalizedTools: normalizedTools,
+      toolchainDirectories: toolchainDirectories,
+      effectiveChildEnvironment: effectiveChildEnvironment,
+    );
+  }
+
+  /// Removes process configuration, primarily for isolation between tests.
+  static void resetConfiguration() => _configuration = null;
+
+  /// The installed process configuration, if any.
+  static ProcessConfiguration? get configuration => _configuration;
+
+  /// Base environment production callers should use when constructing a
+  /// complete operation-local environment.
+  ///
+  /// Without configuration this is the host environment, preserving legacy
+  /// behavior. Once configured it is the inherited environment with the
+  /// embedding application's allowlisted overlay applied.
+  static Map<String, String> get effectiveEnvironment =>
+      _configuration?.effectiveChildEnvironment ?? Platform.environment;
+
+  static Map<String, String>? _childEnvironment(
+    Map<String, String>? operationEnvironment,
+  ) {
+    final configuration = _configuration;
+    final configured = configuration?.effectiveChildEnvironment;
+    if (configured == null) return operationEnvironment;
+    if (operationEnvironment == null) return {...configured};
+
+    return {...configured, ...operationEnvironment};
+  }
+
+  static bool get _inheritParentEnvironment => _configuration == null;
+
+  static String _resolvedExecutable(String executable) {
+    final configuration = _configuration;
+    if (configuration == null || p.isAbsolute(executable)) return executable;
+    final configured =
+        configuration.normalizedTools[_normalizedToolName(executable)];
+    if (configured != null) return configured;
+    return _toolchainOverride(executable, configuration, Platform.isWindows) ??
+        executable;
+  }
+
   /// The single broadcast every stdin reader in the process must share:
   /// cancelling a direct `stdin` subscription closes the fd for good, while
   /// this view only pauses the source between listeners.
@@ -37,6 +113,27 @@ abstract final class ProcessRunner {
         onCancel: (sub) => sub.pause(),
       );
 
+  /// Starts [executable] with the configured child environment.
+  ///
+  /// This preserves the streaming [Process] API while applying the same
+  /// configured environment overlay as [run].
+  static Future<Process> start(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+    Map<String, String>? environment,
+    bool runInShell = false,
+    ProcessStartMode mode = ProcessStartMode.normal,
+  }) => Process.start(
+    _resolvedExecutable(executable),
+    arguments,
+    workingDirectory: workingDirectory,
+    environment: _childEnvironment(environment),
+    includeParentEnvironment: _inheritParentEnvironment,
+    runInShell: runInShell,
+    mode: mode,
+  );
+
   /// Runs [executable] to completion, capturing stdout/stderr as UTF-8.
   static Future<CapturedProcess> run(
     String executable,
@@ -45,10 +142,11 @@ abstract final class ProcessRunner {
     Map<String, String>? environment,
   }) async {
     final result = await Process.run(
-      executable,
+      _resolvedExecutable(executable),
       arguments,
       workingDirectory: workingDirectory,
-      environment: environment,
+      environment: _childEnvironment(environment),
+      includeParentEnvironment: _inheritParentEnvironment,
       stdoutEncoding: const Utf8Codec(allowMalformed: true),
       stderrEncoding: const Utf8Codec(allowMalformed: true),
     );
@@ -141,10 +239,11 @@ abstract final class ProcessRunner {
     Map<String, String>? environment,
   }) async {
     final process = await Process.start(
-      executable,
+      _resolvedExecutable(executable),
       arguments,
       workingDirectory: workingDirectory,
-      environment: environment,
+      environment: _childEnvironment(environment),
+      includeParentEnvironment: _inheritParentEnvironment,
       mode: ProcessStartMode.inheritStdio,
     );
     final code = await process.exitCode;
@@ -186,10 +285,11 @@ abstract final class ProcessRunner {
     bool forwardStdin = true,
   }) async {
     final process = await Process.start(
-      executable,
+      _resolvedExecutable(executable),
       arguments,
       workingDirectory: workingDirectory,
-      environment: environment,
+      environment: _childEnvironment(environment),
+      includeParentEnvironment: _inheritParentEnvironment,
     );
 
     final captured = StringBuffer();
@@ -370,12 +470,14 @@ abstract final class ProcessRunner {
     bool? windows,
     bool Function(String path)? accept,
     Iterable<String> extraDirectories = const [],
+    bool useConfiguration = true,
   }) async => (await whichAll(
     name,
     environment: environment,
     windows: windows,
     accept: accept,
     extraDirectories: extraDirectories,
+    useConfiguration: useConfiguration,
   )).firstOrNull;
 
   /// Every match for [name] on PATH, in PATH order, then in
@@ -390,21 +492,40 @@ abstract final class ProcessRunner {
     bool? windows,
     bool Function(String path)? accept,
     Iterable<String> extraDirectories = const [],
+    bool useConfiguration = true,
   }) async {
-    final env = environment ?? Platform.environment;
+    final configured = useConfiguration ? _configuration : null;
+    final env = configured == null
+        ? environment ?? effectiveEnvironment
+        : {...effectiveEnvironment, ...?environment};
     final onWindows = windows ?? Platform.isWindows;
     final names = _candidateNames(
       name,
       onWindows ? _pathExtensions(env) : const [],
     );
+    final override = _configuredToolOverride(
+      configured?.normalizedTools,
+      names,
+    );
+    if (override != null && (accept == null || accept(override))) {
+      return [override];
+    }
+    final toolchain = configured == null
+        ? null
+        : _toolchainOverride(name, configured, onWindows, accept: accept);
 
-    final found = <String>[];
+    final found = <String>[if (toolchain != null) toolchain];
     final seen = <String>{};
     final searchPath = _environmentValue(env, 'PATH') ?? '';
     final directories = [
       ...searchPath.split(onWindows ? ';' : ':'),
       ...extraDirectories,
     ];
+    if (toolchain != null) {
+      seen.add(
+        Platform.isWindows || onWindows ? toolchain.toLowerCase() : toolchain,
+      );
+    }
     for (final dir in directories) {
       if (dir.isEmpty) continue;
       for (final candidateName in names) {
@@ -425,6 +546,91 @@ abstract final class ProcessRunner {
       }
     }
     return found;
+  }
+
+  static const _swiftExecutables = {
+    'swift',
+    'swiftc',
+    'swift-package',
+    'swift-build',
+    'swift-frontend',
+  };
+  static const _llvmExecutables = {'clang', 'clang++', 'ld64.lld', 'dsymutil'};
+  static const _windowsExecutableExtensions = ['.exe', '.cmd', '.bat', '.com'];
+
+  static String? _toolchainOverride(
+    String name,
+    ProcessConfiguration configuration,
+    bool windows, {
+    bool Function(String path)? accept,
+  }) {
+    final executable = _toolchainExecutable(name);
+    if (executable == null) return null;
+
+    final directories =
+        configuration.toolchainDirectories[executable.toolchain];
+    if (directories == null) return null;
+
+    final extensions = windows
+        ? _pathExtensions(configuration.effectiveChildEnvironment)
+        : const <String>[];
+    final candidates = _candidateNames(executable.basename, extensions);
+    return _firstAcceptedTool(directories, candidates, accept);
+  }
+
+  static ({String toolchain, String basename})? _toolchainExecutable(
+    String name,
+  ) {
+    final normalized = _normalizedToolName(name);
+    if (_swiftExecutables.contains(normalized)) {
+      return (toolchain: 'swift', basename: normalized);
+    }
+    if (normalized == 'cc') {
+      return (toolchain: 'llvm', basename: 'clang');
+    }
+    if (_llvmExecutables.contains(normalized) ||
+        normalized.startsWith('llvm-')) {
+      return (toolchain: 'llvm', basename: normalized);
+    }
+    return null;
+  }
+
+  static String? _firstAcceptedTool(
+    Iterable<String> directories,
+    Iterable<String> candidates,
+    bool Function(String path)? accept,
+  ) {
+    for (final directory in directories) {
+      for (final candidate in candidates) {
+        final path = p.join(directory, candidate);
+        if (File(path).existsSync() && (accept == null || accept(path))) {
+          return path;
+        }
+      }
+    }
+    return null;
+  }
+
+  static String? _configuredToolOverride(
+    Map<String, String>? tools,
+    Iterable<String> candidateNames,
+  ) {
+    if (tools == null) return null;
+    for (final candidate in candidateNames) {
+      final override = tools[_normalizedToolName(candidate)];
+      if (override != null) return override;
+    }
+    return null;
+  }
+
+  static String _normalizedToolName(String name) {
+    final normalized = name.trim().toLowerCase();
+    for (final extension in _windowsExecutableExtensions) {
+      if (normalized.endsWith(extension)) {
+        return normalized.substring(0, normalized.length - extension.length);
+      }
+    }
+    return normalized;
   }
 
   static List<String> _pathExtensions(Map<String, String> env) =>
@@ -481,7 +687,8 @@ abstract final class ProcessRunner {
       return;
     }
     try {
-      await run('taskkill', ['/PID', '${process.pid}', '/T', '/F']);
+      final taskkill = await locateTool('taskkill');
+      await run(taskkill, ['/PID', '${process.pid}', '/T', '/F']);
     } on Object {
       Log.logTrace('taskkill failed for pid ${process.pid}');
     }

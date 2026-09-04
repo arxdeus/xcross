@@ -53,12 +53,10 @@ abstract final class OsVersion {
 
   static Future<int?> _majorFromIdeviceinfo(String udid) async {
     try {
-      final result = await ProcessRunner.run('ideviceinfo', [
-        '-u',
-        udid,
-        '-k',
-        'ProductVersion',
-      ]);
+      final result = await ProcessRunner.run(
+        await ProcessRunner.locateTool('ideviceinfo'),
+        ['-u', udid, '-k', 'ProductVersion'],
+      );
       if (result.exitCode != 0) {
         final msg = result.stderr.trim().isNotEmpty
             ? result.stderr.trim()

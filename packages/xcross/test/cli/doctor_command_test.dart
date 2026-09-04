@@ -6,8 +6,10 @@ import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/cli/basic/doctor_command.dart';
 import 'package:xcross/src/cli/basic/doctor_environment_checks.dart';
+import 'package:xcross/src/cli/basic/doctor_project_checks.dart';
 import 'package:xcross/src/cli/runner.dart';
 import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/flutter/build/flutter_packer.dart';
 
 void main() {
   test('doctor is registered by the top-level runner', () {
@@ -214,6 +216,31 @@ void main() {
             contains('No clang that can target iOS.'),
           ),
     );
+  });
+
+  test('Flutter project reports only configured SDK resolution', () async {
+    final project = Directory.systemTemp.createTempSync(
+      'xcross-doctor-flutter-',
+    );
+    addTearDown(() {
+      FlutterPacker.resetFlutterRootOverride();
+      project.deleteSync(recursive: true);
+    });
+    File('${project.path}/pubspec.yaml').writeAsStringSync('name: demo');
+    Directory('${project.path}/lib').createSync();
+    File('${project.path}/lib/main.dart').writeAsStringSync('');
+    FlutterPacker.configureFlutterResolution(declarative: true);
+
+    final checks = await DoctorProjectChecks.examine(
+      DoctorProject.flutter(project.path),
+    );
+    final flutterSdkChecks = checks.where(
+      (check) => check.name == 'Flutter SDK',
+    );
+
+    expect(flutterSdkChecks, hasLength(1));
+    expect(flutterSdkChecks.single.status, DoctorStatus.failure);
+    expect(flutterSdkChecks.single.message, contains('not configured'));
   });
 
   test('Windows Flutter checks require the Flutter launcher', () async {

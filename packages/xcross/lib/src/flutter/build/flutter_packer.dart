@@ -40,6 +40,38 @@ import 'package:xcross/src/package_config_resolver.dart';
 ///      plugins library when present.
 ///   6. Assemble the `.app` bundle and write `Info.plist`.
 final class FlutterPacker {
+  static String? _flutterRootOverride;
+  static String? _flutterEnvironmentRoot;
+  static String? _flutterToolOverride;
+  static bool _declarative = false;
+
+  /// Configures declarative Flutter resolution without coupling this layer to
+  /// the application configuration types.
+  static void configureFlutterResolution({
+    required bool declarative,
+    String? root,
+    String? environmentRoot,
+    String? tool,
+  }) {
+    _flutterRootOverride = root;
+    _flutterEnvironmentRoot = environmentRoot;
+    _flutterToolOverride = tool;
+    _declarative = declarative;
+  }
+
+  /// Legacy root-only seam retained for embedders.
+  static void configureFlutterRootOverride(String? root) {
+    _flutterRootOverride = root;
+  }
+
+  /// Removes configured Flutter resolution.
+  static void resetFlutterRootOverride() {
+    _flutterRootOverride = null;
+    _flutterEnvironmentRoot = null;
+    _flutterToolOverride = null;
+    _declarative = false;
+  }
+
   final String projectRoot;
   final String bundleId;
   final FlutterBuildOptions options;
@@ -132,14 +164,32 @@ final class FlutterPacker {
   }
 
   /// Resolve the Flutter SDK root using, in order:
-  ///   1. `FLUTTER_ROOT` environment variable.
+  ///   1. Explicit [root], configured root, or configured `FLUTTER_ROOT`.
   ///   2. `<projectRoot>/.fvm/flutter_sdk` symlink (fvm).
-  ///   3. `which flutter` → parent of `bin/`.
+  ///   3. Configured `tools.flutter`.
+  ///
+  /// Legacy mode additionally consults the platform environment and tool
+  /// discovery (including mise compatibility).
   static Future<String> resolveFlutterRoot({
     required String projectRoot,
+    String? root,
   }) async {
-    final envRoot = Platform.environment['FLUTTER_ROOT'];
-    if (envRoot != null && envRoot.isNotEmpty) return envRoot;
+    final configuredRoot = root ?? _flutterRootOverride;
+    if (configuredRoot != null && configuredRoot.isNotEmpty) {
+      return configuredRoot;
+    }
+    final configuredEnvironmentRoot = _flutterEnvironmentRoot;
+    if (configuredEnvironmentRoot != null &&
+        configuredEnvironmentRoot.isNotEmpty) {
+      return configuredEnvironmentRoot;
+    }
+    if (!_declarative) {
+      final inheritedEnvironmentRoot = Platform.environment['FLUTTER_ROOT'];
+      if (inheritedEnvironmentRoot != null &&
+          inheritedEnvironmentRoot.isNotEmpty) {
+        return inheritedEnvironmentRoot;
+      }
+    }
 
     final fvmLink = p.join(projectRoot, '.fvm', 'flutter_sdk');
     final fvmLinkExists =
@@ -148,13 +198,27 @@ final class FlutterPacker {
       return Link(fvmLink).resolveSymbolicLinksSync();
     }
 
-    final flutter = await ProcessRunner.locateTool('flutter');
-    final resolved = File(flutter).resolveSymbolicLinksSync();
-    if (Platform.isWindows && p.basename(p.dirname(resolved)) == 'shims') {
-      final result = await Process.run('mise', ['where', 'flutter']);
+    final flutter = _flutterToolOverride;
+    if (_declarative && (flutter == null || flutter.isEmpty)) {
+      throw FlutterBuildError(
+        'Flutter SDK not configured. Set roots.flutterSdk, environment '
+        'FLUTTER_ROOT, tools.flutter, or add .fvm/flutter_sdk to the project.',
+      );
+    }
+    final locatedFlutter = flutter ?? await ProcessRunner.locateTool('flutter');
+    final resolved = _declarative && flutter != null
+        ? locatedFlutter
+        : File(locatedFlutter).resolveSymbolicLinksSync();
+    if (!_declarative &&
+        Platform.isWindows &&
+        p.basename(p.dirname(resolved)) == 'shims') {
+      final result = await ProcessRunner.run(
+        await ProcessRunner.locateTool('mise'),
+        ['where', 'flutter'],
+      );
       if (result.exitCode == 0) {
-        final root = result.stdout.toString().trim();
-        if (Directory(p.join(root, 'bin')).existsSync()) return root;
+        final miseRoot = result.stdout.trim();
+        if (Directory(p.join(miseRoot, 'bin')).existsSync()) return miseRoot;
       }
     }
     // The `flutter` script lives at <root>/bin/flutter.

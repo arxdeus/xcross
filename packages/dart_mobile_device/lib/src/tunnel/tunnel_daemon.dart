@@ -132,7 +132,7 @@ class TunnelDaemon {
 
     late Process proc;
     try {
-      proc = await Process.start(
+      proc = await ProcessRunner.start(
         argv[0],
         argv.sublist(1),
         environment: Pymd.usbmuxEnvironment(),
@@ -269,7 +269,7 @@ class TunnelDaemon {
     // The daemon runs under sudo (root); escalate via sudo kill.
     Sudo.resolve().then((sudo) {
       if (sudo != null) {
-        Process.run(sudo, ['kill', '-TERM', '${proc.pid}']);
+        ProcessRunner.run(sudo, ['kill', '-TERM', '${proc.pid}']);
       } else {
         proc.kill();
       }

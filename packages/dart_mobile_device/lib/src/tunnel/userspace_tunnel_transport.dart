@@ -115,7 +115,7 @@ class UserspaceTunnelTransport implements DeviceTransport {
 
     final Process relay;
     try {
-      relay = await Process.start(
+      relay = await ProcessRunner.start(
         invocation.executable,
         arguments,
         environment: Pymd.usbmuxEnvironment(),

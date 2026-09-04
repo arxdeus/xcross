@@ -66,12 +66,56 @@ final class AppleToolShimConfig {
   }
 }
 
-Future<String> resolveXcrun() async {
-  final sibling = p.join(
+String? _launcherOverride;
+String? _xcrunOverride;
+bool _declarative = false;
+
+/// Configures helper resolution without coupling this layer to config types.
+void configureAppleToolShimResolution({
+  required bool declarative,
+  String? launcher,
+  String? xcrun,
+}) {
+  _launcherOverride = launcher;
+  _xcrunOverride = xcrun;
+  _declarative = declarative;
+}
+
+/// Configures the launcher directory searched for bundled Apple tool shims.
+void configureAppleToolShimLauncherOverride(String? launcher) {
+  _launcherOverride = launcher;
+}
+
+/// Removes configured Apple tool-shim resolution.
+void resetAppleToolShimLauncherOverride() {
+  _launcherOverride = null;
+  _xcrunOverride = null;
+  _declarative = false;
+}
+
+Future<String> resolveXcrun({String? launcher}) async {
+  if (_xcrunOverride case final configured? when configured.isNotEmpty) {
+    return configured;
+  }
+  final effectiveLauncher = _launcherOverride ?? launcher;
+  if (effectiveLauncher != null) {
+    final sibling = p.join(
+      p.dirname(effectiveLauncher),
+      ProcessRunner.hostExecutableName('xcrun'),
+    );
+    if (File(sibling).existsSync()) return sibling;
+  }
+  if (_declarative) {
+    throw FlutterBuildError(
+      'xcrun not configured. Set tools.xcrun or configure an xcross launcher '
+      'with a bundled xcrun sibling.',
+    );
+  }
+  final platformSibling = p.join(
     p.dirname(Platform.resolvedExecutable),
     ProcessRunner.hostExecutableName('xcrun'),
   );
-  if (File(sibling).existsSync()) return sibling;
+  if (File(platformSibling).existsSync()) return platformSibling;
   return ProcessRunner.locateTool('xcrun');
 }
 
@@ -170,6 +214,7 @@ Future<void> _installWindowsToolShims(
       if (entry.key == 'clang' || entry.key == 'cc') {
         await File('$executable.args').writeAsString(
           jsonEncode([
+            '--target=arm64-apple-ios${config.deploymentTarget}',
             '-isysroot',
             config.iosSdk,
             '-miphoneos-version-min=${config.deploymentTarget}',

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:xcross/src/flutter/build/swiftpm_binary_artifact_store.dart';
@@ -22,10 +23,8 @@ typedef StartBinaryCopy =
       List<String> arguments,
     );
 
-bool isWindowsMountPointReparseOutput(String output) => RegExp(
-  r'0x0*a0000003\b',
-  caseSensitive: false,
-).hasMatch(output);
+bool isWindowsMountPointReparseOutput(String output) =>
+    RegExp(r'0x0*a0000003\b', caseSensitive: false).hasMatch(output);
 
 abstract interface class BinaryCopyProcess {
   Future<int> get exitCode;
@@ -204,17 +203,18 @@ final class SwiftPmBinaryArtifactPreparer {
 
   Future<void> _createAlias(String alias, String target) async {
     if (Platform.isWindows) {
-      final result = await Process.run('cmd.exe', [
-        '/c',
-        'mklink',
-        '/J',
-        p.windows.normalize(alias),
-        p.windows.normalize(target),
-      ]);
+      final result =
+          await ProcessRunner.run(await ProcessRunner.locateTool('cmd.exe'), [
+            '/c',
+            'mklink',
+            '/J',
+            p.windows.normalize(alias),
+            p.windows.normalize(target),
+          ]);
       if (result.exitCode != 0) {
         throw FileSystemException(
           'Could not create SwiftPM binary artifact junction: '
-          '${_boundedDiagnostic('${result.stderr}')}',
+          '${_boundedDiagnostic(result.stderr)}',
           alias,
         );
       }
@@ -231,7 +231,6 @@ final class SwiftPmBinaryArtifactPreparer {
         return false;
       }
       if (!await _isWindowsMountPoint(alias)) return false;
-
     } else if (type != FileSystemEntityType.link) {
       return false;
     }
@@ -246,22 +245,24 @@ final class SwiftPmBinaryArtifactPreparer {
   }
 
   Future<bool> _isWindowsMountPoint(String alias) async {
-    final result = await Process.run('fsutil.exe', [
-      'reparsepoint',
-      'query',
-      alias,
-    ]);
+    final result = await ProcessRunner.run(
+      await ProcessRunner.locateTool('fsutil.exe'),
+      ['reparsepoint', 'query', alias],
+    );
     return result.exitCode == 0 &&
-        isWindowsMountPointReparseOutput('${result.stdout}');
+        isWindowsMountPointReparseOutput(result.stdout);
   }
 
   Future<void> _deleteVerifiedAlias(String alias) async {
     if (Platform.isWindows) {
-      final result = await Process.run('cmd.exe', ['/c', 'rmdir', alias]);
+      final result = await ProcessRunner.run(
+        await ProcessRunner.locateTool('cmd.exe'),
+        ['/c', 'rmdir', alias],
+      );
       if (result.exitCode != 0) {
         throw FileSystemException(
           'Could not remove SwiftPM binary artifact junction: '
-          '${_boundedDiagnostic('${result.stderr}')}',
+          '${_boundedDiagnostic(result.stderr)}',
           alias,
         );
       }
@@ -395,7 +396,12 @@ final class SwiftPmBinaryArtifactPreparer {
   static Future<BinaryCopyProcess> _startRobocopy(
     String executable,
     List<String> arguments,
-  ) async => _IoBinaryCopyProcess(await Process.start(executable, arguments));
+  ) async => _IoBinaryCopyProcess(
+    await ProcessRunner.start(
+      await ProcessRunner.locateTool(executable),
+      arguments,
+    ),
+  );
 
   Future<void> _copyBinaryArtifact({
     required String source,

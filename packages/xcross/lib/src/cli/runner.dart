@@ -12,6 +12,7 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/cli/basic/auth_command.dart';
 import 'package:xcross/src/cli/basic/clean_command.dart';
 import 'package:xcross/src/cli/basic/completion_command.dart';
+import 'package:xcross/src/cli/basic/config_command.dart';
 import 'package:xcross/src/cli/basic/doctor_command.dart';
 import 'package:xcross/src/cli/basic/sdk_command.dart';
 import 'package:xcross/src/cli/basic/setup_command.dart';
@@ -21,6 +22,8 @@ import 'package:xcross/src/cli/compose/compose_command.dart';
 import 'package:xcross/src/cli/flutter/flutter_command.dart';
 import 'package:xcross/src/cli/ide/ide_command.dart';
 import 'package:xcross/src/cli/internal/xcross_runner.dart';
+import 'package:xcross/src/config/config.dart';
+import 'package:xcross/src/config/runtime_config.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/flutter/flutter.dart';
 import 'package:xcross/src/update/install_layout.dart';
@@ -148,26 +151,45 @@ const _toolAliasVariables = {
 
 /// Namespace for building and running the xcross CLI.
 abstract final class XcrossCli {
-  static CommandRunner<void> buildRunner() =>
-      XcrossRunner(
-          'xcross',
-          'Build and run Flutter and Compose Multiplatform iOS apps without Xcode.',
-        )
-        ..addCommand(FlutterCommand())
-        ..addCommand(ComposeCommand())
-        ..addCommand(TunnelCommand())
-        ..addCommand(CleanCommand())
-        ..addCommand(DoctorCommand())
-        ..addCommand(SetupCommand())
-        ..addCommand(AuthCommand())
-        ..addCommand(SdkCommand())
-        ..addCommand(IdeCommand())
-        ..addCommand(UpdateCommand())
-        ..addCommand(CompletionCommand());
+  static CommandRunner<void> buildRunner({
+    Iterable<String> excludedCommands = const [],
+  }) {
+    final excluded = excludedCommands
+        .map((command) => command.trim().toLowerCase())
+        .toSet();
+    final runner = XcrossRunner(
+      'xcross',
+      'Build and run Flutter and Compose Multiplatform iOS apps without Xcode.',
+    );
+    final commands = <Command<void>>[
+      FlutterCommand(),
+      ComposeCommand(),
+      TunnelCommand(),
+      CleanCommand(),
+      ConfigCommand(),
+      DoctorCommand(),
+      SetupCommand(),
+      AuthCommand(),
+      SdkCommand(),
+      IdeCommand(),
+      UpdateCommand(),
+      CompletionCommand(),
+    ];
+    for (final command in commands) {
+      if (!excluded.contains(command.name.toLowerCase())) {
+        runner.addCommand(command);
+      }
+    }
+    return runner;
+  }
 
   /// Entry point used by `bin/xcross.dart`.
   static Future<int> run(List<String> args) async {
-    final runner = buildRunner();
+    final excludedCommands = XcrossRuntimeConfig.isInitialized
+        ? XcrossRuntimeConfig.current.config?.excludedCommands ??
+              const <String>{}
+        : const <String>{};
+    final runner = buildRunner(excludedCommands: excludedCommands);
     _completeArgs(args, runner);
     final ownsStdout = _ownsStdout(args);
     if (!ownsStdout) _printCredits();
@@ -229,22 +251,24 @@ abstract final class XcrossCli {
     );
   }
 
-  /// Errors carrying a finished user-facing message print without a Dart
-  /// stack trace; anything else is a bug and gets the full trace.
-  static void _reportFailure(Object error, StackTrace stackTrace) {
-    switch (error) {
-      case CliError(:final message) ||
-          AppleError(:final message) ||
-          DarwinSdkError(:final message) ||
-          TunnelError(:final message) ||
-          FlutterBuildError(:final message) ||
-          XcrossError(:final message):
-        _cliError('error: $message');
-      default:
-        _cliError('error: $error');
-        _cliError('$stackTrace');
-    }
+  /// Formats errors consistently for the CLI entrypoint and command runner.
+  /// User-facing errors omit a Dart stack trace; unexpected failures retain it.
+  static String formatFailure(Object error, StackTrace stackTrace) {
+    return switch (error) {
+      CliError(:final message) ||
+      AppleError(:final message) ||
+      DarwinSdkError(:final message) ||
+      TunnelError(:final message) ||
+      FlutterBuildError(:final message) ||
+      XcrossError(:final message) => 'error: $message',
+      XcrossConfigException(:final message, :final path) =>
+        'error: ${path == null ? message : '$path: $message'}',
+      _ => 'error: $error\n$stackTrace',
+    };
   }
+
+  static void _reportFailure(Object error, StackTrace stackTrace) =>
+      _cliError(formatFailure(error, stackTrace));
 
   static void _cliError(String message) => stderr.writeln(message);
 }

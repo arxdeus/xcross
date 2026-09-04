@@ -117,7 +117,8 @@ final class KonanConfiguration {
     final configDir = p.join(root, 'konan');
     final appleBin = p.join(root, 'apple-toolchain', 'bin');
     final pathSeparator = toolchain.host.isWindows ? ';' : ':';
-    final parentEnvironment = _parentEnvironment ?? Platform.environment;
+    final parentEnvironment =
+        _parentEnvironment ?? ProcessRunner.effectiveEnvironment;
     final parentPath = parentEnvironment['PATH'] ?? '';
     final path = parentPath.isEmpty
         ? appleBin
@@ -370,9 +371,6 @@ final class KonanConfiguration {
           final file = File(path)
             ..writeAsStringSync(_shimScript(entry.key, entry.value));
           (_makeExecutable ?? ProcessRunner.makeExecutable)(file.path);
-          if (!Platform.isWindows) {
-            Process.runSync('chmod', ['755', file.path]);
-          }
         }
       }
     }

@@ -9,6 +9,7 @@ import 'package:pure/pure.dart';
 import 'package:xcross/src/cli/basic/internal/linux_package_manager.dart';
 import 'package:xcross/src/cli/basic/internal/swift_requirement.dart';
 import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/setup/setup_script.dart';
 
 const _requiredTools = ['swift', 'clang', 'clang++', 'llvm-ar', 'ld64.lld'];
 
@@ -18,16 +19,13 @@ const _requiredTools = ['swift', 'clang', 'clang++', 'llvm-ar', 'ld64.lld'];
 final class SetupCommand extends Command<void> {
   SetupCommand() {
     argParser.addFlag(
-      _skipSwiftCheckFlag,
+      _refreshScriptFlag,
       negatable: false,
-      help:
-          'Install the host packages without requiring Swift on PATH. Use '
-          "this to pull in Swift's own build dependencies before installing "
-          'Swift itself.',
+      help: 'Refresh the cached remote setup script without executing it.',
     );
   }
 
-  static const _skipSwiftCheckFlag = 'no-swift-check';
+  static const _refreshScriptFlag = 'refresh-script';
 
   @override
   String get name => 'setup';
@@ -37,23 +35,17 @@ final class SetupCommand extends Command<void> {
 
   @override
   Future<void> run() async {
-    // Swift is manual on every host: `setup` installs LLVM, device tooling,
-    // and Swift's own *dependencies*, never Swift itself. It already refused
-    // to finish without it, but only after a full package transaction and a
-    // sudo prompt. Checking first turns that into an immediate, actionable
-    // message.
-    //
-    // The flag exists because this command has a second, legitimate use:
-    // installing the very packages a Swift toolchain needs to run, which by
-    // definition happens before Swift is on PATH.
-    if (!(argResults?[_skipSwiftCheckFlag] as bool? ?? false)) {
-      await SwiftRequirement.require(
-        'set up this host',
-        extra:
-            "Already installing Swift's dependencies? Re-run with "
-            '`xcross setup --$_skipSwiftCheckFlag`.',
-      );
+    final configuredScript = SetupScriptManager();
+    if (argResults?[_refreshScriptFlag] as bool? ?? false) {
+      if (configuredScript.isRemote) await configuredScript.refresh();
+      return;
     }
+    if (configuredScript.isConfigured) {
+      await configuredScript.run();
+      Log.logDone('Configured setup script completed');
+      return;
+    }
+    await SwiftRequirement.require('set up this host');
     if (Platform.isWindows) return _setupWindows();
     if (Platform.isMacOS) return _setupMacos();
     return _setupLinux();
@@ -275,7 +267,7 @@ final class SetupCommand extends Command<void> {
           ..sort(compare((entry) => entry.path));
     if (versioned.isEmpty) return;
 
-    await ProcessRunner.runChecked('sudo', [
+    await ProcessRunner.runChecked(await ProcessRunner.locateTool('sudo'), [
       'ln',
       '-sf',
       versioned.last.path,
