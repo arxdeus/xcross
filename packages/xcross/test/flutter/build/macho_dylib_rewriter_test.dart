@@ -162,8 +162,38 @@ void main() {
     );
   });
 
-  test('rejects repair of a malformed selref shared by fast stubs', () {
+  test('repairs a malformed selref shared by fast stubs when one can '
+      'relocate to a free existing ref', () {
     final fixture = _objcMacho(sharedMalformedSelref: true);
+    final data = ByteData.sublistView(fixture.bytes);
+
+    expect(
+      MachODylibRewriter.rewriteBytes(
+        fixture.bytes,
+        dylibName: 'libPlugin.dylib',
+        producedDylibNames: const {},
+        repairObjCFastStubs: true,
+      ),
+      isTrue,
+    );
+    // "bar" already has a valid ref elsewhere, so it relocates there,
+    // freeing the shared ref for "foo" to claim in place.
+    expect(
+      data.getUint64(fixture.firstSelrefOffset, Endian.little),
+      fixture.fooAddress,
+    );
+    expect(
+      data.getUint64(fixture.firstSelrefOffset + 8, Endian.little),
+      fixture.barAddress,
+    );
+  });
+
+  test('rejects repair of a malformed selref shared by fast stubs with no '
+      'free fallback ref', () {
+    final fixture = _objcMacho(
+      sharedMalformedSelref: true,
+      sharedSelrefFallbackAvailable: false,
+    );
     final original = Uint8List.fromList(fixture.bytes);
 
     expect(
@@ -278,6 +308,7 @@ Uint8List _macho(List<(int, String)> commands) {
 _objcMacho({
   bool hasMatchingSelref = false,
   bool sharedMalformedSelref = false,
+  bool sharedSelrefFallbackAvailable = true,
 }) {
   const textVm = 0x100000000;
   const dataVm = 0x100002000;
@@ -348,17 +379,18 @@ _objcMacho({
     ..setUint32(commandOffset + 20, stringTable.length, Endian.little);
 
   bytes.setRange(namesOffset, namesOffset + 8, utf8.encode('foo\x00bar\x00'));
+  final secondSelrefValue = hasMatchingSelref
+      ? fooAddress
+      : sharedMalformedSelref && !sharedSelrefFallbackAvailable
+      ? 0xbaadf00d
+      : barAddress;
   data
     ..setUint64(
       selrefsOffset,
       hasMatchingSelref ? barAddress : 0xdeadbeef,
       Endian.little,
     )
-    ..setUint64(
-      selrefsOffset + 8,
-      hasMatchingSelref ? fooAddress : barAddress,
-      Endian.little,
-    );
+    ..setUint64(selrefsOffset + 8, secondSelrefValue, Endian.little);
   for (var index = 0; index < stubCount; index++) {
     final address = textVm + stubOffset + index * 12;
     _putStub(data, stubOffset + index * 12, address, dataVm);
