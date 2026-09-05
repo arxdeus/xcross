@@ -1007,9 +1007,9 @@ abstract final class GeneratedPluginsPackage {
                   )
                   .toList();
               if (extracted.length == 1) {
-                final staging = await Directory(
-                  binaryArtifactStore,
-                ).createTemp('.extracted-');
+                final store = Directory(binaryArtifactStore);
+                await store.create(recursive: true);
+                final staging = await store.createTemp('.extracted-');
                 try {
                   final artifactName = p.basename(extracted.single.path);
                   await _copyResolvedArtifactTree(
