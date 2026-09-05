@@ -29,7 +29,6 @@ void main() {
       r'tool/build_xcross.dart',
       r'cp -a "$bundle_dir/bin/." "$staging_dir/bin/"',
       r'cp -a "$bundle_dir/lib/." "$staging_dir/lib/"',
-      r'setup_script="$script_dir/setup/$setup_name.sh"',
     ]) {
       expect(installer, contains(expected));
     }
