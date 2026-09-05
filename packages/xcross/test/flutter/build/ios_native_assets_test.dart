@@ -222,26 +222,6 @@ void main() {
     }
   });
 
-  test('Windows compiler shim strips carriage returns from arguments', () {
-    final shim = renderPowerShellCompilerShim(
-      iosSdk: r'C:\SDK',
-      clang: r'C:\LLVM\clang.exe',
-      hostCompiler: r'C:\LLVM\clang.exe',
-      linker: r'C:\LLVM\ld64.lld.exe',
-      deploymentTarget: '13.0',
-    );
-
-    expect(
-      shim,
-      contains(r'$Arguments = @($args | ForEach-Object { $_.TrimEnd('),
-    );
-    expect(
-      shim,
-      contains("'-Wl,-arch,arm64', '-Wl,-platform_version,ios,13.0,26.5'"),
-    );
-    expect(shim, contains(r'& $compiler @compilerArguments'));
-  });
-
   test('Windows uses the resolved clang as its host C compiler', () async {
     expect(
       await resolveHostCompiler(
@@ -277,6 +257,68 @@ void main() {
       ),
       isNull,
     );
+  });
+
+  test('Windows prefers a configured native xcross launcher', () async {
+    final tmp = await Directory.systemTemp.createTemp('apple_shims_fwd-');
+    try {
+      final launcher = File(p.join(tmp.path, 'xcross.exe'))
+        ..writeAsStringSync('');
+      expect(
+        await resolveNativeAssetToolForwarder(
+          r'C:\flutter\bin\cache\dart-sdk\bin\dart.exe',
+          windows: true,
+          launcher: launcher.path,
+          findInstalled: () async => fail('must not search'),
+        ),
+        launcher.path,
+      );
+      expect(
+        await resolveNativeAssetToolForwarder(
+          r'C:\flutter\bin\cache\dart-sdk\bin\dart.exe',
+          windows: true,
+          launcher: p.join(tmp.path, 'xcross.bat'),
+          findInstalled: () async => null,
+        ),
+        isNull,
+      );
+    } finally {
+      await tmp.delete(recursive: true);
+    }
+  });
+
+  test('Windows refuses batch compiler shims without a forwarder', () async {
+    final tmp = await Directory.systemTemp.createTemp('apple_shims_test-');
+    try {
+      await expectLater(
+        installAppleToolShims(
+          tmp.path,
+          const AppleToolShimConfig(
+            iosSdk: r'C:\SDK\iPhoneOS.sdk',
+            clang: r'C:\LLVM\clang.exe',
+            hostCompiler: r'C:\LLVM\clang.exe',
+            archiver: r'C:\LLVM\llvm-ar.exe',
+            linker: r'C:\LLVM\ld64.lld.exe',
+            deploymentTarget: '13.0',
+            lipo: r'C:\LLVM\llvm-lipo.exe',
+            otool: null,
+            installNameTool: null,
+            xcrun: r'C:\xcross\xcrun.exe',
+          ),
+          windows: true,
+        ),
+        throwsA(
+          isA<FlutterBuildError>().having(
+            (e) => e.toString(),
+            'message',
+            contains('clang.exe'),
+          ),
+        ),
+      );
+      expect(File(p.join(tmp.path, 'clang.bat')).existsSync(), isFalse);
+    } finally {
+      await tmp.delete(recursive: true);
+    }
   });
 
   test('resolves xcrun beside an overridden launcher', () async {
@@ -346,6 +388,9 @@ void main() {
 
       final clang = File(p.join(shims.path, 'clang.exe'));
       expect(clang.existsSync(), isTrue);
+      expect(File(p.join(shims.path, 'cc.exe')).existsSync(), isTrue);
+      expect(File(p.join(shims.path, 'clang.bat')).existsSync(), isFalse);
+      expect(File(p.join(shims.path, 'clang.ps1')).existsSync(), isFalse);
       expect(
         File('${clang.path}.path').readAsStringSync(),
         r'C:\LLVM\clang.exe',

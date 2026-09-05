@@ -55,6 +55,10 @@ final class IosNativeAssetsBuilder {
     }
 
     final tools = await AppleToolShimConfig.resolve(deploymentTarget.version);
+    final forwarder = await resolveNativeAssetToolForwarder(
+      Platform.resolvedExecutable,
+    );
+    if (forwarder == null) throw missingNativeAssetToolForwarderError();
     final engineCache = IosEngineCache(flutterRoot: flutterRoot);
     await engineCache.ensureArtifactsAvailable();
     final workspace = await FlutterToolWorkspace.create(
@@ -66,9 +70,7 @@ final class IosNativeAssetsBuilder {
       await installAppleToolShims(
         shims.path,
         tools,
-        toolForwarderExecutable: await resolveNativeAssetToolForwarder(
-          Platform.resolvedExecutable,
-        ),
+        toolForwarderExecutable: forwarder,
       );
       await _runFlutterAssemble(output, shims.path, tools.iosSdk, workspace);
     } finally {

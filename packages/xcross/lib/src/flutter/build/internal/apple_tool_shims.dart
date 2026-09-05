@@ -122,17 +122,41 @@ Future<String> resolveXcrun({String? launcher}) async {
 Future<String> resolveHostCompiler(String clang, {bool? windows}) async =>
     (windows ?? Platform.isWindows) ? clang : ProcessRunner.locateTool('cc');
 
+/// Locates the native `xcross.exe` that Windows tool aliases are copies of.
+///
+/// native_toolchain_c only recognizes a compiler whose path ends in
+/// `clang.exe`, so batch shims cannot stand in for it. Returns null when no
+/// native binary is available; callers must fail loudly rather than emit
+/// unusable shims.
 Future<String?> resolveNativeAssetToolForwarder(
   String executable, {
   bool? windows,
+  String? launcher,
   Future<String?> Function()? findInstalled,
 }) async {
   if (!(windows ?? Platform.isWindows)) return executable;
-  if (p.windows.basename(executable).toLowerCase() == 'xcross.exe') {
-    return executable;
+  if (_isNativeXcross(executable)) return executable;
+  final configured = launcher ?? _launcherOverride;
+  if (configured != null &&
+      _isNativeXcross(configured) &&
+      File(configured).existsSync()) {
+    return configured;
   }
   return (findInstalled ?? () => ProcessRunner.which('xcross.exe'))();
 }
+
+bool _isNativeXcross(String path) =>
+    p.windows.basename(path).toLowerCase() == 'xcross.exe';
+
+FlutterBuildError missingNativeAssetToolForwarderError() => FlutterBuildError(
+  "Windows native assets need the native xcross.exe binary: Flutter's "
+  'native_toolchain_c only accepts a C compiler named clang.exe, so xcross '
+  'installs copies of xcross.exe as clang.exe/cc.exe/ar.exe/ld.exe tool '
+  'aliases. No xcross.exe was found (this happens when xcross runs through '
+  '`dart run` or a `dart pub global` .bat launcher). Install the xcross '
+  'release binary, add its directory to PATH, or set the xcross launcher path '
+  'in `xcross config`.',
+);
 
 Future<String> _locateArchiver(String clang) async {
   final besideClang = p.join(
@@ -201,34 +225,35 @@ Future<void> _installWindowsToolShims(
   required Map<String, String> auxiliaryTools,
   required String? toolForwarderExecutable,
 }) async {
-  if (toolForwarderExecutable != null) {
-    for (final entry in {
-      'clang': config.clang,
-      'cc': config.clang,
-      'ar': config.archiver,
-      'ld': config.linker,
-    }.entries) {
-      final executable = p.join(directory, '${entry.key}.exe');
-      await File(toolForwarderExecutable).copy(executable);
-      await File('$executable.path').writeAsString(entry.value);
-      if (entry.key == 'clang' || entry.key == 'cc') {
-        await File('$executable.args').writeAsString(
-          jsonEncode([
-            '--target=arm64-apple-ios${config.deploymentTarget}',
-            '-isysroot',
-            config.iosSdk,
-            '-miphoneos-version-min=${config.deploymentTarget}',
-            '-fuse-ld=lld',
-            '--ld-path=${config.linker}',
-            '-Wl,-arch,arm64',
-            '-Wl,-platform_version,ios,${config.deploymentTarget},26.5',
-          ]),
-        );
-      }
-    }
-    await File(config.xcrun).copy(p.join(directory, 'xcrun.exe'));
-    await File(toolForwarderExecutable).copy(p.join(directory, 'plutil.exe'));
+  if (toolForwarderExecutable == null) {
+    throw missingNativeAssetToolForwarderError();
   }
+  for (final entry in {
+    'clang': config.clang,
+    'cc': config.clang,
+    'ar': config.archiver,
+    'ld': config.linker,
+  }.entries) {
+    final executable = p.join(directory, '${entry.key}.exe');
+    await File(toolForwarderExecutable).copy(executable);
+    await File('$executable.path').writeAsString(entry.value);
+    if (entry.key == 'clang' || entry.key == 'cc') {
+      await File('$executable.args').writeAsString(
+        jsonEncode([
+          '--target=arm64-apple-ios${config.deploymentTarget}',
+          '-isysroot',
+          config.iosSdk,
+          '-miphoneos-version-min=${config.deploymentTarget}',
+          '-fuse-ld=lld',
+          '--ld-path=${config.linker}',
+          '-Wl,-arch,arm64',
+          '-Wl,-platform_version,ios,${config.deploymentTarget},26.5',
+        ]),
+      );
+    }
+  }
+  await File(config.xcrun).copy(p.join(directory, 'xcrun.exe'));
+  await File(toolForwarderExecutable).copy(p.join(directory, 'plutil.exe'));
 
   if (config.otool case final otool?) {
     await File(p.join(directory, 'otool.ps1')).writeAsString(
@@ -241,37 +266,6 @@ Future<void> _installWindowsToolShims(
       directory,
       'otool',
       renderBatchPowerShellShim('otool.ps1'),
-    );
-  }
-  await File(p.join(directory, 'clang.ps1')).writeAsString(
-    renderPowerShellCompilerShim(
-      iosSdk: config.iosSdk,
-      clang: config.clang,
-      hostCompiler: config.hostCompiler,
-      linker: config.linker,
-      deploymentTarget: config.deploymentTarget,
-    ),
-  );
-  await _writeWindowsShim(
-    directory,
-    'clang',
-    renderBatchPowerShellShim('clang.ps1'),
-  );
-  if (toolForwarderExecutable == null) {
-    await _writeWindowsShim(
-      directory,
-      'cc',
-      renderBatchPowerShellShim('clang.ps1'),
-    );
-    await _writeWindowsShim(
-      directory,
-      'ar',
-      renderBatchToolShim(config.archiver),
-    );
-    await _writeWindowsShim(
-      directory,
-      'ld',
-      renderBatchToolShim(config.linker),
     );
   }
 

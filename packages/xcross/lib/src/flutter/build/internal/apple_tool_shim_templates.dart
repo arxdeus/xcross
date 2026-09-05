@@ -47,41 +47,6 @@ done
 exec ${shellQuote(clang)} "\$@"
 ''';
 
-String renderPowerShellCompilerShim({
-  required String iosSdk,
-  required String clang,
-  required String hostCompiler,
-  required String linker,
-  required String deploymentTarget,
-}) =>
-    '''
-\$Arguments = @(\$args | ForEach-Object { \$_.TrimEnd("`r") })
-\$isAppleTarget = \$false; \$hasTarget = \$false; \$hasSysroot = \$false; \$hasDeployment = \$false
-\$hasFuseLd = \$false; \$hasLdPath = \$false
-for (\$i = 0; \$i -lt \$Arguments.Count; \$i++) {
-  \$arg = \$Arguments[\$i]
-  \$target = if (\$arg -eq '-target' -or \$arg -eq '--target') { if (++\$i -lt \$Arguments.Count) { \$Arguments[\$i] } } elseif (\$arg -like '-target=*' -or \$arg -like '--target=*') { \$arg.Substring(\$arg.IndexOf('=') + 1) } else { \$null }
-  if (\$null -ne \$target) { \$hasTarget = \$true; if (\$target -like '*-apple-*') { \$isAppleTarget = \$true }; continue }
-  if (\$arg -eq '-arch' -or \$arg -like '-arch=*' -or \$arg -like '-miphoneos-version-min=*' -or \$arg -like '-mios-simulator-version-min=*') { \$isAppleTarget = \$true }
-  if (\$arg -eq '-isysroot' -or \$arg -eq '--sysroot' -or \$arg -like '-isysroot=*' -or \$arg -like '--sysroot=*') { \$hasSysroot = \$true }
-  if (\$arg -like '-miphoneos-version-min=*') { \$hasDeployment = \$true }
-  if (\$arg -like '-fuse-ld=*') { \$hasFuseLd = \$true }
-  if (\$arg -like '--ld-path=*') { \$hasLdPath = \$true }
-}
-if (!\$isAppleTarget) { & ${powerShellQuote(hostCompiler)} @Arguments; exit \$LASTEXITCODE }
-\$defaults = @()
-if (!\$hasTarget) { \$defaults += '--target=arm64-apple-ios$deploymentTarget' }
-if (!\$hasSysroot) { \$defaults += @('-isysroot', ${powerShellQuote(iosSdk)}) }
-if (!\$hasDeployment) { \$defaults += '-miphoneos-version-min=$deploymentTarget' }
-if (!\$hasFuseLd) { \$defaults += '-fuse-ld=lld' }
-if (!\$hasLdPath) { \$defaults += ${powerShellQuote('--ld-path=$linker')} }
-\$defaults += @('-Wl,-arch,arm64', '-Wl,-platform_version,ios,$deploymentTarget,26.5')
-\$compiler = ${powerShellQuote(clang)}
-\$compilerArguments = @(\$defaults + \$Arguments)
-& \$compiler @compilerArguments
-exit \$LASTEXITCODE
-''';
-
 String renderUnixOtoolShim({required String tool, required bool usesObjdump}) =>
     usesObjdump
     ? '''
