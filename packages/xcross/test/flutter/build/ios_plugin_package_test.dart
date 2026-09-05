@@ -242,39 +242,57 @@ let package = Package(
   });
 
   group('package manifest discovery', () {
-    test(
-      'reads only root manifests and does not traverse deep package assets',
-      () {
-        final package = Directory(p.join(tmp.path, 'AppAuth-iOS'))
-          ..createSync(recursive: true);
-        final root = File(p.join(package.path, 'Package.swift'))
-          ..writeAsStringSync('// root');
-        final versioned = File(p.join(package.path, 'Package@swift-6.0.swift'))
-          ..writeAsStringSync('// versioned');
-        final deep = Directory(
-          p.join(
-            package.path,
-            'Examples',
-            'Example-tvOS',
-            'Assets.xcassets',
-            'App Icon & Top Shelf Image.brandassets',
-            'App Icon - App Store.imagestack',
-            'Back.imagestacklayer',
-            'Content.imageset',
-          ),
-        )..createSync(recursive: true);
-        File(
-          p.join(deep.path, 'Package.swift'),
-        ).writeAsStringSync('// irrelevant');
+    test('uses Git index instead of traversing deep checkout assets', () async {
+      final package = Directory(p.join(tmp.path, 'AppAuth-iOS'))
+        ..createSync(recursive: true);
+      late List<String> arguments;
 
-        expect(
-          GeneratedPluginsPackage.packageManifestFiles(
-            package.path,
-          ).map((file) => file.path),
-          [root.path, versioned.path],
-        );
-      },
-    );
+      final files = await GeneratedPluginsPackage.trackedPackageManifestFiles(
+        package.path,
+        runProcess: (executable, args) async {
+          expect(executable, 'git');
+          arguments = args;
+          return const CapturedProcess(
+            0,
+            'Package.swift\u0000Nested/Package@swift-6.0.swift\u0000',
+            '',
+          );
+        },
+      );
+
+      expect(
+        arguments,
+        containsAllInOrder([
+          '-c',
+          'core.longpaths=true',
+          '-C',
+          package.path,
+          'ls-files',
+          '-z',
+        ]),
+      );
+      expect(files.map((file) => p.relative(file.path, from: package.path)), [
+        p.join('Nested', 'Package@swift-6.0.swift'),
+        'Package.swift',
+      ]);
+    });
+
+    test('reports Git index failures', () async {
+      await expectLater(
+        GeneratedPluginsPackage.trackedPackageManifestFiles(
+          tmp.path,
+          runProcess: (executable, arguments) async =>
+              const CapturedProcess(128, '', 'not a repository'),
+        ),
+        throwsA(
+          isA<FlutterBuildError>().having(
+            (error) => error.message,
+            'message',
+            contains('not a repository'),
+          ),
+        ),
+      );
+    });
   });
 
   group('normalizeHostManifest', () {

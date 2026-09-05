@@ -3616,23 +3616,54 @@ let package = Package(
     provenance.target.checksum.toLowerCase(),
   ].join('\u0000');
 
-  /// SwiftPM evaluates manifests at the package root; searching below it is
-  /// both incorrect and, on Windows, can cross MAX_PATH in irrelevant example
-  /// assets before reaching either manifest.
+  /// Manifest files tracked anywhere in a SwiftPM checkout, without walking
+  /// its working tree. Git for Windows handles its index with
+  /// `core.longpaths=true`, so irrelevant deep assets cannot make discovery
+  /// fail with MAX_PATH.
   @visibleForTesting
-  static List<File> packageManifestFiles(String packageDirectory) {
+  static Future<List<File>> trackedPackageManifestFiles(
+    String packageDirectory, {
+    Future<CapturedProcess> Function(String, List<String>)? runProcess,
+  }) async {
+    final result = await (runProcess ?? ProcessRunner.run)('git', [
+      '-c',
+      'core.longpaths=true',
+      '-C',
+      packageDirectory,
+      'ls-files',
+      '-z',
+      '--',
+      'Package.swift',
+      'Package@*.swift',
+      ':(glob)**/Package.swift',
+      ':(glob)**/Package@*.swift',
+    ]);
+    if (result.exitCode != 0) {
+      throw FlutterBuildError(
+        'Could not inspect SwiftPM checkout $packageDirectory: '
+        '${result.stderr.trim()}',
+      );
+    }
+    final paths =
+        result.stdout
+            .split('\u0000')
+            .where((path) => path.isNotEmpty)
+            .map((path) => File(p.join(packageDirectory, p.fromUri(path))))
+            .toList()
+          ..sort((a, b) => a.path.compareTo(b.path));
+    return paths;
+  }
+
+  static List<File> _rootPackageManifestFiles(String packageDirectory) {
     final root = Directory(packageDirectory);
     if (!root.existsSync()) return const [];
-    final files = <File>[];
-    for (final entity in root.listSync(followLinks: false)) {
-      if (entity is! File) continue;
-      final name = p.basename(entity.path);
-      if (name == 'Package.swift' ||
-          (name.startsWith('Package@') && name.endsWith('.swift'))) {
-        files.add(entity);
-      }
-    }
-    files.sort((a, b) => a.path.compareTo(b.path));
+    final files = root.listSync(followLinks: false).whereType<File>().where((
+      file,
+    ) {
+      final name = p.basename(file.path);
+      return name == 'Package.swift' ||
+          (name.startsWith('Package@') && name.endsWith('.swift'));
+    }).toList()..sort((a, b) => a.path.compareTo(b.path));
     return files;
   }
 
@@ -3652,7 +3683,10 @@ let package = Package(
           dependency.identity;
     }
     for (final entry in roots.entries) {
-      for (final entity in packageManifestFiles(entry.key)) {
+      final manifests = entry.value == null
+          ? _rootPackageManifestFiles(entry.key)
+          : await trackedPackageManifestFiles(entry.key);
+      for (final entity in manifests) {
         final manifest = await entity.readAsString();
         final declaredName = RegExp(
           r'Package\s*\(\s*name\s*:\s*"([^"]+)"',
