@@ -677,7 +677,7 @@ abstract final class GeneratedPluginsPackage {
     bool? windows,
   }) async {
     if (!(windows ?? Platform.isWindows)) return;
-    final root = Directory(ioPath(packageRoot));
+    final root = Directory(_ioPath(packageRoot));
     if (!root.existsSync()) return;
 
     final store = SwiftPmBinaryArtifactStore(binaryArtifactStore);
@@ -3616,6 +3616,26 @@ let package = Package(
     provenance.target.checksum.toLowerCase(),
   ].join('\u0000');
 
+  /// SwiftPM evaluates manifests at the package root; searching below it is
+  /// both incorrect and, on Windows, can cross MAX_PATH in irrelevant example
+  /// assets before reaching either manifest.
+  @visibleForTesting
+  static List<File> packageManifestFiles(String packageDirectory) {
+    final root = Directory(packageDirectory);
+    if (!root.existsSync()) return const [];
+    final files = <File>[];
+    for (final entity in root.listSync(followLinks: false)) {
+      if (entity is! File) continue;
+      final name = p.basename(entity.path);
+      if (name == 'Package.swift' ||
+          (name.startsWith('Package@') && name.endsWith('.swift'))) {
+        files.add(entity);
+      }
+    }
+    files.sort((a, b) => a.path.compareTo(b.path));
+    return files;
+  }
+
   static Future<List<SwiftPmBinaryArtifactProvenance>>
   _binaryArtifactProvenance(
     String packageDirectory,
@@ -3632,18 +3652,7 @@ let package = Package(
           dependency.identity;
     }
     for (final entry in roots.entries) {
-      final root = Directory(ioPath(entry.key));
-      if (!root.existsSync()) continue;
-      await for (final entity in root.list(
-        recursive: true,
-        followLinks: false,
-      )) {
-        if (entity is! File) continue;
-        final name = p.basename(entity.path);
-        if (name != 'Package.swift' &&
-            !(name.startsWith('Package@') && name.endsWith('.swift'))) {
-          continue;
-        }
+      for (final entity in packageManifestFiles(entry.key)) {
         final manifest = await entity.readAsString();
         final declaredName = RegExp(
           r'Package\s*\(\s*name\s*:\s*"([^"]+)"',
@@ -4754,7 +4763,7 @@ $diagnosticsStart$registrations$diagnosticsEnd}
   }
 
   static int _directoryBytes(String path) {
-    final directory = Directory(ioPath(path));
+    final directory = Directory(_ioPath(path));
     if (!directory.existsSync()) return 0;
     var bytes = 0;
     for (final entity in directory.listSync(
@@ -4766,9 +4775,8 @@ $diagnosticsStart$registrations$diagnosticsEnd}
     return bytes;
   }
 
-  @visibleForTesting
-  static String ioPath(String path, {bool? windows}) {
-    if (!(windows ?? Platform.isWindows)) return path;
+  static String _ioPath(String path) {
+    if (!Platform.isWindows) return path;
     final absolute = p.windows.normalize(p.windows.absolute(path));
     if (absolute.startsWith(r'\\?\')) return absolute;
     if (absolute.startsWith(r'\\')) {

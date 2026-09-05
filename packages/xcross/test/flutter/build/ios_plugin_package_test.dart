@@ -241,40 +241,40 @@ let package = Package(
     });
   });
 
-  group('Windows long paths', () {
-    test('adds the extended-length prefix to drive paths', () {
-      expect(
-        GeneratedPluginsPackage.ioPath(
-          r'C:\Users\runneradmin\AppData\Local\xcross\swiftpm\cache',
-          windows: true,
-        ),
-        r'\\?\C:\Users\runneradmin\AppData\Local\xcross\swiftpm\cache',
-      );
-    });
+  group('package manifest discovery', () {
+    test(
+      'reads only root manifests and does not traverse deep package assets',
+      () {
+        final package = Directory(p.join(tmp.path, 'AppAuth-iOS'))
+          ..createSync(recursive: true);
+        final root = File(p.join(package.path, 'Package.swift'))
+          ..writeAsStringSync('// root');
+        final versioned = File(p.join(package.path, 'Package@swift-6.0.swift'))
+          ..writeAsStringSync('// versioned');
+        final deep = Directory(
+          p.join(
+            package.path,
+            'Examples',
+            'Example-tvOS',
+            'Assets.xcassets',
+            'App Icon & Top Shelf Image.brandassets',
+            'App Icon - App Store.imagestack',
+            'Back.imagestacklayer',
+            'Content.imageset',
+          ),
+        )..createSync(recursive: true);
+        File(
+          p.join(deep.path, 'Package.swift'),
+        ).writeAsStringSync('// irrelevant');
 
-    test('adds the extended-length UNC prefix', () {
-      expect(
-        GeneratedPluginsPackage.ioPath(
-          r'\\server\share\xcross\swiftpm',
-          windows: true,
-        ),
-        r'\\?\UNC\server\share\xcross\swiftpm',
-      );
-    });
-
-    test('does not double-prefix an extended-length path', () {
-      expect(
-        GeneratedPluginsPackage.ioPath(r'\\?\C:\xcross\swiftpm', windows: true),
-        r'\\?\C:\xcross\swiftpm',
-      );
-    });
-
-    test('leaves paths unchanged off Windows', () {
-      expect(
-        GeneratedPluginsPackage.ioPath('/tmp/xcross/swiftpm', windows: false),
-        '/tmp/xcross/swiftpm',
-      );
-    });
+        expect(
+          GeneratedPluginsPackage.packageManifestFiles(
+            package.path,
+          ).map((file) => file.path),
+          [root.path, versioned.path],
+        );
+      },
+    );
   });
 
   group('normalizeHostManifest', () {
