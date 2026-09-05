@@ -1973,8 +1973,9 @@ abstract final class GeneratedPluginsPackage {
   /// SwiftPM only sees dependencies a checkout's manifest declares for the
   /// host, so entries firebase-ios-sdk hides behind `#if os(macOS)` are never
   /// pinned. Each round scans the resolved checkouts for such unpinned deps,
-  /// re-declares them in a dependency-only package under `Hidden/`, and
-  /// resolves again until the pins cover the graph.
+  /// re-declares them on the resolve root (root dependencies are the only
+  /// ones SwiftPM never prunes as unused), and resolves again until the pins
+  /// cover the graph.
   @visibleForTesting
   static Future<Map<String, String>?> resolveUnifiedDependencyRefs({
     required String resolveRoot,
@@ -1996,34 +1997,31 @@ abstract final class GeneratedPluginsPackage {
     }
     if (dependencies.isEmpty) return null;
 
-    final hiddenRoot = p.join(resolveRoot, 'Hidden');
     await Directory(resolveRoot).create(recursive: true);
-    await _deleteEntity(hiddenRoot);
-    final hidden = <String>[];
+    final hidden = <String, String>{};
     var refs = <String, String>{};
     for (var round = 0; round < maxRounds; round++) {
       await _writeStable(
         p.join(resolveRoot, 'Package.swift'),
-        _resolveManifest([...packageDirectories, ...hidden]),
+        _resolveManifest(packageDirectories, hidden.values),
       );
       refs = await evaluate(resolveRoot, dependencies.values.toList());
-      final discovered = await _hiddenDependencyManifests(
+      final discovered = await _hiddenDependencyCalls(
         p.join(resolveRoot, '.build', 'checkouts'),
         refs: refs,
         dependencies: dependencies,
+        declared: hidden.keys.toSet(),
       );
       if (discovered.isEmpty) break;
-      for (final entry in discovered.entries) {
-        final directory = p.join(hiddenRoot, entry.key);
-        await Directory(directory).create(recursive: true);
-        await _writeStable(p.join(directory, 'Package.swift'), entry.value);
-        hidden.add(directory);
-      }
+      hidden.addAll(discovered);
     }
     return refs;
   }
 
-  static String _resolveManifest(Iterable<String> packageDirectories) {
+  static String _resolveManifest(
+    Iterable<String> packageDirectories,
+    Iterable<String> hiddenDependencies,
+  ) {
     final buffer = StringBuffer()
       ..writeln('// swift-tools-version: 5.9')
       ..writeln('import PackageDescription')
@@ -2034,20 +2032,25 @@ abstract final class GeneratedPluginsPackage {
     for (final directory in packageDirectories) {
       buffer.writeln('        .package(path: "${_swiftPath(directory)}"),');
     }
+    for (final call in hiddenDependencies) {
+      buffer.writeln('        $call,');
+    }
     buffer
       ..writeln('    ]')
       ..writeln(')');
     return buffer.toString();
   }
 
-  /// Dependency-only manifests (keyed by directory name) re-declaring URL deps
-  /// of resolved checkouts under [checkoutsDir] that [refs] does not pin.
-  /// A checkout with any unpinned dep contributes all its URL deps so its
-  /// version constraints take part in the unified resolution.
-  static Future<Map<String, String>> _hiddenDependencyManifests(
+  /// `.package(url:)` calls, keyed by package identity, re-declaring URL deps
+  /// of resolved checkouts under [checkoutsDir] that [refs] does not pin. A
+  /// checkout with any unpinned dep contributes all its URL deps so its
+  /// version constraints take part in the unified resolution; identities
+  /// already in [declared] keep their first declaration.
+  static Future<Map<String, String>> _hiddenDependencyCalls(
     String checkoutsDir, {
     required Map<String, String> refs,
     required Map<String, SwiftPmPackageDependency> dependencies,
+    required Set<String> declared,
   }) async {
     final result = <String, String>{};
     final checkouts = Directory(checkoutsDir);
@@ -2076,42 +2079,20 @@ abstract final class GeneratedPluginsPackage {
           )) {
         continue;
       }
-      // One entry per identity: firebase declares each helper dep twice
-      // (a CI-only `branch:` variant and the released range) and SwiftPM
-      // rejects duplicate identities in a manifest. Prefer the range.
-      final calls = <String, String>{};
-      final constants = <String>{};
       for (final dep in deps) {
-        final call = _standaloneDependencyCall(dep, manifest, constants);
+        final identity = packageIdentityFromUrl(dep.url).toLowerCase();
+        if (declared.contains(identity)) continue;
+        final call = _standaloneDependencyCall(dep, manifest);
         if (call == null) continue;
-        final canonical = _canonicalGitUrl(dep.url);
-        final existing = calls[canonical];
+        // One entry per identity: firebase declares each helper dep twice
+        // (a CI-only `branch:` variant and the released range) and SwiftPM
+        // rejects duplicate identities in a manifest. Prefer the range.
+        final existing = result[identity];
         if (existing == null || _isBranchRequirement(existing)) {
-          calls[canonical] = call;
+          result[identity] = call;
         }
-        dependencies.putIfAbsent(canonical, () => dep);
+        dependencies.putIfAbsent(_canonicalGitUrl(dep.url), () => dep);
       }
-      if (calls.isEmpty) continue;
-      final name = 'xcross-hidden-${p.basename(checkout.path)}';
-      final buffer = StringBuffer()
-        ..writeln('// swift-tools-version: 5.9')
-        ..writeln('import PackageDescription')
-        ..writeln();
-      for (final constant in constants) {
-        buffer.writeln(constant);
-      }
-      buffer
-        ..writeln()
-        ..writeln('let package = Package(')
-        ..writeln('    name: "$name",')
-        ..writeln('    dependencies: [');
-      for (final call in calls.values) {
-        buffer.writeln('        $call,');
-      }
-      buffer
-        ..writeln('    ]')
-        ..writeln(')');
-      result[name] = buffer.toString();
     }
     return result;
   }
@@ -2126,11 +2107,10 @@ abstract final class GeneratedPluginsPackage {
   /// `.package(url: "<literal>", <requirement>)` for [dep] that compiles on
   /// its own, or null when the requirement references manifest state that
   /// cannot be carried over (e.g. firebase's `packageInfo.range` tuples).
-  /// String constants the requirement uses are added to [constants].
+  /// String constants the requirement uses are inlined as literals.
   static String? _standaloneDependencyCall(
     SwiftPmPackageDependency dep,
     String manifest,
-    Set<String> constants,
   ) {
     final open = dep.match.indexOf('(');
     var inner = dep.match.substring(open + 1, dep.match.length - 1);
@@ -2140,20 +2120,26 @@ abstract final class GeneratedPluginsPackage {
           RegExp(r'url:\s*(?:"[^"]+"|[A-Za-z_]\w*)'),
           'url: "${dep.url}"',
         );
+    final constants = _manifestStringConstants(manifest);
     final code = inner.replaceAll(RegExp(r'"(?:[^"\\]|\\.)*"'), '""');
     final identifier = RegExp(r'\.?\b[A-Za-z_]\w*(?<label>\s*:)?');
+    final substitutions = <String, String>{};
     for (final match in identifier.allMatches(code)) {
       if (match.namedGroup('label') != null) continue;
       final token = match.group(0)!;
       if (token.startsWith('.')) continue;
       if (_dependencyCallIdentifiers.contains(token)) continue;
-      final declaration = RegExp(
-        '\\b(?:let|var)\\s+$token\\s*(?::\\s*[\\w.<>]+)?\\s*=\\s*"[^"\\r\\n]*"',
-      ).firstMatch(manifest);
-      if (declaration == null) return null;
-      constants.add(declaration.group(0)!);
+      final value = constants[token];
+      if (value == null) return null;
+      substitutions[token] = value;
     }
-    return '.package($inner)';
+    for (final entry in substitutions.entries) {
+      inner = inner.replaceAll(
+        RegExp('(?<![\\w."])${entry.key}(?![\\w"])'),
+        '"${entry.value}"',
+      );
+    }
+    return '.package(${inner.replaceAll(RegExp(r'\s+'), ' ').trim()})';
   }
 
   /// Stages [target] at [alias], using a shallow overlay when the Swift
@@ -2885,7 +2871,7 @@ let package = Package(
   /// (firebase-ios-sdk's `appMeasurementURL`) can be vendored like literals.
   static Map<String, String> _manifestStringConstants(String manifest) {
     final pattern = RegExp(
-      r'\b(?:let|var)\s+(?<name>[A-Za-z_]\w*)\s*(?::\s*String)?\s*=\s*"(?<value>[^"\r\n]*)"',
+      r'\b(?:let|var)\s+(?<name>[A-Za-z_]\w*)\s*(?::\s*[\w.<>]+)?\s*=\s*"(?<value>[^"\r\n]*)"',
     );
     return {
       for (final match in pattern.allMatches(manifest))

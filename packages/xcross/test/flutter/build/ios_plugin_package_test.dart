@@ -2264,11 +2264,37 @@ func abseilDependency() -> Package.Dependency {
               'https://github.com/google/GoogleUtilities': 'sha-utilities',
             };
           }
+          // Round 2: the hidden deps sit on the resolve root itself, since
+          // SwiftPM prunes unused deps of non-root packages before pinning.
           expect(
             root,
             contains(
-              '.package(path: "${swiftPath(p.join(resolveRoot, 'Hidden', 'xcross-hidden-firebase-ios-sdk'))}")',
+              '.package(url: "https://github.com/google/GoogleAppMeasurement.git", '
+              '"12.18.0" ..< "12.19.0"),',
             ),
+          );
+          expect(
+            root,
+            contains(
+              '.package(url: "https://github.com/google/GoogleUtilities.git", '
+              '"8.1.0" ..< "9.0.0"),',
+            ),
+          );
+          expect(
+            root,
+            contains(
+              '.package(url: "https://github.com/google/app-check.git", '
+              '"11.3.0" ..< "12.0.0"),',
+            ),
+          );
+          expect(root, isNot(contains('branch')));
+          expect('GoogleAppMeasurement.git'.allMatches(root), hasLength(1));
+          expect(root, isNot(contains('packageInfo')));
+          expect(root, isNot(contains('abseil')));
+          expect(root, isNot(contains('stale')));
+          expect(
+            Directory(p.join(resolveRoot, 'Hidden')).existsSync(),
+            isFalse,
           );
           return const {
             'https://github.com/google/GoogleSignIn-iOS': 'sha-signin',
@@ -2297,37 +2323,61 @@ func abseilDependency() -> Package.Dependency {
         refs?['https://github.com/google/GoogleAppMeasurement'],
         'sha-measurement',
       );
-      final hidden = File(
-        p.join(
-          resolveRoot,
-          'Hidden',
-          'xcross-hidden-firebase-ios-sdk',
-          'Package.swift',
-        ),
-      ).readAsStringSync();
-      expect(
-        hidden,
-        contains(
-          '.package(url: "https://github.com/google/GoogleAppMeasurement.git", '
-          '"12.18.0" ..< "12.19.0")',
-        ),
+    });
+
+    test('inlines string constants into re-declared requirements', () async {
+      final plugin = p.join(tmp.path, 'plugin');
+      File(p.join(plugin, 'Package.swift'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync(
+          'import PackageDescription\n'
+          'let package = Package(name: "p", dependencies: [ '
+          '.package(url: "https://example.com/outer.git", from: "1.0.0")])\n',
+        );
+      final resolveRoot = p.join(tmp.path, 'Resolve');
+      var round = 0;
+      await GeneratedPluginsPackage.resolveUnifiedDependencyRefs(
+        resolveRoot: resolveRoot,
+        packageDirectories: [plugin],
+        evaluate: (directory, _) async {
+          round++;
+          if (round == 1) {
+            File(
+                p.join(
+                  directory,
+                  '.build',
+                  'checkouts',
+                  'outer',
+                  'Package.swift',
+                ),
+              )
+              ..createSync(recursive: true)
+              ..writeAsStringSync('''
+import PackageDescription
+let innerVersion: Version = "2.3.4"
+let package = Package(name: "outer", dependencies: [])
+func hidden() -> [Package.Dependency] {
+  #if os(macOS)
+    return [.package(url: "https://example.com/inner.git", exact: innerVersion)]
+  #endif
+  return []
+}
+''');
+            return const {'https://example.com/outer': 'sha-outer'};
+          }
+          expect(
+            File(p.join(directory, 'Package.swift')).readAsStringSync(),
+            contains(
+              '.package(url: "https://example.com/inner.git", exact: "2.3.4"),',
+            ),
+          );
+          return const {
+            'https://example.com/outer': 'sha-outer',
+            'https://example.com/inner': 'sha-inner',
+          };
+        },
       );
-      expect(
-        hidden,
-        contains('url: "https://github.com/google/GoogleUtilities.git"'),
-      );
-      expect(hidden, contains('name: "xcross-hidden-firebase-ios-sdk"'));
-      expect(
-        hidden,
-        contains(
-          '.package(url: "https://github.com/google/app-check.git", '
-          '"11.3.0" ..< "12.0.0")',
-        ),
-      );
-      expect(hidden, isNot(contains('branch')));
-      expect('GoogleAppMeasurement.git'.allMatches(hidden), hasLength(1));
-      expect(hidden, isNot(contains('packageInfo')));
-      expect(hidden, isNot(contains('abseil')));
+      expect(round, 2);
     });
 
     test(
