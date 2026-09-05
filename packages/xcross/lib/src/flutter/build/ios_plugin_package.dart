@@ -3732,38 +3732,26 @@ let package = Package(
                     swiftPmArtifactJunctionCapability,
                 dependencies: dependencies,
               );
-    final evaluationKey = await _dependencyEvaluationKey(
-      manifest,
-      packageDirectory,
-    );
-    late final Map<String, String> evaluatedRefs;
-    if (evaluationCache == null) {
-      evaluatedRefs = await evaluate(
-        packageDirectory,
+    Future<Map<String, String>> evaluateCached(
+      String manifest,
+      String directory,
+      List<SwiftPmPackageDependency> dependencies,
+    ) async {
+      Future<Map<String, String>> run() => evaluate(
+        directory,
         scratchPath: scratchPath,
         binaryArtifactStore: binaryArtifactStore,
         binaryArtifactFallback: binaryArtifactFallback,
         swiftPmArtifactJunctionCapability: swiftPmArtifactJunctionCapability,
         packageLocalArtifactJunctionCapability:
             packageLocalArtifactJunctionCapability,
-        dependencies: deps,
+        dependencies: dependencies,
       );
-    } else {
-      final pending = evaluationCache.putIfAbsent(
-        evaluationKey,
-        () => evaluate(
-          packageDirectory,
-          scratchPath: scratchPath,
-          binaryArtifactStore: binaryArtifactStore,
-          binaryArtifactFallback: binaryArtifactFallback,
-          swiftPmArtifactJunctionCapability: swiftPmArtifactJunctionCapability,
-          packageLocalArtifactJunctionCapability:
-              packageLocalArtifactJunctionCapability,
-          dependencies: deps,
-        ),
-      );
+      if (evaluationCache == null) return run();
+      final evaluationKey = await _dependencyEvaluationKey(manifest, directory);
+      final pending = evaluationCache.putIfAbsent(evaluationKey, run);
       try {
-        evaluatedRefs = await pending;
+        return await pending;
       } on Object {
         if (identical(evaluationCache[evaluationKey], pending)) {
           final _ = evaluationCache.remove(evaluationKey);
@@ -3771,6 +3759,8 @@ let package = Package(
         rethrow;
       }
     }
+
+    final evaluatedRefs = await evaluateCached(manifest, packageDirectory, deps);
     late final String git;
     try {
       git = await locate('git');
@@ -3810,6 +3800,7 @@ let package = Package(
       checkout: checkout,
       vendored: <String>{},
       requireResolvedRefs: true,
+      evaluateNested: evaluateCached,
       fallbackSwiftModules: fallbackSwiftModules,
       normalizationCache: normalizationCache,
     );
@@ -3832,6 +3823,12 @@ let package = Package(
     checkout,
     required Set<String> vendored,
     required bool requireResolvedRefs,
+    Future<Map<String, String>> Function(
+      String manifest,
+      String packageDirectory,
+      List<SwiftPmPackageDependency> dependencies,
+    )?
+    evaluateNested,
     Map<String, List<String>>? fallbackSwiftModules,
     Map<String, Map<String, List<String>>>? normalizationCache,
   }) async {
@@ -3872,16 +3869,36 @@ let package = Package(
             destination,
             consumedProducts: consumedProducts,
             fallbackSwiftModules: fallbackSwiftModules,
-            rewriteDependencies: (nested) => _vendorUrlDeps(
-              nested,
-              vendorDir: vendorDir,
-              evaluatedRefs: evaluatedRefs,
-              checkout: checkout,
-              vendored: vendored,
-              requireResolvedRefs: false,
-              fallbackSwiftModules: fallbackSwiftModules,
-              normalizationCache: normalizationCache,
-            ),
+            rewriteDependencies: (nested) async {
+              // A vendored package's manifest may declare deps the parent's
+              // resolution never saw (firebase-ios-sdk hides them behind
+              // `#if os(macOS)` until normalizeHostManifest exposes them).
+              // Leaving those as URL deps forks the identity: this package
+              // gets `<name>@<ref>` while the URL dep pulls `<name>` — so
+              // resolve the checkout itself and vendor them too.
+              var refs = evaluatedRefs;
+              final nestedDeps = parseUrlPackageDeps(nested);
+              if (evaluateNested != null &&
+                  nestedDeps.any(
+                    (dep) => !refs.containsKey(_canonicalGitUrl(dep.url)),
+                  )) {
+                refs = {
+                  ...await evaluateNested(nested, destination, nestedDeps),
+                  ...evaluatedRefs,
+                };
+              }
+              return _vendorUrlDeps(
+                nested,
+                vendorDir: vendorDir,
+                evaluatedRefs: refs,
+                checkout: checkout,
+                vendored: vendored,
+                requireResolvedRefs: false,
+                evaluateNested: evaluateNested,
+                fallbackSwiftModules: fallbackSwiftModules,
+                normalizationCache: normalizationCache,
+              );
+            },
           );
           normalizationCache?[cacheKey] = fallbackSwiftModules == null
               ? {}
@@ -4298,6 +4315,7 @@ let package = Package(
     Future<String> Function(String manifest)? rewriteDependencies,
   }) async {
     var changed = false;
+    final manifests = <File>[];
     await for (final entity in Directory(packageDir).list(followLinks: false)) {
       if (entity is! File) continue;
       final name = p.basename(entity.path);
@@ -4305,20 +4323,32 @@ let package = Package(
           !(name.startsWith('Package@') && name.endsWith('.swift'))) {
         continue;
       }
-      final original = await entity.readAsString();
-      var normalized = await synthesizeBinaryFallbackCompatibility(
+      manifests.add(entity);
+    }
+    Future<void> update(File manifest, String original, String updated) async {
+      if (updated == original) return;
+      await _clearPlaceholderAttributes(manifest.path);
+      await manifest.writeAsString(updated);
+      changed = true;
+    }
+
+    // Host fixes land on disk first so a nested `swift package resolve`
+    // (needed when the parent's pins miss deps hidden behind `#if os(macOS)`)
+    // sees the same manifests the final build will.
+    for (final manifest in manifests) {
+      final original = await manifest.readAsString();
+      final normalized = await synthesizeBinaryFallbackCompatibility(
         normalizeHostManifest(original),
         packageDir: packageDir,
         consumedProducts: consumedProducts,
         fallbackSwiftModules: fallbackSwiftModules,
       );
-      if (rewriteDependencies != null) {
-        normalized = await rewriteDependencies(normalized);
-      }
-      if (normalized != original) {
-        await _clearPlaceholderAttributes(entity.path);
-        await entity.writeAsString(normalized);
-        changed = true;
+      await update(manifest, original, normalized);
+    }
+    if (rewriteDependencies != null) {
+      for (final manifest in manifests) {
+        final original = await manifest.readAsString();
+        await update(manifest, original, await rewriteDependencies(original));
       }
     }
     return changed;

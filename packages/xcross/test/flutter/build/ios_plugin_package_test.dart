@@ -889,15 +889,30 @@ let package = Package(
 )
 ''';
       final clones = <String>[];
+      final evaluated = <String>[];
+      final firebaseDir = p.join(vendorDir, 'fb@sha-firebase');
       await GeneratedPluginsPackage.vendorUrlPackagesAsPathDeps(
         manifest,
         vendorDir: vendorDir,
         packageDirectory: p.join(tmp.path, 'constant-plugin'),
         locateTool: (_) async => 'git',
-        evaluateDependencyRefs: (_) async => const {
-          'https://github.com/firebase/firebase-ios-sdk': 'sha-firebase',
-          'https://github.com/google/GoogleAppMeasurement': 'sha-measurement',
-          'https://github.com/google/GoogleUtilities': 'sha-utilities',
+        evaluateDependencyRefs: (directory) async {
+          evaluated.add(directory);
+          if (directory == firebaseDir) {
+            final onDisk = File(
+              p.join(directory, 'Package.swift'),
+            ).readAsStringSync();
+            expect(onDisk, isNot(contains('#if os(macOS)')));
+            expect(onDisk, contains('url: appMeasurementURL'));
+            return const {
+              'https://github.com/google/GoogleAppMeasurement':
+                  'sha-measurement',
+              'https://github.com/google/GoogleUtilities': 'sha-utilities',
+            };
+          }
+          return const {
+            'https://github.com/firebase/firebase-ios-sdk': 'sha-firebase',
+          };
         },
         clonePackage: (_, url, ref, destination) async {
           clones.add(url);
@@ -911,14 +926,18 @@ let package = Package(
     targets: []
 )
 func packageDependencies() -> [Package.Dependency] {
-  return [
-    googleAppMeasurementDependency(),
-    .package(
-      url: "https://github.com/google/GoogleUtilities.git",
-      "8.1.0" ..< "9.0.0"
-    ),
-    abseilDependency(),
-  ]
+  var dependencies: [Package.Dependency] = []
+  #if os(macOS)
+    dependencies.append(contentsOf: [
+      googleAppMeasurementDependency(),
+      .package(
+        url: "https://github.com/google/GoogleUtilities.git",
+        "8.1.0" ..< "9.0.0"
+      ),
+      abseilDependency(),
+    ])
+  #endif // os(macOS)
+  return dependencies
 }
 func googleAppMeasurementDependency() -> Package.Dependency {
   let appMeasurementURL = "https://github.com/google/GoogleAppMeasurement.git"
@@ -956,8 +975,9 @@ let package = Package(
         'GoogleAppMeasurement@sha-measurement',
       );
       final firebase = File(
-        p.join(vendorDir, 'fb@sha-firebase', 'Package.swift'),
+        p.join(firebaseDir, 'Package.swift'),
       ).readAsStringSync();
+      expect(evaluated, [p.join(tmp.path, 'constant-plugin'), firebaseDir]);
       expect(
         firebase,
         contains(
