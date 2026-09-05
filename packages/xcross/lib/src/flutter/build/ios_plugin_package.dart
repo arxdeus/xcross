@@ -4091,15 +4091,26 @@ let package = Package(
 
     final clone = clonePackage ?? _cloneGitPackage;
 
+    Future<void> cloneAndMaterialize(
+      String url,
+      String ref,
+      String destination,
+    ) async {
+      await clone(git, url, ref, destination);
+      if (Platform.isWindows && clonePackage == null) {
+        await materializeGitCheckoutSymlinks(destination, git: git);
+      }
+    }
+
     Future<void> checkout(String url, String ref, String destination) async {
       if (checkoutCache == null) {
-        await clone(git, url, ref, destination);
+        await cloneAndMaterialize(url, ref, destination);
         return;
       }
       final key = p.normalize(destination);
       final pending = checkoutCache.putIfAbsent(
         key,
-        () => clone(git, url, ref, destination),
+        () => cloneAndMaterialize(url, ref, destination),
       );
       try {
         await pending;
@@ -4279,6 +4290,32 @@ let package = Package(
           changed;
     }
     return changed;
+  }
+
+  @visibleForTesting
+  static Future<bool> materializeGitCheckoutSymlinks(
+    String repoPath, {
+    String git = 'git',
+  }) async {
+    final index = await ProcessRunner.run(git, [
+      '-C',
+      repoPath,
+      'ls-files',
+      '-s',
+      '-z',
+    ]);
+    if (index.exitCode != 0) {
+      throw FlutterBuildError(
+        'Could not inspect SwiftPM checkout $repoPath: ${index.stderr}',
+      );
+    }
+    final stampName = sha256.convert(utf8.encode(repoPath)).toString();
+    return _materializeGitSymlinks(
+      repoPath,
+      index.stdout,
+      git,
+      File(p.join(p.dirname(repoPath), '.xcross-symlinks', stampName)),
+    );
   }
 
   static Future<bool> _materializeGitSymlinks(
