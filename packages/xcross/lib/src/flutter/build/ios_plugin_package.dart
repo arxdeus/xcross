@@ -2076,13 +2076,20 @@ abstract final class GeneratedPluginsPackage {
           )) {
         continue;
       }
-      final calls = <String>[];
+      // One entry per identity: firebase declares each helper dep twice
+      // (a CI-only `branch:` variant and the released range) and SwiftPM
+      // rejects duplicate identities in a manifest. Prefer the range.
+      final calls = <String, String>{};
       final constants = <String>{};
       for (final dep in deps) {
         final call = _standaloneDependencyCall(dep, manifest, constants);
         if (call == null) continue;
-        calls.add(call);
-        dependencies.putIfAbsent(_canonicalGitUrl(dep.url), () => dep);
+        final canonical = _canonicalGitUrl(dep.url);
+        final existing = calls[canonical];
+        if (existing == null || _isBranchRequirement(existing)) {
+          calls[canonical] = call;
+        }
+        dependencies.putIfAbsent(canonical, () => dep);
       }
       if (calls.isEmpty) continue;
       final name = 'xcross-hidden-${p.basename(checkout.path)}';
@@ -2098,7 +2105,7 @@ abstract final class GeneratedPluginsPackage {
         ..writeln('let package = Package(')
         ..writeln('    name: "$name",')
         ..writeln('    dependencies: [');
-      for (final call in calls) {
+      for (final call in calls.values) {
         buffer.writeln('        $call,');
       }
       buffer
@@ -2109,18 +2116,12 @@ abstract final class GeneratedPluginsPackage {
     return result;
   }
 
-  static const _dependencyCallIdentifiers = {
-    'url',
-    'from',
-    'exact',
-    'revision',
-    'branch',
-    'upToNextMajor',
-    'upToNextMinor',
-    'Version',
-    'Package',
-    'Dependency',
-  };
+  static bool _isBranchRequirement(String call) =>
+      RegExp(r'\bbranch\s*:').hasMatch(call);
+
+  /// Identifiers a `.package(url:)` requirement may use as values without a
+  /// declaration; argument labels (`from:`, `branch:`) are skipped separately.
+  static const _dependencyCallIdentifiers = {'Version'};
 
   /// `.package(url: "<literal>", <requirement>)` for [dep] that compiles on
   /// its own, or null when the requirement references manifest state that
@@ -2140,7 +2141,9 @@ abstract final class GeneratedPluginsPackage {
           'url: "${dep.url}"',
         );
     final code = inner.replaceAll(RegExp(r'"(?:[^"\\]|\\.)*"'), '""');
-    for (final match in RegExp(r'\.?\b[A-Za-z_]\w*').allMatches(code)) {
+    final identifier = RegExp(r'\.?\b[A-Za-z_]\w*(?<label>\s*:)?');
+    for (final match in identifier.allMatches(code)) {
+      if (match.namedGroup('label') != null) continue;
       final token = match.group(0)!;
       if (token.startsWith('.')) continue;
       if (_dependencyCallIdentifiers.contains(token)) continue;

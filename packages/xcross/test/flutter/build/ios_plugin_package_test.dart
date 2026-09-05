@@ -2218,13 +2218,24 @@ func packageDependencies() -> [Package.Dependency] {
         "8.1.0" ..< "9.0.0"
       ),
       abseilDependency(),
+      appCheckDependency(),
     ])
   #endif // os(macOS)
   return dependencies
 }
 func googleAppMeasurementDependency() -> Package.Dependency {
   let appMeasurementURL = "https://github.com/google/GoogleAppMeasurement.git"
+  if Context.environment["FIREBASECI_USE_LATEST_GOOGLEAPPMEASUREMENT"] != nil {
+    return .package(url: appMeasurementURL, branch: "main")
+  }
   return .package(url: appMeasurementURL, "12.18.0" ..< "12.19.0")
+}
+func appCheckDependency() -> Package.Dependency {
+  let appCheckURL = "https://github.com/google/app-check.git"
+  if let branch = Context.environment["FIREBASECI_USE_LATEST_APPCHECK"] {
+    return .package(url: appCheckURL, branch: branch)
+  }
+  return .package(url: appCheckURL, "11.3.0" ..< "12.0.0")
 }
 func abseilDependency() -> Package.Dependency {
   let packageInfo: (url: String, range: Range<Version>)
@@ -2264,6 +2275,7 @@ func abseilDependency() -> Package.Dependency {
             'https://github.com/firebase/firebase-ios-sdk': 'sha-firebase',
             'https://github.com/google/GoogleUtilities': 'sha-utilities',
             'https://github.com/google/GoogleAppMeasurement': 'sha-measurement',
+            'https://github.com/google/app-check': 'sha-app-check',
           };
         },
       );
@@ -2305,6 +2317,15 @@ func abseilDependency() -> Package.Dependency {
         contains('url: "https://github.com/google/GoogleUtilities.git"'),
       );
       expect(hidden, contains('name: "xcross-hidden-firebase-ios-sdk"'));
+      expect(
+        hidden,
+        contains(
+          '.package(url: "https://github.com/google/app-check.git", '
+          '"11.3.0" ..< "12.0.0")',
+        ),
+      );
+      expect(hidden, isNot(contains('branch')));
+      expect('GoogleAppMeasurement.git'.allMatches(hidden), hasLength(1));
       expect(hidden, isNot(contains('packageInfo')));
       expect(hidden, isNot(contains('abseil')));
     });
