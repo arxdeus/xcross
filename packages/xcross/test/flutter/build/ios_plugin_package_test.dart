@@ -800,6 +800,121 @@ let package = Package(name: "Sentry", products: [], targets: [])
       expect(vendored61, contains('import CRT'));
     });
 
+    test('vendors url deps declared by vendored packages', () async {
+      final vendorDir = p.join(tmp.path, 'nested-vendor');
+      const manifest = '''
+import PackageDescription
+let package = Package(
+    name: "flutter_image_compress_common",
+    dependencies: [
+        .package(url: "https://github.com/SDWebImage/SDWebImage.git", from: "5.19.0"),
+        .package(url: "https://github.com/SDWebImage/SDWebImageWebPCoder.git", from: "0.14.0"),
+    ],
+    targets: [
+        .target(
+            name: "flutter_image_compress_common",
+            dependencies: [
+                .product(name: "SDWebImage", package: "SDWebImage"),
+                .product(name: "SDWebImageWebPCoder", package: "SDWebImageWebPCoder")
+            ]
+        )
+    ]
+)
+''';
+      final clones = <String>[];
+      final rewritten =
+          await GeneratedPluginsPackage.vendorUrlPackagesAsPathDeps(
+            manifest,
+            vendorDir: vendorDir,
+            packageDirectory: p.join(tmp.path, 'nested-plugin'),
+            locateTool: (_) async => 'git',
+            evaluateDependencyRefs: (_) async => const {
+              'https://github.com/SDWebImage/SDWebImage': 'sha-image',
+              'https://github.com/SDWebImage/SDWebImageWebPCoder': 'sha-webp',
+            },
+            clonePackage: (_, url, ref, destination) async {
+              clones.add(url);
+              await Directory(destination).create(recursive: true);
+              await File(p.join(destination, 'Package.swift')).writeAsString(
+                url.contains('WebPCoder')
+                    ? '''
+import PackageDescription
+let package = Package(
+    name: "SDWebImageWebPCoder",
+    dependencies: [
+        .package(url: "https://github.com/SDWebImage/SDWebImage.git", from: "5.17.0"),
+    ],
+    targets: [
+        .target(
+            name: "SDWebImageWebPCoder",
+            dependencies: [.product(name: "SDWebImage", package: "SDWebImage")]
+        )
+    ]
+)
+'''
+                    : 'import PackageDescription\n'
+                          'let package = Package(name: "SDWebImage")\n',
+              );
+            },
+          );
+
+      final imageDir = p.join(vendorDir, 'SDWebImage@sha-image');
+      expect(rewritten, isNot(contains('url:')));
+      expect(
+        rewritten,
+        contains('.package(name: "SDWebImage", path: "${swiftPath(imageDir)}")'),
+      );
+
+      final nested = File(
+        p.join(vendorDir, 'SDWebImageWebPCoder@sha-webp', 'Package.swift'),
+      ).readAsStringSync();
+      expect(nested, isNot(contains('url:')));
+      expect(
+        nested,
+        contains('.package(name: "SDWebImage", path: "${swiftPath(imageDir)}")'),
+      );
+      expect(clones.length, 2);
+    });
+
+    test('leaves unpinned nested url deps to SwiftPM', () async {
+      final vendorDir = p.join(tmp.path, 'unpinned-vendor');
+      const manifest = '''
+import PackageDescription
+let package = Package(
+    name: "plugin",
+    dependencies: [.package(url: "https://example.com/outer", exact: "1.0.0")],
+    targets: []
+)
+''';
+      await GeneratedPluginsPackage.vendorUrlPackagesAsPathDeps(
+        manifest,
+        vendorDir: vendorDir,
+        packageDirectory: p.join(tmp.path, 'unpinned-plugin'),
+        locateTool: (_) async => 'git',
+        evaluateDependencyRefs: (_) async => const {
+          'https://example.com/outer': 'outer-sha',
+        },
+        clonePackage: (_, _, _, destination) async {
+          await Directory(destination).create(recursive: true);
+          await File(p.join(destination, 'Package.swift')).writeAsString('''
+import PackageDescription
+let package = Package(
+    name: "outer",
+    dependencies: [.package(url: "https://example.com/unpinned", exact: "2.0.0")],
+    targets: []
+)
+''');
+        },
+      );
+
+      expect(
+        File(
+          p.join(vendorDir, 'outer@outer-sha', 'Package.swift'),
+        ).readAsStringSync(),
+        contains('.package(url: "https://example.com/unpinned"'),
+      );
+    });
+
     test('caches equivalent dependency evaluations within a build', () async {
       final vendorDir = p.join(tmp.path, 'cached-vendor');
       final first = p.join(tmp.path, 'first');

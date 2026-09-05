@@ -3766,11 +3766,69 @@ let package = Package(
 
     final clone = clonePackage ?? _cloneGitPackage;
 
+    Future<void> checkout(String url, String ref, String destination) async {
+      if (checkoutCache == null) {
+        await clone(git, url, ref, destination);
+        return;
+      }
+      final key = p.normalize(destination);
+      final pending = checkoutCache.putIfAbsent(
+        key,
+        () => clone(git, url, ref, destination),
+      );
+      try {
+        await pending;
+      } on Object {
+        if (identical(checkoutCache[key], pending)) {
+          final _ = checkoutCache.remove(key);
+        }
+        rethrow;
+      }
+    }
+
+    return _vendorUrlDeps(
+      manifest,
+      vendorDir: vendorDir,
+      evaluatedRefs: evaluatedRefs,
+      checkout: checkout,
+      vendored: <String>{},
+      requireResolvedRefs: true,
+      fallbackSwiftModules: fallbackSwiftModules,
+      normalizationCache: normalizationCache,
+    );
+  }
+
+  /// Rewrites every `.package(url:)` in [manifest] to a `.package(path:)`
+  /// under [vendorDir], checking the revision out when it is not vendored
+  /// yet and applying the same rewrite to that checkout's own manifests.
+  ///
+  /// Recursion is what keeps one identity per package: a dependency reachable
+  /// both directly and transitively (SDWebImage via `flutter_image_compress`
+  /// and via SDWebImageWebPCoder) resolves to the same `vendor/<name>@<ref>`
+  /// directory instead of a path identity plus a git identity, which SwiftPM
+  /// rejects as conflicting product names.
+  static Future<String> _vendorUrlDeps(
+    String manifest, {
+    required String vendorDir,
+    required Map<String, String> evaluatedRefs,
+    required Future<void> Function(String url, String ref, String destination)
+    checkout,
+    required Set<String> vendored,
+    required bool requireResolvedRefs,
+    Map<String, List<String>>? fallbackSwiftModules,
+    Map<String, Map<String, List<String>>>? normalizationCache,
+  }) async {
+    final deps = parseUrlPackageDeps(manifest);
+    if (deps.isEmpty) return manifest;
+
     var result = manifest;
-    final seen = <String>{};
     for (final dep in deps) {
       final ref = evaluatedRefs[_canonicalGitUrl(dep.url)];
       if (ref == null) {
+        // The root resolution pins the whole transitive graph, so a missing
+        // pin only happens for manifest variants SwiftPM itself ignores.
+        // Leaving those as URL deps preserves the pre-recursion behaviour.
+        if (!requireResolvedRefs) continue;
         throw FlutterBuildError(
           'Cannot vendor SwiftPM dependency ${dep.url}: Package.resolved '
           'contains no matching source-control revision.',
@@ -3780,25 +3838,9 @@ let package = Package(
       // Always set name: — without it SwiftPM uses the directory basename
       // (`pkg@1.2.3`), which breaks `.product(..., package: "pkg")`.
       final identity = dep.identity;
-      if (seen.add(dirName)) {
-        final destination = p.join(vendorDir, dirName);
-        if (checkoutCache == null) {
-          await clone(git, dep.url, ref, destination);
-        } else {
-          final key = p.normalize(destination);
-          final pending = checkoutCache.putIfAbsent(
-            key,
-            () => clone(git, dep.url, ref, destination),
-          );
-          try {
-            await pending;
-          } on Object {
-            if (identical(checkoutCache[key], pending)) {
-              final _ = checkoutCache.remove(key);
-            }
-            rethrow;
-          }
-        }
+      final destination = p.join(vendorDir, dirName);
+      if (vendored.add(p.normalize(destination))) {
+        await checkout(dep.url, ref, destination);
         final consumedProducts = _consumedProducts(manifest, identity);
 
         final cacheKey = [
@@ -3813,6 +3855,16 @@ let package = Package(
             destination,
             consumedProducts: consumedProducts,
             fallbackSwiftModules: fallbackSwiftModules,
+            rewriteDependencies: (nested) => _vendorUrlDeps(
+              nested,
+              vendorDir: vendorDir,
+              evaluatedRefs: evaluatedRefs,
+              checkout: checkout,
+              vendored: vendored,
+              requireResolvedRefs: false,
+              fallbackSwiftModules: fallbackSwiftModules,
+              normalizationCache: normalizationCache,
+            ),
           );
           normalizationCache?[cacheKey] = fallbackSwiftModules == null
               ? {}
@@ -3830,7 +3882,7 @@ let package = Package(
       }
       final pathDep =
           '.package(name: "$identity", '
-          'path: "${_swiftPath(p.join(vendorDir, dirName))}")';
+          'path: "${_swiftPath(destination)}")';
       result = result.replaceFirst(dep.match, pathDep);
     }
     return result;
@@ -4218,6 +4270,7 @@ let package = Package(
     String packageDir, {
     required Set<String> consumedProducts,
     Map<String, List<String>>? fallbackSwiftModules,
+    Future<String> Function(String manifest)? rewriteDependencies,
   }) async {
     var changed = false;
     await for (final entity in Directory(packageDir).list(followLinks: false)) {
@@ -4228,12 +4281,15 @@ let package = Package(
         continue;
       }
       final original = await entity.readAsString();
-      final normalized = await synthesizeBinaryFallbackCompatibility(
+      var normalized = await synthesizeBinaryFallbackCompatibility(
         normalizeHostManifest(original),
         packageDir: packageDir,
         consumedProducts: consumedProducts,
         fallbackSwiftModules: fallbackSwiftModules,
       );
+      if (rewriteDependencies != null) {
+        normalized = await rewriteDependencies(normalized);
+      }
       if (normalized != original) {
         await _clearPlaceholderAttributes(entity.path);
         await entity.writeAsString(normalized);
