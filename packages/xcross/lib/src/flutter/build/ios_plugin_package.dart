@@ -3967,16 +3967,26 @@ let package = Package(
       resolve: runResolve,
       recover:
           recover ??
-          (_, state) => canRecover
-              ? recoverBootstrapBinaryArtifacts(
-                  scratchPath: resolverScratchPath!,
-                  binaryArtifactStore: binaryArtifactStore!,
-                  provenance: scannedProvenance!,
-                  attemptState: state,
-                  swiftPmArtifactJunctionCapability:
-                      swiftPmArtifactJunctionCapability,
-                )
-              : Future<bool>.value(false),
+          (_, state) async {
+            if (!canRecover) return false;
+            final recoveredArchive = await recoverBootstrapBinaryArtifacts(
+              scratchPath: resolverScratchPath!,
+              binaryArtifactStore: binaryArtifactStore!,
+              provenance: scannedProvenance!,
+              attemptState: state,
+              swiftPmArtifactJunctionCapability:
+                  swiftPmArtifactJunctionCapability,
+            );
+            final recoveredExtraction = await stageExtractedBinaryArtifacts(
+              scratchPath: resolverScratchPath,
+              vendorDir: p.join(resolverScratchPath, '.xcross-vendor'),
+              binaryArtifactStore: binaryArtifactStore,
+              binaryArtifactFallback: binaryArtifactFallback,
+              attemptState: state,
+              windows: true,
+            );
+            return recoveredArchive || recoveredExtraction;
+          },
       attemptState: attemptState ?? SwiftPmBinaryAttemptState(),
     );
   }
