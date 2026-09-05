@@ -4901,9 +4901,13 @@ $diagnosticsStart$registrations$diagnosticsEnd}
     String? artifactRoot,
     bool Function(String name)? includeTopLevel,
   }) async {
-    final root = artifactRoot ?? p.normalize(p.absolute(source));
-    await Directory(destination).create(recursive: true);
-    await for (final entity in Directory(source).list(followLinks: false)) {
+    final ioSource = _ioPath(source);
+    final ioDestination = _ioPath(destination);
+    final root = artifactRoot == null
+        ? p.normalize(p.absolute(ioSource))
+        : _ioPath(artifactRoot);
+    await Directory(ioDestination).create(recursive: true);
+    await for (final entity in Directory(ioSource).list(followLinks: false)) {
       final name = p.basename(entity.path);
       if (artifactRoot == null &&
           includeTopLevel != null &&
