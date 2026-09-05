@@ -677,7 +677,7 @@ abstract final class GeneratedPluginsPackage {
     bool? windows,
   }) async {
     if (!(windows ?? Platform.isWindows)) return;
-    final root = Directory(_ioPath(packageRoot));
+    final root = Directory(ioPath(packageRoot));
     if (!root.existsSync()) return;
 
     final store = SwiftPmBinaryArtifactStore(binaryArtifactStore);
@@ -3632,7 +3632,7 @@ let package = Package(
           dependency.identity;
     }
     for (final entry in roots.entries) {
-      final root = Directory(entry.key);
+      final root = Directory(ioPath(entry.key));
       if (!root.existsSync()) continue;
       await for (final entity in root.list(
         recursive: true,
@@ -4754,7 +4754,7 @@ $diagnosticsStart$registrations$diagnosticsEnd}
   }
 
   static int _directoryBytes(String path) {
-    final directory = Directory(_ioPath(path));
+    final directory = Directory(ioPath(path));
     if (!directory.existsSync()) return 0;
     var bytes = 0;
     for (final entity in directory.listSync(
@@ -4766,8 +4766,9 @@ $diagnosticsStart$registrations$diagnosticsEnd}
     return bytes;
   }
 
-  static String _ioPath(String path) {
-    if (!Platform.isWindows) return path;
+  @visibleForTesting
+  static String ioPath(String path, {bool? windows}) {
+    if (!(windows ?? Platform.isWindows)) return path;
     final absolute = p.windows.normalize(p.windows.absolute(path));
     if (absolute.startsWith(r'\\?\')) return absolute;
     if (absolute.startsWith(r'\\')) {

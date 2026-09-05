@@ -241,6 +241,42 @@ let package = Package(
     });
   });
 
+  group('Windows long paths', () {
+    test('adds the extended-length prefix to drive paths', () {
+      expect(
+        GeneratedPluginsPackage.ioPath(
+          r'C:\Users\runneradmin\AppData\Local\xcross\swiftpm\cache',
+          windows: true,
+        ),
+        r'\\?\C:\Users\runneradmin\AppData\Local\xcross\swiftpm\cache',
+      );
+    });
+
+    test('adds the extended-length UNC prefix', () {
+      expect(
+        GeneratedPluginsPackage.ioPath(
+          r'\\server\share\xcross\swiftpm',
+          windows: true,
+        ),
+        r'\\?\UNC\server\share\xcross\swiftpm',
+      );
+    });
+
+    test('does not double-prefix an extended-length path', () {
+      expect(
+        GeneratedPluginsPackage.ioPath(r'\\?\C:\xcross\swiftpm', windows: true),
+        r'\\?\C:\xcross\swiftpm',
+      );
+    });
+
+    test('leaves paths unchanged off Windows', () {
+      expect(
+        GeneratedPluginsPackage.ioPath('/tmp/xcross/swiftpm', windows: false),
+        '/tmp/xcross/swiftpm',
+      );
+    });
+  });
+
   group('normalizeHostManifest', () {
     test('finds dependency products that may emit Swift headers', () {
       expect(
