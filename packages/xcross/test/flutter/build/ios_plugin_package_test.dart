@@ -301,7 +301,7 @@ let package = Package(
       ]);
     });
 
-    test('reports Git index failures', () async {
+    test('reports Git index failures for existing checkout roots', () async {
       await expectLater(
         GeneratedPluginsPackage.trackedPackageManifestFiles(
           tmp.path,

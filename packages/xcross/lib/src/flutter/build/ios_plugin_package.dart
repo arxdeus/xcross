@@ -3683,6 +3683,7 @@ let package = Package(
           dependency.identity;
     }
     for (final entry in roots.entries) {
+      if (!Directory(entry.key).existsSync()) continue;
       final manifests = entry.value == null
           ? _rootPackageManifestFiles(entry.key)
           : await trackedPackageManifestFiles(entry.key);
