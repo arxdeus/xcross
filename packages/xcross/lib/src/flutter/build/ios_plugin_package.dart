@@ -2585,6 +2585,7 @@ let package = Package(
   @visibleForTesting
   static List<SwiftPmPackageDependency> parseUrlPackageDeps(String manifest) {
     final deps = <SwiftPmPackageDependency>[];
+    final constants = _manifestStringConstants(manifest);
     var searchFrom = 0;
     final startPattern = RegExp(r'\.package\s*\(');
     while (true) {
@@ -2597,14 +2598,18 @@ let package = Package(
       final close = _indexOfMatchingParen(manifest, open);
       if (close < 0) break;
       final inner = manifest.substring(open + 1, close);
-      final urlMatch = RegExp(r'url:\s*"(?<url>[^"]+)"').firstMatch(inner);
-      if (urlMatch == null) {
+      final urlMatch = RegExp(
+        r'url:\s*(?:"(?<literal>[^"]+)"|(?<constant>[A-Za-z_]\w*)\b(?!\s*\.))',
+      ).firstMatch(inner);
+      final url =
+          urlMatch?.namedGroup('literal') ??
+          constants[urlMatch?.namedGroup('constant')];
+      if (url == null) {
         searchFrom = close + 1;
         continue;
       }
       final nameMatch = RegExp(r'name:\s*"(?<name>[^"]*)"').firstMatch(inner);
       final name = nameMatch?.namedGroup('name');
-      final url = urlMatch.namedGroup('url')!;
       deps.add(
         SwiftPmPackageDependency(
           name: name,
@@ -2616,6 +2621,18 @@ let package = Package(
       searchFrom = close + 1;
     }
     return deps;
+  }
+
+  /// `let name = "..."` string constants, so `.package(url: name, ...)`
+  /// (firebase-ios-sdk's `appMeasurementURL`) can be vendored like literals.
+  static Map<String, String> _manifestStringConstants(String manifest) {
+    final pattern = RegExp(
+      r'\b(?:let|var)\s+(?<name>[A-Za-z_]\w*)\s*(?::\s*String)?\s*=\s*"(?<value>[^"\r\n]*)"',
+    );
+    return {
+      for (final match in pattern.allMatches(manifest))
+        match.namedGroup('name')!: match.namedGroup('value')!,
+    };
   }
 
   /// Index of the `)` that closes the `(` at [openIndex], or -1.

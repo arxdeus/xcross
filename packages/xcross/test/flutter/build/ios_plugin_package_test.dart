@@ -876,6 +876,109 @@ let package = Package(
       expect(clones.length, 2);
     });
 
+    test('vendors url deps declared through string constants', () async {
+      final vendorDir = p.join(tmp.path, 'constant-vendor');
+      const manifest = '''
+import PackageDescription
+let package = Package(
+    name: "firebase_core",
+    dependencies: [
+        .package(url: "https://github.com/firebase/firebase-ios-sdk", exact: "12.18.0"),
+    ],
+    targets: []
+)
+''';
+      final clones = <String>[];
+      await GeneratedPluginsPackage.vendorUrlPackagesAsPathDeps(
+        manifest,
+        vendorDir: vendorDir,
+        packageDirectory: p.join(tmp.path, 'constant-plugin'),
+        locateTool: (_) async => 'git',
+        evaluateDependencyRefs: (_) async => const {
+          'https://github.com/firebase/firebase-ios-sdk': 'sha-firebase',
+          'https://github.com/google/GoogleAppMeasurement': 'sha-measurement',
+          'https://github.com/google/GoogleUtilities': 'sha-utilities',
+        },
+        clonePackage: (_, url, ref, destination) async {
+          clones.add(url);
+          await Directory(destination).create(recursive: true);
+          final nested = url.contains('firebase-ios-sdk')
+              ? '''
+import PackageDescription
+let package = Package(
+    name: "Firebase",
+    dependencies: packageDependencies(),
+    targets: []
+)
+func packageDependencies() -> [Package.Dependency] {
+  return [
+    googleAppMeasurementDependency(),
+    .package(
+      url: "https://github.com/google/GoogleUtilities.git",
+      "8.1.0" ..< "9.0.0"
+    ),
+    abseilDependency(),
+  ]
+}
+func googleAppMeasurementDependency() -> Package.Dependency {
+  let appMeasurementURL = "https://github.com/google/GoogleAppMeasurement.git"
+  if Context.environment["FIREBASECI_USE_LATEST_GOOGLEAPPMEASUREMENT"] != nil {
+    return .package(url: appMeasurementURL, branch: "main")
+  }
+  return .package(url: appMeasurementURL, "12.18.0" ..< "12.19.0")
+}
+func abseilDependency() -> Package.Dependency {
+  let packageInfo: (url: String, range: Range<Version>)
+  packageInfo = ("https://github.com/google/abseil-cpp-binary.git", "1.0.0" ..< "2.0.0")
+  return .package(url: packageInfo.url, packageInfo.range)
+}
+'''
+              : url.contains('GoogleAppMeasurement')
+              ? '''
+import PackageDescription
+let package = Package(
+    name: "GoogleAppMeasurement",
+    dependencies: [
+        .package(url: "https://github.com/google/GoogleUtilities.git", "8.0.2" ..< "9.0.0"),
+    ],
+    targets: []
+)
+'''
+              : 'import PackageDescription\n'
+                    'let package = Package(name: "GoogleUtilities")\n';
+          await File(p.join(destination, 'Package.swift')).writeAsString(nested);
+        },
+      );
+
+      final utilitiesDir = p.join(vendorDir, 'GoogleUtilities@sha-utilities');
+      final measurementDir = p.join(
+        vendorDir,
+        'GoogleAppMeasurement@sha-measurement',
+      );
+      final firebase = File(
+        p.join(vendorDir, 'fb@sha-firebase', 'Package.swift'),
+      ).readAsStringSync();
+      expect(
+        firebase,
+        contains(
+          '.package(name: "GoogleAppMeasurement", '
+          'path: "${swiftPath(measurementDir)}")',
+        ),
+      );
+      expect(firebase, isNot(contains('url: appMeasurementURL')));
+      expect(firebase, contains('url: packageInfo.url'));
+      final measurement = File(
+        p.join(measurementDir, 'Package.swift'),
+      ).readAsStringSync();
+      expect(
+        measurement,
+        contains(
+          '.package(name: "GoogleUtilities", path: "${swiftPath(utilitiesDir)}")',
+        ),
+      );
+      expect(clones.length, 3);
+    });
+
     test('leaves unpinned nested url deps to SwiftPM', () async {
       final vendorDir = p.join(tmp.path, 'unpinned-vendor');
       const manifest = '''
