@@ -1826,6 +1826,73 @@ abstract final class GeneratedPluginsPackage {
     final dependencyEvaluationCache = <String, Future<Map<String, String>>>{};
     final vendorCheckoutCache = <String, Future<void>>{};
 
+    var pluginRefEvaluator = evaluateDependencyRefs;
+    if (shouldVendor) {
+      // Stage every plugin with its URL deps intact first, then resolve them
+      // as one graph: per-plugin resolution pins shared transitive packages
+      // (gtm-session-fetcher via GoogleSignIn and via Firebase) at different
+      // revisions, and two `vendor/<name>@<ref>` path packages with the same
+      // products cannot coexist.
+      final prestaged = <String>[];
+      for (final plugin in plugins) {
+        prestaged.add(
+          await _stagePluginPackage(
+            alias: p.join(packagesDir, plugin.name),
+            target: plugin.swiftPackageDir,
+            platformDir: plugin.platformDirectoryName,
+            packageTargets: pluginTargets,
+            copySources: true,
+            scratchPath: scratchPath,
+            binaryArtifactStore: binaryArtifactStore,
+            binaryArtifactFallback: binaryArtifactFallback,
+            swiftPmArtifactJunctionCapability:
+                swiftPmArtifactJunctionCapability,
+            packageLocalArtifactJunctionCapability:
+                packageLocalArtifactJunctionCapability,
+          ),
+        );
+      }
+      final scoped = evaluateDependencyRefs;
+      final unified = await resolveUnifiedDependencyRefs(
+        resolveRoot: p.join(outputDir, 'Resolve'),
+        packageDirectories: prestaged,
+        evaluate: (directory, dependencies) => scoped != null
+            ? scoped(
+                directory,
+                scratchPath: scratchPath,
+                binaryArtifactStore: binaryArtifactStore,
+                binaryArtifactFallback: binaryArtifactFallback,
+                swiftPmArtifactJunctionCapability:
+                    swiftPmArtifactJunctionCapability,
+                packageLocalArtifactJunctionCapability:
+                    packageLocalArtifactJunctionCapability,
+                dependencies: dependencies,
+              )
+            : _evaluatedDependencyRefs(
+                directory,
+                ProcessRunner.locateTool,
+                scratchPath: scratchPath,
+                binaryArtifactStore: binaryArtifactStore,
+                binaryArtifactFallback: binaryArtifactFallback,
+                swiftPmArtifactJunctionCapability:
+                    swiftPmArtifactJunctionCapability,
+                dependencies: dependencies,
+              ),
+      );
+      if (unified != null) {
+        pluginRefEvaluator =
+            (
+              _, {
+              required scratchPath,
+              required binaryArtifactStore,
+              required binaryArtifactFallback,
+              required swiftPmArtifactJunctionCapability,
+              required packageLocalArtifactJunctionCapability,
+              required dependencies,
+            }) async => unified;
+      }
+    }
+
     for (final plugin in plugins) {
       final packageAlias = p.join(packagesDir, plugin.name);
       pluginPackageDirs[plugin.name] = await _stagePluginPackage(
@@ -1845,7 +1912,7 @@ abstract final class GeneratedPluginsPackage {
         swiftPmArtifactJunctionCapability: swiftPmArtifactJunctionCapability,
         packageLocalArtifactJunctionCapability:
             packageLocalArtifactJunctionCapability,
-        evaluateDependencyRefs: evaluateDependencyRefs,
+        evaluateDependencyRefs: pluginRefEvaluator,
         clonePackage: clonePackage,
       );
     }
@@ -1896,6 +1963,194 @@ abstract final class GeneratedPluginsPackage {
       deploymentTarget: deploymentTarget,
       verbose: verbose,
     );
+  }
+
+  /// Pins every URL dependency reachable from [packageDirectories] with a
+  /// single `swift package resolve`, so each package identity maps to exactly
+  /// one revision across the whole plugin graph. Returns null when nothing
+  /// declares a URL dependency.
+  ///
+  /// SwiftPM only sees dependencies a checkout's manifest declares for the
+  /// host, so entries firebase-ios-sdk hides behind `#if os(macOS)` are never
+  /// pinned. Each round scans the resolved checkouts for such unpinned deps,
+  /// re-declares them in a dependency-only package under `Hidden/`, and
+  /// resolves again until the pins cover the graph.
+  @visibleForTesting
+  static Future<Map<String, String>?> resolveUnifiedDependencyRefs({
+    required String resolveRoot,
+    required Iterable<String> packageDirectories,
+    required Future<Map<String, String>> Function(
+      String packageDirectory,
+      List<SwiftPmPackageDependency> dependencies,
+    )
+    evaluate,
+    int maxRounds = 5,
+  }) async {
+    final dependencies = <String, SwiftPmPackageDependency>{};
+    for (final directory in packageDirectories) {
+      final manifest = File(p.join(directory, 'Package.swift'));
+      if (!manifest.existsSync()) continue;
+      for (final dep in parseUrlPackageDeps(await manifest.readAsString())) {
+        dependencies.putIfAbsent(_canonicalGitUrl(dep.url), () => dep);
+      }
+    }
+    if (dependencies.isEmpty) return null;
+
+    final hiddenRoot = p.join(resolveRoot, 'Hidden');
+    await Directory(resolveRoot).create(recursive: true);
+    await _deleteEntity(hiddenRoot);
+    final hidden = <String>[];
+    var refs = <String, String>{};
+    for (var round = 0; round < maxRounds; round++) {
+      await _writeStable(
+        p.join(resolveRoot, 'Package.swift'),
+        _resolveManifest([...packageDirectories, ...hidden]),
+      );
+      refs = await evaluate(resolveRoot, dependencies.values.toList());
+      final discovered = await _hiddenDependencyManifests(
+        p.join(resolveRoot, '.build', 'checkouts'),
+        refs: refs,
+        dependencies: dependencies,
+      );
+      if (discovered.isEmpty) break;
+      for (final entry in discovered.entries) {
+        final directory = p.join(hiddenRoot, entry.key);
+        await Directory(directory).create(recursive: true);
+        await _writeStable(p.join(directory, 'Package.swift'), entry.value);
+        hidden.add(directory);
+      }
+    }
+    return refs;
+  }
+
+  static String _resolveManifest(Iterable<String> packageDirectories) {
+    final buffer = StringBuffer()
+      ..writeln('// swift-tools-version: 5.9')
+      ..writeln('import PackageDescription')
+      ..writeln()
+      ..writeln('let package = Package(')
+      ..writeln('    name: "XcrossResolve",')
+      ..writeln('    dependencies: [');
+    for (final directory in packageDirectories) {
+      buffer.writeln('        .package(path: "${_swiftPath(directory)}"),');
+    }
+    buffer
+      ..writeln('    ]')
+      ..writeln(')');
+    return buffer.toString();
+  }
+
+  /// Dependency-only manifests (keyed by directory name) re-declaring URL deps
+  /// of resolved checkouts under [checkoutsDir] that [refs] does not pin.
+  /// A checkout with any unpinned dep contributes all its URL deps so its
+  /// version constraints take part in the unified resolution.
+  static Future<Map<String, String>> _hiddenDependencyManifests(
+    String checkoutsDir, {
+    required Map<String, String> refs,
+    required Map<String, SwiftPmPackageDependency> dependencies,
+  }) async {
+    final result = <String, String>{};
+    final checkouts = Directory(checkoutsDir);
+    if (!checkouts.existsSync()) return result;
+    // Checkouts left behind by earlier builds must not feed constraints in.
+    final pinned = {
+      for (final url in refs.keys) packageIdentityFromUrl(url).toLowerCase(),
+    };
+    final entries = checkouts.listSync(followLinks: false)
+      ..sort((a, b) => a.path.compareTo(b.path));
+    for (final checkout in entries) {
+      if (checkout is! Directory ||
+          !pinned.contains(p.basename(checkout.path).toLowerCase())) {
+        continue;
+      }
+      final manifestFile = File(p.join(checkout.path, 'Package.swift'));
+      if (!manifestFile.existsSync()) continue;
+      final manifest = normalizeHostManifest(await manifestFile.readAsString());
+      final deps = parseUrlPackageDeps(manifest);
+      final unpinned = deps.where(
+        (dep) => !refs.containsKey(_canonicalGitUrl(dep.url)),
+      );
+      if (unpinned.isEmpty ||
+          unpinned.every(
+            (dep) => dependencies.containsKey(_canonicalGitUrl(dep.url)),
+          )) {
+        continue;
+      }
+      final calls = <String>[];
+      final constants = <String>{};
+      for (final dep in deps) {
+        final call = _standaloneDependencyCall(dep, manifest, constants);
+        if (call == null) continue;
+        calls.add(call);
+        dependencies.putIfAbsent(_canonicalGitUrl(dep.url), () => dep);
+      }
+      if (calls.isEmpty) continue;
+      final name = 'xcross-hidden-${p.basename(checkout.path)}';
+      final buffer = StringBuffer()
+        ..writeln('// swift-tools-version: 5.9')
+        ..writeln('import PackageDescription')
+        ..writeln();
+      for (final constant in constants) {
+        buffer.writeln(constant);
+      }
+      buffer
+        ..writeln()
+        ..writeln('let package = Package(')
+        ..writeln('    name: "$name",')
+        ..writeln('    dependencies: [');
+      for (final call in calls) {
+        buffer.writeln('        $call,');
+      }
+      buffer
+        ..writeln('    ]')
+        ..writeln(')');
+      result[name] = buffer.toString();
+    }
+    return result;
+  }
+
+  static const _dependencyCallIdentifiers = {
+    'url',
+    'from',
+    'exact',
+    'revision',
+    'branch',
+    'upToNextMajor',
+    'upToNextMinor',
+    'Version',
+    'Package',
+    'Dependency',
+  };
+
+  /// `.package(url: "<literal>", <requirement>)` for [dep] that compiles on
+  /// its own, or null when the requirement references manifest state that
+  /// cannot be carried over (e.g. firebase's `packageInfo.range` tuples).
+  /// String constants the requirement uses are added to [constants].
+  static String? _standaloneDependencyCall(
+    SwiftPmPackageDependency dep,
+    String manifest,
+    Set<String> constants,
+  ) {
+    final open = dep.match.indexOf('(');
+    var inner = dep.match.substring(open + 1, dep.match.length - 1);
+    inner = inner
+        .replaceFirst(RegExp(r'name:\s*"[^"]*"\s*,\s*'), '')
+        .replaceFirst(
+          RegExp(r'url:\s*(?:"[^"]+"|[A-Za-z_]\w*)'),
+          'url: "${dep.url}"',
+        );
+    final code = inner.replaceAll(RegExp(r'"(?:[^"\\]|\\.)*"'), '""');
+    for (final match in RegExp(r'\.?\b[A-Za-z_]\w*').allMatches(code)) {
+      final token = match.group(0)!;
+      if (token.startsWith('.')) continue;
+      if (_dependencyCallIdentifiers.contains(token)) continue;
+      final declaration = RegExp(
+        '\\b(?:let|var)\\s+$token\\s*(?::\\s*[\\w.<>]+)?\\s*=\\s*"[^"\\r\\n]*"',
+      ).firstMatch(manifest);
+      if (declaration == null) return null;
+      constants.add(declaration.group(0)!);
+    }
+    return '.package($inner)';
   }
 
   /// Stages [target] at [alias], using a shallow overlay when the Swift
@@ -3760,7 +4015,11 @@ let package = Package(
       }
     }
 
-    final evaluatedRefs = await evaluateCached(manifest, packageDirectory, deps);
+    final evaluatedRefs = await evaluateCached(
+      manifest,
+      packageDirectory,
+      deps,
+    );
     late final String git;
     try {
       git = await locate('git');

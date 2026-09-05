@@ -862,7 +862,9 @@ let package = Package(
       expect(rewritten, isNot(contains('url:')));
       expect(
         rewritten,
-        contains('.package(name: "SDWebImage", path: "${swiftPath(imageDir)}")'),
+        contains(
+          '.package(name: "SDWebImage", path: "${swiftPath(imageDir)}")',
+        ),
       );
 
       final nested = File(
@@ -871,7 +873,9 @@ let package = Package(
       expect(nested, isNot(contains('url:')));
       expect(
         nested,
-        contains('.package(name: "SDWebImage", path: "${swiftPath(imageDir)}")'),
+        contains(
+          '.package(name: "SDWebImage", path: "${swiftPath(imageDir)}")',
+        ),
       );
       expect(clones.length, 2);
     });
@@ -965,7 +969,9 @@ let package = Package(
 '''
               : 'import PackageDescription\n'
                     'let package = Package(name: "GoogleUtilities")\n';
-          await File(p.join(destination, 'Package.swift')).writeAsString(nested);
+          await File(
+            p.join(destination, 'Package.swift'),
+          ).writeAsString(nested);
         },
       );
 
@@ -2130,7 +2136,13 @@ let package = Package(
                 required dependencies,
               }) async {
                 evaluated = true;
-                expect(directory, contains('plugin_scope'));
+                expect(directory, p.join(tmp.path, 'scoped-output', 'Resolve'));
+                expect(
+                  File(p.join(directory, 'Package.swift')).readAsStringSync(),
+                  contains(
+                    '.package(path: "${swiftPath(p.join(tmp.path, 'scoped-output', 'Packages', 'plugin_scope', 'ios', 'plugin_scope'))}")',
+                  ),
+                );
                 expect(scratchPath, scratch);
                 expect(binaryArtifactStore, store);
                 expect(swiftPmArtifactJunctionCapability, isTrue);
@@ -2152,6 +2164,150 @@ let package = Package(
         expect(evaluated, isTrue);
       },
     );
+
+    test('unifies pins and re-declares host-hidden checkout deps', () async {
+      final signIn = p.join(tmp.path, 'sign_in');
+      final firebase = p.join(tmp.path, 'firebase');
+      for (final (directory, manifest) in [
+        (
+          signIn,
+          '.package(url: "https://github.com/google/GoogleSignIn-iOS.git", '
+              'from: "8.0.0")',
+        ),
+        (
+          firebase,
+          '.package(url: "https://github.com/firebase/firebase-ios-sdk", '
+              'exact: "12.18.0")',
+        ),
+      ]) {
+        File(p.join(directory, 'Package.swift'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync(
+            'import PackageDescription\n'
+            'let package = Package(name: "p", dependencies: [$manifest])\n',
+          );
+      }
+      final resolveRoot = p.join(tmp.path, 'Resolve');
+      final rounds = <List<String>>[];
+
+      final refs = await GeneratedPluginsPackage.resolveUnifiedDependencyRefs(
+        resolveRoot: resolveRoot,
+        packageDirectories: [signIn, firebase],
+        evaluate: (directory, dependencies) async {
+          expect(directory, resolveRoot);
+          rounds.add([for (final dep in dependencies) dep.url]);
+          final root = File(
+            p.join(directory, 'Package.swift'),
+          ).readAsStringSync();
+          expect(root, contains('.package(path: "${swiftPath(signIn)}")'));
+          expect(root, contains('.package(path: "${swiftPath(firebase)}")'));
+          if (rounds.length == 1) {
+            final checkouts = p.join(directory, '.build', 'checkouts');
+            File(p.join(checkouts, 'firebase-ios-sdk', 'Package.swift'))
+              ..createSync(recursive: true)
+              ..writeAsStringSync('''
+import PackageDescription
+let package = Package(name: "Firebase", dependencies: packageDependencies())
+func packageDependencies() -> [Package.Dependency] {
+  var dependencies: [Package.Dependency] = []
+  #if os(macOS)
+    dependencies.append(contentsOf: [
+      googleAppMeasurementDependency(),
+      .package(
+        url: "https://github.com/google/GoogleUtilities.git",
+        "8.1.0" ..< "9.0.0"
+      ),
+      abseilDependency(),
+    ])
+  #endif // os(macOS)
+  return dependencies
+}
+func googleAppMeasurementDependency() -> Package.Dependency {
+  let appMeasurementURL = "https://github.com/google/GoogleAppMeasurement.git"
+  return .package(url: appMeasurementURL, "12.18.0" ..< "12.19.0")
+}
+func abseilDependency() -> Package.Dependency {
+  let packageInfo: (url: String, range: Range<Version>)
+  packageInfo = ("https://github.com/google/abseil-cpp-binary.git", "1.0.0" ..< "2.0.0")
+  return .package(url: packageInfo.url, packageInfo.range)
+}
+''');
+            File(p.join(checkouts, 'GoogleSignIn-iOS', 'Package.swift'))
+              ..createSync(recursive: true)
+              ..writeAsStringSync(
+                'import PackageDescription\n'
+                'let package = Package(name: "GoogleSignIn", dependencies: [ '
+                '.package(url: "https://github.com/google/GoogleUtilities.git", '
+                '"8.0.0" ..< "9.0.0")])\n',
+              );
+            File(p.join(checkouts, 'stale-leftover', 'Package.swift'))
+              ..createSync(recursive: true)
+              ..writeAsStringSync(
+                'import PackageDescription\n'
+                'let package = Package(name: "Stale", dependencies: [ '
+                '.package(url: "https://example.com/stale.git", from: "1.0.0")])\n',
+              );
+            return const {
+              'https://github.com/google/GoogleSignIn-iOS': 'sha-signin',
+              'https://github.com/firebase/firebase-ios-sdk': 'sha-firebase',
+              'https://github.com/google/GoogleUtilities': 'sha-utilities',
+            };
+          }
+          expect(
+            root,
+            contains(
+              '.package(path: "${swiftPath(p.join(resolveRoot, 'Hidden', 'xcross-hidden-firebase-ios-sdk'))}")',
+            ),
+          );
+          return const {
+            'https://github.com/google/GoogleSignIn-iOS': 'sha-signin',
+            'https://github.com/firebase/firebase-ios-sdk': 'sha-firebase',
+            'https://github.com/google/GoogleUtilities': 'sha-utilities',
+            'https://github.com/google/GoogleAppMeasurement': 'sha-measurement',
+          };
+        },
+      );
+
+      expect(rounds, hasLength(2));
+      expect(rounds.first, [
+        'https://github.com/google/GoogleSignIn-iOS.git',
+        'https://github.com/firebase/firebase-ios-sdk',
+      ]);
+      expect(
+        rounds.last,
+        containsAll([
+          'https://github.com/google/GoogleAppMeasurement.git',
+          'https://github.com/google/GoogleUtilities.git',
+        ]),
+      );
+      expect(rounds.last, isNot(contains(contains('stale'))));
+      expect(
+        refs?['https://github.com/google/GoogleAppMeasurement'],
+        'sha-measurement',
+      );
+      final hidden = File(
+        p.join(
+          resolveRoot,
+          'Hidden',
+          'xcross-hidden-firebase-ios-sdk',
+          'Package.swift',
+        ),
+      ).readAsStringSync();
+      expect(
+        hidden,
+        contains(
+          '.package(url: "https://github.com/google/GoogleAppMeasurement.git", '
+          '"12.18.0" ..< "12.19.0")',
+        ),
+      );
+      expect(
+        hidden,
+        contains('url: "https://github.com/google/GoogleUtilities.git"'),
+      );
+      expect(hidden, contains('name: "xcross-hidden-firebase-ios-sdk"'));
+      expect(hidden, isNot(contains('packageInfo')));
+      expect(hidden, isNot(contains('abseil')));
+    });
 
     test(
       'stages normalized plugin manifest without modifying source',
