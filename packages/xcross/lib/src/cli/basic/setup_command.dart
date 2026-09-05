@@ -5,7 +5,6 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
-import 'package:pure/pure.dart';
 import 'package:xcross/src/cli/basic/internal/linux_package_manager.dart';
 import 'package:xcross/src/cli/basic/internal/swift_requirement.dart';
 import 'package:xcross/src/errors.dart';
@@ -56,7 +55,7 @@ final class SetupCommand extends Command<void> {
 
     await Sudo.cacheCredentials(manualHint: manager.manualHint());
     await _installPackages(manager);
-    await _linkVersionedLd64Lld();
+    await _ensureFixedLd64Lld(manager);
 
     final missing = await _missingTools(_requiredTools);
     if (missing.isNotEmpty) {
@@ -244,36 +243,102 @@ final class SetupCommand extends Command<void> {
     }
   }
 
-  /// Some distros only ship `ld64.lld-<version>`; point a stable name at the
-  /// newest one so the toolchain lookup finds it.
-  Future<void> _linkVersionedLd64Lld() async {
-    if (await ProcessRunner.which(
-          'ld64.lld',
-          accept: DarwinSdk.usableLd64Lld,
-        ) !=
-        null) {
+  /// Make sure the `ld64.lld` on PATH is one without the selector-stub
+  /// defect ([DarwinSdk.selectorStubDefect]).
+  ///
+  /// The default `lld` package may be too old (Ubuntu 24.04: 18) while the
+  /// same archive offers a versioned `lld-<N>` that is not, and some distros
+  /// only ship the versioned name at all. Install the newest one on offer
+  /// when needed, then point a stable name at the newest `ld64.lld-<N>` so
+  /// PATH-only lookups find it too.
+  Future<void> _ensureFixedLd64Lld(LinuxPackageManager manager) async {
+    final onPath = await ProcessRunner.which(
+      'ld64.lld',
+      accept: DarwinSdk.usableLd64Lld,
+    );
+    final defect = onPath == null
+        ? null
+        : await DarwinSdk.selectorStubDefect(onPath);
+    if (onPath != null && defect == null) return;
+
+    var versioned = _versionedLd64Llds();
+    final newestInstalled = versioned.keys.fold<int?>(
+      null,
+      (best, version) => best == null || version > best ? version : best,
+    );
+    if (newestInstalled == null ||
+        newestInstalled < DarwinSdk.firstLd64LldWithCorrectSelectorStubs) {
+      final offered = await manager.availableVersionedLld();
+      final wanted = offered
+          .where(
+            (name) =>
+                int.parse(name.substring(4)) >=
+                DarwinSdk.firstLd64LldWithCorrectSelectorStubs,
+          )
+          .firstOrNull;
+      if (wanted != null) {
+        final step = Log.beginStep('Installing $wanted');
+        try {
+          await _runFirstWorking(
+            await manager.installAttempts([wanted]),
+            label: '${manager.name} install',
+            tail: step,
+          );
+          step.done();
+        } on Object {
+          step.fail();
+          rethrow;
+        }
+        versioned = _versionedLd64Llds();
+      }
+    }
+    if (versioned.isEmpty) {
+      if (defect != null) Log.logWarn(defect);
       return;
     }
 
-    final versioned =
-        Directory('/usr/bin')
-            .listSync()
-            .where(
-              (entry) =>
-                  (entry is File || entry is Link) &&
-                  p.basename(entry.path).startsWith('ld64.lld-'),
-            )
-            .toList()
-          ..sort(compare((entry) => entry.path));
-    if (versioned.isEmpty) return;
-
+    final newest = versioned.keys.reduce((a, b) => a > b ? a : b);
+    final current = onPath == null
+        ? null
+        : await DarwinSdk.ld64LldVersion(onPath);
+    if (current != null && current.$1 >= newest) {
+      if (defect != null) Log.logWarn(defect);
+      return;
+    }
+    const stable = '/usr/local/bin/ld64.lld';
+    final existing = FileSystemEntity.typeSync(stable, followLinks: false);
+    if (existing != FileSystemEntityType.notFound &&
+        (existing != FileSystemEntityType.link ||
+            !p.basename(Link(stable).targetSync()).startsWith('ld64.lld-'))) {
+      Log.logWarn(
+        '$stable is not managed by xcross; leaving it alone. '
+        'Put ${versioned[newest]} ahead of it on PATH to use lld $newest.',
+      );
+      return;
+    }
     await ProcessRunner.runChecked(await ProcessRunner.locateTool('sudo'), [
       'ln',
       '-sf',
-      versioned.last.path,
-      '/usr/local/bin/ld64.lld',
+      versioned[newest]!,
+      stable,
     ], label: 'link ld64.lld');
+    Log.logInfo('ld64.lld', '$stable -> ${versioned[newest]}');
   }
+
+  /// `/usr/bin/ld64.lld-<N>` by major version.
+  static Map<int, String> _versionedLd64Llds() {
+    final bin = Directory('/usr/bin');
+    if (!bin.existsSync()) return const {};
+    final found = <int, String>{};
+    for (final entry in bin.listSync()) {
+      if (entry is! File && entry is! Link) continue;
+      final match = _versionedLd64Lld.firstMatch(p.basename(entry.path));
+      if (match != null) found[int.parse(match.group(1)!)] = entry.path;
+    }
+    return found;
+  }
+
+  static final _versionedLd64Lld = RegExp(r'^ld64\.lld-(\d+)$');
 
   /// pipx is the only pip route left on PEP 668 distros, and it keeps
   /// pymobiledevice3 in its own venv. Prefer the host package manager; fall

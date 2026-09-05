@@ -184,6 +184,42 @@ enum LinuxPackageManager {
     }
   }
 
+  /// Versioned `lld-<N>` packages this host's apt index offers, newest
+  /// first. Empty for other managers (their default `lld` is current) and
+  /// when the index cannot be read.
+  ///
+  /// Debian and Ubuntu keep a stale `lld` as the default while newer
+  /// toolchains sit beside it in the same archive — Ubuntu 24.04 pairs lld
+  /// 18 with `lld-19` in noble-updates.
+  Future<List<String>> availableVersionedLld() async {
+    if (this != LinuxPackageManager.apt) return const [];
+    final Set<String> indexed;
+    try {
+      final result = await ProcessRunner.run(
+        await ProcessRunner.locateTool('apt-cache'),
+        ['pkgnames', 'lld-'],
+      );
+      indexed = const LineSplitter()
+          .convert(result.stdout)
+          .map((line) => line.trim())
+          .toSet();
+    } on Object catch (e) {
+      Log.logTrace('[$name] package index query failed ($e)');
+      return const [];
+    }
+    final versions = <int, String>{};
+    for (final name in indexed) {
+      final match = _versionedLld.firstMatch(name);
+      if (match != null) versions[int.parse(match.group(1)!)] = name;
+    }
+    return [
+      for (final version in versions.keys.toList()..sort((a, b) => b - a))
+        versions[version]!,
+    ];
+  }
+
+  static final _versionedLld = RegExp(r'^lld-(\d+)$');
+
   /// [wanted] minus the names this host's package index has never heard of.
   ///
   /// `apt-cache pkgnames` lists every known binary package (including virtual

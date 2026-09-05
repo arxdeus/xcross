@@ -177,6 +177,11 @@ final class DarwinSdk {
   /// ([probeIosSupport]): a linker that cannot is worse than none at all,
   /// because it fails deep inside a build, and on Windows it can die with no
   /// output whatsoever.
+  ///
+  /// Among the linkers that pass, one free of the selector-stub defect
+  /// ([selectorStubDefect]) wins over one that has it, regardless of PATH
+  /// order; a defective linker is still handed out when it is the only one,
+  /// with a warning.
   static Future<String> resolveLd64Lld(
     DarwinSdk _, {
     Future<CapturedProcess> Function(String, List<String>)? runProcess,
@@ -193,11 +198,30 @@ final class DarwinSdk {
     ];
 
     final rejected = <String>[];
+    String? defective;
     for (final candidate in ordered) {
       final failure = await probeIosSupport(candidate, runProcess: runProcess);
-      if (failure == null) return candidate;
-      Log.logTrace('ld64.lld: skipping $candidate — $failure');
-      rejected.add('  $candidate\n    $failure');
+      if (failure != null) {
+        Log.logTrace('ld64.lld: skipping $candidate — $failure');
+        rejected.add('  $candidate\n    $failure');
+        continue;
+      }
+      final defect = await selectorStubDefect(
+        candidate,
+        runProcess: runProcess,
+      );
+      if (defect == null) return candidate;
+      Log.logTrace('ld64.lld: $candidate — $defect');
+      defective ??= candidate;
+    }
+    if (defective != null) {
+      if (_warnedDefective.add(defective)) {
+        Log.logWarn(
+          'Using $defective: '
+          '${await selectorStubDefect(defective, runProcess: runProcess)}',
+        );
+      }
+      return defective;
     }
 
     final where = [
@@ -281,6 +305,68 @@ final class DarwinSdk {
             'and make sure it is on PATH.'
       : 'Install the LLVM one — `xcross setup`, or `sudo apt install lld` — '
             'and make sure it is on PATH.';
+
+  /// First ld64.lld release that wires `_objc_msgSend$<selector>` stubs to
+  /// the right selector.
+  ///
+  /// Up to and including LLVM 18, `ObjCStubsSection::setUp` scaled every
+  /// synthesised `__objc_selrefs` addend by the `__objc_methname` output
+  /// alignment (`offsets[i] * in.objcMethnameSection->align`). One input
+  /// object declaring that section with an alignment above 1 is enough to
+  /// send every stub's selector reference to the wrong string — a silent
+  /// runtime failure in any Objective-C plugin. LLVM 19 rewrote the stubs
+  /// around `ObjCSelRefsHelper` and dropped the multiply.
+  static const int firstLd64LldWithCorrectSelectorStubs = 19;
+
+  /// Why [linker] miswires Objective-C selector stubs, or null when it does
+  /// not (or its version cannot be told, which is not held against it).
+  static Future<String?> selectorStubDefect(
+    String linker, {
+    Future<CapturedProcess> Function(String, List<String>)? runProcess,
+  }) async {
+    final version = await ld64LldVersion(linker, runProcess: runProcess);
+    if (version == null || version.$1 >= firstLd64LldWithCorrectSelectorStubs) {
+      return null;
+    }
+    return 'ld64.lld ${version.$1}.${version.$2} miswires Objective-C '
+        r'selector stubs (`_objc_msgSend$<selector>`), which breaks '
+        'Objective-C plugins at runtime. Install lld '
+        '$firstLd64LldWithCorrectSelectorStubs or newer — '
+        '`xcross setup` does that where the distribution ships it.';
+  }
+
+  /// `(major, minor)` of [linker] as reported by `--version`, or null when
+  /// the tool cannot be run or prints no `LLD <version>`.
+  static Future<(int, int)?> ld64LldVersion(
+    String linker, {
+    Future<CapturedProcess> Function(String, List<String>)? runProcess,
+  }) async {
+    if (_versions.containsKey(linker)) return _versions[linker];
+    (int, int)? version;
+    try {
+      final result = await (runProcess ?? ProcessRunner.run)(linker, [
+        '--version',
+      ]);
+      final match = _lldVersion.firstMatch(
+        '${result.stdout}\n${result.stderr}',
+      );
+      if (match != null) {
+        version = (int.parse(match.group(1)!), int.parse(match.group(2)!));
+      }
+    } on Object catch (error) {
+      Log.logTrace('ld64.lld: $linker --version failed: $error');
+    }
+    return _versions[linker] = version;
+  }
+
+  /// `LLD 18.1.3`, `Ubuntu LLD 18.1.3 (compatible with Apple linkers)`,
+  /// `Homebrew LLD 22.1.8`, `LLD 21.0.0 (https://github.com/swiftlang/...)`.
+  static final RegExp _lldVersion = RegExp(r'\bLLD (\d+)\.(\d+)');
+
+  /// `--version` results by linker path; a null value is a remembered miss.
+  static final Map<String, (int, int)?> _versions = {};
+
+  static final Set<String> _warnedDefective = {};
 
   /// Why [linker] cannot link for iOS, or null when it can.
   ///

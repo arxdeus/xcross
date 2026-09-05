@@ -16,6 +16,7 @@ typedef DoctorLocateTool =
     });
 typedef DoctorSingleCheck = Future<DoctorCheck> Function();
 typedef DoctorResolveTool = Future<String> Function();
+typedef DoctorToolDefect = Future<String?> Function(String path);
 
 abstract final class DoctorEnvironmentChecks {
   static const _requiredTools = ['swift', 'clang++', 'llvm-ar'];
@@ -26,6 +27,7 @@ abstract final class DoctorEnvironmentChecks {
     locateTool: ProcessRunner.which,
     iosClang: _resolveIosClang,
     iosLinker: _resolveIosLinker,
+    iosLinkerDefect: DarwinSdk.selectorStubDefect,
     darwinSdk: _darwinSdk,
   );
 
@@ -36,13 +38,16 @@ abstract final class DoctorEnvironmentChecks {
     required DoctorResolveTool iosClang,
     required DoctorResolveTool iosLinker,
     required DoctorSingleCheck darwinSdk,
+    DoctorToolDefect? iosLinkerDefect,
   }) async {
     final checks = <DoctorCheck>[_hostPlatform(operatingSystem)];
     for (final tool in _requiredTools) {
       checks.add(await _tool(tool, windows: windows, locateTool: locateTool));
     }
     checks.add(await _buildTool('iOS clang', iosClang));
-    checks.add(await _buildTool('iOS linker', iosLinker));
+    checks.add(
+      await _buildTool('iOS linker', iosLinker, defect: iosLinkerDefect),
+    );
     checks.add(await darwinSdk());
     return checks;
   }
@@ -78,15 +83,23 @@ abstract final class DoctorEnvironmentChecks {
         : DoctorCheck.success(name, 'Found', path: path);
   }
 
+  /// A tool that resolves but carries a known [defect] still builds, so it
+  /// is a warning rather than a failure.
   static Future<DoctorCheck> _buildTool(
     String name,
-    DoctorResolveTool resolve,
-  ) async {
+    DoctorResolveTool resolve, {
+    DoctorToolDefect? defect,
+  }) async {
+    final String path;
     try {
-      return DoctorCheck.success(name, 'Ready', path: await resolve());
+      path = await resolve();
     } on Object catch (error) {
       return DoctorCheck.failure(name, error.toString());
     }
+    final problem = defect == null ? null : await defect(path);
+    return problem == null
+        ? DoctorCheck.success(name, 'Ready', path: path)
+        : DoctorCheck.warning(name, problem, path: path);
   }
 
   static Future<String> _resolveIosClang() {

@@ -328,4 +328,92 @@ void main() {
       expect(seen, contains('-dylib'));
     });
   });
+
+  group('selectorStubDefect', () {
+    Future<CapturedProcess> Function(String, List<String>) version(
+      String banner,
+    ) => (executable, arguments) async {
+      expect(arguments, ['--version']);
+      return CapturedProcess(0, banner, '');
+    };
+
+    test('parses distribution-prefixed and plain banners', () async {
+      expect(
+        await DarwinSdk.ld64LldVersion(
+          p.join(tmp.path, 'ubuntu-ld64.lld'),
+          runProcess: version(
+            'Ubuntu LLD 18.1.3 (compatible with Apple linkers)\n',
+          ),
+        ),
+        (18, 1),
+      );
+      expect(
+        await DarwinSdk.ld64LldVersion(
+          p.join(tmp.path, 'brew-ld64.lld'),
+          runProcess: version('Homebrew LLD 22.1.8\n'),
+        ),
+        (22, 1),
+      );
+      expect(
+        await DarwinSdk.ld64LldVersion(
+          p.join(tmp.path, 'swift-ld64.lld'),
+          runProcess: version(
+            'LLD 21.0.0 (https://github.com/swiftlang/llvm-project.git abc)\n',
+          ),
+        ),
+        (21, 0),
+      );
+    });
+
+    test('flags lld 18 and accepts lld 19', () async {
+      expect(
+        await DarwinSdk.selectorStubDefect(
+          p.join(tmp.path, 'lld18'),
+          runProcess: version(
+            'Ubuntu LLD 18.1.3 (compatible with Apple linkers)',
+          ),
+        ),
+        allOf(contains('18.1'), contains('selector stubs')),
+      );
+      expect(
+        await DarwinSdk.selectorStubDefect(
+          p.join(tmp.path, 'lld19'),
+          runProcess: version(
+            'Ubuntu LLD 19.1.1 (compatible with Apple linkers)',
+          ),
+        ),
+        isNull,
+      );
+    });
+
+    test('does not hold an unreadable version against a linker', () async {
+      expect(
+        await DarwinSdk.selectorStubDefect(
+          p.join(tmp.path, 'silent'),
+          runProcess: version(''),
+        ),
+        isNull,
+      );
+      expect(
+        await DarwinSdk.selectorStubDefect(
+          p.join(tmp.path, 'broken'),
+          runProcess: (executable, arguments) => throw StateError('no'),
+        ),
+        isNull,
+      );
+    });
+
+    test('asks each linker for its version once', () async {
+      var runs = 0;
+      final linker = p.join(tmp.path, 'counted');
+      Future<CapturedProcess> run(String executable, List<String> arguments) {
+        runs++;
+        return Future.value(const CapturedProcess(0, 'LLD 20.1.0', ''));
+      }
+
+      await DarwinSdk.selectorStubDefect(linker, runProcess: run);
+      await DarwinSdk.selectorStubDefect(linker, runProcess: run);
+      expect(runs, 1);
+    });
+  });
 }

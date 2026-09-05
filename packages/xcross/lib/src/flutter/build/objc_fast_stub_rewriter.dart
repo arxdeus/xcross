@@ -60,20 +60,6 @@ abstract final class ObjCFastStubRewriter {
       start = end + 1;
     }
 
-    final validRefsByName = <String, List<int>>{};
-    for (var offset = 0; offset < selectorRefs.size; offset += 8) {
-      final pointer = file.data.getUint64(
-        selectorRefs.fileOffset + offset,
-        Endian.little,
-      );
-      final name = namesByAddress[pointer];
-      if (name != null) {
-        validRefsByName
-            .putIfAbsent(name, () => <int>[])
-            .add(selectorRefs.address + offset);
-      }
-    }
-
     final symbolTable = file.parseSymbolTable(symtabs.single);
     final fastStubs = <_FastObjCStub>[];
     for (var index = 0; index < symbolTable.symbolCount; index++) {
@@ -123,60 +109,85 @@ abstract final class ObjCFastStubRewriter {
       );
     }
 
-    final refUseCounts = <int, int>{};
+    final readersByRef = <int, List<_FastObjCStub>>{};
     for (final stub in fastStubs) {
-      refUseCounts.update(
-        stub.refAddress,
-        (count) => count + 1,
-        ifAbsent: () => 1,
-      );
+      readersByRef
+          .putIfAbsent(stub.refAddress, () => <_FastObjCStub>[])
+          .add(stub);
     }
+    String? pointee(int refAddress) =>
+        namesByAddress[file.data.getUint64(
+          selectorRefs.fileOffset + refAddress - selectorRefs.address,
+          Endian.little,
+        )];
 
-    // Phase 1: every stub that already has a correct ref, or can adopt an
-    // existing valid ref elsewhere, is resolved first. A stub retargeted
-    // this way stops reading its old ref, which can free that ref up for
-    // whichever other stub still shares it.
-    final instructionRepairs = <(_FastObjCStub, int)>[];
-    final vacatedCounts = <int, int>{};
-    final unresolved = <_FastObjCStub>[];
-    for (final stub in fastStubs) {
-      final refFileOffset =
-          selectorRefs.fileOffset + stub.refAddress - selectorRefs.address;
-      final currentPointer = file.data.getUint64(refFileOffset, Endian.little);
-      if (namesByAddress[currentPointer] == stub.selector) continue;
-
-      final matchingRefs = validRefsByName[stub.selector];
-      if (matchingRefs != null && matchingRefs.isNotEmpty) {
-        instructionRepairs.add((stub, matchingRefs.first));
-        vacatedCounts.update(
-          stub.refAddress,
-          (count) => count + 1,
-          ifAbsent: () => 1,
-        );
+    // ld64.lld synthesises one selref per stub, so a stub is normally the
+    // sole reader of its ref and the ref is repaired in place. Refs shared
+    // by several stubs only arise from files an earlier repair touched. A
+    // stub may move to another ref only when that ref's final contents are
+    // settled: nobody reads it (it stays as is) or exactly one stub does
+    // (it ends up naming that stub's selector). Refs with several readers
+    // are never adopted, since they may still be rewritten below.
+    final settledRefsByName = <String, List<int>>{};
+    for (var offset = 0; offset < selectorRefs.size; offset += 8) {
+      final refAddress = selectorRefs.address + offset;
+      final readers = readersByRef[refAddress];
+      final String? name;
+      if (readers == null) {
+        name = pointee(refAddress);
+      } else if (readers.length == 1) {
+        name = readers.single.selector;
+      } else {
         continue;
       }
-      unresolved.add(stub);
+      if (name != null) {
+        settledRefsByName.putIfAbsent(name, () => <int>[]).add(refAddress);
+      }
     }
 
-    // Phase 2: everything left still needs its ref rewritten in place.
-    // That is only safe once every stub resolved in phase 1 that used to
-    // share it has moved away, leaving exactly one remaining reader.
     final pointerRepairs = <(int, int)>[];
-    for (final stub in unresolved) {
+    final instructionRepairs = <(_FastObjCStub, int)>[];
+    for (final MapEntry(key: refAddress, value: readers)
+        in readersByRef.entries) {
+      final current = pointee(refAddress);
       final refFileOffset =
-          selectorRefs.fileOffset + stub.refAddress - selectorRefs.address;
-      final remainingUsers =
-          refUseCounts[stub.refAddress]! -
-          (vacatedCounts[stub.refAddress] ?? 0);
-      if (remainingUsers != 1) {
+          selectorRefs.fileOffset + refAddress - selectorRefs.address;
+      if (readers.length == 1) {
+        final stub = readers.single;
+        if (current != stub.selector) {
+          pointerRepairs.add((
+            refFileOffset,
+            addressesByName[stub.selector]!.first,
+          ));
+        }
+        continue;
+      }
+
+      final staying = <_FastObjCStub>[];
+      for (final stub in readers) {
+        if (current == stub.selector) {
+          staying.add(stub);
+          continue;
+        }
+        final settled = settledRefsByName[stub.selector];
+        if (settled != null && settled.isNotEmpty) {
+          instructionRepairs.add((stub, settled.first));
+          continue;
+        }
+        staying.add(stub);
+      }
+      final mismatched = staying.where((stub) => stub.selector != current);
+      if (mismatched.isEmpty) continue;
+      if (staying.length != 1) {
         fileInvalid(
           file,
-          'fast stub "${stub.selector}" has no safe selref repair',
+          'fast stub "${mismatched.first.selector}" has no safe selref '
+          'repair (a clean build with ld64.lld 19 or newer avoids this)',
         );
       }
       pointerRepairs.add((
         refFileOffset,
-        addressesByName[stub.selector]!.first,
+        addressesByName[staying.single.selector]!.first,
       ));
     }
 

@@ -137,7 +137,8 @@ void main() {
     expect(fixture.bytes, repaired);
   });
 
-  test('retargets a fast stub to an existing matching selref', () {
+  test('repairs a sole-reader selref in place instead of adopting another '
+      'matching selref', () {
     final fixture = _objcMacho(hasMatchingSelref: true);
     final data = ByteData.sublistView(fixture.bytes);
     final oldAdrp = data.getUint32(fixture.stubOffset, Endian.little);
@@ -152,14 +153,67 @@ void main() {
       ),
       isTrue,
     );
-    expect((
-      data.getUint32(fixture.stubOffset, Endian.little),
-      data.getUint32(fixture.stubOffset + 4, Endian.little),
-    ), isNot((oldAdrp, oldLdr)));
+    expect(
+      (
+        data.getUint32(fixture.stubOffset, Endian.little),
+        data.getUint32(fixture.stubOffset + 4, Endian.little),
+      ),
+      (oldAdrp, oldLdr),
+    );
     expect(
       data.getUint64(fixture.firstSelrefOffset, Endian.little),
+      fixture.fooAddress,
+    );
+    expect(
+      data.getUint64(fixture.firstSelrefOffset + 8, Endian.little),
+      fixture.fooAddress,
+    );
+  });
+
+  test('never adopts a selref that another stub repairs in place', () {
+    // "foo" reads a garbage ref; "bar" reads a ref that happens to name
+    // "foo". Adopting bar's ref for foo and then fixing it for bar would
+    // leave foo calling the wrong selector, and the next pass would find
+    // two stubs disagreeing on one ref.
+    final fixture = _objcMacho(separateSelrefs: true);
+    final data = ByteData.sublistView(fixture.bytes);
+    final oldStubs = Uint8List.fromList(
+      fixture.bytes.sublist(fixture.stubOffset, fixture.stubOffset + 24),
+    );
+
+    expect(
+      MachODylibRewriter.rewriteBytes(
+        fixture.bytes,
+        dylibName: 'libPlugin.dylib',
+        producedDylibNames: const {},
+        repairObjCFastStubs: true,
+      ),
+      isTrue,
+    );
+    expect(
+      fixture.bytes.sublist(fixture.stubOffset, fixture.stubOffset + 24),
+      oldStubs,
+    );
+    expect(
+      data.getUint64(fixture.firstSelrefOffset, Endian.little),
+      fixture.fooAddress,
+    );
+    expect(
+      data.getUint64(fixture.firstSelrefOffset + 8, Endian.little),
       fixture.barAddress,
     );
+
+    final repaired = Uint8List.fromList(fixture.bytes);
+    expect(
+      MachODylibRewriter.rewriteBytes(
+        fixture.bytes,
+        dylibName: 'libPlugin.dylib',
+        producedDylibNames: const {},
+        repairObjCFastStubs: true,
+      ),
+      isFalse,
+    );
+    expect(fixture.bytes, repaired);
   });
 
   test('repairs a malformed selref shared by fast stubs when one can '
@@ -309,6 +363,7 @@ _objcMacho({
   bool hasMatchingSelref = false,
   bool sharedMalformedSelref = false,
   bool sharedSelrefFallbackAvailable = true,
+  bool separateSelrefs = false,
 }) {
   const textVm = 0x100000000;
   const dataVm = 0x100002000;
@@ -319,8 +374,8 @@ _objcMacho({
   const stringsOffset = 0x20c0;
   const fooAddress = textVm + namesOffset;
   const barAddress = fooAddress + 4;
-  final stubCount = sharedMalformedSelref ? 2 : 1;
-  final symbolNames = sharedMalformedSelref
+  final stubCount = sharedMalformedSelref || separateSelrefs ? 2 : 1;
+  final symbolNames = stubCount == 2
       ? [r'_objc_msgSend$foo', r'_objc_msgSend$bar']
       : [r'_objc_msgSend$foo'];
   final stringTable = <int>[0];
@@ -379,7 +434,7 @@ _objcMacho({
     ..setUint32(commandOffset + 20, stringTable.length, Endian.little);
 
   bytes.setRange(namesOffset, namesOffset + 8, utf8.encode('foo\x00bar\x00'));
-  final secondSelrefValue = hasMatchingSelref
+  final secondSelrefValue = hasMatchingSelref || separateSelrefs
       ? fooAddress
       : sharedMalformedSelref && !sharedSelrefFallbackAvailable
       ? 0xbaadf00d
@@ -393,7 +448,12 @@ _objcMacho({
     ..setUint64(selrefsOffset + 8, secondSelrefValue, Endian.little);
   for (var index = 0; index < stubCount; index++) {
     final address = textVm + stubOffset + index * 12;
-    _putStub(data, stubOffset + index * 12, address, dataVm);
+    _putStub(
+      data,
+      stubOffset + index * 12,
+      address,
+      dataVm + (separateSelrefs ? index * 8 : 0),
+    );
     final symbolOffset = symbolsOffset + index * 16;
     data
       ..setUint32(symbolOffset, stringIndexes[index], Endian.little)

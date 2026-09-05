@@ -218,6 +218,33 @@ void main() {
     );
   });
 
+  test(
+    'host checks warn about a linker with the selector-stub defect',
+    () async {
+      final checks = await DoctorEnvironmentChecks.hostWithSeams(
+        operatingSystem: 'linux',
+        windows: false,
+        locateTool:
+            (name, {windows, accept, extraDirectories = const []}) async =>
+                '/usr/bin/$name',
+        iosClang: () async => '/usr/bin/clang',
+        iosLinker: () async => '/usr/bin/ld64.lld',
+        iosLinkerDefect: (path) async =>
+            'ld64.lld 18.1 miswires selector stubs',
+        darwinSdk: () async =>
+            const DoctorCheck.success('Darwin SDK', 'Installed'),
+      );
+
+      expect(
+        checks.firstWhere((check) => check.name == 'iOS linker'),
+        isA<DoctorCheck>()
+            .having((check) => check.status, 'status', DoctorStatus.warning)
+            .having((check) => check.path, 'path', '/usr/bin/ld64.lld')
+            .having((check) => check.message, 'message', contains('18.1')),
+      );
+    },
+  );
+
   test('Flutter project reports only configured SDK resolution', () async {
     final project = Directory.systemTemp.createTempSync(
       'xcross-doctor-flutter-',
