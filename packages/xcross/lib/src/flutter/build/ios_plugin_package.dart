@@ -4188,9 +4188,13 @@ let package = Package(
   ) async {
     final destDir = Directory(destination);
     final environment = swiftProcessEnvironment(windows: Platform.isWindows);
+    final gitConfig = Platform.isWindows
+        ? const ['-c', 'core.longpaths=true']
+        : const <String>[];
     if (File(p.join(destination, '.git')).existsSync() ||
         Directory(p.join(destination, '.git')).existsSync()) {
       final head = await ProcessRunner.run(git, [
+        ...gitConfig,
         '-C',
         destination,
         'rev-parse',
@@ -4201,7 +4205,7 @@ let package = Package(
           head.stdout.trim().toLowerCase() == ref.toLowerCase()) {
         await ProcessRunner.runChecked(
           git,
-          ['-C', destination, 'reset', '--hard', 'HEAD'],
+          [...gitConfig, '-C', destination, 'reset', '--hard', 'HEAD'],
           environment: environment,
           label: 'git reset vendored package',
         );
@@ -4212,6 +4216,7 @@ let package = Package(
     await destDir.parent.create(recursive: true);
 
     final shallow = await ProcessRunner.run(git, [
+      ...gitConfig,
       'clone',
       '--depth',
       '1',
@@ -4225,12 +4230,14 @@ let package = Package(
     await _deleteEntity(destination);
     await Directory(destination).create(recursive: true);
     final init = await ProcessRunner.run(git, [
+      ...gitConfig,
       '-C',
       destination,
       'init',
     ], environment: environment);
     final fetch = init.exitCode == 0
         ? await ProcessRunner.run(git, [
+            ...gitConfig,
             '-C',
             destination,
             'fetch',
@@ -4242,6 +4249,7 @@ let package = Package(
         : init;
     final checkout = fetch.exitCode == 0
         ? await ProcessRunner.run(git, [
+            ...gitConfig,
             '-C',
             destination,
             'checkout',
@@ -4254,13 +4262,13 @@ let package = Package(
     await _deleteEntity(destination);
     await ProcessRunner.runChecked(
       git,
-      ['clone', url, destination],
+      [...gitConfig, 'clone', url, destination],
       environment: environment,
       label: 'git clone $url',
     );
     await ProcessRunner.runChecked(
       git,
-      ['-C', destination, 'checkout', ref],
+      [...gitConfig, '-C', destination, 'checkout', ref],
       environment: environment,
       label: 'git checkout $ref',
     );
