@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/cli/basic/sdk_install.dart';
+import 'package:xcross/src/flutter/build/internal/host_symlink_capability.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_workspace.dart';
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
@@ -2016,6 +2017,7 @@ let package = Package(
       expect(
         await GeneratedPluginsPackage.materializeCheckoutSymlinks(
           p.join(tmp.path, 'headers'),
+          symlinks: false,
         ),
         isTrue,
       );
@@ -2029,6 +2031,83 @@ let package = Package(
       } else {
         expect(materialized, contains('typedef enum'));
       }
+    });
+
+    test('restores real symlinks and verifies them without git', () async {
+      if (!await HostSymlinkCapability.probe()) {
+        markTestSkipped('host cannot create symlinks');
+        return;
+      }
+      final scratch = p.join(tmp.path, 'symlinks');
+      final repo = p.join(scratch, 'checkouts', 'dependency');
+      Directory(p.join(repo, 'Sources', 'nested')).createSync(recursive: true);
+      Directory(p.join(repo, 'include')).createSync(recursive: true);
+
+      ProcessResult git(List<String> arguments) {
+        final result = Process.runSync('git', [
+          '-c',
+          'core.symlinks=false',
+          '-C',
+          repo,
+          ...arguments,
+        ]);
+        expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+        return result;
+      }
+
+      git(['init']);
+      git(['config', 'user.email', 'xcross@example.invalid']);
+      git(['config', 'user.name', 'xcross']);
+      File(
+        p.join(repo, 'Sources', 'Types.h'),
+      ).writeAsStringSync('typedef int T;\n');
+      File(p.join(repo, 'Sources', 'nested', 'a.txt')).writeAsStringSync('a');
+      final fileLink = File(p.join(repo, 'include', 'Types.h'))
+        ..writeAsStringSync('../Sources/Types.h');
+      final dirLink = File(p.join(repo, 'include', 'nested'))
+        ..writeAsStringSync('../Sources/nested');
+      git(['add', 'Sources', 'include']);
+      for (final link in ['include/Types.h', 'include/nested']) {
+        final hash = (git(['hash-object', '-w', link]).stdout as String).trim();
+        git(['update-index', '--cacheinfo', '120000', hash, link]);
+      }
+      git(['commit', '-q', '-m', 'links']);
+
+      expect(
+        await GeneratedPluginsPackage.materializeCheckoutSymlinks(
+          scratch,
+          symlinks: true,
+        ),
+        isTrue,
+      );
+      expect(FileSystemEntity.isLinkSync(fileLink.path), isTrue);
+      expect(FileSystemEntity.isLinkSync(dirLink.path), isTrue);
+      expect(fileLink.readAsStringSync(), 'typedef int T;\n');
+      expect(File(p.join(dirLink.path, 'a.txt')).readAsStringSync(), 'a');
+
+      // Warm build: the stamp is keyed on HEAD and every link still holds,
+      // so no git process is needed to conclude nothing changed.
+      expect(
+        await GeneratedPluginsPackage.materializeCheckoutSymlinks(
+          scratch,
+          symlinks: true,
+          git: p.join(tmp.path, 'git-must-not-run'),
+        ),
+        isFalse,
+      );
+
+      // A placeholder brought back by a `reset --hard` under
+      // `core.symlinks=false` is detected and restored.
+      Link(fileLink.path).deleteSync();
+      fileLink.writeAsStringSync('../Sources/Types.h');
+      expect(
+        await GeneratedPluginsPackage.materializeCheckoutSymlinks(
+          scratch,
+          symlinks: true,
+        ),
+        isTrue,
+      );
+      expect(FileSystemEntity.isLinkSync(fileLink.path), isTrue);
     });
   });
 

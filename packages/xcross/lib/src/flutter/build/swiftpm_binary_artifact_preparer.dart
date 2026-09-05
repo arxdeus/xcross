@@ -203,14 +203,16 @@ final class SwiftPmBinaryArtifactPreparer {
 
   Future<void> _createAlias(String alias, String target) async {
     if (Platform.isWindows) {
-      final result =
-          await ProcessRunner.run(await ProcessRunner.locateTool('cmd.exe'), [
-            '/c',
-            'mklink',
-            '/J',
-            p.windows.normalize(alias),
-            p.windows.normalize(target),
-          ]);
+      final result = await ProcessRunner.run(
+        await ProcessRunner.locateTool('cmd.exe'),
+        [
+          '/c',
+          'mklink',
+          '/J',
+          p.windows.normalize(alias),
+          p.windows.normalize(target),
+        ],
+      );
       if (result.exitCode != 0) {
         throw FileSystemException(
           'Could not create SwiftPM binary artifact junction: '

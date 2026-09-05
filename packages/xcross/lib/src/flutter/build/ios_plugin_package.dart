@@ -8,6 +8,7 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:xcross/src/cli/basic/sdk_install.dart';
+import 'package:xcross/src/flutter/build/internal/host_symlink_capability.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_workspace.dart';
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/build/ios_linker_compatibility.dart';
@@ -4098,7 +4099,11 @@ let package = Package(
     ) async {
       await clone(git, url, ref, destination);
       if (Platform.isWindows && clonePackage == null) {
-        await materializeGitCheckoutSymlinks(destination, git: git);
+        await materializeGitCheckoutSymlinks(
+          destination,
+          git: git,
+          stampDir: p.join(vendorDir, '.xcross-symlinks'),
+        );
       }
     }
 
@@ -4251,13 +4256,19 @@ let package = Package(
     return result;
   }
 
-  /// Replaces mode-120000 checkout placeholders produced by Git for Windows
-  /// with hard links to files or copies of directory targets.
-
+  /// Replaces mode-120000 checkout placeholders produced by Git for Windows.
+  ///
+  /// With symlink support ([HostSymlinkCapability]) every placeholder becomes
+  /// a real symlink, restored by one `git checkout` per checkout; without it
+  /// files become hard links (forwarding headers) and directories copies,
+  /// through one PowerShell invocation per checkout. A stamp keyed on the
+  /// checkout's HEAD records what was produced, so an unchanged checkout is
+  /// verified with file-system checks alone and no process is spawned.
   @visibleForTesting
   static Future<bool> materializeCheckoutSymlinks(
     String scratchPath, {
     String git = 'git',
+    bool? symlinks,
   }) async {
     final gitExecutable = git == 'git'
         ? await ProcessRunner.locateTool(git)
@@ -4267,25 +4278,12 @@ let package = Package(
     var changed = false;
     await for (final repo in checkouts.list(followLinks: false)) {
       if (repo is! Directory) continue;
-      final index = await ProcessRunner.run(gitExecutable, [
-        '-C',
-        repo.path,
-        'ls-files',
-        '-s',
-        '-z',
-      ]);
-      if (index.exitCode != 0) {
-        throw FlutterBuildError(
-          'Could not inspect SwiftPM checkout ${repo.path}: ${index.stderr}',
-        );
-      }
-      final stampName = sha256.convert(utf8.encode(repo.path)).toString();
       changed =
-          await _materializeGitSymlinks(
+          await materializeGitCheckoutSymlinks(
             repo.path,
-            index.stdout,
-            gitExecutable,
-            File(p.join(scratchPath, '.xcross-symlinks', stampName)),
+            git: gitExecutable,
+            stampDir: p.join(scratchPath, '.xcross-symlinks'),
+            symlinks: symlinks,
           ) ||
           changed;
     }
@@ -4296,35 +4294,168 @@ let package = Package(
   static Future<bool> materializeGitCheckoutSymlinks(
     String repoPath, {
     String git = 'git',
+    String? stampDir,
+    bool? symlinks,
   }) async {
+    final useSymlinks = symlinks ?? await HostSymlinkCapability.probe();
+    final root = p.normalize(p.absolute(repoPath));
+    final stamp = File(
+      p.join(
+        stampDir ?? p.join(p.dirname(root), '.xcross-symlinks'),
+        sha256.convert(utf8.encode(root)).toString(),
+      ),
+    );
+    final mode = useSymlinks ? 'symlink' : 'hardlink';
+    String fingerprintOf(String identity) => sha256
+        .convert(
+          utf8.encode(
+            'xcross-symlink-materialization-v2\u0000'
+            '${Platform.operatingSystem}\u0000$mode\u0000$identity',
+          ),
+        )
+        .toString();
+
+    final head = _gitHeadIdentity(root);
+    if (head != null && _materializedLinksIntact(stamp, fingerprintOf(head))) {
+      return false;
+    }
+
     final index = await ProcessRunner.run(git, [
       '-C',
-      repoPath,
+      root,
       'ls-files',
       '-s',
       '-z',
     ]);
     if (index.exitCode != 0) {
       throw FlutterBuildError(
-        'Could not inspect SwiftPM checkout $repoPath: ${index.stderr}',
+        'Could not inspect SwiftPM checkout $root: ${index.stderr}',
       );
     }
-    final stampName = sha256.convert(utf8.encode(repoPath)).toString();
+    final fingerprint = fingerprintOf(head ?? index.stdout);
+    if (head == null && _materializedLinksIntact(stamp, fingerprint)) {
+      return false;
+    }
     return _materializeGitSymlinks(
-      repoPath,
+      root,
       index.stdout,
       git,
-      File(p.join(p.dirname(repoPath), '.xcross-symlinks', stampName)),
+      stamp,
+      fingerprint,
+      symlinks: useSymlinks,
     );
   }
 
+  /// Contents of `HEAD` plus the ref it points at, read straight from the
+  /// repository files, or null when they cannot be resolved that way.
+  static String? _gitHeadIdentity(String root) {
+    var gitDir = p.join(root, '.git');
+    if (FileSystemEntity.isFileSync(gitDir)) {
+      final pointer = File(gitDir).readAsStringSync().trim();
+      if (!pointer.startsWith('gitdir:')) return null;
+      gitDir = p.normalize(
+        p.absolute(root, pointer.substring('gitdir:'.length).trim()),
+      );
+    }
+    final headFile = File(p.join(gitDir, 'HEAD'));
+    if (!headFile.existsSync()) return null;
+    final head = headFile.readAsStringSync().trim();
+    if (!head.startsWith('ref:')) return head;
+    final ref = head.substring('ref:'.length).trim();
+    final commonDirFile = File(p.join(gitDir, 'commondir'));
+    final commonDir = commonDirFile.existsSync()
+        ? p.normalize(
+            p.absolute(gitDir, commonDirFile.readAsStringSync().trim()),
+          )
+        : gitDir;
+    for (final dir in {gitDir, commonDir}) {
+      final refFile = File(p.join(dir, ref));
+      if (refFile.existsSync()) return '$head\n${refFile.readAsStringSync()}';
+    }
+    final packed = File(p.join(commonDir, 'packed-refs'));
+    if (packed.existsSync()) {
+      for (final line in packed.readAsLinesSync()) {
+        if (line.endsWith(' $ref')) return '$head\n$line';
+      }
+    }
+    return null;
+  }
+
+  static const _stampKindSymlink = 'symlink';
+  static const _stampKindForwarder = 'forwarder';
+  static const _stampKindHardLink = 'hardlink';
+  static const _stampKindDirectory = 'directory';
+
+  /// Whether [stamp] carries [fingerprint] and every link it records still
+  /// has the shape it was given.
+  static bool _materializedLinksIntact(File stamp, String fingerprint) {
+    if (!stamp.existsSync()) return false;
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(stamp.readAsStringSync());
+    } on FormatException {
+      return false;
+    }
+    if (decoded is! Map || decoded['fingerprint'] != fingerprint) return false;
+    final links = decoded['links'];
+    if (links is! List) return false;
+    for (final entry in links) {
+      if (entry is! Map) return false;
+      final path = entry['path'];
+      final kind = entry['kind'];
+      final target = entry['target'];
+      if (path is! String || kind is! String || target is! String) return false;
+      if (!_linkIntact(path, kind, target, entry['directory'] == true)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  static bool _linkIntact(
+    String path,
+    String kind,
+    String target,
+    bool directory,
+  ) {
+    switch (kind) {
+      case _stampKindSymlink:
+        return FileSystemEntity.isLinkSync(path) &&
+            Link(path).targetSync() == target &&
+            (directory
+                ? Directory(path).existsSync()
+                : File(path).existsSync());
+      case _stampKindForwarder:
+        final file = File(path);
+        return !FileSystemEntity.isLinkSync(path) &&
+            file.existsSync() &&
+            file.readAsStringSync() == target;
+      case _stampKindHardLink:
+        final file = File(path);
+        if (FileSystemEntity.isLinkSync(path) || !file.existsSync()) {
+          return false;
+        }
+        // Git's placeholder holds the target text; anything else was
+        // materialized.
+        final placeholder = utf8.encode(target);
+        return file.lengthSync() != placeholder.length ||
+            !_sameBytes(file.readAsBytesSync(), placeholder);
+      case _stampKindDirectory:
+        return !FileSystemEntity.isLinkSync(path) &&
+            Directory(path).existsSync();
+      default:
+        return false;
+    }
+  }
+
   static Future<bool> _materializeGitSymlinks(
-    String repoPath,
+    String root,
     String index,
     String git,
     File stamp,
-  ) async {
-    final root = p.normalize(p.absolute(repoPath));
+    String fingerprint, {
+    required bool symlinks,
+  }) async {
     final links = <String, String>{};
     for (final record in index.split('\u0000')) {
       final match = RegExp(
@@ -4335,19 +4466,7 @@ let package = Package(
       }
     }
 
-    final fingerprint = sha256
-        .convert(
-          utf8.encode(
-            'xcross-symlink-materialization-v1\u0000'
-            '${Platform.operatingSystem}\u0000$index',
-          ),
-        )
-        .toString();
-    if (stamp.existsSync() && await stamp.readAsString() == fingerprint) {
-      return false;
-    }
-
-    final blobs = await _readGitBlobs(repoPath, links.values.toSet(), git);
+    final blobs = await _readGitBlobs(root, links.values.toSet(), git);
     final targets = <String, String>{
       for (final link in links.entries)
         link.key: utf8
@@ -4383,51 +4502,321 @@ let package = Package(
       resolved[link] = resolve(link, <String>{});
     }
 
-    final materializing = <String>{};
-    final materialized = <String>{};
+    for (final link in links.keys) {
+      final target = resolved[link]!;
+      if (!Directory(target).existsSync() && !File(target).existsSync()) {
+        throw FlutterBuildError(
+          'Symlink target does not exist in SwiftPM checkout: $link -> $target',
+        );
+      }
+    }
+
+    final records = <Map<String, Object?>>[];
+    final changed = symlinks
+        ? await _materializeAsSymlinks(
+            root,
+            links,
+            targets,
+            resolved,
+            git,
+            records,
+          )
+        : await _materializeAsHardLinks(
+            root,
+            links,
+            targets,
+            resolved,
+            records,
+          );
+
+    await stamp.parent.create(recursive: true);
+    await stamp.writeAsString(
+      jsonEncode({'fingerprint': fingerprint, 'links': records}),
+    );
+    return changed;
+  }
+
+  /// Turns every placeholder into a real symlink carrying Git's own target
+  /// text, so the checkout matches its index under `core.symlinks=true` and
+  /// later `git reset`/`checkout` runs leave it alone.
+  ///
+  /// Git restores the links in one `checkout` of the affected paths; it
+  /// handles read-only placeholders and, with every target already on disk,
+  /// picks the right link kind. Anything it still got wrong is recreated
+  /// here directly.
+  static Future<bool> _materializeAsSymlinks(
+    String root,
+    Map<String, String> links,
+    Map<String, String> targets,
+    Map<String, String> resolved,
+    String git,
+    List<Map<String, Object?>> records,
+  ) async {
+    String linkText(String link) => Platform.isWindows
+        ? targets[link]!.replaceAll('/', r'\')
+        : targets[link]!;
+    bool isDirectory(String link) => Directory(resolved[link]!).existsSync();
+    bool intact(String link) =>
+        _linkIntact(link, _stampKindSymlink, linkText(link), isDirectory(link));
+
+    final pending = [
+      for (final link in links.keys)
+        if (!intact(link)) link,
+    ];
+    for (final link in links.keys) {
+      records.add({
+        'path': link,
+        'kind': _stampKindSymlink,
+        'target': linkText(link),
+        'directory': isDirectory(link),
+      });
+    }
+    if (pending.isEmpty) return false;
+
+    final checkout = await ProcessRunner.start(git, [
+      '-c',
+      'core.symlinks=true',
+      if (Platform.isWindows) ...const ['-c', 'core.longpaths=true'],
+      '-C',
+      root,
+      'checkout',
+      '--force',
+      '--pathspec-from-file=-',
+      '--pathspec-file-nul',
+      '--',
+    ]);
+    checkout.stdin.write(
+      pending.map((link) => p.relative(link, from: root)).join('\u0000'),
+    );
+    await checkout.stdin.close();
+    final stderr = await checkout.stderr
+        .transform(const Utf8Decoder(allowMalformed: true))
+        .join();
+    await checkout.stdout.drain<void>();
+    if (await checkout.exitCode != 0) {
+      throw FlutterBuildError(
+        'Could not restore symlinks in SwiftPM checkout $root: $stderr',
+      );
+    }
+
+    for (final link in pending) {
+      if (intact(link)) continue;
+      final type = FileSystemEntity.typeSync(link, followLinks: false);
+      if (type == FileSystemEntityType.link) {
+        Link(link).deleteSync();
+      } else if (type == FileSystemEntityType.directory) {
+        Directory(link).deleteSync(recursive: true);
+      } else if (type != FileSystemEntityType.notFound) {
+        await _clearPlaceholderAttributes(link);
+        File(link).deleteSync();
+      }
+      _createRelativeLink(link, linkText(link));
+      if (!intact(link)) {
+        throw FlutterBuildError(
+          'Could not create symlink in SwiftPM checkout: $link -> '
+          '${linkText(link)}',
+        );
+      }
+    }
+    return true;
+  }
+
+  /// `Link.create` decides between a file and a directory symlink by looking
+  /// at the target relative to the working directory, so a relative target
+  /// is only typed correctly from the link's own directory.
+  static void _createRelativeLink(String link, String target) {
+    if (!Platform.isWindows) {
+      Link(link).createSync(target);
+      return;
+    }
+    final previous = Directory.current;
+    Directory.current = p.dirname(link);
+    try {
+      Link(link).createSync(target);
+    } finally {
+      Directory.current = previous;
+    }
+  }
+
+  /// Fallback for hosts that cannot create symlinks: files become hard links
+  /// (forwarding headers), directories copies. Read-only placeholders are
+  /// cleared, removed, and hard-linked in one PowerShell process; the rest is
+  /// plain file I/O.
+  static Future<bool> _materializeAsHardLinks(
+    String root,
+    Map<String, String> links,
+    Map<String, String> targets,
+    Map<String, String> resolved,
+    List<Map<String, Object?>> records,
+  ) async {
+    final replace = <String>[];
+    final hardLinks = <(String, String)>[];
+    final forwarders = <(String, String)>[];
+    final directories = <String>[];
     var changed = false;
-    Future<void> materialize(String link) async {
-      if (materialized.contains(link)) return;
-      if (!materializing.add(link)) {
+
+    // Directories are ordered so a link inside another link's target is
+    // materialized before that target is copied.
+    final ordered = <String>[];
+    final visiting = <String>{};
+    void order(String link) {
+      if (ordered.contains(link)) return;
+      if (!visiting.add(link)) {
         throw FlutterBuildError('Symlink cycle in SwiftPM checkout: $link');
       }
       final target = resolved[link]!;
       if (Directory(target).existsSync()) {
         for (final nested in links.keys) {
-          if (p.isWithin(target, nested)) await materialize(nested);
+          if (p.isWithin(target, nested)) order(nested);
         }
       }
-      // Re-materializing an already-correct placeholder would refresh its
-      // timestamp and rebuild every dependent, so each shape is checked
-      // before it is rewritten.
-      if (Directory(target).existsSync()) {
-        await _clearPlaceholderAttributes(link);
-        final existingType = FileSystemEntity.typeSync(
-          link,
-          followLinks: false,
-        );
-        await _deleteUnless(link, FileSystemEntityType.directory);
-        changed =
-            await _syncDirectory(target, link) ||
-            existingType != FileSystemEntityType.directory ||
-            changed;
-      } else if (File(target).existsSync()) {
-        changed = await _materializeFileLink(link, target) || changed;
-      } else {
-        throw FlutterBuildError(
-          'Symlink target does not exist in SwiftPM checkout: $link -> $target',
-        );
-      }
-      materializing.remove(link);
-      materialized.add(link);
+      visiting.remove(link);
+      ordered.add(link);
     }
 
     for (final link in links.keys) {
-      await materialize(link);
+      order(link);
     }
-    await stamp.parent.create(recursive: true);
-    await stamp.writeAsString(fingerprint);
+
+    for (final link in ordered) {
+      final target = resolved[link]!;
+      if (Directory(target).existsSync()) {
+        records.add({
+          'path': link,
+          'kind': _stampKindDirectory,
+          'target': target,
+        });
+        if (FileSystemEntity.typeSync(link, followLinks: false) !=
+            FileSystemEntityType.directory) {
+          replace.add(link);
+          changed = true;
+        }
+        directories.add(link);
+        continue;
+      }
+      final forwarder = Platform.isWindows
+          ? _headerForwarder(link, target)
+          : null;
+      if (!Platform.isWindows) {
+        records.add({
+          'path': link,
+          'kind': _stampKindHardLink,
+          'target': targets[link],
+        });
+        changed = await _syncFile(File(target), link) || changed;
+        continue;
+      }
+      if (forwarder != null) {
+        records.add({
+          'path': link,
+          'kind': _stampKindForwarder,
+          'target': forwarder,
+        });
+        if (_linkIntact(link, _stampKindForwarder, forwarder, false)) continue;
+        replace.add(link);
+        forwarders.add((link, forwarder));
+      } else {
+        records.add({
+          'path': link,
+          'kind': _stampKindHardLink,
+          'target': targets[link],
+        });
+        if (_linkIntact(link, _stampKindHardLink, targets[link]!, false)) {
+          continue;
+        }
+        replace.add(link);
+        hardLinks.add((link, target));
+      }
+      changed = true;
+    }
+
+    if (Platform.isWindows && (replace.isNotEmpty || hardLinks.isNotEmpty)) {
+      await _runPlaceholderScript(root, replace: replace, hardLinks: hardLinks);
+    }
+    for (final (link, forwarder) in forwarders) {
+      await File(link).writeAsString(forwarder);
+    }
+    for (final link in directories) {
+      final target = resolved[link]!;
+      if (!Platform.isWindows) {
+        await _deleteUnless(link, FileSystemEntityType.directory);
+      }
+      changed = await _syncDirectory(target, link) || changed;
+    }
     return changed;
+  }
+
+  /// One PowerShell process that clears the read-only bit Git for Windows
+  /// puts on placeholders, deletes them, and creates the hard links.
+  static Future<void> _runPlaceholderScript(
+    String root, {
+    required List<String> replace,
+    required List<(String, String)> hardLinks,
+  }) async {
+    String quote(String value) => "'${value.replaceAll("'", "''")}'";
+    final script = StringBuffer()
+      ..writeln(r"$ErrorActionPreference = 'Stop'")
+      ..writeln(r'$readOnly = [IO.FileAttributes]::ReadOnly')
+      ..writeln(r'$reparse = [IO.FileAttributes]::ReparsePoint')
+      ..writeln(r'foreach ($path in @(')
+      ..writeln(replace.map(quote).join(',\n'))
+      ..writeln(')) {')
+      ..writeln(
+        r'  if (-not ([IO.File]::Exists($path) -or [IO.Directory]::Exists($path))) { continue }',
+      )
+      ..writeln(r'  $attributes = [IO.File]::GetAttributes($path)')
+      ..writeln(
+        r'  if ($attributes -band $readOnly) { [IO.File]::SetAttributes($path, $attributes -band (-bnot $readOnly)) }',
+      )
+      ..writeln(r'  if ([IO.Directory]::Exists($path)) {')
+      ..writeln(
+        r'    if ($attributes -band $reparse) { [IO.Directory]::Delete($path) } else { Remove-Item -LiteralPath $path -Recurse -Force }',
+      )
+      ..writeln(r'  } else { [IO.File]::Delete($path) }')
+      ..writeln('}')
+      // Hashtables, not nested arrays: PowerShell flattens `@(@(a, b))`.
+      ..writeln(r'foreach ($pair in @(')
+      ..writeln(
+        hardLinks
+            .map(
+              (pair) =>
+                  '@{ Path = ${quote(pair.$1)}; Target = ${quote(pair.$2)} }',
+            )
+            .join(',\n'),
+      )
+      ..writeln(')) {')
+      ..writeln(
+        r'  New-Item -ItemType HardLink -Path $pair.Path -Value $pair.Target | Out-Null',
+      )
+      ..writeln('}');
+    final scriptFile = File(
+      p.join(
+        Directory.systemTemp.path,
+        'xcross-placeholders-$pid-${DateTime.now().microsecondsSinceEpoch}.ps1',
+      ),
+    );
+    await scriptFile.writeAsString(script.toString());
+    try {
+      final result = await ProcessRunner.run(
+        await ProcessRunner.locateTool('powershell'),
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-File',
+          scriptFile.path,
+        ],
+      );
+      if (result.exitCode != 0) {
+        throw FileSystemException(
+          'Could not materialize checkout placeholders: ${result.stderr}',
+          root,
+        );
+      }
+    } finally {
+      if (scriptFile.existsSync()) await scriptFile.delete();
+    }
   }
 
   static Future<Map<String, List<int>>> _readGitBlobs(
@@ -4515,41 +4904,6 @@ let package = Package(
     return '#include "${relative.replaceAll(r'\', '/')}"\n';
   }
 
-  /// Replaces a file placeholder with its materialized form: a forwarding
-  /// header, a hard link on Windows, or a plain copy elsewhere. A
-  /// placeholder whose content already matches is left untouched.
-  static Future<bool> _materializeFileLink(String link, String target) async {
-    if (!Platform.isWindows) {
-      return _syncFile(File(target), link);
-    }
-    final forwarder = _headerForwarder(link, target);
-    final expected = forwarder != null
-        ? utf8.encode(forwarder)
-        : await File(target).readAsBytes();
-    final existing = File(link);
-    if (existing.existsSync() &&
-        _sameBytes(await existing.readAsBytes(), expected)) {
-      return false;
-    }
-    await _clearPlaceholderAttributes(link);
-    await _deleteEntity(link);
-    if (forwarder != null) {
-      await existing.writeAsString(forwarder);
-      return true;
-    }
-    final result = await ProcessRunner.run(
-      await ProcessRunner.locateTool('cmd.exe'),
-      ['/d', '/c', 'mklink', '/H', link, target],
-    );
-    if (result.exitCode != 0) {
-      throw FileSystemException(
-        'Could not create hard link: ${result.stderr}',
-        link,
-      );
-    }
-    return true;
-  }
-
   /// Git for Windows checks out symlink placeholders read-only.
   static Future<void> _clearPlaceholderAttributes(String path) async {
     if (!Platform.isWindows) return;
@@ -4577,8 +4931,18 @@ let package = Package(
   ) async {
     final destDir = Directory(destination);
     final environment = swiftProcessEnvironment(windows: Platform.isWindows);
+    // `core.symlinks=true` on every command, not just the clone: a later
+    // `reset --hard` under the default `false` would see the real symlinks
+    // as modified files and overwrite them with placeholders again.
     final gitConfig = Platform.isWindows
-        ? const ['-c', 'core.longpaths=true']
+        ? [
+            '-c',
+            'core.longpaths=true',
+            if (await HostSymlinkCapability.probe()) ...[
+              '-c',
+              'core.symlinks=true',
+            ],
+          ]
         : const <String>[];
     if (File(p.join(destination, '.git')).existsSync() ||
         Directory(p.join(destination, '.git')).existsSync()) {
