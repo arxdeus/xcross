@@ -241,6 +241,30 @@ let package = Package(
     });
   });
 
+  group('dependency resolver workspace', () {
+    test('uses the package-local SwiftPM build directory by default', () {
+      expect(
+        GeneratedPluginsPackage.dependencyResolverScratchPath(
+          packageDirectory: r'C:\xcross\plugins\Resolve',
+          scratchPath: r'C:\xcross\scratch',
+          usesDefaultResolver: true,
+        ),
+        p.join(r'C:\xcross\plugins\Resolve', '.build'),
+      );
+    });
+
+    test('preserves injected resolver scratch paths', () {
+      expect(
+        GeneratedPluginsPackage.dependencyResolverScratchPath(
+          packageDirectory: 'Resolve',
+          scratchPath: 'injected-scratch',
+          usesDefaultResolver: false,
+        ),
+        'injected-scratch',
+      );
+    });
+  });
+
   group('package manifest discovery', () {
     test('uses Git index instead of traversing deep checkout assets', () async {
       final package = Directory(p.join(tmp.path, 'AppAuth-iOS'))

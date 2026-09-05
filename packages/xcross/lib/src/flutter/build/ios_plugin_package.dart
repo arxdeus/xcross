@@ -3897,6 +3897,13 @@ let package = Package(
     }
   }
 
+  @visibleForTesting
+  static String? dependencyResolverScratchPath({
+    required String packageDirectory,
+    required String? scratchPath,
+    required bool usesDefaultResolver,
+  }) => usesDefaultResolver ? p.join(packageDirectory, '.build') : scratchPath;
+
   static Future<Map<String, String>> _evaluatedDependencyRefs(
     String packageDirectory,
     Future<String> Function(String name) locateTool, {
@@ -3932,16 +3939,25 @@ let package = Package(
             );
           }
         };
+    // `swift package --package-path <directory> resolve` uses
+    // `<directory>/.build`; it does not share the final build's explicit
+    // scratch path. Recovery must inspect the checkouts and artifacts from
+    // this resolver invocation, not `workspace.scratch`.
+    final resolverScratchPath = dependencyResolverScratchPath(
+      packageDirectory: packageDirectory,
+      scratchPath: scratchPath,
+      usesDefaultResolver: resolve == null,
+    );
     final canRecover =
         recover != null ||
         (Platform.isWindows &&
-            scratchPath != null &&
+            resolverScratchPath != null &&
             binaryArtifactStore != null &&
             binaryArtifactFallback != null);
     final scannedProvenance = recover == null && canRecover
         ? await _binaryArtifactProvenance(
             packageDirectory,
-            scratchPath!,
+            resolverScratchPath!,
             dependencies,
           )
         : null;
@@ -3952,7 +3968,7 @@ let package = Package(
           recover ??
           (_, state) => canRecover
               ? recoverBootstrapBinaryArtifacts(
-                  scratchPath: scratchPath!,
+                  scratchPath: resolverScratchPath!,
                   binaryArtifactStore: binaryArtifactStore!,
                   provenance: scannedProvenance!,
                   attemptState: state,
