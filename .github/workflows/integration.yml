@@ -302,7 +302,7 @@ jobs:
         working-directory: examples/flutter_example
         run: |
           set -euo pipefail
-          "$RUNNER_TEMP/xcross-bundle/bin/xcross" flutter build
+          "$RUNNER_TEMP/xcross-bundle/bin/xcross" --verbose flutter build
 
       - name: Build Flutter example on Windows
         if: runner.os == 'Windows'
@@ -310,7 +310,7 @@ jobs:
         working-directory: examples/flutter_example
         run: |
           $ErrorActionPreference = 'Stop'
-          & "$env:RUNNER_TEMP\xcross-bundle\bin\xcross.exe" flutter build
+          & "$env:RUNNER_TEMP\xcross-bundle\bin\xcross.exe" --verbose flutter build
           if ($LASTEXITCODE -ne 0) { throw 'flutter_example build failed' }
 
       - name: Inspect Flutter example artifact on Linux
