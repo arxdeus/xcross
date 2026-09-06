@@ -1,3 +1,5 @@
+// ignore_for_file: inference_failure_on_collection_literal
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -116,7 +118,7 @@ flutter:
         GeneratedPluginsPackage.contentBuildIdentity(identity(1, 'b')),
         isNot(first),
       );
-      expect((first as Map)['compiler'], {
+      expect((first! as Map)['compiler'], {
         'path': '/swift/bin/swiftc',
         'size': 42,
         'digest': 'a',

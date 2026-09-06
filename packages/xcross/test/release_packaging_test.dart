@@ -26,7 +26,7 @@ void main() {
       r'"$installed_binary" --help',
       '--local',
       r'(cd "$script_dir" && dart pub get)',
-      r'tool/build_xcross.dart',
+      'tool/build_xcross.dart',
       r'cp -a "$bundle_dir/bin/." "$staging_dir/bin/"',
       r'cp -a "$bundle_dir/lib/." "$staging_dir/lib/"',
     ]) {

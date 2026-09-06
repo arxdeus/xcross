@@ -350,7 +350,7 @@ void main() {
     test('run resolves an explicit bare executable override', () async {
       ProcessRunner.configure(
         normalizedTools: {'dart': Platform.resolvedExecutable},
-        effectiveChildEnvironment: const {},
+        effectiveChildEnvironment: const {'XCROSS_TEST': '1'},
       );
 
       expect(

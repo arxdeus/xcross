@@ -248,8 +248,9 @@ environment:
   });
 
   test('validate requires tools to be regular executable files', () {
-    final executable = File(p.join(temporary.path, 'tool'))
-      ..writeAsStringSync('#!/bin/sh\n');
+    final executable = File(
+      p.join(temporary.path, Platform.isWindows ? 'tool.exe' : 'tool'),
+    )..writeAsStringSync('#!/bin/sh\n');
     if (!Platform.isWindows) {
       Process.runSync('chmod', ['755', executable.path]);
     }
@@ -272,14 +273,15 @@ environment:
   });
 
   test('normalizes tool names and rejects collisions', () {
-    final tool = File(p.join(temporary.path, 'clang'))
-      ..writeAsStringSync('tool');
+    final tool = File(
+      p.join(temporary.path, Platform.isWindows ? 'clang.exe' : 'clang'),
+    )..writeAsStringSync('tool');
     if (!Platform.isWindows) Process.runSync('chmod', ['755', tool.path]);
     final source = 'tools:\n  CLANG.EXE: ${tool.path}\n';
     final config = XcrossConfig.parse(
       source,
       environment: const {},
-      windows: false,
+      windows: Platform.isWindows,
     );
     expect(config.tool('clang'), tool.path);
     expect(config.tool('CLANG.EXE'), tool.path);

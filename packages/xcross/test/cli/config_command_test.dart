@@ -33,7 +33,7 @@ void main() {
     final result = await Process.run(
       Platform.resolvedExecutable,
       ['run', 'bin/xcross.dart', '--version'],
-      workingDirectory: Directory.current.path,
+      workingDirectory: p.join(Directory.current.path, 'packages', 'xcross'),
       environment: {
         XcrossConfigStore.selectorVariable: malformed.path,
         'NO_COLOR': '1',
@@ -259,22 +259,28 @@ void main() {
   );
 
   test('show separates its header from exact YAML output', () async {
-    final executable = File(p.join(temporary.path, 'tool'))
-      ..writeAsStringSync('#!/bin/sh\n');
-    Process.runSync('chmod', ['755', executable.path]);
+    final executable = File(
+      p.join(temporary.path, ProcessRunner.hostExecutableName('tool')),
+    )..writeAsStringSync('#!/bin/sh\n');
+    if (!Platform.isWindows) Process.runSync('chmod', ['755', executable.path]);
+    final showStore = XcrossConfigStore(
+      directory: temporary.path,
+      environment: const {},
+      windows: Platform.isWindows,
+    );
     final config = XcrossConfig(
-      roots: const XcrossConfigRoots(darwinSdk: '/missing/sdk'),
+      roots: XcrossConfigRoots(darwinSdk: temporary.path),
       tools: {'tool': executable.path},
     );
-    await store.save(config);
+    await showStore.save(config);
     final output = StringBuffer();
     final runner = CommandRunner<void>('xcross', 'test')
-      ..addCommand(ConfigCommand(store: store, writeLine: output.writeln));
+      ..addCommand(ConfigCommand(store: showStore, writeLine: output.writeln));
 
     await runner.run(['config', 'show']);
     expect(
       output.toString(),
-      'Selected: ${store.selectedFile()!.path}\n${config.toYaml()}',
+      'Selected: ${showStore.selectedFile()!.path}\n${config.toYaml()}',
     );
     output.clear();
     await runner.run(['config', 'validate']);

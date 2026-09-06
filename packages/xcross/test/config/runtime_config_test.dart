@@ -40,22 +40,36 @@ void main() {
   test(
     'present config overlays explicit tools and prepends configured PATH',
     () async {
-      final git = File(p.join(temporary.path, 'git'))
-        ..writeAsStringSync('#!/bin/sh\n');
+      final git = File(
+        p.join(temporary.path, ProcessRunner.hostExecutableName('git')),
+      )..writeAsStringSync('#!/bin/sh\n');
       final swiftBin = Directory(p.join(temporary.path, 'swift-bin'))
         ..createSync();
       final llvmBin = Directory(p.join(temporary.path, 'llvm-bin'))
         ..createSync();
-      final swift = File(p.join(swiftBin.path, 'swift'))..createSync();
-      final clang = File(p.join(llvmBin.path, 'clang'))..createSync();
+      final swift = File(
+        p.join(swiftBin.path, ProcessRunner.hostExecutableName('swift')),
+      )..createSync();
+      final clang = File(
+        p.join(llvmBin.path, ProcessRunner.hostExecutableName('clang')),
+      )..createSync();
+      final flutterRoot = p.join(temporary.path, 'flutter');
+      final darwinRoot = p.join(temporary.path, 'darwin');
+      final xcross = p.join(
+        temporary.path,
+        ProcessRunner.hostExecutableName('xcross'),
+      );
+      final javaHome = p.join(temporary.path, 'java');
+      final konanData = p.join(temporary.path, 'konan');
+      final toolsPath = p.join(temporary.path, 'tools');
       if (!Platform.isWindows) Process.runSync('chmod', ['755', git.path]);
       File(p.join(temporary.path, 'config.yaml')).writeAsStringSync('''
 roots:
-  flutterSdk: /flutter
-  darwinSdk: /darwin
-  xcross: /bin/xcross
-  javaHome: /configured/java
-  konanData: /configured/konan
+  flutterSdk: $flutterRoot
+  darwinSdk: $darwinRoot
+  xcross: $xcross
+  javaHome: $javaHome
+  konanData: $konanData
 toolchains:
   swift: ${swiftBin.path}
   llvm: ${llvmBin.path}
@@ -63,7 +77,7 @@ tools:
   git.exe: ${git.path}
 environment:
   PATH:
-    - /tools
+    - $toolsPath
 ''');
       final inheritedPath = Platform.environment['PATH'] ?? '';
       final runtime = await XcrossRuntimeConfig.initialize(
@@ -73,24 +87,33 @@ environment:
           'SECRET': 'inherited',
           'PATH': inheritedPath,
         },
-        windows: false,
+        windows: Platform.isWindows,
       );
 
       expect(runtime.isConfigured, isTrue);
       expect(runtime.config!.tool('git'), git.path);
       expect(runtime.environment, {
-        'PATH': ['/tools'],
+        'PATH': [toolsPath],
       });
       expect(runtime.processEnvironment['SECRET'], 'inherited');
       final process = ProcessRunner.configuration!;
       expect(process.normalizedTools['git'], git.path);
       expect(process.toolchainDirectories['swift'], [swiftBin.path]);
       expect(process.toolchainDirectories['llvm'], [llvmBin.path]);
-      expect(await ProcessRunner.which('swift'), swift.path);
-      expect(await ProcessRunner.which('clang'), clang.path);
+      expect(
+        await ProcessRunner.which('swift'),
+        equalsIgnoringCase(swift.path),
+      );
+      expect(
+        await ProcessRunner.which('clang'),
+        equalsIgnoringCase(clang.path),
+      );
       expect(
         process.effectiveChildEnvironment,
-        containsPair('PATH', '/tools:$inheritedPath'),
+        containsPair(
+          'PATH',
+          '$toolsPath${Platform.isWindows ? ';' : ':'}$inheritedPath',
+        ),
       );
       expect(
         process.effectiveChildEnvironment,
@@ -98,11 +121,11 @@ environment:
       );
       expect(
         process.effectiveChildEnvironment,
-        containsPair('JAVA_HOME', '/configured/java'),
+        containsPair('JAVA_HOME', javaHome),
       );
       expect(
         process.effectiveChildEnvironment,
-        containsPair('KONAN_DATA_DIR', '/configured/konan'),
+        containsPair('KONAN_DATA_DIR', konanData),
       );
       expect(
         process.effectiveChildEnvironment,
@@ -118,7 +141,7 @@ environment:
         isNotNull,
         reason: 'unspecified tools remain discoverable through inherited PATH',
       );
-      expect(DarwinSdk.nativeInstallDir(), '/darwin');
+      expect(DarwinSdk.nativeInstallDir(), darwinRoot);
       expect(
         await FlutterPacker.resolveFlutterRoot(
           projectRoot: temporary.path,
@@ -132,11 +155,11 @@ environment:
           projectRoot: temporary.path,
           host: ComposeHost.linuxX64,
         ).cacheRoot,
-        '/configured/konan',
+        konanData,
       );
       expect(
         resolveXcrossExecutable(subcommand: 'vscode', brokenFeature: 'DAP'),
-        '/bin/xcross',
+        xcross,
       );
     },
   );

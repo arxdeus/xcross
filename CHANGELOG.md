@@ -1,3 +1,13 @@
+## 1.4.0
+
+- Add `xcross config` with an interactive terminal config editor and a dynamic, script-driven setup flow.
+- Support local installer builds and avoid running setup during installation.
+- Prefer build tool shims in `xcrun` resolution and use native executable compiler aliases for Windows native assets.
+- Repair Objective-C fast stubs sharing a selref when one stub can relocate, fixing incremental SwiftPM relinks on Linux.
+- Vendor URL dependencies declared by vendored SwiftPM packages using cached git checkouts, including transitive package manifests.
+- Improve cross-platform SwiftPM dependency resolution, binary artifact recovery, symlink materialization, and long-path staging.
+- Reuse content-validated SwiftPM plugin builds and stabilize interop flags across build retries.
+
 ## 1.3.6
 
 - Repair Kotlin native-asset builds on Linux, including Objective-C small-stub arguments and Mach-O fast-stub rewriting.

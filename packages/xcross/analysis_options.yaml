@@ -67,6 +67,7 @@ analyzer:
     use_string_buffers: warning
     use_enums: warning
     comment_references: ignore
+    use_setters_to_change_properties: ignore
 
   exclude:
     [

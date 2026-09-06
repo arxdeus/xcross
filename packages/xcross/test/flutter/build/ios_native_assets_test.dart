@@ -325,7 +325,9 @@ void main() {
     final tmp = await Directory.systemTemp.createTemp('apple_shims_launcher-');
     try {
       final launcher = File(p.join(tmp.path, 'xcross'))..writeAsStringSync('');
-      final xcrun = File(p.join(tmp.path, 'xcrun'))..writeAsStringSync('');
+      final xcrun = File(
+        p.join(tmp.path, Platform.isWindows ? 'xcrun.exe' : 'xcrun'),
+      )..writeAsStringSync('');
       expect(await resolveXcrun(launcher: launcher.path), xcrun.path);
     } finally {
       await tmp.delete(recursive: true);
