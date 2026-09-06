@@ -72,9 +72,44 @@ jobs:
               let
                 system = "__SYSTEM__";
                 pkgs = nixpkgs.legacyPackages.${system};
+                xcrossPackage = xcross.packages.${system}.default;
+                inherit (xcrossPackage) swiftToolchain swiftCompiler;
+                config = pkgs.writeText "consumer-xcross-config.yaml" (builtins.toJSON {
+                  roots = {
+                    darwinSdk = "$XCROSS_DARWIN_BUNDLE";
+                    flutterSdk = "${pkgs.flutter}";
+                    xcross = "${xcrossPackage}/bin/xcross";
+                    javaHome = "${pkgs.jdk.home}";
+                    konanData = "$KONAN_DATA_DIR";
+                  };
+                  toolchains = {
+                    swift = "${swiftToolchain}/bin";
+                    llvm = [
+                      "${swiftToolchain}/bin"
+                      "${pkgs.llvmPackages_21.llvm}/bin"
+                      "${pkgs.llvmPackages_21.lld}/bin"
+                    ];
+                  };
+                  excluded_commands = [ "config" "setup" ];
+                  environment = {
+                    SWIFT_EXEC = "${swiftCompiler}";
+                    SWIFT_EXEC_MANIFEST = "${swiftCompiler}";
+                    CC = "${swiftToolchain}/bin/clang";
+                    CXX = "${swiftToolchain}/bin/clang++";
+                    FLUTTER_ROOT = "${pkgs.flutter}";
+                  };
+                });
               in {
                 devShells.${system}.default = pkgs.mkShell {
                   inputsFrom = [ xcross.devShells.${system}.default ];
+                  packages = [ pkgs.flutter pkgs.jdk ];
+                  XCROSS_CONFIG = config;
+                  FLUTTER_ROOT = "${pkgs.flutter}";
+                  JAVA_HOME = "${pkgs.jdk.home}";
+                  shellHook = ''
+                    export XCROSS_DARWIN_BUNDLE="''${XCROSS_DARWIN_BUNDLE:-''${XDG_CONFIG_HOME:-$HOME/.config}/xcross/swift-sdks/xcross-darwin.artifactbundle}"
+                    export KONAN_DATA_DIR="''${KONAN_DATA_DIR:-$HOME/.konan}"
+                  '';
                 };
               };
           }
@@ -137,13 +172,17 @@ jobs:
             xcross --help > "$RUNNER_TEMP/xcross-nix-help"
             for command in config setup; do
               status=0
-              env -u XCROSS_CONFIG -u XCROSS_DARWIN_BUNDLE -u KONAN_DATA_DIR \
-                xcross "$command" --help > "$RUNNER_TEMP/xcross-nix-command" 2>&1 || status=$?
+              xcross "$command" --help > "$RUNNER_TEMP/xcross-nix-command" 2>&1 || status=$?
               test "$status" -eq 64
               grep -F "Could not find a command named" "$RUNNER_TEMP/xcross-nix-command"
               if grep -Eq "^[[:space:]]+$command[[:space:]]" "$RUNNER_TEMP/xcross-nix-help"; then
                 exit 1
               fi
+            done
+            alternate_config="$RUNNER_TEMP/xcross-alternate-config.yaml"
+            printf '{}\n' > "$alternate_config"
+            for command in config setup; do
+              XCROSS_CONFIG="$alternate_config" xcross "$command" --help
             done
           SH
 

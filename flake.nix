@@ -98,8 +98,6 @@
             swiftToolchain
             pkgs.llvmPackages_21.llvm
             pkgs.llvmPackages_21.lld
-            pkgs.flutter
-            pkgs.jdk
             pkgs.git
             pkgs.python313
             pkgs.python313Packages.pymobiledevice3
@@ -110,38 +108,6 @@
             pkgs.gnupg
           ];
 
-          runtimeEnvironment = pkgs.writeText "xcross-nix-environment" ''
-            export XCROSS_DARWIN_BUNDLE="''${XCROSS_DARWIN_BUNDLE:-''${XDG_CONFIG_HOME:-$HOME/.config}/xcross/swift-sdks/xcross-darwin.artifactbundle}"
-            export KONAN_DATA_DIR="''${KONAN_DATA_DIR:-$HOME/.konan}"
-          '';
-
-          configTemplate = pkgs.writeText "xcross-nix-config.yaml" (builtins.toJSON {
-            roots = {
-              darwinSdk = "$XCROSS_DARWIN_BUNDLE";
-              flutterSdk = "${pkgs.flutter}";
-              xcross = "@out@/bin/xcross";
-              javaHome = "${pkgs.jdk.home}";
-              konanData = "$KONAN_DATA_DIR";
-            };
-            toolchains = {
-              swift = "${swiftToolchain}/bin";
-              llvm = [
-                "${swiftToolchain}/bin"
-                "${pkgs.llvmPackages_21.llvm}/bin"
-                "${pkgs.llvmPackages_21.lld}/bin"
-              ];
-            };
-            excluded_commands = [ "config" "setup" ];
-            environment = {
-              PATH = map (package: "${package}/bin") runtimePackages;
-              SWIFT_EXEC = "${swiftCompiler}";
-              SWIFT_EXEC_MANIFEST = "${swiftCompiler}";
-              CC = "${swiftToolchain}/bin/clang";
-              CXX = "${swiftToolchain}/bin/clang++";
-              FLUTTER_ROOT = "${pkgs.flutter}";
-            };
-          });
-
           xcross = pkgs.stdenvNoCC.mkDerivation {
             pname = "xcross";
             version = xcrossVersion;
@@ -149,23 +115,21 @@
 
             nativeBuildInputs = [ pkgs.makeWrapper ];
 
+            passthru = { inherit swiftToolchain swiftCompiler; };
+
             dontBuild = true;
             dontFixup = true;
 
             installPhase = ''
               runHook preInstall
-              mkdir -p "$out/bin" "$out/lib/xcross" "$out/share/licenses/xcross" "$out/share/xcross"
+              mkdir -p "$out/bin" "$out/lib/xcross" "$out/share/licenses/xcross"
               cp -r bin lib "$out/lib/xcross/"
-              substitute ${configTemplate} "$out/share/xcross/config.yaml" \
-                --replace-fail '@out@' "$out"
               install -m 0644 ${./LICENSE} "$out/share/licenses/xcross/LICENSE"
               install -m 0644 ${./packages/apple_developer_kit/ADI_LICENSE} \
                 "$out/share/licenses/xcross/provision-dart.txt"
 
               for executable in xcross xcrun; do
                 makeWrapper "$out/lib/xcross/bin/$executable" "$out/bin/$executable" \
-                  --run "source ${runtimeEnvironment}" \
-                  --set XCROSS_CONFIG "$out/share/xcross/config.yaml" \
                   --prefix PATH : ${pkgs.lib.makeBinPath runtimePackages} \
                   --set SWIFT_EXEC ${swiftCompiler} \
                   --set SWIFT_EXEC_MANIFEST ${swiftCompiler} \
@@ -196,10 +160,6 @@
           ];
 
           shellHook = ''
-            source ${runtimeEnvironment}
-            export XCROSS_CONFIG=${xcross}/share/xcross/config.yaml
-            export FLUTTER_ROOT=${pkgs.flutter}
-            export JAVA_HOME=${pkgs.jdk.home}
             export SWIFT_EXEC=${swiftCompiler}
             export SWIFT_EXEC_MANIFEST=${swiftCompiler}
             export CC=${swiftToolchain}/bin/clang
