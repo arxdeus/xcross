@@ -26,27 +26,27 @@
     "xcross-linux-arm64": {
       "flake": false,
       "locked": {
-        "lastModified": 1788019657,
-        "narHash": "sha256-LQd69qIH8mkHuBqfK6epZrKjhrIT3gjXMOkvYt5mh7c=",
+        "lastModified": 1788661026,
+        "narHash": "sha256-1KVhOlvPETtgPae4mXH+o6n68/dVRiQEfiGGtoVmruA=",
         "type": "tarball",
-        "url": "https://github.com/arxdeus/xcross/releases/download/v1.3.2/xcross-linux-arm64.tar.gz"
+        "url": "https://github.com/arxdeus/xcross/releases/download/v1.4.0/xcross-linux-arm64.tar.gz"
       },
       "original": {
         "type": "tarball",
-        "url": "https://github.com/arxdeus/xcross/releases/download/v1.3.2/xcross-linux-arm64.tar.gz"
+        "url": "https://github.com/arxdeus/xcross/releases/download/v1.4.0/xcross-linux-arm64.tar.gz"
       }
     },
     "xcross-linux-x64": {
       "flake": false,
       "locked": {
-        "lastModified": 1788019657,
-        "narHash": "sha256-GxAiAeAb5Kwi1UfOplR83HatClnUH7lftiFC4nMWFq0=",
+        "lastModified": 1788661049,
+        "narHash": "sha256-N88Nj86Gu8j0qZebKSLD/ZsoooMtWABuOqhCVWdbgEY=",
         "type": "tarball",
-        "url": "https://github.com/arxdeus/xcross/releases/download/v1.3.2/xcross-linux-x64.tar.gz"
+        "url": "https://github.com/arxdeus/xcross/releases/download/v1.4.0/xcross-linux-x64.tar.gz"
       },
       "original": {
         "type": "tarball",
-        "url": "https://github.com/arxdeus/xcross/releases/download/v1.3.2/xcross-linux-x64.tar.gz"
+        "url": "https://github.com/arxdeus/xcross/releases/download/v1.4.0/xcross-linux-x64.tar.gz"
       }
     }
   },
