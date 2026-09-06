@@ -94,6 +94,36 @@ flutter:
   }
 
   group('incremental build fingerprint', () {
+    test('ignores restored file timestamps but retains content identity', () {
+      Map<String, Object> identity(int timestamp, String digest) => {
+        'compiler': {
+          'path': '/swift/bin/swiftc',
+          'size': 42,
+          'modified': timestamp,
+          'changed': timestamp,
+          'digest': digest,
+          'version': '6.3.3',
+        },
+      };
+      final first = GeneratedPluginsPackage.contentBuildIdentity(
+        identity(1, 'a'),
+      );
+      expect(
+        GeneratedPluginsPackage.contentBuildIdentity(identity(2, 'a')),
+        first,
+      );
+      expect(
+        GeneratedPluginsPackage.contentBuildIdentity(identity(1, 'b')),
+        isNot(first),
+      );
+      expect((first as Map)['compiler'], {
+        'path': '/swift/bin/swiftc',
+        'size': 42,
+        'digest': 'a',
+        'version': '6.3.3',
+      });
+    });
+
     test('is stable until a plugin input changes', () async {
       final plugin = makePlugin(
         'stable_plugin',
@@ -119,6 +149,16 @@ flutter:
 
       final first = await fingerprint();
       expect(await fingerprint(), first);
+      final frameworkFile = File(p.join(framework.path, 'Info.plist'));
+      final modified = frameworkFile.lastModifiedSync();
+      frameworkFile.setLastModifiedSync(
+        modified.subtract(const Duration(days: 1)),
+      );
+      expect(await fingerprint(), first);
+      frameworkFile.writeAsStringSync('<PLIST/>');
+      frameworkFile.setLastModifiedSync(modified);
+      expect(await fingerprint(), isNot(first));
+      frameworkFile.writeAsStringSync('<plist/>');
       source.writeAsStringSync('let value = 2\n');
       expect(await fingerprint(), isNot(first));
     });

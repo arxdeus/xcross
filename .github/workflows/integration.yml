@@ -280,6 +280,22 @@ jobs:
       - name: Restore cached Darwin SDK
         uses: ./.github/actions/setup-darwin-sdk
 
+      - name: Identify plugin build cache inputs
+        id: plugin-cache-inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "XCROSS_CACHE_DIR=$RUNNER_TEMP/xcross-cache" >> "$GITHUB_ENV"
+          echo "flutter=$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "examples=$(git -C examples rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore SwiftPM build cache
+        if: github.event_name != 'workflow_dispatch'
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
+        with:
+          path: ${{ env.XCROSS_CACHE_DIR }}/swiftpm
+          key: swiftpm-v1-${{ matrix.os }}-${{ runner.arch }}-${{ env.SWIFT_VERSION }}-${{ env.LLVM_VERSION }}-${{ steps.plugin-cache-inputs.outputs.flutter }}-${{ steps.plugin-cache-inputs.outputs.examples }}-${{ hashFiles('pubspec.lock', 'packages/**/pubspec.yaml', 'packages/**/lib/**', '.github/workflows/integration.yml', '.github/actions/setup-darwin-sdk/action.yml') }}
+
       - name: Build Flutter example on Linux
         if: runner.os == 'Linux'
         shell: bash

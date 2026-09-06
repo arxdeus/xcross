@@ -290,7 +290,7 @@ abstract final class GeneratedPluginsPackage {
       input.add(const [0]);
     }
 
-    add('xcross-swiftpm-build-v4');
+    add('xcross-swiftpm-build-v5');
     add(objectiveCLinkerSwiftDriverArguments.join('\u0001'));
     if (Platform.isLinux) {
       add(objectiveCSmallStubSwiftDriverArguments.join('\u0001'));
@@ -306,13 +306,19 @@ abstract final class GeneratedPluginsPackage {
     }
     final resolvedToolchainIdentity =
         toolchainIdentity ??
-        jsonEncode(await resolveBuildToolchainIdentity(sdk!));
+        jsonEncode(
+          contentBuildIdentity(await resolveBuildToolchainIdentity(sdk!)),
+        );
     add(resolvedToolchainIdentity);
     final resolvedSdkIdentity =
         sdkIdentity ??
         (sdk == null
             ? ''
-            : jsonEncode(await SdkInstall.sdkBuildIdentity(sdk.swiftSdkPath)));
+            : jsonEncode(
+                contentBuildIdentity(
+                  await SdkInstall.sdkBuildIdentity(sdk.swiftSdkPath),
+                ),
+              ));
     add(resolvedSdkIdentity);
 
     Future<void> addTree(String root) async {
@@ -347,16 +353,26 @@ abstract final class GeneratedPluginsPackage {
     }
     frameworkFiles.sort((a, b) => a.path.compareTo(b.path));
     for (final file in frameworkFiles) {
-      final stat = file.statSync();
       add(
         p.relative(file.path, from: flutterXcframework).replaceAll(r'\', '/'),
       );
-      add(stat.size.toString());
-      add(stat.modified.microsecondsSinceEpoch.toString());
+      add((await sha256.bind(file.openRead()).first).toString());
     }
     input.close();
     return result!.toString();
   }
+
+  @visibleForTesting
+  static Object? contentBuildIdentity(Object? value) => switch (value) {
+    Map() => {
+      for (final entry in value.entries)
+        if (!value.containsKey('digest') ||
+            (entry.key != 'modified' && entry.key != 'changed'))
+          entry.key: contentBuildIdentity(entry.value),
+    },
+    List() => value.map(contentBuildIdentity).toList(),
+    _ => value,
+  };
 
   /// Cross-compiles the synthesized packages in [pluginsDir] with
 
