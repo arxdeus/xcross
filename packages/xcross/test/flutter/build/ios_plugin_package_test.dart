@@ -3535,6 +3535,209 @@ let package = Package(
       expect(arguments, isNot(contains('-install_name')));
     });
 
+    test('planned interop arguments stay stable after headers are emitted', () {
+      final buildDir = p.join(tmp.path, 'arm64-apple-ios', 'debug');
+      final headers = [
+        p.join(
+          buildDir,
+          'TransitiveInternal.build',
+          'include',
+          'Internal-Swift.h',
+        ),
+        p.join(buildDir, 'Some-Target.build', 'include', 'Some_Target-Swift.h'),
+      ];
+      Directory(buildDir).createSync(recursive: true);
+      File(p.join(buildDir, 'description.json')).writeAsStringSync(
+        jsonEncode({
+          'swiftCommands': {
+            for (var index = 0; index < headers.length; index++)
+              'command$index': {
+                'otherArguments': ['-emit-objc-header-path', headers[index]],
+              },
+            'duplicate': {
+              'otherArguments': ['-emit-objc-header-path', headers[0]],
+            },
+            'noInterop': {
+              'otherArguments': ['-module-name', 'NoInterop'],
+            },
+          },
+          'clangCommands': {
+            'COnly': {
+              'otherArguments': ['-I', p.join(buildDir, 'COnly.build')],
+            },
+          },
+        }),
+      );
+      final before = GeneratedPluginsPackage.plannedSwiftInteropSearchPaths(
+        buildDir,
+      );
+      final includes = headers.map(p.dirname).toSet().toList()..sort();
+      expect(
+        GeneratedPluginsPackage.plannedSwiftInteropSearchPaths(
+          p.relative(buildDir),
+        ),
+        before,
+      );
+      expect(before, [
+        for (final include in includes) ...['-Xcc', '-I', '-Xcc', include],
+      ]);
+      for (final header in headers) {
+        File(header).parent.createSync(recursive: true);
+        File(header).writeAsStringSync('generated');
+      }
+      expect(
+        GeneratedPluginsPackage.plannedSwiftInteropSearchPaths(buildDir),
+        before,
+      );
+    });
+
+    test('rejects missing and malformed Swift planning descriptions', () {
+      final buildDir = p.join(tmp.path, 'arm64-apple-ios', 'debug');
+      Directory(buildDir).createSync(recursive: true);
+      final description = File(p.join(buildDir, 'description.json'));
+      void check() => expect(
+        () => GeneratedPluginsPackage.plannedSwiftInteropSearchPaths(buildDir),
+        throwsA(isA<FlutterBuildError>()),
+      );
+      check();
+      for (final value in [
+        'not json',
+        '{}',
+        jsonEncode({'swiftCommands': []}),
+        jsonEncode({
+          'swiftCommands': {
+            'bad': {
+              'otherArguments': [1],
+            },
+          },
+        }),
+        jsonEncode({
+          'swiftCommands': {
+            'bad': {
+              'otherArguments': ['-emit-objc-header-path'],
+            },
+          },
+        }),
+        jsonEncode({
+          'swiftCommands': {
+            'bad': {
+              'otherArguments': ['-emit-objc-header-path', 'relative-Swift.h'],
+            },
+          },
+        }),
+        jsonEncode({
+          'swiftCommands': {
+            'bad': {
+              'otherArguments': [
+                '-emit-objc-header-path',
+                p.join(tmp.path, 'outside-Swift.h'),
+              ],
+            },
+          },
+        }),
+      ]) {
+        description.writeAsStringSync(value);
+        check();
+      }
+      description.writeAsStringSync(jsonEncode({'swiftCommands': {}}));
+      expect(
+        GeneratedPluginsPackage.plannedSwiftInteropSearchPaths(buildDir),
+        isEmpty,
+      );
+    });
+
+    test(
+      'planned missing targets preserve aggregate-first recovery ordering',
+      () async {
+        final buildDir = p.join(tmp.path, 'arm64-apple-ios', 'debug');
+        for (final target in ['FirebaseFirestore', 'FirebaseAuth']) {
+          final include = Directory(
+            p.join(buildDir, '$target.build', 'include'),
+          );
+          include.createSync(recursive: true);
+          File(
+            p.join(include.path, 'module.modulemap'),
+          ).writeAsStringSync('module $target { header "$target-Swift.h" }');
+        }
+        var attempts = 0;
+        final events = <String>[];
+        await GeneratedPluginsPackage.buildWithInteropRecovery(
+          targetBuildDir: buildDir,
+          interopTargetCandidates: const {'FirebaseFirestore', 'FirebaseAuth'},
+          skipInitialRecovery: true,
+          windows: true,
+          build: () async {
+            events.add('build${++attempts}');
+            if (attempts == 1) throw StateError('missing generated headers');
+          },
+          buildTarget: (target) async {
+            events.add(target);
+            File(
+              p.join(buildDir, '$target.build', 'include', '$target-Swift.h'),
+            ).writeAsStringSync('generated');
+          },
+          repairConsumers: () async => events.add('repair'),
+        );
+        expect(events, [
+          'repair',
+          'build1',
+          'FirebaseAuth',
+          'FirebaseFirestore',
+          'repair',
+          'build2',
+        ]);
+      },
+    );
+
+    test(
+      'planned builds retain Windows emitted-header recovery fallback',
+      () async {
+        final buildDir = p.join(tmp.path, 'arm64-apple-ios', 'debug');
+        final include = Directory(
+          p.join(buildDir, 'OtherSwift.build', 'include'),
+        );
+        include.createSync(recursive: true);
+        File(p.join(buildDir, 'description.json')).writeAsStringSync(
+          jsonEncode({
+            'swiftCommands': {
+              'OtherSwift': {
+                'otherArguments': [
+                  '-emit-objc-header-path',
+                  p.join(include.path, 'OtherSwift-Swift.h'),
+                ],
+              },
+            },
+          }),
+        );
+        final flags = GeneratedPluginsPackage.plannedSwiftInteropSearchPaths(
+          buildDir,
+        );
+        var attempts = 0;
+        final events = <String>[];
+        await GeneratedPluginsPackage.buildWithInteropRecovery(
+          targetBuildDir: buildDir,
+          interopTargetCandidates: const {},
+          skipInitialRecovery: true,
+          windows: true,
+          build: () async {
+            events.add('build${++attempts}');
+            expect(
+              GeneratedPluginsPackage.plannedSwiftInteropSearchPaths(buildDir),
+              flags,
+            );
+            if (attempts != 1) return;
+            File(
+              p.join(include.path, 'OtherSwift-Swift.h'),
+            ).writeAsStringSync('generated');
+            throw StateError('interop consumer');
+          },
+          buildTarget: (_) async => fail('no target should be prebuilt'),
+          repairConsumers: () async => events.add('repair'),
+        );
+        expect(events, ['repair', 'build1', 'repair', 'build2']);
+      },
+    );
+
     test('passes interop include dirs on POSIX hosts', () {
       final buildDir = p.join(tmp.path, 'arm64-apple-ios', 'debug');
       // A Swift target that has been built: interop header emitted.

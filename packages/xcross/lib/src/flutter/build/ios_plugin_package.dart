@@ -290,7 +290,7 @@ abstract final class GeneratedPluginsPackage {
       input.add(const [0]);
     }
 
-    add('xcross-swiftpm-build-v5');
+    add('xcross-swiftpm-build-v6');
     add(objectiveCLinkerSwiftDriverArguments.join('\u0001'));
     if (Platform.isLinux) {
       add(objectiveCSmallStubSwiftDriverArguments.join('\u0001'));
@@ -466,25 +466,40 @@ abstract final class GeneratedPluginsPackage {
       );
     }
     final targetBuildDir = p.join(scratchPath, 'arm64-apple-ios', 'debug');
+    final baseArguments = swiftBuildArguments(
+      pluginsDir: pluginsDir,
+      scratchPath: scratchPath,
+      swiftSdksPath: swiftSdksPath,
+      iosSdk: sdk.iPhoneOSSdk(),
+      flutterFrameworkSlice: flutterFrameworkSlice,
+      objectiveCCompatibilityHeader: objectiveCCompatibilityHeader,
+      toolsetPath: toolsetPath,
+      linkerPath: windows ? null : linker,
+      windows: windows,
+      previewMacroStubPath: previewMacroStub,
+    );
+    if (windows) baseArguments.removeAt(0);
+    await buildTranslatingSdkMismatch(
+      () => ProcessRunner.runChecked(
+        swiftBuild,
+        [...baseArguments, '--print-manifest-job-graph'],
+        environment: environment,
+        label: 'swift build plan',
+      ),
+    );
+    await repairWindowsGeneratedBuildFiles(
+      scratchPath,
+      targetBuildDir,
+      windows: windows,
+    );
+    final interopArguments = plannedSwiftInteropSearchPaths(targetBuildDir);
     Future<void> runBuild([List<String> selection = const []]) async {
       final arguments = <String>[
-        ...swiftBuildArguments(
-          pluginsDir: pluginsDir,
-          scratchPath: scratchPath,
-          swiftSdksPath: swiftSdksPath,
-          iosSdk: sdk.iPhoneOSSdk(),
-          flutterFrameworkSlice: flutterFrameworkSlice,
-          objectiveCCompatibilityHeader: objectiveCCompatibilityHeader,
-          toolsetPath: toolsetPath,
-          linkerPath: windows ? null : linker,
-          windows: windows,
-          interopSearchPaths: swiftInteropSearchPaths(targetBuildDir),
-          previewMacroStubPath: previewMacroStub,
-        ),
+        ...baseArguments,
+        ...interopArguments,
         ...selection,
       ];
 
-      if (windows) arguments.removeAt(0);
       Future<void> invoke() => ProcessRunner.runChecked(
         swiftBuild,
         arguments,
@@ -524,6 +539,7 @@ abstract final class GeneratedPluginsPackage {
         buildTarget: (target) => runBuild(['--target', target]),
         targetBuildDir: targetBuildDir,
         interopTargetCandidates: interopTargetCandidates,
+        skipInitialRecovery: true,
         repairConsumers: () => repairSwiftInteropConsumers(
           targetBuildDir: targetBuildDir,
           consumerProducts: interopConsumers,
@@ -1186,6 +1202,7 @@ abstract final class GeneratedPluginsPackage {
     required String targetBuildDir,
     required Set<String> interopTargetCandidates,
     Future<void> Function()? repairConsumers,
+    bool skipInitialRecovery = false,
     bool? windows,
   }) async {
     final repair = repairConsumers ?? () async {};
@@ -1203,7 +1220,7 @@ abstract final class GeneratedPluginsPackage {
     }
 
     await repair();
-    if (await recoverMissingTargets()) {
+    if (!skipInitialRecovery && await recoverMissingTargets()) {
       await build();
       return;
     }
@@ -1431,6 +1448,52 @@ abstract final class GeneratedPluginsPackage {
       '#ifdef __OBJC__\n#import <Foundation/Foundation.h>\n#endif\n',
     );
     return path;
+  }
+
+  @visibleForTesting
+  static List<String> plannedSwiftInteropSearchPaths(String targetBuildDir) {
+    final description = File(p.join(targetBuildDir, 'description.json'));
+    try {
+      final decoded = jsonDecode(description.readAsStringSync());
+      if (decoded is! Map<String, dynamic> ||
+          decoded['swiftCommands'] is! Map<String, dynamic>) {
+        throw const FormatException('Missing Swift command descriptions');
+      }
+      final includes = <String>{};
+      for (final command
+          in (decoded['swiftCommands'] as Map<String, dynamic>).values) {
+        if (command is! Map<String, dynamic> ||
+            command['otherArguments'] is! List ||
+            !(command['otherArguments'] as List).every(
+              (argument) => argument is String,
+            )) {
+          throw const FormatException('Invalid Swift command arguments');
+        }
+        final arguments = (command['otherArguments'] as List).cast<String>();
+        for (var index = 0; index < arguments.length; index++) {
+          if (arguments[index] != '-emit-objc-header-path') continue;
+          if (++index >= arguments.length) {
+            throw const FormatException('Missing generated header path');
+          }
+          final header = p.normalize(arguments[index]);
+          if (!p.isAbsolute(header) ||
+              !p.isWithin(p.normalize(p.absolute(targetBuildDir)), header) ||
+              !header.endsWith('-Swift.h')) {
+            throw const FormatException('Invalid generated header path');
+          }
+          includes.add(p.dirname(header));
+        }
+      }
+      final sorted = includes.toList()..sort();
+      return [
+        for (final include in sorted) ...['-Xcc', '-I', '-Xcc', include],
+      ];
+    } on Object catch (error) {
+      throw FlutterBuildError(
+        'Cannot read planned Swift interop headers from '
+        '${description.path}: $error',
+      );
+    }
   }
 
   /// Search-path arguments for the Objective-C interop modules SwiftPM
