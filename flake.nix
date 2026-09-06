@@ -129,8 +129,12 @@
                 "$out/share/licenses/xcross/provision-dart.txt"
 
               for executable in xcross xcrun; do
+                pathMode=--prefix
+                if [ "$executable" = xcrun ]; then
+                  pathMode=--suffix
+                fi
                 makeWrapper "$out/lib/xcross/bin/$executable" "$out/bin/$executable" \
-                  --prefix PATH : ${pkgs.lib.makeBinPath runtimePackages} \
+                  "$pathMode" PATH : ${pkgs.lib.makeBinPath runtimePackages} \
                   --set SWIFT_EXEC ${swiftCompiler} \
                   --set SWIFT_EXEC_MANIFEST ${swiftCompiler} \
                   --set CC ${swiftToolchain}/bin/clang \
