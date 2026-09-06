@@ -1,0 +1,55 @@
+{
+  "nodes": {
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1787736819,
+        "narHash": "sha256-cV5xEJJK3BvhU8rEd4mC9UsmDi5qscv/kzGPhBRC5WA=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "9fbb54b33e91ee4ca368e35a78e0613c720600b3",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "nixpkgs": "nixpkgs",
+        "xcross-linux-arm64": "xcross-linux-arm64",
+        "xcross-linux-x64": "xcross-linux-x64"
+      }
+    },
+    "xcross-linux-arm64": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1788019657,
+        "narHash": "sha256-LQd69qIH8mkHuBqfK6epZrKjhrIT3gjXMOkvYt5mh7c=",
+        "type": "tarball",
+        "url": "https://github.com/arxdeus/xcross/releases/download/v1.3.2/xcross-linux-arm64.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://github.com/arxdeus/xcross/releases/download/v1.3.2/xcross-linux-arm64.tar.gz"
+      }
+    },
+    "xcross-linux-x64": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1788019657,
+        "narHash": "sha256-GxAiAeAb5Kwi1UfOplR83HatClnUH7lftiFC4nMWFq0=",
+        "type": "tarball",
+        "url": "https://github.com/arxdeus/xcross/releases/download/v1.3.2/xcross-linux-x64.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://github.com/arxdeus/xcross/releases/download/v1.3.2/xcross-linux-x64.tar.gz"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
