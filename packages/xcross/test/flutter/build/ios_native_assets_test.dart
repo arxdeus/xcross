@@ -407,6 +407,89 @@ void main() {
     }
   });
 
+  test(
+    'Unix hook tools keep Apple targets and the selected Mach-O linker',
+    () async {
+      if (Platform.isWindows) return;
+      final tmp = await Directory.systemTemp.createTemp('apple hook tools-');
+      try {
+        final toolchain = Directory(p.join(tmp.path, 'toolchain'))
+          ..createSync();
+        for (final name in ['clang', 'llvm-ar', 'ld64.lld']) {
+          final tool = File(p.join(toolchain.path, name))
+            ..writeAsStringSync('#!/bin/sh\nprintf \'%s\\n\' "$name" "\$@"\n');
+          final chmod = await Process.run('chmod', ['+x', tool.path]);
+          expect(chmod.exitCode, 0);
+        }
+        final shims = p.join(tmp.path, 'shims');
+        final linker = p.join(toolchain.path, 'ld64.lld');
+        await installAppleToolShims(
+          shims,
+          AppleToolShimConfig(
+            iosSdk: '/sdk/iPhoneOS.sdk',
+            clang: p.join(toolchain.path, 'clang'),
+            hostCompiler: '/bin/echo',
+            archiver: p.join(toolchain.path, 'llvm-ar'),
+            linker: linker,
+            deploymentTarget: '15.0',
+            lipo: '/bin/echo',
+            otool: null,
+            installNameTool: null,
+            xcrun: '/bin/echo',
+          ),
+        );
+
+        for (final arguments in [
+          [
+            '-shared',
+            '-target',
+            'arm64-apple-ios',
+            '-mios-version-min=13',
+            'asset.o',
+          ],
+          [
+            '-arch',
+            'arm64',
+            '-dynamiclib',
+            '-miphoneos-version-min=15.0',
+            'debug_app.cc',
+          ],
+        ]) {
+          final result = await Process.run(
+            p.join(shims, 'clang'),
+            arguments,
+            environment: const {},
+            includeParentEnvironment: false,
+          );
+          expect(result.exitCode, 0);
+          final forwarded = const LineSplitter().convert(
+            result.stdout as String,
+          );
+          expect(forwarded.first, 'clang');
+          expect(forwarded, contains('--ld-path=$linker'));
+          expect(forwarded, contains('-fuse-ld=lld'));
+          expect(forwarded, containsAllInOrder(arguments));
+          if (!arguments.contains('-target')) {
+            expect(forwarded, contains('--target=arm64-apple-ios15.0'));
+          }
+        }
+
+        for (final entry in {'ar': 'llvm-ar', 'ld': 'ld64.lld'}.entries) {
+          final result = await Process.run(
+            p.join(shims, entry.key),
+            ['--version'],
+            environment: const {},
+            includeParentEnvironment: false,
+          );
+          expect(result.exitCode, 0);
+          expect(result.stdout, '${entry.value}\n--version\n');
+        }
+      } finally {
+        await tmp.delete(recursive: true);
+      }
+    },
+  );
+
   test('Apple tool shims expose configured tools including xcrun', () async {
     if (Platform.isWindows) return;
     final tmp = await Directory.systemTemp.createTemp('apple_shims_test-');
