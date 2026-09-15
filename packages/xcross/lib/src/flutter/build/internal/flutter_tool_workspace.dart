@@ -15,13 +15,24 @@ final class FlutterToolWorkspace {
   final String dart;
   final String flutterToolsSnapshot;
 
-  Future<void> dispose() => Directory(flutterRoot).delete(recursive: true);
+  /// Kept deliberately: see [_workspaceRoot].
+  Future<void> dispose() async {}
 
   static Future<FlutterToolWorkspace> create({
     required String flutterRoot,
     required IosEngineCache engineCache,
   }) async {
-    final root = await _createWorkspaceRoot(engineCache);
+    final root = _workspaceRoot(engineCache);
+    final marker = File(p.join(root, '.xcross-workspace-ready'));
+    if (marker.existsSync()) {
+      return FlutterToolWorkspace._(
+        flutterRoot: root,
+        dart: _dartPath(flutterRoot),
+        flutterToolsSnapshot: _snapshotPath(flutterRoot),
+      );
+    }
+    await _deleteFailedWorkspace(root);
+    await Directory(root).create(recursive: true);
     try {
       final cache = await _createCacheDirectory(root);
       await _overlaySdkMetadata(flutterRoot: flutterRoot, workspaceRoot: root);
@@ -33,23 +44,29 @@ final class FlutterToolWorkspace {
         engineCache: engineCache,
       );
 
+      await marker.writeAsString('ready\n');
       return FlutterToolWorkspace._(
         flutterRoot: root,
-        dart: p.join(
-          flutterRoot,
-          'bin',
-          'cache',
-          'dart-sdk',
-          'bin',
-          Platform.isWindows ? 'dart.exe' : 'dart',
-        ),
-        flutterToolsSnapshot: p.join(sdkCache, 'flutter_tools.snapshot'),
+        dart: _dartPath(flutterRoot),
+        flutterToolsSnapshot: _snapshotPath(flutterRoot),
       );
     } on Object {
       await _deleteFailedWorkspace(root);
       rethrow;
     }
   }
+
+  static String _dartPath(String flutterRoot) => p.join(
+    flutterRoot,
+    'bin',
+    'cache',
+    'dart-sdk',
+    'bin',
+    Platform.isWindows ? 'dart.exe' : 'dart',
+  );
+
+  static String _snapshotPath(String flutterRoot) =>
+      p.join(flutterRoot, 'bin', 'cache', 'flutter_tools.snapshot');
 
   static Future<void> _deleteFailedWorkspace(String root) async {
     try {
@@ -59,13 +76,25 @@ final class FlutterToolWorkspace {
     }
   }
 
-  static Future<String> _createWorkspaceRoot(IosEngineCache engineCache) async {
-    final parent = Directory(
-      p.join(engineCache.cacheRoot, engineCache.engineHash, 'workspaces'),
-    );
-    await parent.create(recursive: true);
-    return (await parent.createTemp('flutter-')).path;
-  }
+  /// A fixed path, reused across builds rather than created per build.
+  ///
+  /// `flutter assemble` records the absolute path of every input it read in
+  /// the dependency stamps under `.dart_tool/flutter_build`, and this
+  /// workspace supplies the Dart SDK and engine artifacts it reads. A
+  /// per-build temporary directory therefore guaranteed a stale stamp on the
+  /// next run: the recorded paths no longer existed, so Flutter reported
+  /// "invalidated build due to missing files" and re-ran the whole
+  /// native-assets pipeline, including every build hook, every single time.
+  ///
+  /// The path is scoped by engine hash, so a different engine still gets its
+  /// own workspace and its contents stay consistent with the artifacts they
+  /// were overlaid from.
+  static String _workspaceRoot(IosEngineCache engineCache) => p.join(
+    engineCache.cacheRoot,
+    engineCache.engineHash,
+    'workspaces',
+    'flutter',
+  );
 
   static Future<String> _createCacheDirectory(String workspaceRoot) async {
     final cache = p.join(workspaceRoot, 'bin', 'cache');

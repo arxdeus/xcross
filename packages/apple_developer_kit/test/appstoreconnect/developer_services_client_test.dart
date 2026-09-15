@@ -10,6 +10,39 @@ import 'package:test/test.dart';
 
 void main() {
   group('DeveloperServicesClient', () {
+    test('reports HTML 429 without JSON decoding or retrying', () async {
+      var requests = 0;
+      final client = DeveloperServicesClient(
+        token: _token(),
+        teamId: 'TEAM',
+        fetchAnisetteHeaders: () async => {},
+        httpClient: MockClient((request) async {
+          requests++;
+          expect(
+            request.headers['X-MMe-Client-Info'],
+            contains('com.apple.akd/1.0'),
+          );
+          return http.Response(
+            '<html>Too Many Requests</html>',
+            429,
+            headers: {'retry-after': '90'},
+          );
+        }),
+      );
+      addTearDown(client.close);
+      await expectLater(
+        client.listDevices(),
+        throwsA(
+          isA<AppleRateLimitError>().having(
+            (e) => e.retryAfter,
+            'retryAfter',
+            const Duration(seconds: 90),
+          ),
+        ),
+      );
+      expect(requests, 1);
+    });
+
     test('rewrites GET and keeps the fresh anisette client identity', () async {
       var requestCount = 0;
       final client = DeveloperServicesClient(
@@ -478,6 +511,40 @@ void main() {
   });
 
   group('DeveloperServicesClient.listTeams', () {
+    test('preserves throttling guidance at the last auth step', () async {
+      var requests = 0;
+      final client = MockClient((request) async {
+        requests++;
+        return http.Response(
+          '<html>Too Many Requests</html>',
+          429,
+          headers: {'retry-after': '120'},
+        );
+      });
+      addTearDown(client.close);
+      await expectLater(
+        DeveloperServicesClient.listTeams(
+          token: _token(),
+          fetchAnisetteHeaders: () async => {},
+          httpClient: client,
+        ),
+        throwsA(
+          isA<AppleRateLimitError>()
+              .having(
+                (e) => e.operation,
+                'operation',
+                'Developer Services list teams',
+              )
+              .having(
+                (e) => e.retryAfter,
+                'retryAfter',
+                const Duration(seconds: 120),
+              ),
+        ),
+      );
+      expect(requests, 1);
+    });
+
     test('sends legacy plist request and parses teams', () async {
       var anisetteCalls = 0;
       final teams = await DeveloperServicesClient.listTeams(

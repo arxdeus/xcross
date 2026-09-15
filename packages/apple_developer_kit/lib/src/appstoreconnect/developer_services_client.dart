@@ -7,6 +7,7 @@ import 'package:apple_developer_kit/src/appstoreconnect/asc_models.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/asc_payloads.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/legacy_app_groups.dart';
 import 'package:apple_developer_kit/src/errors.dart';
+import 'package:apple_developer_kit/src/grandslam/anisette/anisette_headers.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/anisette_state.dart';
 import 'package:apple_developer_kit/src/grandslam/app_token_exchange.dart';
 import 'package:apple_developer_kit/src/grandslam/grandslam_session_store.dart';
@@ -60,9 +61,6 @@ final class DeveloperServicesClient implements DevelopmentProvisioningClient {
   static const _legacyClientId = 'XABBG36SBA';
   static const _appIdentifier = 'com.apple.gs.xcode.auth';
   static const _xcodeVersion = '16.2 (16C5031c)';
-  static const _clientInfo =
-      '<VirtualMac2,1> <macOS;15.1.1;24B91> '
-      '<com.apple.AuthKit/1 (com.apple.dt.Xcode/23505)>';
 
   final DeveloperServicesLoginToken token;
   final String teamId;
@@ -393,7 +391,7 @@ final class DeveloperServicesClient implements DevelopmentProvisioningClient {
     'Accept-Encoding': 'gzip, deflate',
     'User-Agent': 'Xcode',
     'X-Xcode-Version': _xcodeVersion,
-    'X-MMe-Client-Info': _clientInfo,
+    'X-MMe-Client-Info': anisetteClientInfo,
     'X-Apple-App-Info': _appIdentifier,
     'X-Apple-I-Identity-Id': token.adsid,
     'X-Apple-GS-Token': token.token,
@@ -422,6 +420,10 @@ final class DeveloperServicesClient implements DevelopmentProvisioningClient {
   }
 
   static List<DeveloperServicesTeam> _parseTeams(http.Response response) {
+    AppleHttp.checkRateLimit(
+      response,
+      operation: 'Developer Services list teams',
+    );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw AppleError(
         'Developer Services list teams failed '
@@ -452,6 +454,7 @@ final class DeveloperServicesClient implements DevelopmentProvisioningClient {
   }
 
   static Map<String, dynamic> _decode(http.Response response) {
+    AppleHttp.checkRateLimit(response, operation: 'Developer Services API');
     final Object? decoded = response.body.isEmpty
         ? null
         : jsonDecode(response.body);

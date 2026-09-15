@@ -85,6 +85,67 @@ void main() {
     },
   );
 
+  test('reuses one workspace path across builds', () async {
+    // `flutter assemble` records the absolute path of every input it read in
+    // its dependency stamps, and this workspace supplies the Dart SDK and
+    // engine artifacts it reads. A path that changes per build therefore
+    // guarantees a stale stamp on the next run, and Flutter re-runs the whole
+    // native-assets pipeline, build hooks included, every time.
+    // Unlike the overlay test above, this asserts only on the chosen path, so
+    // it runs on Windows too: the per-build path bug this guards was a Windows
+    // build-time regression.
+    final tmp = await Directory.systemTemp.createTemp('flutter_workspace_id-');
+    try {
+      final flutterRoot = p.join(tmp.path, 'flutter');
+      final sdkCache = Directory(p.join(flutterRoot, 'bin', 'cache'))
+        ..createSync(recursive: true);
+      Directory(p.join(flutterRoot, 'packages')).createSync();
+      File(p.join(flutterRoot, 'bin', 'internal', 'engine.version'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('engine-hash\n');
+      File(
+        p.join(sdkCache.path, 'flutter_tools.snapshot'),
+      ).writeAsStringSync('snapshot');
+      Directory(p.join(sdkCache.path, 'dart-sdk')).createSync();
+      final engineCache = IosEngineCache(
+        flutterRoot: flutterRoot,
+        cacheRoot: p.join(tmp.path, 'cache'),
+      );
+      Directory(engineCache.flutterXcframework).createSync(recursive: true);
+      // The workspace links the host vm-snapshot and patched-SDK directories
+      // too, and on Windows linking a missing target fails outright.
+      Directory(p.dirname(engineCache.vmSnapshotData)).createSync(
+        recursive: true,
+      );
+      Directory(engineCache.patchedSdkRoot).createSync(recursive: true);
+
+      final first = await FlutterToolWorkspace.create(
+        flutterRoot: flutterRoot,
+        engineCache: engineCache,
+      );
+      await first.dispose();
+      final second = await FlutterToolWorkspace.create(
+        flutterRoot: flutterRoot,
+        engineCache: engineCache,
+      );
+
+      expect(second.flutterRoot, first.flutterRoot);
+      expect(
+        Directory(first.flutterRoot).existsSync(),
+        isTrue,
+        reason: 'dispose must not remove the reusable workspace',
+      );
+      expect(
+        File(
+          p.join(second.flutterRoot, 'bin', 'internal', 'engine.version'),
+        ).readAsStringSync(),
+        'engine-hash\n',
+      );
+    } finally {
+      await tmp.delete(recursive: true);
+    }
+  });
+
   test('detects build hooks through package_config root URIs', () async {
     final tmp = await Directory.systemTemp.createTemp('hook_detection_test-');
     try {

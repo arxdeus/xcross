@@ -178,8 +178,8 @@ xcross auth --apple-id you@example.com
 
 The command prompts for your password and 2FA code, then stores **only** the resulting Developer Services session - never your password.
 
-> [!IMPORTANT]
-> Use a separate Apple account, not your main one. xcross signs in through a non-standard path for non-macOS systems, and Apple may treat that as unusual activity. Nothing has gone wrong in months of use before the public release, but the risk is not zero - and if an account does get flagged, you do not want it to be the one holding your purchases, iCloud data, and devices. Creating a throwaway Apple ID for xcross takes a minute and works fine, since a free account is all you need.
+> [!WARNING]
+> Do not use your primary Apple ID. xcross signs in through a non-standard path for non-macOS systems, and Apple may treat that as unusual activity: an account used with xcross can end up locked, and an appeal may not reinstate it. Creating a throwaway Apple ID takes a minute and a free account is all you need, which keeps that a minor inconvenience rather than losing your purchases, iCloud data, and devices.
 
 Machine attestation uses Android ADI libraries (`libCoreADI.so`, `libstoreservicescore.so`):
 

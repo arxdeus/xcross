@@ -137,6 +137,32 @@ void main() {
     expect(fixture.bytes, repaired);
   });
 
+  test('preserves chained-fixup metadata when repairing a selref', () {
+    // A selref slot in a chained-fixups image packs dyld's state above the
+    // 36-bit target, including the 12-bit `next` delta at bit 51. Writing a
+    // bare pointer there zeroed that delta, ending the page's chain early so
+    // dyld left every later pointer unrebased and crashed in PrebuiltObjC
+    // before main.
+    const nextDelta = 2 << 51;
+    final fixture = _objcMacho(chainedMetadata: nextDelta);
+
+    expect(
+      MachODylibRewriter.rewriteBytes(
+        fixture.bytes,
+        dylibName: 'libPlugin.dylib',
+        producedDylibNames: const {},
+        repairObjCFastStubs: true,
+      ),
+      isTrue,
+    );
+
+    final repaired = ByteData.sublistView(
+      fixture.bytes,
+    ).getUint64(fixture.firstSelrefOffset, Endian.little);
+    expect(repaired & 0xFFFFFFFFF, fixture.fooAddress);
+    expect(repaired & ~0xFFFFFFFFF, nextDelta);
+  });
+
   test('repairs a sole-reader selref in place instead of adopting another '
       'matching selref', () {
     final fixture = _objcMacho(hasMatchingSelref: true);
@@ -364,6 +390,7 @@ _objcMacho({
   bool sharedMalformedSelref = false,
   bool sharedSelrefFallbackAvailable = true,
   bool separateSelrefs = false,
+  int chainedMetadata = 0,
 }) {
   const textVm = 0x100000000;
   const dataVm = 0x100002000;
@@ -442,10 +469,14 @@ _objcMacho({
   data
     ..setUint64(
       selrefsOffset,
-      hasMatchingSelref ? barAddress : 0xdeadbeef,
+      chainedMetadata | (hasMatchingSelref ? barAddress : 0xdeadbeef),
       Endian.little,
     )
-    ..setUint64(selrefsOffset + 8, secondSelrefValue, Endian.little);
+    ..setUint64(
+      selrefsOffset + 8,
+      chainedMetadata | secondSelrefValue,
+      Endian.little,
+    );
   for (var index = 0; index < stubCount; index++) {
     final address = textVm + stubOffset + index * 12;
     _putStub(

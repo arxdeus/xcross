@@ -493,6 +493,35 @@ abstract final class GeneratedPluginsPackage {
       windows: windows,
     );
     final interopArguments = plannedSwiftInteropSearchPaths(targetBuildDir);
+    // The first plan run could not carry [interopArguments], because the
+    // paths it discovers are read out of the plan it produces. SwiftPM
+    // records the resulting command lines in `debug.yaml` and llbuild
+    // replays them verbatim, so without a second plan run every compile
+    // would execute with the pre-interop arguments no matter what this
+    // build passes. Re-planning rewrites the manifest with the search
+    // paths applied.
+    //
+    // The rewrite only has to happen when the manifest does not already
+    // carry the paths. Re-planning unconditionally costs a whole extra
+    // `swift build` planning process (~13s on Windows for
+    // examples/flutter_example) on every build including incremental ones,
+    // to reproduce a manifest that is already byte-identical.
+    if (interopArguments.isNotEmpty &&
+        !manifestCarriesInteropSearchPaths(scratchPath, interopArguments)) {
+      await buildTranslatingSdkMismatch(
+        () => ProcessRunner.runChecked(
+          swiftBuild,
+          [...baseArguments, ...interopArguments, '--print-manifest-job-graph'],
+          environment: environment,
+          label: 'swift build plan (interop)',
+        ),
+      );
+      await repairWindowsGeneratedBuildFiles(
+        scratchPath,
+        targetBuildDir,
+        windows: windows,
+      );
+    }
     Future<void> runBuild([List<String> selection = const []]) async {
       final arguments = <String>[
         ...baseArguments,
@@ -620,6 +649,50 @@ abstract final class GeneratedPluginsPackage {
     }
   }
 
+  /// One `swift package resolve` attempt against [directory].
+  ///
+  /// SwiftPM resolves source-control dependencies by spawning git, so this
+  /// needs the same non-interactive settings as our own clones: otherwise a
+  /// moved or private dependency parks SwiftPM on an unanswerable credential
+  /// prompt.
+  ///
+  /// Deliberately unbounded. A cold graph the size of firebase-ios-sdk is
+  /// legitimately slow, and a wall-clock cap turned a slow build into a
+  /// failed one. The non-interactive git settings in
+  /// [swiftProcessEnvironment] are what keep a credential prompt from
+  /// hanging forever, not a timeout.
+  static Future<void> _resolveOnce(String swift, String directory) async {
+    final result = await ProcessRunner.run(
+      swift,
+      [
+        if (!Platform.isWindows) 'package',
+        '--package-path',
+        directory,
+        'resolve',
+      ],
+      environment: swiftProcessEnvironment(),
+    );
+    if (result.exitCode != 0) {
+      throw FlutterBuildError(
+        'Cannot resolve SwiftPM dependencies in $directory:\n'
+        '${resolveDiagnostics(result)}',
+      );
+    }
+  }
+
+  /// Both output streams of a failed resolve, in that order.
+  ///
+  /// SwiftPM reports fetch progress on stderr but writes the diagnostic that
+  /// explains a failure to stdout, so reporting stderr alone produced CI logs
+  /// that ended on a successful "Computed ..." line with no stated reason.
+  /// The combined text is also what [isTransientNetworkFailure] matches on,
+  /// so a reset that SwiftPM reports on stdout is still retried.
+  @visibleForTesting
+  static String resolveDiagnostics(CapturedProcess result) => [
+    result.stdout.trim(),
+    result.stderr.trim(),
+  ].where((stream) => stream.isNotEmpty).join('\n');
+
   /// Resolves Windows dependencies with the external toolset, materializes
   /// the Git-for-Windows symlink placeholders the resolve leaves behind, and
   /// normalizes the resulting Swift sources for host compatibility.
@@ -653,6 +726,10 @@ abstract final class GeneratedPluginsPackage {
       inheritStdio: Log.isVerbose,
       label: 'swift package resolve',
     );
+    Future<void> resolveWithRetries() => retryingTransientNetworkFailure(
+      resolve,
+      label: 'swift package resolve',
+    );
     final attemptState = SwiftPmBinaryAttemptState();
     final packageIdentities = await _packageIdentitiesByDirectory(pluginsDir);
     Future<bool> recover() => stageExtractedBinaryArtifacts(
@@ -667,12 +744,80 @@ abstract final class GeneratedPluginsPackage {
       windows: true,
     );
     await resolveWindowsDependencies(
-      resolve: resolve,
+      resolve: resolveWithRetries,
       recoverBootstrap: recover,
       materialize: () => materializeCheckoutSymlinks(scratchPath),
       normalize: () => normalizeResolvedPackageManifests(scratchPath),
       recoverFinal: recover,
     );
+  }
+
+  /// Fragments that mark a dependency fetch as a transient network failure
+  /// rather than a real, reproducible error.
+  ///
+  /// Resolving this plugin graph pulls from a dozen GitHub repositories, and
+  /// a reset or refused connection on any one of them fails the whole build
+  /// even though a retry moments later succeeds.
+  @visibleForTesting
+  static const transientNetworkFailureMarkers = <String>[
+    'connection was reset',
+    'could not connect to server',
+    'failed to connect to',
+    'recv failure',
+    'send failure',
+    'operation timed out',
+    'connection timed out',
+    'empty reply from server',
+    'unexpected disconnect',
+    'early eof',
+    'rpc failed',
+    'the remote end hung up',
+    'temporary failure in name resolution',
+    'could not resolve host',
+    'ssl_read',
+    'gnutls_handshake',
+    'transfer closed',
+    'http/2 stream',
+    'couldn\u2019t fetch updates from remote repositories',
+    "couldn't fetch updates from remote repositories",
+  ];
+
+  @visibleForTesting
+  static bool isTransientNetworkFailure(Object error) {
+    final text = error.toString().toLowerCase();
+    // Our own timeout already waited the full budget; retrying it would
+    // multiply the very stall the timeout exists to cut short.
+    if (text.contains('and was killed')) return false;
+    return transientNetworkFailureMarkers.any(text.contains);
+  }
+
+  /// Runs [action], retrying while it fails for an apparently transient
+  /// network reason.
+  ///
+  /// Anything else propagates on the first attempt, so a genuine build error
+  /// still fails fast instead of being retried three times.
+  @visibleForTesting
+  static Future<void> retryingTransientNetworkFailure(
+    Future<void> Function() action, {
+    required String label,
+    int attempts = 3,
+    Duration backoff = const Duration(seconds: 5),
+    Future<void> Function(Duration)? delay,
+  }) async {
+    for (var attempt = 1; ; attempt++) {
+      try {
+        return await action();
+      } on Object catch (error) {
+        if (attempt >= attempts || !isTransientNetworkFailure(error)) rethrow;
+        final pause = backoff * attempt;
+        Log.logTrace(
+          '$label failed on a transient network error '
+          '(attempt $attempt of $attempts), retrying in '
+          '${pause.inSeconds}s: $error',
+        );
+        await (delay ?? Future<void>.delayed)(pause);
+      }
+    }
   }
 
   @visibleForTesting
@@ -846,7 +991,24 @@ abstract final class GeneratedPluginsPackage {
             original,
             localPaths,
           );
-          await write(manifestFile.path, utf8.encode(rewritten));
+          if (rewritten != original) {
+            await write(manifestFile.path, utf8.encode(rewritten));
+          }
+          // SwiftPM invalidates on timestamps, and a manifest's timestamp
+          // invalidates every target in its package. Vendoring restores the
+          // upstream manifest with `git reset --hard` before each build, so
+          // this rewrite lands on a file git has just re-stamped: 12
+          // manifests per run, each with the same bytes as the run before,
+          // and that alone made the whole Firebase graph recompile on every
+          // incremental build.
+          //
+          // Neither the pre-write timestamp nor "skip when unchanged" can
+          // fix that, because the reset moves the timestamp and reverts the
+          // content before this code runs. Deriving the timestamp from the
+          // bytes does: identical patched manifests always carry an
+          // identical timestamp, and a genuinely new patch still gets a new
+          // one.
+          await _stampByContent(manifestFile.path, rewritten);
         }
       } on Object {
         for (final created in createdDestinations.entries.toList().reversed) {
@@ -872,11 +1034,25 @@ abstract final class GeneratedPluginsPackage {
   }) async {
     try {
       await resolve();
-    } on Object {
+    } on Object catch (error) {
+      // A resolve we killed for exceeding its own timeout is not a missing
+      // binary artifact, and re-running it just waits out the same stall
+      // again. Two such rounds are what kept the Windows job alive to the
+      // 90-minute job limit even after the timeout started firing.
+      if (isResolveTimeout(error)) rethrow;
       if (!await recover()) rethrow;
       await resolve();
     }
   }
+
+  /// Whether [error] is a resolve this tool killed for exceeding its timeout.
+  ///
+  /// Distinguishes our own deliberate kill from a failure of the work, so
+  /// recovery and retry paths can decline to run the same stall again.
+  @visibleForTesting
+  static bool isResolveTimeout(Object error) =>
+      error.toString().contains('and was killed') ||
+      error.toString().contains('took longer than');
 
   @visibleForTesting
   static Future<SwiftPmBinaryArtifactPublication?> recoverFinalBinaryArtifact({
@@ -1219,6 +1395,21 @@ abstract final class GeneratedPluginsPackage {
       return targets.isNotEmpty;
     }
 
+    // Prebuild every target the plan says will emit a `-Swift.h`, before any
+    // consumer of it is scheduled. Recovering after the fact cannot be made
+    // reliable here: SwiftPM compiles an Objective-C consumer concurrently
+    // with the Swift target whose header it imports, so whether the build
+    // succeeds depends on which finishes first. That is why the same
+    // checkout failed on `header not found`, then on `module not found`, then
+    // elsewhere, moving a little further each run as another header happened
+    // to land.
+    final planned = plannedSwiftInteropTargets(
+      targetBuildDir,
+      candidates: interopTargetCandidates,
+    );
+    for (final target in planned) {
+      await buildTarget(target);
+    }
     await repair();
     if (!skipInitialRecovery && await recoverMissingTargets()) {
       await build();
@@ -1251,6 +1442,12 @@ abstract final class GeneratedPluginsPackage {
   }) {
     final directory = Directory(targetBuildDir);
     if (!directory.existsSync()) return const [];
+    // A target the aggregate never reaches is never scheduled, so it cannot
+    // be the one whose header a consumer raced. Its module map still names
+    // an `-Swift.h` that no build will ever write, so without this filter
+    // recovery rebuilds the same targets on every single run and never
+    // converges. See [plannedSwiftInteropTargets] for the same reasoning.
+    final reachable = plannedTargetClosure(targetBuildDir, _pluginsProductName);
     final targets = <String>{};
     final headerPattern = RegExp(r'\bheader\s+"([^"]+-Swift\.h)"');
     for (final entity in directory.listSync(followLinks: false)) {
@@ -1273,6 +1470,7 @@ abstract final class GeneratedPluginsPackage {
           0,
           basename.length - '-Swift.h'.length,
         );
+        if (reachable != null && !reachable.contains(target)) continue;
         if (candidates.contains(target)) targets.add(target);
       }
     }
@@ -1357,15 +1555,91 @@ abstract final class GeneratedPluginsPackage {
     }
   }
 
-  /// Process-local settings for Windows SwiftPM dependency checkout and
-  /// sentry-cocoa's source-build manifest lane.
+  /// Environment that makes Git — and anything spawning it, including
+  /// SwiftPM's own dependency resolution — fail instead of waiting on a
+  /// human.
+  ///
+  /// Nothing is attached to this build's stdin: our runners pipe it and
+  /// SwiftPM pipes its children too. So when a vendored dependency's
+  /// repository has moved, gone private, or started rate-limiting, Git's
+  /// default answer — prompt for credentials — is a prompt no one can see
+  /// or answer, and the child waits forever. On Windows, Git Credential
+  /// Manager escalates that to an invisible GUI dialog. That is how a CI
+  /// job sits for hours inside `Building Flutter plugins` printing nothing.
+  ///
+  /// * `GIT_TERMINAL_PROMPT=0` refuses username/password prompts on a tty.
+  /// * Empty `GIT_ASKPASS`/`SSH_ASKPASS` with `SSH_ASKPASS_REQUIRE=never`
+  ///   disables the graphical fallbacks Git uses when there is no tty.
+  /// * `GCM_INTERACTIVE=never` and `GCM_PROVIDER=none` keep Git Credential
+  ///   Manager from opening a window of its own.
+  /// * `GIT_SSH_COMMAND` with `BatchMode=yes` fails an SSH remote outright
+  ///   instead of asking for a passphrase or host-key confirmation.
+  ///
+  /// Each one turns a silent hang into an ordinary clone failure whose
+  /// message names the repository that could not be read.
+  @visibleForTesting
+  static const Map<String, String> nonInteractiveGitEnvironment = {
+    'GIT_TERMINAL_PROMPT': '0',
+    'GIT_ASKPASS': '',
+    'SSH_ASKPASS': '',
+    'SSH_ASKPASS_REQUIRE': 'never',
+    'GCM_INTERACTIVE': 'never',
+    'GCM_PROVIDER': 'none',
+    'GIT_SSH_COMMAND':
+        'ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new',
+  };
+
+  /// Git settings applied through `GIT_CONFIG_*`, in order.
+  ///
+  /// Resetting `credential.helper` closes the last door: a helper
+  /// configured system-wide — Git Credential Manager on the Windows
+  /// runners, `osxkeychain` on a developer's Mac — is consulted before any
+  /// prompt setting applies, and it can block on its own UI. Clearing the
+  /// list leaves Git with nobody to ask.
+  ///
+  /// The value is `""`, not the empty string: Git parses `GIT_CONFIG_VALUE_*`
+  /// the way it parses a config file, and rejects a genuinely empty one with
+  /// "missing config value ... fatal: unable to parse command-line config",
+  /// which would fail every git command this build runs rather than only the
+  /// ones that need credentials. Two quotes are the config-file spelling of
+  /// an empty value, and an empty `credential.helper` is what resets the
+  /// list.
+  ///
+  /// `core.symlinks=false` keeps Windows checkouts on placeholder files
+  /// that [materializeGitCheckoutSymlinks] converts afterwards. Our own
+  /// clones override it per command with `-c core.symlinks=true` where the
+  /// host can create real symlinks; a command-line `-c` outranks these.
+  static List<({String key, String value})> _gitConfigEntries({
+    required bool windows,
+  }) => [
+    (key: 'credential.helper', value: '""'),
+    // Git 2.36+ refuses a helper prompt outright; older Git ignores it and
+    // relies on the reset above.
+    (key: 'credential.interactive', value: 'false'),
+    // Abort a transfer that delivers less than 1 KiB/s for 60s rather than
+    // holding the connection open indefinitely. GitHub occasionally resets or
+    // silently drops these fetches, and SwiftPM inherits the stall: the build
+    // then sits with no output until the CI job is killed. With this, git
+    // fails fast and the error is visible and retryable.
+    (key: 'http.lowSpeedLimit', value: '1024'),
+    (key: 'http.lowSpeedTime', value: '60'),
+    if (windows) (key: 'core.symlinks', value: 'false'),
+  ];
+
+  /// Process-local settings for SwiftPM dependency checkout: the
+  /// non-interactive Git settings every host needs, plus the Windows
+  /// symlink and sentry-cocoa source-build manifest lane.
   static Map<String, String>? swiftProcessEnvironment({bool? windows}) {
-    if (!(windows ?? Platform.isWindows)) return null;
+    final onWindows = windows ?? Platform.isWindows;
+    final config = _gitConfigEntries(windows: onWindows);
     return {
-      'GIT_CONFIG_COUNT': '1',
-      'GIT_CONFIG_KEY_0': 'core.symlinks',
-      'GIT_CONFIG_VALUE_0': 'false',
-      'EXPERIMENTAL_SPM_BUILDS': '1',
+      ...nonInteractiveGitEnvironment,
+      'GIT_CONFIG_COUNT': '${config.length}',
+      for (final (index, entry) in config.indexed) ...{
+        'GIT_CONFIG_KEY_$index': entry.key,
+        'GIT_CONFIG_VALUE_$index': entry.value,
+      },
+      if (onWindows) 'EXPERIMENTAL_SPM_BUILDS': '1',
     };
   }
 
@@ -1494,6 +1768,127 @@ abstract final class GeneratedPluginsPackage {
         '${description.path}: $error',
       );
     }
+  }
+
+  /// Targets the build plan says will emit a `-Swift.h` that is not on disk.
+  ///
+  /// Unlike [missingSwiftInteropTargets], which can only see a module map
+  /// SwiftPM has already written, this reads the plan, so it knows the full
+  /// set before the first compile. That difference is what makes the prepass
+  /// deterministic: on a cold build no module map exists yet, so scanning the
+  /// build directory finds nothing to prebuild and the race is entered
+  /// anyway.
+  ///
+  /// Names are returned in plan order so the prepass is reproducible.
+  @visibleForTesting
+  static List<String> plannedSwiftInteropTargets(
+    String targetBuildDir, {
+    required Set<String> candidates,
+  }) {
+    // The plan is an optimisation for the prepass, not a requirement: without
+    // it the existing after-the-fact recovery still runs. A build directory
+    // with no readable plan therefore means "nothing to prebuild", not a
+    // build failure.
+    final List<String> planned;
+    try {
+      planned = plannedSwiftInteropSearchPaths(targetBuildDir);
+    } on Object {
+      return const [];
+    }
+    // Only a target the aggregate actually reaches can be compiled by the
+    // aggregate build, so only such a target can lose the header race the
+    // prepass exists to prevent. The plan lists every target in the resolved
+    // dependency graph, including the ones no product here depends on:
+    // measured on examples/flutter_example that is 18 of 37, and each one
+    // costs a whole `swift build` process (~4-13s on Windows) that can never
+    // emit its header, because nothing schedules the target that would.
+    // Prebuilding them was therefore pure latency, paid on every build,
+    // forever: 13 unreachable targets re-prebuilt on each incremental run.
+    final reachable = plannedTargetClosure(targetBuildDir, _pluginsProductName);
+    final targets = <String>{};
+    for (final argument in planned) {
+      final directory = p.basename(argument);
+      if (directory != 'include') continue;
+      final owner = p.basename(p.dirname(argument));
+      if (!owner.endsWith('.build')) continue;
+      final target = owner.substring(0, owner.length - '.build'.length);
+      if (!candidates.contains(target)) continue;
+      // A null closure means the plan carried no dependency map to filter
+      // with, so fall back to the unfiltered set rather than skipping the
+      // prepass and reintroducing the race.
+      if (reachable != null && !reachable.contains(target)) continue;
+      if (File(p.join(argument, '$target-Swift.h')).existsSync()) continue;
+      targets.add(target);
+    }
+    final sorted = targets.toList()..sort();
+    return sorted;
+  }
+
+  /// [root] and every target reachable from it in the plan's dependency map.
+  ///
+  /// Returns null when the plan carries no usable dependency map, so callers
+  /// can tell "nothing is reachable" apart from "reachability is unknown".
+  @visibleForTesting
+  static Set<String>? plannedTargetClosure(String targetBuildDir, String root) {
+    final description = File(p.join(targetBuildDir, 'description.json'));
+    final Map<String, List<String>> edges;
+    try {
+      final decoded = jsonDecode(description.readAsStringSync());
+      if (decoded is! Map<String, dynamic>) return null;
+      final map = decoded['targetDependencyMap'];
+      if (map is! Map<String, dynamic>) return null;
+      edges = {
+        for (final entry in map.entries)
+          if (entry.value case final List<dynamic> dependencies)
+            entry.key: [
+              for (final dependency in dependencies)
+                if (dependency is String) dependency,
+            ],
+      };
+    } on Object {
+      return null;
+    }
+    if (edges.isEmpty) return null;
+    final seen = <String>{root};
+    final stack = <String>[root];
+    while (stack.isNotEmpty) {
+      for (final next in edges[stack.removeLast()] ?? const <String>[]) {
+        if (seen.add(next)) stack.add(next);
+      }
+    }
+    return seen;
+  }
+
+  /// Whether the llbuild manifest already applies every interop search path.
+  ///
+  /// llbuild replays the command lines recorded in `debug.yaml` verbatim, so
+  /// a manifest that already names each path produces exactly the build a
+  /// re-plan would produce. The manifest is JSON-quoted, so the separators
+  /// of a Windows path appear escaped.
+  @visibleForTesting
+  static bool manifestCarriesInteropSearchPaths(
+    String scratchPath,
+    List<String> interopArguments,
+  ) {
+    final manifest = File(p.join(scratchPath, 'debug.yaml'));
+    final String text;
+    try {
+      text = manifest.readAsStringSync();
+    } on Object {
+      return false;
+    }
+    if (text.isEmpty) return false;
+    var checked = 0;
+    // [plannedSwiftInteropSearchPaths] emits each include as the quadruple
+    // `-Xcc -I -Xcc <path>`, so the path follows the `-I` across the `-Xcc`
+    // that forwards it to Clang.
+    for (var index = 0; index + 2 < interopArguments.length; index++) {
+      if (interopArguments[index] != '-I') continue;
+      if (interopArguments[index + 1] != '-Xcc') continue;
+      checked++;
+      if (!text.contains(jsonEncode(interopArguments[index + 2]))) return false;
+    }
+    return checked > 0;
   }
 
   /// Search-path arguments for the Objective-C interop modules SwiftPM
@@ -2375,6 +2770,13 @@ abstract final class GeneratedPluginsPackage {
       transform: transform,
     );
     await _writeStable(p.join(staged, 'Package.swift'), manifest);
+    // The manifest is regenerated from the plugin's own each build and can
+    // legitimately differ between the staging write and a later pass, so
+    // "write only when changed" cannot keep its timestamp fixed on its own.
+    // SwiftPM invalidates a package's whole target set on its manifest
+    // timestamp, so stamp by content: identical output keeps the timestamp
+    // SwiftPM already compiled against.
+    await _stampByContent(p.join(staged, 'Package.swift'), manifest);
   }
 
   /// The host-compatibility source rewrite as a sync transform, electing
@@ -2996,6 +3398,32 @@ let package = Package(
       return 'fb@${safeRef.length > 12 ? safeRef.substring(0, 12) : safeRef}';
     }
     return '$identity@$safeRef';
+  }
+
+  /// Swift tools version declared by [manifest], or `null` when absent.
+  ///
+  /// `.package(name:path:)` only exists from PackageDescription 5.2, so a
+  /// vendored manifest older than that (SDWebImageWebPCoder pins 5.0) must
+  /// get a plain `.package(path:)`. Pre-5.2 SwiftPM derives the dependency
+  /// name from the dependency's own `Package(name:)`, so target references
+  /// keep resolving without an explicit `name:`.
+  @visibleForTesting
+  static ({int major, int minor})? manifestToolsVersion(String manifest) {
+    final match = RegExp(
+      r'^//\s*swift-tools-version\s*:?\s*(\d+)(?:\.(\d+))?',
+      multiLine: true,
+    ).firstMatch(manifest);
+    if (match == null) return null;
+    return (
+      major: int.parse(match.group(1)!),
+      minor: int.tryParse(match.group(2) ?? '0') ?? 0,
+    );
+  }
+
+  static bool _supportsNamedPathDeps(String manifest) {
+    final version = manifestToolsVersion(manifest);
+    if (version == null) return true;
+    return version.major > 5 || (version.major == 5 && version.minor >= 2);
   }
 
   /// SwiftPM package identity implied by a git URL (last path segment, no
@@ -4006,20 +4434,10 @@ let package = Package(
     );
     final runResolve =
         resolve ??
-        (directory) async {
-          final result = await ProcessRunner.run(swift, [
-            if (!Platform.isWindows) 'package',
-            '--package-path',
-            directory,
-            'resolve',
-          ]);
-          if (result.exitCode != 0) {
-            throw FlutterBuildError(
-              'Cannot resolve SwiftPM dependencies in $directory:\n'
-              '${result.stderr.trim()}',
-            );
-          }
-        };
+        (directory) => retryingTransientNetworkFailure(
+          () => _resolveOnce(swift, directory),
+          label: 'swift package resolve',
+        );
     // `swift package --package-path <directory> resolve` uses
     // `<directory>/.build`; it does not share the final build's explicit
     // scratch path. Recovery must inspect the checkouts and artifacts from
@@ -4249,6 +4667,7 @@ let package = Package(
     if (deps.isEmpty) return manifest;
 
     var result = manifest;
+    final namedPathDeps = _supportsNamedPathDeps(manifest);
     for (final dep in deps) {
       final ref = evaluatedRefs[_canonicalGitUrl(dep.url)];
       if (ref == null) {
@@ -4327,9 +4746,10 @@ let package = Package(
           });
         }
       }
-      final pathDep =
-          '.package(name: "$identity", '
-          'path: "${_swiftPath(destination)}")';
+      final pathDep = namedPathDeps
+          ? '.package(name: "$identity", '
+                'path: "${_swiftPath(destination)}")'
+          : '.package(path: "${_swiftPath(destination)}")';
       result = result.replaceFirst(dep.match, pathDep);
     }
     return result;
@@ -5010,6 +5430,15 @@ let package = Package(
   ) async {
     final destDir = Directory(destination);
     final environment = swiftProcessEnvironment(windows: Platform.isWindows);
+    // Last line of defence behind [nonInteractiveGitEnvironment]. That
+    // environment cannot clear a *URL-scoped* helper — `credential
+    // .https://github.com.helper` is a different key per host, so no fixed
+    // reset covers them — and a helper that opens UI still blocks on a
+    // build that has no one watching. A network stall does the same.
+    // Generous enough that a cold clone of a large dependency finishes
+    // (firebase-ios-sdk takes well under a minute on CI), short enough
+    // that a stuck one is reported the same hour.
+    const timeout = Duration(minutes: 10);
     // `core.symlinks=true` on every command, not just the clone: a later
     // `reset --hard` under the default `false` would see the real symlinks
     // as modified files and overwrite them with placeholders again.
@@ -5023,87 +5452,135 @@ let package = Package(
             ],
           ]
         : const <String>[];
+    // Some packages keep their sources in a submodule (libwebp-Xcode vendors
+    // webmproject/libwebp), so a submodule-less checkout compiles into
+    // "unknown type name WebPDemuxer" once a dependent target imports it.
+    Future<void> updateSubmodules() async {
+      if (!File(p.join(destination, '.gitmodules')).existsSync()) return;
+      await ProcessRunner.runChecked(
+        git,
+        [
+          ...gitConfig,
+          '-C',
+          destination,
+          'submodule',
+          'update',
+          '--init',
+          '--recursive',
+          '--depth',
+          '1',
+        ],
+        environment: environment,
+        timeout: timeout,
+        label: 'git submodule update ${p.basename(destination)}',
+      );
+    }
+
     if (File(p.join(destination, '.git')).existsSync() ||
         Directory(p.join(destination, '.git')).existsSync()) {
-      final head = await ProcessRunner.run(git, [
-        ...gitConfig,
-        '-C',
-        destination,
-        'rev-parse',
-        '--verify',
-        'HEAD',
-      ], environment: environment);
+      final head = await ProcessRunner.run(
+        git,
+        [...gitConfig, '-C', destination, 'rev-parse', '--verify', 'HEAD'],
+        environment: environment,
+        timeout: timeout,
+      );
       if (head.exitCode == 0 &&
           head.stdout.trim().toLowerCase() == ref.toLowerCase()) {
         await ProcessRunner.runChecked(
           git,
           [...gitConfig, '-C', destination, 'reset', '--hard', 'HEAD'],
           environment: environment,
+          timeout: timeout,
           label: 'git reset vendored package',
         );
+        await updateSubmodules();
         return;
       }
     }
     await _deleteEntity(destination);
     await destDir.parent.create(recursive: true);
 
-    final shallow = await ProcessRunner.run(git, [
-      ...gitConfig,
-      'clone',
-      '--depth',
-      '1',
-      '--branch',
-      ref,
-      url,
-      destination,
-    ], environment: environment);
-    if (shallow.exitCode == 0) return;
+    final shallow = await ProcessRunner.run(
+      git,
+      [
+        ...gitConfig,
+        'clone',
+        '--depth',
+        '1',
+        '--branch',
+        ref,
+        url,
+        destination,
+      ],
+      environment: environment,
+      timeout: timeout,
+    );
+    if (shallow.exitCode == 0) {
+      await updateSubmodules();
+      return;
+    }
 
     await _deleteEntity(destination);
     await Directory(destination).create(recursive: true);
-    final init = await ProcessRunner.run(git, [
-      ...gitConfig,
-      '-C',
-      destination,
-      'init',
-    ], environment: environment);
+    final init = await ProcessRunner.run(
+      git,
+      [...gitConfig, '-C', destination, 'init'],
+      environment: environment,
+      timeout: timeout,
+    );
     final fetch = init.exitCode == 0
-        ? await ProcessRunner.run(git, [
-            ...gitConfig,
-            '-C',
-            destination,
-            'fetch',
-            '--depth',
-            '1',
-            url,
-            ref,
-          ], environment: environment)
+        ? await ProcessRunner.run(
+            git,
+            [
+              ...gitConfig,
+              '-C',
+              destination,
+              'fetch',
+              '--depth',
+              '1',
+              url,
+              ref,
+            ],
+            environment: environment,
+            timeout: timeout,
+          )
         : init;
     final checkout = fetch.exitCode == 0
-        ? await ProcessRunner.run(git, [
-            ...gitConfig,
-            '-C',
-            destination,
-            'checkout',
-            '--detach',
-            'FETCH_HEAD',
-          ], environment: environment)
+        ? await ProcessRunner.run(
+            git,
+            [
+              ...gitConfig,
+              '-C',
+              destination,
+              'checkout',
+              '--detach',
+              'FETCH_HEAD',
+            ],
+            environment: environment,
+            timeout: timeout,
+          )
         : fetch;
-    if (checkout.exitCode == 0) return;
+    if (checkout.exitCode == 0) {
+      await updateSubmodules();
+      return;
+    }
 
     await _deleteEntity(destination);
     await ProcessRunner.runChecked(
       git,
       [...gitConfig, 'clone', url, destination],
       environment: environment,
+      timeout: timeout,
       label: 'git clone $url',
     );
     await ProcessRunner.runChecked(
       git,
       [...gitConfig, '-C', destination, 'checkout', ref],
       environment: environment,
+      timeout: timeout,
       label: 'git checkout $ref',
     );
+    await updateSubmodules();
   }
 
   static Future<bool> _normalizeVendoredPackageManifests(
@@ -5127,6 +5604,12 @@ let package = Package(
       if (updated == original) return;
       await _clearPlaceholderAttributes(manifest.path);
       await manifest.writeAsString(updated);
+      // Vendoring restores the upstream manifest with `git reset --hard`
+      // before each build, so these host fixes are re-applied every run and
+      // land with a fresh timestamp even though the bytes never change.
+      // SwiftPM invalidates a package's whole target set on its manifest
+      // timestamp, so that alone recompiled the entire graph each build.
+      await _stampByContent(manifest.path, updated);
       changed = true;
     }
 
@@ -5280,10 +5763,50 @@ $diagnosticsStart$registrations$diagnosticsEnd}
   ///
   /// SwiftPM invalidates on timestamps, so rewriting identical generated
   /// files would recompile the whole plugin graph on every run.
+  ///
+  /// Skipping the write is not enough on its own. Several of these files are
+  /// staged, reset, or regenerated from scratch earlier in the same build, so
+  /// the write is genuinely necessary yet still produces the bytes the last
+  /// build compiled. The timestamp is therefore derived from the content, so
+  /// identical output always presents SwiftPM with an identical timestamp.
   static Future<void> _writeStable(String path, String content) async {
     final file = File(path);
-    if (file.existsSync() && await file.readAsString() == content) return;
-    await _writeAtomic(path, utf8.encode(content));
+    if (!(file.existsSync() && await file.readAsString() == content)) {
+      await _writeAtomic(path, utf8.encode(content));
+    }
+    await _stampByContent(path, content);
+  }
+
+  /// Sets [path]'s modification time to a function of [content].
+  ///
+  /// For a file that must be rewritten on every run because something else
+  /// reverts it first, "write only when changed" cannot keep the timestamp
+  /// stable. Deriving the timestamp from the bytes can: the same content
+  /// always yields the same timestamp, so SwiftPM sees no change, while new
+  /// content still moves it.
+  ///
+  /// Failures are ignored. A timestamp that cannot be set costs a rebuild,
+  /// which is the behaviour this avoids, not a broken build.
+  static Future<void> _stampByContent(String path, String content) =>
+      _stampByContentBytes(path, utf8.encode(content));
+
+  /// [_stampByContent] for content already encoded as bytes.
+  static Future<void> _stampByContentBytes(String path, List<int> bytes) async {
+    try {
+      final digest = sha256.convert(bytes).bytes;
+      // A fixed, arbitrary epoch plus a digest-derived offset. The offset is
+      // bounded to roughly a decade so the result is always a valid, plainly
+      // historical timestamp rather than something a tool might reject.
+      final offset =
+          ((digest[0] << 24) | (digest[1] << 16) | (digest[2] << 8) | digest[3])
+              .toUnsigned(32) %
+          const Duration(days: 3650).inSeconds;
+      await File(path).setLastModified(
+        DateTime.utc(2010).add(Duration(seconds: offset)),
+      );
+    } on Object {
+      // Deliberately ignored: see above.
+    }
   }
 
   static Future<void> _writeAtomic(String path, List<int> bytes) async {
@@ -5364,6 +5887,13 @@ $diagnosticsStart$registrations$diagnosticsEnd}
       return false;
     }
     await existing.writeAsBytes(bytes);
+    // Staging re-copies plugin sources on every build, and a later repair
+    // pass rewrites some of them, so a file can be legitimately written
+    // twice per build while ending at the same bytes it had before. SwiftPM
+    // invalidates on timestamps, so without a content-derived stamp those
+    // rewrites recompile the target, and everything downstream of it, on
+    // every incremental build.
+    await _stampByContentBytes(destination, bytes);
     return true;
   }
 

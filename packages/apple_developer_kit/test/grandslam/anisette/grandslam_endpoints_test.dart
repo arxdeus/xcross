@@ -1,6 +1,7 @@
 // Tests for [GrandSlamEndpoints]/[fetchGrandSlamEndpoints]: plist
 // encode/decode of the lookup response shape, and the lookup HTTP call
 // (mocked - see task note re: no real network in this test suite).
+import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/grandslam_endpoints.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -134,6 +135,7 @@ void main() {
   test('sensitive requests disable and reject redirects', () async {
     final client = MockClient((request) async {
       expect(request.followRedirects, isFalse);
+      expect(request.persistentConnection, isFalse);
       return http.Response(
         '',
         302,
@@ -150,7 +152,13 @@ void main() {
         operation: 'test',
         body: 'secret',
       ),
-      throwsA(isA<Exception>()),
+      throwsA(
+        isA<AppleError>().having(
+          (error) => error.message,
+          'redirect rejection',
+          contains('refused an HTTP redirect'),
+        ),
+      ),
     );
   });
 
@@ -159,6 +167,7 @@ void main() {
       http.Request? seenRequest;
       final client = MockClient((request) async {
         seenRequest = request;
+        expect(request.persistentConnection, isFalse);
         return http.Response(_lookupResponsePlist, 200);
       });
 

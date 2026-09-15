@@ -61,6 +61,42 @@ final login = await client.login(
 client.close();
 ```
 
+### Troubleshooting Apple ID login
+
+- **HTTP 503 and Xcode client-info:** Apple's GrandSlam edge rejects
+  `X-MMe-Client-Info` containing `com.apple.dt.Xcode`, as documented in
+  [anisette-v3-server #59](https://github.com/Dadoum/anisette-v3-server/issues/59).
+  The built-in provider and GSA requests use `com.apple.akd/1.0`. Custom providers
+  must supply compatible client-info too. The Developer Services app identifier
+  `com.apple.gs.xcode.auth` is a separate value and must not be replaced.
+- **HTTP 429 at `o=complete` after switching to `akd`:** this can be a
+  connection-reuse problem, not necessarily an account/IP cooldown.
+  [iLoader #709](https://github.com/nab138/iloader/issues/709) reports the same
+  proof-request failure. Its [v2.3.3 release](https://github.com/nab138/iloader/releases/tag/v2.3.3)
+  disabled connection pooling via
+  [isideload f6a4d5d](https://github.com/nab138/isideload/commit/f6a4d5dba717d72fc2af63eaba26b27ba44116be).
+  xcross applies the equivalent policy with `persistentConnection = false` on
+  every GrandSlam request, including lookup, provisioning, SRP, and 2FA. TLS
+  certificate verification remains enabled. No failed proof is automatically
+  replayed and no Anisette identity is reset.
+- **Other/persistent HTTP 429:** GrandSlam and Developer Services report
+  `AppleRateLimitError` with the failing operation and
+  a parsed `retryAfter` duration when Apple provides one (seconds or HTTP date).
+  Requests are not automatically replayed. Wait at least the stated duration.
+  If Apple provides no usable duration, stop repeated attempts and try later.
+  Changing client-info does not remove an existing server-side cooldown.
+- Do not run `xcross auth clear`, delete ADI/Anisette state, or reset your password
+  to address a 429. Keep the existing machine identity and saved session. If it
+  persists, report the failing operation and HTTP status, not passwords, tokens,
+  Anisette headers, or session files.
+
+The connection policy has an opt-in live transport check. From this package
+directory, set `XCROSS_LIVE_GSA_TRANSPORT=1` and run
+`dart test test/grandslam/anisette/grandslam_transport_live_test.dart`.
+It sends two endpoint-lookup GETs to Apple using the production client and
+checks that they open two connections. It does not load credentials, ADI, or
+saved state, and does not prove that a particular account can sign in.
+
 ### App Store Connect development provisioning
 
 ```dart

@@ -17,6 +17,7 @@ typedef DoctorLocateTool =
 typedef DoctorSingleCheck = Future<DoctorCheck> Function();
 typedef DoctorResolveTool = Future<String> Function();
 typedef DoctorToolDefect = Future<String?> Function(String path);
+typedef DoctorToolDetail = Future<String?> Function(String path);
 
 abstract final class DoctorEnvironmentChecks {
   static const _requiredTools = ['swift', 'clang++', 'llvm-ar'];
@@ -28,6 +29,7 @@ abstract final class DoctorEnvironmentChecks {
     iosClang: _resolveIosClang,
     iosLinker: _resolveIosLinker,
     iosLinkerDefect: DarwinSdk.selectorStubDefect,
+    iosLinkerDetail: _ld64LldDetail,
     darwinSdk: _darwinSdk,
   );
 
@@ -39,6 +41,7 @@ abstract final class DoctorEnvironmentChecks {
     required DoctorResolveTool iosLinker,
     required DoctorSingleCheck darwinSdk,
     DoctorToolDefect? iosLinkerDefect,
+    DoctorToolDetail? iosLinkerDetail,
   }) async {
     final checks = <DoctorCheck>[_hostPlatform(operatingSystem)];
     for (final tool in _requiredTools) {
@@ -46,7 +49,12 @@ abstract final class DoctorEnvironmentChecks {
     }
     checks.add(await _buildTool('iOS clang', iosClang));
     checks.add(
-      await _buildTool('iOS linker', iosLinker, defect: iosLinkerDefect),
+      await _buildTool(
+        'iOS linker',
+        iosLinker,
+        defect: iosLinkerDefect,
+        detail: iosLinkerDetail,
+      ),
     );
     checks.add(await darwinSdk());
     return checks;
@@ -89,6 +97,7 @@ abstract final class DoctorEnvironmentChecks {
     String name,
     DoctorResolveTool resolve, {
     DoctorToolDefect? defect,
+    DoctorToolDetail? detail,
   }) async {
     final String path;
     try {
@@ -97,9 +106,21 @@ abstract final class DoctorEnvironmentChecks {
       return DoctorCheck.failure(name, error.toString());
     }
     final problem = defect == null ? null : await defect(path);
-    return problem == null
-        ? DoctorCheck.success(name, 'Ready', path: path)
-        : DoctorCheck.warning(name, problem, path: path);
+    if (problem != null) return DoctorCheck.warning(name, problem, path: path);
+    final extra = detail == null ? null : await detail(path);
+    return DoctorCheck.success(
+      name,
+      extra == null ? 'Ready' : 'Ready ($extra)',
+      path: path,
+    );
+  }
+
+  /// `LLD <major>.<minor>`, so a healthy linker still reports which one it
+  /// is: the selector-stub warning names a bad version, but without this a
+  /// good one is indistinguishable from an unknown one.
+  static Future<String?> _ld64LldDetail(String path) async {
+    final version = await DarwinSdk.ld64LldVersion(path);
+    return version == null ? null : 'LLD ${version.$1}.${version.$2}';
   }
 
   static Future<String> _resolveIosClang() {

@@ -23,6 +23,26 @@ glibc-devel libcurl-devel gcc gcc-c++
 # shellcheck disable=SC2086
 $SUDO dnf install -y $packages
 
+# Up to and including LLVM 18, ld64.lld miswires `_objc_msgSend$<selector>`
+# stubs, which silently breaks Objective-C plugins at runtime, so make sure
+# the ld64.lld this install leaves behind is new enough.
+min_lld=19
+lld_major() {
+	"$1" --version 2>&1 | sed -n 's/.*\bLLD \([0-9][0-9]*\)\..*/\1/p' | head -n 1
+}
+
+found_lld="$(command -v ld64.lld 2>/dev/null || true)"
+if [ -n "$found_lld" ]; then
+	found_major="$(lld_major "$found_lld")"
+	if [ -n "$found_major" ] && [ "$found_major" -lt "$min_lld" ]; then
+		printf 'warning: %s is LLD %s; xcross needs %s or newer for Objective-C plugins.\n' \
+			"$found_lld" "$found_major" "$min_lld" >&2
+		printf 'warning: install a newer lld and put its ld64.lld ahead on PATH.\n' >&2
+	fi
+else
+	printf 'warning: no ld64.lld on PATH after install; xcross cannot link for iOS.\n' >&2
+fi
+
 if ! command -v swift >/dev/null 2>&1; then
 	swiftly_dir="$(mktemp -d)"
 	trap 'rm -rf "$swiftly_dir"' EXIT HUP INT TERM

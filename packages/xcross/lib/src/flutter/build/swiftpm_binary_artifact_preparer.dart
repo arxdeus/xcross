@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:cli_kit/cli_kit.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:xcross/src/flutter/build/swiftpm_binary_artifact_store.dart';
@@ -1280,16 +1281,63 @@ final class SwiftPmBinaryArtifactPreparer {
     ).toString();
   }
 
+  /// How long to wait for the TCP connection and for the response headers.
+  ///
+  /// A hung connect is the common CI failure: the socket is accepted but
+  /// nothing ever arrives, and a bare [HttpClient] waits forever.
+  @visibleForTesting
+  static const downloadConnectTimeout = Duration(seconds: 60);
+
+  /// How long the transfer may stall between two chunks.
+  ///
+  /// This is deliberately a *stall* budget rather than a total one, so a
+  /// legitimately large artifact on a slow link still completes while a dead
+  /// connection is abandoned promptly.
+  @visibleForTesting
+  static const downloadStallTimeout = Duration(minutes: 2);
+
+  /// Upper bound on a single archive download regardless of progress.
+  @visibleForTesting
+  static const downloadTotalTimeout = Duration(minutes: 15);
+
   static Future<void> _defaultDownload(
     Uri url,
     File destination,
     int maximumBytes,
-  ) async {
-    final client = HttpClient();
+  ) => downloadArchive(url, destination, maximumBytes);
+
+  /// Downloads [url] into [destination], refusing to wait forever.
+  ///
+  /// The timeouts are parameters so tests can drive them; production always
+  /// uses the defaults above.
+  @visibleForTesting
+  static Future<void> downloadArchive(
+    Uri url,
+    File destination,
+    int maximumBytes, {
+    Duration connectTimeout = downloadConnectTimeout,
+    Duration stallTimeout = downloadStallTimeout,
+    Duration totalTimeout = downloadTotalTimeout,
+  }) async {
+    // Without these a stalled download blocks the whole build forever: this
+    // is what left Windows CI sitting silent until the six-hour job limit.
+    final client = HttpClient()
+      ..connectionTimeout = connectTimeout
+      ..idleTimeout = stallTimeout;
     IOSink? output;
     try {
-      final request = await client.getUrl(url);
-      final response = await request.close();
+      final request = await client.getUrl(url).timeout(
+        connectTimeout,
+        onTimeout: () => throw TimeoutException(
+          'timed out connecting to $url after $connectTimeout',
+        ),
+      );
+      final response = await request.close().timeout(
+        connectTimeout,
+        onTimeout: () => throw TimeoutException(
+          'timed out waiting for a response from $url after $connectTimeout',
+        ),
+      );
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw HttpException(
           'HTTP ${response.statusCode} while downloading archive',
@@ -1302,9 +1350,25 @@ final class SwiftPmBinaryArtifactPreparer {
       await destination.parent.create(recursive: true);
       output = destination.openWrite();
       var downloadedBytes = 0;
-      await for (final chunk in response) {
+      final total = Stopwatch()..start();
+      final chunks = response.timeout(
+        stallTimeout,
+        onTimeout: (sink) => sink.addError(
+          TimeoutException(
+            'download of $url stalled for $stallTimeout after '
+            '$downloadedBytes bytes',
+          ),
+        ),
+      );
+      await for (final chunk in chunks) {
         if (downloadedBytes + chunk.length > maximumBytes) {
           throw FlutterBuildError(_archiveByteLimitMessage);
+        }
+        if (total.elapsed > totalTimeout) {
+          throw TimeoutException(
+            'download of $url exceeded $totalTimeout after '
+            '$downloadedBytes bytes',
+          );
         }
         output.add(chunk);
         downloadedBytes += chunk.length;

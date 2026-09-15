@@ -11,6 +11,22 @@ base class AppleError implements Exception {
   String toString() => message;
 }
 
+/// Apple refused a request with HTTP 429. Authentication requests must not
+/// be replayed automatically, especially requests that send a two-factor code.
+final class AppleRateLimitError extends AppleError {
+  AppleRateLimitError({required this.operation, this.retryAfter})
+    : super(
+        '$operation failed (HTTP 429 Too Many Requests). '
+        '${retryAfter == null ? 'Apple did not provide a usable Retry-After. Wait before trying again.' : 'Wait at least ${retryAfter.inSeconds} seconds before trying again.'} '
+        'The request was not retried. Repeated sign-in attempts can prolong '
+        'throttling. Do not clear your Anisette state or reset your password '
+        'to resolve this error.',
+      );
+
+  final String operation;
+  final Duration? retryAfter;
+}
+
 /// The signing credentials in use cannot provision App Groups at all.
 ///
 /// This is a property of Apple's APIs rather than a transient failure: an App

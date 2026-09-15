@@ -9,6 +9,27 @@ abstract final class ObjCFastStubRewriter {
   static const _nExt = 0x01;
   static const _fastStubPrefix = r'_objc_msgSend$';
 
+  /// A `__DATA`/`__DATA_CONST` slot in a chained-fixups image is not a plain
+  /// pointer: `DYLD_CHAINED_PTR_64` keeps the target in the low 36 bits and
+  /// packs dyld's own state above it — most importantly the 12-bit `next`
+  /// delta at bit 51, which links every slot on a page into one chain.
+  ///
+  /// Rewriting a selref by storing a bare address therefore zeroes that
+  /// delta and terminates the page's chain early, so dyld stops rebasing at
+  /// that slot and every later pointer on the page keeps its unslid
+  /// file-relative value. The first ObjC class whose `name` landed past the
+  /// break then makes `objc::ObjectHashTable::forEachObject` dereference an
+  /// unrebased address, and the process dies in `dyld4::PrebuiltObjC` before
+  /// `main` (arxdeus/xcross: AppAuth's `OID*` classes on a Firebase app).
+  static const _chainedTargetMask = 0xFFFFFFFFF; // bits 0-35
+
+  /// Target address held by a chained-fixup slot.
+  static int _chainedTarget(int raw) => raw & _chainedTargetMask;
+
+  /// [raw] with its target replaced by [target], keeping dyld's metadata.
+  static int _withChainedTarget(int raw, int target) =>
+      (raw & ~_chainedTargetMask) | (target & _chainedTargetMask);
+
   static bool repair(MachOFile file) {
     final segments = file.commands
         .where((command) => command.type == MachOConstants.lcSegment64)
@@ -116,9 +137,11 @@ abstract final class ObjCFastStubRewriter {
           .add(stub);
     }
     String? pointee(int refAddress) =>
-        namesByAddress[file.data.getUint64(
-          selectorRefs.fileOffset + refAddress - selectorRefs.address,
-          Endian.little,
+        namesByAddress[_chainedTarget(
+          file.data.getUint64(
+            selectorRefs.fileOffset + refAddress - selectorRefs.address,
+            Endian.little,
+          ),
         )];
 
     // ld64.lld synthesises one selref per stub, so a stub is normally the
@@ -207,7 +230,13 @@ abstract final class ObjCFastStubRewriter {
       encodedInstructions.add((stub.fileOffset, instructions));
     }
     for (final (offset, pointer) in pointerRepairs) {
-      file.data.setUint64(offset, pointer, Endian.little);
+      // Keep the slot's chained-fixup metadata: only the target changes.
+      final raw = file.data.getUint64(offset, Endian.little);
+      file.data.setUint64(
+        offset,
+        _withChainedTarget(raw, pointer),
+        Endian.little,
+      );
     }
     for (final (offset, instructions) in encodedInstructions) {
       file.data

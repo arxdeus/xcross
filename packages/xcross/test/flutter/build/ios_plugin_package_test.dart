@@ -1001,6 +1001,75 @@ let package = Package(
       expect(clones.length, 2);
     });
 
+    test(
+      'omits name: when a vendored manifest predates tools-version 5.2',
+      () async {
+        // `.package(name:path:)` only exists from PackageDescription 5.2, so
+        // emitting it into SDWebImageWebPCoder's 5.0 manifest fails with
+        // "'package(name:path:)' is unavailable" (arxdeus/xcross#66).
+        final vendorDir = p.join(tmp.path, 'old-tools-vendor');
+        const manifest = '''
+// swift-tools-version:5.9
+import PackageDescription
+let package = Package(
+    name: "flutter_image_compress_common",
+    dependencies: [
+        .package(url: "https://github.com/SDWebImage/SDWebImageWebPCoder.git", from: "0.14.0"),
+    ],
+    targets: []
+)
+''';
+        final rewritten =
+            await GeneratedPluginsPackage.vendorUrlPackagesAsPathDeps(
+              manifest,
+              vendorDir: vendorDir,
+              packageDirectory: p.join(tmp.path, 'old-tools-plugin'),
+              locateTool: (_) async => 'git',
+              evaluateDependencyRefs: (_) async => const {
+                'https://github.com/SDWebImage/SDWebImageWebPCoder': 'sha-webp',
+                'https://github.com/SDWebImage/SDWebImage': 'sha-image',
+              },
+              clonePackage: (_, url, ref, destination) async {
+                await Directory(destination).create(recursive: true);
+                await File(p.join(destination, 'Package.swift')).writeAsString(
+                  url.contains('WebPCoder')
+                      ? '''
+// swift-tools-version:5.0
+import PackageDescription
+let package = Package(
+    name: "SDWebImageWebPCoder",
+    dependencies: [
+        .package(url: "https://github.com/SDWebImage/SDWebImage.git", from: "5.17.0"),
+    ],
+    targets: []
+)
+'''
+                      : '// swift-tools-version:5.0\n'
+                            'import PackageDescription\n'
+                            'let package = Package(name: "SDWebImage")\n',
+                );
+              },
+            );
+
+        // The 5.9 host manifest still gets the explicit name.
+        expect(rewritten, contains('.package(name: "SDWebImageWebPCoder"'));
+
+        // The vendored 5.0 manifest must not, or SwiftPM refuses to compile it.
+        final nested = File(
+          p.join(vendorDir, 'SDWebImageWebPCoder@sha-webp', 'Package.swift'),
+        ).readAsStringSync();
+        expect(nested, isNot(contains('url:')));
+        expect(nested, isNot(contains('.package(name:')));
+        expect(
+          nested,
+          contains(
+            '.package(path: '
+            '"${swiftPath(p.join(vendorDir, 'SDWebImage@sha-image'))}")',
+          ),
+        );
+      },
+    );
+
     test('vendors url deps declared through string constants', () async {
       final vendorDir = p.join(tmp.path, 'constant-vendor');
       const manifest = '''
@@ -3593,6 +3662,241 @@ let package = Package(
       );
     });
 
+    test(
+      'names the planned interop targets whose header is not yet on disk',
+      () {
+        // On a cold build no module map exists yet, so scanning the build
+        // directory finds nothing to prebuild. Reading the plan is what makes
+        // the prepass see the work before the first compile.
+        final buildDir = p.join(tmp.path, 'arm64-apple-ios', 'debug');
+        final headers = [
+          p.join(
+            buildDir,
+            'FirebaseFirestore.build',
+            'include',
+            'FirebaseFirestore-Swift.h',
+          ),
+          p.join(
+            buildDir,
+            'FirebaseAuth.build',
+            'include',
+            'FirebaseAuth-Swift.h',
+          ),
+          p.join(buildDir, 'Unrelated.build', 'include', 'Unrelated-Swift.h'),
+        ];
+        Directory(buildDir).createSync(recursive: true);
+        File(p.join(buildDir, 'description.json')).writeAsStringSync(
+          jsonEncode({
+            'swiftCommands': {
+              for (var index = 0; index < headers.length; index++)
+                'command$index': {
+                  'otherArguments': ['-emit-objc-header-path', headers[index]],
+                },
+            },
+          }),
+        );
+
+        expect(
+          GeneratedPluginsPackage.missingSwiftInteropTargets(
+            buildDir,
+            candidates: const {'FirebaseFirestore', 'FirebaseAuth'},
+          ),
+          isEmpty,
+          reason: 'no module map has been written yet',
+        );
+        expect(
+          GeneratedPluginsPackage.plannedSwiftInteropTargets(
+            buildDir,
+            candidates: const {'FirebaseFirestore', 'FirebaseAuth'},
+          ),
+          ['FirebaseAuth', 'FirebaseFirestore'],
+        );
+
+        File(headers[1]).parent.createSync(recursive: true);
+        File(headers[1]).writeAsStringSync('// generated');
+        expect(
+          GeneratedPluginsPackage.plannedSwiftInteropTargets(
+            buildDir,
+            candidates: const {'FirebaseFirestore', 'FirebaseAuth'},
+          ),
+          ['FirebaseFirestore'],
+          reason: 'a header already on disk needs no prebuild',
+        );
+      },
+    );
+
+    test('treats an unreadable plan as nothing to prebuild', () {
+      // The prepass is an optimisation over the existing recovery, so a
+      // missing plan must not fail the build.
+      final buildDir = p.join(tmp.path, 'no-plan');
+      Directory(buildDir).createSync(recursive: true);
+      expect(
+        GeneratedPluginsPackage.plannedSwiftInteropTargets(
+          buildDir,
+          candidates: const {'FirebaseFirestore'},
+        ),
+        isEmpty,
+      );
+    });
+
+    test('skips prebuilding targets the aggregate cannot reach', () {
+      // The plan lists every target in the resolved dependency graph, not
+      // just the ones this build compiles. A target no product depends on is
+      // never scheduled, so it can never lose the header race the prepass
+      // exists to prevent, and its header never appears however many times
+      // it is prebuilt. Each such prebuild is a whole `swift build` process.
+      final buildDir = p.join(tmp.path, 'arm64-apple-ios', 'debug');
+      final headers = {
+        'Reachable': p.join(
+          buildDir,
+          'Reachable.build',
+          'include',
+          'Reachable-Swift.h',
+        ),
+        'Orphan': p.join(buildDir, 'Orphan.build', 'include', 'Orphan-Swift.h'),
+      };
+      Directory(buildDir).createSync(recursive: true);
+      File(p.join(buildDir, 'description.json')).writeAsStringSync(
+        jsonEncode({
+          'swiftCommands': {
+            for (final entry in headers.entries)
+              entry.key: {
+                'otherArguments': ['-emit-objc-header-path', entry.value],
+              },
+          },
+          'targetDependencyMap': {
+            'FlutterPluginsGenerated': ['Reachable'],
+            'Reachable': <String>[],
+            'Orphan': <String>[],
+          },
+        }),
+      );
+
+      expect(
+        GeneratedPluginsPackage.plannedSwiftInteropTargets(
+          buildDir,
+          candidates: const {'Reachable', 'Orphan'},
+        ),
+        ['Reachable'],
+      );
+    });
+
+    test('prebuilds unfiltered when the plan carries no dependency map', () {
+      // Reachability is an optimisation. Without a map to filter with, the
+      // full set must still be prebuilt rather than silently skipping the
+      // prepass and reintroducing the header race.
+      final buildDir = p.join(tmp.path, 'no-map', 'arm64-apple-ios', 'debug');
+      final header = p.join(
+        buildDir,
+        'Reachable.build',
+        'include',
+        'Reachable-Swift.h',
+      );
+      Directory(buildDir).createSync(recursive: true);
+      File(p.join(buildDir, 'description.json')).writeAsStringSync(
+        jsonEncode({
+          'swiftCommands': {
+            'Reachable': {
+              'otherArguments': ['-emit-objc-header-path', header],
+            },
+          },
+        }),
+      );
+
+      expect(
+        GeneratedPluginsPackage.plannedSwiftInteropTargets(
+          buildDir,
+          candidates: const {'Reachable'},
+        ),
+        ['Reachable'],
+      );
+    });
+
+    test('reports whether the manifest already carries the interop paths', () {
+      // llbuild replays the command lines stored in `debug.yaml` verbatim, so
+      // a manifest that already names every path builds exactly what a
+      // re-plan would. Re-planning anyway costs a whole extra planning
+      // process on every build, incremental ones included.
+      final scratch = p.join(tmp.path, 'scratch');
+      Directory(scratch).createSync(recursive: true);
+      final include = p.join(scratch, 'arm64-apple-ios', 'debug', 'A.build');
+      final arguments = ['-Xcc', '-I', '-Xcc', include];
+
+      expect(
+        GeneratedPluginsPackage.manifestCarriesInteropSearchPaths(
+          scratch,
+          arguments,
+        ),
+        isFalse,
+        reason: 'no manifest has been written yet',
+      );
+
+      final manifest = File(p.join(scratch, 'debug.yaml'));
+      manifest.writeAsStringSync('"-I","/somewhere/else"');
+      expect(
+        GeneratedPluginsPackage.manifestCarriesInteropSearchPaths(
+          scratch,
+          arguments,
+        ),
+        isFalse,
+      );
+
+      // The manifest is JSON-quoted, so a Windows path appears escaped.
+      manifest.writeAsStringSync('"-I",${jsonEncode(include)}');
+      expect(
+        GeneratedPluginsPackage.manifestCarriesInteropSearchPaths(
+          scratch,
+          arguments,
+        ),
+        isTrue,
+      );
+    });
+
+    test(
+      'prebuilds planned interop targets before the aggregate build',
+      () async {
+        final buildDir = p.join(tmp.path, 'arm64-apple-ios', 'debug');
+        final header = p.join(
+          buildDir,
+          'FirebaseFirestore.build',
+          'include',
+          'FirebaseFirestore-Swift.h',
+        );
+        Directory(buildDir).createSync(recursive: true);
+        File(p.join(buildDir, 'description.json')).writeAsStringSync(
+          jsonEncode({
+            'swiftCommands': {
+              'c0': {
+                'otherArguments': ['-emit-objc-header-path', header],
+              },
+            },
+          }),
+        );
+
+        final events = <String>[];
+        await GeneratedPluginsPackage.buildWithInteropRecovery(
+          targetBuildDir: buildDir,
+          interopTargetCandidates: const {'FirebaseFirestore'},
+          windows: false,
+          skipInitialRecovery: true,
+          build: () async => events.add('build'),
+          buildTarget: (target) async {
+            events.add('target:$target');
+            File(header).parent.createSync(recursive: true);
+            File(header).writeAsStringSync('// generated');
+          },
+          repairConsumers: () async => events.add('repair'),
+        );
+
+        expect(
+          events.indexOf('target:FirebaseFirestore') < events.indexOf('build'),
+          isTrue,
+          reason: 'the header must exist before consumers are compiled',
+        );
+        expect(events.where((event) => event == 'build'), hasLength(1));
+      },
+    );
+
     test('rejects missing and malformed Swift planning descriptions', () {
       final buildDir = p.join(tmp.path, 'arm64-apple-ios', 'debug');
       Directory(buildDir).createSync(recursive: true);
@@ -4054,11 +4358,84 @@ module FirebaseFirestore {
         ],
       );
       expect(GeneratedPluginsPackage.swiftProcessEnvironment(windows: true), {
-        'GIT_CONFIG_COUNT': '1',
-        'GIT_CONFIG_KEY_0': 'core.symlinks',
-        'GIT_CONFIG_VALUE_0': 'false',
+        ...GeneratedPluginsPackage.nonInteractiveGitEnvironment,
+        'GIT_CONFIG_COUNT': '5',
+        'GIT_CONFIG_KEY_0': 'credential.helper',
+        // Two quotes, not the empty string: git rejects a genuinely empty
+        // GIT_CONFIG_VALUE_* and would then fail every command.
+        'GIT_CONFIG_VALUE_0': '""',
+        'GIT_CONFIG_KEY_1': 'credential.interactive',
+        'GIT_CONFIG_VALUE_1': 'false',
+        // Abort a stalled fetch instead of holding it open forever.
+        'GIT_CONFIG_KEY_2': 'http.lowSpeedLimit',
+        'GIT_CONFIG_VALUE_2': '1024',
+        'GIT_CONFIG_KEY_3': 'http.lowSpeedTime',
+        'GIT_CONFIG_VALUE_3': '60',
+        'GIT_CONFIG_KEY_4': 'core.symlinks',
+        'GIT_CONFIG_VALUE_4': 'false',
         'EXPERIMENTAL_SPM_BUILDS': '1',
       });
+    });
+
+    test('refuses interactive git credential prompts on every host', () {
+      // A prompt no one can answer is how a CI build hangs for hours
+      // instead of failing on the dependency it could not read.
+      for (final windows in [true, false]) {
+        final environment = GeneratedPluginsPackage.swiftProcessEnvironment(
+          windows: windows,
+        );
+        expect(environment, isNotNull);
+        expect(environment!['GIT_TERMINAL_PROMPT'], '0');
+        expect(environment['GIT_ASKPASS'], '');
+        expect(environment['SSH_ASKPASS'], '');
+        expect(environment['SSH_ASKPASS_REQUIRE'], 'never');
+        expect(environment['GCM_INTERACTIVE'], 'never');
+        expect(environment['GCM_PROVIDER'], 'none');
+        expect(environment['GIT_SSH_COMMAND'], contains('BatchMode=yes'));
+      }
+    });
+
+    test('keeps Windows-only SwiftPM settings off other hosts', () {
+      final posix = GeneratedPluginsPackage.swiftProcessEnvironment(
+        windows: false,
+      )!;
+      expect(posix.containsKey('EXPERIMENTAL_SPM_BUILDS'), isFalse);
+      // Only the credential settings, never the Windows symlink lane.
+      expect(posix['GIT_CONFIG_COUNT'], '4');
+      expect(posix['GIT_CONFIG_KEY_0'], 'credential.helper');
+      expect(posix['GIT_CONFIG_VALUE_0'], '""');
+      expect(posix['GIT_CONFIG_KEY_1'], 'credential.interactive');
+      expect(posix.containsKey('GIT_CONFIG_KEY_4'), isFalse);
+      expect(
+        [posix['GIT_CONFIG_KEY_2'], posix['GIT_CONFIG_KEY_3']],
+        ['http.lowSpeedLimit', 'http.lowSpeedTime'],
+      );
+    });
+
+    test('disables every configured git credential helper', () {
+      // A system-wide helper (Git Credential Manager on the Windows
+      // runners) is consulted before GIT_TERMINAL_PROMPT applies and can
+      // block on UI of its own, so the helper list has to be reset too.
+      for (final windows in [true, false]) {
+        final environment = GeneratedPluginsPackage.swiftProcessEnvironment(
+          windows: windows,
+        )!;
+        final count = int.parse(environment['GIT_CONFIG_COUNT']!);
+        final settings = {
+          for (var index = 0; index < count; index++)
+            environment['GIT_CONFIG_KEY_$index']!:
+                environment['GIT_CONFIG_VALUE_$index']!,
+        };
+        // `""` is the config-file spelling of an empty value, which is what
+        // resets an inherited helper list.
+        expect(settings['credential.helper'], '""');
+        expect(settings['credential.interactive'], 'false');
+        // Every declared key must have a value: git refuses to parse an
+        // empty one and would fail every command this build runs.
+        for (var index = 0; index < count; index++) {
+          expect(environment['GIT_CONFIG_VALUE_$index'], isNotEmpty);
+        }
+      }
     });
   });
 

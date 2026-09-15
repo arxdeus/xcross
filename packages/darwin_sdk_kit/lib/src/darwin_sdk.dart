@@ -303,8 +303,12 @@ final class DarwinSdk {
       : Platform.isMacOS
       ? 'Install the LLVM one — `brew install lld && brew install llvm`, or `xcross setup` — '
             'and make sure it is on PATH.'
-      : 'Install the LLVM one — `xcross setup`, or `sudo apt install lld` — '
-            'and make sure it is on PATH.';
+      : 'Install the LLVM one — `xcross setup`, or '
+            '`curl -fsSL https://apt.llvm.org/llvm.sh | sudo bash` for lld '
+            '$firstLd64LldWithCorrectSelectorStubs or newer '
+            '(the unversioned `lld` is still 18 on Ubuntu 24.04, which '
+            'miswires Objective-C selector stubs) — and make sure its '
+            'ld64.lld is on PATH.';
 
   /// First ld64.lld release that wires `_objc_msgSend$<selector>` stubs to
   /// the right selector.
@@ -329,9 +333,10 @@ final class DarwinSdk {
       return null;
     }
     return 'ld64.lld ${version.$1}.${version.$2} miswires Objective-C '
-        r'selector stubs (`_objc_msgSend$<selector>`), which breaks '
-        'Objective-C plugins at runtime. Install lld '
-        '$firstLd64LldWithCorrectSelectorStubs or newer — '
+        r'selector stubs (`_objc_msgSend$<selector>`). xcross repairs the '
+        'output it produces, so builds still run, but the repair is not '
+        'needed at all on lld $firstLd64LldWithCorrectSelectorStubs or '
+        'newer. Install lld $firstLd64LldWithCorrectSelectorStubs+ — '
         '`xcross setup` does that where the distribution ships it.';
   }
 

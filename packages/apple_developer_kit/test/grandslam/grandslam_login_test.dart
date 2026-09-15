@@ -72,6 +72,7 @@ void main() {
         final client = MockClient((request) async {
           expect(request.url.toString(), _gsServiceUrl);
           expect(request.method, 'POST');
+          expect(request.persistentConnection, isFalse);
           expect(
             request.headers['Content-Type'],
             startsWith('text/x-xml-plist'),

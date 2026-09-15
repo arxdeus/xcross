@@ -1,3 +1,23 @@
+## 1.4.3
+
+- Speed up incremental Flutter iOS builds substantially: only prebuild the Swift interop targets the aggregate can actually reach, skip the interop re-plan when the build manifest already carries the search paths, and derive generated-file timestamps from their content so staged sources and vendored manifests stop invalidating SwiftPM on every run.
+- Reuse one Flutter tool workspace across builds instead of a per-build temporary directory, and stop clearing the native-assets output, so `flutter assemble` no longer re-runs every build hook each time.
+- Stop bounding SwiftPM resolve and `swift build` by wall clock, and drop the integration job timeout: a cold dependency graph is slow rather than stuck, and the cap turned that into a failure.
+- Surface Apple rate limits, unify the `akd` client identity, and disable GrandSlam connection reuse to avoid proof-stage HTTP 429.
+
+## 1.4.2
+
+- Point GrandSlam anisette `X-MMe-Client-Info` at `akd/1.0` instead of an Xcode identity.
+- Prebuild planned Swift interop targets and re-plan the Swift build with those search paths, so `cloud_firestore` finds `FirebaseFirestore` on a cold Windows build.
+- Bound SwiftPM resolve, git clones, and binary-artifact downloads, fail instead of hanging on invisible git credential prompts, and surface SwiftPM's stdout diagnostic when resolve fails.
+
+## 1.4.1
+
+- Vendor transitive SwiftPM dependencies faithfully: keep `.package(path:)` unnamed for manifests older than swift-tools-version 5.2, and initialize git submodules in vendored checkouts (fixes `flutter_image_compress`).
+- Preserve chained-fixup metadata when repairing Objective-C selrefs, fixing a launch crash in `dyld4::PrebuiltObjC` on apps linked with lld 19 or newer.
+- Install lld from apt.llvm.org (`llvm.sh`) in the apt setup script instead of the distro `lld` package, register an unversioned `ld.lld` through update-alternatives, and verify the linker in the dnf and pacman ones.
+- Report the resolved linker version in `xcross doctor`.
+
 ## 1.4.0
 
 - Add `xcross config` with an interactive terminal config editor and a dynamic, script-driven setup flow.

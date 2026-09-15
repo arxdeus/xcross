@@ -42,9 +42,9 @@ final class IosNativeAssetsBuilder {
   Future<IosNativeAssetsBuildResult> build() async {
     final output = p.join(projectRoot, 'build', 'xcross-native-assets');
     final outputDirectory = Directory(output);
-    if (outputDirectory.existsSync()) {
-      await outputDirectory.delete(recursive: true);
-    }
+    // Deliberately not cleared. `flutter assemble` is incremental and treats
+    // this directory as its output set, so deleting it forced every target,
+    // including every native build hook, to re-run on each build.
     await outputDirectory.create(recursive: true);
 
     if (!hasNativeAssetsBuildHooks(projectRoot)) {
