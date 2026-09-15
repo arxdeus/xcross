@@ -241,7 +241,6 @@ class PymdDeviceResolver {
       await Pymd.run([
         'lockdown',
         'wifi-connections',
-        '--state',
         'on',
         '--udid',
         device.udid,

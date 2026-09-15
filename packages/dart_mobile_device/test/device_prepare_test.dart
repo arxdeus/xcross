@@ -45,7 +45,6 @@ void main() {
       expect(DevicePrepare.lockdownWifiArgs(udid), [
         'lockdown',
         'wifi-connections',
-        '--state',
         'on',
         '--udid',
         udid,
