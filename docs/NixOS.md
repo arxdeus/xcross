@@ -94,6 +94,10 @@ Add this `flake.nix` to the Flutter project:
               konanData = "$KONAN_DATA_DIR";
             };
 
+            tools = {
+              xcrun = "${xcrossPackage}/bin/xcrun";
+            };
+
             toolchains = {
               swift = "${swiftToolchain}/bin";
               llvm = [
@@ -141,6 +145,49 @@ Add this `flake.nix` to the Flutter project:
 }
 ```
 
+## Why `roots.xcross` and `tools.xcrun` are required on Nix
+
+Both entries look redundant - the binaries are already on `PATH` inside the
+shell - but on Nix they are load-bearing.
+
+The xcross package is wrapped with `makeWrapper`. The real binary is installed
+at `$out/lib/xcross/bin/xcross`, and `$out/bin/xcross` is a generated script
+that sets `PATH`, `SWIFT_EXEC`, `SWIFT_EXEC_MANIFEST`, `CC`, and `CXX` before
+`exec`-ing it:
+
+```text
+$out/bin/xcross            <- wrapper: sets up the environment
+  exec $out/lib/xcross/bin/xcross   <- real binary: no environment setup
+```
+
+Because the wrapper uses `exec`, the running process *is* the inner binary, so
+`Platform.resolvedExecutable` reports `$out/lib/xcross/bin/xcross`. Anything
+derived from that path silently loses the wrapper:
+
+- Generated IDE run configurations embed the launcher path. Without an override
+  they embed the inner binary, and the editor starts xcross with no toolchain
+  environment - the Run and Debug buttons fail while the terminal works.
+- `xcrun` is resolved as a sibling of the launcher, so it resolves to the
+  unwrapped `lib/xcross/bin/xcrun` for the same reason.
+
+Configuration fixes both declaratively, with no path guessing:
+
+| Key | Value | Replaces |
+|---|---|---|
+| `roots.xcross` | `${xcrossPackage}/bin/xcross` | `Platform.resolvedExecutable` |
+| `tools.xcrun` | `${xcrossPackage}/bin/xcrun` | launcher-sibling lookup |
+
+Both must point at `$out/bin/...`, the wrapper - never at `$out/lib/xcross/bin/...`.
+
+`roots.xcross` also makes generated IDE configurations carry `XCROSS_CONFIG`
+and `FLUTTER_ROOT`, so an IDE-driven run resolves the same configuration as a
+terminal run instead of inheriting the editor's environment.
+
+> Do not reintroduce this as a heuristic in xcross itself. Detecting
+> `/nix/store/` and walking up to guess the wrapper couples xcross to a
+> `makeWrapper` layout that Nix is free to change. The configuration override is
+> explicit, validated at load time, and works for any wrapper on any host.
+
 Run the shell:
 
 ```sh
@@ -184,7 +231,7 @@ The example configures these roots:
 | Root | Value | Mutability |
 |---|---|---|
 | `flutterSdk` | `${pkgs.flutter}` | Immutable Nix store path |
-| `xcross` | `${xcrossPackage}/bin/xcross` | Immutable Nix store path |
+| `xcross` | `${xcrossPackage}/bin/xcross` | Immutable Nix store path (the wrapper, see [above](#why-rootsxcross-and-toolsxcrun-are-required-on-nix)) |
 | `javaHome` | `${pkgs.jdk.home}` | Immutable Nix store path |
 | `darwinSdk` | `$XCROSS_DARWIN_BUNDLE` | Writable user path |
 | `konanData` | `$KONAN_DATA_DIR` | Writable user path |
@@ -270,6 +317,16 @@ test -x "$FLUTTER_ROOT/bin/flutter"
 xcross --help
 ```
 
+Confirm the launcher and `xcrun` point at the wrappers rather than the binaries
+underneath them:
+
+```sh
+grep -E '"(xcross|xcrun)"' "$XCROSS_CONFIG"
+```
+
+Neither value should contain `/lib/xcross/bin/`. If one does, the wrapper has
+been bypassed and IDE runs will start xcross without its toolchain environment.
+
 `xcross --help` should not list `config` or `setup`. Running either command
 should report that the command does not exist.
 
@@ -294,3 +351,84 @@ After an update, enter a fresh shell and verify Swift, Flutter, and xcross again
 If the Swift store path changed, rebuild the Darwin SDK with `xcross sdk install`.
 Do not use `xcross update` for a Nix-managed installation. Update the flake input
 instead.
+
+## Minimal example
+
+A complete, self-contained consumer flake that writes a plain `config.yaml`
+
+```nix
+{
+  description = "xcross config.yaml from Nix store paths";
+
+  inputs = {
+    nixpkgs.follows = "xcross/nixpkgs";
+    xcross.url = "github:arxdeus/xcross";
+  };
+
+  outputs =
+    { nixpkgs, xcross, ... }:
+    let
+      system = "x86_64-linux";
+      pkgs = nixpkgs.legacyPackages.${system};
+
+      # The xcross binary this project uses. Override it here to point at a
+      # local build, a patched package, or a different release:
+      #
+      #   xcrossPkg = xcross.packages.${system}.default.overrideAttrs (_: {
+      #     src = inputs.my-xcross-build;
+      #   });
+      #
+      # or a plain path:  xcrossPkg = "/home/me/src/xcross/build";
+      xcrossPkg = xcross.packages.${system}.default;
+
+      # roots.xcross is the launcher xcross re-invokes for itself: nested calls,
+      # the DAP server, and generated IDE configs all start from this exact
+      # path, so it must be the binary you actually want, not whatever PATH has.
+      xcrossBin = "${xcrossPkg}/bin/xcross";
+      xcrunBin = "${xcrossPkg}/bin/xcrun";
+
+      inherit (xcrossPkg) swiftToolchain swiftCompiler;
+
+      # Store paths for everything immutable, $HOME for what xcross writes into.
+      configYaml = pkgs.writeText "config.yaml" ''
+        roots:
+          xcross: "${xcrossBin}"
+          flutterSdk: "${pkgs.flutter}"
+          javaHome: "${pkgs.jdk.home}"
+          darwinSdk: "$HOME/.config/xcross/swift-sdks/xcross-darwin.artifactbundle"
+          konanData: "$HOME/.konan"
+        toolchains:
+          swift: "${swiftToolchain}/bin"
+          llvm:
+            - "${pkgs.llvmPackages_21.llvm}/bin"
+            - "${pkgs.llvmPackages_21.lld}/bin"
+        tools:
+          flutter: "${pkgs.flutter}/bin/flutter"
+          xcrun: "${xcrunBin}"
+        environment:
+          SWIFT_EXEC: "${swiftCompiler}"
+          SWIFT_EXEC_MANIFEST: "${swiftCompiler}"
+          CC: "${swiftToolchain}/bin/clang"
+          CXX: "${swiftToolchain}/bin/clang++"
+          FLUTTER_ROOT: "${pkgs.flutter}"
+        excluded_commands:
+          - "config"
+          - "setup"
+          - "update"
+      '';
+    in
+    {
+      packages.${system}.config = configYaml;
+
+      devShells.${system}.default = pkgs.mkShell {
+        inputsFrom = [ xcross.devShells.${system}.default ];
+        packages = [ xcrossPkg pkgs.flutter pkgs.jdk ];
+        XCROSS_CONFIG = configYaml;
+      };
+    };
+}
+```
+
+Copy it into a Flutter project, adjust `system` if needed, and run
+`nix develop`. `XCROSS_CONFIG` points at the generated file, so
+`cat "$XCROSS_CONFIG"` shows the exact configuration xcross loads.
