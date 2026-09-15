@@ -15,6 +15,7 @@ final class KmpProject {
     required this.entryKind,
     required this.bundleId,
     required this.appName,
+    this.isStaticFramework = false,
     this.entryClass,
     this.entrySelector,
     this.swiftAppDir,
@@ -28,6 +29,12 @@ final class KmpProject {
   final String moduleName;
   final String baseName;
   final KmpEntryKind entryKind;
+
+  /// `binaries.framework { isStatic = true }` in the module's build script.
+  /// The framework link must pass `-Xstatic-framework`, otherwise Kotlin/Native
+  /// produces a dynamic library and the link then requires every ObjC
+  /// dependency of the module (Firebase, system libraries) to be resolvable.
+  final bool isStaticFramework;
   final String bundleId;
   final String appName;
   final String? entryClass;
@@ -91,6 +98,7 @@ final class _KmpProjectDetector {
           module.gradleId,
           module.diskPath,
           _extractBaseName(content) ?? _capitalize(module.leaf),
+          isStaticFramework: _extractIsStaticFramework(content),
         ),
       );
     }
@@ -111,6 +119,7 @@ final class _KmpProjectDetector {
       moduleName: chosen.moduleName,
       baseName: chosen.baseName,
       entryKind: entry.kind,
+      isStaticFramework: chosen.isStaticFramework,
       bundleId: bundleIdOverride ?? iosConfig?.bundleId ?? defaults.bundleId,
       appName: appNameOverride ?? iosConfig?.productName ?? defaults.appName,
       entryClass: entry.entryClass,
@@ -131,10 +140,16 @@ final class _ModuleSpec {
 }
 
 final class _Candidate {
-  const _Candidate(this.moduleName, this.modulePath, this.baseName);
+  const _Candidate(
+    this.moduleName,
+    this.modulePath,
+    this.baseName, {
+    this.isStaticFramework = false,
+  });
   final String moduleName;
   final String modulePath;
   final String baseName;
+  final bool isStaticFramework;
 }
 
 final class _EntryResult {
@@ -201,6 +216,11 @@ bool _hasFrameworkBlock(String content) =>
 
 String? _extractBaseName(String content) =>
     RegExp(r'baseName\s*=\s*"([^"]+)"').firstMatch(content)?.group(1);
+
+/// Same heuristic style as [_extractBaseName]: read the framework block's
+/// static flag straight out of the build script.
+bool _extractIsStaticFramework(String content) =>
+    RegExp(r'isStatic\s*=\s*true').hasMatch(content);
 
 String _capitalize(String value) =>
     value.isEmpty ? value : value[0].toUpperCase() + value.substring(1);

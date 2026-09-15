@@ -20,6 +20,25 @@ abstract final class AscPayloads {
     },
   };
 
+  /// Switches on one App ID capability. Apple's API accepts the type alone: only
+  /// `ICLOUD_VERSION`, `DATA_PROTECTION_PERMISSION_LEVEL` and
+  /// `APPLE_ID_AUTH_APP_CONSENT` take a setting, and sending a setting for
+  /// anything else is a 409 naming those three.
+  static Map<String, dynamic> capability({
+    required String bundleIdResourceId,
+    required String capabilityType,
+  }) => {
+    'data': {
+      'type': 'bundleIdCapabilities',
+      'attributes': {'capabilityType': capabilityType},
+      'relationships': {
+        'bundleId': {
+          'data': {'type': 'bundleIds', 'id': bundleIdResourceId},
+        },
+      },
+    },
+  };
+
   static Map<String, dynamic> device({
     required String udid,
     required String name,

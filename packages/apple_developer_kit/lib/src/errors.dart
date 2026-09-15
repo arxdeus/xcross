@@ -21,6 +21,19 @@ base class AppleError implements Exception {
 ///
 /// Callers should treat it as "this credential type cannot do this", not as an
 /// error to retry, and point the user at `xcross auth --apple-id`.
+/// Raised by a provisioning backend that cannot read or write App ID
+/// capabilities (the legacy developerservices2 / Apple ID session client).
+///
+/// Provisioning treats it as "no capabilities known" and warns, rather than
+/// failing a build over something the backend simply does not expose.
+final class CapabilitiesUnsupported implements Exception {
+  const CapabilitiesUnsupported();
+
+  @override
+  String toString() =>
+      'This provisioning backend cannot manage App ID capabilities.';
+}
+
 final class AppGroupsUnsupported extends AppleError {
   const AppGroupsUnsupported()
     : super(

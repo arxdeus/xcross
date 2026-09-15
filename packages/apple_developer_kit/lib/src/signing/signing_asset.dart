@@ -68,6 +68,7 @@ class SigningAsset {
     required String privateKeyPemPath,
     required String certificatePemPath,
     required String provisioningProfilePath,
+    Map<String, Object?> declaredEntitlements = const {},
     DateTime? now,
     @visibleForTesting List<Uint8List> trustedRootCertificates = const [],
   }) async {
@@ -119,7 +120,9 @@ class SigningAsset {
       profileCmsBytes: Uint8List.fromList(profileCms),
       profilePlistBytes: Uint8List.fromList(profileContent.plist),
       profile: Map.unmodifiable(profile),
-      entitlements: Map.unmodifiable(identity.entitlements),
+      entitlements: Map.unmodifiable(
+        _withDeclaredEntitlements(identity.entitlements, declaredEntitlements),
+      ),
       teamIdentifier: identity.teamIdentifier,
       applicationIdentifier: identity.applicationIdentifier,
       applicationIdentifierPrefix: identity.applicationIdentifierPrefix,
@@ -184,6 +187,40 @@ class SigningAsset {
         '"$profilePath".',
       );
     }
+  }
+
+  /// Keys the profile owns outright: they identify the signature, and installd
+  /// checks them against the profile, so the app's own file must not move them.
+  static const _profileOwnedEntitlements = {
+    'application-identifier',
+    'com.apple.developer.team-identifier',
+    'get-task-allow',
+    'beta-reports-active',
+    'keychain-access-groups',
+  };
+
+  /// Lets the app's own entitlements win over the profile's generic value, for
+  /// the keys the profile grants.
+  ///
+  /// A development profile grants `com.apple.developer.associated-domains` as
+  /// `*` - Apple's "whatever the app declares" - and signing with that verbatim
+  /// leaves the app declaring a literal `*`. iOS then cannot match the callback
+  /// host an `ASWebAuthenticationSession` is waiting for, and the flow dies
+  /// instantly with "Login was cancelled", which reads like the user backed out.
+  /// A key the profile does not grant is left alone: an entitlement the profile
+  /// lacks is refused by installd, so adding one locally cannot help.
+  static Map<String, Object?> _withDeclaredEntitlements(
+    Map<String, Object?> granted,
+    Map<String, Object?> declared,
+  ) {
+    if (declared.isEmpty) return granted;
+    final effective = Map<String, Object?>.from(granted);
+    for (final entry in declared.entries) {
+      if (_profileOwnedEntitlements.contains(entry.key)) continue;
+      if (!granted.containsKey(entry.key)) continue;
+      effective[entry.key] = entry.value;
+    }
+    return effective;
   }
 
   static ProfileIdentity _readIdentity(

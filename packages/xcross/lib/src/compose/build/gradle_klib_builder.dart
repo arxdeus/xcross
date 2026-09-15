@@ -189,14 +189,24 @@ allprojects {
     final dependencies = <String>[];
     for (final rawLine in output.split('\n')) {
       final line = rawLine.trim();
-      if (!line.endsWith('.klib')) continue;
+      if (line.isEmpty) continue;
       final normalized = p.normalize(line);
+      // KLIBs are not always files ending in ".klib": project dependencies
+      // (`api(project(":core"))`) resolve to extension-less *directories*
+      // (`.../klib/core`). Filtering on the extension silently dropped them,
+      // so the link ran without the module's own siblings and the compiler
+      // failed with unrelated internal errors (IrCompositeImpl in
+      // EnumClassLowering, "no function X in package Y" during ObjC export).
       if (FileSystemEntity.typeSync(normalized) ==
           FileSystemEntityType.notFound) {
         continue;
       }
       if (p.equals(normalized, kotlinRoot) ||
           p.isWithin(kotlinRoot, normalized)) {
+        continue;
+      }
+      // The compiler jar is on the compile classpath too; it is not a library.
+      if (p.basename(normalized) == 'kotlin-native-compiler-embeddable.jar') {
         continue;
       }
       if (seen.add(normalized)) dependencies.add(normalized);

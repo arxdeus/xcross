@@ -75,6 +75,23 @@ void main() {
     },
   );
 
+  test('static framework is linked in, not embedded in the bundle', () async {
+    final fixture = _Fixture.create()..createInputs();
+    addTearDown(fixture.dispose);
+
+    final appPath = await ComposeAppAssembler.withSeams().assemble(
+      project: fixture.staticProject,
+      runnerPath: fixture.runnerPath,
+      frameworkPath: fixture.frameworkPath,
+    );
+
+    expect(File(p.join(appPath, 'Runner')).existsSync(), isTrue);
+    expect(File(p.join(appPath, 'Info.plist')).existsSync(), isTrue);
+    // A static framework's code is inside Runner; copying the archive in would
+    // ship hundreds of megabytes of dead weight and break the signing layout.
+    expect(Directory(p.join(appPath, 'Frameworks')).existsSync(), isFalse);
+  });
+
   test('rejects missing runner and framework inputs', () async {
     final fixture = _Fixture.create()..createInputs();
     addTearDown(fixture.dispose);
@@ -254,6 +271,122 @@ void main() {
       );
     },
   );
+
+  test("copies the built target's Compose resources into the bundle", () async {
+    final fixture = _Fixture.create();
+    // The framework path names the target, and only that target's resources are
+    // staged — the simulator's set would be dead weight in a device bundle.
+    final deviceFramework = fixture.frameworkPathFor('iosArm64');
+    fixture.createInputsAt(deviceFramework);
+    fixture.createResources(
+      'kotlin-multiplatform-resources/aggregated-resources/iosArm64/'
+      'composeResources',
+      {'sg.labs.repasar.resources/font/worksans_regular.ttf': 'device-font'},
+    );
+    fixture.createResources(
+      'kotlin-multiplatform-resources/aggregated-resources/'
+      'iosSimulatorArm64/composeResources',
+      {'sg.labs.repasar.resources/font/worksans_regular.ttf': 'sim-font'},
+    );
+    addTearDown(fixture.dispose);
+
+    final appPath = await ComposeAppAssembler.withSeams().assemble(
+      project: fixture.project,
+      runnerPath: fixture.runnerPath,
+      frameworkPath: deviceFramework,
+    );
+
+    // Compose reads resources from the main bundle; without this directory the
+    // first composition that loads a font throws MissingResourceException.
+    expect(
+      File(
+        p.join(
+          appPath,
+          'compose-resources',
+          'composeResources',
+          'sg.labs.repasar.resources',
+          'font',
+          'worksans_regular.ttf',
+        ),
+      ).readAsStringSync(),
+      'device-font',
+    );
+  });
+
+  test(
+    "prefers aggregated resources over the module's processed ones",
+    () async {
+      final fixture = _Fixture.create();
+      final deviceFramework = fixture.frameworkPathFor('iosArm64');
+      fixture.createInputsAt(deviceFramework);
+      fixture.createResources(
+        'kotlin-multiplatform-resources/aggregated-resources/iosArm64/'
+        'composeResources',
+        {
+          'sg.labs.repasar.resources/font/worksans_regular.ttf': 'aggregated',
+          // Contributed by a dependency, so only the aggregated tree has it.
+          'io.coil_kt.coil3.coil_compose_core.generated.resources/coil.txt':
+              'coil',
+        },
+      );
+      fixture.createResources(
+        'processedResources/iosArm64/main/composeResources',
+        {'sg.labs.repasar.resources/font/worksans_regular.ttf': 'processed'},
+      );
+      addTearDown(fixture.dispose);
+
+      final appPath = await ComposeAppAssembler.withSeams().assemble(
+        project: fixture.project,
+        runnerPath: fixture.runnerPath,
+        frameworkPath: deviceFramework,
+      );
+
+      expect(
+        File(
+          p.join(
+            appPath,
+            'compose-resources',
+            'composeResources',
+            'sg.labs.repasar.resources',
+            'font',
+            'worksans_regular.ttf',
+          ),
+        ).readAsStringSync(),
+        'aggregated',
+      );
+      expect(
+        File(
+          p.join(
+            appPath,
+            'compose-resources',
+            'composeResources',
+            'io.coil_kt.coil3.coil_compose_core.generated.resources',
+            'coil.txt',
+          ),
+        ).existsSync(),
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'adds no compose-resources directory to a project without them',
+    () async {
+      final fixture = _Fixture.create()..createInputs();
+      addTearDown(fixture.dispose);
+
+      final appPath = await ComposeAppAssembler.withSeams().assemble(
+        project: fixture.project,
+        runnerPath: fixture.runnerPath,
+        frameworkPath: fixture.frameworkPath,
+      );
+
+      expect(
+        Directory(p.join(appPath, 'compose-resources')).existsSync(),
+        isFalse,
+      );
+    },
+  );
 }
 
 final class _Fixture {
@@ -273,6 +406,17 @@ final class _Fixture {
 
   String get outputDir => p.join(root, 'build', 'xcross-ios');
 
+  KmpProject get staticProject => KmpProject(
+    root: root,
+    modulePath: p.join(root, 'shared'),
+    moduleName: 'shared',
+    baseName: 'Shared',
+    entryKind: KmpEntryKind.swiftApp,
+    isStaticFramework: true,
+    bundleId: 'dev.example.shared',
+    appName: 'Example',
+  );
+
   KmpProject get project => KmpProject(
     root: root,
     modulePath: p.join(root, 'shared'),
@@ -283,19 +427,38 @@ final class _Fixture {
     appName: 'Example',
   );
 
-  void createInputs() {
+  void createInputs() => createInputsAt(frameworkPath);
+
+  void createInputsAt(String path) {
     File(runnerPath)
       ..createSync(recursive: true)
       ..writeAsStringSync('runner');
-    Directory(p.join(frameworkPath, 'Headers')).createSync(recursive: true);
-    File(p.join(frameworkPath, 'Shared')).writeAsStringSync('framework');
-    File(
-      p.join(frameworkPath, 'Headers', 'Shared.h'),
-    ).writeAsStringSync('header');
+    Directory(p.join(path, 'Headers')).createSync(recursive: true);
+    File(p.join(path, 'Shared')).writeAsStringSync('framework');
+    File(p.join(path, 'Headers', 'Shared.h')).writeAsStringSync('header');
     if (!Platform.isWindows) {
-      Link(
-        p.join(frameworkPath, 'link'),
-      ).createSync(p.join(frameworkPath, 'Shared'));
+      Link(p.join(path, 'link')).createSync(p.join(path, 'Shared'));
+    }
+  }
+
+  /// A framework path in the layout Gradle produces, e.g.
+  /// `<root>/shared/build/bin/iosArm64/debugFramework/Shared.framework`.
+  String frameworkPathFor(String target) => p.join(
+    root,
+    'shared',
+    'build',
+    'bin',
+    target,
+    'debugFramework',
+    'Shared.framework',
+  );
+
+  /// Writes resource files under the module's build directory, at [relative].
+  void createResources(String relative, Map<String, String> files) {
+    for (final entry in files.entries) {
+      final file = File(p.join(root, 'shared', 'build', relative, entry.key));
+      file.parent.createSync(recursive: true);
+      file.writeAsStringSync(entry.value);
     }
   }
 

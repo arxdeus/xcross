@@ -143,6 +143,11 @@ final class KotlinFrameworkBuilder {
       // xcross only ever cross-compiles from non-Apple hosts, so it is
       // always safe to disable it here.
       '-Xbinary=enableDebugTransparentStepping=false',
+      // KGP passes this for `binaries.framework { isStatic = true }`. Without
+      // it a static-framework project gets a dynamic library, whose link must
+      // resolve every ObjC dependency (FirebaseMessaging, sqlite3, …) instead
+      // of leaving them to the app's own link step.
+      if (project.isStaticFramework) '-Xstatic-framework',
     ];
     for (final dependency in klib.dependencies) {
       args.addAll(['-library', dependency]);

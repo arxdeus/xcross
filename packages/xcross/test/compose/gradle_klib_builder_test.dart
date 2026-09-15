@@ -94,6 +94,66 @@ void main() {
     },
   );
 
+  test(
+    'keeps project klib directories and drops the compiler jar',
+    () async {
+      // Regression: `api(project(":core"))` resolves to an extension-less klib
+      // *directory* (…/klib/core). Filtering dependencies on a ".klib" suffix
+      // dropped it, so the link ran without the module's own siblings and the
+      // compiler reported unrelated internal errors (IrCompositeImpl in
+      // EnumClassLowering, then "no function X in package Y" from ObjC export).
+      final fixture =
+          _Fixture.create(moduleName: 'app:shared', host: ComposeHost.linuxX64)
+            ..createWrapper()
+            ..createModuleKlib();
+      final projectKlib = Directory(
+        p.join(
+          fixture.root,
+          'core',
+          'build',
+          'classes',
+          'kotlin',
+          'iosArm64',
+          'main',
+          'klib',
+          'core',
+        ),
+      )..createSync(recursive: true);
+      // On the compile classpath too, and not a library: must not be passed.
+      final compilerJar = File(
+        p.join(
+          fixture.kotlinHome,
+          'konan',
+          'lib',
+          'kotlin-native-compiler-embeddable.jar',
+        ),
+      )..createSync(recursive: true);
+      final externalKlib = Directory(
+        p.join(fixture.root, 'external', 'compose.klib'),
+      )..createSync(recursive: true);
+
+      addTearDown(fixture.dispose);
+
+      final result = await GradleKlibBuilder.withSeams(
+        runChecked:
+            (executable, arguments, {workingDirectory, environment}) async {
+              if (arguments.contains(':app:shared:dumpIosDeps')) {
+                File(environment!['XCROSS_DEPS_OUT']!).writeAsStringSync(
+                  [projectKlib.path, compilerJar.path, externalKlib.path].join(
+                    '\n',
+                  ),
+                );
+              }
+            },
+      ).build(project: fixture.project, toolchain: fixture.toolchain);
+
+      expect(result.dependencies, [
+        p.normalize(projectKlib.path),
+        p.normalize(externalKlib.path),
+      ]);
+    },
+  );
+
   test('uses system Gradle when no wrapper exists', () async {
     final fixture = _Fixture.create(
       moduleName: 'shared',

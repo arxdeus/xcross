@@ -35,6 +35,24 @@ void main() {
       expect(project.baseName, 'B');
     });
 
+    test('reads isStatic from the framework block', () {
+      final root = _fixture();
+      _settings(root, 'include(":shared")');
+      _framework(root, 'shared', baseName: 'Shared', isStatic: true);
+      _kotlinEntry(root, 'shared', file: 'MainViewController.kt');
+
+      expect(KmpProject.detect(root.path).isStaticFramework, isTrue);
+    });
+
+    test('treats a framework without isStatic as dynamic', () {
+      final root = _fixture();
+      _settings(root, 'include(":shared")');
+      _framework(root, 'shared', baseName: 'Shared');
+      _kotlinEntry(root, 'shared', file: 'MainViewController.kt');
+
+      expect(KmpProject.detect(root.path).isStaticFramework, isFalse);
+    });
+
     test('parses Kotlin settings include call with multiple modules', () {
       final root = _fixture();
       _settings(root, 'include(":shared", ":other")');
@@ -305,13 +323,19 @@ void _settings(
   File(p.join(root.path, fileName)).writeAsStringSync(content);
 }
 
-void _framework(Directory root, String module, {String? baseName}) {
+void _framework(
+  Directory root,
+  String module, {
+  String? baseName,
+  bool isStatic = false,
+}) {
   final dir = Directory(p.join(root.path, module))..createSync(recursive: true);
   File(p.join(dir.path, 'build.gradle.kts')).writeAsStringSync('''
 kotlin {
   iosArm64()
   binaries.framework {
     ${baseName == null ? '' : 'baseName = "$baseName"'}
+    ${isStatic ? 'isStatic = true' : ''}
   }
 }
 ''');
