@@ -322,6 +322,8 @@ Future<void> _installUnixToolShims(
   );
   await _writeUnixShim(directory, 'clang', compilerScript);
   await _writeUnixShim(directory, 'cc', compilerScript);
+  await _writeUnixShim(directory, 'ar', renderUnixToolShim(config.archiver));
+  await _writeUnixShim(directory, 'ld', renderUnixToolShim(config.linker));
   await _writeUnixShim(directory, 'xcrun', renderUnixToolShim(config.xcrun));
   if (toolForwarderExecutable != null) {
     await _writeUnixShim(
