@@ -387,6 +387,71 @@ void main() {
       );
     },
   );
+
+  // Staging nothing is correct for a project with no resources and wrong for a
+  // project whose resources were simply not found: that bundle throws
+  // MissingResourceException on the first resource it reads, with nothing in
+  // the build log pointing back here. `Log` writes to the process's own stderr,
+  // so the warning is observed by running the assembler in a child process.
+  test('warns when resources exist but their layout is unrecognised', () async {
+    final fixture = _Fixture.create();
+    final framework = fixture.frameworkPathFor('iosArm64');
+    fixture.createInputsAt(framework);
+    fixture.createResources('some-unknown-layout/composeResources', {
+      'pkg/font.ttf': 'font',
+    });
+    addTearDown(fixture.dispose);
+
+    final script = File(p.join(fixture.root, 'assemble.dart'))
+      ..writeAsStringSync('''
+import 'package:xcross/src/compose/compose.dart';
+
+Future<void> main() async {
+  await ComposeAppAssembler.withSeams().assemble(
+    project: KmpProject(
+      root: r'${fixture.root}',
+      modulePath: r'${p.join(fixture.root, 'shared')}',
+      moduleName: 'shared',
+      baseName: 'Shared',
+      entryKind: KmpEntryKind.swiftApp,
+      bundleId: 'dev.example.shared',
+      appName: 'Example',
+    ),
+    runnerPath: r'${fixture.runnerPath}',
+    frameworkPath: r'$framework',
+  );
+}
+''');
+    final result = await Process.run(Platform.executable, [
+      '--packages=${_packageConfig()}',
+      script.path,
+    ]);
+
+    expect(result.stderr, contains('MissingResourceException'));
+    expect(
+      Directory(
+        p.join(fixture.outputDir, 'Example.app', 'compose-resources'),
+      ).existsSync(),
+      isFalse,
+      reason: 'the layout was not recognised, so nothing could be staged',
+    );
+  });
+}
+
+/// The workspace package config, so a child process can resolve `package:xcross`.
+String _packageConfig() {
+  var directory = Directory.current;
+  while (true) {
+    final candidate = File(
+      p.join(directory.path, '.dart_tool', 'package_config.json'),
+    );
+    if (candidate.existsSync()) return candidate.path;
+    final parent = directory.parent;
+    if (parent.path == directory.path) {
+      throw StateError('no .dart_tool/package_config.json above $directory');
+    }
+    directory = parent;
+  }
 }
 
 final class _Fixture {

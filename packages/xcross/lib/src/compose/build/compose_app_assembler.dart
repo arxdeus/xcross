@@ -240,17 +240,55 @@ final class ComposeAppAssemblerWithSeams {
     required String stagingPath,
   }) async {
     final source = _composeResourcesRoot(project, frameworkPath);
-    if (source == null) return;
+    if (source == null) {
+      // A project with no resources is normal and stages nothing. One that has
+      // them but whose layout was not recognised would instead ship a bundle
+      // that dies on its first resource read, with nothing in the build log to
+      // connect the crash to this step - so say so here.
+      if (_hasComposeResources(project)) {
+        Log.logWarn(
+          'Compose resources were found under ${p.join(project.modulePath, 'build')} '
+          'but not in a layout xcross recognises, so none were staged. The app '
+          'will throw MissingResourceException on the first resource it reads.',
+        );
+      }
+      return;
+    }
     await _copyDirectory(
       source,
       Directory(p.join(stagingPath, 'compose-resources')),
     );
   }
 
+  /// Whether Gradle produced Compose resources anywhere under the module's
+  /// build directory, used only to tell "this project has none" apart from
+  /// "this project has some and they were missed".
+  static bool _hasComposeResources(KmpProject project) {
+    final buildDir = Directory(p.join(project.modulePath, 'build'));
+    if (!buildDir.existsSync()) return false;
+    try {
+      return buildDir
+          .listSync(recursive: true, followLinks: false)
+          .whereType<Directory>()
+          .any((entity) => p.basename(entity.path) == 'composeResources');
+    } on FileSystemException {
+      return false;
+    }
+  }
+
   /// Gradle's aggregated output for the built target — the only one that also
   /// carries resources contributed by dependencies (coil, koin, …). Returns the
   /// resources *root*, whose contents belong in the bundle: it is the directory
   /// holding `composeResources/`, not that directory itself.
+  ///
+  /// The target is read back out of the framework path, which
+  /// `KotlinFrameworkBuilder.expectedFramework` always builds as
+  /// `<module>/build/bin/iosArm64/<config>Framework/<name>.framework`. The
+  /// scanning fallbacks below therefore do not normally run; they exist so a
+  /// layout that stops matching degrades to "wrong-looking resources" instead
+  /// of a bundle that aborts on its first resource read. They are deliberately
+  /// last, because picking a target by sort order could otherwise stage the
+  /// simulator's resources into a device build.
   Directory? _composeResourcesRoot(KmpProject project, String frameworkPath) {
     final buildDir = p.join(project.modulePath, 'build');
     final target = _targetFromFrameworkPath(frameworkPath);
@@ -263,8 +301,8 @@ final class ComposeAppAssemblerWithSeams {
       if (target != null) p.join(aggregated, target),
       if (target != null)
         p.join(buildDir, 'processedResources', target, 'main'),
-      // The framework path does not always name a target (custom layouts, tests),
-      // so fall back to whatever Gradle produced, sorted to keep the choice stable.
+      // Only reached when the framework path does not name a target. Sorted to
+      // keep the choice stable rather than filesystem-ordered.
       ..._resourceCandidates(aggregated, ''),
       ..._resourceCandidates(p.join(buildDir, 'processedResources'), 'main'),
     ];
