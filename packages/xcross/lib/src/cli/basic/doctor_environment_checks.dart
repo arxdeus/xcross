@@ -173,7 +173,7 @@ abstract final class DoctorEnvironmentChecks {
     // Repairs a bundle installed before xcross rewrote text stubs, so
     // `doctor` reports the SDK the build will actually get rather than the
     // one on disk a moment ago.
-    final patched = TbdTargets.ensureBundlePatched(path);
+    final patched = TbdBundlePatch.ensureApplied(path);
     return DoctorCheck.success(
       'Darwin SDK',
       patched == 0

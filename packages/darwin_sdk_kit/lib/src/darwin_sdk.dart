@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/src/errors.dart';
-import 'package:darwin_sdk_kit/src/tbd_targets.dart';
+import 'package:darwin_sdk_kit/src/tbd_bundle_patch.dart';
 import 'package:path/path.dart' as p;
 
 /// An xcross-owned Swift SDK artifact bundle containing the Darwin SDK files
@@ -58,7 +58,7 @@ final class DarwinSdk {
     // no released ld64.lld can parse, which fails every link against them.
     // Repairing on resolve keeps that a one-off scan instead of a
     // multi-gigabyte reinstall; a stamped bundle costs one small file read.
-    TbdTargets.ensureBundlePatched(candidate);
+    TbdBundlePatch.ensureApplied(candidate);
     return DarwinSdk(candidate);
   }
 

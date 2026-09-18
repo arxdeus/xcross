@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:crypto/crypto.dart';
 import 'package:ffi/ffi.dart';
 import 'package:path/path.dart' as p;
@@ -342,14 +343,7 @@ final class SwiftPmBinaryArtifactStore {
 
   static Directory _ioDirectory(String path) => Directory(_ioPath(path));
 
-  static String _ioPath(String path) {
-    if (!Platform.isWindows || path.startsWith(r'\\?\')) return path;
-    final absolute = p.windows.normalize(p.windows.absolute(path));
-    if (absolute.startsWith(r'\\')) {
-      return '${r'\\?\UNC\'}${absolute.substring(2)}';
-    }
-    return '${r'\\?\'}$absolute';
-  }
+  static String _ioPath(String path) => HostPaths.long(path);
 
   static Future<bool> _isLinkOrReparsePoint(String path) async {
     if (FileSystemEntity.typeSync(path, followLinks: false) ==

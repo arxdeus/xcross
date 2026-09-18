@@ -146,7 +146,7 @@ void main() {
         0,
         reason: 'link against the rewritten SDK failed:\n$output',
       );
-      expect(TbdTargets.reportsUnknownArchitecture(output), isFalse);
+      expect(TbdLinkerDiagnostic.reportsUnknownArchitecture(output), isFalse);
       expect(File(p.join(tmp.path, 'probe.dylib')).existsSync(), isTrue);
     },
     timeout: const Timeout(Duration(minutes: 3)),
@@ -193,7 +193,7 @@ void main() {
 
       final output = '${link.stdout}\n${link.stderr}';
       expect(link.exitCode, isNot(0));
-      expect(TbdTargets.reportsUnknownArchitecture(output), isTrue);
+      expect(TbdLinkerDiagnostic.reportsUnknownArchitecture(output), isTrue);
     },
     timeout: const Timeout(Duration(minutes: 1)),
   );

@@ -78,7 +78,7 @@ void main() {
     // Only text stubs are rewritten; nothing else in the SDK is touched.
     expect(read('$sdkRelative/usr/include/notes.txt'), 'arm64e.x1-ios');
     // Stamped, so resolving the bundle later does not rescan it.
-    expect(TbdTargets.bundlePatched(tmp.path), isTrue);
+    expect(TbdBundlePatch.isStamped(tmp.path), isTrue);
   });
 
   test('rewrites every member of a cpio hard-link group', () async {
@@ -178,13 +178,13 @@ void main() {
     await stubFile.writeAsString(stub('arm64e-ios, arm64e.x1-ios'));
 
     expect(DarwinSdk.isValidBundle(bundle), isTrue);
-    expect(TbdTargets.bundlePatched(bundle), isFalse);
+    expect(TbdBundlePatch.isStamped(bundle), isFalse);
 
     final sdk = DarwinSdk.current(bundle: bundle);
 
     expect(sdk, isNotNull);
     expect(stubFile.readAsStringSync(), isNot(contains('.x1')));
-    expect(TbdTargets.bundlePatched(bundle), isTrue);
+    expect(TbdBundlePatch.isStamped(bundle), isTrue);
 
     // Second resolve is a stamp read, not another tree scan: re-adding an
     // unparsable stub must not be undone behind the user's back.
