@@ -312,7 +312,9 @@ void main() {
     final temp = Directory.systemTemp.createTempSync('xcross_profile_replace');
     addTearDown(() => temp.deleteSync(recursive: true));
     final client = _FakeProvisioningClient(
-      existingProfileIds: const ['old-profile'],
+      existingProfiles: const [
+        AscProfileRef(id: 'old-profile', name: 'xcross Development 1'),
+      ],
     );
 
     await AscProvisioning.provisionDevelopmentIdentity(
@@ -323,6 +325,104 @@ void main() {
     );
 
     expect(client.deletedProfiles, ['old-profile']);
+  });
+
+  test(
+    'enables the capabilities an app needs, and only the missing ones',
+    () async {
+      final temp = Directory.systemTemp.createTempSync('xcross_capabilities');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final client = _FakeProvisioningClient()
+        ..enabledCapabilities.add('ASSOCIATED_DOMAINS');
+
+      await AscProvisioning.provisionDevelopmentIdentity(
+        client: client,
+        bundleId: 'com.example.app',
+        deviceUdids: const ['UDID'],
+        outputDir: temp.path,
+        capabilities: const {
+          'APPLE_ID_AUTH',
+          'ASSOCIATED_DOMAINS',
+          'PUSH_NOTIFICATIONS',
+        },
+      );
+
+      // Sorted, and the one already on is not asked for again.
+      expect(client.enabledCapabilityRequests, [
+        'APPLE_ID_AUTH',
+        'PUSH_NOTIFICATIONS',
+      ]);
+    },
+  );
+
+  test(
+    'issues the profile anyway when the backend cannot do capabilities',
+    () async {
+      final temp = Directory.systemTemp.createTempSync(
+        'xcross_capabilities_no',
+      );
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final client = _FakeProvisioningClient(capabilitiesSupported: false);
+      final progress = <String>[];
+
+      final result = await AscProvisioning.provisionDevelopmentIdentity(
+        client: client,
+        bundleId: 'com.example.app',
+        deviceUdids: const ['UDID'],
+        outputDir: temp.path,
+        capabilities: const {'APPLE_ID_AUTH'},
+        onProgress: progress.add,
+      );
+
+      expect(File(result.profilePath).existsSync(), isTrue);
+      expect(progress.join('\n'), contains('capabilities'));
+    },
+  );
+
+  test('keeps a profile xcross did not create', () async {
+    final temp = Directory.systemTemp.createTempSync('xcross_profile_keep');
+    addTearDown(() => temp.deleteSync(recursive: true));
+    final client = _FakeProvisioningClient(
+      existingProfiles: const [
+        AscProfileRef(
+          id: 'release-profile',
+          name: 'Repasar ios_app_store 1789297331',
+        ),
+      ],
+    );
+
+    await AscProvisioning.provisionDevelopmentIdentity(
+      client: client,
+      bundleId: 'com.example.app',
+      deviceUdids: const ['UDID'],
+      outputDir: temp.path,
+    );
+
+    // Deleting it would take a release pipeline's profile with it: an App ID
+    // that ships already has one, and the old rule deleted a lone profile
+    // whatever it was called.
+    expect(client.deletedProfiles, isEmpty);
+  });
+
+  // The profile xcross creates and the profile it is later willing to delete
+  // have to agree on the name, or it either deletes nothing (a free team's slot
+  // stays full) or deletes something it does not own.
+  test('creates profiles under the name it recognises as its own', () async {
+    final temp = Directory.systemTemp.createTempSync('xcross_profile_name');
+    addTearDown(() => temp.deleteSync(recursive: true));
+    final client = _FakeProvisioningClient();
+
+    await AscProvisioning.provisionDevelopmentIdentity(
+      client: client,
+      bundleId: 'com.example.app',
+      deviceUdids: const ['UDID'],
+      outputDir: temp.path,
+    );
+
+    expect(
+      client.createdProfileName,
+      startsWith(AscProvisioning.profileNamePrefix),
+    );
   });
 
   test('attaches every iOS device on the team to the profile', () async {
@@ -367,7 +467,8 @@ class _FakeProvisioningClient implements DevelopmentProvisioningClient {
     this.quotaUsedBy = const [],
     this.pendingRequest = false,
     this.teamIdForSerial,
-    this.existingProfileIds = const [],
+    this.existingProfiles = const [],
+    this.capabilitiesSupported = true,
     this.extraDevices = const [],
   });
 
@@ -375,7 +476,11 @@ class _FakeProvisioningClient implements DevelopmentProvisioningClient {
   final List<String> quotaUsedBy;
   final bool pendingRequest;
   final String? teamIdForSerial;
-  final List<String> existingProfileIds;
+  final List<AscProfileRef> existingProfiles;
+
+  /// When false the fake behaves like the legacy Apple ID backend, which
+  /// cannot see or switch App ID capabilities.
+  final bool capabilitiesSupported;
   final List<AscDevice> extraDevices;
 
   final revoked = <String>[];
@@ -527,12 +632,33 @@ class _FakeProvisioningClient implements DevelopmentProvisioningClient {
   ];
 
   @override
-  Future<List<String>> listProfileIdsForBundle(
+  Future<List<AscProfileRef>> listProfilesForBundle(
     String bundleIdResourceId,
   ) async => [
-    for (final id in existingProfileIds)
-      if (!deletedProfiles.contains(id)) id,
+    for (final profile in existingProfiles)
+      if (!deletedProfiles.contains(profile.id)) profile,
   ];
+
+  /// Capability types switched on through this client, in request order.
+  final List<String> enabledCapabilityRequests = [];
+
+  final Set<String> enabledCapabilities = {};
+
+  @override
+  Future<Set<String>> listEnabledCapabilities(String bundleIdResourceId) async {
+    if (!capabilitiesSupported) throw const CapabilitiesUnsupported();
+    return {...enabledCapabilities};
+  }
+
+  @override
+  Future<void> enableCapability({
+    required String bundleIdResourceId,
+    required String capabilityType,
+  }) async {
+    if (!capabilitiesSupported) throw const CapabilitiesUnsupported();
+    enabledCapabilityRequests.add(capabilityType);
+    enabledCapabilities.add(capabilityType);
+  }
 
   @override
   Future<void> deleteProfile(String profileId) async =>

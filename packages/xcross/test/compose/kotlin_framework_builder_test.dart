@@ -99,6 +99,37 @@ void main() {
     },
   );
 
+  test('passes -Xstatic-framework only for static frameworks', () async {
+    final fixture = _Fixture.create(ComposeHost.linuxX64)..createInputs();
+    final calls = <_Call>[];
+    addTearDown(fixture.dispose);
+
+    Future<void> link(KmpProject project) =>
+        KotlinFrameworkBuilder.withSeams(
+          runChecked:
+              (executable, arguments, {workingDirectory, environment}) async {
+                calls.add(
+                  _Call(executable, arguments, workingDirectory, environment),
+                );
+                fixture.createProducedFramework('debugFramework');
+              },
+          prepareKonan: ({required project, required toolchain}) async =>
+              fixture.prepared,
+        ).build(
+          project: project,
+          options: const ComposeBuildOptions(),
+          toolchain: fixture.toolchain,
+          klib: fixture.klib,
+        );
+
+    await link(fixture.projectWithStatic(isStatic: true));
+    expect(calls.single.arguments, contains('-Xstatic-framework'));
+
+    calls.clear();
+    await link(fixture.project);
+    expect(calls.single.arguments, isNot(contains('-Xstatic-framework')));
+  });
+
   test('builds release framework with opt and project bundle id', () async {
     final fixture = _Fixture.create(ComposeHost.linuxX64)..createInputs();
     _Call? call;
@@ -323,6 +354,17 @@ final class _Fixture {
     ],
     konanPropertyOverrides: 'targetSysRoot.ios_arm64=/sdk',
     environment: preparedEnvironment,
+  );
+
+  KmpProject projectWithStatic({required bool isStatic}) => KmpProject(
+    root: root,
+    modulePath: modulePath,
+    moduleName: 'shared',
+    baseName: 'Shared',
+    entryKind: KmpEntryKind.frameworkOnly,
+    isStaticFramework: isStatic,
+    bundleId: 'dev.example.shared',
+    appName: 'Example',
   );
 
   KmpProject get project => KmpProject(

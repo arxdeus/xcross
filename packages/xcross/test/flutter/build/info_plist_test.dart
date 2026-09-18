@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/flutter/build/info_plist.dart';
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
@@ -407,6 +408,71 @@ BAZ = a=b
 
       expect(updated, contains('<key>AppGroupId</key>'));
       expect(updated, contains('<string>group.qualified</string>'));
+    });
+  });
+
+  group('removePlistKey', () {
+    // The Compose assembler hands the signer its entitlements through private
+    // Info.plist keys whose values are nested arrays and dicts. Cutting at the
+    // first closing tag would leave the rest of the value behind as stray
+    // elements, which is a corrupt plist in a bundle that is about to be signed.
+    test('removes a nested value whole, leaving a parseable plist', () {
+      final xml = PropertyListSerialization.stringWithPropertyList({
+        'CFBundleIdentifier': 'com.example.app',
+        'XCrossEntitlements': {
+          'com.apple.developer.associated-domains': [
+            'webcredentials:example.com',
+            'applinks:example.com',
+          ],
+          'nested': {'deep': <String, Object?>{}},
+        },
+        'UIDeviceFamily': [1],
+      });
+
+      final stripped = InfoPlist.removePlistKey(xml, 'XCrossEntitlements');
+
+      expect(stripped, isNot(contains('XCrossEntitlements')));
+      expect(stripped, isNot(contains('webcredentials')));
+      final reparsed =
+          PropertyListSerialization.propertyListWithString(stripped) as Map;
+      expect(reparsed.keys, ['CFBundleIdentifier', 'UIDeviceFamily']);
+      expect(reparsed['UIDeviceFamily'], [1]);
+    });
+
+    test('removes a self-closing value', () {
+      final xml = PropertyListSerialization.stringWithPropertyList({
+        'XCrossCapabilities': <String, Object?>{},
+        'CFBundleIdentifier': 'com.example.app',
+      });
+
+      final stripped = InfoPlist.removePlistKey(xml, 'XCrossCapabilities');
+
+      expect(stripped, isNot(contains('XCrossCapabilities')));
+      expect(
+        (PropertyListSerialization.propertyListWithString(stripped) as Map)
+            .keys,
+        ['CFBundleIdentifier'],
+      );
+    });
+
+    test('leaves a plist without the key untouched', () {
+      final xml = PropertyListSerialization.stringWithPropertyList({
+        'CFBundleIdentifier': 'com.example.app',
+      });
+
+      expect(InfoPlist.removePlistKey(xml, 'XCrossEntitlements'), xml);
+    });
+
+    test('does not match a key that merely starts with the name', () {
+      final xml = PropertyListSerialization.stringWithPropertyList({
+        'XCrossEntitlementsExtra': 'keep',
+        'CFBundleIdentifier': 'com.example.app',
+      });
+
+      final stripped = InfoPlist.removePlistKey(xml, 'XCrossEntitlements');
+
+      expect(stripped, contains('XCrossEntitlementsExtra'));
+      expect(stripped, contains('keep'));
     });
   });
 

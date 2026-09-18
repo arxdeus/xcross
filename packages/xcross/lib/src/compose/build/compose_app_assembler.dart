@@ -1,9 +1,13 @@
 import 'dart:io';
 
+import 'package:apple_developer_kit/apple_developer_kit.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/compose/build/compose_entitlements.dart';
 import 'package:xcross/src/compose/build/compose_info_plist.dart';
 import 'package:xcross/src/compose/project/kmp_project.dart';
+import 'package:xcross/src/device/internal/app_capabilities.dart';
+import 'package:xcross/src/device/internal/app_entitlements.dart';
 import 'package:xcross/src/errors.dart';
 
 typedef ComposeCopyDirectory =
@@ -166,24 +170,172 @@ final class ComposeAppAssemblerWithSeams {
     required Directory framework,
     required String stagingPath,
   }) async {
-    await Directory(p.join(stagingPath, 'Frameworks')).create(recursive: true);
-
+    await Directory(stagingPath).create(recursive: true);
+    // What the app declares it needs. A profile only grants what the App ID has
+    // switched on, so provisioning enables these before the profile is issued.
+    final declared = ComposeEntitlements.read(
+      project.root,
+      project.appName,
+      appDir: project.swiftAppDir,
+    );
+    final capabilities = AscCapabilities.forEntitlements(declared ?? const {});
     final runnerDest = p.join(stagingPath, 'Runner');
     await runner.copy(runnerDest);
-    await File(
-      p.join(stagingPath, 'Info.plist'),
-    ).writeAsString(ComposeInfoPlist.build(project: project));
-    final frameworkDest = p.join(
-      stagingPath,
-      'Frameworks',
-      '${project.baseName}.framework',
+    await File(p.join(stagingPath, 'Info.plist')).writeAsString(
+      ComposeInfoPlist.build(
+        project: project,
+        extras: {
+          // Read back at signing time, when the project may be long gone.
+          if (capabilities.isNotEmpty)
+            AppCapabilities.infoPlistKey: capabilities,
+          // The profile grants some keys generically (`associated-domains: *`),
+          // and the app's own values are what the runtime checks against.
+          if (declared != null && declared.isNotEmpty)
+            AppEntitlements.infoPlistKey: declared,
+        },
+      ),
     );
-    await _copyDirectory(framework, Directory(frameworkDest));
+
+    // A static framework is linked into Runner, so there is nothing to embed;
+    // copying it would ship a ~400 MB archive inside the .app for no reason.
+    if (!project.isStaticFramework) {
+      await Directory(
+        p.join(stagingPath, 'Frameworks'),
+      ).create(recursive: true);
+      final frameworkDest = p.join(
+        stagingPath,
+        'Frameworks',
+        '${project.baseName}.framework',
+      );
+      await _copyDirectory(framework, Directory(frameworkDest));
+      if (!Platform.isWindows) {
+        _makeExecutable(p.join(frameworkDest, project.baseName));
+      }
+    }
+
+    await _copyComposeResources(
+      project: project,
+      frameworkPath: framework.path,
+      stagingPath: stagingPath,
+    );
 
     if (!Platform.isWindows) {
       _makeExecutable(runnerDest);
-      _makeExecutable(p.join(frameworkDest, project.baseName));
     }
+  }
+
+  /// Copies the app's Compose resources in as `compose-resources/`.
+  ///
+  /// Compose Multiplatform keeps resources *outside* the framework. On iOS the
+  /// bundle's `compose-resources/` directory plays the role that `assets/` plays
+  /// on Android, so it holds the whole resources root — `compose-resources/
+  /// composeResources/<package>/…` — which is what `DefaultIOsResourceReader`
+  /// resolves against the main bundle. A hand-assembled bundle without it aborts
+  /// on the first composition that touches a resource: a font read from the theme
+  /// is enough to raise `MissingResourceException` inside `setContent` and kill
+  /// the app at launch.
+  Future<void> _copyComposeResources({
+    required KmpProject project,
+    required String frameworkPath,
+    required String stagingPath,
+  }) async {
+    final source = _composeResourcesRoot(project, frameworkPath);
+    if (source == null) {
+      // A project with no resources is normal and stages nothing. One that has
+      // them but whose layout was not recognised would instead ship a bundle
+      // that dies on its first resource read, with nothing in the build log to
+      // connect the crash to this step - so say so here.
+      if (_hasComposeResources(project)) {
+        Log.logWarn(
+          'Compose resources were found under ${p.join(project.modulePath, 'build')} '
+          'but not in a layout xcross recognises, so none were staged. The app '
+          'will throw MissingResourceException on the first resource it reads.',
+        );
+      }
+      return;
+    }
+    await _copyDirectory(
+      source,
+      Directory(p.join(stagingPath, 'compose-resources')),
+    );
+  }
+
+  /// Whether Gradle produced Compose resources anywhere under the module's
+  /// build directory, used only to tell "this project has none" apart from
+  /// "this project has some and they were missed".
+  static bool _hasComposeResources(KmpProject project) {
+    final buildDir = Directory(p.join(project.modulePath, 'build'));
+    if (!buildDir.existsSync()) return false;
+    try {
+      return buildDir
+          .listSync(recursive: true, followLinks: false)
+          .whereType<Directory>()
+          .any((entity) => p.basename(entity.path) == 'composeResources');
+    } on FileSystemException {
+      return false;
+    }
+  }
+
+  /// Gradle's aggregated output for the built target — the only one that also
+  /// carries resources contributed by dependencies (coil, koin, …). Returns the
+  /// resources *root*, whose contents belong in the bundle: it is the directory
+  /// holding `composeResources/`, not that directory itself.
+  ///
+  /// The target is read back out of the framework path, which
+  /// `KotlinFrameworkBuilder.expectedFramework` always builds as
+  /// `<module>/build/bin/iosArm64/<config>Framework/<name>.framework`. The
+  /// scanning fallbacks below therefore do not normally run; they exist so a
+  /// layout that stops matching degrades to "wrong-looking resources" instead
+  /// of a bundle that aborts on its first resource read. They are deliberately
+  /// last, because picking a target by sort order could otherwise stage the
+  /// simulator's resources into a device build.
+  Directory? _composeResourcesRoot(KmpProject project, String frameworkPath) {
+    final buildDir = p.join(project.modulePath, 'build');
+    final target = _targetFromFrameworkPath(frameworkPath);
+    final aggregated = p.join(
+      buildDir,
+      'kotlin-multiplatform-resources',
+      'aggregated-resources',
+    );
+    final candidates = <String>[
+      if (target != null) p.join(aggregated, target),
+      if (target != null)
+        p.join(buildDir, 'processedResources', target, 'main'),
+      // Only reached when the framework path does not name a target. Sorted to
+      // keep the choice stable rather than filesystem-ordered.
+      ..._resourceCandidates(aggregated, ''),
+      ..._resourceCandidates(p.join(buildDir, 'processedResources'), 'main'),
+    ];
+    for (final candidate in candidates) {
+      final directory = Directory(candidate);
+      // A resources root is only one if it actually holds `composeResources/`;
+      // otherwise a project with no resources would get an empty directory.
+      if (Directory(p.join(candidate, 'composeResources')).existsSync()) {
+        return directory;
+      }
+    }
+    return null;
+  }
+
+  static Iterable<String> _resourceCandidates(String parent, String leaf) {
+    final directory = Directory(parent);
+    if (!directory.existsSync()) return const [];
+    final names =
+        directory
+            .listSync(followLinks: false)
+            .whereType<Directory>()
+            .map((entity) => p.basename(entity.path))
+            .toList()
+          ..sort();
+    return names.map((name) => p.join(parent, name, leaf));
+  }
+
+  /// `<module>/build/bin/iosArm64/debugFramework/Shared.framework` → `iosArm64`.
+  static String? _targetFromFrameworkPath(String frameworkPath) {
+    final segments = p.split(frameworkPath);
+    final binIndex = segments.indexOf('bin');
+    if (binIndex < 0 || binIndex + 1 >= segments.length) return null;
+    return segments[binIndex + 1];
   }
 
   void _validateStagedApp({
@@ -193,12 +345,13 @@ final class ComposeAppAssemblerWithSeams {
     final requiredFiles = [
       p.join(appPath, 'Runner'),
       p.join(appPath, 'Info.plist'),
-      p.join(
-        appPath,
-        'Frameworks',
-        '${project.baseName}.framework',
-        project.baseName,
-      ),
+      if (!project.isStaticFramework)
+        p.join(
+          appPath,
+          'Frameworks',
+          '${project.baseName}.framework',
+          project.baseName,
+        ),
     ];
     for (final path in requiredFiles) {
       if (!File(path).existsSync()) {

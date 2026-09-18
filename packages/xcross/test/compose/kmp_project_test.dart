@@ -35,6 +35,86 @@ void main() {
       expect(project.baseName, 'B');
     });
 
+    test('reads isStatic from the framework block', () {
+      final root = _fixture();
+      _settings(root, 'include(":shared")');
+      _framework(root, 'shared', baseName: 'Shared', isStatic: true);
+      _kotlinEntry(root, 'shared', file: 'MainViewController.kt');
+
+      expect(KmpProject.detect(root.path).isStaticFramework, isTrue);
+    });
+
+    test('treats a framework without isStatic as dynamic', () {
+      final root = _fixture();
+      _settings(root, 'include(":shared")');
+      _framework(root, 'shared', baseName: 'Shared');
+      _kotlinEntry(root, 'shared', file: 'MainViewController.kt');
+
+      expect(KmpProject.detect(root.path).isStaticFramework, isFalse);
+    });
+
+    // A false positive is the expensive direction: the app is then staged with
+    // no framework embedded at all, and only fails once it is launched on a
+    // device. `isStatic` appears outside the framework block in scripts that
+    // also build an XCFramework, and in commented-out lines.
+    test('ignores isStatic outside the framework block', () {
+      final root = _fixture();
+      _settings(root, 'include(":shared")');
+      _rawBuildScript(root, 'shared', '''
+kotlin {
+  iosArm64()
+  binaries.framework {
+    baseName = "Shared"
+  }
+}
+
+// isStatic = true
+xcframework {
+  isStatic = true
+}
+''');
+      _kotlinEntry(root, 'shared', file: 'MainViewController.kt');
+
+      expect(KmpProject.detect(root.path).isStaticFramework, isFalse);
+    });
+
+    test('reads isStatic set through the property API', () {
+      final root = _fixture();
+      _settings(root, 'include(":shared")');
+      _rawBuildScript(root, 'shared', '''
+kotlin {
+  iosArm64()
+  binaries.framework {
+    baseName = "Shared"
+    isStatic.set(true)
+  }
+}
+''');
+      _kotlinEntry(root, 'shared', file: 'MainViewController.kt');
+
+      expect(KmpProject.detect(root.path).isStaticFramework, isTrue);
+    });
+
+    test('reads isStatic from a framework block with nested braces', () {
+      final root = _fixture();
+      _settings(root, 'include(":shared")');
+      _rawBuildScript(root, 'shared', '''
+kotlin {
+  iosArm64()
+  binaries.framework {
+    baseName = "Shared"
+    export(project(":core")) {
+      transitive = true
+    }
+    isStatic = true
+  }
+}
+''');
+      _kotlinEntry(root, 'shared', file: 'MainViewController.kt');
+
+      expect(KmpProject.detect(root.path).isStaticFramework, isTrue);
+    });
+
     test('parses Kotlin settings include call with multiple modules', () {
       final root = _fixture();
       _settings(root, 'include(":shared", ":other")');
@@ -305,16 +385,29 @@ void _settings(
   File(p.join(root.path, fileName)).writeAsStringSync(content);
 }
 
-void _framework(Directory root, String module, {String? baseName}) {
+void _framework(
+  Directory root,
+  String module, {
+  String? baseName,
+  bool isStatic = false,
+}) {
   final dir = Directory(p.join(root.path, module))..createSync(recursive: true);
   File(p.join(dir.path, 'build.gradle.kts')).writeAsStringSync('''
 kotlin {
   iosArm64()
   binaries.framework {
     ${baseName == null ? '' : 'baseName = "$baseName"'}
+    ${isStatic ? 'isStatic = true' : ''}
   }
 }
 ''');
+}
+
+/// Writes a module build script verbatim, for the shapes [_framework]'s
+/// template cannot express.
+void _rawBuildScript(Directory root, String module, String content) {
+  final dir = Directory(p.join(root.path, module))..createSync(recursive: true);
+  File(p.join(dir.path, 'build.gradle.kts')).writeAsStringSync(content);
 }
 
 void _kotlinEntry(Directory root, String module, {required String file}) {

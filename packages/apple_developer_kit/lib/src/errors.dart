@@ -27,6 +27,19 @@ final class AppleRateLimitError extends AppleError {
   final Duration? retryAfter;
 }
 
+/// Raised by a provisioning backend that cannot read or write App ID
+/// capabilities (the legacy developerservices2 / Apple ID session client).
+///
+/// Provisioning treats it as "no capabilities known" and warns, rather than
+/// failing a build over something the backend simply does not expose.
+final class CapabilitiesUnsupported implements Exception {
+  const CapabilitiesUnsupported();
+
+  @override
+  String toString() =>
+      'This provisioning backend cannot manage App ID capabilities.';
+}
+
 /// The signing credentials in use cannot provision App Groups at all.
 ///
 /// This is a property of Apple's APIs rather than a transient failure: an App

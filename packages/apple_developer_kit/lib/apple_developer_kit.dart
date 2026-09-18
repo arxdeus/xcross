@@ -9,6 +9,7 @@ export 'src/adi/loader/loader_posix.dart';
 export 'src/adi/loader/loader_windows.dart';
 export 'src/apple_http_client.dart';
 export 'src/appstoreconnect/appstoreconnect.dart';
+export 'src/appstoreconnect/asc_capabilities.dart';
 export 'src/appstoreconnect/asc_client.dart';
 export 'src/appstoreconnect/asc_config.dart';
 export 'src/appstoreconnect/asc_csr.dart';

@@ -66,8 +66,29 @@ abstract interface class DevelopmentProvisioningClient {
     required List<String> appGroupResourceIds,
   });
 
-  /// Profile resource ids currently linked to [bundleIdResourceId].
-  Future<List<String>> listProfileIdsForBundle(String bundleIdResourceId);
+  /// Profiles currently linked to [bundleIdResourceId], with the name each was
+  /// created under.
+  ///
+  /// xcross deletes only the profiles it created itself, so it has to be able to
+  /// tell its own (`xcross Development <micros>`) from a release profile a
+  /// pipeline made for the same App ID.
+  Future<List<AscProfileRef>> listProfilesForBundle(String bundleIdResourceId);
+
+  /// Capability types currently switched on for [bundleIdResourceId].
+  ///
+  /// A profile only grants what the App ID has enabled, and the signer takes its
+  /// entitlements from the profile, so a declared entitlement is inert until the
+  /// matching capability is on. Sign in with Apple and Associated Domains are the
+  /// ones that bite: without them `ASAuthorizationController` refuses to present,
+  /// and `ASWebAuthenticationSession.Callback.https` fails instantly with "Login
+  /// was cancelled".
+  Future<Set<String>> listEnabledCapabilities(String bundleIdResourceId);
+
+  /// Switches one capability type on for [bundleIdResourceId].
+  Future<void> enableCapability({
+    required String bundleIdResourceId,
+    required String capabilityType,
+  });
 
   Future<void> deleteProfile(String profileId);
 
@@ -225,9 +246,47 @@ final class AscClient implements DevelopmentProvisioningClient {
   }) => Future.error(const AppGroupsUnsupported());
 
   @override
-  Future<List<String>> listProfileIdsForBundle(
+  Future<List<AscProfileRef>> listProfilesForBundle(
     String bundleIdResourceId,
-  ) async => _ids(await _get('/bundleIds/$bundleIdResourceId/profiles'));
+  ) async => [
+    for (final entry in _collection(
+      await _get('/bundleIds/$bundleIdResourceId/profiles'),
+    ))
+      AscProfileRef.fromJson(entry),
+  ];
+
+  @override
+  Future<Set<String>> listEnabledCapabilities(String bundleIdResourceId) async {
+    final json = await _get(
+      '/bundleIds/$bundleIdResourceId/bundleIdCapabilities',
+    );
+    return {
+      for (final entry in _collection(json))
+        if (entry['attributes'] case {'capabilityType': final String type})
+          type,
+    };
+  }
+
+  @override
+  Future<void> enableCapability({
+    required String bundleIdResourceId,
+    required String capabilityType,
+  }) async {
+    try {
+      await _post(
+        '/bundleIdCapabilities',
+        AscPayloads.capability(
+          bundleIdResourceId: bundleIdResourceId,
+          capabilityType: capabilityType,
+        ),
+      );
+    } on AppleApiError catch (error) {
+      // Apple answers 409 for a capability that is already on, which is the state
+      // the caller asked for.
+      if (error.statusCode == 409) return;
+      rethrow;
+    }
+  }
 
   @override
   Future<void> deleteProfile(String profileId) =>
@@ -317,6 +376,11 @@ final class AscClient implements DevelopmentProvisioningClient {
 
   static Map<String, dynamic> _data(Map<String, dynamic> json) =>
       (json['data'] as Map).cast<String, dynamic>();
+
+  static List<Map<String, dynamic>> _collection(Map<String, dynamic> json) => [
+    for (final entry in json['data'] as List)
+      (entry as Map).cast<String, dynamic>(),
+  ];
 
   static List<String> _ids(Map<String, dynamic> json) => [
     for (final entry in json['data'] as List) (entry as Map)['id'] as String,

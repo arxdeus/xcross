@@ -62,8 +62,10 @@ abstract final class AscProvisioning {
   ///    revoke existing team certificates and issue a new `DEVELOPMENT` /
   ///    `IOS_DEVELOPMENT` cert.
   /// 2. Find-or-register [bundleId] and each of [deviceUdids].
-  /// 3. If the bundle already has exactly one profile, delete it (free-team
-  ///    slot).
+  /// 3. Free a development-profile slot, but only of a profile xcross itself
+  ///    created - see [_freeProfileSlot]. Capabilities the app's entitlements
+  ///    need are switched on before the profile is issued, because a profile
+  ///    only grants what the App ID has enabled.
   /// 4. Resolve the cert's team-side id by serial (never trust create-response
   ///    id alone), attach every iOS-capable device on the team, and create an
   ///    `IOS_APP_DEVELOPMENT` profile.
@@ -74,6 +76,7 @@ abstract final class AscProvisioning {
     required String outputDir,
     String? identityDir,
     List<String> appGroups = const [],
+    Set<String> capabilities = const {},
     ProvisioningProgress? onProgress,
   }) async {
     final signingIdentityDir = identityDir ?? outputDir;
@@ -95,6 +98,13 @@ abstract final class AscProvisioning {
     );
 
     final bundleIdResource = await _findOrRegisterBundleId(client, bundleId);
+    await _ensureCapabilities(
+      client,
+      bundleId: bundleId,
+      bundleIdResource: bundleIdResource,
+      capabilities: capabilities,
+      onProgress: onProgress,
+    );
     await _assignAppGroups(
       client,
       bundleIdResource: bundleIdResource,
@@ -105,12 +115,12 @@ abstract final class AscProvisioning {
       await client.findDeviceByUdid(udid) ??
           await client.registerDevice(udid: udid, name: udid);
     }
-    await _freeProfileSlot(client, bundleIdResource.id);
+    await _freeProfileSlot(client, bundleIdResource.id, onProgress);
 
     final certificateIds = await _teamCertificateIds(client, serialNumber);
     final deviceIds = await _profileDeviceIds(client, deviceUdids);
     final profile = await client.createProfile(
-      name: 'xcross Development ${DateTime.now().microsecondsSinceEpoch}',
+      name: '$profileNamePrefix${DateTime.now().microsecondsSinceEpoch}',
       bundleIdResourceId: bundleIdResource.id,
       certificateResourceIds: certificateIds,
       deviceResourceIds: deviceIds,
@@ -196,15 +206,69 @@ abstract final class AscProvisioning {
     }
   }
 
-  /// xtool: if the bundle already has exactly one profile, delete it before
-  /// creating a fresh one (free teams are limited; paid teams with >1 are
-  /// left alone).
+  /// Prefix every profile xcross creates is named with, which is how its own
+  /// are told apart from a release profile another tool made for the same App
+  /// ID. Minted as `xcross Development <microseconds>`.
+  static const profileNamePrefix = 'xcross Development ';
+
+  /// Frees a development-profile slot, but only of a profile xcross made.
+  ///
+  /// The rule used to be xtool's "delete the bundle's profile if it has exactly
+  /// one" (free teams are limited to one), which also matched a profile somebody
+  /// else's tooling created: against an App ID that ships - and this branch now
+  /// keeps the real bundle id when the team owns it - that one profile is the
+  /// App Store one, and deleting it takes the team's release pipeline down with
+  /// it.
   static Future<void> _freeProfileSlot(
     DevelopmentProvisioningClient client,
     String bundleIdResourceId,
+    ProvisioningProgress? onProgress,
   ) async {
-    final existing = await client.listProfileIdsForBundle(bundleIdResourceId);
-    if (existing.length == 1) await client.deleteProfile(existing.single);
+    final existing = await client.listProfilesForBundle(bundleIdResourceId);
+    if (existing.length != 1) return;
+    final only = existing.single;
+    if (!only.name.startsWith(profileNamePrefix)) {
+      onProgress?.call(
+        'Leaving the existing profile "${only.name}" alone - xcross did not '
+        'create it.',
+      );
+      return;
+    }
+    await client.deleteProfile(only.id);
+  }
+
+  /// Switches on the capabilities an app's entitlements need, so the profile
+  /// Apple issues actually grants them.
+  ///
+  /// Additive and idempotent: an App ID that already has them - a shipping one
+  /// usually does - costs a single lookup.
+  static Future<void> _ensureCapabilities(
+    DevelopmentProvisioningClient client, {
+    required String bundleId,
+    required AscBundleId bundleIdResource,
+    required Set<String> capabilities,
+    ProvisioningProgress? onProgress,
+  }) async {
+    if (capabilities.isEmpty) return;
+    final Set<String> enabled;
+    try {
+      enabled = await client.listEnabledCapabilities(bundleIdResource.id);
+    } on CapabilitiesUnsupported {
+      onProgress?.call(
+        'This backend cannot switch App ID capabilities on, so any the app '
+        'declares (Sign in with Apple, Associated Domains, push) will be '
+        'missing from its profile. Use an App Store Connect API key for those.',
+      );
+      return;
+    }
+    for (final type in capabilities.toList()..sort()) {
+      if (enabled.contains(type)) continue;
+      await client.enableCapability(
+        bundleIdResourceId: bundleIdResource.id,
+        capabilityType: type,
+      );
+      onProgress?.call('Enabled the $type capability on $bundleId');
+    }
   }
 
   static Future<List<String>> _teamCertificateIds(

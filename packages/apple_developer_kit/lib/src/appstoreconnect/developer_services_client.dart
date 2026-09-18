@@ -233,10 +233,27 @@ final class DeveloperServicesClient implements DevelopmentProvisioningClient {
   );
 
   @override
-  Future<List<String>> listProfileIdsForBundle(
+  Future<List<AscProfileRef>> listProfilesForBundle(
     String bundleIdResourceId,
-  ) async =>
-      _ids(await _getCollection('/v1/bundleIds/$bundleIdResourceId/profiles'));
+  ) async => [
+    for (final entry in await _getCollection(
+      '/v1/bundleIds/$bundleIdResourceId/profiles',
+    ))
+      AscProfileRef.fromJson((entry! as Map).cast<String, dynamic>()),
+  ];
+
+  /// developerservices2 reaches App ID capabilities through portal endpoints this
+  /// client does not speak. Provisioning reports the gap and carries on instead
+  /// of failing a build over something the backend does not expose.
+  @override
+  Future<Set<String>> listEnabledCapabilities(String bundleIdResourceId) =>
+      Future.error(const CapabilitiesUnsupported());
+
+  @override
+  Future<void> enableCapability({
+    required String bundleIdResourceId,
+    required String capabilityType,
+  }) => Future.error(const CapabilitiesUnsupported());
 
   @override
   Future<void> deleteProfile(String profileId) async {

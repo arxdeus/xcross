@@ -4,6 +4,9 @@ import 'package:apple_developer_kit/apple_developer_kit.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:path/path.dart' as p;
+import 'package:propertylistserialization/propertylistserialization.dart';
+import 'package:xcross/src/device/internal/app_capabilities.dart';
+import 'package:xcross/src/device/internal/app_entitlements.dart';
 import 'package:xcross/src/device/internal/embedded_extension.dart';
 import 'package:xcross/src/device/internal/signed_bundle_identity.dart';
 import 'package:xcross/src/device/internal/signing_session.dart';
@@ -74,10 +77,19 @@ final class NativeBackend implements DeviceBackend {
 
     final signing = await _resolveSigningSession();
     // xtool-style: qualify with XCR-<identity> so two accounts can share a
-    // project bundle id without racing on a globally unique App ID.
+    // project bundle id without racing for a globally unique App ID. An App ID
+    // this team already owns is used as it is: qualifying it makes the app a
+    // different App ID, and everything bound to the real one stops working - an
+    // Apple identity token carries the bundle id as its `aud`, passkeys and
+    // `ASWebAuthenticationSession.Callback.https` are bound through the App ID's
+    // AASA `webcredentials` entry, and push, Sign in with Apple and Associated
+    // Domains are all provisioned per App ID.
+    final appIdRegisteredToTeam =
+        await signing.client.findBundleId(bundleId) != null;
     final bundleIdentity = SignedBundleIdentity.qualify(
       requested: bundleId,
       signingIdentityId: signing.identityId,
+      appIdRegisteredToTeam: appIdRegisteredToTeam,
     );
     final profilesDir = p.join(p.dirname(signing.identityDir), 'profiles');
     final outputDir = p.join(profilesDir, bundleIdentity.exact);
@@ -139,12 +151,18 @@ final class NativeBackend implements DeviceBackend {
         outputDir: outputDir,
         identityDir: signing.identityDir,
         appGroups: appGroups,
+        // Recorded by the assembler from the project's entitlements; a profile
+        // only grants what the App ID has switched on.
+        capabilities: AppCapabilities.of(appOrIpaPath).toSet(),
         onProgress: _warnOnce,
       );
       final asset = await SigningAsset.load(
         privateKeyPemPath: identity.privateKeyPemPath,
         certificatePemPath: identity.certificatePemPath,
         provisioningProfilePath: identity.profilePath,
+        // The profile's generic values lose to what the app declares, or the
+        // app ends up asking iOS for `associated-domains: *`.
+        declaredEntitlements: AppEntitlements.of(appOrIpaPath),
       );
       final extensionAssets = await _provisionExtensions(
         extensions,
@@ -183,6 +201,11 @@ final class NativeBackend implements DeviceBackend {
           'you.',
         );
       }
+      // The assembler's private hand-off keys have served their purpose by now
+      // (capabilities were provisioned, entitlements folded into `asset`), and
+      // they are not iOS keys. Strip them before the signature seals the plist,
+      // or every Compose app ships with them.
+      await _stripPrivateKeys(appOrIpaPath);
       await Log.logStep(
         'Signing app',
         () => BundleSigner(
@@ -359,6 +382,46 @@ final class NativeBackend implements DeviceBackend {
     }
     identifiers.sort((a, b) => a.bundleId.compareTo(b.bundleId));
     return identifiers;
+  }
+
+  /// Removes the assembler's private hand-off keys from the app's `Info.plist`.
+  ///
+  /// [AppCapabilities.infoPlistKey] and [AppEntitlements.infoPlistKey] carry the
+  /// project's entitlements from build time to signing time, which is the only
+  /// span in which they mean anything. Leaving them in ships the app's declared
+  /// entitlements as plain text in a shipped bundle, and puts two keys iOS does
+  /// not know in the signed plist.
+  ///
+  /// Text-level, like the rest of the plist edits here: re-serializing would
+  /// rewrite a plist this code did not necessarily write. The result is parsed
+  /// before it is written back, because this runs on the shared install path -
+  /// a Flutter or prebuilt bundle never has these keys, and a cosmetic cleanup
+  /// must never be the reason an app fails to install.
+  static Future<void> _stripPrivateKeys(String appPath) async {
+    final plist = File(p.join(appPath, 'Info.plist'));
+    if (!plist.existsSync()) return;
+    final xml = await plist.readAsString();
+    if (!xml.contains(AppCapabilities.infoPlistKey) &&
+        !xml.contains(AppEntitlements.infoPlistKey)) {
+      return;
+    }
+    var stripped = xml;
+    for (final key in [
+      AppCapabilities.infoPlistKey,
+      AppEntitlements.infoPlistKey,
+    ]) {
+      stripped = InfoPlist.removePlistKey(stripped, key);
+    }
+    if (stripped == xml) return;
+    try {
+      final reparsed = PropertyListSerialization.propertyListWithString(
+        stripped,
+      );
+      if (reparsed is! Map) return;
+    } on Object {
+      return;
+    }
+    await plist.writeAsString(stripped);
   }
 
   /// Point the app and every embedded extension at the qualified App Group.

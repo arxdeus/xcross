@@ -15,6 +15,7 @@ final class KmpProject {
     required this.entryKind,
     required this.bundleId,
     required this.appName,
+    this.isStaticFramework = false,
     this.entryClass,
     this.entrySelector,
     this.swiftAppDir,
@@ -28,6 +29,12 @@ final class KmpProject {
   final String moduleName;
   final String baseName;
   final KmpEntryKind entryKind;
+
+  /// `binaries.framework { isStatic = true }` in the module's build script.
+  /// The framework link must pass `-Xstatic-framework`, otherwise Kotlin/Native
+  /// produces a dynamic library and the link then requires every ObjC
+  /// dependency of the module (Firebase, system libraries) to be resolvable.
+  final bool isStaticFramework;
   final String bundleId;
   final String appName;
   final String? entryClass;
@@ -91,6 +98,7 @@ final class _KmpProjectDetector {
           module.gradleId,
           module.diskPath,
           _extractBaseName(content) ?? _capitalize(module.leaf),
+          isStaticFramework: _extractIsStaticFramework(content),
         ),
       );
     }
@@ -111,6 +119,7 @@ final class _KmpProjectDetector {
       moduleName: chosen.moduleName,
       baseName: chosen.baseName,
       entryKind: entry.kind,
+      isStaticFramework: chosen.isStaticFramework,
       bundleId: bundleIdOverride ?? iosConfig?.bundleId ?? defaults.bundleId,
       appName: appNameOverride ?? iosConfig?.productName ?? defaults.appName,
       entryClass: entry.entryClass,
@@ -131,10 +140,16 @@ final class _ModuleSpec {
 }
 
 final class _Candidate {
-  const _Candidate(this.moduleName, this.modulePath, this.baseName);
+  const _Candidate(
+    this.moduleName,
+    this.modulePath,
+    this.baseName, {
+    this.isStaticFramework = false,
+  });
   final String moduleName;
   final String modulePath;
   final String baseName;
+  final bool isStaticFramework;
 }
 
 final class _EntryResult {
@@ -201,6 +216,46 @@ bool _hasFrameworkBlock(String content) =>
 
 String? _extractBaseName(String content) =>
     RegExp(r'baseName\s*=\s*"([^"]+)"').firstMatch(content)?.group(1);
+
+/// Whether the module's framework is declared static.
+///
+/// Scoped to the `binaries.framework { … }` block rather than matched across
+/// the whole script, because `isStatic` is not unique to it: an `xcframework`
+/// block, a second target's framework, or a commented-out line would otherwise
+/// all turn it on. Getting this wrong is not symmetric - a false positive stages
+/// an app with no framework embedded at all, which only fails once the app is
+/// launched on a device.
+///
+/// Both assignment styles Gradle accepts are recognised (`isStatic = true` in
+/// Kotlin DSL, `isStatic.set(true)` via the property API).
+bool _extractIsStaticFramework(String content) {
+  final block = _frameworkBlock(content);
+  if (block == null) return false;
+  return RegExp(
+    r'isStatic\s*(?:=\s*true|\.set\s*\(\s*true\s*\))',
+  ).hasMatch(block);
+}
+
+/// The body of the first `binaries.framework { … }` block, brace-matched.
+///
+/// Returns null when the block is absent or its braces do not close, so a script
+/// this cannot read is treated as "not static", the safe default.
+String? _frameworkBlock(String content) {
+  final start = RegExp(
+    r'binaries\.framework\s*(?:\([^)]*\)\s*)?\{',
+  ).firstMatch(content);
+  if (start == null) return null;
+  var depth = 0;
+  for (var i = start.end - 1; i < content.length; i++) {
+    final char = content[i];
+    if (char == '{') depth++;
+    if (char == '}') {
+      depth--;
+      if (depth == 0) return content.substring(start.end, i);
+    }
+  }
+  return null;
+}
 
 String _capitalize(String value) =>
     value.isEmpty ? value : value[0].toUpperCase() + value.substring(1);
