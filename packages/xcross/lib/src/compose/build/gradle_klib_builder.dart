@@ -191,26 +191,42 @@ allprojects {
       final line = rawLine.trim();
       if (line.isEmpty) continue;
       final normalized = p.normalize(line);
-      // KLIBs are not always files ending in ".klib": project dependencies
-      // (`api(project(":core"))`) resolve to extension-less *directories*
-      // (`.../klib/core`). Filtering on the extension silently dropped them,
-      // so the link ran without the module's own siblings and the compiler
-      // failed with unrelated internal errors (IrCompositeImpl in
-      // EnumClassLowering, "no function X in package Y" during ObjC export).
-      if (FileSystemEntity.typeSync(normalized) ==
-          FileSystemEntityType.notFound) {
-        continue;
-      }
+      if (!_isKlib(normalized)) continue;
       if (p.equals(normalized, kotlinRoot) ||
           p.isWithin(kotlinRoot, normalized)) {
-        continue;
-      }
-      // The compiler jar is on the compile classpath too; it is not a library.
-      if (p.basename(normalized) == 'kotlin-native-compiler-embeddable.jar') {
         continue;
       }
       if (seen.add(normalized)) dependencies.add(normalized);
     }
     return dependencies;
+  }
+
+  /// Whether [path] is a KLIB the linker can be handed with `-library`.
+  ///
+  /// Not an extension test alone: a KLIB is packed as a `.klib` file *or*
+  /// unpacked as a directory, and the unpacked form does not have to be named
+  /// for it. Project dependencies (`api(project(":core"))`) are the case that
+  /// matters - they resolve to
+  /// `<module>/build/classes/kotlin/iosArm64/main/klib/core`, an extension-less
+  /// directory. Filtering on the suffix dropped them, so the link ran without
+  /// the module's own siblings and the compiler failed with errors that name
+  /// none of this (`IrCompositeImpl` in `EnumClassLowering`, "no function X in
+  /// package Y" during ObjC export).
+  ///
+  /// An unpacked KLIB is otherwise recognised by its `manifest`, which every
+  /// KLIB has: under `default/` in the layout current Kotlin writes, at the root
+  /// in the older flat one. That is what makes this a *positive* test, and the
+  /// point of it: `compileDependencyFiles` also carries things that are not
+  /// libraries at all - the compiler jar among them - and excluding those by
+  /// name only works until the next one appears.
+  static bool _isKlib(String path) {
+    if (p.extension(path) == '.klib') {
+      return FileSystemEntity.typeSync(path) != FileSystemEntityType.notFound;
+    }
+    if (FileSystemEntity.isDirectorySync(path)) {
+      return File(p.join(path, 'default', 'manifest')).existsSync() ||
+          File(p.join(path, 'manifest')).existsSync();
+    }
+    return false;
   }
 }
