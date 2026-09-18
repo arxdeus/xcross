@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:cli_kit/cli_kit.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/compose/build/mach_o_validator.dart';
 import 'package:xcross/src/compose/build/process_invocation.dart';
@@ -110,11 +111,21 @@ final class ObjcRunnerBuilder {
       '-rpath',
       '@executable_path/Frameworks',
     ]);
-    await _runChecked(
-      ld.executable,
-      ld.arguments,
-      workingDirectory: project.root,
-    );
+    try {
+      await _runChecked(
+        ld.executable,
+        ld.arguments,
+        workingDirectory: project.root,
+      );
+    } on Object catch (error) {
+      // An SDK whose text stubs still declare an architecture this linker
+      // cannot parse fails here naming a framework, not the cause.
+      if (!TbdTargets.reportsUnknownArchitecture('$error')) rethrow;
+      throw XcrossError(
+        '${TbdTargets.unknownArchitectureGuidance(toolchain.darwinSdkBundle)}'
+        '\n\n$error',
+      );
+    }
     MachOValidator.validate64BitExecutable(runnerPath);
     if (!Platform.isWindows) ProcessRunner.makeExecutable(runnerPath);
     return runnerPath;

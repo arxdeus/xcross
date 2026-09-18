@@ -164,12 +164,23 @@ abstract final class DoctorEnvironmentChecks {
       );
     }
     final mismatch = await SdkInstall.hostToolchainMismatch(path);
-    return mismatch == null
-        ? DoctorCheck.success('Darwin SDK', 'Installed', path: path)
-        : DoctorCheck.failure(
-            'Darwin SDK',
-            '$mismatch Reinstall it with `xcross sdk install <Xcode.xip>`.',
-          );
+    if (mismatch != null) {
+      return DoctorCheck.failure(
+        'Darwin SDK',
+        '$mismatch Reinstall it with `xcross sdk install <Xcode.xip>`.',
+      );
+    }
+    // Repairs a bundle installed before xcross rewrote text stubs, so
+    // `doctor` reports the SDK the build will actually get rather than the
+    // one on disk a moment ago.
+    final patched = TbdTargets.ensureBundlePatched(path);
+    return DoctorCheck.success(
+      'Darwin SDK',
+      patched == 0
+          ? 'Installed'
+          : 'Installed (rewrote $patched text stubs for this linker)',
+      path: path,
+    );
   }
 
   static Future<List<DoctorCheck>> run() async {
