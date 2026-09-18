@@ -199,16 +199,36 @@ class SigningAsset {
     'keychain-access-groups',
   };
 
-  /// Lets the app's own entitlements win over the profile's generic value, for
-  /// the keys the profile grants.
+  /// Whether [value] is Apple's "whatever the app declares" placeholder.
+  ///
+  /// Profiles carry it as a bare string or as a one-element array, depending on
+  /// the entitlement (`com.apple.developer.applesignin` is granted as `("*")`,
+  /// `associated-domains` as `*`).
+  static bool _isWildcard(Object? value) => switch (value) {
+    '*' => true,
+    final List<Object?> list => list.length == 1 && list.single == '*',
+    _ => false,
+  };
+
+  /// Replaces the profile's *wildcard* grants with what the app declares.
   ///
   /// A development profile grants `com.apple.developer.associated-domains` as
   /// `*` - Apple's "whatever the app declares" - and signing with that verbatim
   /// leaves the app declaring a literal `*`. iOS then cannot match the callback
   /// host an `ASWebAuthenticationSession` is waiting for, and the flow dies
   /// instantly with "Login was cancelled", which reads like the user backed out.
-  /// A key the profile does not grant is left alone: an entitlement the profile
-  /// lacks is refused by installd, so adding one locally cannot help.
+  ///
+  /// Only wildcards are replaced, which is what makes this safe to apply to
+  /// every key rather than to a list that has to be kept up to date. Where the
+  /// profile names a concrete value it is the authority and the app's file loses:
+  /// a profile grants `aps-environment` as exactly `development` or
+  /// `production`, and a project that declares `production` against a
+  /// development profile would otherwise be signed into an install failure.
+  /// App Groups behave the same way - the profile carries the team-qualified
+  /// group, the project's file the unqualified one it was written with.
+  ///
+  /// A key the profile does not grant at all is left alone: an entitlement the
+  /// profile lacks is refused by installd, so adding one locally cannot help.
   static Map<String, Object?> _withDeclaredEntitlements(
     Map<String, Object?> granted,
     Map<String, Object?> declared,
@@ -218,6 +238,7 @@ class SigningAsset {
     for (final entry in declared.entries) {
       if (_profileOwnedEntitlements.contains(entry.key)) continue;
       if (!granted.containsKey(entry.key)) continue;
+      if (!_isWildcard(granted[entry.key])) continue;
       effective[entry.key] = entry.value;
     }
     return effective;

@@ -70,6 +70,135 @@ void main() {
     expect(asset.certificateCommonName, 'xcross Test Developer');
   });
 
+  group('declaredEntitlements', () {
+    // A development profile grants associated-domains as the wildcard "*",
+    // meaning "whatever the app declares". Signing that verbatim leaves the app
+    // declaring a literal "*", which iOS cannot match a callback host against,
+    // so an ASWebAuthenticationSession dies instantly with "Login was
+    // cancelled".
+    test('replaces a wildcard grant with what the app declares', () async {
+      final paths = await _writeFixture(
+        temporaryDirectory,
+        'declared-wildcard',
+        privateKeyPem: privateKeyPem,
+        certificatePem: certificatePem,
+        developerCertificates: [certificateDer],
+        extraEntitlements: const {
+          'com.apple.developer.associated-domains': '*',
+          'com.apple.developer.applesignin': ['*'],
+        },
+      );
+
+      final asset = await SigningAsset.load(
+        privateKeyPemPath: paths.key,
+        certificatePemPath: paths.certificate,
+        provisioningProfilePath: paths.profile,
+        declaredEntitlements: const {
+          'com.apple.developer.associated-domains': [
+            'webcredentials:example.com',
+          ],
+          'com.apple.developer.applesignin': ['Default'],
+        },
+        now: now,
+        trustedRootCertificates: [certificateDer],
+      );
+
+      expect(asset.entitlements['com.apple.developer.associated-domains'], [
+        'webcredentials:example.com',
+      ]);
+      // Granted as a one-element array, which is the same wildcard.
+      expect(asset.entitlements['com.apple.developer.applesignin'], [
+        'Default',
+      ]);
+    });
+
+    // The profile names one concrete environment. A project that declares
+    // "production" against a development profile must not be able to overwrite
+    // it, or installd refuses the app.
+    test('keeps a concrete grant over the app declaration', () async {
+      final paths = await _writeFixture(
+        temporaryDirectory,
+        'declared-concrete',
+        privateKeyPem: privateKeyPem,
+        certificatePem: certificatePem,
+        developerCertificates: [certificateDer],
+        extraEntitlements: const {'aps-environment': 'development'},
+      );
+
+      final asset = await SigningAsset.load(
+        privateKeyPemPath: paths.key,
+        certificatePemPath: paths.certificate,
+        provisioningProfilePath: paths.profile,
+        declaredEntitlements: const {'aps-environment': 'production'},
+        now: now,
+        trustedRootCertificates: [certificateDer],
+      );
+
+      expect(asset.entitlements['aps-environment'], 'development');
+    });
+
+    // The App Group the profile carries is the team-qualified one; the project
+    // file still names the unqualified group it was written with. Letting the
+    // declaration win would put back a group the app is not entitled to, and
+    // `grantedAppGroups` feeds the runtime AppGroupId.
+    test('keeps the qualified App Group the profile granted', () async {
+      final paths = await _writeFixture(
+        temporaryDirectory,
+        'declared-groups',
+        privateKeyPem: privateKeyPem,
+        certificatePem: certificatePem,
+        developerCertificates: [certificateDer],
+        appGroups: const ['group.XCR-ABC.dev.xcross.shared'],
+      );
+
+      final asset = await SigningAsset.load(
+        privateKeyPemPath: paths.key,
+        certificatePemPath: paths.certificate,
+        provisioningProfilePath: paths.profile,
+        declaredEntitlements: const {
+          'com.apple.security.application-groups': ['group.dev.xcross.shared'],
+        },
+        now: now,
+        trustedRootCertificates: [certificateDer],
+      );
+
+      expect(asset.grantedAppGroups, ['group.XCR-ABC.dev.xcross.shared']);
+    });
+
+    // An entitlement the profile does not grant is refused by installd, so
+    // adding one locally cannot help and only risks breaking the signature.
+    test('never adds an entitlement the profile lacks', () async {
+      final paths = await _writeFixture(
+        temporaryDirectory,
+        'declared-ungranted',
+        privateKeyPem: privateKeyPem,
+        certificatePem: certificatePem,
+        developerCertificates: [certificateDer],
+      );
+
+      final asset = await SigningAsset.load(
+        privateKeyPemPath: paths.key,
+        certificatePemPath: paths.certificate,
+        provisioningProfilePath: paths.profile,
+        declaredEntitlements: const {
+          'com.apple.developer.healthkit': true,
+          'application-identifier': 'EVIL.dev.xcross.test',
+        },
+        now: now,
+        trustedRootCertificates: [certificateDer],
+      );
+
+      expect(
+        asset.entitlements.containsKey('com.apple.developer.healthkit'),
+        isFalse,
+      );
+      expect(
+        asset.entitlements['application-identifier'],
+        'TESTTEAM123.dev.xcross.test',
+      );
+    });
+  });
+
   group('grantedAppGroups', () {
     // Only the profile decides what iOS accepts. An App ID with the App
     // Groups capability enabled but no group attached yields an empty array,
@@ -637,6 +766,7 @@ Future<({String key, String certificate, String profile})> _writeFixture(
   bool binaryPlist = false,
   Uint8List? profileCmsOverride,
   List<String>? appGroups,
+  Map<String, Object>? extraEntitlements,
 }) async {
   final directory = Directory('${root.path}/$name')..createSync();
   final keyPath = '${directory.path}/key.pem';
@@ -655,6 +785,7 @@ Future<({String key, String certificate, String profile})> _writeFixture(
       'application-identifier': 'TESTTEAM123.dev.xcross.test',
       'get-task-allow': true,
       if (appGroups != null) 'com.apple.security.application-groups': appGroups,
+      ...?extraEntitlements,
     },
     'DeveloperCertificates': [
       for (final certificate in developerCertificates)
