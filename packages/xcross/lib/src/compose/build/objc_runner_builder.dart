@@ -111,21 +111,17 @@ final class ObjcRunnerBuilder {
       '-rpath',
       '@executable_path/Frameworks',
     ]);
-    try {
-      await _runChecked(
+    // An SDK whose text stubs still declare an architecture this linker
+    // cannot parse fails here naming a framework, not the cause.
+    await TbdLinkerDiagnostic.explainFailures(
+      bundle: toolchain.darwinSdkBundle,
+      wrap: XcrossError.new,
+      () => _runChecked(
         ld.executable,
         ld.arguments,
         workingDirectory: project.root,
-      );
-    } on Object catch (error) {
-      // An SDK whose text stubs still declare an architecture this linker
-      // cannot parse fails here naming a framework, not the cause.
-      if (!TbdTargets.reportsUnknownArchitecture('$error')) rethrow;
-      throw XcrossError(
-        '${TbdTargets.unknownArchitectureGuidance(toolchain.darwinSdkBundle)}'
-        '\n\n$error',
-      );
-    }
+      ),
+    );
     MachOValidator.validate64BitExecutable(runnerPath);
     if (!Platform.isWindows) ProcessRunner.makeExecutable(runnerPath);
     return runnerPath;

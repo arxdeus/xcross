@@ -163,8 +163,13 @@ final class RunnerShim {
     String? pluginsLibrary,
   }) async {
     Log.logTrace('[ld64.lld] link Runner.o → Runner');
-    try {
-      await ProcessRunner.runChecked(
+    // An SDK whose text stubs still declare an architecture this linker
+    // cannot parse fails here with a diagnostic that names a framework,
+    // not the cause.
+    await TbdLinkerDiagnostic.explainFailures(
+      bundle: sdkBundle,
+      wrap: FlutterBuildError.new,
+      () => ProcessRunner.runChecked(
         ld64lld,
         linkArguments(
           objectPath: objectPath,
@@ -178,16 +183,8 @@ final class RunnerShim {
         ),
         inheritStdio: Log.isVerbose,
         label: 'ld64.lld',
-      );
-    } on Object catch (error) {
-      // An SDK whose text stubs still declare an architecture this linker
-      // cannot parse fails here with a diagnostic that names a framework,
-      // not the cause. Say what it is and how to redo the rewrite.
-      if (!TbdTargets.reportsUnknownArchitecture('$error')) rethrow;
-      throw FlutterBuildError(
-        '${TbdTargets.unknownArchitectureGuidance(sdkBundle)}\n\n$error',
-      );
-    }
+      ),
+    );
   }
 
   @visibleForTesting

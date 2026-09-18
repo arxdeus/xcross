@@ -105,8 +105,8 @@ abstract final class SdkInstall {
       // payload, so every member of the group lands patched, and the
       // symlinks Windows materializes later are copied from files that
       // already are.
-      if (TbdTargets.isTbdName(destPath)) {
-        final rewritten = TbdTargets.rewriteBytes(data);
+      if (TbdBundlePatch.isTbdName(destPath)) {
+        final rewritten = TbdBundlePatch.rewriteBytes(data);
         if (rewritten != null) {
           data = rewritten;
           patchedStubs++;
@@ -146,10 +146,10 @@ abstract final class SdkInstall {
     // Stamped unconditionally: a freshly extracted bundle has been through
     // the rewrite whether or not any stub needed it, and the stamp is what
     // stops every later SDK resolve from rescanning the tree.
-    TbdTargets.writeStamp(root, files: patchedStubs);
+    TbdBundlePatch.stamp(root, files: patchedStubs);
     if (patchedStubs > 0) {
       Log.logTrace(
-        'Renamed ${TbdTargets.architectureAliases.keys.join(', ')} in '
+        'Renamed ${tbdArchitectureAliases.keys.join(', ')} in '
         '$patchedStubs .tbd files',
       );
     }
@@ -257,15 +257,7 @@ abstract final class SdkInstall {
 
   /// Win32 directory enumeration appends `\\*`, which still hits `MAX_PATH`
   /// unless the absolute path uses the extended-length prefix.
-  static String ioPath(String path) {
-    if (!Platform.isWindows) return path;
-    final absolute = p.absolute(path);
-    if (absolute.startsWith(r'\\?\')) return absolute;
-    if (absolute.startsWith(r'\\')) {
-      return '\\\\?\\UNC\\${absolute.substring(2)}';
-    }
-    return '\\\\?\\$absolute';
-  }
+  static String ioPath(String path) => HostPaths.long(path);
 
   /// Copy Swift's canonical iPhoneOS layout into its legacy Runtime location.
   static Future<void> materializeSwiftCompatibilityResources(
