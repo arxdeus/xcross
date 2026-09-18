@@ -3,6 +3,7 @@ library;
 
 export 'src/download.dart';
 export 'src/errors.dart';
+export 'src/host_paths.dart';
 export 'src/host_privileges.dart';
 export 'src/local_http.dart';
 export 'src/logging.dart';

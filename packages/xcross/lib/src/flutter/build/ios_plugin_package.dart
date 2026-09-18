@@ -5839,15 +5839,7 @@ $diagnosticsStart$registrations$diagnosticsEnd}
     return bytes;
   }
 
-  static String _ioPath(String path) {
-    if (!Platform.isWindows) return path;
-    final absolute = p.windows.normalize(p.windows.absolute(path));
-    if (absolute.startsWith(r'\\?\')) return absolute;
-    if (absolute.startsWith(r'\\')) {
-      return '${r'\\?\UNC\'}${absolute.substring(2)}';
-    }
-    return '${r'\\?\'}$absolute';
-  }
+  static String _ioPath(String path) => HostPaths.long(path);
 
   static void _traceBinaryOperation({
     required String target,

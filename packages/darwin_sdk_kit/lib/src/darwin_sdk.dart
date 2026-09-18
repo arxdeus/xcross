@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/src/errors.dart';
+import 'package:darwin_sdk_kit/src/tbd_bundle_patch.dart';
 import 'package:path/path.dart' as p;
 
 /// An xcross-owned Swift SDK artifact bundle containing the Darwin SDK files
@@ -52,7 +53,13 @@ final class DarwinSdk {
     } on FileSystemException catch (e) {
       Log.logTrace('DarwinSdk: could not stage runtime layout: $e');
     }
-    return isValidBundle(candidate) ? DarwinSdk(candidate) : null;
+    if (!isValidBundle(candidate)) return null;
+    // Bundles installed before xcross rewrote text stubs carry architectures
+    // no released ld64.lld can parse, which fails every link against them.
+    // Repairing on resolve keeps that a one-off scan instead of a
+    // multi-gigabyte reinstall; a stamped bundle costs one small file read.
+    TbdBundlePatch.ensureApplied(candidate);
+    return DarwinSdk(candidate);
   }
 
   /// A complete bundle has Swift artifact metadata and a usable iPhoneOS SDK.

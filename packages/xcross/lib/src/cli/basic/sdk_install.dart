@@ -87,17 +87,31 @@ abstract final class SdkInstall {
     final links = <String, String>{};
     final hardLinks = HardLinkPayloads();
     var written = 0;
+    var patchedStubs = 0;
 
     await for (final entry in entries) {
       // Runs before the inclusion filter: an excluded entry may still carry
       // the only copy of a payload an included hard link shares.
       final fileType = entry.mode & _fileTypeMask;
-      final data = hardLinks.payloadFor(
+      var data = hardLinks.payloadFor(
         entry,
         isRegular: fileType == _regularFileType || fileType == 0,
       );
       final destPath = _destinationPath(root, entry);
       if (destPath == null) continue;
+
+      // Text stubs are rewritten on the way in rather than in a pass over
+      // the installed tree: the bytes here are the hard-link group's shared
+      // payload, so every member of the group lands patched, and the
+      // symlinks Windows materializes later are copied from files that
+      // already are.
+      if (TbdBundlePatch.isTbdName(destPath)) {
+        final rewritten = TbdBundlePatch.rewriteBytes(data);
+        if (rewritten != null) {
+          data = rewritten;
+          patchedStubs++;
+        }
+      }
 
       switch (entry.mode & _fileTypeMask) {
         case _directoryType:
@@ -128,6 +142,16 @@ abstract final class SdkInstall {
         await Link(link.key).create(link.value, recursive: true);
         onLinkProgress?.call(++linked, links.length);
       }
+    }
+    // Stamped unconditionally: a freshly extracted bundle has been through
+    // the rewrite whether or not any stub needed it, and the stamp is what
+    // stops every later SDK resolve from rescanning the tree.
+    TbdBundlePatch.stamp(root, files: patchedStubs);
+    if (patchedStubs > 0) {
+      Log.logTrace(
+        'Renamed ${tbdArchitectureAliases.keys.join(', ')} in '
+        '$patchedStubs .tbd files',
+      );
     }
     return written;
   }
@@ -233,15 +257,7 @@ abstract final class SdkInstall {
 
   /// Win32 directory enumeration appends `\\*`, which still hits `MAX_PATH`
   /// unless the absolute path uses the extended-length prefix.
-  static String ioPath(String path) {
-    if (!Platform.isWindows) return path;
-    final absolute = p.absolute(path);
-    if (absolute.startsWith(r'\\?\')) return absolute;
-    if (absolute.startsWith(r'\\')) {
-      return '\\\\?\\UNC\\${absolute.substring(2)}';
-    }
-    return '\\\\?\\$absolute';
-  }
+  static String ioPath(String path) => HostPaths.long(path);
 
   /// Copy Swift's canonical iPhoneOS layout into its legacy Runtime location.
   static Future<void> materializeSwiftCompatibilityResources(

@@ -70,6 +70,7 @@ final class RunnerShim {
       objectPath: objectPath,
       outputPath: outputPath,
       iosSdk: iosSdk,
+      sdkBundle: sdk.swiftSdkPath,
       flutterSlice: flutterSlice,
       subframeworks: subframeworks,
       sdkVersion: sdkVersion,
@@ -154,6 +155,7 @@ final class RunnerShim {
     required String objectPath,
     required String outputPath,
     required String iosSdk,
+    required String sdkBundle,
     required String flutterSlice,
     required String subframeworks,
     required String sdkVersion,
@@ -161,20 +163,27 @@ final class RunnerShim {
     String? pluginsLibrary,
   }) async {
     Log.logTrace('[ld64.lld] link Runner.o → Runner');
-    await ProcessRunner.runChecked(
-      ld64lld,
-      linkArguments(
-        objectPath: objectPath,
-        outputPath: outputPath,
-        iosSdk: iosSdk,
-        flutterSlice: flutterSlice,
-        subframeworks: subframeworks,
-        sdkVersion: sdkVersion,
-        deploymentTarget: deploymentTarget,
-        pluginsLibrary: pluginsLibrary,
+    // An SDK whose text stubs still declare an architecture this linker
+    // cannot parse fails here with a diagnostic that names a framework,
+    // not the cause.
+    await TbdLinkerDiagnostic.explainFailures(
+      bundle: sdkBundle,
+      wrap: FlutterBuildError.new,
+      () => ProcessRunner.runChecked(
+        ld64lld,
+        linkArguments(
+          objectPath: objectPath,
+          outputPath: outputPath,
+          iosSdk: iosSdk,
+          flutterSlice: flutterSlice,
+          subframeworks: subframeworks,
+          sdkVersion: sdkVersion,
+          deploymentTarget: deploymentTarget,
+          pluginsLibrary: pluginsLibrary,
+        ),
+        inheritStdio: Log.isVerbose,
+        label: 'ld64.lld',
       ),
-      inheritStdio: Log.isVerbose,
-      label: 'ld64.lld',
     );
   }
 
