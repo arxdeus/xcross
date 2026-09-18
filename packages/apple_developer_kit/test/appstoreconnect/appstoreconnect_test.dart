@@ -404,6 +404,27 @@ void main() {
     expect(client.deletedProfiles, isEmpty);
   });
 
+  // The profile xcross creates and the profile it is later willing to delete
+  // have to agree on the name, or it either deletes nothing (a free team's slot
+  // stays full) or deletes something it does not own.
+  test('creates profiles under the name it recognises as its own', () async {
+    final temp = Directory.systemTemp.createTempSync('xcross_profile_name');
+    addTearDown(() => temp.deleteSync(recursive: true));
+    final client = _FakeProvisioningClient();
+
+    await AscProvisioning.provisionDevelopmentIdentity(
+      client: client,
+      bundleId: 'com.example.app',
+      deviceUdids: const ['UDID'],
+      outputDir: temp.path,
+    );
+
+    expect(
+      client.createdProfileName,
+      startsWith(AscProvisioning.profileNamePrefix),
+    );
+  });
+
   test('attaches every iOS device on the team to the profile', () async {
     final temp = Directory.systemTemp.createTempSync('xcross_all_devices');
     addTearDown(() => temp.deleteSync(recursive: true));

@@ -27,16 +27,6 @@ final class AppleRateLimitError extends AppleError {
   final Duration? retryAfter;
 }
 
-/// The signing credentials in use cannot provision App Groups at all.
-///
-/// This is a property of Apple's APIs rather than a transient failure: an App
-/// Store Connect API key has no way to create an App Group or attach one to an
-/// App ID, and a profile issued without one grants an empty
-/// `com.apple.security.application-groups` array that iOS refuses to accept a
-/// real group against. See `AscClient.findAppGroup` for the full evidence.
-///
-/// Callers should treat it as "this credential type cannot do this", not as an
-/// error to retry, and point the user at `xcross auth --apple-id`.
 /// Raised by a provisioning backend that cannot read or write App ID
 /// capabilities (the legacy developerservices2 / Apple ID session client).
 ///
@@ -50,6 +40,16 @@ final class CapabilitiesUnsupported implements Exception {
       'This provisioning backend cannot manage App ID capabilities.';
 }
 
+/// The signing credentials in use cannot provision App Groups at all.
+///
+/// This is a property of Apple's APIs rather than a transient failure: an App
+/// Store Connect API key has no way to create an App Group or attach one to an
+/// App ID, and a profile issued without one grants an empty
+/// `com.apple.security.application-groups` array that iOS refuses to accept a
+/// real group against. See `AscClient.findAppGroup` for the full evidence.
+///
+/// Callers should treat it as "this credential type cannot do this", not as an
+/// error to retry, and point the user at `xcross auth --apple-id`.
 final class AppGroupsUnsupported extends AppleError {
   const AppGroupsUnsupported()
     : super(

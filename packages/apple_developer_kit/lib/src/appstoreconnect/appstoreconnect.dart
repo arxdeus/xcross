@@ -120,7 +120,7 @@ abstract final class AscProvisioning {
     final certificateIds = await _teamCertificateIds(client, serialNumber);
     final deviceIds = await _profileDeviceIds(client, deviceUdids);
     final profile = await client.createProfile(
-      name: 'xcross Development ${DateTime.now().microsecondsSinceEpoch}',
+      name: '$profileNamePrefix${DateTime.now().microsecondsSinceEpoch}',
       bundleIdResourceId: bundleIdResource.id,
       certificateResourceIds: certificateIds,
       deviceResourceIds: deviceIds,
@@ -206,19 +206,19 @@ abstract final class AscProvisioning {
     }
   }
 
-  /// xtool: if the bundle already has exactly one profile, delete it before
-  /// creating a fresh one (free teams are limited; paid teams with >1 are
-  /// left alone).
-  /// Frees a development-profile slot, but only of a profile xcross made.
-  ///
-  /// The rule used to be "delete the bundle's profile if it has exactly one",
-  /// which also matched a profile somebody else's tooling created: against an
-  /// App ID that ships - the bundle id is usually already registered - the one
-  /// profile is the App Store one, and deleting it takes the team's release
-  /// pipeline down with it. Names are minted as
-  /// `xcross Development <microseconds>`, so ownership is explicit.
+  /// Prefix every profile xcross creates is named with, which is how its own
+  /// are told apart from a release profile another tool made for the same App
+  /// ID. Minted as `xcross Development <microseconds>`.
   static const profileNamePrefix = 'xcross Development ';
 
+  /// Frees a development-profile slot, but only of a profile xcross made.
+  ///
+  /// The rule used to be xtool's "delete the bundle's profile if it has exactly
+  /// one" (free teams are limited to one), which also matched a profile somebody
+  /// else's tooling created: against an App ID that ships - and this branch now
+  /// keeps the real bundle id when the team owns it - that one profile is the
+  /// App Store one, and deleting it takes the team's release pipeline down with
+  /// it.
   static Future<void> _freeProfileSlot(
     DevelopmentProvisioningClient client,
     String bundleIdResourceId,
