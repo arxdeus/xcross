@@ -174,6 +174,62 @@ abstract final class InfoPlist {
     return _insertBeforeEnd(xml, '\t$replacement\n');
   }
 
+  /// Remove [key] and its value from the root dict, whatever the value's shape.
+  ///
+  /// Used for the private keys the Compose assembler hands to the signer: they
+  /// hold nested `<array>`/`<dict>` values, so the "key plus one element" regex
+  /// [_setPlistKey] uses would cut the plist open at the first `</array>` and
+  /// leave the rest of the value behind as stray elements. The value is instead
+  /// walked with a depth counter, which is what makes nesting safe.
+  ///
+  /// Every occurrence is removed, for the same reason [_setPlistKey] replaces
+  /// all of them. An absent key leaves [plistXml] untouched.
+  ///
+  /// Best-effort text surgery, not a parser: a value whose tags do not nest
+  /// (already-malformed XML, or a `<dict>` mentioned inside an XML comment) can
+  /// end the cut in the wrong place. Callers that write the result back into a
+  /// bundle must check it still parses - see `NativeBackend._stripPrivateKeys`.
+  static String removePlistKey(String plistXml, String key) {
+    final keyTag = '<key>$key</key>';
+    var xml = plistXml;
+    while (true) {
+      final keyStart = xml.indexOf(keyTag);
+      if (keyStart < 0) return xml;
+      final valueEnd = _endOfValueAfter(xml, keyStart + keyTag.length);
+      if (valueEnd < 0) return xml;
+      // Take the whitespace in front of the key with it, so removing a key from
+      // a pretty-printed plist does not leave a blank indented line behind.
+      var cut = keyStart;
+      while (cut > 0 && (xml[cut - 1] == '\t' || xml[cut - 1] == ' ')) {
+        cut--;
+      }
+      if (cut > 0 && xml[cut - 1] == '\n') cut--;
+      xml = xml.substring(0, cut) + xml.substring(valueEnd);
+    }
+  }
+
+  /// Index just past the single plist element that starts at or after [from].
+  ///
+  /// Returns -1 when the element is malformed or unterminated, which the caller
+  /// treats as "leave the document alone" rather than risking a truncating edit.
+  static int _endOfValueAfter(String xml, int from) {
+    final open = RegExp(r'<(\w+)(\s[^>]*)?(/)?>');
+    final match = open.firstMatch(xml.substring(from));
+    if (match == null) return -1;
+    final tag = match.group(1)!;
+    final absoluteStart = from + match.start;
+    // `<true/>`, `<dict/>` and friends are complete in one tag.
+    if (match.group(3) != null) return absoluteStart + match.group(0)!.length;
+
+    final nested = RegExp('<$tag(?:\\s[^>]*)?>|</$tag>');
+    var depth = 0;
+    for (final token in nested.allMatches(xml, absoluteStart)) {
+      depth += token.group(0)!.startsWith('</') ? -1 : 1;
+      if (depth == 0) return token.end;
+    }
+    return -1;
+  }
+
   /// Insert [fragment] before the closing `</dict>` of the root plist dict.
   /// Tries `</dict>\n</plist>` first (canonical), then falls back to the last
   /// bare `</dict>` to handle compact plist serialisations.

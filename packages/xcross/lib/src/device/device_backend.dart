@@ -4,6 +4,7 @@ import 'package:apple_developer_kit/apple_developer_kit.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:path/path.dart' as p;
+import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:xcross/src/device/internal/app_capabilities.dart';
 import 'package:xcross/src/device/internal/app_entitlements.dart';
 import 'package:xcross/src/device/internal/embedded_extension.dart';
@@ -75,8 +76,6 @@ final class NativeBackend implements DeviceBackend {
     }
 
     final signing = await _resolveSigningSession();
-    // xtool-style: qualify with XCR-<identity> so two accounts can share a
-    // project bundle id without racing on a globally unique App ID.
     // xtool-style: qualify with XCR-<identity> so two accounts can share a
     // project bundle id without racing for a globally unique App ID. An App ID
     // this team already owns is used as it is: qualifying it makes the app a
@@ -202,6 +201,11 @@ final class NativeBackend implements DeviceBackend {
           'you.',
         );
       }
+      // The assembler's private hand-off keys have served their purpose by now
+      // (capabilities were provisioned, entitlements folded into `asset`), and
+      // they are not iOS keys. Strip them before the signature seals the plist,
+      // or every Compose app ships with them.
+      await _stripPrivateKeys(appOrIpaPath);
       await Log.logStep(
         'Signing app',
         () => BundleSigner(
@@ -378,6 +382,46 @@ final class NativeBackend implements DeviceBackend {
     }
     identifiers.sort((a, b) => a.bundleId.compareTo(b.bundleId));
     return identifiers;
+  }
+
+  /// Removes the assembler's private hand-off keys from the app's `Info.plist`.
+  ///
+  /// [AppCapabilities.infoPlistKey] and [AppEntitlements.infoPlistKey] carry the
+  /// project's entitlements from build time to signing time, which is the only
+  /// span in which they mean anything. Leaving them in ships the app's declared
+  /// entitlements as plain text in a shipped bundle, and puts two keys iOS does
+  /// not know in the signed plist.
+  ///
+  /// Text-level, like the rest of the plist edits here: re-serializing would
+  /// rewrite a plist this code did not necessarily write. The result is parsed
+  /// before it is written back, because this runs on the shared install path -
+  /// a Flutter or prebuilt bundle never has these keys, and a cosmetic cleanup
+  /// must never be the reason an app fails to install.
+  static Future<void> _stripPrivateKeys(String appPath) async {
+    final plist = File(p.join(appPath, 'Info.plist'));
+    if (!plist.existsSync()) return;
+    final xml = await plist.readAsString();
+    if (!xml.contains(AppCapabilities.infoPlistKey) &&
+        !xml.contains(AppEntitlements.infoPlistKey)) {
+      return;
+    }
+    var stripped = xml;
+    for (final key in [
+      AppCapabilities.infoPlistKey,
+      AppEntitlements.infoPlistKey,
+    ]) {
+      stripped = InfoPlist.removePlistKey(stripped, key);
+    }
+    if (stripped == xml) return;
+    try {
+      final reparsed = PropertyListSerialization.propertyListWithString(
+        stripped,
+      );
+      if (reparsed is! Map) return;
+    } on Object {
+      return;
+    }
+    await plist.writeAsString(stripped);
   }
 
   /// Point the app and every embedded extension at the qualified App Group.
