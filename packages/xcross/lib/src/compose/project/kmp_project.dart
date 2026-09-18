@@ -217,10 +217,45 @@ bool _hasFrameworkBlock(String content) =>
 String? _extractBaseName(String content) =>
     RegExp(r'baseName\s*=\s*"([^"]+)"').firstMatch(content)?.group(1);
 
-/// Same heuristic style as [_extractBaseName]: read the framework block's
-/// static flag straight out of the build script.
-bool _extractIsStaticFramework(String content) =>
-    RegExp(r'isStatic\s*=\s*true').hasMatch(content);
+/// Whether the module's framework is declared static.
+///
+/// Scoped to the `binaries.framework { … }` block rather than matched across
+/// the whole script, because `isStatic` is not unique to it: an `xcframework`
+/// block, a second target's framework, or a commented-out line would otherwise
+/// all turn it on. Getting this wrong is not symmetric - a false positive stages
+/// an app with no framework embedded at all, which only fails once the app is
+/// launched on a device.
+///
+/// Both assignment styles Gradle accepts are recognised (`isStatic = true` in
+/// Kotlin DSL, `isStatic.set(true)` via the property API).
+bool _extractIsStaticFramework(String content) {
+  final block = _frameworkBlock(content);
+  if (block == null) return false;
+  return RegExp(
+    r'isStatic\s*(?:=\s*true|\.set\s*\(\s*true\s*\))',
+  ).hasMatch(block);
+}
+
+/// The body of the first `binaries.framework { … }` block, brace-matched.
+///
+/// Returns null when the block is absent or its braces do not close, so a script
+/// this cannot read is treated as "not static", the safe default.
+String? _frameworkBlock(String content) {
+  final start = RegExp(
+    r'binaries\.framework\s*(?:\([^)]*\)\s*)?\{',
+  ).firstMatch(content);
+  if (start == null) return null;
+  var depth = 0;
+  for (var i = start.end - 1; i < content.length; i++) {
+    final char = content[i];
+    if (char == '{') depth++;
+    if (char == '}') {
+      depth--;
+      if (depth == 0) return content.substring(start.end, i);
+    }
+  }
+  return null;
+}
 
 String _capitalize(String value) =>
     value.isEmpty ? value : value[0].toUpperCase() + value.substring(1);
