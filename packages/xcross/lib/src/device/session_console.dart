@@ -17,6 +17,8 @@ final class SessionConsole {
     required this.hotReload,
     this.hotReloadUnavailable,
     this.onRestartRequested,
+    this.crashReason,
+    this.recentDeviceLines,
   });
 
   /// Drain and keypress loops are already unwinding via [_stop] by the time we
@@ -34,6 +36,14 @@ final class SessionConsole {
   /// Returning `true` means the session should end so the caller can relaunch;
   /// `false` keeps the current session running (e.g. the build failed).
   final Future<bool> Function()? onRestartRequested;
+
+  /// The device log line explaining a native abort, when the app printed one.
+  /// A closure, not a value: the reason only exists once the crash happened.
+  final String? Function()? crashReason;
+
+  /// The app's last device-log lines, shown when a crash has no single
+  /// recognisable reason line so the user still gets something to go on.
+  final List<String> Function()? recentDeviceLines;
 
   /// Why [hotReload] is null, shown when `r`/`R` are pressed anyway.
   ///
@@ -148,10 +158,7 @@ final class SessionConsole {
             // app frozen on a black screen with no output at all, which is
             // indistinguishable from a hang. Report it and end the session.
             if (reply.isFatalStop) {
-              Log.logError(
-                'App crashed: ${reply.stopDescription}. '
-                'The process is stopped at the fault.',
-              );
+              _reportCrash(reply.stopDescription);
               _stop();
               finish();
             }
@@ -170,6 +177,29 @@ final class SessionConsole {
     try {
       await sub.cancel().timeout(const Duration(milliseconds: 500));
     } on Object catch (_) {}
+  }
+
+  /// Report a fatal stop with whatever the app said on its way down.
+  ///
+  /// The signal name alone ("SIGABRT") is not actionable: every uncaught
+  /// Objective-C exception, failed plugin assertion and misconfigured SDK
+  /// looks identical. The device log carries the actual reason, so it is
+  /// printed with the crash instead of being discarded.
+  void _reportCrash(String description) {
+    Log.logError(
+      'App crashed: $description. The process is stopped at the fault.',
+    );
+    final reason = crashReason?.call();
+    if (reason != null) {
+      Log.logError(reason);
+      return;
+    }
+    final recent = recentDeviceLines?.call() ?? const <String>[];
+    if (recent.isEmpty) return;
+    Log.logInfo('Last device log lines');
+    for (final line in recent) {
+      stdout.writeln('  $line');
+    }
   }
 
   /// Reads control keys from stdin. Deliberately does NOT require a TTY: the

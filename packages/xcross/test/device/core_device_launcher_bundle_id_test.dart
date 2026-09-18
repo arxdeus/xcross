@@ -29,11 +29,15 @@ void main() {
     expect(DeviceLog.appLogMessage('not json', 13457), isNull);
   });
 
-  test('device logs stay disabled outside verbose mode', () async {
-    expect(
-      await DeviceLog.start(deviceArgs: const [], pid: 1, enabled: false),
-      isNull,
-    );
+  test('device logs select the device over plain usbmux', () {
+    // Never the session transport's `--userspace --udid` args: a second
+    // in-process tunnel to an already-tunnelled device stalls and yields no
+    // lines, which is how a crash reason went missing entirely.
+    expect(DeviceLog.deviceSelectionArgs('00008030-ABC'), [
+      '--udid',
+      '00008030-ABC',
+    ]);
+    expect(DeviceLog.deviceSelectionArgs(null), isEmpty);
   });
 
   String pick(List<String> installed, String requested) =>

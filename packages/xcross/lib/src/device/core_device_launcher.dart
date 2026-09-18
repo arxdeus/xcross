@@ -50,6 +50,7 @@ abstract final class CoreDeviceLauncher {
     try {
       await _runSession(
         transport: transport,
+        udid: udid,
         bundleId: bundleId,
         arguments: profile.argumentsForLaunch(
           isDap: _isDap,
@@ -114,6 +115,7 @@ abstract final class CoreDeviceLauncher {
   /// Launch, attach, and hold the interactive session open.
   static Future<void> _runSession({
     required DeviceTransport transport,
+    required String udid,
     required String bundleId,
     required List<String> arguments,
     required HotReloadConfig? hotReload,
@@ -126,10 +128,14 @@ abstract final class CoreDeviceLauncher {
       bundleId: bundleId,
       appArgs: arguments,
     );
+    // Always on, verbose or not: a native abort (uncaught NSException,
+    // misconfigured Firebase, failed plugin assertion) prints its reason to
+    // the device log and nowhere else. Without it the session could only say
+    // "App crashed: SIGABRT", which tells the user nothing actionable.
     final deviceLog = await DeviceLog.start(
-      deviceArgs: transport.pymdDeviceArgs,
       pid: pid,
-      enabled: Log.isVerbose,
+      udid: udid,
+      verbose: Log.isVerbose,
     );
 
     try {
@@ -150,6 +156,8 @@ abstract final class CoreDeviceLauncher {
               ? null
               : 'hot reload is still preparing; wait for "Hot reload ready".',
           onRestartRequested: onRestartRequested,
+          crashReason: () => deviceLog?.crashReason,
+          recentDeviceLines: () => deviceLog?.tailLines ?? const [],
         );
         final consoleFuture = console.run();
         if (hotReload != null) Log.logInfo('Preparing hot reload…');
