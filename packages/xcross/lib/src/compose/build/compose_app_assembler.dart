@@ -173,7 +173,11 @@ final class ComposeAppAssemblerWithSeams {
     await Directory(stagingPath).create(recursive: true);
     // What the app declares it needs. A profile only grants what the App ID has
     // switched on, so provisioning enables these before the profile is issued.
-    final declared = ComposeEntitlements.read(project.root, project.appName);
+    final declared = ComposeEntitlements.read(
+      project.root,
+      project.appName,
+      appDir: project.swiftAppDir,
+    );
     final capabilities = AscCapabilities.forEntitlements(declared ?? const {});
     final runnerDest = p.join(stagingPath, 'Runner');
     await runner.copy(runnerDest);

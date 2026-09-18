@@ -12,24 +12,40 @@ import 'package:propertylistserialization/propertylistserialization.dart';
 /// time.
 abstract final class ComposeEntitlements {
   /// The parsed entitlements of the app target, or null when it has none.
-  static Map<String, Object?>? read(String root, String appName) {
-    final path = find(root, appName);
+  ///
+  /// A file that cannot be read or parsed is treated as "no entitlements"
+  /// rather than as a build failure. These values only ever *add* capabilities
+  /// to the profile, so failing the build over a malformed one would turn a
+  /// project that builds today into one that does not, for a file Xcode itself
+  /// may never have required.
+  static Map<String, Object?>? read(
+    String root,
+    String appName, {
+    String? appDir,
+  }) {
+    final path = find(root, appName, appDir: appDir);
     if (path == null) return null;
-    final object = PropertyListSerialization.propertyListWithString(
-      File(path).readAsStringSync(),
-    );
-    if (object is! Map) return null;
-    return object.cast<String, Object?>();
+    try {
+      final object = PropertyListSerialization.propertyListWithString(
+        File(path).readAsStringSync(),
+      );
+      if (object is! Map) return null;
+      return object.cast<String, Object?>();
+    } on Object {
+      return null;
+    }
   }
 
   /// The path of the app target's entitlements file, or null.
   ///
-  /// Looks in the two layouts the Info.plist is looked for in first
-  /// (`<root>/iosApp/iosApp/…`, `<root>/iosApp/…`), then scans - a Compose
-  /// project may keep its iOS app anywhere, and this repository is one that
-  /// keeps it under `app/iosApp/…`.
-  static String? find(String root, String appName) {
+  /// [appDir] is the directory of the app target's `@main` Swift file when the
+  /// project has one; an entitlements file sits next to it, so it is both the
+  /// cheapest and the most accurate place to look. The `iosApp` layouts follow,
+  /// matching where the Info.plist is looked for, and only then does it scan -
+  /// a Compose project may keep its iOS app anywhere.
+  static String? find(String root, String appName, {String? appDir}) {
     for (final directory in [
+      if (appDir != null) Directory(appDir),
       Directory(p.join(root, 'iosApp', 'iosApp')),
       Directory(p.join(root, 'iosApp')),
     ]) {
