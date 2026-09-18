@@ -1,0 +1,257 @@
+name: Nix
+
+on:
+  pull_request:
+    paths:
+      - flake.nix
+      - flake.lock
+      - .github/workflows/nix.yml
+      - README.md
+      - packages/xcross/lib/src/config/**
+      - packages/xcross/lib/src/cli/runner.dart
+      - packages/xcross/lib/src/flutter/build/**
+  push:
+    branches: [main]
+    paths:
+      - flake.nix
+      - flake.lock
+      - .github/workflows/nix.yml
+      - README.md
+      - packages/xcross/lib/src/config/**
+      - packages/xcross/lib/src/cli/runner.dart
+      - packages/xcross/lib/src/flutter/build/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: nix-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Check (${{ matrix.system }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            system: x86_64-linux
+          - runner: ubuntu-24.04-arm
+            system: aarch64-linux
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          submodules: true
+
+      - name: Install Nix
+        uses: DeterminateSystems/determinate-nix-action@2a0be2498974c2b6327e19780488744384637d88 # v3.21.7
+
+      - name: Check flake
+        run: nix flake check --print-build-logs
+
+      - name: Create consumer flake
+        env:
+          SYSTEM: ${{ matrix.system }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/xcross-consumer"
+          cp -R examples/flutter_example/. "$RUNNER_TEMP/xcross-consumer/"
+          cd "$RUNNER_TEMP/xcross-consumer"
+          cat > flake.nix <<'EOF'
+          {
+            inputs = {
+              xcross.url = "path:__XCROSS_SOURCE__";
+              nixpkgs.follows = "xcross/nixpkgs";
+            };
+
+            outputs = { nixpkgs, xcross, ... }:
+              let
+                system = "__SYSTEM__";
+                pkgs = nixpkgs.legacyPackages.${system};
+                xcrossPackage = xcross.packages.${system}.default;
+                inherit (xcrossPackage) swiftToolchain swiftCompiler;
+                config = pkgs.writeText "consumer-xcross-config.yaml" (builtins.toJSON {
+                  roots = {
+                    darwinSdk = "$XCROSS_DARWIN_BUNDLE";
+                    flutterSdk = "${pkgs.flutter}";
+                    xcross = "${xcrossPackage}/bin/xcross";
+                    javaHome = "${pkgs.jdk.home}";
+                    konanData = "$KONAN_DATA_DIR";
+                  };
+                  toolchains = {
+                    swift = "${swiftToolchain}/bin";
+                    llvm = [
+                      "${swiftToolchain}/bin"
+                      "${pkgs.llvmPackages_21.llvm}/bin"
+                      "${pkgs.llvmPackages_21.lld}/bin"
+                    ];
+                  };
+                  excluded_commands = [ "config" "setup" ];
+                  environment = {
+                    SWIFT_EXEC = "${swiftCompiler}";
+                    SWIFT_EXEC_MANIFEST = "${swiftCompiler}";
+                    CC = "${swiftToolchain}/bin/clang";
+                    CXX = "${swiftToolchain}/bin/clang++";
+                    FLUTTER_ROOT = "${pkgs.flutter}";
+                  };
+                });
+              in {
+                devShells.${system}.default = pkgs.mkShell {
+                  inputsFrom = [ xcross.devShells.${system}.default ];
+                  packages = [ pkgs.flutter pkgs.jdk ];
+                  XCROSS_CONFIG = config;
+                  FLUTTER_ROOT = "${pkgs.flutter}";
+                  JAVA_HOME = "${pkgs.jdk.home}";
+                  shellHook = ''
+                    export XCROSS_DARWIN_BUNDLE="''${XCROSS_DARWIN_BUNDLE:-''${XDG_CONFIG_HOME:-$HOME/.config}/xcross/swift-sdks/xcross-darwin.artifactbundle}"
+                    export KONAN_DATA_DIR="''${KONAN_DATA_DIR:-$HOME/.konan}"
+                  '';
+                };
+              };
+          }
+          EOF
+          sed -i \
+            -e "s/__SYSTEM__/$SYSTEM/" \
+            -e "s|__XCROSS_SOURCE__|$GITHUB_WORKSPACE|" \
+            flake.nix
+          nix flake lock
+
+      - name: Export consumer environment
+        working-directory: ${{ runner.temp }}/xcross-consumer
+        run: |
+          nix develop --command bash -euo pipefail <<'SH'
+            printf "XCROSS_NIX_PATH=%s\n" "$PATH" >> "$GITHUB_ENV"
+          SH
+
+      - name: Check Swift toolchain pairing
+        working-directory: ${{ runner.temp }}/xcross-consumer
+        run: |
+          nix develop --command bash -euo pipefail <<'SH'
+            test "$(dirname "$(readlink -f "$(command -v swift)")")" = \
+              "$(dirname "$(readlink -f "$(command -v swiftc)")")"
+            test -x "$SWIFT_EXEC"
+            test "$SWIFT_EXEC" = "$SWIFT_EXEC_MANIFEST"
+            package="$(mktemp -d)"
+            swift package init --package-path "$package" --type empty
+            swift package describe --package-path "$package" --type json >/dev/null
+          SH
+
+      - name: Check Nix configuration
+        working-directory: ${{ runner.temp }}/xcross-consumer
+        run: |
+          nix develop --command python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          config_path = Path(os.environ["XCROSS_CONFIG"])
+          assert str(config_path).startswith("/nix/store/"), config_path
+          config = json.loads(config_path.read_text())
+          assert set(config["excluded_commands"]) == {"config", "setup"}
+          roots = {key: Path(os.path.expandvars(value)) for key, value in config["roots"].items()}
+          for key in ("flutterSdk", "javaHome", "xcross"):
+              assert roots[key].is_absolute() and roots[key].exists(), (key, roots[key])
+              assert str(roots[key]).startswith("/nix/store/"), (key, roots[key])
+          assert (roots["flutterSdk"] / "bin/cache/dart-sdk/bin/dart").is_file()
+          assert roots["flutterSdk"] == Path(os.environ["FLUTTER_ROOT"])
+          assert roots["javaHome"] == Path(os.environ["JAVA_HOME"])
+          for key, variable in (("darwinSdk", "XCROSS_DARWIN_BUNDLE"), ("konanData", "KONAN_DATA_DIR")):
+              assert roots[key].is_absolute(), (key, roots[key])
+              assert roots[key] == Path(os.environ[variable]), (key, roots[key])
+              assert not str(roots[key]).startswith("/nix/store/"), (key, roots[key])
+          for directory in [config["toolchains"]["swift"], *config["toolchains"]["llvm"]]:
+              assert directory.startswith("/nix/store/") and Path(directory).is_dir(), directory
+          for key in ("SWIFT_EXEC", "SWIFT_EXEC_MANIFEST", "CC", "CXX"):
+              assert os.access(config["environment"][key], os.X_OK), key
+          PY
+          nix develop --command bash -euo pipefail <<'SH'
+            xcross --help > "$RUNNER_TEMP/xcross-nix-help"
+            for command in config setup; do
+              status=0
+              xcross "$command" --help > "$RUNNER_TEMP/xcross-nix-command" 2>&1 || status=$?
+              test "$status" -eq 64
+              grep -F "Could not find a command named" "$RUNNER_TEMP/xcross-nix-command"
+              if grep -Eq "^[[:space:]]+$command[[:space:]]" "$RUNNER_TEMP/xcross-nix-help"; then
+                exit 1
+              fi
+            done
+            alternate_config="$RUNNER_TEMP/xcross-alternate-config.yaml"
+            printf '{}\n' > "$alternate_config"
+            for command in config setup; do
+              XCROSS_CONFIG="$alternate_config" xcross "$command" --help
+            done
+          SH
+
+      - name: Restore cached Darwin SDK
+        if: matrix.system == 'x86_64-linux'
+        uses: ./.github/actions/setup-darwin-sdk
+        env:
+          PATH: ${{ env.XCROSS_NIX_PATH }}
+
+      - name: Check packaged xcrun shim dispatch
+        if: matrix.system == 'x86_64-linux'
+        working-directory: ${{ runner.temp }}/xcross-consumer
+        run: |
+          nix develop --command bash -euo pipefail <<'SH'
+            packaged_xcrun="$(dirname "$(command -v xcross)")/xcrun"
+            [[ "$packaged_xcrun" == /nix/store/*/bin/xcrun ]]
+            test -x "$packaged_xcrun"
+            shims="$(mktemp -d)"
+            trap 'rm -rf "$shims"' EXIT
+            cat > "$shims/clang" <<'CLANG'
+          #!/usr/bin/env bash
+          printf '%s\0' "$@" > "$XCROSS_SHIM_ARGS"
+          exit 37
+          CLANG
+            chmod +x "$shims/clang"
+            test "$(PATH="$shims:$PATH" "$packaged_xcrun" --find clang)" = "$shims/clang"
+            export XCROSS_SHIM_ARGS="$shims/actual"
+            args=(-c 'source with spaces.c' -o 'output with spaces.o' '')
+            printf '%s\0' "${args[@]}" > "$shims/expected"
+            status=0
+            PATH="$shims:$PATH" "$packaged_xcrun" --sdk iphoneos clang "${args[@]}" || status=$?
+            test "$status" -eq 37
+            cmp "$shims/expected" "$shims/actual"
+          SH
+
+      - name: Build source xcross
+        if: matrix.system == 'x86_64-linux'
+        working-directory: ${{ runner.temp }}/xcross-consumer
+        run: |
+          nix develop --command bash -euo pipefail <<'SH'
+            cp -R "$GITHUB_WORKSPACE" "$RUNNER_TEMP/xcross-source"
+            cd "$RUNNER_TEMP/xcross-source"
+            dart pub get
+            cd packages/xcross
+            dart run tool/build_xcross.dart
+          SH
+
+      - name: Check source command exclusions
+        if: matrix.system == 'x86_64-linux'
+        working-directory: ${{ runner.temp }}/xcross-consumer
+        run: |
+          nix develop --command bash -euo pipefail <<'SH'
+            executable="$RUNNER_TEMP/xcross-source/packages/xcross/build/cli/linux_x64/bundle/bin/xcross"
+            "$executable" --help
+            for command in config setup; do
+              status=0
+              "$executable" "$command" --help > "$RUNNER_TEMP/xcross-source-command" 2>&1 || status=$?
+              test "$status" -eq 64
+              grep -F "Could not find a command named" "$RUNNER_TEMP/xcross-source-command"
+            done
+          SH
+
+      - name: Build Flutter example
+        if: matrix.system == 'x86_64-linux'
+        working-directory: ${{ runner.temp }}/xcross-consumer
+        run: |
+          nix develop --command bash -euo pipefail <<'SH'
+            "$RUNNER_TEMP/xcross-source/packages/xcross/build/cli/linux_x64/bundle/bin/xcross" flutter build
+            test "$(find build/xcross-ios -maxdepth 1 -type d -name "*.app" | wc -l)" -eq 1
+          SH
