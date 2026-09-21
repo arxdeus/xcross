@@ -4,6 +4,7 @@ import 'package:args/command_runner.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:xcross/src/cli/basic/internal/swift_requirement.dart';
+import 'package:xcross/src/cli/basic/internal/xcode_swift_requirement.dart';
 import 'package:xcross/src/cli/basic/sdk_install.dart';
 import 'package:xcross/src/errors.dart';
 
@@ -50,6 +51,16 @@ final class SdkInstallCommand extends Command<void> {
     final swift = await SwiftRequirement.require('install the Darwin SDK');
     await SwiftRequirement.requireSiblingClang(swift);
 
+    // Newer Xcode SDKs cannot be consumed by older Swift compilers at all, so
+    // the pairing is rejected here rather than after the extraction. The
+    // archive's file name is only a hint (downloads get renamed), but when it
+    // does name a generation this costs the user nothing to learn early; the
+    // extracted SDK is checked again below, where the answer is authoritative.
+    await _requireSwiftForXcode(
+      XcodeSwiftRequirement.xcodeMajorFromXipPath(xipPath),
+      swift,
+    );
+
     // Everything that can reject the input must run before the previous SDK
     // is removed: this command's next act is deleting a working install, and
     // a wrong path or a partial download would otherwise leave the host with
@@ -88,10 +99,45 @@ final class SdkInstallCommand extends Command<void> {
       'Writing Swift SDK metadata',
       () => SdkInstall.writeSwiftSdkBundleMetadata(destDir),
     );
+    // The extracted `iPhoneOSXX.X.sdk` names the Xcode generation for certain,
+    // so a renamed archive that slipped past the pre-flight is still caught —
+    // before the user spends another hour discovering it through a parse
+    // error inside a system module.
+    await _requireSwiftForXcode(
+      XcodeSwiftRequirement.xcodeMajorFromSdkPath(
+        DarwinSdk(destDir).iPhoneOSSdk(),
+      ),
+      swift,
+    );
     Log.logDone(
       'Installed Darwin Swift SDK '
       '(${ProgressBar.formatCount(written)} entries) at $destDir',
     );
+  }
+
+  /// Throws [XcrossError] when the host Swift is older than an Xcode
+  /// [xcodeMajor] SDK requires. A null [xcodeMajor], or a toolchain that
+  /// reports no version, is not an error: see [XcodeSwiftRequirement].
+  static Future<void> _requireSwiftForXcode(
+    int? xcodeMajor,
+    String swift,
+  ) async {
+    if (xcodeMajor == null) return;
+    if (XcodeSwiftRequirement.minimumSwift(xcodeMajor) == null) return;
+    final String version;
+    try {
+      version = (await SdkInstall.hostToolchainIdentity())['version'] ?? '';
+    } on Object catch (error) {
+      Log.logTrace('Could not read the host Swift version: $error');
+      return;
+    }
+    final problem = XcodeSwiftRequirement.mismatchWithHint(
+      xcodeMajor: xcodeMajor,
+      swiftVersionOutput: version,
+      swiftPath: swift,
+      installHint: SwiftRequirement.installHint(),
+    );
+    if (problem != null) throw XcrossError(problem);
   }
 
   /// Percentages track the compressed `Content` stream, the only size the
