@@ -134,6 +134,31 @@ void main() {
       expect(bytes, copy, reason: 'an unsafe file must be left alone');
     });
 
+    test('leaves every already-aligned layout byte-identical', () {
+      // Sweep the indirect-symbol counts a correct linker produces (Apple
+      // ld64, and lld whenever the count happens to be even). None of these
+      // may be touched: this repair must only ever fire on the broken shape.
+      for (var indirectCount = 0; indirectCount <= 64; indirectCount += 2) {
+        final bytes = buildMachO(
+          indirectCount: indirectCount,
+          strings: stringTable('_hello', padding: 8),
+        );
+        expect(
+          readSymtab(bytes).offset % 8,
+          0,
+          reason: 'fixture with $indirectCount entries must start aligned',
+        );
+        final copy = Uint8List.fromList(bytes);
+
+        expect(
+          MachOLinkeditAligner.alignBytes(bytes, source: 'fixture'),
+          isFalse,
+          reason: 'aligned file with $indirectCount entries was modified',
+        );
+        expect(bytes, copy, reason: 'bytes changed for $indirectCount');
+      }
+    });
+
     test('ignores files that are not 64-bit Mach-O', () {
       final bytes = Uint8List.fromList(List.filled(64, 0x41));
       expect(
