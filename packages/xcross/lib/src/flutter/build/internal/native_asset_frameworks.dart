@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/macho_dylib_rewriter.dart';
+import 'package:xcross/src/flutter/build/macho_linkedit_aligner.dart';
 
 const _fatMachOMagics = <int>{
   0xcafebabe, // FAT_MAGIC
@@ -29,6 +30,21 @@ Future<bool> isFatMachO(String path) async {
   final bytes = await file.openRead(0, 4).expand((chunk) => chunk).toList();
   final magic = ByteData.sublistView(Uint8List.fromList(bytes)).getUint32(0);
   return _fatMachOMagics.contains(magic);
+}
+
+/// Repairs native-asset binaries whose LINKEDIT string table `ld64.lld`
+/// left 4-byte aligned, which dyld on iOS 26 refuses to load.
+///
+/// Runs over every framework because any of them can carry the layout that
+/// triggers it (an odd indirect-symbol count); binaries that are already
+/// aligned are left untouched.
+Future<void> alignNativeAssetLinkedit(Iterable<String> frameworks) async {
+  for (final framework in frameworks) {
+    final binary = p.join(framework, p.basenameWithoutExtension(framework));
+    if (await MachOLinkeditAligner.alignFile(binary)) {
+      Log.logTrace('realigned LINKEDIT string table in $binary');
+    }
+  }
 }
 
 Future<void> normalizeNativeAssetInstallNames(

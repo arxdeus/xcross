@@ -95,6 +95,7 @@ final class IosNativeAssetsBuilder {
 
     final frameworks = collectNativeAssetFrameworks(output);
     await thinFrameworksToArm64(frameworks, lipo: tools.lipo);
+    await alignNativeAssetLinkedit(frameworks);
     await normalizeNativeAssetInstallNames(frameworks);
 
     return IosNativeAssetsBuildResult(
