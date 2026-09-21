@@ -3487,6 +3487,39 @@ let package = Package(
       );
     });
 
+    test('target build dir prefers the native per-triple scratch layout', () {
+      final scratch = Directory.systemTemp.createTempSync(
+        'xcross-scratch-layout',
+      );
+      addTearDown(() => scratch.deleteSync(recursive: true));
+
+      // Nothing built yet: the per-triple path the native engine uses.
+      expect(
+        GeneratedPluginsPackage.resolveTargetBuildDir(scratch.path),
+        p.join(scratch.path, 'arm64-apple-ios', 'debug'),
+      );
+
+      // A swiftbuild run left out/debug behind; it is used when it is
+      // the only description present.
+      final out = Directory(p.join(scratch.path, 'out', 'debug'))
+        ..createSync(recursive: true);
+      File(p.join(out.path, 'description.json')).writeAsStringSync('{}');
+      expect(
+        GeneratedPluginsPackage.resolveTargetBuildDir(scratch.path),
+        out.path,
+      );
+
+      // Once the pinned native engine has produced its own description, the
+      // per-triple layout wins over the stale `out/debug`.
+      final triple = Directory(p.join(scratch.path, 'arm64-apple-ios', 'debug'))
+        ..createSync(recursive: true);
+      File(p.join(triple.path, 'description.json')).writeAsStringSync('{}');
+      expect(
+        GeneratedPluginsPackage.resolveTargetBuildDir(scratch.path),
+        triple.path,
+      );
+    });
+
     test('keeps the iOS SDK, package flags, and Windows toolset', () {
       final arguments = GeneratedPluginsPackage.swiftBuildArguments(
         pluginsDir: 'plugins',
@@ -3500,10 +3533,14 @@ let package = Package(
         windows: true,
       );
 
-      expect(arguments.take(5), [
+      expect(arguments.take(7), [
         'build',
         '--package-path',
         'plugins',
+        // Swift 6.4 defaults to the `swiftbuild` engine, which cannot target
+        // iphoneos from a cross host; the native engine is pinned instead.
+        '--build-system',
+        'native',
         '--configuration',
         'debug',
       ]);

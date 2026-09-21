@@ -466,7 +466,7 @@ abstract final class GeneratedPluginsPackage {
         environment: environment,
       );
     }
-    final targetBuildDir = p.join(scratchPath, 'arm64-apple-ios', 'debug');
+    final targetBuildDir = resolveTargetBuildDir(scratchPath);
     final baseArguments = swiftBuildArguments(
       pluginsDir: pluginsDir,
       scratchPath: scratchPath,
@@ -663,16 +663,12 @@ abstract final class GeneratedPluginsPackage {
   /// [swiftProcessEnvironment] are what keep a credential prompt from
   /// hanging forever, not a timeout.
   static Future<void> _resolveOnce(String swift, String directory) async {
-    final result = await ProcessRunner.run(
-      swift,
-      [
-        if (!Platform.isWindows) 'package',
-        '--package-path',
-        directory,
-        'resolve',
-      ],
-      environment: swiftProcessEnvironment(),
-    );
+    final result = await ProcessRunner.run(swift, [
+      if (!Platform.isWindows) 'package',
+      '--package-path',
+      directory,
+      'resolve',
+    ], environment: swiftProcessEnvironment());
     if (result.exitCode != 0) {
       throw FlutterBuildError(
         'Cannot resolve SwiftPM dependencies in $directory:\n'
@@ -1725,6 +1721,36 @@ abstract final class GeneratedPluginsPackage {
     return path;
   }
 
+  /// The directory SwiftPM writes build artifacts (`description.json`, the
+  /// per-target `.build` folders) into, inside [scratchPath].
+  ///
+  /// Swift 6.4's swiftbuild engine drops the per-triple level and writes
+  /// to `<scratch>/out/debug` instead of `<scratch>/<triple>/debug`. This
+  /// build pins the native engine, which keeps the per-triple layout, so
+  /// that is preferred: a stale `out/debug` left behind by a default-engine
+  /// run must not win. When neither exists yet the per-triple path is
+  /// returned so the missing-description diagnostic names a real location.
+  @visibleForTesting
+  static String resolveTargetBuildDir(
+    String scratchPath, {
+    String triple = 'arm64-apple-ios',
+    String configuration = 'debug',
+  }) {
+    final candidates = [
+      p.join(scratchPath, triple, configuration),
+      p.join(scratchPath, 'out', configuration),
+    ];
+    for (final candidate in candidates) {
+      if (File(p.join(candidate, 'description.json')).existsSync()) {
+        return candidate;
+      }
+    }
+    for (final candidate in candidates) {
+      if (Directory(candidate).existsSync()) return candidate;
+    }
+    return p.join(scratchPath, triple, configuration);
+  }
+
   @visibleForTesting
   static List<String> plannedSwiftInteropSearchPaths(String targetBuildDir) {
     final description = File(p.join(targetBuildDir, 'description.json'));
@@ -1968,6 +1994,14 @@ abstract final class GeneratedPluginsPackage {
     'build',
     '--package-path',
     pluginsDir,
+    // Swift 6.4 made `swiftbuild` the default build system. It only knows
+    // the Apple platforms a host Xcode registers, so on a cross host it
+    // rejects this build outright with 'unable to find platform for
+    // iphoneos', and it drops the per-triple level from the scratch layout
+    // this code reads its build description from. The native engine is what
+    // supports the cross build, so ask for it rather than inherit the default.
+    '--build-system',
+    'native',
     '--configuration',
     'debug',
     // A debug build with DWARF makes swift-driver plan a dSYM job for Darwin
@@ -5840,9 +5874,9 @@ $diagnosticsStart$registrations$diagnosticsEnd}
           ((digest[0] << 24) | (digest[1] << 16) | (digest[2] << 8) | digest[3])
               .toUnsigned(32) %
           const Duration(days: 3650).inSeconds;
-      await File(path).setLastModified(
-        DateTime.utc(2010).add(Duration(seconds: offset)),
-      );
+      await File(
+        path,
+      ).setLastModified(DateTime.utc(2010).add(Duration(seconds: offset)));
     } on Object {
       // Deliberately ignored: see above.
     }
