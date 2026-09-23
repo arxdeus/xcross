@@ -836,6 +836,80 @@ framework module PublicSDK {
   });
 
   group('vendorUrlPackagesAsPathDeps', () {
+    for (final sourceFallback in [true, false]) {
+      test('records fallback Swift modules only when the source lane is '
+          'active (sourceFallback: $sourceFallback)', () async {
+        addTearDown(
+          () => GeneratedPluginsPackage.sourceFallbackOverride = null,
+        );
+        GeneratedPluginsPackage.sourceFallbackOverride = sourceFallback;
+        final fallbackSwiftModules = <String, List<String>>{};
+        await GeneratedPluginsPackage.vendorUrlPackagesAsPathDeps(
+          '''
+import PackageDescription
+let package = Package(
+    name: "plugin_a",
+    dependencies: [
+        .package(url: "https://github.com/example/sdk", exact: "1.0.0"),
+    ],
+    targets: [
+        .target(
+            name: "plugin_a",
+            dependencies: [.product(name: "PublicSDK", package: "sdk")]
+        )
+    ]
+)
+''',
+          vendorDir: p.join(tmp.path, 'fallback-vendor-$sourceFallback'),
+          packageDirectory: p.join(tmp.path, 'plugin_a'),
+          fallbackSwiftModules: fallbackSwiftModules,
+          locateTool: (_) async => 'git',
+          evaluateDependencyRefs: (_) async => const {
+            'https://github.com/example/sdk': 'sha-sdk',
+          },
+          clonePackage: (_, _, _, destination) async {
+            void write(String relative, String contents) =>
+                File(p.join(destination, relative))
+                  ..createSync(recursive: true)
+                  ..writeAsStringSync(contents);
+            write('Sources/ObjC/Public/PublicSDK.h', '// public\n');
+            write(
+              'Sources/Resources/PublicSDK.modulemap',
+              'framework module PublicSDK { umbrella header "PublicSDK.h" }\n',
+            );
+            write('Sources/Swift/Implementation.swift', 'struct API {}\n');
+            write('Package.swift', '''
+import PackageDescription
+var products: [Product] = [
+    .library(name: "PublicSDK", targets: ["BinaryArtifact"]),
+]
+var targets: [Target] = [
+    .binaryTarget(name: "BinaryArtifact", url: "SDK.zip", checksum: "abc"),
+]
+if getenv("EXPERIMENTAL_SPM_BUILDS") != nil {
+    products.removeAll()
+    targets.removeAll()
+    products.append(.library(name: "SourceProduct", targets: ["SwiftImpl"]))
+    targets.append(contentsOf: [
+        .target(name: "HeaderImpl", path: "Sources/ObjC", publicHeadersPath: "Public"),
+        .target(name: "SwiftImpl", dependencies: ["HeaderImpl"], path: "Sources/Swift"),
+    ])
+}
+let package = Package(name: "sdk", products: products, targets: targets)
+''');
+          },
+        );
+
+        expect(
+          fallbackSwiftModules,
+          sourceFallback
+              ? {
+                  'PublicSDK': ['SwiftImpl'],
+                }
+              : isEmpty,
+        );
+      });
+    }
     test('rewrites url deps to path after clone callback', () async {
       final vendorDir = p.join(tmp.path, 'Vendor');
       const manifest = '''

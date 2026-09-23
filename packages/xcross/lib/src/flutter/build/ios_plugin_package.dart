@@ -1623,6 +1623,15 @@ abstract final class GeneratedPluginsPackage {
     if (windows) (key: 'core.symlinks', value: 'false'),
   ];
 
+  /// Whether vendored packages build their `EXPERIMENTAL_SPM_BUILDS`
+  /// source-fallback lane, which [swiftProcessEnvironment] enables only on
+  /// Windows. Tests may force either lane.
+  @visibleForTesting
+  static bool? sourceFallbackOverride;
+
+  static bool get _sourceFallbackActive =>
+      sourceFallbackOverride ?? Platform.isWindows;
+
   /// Process-local settings for SwiftPM dependency checkout: the
   /// non-interactive Git settings every host needs, plus the Windows
   /// symlink and sentry-cocoa source-build manifest lane.
@@ -5695,7 +5704,14 @@ let package = Package(
         normalizeHostManifest(original),
         packageDir: packageDir,
         consumedProducts: consumedProducts,
-        fallbackSwiftModules: fallbackSwiftModules,
+        // The source-fallback block only activates where
+        // [swiftProcessEnvironment] sets EXPERIMENTAL_SPM_BUILDS (Windows).
+        // Elsewhere the binary product is used, its Swift half is not a
+        // separate module, and injecting `import <fallback>` into consumers
+        // fails with "no such module" (e.g. `SentrySwift` in sentry_flutter).
+        fallbackSwiftModules: _sourceFallbackActive
+            ? fallbackSwiftModules
+            : null,
       );
       await update(manifest, original, normalized);
     }
