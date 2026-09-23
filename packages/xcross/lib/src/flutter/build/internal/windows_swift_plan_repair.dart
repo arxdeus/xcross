@@ -15,7 +15,9 @@ const String _extendedPathPrefix = r'\\?\';
 /// including the terminating NUL.
 const int _legacyMaxPath = 260;
 
-/// CreateProcess rejects a command line of this many UTF-16 units or more.
+/// The CreateProcess command-line limit in UTF-16 units, including the
+/// terminating NUL that [WindowsSwiftPlanRepair.windowsCommandLineLength]
+/// counts, so staying below it keeps one unit of headroom.
 const int _maxCommandLineLength = 32767;
 
 /// Command lines at or above this length move into a response file. It
@@ -23,7 +25,8 @@ const int _maxCommandLineLength = 32767;
 /// compiler driver appends.
 const int _responseFileThreshold = 28000;
 
-/// Prefix of a `debug.yaml` line holding one command's JSON-encoded argv.
+/// Prefix of an llbuild plan (`*.yaml`) line holding one command's
+/// JSON-encoded argv.
 const String _llbuildArgsPrefix = '    args: ';
 
 /// Scratch subdirectory holding content-addressed compiler response files.
@@ -202,14 +205,19 @@ abstract final class WindowsSwiftPlanRepair {
   static Future<void> _pruneWindowsResponseFiles(String scratchPath) async {
     final cache = Directory(_responseCacheDirectory(scratchPath));
     if (!cache.existsSync()) return;
+    // Plans reference response files by absolute path, so compare absolute
+    // paths: a relative scratch path would otherwise never match and a still
+    // referenced response file could be pruned once it is old enough.
+    String canonical(String path) => p.normalize(p.absolute(path));
+    final cachePath = canonical(cache.path);
     final referenced = <String>{};
     for (final plan in _llbuildPlans(scratchPath)) {
       for (final line in await plan.readAsLines()) {
         final decoded = _tryDecodeLlbuildArgs(line);
         if (decoded == null) continue;
         for (final reference in _responseFileReferences(decoded)) {
-          final file = p.normalize(reference);
-          if (p.isWithin(cache.path, file)) referenced.add(file);
+          final file = canonical(reference);
+          if (p.isWithin(cachePath, file)) referenced.add(file);
         }
       }
     }
@@ -217,7 +225,7 @@ abstract final class WindowsSwiftPlanRepair {
     for (final file in cache.listSync().whereType<File>()) {
       final name = p.basename(file.path);
       if (!_responseFileName.hasMatch(name) ||
-          referenced.contains(p.normalize(file.path)) ||
+          referenced.contains(canonical(file.path)) ||
           !file.lastModifiedSync().isBefore(cutoff)) {
         continue;
       }
@@ -235,7 +243,7 @@ abstract final class WindowsSwiftPlanRepair {
   static String _responseCacheDirectory(String scratchPath) =>
       p.join(scratchPath, _responseCacheDirectoryName);
 
-  /// The argv of a `debug.yaml` `    args: [...]` [line], or null when the
+  /// The argv of an llbuild plan `    args: [...]` [line], or null when the
   /// line is not an argv line or its JSON is not a list.
   ///
   /// Throws [FormatException] when the argv JSON is malformed.
@@ -254,7 +262,7 @@ abstract final class WindowsSwiftPlanRepair {
     }
   }
 
-  /// A `debug.yaml` argv line for [arguments].
+  /// An llbuild plan argv line for [arguments].
   static String _encodeLlbuildArgs(List<String> arguments) =>
       '$_llbuildArgsPrefix${jsonEncode(arguments)}';
 

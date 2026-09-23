@@ -84,6 +84,43 @@ void main() {
     },
   );
 
+  test(
+    'keeps an old referenced response file under a relative scratch path',
+    () async {
+      final root = await Directory.systemTemp.createTemp('xcross-rsp-prune-');
+      addTearDown(() => root.delete(recursive: true));
+      final previous = Directory.current;
+      Directory.current = root;
+      addTearDown(() => Directory.current = previous);
+      const scratch = 'scratch';
+      Directory(scratch).createSync();
+      final plan = File(p.join(scratch, 'debug.yaml'))
+        ..writeAsStringSync(
+          '    args: ${jsonEncode(['swiftc.exe', '-D', 'A' * 29000])}\n',
+        );
+      await GeneratedPluginsPackage.repairWindowsSwiftResponseFiles(
+        scratch,
+        windows: true,
+      );
+      final reference =
+          (jsonDecode(plan.readAsLinesSync().single.substring(10)) as List)
+              .cast<String>()
+              .last
+              .substring(1);
+      final response = File(reference);
+      expect(p.isAbsolute(reference), isTrue);
+      // Older than the retention window, yet still referenced by the plan.
+      response.setLastModifiedSync(
+        DateTime.now().subtract(const Duration(days: 30)),
+      );
+      await GeneratedPluginsPackage.repairWindowsSwiftResponseFiles(
+        scratch,
+        windows: true,
+      );
+      expect(response.existsSync(), isTrue);
+    },
+  );
+
   test('counts escaped UTF-16 command line units including executable', () {
     final arguments = [
       r'C:\very long tool directory\clang.exe',
