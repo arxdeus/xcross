@@ -264,9 +264,13 @@ bool _isEscapedSwiftQuote(String source, int quote) {
 
 // Conservatively mask a slash-delimited expression only when its terminator
 // exists. Bare regexes cannot start with whitespace or span unescaped lines.
+// A bare `/` after an operand is division, not a regex: `a /b; c / d` must not
+// hide the code between the two slashes.
 int? _swiftRegexEnd(String source, int slash, int hashes) {
   if (slash + 1 >= source.length ||
-      (hashes == 0 && source[slash + 1].trim().isEmpty)) {
+      (hashes == 0 &&
+          (source[slash + 1].trim().isEmpty ||
+              !_canStartSwiftExpression(source, slash)))) {
     return null;
   }
   final terminator = '/${'#' * hashes}';
@@ -287,4 +291,31 @@ int? _swiftRegexEnd(String source, int slash, int hashes) {
     }
   }
   return null;
+}
+
+/// Whether a Swift expression may begin at [index], judged by the previous
+/// non-whitespace character: start of input, an opening bracket, a separator,
+/// or an operator. After an identifier, literal or closing bracket, a `/` is
+/// an infix operator.
+bool _canStartSwiftExpression(String source, int index) {
+  var previous = index - 1;
+  while (previous >= 0 && source[previous].trim().isEmpty) {
+    previous--;
+  }
+  if (previous < 0) return true;
+  final character = source[previous];
+  if ('([{,;:=!&|?^~<>+-*%'.contains(character)) return true;
+  final word = RegExp(
+    r'[A-Za-z_]+$',
+  ).firstMatch(source.substring(0, previous + 1));
+  return word != null &&
+      const {
+        'return',
+        'case',
+        'in',
+        'where',
+        'try',
+        'await',
+        'throw',
+      }.contains(word[0]);
 }

@@ -65,6 +65,35 @@ struct ViewModel {
     );
   });
 
+  test('division is not mistaken for a regex literal', () {
+    // Two slashes on one line used to be read as a bare regex, hiding the
+    // `@State` between them so recovery could never converge.
+    const source = r'''
+import SwiftUI
+struct V: View {
+  let ratio = width /height; @State var one = 0; let half = total / 2
+  var body: some View { Text("\(ratio)") }
+}
+''';
+    final repaired = restoreSwiftUIStatePropertyWrapper(source);
+    expect(repaired, contains('@_XcrossSwiftUIState var one'));
+    expect(repaired, contains('width /height;'));
+    expect(repaired, contains('total / 2'));
+
+    // A regex literal where an expression may start stays masked.
+    for (final regexSource in [
+      'let r = /@State/',
+      'f(/@State/)',
+      'return /@State/',
+    ]) {
+      expect(
+        restoreSwiftUIStatePropertyWrapper(regexSource),
+        regexSource,
+        reason: regexSource,
+      );
+    }
+  });
+
   group('diagnostic-driven recovery', () {
     late Directory root;
     late Directory vendor;
