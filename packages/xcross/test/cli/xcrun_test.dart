@@ -14,6 +14,30 @@ void main() {
     expect(await xcrun.runXcrun(const ['--version']), 0);
   });
 
+  test('normalizes PATHEXT uppercase .EXE for native_toolchain_c', () {
+    expect(
+      xcrun.normalizeWindowsExecutableExtension(
+        r'C:\Temp\xcross-tools\clang.EXE',
+        windows: true,
+      ),
+      r'C:\Temp\xcross-tools\clang.exe',
+    );
+    expect(
+      xcrun.normalizeWindowsExecutableExtension(
+        r'C:\Temp\xcross-tools\ar.EXE',
+        windows: true,
+      ),
+      r'C:\Temp\xcross-tools\ar.exe',
+    );
+    expect(
+      xcrun.normalizeWindowsExecutableExtension(
+        '/tools/clang.EXE',
+        windows: false,
+      ),
+      '/tools/clang.EXE',
+    );
+  });
+
   test('returns the exact streamed child exit code', () async {
     final child = await Process.start('sh', const ['-c', 'exit 37']);
     expect(
