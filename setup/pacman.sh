@@ -21,6 +21,13 @@ pkgconf zlib libxml2 ncurses z3 gnupg glibc curl gcc
 # shellcheck disable=SC2086
 $SUDO pacman -S --needed --noconfirm $packages
 
+# Xcode 26 libc++ uses __builtin_clzg, first supported by Clang 20.
+clang_major=$(clang --version | sed -n '1s/.*version \([0-9][0-9]*\).*/\1/p')
+if [ -z "$clang_major" ] || [ "$clang_major" -lt 20 ]; then
+	printf 'error: Clang 20+ is required for Xcode 26 SDK headers (found: %s). Run pacman -Syu and retry.\n' "${clang_major:-unknown}" >&2
+	exit 1
+fi
+
 # Up to and including LLVM 18, ld64.lld miswires `_objc_msgSend$<selector>`
 # stubs, which silently breaks Objective-C plugins at runtime, so make sure
 # the ld64.lld this install leaves behind is new enough.

@@ -222,9 +222,17 @@ if (-not (Get-Command swift -ErrorAction SilentlyContinue)) {
 # clang compiles the C/ObjC side; ld64.lld is the Mach-O linker used to produce
 # Apple-format binaries off-platform. Both come from LLVM, so they are reported
 # as one item.
-if (-not (Get-Command clang -ErrorAction SilentlyContinue) -or
+$clangCommand = Get-Command clang -ErrorAction SilentlyContinue
+$clangMajor = $null
+if ($clangCommand) {
+  $clangVersion = & $clangCommand.Source --version 2>$null | Select-Object -First 1
+  if ($clangVersion -match 'version\s+(\d+)') {
+    $clangMajor = [int]$Matches[1]
+  }
+}
+if (-not $clangMajor -or $clangMajor -lt 20 -or
     -not (Get-Command ld64.lld -ErrorAction SilentlyContinue)) {
-  $missing += 'LLVM:             winget install --id LLVM.LLVM --exact'
+  $missing += 'LLVM (Clang 20+): winget upgrade --id LLVM.LLVM --exact (or winget install --id LLVM.LLVM --exact)'
 }
 
 # Needed for `xcross flutter ...`.
