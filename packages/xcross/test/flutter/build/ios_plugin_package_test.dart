@@ -1599,6 +1599,54 @@ let package = Package(
       expect(state.bootstrapRecovered, hasLength(1));
     });
 
+    test(
+      'repairs a fetched Swift 6.1 manifest before retrying resolve',
+      () async {
+        final root = Directory(p.join(tmp.path, 'Resolve'))
+          ..createSync(recursive: true);
+        final scratch = p.join(root.path, '.build');
+        final manifest = File(
+          p.join(
+            scratch,
+            'checkouts',
+            'sentry-cocoa',
+            'Package@swift-6.1.swift',
+          ),
+        )..createSync(recursive: true);
+        manifest.writeAsStringSync('''
+#if canImport(Darwin)
+import Darwin.C
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(MSVCRT)
+import MSVCRT
+#endif
+import PackageDescription
+let env = getenv("EXPERIMENTAL_SPM_BUILDS")
+''');
+        var attempts = 0;
+        await GeneratedPluginsPackage.evaluateDependencyRefsWithRecovery(
+          root.path,
+          resolve: (_) async {
+            attempts++;
+            if (!manifest.readAsStringSync().contains('import CRT')) {
+              throw StateError("cannot find 'getenv' in scope");
+            }
+            File(
+              p.join(root.path, 'Package.resolved'),
+            ).writeAsStringSync('{"pins":[]}');
+          },
+          recover: (_, _) =>
+              GeneratedPluginsPackage.normalizeResolvedPackageManifests(
+                scratch,
+              ),
+          attemptState: SwiftPmBinaryAttemptState(),
+        );
+        expect(attempts, 2);
+        expect(manifest.readAsStringSync(), contains('import CRT'));
+      },
+    );
+
     test('rethrows original failure when recovery has no evidence', () async {
       final original = StateError('original');
       await expectLater(

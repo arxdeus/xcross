@@ -4511,8 +4511,16 @@ let package = Package(
           recover ??
           (_, state) async {
             if (!canRecover) return false;
+            // The unified Resolve root fetches URL dependencies before they
+            // are vendored. A malformed host manifest (sentry-cocoa's Swift
+            // 6.1 manifest calls getenv without CRT on Windows) can fail the
+            // first resolve before binary artifacts are considered. Repair
+            // those fetched checkouts and retry with the existing recovery.
+            final normalized = await normalizeResolvedPackageManifests(
+              resolverScratchPath!,
+            );
             final recoveredArchive = await recoverBootstrapBinaryArtifacts(
-              scratchPath: resolverScratchPath!,
+              scratchPath: resolverScratchPath,
               binaryArtifactStore: binaryArtifactStore!,
               provenance: scannedProvenance!,
               attemptState: state,
@@ -4527,7 +4535,7 @@ let package = Package(
               attemptState: state,
               windows: true,
             );
-            return recoveredArchive || recoveredExtraction;
+            return normalized || recoveredArchive || recoveredExtraction;
           },
       attemptState: attemptState ?? SwiftPmBinaryAttemptState(),
     );
