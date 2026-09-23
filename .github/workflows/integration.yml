@@ -109,7 +109,12 @@ jobs:
           chmod +x "$RUNNER_TEMP/xcross-bundle/bin/xcross"
           chmod +x "$RUNNER_TEMP/xcross-bundle/bin/xcrun"
           "$RUNNER_TEMP/xcross-bundle/bin/xcross" setup
-          sudo apt-get install -y llvm
+          # Ubuntu's default clang 18 cannot compile the Xcode 26.5 SDK's
+          # libc++ 21 headers (notably __builtin_clzg). Match the lld-20
+          # installed by xcross setup with a recent Clang, and let
+          # resolveDarwinClang find it under /usr/lib/llvm-20/bin.
+          sudo apt-get install -y clang-20 llvm
+          clang-20 --version
           tools=(
             swift clang clang++ llvm-ar ld64.lld
             llvm-readobj llvm-nm llvm-objdump
