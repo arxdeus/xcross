@@ -96,6 +96,18 @@ exit /b %errorlevel%
 String renderBatchToolShim(String tool) =>
     '@echo off\n"$tool" %*\nexit /b %errorlevel%\n';
 
+/// xcrun shim. native_toolchain_c probes `xcrun --version` and requires a
+/// zero exit plus a parseable version before it asks for SDK paths, so the
+/// shim answers that probe itself regardless of which xcrun it forwards to.
+String renderUnixXcrunShim(String tool) =>
+    '''
+#!/bin/sh
+case "\$*" in
+  --version|-version) echo 'xcrun version 72.'; exit 0;;
+esac
+exec ${shellQuote(tool)} "\$@"
+''';
+
 String renderUnixToolShim(String tool) =>
     '#!/bin/sh\nexec ${shellQuote(tool)} "\$@"\n';
 

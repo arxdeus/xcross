@@ -322,7 +322,11 @@ Future<void> _installUnixToolShims(
   );
   await _writeUnixShim(directory, 'clang', compilerScript);
   await _writeUnixShim(directory, 'cc', compilerScript);
-  await _writeUnixShim(directory, 'xcrun', renderUnixToolShim(config.xcrun));
+  // flutter_tools asks `xcrun --find ar` for the archiver, and xcrun prefers
+  // PATH. Without this shim that is the host's GNU ar, whose archives carry
+  // no Mach-O symbol index, so ld64.lld rejects them ("archive has no index").
+  await _writeUnixShim(directory, 'ar', renderUnixToolShim(config.archiver));
+  await _writeUnixShim(directory, 'xcrun', renderUnixXcrunShim(config.xcrun));
   if (toolForwarderExecutable != null) {
     await _writeUnixShim(
       directory,

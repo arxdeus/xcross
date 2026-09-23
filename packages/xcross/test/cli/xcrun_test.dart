@@ -10,6 +10,10 @@ void main() {
     expect(await xcrun.runXcrun(const []), 1);
   });
 
+  test('answers the --version probe without an SDK', () async {
+    expect(await xcrun.runXcrun(const ['--version']), 0);
+  });
+
   test('returns the exact streamed child exit code', () async {
     final child = await Process.start('sh', const ['-c', 'exit 37']);
     expect(
