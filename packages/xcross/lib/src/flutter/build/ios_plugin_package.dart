@@ -303,8 +303,9 @@ abstract final class GeneratedPluginsPackage {
       input.add(const [0]);
     }
 
-    // v7 invalidates dylibs compiled with availability guards disabled.
-    add('xcross-swiftpm-build-v7');
+    // v7 invalidated dylibs compiled with availability guards disabled; v8
+    // invalidates staged sources compiled before State-wrapper recovery.
+    add('xcross-swiftpm-build-v8-state-wrapper-recovery');
     add(objectiveCLinkerSwiftDriverArguments.join('\u0001'));
     if (Platform.isLinux) {
       add(objectiveCSmallStubSwiftDriverArguments.join('\u0001'));
@@ -551,23 +552,29 @@ abstract final class GeneratedPluginsPackage {
         captureAndEcho: windows && Log.isVerbose,
         label: 'swift build',
       );
+
       await repairWindowsGeneratedBuildFiles(
         scratchPath,
         targetBuildDir,
         windows: windows,
       );
-      try {
-        await invoke();
-      } on Object {
-        if (!windows) rethrow;
-        final repaired = await repairWindowsGeneratedBuildFiles(
-          scratchPath,
-          targetBuildDir,
-          windows: true,
-        );
-        if (!repaired) rethrow;
-        await invoke();
-      }
+      await buildWithSwiftUIStateRecovery(
+        ownedRoots: [workspace.vendor, p.join(outputDir, 'Packages')],
+        build: () async {
+          try {
+            await invoke();
+          } on Object {
+            if (!windows) rethrow;
+            final repaired = await repairWindowsGeneratedBuildFiles(
+              scratchPath,
+              targetBuildDir,
+              windows: true,
+            );
+            if (!repaired) rethrow;
+            await invoke();
+          }
+        },
+      );
       if (windows) {
         await repairWindowsGeneratedBuildFiles(
           scratchPath,
@@ -591,6 +598,73 @@ abstract final class GeneratedPluginsPackage {
         windows: windows,
       ),
     );
+  }
+
+  /// Retry once, and only when the exact compiler diagnostic changed owned
+  /// staged sources. Unrelated failures and failed repairs keep their errors.
+  @visibleForTesting
+  static Future<void> buildWithSwiftUIStateRecovery({
+    required Future<void> Function() build,
+    required List<String> ownedRoots,
+  }) async {
+    try {
+      await build();
+    } on Object catch (error, stack) {
+      bool changed;
+      try {
+        changed = await repairMissingSwiftUIStateMacro(
+          error.toString(),
+          ownedRoots: ownedRoots,
+        );
+      } on Object {
+        Error.throwWithStackTrace(error, stack);
+      }
+      if (!changed) rethrow;
+      await build();
+    }
+  }
+
+  @visibleForTesting
+  static Future<bool> repairMissingSwiftUIStateMacro(
+    String diagnostics, {
+    required List<String> ownedRoots,
+  }) async {
+    final diagnostic = RegExp(
+      r"^(.+\.swift):\d+:\d+: error: external macro implementation type 'SwiftUIMacros\.StateMacro' could not be found for macro 'State\([^'\r\n]*\)'; plugin for module 'SwiftUIMacros' not found\s*$",
+      multiLine: true,
+    );
+    final paths = diagnostic
+        .allMatches(diagnostics)
+        .map((match) => match[1]!)
+        .toSet();
+    if (paths.isEmpty) return false;
+    final roots = <(String, String)>[
+      for (final root in ownedRoots)
+        if (Directory(root).existsSync())
+          (
+            p.normalize(p.absolute(root)),
+            Directory(root).resolveSymbolicLinksSync(),
+          ),
+    ];
+    var changed = false;
+    for (final path in paths) {
+      if (!p.isAbsolute(path)) continue;
+      final file = File(p.normalize(path));
+      if (!file.existsSync()) continue;
+      final realPath = file.resolveSymbolicLinksSync();
+      if (!roots.any(
+        (root) =>
+            p.isWithin(root.$1, file.path) && p.isWithin(root.$2, realPath),
+      )) {
+        continue;
+      }
+      final original = await file.readAsString();
+      final repaired = restoreSwiftUIStatePropertyWrapper(original);
+      if (repaired == original) continue;
+      await _writeStable(file.path, repaired);
+      changed = true;
+    }
+    return changed;
   }
 
   @visibleForTesting
