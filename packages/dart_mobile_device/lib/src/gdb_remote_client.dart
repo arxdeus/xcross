@@ -30,7 +30,8 @@ final class GdbReplyPacket {
   final GdbReply type;
   final String payload;
 
-  static const _sigtrap = 5;
+  /// POSIX SIGTRAP, how debugger breakpoints and the attach hand-off report.
+  static const sigtrap = 5;
 
   /// GDB stop-reply fields that name a debugger stop without `reason:`.
   static const _standaloneStopReasons = [
@@ -88,7 +89,7 @@ final class GdbReplyPacket {
   /// Human name for [stopSignal], for the signals a launch actually hits.
   String get stopDescription => switch (stopSignal) {
     4 => 'SIGILL',
-    _sigtrap => 'SIGTRAP',
+    sigtrap => 'SIGTRAP',
     6 => 'SIGABRT (uncaught exception or Kotlin/Native crash)',
     8 => 'SIGFPE',
     10 => 'SIGBUS',
@@ -107,7 +108,7 @@ final class GdbReplyPacket {
   /// A bare first SIGTRAP may be an attach hand-off; a named stop is not.
   bool get isFatalStop => switch (stopSignal) {
     null => type == GdbReply.stopped,
-    _sigtrap => _isNamedStop,
+    sigtrap => _isNamedStop,
     _ => true,
   };
 

@@ -199,13 +199,20 @@ final class SessionConsole {
   /// as the debugger's hand-off, and that stop is resumed automatically.
   /// Anything else is reported instead of resumed:
   /// - a fatal or named stop ([GdbReplyPacket.isFatalStop]),
-  /// - any SIGTRAP after a stop was already resumed (the hand-off happens once),
-  /// - a repeated stop at the same execution point (a real trap loop),
-  /// - more than [_maxAutomaticResumes] distinct automatic resumes,
-  /// - a stop that arrives while an automatic resume is still in flight.
+  /// - any SIGTRAP after a stop was already resumed (the hand-off happens
+  ///   once).
+  ///
+  /// Only a bare SIGTRAP gets past the first rule and the second rejects any
+  /// later one, so at most one stop is ever resumed. The remaining checks, a
+  /// repeat at the same execution point, [_maxAutomaticResumes] or more
+  /// resumes, and a stop during an in-flight resume, are defensive bounds that
+  /// keep the loop finite if those two rules ever change.
   bool _mustReportStop(GdbReplyPacket reply) {
     if (reply.isFatalStop) return true;
-    if (reply.stopSignal == 5 && _resumedStops.isNotEmpty) return true;
+    if (reply.stopSignal == GdbReplyPacket.sigtrap &&
+        _resumedStops.isNotEmpty) {
+      return true;
+    }
     if (_timesResumed(reply) > 0) return true;
     if (_resumedStops.length >= _maxAutomaticResumes) return true;
     return _resumePending;
@@ -236,7 +243,7 @@ final class SessionConsole {
   /// than a Mach exception is a debugger stop, not a crash.
   static bool _isDebuggerStop(GdbReplyPacket reply) {
     final reason = reply.stopReason;
-    return reply.stopSignal == 5 &&
+    return reply.stopSignal == GdbReplyPacket.sigtrap &&
         reason != null &&
         reason != 'exception' &&
         !reply.stopFields.containsKey('metype');

@@ -184,9 +184,9 @@ final class XcrossRuntimeConfig {
   /// inherited value using the platform's path-list separator.
   static String _configuredEnvironmentValue(
     String key,
-    Object value,
+    Object configured,
     Map<String, String> inherited,
-  ) => switch (value) {
+  ) => switch (configured) {
     final String value => value,
     final List<String> paths => [
       ...paths,
