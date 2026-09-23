@@ -4,8 +4,6 @@ import 'package:path/path.dart' as p;
 
 /// Resolves one Xcode build configuration in its textual include order.
 abstract final class XcconfigResolver {
-  static final _variable = RegExp(r'\$\(([^)]+)\)|\$\{([^}]+)\}');
-
   /// Flutter's generated settings are a fallback only when there is no
   /// authored Debug configuration. A Debug file that includes Generated must
   /// evaluate that include exactly once, at the point where it appears.
@@ -34,21 +32,17 @@ abstract final class XcconfigResolver {
     Map<String, String> defaults = const {},
     Map<String, String> overrides = const {},
   }) {
-    final values = <String, String>{};
-    final priorities = <String, (int, int)>{};
+    final evaluation = _XcconfigEvaluation(
+      configuration: configuration,
+      sdk: sdk,
+      arch: arch,
+      defaults: defaults,
+      overrides: overrides,
+    );
     for (final line in _logicalLines(text.split('\n'))) {
-      _applyAssignment(
-        line,
-        values,
-        priorities,
-        configuration,
-        sdk,
-        arch,
-        defaults,
-        overrides,
-      );
+      evaluation.apply(line);
     }
-    return _resolvedValues(values, defaults, overrides);
+    return evaluation.resolved();
   }
 
   /// Process each root and its required or optional includes in text order.
@@ -60,54 +54,18 @@ abstract final class XcconfigResolver {
     Map<String, String> defaults = const {},
     Map<String, String> overrides = const {},
   }) async {
-    final values = <String, String>{};
-    final priorities = <String, (int, int)>{};
-    final stack = <String>{};
-
-    Future<void> read(String path, {required bool optional}) async {
-      final file = File(path);
-      if (!file.existsSync()) {
-        if (optional) return;
-        throw FormatException('Required xcconfig include not found: $path');
-      }
-      final resolved = p.normalize(file.absolute.path);
-      if (!stack.add(resolved)) {
-        throw FormatException('xcconfig include cycle at $resolved');
-      }
-      try {
-        for (final line in _logicalLines(await file.readAsLines())) {
-          final include = RegExp(
-            r'^#include(\?)?\s+(?:"([^"]+)"|<([^>]+)>)\s*$',
-          ).firstMatch(line);
-          if (include != null) {
-            await read(
-              p.normalize(
-                p.join(p.dirname(resolved), include[2] ?? include[3]),
-              ),
-              optional: include[1] == '?',
-            );
-          } else {
-            _applyAssignment(
-              line,
-              values,
-              priorities,
-              configuration,
-              sdk,
-              arch,
-              defaults,
-              overrides,
-            );
-          }
-        }
-      } finally {
-        stack.remove(resolved);
-      }
-    }
-
+    final evaluation = _XcconfigEvaluation(
+      configuration: configuration,
+      sdk: sdk,
+      arch: arch,
+      defaults: defaults,
+      overrides: overrides,
+    );
+    final reader = _XcconfigFileReader(evaluation);
     for (final path in paths) {
-      await read(path, optional: true);
+      await reader.read(path, optional: true);
     }
-    return _resolvedValues(values, defaults, overrides);
+    return evaluation.resolved();
   }
 
   /// Join Xcode's backslash-continued physical lines before parsing settings.
@@ -116,15 +74,7 @@ abstract final class XcconfigResolver {
     var pending = '';
     for (final raw in lines) {
       final line = comments.strip(raw).trimRight();
-      var trailingBackslashes = 0;
-      for (
-        var index = line.length - 1;
-        index >= 0 && line[index] == r'\';
-        index--
-      ) {
-        trailingBackslashes++;
-      }
-      if (trailingBackslashes.isOdd) {
+      if (_endsWithContinuation(line)) {
         pending += '${line.substring(0, line.length - 1).trim()} ';
         continue;
       }
@@ -136,31 +86,121 @@ abstract final class XcconfigResolver {
     }
   }
 
-  static void _applyAssignment(
-    String raw,
-    Map<String, String> values,
-    Map<String, (int, int)> priorities,
-    String configuration,
-    String sdk,
-    String arch,
-    Map<String, String> defaults,
-    Map<String, String> overrides,
-  ) {
+  /// An odd number of trailing backslashes leaves the last one unescaped,
+  /// which continues the setting on the next physical line.
+  static bool _endsWithContinuation(String line) {
+    var trailingBackslashes = 0;
+    for (
+      var index = line.length - 1;
+      index >= 0 && line[index] == r'\';
+      index--
+    ) {
+      trailingBackslashes++;
+    }
+    return trailingBackslashes.isOdd;
+  }
+}
+
+/// Reads xcconfig files depth-first, evaluating each `#include` at the point
+/// where it appears and rejecting include cycles.
+final class _XcconfigFileReader {
+  _XcconfigFileReader(this._evaluation);
+
+  static final _include = RegExp(
+    r'^#include(\?)?\s+(?:"([^"]+)"|<([^>]+)>)\s*$',
+  );
+
+  final _XcconfigEvaluation _evaluation;
+  final _activeFiles = <String>{};
+
+  Future<void> read(String path, {required bool optional}) async {
+    final file = File(path);
+    if (!file.existsSync()) {
+      if (optional) return;
+      throw FormatException('Required xcconfig include not found: $path');
+    }
+    final resolved = p.normalize(file.absolute.path);
+    if (!_activeFiles.add(resolved)) {
+      throw FormatException('xcconfig include cycle at $resolved');
+    }
+    try {
+      final lines = await file.readAsLines();
+      for (final line in XcconfigResolver._logicalLines(lines)) {
+        final include = _include.firstMatch(line);
+        if (include == null) {
+          _evaluation.apply(line);
+          continue;
+        }
+        final includedPath = include[2] ?? include[3];
+        await read(
+          p.normalize(p.join(p.dirname(resolved), includedPath)),
+          optional: include[1] == '?',
+        );
+      }
+    } finally {
+      _activeFiles.remove(resolved);
+    }
+  }
+}
+
+/// How specifically a conditional assignment matched the current build.
+typedef _Specificity = ({int conditions, int literalCharacters});
+
+/// Accumulates assignments for one configuration/SDK/architecture triple.
+final class _XcconfigEvaluation {
+  _XcconfigEvaluation({
+    required this.configuration,
+    required this.sdk,
+    required this.arch,
+    required this.defaults,
+    required this.overrides,
+  });
+
+  static final _variable = RegExp(r'\$\(([^)]+)\)|\$\{([^}]+)\}');
+
+  // The selector may itself contain '='. Match the complete key and its
+  // selectors before splitting off the assignment value.
+  static final _assignment = RegExp(
+    r'^([A-Za-z_][A-Za-z_0-9.]*)(\s*(?:\[[^\]]+\])*)\s*=\s*(.*)$',
+  );
+  static final _qualifier = RegExp(r'\[([^\]]+)\]');
+
+  final String configuration;
+  final String sdk;
+  final String arch;
+  final Map<String, String> defaults;
+  final Map<String, String> overrides;
+
+  final _values = <String, String>{};
+  final _specificities = <String, _Specificity>{};
+
+  void apply(String raw) {
     final line = raw.trim();
     if (line.isEmpty || line.startsWith('//') || line.startsWith('#')) return;
-    // The selector may itself contain '='. Match the complete key and its
-    // selectors before splitting off the assignment value.
-    final assignment = RegExp(
-      r'^([A-Za-z_][A-Za-z_0-9.]*)(\s*(?:\[[^\]]+\])*)\s*=\s*(.*)$',
-    ).firstMatch(line);
+    final assignment = _assignment.firstMatch(line);
     if (assignment == null) {
       throw FormatException('Unsupported xcconfig assignment: $line');
     }
     final key = assignment[1]!;
-    final head = assignment[2]!;
-    var conditionCount = 0;
-    var literalCount = 0;
-    for (final match in RegExp(r'\[([^\]]+)\]').allMatches(head)) {
+    final specificity = _matchQualifiers(assignment[2]!);
+    if (specificity == null || _isOutranked(key, specificity)) return;
+
+    final inherited = _values[key] ?? defaults[key] ?? '';
+    final assigned = assignment[3]!
+        .replaceAll(r'$(inherited)', inherited)
+        .replaceAll(r'${inherited}', inherited);
+    // Bind references already available at this point in the include stream.
+    // Unknown forward references remain for the final resolution pass.
+    _values[key] = _expandAvailable(assigned, <String>{});
+    _specificities[key] = specificity;
+  }
+
+  /// Specificity of the `[kind=pattern]` qualifiers in [head], or null when
+  /// any qualifier does not match the current build.
+  _Specificity? _matchQualifiers(String head) {
+    var conditions = 0;
+    var literalCharacters = 0;
+    for (final match in _qualifier.allMatches(head)) {
       final qualifier = match[1]!;
       final eq = qualifier.indexOf('=');
       final kind = eq < 0 ? 'config' : qualifier.substring(0, eq);
@@ -173,66 +213,49 @@ abstract final class XcconfigResolver {
           'Unsupported xcconfig qualifier: $qualifier',
         ),
       };
-      final expression = RegExp(
-        '^${RegExp.escape(pattern).replaceAll(r'\*', '.*')}\$',
-        caseSensitive: false,
-      );
-      if (!expression.hasMatch(actual)) return;
-      conditionCount++;
-      literalCount += pattern.replaceAll('*', '').length;
+      if (!_globMatches(pattern, actual)) return null;
+      conditions++;
+      literalCharacters += pattern.replaceAll('*', '').length;
     }
-    // A matching conditional value outranks the unconditional value even if
-    // the latter appears later. Equal conditions retain last-assignment order.
-    final previous = priorities[key];
-    if (previous != null &&
-        (conditionCount < previous.$1 ||
-            (conditionCount == previous.$1 && literalCount < previous.$2))) {
-      return;
-    }
-    final inherited = values[key] ?? defaults[key] ?? '';
-    final assigned = assignment[3]!
-        .replaceAll(r'$(inherited)', inherited)
-        .replaceAll(r'${inherited}', inherited);
-    // Bind references already available at this point in the include stream.
-    // Unknown forward references remain for the final resolution pass.
-    values[key] = _expandAvailable(
-      assigned,
-      values,
-      defaults,
-      overrides,
-      <String>{},
-    );
-    priorities[key] = (conditionCount, literalCount);
+    return (conditions: conditions, literalCharacters: literalCharacters);
   }
 
-  static String _expandAvailable(
-    String value,
-    Map<String, String> values,
-    Map<String, String> defaults,
-    Map<String, String> overrides,
-    Set<String> stack,
-  ) => value.replaceAllMapped(_variable, (match) {
-    final reference = match[1] ?? match[2]!;
-    final current =
-        overrides[reference] ?? values[reference] ?? defaults[reference];
-    if (current == null) return match[0]!;
-    if (!stack.add(reference)) {
-      throw FormatException('xcconfig variable cycle: $reference');
-    }
-    try {
-      return _expandAvailable(current, values, defaults, overrides, stack);
-    } finally {
-      stack.remove(reference);
-    }
-  });
+  static bool _globMatches(String pattern, String actual) => RegExp(
+    '^${RegExp.escape(pattern).replaceAll(r'\*', '.*')}\$',
+    caseSensitive: false,
+  ).hasMatch(actual);
 
-  static Map<String, String> _resolvedValues(
-    Map<String, String> values,
-    Map<String, String> defaults,
-    Map<String, String> overrides,
-  ) {
-    final expanded = _expandValues({...defaults, ...values, ...overrides});
-    return {for (final key in values.keys) key: expanded[key]!, ...overrides};
+  /// A matching conditional value outranks the unconditional value even if
+  /// the latter appears later. Equal conditions retain last-assignment order.
+  bool _isOutranked(String key, _Specificity candidate) {
+    final previous = _specificities[key];
+    if (previous == null) return false;
+    return candidate.conditions < previous.conditions ||
+        (candidate.conditions == previous.conditions &&
+            candidate.literalCharacters < previous.literalCharacters);
+  }
+
+  String _expandAvailable(String value, Set<String> stack) =>
+      value.replaceAllMapped(_variable, (match) {
+        final reference = match[1] ?? match[2]!;
+        final current =
+            overrides[reference] ?? _values[reference] ?? defaults[reference];
+        if (current == null) return match[0]!;
+        if (!stack.add(reference)) {
+          throw FormatException('xcconfig variable cycle: $reference');
+        }
+        try {
+          return _expandAvailable(current, stack);
+        } finally {
+          stack.remove(reference);
+        }
+      });
+
+  /// Final values for every assigned key plus all overrides, with remaining
+  /// forward references resolved against the complete setting set.
+  Map<String, String> resolved() {
+    final expanded = _expandValues({...defaults, ..._values, ...overrides});
+    return {for (final key in _values.keys) key: expanded[key]!, ...overrides};
   }
 
   static Map<String, String> _expandValues(Map<String, String> values) {
