@@ -7,9 +7,11 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/app_extension_builder.dart';
 import 'package:xcross/src/flutter/build/flutter_debug_bundler.dart';
 import 'package:xcross/src/flutter/build/info_plist.dart';
+import 'package:xcross/src/flutter/build/internal/native_asset_linkage.dart';
 import 'package:xcross/src/flutter/build/internal/recursive_directory_copy.dart';
 import 'package:xcross/src/flutter/build/internal/runner_binary.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_workspace.dart';
+import 'package:xcross/src/flutter/build/internal/xcconfig_resolver.dart';
 import 'package:xcross/src/flutter/build/ios_app_extensions.dart';
 import 'package:xcross/src/flutter/build/ios_bundle_resources.dart';
 import 'package:xcross/src/flutter/build/ios_bundle_versions.dart';
@@ -139,10 +141,19 @@ final class FlutterPacker {
       deploymentTarget: deploymentTarget,
       verbose: Log.isVerbose,
     );
+    // Flutter normally opens native assets via the manifest. A SwiftPM dylib
+    // can nevertheless import a symbol from one of those frameworks without
+    // declaring a load command for it. Bridge only that proven dependency at
+    // launch; do not eagerly load every embedded native asset.
+    final requiredNativeFrameworks = await nativeFrameworksRequiredByPlugins(
+      nativeAssets.frameworks,
+      pluginsBuild?.dylibPaths ?? const [],
+    );
     final runnerResult = await _buildRunnerBinary(
       flutterRoot,
       deploymentTarget: deploymentTarget,
       pluginsLibrary: pluginsBuild?.libraryPath,
+      nativeAssetFrameworks: requiredNativeFrameworks,
       verbose: Log.isVerbose,
     );
 
@@ -156,6 +167,7 @@ final class FlutterPacker {
       appFramework: appFramework,
       xcframework: runnerResult.xcframework,
       runnerBinary: runnerResult.runnerBinary,
+      sdkName: runnerResult.sdkName,
       pluginLibraries: pluginsBuild?.dylibPaths ?? const [],
       nativeAssetFrameworks: nativeAssets.frameworks,
       deploymentTarget: deploymentTarget,
@@ -391,6 +403,7 @@ final class FlutterPacker {
     required IosDeploymentTarget deploymentTarget,
     required bool verbose,
     String? pluginsLibrary,
+    List<String> nativeAssetFrameworks = const [],
   }) async {
     final xcframework = IosEngineCache(
       flutterRoot: flutterRoot,
@@ -411,10 +424,15 @@ final class FlutterPacker {
       outputDir: p.join(projectRoot, 'build', 'xcross-flutter-runner-bin'),
       deploymentTarget: deploymentTarget,
       pluginsLibrary: pluginsLibrary,
+      nativeAssetFrameworks: nativeAssetFrameworks,
       verbose: verbose,
     );
 
-    return RunnerBinary(xcframework: xcframework, runnerBinary: runnerBinary);
+    return RunnerBinary(
+      xcframework: xcframework,
+      runnerBinary: runnerBinary,
+      sdkName: p.basenameWithoutExtension(darwin.iPhoneOSSdk()).toLowerCase(),
+    );
   }
 
   /// Stage the bundle in a temp directory, then move it to
@@ -423,6 +441,7 @@ final class FlutterPacker {
     required String appFramework,
     required String xcframework,
     required String runnerBinary,
+    required String sdkName,
     required List<String> pluginLibraries,
     required List<String> nativeAssetFrameworks,
     required IosDeploymentTarget deploymentTarget,
@@ -437,6 +456,7 @@ final class FlutterPacker {
       appFramework: appFramework,
       flutterFramework: p.join(xcframework, 'ios-arm64', 'Flutter.framework'),
       runnerBinary: runnerBinary,
+      sdkName: sdkName,
       pluginLibraries: pluginLibraries,
       nativeAssetFrameworks: nativeAssetFrameworks,
       deploymentTarget: deploymentTarget,
@@ -462,6 +482,7 @@ final class FlutterPacker {
     required String appFramework,
     required String flutterFramework,
     required String runnerBinary,
+    required String sdkName,
     required List<String> pluginLibraries,
     required List<String> nativeAssetFrameworks,
     required IosDeploymentTarget deploymentTarget,
@@ -490,7 +511,11 @@ final class FlutterPacker {
       projectRoot: projectRoot,
       bundleDir: bundleDir,
     );
-    await _writeInfoPlist(bundleDir, deploymentTarget: deploymentTarget);
+    await _writeInfoPlist(
+      bundleDir,
+      deploymentTarget: deploymentTarget,
+      sdkName: sdkName,
+    );
   }
 
   /// Copy each built `.appex` into the app's `PlugIns` directory, the only
@@ -541,6 +566,7 @@ final class FlutterPacker {
   Future<void> _writeInfoPlist(
     String bundleDir, {
     required IosDeploymentTarget deploymentTarget,
+    required String sdkName,
   }) async {
     var plistXml = await _loadPlistTemplate();
 
@@ -548,12 +574,16 @@ final class FlutterPacker {
     // keys see already-substituted values from the template, and before
     // storyboard stripping so $(VAR)-valued storyboard names are resolved
     // before the .storyboardc filesystem probe.
-    plistXml = InfoPlist.expandVars(plistXml, await _buildSubstitutionMap());
+    plistXml = InfoPlist.expandXmlVars(
+      plistXml,
+      await buildSubstitutionMap(sdkName: sdkName),
+    );
     plistXml = InfoPlist.applyIosRequiredKeys(
       plistXml,
       bundleId: bundleId,
       deploymentTarget: deploymentTarget,
     );
+    plistXml = InfoPlist.applyDebugVmServiceDiscovery(plistXml);
     plistXml = InfoPlist.stripUnsatisfiableStoryboards(plistXml, bundleDir);
     plistXml = InfoPlist.applySceneLifecycle(plistXml);
     plistXml = InfoPlist.normalizeObjCClassNames(plistXml);
@@ -583,9 +613,13 @@ final class FlutterPacker {
   ///
   /// Precedence (lowest → highest):
   ///   1. Hard-coded defaults (`1.0.0` / `1`).
-  ///   2. `Generated.xcconfig` values from `flutter build` tooling.
+  ///   2. `Debug.xcconfig` and its includes in textual order, falling back
+  ///      to `Generated.xcconfig` only when no Debug file exists.
   ///   3. Explicit `--build-name` / `--build-number` CLI flags.
-  Future<Map<String, String>> _buildSubstitutionMap() async {
+  @visibleForTesting
+  Future<Map<String, String>> buildSubstitutionMap({
+    String sdkName = 'iphoneos',
+  }) async {
     final subs = <String, String>{
       'EXECUTABLE_NAME': PlistDefaults.executable,
       'PRODUCT_NAME': PlistDefaults.executable,
@@ -611,21 +645,27 @@ final class FlutterPacker {
       subs['CUSTOM_GROUP_ID'] = hostGroups.first;
     }
 
-    final xcconfigFile = File(
-      p.join(projectRoot, 'ios', 'Flutter', 'Generated.xcconfig'),
+    final flutterConfigDirectory = p.join(projectRoot, 'ios', 'Flutter');
+    final overrides = <String, String>{
+      if (options.buildName case final String name) ...{
+        'FLUTTER_BUILD_NAME': name,
+        'MARKETING_VERSION': name,
+      },
+      if (options.buildNumber case final String number) ...{
+        'FLUTTER_BUILD_NUMBER': number,
+        'CURRENT_PROJECT_VERSION': number,
+      },
+    };
+    subs.addAll(
+      await XcconfigResolver.readDebugConfiguration(
+        debugPath: p.join(flutterConfigDirectory, 'Debug.xcconfig'),
+        generatedPath: p.join(flutterConfigDirectory, 'Generated.xcconfig'),
+        sdk: sdkName,
+        defaults: subs,
+        overrides: overrides,
+      ),
     );
-    if (xcconfigFile.existsSync()) {
-      subs.addAll(InfoPlist.parseXcconfig(await xcconfigFile.readAsString()));
-    }
-
-    if (options.buildName != null) {
-      subs['FLUTTER_BUILD_NAME'] = options.buildName!;
-      subs['MARKETING_VERSION'] = options.buildName!;
-    }
-    if (options.buildNumber != null) {
-      subs['FLUTTER_BUILD_NUMBER'] = options.buildNumber!;
-      subs['CURRENT_PROJECT_VERSION'] = options.buildNumber!;
-    }
+    subs.addAll(overrides);
 
     return subs;
   }

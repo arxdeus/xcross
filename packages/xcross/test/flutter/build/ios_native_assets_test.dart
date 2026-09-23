@@ -114,9 +114,9 @@ void main() {
       Directory(engineCache.flutterXcframework).createSync(recursive: true);
       // The workspace links the host vm-snapshot and patched-SDK directories
       // too, and on Windows linking a missing target fails outright.
-      Directory(p.dirname(engineCache.vmSnapshotData)).createSync(
-        recursive: true,
-      );
+      Directory(
+        p.dirname(engineCache.vmSnapshotData),
+      ).createSync(recursive: true);
       Directory(engineCache.patchedSdkRoot).createSync(recursive: true);
 
       final first = await FlutterToolWorkspace.create(
@@ -450,6 +450,10 @@ void main() {
       );
 
       final clang = File(p.join(shims.path, 'clang.exe'));
+      expect(
+        File(p.join(shims.path, 'xcrun.exe.sdk')).readAsStringSync(),
+        r'C:\SDK\iPhoneOS.sdk',
+      );
       expect(clang.existsSync(), isTrue);
       expect(File(p.join(shims.path, 'cc.exe')).existsSync(), isTrue);
       expect(File(p.join(shims.path, 'clang.bat')).existsSync(), isFalse);
@@ -498,6 +502,19 @@ void main() {
       );
       expect(xcrun.exitCode, 0);
       expect(xcrun.stdout.toString().trim(), '--show-sdk-path');
+
+      final version = await Process.run(
+        'xcrun',
+        const ['--version'],
+        environment: {'PATH': tmp.path},
+        includeParentEnvironment: false,
+      );
+      expect(version.exitCode, 0);
+      expect(version.stdout.toString(), contains('xcrun version'));
+      expect(
+        File(p.join(tmp.path, 'ar')).readAsStringSync(),
+        contains('/toolchain/llvm-ar'),
+      );
 
       final hostCc = await Process.run(
         'cc',

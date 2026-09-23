@@ -218,6 +218,27 @@ enum LinuxPackageManager {
     ];
   }
 
+  /// Versioned clang packages offered by apt, newest first.
+  Future<List<String>> availableVersionedClang() async {
+    if (this != LinuxPackageManager.apt) return const [];
+    try {
+      final result = await ProcessRunner.run(
+        await ProcessRunner.locateTool('apt-cache'),
+        ['pkgnames', 'clang-'],
+      );
+      final versions = <int>[];
+      for (final line in const LineSplitter().convert(result.stdout)) {
+        final match = RegExp(r'^clang-(\d+)$').firstMatch(line.trim());
+        if (match != null) versions.add(int.parse(match.group(1)!));
+      }
+      versions.sort((a, b) => b.compareTo(a));
+      return [for (final version in versions.toSet()) 'clang-$version'];
+    } on Object catch (e) {
+      Log.logTrace('[$name] clang package index query failed ($e)');
+      return const [];
+    }
+  }
+
   static final _versionedLld = RegExp(r'^lld-(\d+)$');
 
   /// [wanted] minus the names this host's package index has never heard of.

@@ -38,6 +38,45 @@ final class GdbReplyPacket {
     return int.tryParse(payload.substring(1, 3), radix: 16);
   }
 
+  /// Key/value details in a debugserver T stop reply. S replies have no fields.
+  Map<String, String> get stopFields {
+    if (type != GdbReply.stopped || payload.length < 4 || payload[0] != 'T') {
+      return const {};
+    }
+    final fields = <String, String>{};
+    for (final part in payload.substring(3).split(';')) {
+      final separator = part.indexOf(':');
+      if (separator > 0) {
+        fields[part.substring(0, separator)] = part.substring(separator + 1);
+      }
+    }
+    return fields;
+  }
+
+  /// Debugger stop reason, including GDB's standalone watchpoint/breakpoint
+  /// fields that do not require a `reason:` field.
+  String? get stopReason {
+    final fields = stopFields;
+    if (fields['reason'] case final String reason) return reason;
+    for (final name in const [
+      'watch',
+      'rwatch',
+      'awatch',
+      'swbreak',
+      'hwbreak',
+    ]) {
+      if (fields.containsKey(name)) return name;
+    }
+    return null;
+  }
+
+  /// A repeated stop at the same execution point must not be resumed forever.
+  String get stopIdentity {
+    final fields = stopFields;
+    return '${stopSignal ?? 'unknown'}:${fields['thread'] ?? ''}:'
+        '${fields['pc'] ?? fields['20'] ?? payload}';
+  }
+
   /// Human name for [stopSignal], for the signals a launch actually hits.
   String get stopDescription => switch (stopSignal) {
     4 => 'SIGILL',
@@ -46,15 +85,20 @@ final class GdbReplyPacket {
     8 => 'SIGFPE',
     10 => 'SIGBUS',
     11 => 'SIGSEGV (bad memory access)',
+    0x91 => 'EXC_BAD_ACCESS (Mach memory fault)',
+    0x92 => 'EXC_BAD_INSTRUCTION',
+    0x93 => 'EXC_ARITHMETIC',
+    0x94 => 'EXC_EMULATION',
+    0x95 => 'EXC_SOFTWARE',
     final int s => 'signal $s',
     null => 'unknown signal',
   };
 
-  /// Whether this stop is a fatal fault rather than a debugger-expected
-  /// pause. SIGTRAP is how the debugger's own breakpoints report, so it must
-  /// not be treated as a crash.
+  /// Whether this stop must be reported rather than resumed as an attach pause.
+  /// A bare first SIGTRAP may be an attach hand-off; a named stop is not.
   bool get isFatalStop => switch (stopSignal) {
-    null || 5 || 0 => false,
+    null => type == GdbReply.stopped,
+    5 => stopFields.containsKey('metype') || stopReason != null,
     _ => true,
   };
 
@@ -110,7 +154,13 @@ final class GdbRemoteClient {
   /// Send the no-ack handshake.
   Future<void> start() async {
     await _sendRaw('+');
-    await _exchange('QStartNoAckMode');
+    final response = await _exchange('QStartNoAckMode');
+    // The response is still sent in acknowledgement mode. debugserver
+    // switches modes only after receiving this final acknowledgement.
+    await _sendRaw('+');
+    if (response != 'OK') {
+      throw TunnelError('debugproxy: no-ack mode rejected: $response');
+    }
     await _exchangeOptional('QThreadSuffixSupported');
     await _exchangeOptional('QListThreadsInStopReply');
   }

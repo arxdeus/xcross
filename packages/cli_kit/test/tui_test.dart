@@ -83,7 +83,7 @@ void main() {
 
   test('run restores cooked mode when handling fails', () async {
     final terminal = FakeTerminal(bytes: [13]);
-    final tui = AnsiTui(terminal: terminal);
+    final tui = AnsiTui(terminal: terminal, useAnsi: true);
 
     await expectLater(
       tui.run(render: () => 'frame', handle: (_) => throw StateError('failed')),
@@ -95,7 +95,7 @@ void main() {
 
   test('prompts in cooked mode and restores raw mode', () {
     final terminal = FakeTerminal(lines: [' value ', 'yes']);
-    final tui = AnsiTui(terminal: terminal, useColor: true);
+    final tui = AnsiTui(terminal: terminal, useAnsi: true, useColor: true);
 
     expect(tui.prompt('Value'), 'value');
     expect(tui.confirm('Continue? [y/N]'), isTrue);

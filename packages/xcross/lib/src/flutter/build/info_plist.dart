@@ -2,8 +2,10 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/internal/required_plist_key.dart';
+import 'package:xcross/src/flutter/build/internal/xcconfig_resolver.dart';
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/constants.dart';
+import 'package:xml/xml.dart';
 
 /// Plist / xcconfig text manipulation for the generated app bundle.
 ///
@@ -125,6 +127,87 @@ abstract final class InfoPlist {
     return xml;
   }
 
+  /// Add the Debug-only local-network declarations Flutter's Xcode backend
+  /// writes into the produced app bundle for the Dart VM Service.
+  ///
+  /// xcross packs debug/JIT bundles without Xcode, so this mirrors
+  /// `xcode_backend.dart` rather than requiring every application template to
+  /// carry development-only permission text in its source Info.plist.
+  static String applyDebugVmServiceDiscovery(String plistXml) {
+    const service = '_dartVmService._tcp';
+    final document = XmlDocument.parse(plistXml);
+    final root = document.rootElement.getElement('dict');
+    if (root == null) {
+      throw const FormatException('Info.plist has no root dict');
+    }
+
+    XmlElement? valueFor(String name) {
+      final entries = root.childElements.toList();
+      for (var i = 0; i < entries.length; i++) {
+        if (entries[i].name.local == 'key' && entries[i].innerText == name) {
+          if (i + 1 >= entries.length || entries[i + 1].name.local == 'key') {
+            throw FormatException('Info.plist key $name has no value');
+          }
+          return entries[i + 1];
+        }
+      }
+      return null;
+    }
+
+    final currentServices = valueFor('NSBonjourServices');
+    if (currentServices != null && currentServices.name.local != 'array') {
+      throw const FormatException('NSBonjourServices must be an array');
+    }
+    final currentUsage = valueFor('NSLocalNetworkUsageDescription');
+    if (currentUsage != null && currentUsage.name.local != 'string') {
+      throw const FormatException(
+        'NSLocalNetworkUsageDescription must be a string',
+      );
+    }
+    if (currentServices?.childElements.any(
+              (entry) =>
+                  entry.name.local == 'string' && entry.innerText == service,
+            ) ==
+            true &&
+        currentUsage != null) {
+      return plistXml;
+    }
+
+    final services =
+        currentServices ?? XmlElement(const XmlName.parts('array'));
+    if (currentServices == null) {
+      root.children.add(
+        XmlElement(const XmlName.parts('key'), [], [
+          XmlText('NSBonjourServices'),
+        ]),
+      );
+      root.children.add(services);
+    }
+    if (!services.childElements.any(
+      (entry) => entry.name.local == 'string' && entry.innerText == service,
+    )) {
+      services.children.add(
+        XmlElement(const XmlName.parts('string'), [], [XmlText(service)]),
+      );
+    }
+    if (currentUsage == null) {
+      root.children.add(
+        XmlElement(const XmlName.parts('key'), [], [
+          XmlText('NSLocalNetworkUsageDescription'),
+        ]),
+      );
+      root.children.add(
+        XmlElement(const XmlName.parts('string'), [], [
+          XmlText(
+            'Allow Flutter tools on your computer to connect and debug '
+            'your application. This prompt will not appear on release builds.',
+          ),
+        ]),
+      );
+    }
+    return document.toXmlString();
+  }
+
   /// Expand `$(KEY)` and `${KEY}` in [text] using [subs].
   static String expandVars(String text, Map<String, String> subs) {
     var result = text;
@@ -136,25 +219,47 @@ abstract final class InfoPlist {
     return result;
   }
 
-  /// Parse `KEY = VALUE` lines from an Xcode `.xcconfig` file.
-  /// Strips `[config]` suffixes (e.g. `KEY[debug] = VALUE`).
-  static Map<String, String> parseXcconfig(String text) {
-    final result = <String, String>{};
-    for (final raw in text.split('\n')) {
-      final line = raw.trim();
-      if (line.isEmpty || line.startsWith('//') || line.startsWith('#')) {
-        continue;
+  /// Substitute plist values through XML nodes so authored xcconfig values
+  /// containing `&`, `<`, or quotes remain valid XML.
+  static String expandXmlVars(String xml, Map<String, String> subs) {
+    final document = XmlDocument.parse(xml);
+    for (final node in document.descendants) {
+      if (node is XmlText) {
+        node.value = expandVars(node.value, subs);
+      } else if (node is XmlElement) {
+        for (final attribute in node.attributes) {
+          attribute.value = expandVars(attribute.value, subs);
+        }
       }
-      final eq = line.indexOf('=');
-      if (eq < 0) continue;
-      var key = line.substring(0, eq).trim();
-      final bracket = key.indexOf('[');
-      if (bracket >= 0) key = key.substring(0, bracket).trim();
-      final value = line.substring(eq + 1).trim();
-      result[key] = value;
     }
-    return result;
+    return document.toXmlString();
   }
+
+  /// Compatibility entry point for evaluating one xcconfig text value.
+  static Map<String, String> parseXcconfig(
+    String text, {
+    String configuration = 'Debug',
+    String sdk = 'iphoneos',
+    String arch = 'arm64',
+  }) => XcconfigResolver.parseText(
+    text,
+    configuration: configuration,
+    sdk: sdk,
+    arch: arch,
+  );
+
+  /// Compatibility entry point for ordered xcconfig file evaluation.
+  static Future<Map<String, String>> readXcconfigFiles(
+    Iterable<String> paths, {
+    String configuration = 'Debug',
+    String sdk = 'iphoneos',
+    String arch = 'arm64',
+  }) => XcconfigResolver.readFiles(
+    paths,
+    configuration: configuration,
+    sdk: sdk,
+    arch: arch,
+  );
 
   /// Overwrite an existing `<key>K</key><string>…</string>` pair, or insert a
   /// new one before `</dict>` if the key is absent.

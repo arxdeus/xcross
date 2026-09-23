@@ -3,7 +3,9 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:path/path.dart' as p;
 import 'package:xcross/src/cli/basic/internal/swift_requirement.dart';
+import 'package:xcross/src/cli/basic/internal/xcode_swift_requirement.dart';
 import 'package:xcross/src/cli/basic/sdk_install.dart';
 import 'package:xcross/src/errors.dart';
 
@@ -50,48 +52,165 @@ final class SdkInstallCommand extends Command<void> {
     final swift = await SwiftRequirement.require('install the Darwin SDK');
     await SwiftRequirement.requireSiblingClang(swift);
 
-    // Everything that can reject the input must run before the previous SDK
-    // is removed: this command's next act is deleting a working install, and
-    // a wrong path or a partial download would otherwise leave the host with
-    // no SDK at all and an hours-long reinstall to get back.
+    // Newer Xcode SDKs cannot be consumed by older Swift compilers at all, so
+    // the pairing is rejected here rather than after the extraction. The
+    // archive's file name is only a hint (downloads get renamed), but when it
+    // does name a generation this costs the user nothing to learn early; the
+    // extracted SDK is checked again below, where the answer is authoritative.
+    await _requireSwiftForXcode(
+      XcodeSwiftRequirement.xcodeMajorFromXipPath(xipPath),
+      swift,
+    );
+
+    // Check the archive before allocating space for a second SDK copy.
     await Log.logStep(
       'Verifying archive',
       () => XcodeXipExtractor.validate(xipPath),
     );
 
     final destDir = DarwinSdk.nativeInstallDir();
-    final previous = Directory(SdkInstall.ioPath(destDir));
-    if (previous.existsSync()) {
+    await prepareExistingSdk(destDir);
+    final parent = Directory(p.dirname(destDir));
+    await parent.create(recursive: true);
+    final staged = await parent.createTemp('${p.basename(destDir)}.staging-');
+    try {
+      final written = await _extract(xipPath, staged.path);
+      if (written == 0) {
+        throw XcrossError(
+          '$xipPath: extraction produced no files from the required iOS SDK '
+          'subset. Verify that this is a complete Xcode.xip.',
+        );
+      }
+
       await Log.logStep(
-        'Removing previous SDK',
-        () => previous.delete(recursive: true),
+        'Patching clang builtin headers',
+        () => SdkInstall.replaceClangBuiltinHeaders(staged.path),
       );
+      await Log.logStep(
+        'Copying Swift compatibility resources',
+        () => SdkInstall.materializeSwiftCompatibilityResources(staged.path),
+      );
+      await Log.logStep(
+        'Writing Swift SDK metadata',
+        () => SdkInstall.writeSwiftSdkBundleMetadata(staged.path),
+      );
+      // A renamed archive can bypass the filename preflight. Verify the
+      // actual SDK before replacing the user's working installation.
+      await _requireSwiftForXcode(
+        XcodeSwiftRequirement.xcodeMajorFromSdkPath(
+          DarwinSdk(staged.path).iPhoneOSSdk(),
+        ),
+        swift,
+      );
+      requireValidStagedSdk(staged.path);
+      await activateStagedSdk(staged, destDir);
+      Log.logDone(
+        'Installed Darwin Swift SDK '
+        '(${ProgressBar.formatCount(written)} entries) at $destDir',
+      );
+    } finally {
+      if (staged.existsSync()) {
+        try {
+          await Directory(
+            SdkInstall.ioPath(staged.path),
+          ).delete(recursive: true);
+        } on Object catch (error) {
+          Log.logWarn('Could not remove staged SDK at ${staged.path}: $error');
+        }
+      }
     }
+  }
 
-    final written = await _extract(xipPath, destDir);
-    if (written == 0) {
+  /// Do not replace a usable install with an archive missing required SDK
+  /// frameworks or Swift runtime files.
+  static void requireValidStagedSdk(String stagedPath) {
+    if (!DarwinSdk.isValidBundle(stagedPath)) {
       throw XcrossError(
-        '$xipPath: extraction produced no files from the required iOS SDK '
-        'subset. Verify that this is a complete Xcode.xip.',
+        'The extracted Xcode archive produced an incomplete Darwin Swift '
+        'SDK. The previous SDK remains installed.',
       );
     }
+  }
 
+  /// Recover an interrupted swap and clear a leftover backup only when the
+  /// published SDK is known to be usable.
+  static Future<void> prepareExistingSdk(String destDir) async {
+    DarwinSdk.restoreInterruptedInstall(destDir);
+    final backup = Directory('$destDir.previous');
+    if (!backup.existsSync()) return;
+    if (!DarwinSdk.isValidBundle(destDir)) {
+      throw XcrossError(
+        'The installed Darwin Swift SDK is incomplete. The previous SDK is '
+        'preserved at ${backup.path}; restore it before installing again.',
+      );
+    }
     await Log.logStep(
-      'Patching clang builtin headers',
-      () => SdkInstall.replaceClangBuiltinHeaders(destDir),
+      'Removing previous SDK backup',
+      () => Directory(SdkInstall.ioPath(backup.path)).delete(recursive: true),
     );
-    await Log.logStep(
-      'Copying Swift compatibility resources',
-      () => SdkInstall.materializeSwiftCompatibilityResources(destDir),
+  }
+
+  /// Swap a validated sibling into place, restoring the old SDK if the new
+  /// directory cannot be published.
+  static Future<void> activateStagedSdk(
+    Directory staged,
+    String destDir, {
+    Future<Directory> Function(Directory, String)? renameStaged,
+  }) async {
+    if (p.dirname(p.normalize(staged.path)) !=
+        p.dirname(p.normalize(destDir))) {
+      throw ArgumentError(
+        'The staged SDK must be a sibling of the destination',
+      );
+    }
+    final previous = Directory(SdkInstall.ioPath(destDir));
+    final backup = Directory('$destDir.previous');
+    if (backup.existsSync()) {
+      throw StateError('SDK backup path already exists: ${backup.path}');
+    }
+    final hadPrevious = previous.existsSync();
+    if (hadPrevious) await previous.rename(backup.path);
+    try {
+      await (renameStaged ?? (directory, path) => directory.rename(path))(
+        staged,
+        destDir,
+      );
+    } on Object {
+      if (hadPrevious) await backup.rename(destDir);
+      rethrow;
+    }
+    if (hadPrevious) {
+      try {
+        await Directory(SdkInstall.ioPath(backup.path)).delete(recursive: true);
+      } on Object catch (error) {
+        Log.logWarn('Could not remove old SDK at ${backup.path}: $error');
+      }
+    }
+  }
+
+  /// Throws [XcrossError] when the host Swift is older than an Xcode
+  /// [xcodeMajor] SDK requires. A null [xcodeMajor], or a toolchain that
+  /// reports no version, is not an error: see [XcodeSwiftRequirement].
+  static Future<void> _requireSwiftForXcode(
+    int? xcodeMajor,
+    String swift,
+  ) async {
+    if (xcodeMajor == null) return;
+    if (XcodeSwiftRequirement.minimumSwift(xcodeMajor) == null) return;
+    final String version;
+    try {
+      version = (await SdkInstall.hostToolchainIdentity())['version'] ?? '';
+    } on Object catch (error) {
+      Log.logTrace('Could not read the host Swift version: $error');
+      return;
+    }
+    final problem = XcodeSwiftRequirement.mismatchWithHint(
+      xcodeMajor: xcodeMajor,
+      swiftVersionOutput: version,
+      swiftPath: swift,
+      installHint: SwiftRequirement.installHint(),
     );
-    await Log.logStep(
-      'Writing Swift SDK metadata',
-      () => SdkInstall.writeSwiftSdkBundleMetadata(destDir),
-    );
-    Log.logDone(
-      'Installed Darwin Swift SDK '
-      '(${ProgressBar.formatCount(written)} entries) at $destDir',
-    );
+    if (problem != null) throw XcrossError(problem);
   }
 
   /// Percentages track the compressed `Content` stream, the only size the

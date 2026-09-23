@@ -25,6 +25,19 @@ $SUDO apt-get update
 # shellcheck disable=SC2086
 $SUDO apt-get install -y $packages
 
+# Xcode 26 libc++ headers require Clang 20 builtins (notably __builtin_clzg).
+# Keep the linker requirement separate: LLVM 19 fixed Objective-C stubs.
+min_clang=20
+have_recent_clang() {
+	for bin in /usr/bin/clang-[0-9]*; do
+		[ -x "$bin" ] || continue
+		version="${bin##*/clang-}"
+		case "$version" in '' | *[!0-9]*) continue ;; esac
+		[ "$version" -ge "$min_clang" ] && return 0
+	done
+	return 1
+}
+
 # Up to and including LLVM 18, ld64.lld miswires `_objc_msgSend$<selector>`
 # stubs, which breaks Objective-C plugins at runtime. Ubuntu 24.04 still
 # ships 18 as the unversioned `lld`, and older releases have nothing newer in
@@ -45,7 +58,7 @@ have_fixed_lld() {
 	return 1
 }
 
-if ! have_fixed_lld; then
+if ! have_fixed_lld || ! have_recent_clang; then
 	# llvm.sh adds the apt.llvm.org repository for this distro and installs the
 	# named component; with no version argument it picks the current stable one.
 	llvm_dir="$(mktemp -d)"
@@ -67,6 +80,44 @@ if ! have_fixed_lld; then
 			fi
 		done
 	fi
+fi
+
+if ! have_recent_clang; then
+	for candidate in $(apt-cache pkgnames clang- 2>/dev/null | sed -n 's/^clang-\([0-9][0-9]*\)$/\1/p' | sort -rn); do
+		if [ "$candidate" -ge "$min_clang" ]; then
+			$SUDO apt-get install -y "clang-$candidate" || true
+			break
+		fi
+	done
+fi
+if ! have_recent_clang; then
+	printf 'error: Clang %s+ is required for Xcode 26 SDK headers; install it from https://apt.llvm.org/ and retry.\n' "$min_clang" >&2
+	exit 1
+fi
+
+# Give xcross a stable PATH entry without replacing distribution-managed clang.
+best_clang=0
+for bin in /usr/bin/clang-[0-9]*; do
+	[ -x "$bin" ] || continue
+	version="${bin##*/clang-}"
+	case "$version" in '' | *[!0-9]*) continue ;; esac
+	if [ "$version" -gt "$best_clang" ]; then best_clang="$version"; fi
+done
+for tool in clang clang++; do
+	stable="/usr/local/bin/$tool"
+	if [ ! -e "$stable" ] && [ ! -L "$stable" ]; then
+		$SUDO ln -s "/usr/bin/$tool-$best_clang" "$stable"
+	elif [ -L "$stable" ]; then
+		case "$(readlink "$stable")" in
+		/usr/bin/"$tool"-[0-9]*) $SUDO ln -sf "/usr/bin/$tool-$best_clang" "$stable" ;;
+		esac
+	fi
+done
+
+clang_major=$(clang --version | sed -n '1s/.*version \([0-9][0-9]*\).*/\1/p')
+if [ -z "$clang_major" ] || [ "$clang_major" -lt "$min_clang" ]; then
+	printf 'error: clang on PATH is %s; configure your PATH to select /usr/bin/clang-%s instead of the older installation.\n' "${clang_major:-unknown}" "$best_clang" >&2
+	exit 1
 fi
 
 # Put the newest fixed lld on PATH under its unversioned names, unless

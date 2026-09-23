@@ -12,6 +12,139 @@ import 'package:xcross/src/errors.dart';
 import '../../../darwin_sdk_kit/test/test_fixtures.dart';
 
 void main() {
+  group('SDK publication', () {
+    late Directory root;
+
+    void createValidBundle(String path) {
+      for (final name in ['info.json', 'swift-sdk.json', 'toolset.json']) {
+        File(p.join(path, name))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('{}');
+      }
+      Directory(
+        p.join(
+          path,
+          'Developer',
+          'Platforms',
+          'iPhoneOS.platform',
+          'Developer',
+          'SDKs',
+          'iPhoneOS18.0.sdk',
+          'System',
+          'Library',
+          'Frameworks',
+        ),
+      ).createSync(recursive: true);
+      for (final location in [
+        p.join('Developer', 'Toolchains', 'XcodeDefault.xctoolchain', 'usr',
+            'lib', 'swift', 'iphoneos', 'layouts-arm64.yaml'),
+        p.join('Developer', 'Runtimes', 'XcodeDefault.xctoolchain', 'usr',
+            'bin', 'layouts-arm64.yaml'),
+      ]) {
+        File(p.join(path, location))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('layout');
+      }
+    }
+
+    setUp(() {
+      root = Directory.systemTemp.createTempSync('xcross-sdk-publication-');
+    });
+
+    tearDown(() => root.deleteSync(recursive: true));
+
+    test('replaces the old SDK only after staging succeeds', () async {
+      final destination = p.join(root.path, 'Darwin.artifactbundle');
+      final old = Directory(destination)..createSync();
+      File(p.join(old.path, 'old.txt')).writeAsStringSync('old');
+      if (Platform.isWindows) {
+        final deepPath = p.joinAll([
+          old.path,
+          ...List.filled(6, 'nested-sdk-directory-with-long-name'),
+        ]);
+        expect(deepPath.length, greaterThan(260));
+        Directory(SdkInstall.ioPath(deepPath)).createSync(recursive: true);
+        File(
+          SdkInstall.ioPath(p.join(deepPath, 'header.h')),
+        ).writeAsStringSync('header');
+      }
+      final staged = Directory(p.join(root.path, 'Darwin.staging'))
+        ..createSync();
+      File(p.join(staged.path, 'new.txt')).writeAsStringSync('new');
+
+      await SdkInstallCommand.activateStagedSdk(staged, destination);
+
+      expect(File(p.join(destination, 'new.txt')).readAsStringSync(), 'new');
+      expect(File(p.join(destination, 'old.txt')).existsSync(), isFalse);
+      expect(staged.existsSync(), isFalse);
+      expect(Directory('$destination.previous').existsSync(), isFalse);
+    });
+
+    test('restores the old SDK when publication fails', () async {
+      final destination = p.join(root.path, 'Darwin.artifactbundle');
+      final old = Directory(destination)..createSync();
+      File(p.join(old.path, 'old.txt')).writeAsStringSync('old');
+      final staged = Directory(p.join(root.path, 'Darwin.staging'))
+        ..createSync();
+      File(p.join(staged.path, 'new.txt')).writeAsStringSync('new');
+
+      await expectLater(
+        SdkInstallCommand.activateStagedSdk(
+          staged,
+          destination,
+          renameStaged: (_, _) async =>
+              throw const FileSystemException('failed'),
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+
+      expect(File(p.join(destination, 'old.txt')).readAsStringSync(), 'old');
+      expect(File(p.join(destination, 'new.txt')).existsSync(), isFalse);
+      expect(File(p.join(staged.path, 'new.txt')).readAsStringSync(), 'new');
+      expect(Directory('$destination.previous').existsSync(), isFalse);
+    });
+
+    test('rejects an incomplete staged SDK without touching the old one', () {
+      final destination = p.join(root.path, 'Darwin.artifactbundle');
+      final old = Directory(destination)..createSync();
+      File(p.join(old.path, 'old.txt')).writeAsStringSync('old');
+      final staged = Directory(p.join(root.path, 'Darwin.staging'))
+        ..createSync();
+      for (final name in ['info.json', 'swift-sdk.json', 'toolset.json']) {
+        File(p.join(staged.path, name)).writeAsStringSync('{}');
+      }
+      Directory(
+        p.join(
+          staged.path,
+          'Developer',
+          'Platforms',
+          'iPhoneOS.platform',
+          'Developer',
+          'SDKs',
+          'iPhoneOS18.0.sdk',
+        ),
+      ).createSync(recursive: true);
+
+      expect(
+        () => SdkInstallCommand.requireValidStagedSdk(staged.path),
+        throwsA(isA<XcrossError>()),
+      );
+      expect(File(p.join(destination, 'old.txt')).readAsStringSync(), 'old');
+    });
+
+    test('clears a stale backup before another installation', () async {
+      final destination = p.join(root.path, 'Darwin.artifactbundle');
+      createValidBundle(destination);
+      final backup = Directory('$destination.previous')..createSync();
+      File(p.join(backup.path, 'old.txt')).writeAsStringSync('old');
+
+      await SdkInstallCommand.prepareExistingSdk(destination);
+
+      expect(DarwinSdk.isValidBundle(destination), isTrue);
+      expect(backup.existsSync(), isFalse);
+    });
+  });
+
   CpioEntry entry(String name, {int mode = 0x81a4, String data = ''}) =>
       CpioEntry(
         name: name,

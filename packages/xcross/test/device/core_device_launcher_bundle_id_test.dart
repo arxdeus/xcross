@@ -3,6 +3,24 @@ import 'package:xcross/src/device/core_device_launcher.dart';
 import 'package:xcross/src/device/device_log.dart';
 
 void main() {
+  test('background launch failure tells the user to unlock the device', () {
+    expect(
+      CoreDeviceLauncher.launchFailureMessage(
+        'DTXNsError: Background launch requested, but this app cannot run '
+        'in the background',
+      ),
+      'Launch failed: iOS rejected a background launch. Unlock the iPhone, '
+      'keep its screen awake, and run again.',
+    );
+  });
+
+  test('other launch failures retain their original cause', () {
+    expect(
+      CoreDeviceLauncher.launchFailureMessage('connection lost'),
+      'Launch failed: connection lost',
+    );
+  });
+
   test('device logs use unbuffered UTF-8 Python output', () {
     expect(DeviceLog.processEnvironment(const {'EXISTING': 'value'}), {
       'EXISTING': 'value',

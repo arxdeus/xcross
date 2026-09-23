@@ -19,6 +19,7 @@ final class SessionConsole {
     this.onRestartRequested,
     this.crashReason,
     this.recentDeviceLines,
+    this.listenForKeyboard = true,
   });
 
   /// Drain and keypress loops are already unwinding via [_stop] by the time we
@@ -45,6 +46,9 @@ final class SessionConsole {
   /// recognisable reason line so the user still gets something to go on.
   final List<String> Function()? recentDeviceLines;
 
+  /// Whether the session reads interactive reload commands from stdin.
+  final bool listenForKeyboard;
+
   /// Why [hotReload] is null, shown when `r`/`R` are pressed anyway.
   ///
   /// A key that does nothing at all reads as a broken terminal, so the session
@@ -63,6 +67,10 @@ final class SessionConsole {
   /// Prevents overlapping reload/restart operations.
   bool _busy = false;
 
+  final Map<String, int> _resumedStops = {};
+  bool _resumePending = false;
+  static const _maxAutomaticResumes = 8;
+
   Completer<void>? _keypressDone;
 
   bool get _stopped => _stoppedCompleter.isCompleted;
@@ -70,6 +78,10 @@ final class SessionConsole {
   bool get isStopped => _stopped;
 
   Future<void> get stopped => _stoppedCompleter.future;
+
+  /// End the session when launch or setup fails before the normal run loop
+  /// finishes. Safe to call again from cleanup.
+  void stop() => _stop();
 
   void configureHotReload({
     required HotReloadController? controller,
@@ -99,7 +111,9 @@ final class SessionConsole {
 
     try {
       final drainFuture = _drainGdbReplies();
-      final keypressFuture = _runKeypressLoop();
+      final keypressFuture = listenForKeyboard
+          ? _runKeypressLoop()
+          : Future<void>.value();
 
       await _stoppedCompleter.future;
       await drainFuture.timeout(_unwindTimeout, onTimeout: nothing);
@@ -157,10 +171,31 @@ final class SessionConsole {
             // stopped, not gone. Ignoring it (the old behaviour) left the
             // app frozen on a black screen with no output at all, which is
             // indistinguishable from a hang. Report it and end the session.
-            if (reply.isFatalStop) {
-              _reportCrash(reply.stopDescription);
+            final repeated = _resumedStops[reply.stopIdentity] ?? 0;
+            if (reply.isFatalStop ||
+                (reply.stopSignal == 5 && _resumedStops.isNotEmpty) ||
+                repeated > 0 ||
+                _resumedStops.length >= _maxAutomaticResumes ||
+                _resumePending) {
+              _reportStop(reply);
               _stop();
               finish();
+            } else {
+              // A bare SIGTRAP can be the attach hand-off. A second stop at
+              // the same point is a trap and must be reported, not resumed.
+              _resumedStops[reply.stopIdentity] = repeated + 1;
+              _resumePending = true;
+              unawaited(
+                gdb.resume().then(
+                  (_) => _resumePending = false,
+                  onError: (Object error, StackTrace stack) {
+                    _resumePending = false;
+                    Log.logWarn('could not resume debugger after stop: $error');
+                    _stop();
+                    finish();
+                  },
+                ),
+              );
             }
           case GdbReply.other:
             break;
@@ -179,19 +214,33 @@ final class SessionConsole {
     } on Object catch (_) {}
   }
 
-  /// Report a fatal stop with whatever the app said on its way down.
+  /// Report an unexpected stop with whatever the app said on its way down.
   ///
   /// The signal name alone ("SIGABRT") is not actionable: every uncaught
   /// Objective-C exception, failed plugin assertion and misconfigured SDK
   /// looks identical. The device log carries the actual reason, so it is
-  /// printed with the crash instead of being discarded.
-  void _reportCrash(String description) {
-    Log.logError(
-      'App crashed: $description. The process is stopped at the fault.',
-    );
-    final reason = crashReason?.call();
-    if (reason != null) {
-      Log.logError(reason);
+  /// printed with the stop instead of being discarded.
+  void _reportStop(GdbReplyPacket reply) {
+    final reason = reply.stopReason;
+    final debuggerStop =
+        reply.stopSignal == 5 &&
+        reason != null &&
+        reason != 'exception' &&
+        !reply.stopFields.containsKey('metype');
+    if (debuggerStop) {
+      Log.logError(
+        'App stopped: ${reply.stopDescription} ($reason). '
+        'The process is stopped by the debugger.',
+      );
+    } else {
+      Log.logError(
+        'App crashed: ${reply.stopDescription}. '
+        'The process is stopped at the fault.',
+      );
+    }
+    final crashDetail = crashReason?.call();
+    if (crashDetail != null) {
+      Log.logError(crashDetail);
       return;
     }
     final recent = recentDeviceLines?.call() ?? const <String>[];

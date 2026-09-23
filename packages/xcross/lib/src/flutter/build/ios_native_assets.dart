@@ -7,6 +7,8 @@ import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/flutter/build/internal/flutter_tool_workspace.dart';
 import 'package:xcross/src/flutter/build/internal/native_asset_frameworks.dart';
 import 'package:xcross/src/flutter/build/internal/native_assets_hook_discovery.dart';
+import 'package:xcross/src/flutter/build/internal/native_assets_manifest.dart';
+import 'package:xcross/src/flutter/build/internal/recursive_directory_copy.dart';
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 
 import 'package:xcross/src/flutter/build/ios_engine_cache.dart';
@@ -93,8 +95,27 @@ final class IosNativeAssetsBuilder {
       );
     }
 
-    final frameworks = collectNativeAssetFrameworks(output);
+    final manifestFile = File(manifest);
+    final original = await manifestFile.readAsString();
+    final normalized = normalizeIosNativeAssetsManifest(original);
+    if (normalized != original) await manifestFile.writeAsString(normalized);
+
+    final sources = collectNativeAssetFrameworks(
+      normalized,
+      output,
+      projectRoot: projectRoot,
+    );
+    final stage = Directory(p.join(output, 'xcross_staged_frameworks'));
+    if (stage.existsSync()) await stage.delete(recursive: true);
+    await stage.create(recursive: true);
+    final frameworks = <String>[];
+    for (final source in sources) {
+      final destination = p.join(stage.path, p.basename(source));
+      await copyDirectoryPreservingSymlinks(source, destination);
+      frameworks.add(destination);
+    }
     await thinFrameworksToArm64(frameworks, lipo: tools.lipo);
+    await alignNativeAssetLinkedit(frameworks);
     await normalizeNativeAssetInstallNames(frameworks);
 
     return IosNativeAssetsBuildResult(
@@ -132,7 +153,10 @@ final class IosNativeAssetsBuilder {
         'FLUTTER_ROOT': workspace.flutterRoot,
         'PATH': _prependPath(
           shimDirectory,
-          ProcessRunner.effectiveEnvironment['PATH'],
+          ProcessRunner.environmentValue(
+            ProcessRunner.effectiveEnvironment,
+            'PATH',
+          ),
         ),
       },
       inheritStdio: Log.isVerbose,

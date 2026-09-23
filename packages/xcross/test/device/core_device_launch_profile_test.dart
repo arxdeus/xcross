@@ -34,6 +34,10 @@ void main() {
         '--route=/home',
       ]),
     );
+    expect(
+      profile.argumentsForLaunch(isDap: true),
+      isNot(contains('--enable-dart-profiling')),
+    );
   });
 
   test('kernel tunnel binds VM Service to IPv6', () {

@@ -5,6 +5,7 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:xcross/src/cli/basic/doctor_models.dart';
+import 'package:xcross/src/cli/basic/internal/xcode_swift_requirement.dart';
 import 'package:xcross/src/cli/basic/sdk_install.dart';
 
 typedef DoctorLocateTool =
@@ -164,13 +165,68 @@ abstract final class DoctorEnvironmentChecks {
       );
     }
     final mismatch = await SdkInstall.hostToolchainMismatch(path);
-    return mismatch == null
-        ? DoctorCheck.success('Darwin SDK', 'Installed', path: path)
-        : DoctorCheck.failure(
-            'Darwin SDK',
-            '$mismatch Reinstall it with `xcross sdk install <Xcode.xip>`.',
-          );
+    if (mismatch != null) {
+      return DoctorCheck.failure(
+        'Darwin SDK',
+        '$mismatch Reinstall it with `xcross sdk install <Xcode.xip>`.',
+      );
+    }
+    final tooOld = await _swiftTooOldForSdk(path);
+    if (tooOld != null) return DoctorCheck.failure('Darwin SDK', tooOld);
+    // Repairs a bundle installed before xcross rewrote text stubs, so
+    // `doctor` reports the SDK the build will actually get rather than the
+    // one on disk a moment ago.
+    final patched = TbdBundlePatch.ensureApplied(path);
+    return DoctorCheck.success(
+      'Darwin SDK',
+      patched == 0
+          ? 'Installed'
+          : 'Installed (rewrote $patched text stubs for this linker)',
+      path: path,
+    );
   }
+
+  /// Why the installed SDK's Xcode generation outruns the host Swift, or null
+  /// when the pair is fine or cannot be judged.
+  ///
+  /// Reported separately from [SdkInstall.hostToolchainMismatch]: that one
+  /// asks whether Swift *changed* since the install, while this asks whether
+  /// the Swift now on PATH is new enough for this SDK at all. A host that
+  /// downgraded Swift, or installed an Xcode 27 SDK with an older `xcross`
+  /// that did not yet check, only hears about it here.
+  static Future<String?> swiftTooOldForSdk(
+    String bundle, {
+    Future<Map<String, String>> Function()? toolchainIdentity,
+  }) async {
+    final int? xcodeMajor;
+    try {
+      xcodeMajor = XcodeSwiftRequirement.xcodeMajorFromSdkPath(
+        DarwinSdk(bundle).iPhoneOSSdk(),
+      );
+    } on Object catch (error) {
+      Log.logTrace('Could not read the installed iPhoneOS SDK version: $error');
+      return null;
+    }
+    if (xcodeMajor == null) return null;
+    if (XcodeSwiftRequirement.minimumSwift(xcodeMajor) == null) return null;
+    final Map<String, String> identity;
+    try {
+      identity = await (toolchainIdentity == null
+          ? SdkInstall.hostToolchainIdentity()
+          : toolchainIdentity());
+    } on Object catch (error) {
+      Log.logTrace('Could not identify the host Swift toolchain: $error');
+      return null;
+    }
+    return XcodeSwiftRequirement.mismatchWithHint(
+      xcodeMajor: xcodeMajor,
+      swiftVersionOutput: identity['version'] ?? '',
+      swiftPath: identity['swift'],
+    );
+  }
+
+  static Future<String?> _swiftTooOldForSdk(String bundle) =>
+      swiftTooOldForSdk(bundle);
 
   static Future<List<DoctorCheck>> run() async {
     final deviceTools = await _deviceTools();

@@ -224,7 +224,13 @@ void main() {
         lines: ['/opt/flutter', 'y'],
       );
       final runner = CommandRunner<void>('xcross', 'test')
-        ..addCommand(ConfigCommand(store: store, terminal: terminal));
+        ..addCommand(
+          ConfigCommand(
+            store: store,
+            terminal: terminal,
+            terminalEnvironment: const {},
+          ),
+        );
       await runner.run(['config']);
       expect(terminal.modeChanges, [
         'raw',

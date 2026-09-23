@@ -8,10 +8,13 @@ import 'package:test/test.dart';
 import 'package:xcross/src/cli/basic/sdk_install.dart';
 import 'package:xcross/src/flutter/build/flutter_pack_operation.dart';
 import 'package:xcross/src/flutter/build/flutter_packer.dart';
+import 'package:xcross/src/flutter/build/info_plist.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_gate_evidence.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_workspace.dart';
 import 'package:xcross/src/flutter/constants.dart';
 import 'package:xcross/src/flutter/errors.dart';
+import 'package:xcross/src/flutter/models/flutter/flutter_build_options.dart';
+import 'package:xml/xml.dart';
 
 /// Resolves a path under `lib/src/flutter/` without depending on the working
 /// directory the suite happens to be launched from.
@@ -33,6 +36,64 @@ Future<void> _deleteTemp(Directory directory) async {
 }
 
 void main() {
+  test('Debug includes and CLI versions reach the final plist values', () async {
+    final project = await Directory.systemTemp.createTemp('xcross-plist-');
+    addTearDown(() => project.delete(recursive: true));
+    File(
+      p.join(project.path, 'pubspec.yaml'),
+    ).writeAsStringSync('name: example\n');
+    final flutter = Directory(p.join(project.path, 'ios', 'Flutter'))
+      ..createSync(recursive: true);
+    File(p.join(flutter.path, 'Generated.xcconfig')).writeAsStringSync(
+      'APP_SUFFIX = \$(inherited)generated\n'
+      'BASE = old\n'
+      'MARKETING_VERSION = generated-version\n',
+    );
+    File(p.join(flutter.path, 'Debug.xcconfig')).writeAsStringSync(
+      '#include "Generated.xcconfig"\n'
+      'APP_SUFFIX[sdk=iphoneos*] = \$(inherited).device\n'
+      'DISPLAY_NAME = \$(BASE)\n'
+      'BASE = new\n'
+      'APP_VERSION = \$(FLUTTER_BUILD_NAME)\n'
+      'APP_BUILD = \${FLUTTER_BUILD_NUMBER}\n'
+      'SDK_NAME[sdk=iphoneos26.5] = exact-sdk\n'
+      'SDK_NAME = generic-sdk\n'
+      'CURRENT_PROJECT_VERSION = 2\n',
+    );
+    final packer = FlutterPacker(
+      projectRoot: project.path,
+      bundleId: 'com.example.app',
+      options: const FlutterBuildOptions(buildName: '5.0', buildNumber: '50'),
+    );
+    final xml = InfoPlist.expandXmlVars(
+      '<plist><dict>'
+      r'<key>Name</key><string>$(APP_SUFFIX)</string>'
+      r'<key>Display</key><string>$(DISPLAY_NAME)</string>'
+      r'<key>AliasVersion</key><string>$(APP_VERSION)</string>'
+      r'<key>AliasBuild</key><string>$(APP_BUILD)</string>'
+      r'<key>SDKName</key><string>$(SDK_NAME)</string>'
+      r'<key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>'
+      r'<key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>'
+      '</dict></plist>',
+      await packer.buildSubstitutionMap(sdkName: 'iphoneos26.5'),
+    );
+    final values = XmlDocument.parse(xml).rootElement
+        .getElement('dict')!
+        .childElements
+        .where((entry) => entry.name.local == 'string')
+        .map((entry) => entry.innerText)
+        .toList();
+    expect(values, [
+      'generated.device',
+      'old',
+      '5.0',
+      '50',
+      'exact-sdk',
+      '5.0',
+      '50',
+    ]);
+  });
+
   test(
     'resolves explicit and configured Flutter roots before environment roots',
     () async {

@@ -28,6 +28,9 @@ jobs:
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
     name: Flutter SwiftPM build (${{ matrix.os }})
+    permissions:
+      contents: read
+      actions: write
     strategy:
       fail-fast: false
       matrix:
@@ -106,7 +109,12 @@ jobs:
           chmod +x "$RUNNER_TEMP/xcross-bundle/bin/xcross"
           chmod +x "$RUNNER_TEMP/xcross-bundle/bin/xcrun"
           "$RUNNER_TEMP/xcross-bundle/bin/xcross" setup
-          sudo apt-get install -y llvm
+          # Ubuntu's default clang 18 cannot compile the Xcode 26.5 SDK's
+          # libc++ 21 headers (notably __builtin_clzg). Match the lld-20
+          # installed by xcross setup with a recent Clang, and let
+          # resolveDarwinClang find it under /usr/lib/llvm-20/bin.
+          sudo apt-get install -y clang-20 llvm
+          clang-20 --version
           tools=(
             swift clang clang++ llvm-ar ld64.lld
             llvm-readobj llvm-nm llvm-objdump
@@ -280,21 +288,21 @@ jobs:
       - name: Restore cached Darwin SDK
         uses: ./.github/actions/setup-darwin-sdk
 
-      - name: Identify plugin build cache inputs
-        id: plugin-cache-inputs
+      - name: Set plugin build cache directory
         shell: bash
         run: |
           set -euo pipefail
           echo "XCROSS_CACHE_DIR=$RUNNER_TEMP/xcross-cache" >> "$GITHUB_ENV"
-          echo "flutter=$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          echo "examples=$(git -C examples rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+      # Only main writes this cache, under one stable key per toolchain, so a
+      # push never creates an extra cache entry. Bump swiftpm-v<n> to replace it.
       - name: Restore SwiftPM build cache
-        if: github.event_name != 'workflow_dispatch'
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
+        id: swiftpm-cache
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684
         with:
           path: ${{ env.XCROSS_CACHE_DIR }}/swiftpm
-          key: swiftpm-v1-${{ matrix.os }}-${{ runner.arch }}-${{ env.SWIFT_VERSION }}-${{ env.LLVM_VERSION }}-${{ steps.plugin-cache-inputs.outputs.flutter }}-${{ steps.plugin-cache-inputs.outputs.examples }}-${{ hashFiles('pubspec.lock', 'packages/**/pubspec.yaml', 'packages/**/lib/**', '.github/workflows/integration.yml', '.github/actions/setup-darwin-sdk/action.yml') }}
+          key: swiftpm-v1-${{ matrix.os }}-${{ runner.arch }}-${{ env.SWIFT_VERSION }}-${{ env.LLVM_VERSION }}
 
       - name: Build Flutter example on Linux
         if: runner.os == 'Linux'
@@ -357,3 +365,26 @@ jobs:
               $commands -notmatch '@executable_path/Frameworks') {
             throw "Missing Frameworks rpath:`n$commands"
           }
+
+      # Drop the previous entry so main refreshes one cache in place instead of
+      # accumulating a new cache per push. Never touches xcross-darwin-* caches.
+      - name: Drop previous SwiftPM build cache
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CACHE_KEY: swiftpm-v1-${{ matrix.os }}-${{ runner.arch }}-${{ env.SWIFT_VERSION }}-${{ env.LLVM_VERSION }}
+        run: |
+          set -euo pipefail
+          case "$CACHE_KEY" in
+            swiftpm-v1-*) ;;
+            *) echo "refusing to delete unexpected cache $CACHE_KEY"; exit 1 ;;
+          esac
+          gh cache delete "$CACHE_KEY" --repo "$GITHUB_REPOSITORY" || true
+
+      - name: Save SwiftPM build cache
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684
+        with:
+          path: ${{ env.XCROSS_CACHE_DIR }}/swiftpm
+          key: swiftpm-v1-${{ matrix.os }}-${{ runner.arch }}-${{ env.SWIFT_VERSION }}-${{ env.LLVM_VERSION }}

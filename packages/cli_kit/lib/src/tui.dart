@@ -68,12 +68,12 @@ abstract final class AnsiTuiStyle {
   static const title = '\x1b[1;97;44m';
   static const selectedTab = '\x1b[1;30;46m';
   static const tab = '\x1b[36m';
-  static const selectedRow = '\x1b[30;47m';
-  static const row = '\x1b[37m';
-  static const help = '\x1b[2;37m';
+  static const selectedRow = '\x1b[7m';
+  static const row = '\x1b[39m';
+  static const help = '\x1b[2m';
   static const status = '\x1b[1;35m';
   static const prompt = '\x1b[1;97;44m';
-  static const actionSelected = '\x1b[1;30;47m';
+  static const actionSelected = '\x1b[1;7m';
   static const actionBackgrounds = [
     '\x1b[1;30;42m',
     '\x1b[1;97;44m',

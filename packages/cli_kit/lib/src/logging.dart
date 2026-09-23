@@ -7,15 +7,12 @@ import 'package:cli_util/cli_logging.dart';
 abstract final class Log {
   static Logger _logger = Logger.standard();
 
-  /// Bright black (SGR 90), the readable "dim" on both dark and light
-  /// terminals.
-  ///
-  /// cli_util's own `ansi.gray` is `1;30` — *bold black* — which renders as
-  /// pure black on a dark background: `--verbose` trace output and every
-  /// subtle detail were invisible. SGR 90 is the modern bright-black slot
-  /// every terminal that supports ANSI colors renders as a real grey.
-  static const _dim = '\u001B[90m';
-  static const _reset = '\u001B[0m';
+  /// Faint (SGR 2): dims the terminal's own foreground color, so it stays
+  /// readable on both dark and light themes. Bright black (SGR 90) and
+  /// cli_util's `ansi.gray` (`1;30`) both map to the background color on
+  /// many dark palettes and made text invisible.
+  static const _dim = '\u001B[2m';
+  static const _reset = '\u001B[22m';
 
   /// [message] in a readable grey, or unchanged when ANSI is off (piped
   /// output, dumb terminal).

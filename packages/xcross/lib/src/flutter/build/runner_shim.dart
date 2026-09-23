@@ -35,6 +35,7 @@ final class RunnerShim {
     required String outputDir,
     required IosDeploymentTarget deploymentTarget,
     String? pluginsLibrary,
+    List<String> nativeAssetFrameworks = const [],
     bool verbose = false,
   }) => Log.logStep('Compiling Runner', () async {
     final clang = await DarwinSdk.resolveDarwinClang(sdk);
@@ -70,11 +71,13 @@ final class RunnerShim {
       objectPath: objectPath,
       outputPath: outputPath,
       iosSdk: iosSdk,
+      sdkBundle: sdk.swiftSdkPath,
       flutterSlice: flutterSlice,
       subframeworks: subframeworks,
       sdkVersion: sdkVersion,
       deploymentTarget: deploymentTarget,
       pluginsLibrary: pluginsLibrary,
+      nativeAssetFrameworks: nativeAssetFrameworks,
     );
 
     if (!File(outputPath).existsSync()) {
@@ -154,27 +157,37 @@ final class RunnerShim {
     required String objectPath,
     required String outputPath,
     required String iosSdk,
+    required String sdkBundle,
     required String flutterSlice,
     required String subframeworks,
     required String sdkVersion,
     required IosDeploymentTarget deploymentTarget,
     String? pluginsLibrary,
+    List<String> nativeAssetFrameworks = const [],
   }) async {
     Log.logTrace('[ld64.lld] link Runner.o → Runner');
-    await ProcessRunner.runChecked(
-      ld64lld,
-      linkArguments(
-        objectPath: objectPath,
-        outputPath: outputPath,
-        iosSdk: iosSdk,
-        flutterSlice: flutterSlice,
-        subframeworks: subframeworks,
-        sdkVersion: sdkVersion,
-        deploymentTarget: deploymentTarget,
-        pluginsLibrary: pluginsLibrary,
+    // An SDK whose text stubs still declare an architecture this linker
+    // cannot parse fails here with a diagnostic that names a framework,
+    // not the cause.
+    await TbdLinkerDiagnostic.explainFailures(
+      bundle: sdkBundle,
+      wrap: FlutterBuildError.new,
+      () => ProcessRunner.runChecked(
+        ld64lld,
+        linkArguments(
+          objectPath: objectPath,
+          outputPath: outputPath,
+          iosSdk: iosSdk,
+          flutterSlice: flutterSlice,
+          subframeworks: subframeworks,
+          sdkVersion: sdkVersion,
+          deploymentTarget: deploymentTarget,
+          pluginsLibrary: pluginsLibrary,
+          nativeAssetFrameworks: nativeAssetFrameworks,
+        ),
+        inheritStdio: Log.isVerbose,
+        label: 'ld64.lld',
       ),
-      inheritStdio: Log.isVerbose,
-      label: 'ld64.lld',
     );
   }
 
@@ -188,6 +201,7 @@ final class RunnerShim {
     required String sdkVersion,
     required IosDeploymentTarget deploymentTarget,
     String? pluginsLibrary,
+    List<String> nativeAssetFrameworks = const [],
   }) => [
     '-arch',
     'arm64',
@@ -209,6 +223,12 @@ final class RunnerShim {
     subframeworks,
     '-framework',
     'Flutter',
+    for (final framework in nativeAssetFrameworks) ...[
+      '-F',
+      p.dirname(framework),
+      '-needed_framework',
+      p.basenameWithoutExtension(framework),
+    ],
     '-framework',
     'UIKit',
     '-framework',

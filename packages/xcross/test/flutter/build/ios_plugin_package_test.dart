@@ -49,6 +49,25 @@ String packageSrcPath(String relative) => p.join(
 );
 
 void main() {
+  test(
+    'Windows manifests import host CRT without package-specific overrides',
+    () {
+      expect(GeneratedPluginsPackage.hostManifestArguments(windows: true), [
+        '-Xmanifest',
+        '-Xfrontend',
+        '-Xmanifest',
+        '-import-module',
+        '-Xmanifest',
+        '-Xfrontend',
+        '-Xmanifest',
+        'CRT',
+      ]);
+      expect(
+        GeneratedPluginsPackage.hostManifestArguments(windows: false),
+        isEmpty,
+      );
+    },
+  );
   late Directory tmp;
 
   setUp(() async {
@@ -221,6 +240,7 @@ let package = Package(
 
       expect(manifest, contains('name: "FlutterPluginsGenerated"'));
       expect(manifest, contains('.iOS("15.6")'));
+      expect(manifest, isNot(contains('-disable-availability-checking')));
       expect(manifest, isNot(contains('.iOS("13.0")')));
       expect(
         manifest,
@@ -836,6 +856,80 @@ framework module PublicSDK {
   });
 
   group('vendorUrlPackagesAsPathDeps', () {
+    for (final sourceFallback in [true, false]) {
+      test('records fallback Swift modules only when the source lane is '
+          'active (sourceFallback: $sourceFallback)', () async {
+        addTearDown(
+          () => GeneratedPluginsPackage.sourceFallbackOverride = null,
+        );
+        GeneratedPluginsPackage.sourceFallbackOverride = sourceFallback;
+        final fallbackSwiftModules = <String, List<String>>{};
+        await GeneratedPluginsPackage.vendorUrlPackagesAsPathDeps(
+          '''
+import PackageDescription
+let package = Package(
+    name: "plugin_a",
+    dependencies: [
+        .package(url: "https://github.com/example/sdk", exact: "1.0.0"),
+    ],
+    targets: [
+        .target(
+            name: "plugin_a",
+            dependencies: [.product(name: "PublicSDK", package: "sdk")]
+        )
+    ]
+)
+''',
+          vendorDir: p.join(tmp.path, 'fallback-vendor-$sourceFallback'),
+          packageDirectory: p.join(tmp.path, 'plugin_a'),
+          fallbackSwiftModules: fallbackSwiftModules,
+          locateTool: (_) async => 'git',
+          evaluateDependencyRefs: (_) async => const {
+            'https://github.com/example/sdk': 'sha-sdk',
+          },
+          clonePackage: (_, _, _, destination) async {
+            void write(String relative, String contents) =>
+                File(p.join(destination, relative))
+                  ..createSync(recursive: true)
+                  ..writeAsStringSync(contents);
+            write('Sources/ObjC/Public/PublicSDK.h', '// public\n');
+            write(
+              'Sources/Resources/PublicSDK.modulemap',
+              'framework module PublicSDK { umbrella header "PublicSDK.h" }\n',
+            );
+            write('Sources/Swift/Implementation.swift', 'struct API {}\n');
+            write('Package.swift', '''
+import PackageDescription
+var products: [Product] = [
+    .library(name: "PublicSDK", targets: ["BinaryArtifact"]),
+]
+var targets: [Target] = [
+    .binaryTarget(name: "BinaryArtifact", url: "SDK.zip", checksum: "abc"),
+]
+if getenv("EXPERIMENTAL_SPM_BUILDS") != nil {
+    products.removeAll()
+    targets.removeAll()
+    products.append(.library(name: "SourceProduct", targets: ["SwiftImpl"]))
+    targets.append(contentsOf: [
+        .target(name: "HeaderImpl", path: "Sources/ObjC", publicHeadersPath: "Public"),
+        .target(name: "SwiftImpl", dependencies: ["HeaderImpl"], path: "Sources/Swift"),
+    ])
+}
+let package = Package(name: "sdk", products: products, targets: targets)
+''');
+          },
+        );
+
+        expect(
+          fallbackSwiftModules,
+          sourceFallback
+              ? {
+                  'PublicSDK': ['SwiftImpl'],
+                }
+              : isEmpty,
+        );
+      });
+    }
     test('rewrites url deps to path after clone callback', () async {
       final vendorDir = p.join(tmp.path, 'Vendor');
       const manifest = '''
@@ -1486,7 +1580,198 @@ let package = Package(
     });
   });
 
-  group('bootstrap binary recovery', () {
+  group('bootstrap pinned dependencies', () {
+    test('normalizes and rewrites exact pinned packages', () async {
+      final plugin = Directory(p.join(tmp.path, 'pinned-resolve'))
+        ..createSync();
+      final manifest = File(p.join(plugin.path, 'Package.swift'))
+        ..writeAsStringSync('''
+// swift-tools-version: 5.9
+import PackageDescription
+let package = Package(dependencies: [
+  .package(url: "https://example.com/vendor/cold-package", exact: "1.2.3")
+], targets: [.target(name: "Plugin", dependencies: [
+  .product(name: "ColdProduct", package: "cold-package")
+])
+])
+''');
+      final original = manifest.readAsStringSync();
+      var clones = 0;
+      final result =
+          await GeneratedPluginsPackage.bootstrapWindowsPinnedDependencyResolve(
+            [plugin.path],
+            p.join(tmp.path, 'vendor'),
+            windows: true,
+            clonePackage: (_, url, ref, destination) async {
+              clones++;
+              expect(url, 'https://example.com/vendor/cold-package');
+              expect(ref, '1.2.3');
+              await Directory(destination).create(recursive: true);
+              await File(
+                p.join(destination, 'Package@swift-6.1.swift'),
+              ).writeAsString('''
+#elseif canImport(MSVCRT)
+import MSVCRT
+let env = getenv("EXPERIMENTAL_SPM_BUILDS")
+''');
+            },
+          );
+      expect(clones, 1);
+      expect(result.originals[manifest.path], original);
+      expect(result.pins['https://example.com/vendor/cold-package'], '1.2.3');
+      expect(
+        manifest.readAsStringSync(),
+        contains('.package(name: "cold-package", path:'),
+      );
+      expect(
+        File(
+          p.join(
+            tmp.path,
+            'vendor',
+            'cold-package@1.2.3',
+            'Package@swift-6.1.swift',
+          ),
+        ).readAsStringSync(),
+        contains('import CRT'),
+      );
+    });
+
+    test('handles multiple packages and Git revisions', () async {
+      final plugin = Directory(p.join(tmp.path, 'multiple-pins'))..createSync();
+      final manifest = File(p.join(plugin.path, 'Package.swift'))
+        ..writeAsStringSync('''
+.package(url: "https://example.com/vendor/first-package.git", exact: "1.2.3")
+.package(url: "https://example.com/vendor/second-package", revision: "abcdef123456")
+''');
+      final cloned = <String, String>{};
+      final result =
+          await GeneratedPluginsPackage.bootstrapWindowsPinnedDependencyResolve(
+            [plugin.path],
+            p.join(tmp.path, 'vendor'),
+            windows: true,
+            clonePackage: (_, url, ref, destination) async {
+              cloned[url] = ref;
+              await Directory(destination).create(recursive: true);
+              await File(
+                p.join(destination, 'Package.swift'),
+              ).writeAsString('import PackageDescription');
+            },
+          );
+      expect(cloned, {
+        'https://example.com/vendor/first-package.git': '1.2.3',
+        'https://example.com/vendor/second-package': 'abcdef123456',
+      });
+      expect(result.pins.length, 2);
+      expect(manifest.readAsStringSync(), isNot(contains('.package(url:')));
+    });
+
+    test('keeps ranges and mixed constraints for SwiftPM to solve', () async {
+      final plugin = Directory(p.join(tmp.path, 'mixed-constraints'))
+        ..createSync();
+      final manifest = File(p.join(plugin.path, 'Package.swift'))
+        ..writeAsStringSync('''
+.package(url: "https://example.com/vendor/first-package", exact: "1.2.3")
+.package(url: "https://example.com/vendor/first-package.git", from: "1.0.0")
+.package(url: "https://example.com/vendor/second-package", from: "2.0.0")
+''');
+      final original = manifest.readAsStringSync();
+      final result =
+          await GeneratedPluginsPackage.bootstrapWindowsPinnedDependencyResolve(
+            [plugin.path],
+            p.join(tmp.path, 'vendor'),
+            windows: true,
+            clonePackage: (_, _, _, _) async => fail('must not clone ranges'),
+          );
+      expect(result.pins, isEmpty);
+      expect(result.originals, isEmpty);
+      expect(manifest.readAsStringSync(), original);
+    });
+
+    test('does not bootstrap on non-Windows hosts', () async {
+      final plugin = Directory(p.join(tmp.path, 'other-host'))..createSync();
+      final manifest = File(p.join(plugin.path, 'Package.swift'))
+        ..writeAsStringSync(
+          '.package(url: "https://example.com/vendor/first-package", '
+          'exact: "1.2.3")',
+        );
+      final original = manifest.readAsStringSync();
+      final result =
+          await GeneratedPluginsPackage.bootstrapWindowsPinnedDependencyResolve(
+            [plugin.path],
+            p.join(tmp.path, 'vendor'),
+            windows: false,
+            clonePackage: (_, _, _, _) async => fail('must not clone'),
+          );
+      expect(result.pins, isEmpty);
+      expect(result.originals, isEmpty);
+      expect(manifest.readAsStringSync(), original);
+    });
+
+    test('rejects conflicting exact refs without rewriting', () async {
+      final first = Directory(p.join(tmp.path, 'package-first'))..createSync();
+      final second = Directory(p.join(tmp.path, 'package-second'))
+        ..createSync();
+      final firstManifest = File(p.join(first.path, 'Package.swift'))
+        ..writeAsStringSync(
+          '.package(url: "https://example.com/vendor/cold-package", '
+          'exact: "1.2.3")',
+        );
+      final secondManifest = File(p.join(second.path, 'Package.swift'))
+        ..writeAsStringSync(
+          '.package(url: "https://example.com/vendor/cold-package.git", '
+          'exact: "1.3.0")',
+        );
+      final original = firstManifest.readAsStringSync();
+      await expectLater(
+        GeneratedPluginsPackage.bootstrapWindowsPinnedDependencyResolve(
+          [first.path, second.path],
+          p.join(tmp.path, 'vendor'),
+          windows: true,
+          clonePackage: (_, _, _, destination) async {
+            await Directory(destination).create(recursive: true);
+            await File(
+              p.join(destination, 'Package.swift'),
+            ).writeAsString('import PackageDescription');
+          },
+        ),
+        throwsA(isA<FlutterBuildError>()),
+      );
+      expect(firstManifest.readAsStringSync(), original);
+      expect(secondManifest.readAsStringSync(), contains('1.3.0'));
+    });
+
+    test('leaves staged manifests intact when a later clone fails', () async {
+      final first = Directory(p.join(tmp.path, 'package-one'))..createSync();
+      final second = Directory(p.join(tmp.path, 'package-two'))..createSync();
+      File(p.join(first.path, 'Package.swift')).writeAsStringSync(
+        '.package(url: "https://example.com/vendor/cold-package", '
+        'exact: "1.2.3")',
+      );
+      File(p.join(second.path, 'Package.swift')).writeAsStringSync(
+        '.package(url: "https://example.com/other/second-package", '
+        'exact: "2.0.0")',
+      );
+      final firstFile = File(p.join(first.path, 'Package.swift'));
+      final original = firstFile.readAsStringSync();
+      var clones = 0;
+      await expectLater(
+        GeneratedPluginsPackage.bootstrapWindowsPinnedDependencyResolve(
+          [first.path, second.path],
+          p.join(tmp.path, 'vendor'),
+          windows: true,
+          clonePackage: (_, _, _, destination) async {
+            if (++clones == 2) throw StateError('clone failed');
+            await Directory(destination).create(recursive: true);
+            await File(
+              p.join(destination, 'Package.swift'),
+            ).writeAsString('import PackageDescription');
+          },
+        ),
+        throwsStateError,
+      );
+      expect(firstFile.readAsStringSync(), original);
+    });
+
     test('retries resolve once and preserves failed cache semantics', () async {
       final package = Directory(p.join(tmp.path, 'package'))..createSync();
       final resolved = File(p.join(package.path, 'Package.resolved'));
@@ -1524,6 +1809,54 @@ let package = Package(
       expect((resolves, recoveries), (2, 1));
       expect(state.bootstrapRecovered, hasLength(1));
     });
+
+    test(
+      'repairs a fetched Swift 6.1 manifest before retrying resolve',
+      () async {
+        final root = Directory(p.join(tmp.path, 'Resolve'))
+          ..createSync(recursive: true);
+        final scratch = p.join(root.path, '.build');
+        final manifest = File(
+          p.join(
+            scratch,
+            'checkouts',
+            'sentry-cocoa',
+            'Package@swift-6.1.swift',
+          ),
+        )..createSync(recursive: true);
+        manifest.writeAsStringSync('''
+#if canImport(Darwin)
+import Darwin.C
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(MSVCRT)
+import MSVCRT
+#endif
+import PackageDescription
+let env = getenv("EXPERIMENTAL_SPM_BUILDS")
+''');
+        var attempts = 0;
+        await GeneratedPluginsPackage.evaluateDependencyRefsWithRecovery(
+          root.path,
+          resolve: (_) async {
+            attempts++;
+            if (!manifest.readAsStringSync().contains('import CRT')) {
+              throw StateError("cannot find 'getenv' in scope");
+            }
+            File(
+              p.join(root.path, 'Package.resolved'),
+            ).writeAsStringSync('{"pins":[]}');
+          },
+          recover: (_, _) =>
+              GeneratedPluginsPackage.normalizeResolvedPackageManifests(
+                scratch,
+              ),
+          attemptState: SwiftPmBinaryAttemptState(),
+        );
+        expect(attempts, 2);
+        expect(manifest.readAsStringSync(), contains('import CRT'));
+      },
+    );
 
     test('rethrows original failure when recovery has no evidence', () async {
       final original = StateError('original');
@@ -2172,13 +2505,23 @@ let package = Package(
       File(
         p.join(repo, 'Sources', 'Types.h'),
       ).writeAsStringSync('typedef int T;\n');
+      File(p.join(repo, 'Package.swift')).writeAsStringSync(
+        'let package = Package(targets: [.target(name: "Dependency", '
+        'path: "Sources")])',
+      );
       File(p.join(repo, 'Sources', 'nested', 'a.txt')).writeAsStringSync('a');
       final fileLink = File(p.join(repo, 'include', 'Types.h'))
         ..writeAsStringSync('../Sources/Types.h');
       final dirLink = File(p.join(repo, 'include', 'nested'))
         ..writeAsStringSync('../Sources/nested');
-      git(['add', 'Sources', 'include']);
-      for (final link in ['include/Types.h', 'include/nested']) {
+      final danglingLink = File(p.join(repo, 'include', 'optional-example'))
+        ..writeAsStringSync('../Sources/not-present');
+      git(['add', 'Package.swift', 'Sources', 'include']);
+      for (final link in [
+        'include/Types.h',
+        'include/nested',
+        'include/optional-example',
+      ]) {
         final hash = (git(['hash-object', '-w', link]).stdout as String).trim();
         git(['update-index', '--cacheinfo', '120000', hash, link]);
       }
@@ -2192,9 +2535,33 @@ let package = Package(
         isTrue,
       );
       expect(FileSystemEntity.isLinkSync(fileLink.path), isTrue);
+
       expect(FileSystemEntity.isLinkSync(dirLink.path), isTrue);
+      expect(FileSystemEntity.isLinkSync(danglingLink.path), isTrue);
+      expect(
+        Link(danglingLink.path).targetSync(),
+        Platform.isWindows
+            ? r'..\Sources\not-present'
+            : '../Sources/not-present',
+      );
       expect(fileLink.readAsStringSync(), 'typedef int T;\n');
       expect(File(p.join(dirLink.path, 'a.txt')).readAsStringSync(), 'a');
+
+      final stamp = Directory(
+        p.join(scratch, '.xcross-symlinks'),
+      ).listSync().whereType<File>().single;
+      final oldStamp =
+          jsonDecode(stamp.readAsStringSync()) as Map<String, dynamic>;
+      oldStamp['version'] = 2;
+      stamp.writeAsStringSync(jsonEncode(oldStamp));
+      expect(
+        await GeneratedPluginsPackage.materializeCheckoutSymlinks(
+          scratch,
+          symlinks: true,
+        ),
+        isFalse,
+      );
+      expect((jsonDecode(stamp.readAsStringSync()) as Map)['version'], 3);
 
       // Warm build: the stamp is keyed on HEAD and every link still holds,
       // so no git process is needed to conclude nothing changed.
@@ -2206,6 +2573,44 @@ let package = Package(
         ),
         isFalse,
       );
+
+      // A dangling Git link can acquire a directory target after checkout.
+      // On Windows, its original file-typed reparse point must be replaced.
+      Directory(p.join(repo, 'Sources', 'not-present')).createSync();
+      expect(
+        await GeneratedPluginsPackage.materializeCheckoutSymlinks(
+          scratch,
+          symlinks: true,
+        ),
+        isTrue,
+      );
+      expect(Directory(danglingLink.path).existsSync(), isTrue);
+
+      if (Platform.isWindows) {
+        // `mklink` without /D deliberately creates a file-typed link to a
+        // directory. A matching target string alone is not enough to reuse it.
+        Link(dirLink.path).deleteSync();
+        final wrongKind = Process.runSync('cmd', [
+          '/c',
+          'mklink',
+          dirLink.path,
+          r'..\Sources\nested',
+        ]);
+        expect(
+          wrongKind.exitCode,
+          0,
+          reason: '${wrongKind.stdout}${wrongKind.stderr}',
+        );
+        expect(Directory(dirLink.path).existsSync(), isFalse);
+        expect(
+          await GeneratedPluginsPackage.materializeCheckoutSymlinks(
+            scratch,
+            symlinks: true,
+          ),
+          isTrue,
+        );
+        expect(Directory(dirLink.path).existsSync(), isTrue);
+      }
 
       // A placeholder brought back by a `reset --hard` under
       // `core.symlinks=false` is detected and restored.
@@ -2219,6 +2624,75 @@ let package = Package(
         isTrue,
       );
       expect(FileSystemEntity.isLinkSync(fileLink.path), isTrue);
+      final requiredLink = File(p.join(repo, 'Sources', 'required.h'))
+        ..writeAsStringSync('missing.h');
+      git(['add', 'Sources/required.h']);
+      final requiredHash =
+          (git(['hash-object', '-w', requiredLink.path]).stdout as String)
+              .trim();
+      git([
+        'update-index',
+        '--cacheinfo',
+        '120000',
+        requiredHash,
+        'Sources/required.h',
+      ]);
+      git(['commit', '-q', '-m', 'required source link']);
+      await expectLater(
+        GeneratedPluginsPackage.materializeCheckoutSymlinks(
+          scratch,
+          symlinks: true,
+        ),
+        throwsA(isA<FlutterBuildError>()),
+      );
+    });
+
+    test('allows a missing symlink in a test-only target', () async {
+      if (!await HostSymlinkCapability.probe()) {
+        markTestSkipped('host cannot create symlinks');
+        return;
+      }
+      final scratch = p.join(tmp.path, 'test-target-links');
+      final repo = p.join(scratch, 'checkouts', 'dependency');
+      Directory(
+        p.join(repo, 'Tests', 'PluginTests'),
+      ).createSync(recursive: true);
+      ProcessResult git(List<String> arguments) {
+        final result = Process.runSync('git', [
+          '-c',
+          'core.symlinks=false',
+          '-C',
+          repo,
+          ...arguments,
+        ]);
+        expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+        return result;
+      }
+
+      git(['init']);
+      File(p.join(repo, 'Package.swift')).writeAsStringSync(
+        'let package = Package(targets: [.testTarget(name: "PluginTests")])',
+      );
+      final link = File(p.join(repo, 'Tests', 'PluginTests', 'fixture.txt'))
+        ..writeAsStringSync('missing.txt');
+      git(['add', 'Package.swift', 'Tests']);
+      final hash = (git(['hash-object', '-w', link.path]).stdout as String)
+          .trim();
+      git([
+        'update-index',
+        '--cacheinfo',
+        '120000',
+        hash,
+        'Tests/PluginTests/fixture.txt',
+      ]);
+      expect(
+        await GeneratedPluginsPackage.materializeCheckoutSymlinks(
+          scratch,
+          symlinks: true,
+        ),
+        isTrue,
+      );
+      expect(FileSystemEntity.isLinkSync(link.path), isTrue);
     });
   });
 
@@ -2297,6 +2771,45 @@ let package = Package(targets: [
   });
 
   group('registrantSource', () {
+    void writeBinaryPlist(
+      String frameworkPath, {
+      bool simulator = false,
+      bool binary = false,
+    }) {
+      final libraries = <String>[
+        '''
+<dict><key>LibraryIdentifier</key><string>ios-arm64</string>
+<key>SupportedPlatform</key><string>ios</string>
+<key>SupportedArchitectures</key><array><string>arm64</string></array></dict>
+''',
+        if (simulator)
+          '''
+<dict><key>LibraryIdentifier</key><string>ios-arm64-simulator</string>
+<key>SupportedPlatform</key><string>ios</string>
+<key>SupportedPlatformVariant</key><string>simulator</string>
+<key>SupportedArchitectures</key><array><string>arm64</string></array></dict>
+''',
+      ];
+      final xml =
+          '<?xml version="1.0" encoding="UTF-8"?>\n'
+          '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+          '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+          '<plist version="1.0"><dict><key>AvailableLibraries</key>\n'
+          '<array>${libraries.join()}</array></dict></plist>';
+      final file = File(p.join(frameworkPath, 'Info.plist'))
+        ..createSync(recursive: true);
+      if (binary) {
+        final data = PropertyListSerialization.dataWithPropertyList(
+          PropertyListSerialization.propertyListWithString(xml),
+        );
+        file.writeAsBytesSync(
+          data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+        );
+      } else {
+        file.writeAsStringSync(xml);
+      }
+    }
+
     test('imports and registers only the plugin with a pluginClass', () {
       final pluginA = makePlugin('plugin_a', pluginClass: 'PluginA');
       final pluginB = makePlugin('plugin_b');
@@ -2317,6 +2830,249 @@ let package = Package(targets: [
       expect('if let registrar'.allMatches(source).length, 1);
       expect(source, contains('@_cdecl("XcrossRegisterGeneratedPlugins")'));
       expect(source, isNot(contains('[xcross] registering plugin')));
+    });
+
+    test('guards an explicitly newer Swift plugin class at runtime', () {
+      final plugin = makePlugin('new_plugin', pluginClass: 'NewPlugin');
+      final source = File(
+        p.join(
+          plugin.swiftPackageDir,
+          'Sources',
+          'new_plugin',
+          'NewPlugin.swift',
+        ),
+      );
+      source.createSync(recursive: true);
+      source.writeAsStringSync('''
+import Flutter
+@available(iOS 17.0, *)
+public class NewPlugin: NSObject, FlutterPlugin {
+  public static func register(with registrar: FlutterPluginRegistrar) {}
+}
+''');
+
+      expect(plugin.pluginClassIosAvailability, '17.0');
+      final registrant = GeneratedPluginsPackage.registrantSource([plugin]);
+      expect(registrant, contains('if #available(iOS 17.0, *) {'));
+      expect(registrant, contains('NewPlugin.register(with: registrar)'));
+      expect(registrant, isNot(contains('NSClassFromString')));
+      final verbose = GeneratedPluginsPackage.registrantSource([
+        plugin,
+      ], verbose: true);
+      expect(verbose, contains('requires iOS 17.0'));
+    });
+
+    test('guards a binary-only plugin using its Swift interface', () {
+      final plugin = makePlugin('new_plugin', pluginClass: 'NewPlugin');
+      final frameworkPath = p.join(
+        plugin.swiftPackageDir,
+        'NewPlugin.xcframework',
+      );
+      writeBinaryPlist(frameworkPath, simulator: true);
+      final interface = File(
+        p.join(
+          frameworkPath,
+          'ios-arm64',
+          'NewPlugin.framework',
+          'Modules',
+          'NewPlugin.swiftmodule',
+          'arm64-apple-ios.swiftinterface',
+        ),
+      )..createSync(recursive: true);
+      interface.writeAsStringSync('''
+@available(iOS 17.0, *)
+public class NewPlugin: NSObject, FlutterPlugin {}
+''');
+      final simulatorInterface = File(
+        interface.path.replaceFirst('ios-arm64', 'ios-arm64-simulator'),
+      )..createSync(recursive: true);
+      simulatorInterface.writeAsStringSync('''
+@available(iOS 18.0, *)
+public class NewPlugin: NSObject, FlutterPlugin {}
+''');
+
+      expect(plugin.pluginClassIosAvailability, '17.0');
+      expect(
+        GeneratedPluginsPackage.registrantSource([plugin]),
+        contains('if #available(iOS 17.0, *)'),
+      );
+    });
+
+    test('finds downloaded binary interfaces in the staged package', () {
+      final plugin = makePlugin('new_plugin', pluginClass: 'NewPlugin');
+      final staged = p.join(tmp.path, 'staged-new-plugin');
+      final frameworkPath = p.join(staged, 'NewPlugin.xcframework');
+      writeBinaryPlist(frameworkPath, binary: true);
+      final interface = File(
+        p.join(
+          frameworkPath,
+          'ios-arm64',
+          'NewPlugin.framework',
+          'Modules',
+          'NewPlugin.swiftmodule',
+          'arm64-apple-ios.swiftinterface',
+        ),
+      )..createSync(recursive: true);
+      interface.writeAsStringSync('''
+@available(iOS 17.0, *) public class NewPlugin: NSObject, FlutterPlugin {}
+''');
+
+      expect(plugin.pluginClassIosAvailability, isNull);
+      expect(
+        GeneratedPluginsPackage.registrantSource(
+          [plugin],
+          stagedPackageDirs: {'new_plugin': staged},
+        ),
+        contains('if #available(iOS 17.0, *)'),
+      );
+    });
+
+    test('follows a staged XCFramework artifact alias', () {
+      final plugin = makePlugin('new_plugin', pluginClass: 'NewPlugin');
+      final frameworkPath = p.join(tmp.path, 'store', 'NewPlugin.xcframework');
+      writeBinaryPlist(frameworkPath);
+      final interface = File(
+        p.join(
+          frameworkPath,
+          'ios-arm64',
+          'NewPlugin.framework',
+          'Modules',
+          'NewPlugin.swiftmodule',
+          'arm64-apple-ios.swiftinterface',
+        ),
+      )..createSync(recursive: true);
+      interface.writeAsStringSync('''
+@available(iOS 17.0, *)
+public class NewPlugin: NSObject, FlutterPlugin {}
+''');
+      final staged = p.join(tmp.path, 'staged-linked-plugin');
+      final alias = p.join(staged, '.xa', 'checksum', 'NewPlugin.xcframework');
+      Directory(p.dirname(alias)).createSync(recursive: true);
+      if (Platform.isWindows) {
+        final result = Process.runSync('cmd.exe', [
+          '/c',
+          'mklink',
+          '/J',
+          alias,
+          frameworkPath,
+        ]);
+        expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+      } else {
+        Link(alias).createSync(frameworkPath);
+      }
+
+      expect(
+        GeneratedPluginsPackage.registrantSource(
+          [plugin],
+          stagedPackageDirs: {'new_plugin': staged},
+        ),
+        contains('if #available(iOS 17.0, *)'),
+      );
+    });
+
+    test('does not inherit availability from an intervening declaration', () {
+      final plugin = makePlugin('new_plugin', pluginClass: 'NewPlugin');
+      final source = File(
+        p.join(plugin.swiftPackageDir, 'Sources', 'NewPlugin.swift'),
+      )..createSync(recursive: true);
+      source.writeAsStringSync('''
+@available(iOS 17.0, *)
+public typealias NewAlias = String
+public class NewPlugin: NSObject, FlutterPlugin {}
+''');
+
+      expect(plugin.pluginClassIosAvailability, isNull);
+      expect(
+        GeneratedPluginsPackage.registrantSource([plugin]),
+        isNot(contains('if #available(iOS 17.0, *)')),
+      );
+    });
+
+    test('uses the highest stacked iOS availability requirement', () {
+      final plugin = makePlugin('new_plugin', pluginClass: 'NewPlugin');
+      final source = File(
+        p.join(plugin.swiftPackageDir, 'Sources', 'NewPlugin.swift'),
+      )..createSync(recursive: true);
+      source.writeAsStringSync('''
+@available(iOS 18.0, *)
+@available(iOS 17.0, *)
+public class NewPlugin: NSObject, FlutterPlugin {}
+''');
+
+      expect(plugin.pluginClassIosAvailability, '18.0');
+      expect(
+        GeneratedPluginsPackage.registrantSource([plugin]),
+        contains('if #available(iOS 18.0, *)'),
+      );
+    });
+
+    test('recognizes long-form iOS availability and ignores comments', () {
+      final plugin = makePlugin('new_plugin', pluginClass: 'NewPlugin');
+      final source = File(
+        p.join(plugin.swiftPackageDir, 'Sources', 'NewPlugin.swift'),
+      )..createSync(recursive: true);
+      source.writeAsStringSync('''
+/*
+@available(iOS 99.0, *)
+public class NewPlugin: NSObject, FlutterPlugin {}
+*/
+// @available(iOS 98.0, *)
+@available(iOS, introduced: 17.0)
+public class NewPlugin: NSObject, FlutterPlugin {}
+''');
+
+      expect(plugin.pluginClassIosAvailability, '17.0');
+      expect(
+        GeneratedPluginsPackage.registrantSource([plugin]),
+        contains('if #available(iOS 17.0, *)'),
+      );
+    });
+
+    test('recognizes iOS availability after another Swift platform', () {
+      final plugin = makePlugin('new_plugin', pluginClass: 'NewPlugin');
+      final source = File(
+        p.join(plugin.swiftPackageDir, 'Sources', 'NewPlugin.swift'),
+      )..createSync(recursive: true);
+      source.writeAsStringSync('''
+@available(macOS 10.15, iOS 17.0, *)
+public class NewPlugin: NSObject, FlutterPlugin {}
+''');
+
+      expect(plugin.pluginClassIosAvailability, '17.0');
+    });
+
+    test('ignores fake Swift classes inside multiline strings', () {
+      final plugin = makePlugin('new_plugin', pluginClass: 'NewPlugin');
+      final source = File(
+        p.join(plugin.swiftPackageDir, 'Sources', 'NewPlugin.swift'),
+      )..createSync(recursive: true);
+      source.writeAsStringSync('''
+let example = """
+@available(iOS 17.0, *)
+class NewPlugin
+"""
+public class NewPlugin: NSObject, FlutterPlugin {}
+''');
+
+      expect(plugin.pluginClassIosAvailability, isNull);
+    });
+
+    test('recognizes Objective-C API_AVAILABLE on a plugin interface', () {
+      final plugin = makePlugin('new_plugin', pluginClass: 'NewPlugin');
+      final source = File(
+        p.join(plugin.swiftPackageDir, 'Sources', 'NewPlugin.h'),
+      )..createSync(recursive: true);
+      source.writeAsStringSync('''
+API_AVAILABLE(macos(10.15), ios(17.0))
+@interface NewPlugin : NSObject <FlutterPlugin>
+@end
+''');
+
+      expect(plugin.pluginClassIosAvailability, '17.0');
+      expect(
+        GeneratedPluginsPackage.registrantSource([plugin]),
+        contains('if #available(iOS 17.0, *)'),
+      );
     });
 
     test('verbose source tracks each plugin and prints a summary', () {
@@ -2372,7 +3128,7 @@ let package = Package(targets: [
 import PackageDescription
 let package = Package(
   name: "plugin_scope",
-  dependencies: [.package(name: "DeclaredIdentity", url: "$url", exact: "1.0.0")],
+  dependencies: [.package(name: "DeclaredIdentity", url: "$url", from: "1.0.0")],
   targets: []
 )
 ''',
@@ -3487,6 +4243,39 @@ let package = Package(
       );
     });
 
+    test('target build dir prefers the native per-triple scratch layout', () {
+      final scratch = Directory.systemTemp.createTempSync(
+        'xcross-scratch-layout',
+      );
+      addTearDown(() => scratch.deleteSync(recursive: true));
+
+      // Nothing built yet: the per-triple path the native engine uses.
+      expect(
+        GeneratedPluginsPackage.resolveTargetBuildDir(scratch.path),
+        p.join(scratch.path, 'arm64-apple-ios', 'debug'),
+      );
+
+      // A swiftbuild run left out/debug behind; it is used when it is
+      // the only description present.
+      final out = Directory(p.join(scratch.path, 'out', 'debug'))
+        ..createSync(recursive: true);
+      File(p.join(out.path, 'description.json')).writeAsStringSync('{}');
+      expect(
+        GeneratedPluginsPackage.resolveTargetBuildDir(scratch.path),
+        out.path,
+      );
+
+      // Once the pinned native engine has produced its own description, the
+      // per-triple layout wins over the stale `out/debug`.
+      final triple = Directory(p.join(scratch.path, 'arm64-apple-ios', 'debug'))
+        ..createSync(recursive: true);
+      File(p.join(triple.path, 'description.json')).writeAsStringSync('{}');
+      expect(
+        GeneratedPluginsPackage.resolveTargetBuildDir(scratch.path),
+        triple.path,
+      );
+    });
+
     test('keeps the iOS SDK, package flags, and Windows toolset', () {
       final arguments = GeneratedPluginsPackage.swiftBuildArguments(
         pluginsDir: 'plugins',
@@ -3500,10 +4289,14 @@ let package = Package(
         windows: true,
       );
 
-      expect(arguments.take(5), [
+      expect(arguments.take(7), [
         'build',
         '--package-path',
         'plugins',
+        // Swift 6.4 defaults to the `swiftbuild` engine, which cannot target
+        // iphoneos from a cross host; the native engine is pinned instead.
+        '--build-system',
+        'native',
         '--configuration',
         'debug',
       ]);
@@ -3601,7 +4394,7 @@ let package = Package(
           'Flutter.xcframework/ios-arm64',
         ]),
       );
-      expect(arguments, contains('-disable-availability-checking'));
+      expect(arguments, isNot(contains('-disable-availability-checking')));
       expect(arguments, contains('--disable-automatic-resolution'));
       expect(arguments, isNot(contains('-install_name')));
     });
@@ -3672,16 +4465,11 @@ let package = Package(
         final headers = [
           p.join(
             buildDir,
-            'FirebaseFirestore.build',
+            'PluginStore.build',
             'include',
-            'FirebaseFirestore-Swift.h',
+            'PluginStore-Swift.h',
           ),
-          p.join(
-            buildDir,
-            'FirebaseAuth.build',
-            'include',
-            'FirebaseAuth-Swift.h',
-          ),
+          p.join(buildDir, 'PluginAuth.build', 'include', 'PluginAuth-Swift.h'),
           p.join(buildDir, 'Unrelated.build', 'include', 'Unrelated-Swift.h'),
         ];
         Directory(buildDir).createSync(recursive: true);
@@ -3699,7 +4487,7 @@ let package = Package(
         expect(
           GeneratedPluginsPackage.missingSwiftInteropTargets(
             buildDir,
-            candidates: const {'FirebaseFirestore', 'FirebaseAuth'},
+            candidates: const {'PluginStore', 'PluginAuth'},
           ),
           isEmpty,
           reason: 'no module map has been written yet',
@@ -3707,9 +4495,9 @@ let package = Package(
         expect(
           GeneratedPluginsPackage.plannedSwiftInteropTargets(
             buildDir,
-            candidates: const {'FirebaseFirestore', 'FirebaseAuth'},
+            candidates: const {'PluginStore', 'PluginAuth'},
           ),
-          ['FirebaseAuth', 'FirebaseFirestore'],
+          ['PluginAuth', 'PluginStore', 'Unrelated'],
         );
 
         File(headers[1]).parent.createSync(recursive: true);
@@ -3717,9 +4505,9 @@ let package = Package(
         expect(
           GeneratedPluginsPackage.plannedSwiftInteropTargets(
             buildDir,
-            candidates: const {'FirebaseFirestore', 'FirebaseAuth'},
+            candidates: const {'PluginStore', 'PluginAuth'},
           ),
-          ['FirebaseFirestore'],
+          ['PluginStore', 'Unrelated'],
           reason: 'a header already on disk needs no prebuild',
         );
       },
@@ -3733,7 +4521,7 @@ let package = Package(
       expect(
         GeneratedPluginsPackage.plannedSwiftInteropTargets(
           buildDir,
-          candidates: const {'FirebaseFirestore'},
+          candidates: const {'PluginStore'},
         ),
         isEmpty,
       );
@@ -3781,6 +4569,47 @@ let package = Package(
       );
     });
 
+    test('prebuilds reachable internal Swift targets', () {
+      final buildDir = p.join(tmp.path, 'internal-interop');
+      final header = p.join(
+        buildDir,
+        'InternalSwiftTarget.build',
+        'include',
+        'InternalSwiftTarget-Swift.h',
+      );
+      Directory(buildDir).createSync(recursive: true);
+      File(p.join(buildDir, 'description.json')).writeAsStringSync(
+        jsonEncode({
+          'swiftCommands': {
+            'InternalSwiftTarget': {
+              'otherArguments': ['-emit-objc-header-path', header],
+            },
+          },
+          'targetDependencyMap': {
+            'FlutterPluginsGenerated': ['example_plugin'],
+            'example_plugin': ['InternalSwiftTarget'],
+            'InternalSwiftTarget': <String>[],
+          },
+        }),
+      );
+      expect(
+        GeneratedPluginsPackage.plannedSwiftInteropTargets(
+          buildDir,
+          candidates: const {'example_plugin'},
+        ),
+        ['InternalSwiftTarget'],
+      );
+      expect(
+        GeneratedPluginsPackage.plannedSwiftInteropTargets(
+          buildDir,
+          candidates: const {'example_plugin'},
+          windows: false,
+        ),
+        isEmpty,
+        reason: 'POSIX still prebuilds public-product candidates only',
+      );
+    });
+
     test('prebuilds unfiltered when the plan carries no dependency map', () {
       // Reachability is an optimisation. Without a map to filter with, the
       // full set must still be prebuilt rather than silently skipping the
@@ -3809,6 +4638,49 @@ let package = Package(
           candidates: const {'Reachable'},
         ),
         ['Reachable'],
+      );
+    });
+
+    test('prebuilds internal headers without a dependency map', () {
+      final buildDir = p.join(tmp.path, 'legacy-no-map');
+      final header = p.join(
+        buildDir,
+        'InternalSwiftTarget.build',
+        'include',
+        'InternalSwiftTarget-Swift.h',
+      );
+      Directory(buildDir).createSync(recursive: true);
+      File(p.join(buildDir, 'description.json')).writeAsStringSync(
+        jsonEncode({
+          'swiftCommands': {
+            'InternalSwiftTarget': {
+              'otherArguments': ['-emit-objc-header-path', header],
+            },
+          },
+        }),
+      );
+
+      expect(
+        GeneratedPluginsPackage.plannedSwiftInteropTargets(
+          buildDir,
+          candidates: const {'example_plugin'},
+        ),
+        ['InternalSwiftTarget'],
+      );
+      expect(
+        GeneratedPluginsPackage.plannedSwiftInteropTargets(
+          buildDir,
+          candidates: const {'example_plugin'},
+          windows: false,
+        ),
+        isEmpty,
+        reason: 'keep the legacy POSIX candidate filter',
+      );
+      expect(
+        GeneratedPluginsPackage.orderedWindowsSwiftInteropTargets(buildDir, [
+          'InternalSwiftTarget',
+        ]),
+        ['InternalSwiftTarget'],
       );
     });
 
@@ -3897,6 +4769,81 @@ let package = Package(
       },
     );
 
+    test('orders Windows interop dependencies before the aggregate', () async {
+      final buildDir = p.join(tmp.path, 'arm64-apple-ios', 'debug');
+      final headers = {
+        for (final target in [
+          'Aux',
+          'FlutterPluginsGenerated',
+          'InternalSwiftTarget',
+          'example_plugin',
+        ])
+          target: p.join(
+            buildDir,
+            '$target.build',
+            'include',
+            '$target-Swift.h',
+          ),
+      };
+      Directory(buildDir).createSync(recursive: true);
+      File(p.join(buildDir, 'description.json')).writeAsStringSync(
+        jsonEncode({
+          'swiftCommands': {
+            for (final entry in headers.entries)
+              entry.key: {
+                'otherArguments': ['-emit-objc-header-path', entry.value],
+              },
+          },
+          'targetDependencyMap': {
+            'FlutterPluginsGenerated': ['example_plugin', 'Aux'],
+            'example_plugin': ['InternalSwiftTarget'],
+            'InternalSwiftTarget': <String>[],
+            'Aux': <String>[],
+          },
+        }),
+      );
+      final planned = GeneratedPluginsPackage.plannedSwiftInteropTargets(
+        buildDir,
+        candidates: headers.keys.toSet(),
+      );
+      expect(planned, [
+        'Aux',
+        'FlutterPluginsGenerated',
+        'InternalSwiftTarget',
+        'example_plugin',
+      ]);
+      expect(
+        GeneratedPluginsPackage.orderedWindowsSwiftInteropTargets(
+          buildDir,
+          planned,
+        ),
+        ['Aux', 'InternalSwiftTarget', 'example_plugin'],
+      );
+      final events = <String>[];
+      await GeneratedPluginsPackage.buildWithInteropRecovery(
+        targetBuildDir: buildDir,
+        interopTargetCandidates: headers.keys.toSet(),
+        windows: true,
+        skipInitialRecovery: true,
+        buildTarget: (target) async {
+          events.add('target:$target');
+          final header = File(headers[target]!);
+          await header.parent.create(recursive: true);
+          await header.writeAsString('generated');
+        },
+        build: () async {
+          expect(File(headers['InternalSwiftTarget']!).existsSync(), isTrue);
+          events.add('build');
+        },
+      );
+      expect(events, [
+        'target:Aux',
+        'target:InternalSwiftTarget',
+        'target:example_plugin',
+        'build',
+      ]);
+    });
+
     test('rejects missing and malformed Swift planning descriptions', () {
       final buildDir = p.join(tmp.path, 'arm64-apple-ios', 'debug');
       Directory(buildDir).createSync(recursive: true);
@@ -3956,7 +4903,7 @@ let package = Package(
       'planned missing targets preserve aggregate-first recovery ordering',
       () async {
         final buildDir = p.join(tmp.path, 'arm64-apple-ios', 'debug');
-        for (final target in ['FirebaseFirestore', 'FirebaseAuth']) {
+        for (final target in ['PluginStore', 'PluginAuth']) {
           final include = Directory(
             p.join(buildDir, '$target.build', 'include'),
           );
@@ -3969,12 +4916,14 @@ let package = Package(
         final events = <String>[];
         await GeneratedPluginsPackage.buildWithInteropRecovery(
           targetBuildDir: buildDir,
-          interopTargetCandidates: const {'FirebaseFirestore', 'FirebaseAuth'},
+          interopTargetCandidates: const {'PluginStore', 'PluginAuth'},
           skipInitialRecovery: true,
           windows: true,
           build: () async {
             events.add('build${++attempts}');
-            if (attempts == 1) throw StateError('missing generated headers');
+            if (attempts == 1) {
+              throw StateError("'PluginAuth-Swift.h' file not found");
+            }
           },
           buildTarget: (target) async {
             events.add(target);
@@ -3987,11 +4936,39 @@ let package = Package(
         expect(events, [
           'repair',
           'build1',
-          'FirebaseAuth',
-          'FirebaseFirestore',
+          'PluginAuth',
+          'PluginStore',
           'repair',
           'build2',
         ]);
+      },
+    );
+
+    test(
+      'does not rebuild interop targets after an unrelated compile error',
+      () async {
+        final buildDir = p.join(tmp.path, 'arm64-apple-ios', 'debug');
+        final include = Directory(p.join(buildDir, 'Plugin.build', 'include'))
+          ..createSync(recursive: true);
+        File(
+          p.join(include.path, 'module.modulemap'),
+        ).writeAsStringSync('module Plugin { header "Plugin-Swift.h" }');
+        var attempts = 0;
+        await expectLater(
+          GeneratedPluginsPackage.buildWithInteropRecovery(
+            targetBuildDir: buildDir,
+            interopTargetCandidates: const {'Plugin'},
+            skipInitialRecovery: true,
+            windows: true,
+            build: () {
+              attempts++;
+              return Future.error(StateError('syntax error in user source'));
+            },
+            buildTarget: (_) async => fail('unrelated errors must not recover'),
+          ),
+          throwsA(isA<StateError>()),
+        );
+        expect(attempts, 1);
       },
     );
 
@@ -4012,6 +4989,10 @@ let package = Package(
                   p.join(include.path, 'OtherSwift-Swift.h'),
                 ],
               },
+            },
+            'targetDependencyMap': {
+              'FlutterPluginsGenerated': <String>[],
+              'OtherSwift': <String>[],
             },
           }),
         );
@@ -4035,7 +5016,7 @@ let package = Package(
             File(
               p.join(include.path, 'OtherSwift-Swift.h'),
             ).writeAsStringSync('generated');
-            throw StateError('interop consumer');
+            throw StateError("'OtherSwift-Swift.h' file not found");
           },
           buildTarget: (_) async => fail('no target should be prebuilt'),
           repairConsumers: () async => events.add('repair'),
@@ -4344,6 +5325,7 @@ module FirebaseFirestore {
         ),
         [
           'package',
+          ...GeneratedPluginsPackage.hostManifestArguments(),
           '--package-path',
           'plugins',
           '--scratch-path',
@@ -4411,6 +5393,54 @@ module FirebaseFirestore {
         ['http.lowSpeedLimit', 'http.lowSpeedTime'],
       );
     });
+
+    test('prepends bundled xcrun to the configured child PATH', () async {
+      final directory = await Directory.systemTemp.createTemp('xcross-path-');
+      addTearDown(() async {
+        ProcessRunner.resetConfiguration();
+        await directory.delete(recursive: true);
+      });
+      final executable = p.join(directory.path, 'xcross.exe');
+      File(p.join(directory.path, 'xcrun.exe')).writeAsStringSync('shim');
+      ProcessRunner.configure(
+        normalizedTools: const {},
+        effectiveChildEnvironment: const {'PATH': r'C:\configured\tools'},
+      );
+
+      final environment = GeneratedPluginsPackage.swiftProcessEnvironment(
+        windows: true,
+        executable: executable,
+      )!;
+      expect(
+        environment['PATH'],
+        '${directory.path};${r'C:\configured\tools'}',
+      );
+    });
+
+    test(
+      'reads the Windows Path key without losing configured tools',
+      () async {
+        final directory = await Directory.systemTemp.createTemp('xcross-path-');
+        addTearDown(() async {
+          ProcessRunner.resetConfiguration();
+          await directory.delete(recursive: true);
+        });
+        File(p.join(directory.path, 'xcrun.exe')).writeAsStringSync('shim');
+        ProcessRunner.configure(
+          normalizedTools: const {},
+          effectiveChildEnvironment: const {'Path': r'C:\configured\tools'},
+        );
+
+        final environment = GeneratedPluginsPackage.swiftProcessEnvironment(
+          windows: true,
+          executable: p.join(directory.path, 'xcross.exe'),
+        )!;
+        expect(
+          environment['PATH'],
+          '${directory.path};${r'C:\configured\tools'}',
+        );
+      },
+    );
 
     test('disables every configured git credential helper', () {
       // A system-wide helper (Git Credential Manager on the Windows
@@ -4537,7 +5567,7 @@ module FirebaseFirestore {
 import PackageDescription
 let package = Package(
   name: "build_scope",
-  dependencies: [.package(url: "$url", exact: "1.0.0")],
+  dependencies: [.package(url: "$url", from: "1.0.0")],
   targets: []
 )
 ''',

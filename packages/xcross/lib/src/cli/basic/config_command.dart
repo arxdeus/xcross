@@ -421,13 +421,16 @@ final class ConfigCommand extends Command<void> {
     XcrossConfigStore? store,
     TuiTerminal? terminal,
     ConfigWriteLine? writeLine,
+    Map<String, String>? terminalEnvironment,
   }) : _store = store ?? const XcrossConfigStore(),
        _terminal = terminal ?? IoTuiTerminal(),
-       _writeLine = writeLine ?? stdout.writeln;
+       _writeLine = writeLine ?? stdout.writeln,
+       _terminalEnvironment = terminalEnvironment;
 
   final XcrossConfigStore _store;
   final TuiTerminal _terminal;
   final ConfigWriteLine _writeLine;
+  final Map<String, String>? _terminalEnvironment;
 
   @override
   String get name => 'config';
@@ -457,7 +460,7 @@ final class ConfigCommand extends Command<void> {
     final controller = ConfigTuiController(
       await _store.load() ?? XcrossConfig(),
     );
-    final tui = AnsiTui(terminal: _terminal);
+    final tui = AnsiTui(terminal: _terminal, environment: _terminalEnvironment);
     await tui.run(
       render: () => controller.render(ansi: tui.useAnsi, color: tui.useColor),
       renderPlainUpdate: controller.renderPlainUpdate,

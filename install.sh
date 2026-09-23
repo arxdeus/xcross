@@ -313,8 +313,14 @@ command -v swift >/dev/null 2>&1 ||
 # clang compiles the C/ObjC side; ld64.lld is the Mach-O linker used to produce
 # Apple-format binaries on Linux.  Both come from LLVM, so they are reported as
 # one item.
-command -v clang >/dev/null 2>&1 && command -v ld64.lld >/dev/null 2>&1 ||
-	missing_tools="$missing_tools  LLVM (clang, ld64.lld):  https://releases.llvm.org/\n"
+clang_major=""
+if command -v clang >/dev/null 2>&1; then
+	clang_major=$(clang --version | sed -n '1s/.*version \([0-9][0-9]*\).*/\1/p')
+fi
+if [ -z "$clang_major" ] || [ "$clang_major" -lt 20 ] ||
+	! command -v ld64.lld >/dev/null 2>&1; then
+	missing_tools="$missing_tools  LLVM (Clang 20+, ld64.lld):  https://apt.llvm.org/\n"
+fi
 
 # Needed for `xcross flutter ...`.
 command -v flutter >/dev/null 2>&1 ||

@@ -1,3 +1,8 @@
+## 1.4.5
+
+- Stop cold Flutter iOS builds deadlocking on `git cat-file --batch`: read the process output while the requests are still being written, so a symlink-heavy SwiftPM checkout no longer fills the pipe buffer and hangs the build indefinitely.
+- Cache SwiftPM plugin builds on `main` under one stable key per toolchain, so a push refreshes a single cache entry instead of accumulating one per run.
+
 ## 1.4.4
 
 - Report the reason behind an app's `SIGABRT` on device: stream the device log over plain usbmux, always retain a bounded history, and print the abort reason (or the last device lines) with the crash.

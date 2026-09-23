@@ -109,23 +109,38 @@ final class XcrossRuntimeConfig {
 
     final roots = config.roots;
     final separator = Platform.isWindows ? ';' : ':';
-    final childEnvironment = <String, String>{
-      ...runtime.processEnvironment,
-      for (final entry in config.environment.entries)
-        entry.key: switch (entry.value) {
-          final String value => value,
-          final List<String> paths => [
-            ...paths,
-            if (runtime.processEnvironment[entry.key] case final inherited?)
-              inherited,
-          ].join(separator),
-          _ => throw StateError('Unsupported environment value: ${entry.key}'),
-        },
-      if (roots.javaHome case final javaHome?) 'JAVA_HOME': javaHome,
-      if (roots.konanData case final konanData?) 'KONAN_DATA_DIR': konanData,
-      if (runtime.configPath case final configPath?)
-        XcrossConfigStore.selectorVariable: configPath,
-    };
+    final childEnvironment = <String, String>{...runtime.processEnvironment};
+    void overlay(String key, String value) {
+      if (Platform.isWindows) {
+        childEnvironment.removeWhere(
+          (existing, _) => existing.toUpperCase() == key.toUpperCase(),
+        );
+      }
+      childEnvironment[key] = value;
+    }
+
+    for (final entry in config.environment.entries) {
+      overlay(entry.key, switch (entry.value) {
+        final String value => value,
+        final List<String> paths => [
+          ...paths,
+          if (ProcessRunner.environmentValue(
+                runtime.processEnvironment,
+                entry.key,
+              )
+              case final inherited?)
+            inherited,
+        ].join(separator),
+        _ => throw StateError('Unsupported environment value: ${entry.key}'),
+      });
+    }
+    if (roots.javaHome case final javaHome?) overlay('JAVA_HOME', javaHome);
+    if (roots.konanData case final konanData?) {
+      overlay('KONAN_DATA_DIR', konanData);
+    }
+    if (runtime.configPath case final configPath?) {
+      overlay(XcrossConfigStore.selectorVariable, configPath);
+    }
     ProcessRunner.configure(
       normalizedTools: config.tools,
       toolchainDirectories: {

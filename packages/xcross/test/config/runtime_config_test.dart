@@ -164,6 +164,25 @@ environment:
     },
   );
 
+  test('Windows PATH overlay preserves inherited mixed-case Path', () async {
+    if (!Platform.isWindows) return;
+    final configuredPath = p.join(temporary.path, 'tools');
+    File(p.join(temporary.path, 'config.yaml')).writeAsStringSync('''
+environment:
+  PATH:
+    - $configuredPath
+''');
+
+    final runtime = await XcrossRuntimeConfig.initialize(
+      configDirectory: temporary.path,
+      environment: const {'Path': r'C:\inherited\bin'},
+      windows: true,
+    );
+    final child = runtime.childEnvironment;
+    expect(child['PATH'], '$configuredPath;${r'C:\inherited\bin'}');
+    expect(child.keys.where((key) => key.toUpperCase() == 'PATH'), ['PATH']);
+  });
+
   test('configured FLUTTER_ROOT reaches packer and DAP resolution', () async {
     File(p.join(temporary.path, 'config.yaml')).writeAsStringSync('''
 environment:

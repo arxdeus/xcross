@@ -13,6 +13,11 @@ Future<void> main(List<String> arguments) async {
   }
 
   try {
+    final shimResponse = xcrunShimResponse(arguments);
+    if (shimResponse != null) {
+      stdout.writeln(shimResponse);
+      return;
+    }
     await XcrossRuntimeConfig.initialize();
     exitCode = await runXcrun(arguments);
   } on Object catch (error) {
@@ -21,11 +26,73 @@ Future<void> main(List<String> arguments) async {
   }
 }
 
+/// Version reported by `xcrun --version`, matching a recent Xcode's xcrun.
+const xcrunCompatVersion = '72';
+
+String? _readShimSdk(String executable) {
+  final sidecar = File('$executable.sdk');
+  if (!sidecar.existsSync()) return null;
+  final sdk = sidecar.readAsStringSync().trim();
+  return sdk.isEmpty ? null : sdk;
+}
+
+/// Answers the `xcrun` probes that Flutter native-asset hooks run from a
+/// sanitized environment.
+String? xcrunShimResponse(List<String> arguments, {String? executable}) {
+  // A version probe identifies xcrun itself only when no tool was selected.
+  // It must also work before an SDK sidecar has been installed.
+  if (arguments case ['--version'] || ['-version']) {
+    return 'xcrun version $xcrunCompatVersion.';
+  }
+  final xcrunExecutable = executable ?? Platform.resolvedExecutable;
+  final shimSdk = _readShimSdk(xcrunExecutable);
+  if (shimSdk == null) return null;
+
+  final wrapperArguments = _wrapperArguments(arguments);
+  _requireIPhoneOsSdk(wrapperArguments, shimSdk);
+
+  if (wrapperArguments.contains('--show-sdk-path')) return shimSdk;
+  if (wrapperArguments.contains('--show-sdk-platform-path')) {
+    return _sdkPlatformPath(shimSdk);
+  }
+  return findShimTool(wrapperArguments, executable: xcrunExecutable);
+}
+
+/// Resolves a compiler shim without consulting user configuration.
+///
+/// Flutter invokes `xcrun --find` from a sanitized native-assets hook
+/// environment. On Windows, PATH probing can reconstruct an existing
+/// lowercase `clang.exe` as `clang.EXE` from the default PATHEXT value. That
+/// spelling is rejected by native_toolchain_c's case-sensitive recognizer.
+String? findShimTool(List<String> arguments, {String? executable}) {
+  final xcrunExecutable = executable ?? Platform.resolvedExecutable;
+  if (_readShimSdk(xcrunExecutable) == null) return null;
+
+  final wrapperArguments = _wrapperArguments(arguments);
+  final find = wrapperArguments.indexOf('--find');
+  if (find == -1 || find + 1 >= wrapperArguments.length) return null;
+
+  final tool = wrapperArguments[find + 1];
+  if (!{'clang', 'cc', 'ar', 'ld'}.contains(tool)) return null;
+
+  final candidate = p.join(p.dirname(xcrunExecutable), '$tool.exe');
+  return File(candidate).existsSync() ? candidate : null;
+}
+
 Future<int> runXcrun(
   List<String> arguments, {
   DarwinSdk? sdk,
   Future<String?> Function(String name)? findOnPath,
+  Future<int> Function(String tool, List<String> arguments)? runTool,
 }) async {
+  // Build hooks (native_toolchain_c) probe `xcrun --version` before asking
+  // for SDK paths, and parse a version number out of the output. Mirror the
+  // real xcrun's format so that probe succeeds without an installed SDK.
+  if (arguments case ['--version'] || ['-version']) {
+    stdout.writeln('xcrun version $xcrunCompatVersion.');
+    return 0;
+  }
+
   sdk ??= DarwinSdk.current();
   if (sdk == null) {
     stderr.writeln(
@@ -34,17 +101,36 @@ Future<int> runXcrun(
     return 1;
   }
 
-  if (arguments.contains('--show-sdk-path')) {
+  try {
+    final wrapperArguments = _wrapperArguments(arguments);
+    final requested = _requestedSdk(wrapperArguments);
+    if (requested != null && !requested.toLowerCase().startsWith('iphoneos')) {
+      throw FormatException('SDK $requested is not installed');
+    }
+    if (requested != null) {
+      _requireIPhoneOsSdk(wrapperArguments, sdk.iPhoneOSSdk());
+    }
+  } on FormatException catch (error) {
+    stderr.writeln('xcrun: $error');
+    return 1;
+  }
+
+  final wrapperArguments = _wrapperArguments(arguments);
+  if (wrapperArguments.contains('--show-sdk-path')) {
     stdout.writeln(sdk.iPhoneOSSdk());
     return 0;
   }
+  if (wrapperArguments.contains('--show-sdk-platform-path')) {
+    stdout.writeln(_sdkPlatformPath(sdk.iPhoneOSSdk()));
+    return 0;
+  }
 
-  final find = arguments.indexOf('--find');
+  final find = wrapperArguments.indexOf('--find');
   if (find >= 0) {
-    if (find + 1 >= arguments.length) return 1;
+    if (find + 1 >= wrapperArguments.length) return 1;
     final tool = await _resolveTool(
       sdk,
-      arguments[find + 1],
+      wrapperArguments[find + 1],
       findOnPath: findOnPath,
     );
     if (tool == null) return 1;
@@ -63,7 +149,9 @@ Future<int> runXcrun(
     stderr.writeln('xcrun: unknown tool ${arguments[toolIndex]}');
     return 1;
   }
-  return runResolvedTool(tool, arguments.sublist(toolIndex + 1));
+  final toolArguments = arguments.sublist(toolIndex + 1);
+  if (runTool != null) return runTool(tool, toolArguments);
+  return runResolvedTool(tool, toolArguments);
 }
 
 /// Streams a resolved tool directly and preserves its exact exit status.
@@ -85,9 +173,44 @@ int _toolIndex(List<String> arguments) {
       index++;
       continue;
     }
+    if (arguments[index].startsWith('--sdk=')) continue;
+    if (arguments[index] == '--find') return -1;
     if (!arguments[index].startsWith('-')) return index;
   }
   return -1;
+}
+
+/// Wrapper flags end at the selected tool; everything after it belongs to the
+/// child, even when an argument has the same spelling as an xcrun option.
+List<String> _wrapperArguments(List<String> arguments) {
+  final toolIndex = _toolIndex(arguments);
+  return arguments.sublist(0, toolIndex < 0 ? arguments.length : toolIndex);
+}
+
+void _requireIPhoneOsSdk(List<String> arguments, String installedSdk) {
+  final requested = _requestedSdk(arguments);
+  if (requested == null) return;
+  final name = requested.toLowerCase();
+  final installedName = p.basenameWithoutExtension(installedSdk).toLowerCase();
+  if (name != 'iphoneos' && name != installedName) {
+    throw FormatException('SDK $requested is not installed');
+  }
+}
+
+String? _requestedSdk(List<String> arguments) {
+  String? requested;
+  for (var index = 0; index < arguments.length; index++) {
+    final argument = arguments[index];
+    if (argument == '--sdk') {
+      if (index + 1 >= arguments.length) {
+        throw const FormatException('missing SDK name after --sdk');
+      }
+      requested = arguments[++index];
+    } else if (argument.startsWith('--sdk=')) {
+      requested = argument.substring('--sdk='.length);
+    }
+  }
+  return requested;
 }
 
 Future<String?> _findOnPath(String name) =>
@@ -99,7 +222,13 @@ Future<String?> _resolveTool(
   Future<String?> Function(String name)? findOnPath,
 }) async {
   final pathTool = await (findOnPath ?? _findOnPath)(name);
-  if (pathTool != null && !_isCurrentExecutable(pathTool)) return pathTool;
+  if (pathTool != null && !_isCurrentExecutable(pathTool)) {
+    // On Windows, PATH lookup can append PATHEXT's `.EXE` spelling even if
+    // the actual shim is `clang.exe`. native_toolchain_c recognizes configured
+    // compilers by a case-sensitive `endsWith('clang.exe')`, so return the
+    // lowercase extension it expects (Windows paths are case-insensitive).
+    return normalizeWindowsExecutableExtension(pathTool);
+  }
 
   switch (name) {
     case 'clang':
@@ -141,5 +270,15 @@ Future<String?> _resolveTool(
   }
 }
 
+String normalizeWindowsExecutableExtension(String path, {bool? windows}) {
+  if (!(windows ?? Platform.isWindows)) return path;
+  if (p.windows.extension(path).toLowerCase() != '.exe') return path;
+  return '${p.windows.withoutExtension(path)}.exe';
+}
+
 bool _isCurrentExecutable(String path) =>
     p.canonicalize(path) == p.canonicalize(Platform.resolvedExecutable);
+
+/// The iPhoneOS SDK lives at `<platform>/Developer/SDKs/<sdk>.sdk`.
+String _sdkPlatformPath(String sdkPath) =>
+    p.dirname(p.dirname(p.dirname(sdkPath)));

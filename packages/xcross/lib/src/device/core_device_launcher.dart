@@ -148,18 +148,28 @@ abstract final class CoreDeviceLauncher {
       // Hot-reload setup is inside the same cleanup boundary as the session. A
       // failed VM connection must not leak the attached debugger or leave a DAP
       // launch paused forever.
+      final console = SessionConsole(
+        gdb: gdb,
+        hotReload: null,
+        hotReloadUnavailable: hotReload == null
+            ? null
+            : 'hot reload is still preparing; wait for "Hot reload ready".',
+        onRestartRequested: onRestartRequested,
+        crashReason: () => deviceLog?.crashReason,
+        recentDeviceLines: () => deviceLog?.tailLines ?? const [],
+      );
+      final consoleFuture = console.run();
       try {
-        final console = SessionConsole(
-          gdb: gdb,
-          hotReload: null,
-          hotReloadUnavailable: hotReload == null
-              ? null
-              : 'hot reload is still preparing; wait for "Hot reload ready".',
-          onRestartRequested: onRestartRequested,
-          crashReason: () => deviceLog?.crashReason,
-          recentDeviceLines: () => deviceLog?.tailLines ?? const [],
+        // Attach leaves the app paused. Install the reply listener before
+        // resuming it: debugproxy may send its first nonfatal stop packet
+        // immediately after `c`, and a broadcast stream would otherwise lose
+        // that packet and leave the Debug engine paused forever.
+        await resumeInitialDebugger(
+          console: console,
+          consoleFuture: consoleFuture,
+          resume: gdb.resume,
         );
-        final consoleFuture = console.run();
+        Log.logDone('Debugger attached');
         if (hotReload != null) Log.logInfo('Preparing hot reload…');
         final setupFuture = _trySpinUpHotReload(
           hotReload: hotReload,
@@ -199,6 +209,8 @@ abstract final class CoreDeviceLauncher {
         }
         await consoleFuture;
       } finally {
+        console.stop();
+        await _cleanupStep('console', () => consoleFuture);
         // Every step is timed out: a single hung flush/close on Windows left
         // `q` in a silent stuck state (no further input or output).
         await _cleanupStep('vm-service', () => vmService?.close());
@@ -211,9 +223,30 @@ abstract final class CoreDeviceLauncher {
     }
   }
 
-  /// ORDER MATTERS: connect -> start -> attach -> resume. The GDB client has a
-  /// single-slot exchange completer, so an RPC issued after resume() can be
-  /// hijacked by a stray stdout packet.
+  /// Do not leave the console's GDB subscription and SIGINT listener alive
+  /// when the first resume fails before the ordinary session await.
+  @visibleForTesting
+  static Future<void> resumeInitialDebugger({
+    required SessionConsole console,
+    required Future<void> consoleFuture,
+    required Future<void> Function() resume,
+  }) async {
+    try {
+      await resume();
+    } on Object catch (error, stack) {
+      console.stop();
+      try {
+        await consoleFuture;
+      } on Object {
+        // A cleanup failure must not hide the original resume failure.
+      }
+      Error.throwWithStackTrace(error, stack);
+    }
+  }
+
+  /// Connect and attach while the app is stopped. The caller installs its GDB
+  /// reply listener before it resumes the process, so no initial stop packet
+  /// can be lost between `c` and subscription.
   static Future<GdbRemoteClient> _attachDebugger({
     required DeviceEndpoint endpoint,
     required int pid,
@@ -223,12 +256,10 @@ abstract final class CoreDeviceLauncher {
       await gdb.connect();
       await gdb.start();
       await gdb.attach(pid);
-      await gdb.resume();
     } catch (e) {
       await gdb.close();
       throw XcrossError('Debugger attach failed: $e');
     }
-    Log.logDone('Debugger attached');
     return gdb;
   }
 
@@ -362,10 +393,22 @@ abstract final class CoreDeviceLauncher {
         appArguments: appArgs,
       );
     } catch (e) {
-      throw XcrossError('Launch failed: $e');
+      Log.logTrace('launch failure details: $e');
+      throw XcrossError(launchFailureMessage(e));
     }
     Log.logTrace('launched suspended pid=$pid');
     return pid;
+  }
+
+  /// Explain the iOS foreground requirement without dumping pymobiledevice3's
+  /// Python traceback into the normal CLI output.
+  static String launchFailureMessage(Object error) {
+    final details = error.toString();
+    if (details.contains('Background launch requested')) {
+      return 'Launch failed: iOS rejected a background launch. Unlock the '
+          'iPhone, keep its screen awake, and run again.';
+    }
+    return 'Launch failed: $details';
   }
 
   /// Spin up hot reload if [hotReload] config is provided.

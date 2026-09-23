@@ -92,8 +92,18 @@ abstract final class ProcessRunner {
     final configured = configuration?.effectiveChildEnvironment;
     if (configured == null) return operationEnvironment;
     if (operationEnvironment == null) return {...configured};
+    if (!Platform.isWindows) return {...configured, ...operationEnvironment};
 
-    return {...configured, ...operationEnvironment};
+    // Windows environment keys are case-insensitive. Remove an existing Path
+    // (or any other differently cased key) before applying a local override.
+    final merged = {...configured};
+    for (final entry in operationEnvironment.entries) {
+      merged.removeWhere(
+        (key, _) => key.toUpperCase() == entry.key.toUpperCase(),
+      );
+      merged[entry.key] = entry.value;
+    }
+    return merged;
   }
 
   static bool get _inheritParentEnvironment => _configuration == null;
@@ -240,13 +250,15 @@ abstract final class ProcessRunner {
   ///
   /// With [tail], output streams into that step's tail and stdin is forwarded
   /// unless [forwardStdin] is false. With [inheritStdio], the child shares
-  /// this process's stdio. Otherwise output is captured into the error.
+  /// this process's stdio. [captureAndEcho] shows output live while retaining
+  /// it for the error. Otherwise output is captured into the error.
   static Future<void> runChecked(
     String executable,
     List<String> arguments, {
     String? workingDirectory,
     Map<String, String>? environment,
     bool inheritStdio = false,
+    bool captureAndEcho = false,
     String? label,
     Step? tail,
     bool forwardStdin = true,
@@ -265,6 +277,15 @@ abstract final class ProcessRunner {
         environment: environment,
         tail: tail,
         forwardStdin: forwardStdin,
+        timeout: timeout,
+      );
+    }
+    if (captureAndEcho) {
+      return _runCapturedStreaming(
+        executable,
+        arguments,
+        workingDirectory: workingDirectory,
+        environment: environment,
         timeout: timeout,
       );
     }
@@ -395,6 +416,54 @@ abstract final class ProcessRunner {
     throw CliError(
       _failureMessage(executable, arguments, result.exitCode, output: output),
     );
+  }
+
+  static Future<void> _runCapturedStreaming(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+    Map<String, String>? environment,
+    Duration? timeout,
+  }) async {
+    final process = await Process.start(
+      _resolvedExecutable(executable),
+      arguments,
+      workingDirectory: workingDirectory,
+      environment: _childEnvironment(environment),
+      includeParentEnvironment: _inheritParentEnvironment,
+    );
+    final captured = StringBuffer();
+    final drained = Future.wait([
+      process.stdout.transform(const Utf8Decoder(allowMalformed: true)).forEach(
+        (chunk) {
+          captured.write(chunk);
+          stdout.write(chunk);
+        },
+      ),
+      process.stderr.transform(const Utf8Decoder(allowMalformed: true)).forEach(
+        (chunk) {
+          captured.write(chunk);
+          stderr.write(chunk);
+        },
+      ),
+    ]);
+    // A fast-failing child can close its pipe before we do. Keep its captured
+    // compiler diagnostic as the failure instead of a broken-pipe exception.
+    try {
+      await process.stdin.close();
+    } on Object catch (_) {}
+    final code = await _awaitExitWithin(
+      process,
+      timeout,
+      executable,
+      arguments,
+    );
+    await drained;
+    if (code != 0) {
+      throw CliError(
+        _failureMessage(executable, arguments, code, output: '$captured'),
+      );
+    }
   }
 
   static Future<void> _runWithTail(
@@ -643,7 +712,7 @@ abstract final class ProcessRunner {
 
     final found = <String>[if (toolchain != null) toolchain];
     final seen = <String>{};
-    final searchPath = _environmentValue(env, 'PATH') ?? '';
+    final searchPath = environmentValue(env, 'PATH') ?? '';
     final directories = [
       ...searchPath.split(onWindows ? ';' : ':'),
       ...extraDirectories,
@@ -761,7 +830,7 @@ abstract final class ProcessRunner {
   }
 
   static List<String> _pathExtensions(Map<String, String> env) =>
-      (_environmentValue(env, 'PATHEXT') ?? '.COM;.EXE;.BAT;.CMD')
+      (environmentValue(env, 'PATHEXT') ?? '.COM;.EXE;.BAT;.CMD')
           .split(';')
           .where((extension) => extension.isNotEmpty)
           .map(
@@ -776,7 +845,8 @@ abstract final class ProcessRunner {
     return [name, for (final extension in extensions) '$name$extension'];
   }
 
-  static String? _environmentValue(Map<String, String> env, String name) {
+  /// Reads an environment key case-insensitively, as Windows does.
+  static String? environmentValue(Map<String, String> env, String name) {
     final exact = env[name];
     if (exact != null) return exact;
     for (final entry in env.entries) {
