@@ -665,6 +665,7 @@ abstract final class GeneratedPluginsPackage {
   static Future<void> _resolveOnce(String swift, String directory) async {
     final result = await ProcessRunner.run(swift, [
       if (!Platform.isWindows) 'package',
+      ...hostManifestArguments(),
       '--package-path',
       directory,
       'resolve',
@@ -1658,6 +1659,7 @@ abstract final class GeneratedPluginsPackage {
     required String toolsetPath,
   }) => [
     'package',
+    ...hostManifestArguments(),
     '--package-path',
     pluginsDir,
     '--scratch-path',
@@ -1670,6 +1672,25 @@ abstract final class GeneratedPluginsPackage {
     toolsetPath,
     'resolve',
   ];
+
+  /// Supply the Windows C runtime to host manifests, including remote manifests
+  /// SwiftPM evaluates before creating a checkout. Swift 6 replaced MSVCRT with
+  /// CRT, so old conditional imports otherwise leave C APIs such as getenv
+  /// unavailable. These flags affect host manifests, never iOS target sources.
+  @visibleForTesting
+  static List<String> hostManifestArguments({bool? windows}) =>
+      (windows ?? Platform.isWindows)
+      ? const [
+          '-Xmanifest',
+          '-Xfrontend',
+          '-Xmanifest',
+          '-import-module',
+          '-Xmanifest',
+          '-Xfrontend',
+          '-Xmanifest',
+          'CRT',
+        ]
+      : const [];
 
   /// Compiles and caches the Swift compiler plugin stub that answers
   /// `#Preview` macro-expansion requests with empty source, so builds
@@ -2029,6 +2050,7 @@ abstract final class GeneratedPluginsPackage {
     '--scratch-path',
     scratchPath,
     if (windows ?? Platform.isWindows) ...[
+      ...hostManifestArguments(windows: true),
       '--disable-automatic-resolution',
       // Windows Swift's interface verifier does not inherit SwiftPM's search
       // path for generated sibling Clang modules during Darwin cross builds.
@@ -2371,82 +2393,34 @@ abstract final class GeneratedPluginsPackage {
           ),
         );
       }
-      // SwiftPM evaluates URL package manifests before exposing their checkouts.
-      // sentry-cocoa 8.x imports MSVCRT in Package@swift-6.1.swift, which Swift
-      // 6 on Windows no longer provides. Resolve it as a normalized local path
-      // first, then restore the plugin manifest for normal pinned vendoring.
-      final windowsOverrides =
-          windows && shouldVendor && evaluateDependencyRefs == null
-          ? await _stageWindowsManifestOverrides(prestaged, resolvedVendorDir)
-          : <String, String>{};
       final scoped = evaluateDependencyRefs;
-      Map<String, String>? unified;
-      try {
-        unified = await resolveUnifiedDependencyRefs(
-          resolveRoot: p.join(outputDir, 'Resolve'),
-          packageDirectories: prestaged,
-          evaluate: (directory, dependencies) => scoped != null
-              ? scoped(
-                  directory,
-                  scratchPath: scratchPath,
-                  binaryArtifactStore: binaryArtifactStore,
-                  binaryArtifactFallback: binaryArtifactFallback,
-                  swiftPmArtifactJunctionCapability:
-                      swiftPmArtifactJunctionCapability,
-                  packageLocalArtifactJunctionCapability:
-                      packageLocalArtifactJunctionCapability,
-                  dependencies: dependencies,
-                )
-              : _evaluatedDependencyRefs(
-                  directory,
-                  ProcessRunner.locateTool,
-                  scratchPath: scratchPath,
-                  binaryArtifactStore: binaryArtifactStore,
-                  binaryArtifactFallback: binaryArtifactFallback,
-                  swiftPmArtifactJunctionCapability:
-                      swiftPmArtifactJunctionCapability,
-                  dependencies: dependencies,
-                ),
-        );
-      } finally {
-        for (final entry in windowsOverrides.entries) {
-          await File(entry.key).writeAsString(entry.value);
-        }
-      }
+      final unified = await resolveUnifiedDependencyRefs(
+        resolveRoot: p.join(outputDir, 'Resolve'),
+        packageDirectories: prestaged,
+        evaluate: (directory, dependencies) => scoped != null
+            ? scoped(
+                directory,
+                scratchPath: scratchPath,
+                binaryArtifactStore: binaryArtifactStore,
+                binaryArtifactFallback: binaryArtifactFallback,
+                swiftPmArtifactJunctionCapability:
+                    swiftPmArtifactJunctionCapability,
+                packageLocalArtifactJunctionCapability:
+                    packageLocalArtifactJunctionCapability,
+                dependencies: dependencies,
+              )
+            : _evaluatedDependencyRefs(
+                directory,
+                ProcessRunner.locateTool,
+                scratchPath: scratchPath,
+                binaryArtifactStore: binaryArtifactStore,
+                binaryArtifactFallback: binaryArtifactFallback,
+                swiftPmArtifactJunctionCapability:
+                    swiftPmArtifactJunctionCapability,
+                dependencies: dependencies,
+              ),
+      );
       if (unified != null) {
-        for (final entry in windowsOverrides.entries) {
-          final original = entry.value;
-          for (final dep in parseUrlPackageDeps(original)) {
-            if (packageIdentityFromUrl(dep.url).toLowerCase() !=
-                'sentry-cocoa') {
-              continue;
-            }
-            final version = RegExp(
-              r'exact:\s*"([^"]+)"',
-            ).firstMatch(dep.match)?.group(1);
-            if (version == null) continue;
-            final checkout = p.join(
-              resolvedVendorDir,
-              'resolve-sentry-cocoa-$version',
-            );
-            final git = await ProcessRunner.locateTool('git');
-            final head = await ProcessRunner.run(git, [
-              '-C',
-              checkout,
-              'rev-parse',
-              'HEAD',
-            ]);
-            if (head.exitCode != 0) {
-              throw FlutterBuildError(
-                'Cannot pin sentry-cocoa: ${head.stderr}',
-              );
-            }
-            unified[_canonicalGitUrl(dep.url)] = head.stdout.trim();
-          }
-        }
-      }
-      if (unified != null) {
-        final pinned = unified;
         pluginRefEvaluator =
             (
               _, {
@@ -2456,7 +2430,7 @@ abstract final class GeneratedPluginsPackage {
               required swiftPmArtifactJunctionCapability,
               required packageLocalArtifactJunctionCapability,
               required dependencies,
-            }) async => pinned;
+            }) async => unified;
       }
     }
 
@@ -2530,46 +2504,6 @@ abstract final class GeneratedPluginsPackage {
       deploymentTarget: deploymentTarget,
       verbose: verbose,
     );
-  }
-
-  /// Work around a remote manifest that SwiftPM cannot evaluate on Windows.
-  /// The returned originals must be restored after resolution, even on error.
-  static Future<Map<String, String>> _stageWindowsManifestOverrides(
-    Iterable<String> packageDirectories,
-    String vendorDir,
-  ) async {
-    final originals = <String, String>{};
-    final git = await ProcessRunner.locateTool('git');
-    for (final directory in packageDirectories) {
-      final file = File(p.join(directory, 'Package.swift'));
-      if (!file.existsSync()) continue;
-      final manifest = await file.readAsString();
-      var rewritten = manifest;
-      for (final dep in parseUrlPackageDeps(manifest)) {
-        if (packageIdentityFromUrl(dep.url).toLowerCase() != 'sentry-cocoa') {
-          continue;
-        }
-        final version = RegExp(
-          r'exact:\s*"([^"]+)"',
-        ).firstMatch(dep.match)?.group(1);
-        if (version == null) continue;
-        final checkout = p.join(vendorDir, 'resolve-sentry-cocoa-$version');
-        await _cloneGitPackage(git, dep.url, version, checkout);
-        await _normalizeVendoredPackageManifests(
-          checkout,
-          consumedProducts: const {},
-        );
-        rewritten = rewritten.replaceAll(
-          dep.match,
-          '.package(name: "${dep.identity}", path: "${_swiftPath(checkout)}")',
-        );
-      }
-      if (rewritten != manifest) {
-        originals[file.path] = manifest;
-        await file.writeAsString(rewritten);
-      }
-    }
-    return originals;
   }
 
   /// Pins every URL dependency reachable from [packageDirectories] with a
@@ -4600,9 +4534,8 @@ let package = Package(
           (_, state) async {
             if (!canRecover) return false;
             // The unified Resolve root fetches URL dependencies before they
-            // are vendored. A malformed host manifest (sentry-cocoa's Swift
-            // 6.1 manifest calls getenv without CRT on Windows) can fail the
-            // first resolve before binary artifacts are considered. Repair
+            // are vendored. A malformed host manifest can fail the first
+            // resolve before binary artifacts are considered. Repair
             // those fetched checkouts and retry with the existing recovery.
             final normalized = await normalizeResolvedPackageManifests(
               resolverScratchPath!,

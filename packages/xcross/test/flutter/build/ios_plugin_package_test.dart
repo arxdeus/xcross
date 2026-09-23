@@ -49,6 +49,25 @@ String packageSrcPath(String relative) => p.join(
 );
 
 void main() {
+  test(
+    'Windows manifests import host CRT without package-specific overrides',
+    () {
+      expect(GeneratedPluginsPackage.hostManifestArguments(windows: true), [
+        '-Xmanifest',
+        '-Xfrontend',
+        '-Xmanifest',
+        '-import-module',
+        '-Xmanifest',
+        '-Xfrontend',
+        '-Xmanifest',
+        'CRT',
+      ]);
+      expect(
+        GeneratedPluginsPackage.hostManifestArguments(windows: false),
+        isEmpty,
+      );
+    },
+  );
   late Directory tmp;
 
   setUp(() async {
@@ -4503,6 +4522,7 @@ module FirebaseFirestore {
         ),
         [
           'package',
+          ...GeneratedPluginsPackage.hostManifestArguments(),
           '--package-path',
           'plugins',
           '--scratch-path',
