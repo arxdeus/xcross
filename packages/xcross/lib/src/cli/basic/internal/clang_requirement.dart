@@ -74,7 +74,12 @@ final class ClangRequirement {
           // clang++ must come from the same installation, not an older PATH entry.
           final companion = p.join(
             p.dirname(executable),
-            name.replaceFirst(RegExp('^clang'), 'clang++'),
+            p
+                .basename(executable)
+                .replaceFirst(
+                  RegExp('^clang', caseSensitive: false),
+                  'clang++',
+                ),
           );
           if (File(companion).existsSync() &&
               (majorVersion(await readVersion(companion)) ?? 0) >= minimum) {
