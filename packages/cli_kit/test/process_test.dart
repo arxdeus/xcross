@@ -164,6 +164,38 @@ void main() {
         expect(result, isNull);
       },
     );
+
+    test('stops early once cancelled, long before the timeout', () async {
+      var calls = 0;
+      var stop = false;
+      final stopwatch = Stopwatch()..start();
+      final result = await ProcessRunner.pollUntil<int>(
+        attempt: () async {
+          calls++;
+          if (calls == 2) stop = true;
+          return null;
+        },
+        cancelled: () => stop,
+        timeout: const Duration(seconds: 30),
+        interval: const Duration(milliseconds: 10),
+      );
+      stopwatch.stop();
+      expect(result, isNull);
+      expect(calls, 2, reason: 'no attempt after cancellation');
+      expect(stopwatch.elapsed, lessThan(const Duration(seconds: 5)));
+    });
+
+    test('does not attempt at all when already cancelled', () async {
+      var calls = 0;
+      final result = await ProcessRunner.pollUntil<int>(
+        attempt: () async => ++calls,
+        cancelled: () => true,
+        timeout: const Duration(seconds: 30),
+        interval: const Duration(milliseconds: 10),
+      );
+      expect(result, isNull);
+      expect(calls, 0);
+    });
   });
 
   group('makeExecutable', () {

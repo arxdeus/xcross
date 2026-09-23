@@ -913,13 +913,18 @@ abstract final class ProcessRunner {
 
   /// Retries [attempt] every [interval] until it yields a non-null value or
   /// [timeout] elapses; exceptions are swallowed and retried.
+  ///
+  /// [cancelled] is checked before every attempt; returning true ends the
+  /// poll early with null, as a timeout would.
   static Future<T?> pollUntil<T>({
     required Future<T?> Function() attempt,
     required Duration timeout,
     required Duration interval,
+    bool Function()? cancelled,
   }) async {
     final deadline = DateTime.now().add(timeout);
     while (DateTime.now().isBefore(deadline)) {
+      if (cancelled?.call() ?? false) return null;
       try {
         final result = await attempt();
         if (result != null) return result;
