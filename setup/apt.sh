@@ -114,6 +114,12 @@ for tool in clang clang++; do
 	fi
 done
 
+clang_major=$(clang --version | sed -n '1s/.*version \([0-9][0-9]*\).*/\1/p')
+if [ -z "$clang_major" ] || [ "$clang_major" -lt "$min_clang" ]; then
+	printf 'error: clang on PATH is %s; configure your PATH to select /usr/bin/clang-%s instead of the older installation.\n' "${clang_major:-unknown}" "$best_clang" >&2
+	exit 1
+fi
+
 # Put the newest fixed lld on PATH under its unversioned names, unless
 # something xcross does not manage already owns those paths.
 best_version=0
