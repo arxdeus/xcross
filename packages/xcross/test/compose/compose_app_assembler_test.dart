@@ -281,12 +281,12 @@ void main() {
     fixture.createResources(
       'kotlin-multiplatform-resources/aggregated-resources/iosArm64/'
       'composeResources',
-      {'sg.labs.repasar.resources/font/worksans_regular.ttf': 'device-font'},
+      {'com.example.app.resources/font/worksans_regular.ttf': 'device-font'},
     );
     fixture.createResources(
       'kotlin-multiplatform-resources/aggregated-resources/'
       'iosSimulatorArm64/composeResources',
-      {'sg.labs.repasar.resources/font/worksans_regular.ttf': 'sim-font'},
+      {'com.example.app.resources/font/worksans_regular.ttf': 'sim-font'},
     );
     addTearDown(fixture.dispose);
 
@@ -304,7 +304,7 @@ void main() {
           appPath,
           'compose-resources',
           'composeResources',
-          'sg.labs.repasar.resources',
+          'com.example.app.resources',
           'font',
           'worksans_regular.ttf',
         ),
@@ -323,7 +323,7 @@ void main() {
         'kotlin-multiplatform-resources/aggregated-resources/iosArm64/'
         'composeResources',
         {
-          'sg.labs.repasar.resources/font/worksans_regular.ttf': 'aggregated',
+          'com.example.app.resources/font/worksans_regular.ttf': 'aggregated',
           // Contributed by a dependency, so only the aggregated tree has it.
           'io.coil_kt.coil3.coil_compose_core.generated.resources/coil.txt':
               'coil',
@@ -331,7 +331,7 @@ void main() {
       );
       fixture.createResources(
         'processedResources/iosArm64/main/composeResources',
-        {'sg.labs.repasar.resources/font/worksans_regular.ttf': 'processed'},
+        {'com.example.app.resources/font/worksans_regular.ttf': 'processed'},
       );
       addTearDown(fixture.dispose);
 
@@ -347,7 +347,7 @@ void main() {
             appPath,
             'compose-resources',
             'composeResources',
-            'sg.labs.repasar.resources',
+            'com.example.app.resources',
             'font',
             'worksans_regular.ttf',
           ),

@@ -21,6 +21,16 @@ CURRENT_PROJECT_VERSION = 7
       expect(config.currentProjectVersion, '7');
     });
 
+    test(r'expands an empty $() to nothing, as Xcode does', () {
+      final config = IosAppConfig.parse(r'''
+API = https:/$()/api.example.com
+PRODUCT_BUNDLE_IDENTIFIER = org.example$().app
+''');
+
+      expect(config.bundleId, 'org.example.app');
+      expect(config.buildSettings['API'], 'https://api.example.com');
+    });
+
     test('ignores comments and conditional key suffixes', () {
       final config = IosAppConfig.parse(r'''
 // comment

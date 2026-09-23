@@ -160,7 +160,7 @@ final class KonanConfiguration {
         'KONAN_CONFIG': configDir,
         'KONAN_USE_INTERNAL_SERVER': '1',
         if (javaOptions.isNotEmpty) 'JDK_JAVA_OPTIONS': javaOptions,
-        ..._appleToolEnvironment(toolchain),
+        ..._appleToolEnvironment(toolchain, parentPath),
         'PATH': path,
       },
     );
@@ -306,6 +306,15 @@ final class KonanConfiguration {
       properties['targetToolchain.$host-$target'] = appleToolchain;
     }
     properties['linker.$host-ios_arm64'] = '$appleToolchain/bin/ld';
+    // konan.properties lists ios_arm64 as cacheable only from macOS hosts, so
+    // on any other host Kotlin/Native refuses (or silently ignores) compiler
+    // caches for it. Without caches a debug link compiles the program and
+    // every dependency (Compose, Ktor, stdlib, ...) into a single LLVM module:
+    // for a real Compose app that is one clang process of 10+ GB. Nothing in
+    // the caches is host-specific - they are ios_arm64 objects produced by the
+    // same compiler - so declare the target cacheable here. This prepared
+    // compiler only ever targets ios_arm64, so it is the whole list.
+    properties['cacheableTargets.$host'] = 'ios_arm64';
     return properties;
   }
 
@@ -376,17 +385,23 @@ final class KonanConfiguration {
     }
   }
 
-  Map<String, String> _appleToolEnvironment(ComposeToolchain toolchain) {
+  Map<String, String> _appleToolEnvironment(
+    ComposeToolchain toolchain,
+    String searchPath,
+  ) {
     final directory = p.dirname(toolchain.ld64Lld);
     final extension = toolchain.host.isWindows ? '.exe' : '';
+    final separator = toolchain.host.isWindows ? ';' : ':';
+    String llvmTool(String name) => _siblingOrOnPath(
+      directory,
+      '$name$extension',
+      searchPath.split(separator),
+    );
     return {
       'XCROSS_APPLE_TOOL_LD': toolchain.ld64Lld,
-      'XCROSS_APPLE_TOOL_STRIP': p.join(directory, 'llvm-strip$extension'),
-      'XCROSS_APPLE_TOOL_DSYMUTIL': p.join(directory, 'dsymutil$extension'),
-      'XCROSS_APPLE_TOOL_LIBTOOL': p.join(
-        directory,
-        'llvm-libtool-darwin$extension',
-      ),
+      'XCROSS_APPLE_TOOL_STRIP': llvmTool('llvm-strip'),
+      'XCROSS_APPLE_TOOL_DSYMUTIL': llvmTool('dsymutil'),
+      'XCROSS_APPLE_TOOL_LIBTOOL': llvmTool('llvm-libtool-darwin'),
       'XCROSS_APPLE_TOOL_CLANG': toolchain.clang,
       'XCROSS_APPLE_TOOL_CLANGXX': p.join(
         p.dirname(toolchain.clang),
@@ -502,4 +517,29 @@ String? _findCompilerRtDarwinDir(String darwinSdkBundle) {
     if (Directory(darwin).existsSync()) return darwin;
   }
   return null;
+}
+
+/// The LLVM tool [name] next to `ld64.lld` when it is there, otherwise the
+/// first match on [searchPath], otherwise the sibling path anyway.
+///
+/// The swift.org Linux toolchains xcross resolves `ld64.lld` from ship
+/// `llvm-strip` but not `llvm-libtool-darwin`, which Kotlin/Native runs to
+/// archive every static framework and every compiler cache. Only looking
+/// next to `ld64.lld` failed those links with exit code 127 even when a full
+/// LLVM with `llvm-libtool-darwin` was on PATH. The final fallback keeps the
+/// previous behaviour, so a tool that is missing everywhere still fails with
+/// a path that says where it was expected.
+String _siblingOrOnPath(
+  String directory,
+  String name,
+  Iterable<String> searchPath,
+) {
+  final sibling = p.join(directory, name);
+  if (File(sibling).existsSync()) return sibling;
+  for (final entry in searchPath) {
+    if (entry.isEmpty) continue;
+    final candidate = p.join(entry, name);
+    if (File(candidate).existsSync()) return candidate;
+  }
+  return sibling;
 }

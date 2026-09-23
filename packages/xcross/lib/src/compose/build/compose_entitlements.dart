@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
+import 'package:xcross/src/compose/project/ios_app_config.dart';
 
 /// The iOS app target's `.entitlements` file, as the Compose build sees it.
 ///
@@ -44,8 +45,13 @@ abstract final class ComposeEntitlements {
   /// matching where the Info.plist is looked for, and only then does it scan -
   /// a Compose project may keep its iOS app anywhere.
   static String? find(String root, String appName, {String? appDir}) {
+    final iosApp = IosAppConfig.directory(root);
     for (final directory in [
       if (appDir != null) Directory(appDir),
+      if (iosApp != null) ...[
+        Directory(p.join(iosApp, 'iosApp')),
+        Directory(iosApp),
+      ],
       Directory(p.join(root, 'iosApp', 'iosApp')),
       Directory(p.join(root, 'iosApp')),
     ]) {

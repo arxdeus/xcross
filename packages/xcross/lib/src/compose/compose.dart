@@ -5,6 +5,7 @@ export 'build/compose_packer.dart';
 export 'build/gradle_klib_builder.dart';
 export 'build/konan_configuration.dart';
 export 'build/kotlin_framework_builder.dart';
+export 'build/kotlin_native_caches.dart';
 export 'build/objc_runner_builder.dart';
 export 'build/process_invocation.dart';
 export 'build/swift_runner_builder.dart';

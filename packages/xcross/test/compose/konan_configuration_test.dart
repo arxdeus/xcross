@@ -421,6 +421,61 @@ void main() {
     },
   );
 
+  test(
+    'finds llvm-libtool-darwin on PATH when it is not next to ld64.lld',
+    () async {
+      // swift.org's Linux toolchain ships ld64.lld and llvm-strip, but not
+      // llvm-libtool-darwin, which every static framework and cache needs.
+      final fixture = _Fixture.create(ComposeHost.linuxX64)..createKotlinHome();
+      addTearDown(fixture.dispose);
+      File(
+        p.join(p.dirname(fixture.ld64), 'llvm-strip'),
+      ).writeAsStringSync('strip');
+      final llvm = Directory(p.join(fixture.root, 'llvm', 'bin'))
+        ..createSync(recursive: true);
+      for (final tool in ['llvm-libtool-darwin', 'llvm-strip']) {
+        File(p.join(llvm.path, tool)).writeAsStringSync(tool);
+      }
+
+      final prepared = await KonanConfiguration.withSeams(
+        patchCompilerJar: (_) async {},
+        makeExecutable: (_) {},
+        parentEnvironment: {'PATH': '/nowhere:${llvm.path}'},
+      ).prepare(project: fixture.project, toolchain: fixture.toolchain);
+
+      expect(
+        prepared.environment['XCROSS_APPLE_TOOL_LIBTOOL'],
+        p.join(llvm.path, 'llvm-libtool-darwin'),
+      );
+      // A tool next to ld64.lld still wins over PATH.
+      expect(
+        prepared.environment['XCROSS_APPLE_TOOL_STRIP'],
+        p.join(p.dirname(fixture.ld64), 'llvm-strip'),
+      );
+      // Missing everywhere: still the sibling path, so the failure names it.
+      expect(
+        prepared.environment['XCROSS_APPLE_TOOL_DSYMUTIL'],
+        p.join(p.dirname(fixture.ld64), 'dsymutil'),
+      );
+    },
+  );
+
+  test('declares ios_arm64 cacheable for the non-Apple host', () async {
+    final fixture = _Fixture.create(ComposeHost.linuxX64)..createKotlinHome();
+    addTearDown(fixture.dispose);
+
+    final prepared = await KonanConfiguration.withSeams(
+      patchCompilerJar: (_) async {},
+      makeExecutable: (_) {},
+      parentEnvironment: const {'PATH': '/safe/path'},
+    ).prepare(project: fixture.project, toolchain: fixture.toolchain);
+
+    expect(
+      prepared.konanPropertyOverrides.split(';'),
+      contains('cacheableTargets.linux_x64=ios_arm64'),
+    );
+  });
+
   test('creates safe executable Linux Apple tool aliases', () async {
     final fixture = _Fixture.create(ComposeHost.linuxX64)..createKotlinHome();
     final executable = <String>{};

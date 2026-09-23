@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/compose/build/framework_build_stamp.dart';
 import 'package:xcross/src/compose/build/gradle_klib_builder.dart';
 import 'package:xcross/src/compose/build/konan_configuration.dart';
+import 'package:xcross/src/compose/build/kotlin_native_caches.dart';
 import 'package:xcross/src/compose/models/compose_build_options.dart';
 import 'package:xcross/src/compose/project/kmp_project.dart';
 import 'package:xcross/src/compose/toolchain/compose_toolchain.dart';
@@ -25,16 +26,24 @@ typedef PrepareKonanConfiguration =
     });
 
 final class KotlinFrameworkBuilder {
-  const KotlinFrameworkBuilder() : _runChecked = null, _prepareKonan = null;
+  const KotlinFrameworkBuilder()
+    : _runChecked = null,
+      _prepareKonan = null,
+      _caches = const KotlinNativeCaches();
 
+  /// [caches] is off unless given: a seam-built builder links the way it
+  /// always has, in one konanc call.
   const KotlinFrameworkBuilder.withSeams({
     KotlinNativeRunChecked? runChecked,
     PrepareKonanConfiguration? prepareKonan,
+    KotlinNativeCaches? caches,
   }) : _runChecked = runChecked,
-       _prepareKonan = prepareKonan;
+       _prepareKonan = prepareKonan,
+       _caches = caches;
 
   final KotlinNativeRunChecked? _runChecked;
   final PrepareKonanConfiguration? _prepareKonan;
+  final KotlinNativeCaches? _caches;
 
   Future<String> build({
     required KmpProject project,
@@ -54,9 +63,24 @@ final class KotlinFrameworkBuilder {
       klib: klib,
       outputFramework: produced,
     );
+    final caches = _caches;
+    final cachePlan =
+        caches != null &&
+            options.configuration == ComposeConfiguration.debug &&
+            KotlinNativeCaches.enabledIn(ProcessRunner.effectiveEnvironment)
+        ? caches.plan(
+            project: project,
+            toolchain: toolchain,
+            prepared: prepared,
+            klib: klib,
+          )
+        : null;
     final compilerArgs = [
       '-Xoverride-konan-properties=${prepared.konanPropertyOverrides}',
       ...args,
+      // Cache directories are content-keyed, so they also make the stamp
+      // below notice a dependency or compiler change.
+      ...?cachePlan?.linkArguments,
     ];
     final invocationArgs = toolchain.host.isWindows
         ? [
@@ -81,6 +105,15 @@ final class KotlinFrameworkBuilder {
       // Drop the stamp first: a crash or Ctrl-C mid-compile must not leave a
       // stamp that claims the half-written framework is current.
       stamp.invalidate();
+      if (cachePlan != null) {
+        await caches!.build(
+          plan: cachePlan,
+          prepared: prepared,
+          klib: klib,
+          workingDirectory: project.root,
+          run: _run,
+        );
+      }
       await _run(
         prepared.javaExecutable,
         invocationArgs,

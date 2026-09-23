@@ -205,6 +205,41 @@ void main() {
     );
   });
 
+  group('ComposeRunCommand --bundle-id', () {
+    test('passes the bundle id through to the build', () async {
+      final seen = <String?>[];
+      Future<void> run(List<String> args) {
+        final command = ComposeRunCommand.withSeams(
+          packOperation:
+              ({required options, required requireRunnableApp}) async {
+                seen.add(options.bundleId);
+                return const PackResult(
+                  outputPath: 'build/Demo.app',
+                  bundleId: 'sg.example.app',
+                );
+              },
+          runDevice:
+              ({
+                required pack,
+                required selector,
+                required mode,
+                required launchProfile,
+                onRestartRequested,
+              }) async {},
+        );
+        return (CommandRunner<void>(
+          'xcross',
+          'test',
+        )..addCommand(command)).run(args);
+      }
+
+      await run(['run', '--bundle-id', 'sg.example.app']);
+      await run(['run']);
+
+      expect(seen, ['sg.example.app', null]);
+    });
+  });
+
   group('ComposeSetupCommand', () {
     late Command<void> command;
 

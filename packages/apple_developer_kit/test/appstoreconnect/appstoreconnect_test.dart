@@ -386,7 +386,7 @@ void main() {
       existingProfiles: const [
         AscProfileRef(
           id: 'release-profile',
-          name: 'Repasar ios_app_store 1789297331',
+          name: 'Example ios_app_store 1789297331',
         ),
       ],
     );

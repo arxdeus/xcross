@@ -45,6 +45,13 @@ final class ComposeRunArgs {
   )
   late DeviceConnection deviceConnection;
 
+  @CliOption(
+    help:
+        'Override CFBundleIdentifier. An App ID your team already owns is '
+        'signed as-is, keeping Sign in with Apple, passkeys and push.',
+  )
+  late String? bundleId;
+
   @CliOption(abbr: 'a', help: 'Pass arguments to the app main() (repeatable).')
   late List<String> appArgument;
 
@@ -96,7 +103,7 @@ final class ComposeRunCommand extends _$ComposeRunArgsCommand<void> {
   Future<void> run() async {
     if (_options.verbose) Log.setVerbose();
     final pack = await _packOperation(
-      options: const ComposeBuildOptions(),
+      options: ComposeBuildOptions(bundleId: _options.bundleId),
       requireRunnableApp: true,
     );
     Log.logInfo(
@@ -124,7 +131,7 @@ final class ComposeRunCommand extends _$ComposeRunArgsCommand<void> {
     final session = ComposeWatchSession(
       watcher: KotlinSourceWatcher(pack.projectRoot ?? Directory.current.path),
       rebuild: () => _packOperation(
-        options: const ComposeBuildOptions(),
+        options: ComposeBuildOptions(bundleId: _options.bundleId),
         requireRunnableApp: true,
       ),
       runSession: ({required pack, required onRestartRequested}) => _runDevice(

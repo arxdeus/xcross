@@ -27,6 +27,7 @@ ComposeRunArgs _$parseComposeRunArgsResult(ArgResults result) =>
         _$DeviceConnectionEnumMapBuildCli,
         result['device-connection'] as String,
       )
+      ..bundleId = result['bundle-id'] as String?
       ..appArgument = result['app-argument'] as List<String>
       ..watch = result['watch'] as bool
       ..verbose = result['verbose'] as bool;
@@ -51,6 +52,11 @@ ArgParser _$populateComposeRunArgsParser(ArgParser parser) => parser
     help: 'Discovery: attached (USB), wireless (Wi-Fi), or both.',
     defaultsTo: 'both',
     allowed: ['attached', 'wireless', 'both'],
+  )
+  ..addOption(
+    'bundle-id',
+    help:
+        'Override CFBundleIdentifier. An App ID your team already owns is signed as-is, keeping Sign in with Apple, passkeys and push.',
   )
   ..addMultiOption(
     'app-argument',

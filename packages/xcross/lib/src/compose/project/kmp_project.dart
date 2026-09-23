@@ -120,8 +120,16 @@ final class _KmpProjectDetector {
       baseName: chosen.baseName,
       entryKind: entry.kind,
       isStaticFramework: chosen.isStaticFramework,
-      bundleId: bundleIdOverride ?? iosConfig?.bundleId ?? defaults.bundleId,
-      appName: appNameOverride ?? iosConfig?.productName ?? defaults.appName,
+      // An xcconfig that sets only some keys (the bundle id often lives in
+      // the Xcode project instead) must not produce an empty identity.
+      bundleId:
+          bundleIdOverride ??
+          _nonEmpty(iosConfig?.bundleId) ??
+          defaults.bundleId,
+      appName:
+          appNameOverride ??
+          _nonEmpty(iosConfig?.productName) ??
+          defaults.appName,
       entryClass: entry.entryClass,
       entrySelector: entry.entrySelector,
       swiftAppDir: entry.swiftAppDir,
@@ -399,3 +407,6 @@ _Identity _defaultIdentity(String root) {
     appName,
   );
 }
+
+String? _nonEmpty(String? value) =>
+    value == null || value.isEmpty ? null : value;
