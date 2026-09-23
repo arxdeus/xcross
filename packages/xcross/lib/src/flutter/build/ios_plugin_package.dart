@@ -1499,46 +1499,73 @@ abstract final class GeneratedPluginsPackage {
     try {
       await build();
     } on Object catch (error, stack) {
-      final diagnostic = error.toString();
-      final missingHeader = RegExp(
-        r'[A-Za-z_0-9-]+-Swift\.h[^\n]*(?:file not found|not found|No such file)',
-        caseSensitive: false,
-      ).hasMatch(diagnostic);
+      final missingHeader = _missingSwiftHeaderDiagnostic.hasMatch(
+        error.toString(),
+      );
       final newlyExposed = missingSwiftInteropTargets(
         targetBuildDir,
         candidates: interopTargetCandidates,
       ).toSet().difference(missingBefore);
       if (!missingHeader && newlyExposed.isEmpty) rethrow;
-      // Internal targets may be absent from public products, but must still
-      // be reachable from the generated aggregate build plan.
-      final reachable = plannedTargetClosure(
+
+      // Step 1: prebuild the targets whose header is still missing, then
+      // retry. A failure here reports the original build error.
+      final candidates = _reachableInteropCandidates(
         targetBuildDir,
-        _pluginsProductName,
+        interopTargetCandidates,
       );
-      final candidates = {
-        ...interopTargetCandidates,
-        if (reachable != null) ...reachable,
-      };
-      try {
-        if (await recoverMissingTargets(candidates: candidates)) {
-          await build();
-          return;
+      final recovered = await _reportingOriginalFailure(error, stack, () async {
+        if (!await recoverMissingTargets(candidates: candidates)) {
+          return false;
         }
-      } on Object {
-        Error.throwWithStackTrace(error, stack);
-      }
+        await build();
+        return true;
+      });
+      if (recovered) return;
+
+      // Step 2 (Windows only): the build emitted new interop search paths,
+      // so repair their consumers once and retry.
       final emitted = swiftInteropSearchPaths(
         targetBuildDir,
       ).toSet().difference(before);
       if (!(windows ?? Platform.isWindows) || emitted.isEmpty) {
         rethrow;
       }
-      try {
-        await repair();
-      } on Object {
-        Error.throwWithStackTrace(error, stack);
-      }
+      await _reportingOriginalFailure(error, stack, repair);
       await build();
+    }
+  }
+
+  /// A compiler diagnostic naming a generated `<Target>-Swift.h` header that
+  /// could not be found.
+  static final RegExp _missingSwiftHeaderDiagnostic = RegExp(
+    r'[A-Za-z_0-9-]+-Swift\.h[^\n]*(?:file not found|not found|No such file)',
+    caseSensitive: false,
+  );
+
+  /// [interopTargetCandidates] plus every target the aggregate build plan
+  /// reaches. Internal targets may be absent from public products, but must
+  /// still be reachable from the generated aggregate build plan.
+  static Set<String> _reachableInteropCandidates(
+    String targetBuildDir,
+    Set<String> interopTargetCandidates,
+  ) {
+    final reachable = plannedTargetClosure(targetBuildDir, _pluginsProductName);
+    return {...interopTargetCandidates, if (reachable != null) ...reachable};
+  }
+
+  /// Runs a recovery [step] for a build that failed with [error], rethrowing
+  /// that original failure with its [stack] if the step itself fails, since
+  /// the original diagnostic is the one a user can act on.
+  static Future<T> _reportingOriginalFailure<T>(
+    Object error,
+    StackTrace stack,
+    Future<T> Function() step,
+  ) async {
+    try {
+      return await step();
+    } on Object {
+      Error.throwWithStackTrace(error, stack);
     }
   }
 
@@ -2118,33 +2145,19 @@ abstract final class GeneratedPluginsPackage {
       return false;
     }
     if (text.isEmpty) return false;
-    final responseDirectory = p.join(scratchPath, '.xcross-response');
-    final responseArguments = <String>{};
-    for (final line in text.split('\n')) {
-      const prefix = '    args: ';
-      if (!line.startsWith('$prefix[')) continue;
-      final Object? decoded;
-      try {
-        decoded = jsonDecode(line.substring(prefix.length));
-      } on FormatException {
-        continue;
-      }
-      if (decoded is! List) continue;
-      for (final argument in decoded.whereType<String>()) {
-        if (!argument.startsWith('@')) continue;
-        final path = p.normalize(p.absolute(argument.substring(1)));
-        if (!p.isWithin(p.absolute(responseDirectory), path) ||
-            FileSystemEntity.isLinkSync(path) ||
-            !RegExp(r'^[a-f0-9]{64}\.rsp$').hasMatch(p.basename(path))) {
-          continue;
-        }
-        try {
-          responseArguments.addAll(File(path).readAsLinesSync());
-        } on FileSystemException {
-          return false;
-        }
-      }
-    }
+    // On Windows, long compiler command lines move into response files, so
+    // a path may be recorded there instead of in the manifest itself.
+    final responseArguments =
+        WindowsSwiftPlanRepair.referencedResponseArguments(text, scratchPath);
+    if (responseArguments == null) return false;
+    bool recorded(String path) =>
+        text.contains(jsonEncode(path)) ||
+        responseArguments.contains(
+          WindowsSwiftPlanRepair.quoteWindowsArgument(path),
+        ) ||
+        responseArguments.contains(
+          WindowsSwiftPlanRepair.quoteGnuArgument(path),
+        );
     var checked = 0;
     // [plannedSwiftInteropSearchPaths] emits each include as the quadruple
     // `-Xcc -I -Xcc <path>`, so the path follows the `-I` across the `-Xcc`
@@ -2153,16 +2166,7 @@ abstract final class GeneratedPluginsPackage {
       if (interopArguments[index] != '-I') continue;
       if (interopArguments[index + 1] != '-Xcc') continue;
       checked++;
-      final path = interopArguments[index + 2];
-      if (!text.contains(jsonEncode(path)) &&
-          !responseArguments.contains(
-            WindowsSwiftPlanRepair.quoteWindowsArgument(path),
-          ) &&
-          !responseArguments.contains(
-            WindowsSwiftPlanRepair.quoteGnuArgument(path),
-          )) {
-        return false;
-      }
+      if (!recorded(interopArguments[index + 2])) return false;
     }
     return checked > 0;
   }

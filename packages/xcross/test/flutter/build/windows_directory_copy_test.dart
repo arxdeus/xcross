@@ -124,35 +124,29 @@ void main() {
     );
   });
 
-  test(
-    'removing scratch does not remove a junction target',
-    () async {
-      final fixture = await Directory.systemTemp.createTemp(
-        'xcross-copy-safe-',
-      );
-      final scratch = await Directory.systemTemp.createTemp('xcross-scratch-');
-      addTearDown(() async {
-        if (scratch.existsSync()) await scratch.delete(recursive: true);
-        if (fixture.existsSync()) await fixture.delete(recursive: true);
-      });
-      var source = p.join(fixture.path, 'vendor');
-      while (source.length < 265) {
-        source = p.join(source, 'nested-framework-source');
-      }
-      await Directory(r'\\?\' + source).create(recursive: true);
-      final sentinel = File(p.join(r'\\?\' + source, 'keep.txt'));
-      await sentinel.writeAsString('keep');
+  test('removing scratch does not remove a junction target', () async {
+    final fixture = await Directory.systemTemp.createTemp('xcross-copy-safe-');
+    final scratch = await Directory.systemTemp.createTemp('xcross-scratch-');
+    addTearDown(() async {
+      if (scratch.existsSync()) await scratch.delete(recursive: true);
+      if (fixture.existsSync()) await fixture.delete(recursive: true);
+    });
+    var source = p.join(fixture.path, 'vendor');
+    while (source.length < 265) {
+      source = p.join(source, 'nested-framework-source');
+    }
+    await Directory(r'\\?\' + source).create(recursive: true);
+    final sentinel = File(p.join(r'\\?\' + source, 'keep.txt'));
+    await sentinel.writeAsString('keep');
 
-      await GeneratedPluginsPackage.stageWindowsDirectoryCopyInputs(
-        plan(r'\\?\' + source),
-        scratch.path,
-        windows: true,
-      );
-      await scratch.delete(recursive: true);
-      expect(sentinel.readAsStringSync(), 'keep');
-    },
-    skip: !Platform.isWindows,
-  );
+    await GeneratedPluginsPackage.stageWindowsDirectoryCopyInputs(
+      plan(r'\\?\' + source),
+      scratch.path,
+      windows: true,
+    );
+    await scratch.delete(recursive: true);
+    expect(sentinel.readAsStringSync(), 'keep');
+  }, skip: !Platform.isWindows);
 
   test('preserves ordinary paths, UNC paths, files and unrelated plans', () {
     for (final original in [
