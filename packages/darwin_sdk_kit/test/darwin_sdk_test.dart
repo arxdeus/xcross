@@ -215,6 +215,58 @@ void main() {
     });
   });
 
+  group('clang version vs SDK libc++', () {
+    test('derives the minimum clang from the SDK libc++ version', () {
+      final include = Directory(p.join(tmp.path, 'usr', 'include', 'c++', 'v1'))
+        ..createSync(recursive: true);
+      File(
+        p.join(include.path, '__config'),
+      ).writeAsStringSync('#  define _LIBCPP_VERSION 210106\n');
+      expect(DarwinSdk.minimumClangForSdk(tmp.path), 19);
+    });
+
+    test('has no minimum without libc++ headers', () {
+      expect(DarwinSdk.minimumClangForSdk(tmp.path), isNull);
+    });
+
+    test('flags an LLVM clang older than the minimum', () async {
+      final reason = await DarwinSdk.clangTooOldForSdk(
+        p.join(tmp.path, 'clang-18'),
+        minimum: 19,
+        runProcess: (_, _) async => const CapturedProcess(
+          0,
+          'Ubuntu clang version 18.1.3 (1ubuntu1)\n',
+          '',
+        ),
+      );
+      expect(reason, allOf(contains('clang 18'), contains('clang 19')));
+    });
+
+    test('accepts a new enough clang and Apple clang', () async {
+      expect(
+        await DarwinSdk.clangTooOldForSdk(
+          p.join(tmp.path, 'clang-21'),
+          minimum: 19,
+          runProcess: (_, _) async =>
+              const CapturedProcess(0, 'clang version 21.0.0 (swift)\n', ''),
+        ),
+        isNull,
+      );
+      expect(
+        await DarwinSdk.clangTooOldForSdk(
+          p.join(tmp.path, 'apple-clang'),
+          minimum: 19,
+          runProcess: (_, _) async => const CapturedProcess(
+            0,
+            'Apple clang version 17.0.0 (clang-1700.0.13.3)\n',
+            '',
+          ),
+        ),
+        isNull,
+      );
+    });
+  });
+
   group('llvmToolDirs', () {
     test('covers both Windows LLVM installer layouts', () {
       final dirs = DarwinSdk.llvmToolDirs(

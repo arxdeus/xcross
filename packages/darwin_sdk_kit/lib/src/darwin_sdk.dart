@@ -487,16 +487,39 @@ final class DarwinSdk {
       ...candidates.where(_besideSwift),
     ];
 
+    final minimum = minimumClangForSdk(sysroot);
     final rejected = <String>[];
+    String? tooOld;
     for (final candidate in ordered) {
       final failure = await probeDarwinDriver(
         candidate,
         sysroot: sysroot,
         runProcess: runProcess,
       );
-      if (failure == null) return candidate;
-      Log.logTrace('$name: skipping $candidate — $failure');
-      rejected.add('  $candidate\n    $failure');
+      if (failure != null) {
+        Log.logTrace('$name: skipping $candidate — $failure');
+        rejected.add('  $candidate\n    $failure');
+        continue;
+      }
+      final age = await clangTooOldForSdk(
+        candidate,
+        minimum: minimum,
+        runProcess: runProcess,
+      );
+      if (age == null) return candidate;
+      Log.logTrace('$name: deprioritizing $candidate — $age');
+      tooOld ??= candidate;
+    }
+    // A compiler older than the SDK's libc++ still builds plain C and
+    // Objective-C, so keep using it rather than failing outright.
+    if (tooOld != null) {
+      if (_warnedOldClang.add(tooOld)) {
+        Log.logWarn(
+          'Using $tooOld: '
+          '${await clangTooOldForSdk(tooOld, minimum: minimum, runProcess: runProcess)}',
+        );
+      }
+      return tooOld;
     }
 
     final where = [
@@ -510,6 +533,75 @@ final class DarwinSdk {
                 '${rejected.join('\n')}\n$where\n$_installClangHint',
     );
   }
+
+  /// Oldest clang major the SDK's libc++ headers accept, or null when the SDK
+  /// has no recognizable libc++.
+  ///
+  /// libc++ supports the two latest clang releases before its own, so the
+  /// libc++ 21 shipped with Xcode 26 needs clang 19 (it calls builtins such as
+  /// `__builtin_clzg` that older compilers do not have).
+  static int? minimumClangForSdk(String sysroot) {
+    final config = File(
+      p.join(sysroot, 'usr', 'include', 'c++', 'v1', '__config'),
+    );
+    try {
+      final match = _libcxxVersion.firstMatch(config.readAsStringSync());
+      if (match == null) return null;
+      return int.parse(match.group(1)!) ~/ 10000 - 2;
+    } on FileSystemException {
+      return null;
+    }
+  }
+
+  static final RegExp _libcxxVersion = RegExp(
+    r'#\s*define\s+_LIBCPP_VERSION\s+(\d+)',
+  );
+
+  /// Why [clang] is too old for an SDK whose libc++ needs clang [minimum], or
+  /// null when it is new enough (or its version cannot be told).
+  static Future<String?> clangTooOldForSdk(
+    String clang, {
+    required int? minimum,
+    Future<CapturedProcess> Function(String, List<String>)? runProcess,
+  }) async {
+    if (minimum == null) return null;
+    final major = await clangMajorVersion(clang, runProcess: runProcess);
+    if (major == null || major >= minimum) return null;
+    return 'clang $major is older than the clang $minimum the Darwin SDK '
+        'libc++ headers require, so C++ sources will not compile. Install '
+        'clang $minimum or newer and put it on PATH, or set CC/CXX.';
+  }
+
+  /// Major version of an LLVM [clang], or null when it cannot be told.
+  ///
+  /// Apple clang numbers its releases differently and always matches the
+  /// SDK it ships with, so it is reported as unknown rather than too old.
+  static Future<int?> clangMajorVersion(
+    String clang, {
+    Future<CapturedProcess> Function(String, List<String>)? runProcess,
+  }) async {
+    if (_clangVersions.containsKey(clang)) return _clangVersions[clang];
+    int? major;
+    try {
+      final result = await (runProcess ?? ProcessRunner.run)(clang, [
+        '--version',
+      ]);
+      final output = '${result.stdout}\n${result.stderr}';
+      if (!output.contains('Apple clang')) {
+        final match = _clangVersion.firstMatch(output);
+        if (match != null) major = int.parse(match.group(1)!);
+      }
+    } on Object catch (error) {
+      Log.logTrace('clang: $clang --version failed: $error');
+    }
+    return _clangVersions[clang] = major;
+  }
+
+  static final RegExp _clangVersion = RegExp(r'clang version (\d+)\.');
+
+  static final Map<String, int?> _clangVersions = {};
+
+  static final Set<String> _warnedOldClang = {};
 
   static String get _installClangHint => Platform.isWindows
       ? 'Install stock LLVM — `winget install --id LLVM.LLVM --exact` — into '
