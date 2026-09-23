@@ -646,16 +646,7 @@ final class FlutterPacker {
     }
 
     final flutterConfigDirectory = p.join(projectRoot, 'ios', 'Flutter');
-    final overrides = <String, String>{
-      if (options.buildName case final String name) ...{
-        'FLUTTER_BUILD_NAME': name,
-        'MARKETING_VERSION': name,
-      },
-      if (options.buildNumber case final String number) ...{
-        'FLUTTER_BUILD_NUMBER': number,
-        'CURRENT_PROJECT_VERSION': number,
-      },
-    };
+    final overrides = _buildVersionOverrides();
     subs.addAll(
       await XcconfigResolver.readDebugConfiguration(
         debugPath: p.join(flutterConfigDirectory, 'Debug.xcconfig'),
@@ -669,4 +660,16 @@ final class FlutterPacker {
 
     return subs;
   }
+
+  /// Settings pinned by explicit `--build-name` / `--build-number` flags.
+  Map<String, String> _buildVersionOverrides() => {
+    if (options.buildName case final String name) ...{
+      'FLUTTER_BUILD_NAME': name,
+      'MARKETING_VERSION': name,
+    },
+    if (options.buildNumber case final String number) ...{
+      'FLUTTER_BUILD_NUMBER': number,
+      'CURRENT_PROJECT_VERSION': number,
+    },
+  };
 }

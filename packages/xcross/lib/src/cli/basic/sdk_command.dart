@@ -70,9 +70,7 @@ final class SdkInstallCommand extends Command<void> {
 
     final destDir = DarwinSdk.nativeInstallDir();
     await prepareExistingSdk(destDir);
-    final parent = Directory(p.dirname(destDir));
-    await parent.create(recursive: true);
-    final staged = await parent.createTemp('${p.basename(destDir)}.staging-');
+    final staged = await _createStagingSibling(destDir);
     try {
       final written = await _extract(xipPath, staged.path);
       if (written == 0) {
@@ -81,19 +79,7 @@ final class SdkInstallCommand extends Command<void> {
           'subset. Verify that this is a complete Xcode.xip.',
         );
       }
-
-      await Log.logStep(
-        'Patching clang builtin headers',
-        () => SdkInstall.replaceClangBuiltinHeaders(staged.path),
-      );
-      await Log.logStep(
-        'Copying Swift compatibility resources',
-        () => SdkInstall.materializeSwiftCompatibilityResources(staged.path),
-      );
-      await Log.logStep(
-        'Writing Swift SDK metadata',
-        () => SdkInstall.writeSwiftSdkBundleMetadata(staged.path),
-      );
+      await _completeStagedSdk(staged.path);
       // A renamed archive can bypass the filename preflight. Verify the
       // actual SDK before replacing the user's working installation.
       await _requireSwiftForXcode(
@@ -110,14 +96,46 @@ final class SdkInstallCommand extends Command<void> {
       );
     } finally {
       if (staged.existsSync()) {
-        try {
-          await Directory(
-            SdkInstall.ioPath(staged.path),
-          ).delete(recursive: true);
-        } on Object catch (error) {
-          Log.logWarn('Could not remove staged SDK at ${staged.path}: $error');
-        }
+        await _deleteSdkDirectoryOrWarn(staged.path, 'staged SDK');
       }
+    }
+  }
+
+  /// Extract next to [destDir] so publishing is a same-volume rename.
+  static Future<Directory> _createStagingSibling(String destDir) async {
+    final parent = Directory(p.dirname(destDir));
+    await parent.create(recursive: true);
+    return parent.createTemp('${p.basename(destDir)}.staging-');
+  }
+
+  /// Post-extraction fixups that turn raw Xcode files into a Swift SDK bundle.
+  static Future<void> _completeStagedSdk(String stagedPath) async {
+    await Log.logStep(
+      'Patching clang builtin headers',
+      () => SdkInstall.replaceClangBuiltinHeaders(stagedPath),
+    );
+    await Log.logStep(
+      'Copying Swift compatibility resources',
+      () => SdkInstall.materializeSwiftCompatibilityResources(stagedPath),
+    );
+    await Log.logStep(
+      'Writing Swift SDK metadata',
+      () => SdkInstall.writeSwiftSdkBundleMetadata(stagedPath),
+    );
+  }
+
+  static Future<void> _deleteSdkDirectory(String path) =>
+      Directory(SdkInstall.ioPath(path)).delete(recursive: true);
+
+  /// Best-effort cleanup: a leftover directory must not fail the install.
+  static Future<void> _deleteSdkDirectoryOrWarn(
+    String path,
+    String description,
+  ) async {
+    try {
+      await _deleteSdkDirectory(path);
+    } on Object catch (error) {
+      Log.logWarn('Could not remove $description at $path: $error');
     }
   }
 
@@ -136,7 +154,7 @@ final class SdkInstallCommand extends Command<void> {
   /// published SDK is known to be usable.
   static Future<void> prepareExistingSdk(String destDir) async {
     DarwinSdk.restoreInterruptedInstall(destDir);
-    final backup = Directory('$destDir.previous');
+    final backup = Directory(DarwinSdk.previousInstallPath(destDir));
     if (!backup.existsSync()) return;
     if (!DarwinSdk.isValidBundle(destDir)) {
       throw XcrossError(
@@ -146,7 +164,7 @@ final class SdkInstallCommand extends Command<void> {
     }
     await Log.logStep(
       'Removing previous SDK backup',
-      () => Directory(SdkInstall.ioPath(backup.path)).delete(recursive: true),
+      () => _deleteSdkDirectory(backup.path),
     );
   }
 
@@ -164,27 +182,21 @@ final class SdkInstallCommand extends Command<void> {
       );
     }
     final previous = Directory(SdkInstall.ioPath(destDir));
-    final backup = Directory('$destDir.previous');
+    final backup = Directory(DarwinSdk.previousInstallPath(destDir));
     if (backup.existsSync()) {
       throw StateError('SDK backup path already exists: ${backup.path}');
     }
     final hadPrevious = previous.existsSync();
     if (hadPrevious) await previous.rename(backup.path);
+    final publish = renameStaged ?? (directory, path) => directory.rename(path);
     try {
-      await (renameStaged ?? (directory, path) => directory.rename(path))(
-        staged,
-        destDir,
-      );
+      await publish(staged, destDir);
     } on Object {
       if (hadPrevious) await backup.rename(destDir);
       rethrow;
     }
     if (hadPrevious) {
-      try {
-        await Directory(SdkInstall.ioPath(backup.path)).delete(recursive: true);
-      } on Object catch (error) {
-        Log.logWarn('Could not remove old SDK at ${backup.path}: $error');
-      }
+      await _deleteSdkDirectoryOrWarn(backup.path, 'old SDK');
     }
   }
 

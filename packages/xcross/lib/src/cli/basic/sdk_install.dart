@@ -63,14 +63,7 @@ abstract final class SdkInstall {
   /// entry is outside [sdkIncludedRoots] and [sdkIncludedFiles].
   static String? sdkRelativePath(String name) {
     final archiveName = name.replaceAll(r'\', '/');
-    for (final file in sdkIncludedFiles) {
-      if (archiveName == file) return file;
-      final anchor = '/$file';
-      final first = archiveName.indexOf('/Developer/');
-      if (first >= 0 && archiveName.indexOf(anchor, first) == first) {
-        return file;
-      }
-    }
+    if (_includedFileFor(archiveName) case final file?) return file;
     for (final root in sdkIncludedRoots) {
       if (archiveName == root || archiveName.startsWith('$root/')) {
         return archiveName;
@@ -85,6 +78,22 @@ abstract final class SdkInstall {
           return archiveName.substring(index + 1);
         }
         index = archiveName.indexOf(anchor, index + 1);
+      }
+    }
+    return null;
+  }
+
+  /// The [sdkIncludedFiles] entry [archiveName] names, either exactly or
+  /// under a prefix ending just before its first `/Developer/` segment.
+  /// Anchoring on that first segment keeps nested copies of a descriptor
+  /// from matching.
+  static String? _includedFileFor(String archiveName) {
+    final firstDeveloper = archiveName.indexOf('/Developer/');
+    for (final file in sdkIncludedFiles) {
+      if (archiveName == file) return file;
+      if (firstDeveloper >= 0 &&
+          archiveName.indexOf('/$file', firstDeveloper) == firstDeveloper) {
+        return file;
       }
     }
     return null;
@@ -115,17 +124,7 @@ abstract final class SdkInstall {
       );
       final destPath = _destinationPath(root, entry);
       if (destPath == null) continue;
-      if (sdkIncludedFiles.any(
-        (file) => destPath.endsWith(file.replaceAll('/', p.separator)),
-      )) {
-        final previous = descriptors[destPath];
-        if (previous != null && previous != entry.name) {
-          throw XcrossError(
-            'Conflicting SDK descriptor entries: $previous and ${entry.name}',
-          );
-        }
-        descriptors[destPath] = entry.name;
-      }
+      _recordDescriptorSource(descriptors, destPath, entry.name);
 
       // Text stubs are rewritten on the way in rather than in a pass over
       // the installed tree: the bytes here are the hard-link group's shared
@@ -183,6 +182,26 @@ abstract final class SdkInstall {
       );
     }
     return written;
+  }
+
+  /// Several archive prefixes can map onto one descriptor destination.
+  /// Reject two different sources rather than letting the last one win.
+  static void _recordDescriptorSource(
+    Map<String, String> descriptors,
+    String destPath,
+    String entryName,
+  ) {
+    final isDescriptor = sdkIncludedFiles.any(
+      (file) => destPath.endsWith(file.replaceAll('/', p.separator)),
+    );
+    if (!isDescriptor) return;
+    final previous = descriptors[destPath];
+    if (previous != null && previous != entryName) {
+      throw XcrossError(
+        'Conflicting SDK descriptor entries: $previous and $entryName',
+      );
+    }
+    descriptors[destPath] = entryName;
   }
 
   /// Absolute destination for an included cpio entry, or null when the entry

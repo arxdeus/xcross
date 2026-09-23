@@ -63,11 +63,15 @@ final class DarwinSdk {
     return DarwinSdk(candidate);
   }
 
+  /// Where an install keeps the previous [bundle] while publishing its
+  /// replacement.
+  static String previousInstallPath(String bundle) => '$bundle.previous';
+
   /// Recover the last working SDK if installation stopped between moving it
   /// aside and publishing the replacement.
   static void restoreInterruptedInstall(String bundle) {
     if (Directory(bundle).existsSync()) return;
-    final backup = Directory('$bundle.previous');
+    final backup = Directory(previousInstallPath(bundle));
     if (!backup.existsSync() || !isValidBundle(backup.path)) return;
     try {
       backup.renameSync(bundle);
