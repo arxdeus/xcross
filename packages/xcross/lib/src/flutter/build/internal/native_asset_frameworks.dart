@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/flutter/build/internal/recursive_directory_copy.dart';
 import 'package:xcross/src/flutter/build/macho_dylib_rewriter.dart';
 import 'package:xcross/src/flutter/build/macho_linkedit_aligner.dart';
 import 'package:xcross/src/flutter/errors.dart';
@@ -81,6 +82,61 @@ List<String> collectNativeAssetFrameworks(
     frameworks[name] = selected;
   }
   return frameworks.values.toList();
+}
+
+/// Makes disposable copies before thinning and repairing Flutter-owned outputs.
+///
+/// Every symlink is checked first: repairs write through staged links, so a
+/// link that escapes its framework would let them modify the original hook
+/// output, and a bundled link would carry a host path onto the device.
+Future<List<String>> stageNativeAssetFrameworks(
+  Iterable<String> sources,
+  String outputDirectory,
+) async {
+  final checkedSources = sources.toList();
+  for (final source in checkedSources) {
+    await _validateFrameworkLinks(source);
+  }
+  final stage = Directory(p.join(outputDirectory, 'xcross_staged_frameworks'));
+  if (stage.existsSync()) await stage.delete(recursive: true);
+  await stage.create(recursive: true);
+  final frameworks = <String>[];
+  for (final source in checkedSources) {
+    final destination = p.join(stage.path, p.basename(source));
+    await copyDirectoryPreservingSymlinks(source, destination);
+    frameworks.add(destination);
+  }
+  return frameworks;
+}
+
+/// Relative links are portable only when both their spelled and fully resolved
+/// targets stay inside this framework. In particular, resolving a link chain
+/// must not hide an escape through a directory symlink.
+Future<void> _validateFrameworkLinks(String source) async {
+  final root = await Directory(source).resolveSymbolicLinks();
+  await for (final entity in Directory(
+    root,
+  ).list(recursive: true, followLinks: false)) {
+    if (entity is! Link) continue;
+    final target = await entity.target();
+    final localTarget = p.normalize(p.join(p.dirname(entity.path), target));
+    String? resolved;
+    try {
+      resolved = await entity.resolveSymbolicLinks();
+    } on FileSystemException {
+      // Dangling links and cycles cannot be proven safe to repair or bundle.
+    }
+    if (p.isAbsolute(target) ||
+        !p.isWithin(root, localTarget) ||
+        resolved == null ||
+        !p.isWithin(root, resolved)) {
+      throw FlutterBuildError(
+        'Unsafe native asset framework symlink: ${entity.path} -> $target. '
+        'Only resolvable framework-relative links within the same framework '
+        'can be staged safely.',
+      );
+    }
+  }
 }
 
 Future<bool> isFatMachO(String path) async {
