@@ -169,6 +169,13 @@ abstract final class CoreDeviceLauncher {
           consoleFuture: consoleFuture,
           resume: gdb.resume,
         );
+        // An immediate exit or fault already ended the session. Polling for a
+        // VM Service now would only wait out its timeout for an app that is
+        // gone, and hide the crash report behind that wait.
+        if (console.isStopped) {
+          await consoleFuture;
+          return;
+        }
         Log.logDone('Debugger attached');
         if (hotReload != null) Log.logInfo('Preparing hot reload…');
         final setupFuture = _trySpinUpHotReload(
