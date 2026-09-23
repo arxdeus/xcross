@@ -5,6 +5,7 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/cli/basic/internal/clang_requirement.dart';
 import 'package:xcross/src/cli/basic/internal/linux_package_manager.dart';
 import 'package:xcross/src/cli/basic/internal/swift_requirement.dart';
 import 'package:xcross/src/errors.dart';
@@ -55,9 +56,14 @@ final class SetupCommand extends Command<void> {
 
     await Sudo.cacheCredentials(manualHint: manager.manualHint());
     await _installPackages(manager);
+    await _ensureLinuxClang(manager);
     await _ensureFixedLd64Lld(manager);
 
-    final missing = await _missingTools(_requiredTools);
+    final missing = await _missingTools(
+      _requiredTools
+          .where((tool) => tool != 'clang' && tool != 'clang++')
+          .toList(),
+    );
     if (missing.isNotEmpty) {
       throw XcrossError(
         'Missing Linux requirements on PATH after ${manager.name} install: '
@@ -106,7 +112,12 @@ final class SetupCommand extends Command<void> {
   }
 
   Future<void> _setupWindows() async {
-    final missing = await _missingTools(['flutter', ..._requiredTools]);
+    final missing = await _missingTools([
+      'flutter',
+      'swift',
+      'llvm-ar',
+      'ld64.lld',
+    ]);
     if (missing.isNotEmpty) {
       throw XcrossError(
         'Missing Windows requirements on PATH: ${missing.join(', ')}.\n'
@@ -114,8 +125,40 @@ final class SetupCommand extends Command<void> {
         'then retry.',
       );
     }
+    if (await ClangRequirement.resolve() == null) {
+      throw XcrossError(
+        'Clang 20 or newer (clang and clang++) is required on Windows. '
+        'Install the official LLVM Windows toolchain from https://llvm.org, '
+        'add its bin directory to PATH, and retry `xcross setup`.',
+      );
+    }
     await _ensurePymd();
     Log.logDone('Windows requirements found');
+  }
+
+  Future<void> _ensureLinuxClang(LinuxPackageManager manager) async {
+    if (await ClangRequirement.resolve() != null) return;
+    for (final package in await manager.availableVersionedClang()) {
+      if (int.parse(package.substring('clang-'.length)) <
+          ClangRequirement.minimum) {
+        break;
+      }
+      try {
+        await _runFirstWorking(
+          await manager.installAttempts([package]),
+          label: '${manager.name} install $package',
+        );
+        if (await ClangRequirement.resolve() != null) return;
+      } on Object catch (error) {
+        Log.logWarn('Could not install $package: $error');
+      }
+    }
+    throw XcrossError(
+      'Clang ${ClangRequirement.minimum} or newer (clang and clang++) is '
+      'required on Linux, but no usable installation was found after '
+      '${manager.name} install. Install clang-20 or newer from a repository '
+      'for this distribution and put its bin directory on PATH, then retry.',
+    );
   }
 
   Future<void> _brewInstall(List<String> packages) async {
