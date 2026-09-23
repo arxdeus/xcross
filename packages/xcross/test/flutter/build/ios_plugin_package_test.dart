@@ -2085,6 +2085,151 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
       );
     }
 
+    group('stageExtractedBinaryArtifacts', () {
+      // A SwiftPM resolve that deleted its archive after extracting it, and
+      // may have extracted only part of the tree (I/O error 514 on the
+      // Windows runner left a framework without Headers).
+      ({String scratch, String vendor, File manifest}) extractedLayout(
+        String name,
+      ) {
+        final scratch = p.join(tmp.path, name, 'scratch');
+        final vendor = p.join(tmp.path, name, 'vendor');
+        final manifestFile = File(p.join(vendor, 'pkg', 'Package.swift'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync(manifest().split('\n')[1]);
+        final framework = Directory(
+          p.join(
+            scratch,
+            'artifacts',
+            'pkg',
+            'First',
+            'First.xcframework',
+            'ios-arm64',
+            'First.framework',
+          ),
+        )..createSync(recursive: true);
+        File(p.join(framework.path, 'First')).writeAsStringSync('binary');
+        File(
+          p.join(
+            scratch,
+            'artifacts',
+            'pkg',
+            'First',
+            'First.xcframework',
+            'Info.plist',
+          ),
+        ).writeAsStringSync('<plist/>');
+        return (scratch: scratch, vendor: vendor, manifest: manifestFile);
+      }
+
+      test(
+        'rebuilds from the verified archive instead of a partial extracted tree',
+        () async {
+          final layout = extractedLayout('partial');
+          final store = p.join(tmp.path, 'partial', 'store');
+          final prepared = <String>[];
+          String? copiedFrom;
+
+          final changed =
+              await GeneratedPluginsPackage.stageExtractedBinaryArtifacts(
+                scratchPath: layout.scratch,
+                vendorDir: layout.vendor,
+                binaryArtifactStore: store,
+                binaryArtifactFallback: p.join(tmp.path, 'partial', 'fb'),
+                attemptState: SwiftPmBinaryAttemptState(),
+                windows: true,
+                prepare: (target) {
+                  prepared.add(target.name);
+                  return preparedArtifact(p.join(tmp.path, 'partial'), target);
+                },
+                materialize: ({required source, required destination}) async {
+                  copiedFrom = source;
+                  await Directory(destination).create(recursive: true);
+                  return SwiftPmBinaryArtifactPublication.published();
+                },
+              );
+
+          expect(changed, isTrue);
+          expect(prepared, ['First']);
+          expect(
+            copiedFrom,
+            p.join(
+              tmp.path,
+              'partial',
+              'prepared',
+              'First',
+              'First.xcframework',
+            ),
+          );
+          // The unverified extracted tree must never enter the store.
+          expect(Directory(p.join(store, 'targets')).existsSync(), isFalse);
+          expect(
+            layout.manifest.readAsStringSync(),
+            contains('.binaryTarget(name: "First", path: '),
+          );
+        },
+      );
+
+      test(
+        'falls back to the extracted tree when the archive is unavailable',
+        () async {
+          final layout = extractedLayout('offline');
+          final store = p.join(tmp.path, 'offline', 'store');
+
+          final changed =
+              await GeneratedPluginsPackage.stageExtractedBinaryArtifacts(
+                scratchPath: layout.scratch,
+                vendorDir: layout.vendor,
+                binaryArtifactStore: store,
+                binaryArtifactFallback: p.join(tmp.path, 'offline', 'fb'),
+                attemptState: SwiftPmBinaryAttemptState(),
+                windows: true,
+                prepare: (target) =>
+                    throw FlutterBuildError('Failed to download'),
+                materialize: ({required source, required destination}) async {
+                  await Directory(destination).create(recursive: true);
+                  return SwiftPmBinaryArtifactPublication.published();
+                },
+              );
+
+          expect(changed, isTrue);
+          final metadata = File(
+            p.join(store, 'targets', firstChecksum, 'First', 'metadata.json'),
+          );
+          expect(
+            metadata.readAsStringSync(),
+            contains('swiftpm-extracted-artifact'),
+          );
+        },
+      );
+
+      test('propagates security failures from archive preparation', () async {
+        final layout = extractedLayout('tampered');
+
+        await expectLater(
+          GeneratedPluginsPackage.stageExtractedBinaryArtifacts(
+            scratchPath: layout.scratch,
+            vendorDir: layout.vendor,
+            binaryArtifactStore: p.join(tmp.path, 'tampered', 'store'),
+            binaryArtifactFallback: p.join(tmp.path, 'tampered', 'fb'),
+            attemptState: SwiftPmBinaryAttemptState(),
+            windows: true,
+            prepare: (target) => throw FlutterBuildError(
+              'checksum mismatch',
+              isSecurityFailure: true,
+            ),
+          ),
+          throwsA(
+            isA<FlutterBuildError>().having(
+              (error) => error.isSecurityFailure,
+              'isSecurityFailure',
+              isTrue,
+            ),
+          ),
+        );
+      });
+    });
+
     test('rewrites successful target and preserves unsupported call', () async {
       final packageRoot = p.join(tmp.path, 'mixed');
       final manifestFile = File(p.join(packageRoot, 'Package.swift'))

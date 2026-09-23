@@ -1197,6 +1197,7 @@ abstract final class GeneratedPluginsPackage {
     String? binaryArtifactFallback,
     SwiftPmBinaryAttemptState? attemptState,
     bool packageLocalArtifactJunctionCapability = false,
+    PrepareSwiftPmBinaryArtifact? prepare,
     CreateSwiftPmBinaryAlias? createAlias,
     MaterializeSwiftPmBinaryArtifact? materialize,
     Future<void> Function(String destination)? removeDestination,
@@ -1272,6 +1273,23 @@ abstract final class GeneratedPluginsPackage {
                     target: candidate.target,
                     archive: archive,
                   ),
+                );
+              } on FlutterBuildError catch (error) {
+                if (error.isSecurityFailure) rethrow;
+              }
+            }
+            // SwiftPM deletes the archive once it has extracted it, so the
+            // usual case here is a bare extracted tree. That tree is not
+            // checksum-verified and can be partial: on the Windows CI runner
+            // SwiftPM hit I/O error 514 mid-resolve and left
+            // FirebaseFirestoreInternal.framework without its Headers, which
+            // the store then served as complete to every later build. The
+            // manifest's URL and checksum rebuild the artifact from a verified
+            // archive, so try that before trusting the tree.
+            if (verified.isEmpty) {
+              try {
+                verified.add(
+                  (await (prepare ?? preparer.prepare)(candidate.target)).entry,
                 );
               } on FlutterBuildError catch (error) {
                 if (error.isSecurityFailure) rethrow;
