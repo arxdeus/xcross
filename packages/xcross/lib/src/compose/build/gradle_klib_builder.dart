@@ -199,12 +199,30 @@ allprojects {
       final normalized = p.normalize(line);
       if (!_isKlib(normalized)) continue;
       if (p.equals(normalized, kotlinRoot) ||
-          p.isWithin(kotlinRoot, normalized)) {
+          p.isWithin(kotlinRoot, normalized) ||
+          _isDistributionKlib(normalized)) {
         continue;
       }
       if (seen.add(normalized)) dependencies.add(normalized);
     }
     return dependencies;
+  }
+
+  /// Whether [path] sits in a Kotlin/Native distribution's `klib/` tree, like
+  /// `.../kotlin-native-prebuilt-<host>-<version>/klib/platform/ios_arm64/...`.
+  ///
+  /// Gradle may resolve its own distribution (under `KONAN_DATA_DIR`), not the
+  /// one xcross links with. Its stdlib and platform libraries carry the same
+  /// `unique_name`s as the compiler's, and konanc refuses the duplicates.
+  static bool _isDistributionKlib(String path) {
+    final segments = p.split(path);
+    for (var i = 0; i + 1 < segments.length; i++) {
+      if (segments[i].startsWith('kotlin-native-prebuilt-') &&
+          segments[i + 1] == 'klib') {
+        return true;
+      }
+    }
+    return false;
   }
 
   /// Whether [path] is a KLIB the linker can be handed with `-library`.

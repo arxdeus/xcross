@@ -30,6 +30,20 @@ void main() {
           'UIKit.klib',
         ),
       )..createSync(recursive: true);
+      final foreignPlatformKlib = Directory(
+        p.join(
+          fixture.root,
+          'konan',
+          'kotlin-native-prebuilt-windows-x86_64-2.4.0',
+          'klib',
+          'platform',
+          'ios_arm64',
+          'org.jetbrains.kotlin.native.platform.UIKit',
+        ),
+      )..createSync(recursive: true);
+      File(
+        p.join(foreignPlatformKlib.path, 'default', 'manifest'),
+      ).createSync(recursive: true);
       final prefixConfusion = Directory('${fixture.kotlinHome}_other')
         ..createSync();
       final siblingKlib = Directory(
@@ -62,6 +76,7 @@ void main() {
                     p.join(externalKlib.path, '..', 'compose.klib'),
                     externalKlib.path,
                     platformKlib.path,
+                    foreignPlatformKlib.path,
                     siblingKlib.path,
                     p.join(fixture.root, 'missing.klib'),
                     p.join(fixture.root, 'not-klib.jar'),
