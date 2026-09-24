@@ -1,0 +1,327 @@
+name: Compose Integration Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SWIFT_VERSION: 6.3.3
+  SWIFT_WINDOWS_SHA256: >-
+    235626548F249CD516D3D4D90EEE980DCCAD46F3822DAC1F8E3119B0FEDE94B7
+  LLVM_VERSION: 22.1.8
+  LLVM_WINDOWS_SHA256: >-
+    16E5709785FEF73C854646241C4A92C5CD574318D1B33C63330DD7721903E55C
+
+concurrency:
+  group: compose-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compose-build:
+    # Fork PR code must never receive the private Apple SDK cache.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    name: Compose build (${{ matrix.os }})
+    permissions:
+      contents: read
+      actions: write
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
+        with:
+          persist-credentials: false
+
+      - name: Update example submodule
+        shell: bash
+        run: git submodule update --init --checkout examples
+
+      - name: Use JDK 21 on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${JAVA_HOME_21_X64:-}"
+          echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
+          echo "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
+          "$JAVA_HOME_21_X64/bin/java" -version
+
+      - name: Use JDK 21 on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:JAVA_HOME_21_X64) {
+            throw 'JAVA_HOME_21_X64 is not available on this runner'
+          }
+          "JAVA_HOME=$env:JAVA_HOME_21_X64" |
+            Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "$env:JAVA_HOME_21_X64\bin" |
+            Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+          & "$env:JAVA_HOME_21_X64\bin\java.exe" -version
+
+      - name: Install Dart
+        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260
+
+      - name: Set cache directories
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "KONAN_DATA_DIR=$RUNNER_TEMP/konan"
+            echo "GRADLE_USER_HOME=$RUNNER_TEMP/gradle"
+            echo "XCROSS_CACHE_DIR=$RUNNER_TEMP/xcross-cache"
+          } >> "$GITHUB_ENV"
+
+      - name: Restore Kotlin/Native and Gradle caches
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
+        with:
+          path: |
+            ${{ env.KONAN_DATA_DIR }}
+            ${{ env.GRADLE_USER_HOME }}/caches
+            ${{ env.GRADLE_USER_HOME }}/wrapper
+          key: compose-v1-${{ matrix.os }}-${{ hashFiles('examples/compose_app/**/*.gradle.kts', 'examples/compose_app/gradle/**', 'examples/compose_app/gradle.properties') }}
+          restore-keys: compose-v1-${{ matrix.os }}-
+
+      - name: Install Linux requirements
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          dart pub get
+          (cd packages/xcross && dart run tool/build_xcross.dart)
+          cp -r packages/xcross/build/cli/*/bundle "$RUNNER_TEMP/xcross-bundle"
+          chmod +x "$RUNNER_TEMP/xcross-bundle/bin/xcross"
+          chmod +x "$RUNNER_TEMP/xcross-bundle/bin/xcrun"
+          echo "$RUNNER_TEMP/xcross-bundle/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/xcross-bundle/bin/xcross" setup
+          # Ubuntu's default clang 18 cannot compile the Xcode 26.5 SDK's
+          # libc++ 21 headers; Kotlin/Native also needs llvm-libtool-darwin
+          # for compiler caches and static frameworks.
+          sudo apt-get install -y clang-20 llvm-20
+          echo "/usr/lib/llvm-20/bin" >> "$GITHUB_PATH"
+
+      - name: Install official Swift and LLVM on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = "$env:RUNNER_TEMP\swift-installer.exe"
+          $release = "swift-$env:SWIFT_VERSION-release"
+          $version = "swift-$env:SWIFT_VERSION-RELEASE"
+          $base = 'https://download.swift.org'
+          $url = "$base/$release/windows10/$version/" +
+            "$version-windows10.exe"
+          Invoke-WebRequest $url -OutFile $installer
+          $hash = (Get-FileHash $installer -Algorithm SHA256).Hash
+          if ($hash -ne $env:SWIFT_WINDOWS_SHA256) {
+            throw "Swift installer checksum mismatch: $hash"
+          }
+          $process = Start-Process `
+            $installer `
+            -ArgumentList '/quiet', '/norestart' `
+            -PassThru `
+            -Wait
+          if ($process.ExitCode -notin 0, 3010) {
+            throw "Swift installer failed: $($process.ExitCode)"
+          }
+
+          $llvmInstaller = "$env:RUNNER_TEMP\llvm-installer.exe"
+          $llvmRoot = "$env:RUNNER_TEMP\llvm-$env:LLVM_VERSION"
+          $llvmUrl = "https://github.com/llvm/llvm-project/releases/download/" +
+            "llvmorg-$env:LLVM_VERSION/LLVM-$env:LLVM_VERSION-win64.exe"
+          Invoke-WebRequest $llvmUrl -OutFile $llvmInstaller
+          $llvmHash = (Get-FileHash $llvmInstaller -Algorithm SHA256).Hash
+          if ($llvmHash -ne $env:LLVM_WINDOWS_SHA256) {
+            throw "LLVM installer checksum mismatch: $llvmHash"
+          }
+          $llvmProcess = Start-Process `
+            $llvmInstaller `
+            -ArgumentList '/S', "/D=$llvmRoot" `
+            -PassThru `
+            -Wait
+          if ($llvmProcess.ExitCode -ne 0) {
+            throw "LLVM installer failed: $($llvmProcess.ExitCode)"
+          }
+          $llvmBin = "$llvmRoot\bin"
+          if (-not (Test-Path "$llvmBin\ld64.lld.exe")) {
+            throw "Pinned LLVM missing ld64.lld.exe at $llvmBin"
+          }
+          $swiftRoot = "$env:LOCALAPPDATA\Programs\Swift"
+          # The installer registers its Runtimes, Toolchains, and Tools
+          # directories in the persisted PATH, but this job's environment
+          # predates the install. swift.exe cannot even start without the
+          # Runtimes DLLs, and Windows reports that as a bare exit code
+          # 3221225781 (0xC0000135, STATUS_DLL_NOT_FOUND), so re-export every
+          # directory the installer registered under the Swift root.
+          $swiftDirs = @(
+            [Environment]::GetEnvironmentVariable('Path', 'Machine')
+            [Environment]::GetEnvironmentVariable('Path', 'User')
+          ) -join ';' -split ';' |
+            Where-Object { $_ } |
+            ForEach-Object { $_.TrimEnd('\') } |
+            Where-Object { $_ -like "$swiftRoot*" } |
+            Select-Object -Unique
+          $swift = Get-ChildItem `
+            "$swiftRoot\Toolchains" `
+            -Filter swift.exe `
+            -File `
+            -Recurse `
+            -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if (-not $swift) {
+            throw 'Swift.Toolchain did not install swift.exe'
+          }
+          $runtime = Get-ChildItem `
+            "$swiftRoot\Runtimes" `
+            -Filter swiftCore.dll `
+            -File `
+            -Recurse `
+            -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if (-not $runtime) {
+            throw 'Swift.Runtime did not install swiftCore.dll'
+          }
+          $swiftDirs = @(
+            (Split-Path $runtime.FullName)
+            (Split-Path $swift.FullName)
+          ) + $swiftDirs | Select-Object -Unique
+          $swiftDirs | ForEach-Object { "  $_" } | Write-Host
+          $llvmBin | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+          $swiftDirs | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+          $env:Path = "$llvmBin;$($swiftDirs -join ';');$env:Path"
+          # SDKROOT is registered by the installer too, and it is what swiftc
+          # defaults `-sdk` to for *host* compiles. SwiftPM compiles every
+          # Package.swift manifest for the host before it ever looks at
+          # `--swift-sdk`, so without SDKROOT the cross build dies with
+          # "unable to load standard library for target
+          # 'x86_64-unknown-windows-msvc'".
+          $sdkRoot = @(
+            [Environment]::GetEnvironmentVariable('SDKROOT', 'User')
+            [Environment]::GetEnvironmentVariable('SDKROOT', 'Machine')
+          ) | Where-Object { $_ } | Select-Object -First 1
+          if (-not $sdkRoot) {
+            $sdkRoot = Get-ChildItem `
+              "$swiftRoot\Platforms" `
+              -Filter Windows.sdk `
+              -Directory `
+              -Recurse `
+              -ErrorAction SilentlyContinue |
+              Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $sdkRoot -or -not (Test-Path $sdkRoot)) {
+            throw 'Swift.Platform did not install a Windows SDK (SDKROOT)'
+          }
+          Write-Host "  SDKROOT=$sdkRoot"
+          "SDKROOT=$sdkRoot" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          $env:SDKROOT = $sdkRoot
+          $tools = @(
+            'swift', 'clang', 'clang++', 'llvm-ar', 'ld64.lld',
+            'llvm-readobj', 'llvm-nm', 'llvm-objdump'
+          )
+          foreach ($tool in $tools) {
+            if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
+              throw "Missing $tool"
+            }
+          }
+          # Runs swift.exe and the swift-sdk.exe subcommand binary, so a
+          # broken toolchain fails here instead of in a later step.
+          & swift --version
+          if ($LASTEXITCODE -ne 0) {
+            throw "swift --version failed with $LASTEXITCODE"
+          }
+          & swift sdk list
+          if ($LASTEXITCODE -ne 0) {
+            throw "swift sdk list failed with $LASTEXITCODE"
+          }
+          # Neither command above loads the standard library, so type-check a
+          # trivial file to prove SDKROOT actually resolves one.
+          $probe = "$env:RUNNER_TEMP\swift-probe.swift"
+          Set-Content $probe 'print("ok")' -Encoding utf8
+          & swiftc -typecheck $probe
+          if ($LASTEXITCODE -ne 0) {
+            throw "Host Swift stdlib unusable (SDKROOT=$env:SDKROOT)"
+          }
+
+          dart pub get
+          Push-Location packages/xcross
+          dart run tool/build_xcross.dart
+          Pop-Location
+          Copy-Item -Recurse `
+            packages/xcross/build/cli/windows_x64/bundle `
+            "$env:RUNNER_TEMP\xcross-bundle"
+          "$env:RUNNER_TEMP\xcross-bundle\bin" |
+            Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+          & "$env:RUNNER_TEMP\xcross-bundle\bin\xcross.exe" setup
+          if ($LASTEXITCODE -ne 0) { throw 'xcross setup failed' }
+
+      - name: Restore cached Darwin SDK
+        uses: ./.github/actions/setup-darwin-sdk
+
+      - name: Set up Compose toolchain
+        shell: bash
+        working-directory: examples/compose_app
+        run: xcross compose setup --verbose
+
+      - name: Build Compose example
+        shell: bash
+        working-directory: examples/compose_app
+        run: xcross compose build --verbose
+
+      - name: Rebuild Compose example (up-to-date check)
+        shell: bash
+        working-directory: examples/compose_app
+        run: xcross compose build --verbose
+
+      - name: Inspect Compose example artifact
+        shell: bash
+        working-directory: examples/compose_app
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apps=(build/xcross-ios/*.app)
+          if [[ ${#apps[@]} -ne 1 ]]; then
+            printf 'Expected one .app, found %s\n' "${#apps[@]}"
+            exit 1
+          fi
+          app="${apps[0]}"
+          test -f "$app/Info.plist"
+          runner="$app/Runner"
+          test -f "$runner"
+          llvm-readobj --file-headers "$runner" | tee runner-headers.txt
+          grep -Eq 'Format: Mach-O arm64|Arch: aarch64' runner-headers.txt
+          if [[ -d "$app/Frameworks" ]]; then
+            for framework in "$app"/Frameworks/*.framework; do
+              name="$(basename "$framework" .framework)"
+              test -f "$framework/$name"
+              llvm-readobj --file-headers "$framework/$name" |
+                grep -Eq 'Format: Mach-O arm64|Arch: aarch64'
+            done
+            llvm-objdump --macho --private-headers "$runner" |
+              grep -F '@executable_path/Frameworks'
+          fi
+          if [[ -d "$app/compose-resources" ]]; then
+            test -d "$app/compose-resources/composeResources"
+          fi
+          ls -la "$app"
+
+      - name: Upload Compose app
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: compose-app-${{ matrix.os }}
+          path: examples/compose_app/build/xcross-ios/*.app
+          if-no-files-found: ignore
+          retention-days: 7
