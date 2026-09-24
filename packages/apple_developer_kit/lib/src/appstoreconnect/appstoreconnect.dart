@@ -227,14 +227,22 @@ abstract final class AscProvisioning {
     final existing = await client.listProfilesForBundle(bundleIdResourceId);
     if (existing.length != 1) return;
     final only = existing.single;
-    if (!only.name.startsWith(profileNamePrefix)) {
-      onProgress?.call(
-        'Leaving the existing profile "${only.name}" alone - xcross did not '
-        'create it.',
-      );
+    if (only.name.startsWith(profileNamePrefix)) {
+      await client.deleteProfile(only.id);
       return;
     }
-    await client.deleteProfile(only.id);
+    if (only.isDevelopment) {
+      onProgress?.call(
+        'Replacing the development profile "${only.name}" - it occupies the '
+        'only profile slot for this App ID.',
+      );
+      await client.deleteProfile(only.id);
+      return;
+    }
+    onProgress?.call(
+      'Leaving the existing profile "${only.name}" alone - xcross did not '
+      'create it and it is not a development profile.',
+    );
   }
 
   /// Switches on the capabilities an app's entitlements need, so the profile

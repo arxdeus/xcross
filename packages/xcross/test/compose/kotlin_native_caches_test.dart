@@ -521,7 +521,7 @@ final class _Fixture {
     toolchain: toolchain,
     prepared: prepared,
     klib: klib,
-  );
+  )!;
 
   Map<String, String> cacheRoots() => {
     for (final node in plan().libraries) node.uniqueName: node.cacheRoot,

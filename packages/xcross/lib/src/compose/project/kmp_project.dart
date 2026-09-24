@@ -237,11 +237,53 @@ String? _extractBaseName(String content) =>
 /// Both assignment styles Gradle accepts are recognised (`isStatic = true` in
 /// Kotlin DSL, `isStatic.set(true)` via the property API).
 bool _extractIsStaticFramework(String content) {
-  final block = _frameworkBlock(content);
+  final block = _frameworkBlock(_stripComments(content));
   if (block == null) return false;
   return RegExp(
     r'isStatic\s*(?:=\s*true|\.set\s*\(\s*true\s*\))',
   ).hasMatch(block);
+}
+
+/// [content] with `//` and `/* */` comments removed, leaving string literals
+/// intact.
+String _stripComments(String content) {
+  final out = StringBuffer();
+  var i = 0;
+  while (i < content.length) {
+    final char = content[i];
+    final next = i + 1 < content.length ? content[i + 1] : '';
+    if (char == '"') {
+      final end = _stringEnd(content, i);
+      out.write(content.substring(i, end));
+      i = end;
+    } else if (char == '/' && next == '/') {
+      final end = content.indexOf('\n', i);
+      i = end < 0 ? content.length : end;
+    } else if (char == '/' && next == '*') {
+      final end = content.indexOf('*/', i + 2);
+      i = end < 0 ? content.length : end + 2;
+      out.write(' ');
+    } else {
+      out.write(char);
+      i++;
+    }
+  }
+  return out.toString();
+}
+
+int _stringEnd(String content, int start) {
+  if (content.startsWith('"""', start)) {
+    final end = content.indexOf('"""', start + 3);
+    return end < 0 ? content.length : end + 3;
+  }
+  for (var i = start + 1; i < content.length; i++) {
+    if (content[i] == r'\') {
+      i++;
+    } else if (content[i] == '"' || content[i] == '\n') {
+      return i + 1;
+    }
+  }
+  return content.length;
 }
 
 /// The body of the first `binaries.framework { … }` block, brace-matched.

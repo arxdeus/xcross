@@ -404,6 +404,29 @@ void main() {
     expect(client.deletedProfiles, isEmpty);
   });
 
+  test('replaces a lone development profile another tool created', () async {
+    final temp = Directory.systemTemp.createTempSync('xcross_profile_dev');
+    addTearDown(() => temp.deleteSync(recursive: true));
+    final client = _FakeProvisioningClient(
+      existingProfiles: const [
+        AscProfileRef(
+          id: 'xcode-profile',
+          name: 'iOS Team Provisioning Profile: com.example.app',
+          profileType: 'IOS_APP_DEVELOPMENT',
+        ),
+      ],
+    );
+
+    await AscProvisioning.provisionDevelopmentIdentity(
+      client: client,
+      bundleId: 'com.example.app',
+      deviceUdids: const ['UDID'],
+      outputDir: temp.path,
+    );
+
+    expect(client.deletedProfiles, ['xcode-profile']);
+  });
+
   // The profile xcross creates and the profile it is later willing to delete
   // have to agree on the name, or it either deletes nothing (a free team's slot
   // stays full) or deletes something it does not own.

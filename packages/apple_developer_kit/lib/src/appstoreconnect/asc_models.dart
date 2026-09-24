@@ -169,12 +169,16 @@ Map<String, dynamic> _attributesOf(Map<String, dynamic> json) =>
 /// profiles xcross created from a pipeline's.
 @immutable
 final class AscProfileRef {
-  const AscProfileRef({required this.id, required this.name});
+  const AscProfileRef({required this.id, required this.name, this.profileType});
 
-  factory AscProfileRef.fromJson(Map<String, dynamic> json) => AscProfileRef(
-    id: json['id'] as String,
-    name: _attributesOf(json)['name'] as String? ?? '',
-  );
+  factory AscProfileRef.fromJson(Map<String, dynamic> json) {
+    final attributes = _attributesOf(json);
+    return AscProfileRef(
+      id: json['id'] as String,
+      name: attributes['name'] as String? ?? '',
+      profileType: attributes['profileType'] as String?,
+    );
+  }
 
   /// The profile's App Store Connect resource id.
   final String id;
@@ -182,4 +186,9 @@ final class AscProfileRef {
   /// The name the profile was created under, e.g. `xcross Development 1789…`
   /// or `MyApp ios_app_store 1789…`.
   final String name;
+
+  /// e.g. `IOS_APP_DEVELOPMENT` or `IOS_APP_STORE`, null when not reported.
+  final String? profileType;
+
+  bool get isDevelopment => profileType == 'IOS_APP_DEVELOPMENT';
 }

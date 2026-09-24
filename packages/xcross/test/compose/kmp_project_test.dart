@@ -78,6 +78,24 @@ xcframework {
       expect(KmpProject.detect(root.path).isStaticFramework, isFalse);
     });
 
+    test('ignores isStatic commented out inside the framework block', () {
+      final root = _fixture();
+      _settings(root, 'include(":shared")');
+      _rawBuildScript(root, 'shared', '''
+kotlin {
+  iosArm64()
+  binaries.framework {
+    baseName = "Shared"
+    // isStatic = true
+    /* isStatic = true */
+  }
+}
+''');
+      _kotlinEntry(root, 'shared', file: 'MainViewController.kt');
+
+      expect(KmpProject.detect(root.path).isStaticFramework, isFalse);
+    });
+
     test('reads isStatic set through the property API', () {
       final root = _fixture();
       _settings(root, 'include(":shared")');

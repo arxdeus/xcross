@@ -281,28 +281,23 @@ final class ComposeAppAssemblerWithSeams {
   /// resources *root*, whose contents belong in the bundle: it is the directory
   /// holding `composeResources/`, not that directory itself.
   ///
-  /// The target is read back out of the framework path, which
-  /// `KotlinFrameworkBuilder.expectedFramework` always builds as
-  /// `<module>/build/bin/iosArm64/<config>Framework/<name>.framework`. The
-  /// scanning fallbacks below therefore do not normally run; they exist so a
-  /// layout that stops matching degrades to "wrong-looking resources" instead
-  /// of a bundle that aborts on its first resource read. They are deliberately
-  /// last, because picking a target by sort order could otherwise stage the
-  /// simulator's resources into a device build.
+  /// The framework is always linked for the device target `iosArm64`, so that
+  /// target is used whatever the framework path looks like: the production
+  /// builder hands over a copy under `build/xcross-ios/`, which names none. The
+  /// scanning fallbacks skip simulator and x64 outputs, so a stale simulator
+  /// build can never supply a device app's resources.
   Directory? _composeResourcesRoot(KmpProject project, String frameworkPath) {
     final buildDir = p.join(project.modulePath, 'build');
-    final target = _targetFromFrameworkPath(frameworkPath);
+    final target =
+        _targetFromFrameworkPath(frameworkPath) ?? deviceResourceTarget;
     final aggregated = p.join(
       buildDir,
       'kotlin-multiplatform-resources',
       'aggregated-resources',
     );
     final candidates = <String>[
-      if (target != null) p.join(aggregated, target),
-      if (target != null)
-        p.join(buildDir, 'processedResources', target, 'main'),
-      // Only reached when the framework path does not name a target. Sorted to
-      // keep the choice stable rather than filesystem-ordered.
+      p.join(aggregated, target),
+      p.join(buildDir, 'processedResources', target, 'main'),
       ..._resourceCandidates(aggregated, ''),
       ..._resourceCandidates(p.join(buildDir, 'processedResources'), 'main'),
     ];
@@ -325,9 +320,17 @@ final class ComposeAppAssemblerWithSeams {
             .listSync(followLinks: false)
             .whereType<Directory>()
             .map((entity) => p.basename(entity.path))
+            .where(_isDeviceTarget)
             .toList()
           ..sort();
     return names.map((name) => p.join(parent, name, leaf));
+  }
+
+  static const deviceResourceTarget = 'iosArm64';
+
+  static bool _isDeviceTarget(String name) {
+    final lower = name.toLowerCase();
+    return !lower.contains('simulator') && !lower.contains('x64');
   }
 
   /// `<module>/build/bin/iosArm64/debugFramework/Shared.framework` → `iosArm64`.
@@ -335,7 +338,8 @@ final class ComposeAppAssemblerWithSeams {
     final segments = p.split(frameworkPath);
     final binIndex = segments.indexOf('bin');
     if (binIndex < 0 || binIndex + 1 >= segments.length) return null;
-    return segments[binIndex + 1];
+    final target = segments[binIndex + 1];
+    return _isDeviceTarget(target) ? target : null;
   }
 
   void _validateStagedApp({

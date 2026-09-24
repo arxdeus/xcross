@@ -105,7 +105,7 @@ final class KotlinNativeCaches {
   static bool enabledIn(Map<String, String> environment) =>
       environment[disableVariable] != '1';
 
-  KotlinNativeCachePlan plan({
+  KotlinNativeCachePlan? plan({
     required KmpProject project,
     required ComposeToolchain toolchain,
     required PreparedKonanConfiguration prepared,
@@ -167,6 +167,17 @@ final class KotlinNativeCaches {
 
     for (final name in found.keys.toList()..sort()) {
       visit(name);
+    }
+
+    if (toolchain.host.isWindows) {
+      final unsafe = found.keys.where(_unsafeWindowsName).toList()..sort();
+      if (unsafe.isNotEmpty) {
+        Log.logTrace(
+          'konan cache: disabled, library names are not valid Windows '
+          'file names: ${unsafe.join(', ')}',
+        );
+        return null;
+      }
     }
 
     final compiler = p.basename(p.dirname(prepared.kotlinHome));
@@ -283,6 +294,11 @@ final class KotlinNativeCaches {
       environment: prepared.environment,
     );
   }
+
+  static bool _unsafeWindowsName(String name) =>
+      RegExp(r'[<>:"/\\|?*\x00-\x1f]').hasMatch(name) ||
+      name.endsWith('.') ||
+      name.endsWith(' ');
 
   List<String> _common(PreparedKonanConfiguration prepared) => [
     '-Xoverride-konan-properties=${prepared.konanPropertyOverrides}',
