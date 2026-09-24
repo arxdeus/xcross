@@ -315,11 +315,3 @@ jobs:
           fi
           ls -la "$app"
 
-      - name: Upload Compose app
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: compose-app-${{ matrix.os }}
-          path: examples/compose_app/build/xcross-ios/*.app
-          if-no-files-found: ignore
-          retention-days: 7
