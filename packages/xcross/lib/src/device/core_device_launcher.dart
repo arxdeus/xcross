@@ -169,11 +169,22 @@ abstract final class CoreDeviceLauncher {
           consoleFuture: consoleFuture,
           resume: gdb.resume,
         );
+        // An immediate exit or fault already ended the session: there is no
+        // app left to attach hot reload to, so skip the setup and its
+        // "Debugger attached" / "Preparing hot reload" progress lines.
+        if (console.isStopped) {
+          await consoleFuture;
+          return;
+        }
         Log.logDone('Debugger attached');
         if (hotReload != null) Log.logInfo('Preparing hot reload…');
         final setupFuture = _trySpinUpHotReload(
           hotReload: hotReload,
           transport: transport,
+          // The session can end while setup is still polling, for example a
+          // crash reported moments after launch. Stop polling then instead of
+          // retrying a gone app for the whole VM Service timeout.
+          cancelled: () => console.isStopped,
           onVmServiceReady: () async {
             final forwarder = await _publishVmService(transport: transport);
             if (console.isStopped) {
@@ -421,6 +432,7 @@ abstract final class CoreDeviceLauncher {
     required HotReloadConfig? hotReload,
     required DeviceTransport transport,
     Future<void> Function()? onVmServiceReady,
+    bool Function()? cancelled,
   }) async {
     if (hotReload == null) {
       Log.logInfo('Streaming app output ${Log.dim('— Ctrl-C to stop')}');
@@ -445,7 +457,7 @@ abstract final class CoreDeviceLauncher {
         'ws://${ProcessRunner.bracketHost(vmService.host)}:'
         '${vmService.port}/ws',
       );
-      vm = await _waitForVmService(wsUri);
+      vm = await _waitForVmService(wsUri, cancelled: cancelled);
       await onVmServiceReady?.call();
       // A wireless session dies quietly when the phone locks, sleeps off the
       // network, or the tunnel drops. Without this, `r`/`R` just start
@@ -488,12 +500,19 @@ abstract final class CoreDeviceLauncher {
   }
 
   /// Poll until the VM Service WebSocket is accepting connections.
-  static Future<DartVmServiceClient> _waitForVmService(Uri wsUri) async {
+  ///
+  /// Gives up early, with the same failure as a timeout, once [cancelled]
+  /// returns true.
+  static Future<DartVmServiceClient> _waitForVmService(
+    Uri wsUri, {
+    bool Function()? cancelled,
+  }) async {
     final vm = DartVmServiceClient();
     Object? lastError;
     final connected = await ProcessRunner.pollUntil<DartVmServiceClient>(
       timeout: _vmServiceWaitTimeout,
       interval: _vmServicePollInterval,
+      cancelled: cancelled,
       attempt: () async {
         try {
           await vm.connect(wsUri, timeout: _vmServiceConnectTimeout);

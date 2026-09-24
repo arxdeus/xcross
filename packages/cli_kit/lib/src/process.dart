@@ -93,11 +93,17 @@ abstract final class ProcessRunner {
     if (configured == null) return operationEnvironment;
     if (operationEnvironment == null) return {...configured};
     if (!Platform.isWindows) return {...configured, ...operationEnvironment};
+    return _mergeCaseInsensitive(configured, operationEnvironment);
+  }
 
-    // Windows environment keys are case-insensitive. Remove an existing Path
-    // (or any other differently cased key) before applying a local override.
-    final merged = {...configured};
-    for (final entry in operationEnvironment.entries) {
+  /// Windows environment keys are case-insensitive. Remove an existing Path
+  /// (or any other differently cased key) before applying a local override.
+  static Map<String, String> _mergeCaseInsensitive(
+    Map<String, String> base,
+    Map<String, String> overrides,
+  ) {
+    final merged = {...base};
+    for (final entry in overrides.entries) {
       merged.removeWhere(
         (key, _) => key.toUpperCase() == entry.key.toUpperCase(),
       );
@@ -434,18 +440,8 @@ abstract final class ProcessRunner {
     );
     final captured = StringBuffer();
     final drained = Future.wait([
-      process.stdout.transform(const Utf8Decoder(allowMalformed: true)).forEach(
-        (chunk) {
-          captured.write(chunk);
-          stdout.write(chunk);
-        },
-      ),
-      process.stderr.transform(const Utf8Decoder(allowMalformed: true)).forEach(
-        (chunk) {
-          captured.write(chunk);
-          stderr.write(chunk);
-        },
-      ),
+      _captureAndEchoStream(process.stdout, captured, stdout),
+      _captureAndEchoStream(process.stderr, captured, stderr),
     ]);
     // A fast-failing child can close its pipe before we do. Keep its captured
     // compiler diagnostic as the failure instead of a broken-pipe exception.
@@ -465,6 +461,19 @@ abstract final class ProcessRunner {
       );
     }
   }
+
+  /// Decodes [source] as UTF-8, appending each chunk to [captured] and
+  /// echoing it to [echo] as it arrives.
+  static Future<void> _captureAndEchoStream(
+    Stream<List<int>> source,
+    StringBuffer captured,
+    IOSink echo,
+  ) => source.transform(const Utf8Decoder(allowMalformed: true)).forEach((
+    chunk,
+  ) {
+    captured.write(chunk);
+    echo.write(chunk);
+  });
 
   static Future<void> _runWithTail(
     String executable,
@@ -904,13 +913,18 @@ abstract final class ProcessRunner {
 
   /// Retries [attempt] every [interval] until it yields a non-null value or
   /// [timeout] elapses; exceptions are swallowed and retried.
+  ///
+  /// [cancelled] is checked before every attempt; returning true ends the
+  /// poll early with null, as a timeout would.
   static Future<T?> pollUntil<T>({
     required Future<T?> Function() attempt,
     required Duration timeout,
     required Duration interval,
+    bool Function()? cancelled,
   }) async {
     final deadline = DateTime.now().add(timeout);
     while (DateTime.now().isBefore(deadline)) {
+      if (cancelled?.call() ?? false) return null;
       try {
         final result = await attempt();
         if (result != null) return result;

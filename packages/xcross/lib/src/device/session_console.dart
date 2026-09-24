@@ -171,31 +171,12 @@ final class SessionConsole {
             // stopped, not gone. Ignoring it (the old behaviour) left the
             // app frozen on a black screen with no output at all, which is
             // indistinguishable from a hang. Report it and end the session.
-            final repeated = _resumedStops[reply.stopIdentity] ?? 0;
-            if (reply.isFatalStop ||
-                (reply.stopSignal == 5 && _resumedStops.isNotEmpty) ||
-                repeated > 0 ||
-                _resumedStops.length >= _maxAutomaticResumes ||
-                _resumePending) {
+            if (_mustReportStop(reply)) {
               _reportStop(reply);
               _stop();
               finish();
             } else {
-              // A bare SIGTRAP can be the attach hand-off. A second stop at
-              // the same point is a trap and must be reported, not resumed.
-              _resumedStops[reply.stopIdentity] = repeated + 1;
-              _resumePending = true;
-              unawaited(
-                gdb.resume().then(
-                  (_) => _resumePending = false,
-                  onError: (Object error, StackTrace stack) {
-                    _resumePending = false;
-                    Log.logWarn('could not resume debugger after stop: $error');
-                    _stop();
-                    finish();
-                  },
-                ),
-              );
+              _resumeAttachHandOff(reply, finish);
             }
           case GdbReply.other:
             break;
@@ -214,6 +195,60 @@ final class SessionConsole {
     } on Object catch (_) {}
   }
 
+  /// Attach SIGTRAP policy: attaching can leave one bare, unnamed stop behind
+  /// as the debugger's hand-off, and that stop is resumed automatically.
+  /// Anything else is reported instead of resumed:
+  /// - a fatal or named stop ([GdbReplyPacket.isFatalStop]),
+  /// - any SIGTRAP after a stop was already resumed (the hand-off happens
+  ///   once).
+  ///
+  /// Only a bare SIGTRAP gets past the first rule and the second rejects any
+  /// later one, so at most one stop is ever resumed. The remaining checks, a
+  /// repeat at the same execution point, [_maxAutomaticResumes] or more
+  /// resumes, and a stop during an in-flight resume, are defensive bounds that
+  /// keep the loop finite if those two rules ever change.
+  bool _mustReportStop(GdbReplyPacket reply) {
+    if (reply.isFatalStop) return true;
+    if (reply.stopSignal == GdbReplyPacket.sigtrap &&
+        _resumedStops.isNotEmpty) {
+      return true;
+    }
+    if (_timesResumed(reply) > 0) return true;
+    if (_resumedStops.length >= _maxAutomaticResumes) return true;
+    return _resumePending;
+  }
+
+  int _timesResumed(GdbReplyPacket reply) =>
+      _resumedStops[reply.stopIdentity] ?? 0;
+
+  /// Resume past an attach hand-off stop, remembering where it stopped so a
+  /// second stop at the same point is reported by [_mustReportStop].
+  void _resumeAttachHandOff(GdbReplyPacket reply, void Function() finish) {
+    _resumedStops[reply.stopIdentity] = _timesResumed(reply) + 1;
+    _resumePending = true;
+    unawaited(
+      gdb.resume().then(
+        (_) => _resumePending = false,
+        onError: (Object error, StackTrace stack) {
+          _resumePending = false;
+          Log.logWarn('could not resume debugger after stop: $error');
+          _stop();
+          finish();
+        },
+      ),
+    );
+  }
+
+  /// A SIGTRAP with a debugger reason (breakpoint, watchpoint, ...) rather
+  /// than a Mach exception is a debugger stop, not a crash.
+  static bool _isDebuggerStop(GdbReplyPacket reply) {
+    final reason = reply.stopReason;
+    return reply.stopSignal == GdbReplyPacket.sigtrap &&
+        reason != null &&
+        reason != 'exception' &&
+        !reply.stopFields.containsKey('metype');
+  }
+
   /// Report an unexpected stop with whatever the app said on its way down.
   ///
   /// The signal name alone ("SIGABRT") is not actionable: every uncaught
@@ -221,15 +256,9 @@ final class SessionConsole {
   /// looks identical. The device log carries the actual reason, so it is
   /// printed with the stop instead of being discarded.
   void _reportStop(GdbReplyPacket reply) {
-    final reason = reply.stopReason;
-    final debuggerStop =
-        reply.stopSignal == 5 &&
-        reason != null &&
-        reason != 'exception' &&
-        !reply.stopFields.containsKey('metype');
-    if (debuggerStop) {
+    if (_isDebuggerStop(reply)) {
       Log.logError(
-        'App stopped: ${reply.stopDescription} ($reason). '
+        'App stopped: ${reply.stopDescription} (${reply.stopReason}). '
         'The process is stopped by the debugger.',
       );
     } else {

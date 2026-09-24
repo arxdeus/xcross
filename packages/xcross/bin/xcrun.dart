@@ -29,6 +29,10 @@ Future<void> main(List<String> arguments) async {
 /// Version reported by `xcrun --version`, matching a recent Xcode's xcrun.
 const xcrunCompatVersion = '72';
 
+/// Tools that an installed compiler shim directory provides as `<tool>.exe`.
+const _shimTools = {'clang', 'cc', 'ar', 'ld'};
+
+/// The SDK path recorded in the `<xcrun>.sdk` sidecar next to a compiler shim.
 String? _readShimSdk(String executable) {
   final sidecar = File('$executable.sdk');
   if (!sidecar.existsSync()) return null;
@@ -73,7 +77,7 @@ String? findShimTool(List<String> arguments, {String? executable}) {
   if (find == -1 || find + 1 >= wrapperArguments.length) return null;
 
   final tool = wrapperArguments[find + 1];
-  if (!{'clang', 'cc', 'ar', 'ld'}.contains(tool)) return null;
+  if (!_shimTools.contains(tool)) return null;
 
   final candidate = p.join(p.dirname(xcrunExecutable), '$tool.exe');
   return File(candidate).existsSync() ? candidate : null;
@@ -101,21 +105,14 @@ Future<int> runXcrun(
     return 1;
   }
 
+  final wrapperArguments = _wrapperArguments(arguments);
   try {
-    final wrapperArguments = _wrapperArguments(arguments);
-    final requested = _requestedSdk(wrapperArguments);
-    if (requested != null && !requested.toLowerCase().startsWith('iphoneos')) {
-      throw FormatException('SDK $requested is not installed');
-    }
-    if (requested != null) {
-      _requireIPhoneOsSdk(wrapperArguments, sdk.iPhoneOSSdk());
-    }
+    _requireInstalledSdk(wrapperArguments, sdk);
   } on FormatException catch (error) {
     stderr.writeln('xcrun: $error');
     return 1;
   }
 
-  final wrapperArguments = _wrapperArguments(arguments);
   if (wrapperArguments.contains('--show-sdk-path')) {
     stdout.writeln(sdk.iPhoneOSSdk());
     return 0;
@@ -187,6 +184,21 @@ List<String> _wrapperArguments(List<String> arguments) {
   return arguments.sublist(0, toolIndex < 0 ? arguments.length : toolIndex);
 }
 
+/// Rejects an `--sdk` selection other than the installed iPhoneOS SDK.
+///
+/// Non-iPhoneOS names are rejected before [DarwinSdk.iPhoneOSSdk] is
+/// consulted, so they fail with a [FormatException] even when no iPhoneOS SDK
+/// can be located.
+void _requireInstalledSdk(List<String> wrapperArguments, DarwinSdk sdk) {
+  final requested = _requestedSdk(wrapperArguments);
+  if (requested == null) return;
+  if (!requested.toLowerCase().startsWith('iphoneos')) {
+    throw FormatException('SDK $requested is not installed');
+  }
+  _requireIPhoneOsSdk(wrapperArguments, sdk.iPhoneOSSdk());
+}
+
+/// Accepts `--sdk iphoneos` or the exact name of [installedSdk].
 void _requireIPhoneOsSdk(List<String> arguments, String installedSdk) {
   final requested = _requestedSdk(arguments);
   if (requested == null) return;
@@ -197,6 +209,7 @@ void _requireIPhoneOsSdk(List<String> arguments, String installedSdk) {
   }
 }
 
+/// The last `--sdk <name>` or `--sdk=<name>` value, as real xcrun honors.
 String? _requestedSdk(List<String> arguments) {
   String? requested;
   for (var index = 0; index < arguments.length; index++) {

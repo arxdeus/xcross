@@ -134,79 +134,72 @@ abstract final class InfoPlist {
   /// `xcode_backend.dart` rather than requiring every application template to
   /// carry development-only permission text in its source Info.plist.
   static String applyDebugVmServiceDiscovery(String plistXml) {
-    const service = '_dartVmService._tcp';
     final document = XmlDocument.parse(plistXml);
     final root = document.rootElement.getElement('dict');
     if (root == null) {
       throw const FormatException('Info.plist has no root dict');
     }
 
-    XmlElement? valueFor(String name) {
-      final entries = root.childElements.toList();
-      for (var i = 0; i < entries.length; i++) {
-        if (entries[i].name.local == 'key' && entries[i].innerText == name) {
-          if (i + 1 >= entries.length || entries[i + 1].name.local == 'key') {
-            throw FormatException('Info.plist key $name has no value');
-          }
-          return entries[i + 1];
-        }
-      }
-      return null;
-    }
-
-    final currentServices = valueFor('NSBonjourServices');
+    final currentServices = _plistValueFor(root, _bonjourServicesKey);
     if (currentServices != null && currentServices.name.local != 'array') {
       throw const FormatException('NSBonjourServices must be an array');
     }
-    final currentUsage = valueFor('NSLocalNetworkUsageDescription');
+    final currentUsage = _plistValueFor(root, _localNetworkUsageKey);
     if (currentUsage != null && currentUsage.name.local != 'string') {
       throw const FormatException(
         'NSLocalNetworkUsageDescription must be a string',
       );
     }
-    if (currentServices?.childElements.any(
-              (entry) =>
-                  entry.name.local == 'string' && entry.innerText == service,
-            ) ==
-            true &&
-        currentUsage != null) {
-      return plistXml;
-    }
+    final hasVmService =
+        currentServices != null && _containsVmService(currentServices);
+    if (hasVmService && currentUsage != null) return plistXml;
 
-    final services =
-        currentServices ?? XmlElement(const XmlName.parts('array'));
+    final services = currentServices ?? _plistElement('array');
     if (currentServices == null) {
-      root.children.add(
-        XmlElement(const XmlName.parts('key'), [], [
-          XmlText('NSBonjourServices'),
-        ]),
-      );
-      root.children.add(services);
+      root.children
+        ..add(_plistElement('key', _bonjourServicesKey))
+        ..add(services);
     }
-    if (!services.childElements.any(
-      (entry) => entry.name.local == 'string' && entry.innerText == service,
-    )) {
-      services.children.add(
-        XmlElement(const XmlName.parts('string'), [], [XmlText(service)]),
-      );
+    if (!hasVmService) {
+      services.children.add(_plistElement('string', _dartVmService));
     }
     if (currentUsage == null) {
-      root.children.add(
-        XmlElement(const XmlName.parts('key'), [], [
-          XmlText('NSLocalNetworkUsageDescription'),
-        ]),
-      );
-      root.children.add(
-        XmlElement(const XmlName.parts('string'), [], [
-          XmlText(
-            'Allow Flutter tools on your computer to connect and debug '
-            'your application. This prompt will not appear on release builds.',
-          ),
-        ]),
-      );
+      root.children
+        ..add(_plistElement('key', _localNetworkUsageKey))
+        ..add(_plistElement('string', _debugLocalNetworkUsage));
     }
     return document.toXmlString();
   }
+
+  static const _dartVmService = '_dartVmService._tcp';
+  static const _bonjourServicesKey = 'NSBonjourServices';
+  static const _localNetworkUsageKey = 'NSLocalNetworkUsageDescription';
+  static const _debugLocalNetworkUsage =
+      'Allow Flutter tools on your computer to connect and debug '
+      'your application. This prompt will not appear on release builds.';
+
+  /// The value element following `<key>[name]</key>` in [dict], or null.
+  static XmlElement? _plistValueFor(XmlElement dict, String name) {
+    final entries = dict.childElements.toList();
+    for (var i = 0; i < entries.length; i++) {
+      if (entries[i].name.local == 'key' && entries[i].innerText == name) {
+        if (i + 1 >= entries.length || entries[i + 1].name.local == 'key') {
+          throw FormatException('Info.plist key $name has no value');
+        }
+        return entries[i + 1];
+      }
+    }
+    return null;
+  }
+
+  static bool _containsVmService(XmlElement services) =>
+      services.childElements.any(
+        (entry) =>
+            entry.name.local == 'string' && entry.innerText == _dartVmService,
+      );
+
+  static XmlElement _plistElement(String name, [String? text]) =>
+      XmlElement(XmlName.parts(name), [], [if (text != null) XmlText(text)]);
 
   /// Expand `$(KEY)` and `${KEY}` in [text] using [subs].
   static String expandVars(String text, Map<String, String> subs) {

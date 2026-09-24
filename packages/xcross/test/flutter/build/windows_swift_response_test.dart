@@ -3,9 +3,45 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/flutter/build/internal/windows_swift_plan_repair.dart';
 import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 
 void main() {
+  test('reads only generated response files inside the scratch cache', () {
+    final scratch = Directory.systemTemp.createTempSync('xcross-rsp-read-');
+    addTearDown(() => scratch.deleteSync(recursive: true));
+    final cache = Directory(p.join(scratch.path, '.xcross-response'))
+      ..createSync();
+    final generated = File(p.join(cache.path, '${'b' * 64}.rsp'))
+      ..writeAsStringSync('"-I"\n"include"');
+    final misnamed = File(p.join(cache.path, 'notes.rsp'))
+      ..writeAsStringSync('"misnamed"');
+    final outside = File(p.join(scratch.path, '${'c' * 64}.rsp'))
+      ..writeAsStringSync('"outside"');
+    String line(String file) => '    args: ${jsonEncode(['swiftc', '@$file'])}';
+    final manifest = [
+      line(generated.path),
+      line(misnamed.path),
+      line(outside.path),
+      '    args: [not json',
+    ].join('\n');
+    expect(
+      WindowsSwiftPlanRepair.referencedResponseArguments(
+        manifest,
+        scratch.path,
+      ),
+      {'"-I"', '"include"'},
+    );
+    final missing = p.join(cache.path, '${'d' * 64}.rsp');
+    expect(
+      WindowsSwiftPlanRepair.referencedResponseArguments(
+        '$manifest\n${line(missing)}',
+        scratch.path,
+      ),
+      isNull,
+    );
+  });
+
   test(
     'interop search paths remain visible after response-file repair',
     () async {
@@ -45,6 +81,43 @@ void main() {
         ),
         isTrue,
       );
+    },
+  );
+
+  test(
+    'keeps an old referenced response file under a relative scratch path',
+    () async {
+      final root = await Directory.systemTemp.createTemp('xcross-rsp-prune-');
+      addTearDown(() => root.delete(recursive: true));
+      final previous = Directory.current;
+      Directory.current = root;
+      addTearDown(() => Directory.current = previous);
+      const scratch = 'scratch';
+      Directory(scratch).createSync();
+      final plan = File(p.join(scratch, 'debug.yaml'))
+        ..writeAsStringSync(
+          '    args: ${jsonEncode(['swiftc.exe', '-D', 'A' * 29000])}\n',
+        );
+      await GeneratedPluginsPackage.repairWindowsSwiftResponseFiles(
+        scratch,
+        windows: true,
+      );
+      final reference =
+          (jsonDecode(plan.readAsLinesSync().single.substring(10)) as List)
+              .cast<String>()
+              .last
+              .substring(1);
+      final response = File(reference);
+      expect(p.isAbsolute(reference), isTrue);
+      // Older than the retention window, yet still referenced by the plan.
+      response.setLastModifiedSync(
+        DateTime.now().subtract(const Duration(days: 30)),
+      );
+      await GeneratedPluginsPackage.repairWindowsSwiftResponseFiles(
+        scratch,
+        windows: true,
+      );
+      expect(response.existsSync(), isTrue);
     },
   );
 

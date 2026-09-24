@@ -30,6 +30,18 @@ final class GdbReplyPacket {
   final GdbReply type;
   final String payload;
 
+  /// POSIX SIGTRAP, how debugger breakpoints and the attach hand-off report.
+  static const sigtrap = 5;
+
+  /// GDB stop-reply fields that name a debugger stop without `reason:`.
+  static const _standaloneStopReasons = [
+    'watch',
+    'rwatch',
+    'awatch',
+    'swbreak',
+    'hwbreak',
+  ];
+
   /// For [GdbReply.stopped]: the POSIX signal number in a `T`/`S` packet,
   /// e.g. 11 (SIGSEGV) or 6 (SIGABRT). Null when the payload has no
   /// parseable signal byte.
@@ -58,19 +70,16 @@ final class GdbReplyPacket {
   String? get stopReason {
     final fields = stopFields;
     if (fields['reason'] case final String reason) return reason;
-    for (final name in const [
-      'watch',
-      'rwatch',
-      'awatch',
-      'swbreak',
-      'hwbreak',
-    ]) {
+    for (final name in _standaloneStopReasons) {
       if (fields.containsKey(name)) return name;
     }
     return null;
   }
 
   /// A repeated stop at the same execution point must not be resumed forever.
+  ///
+  /// Formatted as `signal:thread:pc`, where pc falls back to debugserver's
+  /// register 0x20 and finally to the raw payload.
   String get stopIdentity {
     final fields = stopFields;
     return '${stopSignal ?? 'unknown'}:${fields['thread'] ?? ''}:'
@@ -80,11 +89,12 @@ final class GdbReplyPacket {
   /// Human name for [stopSignal], for the signals a launch actually hits.
   String get stopDescription => switch (stopSignal) {
     4 => 'SIGILL',
-    5 => 'SIGTRAP',
+    sigtrap => 'SIGTRAP',
     6 => 'SIGABRT (uncaught exception or Kotlin/Native crash)',
     8 => 'SIGFPE',
     10 => 'SIGBUS',
     11 => 'SIGSEGV (bad memory access)',
+    // debugserver reports Mach exceptions as 0x90 + the EXC_* number.
     0x91 => 'EXC_BAD_ACCESS (Mach memory fault)',
     0x92 => 'EXC_BAD_INSTRUCTION',
     0x93 => 'EXC_ARITHMETIC',
@@ -98,9 +108,13 @@ final class GdbReplyPacket {
   /// A bare first SIGTRAP may be an attach hand-off; a named stop is not.
   bool get isFatalStop => switch (stopSignal) {
     null => type == GdbReply.stopped,
-    5 => stopFields.containsKey('metype') || stopReason != null,
+    sigtrap => _isNamedStop,
     _ => true,
   };
+
+  /// A stop that carries a Mach exception type or a debugger stop reason.
+  bool get _isNamedStop =>
+      stopFields.containsKey('metype') || stopReason != null;
 
   /// For [GdbReply.stdout]: hex-decoded bytes of the `O` payload.
   Uint8List get stdoutBytes => _hexDecode(payload.substring(1));

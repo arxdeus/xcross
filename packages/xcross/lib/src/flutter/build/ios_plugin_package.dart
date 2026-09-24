@@ -303,8 +303,9 @@ abstract final class GeneratedPluginsPackage {
       input.add(const [0]);
     }
 
-    // v7 invalidates dylibs compiled with availability guards disabled.
-    add('xcross-swiftpm-build-v7');
+    // v7 invalidated dylibs compiled with availability guards disabled; v8
+    // invalidates staged sources compiled before State-wrapper recovery.
+    add('xcross-swiftpm-build-v8-state-wrapper-recovery');
     add(objectiveCLinkerSwiftDriverArguments.join('\u0001'));
     if (Platform.isLinux) {
       add(objectiveCSmallStubSwiftDriverArguments.join('\u0001'));
@@ -551,23 +552,29 @@ abstract final class GeneratedPluginsPackage {
         captureAndEcho: windows && Log.isVerbose,
         label: 'swift build',
       );
+
       await repairWindowsGeneratedBuildFiles(
         scratchPath,
         targetBuildDir,
         windows: windows,
       );
-      try {
-        await invoke();
-      } on Object {
-        if (!windows) rethrow;
-        final repaired = await repairWindowsGeneratedBuildFiles(
-          scratchPath,
-          targetBuildDir,
-          windows: true,
-        );
-        if (!repaired) rethrow;
-        await invoke();
-      }
+      await buildWithSwiftUIStateRecovery(
+        ownedRoots: [workspace.vendor, p.join(outputDir, 'Packages')],
+        build: () async {
+          try {
+            await invoke();
+          } on Object {
+            if (!windows) rethrow;
+            final repaired = await repairWindowsGeneratedBuildFiles(
+              scratchPath,
+              targetBuildDir,
+              windows: true,
+            );
+            if (!repaired) rethrow;
+            await invoke();
+          }
+        },
+      );
       if (windows) {
         await repairWindowsGeneratedBuildFiles(
           scratchPath,
@@ -591,6 +598,73 @@ abstract final class GeneratedPluginsPackage {
         windows: windows,
       ),
     );
+  }
+
+  /// Retry once, and only when the exact compiler diagnostic changed owned
+  /// staged sources. Unrelated failures and failed repairs keep their errors.
+  @visibleForTesting
+  static Future<void> buildWithSwiftUIStateRecovery({
+    required Future<void> Function() build,
+    required List<String> ownedRoots,
+  }) async {
+    try {
+      await build();
+    } on Object catch (error, stack) {
+      bool changed;
+      try {
+        changed = await repairMissingSwiftUIStateMacro(
+          error.toString(),
+          ownedRoots: ownedRoots,
+        );
+      } on Object {
+        Error.throwWithStackTrace(error, stack);
+      }
+      if (!changed) rethrow;
+      await build();
+    }
+  }
+
+  @visibleForTesting
+  static Future<bool> repairMissingSwiftUIStateMacro(
+    String diagnostics, {
+    required List<String> ownedRoots,
+  }) async {
+    final diagnostic = RegExp(
+      r"^(.+\.swift):\d+:\d+: error: external macro implementation type 'SwiftUIMacros\.StateMacro' could not be found for macro 'State\([^'\r\n]*\)'; plugin for module 'SwiftUIMacros' not found\s*$",
+      multiLine: true,
+    );
+    final paths = diagnostic
+        .allMatches(diagnostics)
+        .map((match) => match[1]!)
+        .toSet();
+    if (paths.isEmpty) return false;
+    final roots = <(String, String)>[
+      for (final root in ownedRoots)
+        if (Directory(root).existsSync())
+          (
+            p.normalize(p.absolute(root)),
+            Directory(root).resolveSymbolicLinksSync(),
+          ),
+    ];
+    var changed = false;
+    for (final path in paths) {
+      if (!p.isAbsolute(path)) continue;
+      final file = File(p.normalize(path));
+      if (!file.existsSync()) continue;
+      final realPath = file.resolveSymbolicLinksSync();
+      if (!roots.any(
+        (root) =>
+            p.isWithin(root.$1, file.path) && p.isWithin(root.$2, realPath),
+      )) {
+        continue;
+      }
+      final original = await file.readAsString();
+      final repaired = restoreSwiftUIStatePropertyWrapper(original);
+      if (repaired == original) continue;
+      await _writeStable(file.path, repaired);
+      changed = true;
+    }
+    return changed;
   }
 
   @visibleForTesting
@@ -1123,6 +1197,7 @@ abstract final class GeneratedPluginsPackage {
     String? binaryArtifactFallback,
     SwiftPmBinaryAttemptState? attemptState,
     bool packageLocalArtifactJunctionCapability = false,
+    PrepareSwiftPmBinaryArtifact? prepare,
     CreateSwiftPmBinaryAlias? createAlias,
     MaterializeSwiftPmBinaryArtifact? materialize,
     Future<void> Function(String destination)? removeDestination,
@@ -1198,6 +1273,23 @@ abstract final class GeneratedPluginsPackage {
                     target: candidate.target,
                     archive: archive,
                   ),
+                );
+              } on FlutterBuildError catch (error) {
+                if (error.isSecurityFailure) rethrow;
+              }
+            }
+            // SwiftPM deletes the archive once it has extracted it, so the
+            // usual case here is a bare extracted tree. That tree is not
+            // checksum-verified and can be partial: on the Windows CI runner
+            // SwiftPM hit I/O error 514 mid-resolve and left
+            // FirebaseFirestoreInternal.framework without its Headers, which
+            // the store then served as complete to every later build. The
+            // manifest's URL and checksum rebuild the artifact from a verified
+            // archive, so try that before trusting the tree.
+            if (verified.isEmpty) {
+              try {
+                verified.add(
+                  (await (prepare ?? preparer.prepare)(candidate.target)).entry,
                 );
               } on FlutterBuildError catch (error) {
                 if (error.isSecurityFailure) rethrow;
@@ -1425,46 +1517,73 @@ abstract final class GeneratedPluginsPackage {
     try {
       await build();
     } on Object catch (error, stack) {
-      final diagnostic = error.toString();
-      final missingHeader = RegExp(
-        r'[A-Za-z_0-9-]+-Swift\.h[^\n]*(?:file not found|not found|No such file)',
-        caseSensitive: false,
-      ).hasMatch(diagnostic);
+      final missingHeader = _missingSwiftHeaderDiagnostic.hasMatch(
+        error.toString(),
+      );
       final newlyExposed = missingSwiftInteropTargets(
         targetBuildDir,
         candidates: interopTargetCandidates,
       ).toSet().difference(missingBefore);
       if (!missingHeader && newlyExposed.isEmpty) rethrow;
-      // Internal targets may be absent from public products, but must still
-      // be reachable from the generated aggregate build plan.
-      final reachable = plannedTargetClosure(
+
+      // Step 1: prebuild the targets whose header is still missing, then
+      // retry. A failure here reports the original build error.
+      final candidates = _reachableInteropCandidates(
         targetBuildDir,
-        _pluginsProductName,
+        interopTargetCandidates,
       );
-      final candidates = {
-        ...interopTargetCandidates,
-        if (reachable != null) ...reachable,
-      };
-      try {
-        if (await recoverMissingTargets(candidates: candidates)) {
-          await build();
-          return;
+      final recovered = await _reportingOriginalFailure(error, stack, () async {
+        if (!await recoverMissingTargets(candidates: candidates)) {
+          return false;
         }
-      } on Object {
-        Error.throwWithStackTrace(error, stack);
-      }
+        await build();
+        return true;
+      });
+      if (recovered) return;
+
+      // Step 2 (Windows only): the build emitted new interop search paths,
+      // so repair their consumers once and retry.
       final emitted = swiftInteropSearchPaths(
         targetBuildDir,
       ).toSet().difference(before);
       if (!(windows ?? Platform.isWindows) || emitted.isEmpty) {
         rethrow;
       }
-      try {
-        await repair();
-      } on Object {
-        Error.throwWithStackTrace(error, stack);
-      }
+      await _reportingOriginalFailure(error, stack, repair);
       await build();
+    }
+  }
+
+  /// A compiler diagnostic naming a generated `<Target>-Swift.h` header that
+  /// could not be found.
+  static final RegExp _missingSwiftHeaderDiagnostic = RegExp(
+    r'[A-Za-z_0-9-]+-Swift\.h[^\n]*(?:file not found|not found|No such file)',
+    caseSensitive: false,
+  );
+
+  /// [interopTargetCandidates] plus every target the aggregate build plan
+  /// reaches. Internal targets may be absent from public products, but must
+  /// still be reachable from the generated aggregate build plan.
+  static Set<String> _reachableInteropCandidates(
+    String targetBuildDir,
+    Set<String> interopTargetCandidates,
+  ) {
+    final reachable = plannedTargetClosure(targetBuildDir, _pluginsProductName);
+    return {...interopTargetCandidates, if (reachable != null) ...reachable};
+  }
+
+  /// Runs a recovery [step] for a build that failed with [error], rethrowing
+  /// that original failure with its [stack] if the step itself fails, since
+  /// the original diagnostic is the one a user can act on.
+  static Future<T> _reportingOriginalFailure<T>(
+    Object error,
+    StackTrace stack,
+    Future<T> Function() step,
+  ) async {
+    try {
+      return await step();
+    } on Object {
+      Error.throwWithStackTrace(error, stack);
     }
   }
 
@@ -2044,33 +2163,19 @@ abstract final class GeneratedPluginsPackage {
       return false;
     }
     if (text.isEmpty) return false;
-    final responseDirectory = p.join(scratchPath, '.xcross-response');
-    final responseArguments = <String>{};
-    for (final line in text.split('\n')) {
-      const prefix = '    args: ';
-      if (!line.startsWith('$prefix[')) continue;
-      final Object? decoded;
-      try {
-        decoded = jsonDecode(line.substring(prefix.length));
-      } on FormatException {
-        continue;
-      }
-      if (decoded is! List) continue;
-      for (final argument in decoded.whereType<String>()) {
-        if (!argument.startsWith('@')) continue;
-        final path = p.normalize(p.absolute(argument.substring(1)));
-        if (!p.isWithin(p.absolute(responseDirectory), path) ||
-            FileSystemEntity.isLinkSync(path) ||
-            !RegExp(r'^[a-f0-9]{64}\.rsp$').hasMatch(p.basename(path))) {
-          continue;
-        }
-        try {
-          responseArguments.addAll(File(path).readAsLinesSync());
-        } on FileSystemException {
-          return false;
-        }
-      }
-    }
+    // On Windows, long compiler command lines move into response files, so
+    // a path may be recorded there instead of in the manifest itself.
+    final responseArguments =
+        WindowsSwiftPlanRepair.referencedResponseArguments(text, scratchPath);
+    if (responseArguments == null) return false;
+    bool recorded(String path) =>
+        text.contains(jsonEncode(path)) ||
+        responseArguments.contains(
+          WindowsSwiftPlanRepair.quoteWindowsArgument(path),
+        ) ||
+        responseArguments.contains(
+          WindowsSwiftPlanRepair.quoteGnuArgument(path),
+        );
     var checked = 0;
     // [plannedSwiftInteropSearchPaths] emits each include as the quadruple
     // `-Xcc -I -Xcc <path>`, so the path follows the `-I` across the `-Xcc`
@@ -2079,16 +2184,7 @@ abstract final class GeneratedPluginsPackage {
       if (interopArguments[index] != '-I') continue;
       if (interopArguments[index + 1] != '-Xcc') continue;
       checked++;
-      final path = interopArguments[index + 2];
-      if (!text.contains(jsonEncode(path)) &&
-          !responseArguments.contains(
-            WindowsSwiftPlanRepair.quoteWindowsArgument(path),
-          ) &&
-          !responseArguments.contains(
-            WindowsSwiftPlanRepair.quoteGnuArgument(path),
-          )) {
-        return false;
-      }
+      if (!recorded(interopArguments[index + 2])) return false;
     }
     return checked > 0;
   }

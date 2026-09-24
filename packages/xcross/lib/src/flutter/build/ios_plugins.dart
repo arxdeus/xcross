@@ -106,256 +106,111 @@ final class IosPlugin {
       if (stagedPackage != null && !p.equals(stagedPackage, swiftPackageDir))
         stagedPackage,
     ];
-    final declaration = RegExp('\\bclass\\s+${RegExp.escape(pluginClass)}\\b');
-    final declarationPrefix = RegExp(
-      r'^(?:(?:@[A-Za-z_]\w*(?:\([^)]*\))?|public|open|internal|private|'
-      r'fileprivate|final|dynamic|nonisolated)\s+)*$',
-    );
-    final attributes = RegExp(
-      r'^(?:@[A-Za-z_]\w*(?:\([^)]*\))?\s*)+$',
-      dotAll: true,
-    );
-    final availability = RegExp(r'@available\s*\(([^)]*)\)', dotAll: true);
-    final shortIos = RegExp(r'(?:^|,)\s*iOS\s+(\d+(?:\.\d+){0,2})(?=\s*,|$)');
-    final introducedIos = RegExp(
-      r'(?:^|,)\s*iOS\s*,\s*introduced\s*:\s*(\d+(?:\.\d+){0,2})',
-    );
-    final objcDeclaration = RegExp(
-      '@interface\\s+${RegExp.escape(pluginClass)}\\b',
-    );
-    final objcAvailability = RegExp(
-      r'API_AVAILABLE\s*\([^;{}]*?\bios\s*\(\s*(\d+(?:\.\d+){0,2})\s*\)',
-      dotAll: true,
-    );
-    String? requiredVersion;
-    void consider(String version) {
-      if (requiredVersion == null ||
-          _compareIosVersions(version, requiredVersion!) > 0) {
-        requiredVersion = version;
-      }
+    final scanner = _PluginClassAvailabilityScanner(pluginClass);
+    for (final file in _availabilityDeclarationFiles(packageDirectories)) {
+      scanner.scan(file);
     }
-
-    Iterable<File> declarationFiles() sync* {
-      for (final packageDirectory in packageDirectories) {
-        final sources = Directory(p.join(packageDirectory, 'Sources'));
-        if (sources.existsSync()) {
-          yield* sources
-              .listSync(recursive: true, followLinks: false)
-              .whereType<File>()
-              .where(
-                (file) => {'.swift', '.h'}.contains(p.extension(file.path)),
-              );
-        }
-        final package = Directory(packageDirectory);
-        if (!package.existsSync()) continue;
-        for (final entity in package.listSync(
-          recursive: true,
-          followLinks: false,
-        )) {
-          if (!p.basename(entity.path).toLowerCase().endsWith('.xcframework')) {
-            continue;
-          }
-          // SwiftPM can place downloaded artifacts behind .xa junctions.
-          // Follow only the XCFramework root, not links inside the slice.
-          final framework = Directory(entity.path);
-          if (!framework.existsSync()) continue;
-          for (final identifier in _iosDeviceSliceIdentifiers(framework)) {
-            final slice = Directory(p.join(framework.path, identifier));
-            if (!slice.existsSync()) continue;
-            yield* slice
-                .listSync(recursive: true, followLinks: false)
-                .whereType<File>()
-                .where(
-                  (file) => {
-                    '.swiftinterface',
-                    '.h',
-                  }.contains(p.extension(file.path.toLowerCase())),
-                );
-          }
-        }
-      }
-    }
-
-    for (final file in declarationFiles()) {
-      // Preserve line boundaries while masking comments and string literals;
-      // examples embedded in Swift multiline strings are not declarations.
-      final source = _codeOutsideCommentsAndStrings(file.readAsStringSync());
-      if (p.extension(file.path) == '.h') {
-        var pendingAvailability = '';
-        for (final rawLine in source.split(RegExp(r'\r?\n'))) {
-          final line = rawLine.trim();
-          if (line.isEmpty) continue;
-          if (objcDeclaration.hasMatch(line)) {
-            for (final annotation in objcAvailability.allMatches(
-              '$pendingAvailability $line',
-            )) {
-              consider(annotation[1]!);
-            }
-            pendingAvailability = '';
-          } else if (line.startsWith('API_AVAILABLE')) {
-            pendingAvailability = '$pendingAvailability $line';
-          } else {
-            pendingAvailability = '';
-          }
-        }
-        continue;
-      }
-      var pendingAttributes = '';
-      for (final rawLine in source.split(RegExp(r'\r?\n'))) {
-        final line = rawLine.trim();
-        if (line.isEmpty) continue;
-        final match = declaration.firstMatch(line);
-        if (match != null &&
-            declarationPrefix.hasMatch(line.substring(0, match.start))) {
-          final attached =
-              '$pendingAttributes ${line.substring(0, match.start)}';
-          if (pendingAttributes.isEmpty ||
-              attributes.hasMatch(pendingAttributes)) {
-            for (final annotation in availability.allMatches(attached)) {
-              final body = annotation[1]!;
-              final version =
-                  shortIos.firstMatch(body)?[1] ??
-                  introducedIos.firstMatch(body)?[1];
-              if (version != null) consider(version);
-            }
-          }
-          pendingAttributes = '';
-          continue;
-        }
-        if (line.startsWith('@') ||
-            (pendingAttributes.isNotEmpty &&
-                !attributes.hasMatch(pendingAttributes))) {
-          pendingAttributes = '$pendingAttributes $line'.trim();
-          if (!pendingAttributes.startsWith('@') ||
-              pendingAttributes.contains(';') ||
-              pendingAttributes.contains('{') ||
-              pendingAttributes.contains('}')) {
-            pendingAttributes = '';
-          }
-        } else {
-          // An intervening declaration owns any attributes above it.
-          pendingAttributes = '';
-        }
-      }
-    }
-    return requiredVersion;
+    return scanner.requiredVersion;
   }
 
+  /// Swift sources and headers under each package's `Sources`, plus the
+  /// interfaces and headers of every iOS device slice of any XCFramework in
+  /// the package.
+  static Iterable<File> _availabilityDeclarationFiles(
+    Iterable<String> packageDirectories,
+  ) sync* {
+    for (final packageDirectory in packageDirectories) {
+      final sources = Directory(p.join(packageDirectory, 'Sources'));
+      if (sources.existsSync()) {
+        yield* _filesWithExtensions(sources, const {'.swift', '.h'});
+      }
+      final package = Directory(packageDirectory);
+      if (!package.existsSync()) continue;
+      for (final entity in package.listSync(
+        recursive: true,
+        followLinks: false,
+      )) {
+        if (!p.basename(entity.path).toLowerCase().endsWith('.xcframework')) {
+          continue;
+        }
+        yield* _xcframeworkDeviceDeclarationFiles(Directory(entity.path));
+      }
+    }
+  }
+
+  static Iterable<File> _xcframeworkDeviceDeclarationFiles(
+    Directory framework,
+  ) sync* {
+    // SwiftPM can place downloaded artifacts behind .xa junctions.
+    // Follow only the XCFramework root, not links inside the slice.
+    if (!framework.existsSync()) return;
+    for (final identifier in _iosDeviceSliceIdentifiers(framework)) {
+      final slice = Directory(p.join(framework.path, identifier));
+      if (!slice.existsSync()) continue;
+      yield* _filesWithExtensions(slice, const {
+        '.swiftinterface',
+        '.h',
+      }, caseInsensitive: true);
+    }
+  }
+
+  static Iterable<File> _filesWithExtensions(
+    Directory directory,
+    Set<String> extensions, {
+    bool caseInsensitive = false,
+  }) => directory
+      .listSync(recursive: true, followLinks: false)
+      .whereType<File>()
+      .where(
+        (file) => extensions.contains(
+          p.extension(caseInsensitive ? file.path.toLowerCase() : file.path),
+        ),
+      );
+
+  /// Library identifiers of the XCFramework's arm64 iOS device slices, read
+  /// from its `Info.plist`. Unreadable metadata yields no slices.
   static Iterable<String> _iosDeviceSliceIdentifiers(Directory framework) {
     final plist = File(p.join(framework.path, 'Info.plist'));
     if (!plist.existsSync()) return const [];
     try {
-      final bytes = plist.readAsBytesSync();
-      final value =
-          bytes.length >= 8 && ascii.decode(bytes.sublist(0, 8)) == 'bplist00'
-          ? PropertyListSerialization.propertyListWithData(
-              ByteData.sublistView(bytes),
-            )
-          : PropertyListSerialization.propertyListWithString(
-              utf8.decode(bytes),
-            );
+      final value = _decodePropertyList(plist.readAsBytesSync());
       if (value is! Map || value['AvailableLibraries'] is! List) {
         return const [];
       }
       return [
         for (final library in value['AvailableLibraries'] as List)
-          if (library is Map &&
-              library['SupportedPlatform'] == 'ios' &&
-              library['SupportedPlatformVariant'] == null &&
-              library['SupportedArchitectures'] is List &&
-              (library['SupportedArchitectures'] as List).contains('arm64') &&
-              library['LibraryIdentifier'] is String &&
-              p.basename(library['LibraryIdentifier'] as String) ==
-                  library['LibraryIdentifier'] &&
-              p.isWithin(
-                framework.path,
-                p.join(framework.path, library['LibraryIdentifier'] as String),
-              ))
-            library['LibraryIdentifier'] as String,
+          if (library is Map && _isIosDeviceArm64Library(library))
+            if (library['LibraryIdentifier'] case final String identifier)
+              if (_isDirectChildName(framework.path, identifier)) identifier,
       ];
     } on Object {
       return const [];
     }
   }
 
-  static String _codeOutsideCommentsAndStrings(String source) {
-    final result = StringBuffer();
-    var index = 0;
-    var blockDepth = 0;
-    var lineComment = false;
-    var stringDelimiter = 0; // 0: code, 1: quoted, 3: multiline quoted
-    var escaped = false;
+  static const _binaryPlistMagic = 'bplist00';
 
-    void mask(int count) {
-      for (var offset = 0; offset < count; offset++) {
-        final character = source[index + offset];
-        result.write(character == '\n' || character == '\r' ? character : ' ');
-      }
-      index += count;
-    }
-
-    while (index < source.length) {
-      final character = source[index];
-      if (lineComment) {
-        if (character == '\n') lineComment = false;
-        mask(1);
-      } else if (blockDepth > 0) {
-        if (source.startsWith('/*', index)) {
-          blockDepth++;
-          mask(2);
-        } else if (source.startsWith('*/', index)) {
-          blockDepth--;
-          mask(2);
-        } else {
-          mask(1);
-        }
-      } else if (stringDelimiter > 0) {
-        if (!escaped &&
-            stringDelimiter == 3 &&
-            source.startsWith('"""', index)) {
-          stringDelimiter = 0;
-          mask(3);
-        } else if (!escaped && stringDelimiter == 1 && character == '"') {
-          stringDelimiter = 0;
-          mask(1);
-        } else {
-          if (character == r'\' && !escaped) {
-            escaped = true;
-          } else {
-            escaped = false;
-          }
-          mask(1);
-        }
-      } else if (source.startsWith('//', index)) {
-        lineComment = true;
-        mask(2);
-      } else if (source.startsWith('/*', index)) {
-        blockDepth = 1;
-        mask(2);
-      } else if (source.startsWith('"""', index)) {
-        stringDelimiter = 3;
-        mask(3);
-      } else if (character == '"') {
-        stringDelimiter = 1;
-        mask(1);
-      } else {
-        result.write(character);
-        index++;
-      }
-    }
-    return result.toString();
+  static Object? _decodePropertyList(Uint8List bytes) {
+    final isBinary =
+        bytes.length >= _binaryPlistMagic.length &&
+        ascii.decode(bytes.sublist(0, _binaryPlistMagic.length)) ==
+            _binaryPlistMagic;
+    return isBinary
+        ? PropertyListSerialization.propertyListWithData(
+            ByteData.sublistView(bytes),
+          )
+        : PropertyListSerialization.propertyListWithString(utf8.decode(bytes));
   }
 
-  static int _compareIosVersions(String left, String right) {
-    final a = left.split('.').map(int.parse).toList();
-    final b = right.split('.').map(int.parse).toList();
-    for (var index = 0; index < 3; index++) {
-      final difference =
-          (index < a.length ? a[index] : 0) - (index < b.length ? b[index] : 0);
-      if (difference != 0) return difference;
-    }
-    return 0;
-  }
+  static bool _isIosDeviceArm64Library(Map<dynamic, dynamic> library) =>
+      library['SupportedPlatform'] == 'ios' &&
+      library['SupportedPlatformVariant'] == null &&
+      library['SupportedArchitectures'] is List &&
+      (library['SupportedArchitectures'] as List).contains('arm64');
+
+  /// Whether [name] is a single path segment naming a child of [parent].
+  static bool _isDirectChildName(String parent, String name) =>
+      p.basename(name) == name && p.isWithin(parent, p.join(parent, name));
 
   /// Whether this plugin's own pubspec declares a native iOS `pluginClass`,
   /// i.e. it is expected to contribute native code to the build.
@@ -421,4 +276,217 @@ abstract final class PluginDiscovery {
 
   static String _resolve(String path, String projectRoot) =>
       p.isAbsolute(path) ? path : p.join(projectRoot, path);
+}
+
+/// Collects the highest iOS availability version annotated directly on one
+/// plugin class declaration across Swift and Objective-C sources.
+final class _PluginClassAvailabilityScanner {
+  _PluginClassAvailabilityScanner(String pluginClass)
+    : _swiftDeclaration = RegExp(
+        '\\bclass\\s+${RegExp.escape(pluginClass)}\\b',
+      ),
+      _objcDeclaration = RegExp(
+        '@interface\\s+${RegExp.escape(pluginClass)}\\b',
+      );
+
+  static final _lineBreak = RegExp(r'\r?\n');
+  static final _swiftDeclarationPrefix = RegExp(
+    r'^(?:(?:@[A-Za-z_]\w*(?:\([^)]*\))?|public|open|internal|private|'
+    r'fileprivate|final|dynamic|nonisolated)\s+)*$',
+  );
+  static final _swiftAttributes = RegExp(
+    r'^(?:@[A-Za-z_]\w*(?:\([^)]*\))?\s*)+$',
+    dotAll: true,
+  );
+  static final _swiftAvailable = RegExp(
+    r'@available\s*\(([^)]*)\)',
+    dotAll: true,
+  );
+  static final _swiftShortIos = RegExp(
+    r'(?:^|,)\s*iOS\s+(\d+(?:\.\d+){0,2})(?=\s*,|$)',
+  );
+  static final _swiftIntroducedIos = RegExp(
+    r'(?:^|,)\s*iOS\s*,\s*introduced\s*:\s*(\d+(?:\.\d+){0,2})',
+  );
+  static final _objcAvailability = RegExp(
+    r'API_AVAILABLE\s*\([^;{}]*?\bios\s*\(\s*(\d+(?:\.\d+){0,2})\s*\)',
+    dotAll: true,
+  );
+
+  final RegExp _swiftDeclaration;
+  final RegExp _objcDeclaration;
+
+  /// The highest version seen so far, or null when none was annotated.
+  String? requiredVersion;
+
+  void scan(File file) {
+    // Preserve line boundaries while masking comments and string literals;
+    // examples embedded in Swift multiline strings are not declarations.
+    final source = _codeOutsideCommentsAndStrings(file.readAsStringSync());
+    final lines = source
+        .split(_lineBreak)
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty);
+    if (p.extension(file.path) == '.h') {
+      _scanObjcHeader(lines);
+    } else {
+      _scanSwift(lines);
+    }
+  }
+
+  void _consider(String version) {
+    if (requiredVersion == null ||
+        _compareIosVersions(version, requiredVersion!) > 0) {
+      requiredVersion = version;
+    }
+  }
+
+  /// `API_AVAILABLE(ios(X))` lines directly above, or on, `@interface Class`.
+  void _scanObjcHeader(Iterable<String> lines) {
+    var pendingAvailability = '';
+    for (final line in lines) {
+      if (_objcDeclaration.hasMatch(line)) {
+        for (final annotation in _objcAvailability.allMatches(
+          '$pendingAvailability $line',
+        )) {
+          _consider(annotation[1]!);
+        }
+        pendingAvailability = '';
+      } else if (line.startsWith('API_AVAILABLE')) {
+        pendingAvailability = '$pendingAvailability $line';
+      } else {
+        pendingAvailability = '';
+      }
+    }
+  }
+
+  /// `@available(iOS X, ...)` attributes attached to `class Class`, either
+  /// inline or on the attribute-only lines immediately above it.
+  void _scanSwift(Iterable<String> lines) {
+    var pendingAttributes = '';
+    for (final line in lines) {
+      final match = _swiftDeclaration.firstMatch(line);
+      if (match != null) {
+        final prefix = line.substring(0, match.start);
+        if (_swiftDeclarationPrefix.hasMatch(prefix)) {
+          if (pendingAttributes.isEmpty ||
+              _swiftAttributes.hasMatch(pendingAttributes)) {
+            _considerSwiftAttributes('$pendingAttributes $prefix');
+          }
+          pendingAttributes = '';
+          continue;
+        }
+      }
+      pendingAttributes = _nextPendingAttributes(pendingAttributes, line);
+    }
+  }
+
+  void _considerSwiftAttributes(String attached) {
+    for (final annotation in _swiftAvailable.allMatches(attached)) {
+      final body = annotation[1]!;
+      final version =
+          _swiftShortIos.firstMatch(body)?[1] ??
+          _swiftIntroducedIos.firstMatch(body)?[1];
+      if (version != null) _consider(version);
+    }
+  }
+
+  /// Accumulate attribute lines, including an attribute whose arguments
+  /// span several lines. Anything else, such as an intervening declaration,
+  /// owns the attributes above it and resets the accumulation.
+  static String _nextPendingAttributes(String pending, String line) {
+    final continuesAttribute =
+        pending.isNotEmpty && !_swiftAttributes.hasMatch(pending);
+    if (!line.startsWith('@') && !continuesAttribute) return '';
+    final next = '$pending $line'.trim();
+    if (!next.startsWith('@') ||
+        next.contains(';') ||
+        next.contains('{') ||
+        next.contains('}')) {
+      return '';
+    }
+    return next;
+  }
+
+  /// Replace comments and string literal contents with spaces, keeping line
+  /// breaks so line-oriented declaration matching still works.
+  static String _codeOutsideCommentsAndStrings(String source) {
+    const code = 0;
+    const quoted = 1;
+    const multilineQuoted = 3;
+
+    final result = StringBuffer();
+    var index = 0;
+    var blockDepth = 0;
+    var lineComment = false;
+    var stringDelimiter = code;
+    var escaped = false;
+
+    void mask(int count) {
+      for (var offset = 0; offset < count; offset++) {
+        final character = source[index + offset];
+        result.write(character == '\n' || character == '\r' ? character : ' ');
+      }
+      index += count;
+    }
+
+    while (index < source.length) {
+      final character = source[index];
+      if (lineComment) {
+        if (character == '\n') lineComment = false;
+        mask(1);
+      } else if (blockDepth > 0) {
+        if (source.startsWith('/*', index)) {
+          blockDepth++;
+          mask(2);
+        } else if (source.startsWith('*/', index)) {
+          blockDepth--;
+          mask(2);
+        } else {
+          mask(1);
+        }
+      } else if (stringDelimiter != code) {
+        if (!escaped &&
+            stringDelimiter == multilineQuoted &&
+            source.startsWith('"""', index)) {
+          stringDelimiter = code;
+          mask(3);
+        } else if (!escaped && stringDelimiter == quoted && character == '"') {
+          stringDelimiter = code;
+          mask(1);
+        } else {
+          escaped = character == r'\' && !escaped;
+          mask(1);
+        }
+      } else if (source.startsWith('//', index)) {
+        lineComment = true;
+        mask(2);
+      } else if (source.startsWith('/*', index)) {
+        blockDepth = 1;
+        mask(2);
+      } else if (source.startsWith('"""', index)) {
+        stringDelimiter = multilineQuoted;
+        mask(3);
+      } else if (character == '"') {
+        stringDelimiter = quoted;
+        mask(1);
+      } else {
+        result.write(character);
+        index++;
+      }
+    }
+    return result.toString();
+  }
+
+  static int _compareIosVersions(String left, String right) {
+    const components = 3;
+    final a = left.split('.').map(int.parse).toList();
+    final b = right.split('.').map(int.parse).toList();
+    for (var index = 0; index < components; index++) {
+      final difference =
+          (index < a.length ? a[index] : 0) - (index < b.length ? b[index] : 0);
+      if (difference != 0) return difference;
+    }
+    return 0;
+  }
 }

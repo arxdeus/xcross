@@ -128,6 +128,36 @@ List<(int, int)> _macOSDirectiveRemovals(
   return removals;
 }
 
+/// Disambiguates SDK State macros from the genuine SwiftUI property wrapper.
+/// Called only after a missing StateMacro diagnostic for an owned staged file.
+String restoreSwiftUIStatePropertyWrapper(String source) {
+  final code = _swiftCodeMask(source);
+  final attributes = RegExp(
+    r'@(?:SwiftUI\.)?State\b(?!\s*\.)',
+  ).allMatches(code).toList();
+  if (attributes.isEmpty) return source;
+  const base = '_XcrossSwiftUIState';
+  var alias = base;
+  var suffix = 2;
+  while (RegExp('\\b$alias\\b').hasMatch(code)) {
+    alias = '$base${suffix++}';
+  }
+  final output = StringBuffer();
+  var start = 0;
+  for (final attribute in attributes) {
+    output
+      ..write(source.substring(start, attribute.start))
+      ..write('@$alias');
+    start = attribute.end;
+  }
+  output
+    ..write(source.substring(start))
+    ..write('\n#if canImport(SwiftUI)\nimport SwiftUI\n')
+    ..write('private typealias $alias<Value> = SwiftUI.State<Value>\n')
+    ..write('#endif\n');
+  return output.toString();
+}
+
 String _swiftCodeMask(String source) {
   final output = StringBuffer();
   var index = 0;
@@ -161,7 +191,11 @@ String _swiftCodeMask(String source) {
       final delimiter = '$quote${'#' * quoteHashCount}';
       final closes =
           source.startsWith(delimiter, index) &&
-          (quoteHashCount > 0 || !_isEscapedSwiftQuote(source, index));
+          (quoteHashCount > 0
+              ? !source
+                    .substring(0, index)
+                    .endsWith('\\${'#' * quoteHashCount}')
+              : !_isEscapedSwiftQuote(source, index));
       if (closes) {
         output.write(' ' * delimiter.length);
         index += delimiter.length;
@@ -192,7 +226,16 @@ String _swiftCodeMask(String source) {
         hashCount++;
       }
       final quoteStart = index + hashCount;
-      if (quoteStart < source.length && source.codeUnitAt(quoteStart) == 0x22) {
+      final regexEnd = quoteStart < source.length && source[quoteStart] == '/'
+          ? _swiftRegexEnd(source, quoteStart, hashCount)
+          : null;
+      if (regexEnd != null) {
+        output.write(
+          source.substring(index, regexEnd).replaceAll(RegExp(r'[^\r\n]'), ' '),
+        );
+        index = regexEnd;
+      } else if (quoteStart < source.length &&
+          source.codeUnitAt(quoteStart) == 0x22) {
         quoteLength = source.startsWith('"""', quoteStart) ? 3 : 1;
         quoteHashCount = hashCount;
         final delimiterLength = hashCount + quoteLength;
@@ -217,4 +260,62 @@ bool _isEscapedSwiftQuote(String source, int quote) {
     backslashes++;
   }
   return backslashes.isOdd;
+}
+
+// Conservatively mask a slash-delimited expression only when its terminator
+// exists. Bare regexes cannot start with whitespace or span unescaped lines.
+// A bare `/` after an operand is division, not a regex: `a /b; c / d` must not
+// hide the code between the two slashes.
+int? _swiftRegexEnd(String source, int slash, int hashes) {
+  if (slash + 1 >= source.length ||
+      (hashes == 0 &&
+          (source[slash + 1].trim().isEmpty ||
+              !_canStartSwiftExpression(source, slash)))) {
+    return null;
+  }
+  final terminator = '/${'#' * hashes}';
+  final escape = '\\${'#' * hashes}';
+  var inClass = false;
+  for (var index = slash + 1; index < source.length; index++) {
+    if (hashes == 0 && (source[index] == '\n' || source[index] == '\r')) {
+      return null;
+    }
+    if (source.startsWith(escape, index)) {
+      index += escape.length;
+      continue;
+    }
+    if (source[index] == '[') inClass = true;
+    if (source[index] == ']') inClass = false;
+    if (!inClass && source.startsWith(terminator, index)) {
+      return index + terminator.length;
+    }
+  }
+  return null;
+}
+
+/// Whether a Swift expression may begin at [index], judged by the previous
+/// non-whitespace character: start of input, an opening bracket, a separator,
+/// or an operator. After an identifier, literal or closing bracket, a `/` is
+/// an infix operator.
+bool _canStartSwiftExpression(String source, int index) {
+  var previous = index - 1;
+  while (previous >= 0 && source[previous].trim().isEmpty) {
+    previous--;
+  }
+  if (previous < 0) return true;
+  final character = source[previous];
+  if ('([{,;:=!&|?^~<>+-*%'.contains(character)) return true;
+  final word = RegExp(
+    r'[A-Za-z_]+$',
+  ).firstMatch(source.substring(0, previous + 1));
+  return word != null &&
+      const {
+        'return',
+        'case',
+        'in',
+        'where',
+        'try',
+        'await',
+        'throw',
+      }.contains(word[0]);
 }
