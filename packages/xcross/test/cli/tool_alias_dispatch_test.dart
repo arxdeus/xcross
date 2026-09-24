@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -182,5 +183,25 @@ void main() {
       'a.a',
       'b.a',
     ]);
+  });
+
+  test('passes the arm64 slice of a universal archive to llvm-ar', () {
+    final temp = Directory.systemTemp.createTempSync('xcross_libtool_fat_');
+    addTearDown(() => temp.deleteSync(recursive: true));
+    final slice = [0x21, 0x3c, 0x61, 0x72, 0x63, 0x68, 0x3e, 0x0a];
+    final header = ByteData(28)
+      ..setUint32(0, 0xcafebabe)
+      ..setUint32(4, 1)
+      ..setUint32(8, 0x0100000c)
+      ..setUint32(16, 28)
+      ..setUint32(20, slice.length);
+    final fat = File(p.join(temp.path, 'libfat.a'))
+      ..writeAsBytesSync([...header.buffer.asUint8List(), ...slice]);
+    final output = p.join(temp.path, 'Out');
+
+    final args = libtoolAsArArguments(['-static', '-o', output, fat.path])!;
+
+    expect(args.take(3), ['qLsD', '--format=darwin', output]);
+    expect(File(args.last).readAsBytesSync(), slice);
   });
 }
