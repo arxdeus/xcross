@@ -264,8 +264,6 @@ jobs:
             "$env:RUNNER_TEMP\xcross-bundle"
           "$env:RUNNER_TEMP\xcross-bundle\bin" |
             Out-File $env:GITHUB_PATH -Encoding utf8 -Append
-          & "$env:RUNNER_TEMP\xcross-bundle\bin\xcross.exe" setup
-          if ($LASTEXITCODE -ne 0) { throw 'xcross setup failed' }
 
       - name: Restore cached Darwin SDK
         uses: ./.github/actions/setup-darwin-sdk
