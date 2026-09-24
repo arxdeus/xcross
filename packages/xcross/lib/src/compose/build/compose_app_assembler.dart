@@ -330,7 +330,9 @@ final class ComposeAppAssemblerWithSeams {
 
   static bool _isDeviceTarget(String name) {
     final lower = name.toLowerCase();
-    return !lower.contains('simulator') && !lower.contains('x64');
+    return lower.startsWith('ios') &&
+        !lower.contains('simulator') &&
+        !lower.contains('x64');
   }
 
   /// `<module>/build/bin/iosArm64/debugFramework/Shared.framework` → `iosArm64`.

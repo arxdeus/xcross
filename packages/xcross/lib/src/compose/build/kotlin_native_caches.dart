@@ -318,7 +318,7 @@ final class KotlinNativeCaches {
       ProcessRunner.effectiveEnvironment[jobsVariable] ?? '',
     );
     return _jobs ??
-        configured ??
+        (configured != null && configured > 0 ? configured : null) ??
         (Platform.numberOfProcessors ~/ 4).clamp(1, 2);
   }
 
