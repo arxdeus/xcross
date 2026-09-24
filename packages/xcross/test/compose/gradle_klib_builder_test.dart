@@ -78,6 +78,7 @@ void main() {
       expect(calls.single.arguments, [
         ':a:b:dumpIosDeps',
         '-Pkotlin.native.enableKlibsCrossCompilation=true',
+        '-Pxcross.depsOut=${p.join(p.dirname(calls.single.initScriptPath), 'iosDeps.txt')}',
         '--init-script',
         calls.single.initScriptPath,
         '--no-configuration-cache',

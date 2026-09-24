@@ -72,6 +72,7 @@ final class GradleKlibBuilder {
           ...gradle.arguments,
           ':${project.moduleName}:dumpIosDeps',
           '-Pkotlin.native.enableKlibsCrossCompilation=true',
+          '-Pxcross.depsOut=$depsOutPath',
           '--init-script',
           initScriptPath,
           '--no-configuration-cache',
@@ -169,7 +170,9 @@ allprojects {
             .mapNotNull { project.tasks.findByName(it) }
             .forEach { dependsOn(it) }
         doLast {
-            val outPath = System.getenv("XCROSS_DEPS_OUT") ?: error("XCROSS_DEPS_OUT not set")
+            val outPath = (project.findProperty("xcross.depsOut") as String?)
+                ?: System.getenv("XCROSS_DEPS_OUT")
+                ?: error("XCROSS_DEPS_OUT not set")
             val kotlinExt = project.extensions.findByName("kotlin") ?: error("no kotlin extension")
             val targets = kotlinExt.javaClass.getMethod("getTargets").invoke(kotlinExt)
             val findByName = targets.javaClass.methods.first { it.name == "findByName" }

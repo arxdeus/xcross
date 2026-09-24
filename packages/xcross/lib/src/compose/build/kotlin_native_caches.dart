@@ -272,6 +272,8 @@ final class KotlinNativeCaches {
       stagingDir.renameSync(node.cacheRoot);
     });
 
+    _pruneStale(plan);
+
     final moduleDir = Directory(plan.moduleCacheRoot);
     if (moduleDir.existsSync()) moduleDir.deleteSync(recursive: true);
     moduleDir.createSync(recursive: true);
@@ -363,6 +365,28 @@ final class KotlinNativeCaches {
 
     walk(node);
     return result;
+  }
+
+  /// Removes completed caches the current plan no longer uses, so every
+  /// dependency or compiler change does not leave its old caches behind.
+  static void _pruneStale(KotlinNativeCachePlan plan) {
+    final live = {
+      for (final node in plan.libraries) p.normalize(node.cacheRoot),
+    };
+    final root = Directory(p.dirname(plan.moduleCacheRoot));
+    if (!root.existsSync()) return;
+    for (final entry in root.listSync(followLinks: false)) {
+      if (entry is! Directory) continue;
+      final name = p.basename(entry.path);
+      if (name.startsWith('module-') || name.contains('.staging.')) continue;
+      if (live.contains(p.normalize(entry.path))) continue;
+      if (!_isComplete(entry.path)) continue;
+      try {
+        entry.deleteSync(recursive: true);
+      } on FileSystemException catch (error) {
+        Log.logTrace('konan cache: could not prune ${entry.path}: $error');
+      }
+    }
   }
 
   static bool _isComplete(String cacheRoot) =>

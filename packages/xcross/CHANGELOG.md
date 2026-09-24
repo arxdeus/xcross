@@ -1,3 +1,9 @@
+## Unreleased
+
+- Sign an App ID the team already owns under its real bundle id instead of an `XCR-` qualified one, so Sign in with Apple, passkeys, push and associated domains keep working.
+- Replace a lone development profile made by Xcode or another tool when it occupies an App ID's only profile slot. Release profiles are never deleted.
+- Enable the App ID capabilities a Compose app's entitlements declare, for the app and its extensions, on both App Store Connect keys and Apple ID sign-in.
+
 ## 1.4.5
 
 - Stop cold Flutter iOS builds deadlocking on `git cat-file --batch`: read the process output while the requests are still being written, so a symlink-heavy SwiftPM checkout no longer fills the pipe buffer and hangs the build indefinitely.

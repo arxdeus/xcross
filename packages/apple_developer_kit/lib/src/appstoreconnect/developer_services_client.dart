@@ -242,18 +242,49 @@ final class DeveloperServicesClient implements DevelopmentProvisioningClient {
       AscProfileRef.fromJson((entry! as Map).cast<String, dynamic>()),
   ];
 
-  /// developerservices2 reaches App ID capabilities through portal endpoints this
-  /// client does not speak. Provisioning reports the gap and carries on instead
-  /// of failing a build over something the backend does not expose.
+  /// developerservices2 exposes the same `/v1/bundleIdCapabilities` resources
+  /// as App Store Connect. A team or endpoint that refuses them is reported as
+  /// [CapabilitiesUnsupported], so provisioning warns instead of failing.
   @override
-  Future<Set<String>> listEnabledCapabilities(String bundleIdResourceId) =>
-      Future.error(const CapabilitiesUnsupported());
+  Future<Set<String>> listEnabledCapabilities(String bundleIdResourceId) async {
+    final List<Object?> entries;
+    try {
+      entries = await _getCollection(
+        '/v1/bundleIds/$bundleIdResourceId/bundleIdCapabilities',
+      );
+    } on AppleApiError catch (error) {
+      if (_unsupported(error)) throw const CapabilitiesUnsupported();
+      rethrow;
+    }
+    return {
+      for (final entry in entries)
+        if (entry case {'attributes': {'capabilityType': final String type}})
+          type,
+    };
+  }
 
   @override
   Future<void> enableCapability({
     required String bundleIdResourceId,
     required String capabilityType,
-  }) => Future.error(const CapabilitiesUnsupported());
+  }) async {
+    try {
+      await _post(
+        '/v1/bundleIdCapabilities',
+        AscPayloads.capability(
+          bundleIdResourceId: bundleIdResourceId,
+          capabilityType: capabilityType,
+        ),
+      );
+    } on AppleApiError catch (error) {
+      if (error.statusCode == 409) return;
+      if (_unsupported(error)) throw const CapabilitiesUnsupported();
+      rethrow;
+    }
+  }
+
+  static bool _unsupported(AppleApiError error) =>
+      error.statusCode == 403 || error.statusCode == 404;
 
   @override
   Future<void> deleteProfile(String profileId) async {

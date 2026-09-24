@@ -206,6 +206,11 @@ final class NativeBackend implements DeviceBackend {
       // they are not iOS keys. Strip them before the signature seals the plist,
       // or every Compose app ships with them.
       await _stripPrivateKeys(appOrIpaPath);
+      for (final extension in extensions) {
+        if (extension.path case final String path) {
+          await _stripPrivateKeys(path);
+        }
+      }
       await Log.logStep(
         'Signing app',
         () => BundleSigner(
@@ -375,6 +380,7 @@ final class NativeBackend implements DeviceBackend {
       await plist.writeAsString(InfoPlist.setBundleIdentifier(xml, signed));
       identifiers.add(
         EmbeddedExtension(
+          path: entity.path,
           bundleId: signed,
           appGroups: AppExtensionEntitlements.appGroupsOf(entity.path),
         ),
@@ -484,12 +490,20 @@ final class NativeBackend implements DeviceBackend {
           outputDir: p.join(profilesDir, extensionBundleId),
           identityDir: signing.identityDir,
           appGroups: appGroups,
+          capabilities: {
+            if (extension.path case final String path)
+              ...AppCapabilities.of(path),
+          },
           onProgress: _warnOnce,
         );
         assets[extensionBundleId] = await SigningAsset.load(
           privateKeyPemPath: identity.privateKeyPemPath,
           certificatePemPath: identity.certificatePemPath,
           provisioningProfilePath: identity.profilePath,
+          declaredEntitlements: switch (extension.path) {
+            final String path => AppEntitlements.of(path),
+            null => const {},
+          },
         );
       } on Object catch (error) {
         throw XcrossError(

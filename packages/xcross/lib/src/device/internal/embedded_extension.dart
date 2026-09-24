@@ -11,7 +11,14 @@ import 'package:path/path.dart' as p;
 /// qualified for the signing team.
 @immutable
 final class EmbeddedExtension {
-  const EmbeddedExtension({required this.bundleId, required this.appGroups});
+  const EmbeddedExtension({
+    required this.bundleId,
+    required this.appGroups,
+    this.path,
+  });
+
+  /// The `.appex` directory, when known.
+  final String? path;
 
   /// The extension's (already qualified) `CFBundleIdentifier`.
   final String bundleId;

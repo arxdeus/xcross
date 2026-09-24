@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/compose/project/ios_app_config.dart';
 import 'package:xcross/src/errors.dart';
@@ -237,11 +238,23 @@ String? _extractBaseName(String content) =>
 /// Both assignment styles Gradle accepts are recognised (`isStatic = true` in
 /// Kotlin DSL, `isStatic.set(true)` via the property API).
 bool _extractIsStaticFramework(String content) {
-  final block = _frameworkBlock(_stripComments(content));
-  if (block == null) return false;
-  return RegExp(
-    r'isStatic\s*(?:=\s*true|\.set\s*\(\s*true\s*\))',
-  ).hasMatch(block);
+  for (final block in _frameworkBlocks(_stripComments(content))) {
+    if (RegExp(
+      r'isStatic\s*(?:=\s*true\b|\.set\s*\(\s*true\s*\))',
+    ).hasMatch(block)) {
+      return true;
+    }
+    final computed = RegExp(
+      r'isStatic\s*(?:=\s*(?!true\b|false\b)|\.set\s*\(\s*(?!true\b|false\b))',
+    ).hasMatch(block);
+    if (computed) {
+      Log.logWarn(
+        'isStatic in binaries.framework is not a literal true/false, so xcross '
+        'treats the framework as dynamic. Use a literal value if it is static.',
+      );
+    }
+  }
+  return false;
 }
 
 /// [content] with `//` and `/* */` comments removed, leaving string literals
@@ -286,25 +299,28 @@ int _stringEnd(String content, int start) {
   return content.length;
 }
 
-/// The body of the first `binaries.framework { … }` block, brace-matched.
+/// The body of every `binaries.framework { … }` block, brace-matched.
 ///
 /// Returns null when the block is absent or its braces do not close, so a script
 /// this cannot read is treated as "not static", the safe default.
-String? _frameworkBlock(String content) {
-  final start = RegExp(
+Iterable<String> _frameworkBlocks(String content) sync* {
+  final starts = RegExp(
     r'binaries\.framework\s*(?:\([^)]*\)\s*)?\{',
-  ).firstMatch(content);
-  if (start == null) return null;
-  var depth = 0;
-  for (var i = start.end - 1; i < content.length; i++) {
-    final char = content[i];
-    if (char == '{') depth++;
-    if (char == '}') {
-      depth--;
-      if (depth == 0) return content.substring(start.end, i);
+  ).allMatches(content);
+  for (final start in starts) {
+    var depth = 0;
+    for (var i = start.end - 1; i < content.length; i++) {
+      final char = content[i];
+      if (char == '{') depth++;
+      if (char == '}') {
+        depth--;
+        if (depth == 0) {
+          yield content.substring(start.end, i);
+          break;
+        }
+      }
     }
   }
-  return null;
 }
 
 String _capitalize(String value) =>

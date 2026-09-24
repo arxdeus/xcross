@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:xcross/src/compose/project/ios_app_config.dart';
@@ -94,7 +95,17 @@ abstract final class ComposeInfoPlist {
     if (value is String) {
       return value.replaceAllMapped(
         RegExp(r'\$\(([A-Za-z0-9_]+)\)|\$\{([A-Za-z0-9_]+)\}'),
-        (match) => settings[match.group(1) ?? match.group(2)!] ?? '',
+        (match) {
+          final name = match.group(1) ?? match.group(2)!;
+          final expanded = settings[name];
+          if (expanded == null) {
+            Log.logWarn(
+              'Info.plist references \$($name), which no build setting '
+              'defines. It expands to an empty string.',
+            );
+          }
+          return expanded ?? '';
+        },
       );
     }
     if (value is List) {
