@@ -56,7 +56,7 @@ final class SwiftRunnerBuilder {
     final moduleCache = p.join(buildDir, 'swift-module-cache');
     await Directory(moduleCache).create(recursive: true);
     final clangBuiltins = _clangBuiltins(resourceDir);
-    final compilerRtIos = _compilerRtIos(toolchain.darwinSdkBundle);
+    final compilerRt = compilerRtIos(toolchain.darwinSdkBundle);
 
     final swiftc = ProcessInvocation.forHost(toolchain.host, toolchain.swiftc, [
       '-sdk',
@@ -119,7 +119,7 @@ final class SwiftRunnerBuilder {
       // libclang_rt.ios.a konan_configuration.dart already stages from the
       // Darwin SDK bundle's own Xcode toolchain (see
       // _findCompilerRtDarwinDir there for the exact layout/rationale).
-      if (compilerRtIos != null) ...['-Xlinker', compilerRtIos],
+      if (compilerRt != null) ...['-Xlinker', compilerRt],
       '-Xlinker',
       '-rpath',
       '-Xlinker',
@@ -183,7 +183,7 @@ String? _sdkVersion(String sdkPath) {
 /// the call site's comment. Mirrors konan_configuration.dart's
 /// _findCompilerRtDarwinDir, duplicated rather than shared for the same
 /// reason as _sdkVersion above.
-String? _compilerRtIos(String darwinSdkBundle) {
+String? compilerRtIos(String darwinSdkBundle) {
   final clang = Directory(
     p.join(
       darwinSdkBundle,

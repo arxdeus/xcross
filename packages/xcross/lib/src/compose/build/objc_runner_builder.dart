@@ -4,6 +4,7 @@ import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/compose/build/mach_o_validator.dart';
 import 'package:xcross/src/compose/build/process_invocation.dart';
+import 'package:xcross/src/compose/build/swift_runner_builder.dart';
 import 'package:xcross/src/compose/project/kmp_project.dart';
 import 'package:xcross/src/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/errors.dart';
@@ -108,6 +109,9 @@ final class ObjcRunnerBuilder {
       'Foundation',
       '-lobjc',
       '-lc',
+      // Apple clang's driver links compiler-rt implicitly; ld64.lld does not.
+      // Skia in Compose calls `__isPlatformVersionAtLeast` from it.
+      if (compilerRtIos(toolchain.darwinSdkBundle) case final String rt) rt,
       '-rpath',
       '@executable_path/Frameworks',
     ]);

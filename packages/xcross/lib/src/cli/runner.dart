@@ -8,6 +8,7 @@ import 'package:cli_util/cli_logging.dart';
 import 'package:completion/completion.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/cli/basic/auth_command.dart';
 import 'package:xcross/src/cli/basic/clean_command.dart';
@@ -70,6 +71,13 @@ Future<int?> runPreparedToolAlias(
   if (name == 'dsymutil' && !File(target).existsSync()) {
     return 0;
   }
+  if (name == 'libtool' && !File(target).existsSync()) {
+    final archiver = _llvmArchiverFor(target);
+    if (archiver != null) {
+      final converted = libtoolAsArArguments(arguments);
+      if (converted != null) return invoke(archiver, converted);
+    }
+  }
   final prefix = File('$path.args');
   final forwarded = prefix.existsSync() && _isAppleCompilerInvocation(arguments)
       ? [
@@ -78,6 +86,55 @@ Future<int?> runPreparedToolAlias(
         ]
       : arguments;
   return invoke(target, forwarded);
+}
+
+/// `llvm-ar` next to a missing `llvm-libtool-darwin`: the official LLVM
+/// Windows installer ships the former but not the latter.
+String? _llvmArchiverFor(String libtool) {
+  final directory = libtool.contains(r'\')
+      ? p.windows.dirname(libtool)
+      : p.dirname(libtool);
+  final extension = libtool.toLowerCase().endsWith('.exe') ? '.exe' : '';
+  final candidate = p.join(directory, 'llvm-ar$extension');
+  return File(candidate).existsSync() ? candidate : null;
+}
+
+/// Rewrites the `libtool -static` invocation Kotlin/Native issues as an
+/// equivalent `llvm-ar` one, or null when it is not a static archive.
+@visibleForTesting
+List<String>? libtoolAsArArguments(List<String> arguments) {
+  String? output;
+  final inputs = <String>[];
+  var isStatic = false;
+  for (var index = 0; index < arguments.length; index++) {
+    final argument = arguments[index];
+    switch (argument) {
+      case '-static':
+        isStatic = true;
+      case '-D' || '-no_warning_for_no_symbols' || '-s' || '-a' || '-c':
+        break;
+      case '-o' when index + 1 < arguments.length:
+        output = arguments[++index];
+      case '-arch_only' when index + 1 < arguments.length:
+        index++;
+      case '-filelist' when index + 1 < arguments.length:
+        final list = File(arguments[++index].split(',').first);
+        if (!list.existsSync()) return null;
+        inputs.addAll(
+          list
+              .readAsLinesSync()
+              .map((line) => line.trim())
+              .where((line) => line.isNotEmpty),
+        );
+      default:
+        if (argument.startsWith('-')) return null;
+        inputs.add(argument);
+    }
+  }
+  if (!isStatic || output == null) return null;
+  final existing = File(output);
+  if (existing.existsSync()) existing.deleteSync();
+  return ['rcsD', '--format=darwin', output, ...inputs];
 }
 
 bool _isAppleCompilerInvocation(List<String> arguments) {

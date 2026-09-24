@@ -139,4 +139,48 @@ void main() {
 
     expect(code, 0);
   });
+
+  test('falls back to llvm-ar when llvm-libtool-darwin is missing', () async {
+    final temp = Directory.systemTemp.createTempSync('xcross_libtool_');
+    addTearDown(() => temp.deleteSync(recursive: true));
+    final ar = File(p.join(temp.path, 'llvm-ar'))..writeAsStringSync('');
+    final list = File(p.join(temp.path, 'libraries'))
+      ..writeAsStringSync('a.a\nb.a\n');
+    String? executable;
+    List<String>? forwarded;
+
+    final code = await runPreparedToolAlias(
+      [
+        '-D',
+        '-static',
+        '-o',
+        p.join(temp.path, 'Out'),
+        '-arch_only',
+        'arm64',
+        'main.o',
+        '-filelist',
+        list.path,
+      ],
+      executablePath: '/prepared/bin/libtool',
+      environment: {
+        'XCROSS_APPLE_TOOL_LIBTOOL': p.join(temp.path, 'llvm-libtool-darwin'),
+      },
+      run: (target, arguments) async {
+        executable = target;
+        forwarded = arguments;
+        return 0;
+      },
+    );
+
+    expect(code, 0);
+    expect(executable, ar.path);
+    expect(forwarded, [
+      'rcsD',
+      '--format=darwin',
+      p.join(temp.path, 'Out'),
+      'main.o',
+      'a.a',
+      'b.a',
+    ]);
+  });
 }

@@ -36,10 +36,24 @@ void main() {
         ),
       ).createSync(recursive: true);
       for (final location in [
-        p.join('Developer', 'Toolchains', 'XcodeDefault.xctoolchain', 'usr',
-            'lib', 'swift', 'iphoneos', 'layouts-arm64.yaml'),
-        p.join('Developer', 'Runtimes', 'XcodeDefault.xctoolchain', 'usr',
-            'bin', 'layouts-arm64.yaml'),
+        p.join(
+          'Developer',
+          'Toolchains',
+          'XcodeDefault.xctoolchain',
+          'usr',
+          'lib',
+          'swift',
+          'iphoneos',
+          'layouts-arm64.yaml',
+        ),
+        p.join(
+          'Developer',
+          'Runtimes',
+          'XcodeDefault.xctoolchain',
+          'usr',
+          'bin',
+          'layouts-arm64.yaml',
+        ),
       ]) {
         File(p.join(path, location))
           ..createSync(recursive: true)
