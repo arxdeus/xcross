@@ -175,7 +175,7 @@ void main() {
     expect(code, 0);
     expect(executable, ar.path);
     expect(forwarded, [
-      'rcsD',
+      'qLsD',
       '--format=darwin',
       p.join(temp.path, 'Out'),
       'main.o',

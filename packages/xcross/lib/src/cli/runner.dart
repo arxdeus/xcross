@@ -134,7 +134,7 @@ List<String>? libtoolAsArArguments(List<String> arguments) {
   if (!isStatic || output == null) return null;
   final existing = File(output);
   if (existing.existsSync()) existing.deleteSync();
-  return ['rcsD', '--format=darwin', output, ...inputs];
+  return ['qLsD', '--format=darwin', output, ...inputs];
 }
 
 bool _isAppleCompilerInvocation(List<String> arguments) {
