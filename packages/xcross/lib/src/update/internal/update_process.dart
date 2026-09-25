@@ -7,12 +7,24 @@ Future<ProcessResult> runUpdateProcess(
   String executable,
   List<String> arguments, {
   String? workingDirectory,
+  Map<String, String>? environment,
 }) async {
   try {
+    final lowerExecutable = executable.toLowerCase();
+    final runInShell =
+        Platform.isWindows &&
+        (lowerExecutable.endsWith('.bat') || lowerExecutable.endsWith('.cmd'));
+    // cmd.exe expands %NAME% in batch arguments. Escape each percent so an
+    // encoded ref such as feature%2Fa%2Cb%3Dc reaches Dart unchanged.
+    final processArguments = runInShell
+        ? arguments.map((argument) => argument.replaceAll('%', '^%')).toList()
+        : arguments;
     final process = await ProcessRunner.start(
       executable,
-      arguments,
+      processArguments,
       workingDirectory: workingDirectory,
+      environment: environment,
+      runInShell: runInShell,
     );
     final stdoutBuffer = StringBuffer();
     final stderrBuffer = StringBuffer();

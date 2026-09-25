@@ -57,7 +57,7 @@ void main() {
           return _result();
         },
       );
-      final builder = GitRefSourceBundleBuilder(
+      final builder = _createTestBuilder(
         run: runner.run,
         createTempDirectory: (_) =>
             Future.value(staging..createSync(recursive: true)),
@@ -83,6 +83,54 @@ void main() {
       expect(unrelated.existsSync(), isTrue);
     });
 
+    test('reuses one Dart launcher for source update commands', () async {
+      final scratch = _createScratchDirectory();
+      final staging = Directory(p.join(scratch.path, 'staging'));
+      final repo = Directory(p.join(staging.path, 'xcross'));
+      final bundle = Directory(
+        p.join(
+          repo.path,
+          'packages',
+          'xcross',
+          'build',
+          'cli',
+          'linux-x64',
+          'bundle',
+        ),
+      );
+      final dartInvocations = <String>[];
+      final runner = _FakeProcessRunner(
+        onRun: (call) async {
+          if (call.arguments.first == 'pub' ||
+              call.arguments.contains('tool/build_xcross.dart')) {
+            dartInvocations.add(call.executable);
+          }
+          if (call.arguments.contains('tool/build_xcross.dart')) {
+            _createBundle(bundle);
+          }
+          return _result();
+        },
+      );
+      final builder = _createTestBuilder(
+        run: runner.run,
+        createTempDirectory: (_) =>
+            Future.value(staging..createSync(recursive: true)),
+        deleteDirectory: _deleteDirectorySync,
+      );
+
+      await builder.build<void>(
+        ref: const GitUpdateRef(
+          kind: GitUpdateRefKind.branch,
+          displayName: 'main',
+          fetchRef: 'refs/heads/main',
+          commitSha: '1234567890abcdef1234567890abcdef12345678',
+        ),
+        onBundle: (_, __) async {},
+      );
+
+      expect(dartInvocations, List.filled(2, _hostDartExecutable()));
+    });
+
     test('reports numbered source phases in order', () async {
       final scratch = _createScratchDirectory();
       final staging = Directory(p.join(scratch.path, 'staging'));
@@ -106,7 +154,7 @@ void main() {
           return _result();
         },
       );
-      final builder = GitRefSourceBundleBuilder(
+      final builder = _createTestBuilder(
         run: runner.run,
         createTempDirectory: (_) =>
             Future.value(staging..createSync(recursive: true)),
@@ -163,7 +211,7 @@ void main() {
           },
         );
         final deleted = <String>[];
-        final builder = GitRefSourceBundleBuilder(
+        final builder = _createTestBuilder(
           run: runner.run,
           createTempDirectory: (_) =>
               Future.value(staging..createSync(recursive: true)),
@@ -219,16 +267,20 @@ void main() {
               '--detach',
               '1234567890abcdef1234567890abcdef12345678',
             ], workingDirectory: repo.path),
-            _ProcessCall('dart', const [
+            _ProcessCall(_hostDartExecutable(), const [
               'pub',
               'get',
             ], workingDirectory: repo.path),
-            _ProcessCall('dart', const [
-              'run',
-              '-DXCROSS_VERSION=main',
-              '-DXCROSS_RELEASED=false',
-              'tool/build_xcross.dart',
-            ], workingDirectory: p.join(repo.path, 'packages', 'xcross')),
+            _ProcessCall(
+              _hostDartExecutable(),
+              const [
+                'run',
+                '-DXCROSS_VERSION=main',
+                '-DXCROSS_RELEASED=false',
+                'tool/build_xcross.dart',
+              ],
+              workingDirectory: p.join(repo.path, 'packages', 'xcross'),
+            ),
           ]),
         );
         expect(callbackSawExistingBundle, isTrue);
@@ -260,7 +312,7 @@ void main() {
           return _result();
         },
       );
-      final builder = GitRefSourceBundleBuilder(
+      final builder = _createTestBuilder(
         run: runner.run,
         createTempDirectory: (_) =>
             Future.value(staging..createSync(recursive: true)),
@@ -279,12 +331,16 @@ void main() {
 
       expect(
         runner.calls.last,
-        _ProcessCall('dart', const [
-          'run',
-          '-DXCROSS_VERSION=feature%2Fa%2Cb%3Dc',
-          '-DXCROSS_RELEASED=false',
-          'tool/build_xcross.dart',
-        ], workingDirectory: p.join(repo.path, 'packages', 'xcross')),
+        _ProcessCall(
+          _hostDartExecutable(),
+          const [
+            'run',
+            '-DXCROSS_VERSION=feature%2Fa%2Cb%3Dc',
+            '-DXCROSS_RELEASED=false',
+            'tool/build_xcross.dart',
+          ],
+          workingDirectory: p.join(repo.path, 'packages', 'xcross'),
+        ),
       );
     });
 
@@ -303,7 +359,7 @@ void main() {
           'bundle',
         ),
       );
-      final builder = GitRefSourceBundleBuilder(
+      final builder = _createTestBuilder(
         run: _FakeProcessRunner(
           onRun: (call) async {
             if (call.arguments.contains('tool/build_xcross.dart')) {
@@ -354,7 +410,7 @@ void main() {
             return _result();
           },
         );
-        final builder = GitRefSourceBundleBuilder(
+        final builder = _createTestBuilder(
           run: runner.run,
           createTempDirectory: (_) =>
               Future.value(staging..createSync(recursive: true)),
@@ -397,13 +453,13 @@ void main() {
       final staging = Directory(p.join(scratch.path, 'staging'));
       final repo = Directory(p.join(staging.path, 'xcross'));
       final deleted = <String>[];
-      final builder = GitRefSourceBundleBuilder(
+      final builder = _createTestBuilder(
         run: _FakeProcessRunner(
           onRun: (call) async {
             if (call.executable == 'git' && call.arguments.first == 'clone') {
               repo.createSync(recursive: true);
             }
-            if (call.executable == 'dart' &&
+            if (call.executable == _hostDartExecutable() &&
                 call.arguments.contains('tool/build_xcross.dart')) {
               return _result(exitCode: 78, stderr: 'compile failed');
             }
@@ -443,13 +499,13 @@ void main() {
       final scratch = _createScratchDirectory();
       final staging = Directory(p.join(scratch.path, 'staging'));
       final repo = Directory(p.join(staging.path, 'xcross'));
-      final builder = GitRefSourceBundleBuilder(
+      final builder = _createTestBuilder(
         run: _FakeProcessRunner(
           onRun: (call) async {
             if (call.executable == 'git' && call.arguments.first == 'clone') {
               repo.createSync(recursive: true);
             }
-            if (call.executable == 'dart' &&
+            if (call.executable == _hostDartExecutable() &&
                 call.arguments.contains('tool/build_xcross.dart')) {
               return _result(exitCode: 78, stderr: 'original build failed');
             }
@@ -496,13 +552,13 @@ void main() {
         ),
       );
       final deleted = <String>[];
-      final builder = GitRefSourceBundleBuilder(
+      final builder = _createTestBuilder(
         run: _FakeProcessRunner(
           onRun: (call) async {
             if (call.executable == 'git' && call.arguments.first == 'clone') {
               repo.createSync(recursive: true);
             }
-            if (call.executable == 'dart' &&
+            if (call.executable == _hostDartExecutable() &&
                 call.arguments.contains('tool/build_xcross.dart')) {
               _createBundle(bundle);
             }
@@ -555,13 +611,13 @@ void main() {
             'bundle',
           ),
         );
-        final builder = GitRefSourceBundleBuilder(
+        final builder = _createTestBuilder(
           run: _FakeProcessRunner(
             onRun: (call) async {
               if (call.executable == 'git' && call.arguments.first == 'clone') {
                 repo.createSync(recursive: true);
               }
-              if (call.executable == 'dart' &&
+              if (call.executable == _hostDartExecutable() &&
                   call.arguments.contains('tool/build_xcross.dart')) {
                 _createBundle(bundle);
               }
@@ -595,7 +651,7 @@ void main() {
     );
 
     test('rejects tag refs defensively', () async {
-      final builder = GitRefSourceBundleBuilder(
+      final builder = _createTestBuilder(
         run: _FakeProcessRunner(onRun: (_) async => _result()).run,
       );
 
@@ -623,7 +679,7 @@ void main() {
       final scratch = _createScratchDirectory();
       final staging = Directory(p.join(scratch.path, 'staging'));
       final repo = Directory(p.join(staging.path, 'xcross'));
-      final builder = GitRefSourceBundleBuilder(
+      final builder = _createTestBuilder(
         run: _FakeProcessRunner(
           onRun: (call) async {
             if (call.executable == 'git' && call.arguments.first == 'clone') {
@@ -661,13 +717,13 @@ void main() {
       final scratch = _createScratchDirectory();
       final staging = Directory(p.join(scratch.path, 'staging'));
       final repo = Directory(p.join(staging.path, 'xcross'));
-      final builder = GitRefSourceBundleBuilder(
+      final builder = _createTestBuilder(
         run: _FakeProcessRunner(
           onRun: (call) async {
             if (call.executable == 'git' && call.arguments.first == 'clone') {
               repo.createSync(recursive: true);
             }
-            if (call.executable == 'dart' &&
+            if (call.executable == _hostDartExecutable() &&
                 call.arguments.contains('tool/build_xcross.dart')) {
               for (final target in ['linux-x64', 'macos-arm64']) {
                 Directory(
@@ -726,6 +782,21 @@ void main() {
   });
 }
 
+GitRefSourceBundleBuilder _createTestBuilder({
+  RunGitProcess? run,
+  CreateTempDirectory? createTempDirectory,
+  DeleteDirectory? deleteDirectory,
+  Directory? systemTempDirectory,
+  TempDirectoryModifiedAt? tempDirectoryModifiedAt,
+}) => GitRefSourceBundleBuilder(
+  run: run,
+  createTempDirectory: createTempDirectory,
+  deleteDirectory: deleteDirectory,
+  systemTempDirectory: systemTempDirectory,
+  tempDirectoryModifiedAt: tempDirectoryModifiedAt,
+  resolveDartExecutable: () async => _hostDartExecutable(),
+);
+
 Directory _createScratchDirectory() {
   final scratch = Directory.systemTemp.createTempSync('git-ref-bundle-test-');
   addTearDown(() {
@@ -744,6 +815,8 @@ void _createBundle(Directory bundle) {
 Future<void> _deleteDirectorySync(Directory directory) async {
   directory.deleteSync(recursive: true);
 }
+
+String _hostDartExecutable() => Platform.isWindows ? 'dart.bat' : 'dart';
 
 ProcessResult _result({
   int exitCode = 0,

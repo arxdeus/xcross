@@ -3,10 +3,12 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/update/git_update_ref_resolver.dart';
+import 'package:xcross/src/update/internal/dart_executable_resolver.dart';
 import 'package:xcross/src/update/internal/update_process.dart';
 import 'package:xcross/src/update/update_progress.dart';
 
 typedef TempDirectoryModifiedAt = DateTime Function(Directory directory);
+typedef DartExecutableLocator = Future<String> Function();
 
 final class GitRefSourceBundleBuilder {
   GitRefSourceBundleBuilder({
@@ -15,13 +17,16 @@ final class GitRefSourceBundleBuilder {
     DeleteDirectory? deleteDirectory,
     Directory? systemTempDirectory,
     TempDirectoryModifiedAt? tempDirectoryModifiedAt,
+    DartExecutableLocator? resolveDartExecutable,
   }) : _run = run ?? runUpdateProcess,
        _createTempDirectory =
            createTempDirectory ?? _defaultCreateTempDirectory,
        _deleteDirectory = deleteDirectory ?? _defaultDeleteDirectory,
        _systemTempDirectory = systemTempDirectory ?? Directory.systemTemp,
        _tempDirectoryModifiedAt =
-           tempDirectoryModifiedAt ?? _defaultTempDirectoryModifiedAt;
+           tempDirectoryModifiedAt ?? _defaultTempDirectoryModifiedAt,
+       _resolveDartExecutable =
+           resolveDartExecutable ?? findDartExecutableOnPath;
 
   static const repoUrl = GitUpdateRefResolver.repoUrl;
 
@@ -30,6 +35,7 @@ final class GitRefSourceBundleBuilder {
   final DeleteDirectory _deleteDirectory;
   final Directory _systemTempDirectory;
   final TempDirectoryModifiedAt _tempDirectoryModifiedAt;
+  final DartExecutableLocator _resolveDartExecutable;
 
   static const _tempDirectoryPrefix = 'xcross-update-source-';
   static const _minimumStaleAge = Duration(minutes: 10);
@@ -76,10 +82,11 @@ final class GitRefSourceBundleBuilder {
           action: 'checkout update commit ${ref.commitSha}',
         ),
       );
+      final dartExecutable = await _resolveDartExecutable();
       await progress.run(
         'Resolve dependencies',
         () => _runChecked(
-          'dart',
+          dartExecutable,
           ['pub', 'get'],
           workingDirectory: repoDirectory.path,
           action: 'run dart pub get for update source',
@@ -92,7 +99,7 @@ final class GitRefSourceBundleBuilder {
       await progress.run(
         'Build xcross ${ref.displayName}',
         () => _runChecked(
-          'dart',
+          dartExecutable,
           [
             'run',
             '-DXCROSS_VERSION=$encodedVersion',
