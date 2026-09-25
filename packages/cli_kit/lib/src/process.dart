@@ -156,14 +156,17 @@ abstract final class ProcessRunner {
     bool runInShell = false,
     ProcessStartMode mode = ProcessStartMode.normal,
   }) => Future.sync(() {
-    final launch = _Launch.of(executable, arguments);
+    final resolved = _resolvedExecutable(executable);
+    final batch = isWindowsBatchScript(resolved);
     return Process.start(
-      launch.executable,
-      launch.arguments,
+      resolved,
+      batch
+          ? windowsBatchArguments(arguments, executable: resolved)
+          : arguments,
       workingDirectory: workingDirectory,
       environment: _childEnvironment(environment),
       includeParentEnvironment: _inheritParentEnvironment,
-      runInShell: runInShell || launch.runInShell,
+      runInShell: runInShell || batch,
       mode: mode,
     );
   });
@@ -259,14 +262,17 @@ abstract final class ProcessRunner {
         timeout: timeout,
       );
     }
-    final launch = _Launch.of(executable, arguments);
+    final resolved = _resolvedExecutable(executable);
+    final batch = isWindowsBatchScript(resolved);
     final result = await Process.run(
-      launch.executable,
-      launch.arguments,
+      resolved,
+      batch
+          ? windowsBatchArguments(arguments, executable: resolved)
+          : arguments,
       workingDirectory: workingDirectory,
       environment: _childEnvironment(environment),
       includeParentEnvironment: _inheritParentEnvironment,
-      runInShell: launch.runInShell,
+      runInShell: batch,
       stdoutEncoding: const Utf8Codec(allowMalformed: true),
       stderrEncoding: const Utf8Codec(allowMalformed: true),
     );
@@ -1008,24 +1014,4 @@ abstract final class ProcessRunner {
     }
     return null;
   }
-}
-
-final class _Launch {
-  const _Launch(this.executable, this.arguments, {required this.runInShell});
-
-  factory _Launch.of(String executable, List<String> arguments) {
-    final resolved = ProcessRunner._resolvedExecutable(executable);
-    if (!ProcessRunner.isWindowsBatchScript(resolved)) {
-      return _Launch(resolved, arguments, runInShell: false);
-    }
-    return _Launch(
-      resolved,
-      ProcessRunner.windowsBatchArguments(arguments, executable: resolved),
-      runInShell: true,
-    );
-  }
-
-  final String executable;
-  final List<String> arguments;
-  final bool runInShell;
 }
