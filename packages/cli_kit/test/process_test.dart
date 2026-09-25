@@ -559,6 +559,30 @@ void main() {
       );
     });
 
+    for (final executable in [
+      r'C:\sdk&tools\dart.bat',
+      r'C:\sdk|tools\dart.bat',
+      r'C:\sdk^tools\dart.bat',
+      r'C:\%SDK%\dart.bat',
+      r'C:\Program Files\%SDK%\dart.bat',
+      r'C:\sdk"tools\dart.bat',
+    ]) {
+      test('rejects the script path ${jsonEncode(executable)}', () {
+        expect(
+          () => ProcessRunner.windowsBatchArguments(const [
+            'pub',
+          ], executable: executable),
+          throwsA(
+            isA<CliError>().having(
+              (error) => error.message,
+              'message',
+              contains(jsonEncode(executable)),
+            ),
+          ),
+        );
+      });
+    }
+
     test('rejects a quoted script path that cmd.exe would unquote', () {
       expect(
         () => ProcessRunner.windowsBatchArguments(const [
@@ -583,6 +607,8 @@ void main() {
       'a<b',
       'a>b',
       'a^b',
+      'a"b',
+      '"quoted"',
       '"a&b"',
       'line\nbreak',
       'line\rbreak',

@@ -177,7 +177,7 @@ abstract final class ProcessRunner {
     return extension == '.bat' || extension == '.cmd';
   }
 
-  static final _batchLineBreak = RegExp('[\r\n]');
+  static final _batchNeverSafe = RegExp('["%\r\n]');
   static final _batchWhitespace = RegExp('[ \t]');
   static final _batchOperators = RegExp('[&|<>^]');
   static final _batchQuotedCommandSpecial = RegExp('[&<>()@^|]');
@@ -188,23 +188,27 @@ abstract final class ProcessRunner {
   /// tab or quote. Unquoted, cmd.exe expands `%NAME%` and treats
   /// `& | < > ^` as operators, so `%` is caret-escaped and operators are
   /// rejected. Quoted, a caret is literal, so `%` cannot be escaped and is
-  /// rejected. An embedded quote makes cmd.exe's quote state unpredictable,
-  /// so it is rejected alongside `%` or an operator. Line breaks always end
-  /// the command.
+  /// rejected. Embedded quotes flip cmd.exe's quote state and line breaks
+  /// end the command, so both are always rejected.
   ///
-  /// `cmd /c` keeps the quotes around a quoted [executable] path only when
-  /// they are the sole quotes on the line and enclose none of `&<>()@^|`,
-  /// so such a path rules out quoted arguments and those characters.
+  /// The [executable] path is checked the same way, except that `%` is
+  /// always rejected. `cmd /c` keeps the quotes around a quoted path only
+  /// when they are the sole quotes on the line and enclose none of
+  /// `&<>()@^|`, so such a path also rules out quoted arguments.
   static List<String> windowsBatchArguments(
     List<String> arguments, {
     String? executable,
   }) {
     final quotedExecutable =
         executable != null && _batchWhitespace.hasMatch(executable);
-    if (quotedExecutable && _batchQuotedCommandSpecial.hasMatch(executable)) {
+    if (executable != null &&
+        (_batchNeverSafe.hasMatch(executable) ||
+            (quotedExecutable ? _batchQuotedCommandSpecial : _batchOperators)
+                .hasMatch(executable))) {
       throw CliError(
         'batch script path ${jsonEncode(executable)} cannot be started '
-        'through cmd.exe; move it to a path without spaces or `&<>()@^|`',
+        'through cmd.exe; move it to a path without `%`, quotes or '
+        '`&<>()@^|` next to spaces',
       );
     }
     return [
@@ -217,15 +221,14 @@ abstract final class ProcessRunner {
     String argument, {
     required bool quotedExecutable,
   }) {
-    final hasQuote = argument.contains('"');
-    final quoted =
-        argument.isEmpty || hasQuote || _batchWhitespace.hasMatch(argument);
-    final hasPercent = argument.contains('%');
-    final hasOperator = _batchOperators.hasMatch(argument);
+    final quoted = argument.isEmpty || _batchWhitespace.hasMatch(argument);
     final unsafe =
-        _batchLineBreak.hasMatch(argument) ||
-        (quoted ? hasPercent || quotedExecutable : hasOperator) ||
-        (hasQuote && hasOperator);
+        argument.contains('"') ||
+        argument.contains('\r') ||
+        argument.contains('\n') ||
+        (quoted
+            ? argument.contains('%') || quotedExecutable
+            : _batchOperators.hasMatch(argument));
     if (unsafe) {
       throw CliError(
         'argument ${jsonEncode(argument)} cannot be passed through cmd.exe '
