@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
-import 'package:posix/posix.dart' as posix;
 import 'package:xcross/src/errors.dart';
 
 Future<String> findDartExecutableOnPath({
@@ -27,9 +26,16 @@ Future<String> findDartExecutableOnPath({
   return executable;
 }
 
+const _anyExecuteBit = 0x49;
+
 bool _isDartLauncher(String path, {required bool windows}) {
   final name = p.basename(path);
-  if (!windows) return name == 'dart' && posix.access(path, posix.X_OK) == 0;
+  if (!windows) {
+    if (name != 'dart') return false;
+    final stat = FileStat.statSync(path);
+    return stat.type == FileSystemEntityType.file &&
+        stat.mode & _anyExecuteBit != 0;
+  }
 
   return switch (name.toLowerCase()) {
     'dart.exe' || 'dart.bat' || 'dart.cmd' => true,

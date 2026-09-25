@@ -74,35 +74,25 @@ void main() {
         useConfiguration: false,
       );
 
-      expect(
-        p.normalize(p.absolute(result)),
-        p.normalize(p.absolute(p.join(bin.path, 'dart'))),
-      );
+      expect(result, dart.path);
     }, skip: Platform.isWindows);
 
-    test(
-      'Linux skips a non-executable dart earlier on PATH',
-      () async {
-        final firstBin = _createBinDirectory();
-        final secondBin = _createBinDirectory();
-        final unusable = File(p.join(firstBin.path, 'dart'))..createSync();
-        final usable = File(p.join(secondBin.path, 'dart'))..createSync();
-        expect(Process.runSync('chmod', ['644', unusable.path]).exitCode, 0);
-        expect(Process.runSync('chmod', ['755', usable.path]).exitCode, 0);
+    test('Linux skips a non-executable dart earlier on PATH', () async {
+      final firstBin = _createBinDirectory();
+      final secondBin = _createBinDirectory();
+      final unusable = File(p.join(firstBin.path, 'dart'))..createSync();
+      final usable = File(p.join(secondBin.path, 'dart'))..createSync();
+      expect(Process.runSync('chmod', ['644', unusable.path]).exitCode, 0);
+      expect(Process.runSync('chmod', ['755', usable.path]).exitCode, 0);
 
-        final result = await findDartExecutableOnPath(
-          windows: false,
-          environment: {'PATH': '${firstBin.path}:${secondBin.path}'},
-          useConfiguration: false,
-        );
+      final result = await findDartExecutableOnPath(
+        windows: false,
+        environment: {'PATH': '${firstBin.path}:${secondBin.path}'},
+        useConfiguration: false,
+      );
 
-        expect(
-          p.normalize(p.absolute(result)),
-          p.normalize(usable.absolute.path),
-        );
-      },
-      skip: Platform.isWindows,
-    );
+      expect(result, usable.path);
+    }, skip: Platform.isWindows);
 
     test('Linux does not resolve Windows-only launcher files', () async {
       final bin = _createBinDirectory();
@@ -123,7 +113,7 @@ void main() {
 
 Directory _createBinDirectory() {
   final directory = Directory.systemTemp.createTempSync(
-    'dart executable resolver test-',
+    'dart-executable-resolver-test-',
   );
   addTearDown(() {
     if (directory.existsSync()) directory.deleteSync(recursive: true);
@@ -136,6 +126,4 @@ Map<String, String> _windowsEnvironment(Directory bin) => {
   'PATHEXT': '.EXE;.BAT;.CMD',
 };
 
-Map<String, String> _linuxEnvironment(Directory bin) => {
-  'PATH': p.relative(bin.path, from: Directory.current.path),
-};
+Map<String, String> _linuxEnvironment(Directory bin) => {'PATH': bin.path};
