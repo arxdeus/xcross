@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:cli_kit/src/errors.dart';
@@ -494,7 +495,140 @@ void main() {
     });
   });
 
+  group('isWindowsBatchScript', () {
+    test('matches .bat and .cmd case-insensitively only on Windows', () {
+      for (final name in ['dart.bat', r'C:\sdk\dart.CMD', 'flutter.Bat']) {
+        expect(ProcessRunner.isWindowsBatchScript(name, windows: true), isTrue);
+        expect(
+          ProcessRunner.isWindowsBatchScript(name, windows: false),
+          isFalse,
+        );
+      }
+      for (final name in ['dart', 'dart.exe', 'bat', 'dart.bat.txt']) {
+        expect(
+          ProcessRunner.isWindowsBatchScript(name, windows: true),
+          isFalse,
+        );
+      }
+    });
+  });
+
+  group('windowsBatchArguments', () {
+    test('caret-escapes percent in unquoted arguments', () {
+      expect(
+        ProcessRunner.windowsBatchArguments([
+          'run',
+          '-DXCROSS_VERSION=feature%2Fa%2Cb%3Dc',
+          '%PATH%',
+        ]),
+        ['run', '-DXCROSS_VERSION=feature^%2Fa^%2Cb^%3Dc', '^%PATH^%'],
+      );
+    });
+
+    test('leaves quoted arguments without percent unchanged', () {
+      expect(ProcessRunner.windowsBatchArguments([r'C:\Program Files\a & b']), [
+        r'C:\Program Files\a & b',
+      ]);
+    });
+
+    test('allows quoted arguments when the script path has no whitespace', () {
+      expect(
+        ProcessRunner.windowsBatchArguments([
+          'a b',
+          '',
+        ], executable: r'C:\sdk\bin\dart.bat'),
+        ['a b', ''],
+      );
+    });
+
+    test('rejects quoted arguments when the script path is quoted', () {
+      for (final argument in ['a b', '']) {
+        expect(
+          () => ProcessRunner.windowsBatchArguments([
+            argument,
+          ], executable: r'C:\Program Files\sdk\dart.bat'),
+          throwsA(isA<CliError>()),
+        );
+      }
+      expect(
+        ProcessRunner.windowsBatchArguments([
+          'pub',
+          'get',
+        ], executable: r'C:\Program Files\sdk\dart.bat'),
+        ['pub', 'get'],
+      );
+    });
+
+    test('rejects a quoted script path that cmd.exe would unquote', () {
+      expect(
+        () => ProcessRunner.windowsBatchArguments(const [
+          'pub',
+        ], executable: r'C:\Program Files (x86)\sdk\dart.bat'),
+        throwsA(isA<CliError>()),
+      );
+      expect(
+        ProcessRunner.windowsBatchArguments(const [
+          'pub',
+        ], executable: r'C:\sdk(x86)\dart.bat'),
+        ['pub'],
+      );
+    });
+
+    for (final argument in [
+      'with space %VAR%',
+      'tab\t%VAR%',
+      '"%VAR%"',
+      'a&b',
+      'a|b',
+      'a<b',
+      'a>b',
+      'a^b',
+      '"a&b"',
+      'line\nbreak',
+      'line\rbreak',
+    ]) {
+      test('rejects ${jsonEncode(argument)}', () {
+        expect(
+          () => ProcessRunner.windowsBatchArguments([argument]),
+          throwsA(
+            isA<CliError>().having(
+              (error) => error.message,
+              'message',
+              contains(jsonEncode(argument)),
+            ),
+          ),
+        );
+      });
+    }
+  });
+
   group('start', () {
+    test(
+      'forwards escaped and quoted arguments through a Windows batch script',
+      () async {
+        final directory = Directory.systemTemp.createTempSync('batch-start-');
+        addTearDown(() => directory.deleteSync(recursive: true));
+        final script = File(p.join(directory.path, 'emit.cmd'))
+          ..writeAsStringSync('@echo off\r\necho %1\r\necho %2\r\n');
+
+        final process = await ProcessRunner.start(
+          script.path,
+          const ['feature%2Fa%2Cb', r'C:\Program Files\a & b'],
+          environment: const {'2Fa': 'EXPANDED'},
+        );
+        final output = await process.stdout
+            .transform(systemEncoding.decoder)
+            .join();
+
+        expect(await process.exitCode, 0);
+        expect(const LineSplitter().convert(output.trim()), [
+          'feature%2Fa%2Cb',
+          r'"C:\Program Files\a & b"',
+        ]);
+      },
+      skip: !Platform.isWindows,
+    );
+
     test(
       'merges configured child environment without inheriting parent',
       () async {

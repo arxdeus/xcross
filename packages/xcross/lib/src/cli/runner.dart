@@ -229,12 +229,17 @@ Future<int> runPlutilAlias(List<String> arguments) async {
 }
 
 Future<int> _runToolAlias(String executable, List<String> arguments) async {
-  final process = await Process.start(
-    executable,
-    arguments,
-    mode: ProcessStartMode.inheritStdio,
-    runInShell: Platform.isWindows && executable.endsWith('.bat'),
-  );
+  final Process process;
+  try {
+    process = await ProcessRunner.start(
+      executable,
+      arguments,
+      mode: ProcessStartMode.inheritStdio,
+    );
+  } on CliError catch (error) {
+    stderr.writeln('error: ${error.message}');
+    return 1;
+  }
   return process.exitCode;
 }
 

@@ -143,6 +143,10 @@ abstract final class ProcessRunner {
   ///
   /// This preserves the streaming [Process] API while applying the same
   /// configured environment overlay as [run].
+  ///
+  /// On Windows a `.bat` or `.cmd` [executable] always starts through
+  /// cmd.exe, with [arguments] escaped by [windowsBatchArguments]. An
+  /// argument cmd.exe would alter fails with a [CliError].
   static Future<Process> start(
     String executable,
     List<String> arguments, {
@@ -150,15 +154,86 @@ abstract final class ProcessRunner {
     Map<String, String>? environment,
     bool runInShell = false,
     ProcessStartMode mode = ProcessStartMode.normal,
-  }) => Process.start(
-    _resolvedExecutable(executable),
-    arguments,
-    workingDirectory: workingDirectory,
-    environment: _childEnvironment(environment),
-    includeParentEnvironment: _inheritParentEnvironment,
-    runInShell: runInShell,
-    mode: mode,
-  );
+  }) => Future.sync(() {
+    final resolved = _resolvedExecutable(executable);
+    final batch = isWindowsBatchScript(resolved);
+    return Process.start(
+      resolved,
+      batch
+          ? windowsBatchArguments(arguments, executable: resolved)
+          : arguments,
+      workingDirectory: workingDirectory,
+      environment: _childEnvironment(environment),
+      includeParentEnvironment: _inheritParentEnvironment,
+      runInShell: runInShell || batch,
+      mode: mode,
+    );
+  });
+
+  /// Whether [executable] is a batch script that Windows runs via cmd.exe.
+  static bool isWindowsBatchScript(String executable, {bool? windows}) {
+    if (!(windows ?? Platform.isWindows)) return false;
+    final extension = p.extension(executable).toLowerCase();
+    return extension == '.bat' || extension == '.cmd';
+  }
+
+  static final _batchLineBreak = RegExp('[\r\n]');
+  static final _batchWhitespace = RegExp('[ \t]');
+  static final _batchOperators = RegExp('[&|<>^]');
+  static final _batchQuotedCommandSpecial = RegExp('[&<>()@^|]');
+
+  /// Escapes [arguments] for a batch script started through cmd.exe.
+  ///
+  /// dart:io quotes an argument only when it is empty or contains a space,
+  /// tab or quote. Unquoted, cmd.exe expands `%NAME%` and treats
+  /// `& | < > ^` as operators, so `%` is caret-escaped and operators are
+  /// rejected. Quoted, a caret is literal, so `%` cannot be escaped and is
+  /// rejected. An embedded quote makes cmd.exe's quote state unpredictable,
+  /// so it is rejected alongside `%` or an operator. Line breaks always end
+  /// the command.
+  ///
+  /// `cmd /c` keeps the quotes around a quoted [executable] path only when
+  /// they are the sole quotes on the line and enclose none of `&<>()@^|`,
+  /// so such a path rules out quoted arguments and those characters.
+  static List<String> windowsBatchArguments(
+    List<String> arguments, {
+    String? executable,
+  }) {
+    final quotedExecutable =
+        executable != null && _batchWhitespace.hasMatch(executable);
+    if (quotedExecutable && _batchQuotedCommandSpecial.hasMatch(executable)) {
+      throw CliError(
+        'batch script path ${jsonEncode(executable)} cannot be started '
+        'through cmd.exe; move it to a path without spaces or `&<>()@^|`',
+      );
+    }
+    return [
+      for (final argument in arguments)
+        _windowsBatchArgument(argument, quotedExecutable: quotedExecutable),
+    ];
+  }
+
+  static String _windowsBatchArgument(
+    String argument, {
+    required bool quotedExecutable,
+  }) {
+    final hasQuote = argument.contains('"');
+    final quoted =
+        argument.isEmpty || hasQuote || _batchWhitespace.hasMatch(argument);
+    final hasPercent = argument.contains('%');
+    final hasOperator = _batchOperators.hasMatch(argument);
+    final unsafe =
+        _batchLineBreak.hasMatch(argument) ||
+        (quoted ? hasPercent || quotedExecutable : hasOperator) ||
+        (hasQuote && hasOperator);
+    if (unsafe) {
+      throw CliError(
+        'argument ${jsonEncode(argument)} cannot be passed through cmd.exe '
+        'to a Windows batch script unchanged',
+      );
+    }
+    return quoted ? argument : argument.replaceAll('%', '^%');
+  }
 
   /// Runs [executable] to completion, capturing stdout/stderr as UTF-8.
   ///
