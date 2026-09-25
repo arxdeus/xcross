@@ -32,7 +32,6 @@ dependencies:
   standard_message_codec: ^0.0.1+5
   yaml: ^3.1.4
   web_socket_channel: ^3.0.3
-  posix: ^6.5.2
   basic_utils: ^5.8.2
   http: ^1.6.0
   xml: ^7.0.1
