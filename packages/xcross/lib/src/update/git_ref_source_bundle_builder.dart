@@ -51,6 +51,7 @@ final class GitRefSourceBundleBuilder {
       );
     }
 
+    final dartExecutable = await _resolveDartExecutable();
     await _deleteStaleTempDirectories();
     final tempDirectory = await _createTempDirectory(_tempDirectoryPrefix);
     final progress = UpdateProgress('Source', UpdatePhases.source.length);
@@ -82,7 +83,6 @@ final class GitRefSourceBundleBuilder {
           action: 'checkout update commit ${ref.commitSha}',
         ),
       );
-      final dartExecutable = await _resolveDartExecutable();
       await progress.run(
         'Resolve dependencies',
         () => _runChecked(

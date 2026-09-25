@@ -128,7 +128,37 @@ void main() {
         onBundle: (_, __) async {},
       );
 
-      expect(dartInvocations, List.filled(2, _hostDartExecutable()));
+      expect(dartInvocations, List.filled(2, _fakeDartExecutable));
+    });
+
+    test('fails on a missing Dart before any source phase runs', () async {
+      final runner = _FakeProcessRunner(onRun: (_) async => _result());
+      var createdTempDirectory = false;
+      final builder = _createTestBuilder(
+        run: runner.run,
+        createTempDirectory: (_) {
+          createdTempDirectory = true;
+          throw StateError('temp directory must not be created');
+        },
+        resolveDartExecutable: () async =>
+            throw XcrossError('failed to locate required executable "dart"'),
+      );
+
+      await expectLater(
+        builder.build<void>(
+          ref: const GitUpdateRef(
+            kind: GitUpdateRefKind.branch,
+            displayName: 'main',
+            fetchRef: 'refs/heads/main',
+            commitSha: '1234567890abcdef1234567890abcdef12345678',
+          ),
+          onBundle: (_, __) async {},
+        ),
+        throwsA(isA<XcrossError>()),
+      );
+
+      expect(runner.calls, isEmpty);
+      expect(createdTempDirectory, isFalse);
     });
 
     test('reports numbered source phases in order', () async {
@@ -267,20 +297,16 @@ void main() {
               '--detach',
               '1234567890abcdef1234567890abcdef12345678',
             ], workingDirectory: repo.path),
-            _ProcessCall(_hostDartExecutable(), const [
+            _ProcessCall(_fakeDartExecutable, const [
               'pub',
               'get',
             ], workingDirectory: repo.path),
-            _ProcessCall(
-              _hostDartExecutable(),
-              const [
-                'run',
-                '-DXCROSS_VERSION=main',
-                '-DXCROSS_RELEASED=false',
-                'tool/build_xcross.dart',
-              ],
-              workingDirectory: p.join(repo.path, 'packages', 'xcross'),
-            ),
+            _ProcessCall(_fakeDartExecutable, const [
+              'run',
+              '-DXCROSS_VERSION=main',
+              '-DXCROSS_RELEASED=false',
+              'tool/build_xcross.dart',
+            ], workingDirectory: p.join(repo.path, 'packages', 'xcross')),
           ]),
         );
         expect(callbackSawExistingBundle, isTrue);
@@ -331,16 +357,12 @@ void main() {
 
       expect(
         runner.calls.last,
-        _ProcessCall(
-          _hostDartExecutable(),
-          const [
-            'run',
-            '-DXCROSS_VERSION=feature%2Fa%2Cb%3Dc',
-            '-DXCROSS_RELEASED=false',
-            'tool/build_xcross.dart',
-          ],
-          workingDirectory: p.join(repo.path, 'packages', 'xcross'),
-        ),
+        _ProcessCall(_fakeDartExecutable, const [
+          'run',
+          '-DXCROSS_VERSION=feature%2Fa%2Cb%3Dc',
+          '-DXCROSS_RELEASED=false',
+          'tool/build_xcross.dart',
+        ], workingDirectory: p.join(repo.path, 'packages', 'xcross')),
       );
     });
 
@@ -459,7 +481,7 @@ void main() {
             if (call.executable == 'git' && call.arguments.first == 'clone') {
               repo.createSync(recursive: true);
             }
-            if (call.executable == _hostDartExecutable() &&
+            if (call.executable == _fakeDartExecutable &&
                 call.arguments.contains('tool/build_xcross.dart')) {
               return _result(exitCode: 78, stderr: 'compile failed');
             }
@@ -505,7 +527,7 @@ void main() {
             if (call.executable == 'git' && call.arguments.first == 'clone') {
               repo.createSync(recursive: true);
             }
-            if (call.executable == _hostDartExecutable() &&
+            if (call.executable == _fakeDartExecutable &&
                 call.arguments.contains('tool/build_xcross.dart')) {
               return _result(exitCode: 78, stderr: 'original build failed');
             }
@@ -558,7 +580,7 @@ void main() {
             if (call.executable == 'git' && call.arguments.first == 'clone') {
               repo.createSync(recursive: true);
             }
-            if (call.executable == _hostDartExecutable() &&
+            if (call.executable == _fakeDartExecutable &&
                 call.arguments.contains('tool/build_xcross.dart')) {
               _createBundle(bundle);
             }
@@ -617,7 +639,7 @@ void main() {
               if (call.executable == 'git' && call.arguments.first == 'clone') {
                 repo.createSync(recursive: true);
               }
-              if (call.executable == _hostDartExecutable() &&
+              if (call.executable == _fakeDartExecutable &&
                   call.arguments.contains('tool/build_xcross.dart')) {
                 _createBundle(bundle);
               }
@@ -723,7 +745,7 @@ void main() {
             if (call.executable == 'git' && call.arguments.first == 'clone') {
               repo.createSync(recursive: true);
             }
-            if (call.executable == _hostDartExecutable() &&
+            if (call.executable == _fakeDartExecutable &&
                 call.arguments.contains('tool/build_xcross.dart')) {
               for (final target in ['linux-x64', 'macos-arm64']) {
                 Directory(
@@ -788,13 +810,15 @@ GitRefSourceBundleBuilder _createTestBuilder({
   DeleteDirectory? deleteDirectory,
   Directory? systemTempDirectory,
   TempDirectoryModifiedAt? tempDirectoryModifiedAt,
+  DartExecutableLocator? resolveDartExecutable,
 }) => GitRefSourceBundleBuilder(
   run: run,
   createTempDirectory: createTempDirectory,
   deleteDirectory: deleteDirectory,
   systemTempDirectory: systemTempDirectory,
   tempDirectoryModifiedAt: tempDirectoryModifiedAt,
-  resolveDartExecutable: () async => _hostDartExecutable(),
+  resolveDartExecutable:
+      resolveDartExecutable ?? () async => _fakeDartExecutable,
 );
 
 Directory _createScratchDirectory() {
@@ -816,7 +840,7 @@ Future<void> _deleteDirectorySync(Directory directory) async {
   directory.deleteSync(recursive: true);
 }
 
-String _hostDartExecutable() => Platform.isWindows ? 'dart.bat' : 'dart';
+const _fakeDartExecutable = '/fake/sdk/bin/dart';
 
 ProcessResult _result({
   int exitCode = 0,
