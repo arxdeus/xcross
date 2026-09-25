@@ -25,7 +25,6 @@ jobs:
     name: Compose build (${{ matrix.os }})
     permissions:
       contents: read
-      actions: write
     strategy:
       fail-fast: false
       matrix:
@@ -92,7 +91,7 @@ jobs:
       - name: Install Dart
         uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260
 
-      - name: Set cache directories
+      - name: Set toolchain directories
         shell: bash
         run: |
           set -euo pipefail
@@ -101,16 +100,6 @@ jobs:
             echo "GRADLE_USER_HOME=$RUNNER_TEMP/gradle"
             echo "XCROSS_CACHE_DIR=$RUNNER_TEMP/xcross-cache"
           } >> "$GITHUB_ENV"
-
-      - name: Restore Kotlin/Native and Gradle caches
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
-        with:
-          path: |
-            ${{ env.KONAN_DATA_DIR }}
-            ${{ env.GRADLE_USER_HOME }}/caches
-            ${{ env.GRADLE_USER_HOME }}/wrapper
-          key: compose-v1-${{ matrix.os }}-${{ hashFiles('examples/compose_app/**/*.gradle.kts', 'examples/compose_app/gradle/**', 'examples/compose_app/gradle.properties') }}
-          restore-keys: compose-v1-${{ matrix.os }}-
 
       - name: Install Linux requirements
         if: runner.os == 'Linux'
