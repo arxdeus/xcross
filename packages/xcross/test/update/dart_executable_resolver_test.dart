@@ -94,6 +94,45 @@ void main() {
       expect(result, usable.path);
     }, skip: Platform.isWindows);
 
+    test(
+      'Linux skips a dart the current user cannot execute',
+      () async {
+        final firstBin = _createBinDirectory();
+        final secondBin = _createBinDirectory();
+        final othersOnly = File(p.join(firstBin.path, 'dart'))..createSync();
+        final usable = File(p.join(secondBin.path, 'dart'))..createSync();
+        expect(Process.runSync('chmod', ['011', othersOnly.path]).exitCode, 0);
+        expect(Process.runSync('chmod', ['755', usable.path]).exitCode, 0);
+
+        final result = await findDartExecutableOnPath(
+          windows: false,
+          environment: {'PATH': '${firstBin.path}:${secondBin.path}'},
+          useConfiguration: false,
+        );
+
+        expect(result, usable.path);
+      },
+      skip: Platform.isWindows || _isRoot()
+          ? 'needs a non-root POSIX user'
+          : false,
+    );
+
+    test('Linux resolves dart through a relative PATH entry', () async {
+      final bin = _createBinDirectory();
+      final dart = File(p.join(bin.path, 'dart'))..createSync();
+      expect(Process.runSync('chmod', ['755', dart.path]).exitCode, 0);
+      final relativeBin = p.relative(bin.path, from: Directory.current.path);
+
+      final result = await findDartExecutableOnPath(
+        windows: false,
+        environment: {'PATH': relativeBin},
+        useConfiguration: false,
+      );
+
+      expect(result, p.join(relativeBin, 'dart'));
+      expect(p.equals(p.absolute(result), dart.path), isTrue);
+    }, skip: Platform.isWindows);
+
     test('Linux does not resolve Windows-only launcher files', () async {
       final bin = _createBinDirectory();
       File(p.join(bin.path, 'dart.exe')).createSync();
@@ -127,3 +166,6 @@ Map<String, String> _windowsEnvironment(Directory bin) => {
 };
 
 Map<String, String> _linuxEnvironment(Directory bin) => {'PATH': bin.path};
+
+bool _isRoot() =>
+    (Process.runSync('id', ['-u']).stdout as String).trim() == '0';
