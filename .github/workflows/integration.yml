@@ -17,8 +17,10 @@ env:
     16E5709785FEF73C854646241C4A92C5CD574318D1B33C63330DD7721903E55C
 
 concurrency:
-  group: integration-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Keyed by commit so a new push queues alongside in-flight runs
+  # instead of cancelling them.
+  group: integration-${{ github.event_name }}-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   flutter-build:
