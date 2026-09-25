@@ -25,7 +25,7 @@ Future<String> findDartExecutableOnPath({
       'it is available on PATH',
     );
   }
-  return executable;
+  return p.normalize(p.absolute(executable));
 }
 
 bool _isDartLauncher(String path, {required bool windows}) {

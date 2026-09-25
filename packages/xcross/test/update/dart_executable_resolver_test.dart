@@ -117,21 +117,25 @@ void main() {
           : false,
     );
 
-    test('Linux resolves dart through a relative PATH entry', () async {
-      final bin = _createBinDirectory();
-      final dart = File(p.join(bin.path, 'dart'))..createSync();
-      expect(Process.runSync('chmod', ['755', dart.path]).exitCode, 0);
-      final relativeBin = p.relative(bin.path, from: Directory.current.path);
+    test(
+      'Linux resolves a relative PATH entry to an absolute dart path',
+      () async {
+        final bin = _createBinDirectory();
+        final dart = File(p.join(bin.path, 'dart'))..createSync();
+        expect(Process.runSync('chmod', ['755', dart.path]).exitCode, 0);
+        final relativeBin = p.relative(bin.path, from: Directory.current.path);
 
-      final result = await findDartExecutableOnPath(
-        windows: false,
-        environment: {'PATH': relativeBin},
-        useConfiguration: false,
-      );
+        final result = await findDartExecutableOnPath(
+          windows: false,
+          environment: {'PATH': relativeBin},
+          useConfiguration: false,
+        );
 
-      expect(result, p.join(relativeBin, 'dart'));
-      expect(p.equals(p.absolute(result), dart.path), isTrue);
-    }, skip: Platform.isWindows);
+        expect(p.isAbsolute(result), isTrue);
+        expect(p.equals(result, dart.path), isTrue);
+      },
+      skip: Platform.isWindows,
+    );
 
     test('Linux does not resolve Windows-only launcher files', () async {
       final bin = _createBinDirectory();
