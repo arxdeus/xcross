@@ -146,7 +146,8 @@ abstract final class ProcessRunner {
   ///
   /// On Windows a `.bat` or `.cmd` [executable] always starts through
   /// cmd.exe, with [arguments] escaped by [windowsBatchArguments]. An
-  /// argument cmd.exe would alter fails with a [CliError].
+  /// argument cmd.exe would alter fails with a [CliError]. Every other
+  /// launcher here ([run], [runChecked], [runTool]) shares this handling.
   static Future<Process> start(
     String executable,
     List<String> arguments, {
@@ -155,17 +156,14 @@ abstract final class ProcessRunner {
     bool runInShell = false,
     ProcessStartMode mode = ProcessStartMode.normal,
   }) => Future.sync(() {
-    final resolved = _resolvedExecutable(executable);
-    final batch = isWindowsBatchScript(resolved);
+    final launch = _Launch.of(executable, arguments);
     return Process.start(
-      resolved,
-      batch
-          ? windowsBatchArguments(arguments, executable: resolved)
-          : arguments,
+      launch.executable,
+      launch.arguments,
       workingDirectory: workingDirectory,
       environment: _childEnvironment(environment),
       includeParentEnvironment: _inheritParentEnvironment,
-      runInShell: runInShell || batch,
+      runInShell: runInShell || launch.runInShell,
       mode: mode,
     );
   });
@@ -261,12 +259,14 @@ abstract final class ProcessRunner {
         timeout: timeout,
       );
     }
+    final launch = _Launch.of(executable, arguments);
     final result = await Process.run(
-      _resolvedExecutable(executable),
-      arguments,
+      launch.executable,
+      launch.arguments,
       workingDirectory: workingDirectory,
       environment: _childEnvironment(environment),
       includeParentEnvironment: _inheritParentEnvironment,
+      runInShell: launch.runInShell,
       stdoutEncoding: const Utf8Codec(allowMalformed: true),
       stderrEncoding: const Utf8Codec(allowMalformed: true),
     );
@@ -427,12 +427,11 @@ abstract final class ProcessRunner {
     Map<String, String>? environment,
     Duration? timeout,
   }) async {
-    final process = await Process.start(
-      _resolvedExecutable(executable),
+    final process = await start(
+      executable,
       arguments,
       workingDirectory: workingDirectory,
-      environment: _childEnvironment(environment),
-      includeParentEnvironment: _inheritParentEnvironment,
+      environment: environment,
       mode: ProcessStartMode.inheritStdio,
     );
     final code = await _awaitExitWithin(
@@ -509,12 +508,11 @@ abstract final class ProcessRunner {
     Map<String, String>? environment,
     Duration? timeout,
   }) async {
-    final process = await Process.start(
-      _resolvedExecutable(executable),
+    final process = await start(
+      executable,
       arguments,
       workingDirectory: workingDirectory,
-      environment: _childEnvironment(environment),
-      includeParentEnvironment: _inheritParentEnvironment,
+      environment: environment,
     );
     final captured = StringBuffer();
     final drained = Future.wait([
@@ -562,12 +560,11 @@ abstract final class ProcessRunner {
     bool forwardStdin = true,
     Duration? timeout,
   }) async {
-    final process = await Process.start(
-      _resolvedExecutable(executable),
+    final process = await start(
+      executable,
       arguments,
       workingDirectory: workingDirectory,
-      environment: _childEnvironment(environment),
-      includeParentEnvironment: _inheritParentEnvironment,
+      environment: environment,
     );
 
     final captured = StringBuffer();
@@ -1011,4 +1008,24 @@ abstract final class ProcessRunner {
     }
     return null;
   }
+}
+
+final class _Launch {
+  const _Launch(this.executable, this.arguments, {required this.runInShell});
+
+  factory _Launch.of(String executable, List<String> arguments) {
+    final resolved = ProcessRunner._resolvedExecutable(executable);
+    if (!ProcessRunner.isWindowsBatchScript(resolved)) {
+      return _Launch(resolved, arguments, runInShell: false);
+    }
+    return _Launch(
+      resolved,
+      ProcessRunner.windowsBatchArguments(arguments, executable: resolved),
+      runInShell: true,
+    );
+  }
+
+  final String executable;
+  final List<String> arguments;
+  final bool runInShell;
 }

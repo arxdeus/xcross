@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:cli_kit/src/errors.dart';
+import 'package:cli_kit/src/logging.dart';
 import 'package:cli_kit/src/process.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -682,6 +683,98 @@ void main() {
       },
     );
   });
+
+  group('batch scripts through every launcher', () {
+    const encoded = 'feature%2Fa%2Cb';
+    const environment = {'2Fa': 'EXPANDED'};
+    late String script;
+    late String output;
+
+    setUp(() {
+      final directory = Directory.systemTemp.createTempSync('batch-paths-');
+      addTearDown(() => directory.deleteSync(recursive: true));
+      output = p.join(directory.path, 'out.txt');
+      script =
+          (File(p.join(directory.path, 'emit.bat'))..writeAsStringSync(
+                '@echo off\r\necho %1\r\necho %1> "$output"\r\n',
+              ))
+              .path;
+    });
+
+    String written() => File(output).readAsStringSync().trim();
+
+    test('run', () async {
+      final result = await ProcessRunner.run(script, const [
+        encoded,
+      ], environment: environment);
+      expect(result.exitCode, 0);
+      expect(result.stdout.trim(), encoded);
+    });
+
+    test('run with a timeout', () async {
+      final result = await ProcessRunner.run(
+        script,
+        const [encoded],
+        environment: environment,
+        timeout: const Duration(minutes: 1),
+      );
+      expect(result.exitCode, 0);
+      expect(result.stdout.trim(), encoded);
+    });
+
+    for (final (name, call) in <(String, Future<void> Function(String))>[
+      (
+        'runChecked',
+        (script) => ProcessRunner.runChecked(script, const [
+          encoded,
+        ], environment: environment),
+      ),
+      (
+        'runChecked inheritStdio',
+        (script) => ProcessRunner.runChecked(
+          script,
+          const [encoded],
+          environment: environment,
+          inheritStdio: true,
+        ),
+      ),
+      (
+        'runChecked captureAndEcho',
+        (script) => ProcessRunner.runChecked(
+          script,
+          const [encoded],
+          environment: environment,
+          captureAndEcho: true,
+        ),
+      ),
+      (
+        'runChecked tail',
+        (script) => Log.logStep(
+          'batch',
+          () => ProcessRunner.runChecked(
+            script,
+            const [encoded],
+            environment: environment,
+            tail: Log.activeStep,
+            forwardStdin: false,
+          ),
+        ),
+      ),
+    ]) {
+      test(name, () async {
+        await call(script);
+        expect(written(), encoded);
+      });
+    }
+
+    test('runChecked rejects an argument cmd.exe would alter', () async {
+      await expectLater(
+        ProcessRunner.runChecked(script, const ['a&b']),
+        throwsA(isA<CliError>()),
+      );
+      expect(File(output).existsSync(), isFalse);
+    });
+  }, skip: !Platform.isWindows);
 
   group('run', () {
     test('replaces differently cased Windows environment overrides', () async {
