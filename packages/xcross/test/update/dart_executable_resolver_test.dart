@@ -137,6 +137,30 @@ void main() {
       skip: Platform.isWindows,
     );
 
+    test('Linux keeps a symlinked PATH entry with .. unnormalized', () async {
+      final root = _createBinDirectory();
+      final target = Directory(p.join(root.path, 'real', 'nested'))
+        ..createSync(recursive: true);
+      final realBin = Directory(p.join(root.path, 'real', 'bin'))..createSync();
+      final dart = File(p.join(realBin.path, 'dart'))..createSync();
+      expect(Process.runSync('chmod', ['755', dart.path]).exitCode, 0);
+      Link(p.join(root.path, 'link')).createSync(target.path);
+      final entry = p.join(root.path, 'link', '..', 'bin');
+
+      final result = await findDartExecutableOnPath(
+        windows: false,
+        environment: {'PATH': entry},
+        useConfiguration: false,
+      );
+
+      expect(result, p.join(entry, 'dart'));
+      expect(File(result).existsSync(), isTrue);
+      expect(
+        File(result).resolveSymbolicLinksSync(),
+        dart.resolveSymbolicLinksSync(),
+      );
+    }, skip: Platform.isWindows);
+
     test('Linux does not resolve Windows-only launcher files', () async {
       final bin = _createBinDirectory();
       File(p.join(bin.path, 'dart.exe')).createSync();
