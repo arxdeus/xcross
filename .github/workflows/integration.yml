@@ -3,7 +3,6 @@ name: Integration Tests
 on:
   pull_request:
   push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -18,15 +17,11 @@ env:
     16E5709785FEF73C854646241C4A92C5CD574318D1B33C63330DD7721903E55C
 
 concurrency:
-  group: integration-${{ github.ref }}
+  group: integration-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   flutter-build:
-    # Fork PR code must never receive the private Apple SDK cache.
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.head.repo.full_name == github.repository
     name: Flutter SwiftPM build (${{ matrix.os }})
     permissions:
       contents: read
@@ -38,6 +33,28 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
+      # Fork PR code must never receive the private Apple SDK cache, so those
+      # runs stop after the toolchain checks instead of being skipped outright.
+      - name: Resolve Darwin SDK availability
+        id: darwin
+        shell: bash
+        env:
+          IS_FORK_PR: >-
+            ${{ github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          set -euo pipefail
+          if [[ "$IS_FORK_PR" == "true" ]]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            notice='Fork pull request: building the xcross CLI and toolchain'
+            notice="$notice only. The private Apple SDK cache and the iOS"
+            notice="$notice build steps run once a maintainer pushes the"
+            notice="$notice branch to this repository."
+            echo "::notice::$notice"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
@@ -286,6 +303,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'doctor help failed' }
 
       - name: Restore cached Darwin SDK
+        if: steps.darwin.outputs.available == 'true'
         uses: ./.github/actions/setup-darwin-sdk
 
       - name: Set plugin build cache directory
@@ -298,14 +316,14 @@ jobs:
       # push never creates an extra cache entry. Bump swiftpm-v<n> to replace it.
       - name: Restore SwiftPM build cache
         id: swiftpm-cache
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684
         with:
           path: ${{ env.XCROSS_CACHE_DIR }}/swiftpm
           key: swiftpm-v1-${{ matrix.os }}-${{ runner.arch }}-${{ env.SWIFT_VERSION }}-${{ env.LLVM_VERSION }}
 
       - name: Build Flutter example on Linux
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && steps.darwin.outputs.available == 'true'
         shell: bash
         working-directory: examples/flutter_example
         run: |
@@ -313,7 +331,7 @@ jobs:
           "$RUNNER_TEMP/xcross-bundle/bin/xcross" --verbose flutter build
 
       - name: Build Flutter example on Windows
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && steps.darwin.outputs.available == 'true'
         shell: pwsh
         working-directory: examples/flutter_example
         run: |
@@ -322,7 +340,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'flutter_example build failed' }
 
       - name: Inspect Flutter example artifact on Linux
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && steps.darwin.outputs.available == 'true'
         working-directory: examples/flutter_example
         shell: bash
         run: |
@@ -341,7 +359,7 @@ jobs:
             grep -F '@executable_path/Frameworks'
 
       - name: Inspect Flutter example artifact on Windows
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && steps.darwin.outputs.available == 'true'
         working-directory: examples/flutter_example
         shell: pwsh
         run: |
@@ -369,7 +387,7 @@ jobs:
       # Drop the previous entry so main refreshes one cache in place instead of
       # accumulating a new cache per push. Never touches xcross-darwin-* caches.
       - name: Drop previous SwiftPM build cache
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -383,7 +401,7 @@ jobs:
           gh cache delete "$CACHE_KEY" --repo "$GITHUB_REPOSITORY" || true
 
       - name: Save SwiftPM build cache
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684
         with:
           path: ${{ env.XCROSS_CACHE_DIR }}/swiftpm

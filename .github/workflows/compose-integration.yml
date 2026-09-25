@@ -3,7 +3,6 @@ name: Compose Integration Tests
 on:
   pull_request:
   push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -18,15 +17,11 @@ env:
     16E5709785FEF73C854646241C4A92C5CD574318D1B33C63330DD7721903E55C
 
 concurrency:
-  group: compose-integration-${{ github.ref }}
+  group: compose-integration-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   compose-build:
-    # Fork PR code must never receive the private Apple SDK cache.
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.head.repo.full_name == github.repository
     name: Compose build (${{ matrix.os }})
     permissions:
       contents: read
@@ -39,6 +34,28 @@ jobs:
     timeout-minutes: 90
 
     steps:
+      # Fork PR code must never receive the private Apple SDK cache, so those
+      # runs stop after the toolchain checks instead of being skipped outright.
+      - name: Resolve Darwin SDK availability
+        id: darwin
+        shell: bash
+        env:
+          IS_FORK_PR: >-
+            ${{ github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          set -euo pipefail
+          if [[ "$IS_FORK_PR" == "true" ]]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            notice='Fork pull request: building the xcross CLI and toolchain'
+            notice="$notice only. The private Apple SDK cache and the Compose"
+            notice="$notice build steps run once a maintainer pushes the"
+            notice="$notice branch to this repository."
+            echo "::notice::$notice"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
@@ -266,24 +283,29 @@ jobs:
             Out-File $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Restore cached Darwin SDK
+        if: steps.darwin.outputs.available == 'true'
         uses: ./.github/actions/setup-darwin-sdk
 
       - name: Set up Compose toolchain
+        if: steps.darwin.outputs.available == 'true'
         shell: bash
         working-directory: examples/compose_app
         run: xcross compose setup --verbose
 
       - name: Build Compose example
+        if: steps.darwin.outputs.available == 'true'
         shell: bash
         working-directory: examples/compose_app
         run: xcross compose build --verbose
 
       - name: Rebuild Compose example (up-to-date check)
+        if: steps.darwin.outputs.available == 'true'
         shell: bash
         working-directory: examples/compose_app
         run: xcross compose build --verbose
 
       - name: Inspect Compose example artifact
+        if: steps.darwin.outputs.available == 'true'
         shell: bash
         working-directory: examples/compose_app
         run: |
@@ -314,4 +336,3 @@ jobs:
             test -d "$app/compose-resources/composeResources"
           fi
           ls -la "$app"
-
