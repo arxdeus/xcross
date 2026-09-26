@@ -36,7 +36,11 @@ final class FrontendServerSession {
     options.onTrace?.call(
       '[frontend_server] running: ${options.dart} ${args.join(' ')}',
     );
-    final proc = await Process.start(options.dart, args);
+    final proc = await Process.start(
+      options.dart,
+      args,
+      workingDirectory: options.workingDirectory,
+    );
 
     _process = proc;
     _sink = proc.stdin;

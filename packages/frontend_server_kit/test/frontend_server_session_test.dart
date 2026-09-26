@@ -201,6 +201,7 @@ void main() {
         final session = FrontendServerSession(
           FrontendServerOptions(
             dart: '${dartBin.path}/dartaotruntime',
+            workingDirectory: temp.path,
             frontendServer: frontendServer.path,
             sdkRoot: sdkRoot,
             packageConfig: packages.path,

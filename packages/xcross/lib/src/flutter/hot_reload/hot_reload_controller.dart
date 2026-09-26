@@ -62,6 +62,7 @@ final class HotReloadController {
         '${config.projectRoot}/build/xcross-flutter-debug/.kernel/app.dill';
     return FrontendServerOptions(
       dart: config.dart,
+      workingDirectory: config.projectRoot,
       frontendServer: config.frontendServer,
       sdkRoot: config.sdkRoot,
       packageConfig: config.packageConfig,

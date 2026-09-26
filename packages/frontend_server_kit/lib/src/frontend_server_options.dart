@@ -13,10 +13,13 @@ final class FrontendServerOptions {
     this.trackWidgetCreation = true,
     this.initializeFromDill,
     this.onTrace,
+    this.workingDirectory,
   });
 
   /// Path to the `dart` (or `dartaotruntime`) executable.
   final String dart;
+
+  final String? workingDirectory;
 
   /// Path to the `frontend_server` snapshot or AOT kernel.
   final String frontendServer;
