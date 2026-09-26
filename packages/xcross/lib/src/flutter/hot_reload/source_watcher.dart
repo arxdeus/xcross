@@ -1,9 +1,21 @@
+import 'dart:convert';
 import 'dart:io';
+
+import 'package:path/path.dart' as p;
 
 /// Tracks which `lib/` `.dart` files changed between compiles, so a hot reload
 /// only recompiles what the user actually edited.
 final class SourceWatcher {
-  SourceWatcher(this.projectRoot);
+  SourceWatcher(
+    this.projectRoot, {
+    String? packageConfig,
+    this.additionalFiles = const [],
+  }) : packageConfig =
+           packageConfig ?? '$projectRoot/.dart_tool/package_config.json';
+
+  final String packageConfig;
+  final List<String> additionalFiles;
+  final Set<String> _retryUris = {};
 
   /// Flutter project root directory.
   final String projectRoot;
@@ -16,15 +28,18 @@ final class SourceWatcher {
   /// `test/`/`bin/`/`tool/` pull in non-runtime deps that would balloon the
   /// compile.
   List<String> dartFiles() {
-    final root = _searchRoot();
-    if (root == null) return const [];
-
-    final files = <String>[];
-    final pending = <Directory>[root];
+    final files = <String>{
+      for (final path in additionalFiles)
+        if (File(path).existsSync()) p.normalize(File(path).absolute.path),
+    };
+    final pending = _searchRoots();
+    final visited = <String>{};
     while (pending.isNotEmpty) {
       final List<FileSystemEntity> entries;
       try {
-        entries = pending.removeLast().listSync(followLinks: false);
+        final directory = pending.removeLast();
+        if (!visited.add(p.normalize(directory.absolute.path))) continue;
+        entries = directory.listSync(followLinks: false);
       } on FileSystemException {
         continue;
       }
@@ -33,17 +48,18 @@ final class SourceWatcher {
         if (entity is Directory) {
           if (!name.startsWith('.') && name != 'build') pending.add(entity);
         } else if (entity is File && name.endsWith('.dart')) {
-          files.add(entity.absolute.path);
+          files.add(p.normalize(entity.absolute.path));
         }
       }
     }
-    return files;
+    return files.toList()..sort();
   }
 
   /// Record the current content hash of every `lib/` `.dart` file as the
   /// baseline for [changedFileUris].
   void snapshot() {
     _hashes.clear();
+    _retryUris.clear();
     for (final path in dartFiles()) {
       if (_contentHash(path) case final hash?) _hashes[path] = hash;
     }
@@ -53,14 +69,77 @@ final class SourceWatcher {
   /// `file://` URIs. NOT a pure query: it advances the baseline as it walks,
   /// so a second call returns empty.
   List<String> changedFileUris() {
-    final changed = <String>[];
-    for (final path in dartFiles()) {
+    final changed = <String>{..._retryUris};
+    _retryUris.clear();
+    final paths = dartFiles().toSet();
+    for (final path in paths) {
       final hash = _contentHash(path);
       if (hash == null || _hashes[path] == hash) continue;
       _hashes[path] = hash;
       changed.add(Uri.file(path).toString());
     }
-    return changed;
+    for (final path in _hashes.keys.toList()) {
+      if (paths.contains(path) || File(path).existsSync()) continue;
+      _hashes.remove(path);
+      changed.add(Uri.file(path).toString());
+    }
+    return changed.toList()..sort();
+  }
+
+  void restoreInvalidations(Iterable<String> uris) => _retryUris.addAll(uris);
+
+  List<Directory> _searchRoots() {
+    final roots = <Directory>[if (_searchRoot() case final root?) root];
+    final config = File(packageConfig).absolute;
+    try {
+      final document = jsonDecode(config.readAsStringSync());
+      if (document is! Map<String, dynamic>) return roots;
+      final packages = document['packages'];
+      if (packages is! List) return roots;
+      final cache =
+          _configPath(document['pubCache'], config.uri) ??
+          Platform.environment['PUB_CACHE'] ??
+          p.join(Platform.environment['HOME'] ?? '', '.pub-cache');
+      final flutterRoot = _configPath(document['flutterRoot'], config.uri);
+      String? flutterPackages;
+      for (final package in packages) {
+        if (package case {'name': 'flutter', 'rootUri': final String root}) {
+          final uri = config.uri.resolve(root);
+          if (uri.scheme == 'file') {
+            flutterPackages = p.dirname(p.normalize(uri.toFilePath()));
+          }
+        }
+      }
+      for (final package in packages) {
+        if (package is! Map<String, dynamic>) continue;
+        final root = package['rootUri'];
+        final packageUri = package['packageUri'] ?? 'lib/';
+        if (root is! String || packageUri is! String) continue;
+        final rootUri = config.uri.resolve(root);
+        if (rootUri.scheme != 'file') continue;
+        final rootPath = p.normalize(rootUri.toFilePath());
+        if (p.isWithin(p.absolute(cache), rootPath) ||
+            (flutterRoot != null && p.isWithin(flutterRoot, rootPath)) ||
+            (flutterPackages != null &&
+                (p.equals(flutterPackages, rootPath) ||
+                    p.isWithin(flutterPackages, rootPath)))) {
+          continue;
+        }
+        final uri = Uri.directory(rootPath).resolve(packageUri);
+        if (uri.scheme == 'file') roots.add(Directory.fromUri(uri));
+      }
+    } on FileSystemException {
+      return roots;
+    } on FormatException {
+      return roots;
+    }
+    return roots;
+  }
+
+  static String? _configPath(Object? value, Uri configUri) {
+    if (value is! String) return null;
+    final uri = configUri.resolve(value);
+    return uri.scheme == 'file' ? p.normalize(uri.toFilePath()) : null;
   }
 
   // `<projectRoot>/lib`, falling back to the project root, or null if

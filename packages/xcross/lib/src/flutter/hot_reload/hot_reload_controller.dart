@@ -25,7 +25,15 @@ final class HotReloadController {
            'http://${ProcessRunner.bracketHost(vmService.host)}:'
            '${vmService.port}/',
        _frontend = FrontendServerSession(_frontendOptions(config)),
-       _sources = SourceWatcher(config.projectRoot);
+       _sources = SourceWatcher(
+         config.projectRoot,
+         packageConfig: config.packageConfig,
+         additionalFiles: [
+           config.entrypoint,
+           for (final uri in config.additionalSources)
+             if (uri.scheme == 'file') uri.toFilePath(),
+         ],
+       );
 
   // Fallback devFS base URI used when `_createDevFS` does not return one.
   static const _devFsFallbackUri =
@@ -60,6 +68,7 @@ final class HotReloadController {
       entrypoint: config.entrypoint,
       outputDill: config.outputDill,
       dartDefines: config.dartDefines,
+      additionalSources: config.additionalSources,
       initializeFromDill: File(warm).existsSync() ? warm : null,
       onTrace: Log.logTrace,
     );
@@ -67,15 +76,21 @@ final class HotReloadController {
 
   /// Initial compile + devFS creation. Call once after VM Service connects.
   Future<void> initialSync() async {
-    await _frontend.spawn();
-    await _createDevFs();
-    // Primes frontend_server's incremental state only; the app already runs
-    // its bundled kernel, so a full seed-dill upload would just slow the
-    // first reload.
-    await _frontend.compile();
-    await _frontend.accept();
     _sources.snapshot();
-    await _registerExpressionCompiler();
+    try {
+      await _frontend.spawn();
+      await _createDevFs();
+      await _frontend.compile();
+      await _frontend.accept();
+      await _registerExpressionCompiler();
+    } on Object {
+      try {
+        await _frontend.close();
+      } on Object catch (error) {
+        Log.logTrace('frontend cleanup failed: $error');
+      }
+      rethrow;
+    }
   }
 
   // Registers frontend_server as the `compileExpression` service. Without
@@ -133,28 +148,36 @@ final class HotReloadController {
       return true;
     }
 
-    final dill = await _timed(
-      'recompile',
-      () => _frontend.recompile(invalidated: changed),
-    );
-    final targetUri = await _timed('devfs-upload', () => _uploadDill(dill));
-
-    final isolateId = _cachedRootIsolate ??= await _rootIsolateId();
-    if (isolateId == null) {
-      throw FlutterBuildError('no Flutter isolate to reload');
+    var pending = false;
+    var applied = false;
+    try {
+      final dill = await _timed(
+        'recompile',
+        () => _frontend.recompile(invalidated: changed),
+      );
+      pending = true;
+      final targetUri = await _timed('devfs-upload', () => _uploadDill(dill));
+      final isolateId = _cachedRootIsolate ??= await _rootIsolateId();
+      if (isolateId == null) {
+        throw FlutterBuildError('no Flutter isolate to reload');
+      }
+      final reloaded = await _timed(
+        'reloadSources',
+        () => _reloadSources(isolateId, rootLibUri: targetUri),
+      );
+      if (!reloaded) return false;
+      await _frontend.accept();
+      pending = false;
+      applied = true;
+      await _timed('reassemble', () => _reassemble(isolateId));
+      return true;
+    } finally {
+      if (!applied) {
+        _sources.restoreInvalidations(changed);
+        _cachedRootIsolate = null;
+      }
+      if (pending) await _rejectPending();
     }
-
-    final reloaded = await _timed(
-      'reloadSources',
-      () => _reloadSources(isolateId, rootLibUri: targetUri),
-    );
-    if (!reloaded) {
-      await _frontend.reject();
-      return false;
-    }
-    await _frontend.accept();
-    await _timed('reassemble', () => _reassemble(isolateId));
-    return true;
   }
 
   /// Full restart: recompile, push (to an alternating swap dill), then
@@ -162,26 +185,43 @@ final class HotReloadController {
   /// the RPC's own return (which on-device can exceed the default timeout).
   Future<void> restart() async {
     final changed = _sources.changedFileUris();
-    _cachedRootIsolate = null; // a new isolate comes up after runInView
-    // MUST reset before recompiling: without it frontend_server emits an
-    // incremental delta (to `<output-dill>.incremental.dill`), and runInView
-    // cannot boot an isolate from a partial program — it just never becomes
-    // runnable, which reads as a dead hang.
-    await _frontend.reset();
-    final dill = await _timed(
-      'restart-recompile',
-      () => _frontend.recompile(invalidated: changed),
-    );
-    _restartCount++;
-    final targetUri = await _timed(
-      'restart-devfs-upload',
-      () => _uploadDill(dill, fileName: _restartDillName),
-    );
-    await _frontend.accept();
+    _cachedRootIsolate = null;
+    var pending = false;
+    var applied = false;
+    try {
+      await _frontend.reset();
+      final dill = await _timed(
+        'restart-recompile',
+        () => _frontend.recompile(invalidated: changed),
+      );
+      pending = true;
+      _restartCount++;
+      final targetUri = await _timed(
+        'restart-devfs-upload',
+        () => _uploadDill(dill, fileName: _restartDillName),
+      );
+      await _vm.streamListen('Isolate');
+      final views = await _flutterViewIds();
+      if (views.isEmpty) throw FlutterBuildError('no Flutter view to restart');
+      for (final viewId in views) {
+        await _runInView(viewId, mainScript: targetUri);
+      }
+      await _frontend.accept();
+      pending = false;
+      applied = true;
+    } finally {
+      if (!applied) _sources.restoreInvalidations(changed);
+      if (pending) await _rejectPending();
+    }
+  }
 
-    await _vm.streamListen('Isolate');
-    for (final viewId in await _flutterViewIds()) {
-      await _runInView(viewId, mainScript: targetUri);
+  Future<void> _rejectPending() async {
+    try {
+      await _frontend.reject();
+    } on Object catch (error) {
+      Log.logTrace('frontend reject failed: $error');
+      await _frontend.close();
+      rethrow;
     }
   }
 

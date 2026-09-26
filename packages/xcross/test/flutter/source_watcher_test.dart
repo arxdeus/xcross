@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -33,6 +34,18 @@ void main() {
       expect(basenames, {'a.dart', 'b.dart'});
     });
 
+    test('tracks an explicit entrypoint outside lib and its deletion', () {
+      writeFile('lib/a.dart');
+      writeFile('main.dart');
+      final path = p.join(tmp.path, 'main.dart');
+      final watcher = SourceWatcher(tmp.path, additionalFiles: [path])
+        ..snapshot();
+      writeFile('main.dart', 'changed');
+      expect(watcher.changedFileUris(), [Uri.file(path).toString()]);
+      File(path).deleteSync();
+      expect(watcher.changedFileUris(), [Uri.file(path).toString()]);
+    });
+
     test('returns absolute paths', () {
       writeFile(p.join('lib', 'a.dart'));
       final watcher = SourceWatcher(tmp.path);
@@ -52,6 +65,122 @@ void main() {
       final missing = p.join(tmp.path, 'does_not_exist');
       final watcher = SourceWatcher(missing);
       expect(watcher.dartFiles(), isEmpty);
+    });
+  });
+
+  group('package config', () {
+    void configure(List<Object?> packages, {String? path}) {
+      writeFile(
+        path ?? '.dart_tool/package_config.json',
+        jsonEncode({'configVersion': 2, 'packages': packages}),
+      );
+    }
+
+    test('tracks relative and absolute local package source roots', () {
+      writeFile('lib/main.dart');
+      writeFile('dependency/lib/local.dart');
+      writeFile('absolute/source/absolute.dart');
+      writeFile('dependency/test/ignored.dart');
+      configure([
+        {'name': 'app', 'rootUri': '../', 'packageUri': 'lib/'},
+        {'name': 'local', 'rootUri': '../dependency', 'packageUri': 'lib/'},
+        {
+          'name': 'absolute',
+          'rootUri': Uri.directory(p.join(tmp.path, 'absolute')).toString(),
+          'packageUri': 'source/',
+        },
+      ]);
+      final watcher = SourceWatcher(tmp.path);
+      expect(
+        watcher.dartFiles().map(p.basename),
+        unorderedEquals(['main.dart', 'local.dart', 'absolute.dart']),
+      );
+      watcher.snapshot();
+      writeFile('dependency/lib/local.dart', 'changed');
+      expect(watcher.changedFileUris(), [
+        Uri.file(p.join(tmp.path, 'dependency/lib/local.dart')).toString(),
+      ]);
+    });
+
+    test('uses the supplied workspace package config path', () {
+      writeFile('app/lib/main.dart');
+      writeFile('dependency/lib/local.dart');
+      configure([
+        {'name': 'local', 'rootUri': '../dependency', 'packageUri': 'lib/'},
+      ]);
+      final watcher = SourceWatcher(
+        p.join(tmp.path, 'app'),
+        packageConfig: p.join(tmp.path, '.dart_tool/package_config.json'),
+      );
+      expect(
+        watcher.dartFiles().map(p.basename),
+        unorderedEquals(['main.dart', 'local.dart']),
+      );
+    });
+
+    test('does not scan Flutter SDK package sources', () {
+      writeFile('lib/main.dart');
+      writeFile('sdk/packages/flutter/lib/framework.dart');
+      writeFile('sdk/packages/flutter_test/lib/test.dart');
+      configure([
+        {'name': 'flutter', 'rootUri': '../sdk/packages/flutter/'},
+        {'name': 'flutter_test', 'rootUri': '../sdk/packages/flutter_test/'},
+      ]);
+      expect(SourceWatcher(tmp.path).dartFiles().map(p.basename), [
+        'main.dart',
+      ]);
+    });
+
+    test('honors package config pubCache and flutterRoot metadata', () {
+      writeFile('lib/main.dart');
+      writeFile('custom-cache/hosted/package/lib/dependency.dart');
+      writeFile('custom-sdk/packages/other/lib/sdk.dart');
+      writeFile(
+        '.dart_tool/package_config.json',
+        jsonEncode({
+          'configVersion': 2,
+          'pubCache': Uri.directory(
+            p.join(tmp.path, 'custom-cache'),
+          ).toString(),
+          'flutterRoot': Uri.directory(
+            p.join(tmp.path, 'custom-sdk'),
+          ).toString(),
+          'packages': [
+            {'name': 'hosted', 'rootUri': '../custom-cache/hosted/package/'},
+            {'name': 'sdk', 'rootUri': '../custom-sdk/packages/other/'},
+          ],
+        }),
+      );
+      expect(SourceWatcher(tmp.path).dartFiles().map(p.basename), [
+        'main.dart',
+      ]);
+    });
+
+    test('tolerates missing malformed and non-file config entries', () {
+      writeFile('lib/main.dart');
+      final watcher = SourceWatcher(tmp.path);
+      writeFile('.dart_tool/package_config.json', '{');
+      expect(watcher.dartFiles(), hasLength(1));
+      configure([
+        null,
+        {},
+        {'rootUri': 3},
+        {'rootUri': 'https://example.com/'},
+      ]);
+      expect(watcher.dartFiles(), hasLength(1));
+    });
+
+    test('discovers package roots added after the snapshot', () {
+      writeFile('lib/main.dart');
+      configure([]);
+      final watcher = SourceWatcher(tmp.path)..snapshot();
+      writeFile('dependency/lib/local.dart');
+      configure([
+        {'name': 'local', 'rootUri': '../dependency'},
+      ]);
+      expect(watcher.changedFileUris(), [
+        Uri.file(p.join(tmp.path, 'dependency/lib/local.dart')).toString(),
+      ]);
     });
   });
 
@@ -103,6 +232,42 @@ void main() {
       );
 
       expect(watcher.changedFileUris(), [Uri.file(newPath).toString()]);
+    });
+    test('reports deleted files once and detects recreation', () {
+      writeFile('lib/a.dart');
+      final watcher = SourceWatcher(tmp.path)..snapshot();
+      final path = p.join(tmp.path, 'lib/a.dart');
+      File(path).deleteSync();
+      expect(watcher.changedFileUris(), [Uri.file(path).toString()]);
+      expect(watcher.changedFileUris(), isEmpty);
+      writeFile('lib/a.dart');
+      expect(watcher.changedFileUris(), [Uri.file(path).toString()]);
+    });
+
+    test('retries edited and deleted sources until successful', () {
+      writeFile('lib/a.dart');
+      writeFile('lib/b.dart');
+      final watcher = SourceWatcher(tmp.path)..snapshot();
+      writeFile('lib/a.dart', 'changed');
+      File(p.join(tmp.path, 'lib/b.dart')).deleteSync();
+      final first = watcher.changedFileUris();
+      expect(first, hasLength(2));
+      watcher.restoreInvalidations(first);
+      final retry = watcher.changedFileUris();
+      expect(retry, first);
+      watcher.restoreInvalidations(retry);
+      writeFile('lib/a.dart', 'another edit');
+      writeFile('lib/c.dart');
+      expect(watcher.changedFileUris(), hasLength(3));
+      expect(watcher.changedFileUris(), isEmpty);
+    });
+
+    test('snapshot clears queued invalidations', () {
+      writeFile('lib/a.dart');
+      final watcher = SourceWatcher(tmp.path);
+      watcher.restoreInvalidations(watcher.changedFileUris());
+      watcher.snapshot();
+      expect(watcher.changedFileUris(), isEmpty);
     });
   });
 }
