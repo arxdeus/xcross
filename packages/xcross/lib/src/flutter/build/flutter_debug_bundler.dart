@@ -264,7 +264,6 @@ final class FlutterDebugBundler {
   /// screen. The generated file sits in `.dart_tool/flutter_build/`, outside
   /// any package `lib/`, so this is the `file://` form in practice; the
   /// `package:` branch covers a project that relocates it inside a package.
-  @visibleForTesting
   static String dartPluginRegistrantUri(String path, PackageUris? packageUris) {
     final fileUri = Uri.file(path);
     return packageUris?.toPackageUri(fileUri)?.toString() ?? fileUri.toString();

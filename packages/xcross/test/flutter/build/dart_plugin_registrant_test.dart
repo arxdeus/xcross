@@ -394,7 +394,7 @@ void _frontendServerFlags() {
       expect(source, contains("'--initialize-from-dill', outputDill"));
       expect(source, contains("'--no-link-platform'"));
       // The three flags above must not have displaced the registrant trio.
-      expect(source, contains("additionalSources(dartPluginRegistrantUri)"));
+      expect(source, contains('additionalSources(dartPluginRegistrantUri)'));
     });
 
     test('flavor default preserves explicit defines and input list', () {
