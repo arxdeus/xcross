@@ -27,7 +27,9 @@ void main() {
     source.parent.createSync();
     source.writeAsStringSync('void main() {}');
     final config = File(p.join(tmp.path, 'package_config.json'))
-      ..writeAsStringSync(jsonEncode({'configVersion': 2, 'packages': []}));
+      ..writeAsStringSync(
+        jsonEncode({'configVersion': 2, 'packages': <Object?>[]}),
+      );
     final frontend = File(p.join(tmp.path, 'frontend.dart'))
       ..writeAsStringSync(_frontend);
     commands = File(p.join(tmp.path, 'commands'));
