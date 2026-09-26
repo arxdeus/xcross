@@ -21,9 +21,10 @@ abstract final class HotReloadSetup {
     required String target,
     required List<String> dartDefines,
     String? flavor,
+    String? projectRoot,
     bool verbose = false,
   }) async {
-    final projectRoot = Directory.current.path;
+    projectRoot ??= Directory.current.path;
     final flutterRoot = await FlutterPacker.resolveFlutterRoot(
       projectRoot: projectRoot,
     );

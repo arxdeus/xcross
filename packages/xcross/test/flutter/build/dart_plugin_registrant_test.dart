@@ -54,7 +54,6 @@ ${entries.join('\n')}
   test(
     'reload restores custom registrant and matches build compiler inputs',
     () async {
-      final previousDirectory = Directory.current;
       final flutterRoot = p.join(tmp.path, 'flutter');
       final snapshot = File(
         p.join(
@@ -130,9 +129,9 @@ ${entries.join('\n')}
       await seed.create(recursive: true);
       await seed.writeAsString('warm-start seed');
       FlutterPacker.configureFlutterRootOverride(flutterRoot);
-      Directory.current = projectRoot;
       try {
         final config = (await HotReloadSetup.buildHotReloadConfig(
+          projectRoot: projectRoot,
           target: 'lib/main.dart',
           dartDefines: const ['USER=value'],
           flavor: 'dev',
@@ -152,6 +151,7 @@ ${entries.join('\n')}
         expect(config.entrypoint, p.join(projectRoot, 'lib', 'main.dart'));
         await metadata.delete();
         final withoutPlugins = (await HotReloadSetup.buildHotReloadConfig(
+          projectRoot: projectRoot,
           target: 'lib/main.dart',
           dartDefines: const ['FLUTTER_APP_FLAVOR=custom'],
           flavor: 'dev',
@@ -160,7 +160,6 @@ ${entries.join('\n')}
         expect(withoutPlugins.additionalSources, isEmpty);
         expect(registrant.existsSync(), isFalse);
       } finally {
-        Directory.current = previousDirectory;
         FlutterPacker.resetFlutterRootOverride();
       }
     },
