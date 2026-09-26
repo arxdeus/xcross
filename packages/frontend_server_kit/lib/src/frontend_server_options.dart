@@ -8,6 +8,7 @@ final class FrontendServerOptions {
     required this.entrypoint,
     required this.outputDill,
     this.dartDefines = const [],
+    this.additionalSources = const [],
     this.target = 'flutter',
     this.trackWidgetCreation = true,
     this.initializeFromDill,
@@ -34,6 +35,8 @@ final class FrontendServerOptions {
 
   /// Merged `--dart-define` values as `KEY=VALUE` strings.
   final List<String> dartDefines;
+
+  final List<Uri> additionalSources;
 
   /// Kernel target (`flutter`, `vm`, …).
   final String target;

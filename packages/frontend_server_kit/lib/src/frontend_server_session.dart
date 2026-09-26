@@ -62,6 +62,7 @@ final class FrontendServerSession {
       '--sdk-root',
       sdkRoot,
       '--incremental',
+      '--no-link-platform',
       '--target=${options.target}',
       '--no-print-incremental-dependencies',
       '-Ddart.developer.serviceExtensionStream.enabled=true',
@@ -72,6 +73,10 @@ final class FrontendServerSession {
       if (options.initializeFromDill case final dill?) ...[
         '--initialize-from-dill',
         dill,
+      ],
+      for (final source in options.additionalSources) ...[
+        '--source',
+        source.toString(),
       ],
       '--packages',
       options.packageConfig,
@@ -99,7 +104,7 @@ final class FrontendServerSession {
 
   Future<String> compile() => _serialized(() async {
     await _send('compile $_entrypointUri\n');
-    return _readResultBoundary();
+    return _readCompilationResult();
   });
 
   Future<String> recompile({required List<String> invalidated}) =>
@@ -116,7 +121,7 @@ final class FrontendServerSession {
     }
     sb.write('$boundaryToken\n');
     await _send(sb.toString());
-    return _readResultBoundary();
+    return _readCompilationResult();
   }
 
   /// Resets the incremental compiler so the next [recompile] emits a full
@@ -127,7 +132,21 @@ final class FrontendServerSession {
   /// Commit the latest output as the next incremental baseline.
   Future<void> accept() => _serialized(() => _send('accept\n'));
 
-  Future<void> reject() => _serialized(() => _send('reject\n'));
+  Future<void> reject() => _serialized(_reject);
+
+  Future<void> _reject() async {
+    await _send('reject\n');
+    await _readResponse(acknowledgement: true);
+  }
+
+  Future<String> _readCompilationResult() async {
+    try {
+      return await _readResultBoundary();
+    } on FrontendServerException catch (error) {
+      if (error.compilationFailed) await _reject();
+      rethrow;
+    }
+  }
 
   /// Compiles [expression] into an expression kernel and returns its bytes.
   ///
@@ -161,7 +180,7 @@ final class FrontendServerSession {
         isStatic: isStatic,
       ),
     );
-    return File(await _readResultBoundary()).readAsBytes();
+    return File(await _readResultBoundary(expectSources: false)).readAsBytes();
   });
 
   Future<void> close() async {
@@ -203,47 +222,97 @@ final class FrontendServerSession {
     await sink.flush();
   }
 
-  Future<String> _readResultBoundary() {
+  Future<String> _readResultBoundary({bool expectSources = true}) async =>
+      (await _readResponse(expectSources: expectSources))!;
+
+  Future<String?> _readResponse({
+    bool expectSources = true,
+    bool acknowledgement = false,
+  }) {
     final queue = _queue;
     if (queue == null) {
       throw FrontendServerException('frontend_server closed unexpectedly');
     }
-    // Never block forever: if frontend_server emits no result, fail instead.
-    return parseResultBoundary(queue).timeout(
+    return _parseResponse(
+      queue,
+      expectSources: expectSources,
+      acknowledgement: acknowledgement,
+    ).timeout(
       const Duration(seconds: 60),
-      onTimeout: () => throw FrontendServerException(
-        'frontend_server: no result within 60s',
-      ),
+      onTimeout: () async {
+        await close();
+        throw FrontendServerException('frontend_server: no result within 60s');
+      },
     );
   }
 
-  /// Parses `result <boundary>\n...\n<boundary> <dill> <errCount>` from
-  /// [queue] and returns the local dill path. Exposed for tests of the line
-  /// protocol framing.
-  static Future<String> parseResultBoundary(StreamQueue<String> queue) async {
+  static Future<String> parseResultBoundary(
+    StreamQueue<String> queue, {
+    bool expectSources = true,
+  }) async => (await _parseResponse(queue, expectSources: expectSources))!;
+
+  static Future<void> parseRejectBoundary(StreamQueue<String> queue) async {
+    await _parseResponse(queue, acknowledgement: true);
+  }
+
+  static Future<String?> _parseResponse(
+    StreamQueue<String> queue, {
+    bool expectSources = true,
+    bool acknowledgement = false,
+  }) async {
     String? boundary;
+    var sources = false;
+    final diagnostics = <String>[];
     while (await queue.hasNext) {
       final line = await queue.next;
       if (boundary == null) {
         if (line.startsWith('result ')) {
           boundary = line.substring('result '.length).trim();
+          if (boundary.isEmpty) {
+            throw FrontendServerException('frontend_server: empty boundary');
+          }
         }
         continue;
       }
-      if (line.startsWith(boundary)) {
-        // The boundary is printed alone first, then again with the dill path
-        // and error count; skip the bare echo.
-        final rest = line.substring(boundary.length).trim();
-        if (rest.isEmpty) continue;
-        final parts = rest.split(_whitespacePattern);
-        final dill = switch (parts) {
-          [...final pathTokens, _] when pathTokens.isNotEmpty =>
-            pathTokens.join(' '),
-          _ => rest,
-        };
-        if (dill.isEmpty) continue;
-        return dill;
+      if (line == boundary) {
+        if (acknowledgement) return null;
+        if (expectSources && !sources) {
+          sources = true;
+          continue;
+        }
+        throw FrontendServerException(
+          'frontend_server: compilation produced no kernel'
+          '${diagnostics.isEmpty ? '' : '\n${diagnostics.join('\n')}'}',
+          compilationFailed: true,
+        );
       }
+      if (line.startsWith('$boundary ')) {
+        final parts = line
+            .substring(boundary.length)
+            .trim()
+            .split(_whitespacePattern);
+        final errorCount = int.tryParse(parts.last);
+        if (parts.length < 2 || errorCount == null || errorCount < 0) {
+          throw FrontendServerException(
+            'frontend_server: malformed result: $line',
+          );
+        }
+        if (errorCount != 0) {
+          throw FrontendServerException(
+            'frontend_server: compilation failed with $errorCount error(s)'
+            '${diagnostics.isEmpty ? '' : '\n${diagnostics.join('\n')}'}',
+            errorCount: errorCount,
+            compilationFailed: true,
+          );
+        }
+        if (acknowledgement) {
+          throw FrontendServerException(
+            'frontend_server: expected reject acknowledgement',
+          );
+        }
+        return parts.take(parts.length - 1).join(' ');
+      }
+      if (!sources) diagnostics.add(line);
     }
     throw FrontendServerException('frontend_server closed unexpectedly');
   }
