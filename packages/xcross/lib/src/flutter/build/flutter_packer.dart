@@ -279,9 +279,9 @@ final class FlutterPacker {
     required IosDeploymentTarget deploymentTarget,
   }) async {
     final assembleOut = p.join(projectRoot, 'build', 'xcross-flutter-debug');
-    final assembleDir = Directory(assembleOut);
-    if (assembleDir.existsSync()) await assembleDir.delete(recursive: true);
-    await assembleDir.create(recursive: true);
+    // Not wiped: `.kernel/app.dill` seeds the next incremental compile, and
+    // the bundler recreates App.framework itself.
+    await Directory(assembleOut).create(recursive: true);
 
     return FlutterDebugBundler(
       projectRoot: projectRoot,

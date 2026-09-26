@@ -266,6 +266,17 @@ void _frontendServerFlags() {
       );
     });
 
+    test('mirrors flutter_tools debug incremental compile flags', () {
+      // --incremental + --initialize-from-dill let frontend_server warm-start
+      // from the previous app.dill instead of recompiling the whole program;
+      // --no-link-platform matches flutter_tools' iOS KernelSnapshot target.
+      expect(source, contains("'--incremental'"));
+      expect(source, contains("'--initialize-from-dill', outputDill"));
+      expect(source, contains("'--no-link-platform'"));
+      // The three flags above must not have displaced the registrant trio.
+      expect(source, contains("'--source',\n      dartPluginRegistrantUri"));
+    });
+
     test('builds a file:// URI rather than a bare path', () {
       // A bare path silently disables registration: the engine matches this
       // define against library importUris, and a path matches none.
