@@ -21,6 +21,9 @@ void main() {
     final nativeAssets = Directory(
       p.join(project.path, 'build', 'xcross-native-assets'),
     )..createSync(recursive: true);
+    final appleTools = Directory(
+      p.join(project.path, 'build', 'xcross-apple-tools'),
+    )..createSync(recursive: true);
     final workspace = SwiftPmWorkspace.forProject(
       project.path,
       environment: {'XCROSS_CACHE_DIR': cache.path},
@@ -33,6 +36,7 @@ void main() {
     );
 
     expect(nativeAssets.existsSync(), isFalse);
+    expect(appleTools.existsSync(), isFalse);
     expect(swiftPm.existsSync(), isFalse);
   });
 

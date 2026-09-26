@@ -130,7 +130,6 @@ final class FlutterPacker {
         projectRoot: projectRoot,
         flutterRoot: flutterRoot,
         deploymentTarget: deploymentTarget,
-        entrypoint: options.target,
       ).build(),
     );
     await File(
