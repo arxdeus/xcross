@@ -1,3 +1,8 @@
+## 1.5.1
+
+- Resolve the Dart launcher per host platform in `xcross update`, and harden launcher resolution and batch launches.
+- Run integration and Compose workflows on every push and fork PR without cancelling running jobs.
+
 ## 1.5.0
 
 - Build and run real Compose Multiplatform apps on a device from Linux and Windows: stage Compose resources, honour static frameworks, keep sibling project klibs in the link, expand `$(VAR)` build settings in Info.plist, and find nested `iosApp` layouts.
