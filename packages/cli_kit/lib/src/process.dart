@@ -143,6 +143,11 @@ abstract final class ProcessRunner {
   ///
   /// This preserves the streaming [Process] API while applying the same
   /// configured environment overlay as [run].
+  ///
+  /// On Windows a `.bat` or `.cmd` [executable] always starts through
+  /// cmd.exe, with [arguments] escaped by [windowsBatchArguments]. An
+  /// argument cmd.exe would alter fails with a [CliError]. Every other
+  /// launcher here ([run], [runChecked], [runTool]) shares this handling.
   static Future<Process> start(
     String executable,
     List<String> arguments, {
@@ -150,15 +155,89 @@ abstract final class ProcessRunner {
     Map<String, String>? environment,
     bool runInShell = false,
     ProcessStartMode mode = ProcessStartMode.normal,
-  }) => Process.start(
-    _resolvedExecutable(executable),
-    arguments,
-    workingDirectory: workingDirectory,
-    environment: _childEnvironment(environment),
-    includeParentEnvironment: _inheritParentEnvironment,
-    runInShell: runInShell,
-    mode: mode,
-  );
+  }) => Future.sync(() {
+    final resolved = _resolvedExecutable(executable);
+    final batch = isWindowsBatchScript(resolved);
+    return Process.start(
+      resolved,
+      batch
+          ? windowsBatchArguments(arguments, executable: resolved)
+          : arguments,
+      workingDirectory: workingDirectory,
+      environment: _childEnvironment(environment),
+      includeParentEnvironment: _inheritParentEnvironment,
+      runInShell: runInShell || batch,
+      mode: mode,
+    );
+  });
+
+  /// Whether [executable] is a batch script that Windows runs via cmd.exe.
+  static bool isWindowsBatchScript(String executable, {bool? windows}) {
+    if (!(windows ?? Platform.isWindows)) return false;
+    final extension = p.extension(executable).toLowerCase();
+    return extension == '.bat' || extension == '.cmd';
+  }
+
+  static final _batchNeverSafe = RegExp('["%\r\n]');
+  static final _batchWhitespace = RegExp('[ \t]');
+  static final _batchOperators = RegExp('[&|<>^]');
+  static final _batchQuotedCommandSpecial = RegExp('[&<>()@^|]');
+
+  /// Escapes [arguments] for a batch script started through cmd.exe.
+  ///
+  /// dart:io quotes an argument only when it is empty or contains a space,
+  /// tab or quote. Unquoted, cmd.exe expands `%NAME%` and treats
+  /// `& | < > ^` as operators, so `%` is caret-escaped and operators are
+  /// rejected. Quoted, a caret is literal, so `%` cannot be escaped and is
+  /// rejected. Embedded quotes flip cmd.exe's quote state and line breaks
+  /// end the command, so both are always rejected.
+  ///
+  /// The [executable] path is checked the same way, except that `%` is
+  /// always rejected. `cmd /c` keeps the quotes around a quoted path only
+  /// when they are the sole quotes on the line and enclose none of
+  /// `&<>()@^|`, so such a path also rules out quoted arguments.
+  static List<String> windowsBatchArguments(
+    List<String> arguments, {
+    String? executable,
+  }) {
+    final quotedExecutable =
+        executable != null && _batchWhitespace.hasMatch(executable);
+    if (executable != null &&
+        (_batchNeverSafe.hasMatch(executable) ||
+            (quotedExecutable ? _batchQuotedCommandSpecial : _batchOperators)
+                .hasMatch(executable))) {
+      throw CliError(
+        'batch script path ${jsonEncode(executable)} cannot be started '
+        'through cmd.exe; move it to a path without `%`, quotes or '
+        '`&<>()@^|` next to spaces',
+      );
+    }
+    return [
+      for (final argument in arguments)
+        _windowsBatchArgument(argument, quotedExecutable: quotedExecutable),
+    ];
+  }
+
+  static String _windowsBatchArgument(
+    String argument, {
+    required bool quotedExecutable,
+  }) {
+    final quoted = argument.isEmpty || _batchWhitespace.hasMatch(argument);
+    final unsafe =
+        argument.contains('"') ||
+        argument.contains('\r') ||
+        argument.contains('\n') ||
+        (quoted
+            ? argument.contains('%') || quotedExecutable
+            : _batchOperators.hasMatch(argument));
+    if (unsafe) {
+      throw CliError(
+        'argument ${jsonEncode(argument)} cannot be passed through cmd.exe '
+        'to a Windows batch script unchanged',
+      );
+    }
+    return quoted ? argument : argument.replaceAll('%', '^%');
+  }
 
   /// Runs [executable] to completion, capturing stdout/stderr as UTF-8.
   ///
@@ -183,12 +262,17 @@ abstract final class ProcessRunner {
         timeout: timeout,
       );
     }
+    final resolved = _resolvedExecutable(executable);
+    final batch = isWindowsBatchScript(resolved);
     final result = await Process.run(
-      _resolvedExecutable(executable),
-      arguments,
+      resolved,
+      batch
+          ? windowsBatchArguments(arguments, executable: resolved)
+          : arguments,
       workingDirectory: workingDirectory,
       environment: _childEnvironment(environment),
       includeParentEnvironment: _inheritParentEnvironment,
+      runInShell: batch,
       stdoutEncoding: const Utf8Codec(allowMalformed: true),
       stderrEncoding: const Utf8Codec(allowMalformed: true),
     );
@@ -349,12 +433,11 @@ abstract final class ProcessRunner {
     Map<String, String>? environment,
     Duration? timeout,
   }) async {
-    final process = await Process.start(
-      _resolvedExecutable(executable),
+    final process = await start(
+      executable,
       arguments,
       workingDirectory: workingDirectory,
-      environment: _childEnvironment(environment),
-      includeParentEnvironment: _inheritParentEnvironment,
+      environment: environment,
       mode: ProcessStartMode.inheritStdio,
     );
     final code = await _awaitExitWithin(
@@ -431,12 +514,11 @@ abstract final class ProcessRunner {
     Map<String, String>? environment,
     Duration? timeout,
   }) async {
-    final process = await Process.start(
-      _resolvedExecutable(executable),
+    final process = await start(
+      executable,
       arguments,
       workingDirectory: workingDirectory,
-      environment: _childEnvironment(environment),
-      includeParentEnvironment: _inheritParentEnvironment,
+      environment: environment,
     );
     final captured = StringBuffer();
     final drained = Future.wait([
@@ -484,12 +566,11 @@ abstract final class ProcessRunner {
     bool forwardStdin = true,
     Duration? timeout,
   }) async {
-    final process = await Process.start(
-      _resolvedExecutable(executable),
+    final process = await start(
+      executable,
       arguments,
       workingDirectory: workingDirectory,
-      environment: _childEnvironment(environment),
-      includeParentEnvironment: _inheritParentEnvironment,
+      environment: environment,
     );
 
     final captured = StringBuffer();

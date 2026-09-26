@@ -74,20 +74,34 @@ void main() {
         useConfiguration: false,
       );
 
-      expect(
-        p.normalize(p.absolute(result)),
-        p.normalize(p.absolute(p.join(bin.path, 'dart'))),
+      expect(result, dart.path);
+    }, skip: Platform.isWindows);
+
+    test('Linux skips a non-executable dart earlier on PATH', () async {
+      final firstBin = _createBinDirectory();
+      final secondBin = _createBinDirectory();
+      final unusable = File(p.join(firstBin.path, 'dart'))..createSync();
+      final usable = File(p.join(secondBin.path, 'dart'))..createSync();
+      expect(Process.runSync('chmod', ['644', unusable.path]).exitCode, 0);
+      expect(Process.runSync('chmod', ['755', usable.path]).exitCode, 0);
+
+      final result = await findDartExecutableOnPath(
+        windows: false,
+        environment: {'PATH': '${firstBin.path}:${secondBin.path}'},
+        useConfiguration: false,
       );
+
+      expect(result, usable.path);
     }, skip: Platform.isWindows);
 
     test(
-      'Linux skips a non-executable dart earlier on PATH',
+      'Linux skips a dart the current user cannot execute',
       () async {
         final firstBin = _createBinDirectory();
         final secondBin = _createBinDirectory();
-        final unusable = File(p.join(firstBin.path, 'dart'))..createSync();
+        final othersOnly = File(p.join(firstBin.path, 'dart'))..createSync();
         final usable = File(p.join(secondBin.path, 'dart'))..createSync();
-        expect(Process.runSync('chmod', ['644', unusable.path]).exitCode, 0);
+        expect(Process.runSync('chmod', ['011', othersOnly.path]).exitCode, 0);
         expect(Process.runSync('chmod', ['755', usable.path]).exitCode, 0);
 
         final result = await findDartExecutableOnPath(
@@ -96,13 +110,56 @@ void main() {
           useConfiguration: false,
         );
 
-        expect(
-          p.normalize(p.absolute(result)),
-          p.normalize(usable.absolute.path),
+        expect(result, usable.path);
+      },
+      skip: Platform.isWindows || _isRoot()
+          ? 'needs a non-root POSIX user'
+          : false,
+    );
+
+    test(
+      'Linux resolves a relative PATH entry to an absolute dart path',
+      () async {
+        final bin = _createBinDirectory();
+        final dart = File(p.join(bin.path, 'dart'))..createSync();
+        expect(Process.runSync('chmod', ['755', dart.path]).exitCode, 0);
+        final relativeBin = p.relative(bin.path, from: Directory.current.path);
+
+        final result = await findDartExecutableOnPath(
+          windows: false,
+          environment: {'PATH': relativeBin},
+          useConfiguration: false,
         );
+
+        expect(p.isAbsolute(result), isTrue);
+        expect(p.equals(result, dart.path), isTrue);
       },
       skip: Platform.isWindows,
     );
+
+    test('Linux keeps a symlinked PATH entry with .. unnormalized', () async {
+      final root = _createBinDirectory();
+      final target = Directory(p.join(root.path, 'real', 'nested'))
+        ..createSync(recursive: true);
+      final realBin = Directory(p.join(root.path, 'real', 'bin'))..createSync();
+      final dart = File(p.join(realBin.path, 'dart'))..createSync();
+      expect(Process.runSync('chmod', ['755', dart.path]).exitCode, 0);
+      Link(p.join(root.path, 'link')).createSync(target.path);
+      final entry = p.join(root.path, 'link', '..', 'bin');
+
+      final result = await findDartExecutableOnPath(
+        windows: false,
+        environment: {'PATH': entry},
+        useConfiguration: false,
+      );
+
+      expect(result, p.join(entry, 'dart'));
+      expect(File(result).existsSync(), isTrue);
+      expect(
+        File(result).resolveSymbolicLinksSync(),
+        dart.resolveSymbolicLinksSync(),
+      );
+    }, skip: Platform.isWindows);
 
     test('Linux does not resolve Windows-only launcher files', () async {
       final bin = _createBinDirectory();
@@ -123,7 +180,7 @@ void main() {
 
 Directory _createBinDirectory() {
   final directory = Directory.systemTemp.createTempSync(
-    'dart executable resolver test-',
+    'dart-executable-resolver-test-',
   );
   addTearDown(() {
     if (directory.existsSync()) directory.deleteSync(recursive: true);
@@ -136,6 +193,7 @@ Map<String, String> _windowsEnvironment(Directory bin) => {
   'PATHEXT': '.EXE;.BAT;.CMD',
 };
 
-Map<String, String> _linuxEnvironment(Directory bin) => {
-  'PATH': p.relative(bin.path, from: Directory.current.path),
-};
+Map<String, String> _linuxEnvironment(Directory bin) => {'PATH': bin.path};
+
+bool _isRoot() =>
+    (Process.runSync('id', ['-u']).stdout as String).trim() == '0';
