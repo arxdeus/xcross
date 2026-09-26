@@ -270,6 +270,25 @@ final class FlutterDebugBundler {
     return packageUris?.toPackageUri(fileUri)?.toString() ?? fileUri.toString();
   }
 
+  static List<String> effectiveDartDefines({
+    required List<String> dartDefines,
+    String? flavor,
+    String? registrantUri,
+  }) => [
+    ...dartDefines,
+    if (flavor != null &&
+        !dartDefines.any((define) => define.startsWith('FLUTTER_APP_FLAVOR=')))
+      'FLUTTER_APP_FLAVOR=$flavor',
+    if (registrantUri != null) 'flutter.dart_plugin_registrant=$registrantUri',
+  ];
+
+  static List<Uri> additionalSources(String? registrantUri) => [
+    if (registrantUri != null) ...[
+      Uri.parse(registrantUri),
+      Uri.parse('package:flutter/src/dart_plugin_registrant.dart'),
+    ],
+  ];
+
   List<String> _frontendServerArgs({
     required KernelCompiler compiler,
     required IosEngineCache engineCache,
@@ -299,22 +318,15 @@ final class FlutterDebugBundler {
     // whole program every build.
     '--incremental',
     '--initialize-from-dill', outputDill,
-    // User-supplied dart-defines forwarded as -D<KEY=VALUE>.
-    for (final define in dartDefines) '-D$define',
-    // --flavor → FLUTTER_APP_FLAVOR dart-define, unless already set
-    // explicitly above (explicit define wins).
-    if (flavor != null &&
-        !dartDefines.any((d) => d.startsWith('FLUTTER_APP_FLAVOR=')))
-      '-DFLUTTER_APP_FLAVOR=$flavor',
-    // All three go together: the generated registrant, the flutter library
-    // that calls it, and the define naming which library to look in. Passing
-    // fewer means the VM never runs the registrant.
-    if (dartPluginRegistrantUri != null) ...[
+    for (final define in effectiveDartDefines(
+      dartDefines: dartDefines,
+      flavor: flavor,
+      registrantUri: dartPluginRegistrantUri,
+    ))
+      '-D$define',
+    for (final source in additionalSources(dartPluginRegistrantUri)) ...[
       '--source',
-      dartPluginRegistrantUri,
-      '--source',
-      'package:flutter/src/dart_plugin_registrant.dart',
-      '-Dflutter.dart_plugin_registrant=$dartPluginRegistrantUri',
+      source.toString(),
     ],
     entrypointArg,
   ];

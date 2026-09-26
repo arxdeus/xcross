@@ -1,9 +1,12 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/flutter/build/dart_plugin_registrant.dart';
 import 'package:xcross/src/flutter/build/flutter_debug_bundler.dart';
+import 'package:xcross/src/flutter/build/flutter_packer.dart';
+import 'package:xcross/src/flutter/build/hot_reload_setup.dart';
 import 'package:xcross/src/flutter/build/ios_plugins.dart';
 
 void main() {
@@ -47,6 +50,121 @@ ${entries.join('\n')}
 
     return IosPlugin(name: name, packageRoot: packageRoot);
   }
+
+  test(
+    'reload restores custom registrant and matches build compiler inputs',
+    () async {
+      final previousDirectory = Directory.current;
+      final flutterRoot = p.join(tmp.path, 'flutter');
+      final snapshot = File(
+        p.join(
+          flutterRoot,
+          'bin',
+          'cache',
+          'dart-sdk',
+          'bin',
+          'snapshots',
+          'frontend_server_aot.dart.snapshot',
+        ),
+      );
+      await snapshot.create(recursive: true);
+      await Directory(
+        p.join(
+          flutterRoot,
+          'bin',
+          'cache',
+          'artifacts',
+          'engine',
+          'common',
+          'flutter_patched_sdk',
+        ),
+      ).create(recursive: true);
+      final projectRoot = await tmp.resolveSymbolicLinks();
+      final packageConfig = File(
+        p.join(projectRoot, '.dart_tool', 'package_config.json'),
+      );
+      await packageConfig.parent.create(recursive: true);
+      await packageConfig.writeAsString(
+        jsonEncode({
+          'configVersion': 2,
+          'packages': [
+            {
+              'name': 'app',
+              'rootUri': '../',
+              'packageUri': 'lib/',
+              'languageVersion': '3.0',
+            },
+          ],
+        }),
+      );
+      final plugin = writePlugin('dart_plugin', dartPluginClass: 'DartPlugin');
+      final metadata = File(
+        p.join(projectRoot, '.flutter-plugins-dependencies'),
+      );
+      await metadata.writeAsString(
+        jsonEncode({
+          'plugins': {
+            'ios': [
+              {'name': plugin.name, 'path': plugin.packageRoot},
+            ],
+          },
+        }),
+      );
+      await DartPluginRegistrant.generate(
+        projectRoot: projectRoot,
+        plugins: [plugin],
+        entrypointUri: 'package:app/main.dart',
+      );
+      final registrant = File(DartPluginRegistrant.pathFor(projectRoot));
+      final initialSource = await registrant.readAsString();
+      await registrant.writeAsString('native assemble overwrote this');
+      final seed = File(
+        p.join(
+          projectRoot,
+          'build',
+          'xcross-flutter-debug',
+          '.kernel',
+          'app.dill',
+        ),
+      );
+      await seed.create(recursive: true);
+      await seed.writeAsString('warm-start seed');
+      FlutterPacker.configureFlutterRootOverride(flutterRoot);
+      Directory.current = projectRoot;
+      try {
+        final config = (await HotReloadSetup.buildHotReloadConfig(
+          target: 'lib/main.dart',
+          dartDefines: const ['USER=value'],
+          flavor: 'dev',
+        ))!;
+        final registrantUri = Uri.file(registrant.path).toString();
+        expect(config.dartDefines, [
+          'USER=value',
+          'FLUTTER_APP_FLAVOR=dev',
+          'flutter.dart_plugin_registrant=$registrantUri',
+        ]);
+        expect(config.additionalSources.map((uri) => uri.toString()), [
+          registrantUri,
+          'package:flutter/src/dart_plugin_registrant.dart',
+        ]);
+        expect(await registrant.readAsString(), initialSource);
+        expect(await seed.readAsString(), 'warm-start seed');
+        expect(config.entrypoint, p.join(projectRoot, 'lib', 'main.dart'));
+        await metadata.delete();
+        final withoutPlugins = (await HotReloadSetup.buildHotReloadConfig(
+          target: 'lib/main.dart',
+          dartDefines: const ['FLUTTER_APP_FLAVOR=custom'],
+          flavor: 'dev',
+        ))!;
+        expect(withoutPlugins.dartDefines, ['FLUTTER_APP_FLAVOR=custom']);
+        expect(withoutPlugins.additionalSources, isEmpty);
+        expect(registrant.existsSync(), isFalse);
+      } finally {
+        Directory.current = previousDirectory;
+        FlutterPacker.resetFlutterRootOverride();
+      }
+    },
+  );
 
   group('resolveRegistrations', () {
     test('selects only plugins declaring a dartPluginClass', () {
@@ -253,16 +371,19 @@ void _frontendServerFlags() {
     final source = _bundlerSource().readAsStringSync().replaceAll('\r\n', '\n');
 
     test('passes the registrant, the flutter shim, and the define', () {
-      expect(source, contains("'--source',\n      dartPluginRegistrantUri"));
+      const registrant = 'file:///project/.dart_tool/flutter_build/r.dart';
       expect(
-        source,
-        contains("'package:flutter/src/dart_plugin_registrant.dart'"),
+        FlutterDebugBundler.additionalSources(
+          registrant,
+        ).map((uri) => uri.toString()),
+        [registrant, 'package:flutter/src/dart_plugin_registrant.dart'],
       );
       expect(
-        source,
-        contains(
-          r"'-Dflutter.dart_plugin_registrant=$dartPluginRegistrantUri'",
+        FlutterDebugBundler.effectiveDartDefines(
+          dartDefines: const ['USER=value'],
+          registrantUri: registrant,
         ),
+        ['USER=value', 'flutter.dart_plugin_registrant=$registrant'],
       );
     });
 
@@ -274,7 +395,31 @@ void _frontendServerFlags() {
       expect(source, contains("'--initialize-from-dill', outputDill"));
       expect(source, contains("'--no-link-platform'"));
       // The three flags above must not have displaced the registrant trio.
-      expect(source, contains("'--source',\n      dartPluginRegistrantUri"));
+      expect(source, contains("additionalSources(dartPluginRegistrantUri)"));
+    });
+
+    test('flavor default preserves explicit defines and input list', () {
+      final defines = ['USER=value'];
+      expect(
+        FlutterDebugBundler.effectiveDartDefines(
+          dartDefines: defines,
+          flavor: 'dev',
+        ),
+        ['USER=value', 'FLUTTER_APP_FLAVOR=dev'],
+      );
+      expect(defines, ['USER=value']);
+      expect(
+        FlutterDebugBundler.effectiveDartDefines(
+          dartDefines: const ['FLUTTER_APP_FLAVOR=custom'],
+          flavor: 'dev',
+        ),
+        ['FLUTTER_APP_FLAVOR=custom'],
+      );
+      expect(
+        FlutterDebugBundler.effectiveDartDefines(dartDefines: const []),
+        isEmpty,
+      );
+      expect(FlutterDebugBundler.additionalSources(null), isEmpty);
     });
 
     test('builds a file:// URI rather than a bare path', () {

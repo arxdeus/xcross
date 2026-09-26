@@ -10,6 +10,7 @@ final class HotReloadConfig {
     required this.projectRoot,
     required this.outputDill,
     this.dartDefines = const [],
+    this.additionalSources = const [],
     this.verbose = false,
   });
 
@@ -36,6 +37,8 @@ final class HotReloadConfig {
 
   /// Merged `--dart-define` values as `KEY=VALUE` strings.
   final List<String> dartDefines;
+
+  final List<Uri> additionalSources;
 
   /// Whether to emit verbose timing logs.
   final bool verbose;
