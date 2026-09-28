@@ -349,9 +349,11 @@ abstract final class XcrossCli {
   static void _printCredits() {
     if (!Ansi.terminalSupportsAnsi) return;
     final a = Log.ansi;
+    // Log.dim (SGR 2) instead of Ansi.subtle: cli_util's gray (`1;30`) maps to
+    // the background color on many dark palettes and rendered invisible.
     Log.logStatus(
       '${a.bold}${a.magenta}xcross${a.none}'
-      ' ${a.subtle('· github.com/arxdeus/xcross')}'
+      ' ${Log.dim('· github.com/arxdeus/xcross')}'
       '\n',
     );
   }
