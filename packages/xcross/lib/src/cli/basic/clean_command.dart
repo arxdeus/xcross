@@ -33,6 +33,7 @@ final class CleanCommand extends Command<void> {
     );
     final paths = [
       p.join(projectRoot, 'build', 'xcross-native-assets'),
+      p.join(projectRoot, 'build', 'xcross-apple-tools'),
       workspace.root,
     ];
     final removed = <String>[];

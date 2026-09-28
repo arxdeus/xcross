@@ -143,24 +143,30 @@ final class FlutterDebugBundler {
       dartPluginRegistrantUri: registrantUri,
     );
 
-    await Log.logStep(
-      'Compiling Dart kernel',
-      () => ProcessRunner.runChecked(
-        compiler.runtime,
-        args,
-        workingDirectory: projectRoot,
-        // Inheriting fd1 while a spinner animates shreds the line; capture
-        // instead (the stderr is folded into the thrown error either way).
-        inheritStdio: Log.isVerbose,
-        label: 'frontend_server',
-      ),
+    final warmStartKey = KernelWarmStart.computeKey(
+      args: args,
+      runtime: compiler.runtime,
+      snapshot: compiler.snapshot,
+      engineHash: engineCache.engineHash,
+      packageConfigContent: await File(packageConfig).readAsString(),
     );
 
-    if (!File(outputDill).existsSync()) {
-      throw FlutterBuildError(
-        'FlutterDebugBundler: kernel snapshot did not produce $outputDill',
-      );
-    }
+    await KernelWarmStart.compileWithWarmStart(
+      outputDill: outputDill,
+      warmStartKey: warmStartKey,
+      compile: () => Log.logStep(
+        'Compiling Dart kernel',
+        () => ProcessRunner.runChecked(
+          compiler.runtime,
+          args,
+          workingDirectory: projectRoot,
+          // Inheriting fd1 while a spinner animates shreds the line; capture
+          // instead (the stderr is folded into the thrown error either way).
+          inheritStdio: Log.isVerbose,
+          label: 'frontend_server',
+        ),
+      ),
+    );
     return outputDill;
   }
 
@@ -216,12 +222,15 @@ final class FlutterDebugBundler {
     }
   }
 
-  /// Recreate the kernel scratch directory and return its `app.dill` path.
+  /// Ensure the kernel scratch directory exists and return its `app.dill`
+  /// path. Deliberately does *not* delete a pre-existing dill: frontend_server
+  /// warm-starts from it via `--incremental --initialize-from-dill`, and
+  /// `hot_reload_controller.dart` reuses it too. [KernelWarmStart] is what
+  /// decides whether the existing dill is still trustworthy.
   Future<String> _prepareKernelScratch() async {
     final scratch = Directory(
       p.join(projectRoot, 'build', 'xcross-flutter-debug', '.kernel'),
     );
-    if (scratch.existsSync()) await scratch.delete(recursive: true);
     await scratch.create(recursive: true);
     return p.join(scratch.path, 'app.dill');
   }
@@ -255,11 +264,29 @@ final class FlutterDebugBundler {
   /// screen. The generated file sits in `.dart_tool/flutter_build/`, outside
   /// any package `lib/`, so this is the `file://` form in practice; the
   /// `package:` branch covers a project that relocates it inside a package.
-  @visibleForTesting
   static String dartPluginRegistrantUri(String path, PackageUris? packageUris) {
     final fileUri = Uri.file(path);
     return packageUris?.toPackageUri(fileUri)?.toString() ?? fileUri.toString();
   }
+
+  static List<String> effectiveDartDefines({
+    required List<String> dartDefines,
+    String? flavor,
+    String? registrantUri,
+  }) => [
+    ...dartDefines,
+    if (flavor != null &&
+        !dartDefines.any((define) => define.startsWith('FLUTTER_APP_FLAVOR=')))
+      'FLUTTER_APP_FLAVOR=$flavor',
+    if (registrantUri != null) 'flutter.dart_plugin_registrant=$registrantUri',
+  ];
+
+  static List<Uri> additionalSources(String? registrantUri) => [
+    if (registrantUri != null) ...[
+      Uri.parse(registrantUri),
+      Uri.parse('package:flutter/src/dart_plugin_registrant.dart'),
+    ],
+  ];
 
   List<String> _frontendServerArgs({
     required KernelCompiler compiler,
@@ -278,24 +305,27 @@ final class FlutterDebugBundler {
     '-Ddart.vm.profile=false',
     '-Ddart.vm.product=false',
     '--track-widget-creation',
+    // flutter_tools skips linking the platform kernel into the app dill for
+    // iOS (see KernelSnapshot.build's forceLinkPlatform switch): the engine
+    // already carries platform_strong.dill, so linking it in here just
+    // bloats app.dill/kernel_blob.bin for nothing.
+    '--no-link-platform',
     '--packages', packageConfig,
     '--output-dill', outputDill,
-    // User-supplied dart-defines forwarded as -D<KEY=VALUE>.
-    for (final define in dartDefines) '-D$define',
-    // --flavor → FLUTTER_APP_FLAVOR dart-define, unless already set
-    // explicitly above (explicit define wins).
-    if (flavor != null &&
-        !dartDefines.any((d) => d.startsWith('FLUTTER_APP_FLAVOR=')))
-      '-DFLUTTER_APP_FLAVOR=$flavor',
-    // All three go together: the generated registrant, the flutter library
-    // that calls it, and the define naming which library to look in. Passing
-    // fewer means the VM never runs the registrant.
-    if (dartPluginRegistrantUri != null) ...[
+    // Mirrors flutter_tools' debug KernelSnapshot: reuse the previous
+    // app.dill as an incremental-compile seed instead of recompiling the
+    // whole program every build.
+    '--incremental',
+    '--initialize-from-dill', outputDill,
+    for (final define in effectiveDartDefines(
+      dartDefines: dartDefines,
+      flavor: flavor,
+      registrantUri: dartPluginRegistrantUri,
+    ))
+      '-D$define',
+    for (final source in additionalSources(dartPluginRegistrantUri)) ...[
       '--source',
-      dartPluginRegistrantUri,
-      '--source',
-      'package:flutter/src/dart_plugin_registrant.dart',
-      '-Dflutter.dart_plugin_registrant=$dartPluginRegistrantUri',
+      source.toString(),
     ],
     entrypointArg,
   ];

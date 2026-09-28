@@ -32,13 +32,11 @@ final class IosNativeAssetsBuilder {
     required this.projectRoot,
     required this.flutterRoot,
     required this.deploymentTarget,
-    this.entrypoint = 'lib/main.dart',
   });
 
   final String projectRoot;
   final String flutterRoot;
   final IosDeploymentTarget deploymentTarget;
-  final String entrypoint;
 
   Future<IosNativeAssetsBuildResult> build() async {
     final output = p.join(projectRoot, 'build', 'xcross-native-assets');
@@ -66,20 +64,21 @@ final class IosNativeAssetsBuilder {
       flutterRoot: flutterRoot,
       engineCache: engineCache,
     );
-    final shims = await Directory.systemTemp.createTemp('xcross-apple-tools-');
+    final shimsRoot = p.join(projectRoot, 'build', 'xcross-apple-tools');
+    final shimsDirectory = await ensureAppleToolShims(
+      shimsRoot,
+      tools,
+      toolForwarderExecutable: forwarder,
+    );
     try {
-      await installAppleToolShims(
-        shims.path,
-        tools,
-        toolForwarderExecutable: forwarder,
+      await _runFlutterAssemble(
+        output,
+        shimsDirectory,
+        tools.iosSdk,
+        workspace,
       );
-      await _runFlutterAssemble(output, shims.path, tools.iosSdk, workspace);
     } finally {
-      try {
-        await shims.delete(recursive: true);
-      } finally {
-        await workspace.dispose();
-      }
+      await workspace.dispose();
     }
 
     final manifest = p.join(
@@ -121,22 +120,16 @@ final class IosNativeAssetsBuilder {
     String iosSdk,
     FlutterToolWorkspace workspace,
   ) async {
+    final targetFile = await _ensureStubEntrypoint(projectRoot);
     await ProcessRunner.runChecked(
       workspace.dart,
-      [
-        workspace.flutterToolsSnapshot,
-        'assemble',
-        '--no-version-check',
-        '-o',
-        output,
-        '-dTargetPlatform=ios',
-        '-dBuildMode=debug',
-        '-dIosArchs=arm64',
-        '-dSdkRoot=$iosSdk',
-        '-dTargetFile=$entrypoint',
-        '-dIosDeploymentTarget=${deploymentTarget.version}',
-        'debug_ios_bundle_flutter_assets',
-      ],
+      buildFlutterAssembleArguments(
+        flutterToolsSnapshot: workspace.flutterToolsSnapshot,
+        output: output,
+        iosSdk: iosSdk,
+        targetFile: targetFile,
+        deploymentTarget: deploymentTarget.version,
+      ),
       workingDirectory: projectRoot,
       // Flutter's hook runner sanitizes its environment. Tool shims therefore
       // embed resolved paths rather than reading xcross-specific variables.
@@ -168,3 +161,44 @@ final class IosNativeAssetsBuilder {
     return manifest;
   }
 }
+
+/// Assemble only needs `KernelSnapshot`'s output for the native-assets
+/// pipeline to run (it does not consume the app's own kernel/asset copy in
+/// debug), so a stub entrypoint avoids duplicating xcross's own kernel
+/// compile and its full-app depfile churn on every Dart source edit.
+Future<String> _ensureStubEntrypoint(String projectRoot) async {
+  final directory = Directory(
+    p.join(projectRoot, 'build', 'xcross-native-assets-entry'),
+  );
+  await directory.create(recursive: true);
+  final file = File(p.join(directory.path, 'main.dart'));
+  const contents = 'void main() {}\n';
+  if (!file.existsSync() || await file.readAsString() != contents) {
+    await file.writeAsString(contents);
+  }
+  return file.path;
+}
+
+/// Builds the `flutter assemble` argument list for the native-assets-only
+/// build so tests can assert the stub entrypoint is used.
+@visibleForTesting
+List<String> buildFlutterAssembleArguments({
+  required String flutterToolsSnapshot,
+  required String output,
+  required String iosSdk,
+  required String targetFile,
+  required String deploymentTarget,
+}) => [
+  flutterToolsSnapshot,
+  'assemble',
+  '--no-version-check',
+  '-o',
+  output,
+  '-dTargetPlatform=ios',
+  '-dBuildMode=debug',
+  '-dIosArchs=arm64',
+  '-dSdkRoot=$iosSdk',
+  '-dTargetFile=$targetFile',
+  '-dIosDeploymentTarget=$deploymentTarget',
+  'debug_ios_bundle_flutter_assets',
+];

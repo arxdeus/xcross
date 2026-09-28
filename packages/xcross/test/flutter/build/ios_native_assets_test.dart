@@ -11,6 +11,7 @@ import 'package:xcross/src/flutter/build/internal/flutter_tool_workspace.dart';
 import 'package:xcross/src/flutter/build/internal/native_asset_frameworks.dart';
 import 'package:xcross/src/flutter/build/internal/native_assets_hook_discovery.dart';
 import 'package:xcross/src/flutter/build/ios_engine_cache.dart';
+import 'package:xcross/src/flutter/build/ios_native_assets.dart';
 import 'package:xcross/src/flutter/errors.dart';
 
 void main() {
@@ -579,6 +580,157 @@ void main() {
     } finally {
       await tmp.delete(recursive: true);
     }
+  });
+
+  group('ensureAppleToolShims', () {
+    const config = AppleToolShimConfig(
+      iosSdk: '/sdk/iPhoneOS.sdk',
+      clang: '/bin/echo',
+      hostCompiler: '/bin/echo',
+      archiver: '/toolchain/llvm-ar',
+      linker: '/toolchain/ld64.lld',
+      deploymentTarget: '15.6',
+      lipo: '/bin/echo',
+      otool: OtoolConfig('/bin/echo', usesObjdump: false),
+      installNameTool: '/bin/echo',
+      xcrun: '/bin/echo',
+    );
+
+    test(
+      'same config reuses the same directory and writes nothing again',
+      () async {
+        final tmp = await Directory.systemTemp.createTemp(
+          'apple_shims_stable-',
+        );
+        try {
+          final root = p.join(tmp.path, 'xcross-apple-tools');
+          final first = await ensureAppleToolShims(
+            root,
+            config,
+            toolForwarderExecutable: Platform.resolvedExecutable,
+          );
+          final sentinel = File(p.join(first, 'clang'));
+          expect(sentinel.existsSync(), isTrue);
+          final markerPath = p.join(first, '.complete');
+          final markerBefore = File(markerPath).statSync().modified;
+
+          final second = await ensureAppleToolShims(
+            root,
+            config,
+            toolForwarderExecutable: Platform.resolvedExecutable,
+          );
+
+          expect(second, first);
+          expect(sentinel.existsSync(), isTrue);
+          final markerAfter = File(markerPath).statSync().modified;
+          expect(markerAfter, markerBefore);
+        } finally {
+          await tmp.delete(recursive: true);
+        }
+      },
+    );
+
+    test(
+      'changed config produces a different directory and prunes the old one',
+      () async {
+        final tmp = await Directory.systemTemp.createTemp('apple_shims_diff-');
+        try {
+          final root = p.join(tmp.path, 'xcross-apple-tools');
+          final first = await ensureAppleToolShims(
+            root,
+            config,
+            toolForwarderExecutable: Platform.resolvedExecutable,
+          );
+
+          final changed = AppleToolShimConfig(
+            iosSdk: config.iosSdk,
+            clang: '/bin/cat',
+            hostCompiler: config.hostCompiler,
+            archiver: config.archiver,
+            linker: config.linker,
+            deploymentTarget: config.deploymentTarget,
+            lipo: config.lipo,
+            otool: config.otool,
+            installNameTool: config.installNameTool,
+            xcrun: config.xcrun,
+          );
+          final second = await ensureAppleToolShims(
+            root,
+            changed,
+            toolForwarderExecutable: Platform.resolvedExecutable,
+          );
+
+          expect(second, isNot(first));
+          expect(Directory(first).existsSync(), isFalse);
+          expect(Directory(second).existsSync(), isTrue);
+        } finally {
+          await tmp.delete(recursive: true);
+        }
+      },
+    );
+
+    test('Windows mode: changed forwarder content changes the key', () async {
+      final tmp = await Directory.systemTemp.createTemp('apple_shims_win-');
+      try {
+        final forwarder = File(p.join(tmp.path, 'xcross.exe'))
+          ..writeAsStringSync('forwarder-v1');
+        final xcrun = File(p.join(tmp.path, 'xcrun.exe'))
+          ..writeAsStringSync('xcrun');
+        final windowsConfig = AppleToolShimConfig(
+          iosSdk: r'C:\SDK\iPhoneOS.sdk',
+          clang: r'C:\LLVM\clang.exe',
+          hostCompiler: r'C:\LLVM\clang.exe',
+          archiver: r'C:\LLVM\llvm-ar.exe',
+          linker: r'C:\LLVM\ld64.lld.exe',
+          deploymentTarget: '13.0',
+          lipo: r'C:\LLVM\llvm-lipo.exe',
+          otool: null,
+          installNameTool: null,
+          xcrun: xcrun.path,
+        );
+        final root = p.join(tmp.path, 'xcross-apple-tools');
+        final first = await ensureAppleToolShims(
+          root,
+          windowsConfig,
+          toolForwarderExecutable: forwarder.path,
+          windows: true,
+        );
+
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        forwarder.writeAsStringSync('forwarder-v2');
+        final second = await ensureAppleToolShims(
+          root,
+          windowsConfig,
+          toolForwarderExecutable: forwarder.path,
+          windows: true,
+        );
+
+        expect(second, isNot(first));
+        expect(Directory(first).existsSync(), isFalse);
+      } finally {
+        await tmp.delete(recursive: true);
+      }
+    });
+  });
+
+  group('stub entrypoint and assemble arguments', () {
+    test('assemble arguments target the stub entrypoint', () {
+      final arguments = buildFlutterAssembleArguments(
+        flutterToolsSnapshot: '/flutter/flutter_tools.snapshot',
+        output: '/project/build/xcross-native-assets',
+        iosSdk: '/sdk/iPhoneOS.sdk',
+        targetFile: '/project/build/xcross-native-assets-entry/main.dart',
+        deploymentTarget: '15.6',
+      );
+
+      expect(
+        arguments,
+        contains(
+          '-dTargetFile=/project/build/xcross-native-assets-entry/main.dart',
+        ),
+      );
+      expect(arguments, contains('debug_ios_bundle_flutter_assets'));
+    });
   });
 }
 

@@ -1,9 +1,13 @@
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
+import 'package:frontend_server_kit/frontend_server_kit.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/flutter/build/dart_plugin_registrant.dart';
+import 'package:xcross/src/flutter/build/flutter_debug_bundler.dart';
 import 'package:xcross/src/flutter/build/flutter_packer.dart';
 import 'package:xcross/src/flutter/build/ios_engine_cache.dart';
+import 'package:xcross/src/flutter/build/ios_plugins.dart';
 import 'package:xcross/src/flutter/models/hot_reload_config.dart';
 import 'package:xcross/src/package_config_resolver.dart';
 
@@ -16,9 +20,11 @@ abstract final class HotReloadSetup {
   static Future<HotReloadConfig?> buildHotReloadConfig({
     required String target,
     required List<String> dartDefines,
+    String? flavor,
+    String? projectRoot,
     bool verbose = false,
   }) async {
-    final projectRoot = Directory.current.path;
+    projectRoot ??= Directory.current.path;
     final flutterRoot = await FlutterPacker.resolveFlutterRoot(
       projectRoot: projectRoot,
     );
@@ -58,6 +64,16 @@ abstract final class HotReloadSetup {
     );
     await Directory(p.dirname(outputDill)).create(recursive: true);
 
+    final packageUris = await PackageUris.load(packageConfig);
+    final registrant = await DartPluginRegistrant.generate(
+      projectRoot: projectRoot,
+      plugins: await PluginDiscovery.discover(projectRoot),
+      entrypointUri: packageUris?.toCompilerUri(entrypoint) ?? entrypoint,
+    );
+    final registrantUri = registrant != null
+        ? FlutterDebugBundler.dartPluginRegistrantUri(registrant, packageUris)
+        : null;
+
     return HotReloadConfig(
       dart: dart,
       frontendServer: frontendServer,
@@ -66,7 +82,12 @@ abstract final class HotReloadSetup {
       entrypoint: entrypoint,
       projectRoot: projectRoot,
       outputDill: outputDill,
-      dartDefines: dartDefines,
+      dartDefines: FlutterDebugBundler.effectiveDartDefines(
+        dartDefines: dartDefines,
+        flavor: flavor,
+        registrantUri: registrantUri,
+      ),
+      additionalSources: FlutterDebugBundler.additionalSources(registrantUri),
       verbose: verbose,
     );
   }

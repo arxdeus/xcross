@@ -93,6 +93,7 @@ final class FlutterRunCommand extends _$FlutterRunArgsCommand<void> {
     final hotReload = await HotReloadSetup.buildHotReloadConfig(
       target: _options.target,
       dartDefines: options.dartDefines,
+      flavor: options.flavor,
       verbose: _options.verbose,
     );
     if (hotReload == null && Platform.environment['XCROSS_DAP'] == '1') {
