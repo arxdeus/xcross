@@ -19,6 +19,68 @@ Pointer<Void> symbol(String name) => using(
 );
 
 void main() {
+  for (final sync in {'O_SYNC': 0x101000, 'O_DSYNC': 0x1000}.entries) {
+    test('native open accepts Linux ${sync.key} and writes data', () {
+      final directory = Directory.systemTemp.createTempSync('adi-sync-test-');
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final open = symbol('open')
+          .cast<NativeFunction<Int32 Function(Pointer<Utf8>, Int32, Uint32)>>()
+          .asFunction<int Function(Pointer<Utf8>, int, int)>();
+      final write = symbol('write')
+          .cast<
+            NativeFunction<IntPtr Function(Int32, Pointer<Uint8>, IntPtr)>
+          >()
+          .asFunction<int Function(int, Pointer<Uint8>, int)>();
+      final close = symbol('close')
+          .cast<NativeFunction<Int32 Function(Int32)>>()
+          .asFunction<int Function(int)>();
+      using((arena) {
+        final file = File('${directory.path}/file');
+        final fd = open(
+          file.path.toNativeUtf8(allocator: arena),
+          0x40 | 2 | sync.value,
+          0x180,
+        );
+        expect(fd, greaterThanOrEqualTo(0));
+        try {
+          final payload = 'sync'.toNativeUtf8(allocator: arena);
+          expect(write(fd, payload.cast(), 4), 4);
+        } finally {
+          expect(close(fd), 0);
+        }
+        expect(file.readAsStringSync(), 'sync');
+      });
+    });
+  }
+
+  test(
+    'native open rejects unknown Linux flags with guest EINVAL on macOS',
+    () {
+      final directory = Directory.systemTemp.createTempSync('adi-flags-test-');
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final open = symbol('open')
+          .cast<NativeFunction<Int32 Function(Pointer<Utf8>, Int32, Uint32)>>()
+          .asFunction<int Function(Pointer<Utf8>, int, int)>();
+      final getErrno = symbol('__errno_location')
+          .cast<NativeFunction<Pointer<Int32> Function()>>()
+          .asFunction<Pointer<Int32> Function()>();
+      using((arena) {
+        final file = File('${directory.path}/file');
+        expect(
+          open(
+            file.path.toNativeUtf8(allocator: arena),
+            0x40 | 2 | 0x101000 | (1 << 30),
+            0x180,
+          ),
+          -1,
+        );
+        expect(getErrno().value, 22);
+        expect(file.existsSync(), isFalse);
+      });
+    },
+    skip: !Platform.isMacOS,
+  );
+
   test('native open translates create, exclusive, truncate and append', () {
     final directory = Directory.systemTemp.createTempSync('adi-shim-test-');
     addTearDown(() => directory.deleteSync(recursive: true));

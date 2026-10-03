@@ -126,7 +126,7 @@ static int adi_open(const char *path, int flags, unsigned mode) {
   const int directory = 1 << 16, nofollow = 1 << 17;
 #endif
   const int known = 3 | 0100 | 0200 | 0400 | 01000 | 02000 | 04000 |
-      010000 | 040000 | 0100000 | 0200000 | 0400000 | 02000000;
+      04010000 | 040000 | 0100000 | 0200000 | 0400000 | 02000000;
   if ((flags & ~known) || (flags & 3) == 3) {
     errno = EINVAL;
     return adi_result(-1);
@@ -138,7 +138,7 @@ static int adi_open(const char *path, int flags, unsigned mode) {
   if (flags & 01000) native_flags |= O_TRUNC;
   if (flags & 02000) native_flags |= O_APPEND;
   if (flags & 04000) native_flags |= O_NONBLOCK;
-  if (flags & 010000) native_flags |= O_SYNC;
+  if (flags & 04010000) native_flags |= O_SYNC;
   (void)largefile;
   if (flags & direct) { errno = EINVAL; return adi_result(-1); }
   if (flags & directory) native_flags |= O_DIRECTORY;
