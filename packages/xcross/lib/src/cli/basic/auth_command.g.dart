@@ -54,11 +54,3 @@ AuthArgs parseAuthArgs(List<String> args) {
   final result = _$parserForAuthArgs.parse(args);
   return _$parseAuthArgsResult(result);
 }
-
-abstract class _$AuthArgsCommand<T> extends Command<T> {
-  _$AuthArgsCommand() {
-    _$populateAuthArgsParser(argParser);
-  }
-
-  late final _options = _$parseAuthArgsResult(argResults!);
-}

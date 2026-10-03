@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:cli_kit/cli_kit_shared.dart';
 
 final class TestLogOutput implements LogOutput {
@@ -15,3 +18,12 @@ final class TestLogOutput implements LogOutput {
 }
 
 Log testLog() => Log(output: TestLogOutput());
+
+final class TestByteConsumer implements StreamConsumer<List<int>> {
+  @override
+  Future<void> addStream(Stream<List<int>> stream) => stream.forEach((_) {});
+  @override
+  Future<void> close() async {}
+}
+
+IOSink testByteSink() => IOSink(TestByteConsumer());

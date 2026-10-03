@@ -95,11 +95,3 @@ FlutterRunArgs parseFlutterRunArgs(List<String> args) {
   final result = _$parserForFlutterRunArgs.parse(args);
   return _$parseFlutterRunArgsResult(result);
 }
-
-abstract class _$FlutterRunArgsCommand<T> extends Command<T> {
-  _$FlutterRunArgsCommand() {
-    _$populateFlutterRunArgsParser(argParser);
-  }
-
-  late final _options = _$parseFlutterRunArgsResult(argResults!);
-}

@@ -77,11 +77,3 @@ ComposeRunArgs parseComposeRunArgs(List<String> args) {
   final result = _$parserForComposeRunArgs.parse(args);
   return _$parseComposeRunArgsResult(result);
 }
-
-abstract class _$ComposeRunArgsCommand<T> extends Command<T> {
-  _$ComposeRunArgsCommand() {
-    _$populateComposeRunArgsParser(argParser);
-  }
-
-  late final _options = _$parseComposeRunArgsResult(argResults!);
-}

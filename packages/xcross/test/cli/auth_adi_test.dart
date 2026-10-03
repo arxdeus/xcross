@@ -8,6 +8,8 @@ import 'package:test/test.dart';
 import 'package:xcross/src/cli/basic/auth_command.dart';
 import 'package:xcross/src/errors.dart';
 
+import 'runtime_fixture.dart';
+
 void main() {
   group('Apple ID host support', () {
     for (final abi in const [
@@ -59,6 +61,7 @@ void main() {
 
         expect(
           await AuthCommand.resolveAdiLibraryDirectory(
+            log: testLog(),
             cacheDirectory: root.path,
             abi: abi,
             fetchLibraries: noFetch,
@@ -73,6 +76,7 @@ void main() {
 
       expect(
         await AuthCommand.resolveAdiLibraryDirectory(
+          log: testLog(),
           cacheDirectory: root.path,
           abi: Abi.linuxX64,
           fetchLibraries: noFetch,
@@ -89,6 +93,7 @@ void main() {
       var fetches = 0;
 
       final result = await AuthCommand.resolveAdiLibraryDirectory(
+        log: testLog(),
         cacheDirectory: root.path,
         abi: Abi.linuxArm64,
         fetchLibraries: (fetcher) async {
@@ -112,6 +117,8 @@ void main() {
 
       expect(
         await AuthCommand.resolveAdiLibraryDirectory(
+          log: testLog(),
+          cacheDirectory: Directory.systemTemp.path,
           configuredDirectory: libraries.path,
           abi: Abi.macosArm64,
           fetchLibraries: noFetch,
@@ -125,6 +132,8 @@ void main() {
 
       await expectLater(
         AuthCommand.resolveAdiLibraryDirectory(
+          log: testLog(),
+          cacheDirectory: Directory.systemTemp.path,
           configuredDirectory: root.path,
           abi: Abi.linuxArm64,
           fetchLibraries: noFetch,
@@ -140,6 +149,8 @@ void main() {
 
       await expectLater(
         AuthCommand.resolveAdiLibraryDirectory(
+          log: testLog(),
+          cacheDirectory: Directory.systemTemp.path,
           configuredDirectory: root.path,
           abi: Abi.macosArm64,
           fetchLibraries: noFetch,
@@ -150,6 +161,7 @@ void main() {
 
     test('fetches into the host architecture directory', () async {
       final result = await AuthCommand.resolveAdiLibraryDirectory(
+        log: testLog(),
         cacheDirectory: root.path,
         abi: Abi.windowsX64,
         fetchLibraries: (fetcher) async {
@@ -164,6 +176,7 @@ void main() {
     test('rejects unsupported hosts without changing the cache', () async {
       await expectLater(
         AuthCommand.resolveAdiLibraryDirectory(
+          log: testLog(),
           cacheDirectory: root.path,
           abi: Abi.windowsArm64,
           fetchLibraries: noFetch,
@@ -176,6 +189,7 @@ void main() {
     test('checks that a download actually produced libraries', () async {
       await expectLater(
         AuthCommand.resolveAdiLibraryDirectory(
+          log: testLog(),
           cacheDirectory: root.path,
           abi: Abi.linuxArm64,
           fetchLibraries: (fetcher) async => AdiLibraryPaths(

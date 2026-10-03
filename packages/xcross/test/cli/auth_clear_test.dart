@@ -6,10 +6,12 @@ import 'package:test/test.dart';
 import 'package:xcross/src/cli/basic/auth_command.dart';
 import 'package:xcross/src/device/internal/signing_session.dart';
 
+import 'runtime_fixture.dart';
+
 void main() {
   group('xcross auth clear', () {
     test('covers every store the auth and signing flows write', () {
-      final configDirectory = xcrossConfigDir();
+      final configDirectory = testRuntime().appleHostServices.configDirectory;
       final paths = AuthCommand.authArtifacts(
         configDirectory,
       ).map((entity) => entity.path);
@@ -17,11 +19,21 @@ void main() {
       expect(
         paths,
         containsAll(<String>[
-          AscCredentials.defaultConfigPath(),
-          GrandSlamSessionStore.defaultPath(),
-          AnisetteStateStore.defaultPath(),
-          LocalCipher.defaultKeyFilePath(),
-          AnisetteStateStore().provisioningDirectory,
+          AscCredentials.defaultConfigPath(
+            hostServices: testRuntime().appleHostServices,
+          ),
+          GrandSlamSessionStore.defaultPath(
+            hostServices: testRuntime().appleHostServices,
+          ),
+          AnisetteStateStore.defaultPath(
+            hostServices: testRuntime().appleHostServices,
+          ),
+          LocalCipher.defaultKeyFilePath(
+            hostServices: testRuntime().appleHostServices,
+          ),
+          AnisetteStateStore(
+            hostServices: testRuntime().appleHostServices,
+          ).provisioningDirectory,
           SigningSession.signingRoot(configDirectory),
         ]),
       );

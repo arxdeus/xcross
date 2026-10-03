@@ -1,5 +1,5 @@
 import 'package:args/command_runner.dart';
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:cli_util/cli_logging.dart';
 import 'package:xcross/src/cli/basic/doctor_examiner.dart';
 import 'package:xcross/src/cli/basic/doctor_models.dart';
@@ -12,18 +12,21 @@ typedef DoctorExamine = Future<List<DoctorCheck>> Function();
 typedef DoctorWriteLine = void Function(String line);
 
 final class DoctorCommand extends Command<void> {
-  DoctorCommand()
+  DoctorCommand(DoctorExaminer examiner, {required Log log})
     : this.withSeams(
-        examine: const DoctorExaminer().examine,
-        writeLine: Log.logStatus,
+        examine: examiner.examine,
+        writeLine: log.logStatus,
+        log: log,
       );
 
   DoctorCommand.withSeams({
+    required this.log,
     required DoctorExamine examine,
     required DoctorWriteLine writeLine,
   }) : _examine = examine,
        _writeLine = writeLine;
 
+  final Log log;
   final DoctorExamine _examine;
   final DoctorWriteLine _writeLine;
 
@@ -38,7 +41,7 @@ final class DoctorCommand extends Command<void> {
   Future<void> run() async {
     final checks = await _examine();
     for (final check in checks) {
-      _writeLine(formatCheck(check, ansi: Log.ansi));
+      _writeLine(formatCheck(check, ansi: log.ansi));
     }
 
     final failures = _count(checks, DoctorStatus.failure);
@@ -70,7 +73,7 @@ final class DoctorCommand extends Command<void> {
     };
     final line = '$color[$marker]${ansi.none} ${check.name}: ${check.message}';
     if (check.path case final path?) {
-      return '$line\n    ${(dim ?? Log.dim)(path)}';
+      return '$line\n    ${(dim ?? ((value) => value))(path)}';
     }
     return line;
   }

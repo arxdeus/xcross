@@ -1,8 +1,10 @@
-import 'package:args/command_runner.dart';
 import 'package:build_cli_annotations/build_cli_annotations.dart';
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:xcross/src/cli/internal/parsed_command.dart';
 import 'package:xcross/src/cli/shared/ipa_packager.dart';
+import 'package:xcross/src/composition/ios_target.dart';
 import 'package:xcross/src/flutter/flutter.dart';
+import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 
 part 'flutter_build_command.g.dart';
 
@@ -30,10 +32,13 @@ class CommonFlutterArgs {
 }
 
 /// Options for `xcross flutter build`.
-@CliOptions(createCommand: true)
+@CliOptions()
 final class FlutterBuildArgs extends CommonFlutterArgs {
-  @CliOption(negatable: false, help: 'Build for the ARM64 iOS Simulator.')
-  late bool simulator;
+  @CliOption(
+    defaultsTo: 'iphone',
+    help: 'Target platform: iphone or simulator.',
+  )
+  late String targetPlatform;
 
   @CliOption(
     negatable: false,
@@ -65,7 +70,18 @@ final class FlutterBuildArgs extends CommonFlutterArgs {
 ///
 /// xcross is debug-only; `build` produces an unsigned bundle and signing
 /// happens when `xcross flutter run` installs it.
-final class FlutterBuildCommand extends _$FlutterBuildArgsCommand<void> {
+final class FlutterBuildCommand<T extends PlatformHostInterface>
+    extends ParsedCommand<FlutterBuildArgs, void> {
+  @override
+  ArgParser populateOptions(ArgParser parser) =>
+      _$populateFlutterBuildArgsParser(parser);
+  @override
+  FlutterBuildArgs parseOptions(ArgResults results) =>
+      _$parseFlutterBuildArgsResult(results);
+
+  FlutterBuildCommand(this.runtime);
+
+  final XcrossRuntime<T> runtime;
   @override
   String get name => 'build';
 
@@ -74,38 +90,44 @@ final class FlutterBuildCommand extends _$FlutterBuildArgsCommand<void> {
 
   @override
   Future<void> run() async {
-    if (_options.simulator && _options.ipa) {
-      usageException('--simulator cannot be combined with --ipa.');
-    }
     if ([
-          _options.debug,
-          _options.profile,
-          _options.release,
+          options.debug,
+          options.profile,
+          options.release,
         ].where((enabled) => enabled).length >
         1) {
       usageException('Choose only one of --debug, --profile or --release.');
     }
-    if (_options.profile || _options.release) {
+    if (options.profile || options.release) {
       usageException(
         'xcross Flutter builds support debug mode only. Use --debug.',
       );
     }
-    final options = await FlutterBuildOptions.resolve(
-      target: _options.target,
-      dartDefine: _options.dartDefine,
-      dartDefineFromFile: _options.dartDefineFromFile,
-      pub: _options.pub,
-      buildName: _options.buildName,
-      buildNumber: _options.buildNumber,
-      flavor: _options.flavor,
-      simulator: _options.simulator,
+    final features = composeBuildFeatures(
+      options.targetPlatform,
+      runtime,
+      ipa: options.ipa,
+    );
+    final buildRuntime = features.flutterRuntime;
+    final buildOptions = await buildRuntime.options.resolve(
+      target: options.target,
+      dartDefine: options.dartDefine,
+      dartDefineFromFile: options.dartDefineFromFile,
+      pub: options.pub,
+      buildName: options.buildName,
+      buildNumber: options.buildNumber,
+      flavor: options.flavor,
     );
 
-    final result = await FlutterPackOperation.pack(options: options);
+    final result = await FlutterPackOperation.pack(
+      projectRoot: runtime.host.paths.context.current,
+      runtime: buildRuntime,
+      options: buildOptions,
+    );
 
-    final finalPath = _options.ipa
+    final finalPath = options.ipa
         ? await IpaPackager.package(result.appPath)
         : result.appPath;
-    Log.logDone('Wrote $finalPath');
+    runtime.log.logDone('Wrote $finalPath');
   }
 }

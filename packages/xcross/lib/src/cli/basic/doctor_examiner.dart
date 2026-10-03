@@ -11,11 +11,15 @@ typedef DoctorProjectCheckRunner =
     Future<List<DoctorCheck>> Function(DoctorProject project);
 
 final class DoctorExaminer {
-  const DoctorExaminer()
-    : _hostChecks = DoctorEnvironmentChecks.host,
-      _detectProject = _detectCurrentProject,
-      _projectChecks = DoctorProjectChecks.examine,
-      _runChecks = DoctorEnvironmentChecks.run;
+  DoctorExaminer({
+    required DoctorEnvironmentChecks environmentChecks,
+    required DoctorProjectChecks projectChecks,
+  }) : this.withSeams(
+         hostChecks: environmentChecks.host,
+         detectProject: _detectCurrentProject,
+         projectChecks: projectChecks.examine,
+         runChecks: environmentChecks.run,
+       );
 
   const DoctorExaminer.withSeams({
     required DoctorChecks hostChecks,
@@ -51,13 +55,11 @@ final class DoctorExaminer {
 
   static Future<DoctorProject?> _detectCurrentProject() async =>
       detectProjectAt(Directory.current.path);
-
   static DoctorProject? detectProjectAt(String root) =>
       DoctorProjectChecks.detect(root);
-
   static Future<List<DoctorCheck>> deviceChecks(
     List<Device> devices, {
-    Future<int?> Function(Device device)? osMajorVersion,
+    required Future<int?> Function(Device device) osMajorVersion,
   }) =>
       DoctorEnvironmentChecks.devices(devices, osMajorVersion: osMajorVersion);
 }

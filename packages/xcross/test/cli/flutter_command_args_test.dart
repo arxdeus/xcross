@@ -8,6 +8,9 @@ import 'package:xcross/src/cli/basic/auth_command.dart';
 import 'package:xcross/src/cli/flutter/subcommands/flutter_build_command.dart';
 import 'package:xcross/src/cli/flutter/subcommands/flutter_run_command.dart';
 import 'package:xcross/src/cli/runner.dart';
+import 'package:xcross/src/errors.dart';
+
+import 'runtime_fixture.dart';
 
 void main() {
   group('FlutterRunCommand.shouldUseCoreDevice', () {
@@ -24,7 +27,7 @@ void main() {
   group('FlutterRunCommand', () {
     late Command<void> command;
 
-    setUp(() => command = FlutterRunCommand());
+    setUp(() => command = FlutterRunCommand(testRuntime()));
 
     test(
       'defaults: usb/wifi off, device-connection both, target/pub inherited',
@@ -95,27 +98,35 @@ void main() {
 
   group('FlutterBuildCommand', () {
     test('accepts explicit simulator debug and preserves device default', () {
-      final command = FlutterBuildCommand();
-      expect(command.argParser.parse([]).flag('simulator'), isFalse);
-      final results = command.argParser.parse(['--simulator', '--debug']);
-      expect(results.flag('simulator'), isTrue);
+      final command = FlutterBuildCommand(testRuntime());
+      expect(command.argParser.parse([]).option('target-platform'), 'iphone');
+      final results = command.argParser.parse([
+        '--target-platform',
+        'simulator',
+        '--debug',
+      ]);
+      expect(results.option('target-platform'), 'simulator');
       expect(results.flag('debug'), isTrue);
     });
 
     for (final flags in [
-      ['--simulator', '--ipa'],
-      ['--simulator', '--profile'],
-      ['--simulator', '--release'],
+      ['--target-platform', 'simulator', '--ipa'],
+      ['--target-platform', 'simulator', '--profile'],
+      ['--target-platform', 'simulator', '--release'],
       ['--debug', '--profile'],
     ]) {
       test(
         'rejects unsupported combination $flags before accessing a project',
         () async {
           final runner = CommandRunner<void>('test', 'test')
-            ..addCommand(FlutterBuildCommand());
+            ..addCommand(FlutterBuildCommand(testRuntime()));
           await expectLater(
             runner.run(['build', ...flags]),
-            throwsA(isA<UsageException>()),
+            throwsA(
+              flags.contains('--ipa')
+                  ? isA<XcrossError>()
+                  : isA<UsageException>(),
+            ),
           );
         },
       );
@@ -123,7 +134,7 @@ void main() {
 
     late Command<void> command;
 
-    setUp(() => command = FlutterBuildCommand());
+    setUp(() => command = FlutterBuildCommand(testRuntime()));
 
     test('defaults: target/pub inherited, ipa off', () {
       final results = command.argParser.parse([]);
@@ -184,7 +195,14 @@ void main() {
   group('AuthCommand', () {
     late Command<void> command;
 
-    setUp(() => command = AuthCommand());
+    setUp(
+      () => command = AuthCommand(
+        log: testLog(),
+        hostServices: testRuntime().appleHostServices,
+        createNativeLibraryLoader: testRuntime().createNativeLibraryLoader,
+        createHttpClient: testRuntime().createAppleHttpClient,
+      ),
+    );
 
     test('exposes all six option names', () {
       final options = command.argParser.options;
@@ -212,16 +230,18 @@ void main() {
 
   group('XcrossCli global -v', () {
     test('-v sets the verbose flag on the runner', () {
-      final results = XcrossCli.buildRunner().argParser.parse(['-v']);
+      final results = XcrossCli.buildRunner(
+        testRuntime(),
+        configTerminal: TestTerminal(),
+      ).argParser.parse(['-v']);
       expect(results.flag('verbose'), isTrue);
     });
 
     test('verbose is accepted after the flutter build command', () {
-      final results = XcrossCli.buildRunner().argParser.parse([
-        'flutter',
-        'build',
-        '--verbose',
-      ]);
+      final results = XcrossCli.buildRunner(
+        testRuntime(),
+        configTerminal: TestTerminal(),
+      ).argParser.parse(['flutter', 'build', '--verbose']);
       expect(results.flag('verbose'), isTrue);
       expect(results.command!.name, 'flutter');
       expect(results.command!.command!.name, 'build');

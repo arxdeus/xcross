@@ -22,17 +22,19 @@ final class XcrossGlobalArgs {
 /// Adds a global `-v` so every command can surface its trace output, not just
 /// `flutter run` (which keeps its own `-v` for `xcross flutter run -v`).
 final class XcrossRunner extends CommandRunner<void> {
-  XcrossRunner(super.executableName, super.description) {
+  XcrossRunner(this.log, super.executableName, super.description) {
     _$populateXcrossGlobalArgsParser(argParser);
   }
 
   /// `--version` has to be handled here rather than in [runCommand], which a
   /// bare `xcross --version` never reaches: CommandRunner rejects the missing
   /// subcommand first.
+  final Log log;
+
   @override
   Future<void> run(Iterable<String> args) async {
     if (_wantsVersion(args)) {
-      Log.logStatus(XcrossVersion.describe());
+      log.logStatus(XcrossVersion.describe());
       return;
     }
     return super.run(args);
@@ -51,7 +53,7 @@ final class XcrossRunner extends CommandRunner<void> {
   @override
   Future<void> runCommand(ArgResults topLevelResults) {
     if (_$parseXcrossGlobalArgsResult(topLevelResults).verbose) {
-      Log.setVerbose();
+      log.setVerbose();
     }
     return super.runCommand(topLevelResults);
   }

@@ -8,12 +8,20 @@ import 'package:xcross/src/cli/basic/doctor_command.dart';
 import 'package:xcross/src/cli/basic/doctor_environment_checks.dart';
 import 'package:xcross/src/cli/basic/doctor_project_checks.dart';
 import 'package:xcross/src/cli/runner.dart';
+import 'package:xcross/src/config/config.dart';
 import 'package:xcross/src/errors.dart';
-import 'package:xcross/src/flutter/build/flutter_packer.dart';
+
+import 'runtime_fixture.dart';
 
 void main() {
   test('doctor is registered by the top-level runner', () {
-    expect(XcrossCli.buildRunner().commands.keys, contains('doctor'));
+    expect(
+      XcrossCli.buildRunner(
+        testRuntime(),
+        configTerminal: TestTerminal(),
+      ).commands.keys,
+      contains('doctor'),
+    );
   });
 
   test('colors status markers like Flutter doctor', () {
@@ -76,6 +84,7 @@ void main() {
   test('warnings do not fail doctor', () async {
     final lines = <String>[];
     final command = DoctorCommand.withSeams(
+      log: testLog(),
       examine: () async => const [
         DoctorCheck.warning('Project', 'No Flutter or Compose project found.'),
       ],
@@ -94,6 +103,7 @@ void main() {
   test('failures are all reported and fail doctor', () async {
     final lines = <String>[];
     final command = DoctorCommand.withSeams(
+      log: testLog(),
       examine: () async => const [
         DoctorCheck.failure('Swift', 'swift was not found on PATH.'),
         DoctorCheck.success('SDK', 'Darwin SDK is installed.'),
@@ -165,8 +175,7 @@ void main() {
   test('Windows host checks resolve PATHEXT executable names', () async {
     final requested = <String>[];
     final checks = await DoctorEnvironmentChecks.hostWithSeams(
-      operatingSystem: 'windows',
-      windows: true,
+      hostName: 'windows',
       locateTool: (name, {windows, accept, extraDirectories = const []}) async {
         requested.add(name);
         return 'C:\\Tools\\$name.exe';
@@ -195,8 +204,7 @@ void main() {
 
   test('host checks report an unusable iOS compiler clearly', () async {
     final checks = await DoctorEnvironmentChecks.hostWithSeams(
-      operatingSystem: 'windows',
-      windows: true,
+      hostName: 'windows',
       locateTool:
           (name, {windows, accept, extraDirectories = const []}) async =>
               'C:\\Tools\\$name.exe',
@@ -222,8 +230,7 @@ void main() {
     'host checks warn about a linker with the selector-stub defect',
     () async {
       final checks = await DoctorEnvironmentChecks.hostWithSeams(
-        operatingSystem: 'linux',
-        windows: false,
+        hostName: 'linux',
         locateTool:
             (name, {windows, accept, extraDirectories = const []}) async =>
                 '/usr/bin/$name',
@@ -247,8 +254,7 @@ void main() {
 
   test('host checks report the linker version when it is healthy', () async {
     final checks = await DoctorEnvironmentChecks.hostWithSeams(
-      operatingSystem: 'linux',
-      windows: false,
+      hostName: 'linux',
       locateTool:
           (name, {windows, accept, extraDirectories = const []}) async =>
               '/usr/bin/$name',
@@ -273,17 +279,15 @@ void main() {
       'xcross-doctor-flutter-',
     );
     addTearDown(() {
-      FlutterPacker.resetFlutterRootOverride();
       project.deleteSync(recursive: true);
     });
     File('${project.path}/pubspec.yaml').writeAsStringSync('name: demo');
     Directory('${project.path}/lib').createSync();
     File('${project.path}/lib/main.dart').writeAsStringSync('');
-    FlutterPacker.configureFlutterResolution(declarative: true);
 
-    final checks = await DoctorProjectChecks.examine(
-      DoctorProject.flutter(project.path),
-    );
+    final checks = await DoctorProjectChecks(
+      testRuntime(configuration: XcrossConfig()),
+    ).examine(DoctorProject.flutter(project.path));
     final flutterSdkChecks = checks.where(
       (check) => check.name == 'Flutter SDK',
     );
@@ -295,10 +299,8 @@ void main() {
 
   test('Windows Flutter checks require the Flutter launcher', () async {
     final checks = await DoctorEnvironmentChecks.flutterToolWithSeams(
-      windows: true,
       locateTool: (name, {windows, accept, extraDirectories = const []}) async {
         expect(name, 'flutter');
-        expect(windows, isTrue);
         return r'C:\flutter\bin\flutter.bat';
       },
     );

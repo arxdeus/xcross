@@ -1,18 +1,20 @@
 import 'dart:io';
 
-import 'package:args/command_runner.dart';
 import 'package:build_cli_annotations/build_cli_annotations.dart';
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:xcross/src/cli/compose/compose_build_command.dart';
+import 'package:xcross/src/cli/internal/parsed_command.dart';
 import 'package:xcross/src/cli/shared/device_selection.dart';
-import 'package:xcross/src/compose/build/compose_pack_operation.dart';
 import 'package:xcross/src/compose/models/compose_build_options.dart';
 import 'package:xcross/src/compose/watch/compose_watch_session.dart';
 import 'package:xcross/src/compose/watch/kotlin_source_watcher.dart';
+import 'package:xcross/src/composition/ios_target.dart';
 import 'package:xcross/src/device/core_device_launch_profile.dart';
 import 'package:xcross/src/device/device_run_operation.dart';
 import 'package:xcross/src/models/pack_result.dart';
+import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
+import 'package:xcross/src/target/shared/runtime/build_features.dart';
 
 part 'compose_run_command.g.dart';
 
@@ -25,7 +27,7 @@ typedef ComposeRunDevice =
       Future<bool> Function()? onRestartRequested,
     });
 
-@CliOptions(createCommand: true)
+@CliOptions()
 final class ComposeRunArgs {
   @CliOption(abbr: 'd', help: 'Target device id or name (flutter-style).')
   late String? deviceId;
@@ -68,19 +70,69 @@ final class ComposeRunArgs {
   late bool verbose;
 }
 
-final class ComposeRunCommand extends _$ComposeRunArgsCommand<void> {
-  ComposeRunCommand()
-    : this.withSeams(
-        packOperation: _defaultRunPackOperation,
-        runDevice: _defaultRunDevice,
+final class ComposeRunCommand<T extends PlatformHostInterface>
+    extends ParsedCommand<ComposeRunArgs, void> {
+  @override
+  ArgParser populateOptions(ArgParser parser) =>
+      _$populateComposeRunArgsParser(parser);
+  @override
+  ComposeRunArgs parseOptions(ArgResults results) =>
+      _$parseComposeRunArgsResult(results);
+
+  ComposeRunCommand(XcrossRuntime<T> runtime)
+    : this._withRuntime(runtime, composePhysicalFeatures(runtime));
+
+  ComposeRunCommand._withRuntime(
+    XcrossRuntime<T> runtime,
+    XcrossBuildFeatures<T> features,
+  ) : this.withSeams(
+        log: runtime.log,
+        files: runtime.host.fileSystem,
+        packOperation:
+            ({
+              required options,
+              required requireRunnableApp,
+              required targetPlatform,
+            }) => features.composeOperation.pack(
+              options: options,
+              requireRunnableApp: requireRunnableApp,
+            ),
+        runDevice:
+            ({
+              required pack,
+              required selector,
+              required mode,
+              required launchProfile,
+              onRestartRequested,
+            }) async {
+              final operation = await DeviceRunOperation.resolve(
+                runtime.pymd,
+                httpClients: runtime.signingHttpClients,
+                connector: runtime.vmConnector,
+                vmOutput: runtime.vmOutput,
+                hostServices: runtime.appleHostServices,
+                createNativeLibraryLoader: runtime.createNativeLibraryLoader,
+              );
+              await operation.run(
+                pack: pack,
+                selector: selector,
+                mode: mode,
+                launchProfile: launchProfile,
+                onRestartRequested: onRestartRequested,
+              );
+            },
       );
 
   ComposeRunCommand.withSeams({
+    required this.log,
+    required this.files,
     required ComposeCliPackOperation packOperation,
     required ComposeRunDevice runDevice,
   }) : _packOperation = packOperation,
        _runDevice = runDevice;
 
+  final HostFileSystemInterface files;
+  final Log log;
   final ComposeCliPackOperation _packOperation;
   final ComposeRunDevice _runDevice;
 
@@ -91,29 +143,30 @@ final class ComposeRunCommand extends _$ComposeRunArgsCommand<void> {
   String get description =>
       'Build, install, and run a Compose Multiplatform iOS app on a device.';
 
-  String? get _deviceSelector => _options.udid ?? _options.deviceId;
+  String? get _deviceSelector => options.udid ?? options.deviceId;
 
   DeviceSearchMode get _searchMode => deviceSearchMode(
-    usb: _options.usb,
-    wifi: _options.wifi,
-    deviceConnection: _options.deviceConnection,
+    usb: options.usb,
+    wifi: options.wifi,
+    deviceConnection: options.deviceConnection,
   );
 
   @override
   Future<void> run() async {
-    if (_options.verbose) Log.setVerbose();
+    if (options.verbose) log.setVerbose();
     final pack = await _packOperation(
-      options: ComposeBuildOptions(bundleId: _options.bundleId),
+      options: ComposeBuildOptions(bundleId: options.bundleId),
       requireRunnableApp: true,
+      targetPlatform: 'iphone',
     );
-    Log.logInfo(
+    log.logInfo(
       'App',
-      '${pack.bundleId} ${Log.dim('native, attached via CoreDevice')}',
+      '${pack.bundleId} ${log.dim('native, attached via CoreDevice')}',
     );
     final profile = CoreDeviceLaunchProfile.native(
-      arguments: _options.appArgument,
+      arguments: options.appArgument,
     );
-    if (!_options.watch) {
+    if (!options.watch) {
       await _runDevice(
         pack: pack,
         selector: _deviceSelector,
@@ -123,16 +176,21 @@ final class ComposeRunCommand extends _$ComposeRunArgsCommand<void> {
       return;
     }
 
-    Log.logInfo(
+    log.logInfo(
       'Watching',
       'Kotlin sources '
-          '${Log.dim('— press r to rebuild and restart, q to quit')}',
+          '${log.dim('press r to rebuild and restart, q to quit')}',
     );
     final session = ComposeWatchSession(
-      watcher: KotlinSourceWatcher(pack.projectRoot ?? Directory.current.path),
+      log: log,
+      watcher: KotlinSourceWatcher(
+        pack.projectRoot ?? Directory.current.path,
+        files: files,
+      ),
       rebuild: () => _packOperation(
-        options: ComposeBuildOptions(bundleId: _options.bundleId),
+        options: ComposeBuildOptions(bundleId: options.bundleId),
         requireRunnableApp: true,
+        targetPlatform: 'iphone',
       ),
       runSession: ({required pack, required onRestartRequested}) => _runDevice(
         pack: pack,
@@ -144,29 +202,4 @@ final class ComposeRunCommand extends _$ComposeRunArgsCommand<void> {
     );
     await session.run(pack);
   }
-
-  static Future<void> _defaultRunDevice({
-    required PackResult pack,
-    required String? selector,
-    required DeviceSearchMode mode,
-    required CoreDeviceLaunchProfile launchProfile,
-    Future<bool> Function()? onRestartRequested,
-  }) async {
-    final operation = await DeviceRunOperation.resolve();
-    await operation.run(
-      pack: pack,
-      selector: selector,
-      mode: mode,
-      launchProfile: launchProfile,
-      onRestartRequested: onRestartRequested,
-    );
-  }
 }
-
-Future<PackResult> _defaultRunPackOperation({
-  required ComposeBuildOptions options,
-  required bool requireRunnableApp,
-}) => ComposePackOperation.pack(
-  options: options,
-  requireRunnableApp: requireRunnableApp,
-);

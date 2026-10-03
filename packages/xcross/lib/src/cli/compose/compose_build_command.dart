@@ -1,11 +1,11 @@
-import 'package:args/command_runner.dart';
 import 'package:build_cli_annotations/build_cli_annotations.dart';
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:xcross/src/cli/internal/parsed_command.dart';
 import 'package:xcross/src/cli/shared/ipa_packager.dart';
-import 'package:xcross/src/compose/build/compose_pack_operation.dart';
 import 'package:xcross/src/compose/models/compose_build_options.dart';
-import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/composition/ios_target.dart';
 import 'package:xcross/src/models/pack_result.dart';
+import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 
 part 'compose_build_command.g.dart';
 
@@ -13,11 +13,12 @@ typedef ComposeCliPackOperation =
     Future<PackResult> Function({
       required ComposeBuildOptions options,
       required bool requireRunnableApp,
+      required String targetPlatform,
     });
 typedef ComposeIpaPackage = Future<String> Function(String appPath);
 typedef ComposeLogDone = void Function(String message);
 
-@CliOptions(createCommand: true)
+@CliOptions()
 final class ComposeBuildArgs {
   @CliOption(
     defaultsTo: ComposeConfiguration.debug,
@@ -38,8 +39,11 @@ final class ComposeBuildArgs {
   )
   late bool ipa;
 
-  @CliOption(negatable: false, help: 'Build for the ARM64 iOS Simulator.')
-  late bool simulator;
+  @CliOption(
+    defaultsTo: 'iphone',
+    help: 'Target platform: iphone or simulator.',
+  )
+  late String targetPlatform;
 
   @CliOption(
     abbr: 'v',
@@ -49,15 +53,38 @@ final class ComposeBuildArgs {
   late bool verbose;
 }
 
-final class ComposeBuildCommand extends _$ComposeBuildArgsCommand<void> {
-  ComposeBuildCommand()
+final class ComposeBuildCommand<T extends PlatformHostInterface>
+    extends ParsedCommand<ComposeBuildArgs, void> {
+  @override
+  ArgParser populateOptions(ArgParser parser) =>
+      _$populateComposeBuildArgsParser(parser);
+  @override
+  ComposeBuildArgs parseOptions(ArgResults results) =>
+      _$parseComposeBuildArgsResult(results);
+
+  ComposeBuildCommand(XcrossRuntime<T> runtime)
     : this.withSeams(
-        packOperation: _defaultPackOperation,
+        packOperation:
+            ({
+              required options,
+              required requireRunnableApp,
+              required targetPlatform,
+            }) =>
+                composeBuildFeatures(
+                  targetPlatform,
+                  runtime,
+                  ipa: options.ipa,
+                ).composeOperation.pack(
+                  options: options,
+                  requireRunnableApp: requireRunnableApp,
+                ),
         packageIpa: IpaPackager.package,
-        logDone: Log.logDone,
+        logDone: runtime.log.logDone,
+        log: runtime.log,
       );
 
   ComposeBuildCommand.withSeams({
+    required this.log,
     required ComposeCliPackOperation packOperation,
     required ComposeIpaPackage packageIpa,
     required ComposeLogDone logDone,
@@ -65,6 +92,7 @@ final class ComposeBuildCommand extends _$ComposeBuildArgsCommand<void> {
        _packageIpa = packageIpa,
        _logDone = logDone;
 
+  final Log log;
   final ComposeCliPackOperation _packOperation;
   final ComposeIpaPackage _packageIpa;
   final ComposeLogDone _logDone;
@@ -78,32 +106,21 @@ final class ComposeBuildCommand extends _$ComposeBuildArgsCommand<void> {
 
   @override
   Future<void> run() async {
-    if (_options.simulator && _options.ipa) {
-      throw XcrossError('Simulator builds cannot be packaged as an IPA.');
-    }
-    if (_options.verbose) Log.setVerbose();
-    final options = ComposeBuildOptions(
-      configuration: _options.configuration,
-      bundleId: _options.bundleId,
-      appName: _options.appName,
-      ipa: _options.ipa,
-      simulator: _options.simulator,
+    if (options.verbose) log.setVerbose();
+    final buildOptions = ComposeBuildOptions(
+      configuration: options.configuration,
+      bundleId: options.bundleId,
+      appName: options.appName,
+      ipa: options.ipa,
     );
     final result = await _packOperation(
-      options: options,
+      options: buildOptions,
       requireRunnableApp: false,
+      targetPlatform: options.targetPlatform,
     );
-    final finalPath = _options.ipa && result.kind == PackOutputKind.app
+    final finalPath = options.ipa && result.kind == PackOutputKind.app
         ? await _packageIpa(result.appPath)
         : result.outputPath;
     _logDone('Wrote $finalPath');
   }
-
-  static Future<PackResult> _defaultPackOperation({
-    required ComposeBuildOptions options,
-    required bool requireRunnableApp,
-  }) => ComposePackOperation.pack(
-    options: options,
-    requireRunnableApp: requireRunnableApp,
-  );
 }

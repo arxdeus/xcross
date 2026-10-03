@@ -42,11 +42,3 @@ UpdateArgs parseUpdateArgs(List<String> args) {
   final result = _$parserForUpdateArgs.parse(args);
   return _$parseUpdateArgsResult(result);
 }
-
-abstract class _$UpdateArgsCommand<T> extends Command<T> {
-  _$UpdateArgsCommand() {
-    _$populateUpdateArgsParser(argParser);
-  }
-
-  late final _options = _$parseUpdateArgsResult(argResults!);
-}

@@ -1,14 +1,14 @@
 import 'dart:io';
 
-import 'package:args/command_runner.dart';
 import 'package:build_cli_annotations/build_cli_annotations.dart';
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:xcross/src/cli/internal/parsed_command.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/setup/setup_script.dart';
+import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 import 'package:xcross/src/update/git_ref_source_bundle_builder.dart';
 import 'package:xcross/src/update/git_update_ref_resolver.dart';
 import 'package:xcross/src/update/install_layout.dart';
-import 'package:xcross/src/update/release_lookup.dart';
 import 'package:xcross/src/update/self_update.dart';
 import 'package:xcross/src/update/semver.dart';
 import 'package:xcross/src/version.dart';
@@ -16,7 +16,7 @@ import 'package:xcross/src/version.dart';
 part 'update_command.g.dart';
 
 /// Options for `xcross update`.
-@CliOptions(createCommand: true)
+@CliOptions()
 final class UpdateArgs {
   @CliOption(
     negatable: false,
@@ -46,10 +46,18 @@ final class UpdateArgs {
 ///
 /// Release archives are verified against `SHA256SUMS.txt` before any file is
 /// touched. Non-tag refs are built from source and then installed atomically.
-final class UpdateCommand extends _$UpdateArgsCommand<void> {
-  UpdateCommand() : this.withSeams();
+final class UpdateCommand extends ParsedCommand<UpdateArgs, void> {
+  @override
+  ArgParser populateOptions(ArgParser parser) =>
+      _$populateUpdateArgsParser(parser);
+  @override
+  UpdateArgs parseOptions(ArgResults results) =>
+      _$parseUpdateArgsResult(results);
 
-  UpdateCommand.withSeams({
+  UpdateCommand(XcrossRuntime runtime) : this.withSeams(runtime);
+
+  UpdateCommand.withSeams(
+    XcrossRuntime runtime, {
     Future<String> Function()? latestTagLookup,
     Future<GitUpdateRef> Function(String ref)? resolveRef,
     InstallLayout Function()? resolveInstallLayout,
@@ -70,24 +78,59 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
     bool Function()? currentIsReleased,
     bool Function(InstallLayout layout)? hasNativeLibraries,
     Future<void> Function()? refreshSetupScript,
-  }) : _latestTagLookup = _withLatestTagStep(
-         latestTagLookup ?? ReleaseLookup.latestTag,
+  }) : log = runtime.log,
+       _latestTagLookup = _withLatestTagStep(
+         runtime.log,
+         latestTagLookup ??
+             (() => runtime.releaseLookup.latestTag(
+               environment: runtime.runner.effectiveEnvironment,
+             )),
        ),
        _resolveRef = _withResolveRefStep(
-         resolveRef ?? (ref) => GitUpdateRefResolver().resolve(ref),
+         runtime.log,
+         resolveRef ??
+             (ref) => GitUpdateRefResolver(runner: runtime.runner).resolve(ref),
        ),
        _resolveInstallLayout =
-           resolveInstallLayout ?? _defaultResolveInstallLayout,
-       _assetName = assetName ?? _defaultAssetName,
-       _releaseInstaller = installRelease ?? _defaultInstallRelease,
-       _sourceInstaller = installSourceRef ?? _defaultInstallSourceRef,
-       _resolvedRefReporter = reportResolvedRef ?? _defaultReportResolvedRef,
+           resolveInstallLayout ??
+           (() =>
+               InstallLayout.resolve(runtime.executable, host: runtime.host)),
+       _assetName =
+           assetName ??
+           SelfUpdate(
+             host: runtime.host,
+             runner: runtime.runner,
+             downloader: runtime.downloader,
+             policy: runtime.operations.update,
+           ).assetName,
+       _releaseInstaller =
+           installRelease ??
+           SelfUpdate(
+             host: runtime.host,
+             runner: runtime.runner,
+             downloader: runtime.downloader,
+             policy: runtime.operations.update,
+           ).apply,
+       _sourceInstaller =
+           installSourceRef ??
+           (({required layout, required ref}) =>
+               _defaultInstallSourceRef(runtime, layout: layout, ref: ref)),
+       _resolvedRefReporter =
+           reportResolvedRef ??
+           (({required requestedRef, required resolvedRef}) =>
+               _defaultReportResolvedRef(
+                 log: runtime.log,
+                 requestedRef: requestedRef,
+                 resolvedRef: resolvedRef,
+               )),
        _currentVersion = currentVersion ?? _defaultCurrentVersion,
        _currentIsReleased = currentIsReleased ?? _defaultCurrentIsReleased,
        _hasNativeLibraries =
            hasNativeLibraries ?? ((layout) => layout.hasNativeLibraries),
-       _refreshSetupScript = refreshSetupScript ?? _defaultRefreshSetupScript;
+       _refreshSetupScript =
+           refreshSetupScript ?? (() => _defaultRefreshSetupScript(runtime));
 
+  final Log log;
   final Future<String> Function() _latestTagLookup;
   final Future<GitUpdateRef> Function(String ref) _resolveRef;
   final InstallLayout Function() _resolveInstallLayout;
@@ -121,7 +164,7 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
 
   @override
   Future<void> run() async {
-    final args = _options;
+    final args = options;
     final requestedRef = args.ref;
     if (requestedRef != null) {
       await _runExplicitRef(
@@ -143,24 +186,24 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
     final layout = _resolveInstallLayout();
     final hasNativeLibraries = _hasNativeLibraries(layout);
     if (!args.force && !_isUpgrade(target) && hasNativeLibraries) {
-      Log.logDone('xcross ${_currentVersion()} is already the latest');
+      log.logDone('xcross ${_currentVersion()} is already the latest');
       return;
     }
 
     if (!hasNativeLibraries) {
-      Log.logWarn('Native libraries are missing; reinstalling $tag');
+      log.logWarn('Native libraries are missing; reinstalling $tag');
     }
     final asset = _assetName();
-    Log.logInfo('Release', '$tag (installed: ${_currentVersion()})');
-    Log.logInfo('Asset', asset);
+    log.logInfo('Release', '$tag (installed: ${_currentVersion()})');
+    log.logInfo('Asset', asset);
     if (!_confirm(target: tag, skipPrompt: args.yes)) {
-      Log.logStatus('Aborted.');
+      log.logStatus('Aborted.');
       return;
     }
 
     await _releaseInstaller(layout: layout, tag: tag);
     await _refreshSetupScript();
-    Log.logDone('Updated xcross to $tag', layout.binaryPath);
+    log.logDone('Updated xcross to $tag', layout.binaryPath);
   }
 
   Future<void> _runExplicitRef(
@@ -178,11 +221,11 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
     }
 
     final target = resolvedRef.displayName;
-    Log.logInfo('Ref', '$requestedRef -> ${resolvedRef.displayName}');
-    Log.logInfo('Kind', resolvedRef.kind.name);
-    Log.logInfo('Commit', resolvedRef.commitSha);
+    log.logInfo('Ref', '$requestedRef -> ${resolvedRef.displayName}');
+    log.logInfo('Kind', resolvedRef.kind.name);
+    log.logInfo('Commit', resolvedRef.commitSha);
     if (!_confirm(target: target, skipPrompt: skipPrompt)) {
-      Log.logStatus('Aborted.');
+      log.logStatus('Aborted.');
       return;
     }
 
@@ -190,10 +233,10 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
     if (resolvedRef.kind == GitUpdateRefKind.tag) {
       _parseTag(resolvedRef.displayName);
       final asset = _assetName();
-      Log.logInfo('Asset', asset);
+      log.logInfo('Asset', asset);
       await _releaseInstaller(layout: layout, tag: resolvedRef.displayName);
       await _refreshSetupScript();
-      Log.logDone(
+      log.logDone(
         'Updated xcross to ${resolvedRef.displayName}',
         layout.binaryPath,
       );
@@ -202,7 +245,7 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
 
     await _sourceInstaller(layout: layout, ref: resolvedRef);
     await _refreshSetupScript();
-    Log.logDone(
+    log.logDone(
       'Updated xcross to ${resolvedRef.displayName} (${resolvedRef.commitSha})',
       layout.binaryPath,
     );
@@ -218,11 +261,11 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
 
   void _reportComparison({required String tag, required XcrossSemver target}) {
     if (_isUpgrade(target)) {
-      Log.logInfo('xcross $tag is available (installed: ${_currentVersion()})');
-      Log.logStatus("Run 'xcross update' to install it.");
+      log.logInfo('xcross $tag is available (installed: ${_currentVersion()})');
+      log.logStatus("Run 'xcross update' to install it.");
       return;
     }
-    Log.logDone(
+    log.logDone(
       'xcross $tag is the latest version (installed: ${_currentVersion()})',
     );
   }
@@ -243,58 +286,67 @@ final class UpdateCommand extends _$UpdateArgsCommand<void> {
   }
 
   static Future<String> Function() _withLatestTagStep(
+    Log log,
     Future<String> Function() lookup,
   ) =>
-      () => Log.logStep('Checking latest release', lookup);
+      () => log.logStep('Checking latest release', lookup);
 
   static Future<GitUpdateRef> Function(String ref) _withResolveRefStep(
+    Log log,
     Future<GitUpdateRef> Function(String ref) resolve,
   ) =>
-      (ref) => Log.logStep('Resolving ref $ref', () => resolve(ref));
-
-  static InstallLayout _defaultResolveInstallLayout() =>
-      InstallLayout.resolve();
-
-  static String _defaultAssetName() => SelfUpdate.assetName();
+      (ref) => log.logStep('Resolving ref $ref', () => resolve(ref));
 
   static String _defaultCurrentVersion() => XcrossVersion.current;
 
   static bool _defaultCurrentIsReleased() => XcrossVersion.isReleased;
 
-  static Future<void> _defaultRefreshSetupScript() async {
-    final manager = SetupScriptManager();
+  static Future<void> _defaultRefreshSetupScript(XcrossRuntime runtime) async {
+    final manager = SetupScriptManager(
+      createHttpClient: runtime.createHttpClient,
+      host: runtime.host,
+      runner: runtime.runner,
+      policy: runtime.operations.setupScript,
+      source: runtime.config.config?.setup,
+    );
     if (manager.isRemote) await manager.refresh();
   }
 
-  static Future<void> _defaultInstallRelease({
-    required InstallLayout layout,
-    required String tag,
-  }) => SelfUpdate.apply(layout: layout, tag: tag);
-
-  static Future<void> _defaultInstallSourceRef({
+  static Future<void> _defaultInstallSourceRef(
+    XcrossRuntime runtime, {
     required InstallLayout layout,
     required GitUpdateRef ref,
   }) {
-    final builder = GitRefSourceBundleBuilder();
+    final builder = GitRefSourceBundleBuilder(
+      runner: runtime.runner,
+      acceptDartLauncher: runtime.operations.acceptDartLauncher,
+    );
     return builder.build<void>(
       ref: ref,
-      onBundle: (bundleRoot, progress) => SelfUpdate.installBundle(
-        bundleRoot: bundleRoot,
-        layout: layout,
-        label: 'xcross ${ref.displayName} (${ref.commitSha})',
-        expectedIdentity: ref.displayName,
-        progress: progress,
-      ),
+      onBundle: (bundleRoot, progress) =>
+          SelfUpdate(
+            host: runtime.host,
+            runner: runtime.runner,
+            downloader: runtime.downloader,
+            policy: runtime.operations.update,
+          ).installBundle(
+            bundleRoot: bundleRoot,
+            layout: layout,
+            label: 'xcross ${ref.displayName} (${ref.commitSha})',
+            expectedIdentity: ref.displayName,
+            progress: progress,
+          ),
     );
   }
 
   static void _defaultReportResolvedRef({
+    required Log log,
     required String requestedRef,
     required GitUpdateRef resolvedRef,
   }) {
-    Log.logInfo('Requested ref', requestedRef);
-    Log.logInfo('Resolved ref', resolvedRef.displayName);
-    Log.logInfo('Kind', resolvedRef.kind.name);
-    Log.logInfo('Commit', resolvedRef.commitSha);
+    log.logInfo('Requested ref', requestedRef);
+    log.logInfo('Resolved ref', resolvedRef.displayName);
+    log.logInfo('Kind', resolvedRef.kind.name);
+    log.logInfo('Commit', resolvedRef.commitSha);
   }
 }

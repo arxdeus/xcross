@@ -1,17 +1,21 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/cli/basic/doctor_models.dart';
-import 'package:xcross/src/compose/project/kmp_project.dart';
-import 'package:xcross/src/compose/toolchain/compose_host.dart';
-import 'package:xcross/src/compose/toolchain/compose_toolchain_resolver.dart';
-import 'package:xcross/src/errors.dart';
-import 'package:xcross/src/flutter/build/flutter_packer.dart';
-import 'package:xcross/src/flutter/models/pubspec_info.dart';
+import 'package:xcross/src/composition/ios_target.dart';
 import 'package:xcross/src/package_config_resolver.dart';
+import 'package:xcross/src/shared/compose/kmp_project_detector.dart';
+import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
+import 'package:xcross/src/target/shared/runtime/build_features.dart';
 
-abstract final class DoctorProjectChecks {
+final class DoctorProjectChecks<T extends PlatformHostInterface> {
+  DoctorProjectChecks(this.runtime)
+    : features = composePhysicalFeatures(runtime);
+
+  final XcrossBuildFeatures<T> features;
+
+  final XcrossRuntime<T> runtime;
   static DoctorProject? detect(String root) {
     if (File(p.join(root, 'pubspec.yaml')).existsSync()) {
       return DoctorProject.flutter(root);
@@ -23,13 +27,13 @@ abstract final class DoctorProjectChecks {
     return null;
   }
 
-  static Future<List<DoctorCheck>> examine(DoctorProject project) =>
+  Future<List<DoctorCheck>> examine(DoctorProject project) =>
       switch (project.kind) {
         DoctorProjectKind.flutter => _flutter(project.root),
         DoctorProjectKind.compose => _compose(project.root),
       };
 
-  static Future<List<DoctorCheck>> _flutter(String root) async {
+  Future<List<DoctorCheck>> _flutter(String root) async {
     final projectCheck = _flutterProject(root);
     if (projectCheck.status == DoctorStatus.failure) return [projectCheck];
 
@@ -41,11 +45,11 @@ abstract final class DoctorProjectChecks {
     ];
   }
 
-  static DoctorCheck _flutterProject(String root) {
+  DoctorCheck _flutterProject(String root) {
     try {
       return DoctorCheck.success(
         'Flutter project',
-        PubspecInfo.loadSync(root).name,
+        features.flutterRuntime.pubspecs.loadSync(root).name,
       );
     } on Object catch (error) {
       return DoctorCheck.failure('Flutter project', '$error');
@@ -66,9 +70,9 @@ abstract final class DoctorProjectChecks {
           );
   }
 
-  static Future<DoctorCheck> _flutterSdk(String root) async {
+  Future<DoctorCheck> _flutterSdk(String root) async {
     try {
-      final flutterRoot = await FlutterPacker.resolveFlutterRoot(
+      final flutterRoot = await features.flutterRuntime.resolveFlutterRoot(
         projectRoot: root,
       );
       return DoctorCheck.success('Flutter SDK', 'Found', path: flutterRoot);
@@ -91,33 +95,24 @@ abstract final class DoctorProjectChecks {
           );
   }
 
-  static Future<List<DoctorCheck>> _compose(String root) async {
+  Future<List<DoctorCheck>> _compose(String root) async {
     try {
-      final project = KmpProject.detect(root);
+      final project = KmpProjectDetector(
+        files: runtime.host.fileSystem,
+        log: runtime.log,
+        root: root,
+      ).detect();
       final projectCheck = DoctorCheck.success(
         'Compose project',
         project.moduleName,
       );
-      final host = _resolveComposeHost();
-      if (host.problem case final problem?) {
-        return [projectCheck, DoctorCheck.failure('Compose host', problem)];
-      }
-      final problems = await ComposeToolchainResolver.problems(
-        host: host.value!,
-        environment: ProcessRunner.effectiveEnvironment,
+      final problems = await features.composeResolver.problems(
+        environment: runtime.runner.effectiveEnvironment,
         projectRoot: root,
       );
       return [projectCheck, _composeToolchain(problems)];
     } on Object catch (error) {
       return [DoctorCheck.failure('Compose project', '$error')];
-    }
-  }
-
-  static ({ComposeHost? value, String? problem}) _resolveComposeHost() {
-    try {
-      return (value: ComposeHost.current(), problem: null);
-    } on XcrossError catch (error) {
-      return (value: null, problem: error.message);
     }
   }
 

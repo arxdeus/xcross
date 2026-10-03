@@ -83,7 +83,7 @@ environment:
       });
       final runner = ProcessRunner(
         host,
-        log: testLog(),
+        log: testLog(), stdinStream: const Stream.empty(), stdoutSink: testByteSink(), stderrSink: testByteSink(),
         configuration: runtime.processConfiguration,
       );
       expect(runner.effectiveEnvironment, runtime.childEnvironment);
@@ -93,7 +93,9 @@ environment:
   test(
     'injected Windows overlay folds case and uses Windows separator on POSIX',
     () async {
+      final fixtureHost = LinuxHost(currentDirectory: temporary.path);
       final host = WindowsHost(
+        fileSystem: ConfigFixtureFileSystem(fixtureHost.fileSystem),
         environment: const {'Path': r'C:\Windows', 'JAVA_HOME': r'C:\old'},
       );
       final config = XcrossConfig(
@@ -164,4 +166,23 @@ environment:
     );
     expect(runtime.isConfigured, isTrue);
   });
+}
+
+final class ConfigFixtureFileSystem implements HostFileSystemInterface {
+  const ConfigFixtureFileSystem(this.delegate);
+  final HostFileSystemInterface delegate;
+  String normalize(String path) => path.replaceAll(r'\', '/');
+  @override
+  File file(String path) => delegate.file(normalize(path));
+  @override
+  Directory directory(String path) => delegate.directory(normalize(path));
+  @override
+  Link link(String path) => delegate.link(normalize(path));
+  @override
+  void makeExecutable(String path) => delegate.makeExecutable(normalize(path));
+  @override
+  void setPermissions(String path, int mode) => delegate.setPermissions(normalize(path), mode);
+  @override
+  Future<void> createArchiveLink(String destination, String target) =>
+      delegate.createArchiveLink(normalize(destination), normalize(target));
 }

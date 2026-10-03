@@ -2,18 +2,19 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:apple_developer_kit/apple_developer_kit.dart';
-import 'package:args/command_runner.dart';
 import 'package:build_cli_annotations/build_cli_annotations.dart';
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:http/http.dart' as http;
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/cli/internal/parsed_command.dart';
 import 'package:xcross/src/device/internal/signing_session.dart';
 import 'package:xcross/src/errors.dart';
 
 part 'auth_command.g.dart';
 
 /// Options for `xcross auth`.
-@CliOptions(createCommand: true)
+@CliOptions()
 final class AuthArgs {
   @CliOption(help: 'App Store Connect API "Issuer ID" (one per team).')
   late String? issuerId;
@@ -68,7 +69,24 @@ const _authOptionNames = [
 /// `xcross auth` — save credentials for the native (no-Swift) signing
 /// pipeline. Supports both App Store Connect API keys and Apple ID/password
 /// GrandSlam login.
-final class AuthCommand extends _$AuthArgsCommand<void> {
+final class AuthCommand extends ParsedCommand<AuthArgs, void> {
+  @override
+  ArgParser populateOptions(ArgParser parser) =>
+      _$populateAuthArgsParser(parser);
+  @override
+  AuthArgs parseOptions(ArgResults results) => _$parseAuthArgsResult(results);
+
+  AuthCommand({
+    required this.log,
+    required this.hostServices,
+    required this.createNativeLibraryLoader,
+    required this.createHttpClient,
+  });
+
+  final http.Client Function() createHttpClient;
+  final Log log;
+  final AppleHostServices hostServices;
+  final NativeLibraryLoader Function() createNativeLibraryLoader;
   @override
   String get name => 'auth';
 
@@ -99,9 +117,9 @@ final class AuthCommand extends _$AuthArgsCommand<void> {
     }
 
     final usesAscKey =
-        _options.issuerIdWasParsed ||
-        _options.keyIdWasParsed ||
-        _options.privateKeyWasParsed;
+        options.issuerIdWasParsed ||
+        options.keyIdWasParsed ||
+        options.privateKeyWasParsed;
     return usesAscKey ? _saveAscCredentials() : _appleIdLogin();
   }
 
@@ -114,8 +132,8 @@ final class AuthCommand extends _$AuthArgsCommand<void> {
   /// unrelated state (the update-check cache) and the architecture-specific
   /// ADI libraries live there too, and neither identifies an account.
   @visibleForTesting
-  static List<FileSystemEntity> authArtifacts([String? configDirectory]) {
-    final dir = configDirectory ?? xcrossConfigDir();
+  static List<FileSystemEntity> authArtifacts(String configDirectory) {
+    final dir = configDirectory;
     return [
       File(p.join(dir, 'appstoreconnect.json')),
       File(p.join(dir, 'grandslam-session.json')),
@@ -134,17 +152,17 @@ final class AuthCommand extends _$AuthArgsCommand<void> {
       );
     }
 
-    final configDirectory = xcrossConfigDir();
+    final configDirectory = hostServices.configDirectory;
     final removed = await deleteAuthArtifacts(configDirectory);
     for (final name in removed) {
-      Log.logInfo('Removed', name);
+      log.logInfo('Removed', name);
     }
 
     if (removed.isEmpty) {
-      Log.logDone('Nothing to clear in $configDirectory');
+      log.logDone('Nothing to clear in $configDirectory');
       return;
     }
-    Log.logDone(
+    log.logDone(
       'Signed out. Run xcross auth to sign in again.',
       configDirectory,
     );
@@ -170,21 +188,21 @@ final class AuthCommand extends _$AuthArgsCommand<void> {
   // ---------------------------------------------------------------- ASC key
 
   Future<void> _saveAscCredentials() async {
-    if (_options.appleIdWasParsed) {
+    if (options.appleIdWasParsed) {
       throw XcrossError(
         'Use either App Store Connect API key flags or --apple-id, not both.',
       );
     }
-    final issuerId = _options.issuerId;
-    final keyId = _options.keyId;
-    final privateKeyPath = _options.privateKey;
+    final issuerId = options.issuerId;
+    final keyId = options.keyId;
+    final privateKeyPath = options.privateKey;
     if (![issuerId, keyId, privateKeyPath].every(_present)) {
       throw XcrossError(
         'Provide non-empty values for all of --issuer-id, --key-id, and '
         '--private-key, or none to use Apple ID login.',
       );
     }
-    if (_options.adiLibraryDirWasParsed) {
+    if (options.adiLibraryDirWasParsed) {
       throw XcrossError('--adi-library-dir only applies to Apple ID login.');
     }
 
@@ -193,33 +211,35 @@ final class AuthCommand extends _$AuthArgsCommand<void> {
       throw XcrossError('No file found at "$privateKeyPath".');
     }
 
-    final configPath = AscCredentials.defaultConfigPath();
+    final configPath = AscCredentials.defaultConfigPath(
+      hostServices: hostServices,
+    );
     await AscCredentials(
       issuerId: issuerId!,
       keyId: keyId!,
       privateKeyPath: keyFile.absolute.path,
-    ).save(configPath);
+    ).save(path: configPath, hostServices: hostServices);
     // Authentication mode is explicit: a newly saved ASC key should not be
     // silently shadowed by an older still-unexpired Apple ID session.
-    await GrandSlamSessionStore().clear();
+    await GrandSlamSessionStore(hostServices: hostServices).clear();
 
-    Log.logDone('App Store Connect credentials saved to $configPath');
+    log.logDone('App Store Connect credentials saved to $configPath');
   }
 
   // --------------------------------------------------------------- Apple ID
 
   Future<void> _appleIdLogin() async {
-    final appleId = _options.appleId?.trim();
-    if (_options.appleIdWasParsed && !_present(appleId)) {
+    final appleId = options.appleId?.trim();
+    if (options.appleIdWasParsed && !_present(appleId)) {
       throw XcrossError('--apple-id requires a non-empty email address.');
     }
-    requireAppleIdHost(Abi.current());
+    requireAppleIdHost(hostServices.abi);
 
     // Credentials before any await: keeps interactive stdin simple on Windows.
     final username = _present(appleId)
         ? appleId!
         : _readRequiredLine('Apple ID: ');
-    final givenPassword = _options.password;
+    final givenPassword = options.password;
     final password = _present(givenPassword)
         ? givenPassword
         : _readHiddenLine('Password: ', valueName: 'password');
@@ -228,19 +248,25 @@ final class AuthCommand extends _$AuthArgsCommand<void> {
     }
 
     final adiLibraryDirectory = await _resolveAdiLibraryDirectory();
-    final anisette = AnisetteDataProvider(adiLibraryDirectory);
+    final anisette = AnisetteDataProvider(
+      adiLibraryDirectory,
+      httpClient: createHttpClient(),
+      hostServices: hostServices,
+      loader: createNativeLibraryLoader(),
+    );
     GrandSlamClient? loginClient;
     GrandSlamAppTokenExchange? tokenExchange;
     try {
-      final endpoints = await Log.logStep(
+      final endpoints = await log.logStep(
         'Resolving GrandSlam endpoints',
         anisette.resolveGrandSlamEndpoints,
       );
       loginClient = GrandSlamClient(
+        httpClient: createHttpClient(),
         endpoints: endpoints,
         fetchAnisetteHeaders: anisette.fetchAnisetteHeaders,
       );
-      final loginData = await Log.logStep(
+      final loginData = await log.logStep(
         'Signing in with Apple ID',
         () => loginClient!.login(
           username: username,
@@ -249,16 +275,17 @@ final class AuthCommand extends _$AuthArgsCommand<void> {
         ),
       );
       tokenExchange = GrandSlamAppTokenExchange(
+        httpClient: createHttpClient(),
         endpoints: endpoints,
         fetchAnisetteHeaders: anisette.fetchAnisetteHeaders,
       );
-      final token = await Log.logStep(
+      final token = await log.logStep(
         'Fetching Developer Services session',
         () => tokenExchange!.exchange(loginData),
       );
       final team = await _selectActiveTeam(token, anisette);
 
-      final store = GrandSlamSessionStore();
+      final store = GrandSlamSessionStore(hostServices: hostServices);
       await store.save(
         GrandSlamSession(
           username: username,
@@ -267,12 +294,12 @@ final class AuthCommand extends _$AuthArgsCommand<void> {
           adiLibraryDirectory: adiLibraryDirectory,
         ),
       );
-      Log.logDone('Signed in as $username. Session saved to ${store.path}');
+      log.logDone('Signed in as $username. Session saved to ${store.path}');
     } on XcrossError {
       rethrow;
     } on Object catch (e, st) {
-      Log.logError('Apple ID login failed: $e');
-      Log.logTrace('$st');
+      log.logError('Apple ID login failed: $e');
+      log.logTrace('$st');
       throw XcrossError('Apple ID login failed: $e');
     } finally {
       tokenExchange?.close();
@@ -285,12 +312,13 @@ final class AuthCommand extends _$AuthArgsCommand<void> {
     DeveloperServicesLoginToken token,
     AnisetteProvider anisette,
   ) async {
-    final httpClient = AppleHttp.createAppleHttpClient();
+    final httpClient = createHttpClient();
     final List<DeveloperServicesTeam> teams;
     try {
-      teams = await Log.logStep(
+      teams = await log.logStep(
         'Fetching Developer Services teams',
         () => DeveloperServicesClient.listTeams(
+          localeName: hostServices.localeName,
           token: token,
           fetchAnisetteHeaders: anisette.fetchAnisetteHeaders,
           httpClient: httpClient,
@@ -334,7 +362,7 @@ final class AuthCommand extends _$AuthArgsCommand<void> {
   }
 
   Future<String?> _promptTwoFactorCode(GrandSlamTwoFactorMode mode) async {
-    Log.stopStep();
+    log.stopStep();
     return _readRequiredLine(switch (mode) {
       GrandSlamTwoFactorMode.sms =>
         'Enter the verification code sent via SMS: ',
@@ -357,23 +385,24 @@ final class AuthCommand extends _$AuthArgsCommand<void> {
     }
   }
 
-  Future<String> _resolveAdiLibraryDirectory() =>
-      resolveAdiLibraryDirectory(configuredDirectory: _options.adiLibraryDir);
+  Future<String> _resolveAdiLibraryDirectory() => resolveAdiLibraryDirectory(
+    configuredDirectory: options.adiLibraryDir,
+    cacheDirectory: hostServices.adiCacheDirectory.path,
+    abi: hostServices.abi,
+    log: log,
+  );
 
   @visibleForTesting
   static Future<String> resolveAdiLibraryDirectory({
+    required String cacheDirectory,
+    required Abi abi,
+    required Log log,
     String? configuredDirectory,
-    String? cacheDirectory,
-    Abi? abi,
     Future<AdiLibraryPaths> Function(AdiLibraryFetcher fetcher)? fetchLibraries,
   }) async {
-    final hostAbi = abi ?? Abi.current();
+    final hostAbi = abi;
     requireAppleIdHost(hostAbi);
-    final directory = Directory(
-      configuredDirectory ??
-          cacheDirectory ??
-          p.join(p.dirname(AnisetteStateStore.defaultPath()), 'adi-libs'),
-    );
+    final directory = Directory(configuredDirectory ?? cacheDirectory);
     try {
       final existing = AdiLibraryFetcher.resolveLibraryDirectory(
         directory,
@@ -392,7 +421,7 @@ final class AuthCommand extends _$AuthArgsCommand<void> {
     }
 
     final fetcher = AdiLibraryFetcher(cacheDir: directory, abi: hostAbi);
-    await Log.logStep(
+    await log.logStep(
       'Fetching Apple ADI libraries',
       () => fetchLibraries == null
           ? fetcher.ensureLibraries()

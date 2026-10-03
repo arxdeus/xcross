@@ -18,7 +18,7 @@ import 'package:dart_mobile_device/dart_mobile_device.dart';
 /// if that fails, device-initiated pairing is advertised with a fresh identity
 /// (iOS 27+, the 6-digit code prints here).
 final class TunnelCommand extends Command<void> {
-  TunnelCommand() {
+  TunnelCommand(this.prepare) {
     argParser.addFlag(
       'wifi',
       negatable: false,
@@ -27,6 +27,8 @@ final class TunnelCommand extends Command<void> {
           'otherwise reconnect a saved device or advertise pairing on iOS 27+.',
     );
   }
+
+  final DevicePrepare prepare;
 
   @override
   String get name => 'tunnel';
@@ -40,7 +42,6 @@ final class TunnelCommand extends Command<void> {
       'Requires sudo on POSIX or an Administrator terminal on Windows.';
 
   @override
-  Future<void> run() => argResults!.flag('wifi')
-      ? DevicePrepare.prepareWireless()
-      : DevicePrepare.prepare();
+  Future<void> run() =>
+      argResults!.flag('wifi') ? prepare.prepareWireless() : prepare.prepare();
 }

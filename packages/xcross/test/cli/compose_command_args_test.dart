@@ -11,14 +11,25 @@ import 'package:xcross/src/device/core_device_launch_profile.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/models/pack_result.dart';
 
+import 'runtime_fixture.dart';
+
 void main() {
   group('ComposeCommand', () {
     test('is registered by the top-level runner', () {
-      expect(XcrossCli.buildRunner().commands.keys, contains('compose'));
+      expect(
+        XcrossCli.buildRunner(
+          testRuntime(),
+          configTerminal: TestTerminal(),
+        ).commands.keys,
+        contains('compose'),
+      );
     });
 
     test('top-level description covers Flutter and Compose Multiplatform', () {
-      final runner = XcrossCli.buildRunner();
+      final runner = XcrossCli.buildRunner(
+        testRuntime(),
+        configTerminal: TestTerminal(),
+      );
 
       expect(runner.description, contains('Flutter'));
       expect(runner.description, contains('Compose Multiplatform'));
@@ -28,7 +39,7 @@ void main() {
 
     test('groups build, run, and setup', () {
       expect(
-        ComposeCommand().subcommands.keys,
+        ComposeCommand(testRuntime()).subcommands.keys,
         containsAll(['build', 'run', 'setup']),
       );
     });
@@ -37,13 +48,13 @@ void main() {
   group('ComposeBuildCommand', () {
     late Command<void> command;
 
-    setUp(() => command = ComposeBuildCommand());
+    setUp(() => command = ComposeBuildCommand(testRuntime()));
 
     test('defaults to debug configuration and ipa off', () {
       final results = command.argParser.parse([]);
       expect(results.option('configuration'), 'debug');
       expect(results.flag('ipa'), isFalse);
-      expect(results.flag('simulator'), isFalse);
+      expect(results.option('target-platform'), 'iphone');
     });
 
     test('accepts configuration, bundle id, app name, and ipa', () {
@@ -66,10 +77,17 @@ void main() {
       'passes simulator target and rejects simulator IPA before packing',
       () async {
         final seen = <ComposeBuildOptions>[];
+        final targets = <String>[];
         final command = ComposeBuildCommand.withSeams(
+          log: testLog(),
           packOperation:
-              ({required options, required requireRunnableApp}) async {
+              ({
+                required options,
+                required requireRunnableApp,
+                required targetPlatform,
+              }) async {
                 seen.add(options);
+                targets.add(targetPlatform);
                 return const PackResult(
                   outputPath: 'build/xcross-ios-simulator/Demo.app',
                   bundleId: 'dev.example.demo',
@@ -80,25 +98,13 @@ void main() {
         );
         final runner = CommandRunner<void>('xcross', 'test')
           ..addCommand(command);
-        await runner.run(['build', '--simulator']);
-        expect(seen.single.simulator, isTrue);
-        expect(seen.single.konanTarget, 'ios_simulator_arm64');
-        expect(seen.single.gradleTarget, 'iosSimulatorArm64');
-        expect(seen.single.outputDirectory, 'xcross-ios-simulator');
-        expect(seen.single.targetTriple, 'arm64-apple-ios15.0-simulator');
-        expect(seen.single.linkerPlatform, 'ios-simulator');
+        await runner.run(['build', '--target-platform', 'simulator']);
+        expect(targets, ['simulator']);
+        expect(seen, hasLength(1));
         final reject = CommandRunner<void>('xcross', 'test')
-          ..addCommand(
-            ComposeBuildCommand.withSeams(
-              packOperation:
-                  ({required options, required requireRunnableApp}) async =>
-                      throw StateError('unexpected build'),
-              packageIpa: (_) async => throw StateError('unexpected IPA'),
-              logDone: (_) {},
-            ),
-          );
+          ..addCommand(ComposeBuildCommand(testRuntime()));
         await expectLater(
-          reject.run(['build', '--simulator', '--ipa']),
+          reject.run(['build', '--target-platform', 'simulator', '--ipa']),
           throwsA(isA<XcrossError>()),
         );
       },
@@ -108,13 +114,19 @@ void main() {
       final writes = <String>[];
       final seenOptions = <ComposeBuildOptions>[];
       final command = ComposeBuildCommand.withSeams(
-        packOperation: ({required options, required requireRunnableApp}) async {
-          seenOptions.add(options);
-          return const PackResult(
-            outputPath: 'build/Demo.app',
-            bundleId: 'dev.example.demo',
-          );
-        },
+        log: testLog(),
+        packOperation:
+            ({
+              required options,
+              required requireRunnableApp,
+              required targetPlatform,
+            }) async {
+              seenOptions.add(options);
+              return const PackResult(
+                outputPath: 'build/Demo.app',
+                bundleId: 'dev.example.demo',
+              );
+            },
         packageIpa: (appPath) async {
           writes.add('ipa:$appPath');
           return 'build/Demo.ipa';
@@ -133,13 +145,17 @@ void main() {
     test('does not package ipa for framework output', () async {
       final writes = <String>[];
       final command = ComposeBuildCommand.withSeams(
+        log: testLog(),
         packOperation:
-            ({required options, required requireRunnableApp}) async =>
-                const PackResult(
-                  outputPath: 'build/Shared.framework',
-                  bundleId: 'dev.example.demo',
-                  kind: PackOutputKind.framework,
-                ),
+            ({
+              required options,
+              required requireRunnableApp,
+              required targetPlatform,
+            }) async => const PackResult(
+              outputPath: 'build/Shared.framework',
+              bundleId: 'dev.example.demo',
+              kind: PackOutputKind.framework,
+            ),
         packageIpa: (appPath) async {
           writes.add('unexpected-ipa:$appPath');
           return 'build/Demo.ipa';
@@ -157,7 +173,7 @@ void main() {
   group('ComposeRunCommand', () {
     late Command<void> command;
 
-    setUp(() => command = ComposeRunCommand());
+    setUp(() => command = ComposeRunCommand(testRuntime()));
 
     test('supports Flutter-compatible device connection options', () {
       final results = command.argParser.parse([
@@ -198,8 +214,14 @@ void main() {
         final launchedProfiles = <CoreDeviceLaunchProfile>[];
         final seenRequireRunnable = <bool>[];
         final command = ComposeRunCommand.withSeams(
+          log: testLog(),
+          files: testRuntime().host.fileSystem,
           packOperation:
-              ({required options, required requireRunnableApp}) async {
+              ({
+                required options,
+                required requireRunnableApp,
+                required targetPlatform,
+              }) async {
                 seenRequireRunnable.add(requireRunnableApp);
                 return const PackResult(
                   outputPath: 'build/Demo.app',
@@ -253,8 +275,14 @@ void main() {
       final seen = <String?>[];
       Future<void> run(List<String> args) {
         final command = ComposeRunCommand.withSeams(
+          log: testLog(),
+          files: testRuntime().host.fileSystem,
           packOperation:
-              ({required options, required requireRunnableApp}) async {
+              ({
+                required options,
+                required requireRunnableApp,
+                required targetPlatform,
+              }) async {
                 seen.add(options.bundleId);
                 return const PackResult(
                   outputPath: 'build/Demo.app',
@@ -286,7 +314,7 @@ void main() {
   group('ComposeSetupCommand', () {
     late Command<void> command;
 
-    setUp(() => command = ComposeSetupCommand());
+    setUp(() => command = ComposeSetupCommand(testRuntime()));
 
     test('accepts check and force flags', () {
       final results = command.argParser.parse(['--check', '--force']);
@@ -298,6 +326,7 @@ void main() {
       '--check reports every resolver problem without ensuring toolchains',
       () async {
         final command = ComposeSetupCommand.withSeams(
+          log: testLog(),
           problems: () async => const ['missing java', 'missing swiftc'],
           ensure: ({required force}) {
             throw StateError('ensure must not run during --check');

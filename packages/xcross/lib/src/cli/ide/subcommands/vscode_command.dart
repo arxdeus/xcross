@@ -2,8 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:cli_kit/cli_kit.dart';
-import 'package:path/path.dart' as p;
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/cli/ide/subcommands/vscode_json_merge.dart';
 import 'package:xcross/src/cli/ide/xcross_executable.dart';
 import 'package:xcross/src/errors.dart';
@@ -11,6 +10,9 @@ import 'package:xcross/src/errors.dart';
 /// `xcross ide vscode` — write / upsert `.vscode/` so Run & Debug / Restart /
 /// Hot Reload drive `xcross flutter run`.
 final class VscodeCommand extends Command<void> {
+  VscodeCommand(this.launcher);
+
+  final XcrossIdeLauncher launcher;
   @override
   String get name => 'vscode';
 
@@ -20,25 +22,34 @@ final class VscodeCommand extends Command<void> {
 
   @override
   Future<void> run() async {
-    final dir = Directory(p.join(Directory.current.path, '.vscode'));
+    final dir = launcher.host.fileSystem.directory(
+      launcher.host.paths.context.join(
+        launcher.host.paths.context.current,
+        '.vscode',
+      ),
+    );
     await dir.create(recursive: true);
 
     await _writeShim(dir);
     await upsertJsonFile(
-      p.join(dir.path, 'launch.json'),
+      launcher.host.paths.context.join(dir.path, 'launch.json'),
       (existing) => VscodeJsonMerge.mergeLaunchDoc(
         existing,
-        generatedEnvironment: generatedIdeEnvironment,
+        generatedEnvironment: launcher.generatedEnvironment,
       ),
+      log: launcher.log,
+      files: launcher.host.fileSystem,
     );
     await upsertJsonFile(
-      p.join(dir.path, 'settings.json'),
+      launcher.host.paths.context.join(dir.path, 'settings.json'),
       VscodeJsonMerge.mergeSettingsDoc,
+      log: launcher.log,
+      files: launcher.host.fileSystem,
     );
 
-    Log.logInfo(
+    launcher.log.logInfo(
       'Next',
-      Log.dim(
+      launcher.log.dim(
         'open the project in VS Code and press F5, '
         "then 'Hot Reload' / 'Restart' in the debug toolbar",
       ),
@@ -46,12 +57,11 @@ final class VscodeCommand extends Command<void> {
   }
 
   /// The shim is always ours, so it is overwritten rather than merged.
-  static Future<void> _writeShim(Directory dir) async {
-    final exe = resolveXcrossExecutable(
-      subcommand: 'vscode',
-      brokenFeature: 'F5',
+  Future<void> _writeShim(Directory dir) async {
+    final exe = launcher.resolve(subcommand: 'vscode', brokenFeature: 'F5');
+    final shim = launcher.host.fileSystem.file(
+      launcher.host.paths.context.join(dir.path, 'xcross_dap.dart'),
     );
-    final shim = File(p.join(dir.path, 'xcross_dap.dart'));
     // The shim embeds the path as a non-raw Dart string literal, so `$` needs
     // escaping on top of what jsonEncode does.
     await shim.writeAsString(
@@ -59,35 +69,38 @@ final class VscodeCommand extends Command<void> {
           .replaceAll('<XCROSS>', jsonEncode(exe).replaceAll(r'$', r'\$'))
           .replaceAll(
             '<ENVIRONMENT>',
-            jsonEncode(generatedIdeEnvironment).replaceAll(r'$', r'\$'),
+            jsonEncode(launcher.generatedEnvironment).replaceAll(r'$', r'\$'),
           )
-          .replaceAll('<INHERIT_PARENT>', '$inheritIdeParentEnvironment'),
+          .replaceAll(
+            '<INHERIT_PARENT>',
+            '${launcher.inheritParentEnvironment}',
+          ),
     );
-    Log.logDone('Wrote ${p.relative(shim.path)}');
+    launcher.log.logDone(
+      'Wrote ${launcher.host.paths.context.relative(shim.path)}',
+    );
   }
 
   /// Read-merge-write a JSON/JSONC file. Skips the write when already current.
   static Future<void> upsertJsonFile(
     String path,
-    Map<String, Object?> Function(Map<String, Object?>? existing) merge,
-  ) async {
-    final file = File(path);
+    Map<String, Object?> Function(Map<String, Object?>? existing) merge, {
+    required Log log,
+    required HostFileSystemInterface files,
+  }) async {
+    final file = files.file(path);
     final existing = file.existsSync()
         ? _decodeJsonObject(await file.readAsString(), path)
         : null;
 
     final merged = merge(existing);
     if (existing != null && VscodeJsonMerge.jsonDeepEqual(existing, merged)) {
-      Log.logDone('Unchanged ${p.relative(path)}');
+      log.logDone('Unchanged $path');
       return;
     }
 
     await file.writeAsString(VscodeJsonMerge.encodePrettyJson(merged));
-    Log.logDone(
-      existing == null
-          ? 'Wrote ${p.relative(path)}'
-          : 'Updated ${p.relative(path)}',
-    );
+    log.logDone(existing == null ? 'Wrote $path' : 'Updated $path');
   }
 
   /// Decode a JSON/JSONC object, or null when the file is blank. Refuses to
@@ -101,13 +114,13 @@ final class VscodeCommand extends Command<void> {
       decoded = VscodeJsonMerge.parseJsonc(raw);
     } on FormatException catch (e) {
       throw XcrossError(
-        '${p.relative(path)} is not valid JSON/JSONC (${e.message}) — '
+        '$path is not valid JSON/JSONC (${e.message}) — '
         'fix it, then re-run `xcross ide vscode`',
       );
     }
     if (decoded is! Map) {
       throw XcrossError(
-        '${p.relative(path)} must be a JSON object — '
+        '$path must be a JSON object — '
         'fix it, then re-run `xcross ide vscode`',
       );
     }
@@ -123,30 +136,16 @@ const String _shim = r'''
 import 'dart:io';
 
 Future<void> main(List<String> args) async {
-  // `flutter test` sessions arrive through the same customFlutterDapPath
-  // setting; hand those to the real Flutter adapter. Non-xcross launch
-  // configs are gated inside `xcross flutter dap` via the XCROSS env marker.
-  if (args.contains('--test')) {
-    final flutterRoot = Platform.environment['FLUTTER_ROOT'];
-    if (flutterRoot == null) {
-      stderr.writeln('xcross_dap: FLUTTER_ROOT is not set; '
-          'cannot delegate a flutter test session.');
-      exit(2);
-    }
-    final flutter = await Process.start(
-      '$flutterRoot/bin/flutter',
-      ['debug-adapter', ...args.where((a) => a != 'debug_adapter')],
-      mode: ProcessStartMode.inheritStdio,
-      environment: <ENVIRONMENT>,
-      includeParentEnvironment: <INHERIT_PARENT>,
-    );
-    exit(await flutter.exitCode);
-  }
-
   try {
     final dap = await Process.start(
       <XCROSS>,
-      ['flutter', 'dap'],
+      [
+        'flutter', 'dap',
+        if (args.contains('--test')) '--test',
+        if (args.contains('--test')) '--',
+        if (args.contains('--test'))
+          ...args.where((a) => a != 'debug_adapter' && a != '--test'),
+      ],
       mode: ProcessStartMode.inheritStdio,
       environment: <ENVIRONMENT>,
       includeParentEnvironment: <INHERIT_PARENT>,

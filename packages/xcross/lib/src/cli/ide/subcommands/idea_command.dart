@@ -1,15 +1,15 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:cli_kit/cli_kit.dart';
-import 'package:path/path.dart' as p;
 import 'package:xcross/src/cli/ide/subcommands/vscode_json_merge.dart';
 import 'package:xcross/src/cli/ide/xcross_executable.dart';
 
 /// `xcross ide idea` — write a shared LSP4IJ DAP run configuration that
 /// drives `xcross flutter dap` (stdio).
 final class IdeaCommand extends Command<void> {
+  IdeaCommand(this.launcher);
+
+  final XcrossIdeLauncher launcher;
   @override
   String get name => 'idea';
 
@@ -19,22 +19,24 @@ final class IdeaCommand extends Command<void> {
 
   @override
   Future<void> run() async {
-    final exe = resolveXcrossExecutable(
-      subcommand: 'idea',
-      brokenFeature: 'Debug',
-    );
+    final exe = launcher.resolve(subcommand: 'idea', brokenFeature: 'Debug');
 
-    final dir = Directory(p.join(Directory.current.path, '.run'));
+    final dir = launcher.host.fileSystem.directory(
+      launcher.host.paths.context.join(
+        launcher.host.paths.context.current,
+        '.run',
+      ),
+    );
     await dir.create(recursive: true);
 
     await _writeIfAbsent(
-      p.join(dir.path, 'xcross_ios_device.run.xml'),
-      buildIdeaRunXml(exe, environment: generatedIdeEnvironment),
+      launcher.host.paths.context.join(dir.path, 'xcross_ios_device.run.xml'),
+      buildIdeaRunXml(exe, environment: launcher.generatedEnvironment),
     );
 
-    Log.logInfo(
+    launcher.log.logInfo(
       'Next',
-      Log.dim(
+      launcher.log.dim(
         'install LSP4IJ (plugins.jetbrains.com/plugin/23257-lsp4ij), '
         'then Debug the "xcross: iOS device" run configuration '
         "(not Flutter's Run button)",
@@ -43,17 +45,17 @@ final class IdeaCommand extends Command<void> {
   }
 
   /// Never clobber a run config the user may have edited; print it instead.
-  static Future<void> _writeIfAbsent(String path, String content) async {
-    final file = File(path);
+  Future<void> _writeIfAbsent(String path, String content) async {
+    final file = launcher.host.fileSystem.file(path);
     if (file.existsSync()) {
-      Log.logWarn(
-        '${p.relative(path)} already exists — merge this in yourself:\n'
+      launcher.log.logWarn(
+        '${launcher.host.paths.context.relative(path)} already exists — merge this in yourself:\n'
         '$content',
       );
       return;
     }
     await file.writeAsString(content);
-    Log.logDone('Wrote ${p.relative(path)}');
+    launcher.log.logDone('Wrote ${launcher.host.paths.context.relative(path)}');
   }
 
   /// Shared `.run/*.run.xml` body for LSP4IJ's `DAPConfiguration` type.

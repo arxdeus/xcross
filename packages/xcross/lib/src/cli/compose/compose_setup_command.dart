@@ -1,11 +1,12 @@
 import 'dart:io';
 
-import 'package:args/command_runner.dart';
 import 'package:build_cli_annotations/build_cli_annotations.dart';
-import 'package:cli_kit/cli_kit.dart';
-import 'package:xcross/src/compose/toolchain/compose_host.dart';
-import 'package:xcross/src/compose/toolchain/compose_toolchain_resolver.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:xcross/src/cli/internal/parsed_command.dart';
+import 'package:xcross/src/composition/ios_target.dart';
 import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
+import 'package:xcross/src/target/shared/runtime/build_features.dart';
 
 part 'compose_setup_command.g.dart';
 
@@ -13,7 +14,7 @@ typedef ComposeSetupProblems = Future<List<String>> Function();
 typedef ComposeSetupEnsure = Future<void> Function({required bool force});
 typedef ComposeSetupLogDone = void Function(String message);
 
-@CliOptions(createCommand: true)
+@CliOptions()
 final class ComposeSetupArgs {
   @CliOption(
     help: 'Check Compose toolchain prerequisites without installing anything.',
@@ -35,15 +36,39 @@ final class ComposeSetupArgs {
   late bool verbose;
 }
 
-final class ComposeSetupCommand extends _$ComposeSetupArgsCommand<void> {
-  ComposeSetupCommand()
-    : this.withSeams(
-        problems: _defaultProblems,
-        ensure: _defaultEnsure,
-        logDone: Log.logDone,
+final class ComposeSetupCommand<T extends PlatformHostInterface>
+    extends ParsedCommand<ComposeSetupArgs, void> {
+  @override
+  ArgParser populateOptions(ArgParser parser) =>
+      _$populateComposeSetupArgsParser(parser);
+  @override
+  ComposeSetupArgs parseOptions(ArgResults results) =>
+      _$parseComposeSetupArgsResult(results);
+
+  ComposeSetupCommand(XcrossRuntime<T> runtime)
+    : this._withRuntime(runtime, composePhysicalFeatures(runtime));
+
+  ComposeSetupCommand._withRuntime(
+    XcrossRuntime<T> runtime,
+    XcrossBuildFeatures<T> features,
+  ) : this.withSeams(
+        log: runtime.log,
+        problems: () => features.composeResolver.problems(
+          environment: runtime.runner.effectiveEnvironment,
+          projectRoot: Directory.current.path,
+        ),
+        ensure: ({required force}) async {
+          await features.composeResolver.ensure(
+            environment: runtime.runner.effectiveEnvironment,
+            projectRoot: Directory.current.path,
+            force: force,
+          );
+        },
+        logDone: runtime.log.logDone,
       );
 
   ComposeSetupCommand.withSeams({
+    required this.log,
     required ComposeSetupProblems problems,
     required ComposeSetupEnsure ensure,
     required ComposeSetupLogDone logDone,
@@ -51,6 +76,7 @@ final class ComposeSetupCommand extends _$ComposeSetupArgsCommand<void> {
        _ensure = ensure,
        _logDone = logDone;
 
+  final Log log;
   final ComposeSetupProblems _problems;
   final ComposeSetupEnsure _ensure;
   final ComposeSetupLogDone _logDone;
@@ -64,8 +90,8 @@ final class ComposeSetupCommand extends _$ComposeSetupArgsCommand<void> {
 
   @override
   Future<void> run() async {
-    if (_options.verbose) Log.setVerbose();
-    if (_options.check) {
+    if (options.verbose) log.setVerbose();
+    if (options.check) {
       final problems = await _problems();
       if (problems.isNotEmpty) {
         throw XcrossError(
@@ -75,43 +101,7 @@ final class ComposeSetupCommand extends _$ComposeSetupArgsCommand<void> {
       _logDone('Compose toolchain ready');
       return;
     }
-    await _ensure(force: _options.force);
+    await _ensure(force: options.force);
     _logDone('Compose toolchain ready');
   }
-
-  static Future<List<String>> _defaultProblems() async {
-    final host = _currentHostOrProblem();
-    if (host.problem != null) return [host.problem!];
-    return ComposeToolchainResolver.problems(
-      host: host.host!,
-      environment: ProcessRunner.effectiveEnvironment,
-      projectRoot: Directory.current.path,
-    );
-  }
-
-  static Future<void> _defaultEnsure({required bool force}) async {
-    final host = _currentHostOrProblem();
-    if (host.problem != null) throw XcrossError(host.problem!);
-    await ComposeToolchainResolver.ensure(
-      host: host.host!,
-      environment: ProcessRunner.effectiveEnvironment,
-      projectRoot: Directory.current.path,
-      force: force,
-    );
-  }
-
-  static _HostOrProblem _currentHostOrProblem() {
-    try {
-      return _HostOrProblem(ComposeHost.current(), null);
-    } on XcrossError catch (error) {
-      return _HostOrProblem(null, error.message);
-    }
-  }
-}
-
-final class _HostOrProblem {
-  const _HostOrProblem(this.host, this.problem);
-
-  final ComposeHost? host;
-  final String? problem;
 }

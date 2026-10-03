@@ -8,6 +8,9 @@ import 'package:test/test.dart';
 import 'package:xcross/src/cli/basic/config_command.dart';
 import 'package:xcross/src/cli/runner.dart';
 import 'package:xcross/src/config/config.dart';
+import 'package:xcross/src/host/shared/config/posix_config_host.dart';
+
+import 'runtime_fixture.dart';
 
 void main() {
   late Directory temporary;
@@ -16,19 +19,28 @@ void main() {
   setUp(() {
     temporary = Directory.systemTemp.createTempSync('xcross-config-command-');
     store = XcrossConfigStore(
+      LinuxHost(),
+      policy: const PosixConfigHost(),
       directory: temporary.path,
       environment: const {},
-      windows: false,
     );
   });
   tearDown(() => temporary.deleteSync(recursive: true));
 
   test('runner registers top-level config command', () {
-    expect(XcrossCli.buildRunner().commands['config'], isA<ConfigCommand>());
+    expect(
+      XcrossCli.buildRunner(
+        testRuntime(),
+        configTerminal: TestTerminal(),
+      ).commands['config'],
+      isA<ConfigCommand>(),
+    );
   });
 
   test('runner omits configured top-level commands', () async {
     final runner = XcrossCli.buildRunner(
+      testRuntime(),
+      configTerminal: TestTerminal(),
       excludedCommands: const ['setup', 'config'],
     );
 
@@ -228,6 +240,7 @@ void main() {
           ConfigCommand(
             store: store,
             terminal: terminal,
+            writeLine: (_) {},
             terminalEnvironment: const {},
           ),
         );
@@ -246,14 +259,14 @@ void main() {
   );
 
   test('show separates its header from exact YAML output', () async {
-    final executable = File(
-      p.join(temporary.path, ProcessRunner.hostExecutableName('tool')),
-    )..writeAsStringSync('#!/bin/sh\n');
+    final executable = File(p.join(temporary.path, 'tool'))
+      ..writeAsStringSync('#!/bin/sh\n');
     if (!Platform.isWindows) Process.runSync('chmod', ['755', executable.path]);
     final showStore = XcrossConfigStore(
+      LinuxHost(),
+      policy: const PosixConfigHost(),
       directory: temporary.path,
       environment: const {},
-      windows: Platform.isWindows,
     );
     final config = XcrossConfig(
       roots: XcrossConfigRoots(darwinSdk: temporary.path),
@@ -262,7 +275,13 @@ void main() {
     await showStore.save(config);
     final output = StringBuffer();
     final runner = CommandRunner<void>('xcross', 'test')
-      ..addCommand(ConfigCommand(store: showStore, writeLine: output.writeln));
+      ..addCommand(
+        ConfigCommand(
+          store: showStore,
+          terminal: FakeTerminal(interactive: false),
+          writeLine: output.writeln,
+        ),
+      );
 
     await runner.run(['config', 'show']);
     expect(
@@ -277,7 +296,11 @@ void main() {
   test('interactive command requires a TTY', () async {
     final runner = CommandRunner<void>('xcross', 'test')
       ..addCommand(
-        ConfigCommand(store: store, terminal: FakeTerminal(interactive: false)),
+        ConfigCommand(
+          store: store,
+          terminal: FakeTerminal(interactive: false),
+          writeLine: (_) {},
+        ),
       );
     await expectLater(
       runner.run(['config']),
@@ -292,7 +315,13 @@ void main() {
       XcrossConfig(tools: {'missing': p.join(temporary.path, 'missing')}),
     );
     final runner = CommandRunner<void>('xcross', 'test')
-      ..addCommand(ConfigCommand(store: store, writeLine: (_) {}));
+      ..addCommand(
+        ConfigCommand(
+          store: store,
+          terminal: FakeTerminal(interactive: false),
+          writeLine: (_) {},
+        ),
+      );
     await expectLater(
       runner.run(['config', 'validate']),
       throwsA(isA<XcrossConfigException>()),

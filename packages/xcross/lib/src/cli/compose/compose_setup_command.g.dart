@@ -38,11 +38,3 @@ ComposeSetupArgs parseComposeSetupArgs(List<String> args) {
   final result = _$parserForComposeSetupArgs.parse(args);
   return _$parseComposeSetupArgsResult(result);
 }
-
-abstract class _$ComposeSetupArgsCommand<T> extends Command<T> {
-  _$ComposeSetupArgsCommand() {
-    _$populateComposeSetupArgsParser(argParser);
-  }
-
-  late final _options = _$parseComposeSetupArgsResult(argResults!);
-}

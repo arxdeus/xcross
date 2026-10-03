@@ -4,11 +4,20 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/cli/basic/clean_command.dart';
 import 'package:xcross/src/cli/runner.dart';
+import 'package:xcross/src/composition/ios_target.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_workspace.dart';
+
+import 'runtime_fixture.dart';
 
 void main() {
   test('clean is registered by the top-level runner', () {
-    expect(XcrossCli.buildRunner().commands.keys, contains('clean'));
+    expect(
+      XcrossCli.buildRunner(
+        testRuntime(),
+        configTerminal: TestTerminal(),
+      ).commands.keys,
+      contains('clean'),
+    );
   });
 
   test('removes project native assets and SwiftPM workspace', () async {
@@ -22,12 +31,14 @@ void main() {
       p.join(project.path, 'build', 'xcross-native-assets'),
     )..createSync(recursive: true);
     final workspace = SwiftPmWorkspace.forProject(
+      policy: composePhysicalFeatures(testRuntime()).flutterRuntime.policy,
       project.path,
       environment: {'XCROSS_CACHE_DIR': cache.path},
     );
     final swiftPm = Directory(workspace.root)..createSync(recursive: true);
 
     await CleanCommand.cleanProject(
+      policy: composePhysicalFeatures(testRuntime()).flutterRuntime.policy,
       project.path,
       environment: {'XCROSS_CACHE_DIR': cache.path},
     );
@@ -50,6 +61,7 @@ void main() {
     )..createSync(recursive: true);
 
     await CleanCommand.cleanProject(
+      policy: composePhysicalFeatures(testRuntime()).flutterRuntime.policy,
       project.path,
       environment: {'XCROSS_CACHE_DIR': cache.path},
     );
@@ -67,10 +79,12 @@ void main() {
     });
 
     await CleanCommand.cleanProject(
+      policy: composePhysicalFeatures(testRuntime()).flutterRuntime.policy,
       project.path,
       environment: {'XCROSS_CACHE_DIR': cache.path},
     );
     await CleanCommand.cleanProject(
+      policy: composePhysicalFeatures(testRuntime()).flutterRuntime.policy,
       project.path,
       environment: {'XCROSS_CACHE_DIR': cache.path},
     );

@@ -13,7 +13,7 @@ FlutterBuildArgs _$parseFlutterBuildArgsResult(ArgResults result) =>
       ..dartDefine = result['dart-define'] as List<String>
       ..dartDefineFromFile = result['dart-define-from-file'] as List<String>
       ..pub = result['pub'] as bool
-      ..simulator = result['simulator'] as bool
+      ..targetPlatform = result['target-platform'] as String
       ..debug = result['debug'] as bool
       ..profile = result['profile'] as bool
       ..release = result['release'] as bool
@@ -46,10 +46,10 @@ ArgParser _$populateFlutterBuildArgsParser(ArgParser parser) => parser
     help: 'Run "flutter pub get" before building.',
     defaultsTo: true,
   )
-  ..addFlag(
-    'simulator',
-    help: 'Build for the ARM64 iOS Simulator.',
-    negatable: false,
+  ..addOption(
+    'target-platform',
+    help: 'Target platform: iphone or simulator.',
+    defaultsTo: 'iphone',
   )
   ..addFlag(
     'debug',
@@ -82,12 +82,4 @@ final _$parserForFlutterBuildArgs = _$populateFlutterBuildArgsParser(
 FlutterBuildArgs parseFlutterBuildArgs(List<String> args) {
   final result = _$parserForFlutterBuildArgs.parse(args);
   return _$parseFlutterBuildArgsResult(result);
-}
-
-abstract class _$FlutterBuildArgsCommand<T> extends Command<T> {
-  _$FlutterBuildArgsCommand() {
-    _$populateFlutterBuildArgsParser(argParser);
-  }
-
-  late final _options = _$parseFlutterBuildArgsResult(argResults!);
 }

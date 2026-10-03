@@ -26,7 +26,7 @@ ComposeBuildArgs _$parseComposeBuildArgsResult(ArgResults result) =>
       ..bundleId = result['bundle-id'] as String?
       ..appName = result['app-name'] as String?
       ..ipa = result['ipa'] as bool
-      ..simulator = result['simulator'] as bool
+      ..targetPlatform = result['target-platform'] as String
       ..verbose = result['verbose'] as bool;
 
 const _$ComposeConfigurationEnumMapBuildCli = <ComposeConfiguration, String>{
@@ -49,10 +49,10 @@ ArgParser _$populateComposeBuildArgsParser(ArgParser parser) => parser
         'Output a .ipa file instead of a .app when the project produces an app.',
     negatable: false,
   )
-  ..addFlag(
-    'simulator',
-    help: 'Build for the ARM64 iOS Simulator.',
-    negatable: false,
+  ..addOption(
+    'target-platform',
+    help: 'Target platform: iphone or simulator.',
+    defaultsTo: 'iphone',
   )
   ..addFlag(
     'verbose',
@@ -68,12 +68,4 @@ final _$parserForComposeBuildArgs = _$populateComposeBuildArgsParser(
 ComposeBuildArgs parseComposeBuildArgs(List<String> args) {
   final result = _$parserForComposeBuildArgs.parse(args);
   return _$parseComposeBuildArgsResult(result);
-}
-
-abstract class _$ComposeBuildArgsCommand<T> extends Command<T> {
-  _$ComposeBuildArgsCommand() {
-    _$populateComposeBuildArgsParser(argParser);
-  }
-
-  late final _options = _$parseComposeBuildArgsResult(argResults!);
 }
