@@ -14,6 +14,28 @@ Map<String, (String, Set<String>)> dependencyFixtures() => {
 Map<String, (String, Set<String>)> dependencyAssets() {
   final result = <String, (String, Set<String>)>{};
   for (final entry in {
+    'packages/xcross/tool/verify_flutter_notices.dart':
+        "import 'dart:io'; void main() { stdout.writeln('verified'); stderr.writeln('unapproved'); } void other() { stdout.writeln('hidden'); }",
+    'packages/xcross/tool/swiftpm_binary_fixture.dart':
+        "import 'dart:io'; void main() { stdout.writeln('archive'); stderr.writeln('usage'); } void other() { stderr.writeln('hidden'); }",
+
+    'packages/apple_developer_kit/lib/src/composition/native_library_loader.dart':
+        "import '../host/linux/adi/linux_native_library_loader.dart'; LinuxNativeLibraryLoader createLinuxNativeLibraryLoader()=>LinuxNativeLibraryLoader();",
+    'packages/apple_developer_kit/lib/src/composition/apple_host.dart':
+        "import '../host/linux/identity.dart'; LinuxMachineIdentity createLinuxAppleHostServices()=>LinuxMachineIdentity();",
+    'packages/apple_developer_kit/lib/src/host/linux/identity.dart':
+        'class LinuxMachineIdentity {}',
+    'packages/xcross/lib/src/composition/host_operations.dart':
+        "import '../host/windows/setup.dart'; WindowsSetup windowsHostOperations()=>WindowsSetup();",
+    'packages/xcross/lib/src/host/windows/setup.dart': 'class WindowsSetup {}',
+    'packages/xcross/lib/src/composition/unapproved_assembly.dart':
+        "import '../host/windows/setup.dart'; WindowsSetup arbitrary()=>WindowsSetup();",
+    'packages/apple_developer_kit/lib/src/shared/unapproved_assembly.dart':
+        "import '../host/linux/identity.dart'; LinuxMachineIdentity arbitrary()=>LinuxMachineIdentity();",
+
+    'packages/fixture/lib/src/host/windows/release_metadata.dart':
+        "abstract class PlatformHostInterface { String get architecture; } String asset(PlatformHostInterface host) { if(host.architecture == 'x64') return 'xcross-windows-x64.zip'; throw UnsupportedError('unsupported'); } String backend(PlatformHostInterface host) { if(host.architecture == 'x64') return buildWindows(); throw UnsupportedError('bad'); } String buildWindows()=>'effect';",
+
     'packages/apple_developer_kit/lib/src/shared/adi/adi_architecture.dart':
         "import 'dart:ffi'; enum AdiArchitecture { x64; int get elfMachine=>62; static AdiArchitecture forAbi(Abi value)=>x64; }",
 
@@ -26,7 +48,7 @@ Map<String, (String, Set<String>)> dependencyAssets() {
     'packages/xcross/lib/src/host/macos/compose/macos_compose_host.dart':
         "import 'package:xcross/src/host/shared/compose/posix_compose_host.dart' show isArm64Architecture, isX64Architecture; abstract class PlatformHostInterface { String get architecture; } abstract class MacOSHostInterface implements PlatformHostInterface {} class MacOSComposeHost { final MacOSHostInterface host; MacOSComposeHost(this.host); bool supportsJavaArchitecture(String architecture) => isArm64Architecture(host.architecture) ? isArm64Architecture(architecture) : isX64Architecture(architecture); bool other(String architecture) => isArm64Architecture(host.architecture) ? isArm64Architecture(architecture) : isX64Architecture(architecture); }",
     'packages/xcross/lib/src/composition/xcrun_sdk.dart':
-        "abstract class PlatformHostInterface {} abstract class PlatformTargetInterface<T extends PlatformHostInterface> { String get sdkName; } Object parseXcrunSdkName(PlatformTargetInterface target) { if(target.sdkName == 'iphonesimulator') return target; throw FormatException('bad'); } Object other(PlatformTargetInterface target) { if(target.sdkName == 'iphonesimulator') return target; throw FormatException('bad'); }",
+        "abstract class PlatformHostInterface {} abstract class PlatformTargetInterface<T extends PlatformHostInterface> { String get sdkName; } abstract class IosBuildPlatformInterface {} class IPhoneBuildPlatform implements IosBuildPlatformInterface { const IPhoneBuildPlatform(); } class SimulatorBuildPlatform implements IosBuildPlatformInterface { const SimulatorBuildPlatform(); } Object parseXcrunSdkName(PlatformTargetInterface target) { for(final descriptor in const <IosBuildPlatformInterface>[IPhoneBuildPlatform(),SimulatorBuildPlatform()]) { descriptor.toString(); } if(target.sdkName == 'iphonesimulator') return target; throw FormatException('bad'); } Object other(PlatformTargetInterface target) { if(target.sdkName == 'iphonesimulator') return target; throw FormatException('bad'); }",
 
     'packages/fixture/lib/src/host/linux/capability.dart':
         "abstract class PlatformHostInterface { String get architecture; } class LinuxComposeHost { final PlatformHostInterface host; LinuxComposeHost(this.host); void validate() { if (host.architecture != 'arm64') throw UnsupportedError('unsupported CPU'); } bool get supported => host.architecture == 'arm64'; }",
@@ -41,7 +63,7 @@ Map<String, (String, Set<String>)> dependencyAssets() {
     detector:
         "import 'dart:io'; String detectPlatformHostSnapshot() => Platform.operatingSystem; String another() => Platform.operatingSystem;",
     'packages/apple_developer_kit/hook/build.dart':
-        "import 'dart:io'; import 'package:code_assets/code_assets.dart'; String _resolveSystemCc() => Platform.environment['PATH'] ?? ''; Object _buildWithSystemCc() => OS.current; Object another() => OS.current; abstract class PlatformHostInterface { String get operatingSystem; } void main(OS input, PlatformHostInterface host) { if(input == OS.windows) print('hook'); if(host.operatingSystem == 'windows') print('unrelated'); void main(OS inner) { if(inner == OS.windows) print('nested'); } } void _buildWithSystemCcOther(PlatformHostInterface host) { if(host.operatingSystem == 'windows') print('rogue'); }",
+        "import 'dart:io'; import 'package:code_assets/code_assets.dart'; String _resolveSystemCc() => Platform.environment['PATH'] ?? ''; Object _buildWithSystemCc() => OS.current; Object another() => OS.current; abstract class PlatformHostInterface { String get operatingSystem; } void main(OS input, PlatformHostInterface host) { if(input == OS.windows) print('hook'); if(host.operatingSystem == 'windows') print('unrelated'); final label = host.operatingSystem; if(label == OS.windows.toString()) print('alias'); void main(OS inner) { if(inner == OS.windows) print('nested'); } } void _buildWithSystemCcOther(PlatformHostInterface host) { if(host.operatingSystem == 'windows') print('rogue'); }",
     'packages/xcross/test/guard_public_fixture.dart': 'class _TestDouble {}',
     '.github/rogue.dat': 'unknown CI asset',
     'packages/fixture/lib/src/legacy/bin/native': 'unknown binary',
@@ -98,6 +120,26 @@ Map<String, (String, Set<String>)> dependencyAssets() {
     'packages/fixture/lib/src/host/windows/adapter.dart': 'class Adapter {}',
   }.entries) {
     final explicit = <String, Set<String>>{
+      'packages/xcross/tool/verify_flutter_notices.dart': {'ambient-detection'},
+      'packages/xcross/tool/swiftpm_binary_fixture.dart': {'ambient-detection'},
+
+      'packages/apple_developer_kit/lib/src/composition/native_library_loader.dart':
+          {},
+      'packages/apple_developer_kit/lib/src/composition/apple_host.dart': {},
+      'packages/apple_developer_kit/lib/src/host/linux/identity.dart': {},
+      'packages/xcross/lib/src/composition/host_operations.dart': {},
+      'packages/xcross/lib/src/host/windows/setup.dart': {},
+      'packages/xcross/lib/src/composition/unapproved_assembly.dart': {
+        'inventory',
+        'concrete-edge',
+      },
+      'packages/apple_developer_kit/lib/src/shared/unapproved_assembly.dart': {
+        'concrete-edge',
+      },
+
+      'packages/fixture/lib/src/host/windows/release_metadata.dart': {
+        'platform-branch',
+      },
       'packages/apple_developer_kit/lib/src/shared/adi/adi_architecture.dart':
           {},
       'packages/apple_developer_kit/lib/src/host/linux/adi/linux_native_library_loader.dart':

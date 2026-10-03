@@ -42,12 +42,37 @@ class Guard extends RecursiveAstVisitor<void> {
       value is ConditionalExpression &&
           pureMetadata(value.thenExpression) &&
           pureMetadata(value.elseExpression);
+  bool metadataReturn(AstNode body) => body is Block
+      ? body.statements.length == 1 && metadataReturn(body.statements.single)
+      : body is ReturnStatement &&
+            body.expression != null &&
+            pureMetadata(body.expression!);
+  bool sdkOptions(AstNode condition) =>
+      condition is ListLiteral &&
+      condition.constKeyword != null &&
+      condition.elements.length == 2 &&
+      condition.elements.every(
+        (value) =>
+            value is InstanceCreationExpression &&
+            value.argumentList.arguments.isEmpty &&
+            value.staticType is InterfaceType &&
+            {
+              'IPhoneBuildPlatform',
+              'SimulatorBuildPlatform',
+            }.contains((value.staticType as InterfaceType).element.name) &&
+            (value.staticType as InterfaceType).element.allSupertypes.any(
+              (type) => type.element.name == 'IosBuildPlatformInterface',
+            ),
+      );
   void branch(AstNode node, AstNode condition, AstNode? body) {
     if (sourceInspection) return;
     final kind = identity.control(condition);
     if (kind.isEmpty) return;
     if (NativeSafety(path).allocationBranch(node)) return;
-    if (supportsArchitecture(kind) && body != null && validation(body)) return;
+    if (supportsArchitecture(kind) &&
+        body != null &&
+        (validation(body) || metadataReturn(body)))
+      return;
     if (supportsArchitecture(kind) &&
         node is SwitchExpression &&
         node.cases.every((c) => pureMetadata(c.expression))) {
@@ -105,7 +130,7 @@ class Guard extends RecursiveAstVisitor<void> {
             function == 'composeBuildFeatures') ||
         (path == 'packages/xcross/lib/src/composition/xcrun_sdk.dart' &&
             function == 'parseXcrunSdkName' &&
-            kind.contains('target') &&
+            (sdkOptions(condition) || kind.contains('target')) &&
             !astNodes(condition).whereType<SimpleIdentifier>().any(
               (id) => identity
                   .member(id.element)

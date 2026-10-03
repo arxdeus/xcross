@@ -12,7 +12,10 @@ class DependencyRules {
     : classification = classify(path);
   void reject(AstNode node, String rule, String detail) =>
       violations.add(Violation(path, rule, node.offset, detail));
-  bool get composesHost => path == detector || path == hostComposition;
+  bool get composesHost =>
+      path == detector ||
+      path == hostComposition ||
+      hostAssemblies.contains(path);
   bool get composesTarget => targetComposition.contains(path);
   void importEdge(AstNode node, String? uri) {
     if (uri == null || uri.startsWith('dart:')) return;
@@ -30,7 +33,7 @@ class DependencyRules {
           'Production URI reaches unclassified or legacy path: $destinationPath',
         );
       }
-      if (destination.kind == 'composition' &&
+      if ({'composition', 'host-composition'}.contains(destination.kind) &&
           !{
             'barrel',
             'composition',

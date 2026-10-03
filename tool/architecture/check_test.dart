@@ -118,8 +118,9 @@ Future<void> main() async {
       "if(host.operatingSystem == 'windows')",
     );
     final hookNested = hookSource.indexOf('if(inner == OS.windows)');
+    final hookAlias = hookSource.indexOf('if(label == OS.windows.toString())');
     if (violations.any((v) => v.path == hookPath && v.offset == hookAllowed) ||
-        ![hookDenied, hookNested].every(
+        ![hookDenied, hookNested, hookAlias].every(
           (offset) => violations.any(
             (v) =>
                 v.path == hookPath &&
@@ -130,6 +131,12 @@ Future<void> main() async {
       throw StateError('Exact native build input purpose failed');
     }
     final scopedPairs = {
+      'packages/xcross/tool/swiftpm_binary_fixture.dart': 'void other()',
+      'packages/xcross/tool/verify_flutter_notices.dart':
+          "stderr.writeln('unapproved')",
+
+      'packages/fixture/lib/src/host/windows/release_metadata.dart':
+          'String backend(',
       'packages/apple_developer_kit/lib/src/host/linux/adi/linux_native_library_loader.dart':
           'Object other()',
       'packages/apple_developer_kit/lib/src/host/macos/adi/macos_native_library_loader.dart':

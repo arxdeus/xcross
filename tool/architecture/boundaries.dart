@@ -31,6 +31,8 @@ const toolBoundaries = {
   'packages/xcross/tool/verify_flutter_notices.dart',
 };
 const hostFactories = {
+  'packages/xcross/lib/src/composition/flutter/windows_flutter_feature_services.dart':
+      'windows',
   'packages/xcross/lib/src/composition/host/windows_xcross_context.dart':
       'windows',
   'packages/xcross/lib/src/composition/host/linux_xcross_context.dart': 'linux',
@@ -62,7 +64,14 @@ const cliCompositions = {
   'packages/xcross/lib/src/composition/cli/compose_setup_command.dart',
   'packages/xcross/lib/src/composition/cli/doctor_project_checks.dart',
 };
+const hostAssemblies = {
+  'packages/apple_developer_kit/lib/src/composition/apple_host.dart',
+  'packages/apple_developer_kit/lib/src/composition/native_library_loader.dart',
+  'packages/xcross/lib/src/composition/host_operations.dart',
+};
 const compositions = {
+  'packages/xcross/lib/src/composition/flutter/posix_flutter_feature_services.dart',
+
   'packages/apple_developer_kit/lib/src/composition/apple_host.dart',
   'packages/apple_developer_kit/lib/src/composition/native_library_loader.dart',
   'packages/xcross/lib/src/composition/host_operations.dart',

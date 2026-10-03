@@ -20,6 +20,17 @@ class NativeRules {
     for (final node in astNodes(condition).whereType<SimpleIdentifier>()) {
       final element = node.element;
       final uri = element?.library?.uri.toString() ?? '';
+      final alias = identity.aliases[element];
+      final nativeInput =
+          node.staticType is InterfaceType &&
+          (node.staticType as InterfaceType).element.library.uri
+              .toString()
+              .startsWith('package:code_assets/') &&
+          {
+            'OS',
+            'Architecture',
+          }.contains((node.staticType as InterfaceType).element.name);
+      if (alias != null && alias.isNotEmpty && !nativeInput) return false;
       if (identity.platformOwner(element) ||
           element?.enclosingElement?.name == 'NativeHostSnapshot' ||
           uri == 'dart:io' && element?.enclosingElement?.name == 'Platform') {
@@ -82,6 +93,14 @@ class NativeRules {
         name == 'current') {
       return true;
     }
+    final commandStreams = {
+      'packages/xcross/tool/verify_flutter_notices.dart': {'stdout'},
+      'packages/xcross/tool/swiftpm_binary_fixture.dart': {'stdout', 'stderr'},
+    };
+    if (function == 'main' &&
+        uri == 'dart:io' &&
+        (commandStreams[path]?.contains(name) ?? false))
+      return true;
     if ({
           'tool/architecture/check.dart',
           'tool/architecture/check_test.dart',
