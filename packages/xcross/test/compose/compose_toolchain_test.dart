@@ -175,6 +175,301 @@ void main() {
   });
 
   group('ComposeToolchainResolver', () {
+    group('PATH JVM home', () {
+      late Directory home;
+      late Map<String, String> environment;
+      late String javaHome;
+
+      setUp(() {
+        home = Directory.systemTemp.createTempSync('xcross-compose-java-');
+        environment = {'HOME': home.path};
+        javaHome = p.join(home.path, 'JDK with spaces', 'Contents', 'Home');
+        File(ComposeHost.macosArm64.javaExecutable(javaHome))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('java');
+        File(p.join(home.path, 'gradlew')).writeAsStringSync('#!/bin/sh');
+        final options = ComposeSetupOptions.resolve(
+          env: environment,
+          projectRoot: home.path,
+          host: ComposeHost.macosArm64,
+        );
+        _writeValidCache(options, binary: 'konanc', marker: 'complete');
+      });
+
+      tearDown(() => home.deleteSync(recursive: true));
+
+      for (final candidate in [
+        '/usr/bin/java',
+        '/opt/homebrew/bin/java',
+        '/home/user/.local/share/mise/shims/java',
+      ]) {
+        test('uses reported JVM home with spaces for $candidate', () async {
+          final resolver = _resolverWithPreflight(
+            javaHome: javaHome,
+            javaExecutable: candidate,
+            javaSettings: '    java.home = $javaHome\r\n',
+            javaArchitecture: 'aarch64',
+            sdk: FakeDarwinSdk('/sdk'),
+            home: home.path,
+          );
+
+          final toolchain = await resolver.resolve(
+            host: ComposeHost.macosArm64,
+            environment: environment,
+            projectRoot: home.path,
+          );
+
+          expect(toolchain, isNotNull);
+          expect(toolchain!.javaHome, javaHome);
+          expect(toolchain.javaExecutable, candidate);
+          expect(environment.containsKey('JAVA_HOME'), isFalse);
+        });
+      }
+
+      test('uses reported JVM home for a filesystem symlink', () async {
+        final candidate = p.join(home.path, 'homebrew', 'bin', 'java');
+        Directory(p.dirname(candidate)).createSync(recursive: true);
+        Link(
+          candidate,
+        ).createSync(ComposeHost.macosArm64.javaExecutable(javaHome));
+        final resolver = _resolverWithPreflight(
+          javaHome: javaHome,
+          javaExecutable: candidate,
+          javaSettings: '    java.home = $javaHome\n',
+          javaArchitecture: 'arm64',
+          sdk: FakeDarwinSdk('/sdk'),
+          home: home.path,
+        );
+
+        final toolchain = await resolver.resolve(
+          host: ComposeHost.macosArm64,
+          environment: environment,
+          projectRoot: home.path,
+        );
+
+        expect(toolchain, isNotNull);
+        expect(toolchain!.javaHome, javaHome);
+        expect(toolchain.javaExecutable, candidate);
+      });
+
+      test(
+        'preserves explicit JAVA_HOME over reported home and PATH',
+        () async {
+          final explicitHome = p.join(home.path, 'explicit-jdk');
+          environment['JAVA_HOME'] = explicitHome;
+          final probed = <String>[];
+          final resolver = ComposeToolchainResolver.withSeams(
+            which:
+                (
+                  name, {
+                  environment,
+                  windows,
+                  extraDirectories = const [],
+                }) async {
+                  expect(name, isNot('java'));
+                  return p.join(home.path, name);
+                },
+            run:
+                (executable, arguments, {workingDirectory, environment}) async {
+                  probed.add(executable);
+                  expect(arguments, ['-XshowSettings:properties', '-version']);
+                  return ComposeProcessResult(
+                    0,
+                    '    java.home = $javaHome\n',
+                    'os.arch = aarch64\nopenjdk version "21.0.2"',
+                  );
+                },
+            currentDarwinSdk: (_) => FakeDarwinSdk('/sdk'),
+            resolveLd64Lld: (_, {runProcess}) async => '/tools/ld64.lld',
+          );
+
+          final toolchain = await resolver.resolve(
+            host: ComposeHost.macosArm64,
+            environment: environment,
+            projectRoot: home.path,
+          );
+
+          expect(toolchain, isNotNull);
+          expect(toolchain!.javaHome, explicitHome);
+          expect(
+            toolchain.javaExecutable,
+            ComposeHost.macosArm64.javaExecutable(explicitHome),
+          );
+          expect(probed, [toolchain.javaExecutable]);
+        },
+      );
+
+      for (final settings in {
+        'missing': '',
+        'empty': '    java.home = \n    user.home = /not/a/jdk\n',
+        'relative': '    java.home = relative/jdk\n',
+        'nonexistent': '    java.home = /missing/xcross-test-jdk\n',
+        'wrong property': '    java.home.extra = /not/a/jdk\n',
+      }.entries) {
+        test('reports actionable ${settings.key} JVM home', () async {
+          final resolver = _resolverWithPreflight(
+            javaHome: javaHome,
+            javaExecutable: '/usr/bin/java',
+            javaSettings: settings.value,
+            javaArchitecture: 'aarch64',
+            sdk: FakeDarwinSdk('/sdk'),
+            home: home.path,
+          );
+          final problems = await resolver.problems(
+            host: ComposeHost.macosArm64,
+            environment: environment,
+            projectRoot: home.path,
+          );
+
+          expect(problems, hasLength(1));
+          expect(problems.single, contains('java.home'));
+          expect(problems.single, contains('/usr/bin/java'));
+          expect(problems.single, contains('Set JAVA_HOME'));
+          expect(
+            await resolver.resolve(
+              host: ComposeHost.macosArm64,
+              environment: environment,
+              projectRoot: home.path,
+            ),
+            isNull,
+          );
+          await expectLater(
+            resolver.ensure(
+              host: ComposeHost.macosArm64,
+              environment: environment,
+              projectRoot: home.path,
+            ),
+            throwsA(
+              isA<XcrossError>().having(
+                (error) => error.message,
+                'message',
+                contains('Set JAVA_HOME'),
+              ),
+            ),
+          );
+        });
+      }
+
+      test('rejects reported home without bin/java', () async {
+        final resolver = _resolverWithPreflight(
+          javaHome: javaHome,
+          javaExecutable: '/usr/bin/java',
+          javaSettings: '    java.home = ${home.path}\n',
+          javaArchitecture: 'aarch64',
+          sdk: FakeDarwinSdk('/sdk'),
+          home: home.path,
+        );
+
+        expect(
+          await resolver.problems(
+            host: ComposeHost.macosArm64,
+            environment: environment,
+            projectRoot: home.path,
+          ),
+          contains(contains('install containing bin/java')),
+        );
+      });
+
+      test('rejects incompatible PATH JVM architecture before home', () async {
+        final resolver = _resolverWithPreflight(
+          javaHome: javaHome,
+          javaExecutable: '/usr/bin/java',
+          javaArchitecture: 'amd64',
+          sdk: FakeDarwinSdk('/sdk'),
+          home: home.path,
+        );
+
+        final problems = await resolver.problems(
+          host: ComposeHost.macosArm64,
+          environment: environment,
+          projectRoot: home.path,
+        );
+
+        expect(problems, hasLength(1));
+        expect(problems.single, contains('JDK architecture amd64'));
+      });
+    });
+
+    for (final host in [ComposeHost.linuxX64, ComposeHost.windowsX64]) {
+      for (final completeCache in [false, true]) {
+        test('rejects ${host.classifier} simulator before preflight with '
+            '${completeCache ? 'complete' : 'missing'} cache', () async {
+          final home = Directory.systemTemp.createTempSync(
+            'xcross-compose-simulator-',
+          );
+          addTearDown(() => home.deleteSync(recursive: true));
+          final environment = {'HOME': home.path};
+          if (completeCache) {
+            _writeValidCache(
+              ComposeSetupOptions.resolve(
+                env: environment,
+                projectRoot: home.path,
+                host: host,
+              ),
+              binary: 'konanc',
+              marker: 'complete',
+            );
+          }
+          final resolver = ComposeToolchainResolver.withSeams(
+            which:
+                (
+                  _, {
+                  environment,
+                  windows,
+                  extraDirectories = const [],
+                }) async => fail('unsupported simulator must not probe tools'),
+            run: (_, __, {workingDirectory, environment}) async =>
+                fail('unsupported simulator must not run tools'),
+            currentDarwinSdk: (_) =>
+                fail('unsupported simulator must not probe SDKs'),
+            installer: ComposeToolchainInstaller.withSeams(
+              installRoot: (_, {required force}) async =>
+                  fail('unsupported simulator must not install'),
+            ),
+          );
+
+          final problems = await resolver.problems(
+            host: host,
+            environment: environment,
+            projectRoot: home.path,
+            simulator: true,
+          );
+          expect(problems, hasLength(1));
+          expect(problems.single, contains('supported only on macOS'));
+          expect(problems.single, contains(host.classifier));
+          expect(problems.single, contains('ios_simulator_arm64'));
+          expect(problems.single, contains('build for an iOS device'));
+          expect(
+            await resolver.resolve(
+              host: host,
+              environment: environment,
+              projectRoot: home.path,
+              simulator: true,
+            ),
+            isNull,
+          );
+          for (final force in [false, true]) {
+            await expectLater(
+              resolver.ensure(
+                host: host,
+                environment: environment,
+                projectRoot: home.path,
+                simulator: true,
+                force: force,
+              ),
+              throwsA(
+                isA<XcrossError>().having(
+                  (error) => error.message,
+                  'message',
+                  problems.single,
+                ),
+              ),
+            );
+          }
+        });
+      }
+    }
+
     for (final architecture in ['aarch64', 'arm64', 'amd64', 'unknown']) {
       test('checks macOS ARM64 JVM $architecture before loading JNI', () async {
         final home = Directory.systemTemp.createTempSync(
@@ -1426,14 +1721,14 @@ InjectedComposeToolchainResolver _resolverWithPreflight({
   required String home,
   ComposeToolchainInstaller? installer,
   String javaArchitecture = 'amd64',
+  String? javaExecutable,
+  String javaSettings = '',
 }) => ComposeToolchainResolver.withSeams(
   which: (name, {environment, windows, extraDirectories = const []}) async =>
       switch (name) {
-        'java' => p.join(
-          javaHome,
-          'bin',
-          windows == true ? 'java.exe' : 'java',
-        ),
+        'java' =>
+          javaExecutable ??
+              p.join(javaHome, 'bin', windows == true ? 'java.exe' : 'java'),
         'swiftc' => p.join(home, windows == true ? 'swiftc.exe' : 'swiftc'),
         'clang' => p.join(home, windows == true ? 'clang.exe' : 'clang'),
         _ => null,
@@ -1443,7 +1738,7 @@ InjectedComposeToolchainResolver _resolverWithPreflight({
       ? ComposeProcessResult(
           0,
           '',
-          'os.arch = $javaArchitecture\nopenjdk version "21.0.2"',
+          '${javaSettings}os.arch = $javaArchitecture\nopenjdk version "21.0.2"',
         )
       : const ComposeProcessResult(0, '', ''),
   currentDarwinSdk: (_) => sdk,

@@ -381,6 +381,14 @@ final class InjectedComposeToolchainResolver {
     required ComposeSetupOptions options,
     required bool simulator,
   }) async {
+    if (simulator && !host.isMacOS) {
+      return _ResolvedToolchain(null, [
+        'Compose iOS simulator builds are supported only on macOS. '
+            '${host.classifier} toolchains include ios_arm64 device libraries '
+            'but not ios_simulator_arm64. Use a macOS host for simulator '
+            'builds or build for an iOS device.',
+      ]);
+    }
     final problems = <String>[];
     final konancExecutable = host.konancExecutable(options.kotlinHome);
     if (!ComposeToolchainInstaller.isComplete(options)) {
@@ -513,7 +521,22 @@ final class InjectedComposeToolchainResolver {
       );
       return null;
     }
-    return _Java(javaHome ?? p.dirname(p.dirname(candidate)), candidate);
+    if (javaHome != null) return _Java(javaHome, candidate);
+    final reportedHome = RegExp(
+      r'^[ \t]*java\.home[ \t]*=[ \t]*([^\r\n]*)',
+      multiLine: true,
+    ).firstMatch(output)?.group(1)?.trim();
+    if (reportedHome == null ||
+        !p.isAbsolute(reportedHome) ||
+        !File(host.javaExecutable(reportedHome)).existsSync()) {
+      problems.add(
+        'Cannot determine a valid JDK home from java.home reported by '
+        '$candidate. Set JAVA_HOME to a JDK 21+ install containing bin/'
+        '${host.isWindows ? 'java.exe' : 'java'}.',
+      );
+      return null;
+    }
+    return _Java(reportedHome, candidate);
   }
 
   Future<String?> _resolveGradle(
