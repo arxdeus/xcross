@@ -71,7 +71,7 @@ abstract class PosixMemoryAllocator implements NativeMemoryAllocator {
 
   @override
   void flushInstructionCache(NativeMemoryBlock block) =>
-      provision_clear_cache(block.pointer.cast(), block.length);
+      provisionClearCache(block.pointer.cast(), block.length);
 
   final int _anonymousMappingFlag;
   final _MmapDart _mmap;

@@ -419,8 +419,8 @@ final class WindowsNativeSymbolStubs {
   int _gettimeofday(Pointer<LinuxTimeval> tv, Pointer<Void> tz) {
     final now = DateTime.now().toUtc();
     tv.ref
-      ..tv_sec = now.millisecondsSinceEpoch ~/ 1000
-      ..tv_usec = (now.millisecondsSinceEpoch % 1000) * 1000;
+      ..tvSec = now.millisecondsSinceEpoch ~/ 1000
+      ..tvUsec = (now.millisecondsSinceEpoch % 1000) * 1000;
     return 0;
   }
 

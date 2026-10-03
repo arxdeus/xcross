@@ -7,26 +7,12 @@ import 'package:apple_developer_kit/src/appstoreconnect/asc_payloads.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/legacy_app_groups.dart';
 import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/anisette_headers.dart';
-import 'package:apple_developer_kit/src/grandslam/anisette/anisette_state.dart';
 import 'package:apple_developer_kit/src/grandslam/app_token_exchange.dart';
 import 'package:apple_developer_kit/src/grandslam/grandslam_session_store.dart';
-import 'package:apple_developer_kit/src/grandslam/internal/grandslam_response_decoder.dart';
 import 'package:http/http.dart' as http;
-import 'package:meta/meta.dart';
-import 'package:propertylistserialization/propertylistserialization.dart';
 
-@immutable
-final class DeveloperServicesTeam {
-  const DeveloperServicesTeam({
-    required this.id,
-    required this.name,
-    required this.status,
-  });
-
-  final String id;
-  final String name;
-  final String status;
-}
+export 'developer_services_team_discovery_client.dart'
+    show DeveloperServicesTeam;
 
 /// Provisioning against Apple's legacy `developerservices2` endpoints, which
 /// an Apple ID (GrandSlam) session can reach without an App Store Connect
@@ -34,8 +20,7 @@ final class DeveloperServicesTeam {
 ///
 /// The resource schema matches App Store Connect, but the transport does
 /// not: every call is a POST, `teamId` must be threaded in by hand, and the
-/// team listing still speaks XML plist. See [_withMethodOverride] and
-/// [listTeams].
+/// team listing still speaks XML plist. See [_withMethodOverride].
 final class DeveloperServicesClient implements DevelopmentProvisioningClient {
   DeveloperServicesClient({
     required this.token,
@@ -57,7 +42,6 @@ final class DeveloperServicesClient implements DevelopmentProvisioningClient {
   );
 
   static const _baseUrl = 'https://developerservices2.apple.com/services';
-  static const _legacyClientId = 'XABBG36SBA';
   static const _appIdentifier = 'com.apple.gs.xcode.auth';
   static const _xcodeVersion = '16.2 (16C5031c)';
 
@@ -65,34 +49,6 @@ final class DeveloperServicesClient implements DevelopmentProvisioningClient {
   final String teamId;
   final Future<Map<String, String>> Function() _fetchAnisetteHeaders;
   final http.Client _http;
-
-  /// Lists the teams [token] can provision for.
-  ///
-  /// Static because it runs before a team is chosen, i.e. before a
-  /// [DeveloperServicesClient] can be constructed. It is also the one call
-  /// that still uses the pre-JSON `QH65B2` plist protocol, with its own
-  /// header set and its own `resultCode` error convention.
-  static Future<List<DeveloperServicesTeam>> listTeams({
-    required DeveloperServicesLoginToken token,
-    required String localeName,
-    required Future<Map<String, String>> Function() fetchAnisetteHeaders,
-    required http.Client httpClient,
-  }) async {
-    _rejectExpired(token);
-    final anisette = await fetchAnisetteHeaders();
-    final client = httpClient;
-    final response = await client.post(
-      Uri.parse('$_baseUrl/QH65B2/listTeams.action?clientId=$_legacyClientId'),
-      headers: {...anisette, ..._legacyHeaders(token)},
-      body: PropertyListSerialization.stringWithPropertyList({
-        'requestId': AnisetteState.generateUuidV4(),
-        'clientId': _legacyClientId,
-        'protocolVersion': 'QH65B2',
-        'userLocale': [localeName],
-      }),
-    );
-    return _parseTeams(response);
-  }
 
   @override
   Future<AscCertificate> createDevelopmentCertificate({
@@ -461,40 +417,6 @@ final class DeveloperServicesClient implements DevelopmentProvisioningClient {
     }
   }
 
-  static List<DeveloperServicesTeam> _parseTeams(http.Response response) {
-    AppleHttp.checkRateLimit(
-      response,
-      operation: 'Developer Services list teams',
-    );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw AppleError(
-        'Developer Services list teams failed '
-        '(HTTP ${response.statusCode})',
-      );
-    }
-    final plist = GrandSlamResponse.decodePlist(
-      response.body,
-      context: 'Developer Services list teams response',
-    );
-    LegacyAppGroups.rejectFailure(plist, action: 'list teams');
-
-    final teams = plist['teams'];
-    if (teams is! List) {
-      throw const AppleError(
-        'Developer Services list teams response is missing teams',
-      );
-    }
-    return [
-      for (final team in teams)
-        if (team is Map)
-          DeveloperServicesTeam(
-            id: _requiredString(team, 'teamId'),
-            name: _requiredString(team, 'name'),
-            status: _requiredString(team, 'status'),
-          ),
-    ];
-  }
-
   static Map<String, dynamic> _decode(http.Response response) {
     AppleHttp.checkRateLimit(response, operation: 'Developer Services API');
     final Object? decoded = response.body.isEmpty
@@ -528,14 +450,4 @@ final class DeveloperServicesClient implements DevelopmentProvisioningClient {
   static List<String> _ids(List<Object?> collection) => [
     for (final entry in collection) (entry! as Map)['id'] as String,
   ];
-
-  static String _requiredString(Map<dynamic, dynamic> map, String key) {
-    final value = map[key];
-    if (value is! String || value.isEmpty) {
-      throw AppleError(
-        'Developer Services list teams response has an invalid $key',
-      );
-    }
-    return value;
-  }
 }

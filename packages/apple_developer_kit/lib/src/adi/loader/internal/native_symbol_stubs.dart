@@ -102,7 +102,7 @@ final class NativeSymbolStubs {
     ]) {
       final shim = using(
         (arena) =>
-            provision_posix_symbol(name.toNativeUtf8(allocator: arena).cast()),
+            provisionPosixSymbol(name.toNativeUtf8(allocator: arena).cast()),
       );
       _table[name] = shim != nullptr
           ? shim

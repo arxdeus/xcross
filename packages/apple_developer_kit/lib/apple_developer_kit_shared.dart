@@ -11,6 +11,7 @@ export 'src/appstoreconnect/asc_csr.dart';
 export 'src/appstoreconnect/asc_jwt.dart';
 export 'src/appstoreconnect/asc_models.dart';
 export 'src/appstoreconnect/developer_services_client.dart';
+export 'src/appstoreconnect/developer_services_team_discovery_client.dart';
 export 'src/appstoreconnect/provisioning_identifiers.dart';
 export 'src/config_dir.dart';
 export 'src/errors.dart';

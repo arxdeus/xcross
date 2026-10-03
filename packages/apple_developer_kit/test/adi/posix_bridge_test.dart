@@ -15,10 +15,29 @@ import '../support/host_services.dart';
 import 'support/elf_fixture.dart';
 
 Pointer<Void> symbol(String name) => using(
-  (arena) => provision_posix_symbol(name.toNativeUtf8(allocator: arena).cast()),
+  (arena) => provisionPosixSymbol(name.toNativeUtf8(allocator: arena).cast()),
 );
 
 void main() {
+  test('camelCase native bindings retain all original C exports', () {
+    using((arena) {
+      final address = arena<Uint8>(16).cast<Void>();
+      expect(provisionSysvWrapExport(address, 0), address);
+      expect(provisionSysvWrapImport(address, 0), address);
+      provisionClearCache(address, 16);
+      expect(
+        provisionPosixSymbol('close'.toNativeUtf8(allocator: arena).cast()),
+        isNot(nullptr),
+      );
+      expect(
+        provisionPosixSymbol(
+          'xcross_missing_fixture_symbol'.toNativeUtf8(allocator: arena).cast(),
+        ),
+        nullptr,
+      );
+    });
+  });
+
   for (final sync in {'O_SYNC': 0x101000, 'O_DSYNC': 0x1000}.entries) {
     test('native open accepts Linux ${sync.key} and writes data', () {
       final directory = Directory.systemTemp.createTempSync('adi-sync-test-');

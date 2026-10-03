@@ -534,9 +534,9 @@ class FakeProvisioningClient implements DevelopmentProvisioningClient {
   final existingAppGroups = <String, AscAppGroup>{};
   List<String>? assignedAppGroupIds;
   String? appGroupsBundleResourceId;
-  Object? assignAppGroupsFailure;
-  Object? findAppGroupFailure;
-  Object? registerAppGroupFailure;
+  Exception? assignAppGroupsFailure;
+  Exception? findAppGroupFailure;
+  Exception? registerAppGroupFailure;
   final teamSerials = <String, String>{};
   int certificateCreations = 0;
   String? registeredBundleName;
@@ -547,7 +547,6 @@ class FakeProvisioningClient implements DevelopmentProvisioningClient {
   @override
   Future<AscAppGroup?> findAppGroup(String identifier) async {
     final failure = findAppGroupFailure;
-    // ignore: only_throw_errors
     if (failure != null) throw failure;
     return existingAppGroups[identifier];
   }
@@ -558,7 +557,6 @@ class FakeProvisioningClient implements DevelopmentProvisioningClient {
     required String name,
   }) async {
     final failure = registerAppGroupFailure;
-    // ignore: only_throw_errors
     if (failure != null) throw failure;
     registeredAppGroups.add(identifier);
     final group = AscAppGroup(
@@ -576,7 +574,6 @@ class FakeProvisioningClient implements DevelopmentProvisioningClient {
     required List<String> appGroupResourceIds,
   }) async {
     final failure = assignAppGroupsFailure;
-    // ignore: only_throw_errors
     if (failure != null) throw failure;
     appGroupsBundleResourceId = bundleIdResourceId;
     assignedAppGroupIds = appGroupResourceIds;

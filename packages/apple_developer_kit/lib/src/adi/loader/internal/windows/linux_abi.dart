@@ -2,11 +2,6 @@
 // the translation to and from their Windows CRT equivalents. Ported from
 // Provision's lib/provision/compat/windows.d plus the vendored
 // std_edit/linux_stat.d layout (LGPLv2 — see NOTICE.md).
-//
-// Field names below are the literal C struct member names: the loaded
-// library's ABI is defined in terms of them, so they must not be
-// camel-cased.
-// ignore_for_file: non_constant_identifier_names
 
 part of '../native_symbol_stubs_windows.dart';
 
@@ -14,39 +9,39 @@ part of '../native_symbol_stubs_windows.dart';
 /// from our `lstat`/`fstat` stubs.
 final class LinuxStat extends Struct {
   @Uint64()
-  external int st_dev;
+  external int stDev;
   @Uint64()
-  external int st_ino;
+  external int stIno;
   @Uint64()
-  external int st_nlink;
+  external int stNlink;
   @Uint32()
-  external int st_mode;
+  external int stMode;
   @Uint32()
-  external int st_uid;
+  external int stUid;
   @Uint32()
-  external int st_gid;
+  external int stGid;
   @Uint32()
   external int pad0;
   @Uint64()
-  external int st_rdev;
+  external int stRdev;
   @Int64()
-  external int st_size;
+  external int stSize;
   @Int64()
-  external int st_blksize;
+  external int stBlksize;
   @Int64()
-  external int st_blocks;
+  external int stBlocks;
   @Int64()
-  external int st_atime;
+  external int stAtime;
   @Int64()
-  external int st_atimensec;
+  external int stAtimensec;
   @Int64()
-  external int st_mtime;
+  external int stMtime;
   @Int64()
-  external int st_mtimensec;
+  external int stMtimensec;
   @Int64()
-  external int st_ctime;
+  external int stCtime;
   @Int64()
-  external int st_ctimensec;
+  external int stCtimensec;
   @Array(3)
   external Array<Int64> unused;
 }
@@ -54,9 +49,9 @@ final class LinuxStat extends Struct {
 /// Linux `struct timeval`; both members are native words.
 final class LinuxTimeval extends Struct {
   @IntPtr()
-  external int tv_sec;
+  external int tvSec;
   @IntPtr()
-  external int tv_usec;
+  external int tvUsec;
 }
 
 /// Windows CRT `_O_*` flags (`fcntl.h`).
@@ -144,23 +139,23 @@ void _fillLinuxStat(Pointer<LinuxStat> out, Pointer<Uint8> windowsStat) {
     windowsStat.asTypedList(_windowsStatSize),
   );
   out.ref
-    ..st_dev = fields.getUint32(0, Endian.little)
-    ..st_ino = fields.getUint16(4, Endian.little)
-    ..st_mode = _linuxStatMode(fields.getUint16(6, Endian.little))
-    ..st_nlink = fields.getInt16(8, Endian.little)
-    ..st_uid = fields.getInt16(10, Endian.little)
-    ..st_gid = fields.getInt16(12, Endian.little)
+    ..stDev = fields.getUint32(0, Endian.little)
+    ..stIno = fields.getUint16(4, Endian.little)
+    ..stMode = _linuxStatMode(fields.getUint16(6, Endian.little))
+    ..stNlink = fields.getInt16(8, Endian.little)
+    ..stUid = fields.getInt16(10, Endian.little)
+    ..stGid = fields.getInt16(12, Endian.little)
     ..pad0 = 0
-    ..st_rdev = fields.getUint32(16, Endian.little)
-    ..st_size = fields.getInt64(24, Endian.little)
-    ..st_blksize = 4096
-    ..st_blocks = (out.ref.st_size + 511) ~/ 512
-    ..st_atime = fields.getInt64(32, Endian.little)
-    ..st_atimensec = 0
-    ..st_mtime = fields.getInt64(40, Endian.little)
-    ..st_mtimensec = 0
-    ..st_ctime = fields.getInt64(48, Endian.little)
-    ..st_ctimensec = 0;
+    ..stRdev = fields.getUint32(16, Endian.little)
+    ..stSize = fields.getInt64(24, Endian.little)
+    ..stBlksize = 4096
+    ..stBlocks = (out.ref.stSize + 511) ~/ 512
+    ..stAtime = fields.getInt64(32, Endian.little)
+    ..stAtimensec = 0
+    ..stMtime = fields.getInt64(40, Endian.little)
+    ..stMtimensec = 0
+    ..stCtime = fields.getInt64(48, Endian.little)
+    ..stCtimensec = 0;
 }
 
 /// Rewrites a POSIX path from the loaded library into a Windows one.

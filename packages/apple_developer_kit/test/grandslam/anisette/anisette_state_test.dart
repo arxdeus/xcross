@@ -78,9 +78,10 @@ void main() {
       // literal is to exceed double precision (2^53), which is exactly what
       // routingInfo's string-based JSON storage (AnisetteState.toJson) is
       // meant to survive.
-      // ignore: avoid_js_rounded_ints
-      const bigRoutingInfo = 9223372036854775800; // near Dart int max
-      const state = AnisetteState(
+      final bigRoutingInfo = int.parse(
+        '9223372036854775800',
+      ); // near Dart int max
+      final state = AnisetteState(
         localUserUid: 'abc12345-6789-4abc-8def-0123456789ab',
         provisioned: true,
         routingInfo: bigRoutingInfo,
