@@ -44,7 +44,7 @@ ArgParser _$populateAuthArgsParser(ArgParser parser) => parser
   ..addOption(
     'adi-library-dir',
     help:
-        'Directory containing libCoreADI.so and libstoreservicescore.so for Apple ID login. Defaults to the xcross config adi-libs directory. On x86_64, missing libs are fetched from the Apple Music APK.',
+        'Directory containing libCoreADI.so and libstoreservicescore.so for Apple ID login. Defaults to the xcross config adi-libs directory. Matching x64 or ARM64 libraries are fetched from the Apple Music APK when missing.',
     valueHelp: 'path',
   );
 

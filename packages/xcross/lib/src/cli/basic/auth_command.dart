@@ -48,15 +48,13 @@ final class AuthArgs {
     help:
         'Directory containing libCoreADI.so and '
         'libstoreservicescore.so for Apple ID login. Defaults to '
-        'the xcross config adi-libs directory. On x86_64, missing libs '
-        'are fetched from the Apple Music APK.',
+        'the xcross config adi-libs directory. Matching x64 or ARM64 '
+        'libraries are fetched from the Apple Music APK when missing.',
   )
   late String? adiLibraryDir;
 
   late bool adiLibraryDirWasParsed;
 }
-
-const _adiLibraryNames = ['libCoreADI.so', 'libstoreservicescore.so'];
 
 const _authOptionNames = [
   'issuer-id',
@@ -215,12 +213,7 @@ final class AuthCommand extends _$AuthArgsCommand<void> {
     if (_options.appleIdWasParsed && !_present(appleId)) {
       throw XcrossError('--apple-id requires a non-empty email address.');
     }
-    if (!Platform.isWindows && !Platform.isLinux) {
-      throw XcrossError(
-        'Built-in Apple ID/password login is available on Linux and Windows. '
-        'On this platform use App Store Connect API key flags.',
-      );
-    }
+    requireAppleIdHost(Abi.current());
 
     // Credentials before any await: keeps interactive stdin simple on Windows.
     final username = _present(appleId)
@@ -353,42 +346,65 @@ final class AuthCommand extends _$AuthArgsCommand<void> {
 
   // ------------------------------------------------------------- ADI libs
 
-  Future<String> _resolveAdiLibraryDirectory() async {
-    final configured = _options.adiLibraryDir;
-    final adiLibraryDir =
-        configured ??
-        p.join(p.dirname(AnisetteStateStore.defaultPath()), 'adi-libs');
-    if (_adiLibsPresent(adiLibraryDir)) {
-      return Directory(adiLibraryDir).absolute.path;
-    }
-    if (configured != null) {
-      _throwMissingAdiLibs(adiLibraryDir);
-    }
-
-    final abi = Abi.current();
-    if (abi != Abi.linuxX64 && abi != Abi.windowsX64) {
+  @visibleForTesting
+  static void requireAppleIdHost(Abi abi) {
+    if (!AdiLibraryFetcher.supportsAbi(abi)) {
       throw XcrossError(
-        'Apple ID login on $abi needs matching ADI libraries at '
-        '"$adiLibraryDir" (libCoreADI.so and libstoreservicescore.so). '
-        'Extract them from the Apple Music Android APK for this architecture, '
-        'or pass --adi-library-dir.',
+        'Built-in Apple ID/password login supports Linux and macOS x64/ARM64 '
+        'and Windows x64 (got $abi). '
+        'On this platform use App Store Connect API key flags.',
       );
     }
-
-    await Log.logStep(
-      'Fetching Apple ADI libraries',
-      () => AdiLibraryFetcher(
-        cacheDir: Directory(adiLibraryDir),
-      ).ensureLibraries(),
-    );
-    if (!_adiLibsPresent(adiLibraryDir)) {
-      _throwMissingAdiLibs(adiLibraryDir);
-    }
-    return Directory(adiLibraryDir).absolute.path;
   }
 
-  static bool _adiLibsPresent(String dir) =>
-      _adiLibraryNames.every((name) => File(p.join(dir, name)).existsSync());
+  Future<String> _resolveAdiLibraryDirectory() =>
+      resolveAdiLibraryDirectory(configuredDirectory: _options.adiLibraryDir);
+
+  @visibleForTesting
+  static Future<String> resolveAdiLibraryDirectory({
+    String? configuredDirectory,
+    String? cacheDirectory,
+    Abi? abi,
+    Future<AdiLibraryPaths> Function(AdiLibraryFetcher fetcher)? fetchLibraries,
+  }) async {
+    final hostAbi = abi ?? Abi.current();
+    requireAppleIdHost(hostAbi);
+    final directory = Directory(
+      configuredDirectory ??
+          cacheDirectory ??
+          p.join(p.dirname(AnisetteStateStore.defaultPath()), 'adi-libs'),
+    );
+    try {
+      final existing = AdiLibraryFetcher.resolveLibraryDirectory(
+        directory,
+        abi: hostAbi,
+      );
+      if (existing != null) return existing.absolute.path;
+    } on FormatException catch (error) {
+      if (configuredDirectory != null) {
+        throw XcrossError(
+          'Invalid ADI libraries at "${directory.path}": ${error.message}',
+        );
+      }
+    }
+    if (configuredDirectory != null) {
+      _throwMissingAdiLibs(directory.path);
+    }
+
+    final fetcher = AdiLibraryFetcher(cacheDir: directory, abi: hostAbi);
+    await Log.logStep(
+      'Fetching Apple ADI libraries',
+      () => fetchLibraries == null
+          ? fetcher.ensureLibraries()
+          : fetchLibraries(fetcher),
+    );
+    final resolved = AdiLibraryFetcher.resolveLibraryDirectory(
+      fetcher.libraryDirectory,
+      abi: hostAbi,
+    );
+    if (resolved == null) _throwMissingAdiLibs(fetcher.libraryDirectory.path);
+    return resolved.absolute.path;
+  }
 
   static Never _throwMissingAdiLibs(String dir) {
     throw XcrossError(
