@@ -9,7 +9,12 @@ import 'package:xcross/src/models/pack_result.dart';
 
 typedef ComposeCurrentDirectory = String Function();
 typedef ComposeDetectProject =
-    KmpProject Function(String root, {String? bundleId, String? appName});
+    KmpProject Function(
+      String root, {
+      String? bundleId,
+      String? appName,
+      bool simulator,
+    });
 typedef ComposePackProject =
     Future<PackResult> Function({
       required KmpProject project,
@@ -64,6 +69,7 @@ final class ComposePackOperationWithSeams {
       _currentDirectory(),
       bundleId: options.bundleId,
       appName: options.appName,
+      simulator: options.simulator,
     );
     if (project.entryKind == KmpEntryKind.frameworkOnly &&
         (requireRunnableApp || options.ipa)) {
