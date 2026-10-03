@@ -1,16 +1,14 @@
 import 'dart:io';
 import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/src/darwin_sdk.dart';
 import 'package:darwin_sdk_kit/src/errors.dart';
 import 'package:darwin_sdk_kit/src/host/shared/darwin_toolchain_locations.dart';
 
 final class DarwinToolchainResolver<T extends PlatformHostInterface> {
-  DarwinToolchainResolver(this.host, this.runner, this.locations);
-  final T host;
+  DarwinToolchainResolver(this.runner, this.locations);
+  T get host => runner.host;
   final ProcessRunner<T> runner;
   final DarwinToolchainLocationsInterface locations;
-  Future<String> resolveLd64Lld(
-    DarwinSdk _, {
+  Future<String> resolveLd64Lld({
     Future<CapturedProcess> Function(String, List<String>)? runProcess,
   }) async {
     final searched = llvmToolDirs();
@@ -202,12 +200,10 @@ final class DarwinToolchainResolver<T extends PlatformHostInterface> {
   /// Windows 6.3.3 one fast-fails on an Xcode 26 sysroot before it prints
   /// anything at all. [name] selects `clang` or `clang++`.
   Future<String> resolveDarwinClang(
-    DarwinSdk sdk, {
+    String sysroot, {
     String name = 'clang',
     Future<CapturedProcess> Function(String, List<String>)? runProcess,
   }) async {
-    final sysroot = sdk.iPhoneOSSdk();
-
     // An explicit CC/CXX override takes precedence over the PATH search
     // below — this matters on systems (e.g. Nix) where a stray system
     // compiler sits ahead of the intended one on PATH.

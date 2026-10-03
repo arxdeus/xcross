@@ -6,7 +6,6 @@ import 'package:darwin_sdk_kit/src/tbd_architecture_rewrite.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
-
 /// Outcome of rewriting the `.tbd` files under one bundle.
 @immutable
 final class TbdPatchResult {
@@ -123,6 +122,11 @@ final class TbdBundlePatch<T extends PlatformHostInterface> {
 
   /// Whether [bundle] already carries a stamp for [patchVersion].
   bool isStamped(String bundle) {
+    if (host.fileSystem
+        .link(host.paths.context.join(bundle, stampName))
+        .existsSync()) {
+      return false;
+    }
     final stamp = host.fileSystem.file(
       host.paths.context.join(bundle, stampName),
     );
@@ -142,6 +146,11 @@ final class TbdBundlePatch<T extends PlatformHostInterface> {
 
   /// Record that [bundle]'s stubs carry [patchVersion] of the rewrite.
   void stamp(String bundle, {required int files}) {
+    if (host.fileSystem
+        .link(host.paths.context.join(bundle, stampName))
+        .existsSync()) {
+      return;
+    }
     const encoder = JsonEncoder.withIndent('  ');
     final contents = encoder.convert({
       'patchVersion': patchVersion,

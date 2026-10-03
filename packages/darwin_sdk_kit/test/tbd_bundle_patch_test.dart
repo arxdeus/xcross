@@ -218,6 +218,24 @@ void main() {
     );
   });
 
+  test('never trusts or overwrites a symlinked patch stamp', () async {
+    final root = await Directory.systemTemp.createTemp('xcross-stamp-link-');
+    addTearDown(() => root.delete(recursive: true));
+    final outside = File(p.join(root.path, 'outside.json'))
+      ..writeAsStringSync(
+        jsonEncode({'patchVersion': TbdBundlePatch.patchVersion}),
+      );
+    final bundle = Directory(p.join(root.path, 'bundle'))..createSync();
+    await Link(
+      p.join(bundle.path, TbdBundlePatch.stampName),
+    ).create(outside.path);
+    final patch = TbdBundlePatch(MacOSHost());
+    expect(patch.isStamped(bundle.path), isFalse);
+    final before = outside.readAsStringSync();
+    patch.stamp(bundle.path, files: 99);
+    expect(outside.readAsStringSync(), before);
+  }, skip: Platform.isWindows);
+
   group('TbdBundlePatch.ensureApplied', () {
     test('patches an unstamped bundle and stamps it', () async {
       final file = File(p.join(tmp.path, 'libExample.tbd'));
