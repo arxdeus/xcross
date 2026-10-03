@@ -1,0 +1,242 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
+import 'package:test/test.dart';
+import 'package:xcross/src/flutter/errors.dart';
+
+import 'support/checkout_test_context.dart';
+
+void main() {
+  late Directory root;
+  late CheckoutTestContext context;
+  setUp(() {
+    root = Directory.systemTemp.createTempSync('xcross-checkout-git-');
+  });
+  tearDown(() async {
+    await context.output.close();
+    root.deleteSync(recursive: true);
+  });
+
+  test(
+    'reads detached, loose-ref, packed-ref and linked-worktree HEAD identity',
+    () {
+      context = CheckoutTestContext(root, (_) => CheckoutTestProcess());
+      final git = Directory(p.join(root.path, '.git'))..createSync();
+      final head = File(p.join(git.path, 'HEAD'))
+        ..writeAsStringSync('detached\n');
+      expect(context.repository.gitHeadIdentity(root.path), 'detached');
+      head.writeAsStringSync('ref: refs/heads/main\n');
+      expect(context.repository.gitHeadIdentity(root.path), isNull);
+      final ref = File(p.join(git.path, 'refs/heads/main'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('identity\n');
+      expect(
+        context.repository.gitHeadIdentity(root.path),
+        'ref: refs/heads/main\nidentity\n',
+      );
+      ref.deleteSync();
+      File(
+        p.join(git.path, 'packed-refs'),
+      ).writeAsStringSync('identity refs/heads/main\n');
+      expect(
+        context.repository.gitHeadIdentity(root.path),
+        'ref: refs/heads/main\nidentity refs/heads/main',
+      );
+      final worktree = Directory(p.join(root.path, 'worktree'))..createSync();
+      File(p.join(worktree.path, '.git')).writeAsStringSync('gitdir: ../.git');
+      expect(
+        context.repository.gitHeadIdentity(worktree.path),
+        'ref: refs/heads/main\nidentity refs/heads/main',
+      );
+    },
+  );
+
+  test(
+    'batch blobs are drained while feeding requests and preserve large content',
+    () async {
+      final content = 'x' * 70000;
+      final process = CheckoutTestProcess(
+        output: utf8.encode('aa blob 70000\n$content\nbb blob 3\nend\n'),
+      );
+      context = CheckoutTestContext(root, (_) => process);
+      final blobs = await context.repository.readGitBlobs(root.path, {
+        'aa',
+        'bb',
+      }, '/fixture/git');
+      expect(utf8.decode(blobs['aa']!), content);
+      expect(utf8.decode(blobs['bb']!), 'end');
+      expect(utf8.decode(process.input.bytes), 'aa\nbb\n');
+      expect(context.processes.commands.single.arguments, [
+        '-C',
+        root.path,
+        'cat-file',
+        '--batch',
+      ]);
+    },
+  );
+
+  for (final output in [
+    'not framed',
+    'aa missing\n',
+    'aa blob -1\n',
+    'aa blob 4\nabc\n',
+    'aa blob 3\nabc!',
+  ]) {
+    test('rejects malformed Git blob response ${output.hashCode}', () async {
+      context = CheckoutTestContext(
+        root,
+        (_) => CheckoutTestProcess(output: utf8.encode(output)),
+      );
+      await expectLater(
+        context.repository.readGitBlobs(root.path, {'aa'}, '/fixture/git'),
+        throwsA(isA<FlutterBuildError>()),
+      );
+    });
+  }
+
+  test(
+    'reuses matching cloned revision and updates submodules with explicit environment',
+    () async {
+      context = CheckoutTestContext(
+        root,
+        (command) => CheckoutTestProcess(
+          output: command.arguments.contains('rev-parse')
+              ? utf8.encode('revision\n')
+              : const [],
+        ),
+      );
+      final destination = Directory(p.join(root.path, 'package'))..createSync();
+      Directory(p.join(destination.path, '.git')).createSync();
+      File(
+        p.join(destination.path, '.gitmodules'),
+      ).writeAsStringSync('fixture');
+      await context.repository.cloneGitPackage(
+        '/fixture/git',
+        'https://example.invalid/repo',
+        'REVISION',
+        destination.path,
+      );
+      expect(context.processes.commands, hasLength(3));
+      expect(
+        context.processes.commands[1].arguments,
+        containsAllInOrder(['reset', '--hard', 'HEAD']),
+      );
+      expect(
+        context.processes.commands.last.arguments,
+        containsAllInOrder([
+          'submodule',
+          'update',
+          '--init',
+          '--recursive',
+          '--depth',
+          '1',
+        ]),
+      );
+      for (final command in context.processes.commands) {
+        expect(command.environment?['TOKEN'], 'fixture');
+        expect(command.environment?['GIT_TERMINAL_PROMPT'], '0');
+      }
+    },
+  );
+
+  test(
+    'failed shallow clone falls back to init, pinned fetch and detached checkout',
+    () async {
+      context = CheckoutTestContext(
+        root,
+        (command) => CheckoutTestProcess(
+          code: command.arguments.contains('clone') ? 1 : 0,
+        ),
+      );
+      final destination = p.join(root.path, 'package');
+      await context.repository.cloneGitPackage(
+        '/fixture/git',
+        'https://example.invalid/repo',
+        'revision',
+        destination,
+      );
+      expect(context.processes.commands, hasLength(4));
+      expect(
+        context.processes.commands.map((command) => command.arguments),
+        containsAllInOrder([
+          [
+            'clone',
+            '--depth',
+            '1',
+            '--branch',
+            'revision',
+            'https://example.invalid/repo',
+            destination,
+          ],
+          ['-C', destination, 'init'],
+          [
+            '-C',
+            destination,
+            'fetch',
+            '--depth',
+            '1',
+            'https://example.invalid/repo',
+            'revision',
+          ],
+          ['-C', destination, 'checkout', '--detach', 'FETCH_HEAD'],
+        ]),
+      );
+    },
+  );
+
+  test(
+    'materialization restores symlinks and unchanged HEAD stamp avoids all processes',
+    () async {
+      context = CheckoutTestContext(root, (command) {
+        if (command.arguments.contains('ls-files')) {
+          return CheckoutTestProcess(
+            output: utf8.encode('120000 aa 0\tlink\u0000'),
+          );
+        }
+        if (command.arguments.contains('cat-file')) {
+          return CheckoutTestProcess(
+            output: utf8.encode('aa blob 7\npayload\n'),
+          );
+        }
+        return CheckoutTestProcess();
+      });
+      final git = Directory(p.join(root.path, '.git'))..createSync();
+      File(p.join(git.path, 'HEAD')).writeAsStringSync('identity');
+      File(p.join(root.path, 'payload')).writeAsStringSync('actual');
+      File(p.join(root.path, 'link')).writeAsStringSync('payload');
+      expect(
+        await context.checkout.materializeGitCheckoutSymlinks(
+          root.path,
+          git: '/fixture/git',
+          symlinks: true,
+        ),
+        isTrue,
+      );
+      expect(Link(p.join(root.path, 'link')).targetSync(), 'payload');
+      final count = context.processes.commands.length;
+      expect(
+        await context.checkout.materializeGitCheckoutSymlinks(
+          root.path,
+          git: '/fixture/git',
+          symlinks: true,
+        ),
+        isFalse,
+      );
+      expect(context.processes.commands, hasLength(count));
+      expect(
+        context.processes.commands.last.arguments,
+        containsAllInOrder([
+          'core.symlinks=true',
+          '-C',
+          root.path,
+          'checkout',
+          '--force',
+          '--pathspec-from-file=-',
+          '--pathspec-file-nul',
+          '--',
+        ]),
+      );
+    },
+  );
+}

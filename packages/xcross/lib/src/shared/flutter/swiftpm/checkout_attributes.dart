@@ -1,3 +1,3 @@
 abstract interface class SwiftPmCheckoutAttributes {
- Future<void> clear(String path);
+  Future<void> clear(String path);
 }

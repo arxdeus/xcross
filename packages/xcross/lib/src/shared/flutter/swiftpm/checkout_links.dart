@@ -1,31 +1,31 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/errors.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
-
-const String flutterFrameworkPackageName = 'FlutterFramework';
-const String pluginsProductName = 'FlutterPluginsGenerated';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_attributes.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_link_creator.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_link_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_stamp.dart';
 
 final class SwiftPmCheckoutLinks<T extends PlatformHostInterface> {
-  SwiftPmCheckoutLinks(this.runtime);
-  final SwiftPmRuntime<T> runtime;
-  static const _stampKindDirectory = 'directory';
-  static const _stampKindHardLink = 'hardlink';
-  static const _stampKindForwarder = 'forwarder';
+  const SwiftPmCheckoutLinks({
+    required this.runner,
+    required this.fileSystem,
+    required this.stamps,
+    required this.attributes,
+    required this.linkCreator,
+    required this.policy,
+  });
+  final ProcessRunner<T> runner;
+  final SwiftPmArtifactFileSystem fileSystem;
+  final SwiftPmCheckoutStampValidator stamps;
+  final SwiftPmCheckoutAttributes attributes;
+  final SwiftPmCheckoutLinkCreator linkCreator;
+  final SwiftPmCheckoutGitPolicy policy;
   static const _stampKindSymlink = 'symlink';
-
-  /// Turns every placeholder into a real symlink carrying Git's own target
-  /// text, so the checkout matches its index under `core.symlinks=true` and
-  /// later `git reset`/`checkout` runs leave it alone.
-  ///
-  /// Git restores the links in one `checkout` of the affected paths; it
-  /// handles read-only placeholders and, with every target already on disk,
-  /// picks the right link kind. Anything it still got wrong is recreated
-  /// here directly.
   Future<bool> materializeAsSymlinks(
     String root,
     Map<String, String> links,
@@ -34,10 +34,9 @@ final class SwiftPmCheckoutLinks<T extends PlatformHostInterface> {
     String git,
     List<Map<String, Object?>> records,
   ) async {
-    String linkText(String link) =>
-        runtime.hostPolicy.checkoutLinkText(targets[link]!);
+    String linkText(String link) => policy.linkText(targets[link]!);
     bool intact(String link) =>
-        runtime.checkout.linkIntact(link, _stampKindSymlink, linkText(link));
+        stamps.linkIntact(link, _stampKindSymlink, linkText(link));
 
     final pending = [
       for (final link in links.keys)
@@ -48,19 +47,19 @@ final class SwiftPmCheckoutLinks<T extends PlatformHostInterface> {
         'path': link,
         'kind': _stampKindSymlink,
         'target': linkText(link),
-        'directory': Directory(resolved[link]!).existsSync()
+        'directory': fileSystem.directory(resolved[link]!).existsSync()
             ? true
-            : File(resolved[link]!).existsSync()
+            : fileSystem.file(resolved[link]!).existsSync()
             ? false
             : null,
       });
     }
     if (pending.isEmpty) return false;
 
-    final checkout = await runtime.runner.start(git, [
+    final checkout = await runner.start(git, [
       '-c',
       'core.symlinks=true',
-      ...runtime.hostPolicy.checkoutArguments,
+      ...policy.checkoutArguments,
       '-C',
       root,
       'checkout',
@@ -69,14 +68,16 @@ final class SwiftPmCheckoutLinks<T extends PlatformHostInterface> {
       '--pathspec-file-nul',
       '--',
     ]);
+    final stderrFuture = checkout.stderr
+        .transform(const Utf8Decoder(allowMalformed: true))
+        .join();
+    final outputFuture = checkout.stdout.drain<void>();
     checkout.stdin.write(
       pending.map((link) => p.relative(link, from: root)).join('\u0000'),
     );
     await checkout.stdin.close();
-    final stderr = await checkout.stderr
-        .transform(const Utf8Decoder(allowMalformed: true))
-        .join();
-    await checkout.stdout.drain<void>();
+    final stderr = await stderrFuture;
+    await outputFuture;
     if (await checkout.exitCode != 0) {
       throw FlutterBuildError(
         'Could not restore symlinks in SwiftPM checkout $root: $stderr',
@@ -85,16 +86,16 @@ final class SwiftPmCheckoutLinks<T extends PlatformHostInterface> {
 
     for (final link in pending) {
       if (intact(link)) continue;
-      final type = FileSystemEntity.typeSync(link, followLinks: false);
+      final type = fileSystem.typeSync(link, followLinks: false);
       if (type == FileSystemEntityType.link) {
-        Link(link).deleteSync();
+        fileSystem.link(link).deleteSync();
       } else if (type == FileSystemEntityType.directory) {
-        Directory(link).deleteSync(recursive: true);
+        fileSystem.directory(link).deleteSync(recursive: true);
       } else if (type != FileSystemEntityType.notFound) {
-        await runtime.checkout.clearPlaceholderAttributes(link);
-        File(link).deleteSync();
+        await attributes.clear(link);
+        fileSystem.file(link).deleteSync();
       }
-      createRelativeLink(link, linkText(link));
+      linkCreator.create(link, linkText(link));
       if (!intact(link)) {
         throw FlutterBuildError(
           'Could not create symlink in SwiftPM checkout: $link -> '
@@ -104,10 +105,4 @@ final class SwiftPmCheckoutLinks<T extends PlatformHostInterface> {
     }
     return true;
   }
-
-  /// `Link.create` decides between a file and a directory symlink by looking
-  /// at the target relative to the working directory, so a relative target
-  /// is only typed correctly from the link's own directory.
-  void createRelativeLink(String link, String target) =>
-      runtime.hostPolicy.createRelativeLink(link, target);
 }
