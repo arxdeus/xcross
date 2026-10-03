@@ -9,6 +9,7 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:xcross/src/cli/basic/sdk_install.dart';
+import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/flutter/build/internal/host_symlink_capability.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_workspace.dart';
 import 'package:xcross/src/flutter/build/internal/windows_swift_plan_repair.dart';
@@ -464,9 +465,11 @@ abstract final class GeneratedPluginsPackage {
     // Swift's own `-load-plugin-executable` extension point instead — its
     // host compiler is whichever one built [darwinClang], available on
     // every host that can build this project at all.
+    final hostCompiler = await resolveHostCompiler(darwinClang ?? 'cc');
     final previewMacroStub = await writePreviewMacroStub(
       outputDir: outputDir,
-      cCompilerPath: darwinClang ?? await ProcessRunner.locateTool('cc'),
+      cCompilerPath: hostCompiler.executable,
+      cCompilerArguments: hostCompiler.arguments,
     );
     final objectiveCCompatibilityHeader =
         await writeObjectiveCCompatibilityHeader(outputDir);
@@ -1923,6 +1926,7 @@ abstract final class GeneratedPluginsPackage {
   static Future<String> writePreviewMacroStub({
     required String outputDir,
     required String cCompilerPath,
+    List<String> cCompilerArguments = const [],
     bool? windows,
   }) async {
     final onWindows = windows ?? Platform.isWindows;
@@ -1938,6 +1942,7 @@ abstract final class GeneratedPluginsPackage {
     // a previous build needs no recompilation.
     if (File(exePath).existsSync()) return exePath;
     await ProcessRunner.runChecked(cCompilerPath, [
+      ...cCompilerArguments,
       '-O2',
       '-o',
       exePath,

@@ -889,14 +889,156 @@ void main() {
   });
 
   test('Windows uses the resolved clang as its host C compiler', () async {
-    expect(
-      await resolveHostCompiler(
-        r'C:\Program Files\LLVM\bin\clang.exe',
-        windows: true,
-      ),
+    final compiler = await resolveHostCompiler(
       r'C:\Program Files\LLVM\bin\clang.exe',
+      windows: true,
+      locate: (_) async => fail('must not search'),
     );
+    expect(compiler.executable, r'C:\Program Files\LLVM\bin\clang.exe');
+    expect(compiler.arguments, isEmpty);
   });
+
+  test(
+    'macOS host compiler selects native macosx SDK independently of PATH',
+    () async {
+      final compiler = await resolveHostCompiler(
+        '/cross/clang',
+        windows: false,
+        macos: true,
+        locate: (_) async => fail('must not search'),
+      );
+      expect(compiler.executable, '/usr/bin/xcrun');
+      expect(compiler.arguments, ['--sdk', 'macosx', 'clang']);
+    },
+  );
+
+  test('Linux host compiler retains PATH cc without Apple arguments', () async {
+    final compiler = await resolveHostCompiler(
+      '/cross/clang',
+      windows: false,
+      macos: false,
+      locate: (name) async {
+        expect(name, 'cc');
+        return '/host/cc';
+      },
+    );
+    expect(compiler.executable, '/host/cc');
+    expect(compiler.arguments, isEmpty);
+  });
+
+  test('Unix host compiler prefix arguments are shell quoted', () async {
+    final temp = await Directory.systemTemp.createTemp('host-prefix-shim-');
+    addTearDown(() => temp.delete(recursive: true));
+    final shim = File(p.join(temp.path, 'clang'))
+      ..writeAsStringSync(
+        renderUnixCompilerShim(
+          iosSdk: '/simulator-sdk',
+          clang: '/cross/clang',
+          hostCompiler: '/usr/bin/printf',
+          hostCompilerArguments: ['<%s>', "prefix with spaces and 'quotes'"],
+          linker: '/ld64.lld',
+          deploymentTarget: '15.0',
+        ),
+      );
+    final result = await Process.run('/bin/sh', [shim.path, '-c', 'host.c']);
+    expect(result.exitCode, 0, reason: result.stderr.toString());
+    expect(result.stdout, "<prefix with spaces and 'quotes'><-c><host.c>");
+  }, skip: Platform.isWindows);
+
+  test(
+    'macOS installed compiler shim builds native host with Xcode-first PATH',
+    () async {
+      final temp = await Directory.systemTemp.createTemp('macos-host-shim-');
+      addTearDown(() => temp.delete(recursive: true));
+      final selection = await Process.run('/usr/bin/xcode-select', ['-p']);
+      expect(selection.exitCode, 0, reason: selection.stderr.toString());
+      final developer = Link(p.join(temp.path, 'chosen developer'))
+        ..createSync(selection.stdout.toString().trim());
+      final environment = Map<String, String>.of(Platform.environment)
+        ..remove('SDKROOT')
+        ..['DEVELOPER_DIR'] = developer.path;
+      final native = await Process.run(
+        '/usr/bin/xcrun',
+        ['--sdk', 'macosx', '--find', 'clang'],
+        environment: environment,
+        includeParentEnvironment: false,
+      );
+      expect(native.exitCode, 0, reason: native.stderr.toString());
+      final iosSdk = await Process.run(
+        '/usr/bin/xcrun',
+        ['--sdk', 'iphonesimulator', '--show-sdk-path'],
+        environment: environment,
+        includeParentEnvironment: false,
+      );
+      expect(iosSdk.exitCode, 0, reason: iosSdk.stderr.toString());
+      environment['PATH'] =
+          '${p.dirname(native.stdout.toString().trim())}:/usr/bin:/bin';
+      final compiler = await resolveHostCompiler('/cross/clang');
+      final shims = p.join(temp.path, 'shims');
+      await installAppleToolShims(
+        shims,
+        AppleToolShimConfig(
+          iosSdk: '/cross/iPhoneSimulator.sdk',
+          clang: '/cross/clang',
+          hostCompiler: compiler.executable,
+          hostCompilerArguments: compiler.arguments,
+          archiver: '/cross/ar',
+          linker: '/cross/ld',
+          lipo: '/cross/lipo',
+          otool: null,
+          installNameTool: null,
+          xcrun: '/usr/bin/xcrun',
+          deploymentTarget: '15.0',
+          simulator: true,
+        ),
+      );
+      final source = File(p.join(temp.path, 'host.c'))
+        ..writeAsStringSync(
+          '#include <stdio.h>\nint main(void) { puts("native host"); return 0; }\n',
+        );
+      for (final sdkRoot in <String?>[null, iosSdk.stdout.toString().trim()]) {
+        final executable = p.join(
+          temp.path,
+          sdkRoot == null ? 'clean-host' : 'polluted-host',
+        );
+        final result = await Process.run(
+          p.join(shims, 'cc'),
+          [source.path, '-o', executable],
+          environment: {
+            ...environment,
+            if (sdkRoot != null) 'SDKROOT': sdkRoot,
+          },
+          includeParentEnvironment: false,
+        );
+        expect(result.exitCode, 0, reason: result.stderr.toString());
+        final header = ByteData.sublistView(File(executable).readAsBytesSync());
+        expect(header.getUint32(0, Endian.little), 0xfeedfacf);
+        expect(
+          header.getUint32(4, Endian.little),
+          Abi.current() == Abi.macosArm64 ? 0x0100000c : 0x01000007,
+        );
+        final loadCommands = await Process.run(
+          '/usr/bin/xcrun',
+          ['--sdk', 'macosx', 'otool', '-l', executable],
+          environment: environment,
+          includeParentEnvironment: false,
+        );
+        expect(
+          loadCommands.exitCode,
+          0,
+          reason: loadCommands.stderr.toString(),
+        );
+        expect(
+          loadCommands.stdout,
+          contains(RegExp(r'platform\s+(?:MACOS|1)(?:\s|$)')),
+        );
+        final run = await Process.run(executable, []);
+        expect(run.exitCode, 0, reason: run.stderr.toString());
+        expect(run.stdout, 'native host\n');
+      }
+    },
+    skip: !Platform.isMacOS,
+  );
 
   test('Windows resolves xcross as the tool forwarder', () async {
     expect(

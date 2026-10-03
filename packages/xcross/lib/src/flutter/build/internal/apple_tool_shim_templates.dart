@@ -8,6 +8,7 @@ String renderUnixCompilerShim({
   required String hostCompiler,
   required String linker,
   required String deploymentTarget,
+  List<String> hostCompilerArguments = const [],
   bool simulator = false,
 }) =>
     '''
@@ -39,7 +40,7 @@ for arg in "\$@"; do
     --ld-path=*) has_ld_path=true;;
   esac
 done
-\$is_apple_target || exec ${shellQuote(hostCompiler)} "\$@"
+\$is_apple_target || exec ${[hostCompiler, ...hostCompilerArguments].map(shellQuote).join(' ')} "\$@"
 \$has_ld_path || set -- ${shellQuote('--ld-path=$linker')} "\$@"
 \$has_fuse_ld || set -- ${shellQuote('-fuse-ld=lld')} "\$@"
 \$has_deployment || set -- ${shellQuote('-m${simulator ? 'ios-simulator' : 'iphoneos'}-version-min=$deploymentTarget')} "\$@"
