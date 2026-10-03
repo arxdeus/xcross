@@ -37,7 +37,9 @@ final class ProcessExecutor<T extends PlatformHostInterface> {
   }) => host.processes.start(
     tools.resolveExecutable(executable),
     arguments,
-    workingDirectory: workingDirectory,
+    workingDirectory: host.paths.ioPath(
+      workingDirectory ?? host.paths.context.current,
+    ),
     environment: _childEnvironment(environment),
     includeParentEnvironment: false,
     runInShell: runInShell,

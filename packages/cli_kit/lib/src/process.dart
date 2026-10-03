@@ -16,15 +16,12 @@ final class ProcessRunner<T extends PlatformHostInterface> {
   ProcessRunner(
     this.host, {
     required this.log,
-    this.configuration,
-    Stream<List<int>>? stdinStream,
-    IOSink? stdoutSink,
-    IOSink? stderrSink,
+    required Stream<List<int>> stdinStream, required IOSink stdoutSink, required IOSink stderrSink, this.configuration,
     ProcessToolLookupInterface<T>? toolLookup,
     ProcessExecutor<T>? executor,
-  }) : _stdinStream = stdinStream ?? stdin,
-       _stdout = stdoutSink ?? stdout,
-       _stderr = stderrSink ?? stderr {
+  }) : _stdinStream = stdinStream,
+       _stdout = stdoutSink,
+       _stderr = stderrSink {
     this.toolLookup =
         toolLookup ??
         executor?.tools ??

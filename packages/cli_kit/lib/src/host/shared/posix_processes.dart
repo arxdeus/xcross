@@ -5,7 +5,8 @@ import 'package:cli_kit/src/host/shared/owned_processes.dart';
 import 'package:cli_kit/src/shared/platform/platform_host.dart';
 
 final class PosixProcesses implements HostProcessInterface {
-  PosixProcesses();
+  PosixProcesses({required this.paths});
+  final HostPathsInterface paths;
   final OwnedProcesses _owned = OwnedProcesses();
   @override
   Future<String?> findOnShellPath(
@@ -42,7 +43,7 @@ final class PosixProcesses implements HostProcessInterface {
     Process.start(
       executable,
       arguments,
-      workingDirectory: workingDirectory,
+      workingDirectory: paths.ioPath(workingDirectory ?? paths.context.current),
       environment: environment,
       includeParentEnvironment: includeParentEnvironment,
       runInShell: runInShell,

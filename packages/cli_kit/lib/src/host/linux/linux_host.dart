@@ -25,7 +25,7 @@ final class LinuxHost implements LinuxHostInterface {
     this.fileSystem =
         fileSystem ??
         NativeFileSystem(this.paths, permissions: LinuxPermissions());
-    this.processes = processes ?? PosixProcesses();
+    this.processes = processes ?? PosixProcesses(paths: this.paths);
   }
   @override
   String get name => 'linux';

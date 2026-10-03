@@ -4,12 +4,23 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:test/test.dart';
 
 import 'support/test_log_output.dart';
+import 'support/test_process_io.dart';
 
 void main() {
+  final io = TestProcessIo();
+  tearDownAll(io.close);
   final log = Log(output: TestLogOutput(emit: print));
   final nativeHost = detectPlatformHost();
   late ProcessRunner<PlatformHostInterface> runner;
-  setUp(() => runner = ProcessRunner(nativeHost, log: log));
+  setUp(
+    () => runner = ProcessRunner(
+      nativeHost,
+      log: log,
+      stdinStream: io.input,
+      stdoutSink: io.output,
+      stderrSink: io.error,
+    ),
+  );
 
   late Directory scripts;
 

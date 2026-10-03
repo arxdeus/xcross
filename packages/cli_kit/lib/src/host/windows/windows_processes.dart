@@ -59,7 +59,9 @@ final class WindowsProcesses implements HostProcessInterface {
         batch
             ? WindowsBatchPolicy.arguments(arguments, executable: executable)
             : arguments,
-        workingDirectory: workingDirectory,
+        workingDirectory: _paths.ioPath(
+          workingDirectory ?? _paths.context.current,
+        ),
         environment: environment,
         includeParentEnvironment: includeParentEnvironment,
         runInShell: runInShell || batch,

@@ -7,12 +7,23 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import 'support/test_log_output.dart';
+import 'support/test_process_io.dart';
 
 void main() {
+  final io = TestProcessIo();
+  tearDownAll(io.close);
   final log = Log(output: TestLogOutput(emit: print));
   final nativeHost = detectPlatformHost();
   late ProcessRunner<PlatformHostInterface> runner;
-  setUp(() => runner = ProcessRunner(nativeHost, log: log));
+  setUp(
+    () => runner = ProcessRunner(
+      nativeHost,
+      log: log,
+      stdinStream: io.input,
+      stdoutSink: io.output,
+      stderrSink: io.error,
+    ),
+  );
 
   ProcessRunner<PlatformHostInterface> windowsRunner() => ProcessRunner(
     WindowsHost(
@@ -22,6 +33,9 @@ void main() {
     ),
     log: log,
     configuration: runner.configuration,
+    stdinStream: io.input,
+    stdoutSink: io.output,
+    stderrSink: io.error,
   );
   ProcessRunner<PlatformHostInterface> posixRunner() => ProcessRunner(
     LinuxHost(
@@ -31,6 +45,9 @@ void main() {
     ),
     log: log,
     configuration: runner.configuration,
+    stdinStream: io.input,
+    stdoutSink: io.output,
+    stderrSink: io.error,
   );
 
   group('commandLine', () {
@@ -355,6 +372,9 @@ void main() {
           normalizedTools: tools,
           effectiveChildEnvironment: environment,
         ),
+        stdinStream: io.input,
+        stdoutSink: io.output,
+        stderrSink: io.error,
       );
       tools.clear();
       environment.clear();
@@ -364,7 +384,13 @@ void main() {
         runner.configuration?.effectiveChildEnvironment,
         containsPair('DECLARED', 'yes'),
       );
-      runner = ProcessRunner(nativeHost, log: log);
+      runner = ProcessRunner(
+        nativeHost,
+        log: log,
+        stdinStream: io.input,
+        stdoutSink: io.output,
+        stderrSink: io.error,
+      );
       expect(runner.configuration, isNull);
     });
 
@@ -382,6 +408,9 @@ void main() {
               'PATHEXT': '.EXE;.BAT',
             },
           ),
+          stdinStream: io.input,
+          stdoutSink: io.output,
+          stderrSink: io.error,
         );
 
         expect(await windowsRunner().which('python'), configured);
@@ -406,6 +435,9 @@ void main() {
           normalizedTools: {'dart': Platform.resolvedExecutable},
           effectiveChildEnvironment: const {'XCROSS_TEST': '1'},
         ),
+        stdinStream: io.input,
+        stdoutSink: io.output,
+        stderrSink: io.error,
       );
 
       expect((await runner.run('dart', const ['--version'])).exitCode, 0);
@@ -428,6 +460,9 @@ void main() {
           },
           effectiveChildEnvironment: const {},
         ),
+        stdinStream: io.input,
+        stdoutSink: io.output,
+        stderrSink: io.error,
       );
 
       expect(await runner.which('clang'), explicit);
@@ -454,6 +489,9 @@ void main() {
           },
           effectiveChildEnvironment: {'PATH': path.path},
         ),
+        stdinStream: io.input,
+        stdoutSink: io.output,
+        stderrSink: io.error,
       );
 
       expect(await runner.which('swiftc'), swiftCompiler.path);
@@ -473,6 +511,9 @@ void main() {
           normalizedTools: const {'clang': '/configured/clang'},
           effectiveChildEnvironment: {'PATH': temporary.path},
         ),
+        stdinStream: io.input,
+        stdoutSink: io.output,
+        stderrSink: io.error,
       );
 
       expect(
@@ -491,6 +532,9 @@ void main() {
           normalizedTools: const {},
           effectiveChildEnvironment: {'PATH': directory},
         ),
+        stdinStream: io.input,
+        stdoutSink: io.output,
+        stderrSink: io.error,
       );
 
       expect(await runner.which(name), isNotNull);
@@ -525,6 +569,9 @@ void main() {
           normalizedTools: const {},
           effectiveChildEnvironment: const {'SAFE': 'value'},
         ),
+        stdinStream: io.input,
+        stdoutSink: io.output,
+        stderrSink: io.error,
       );
 
       expect(runner.effectiveEnvironment, const {'SAFE': 'value'});
@@ -694,6 +741,9 @@ void main() {
             normalizedTools: const {},
             effectiveChildEnvironment: const {'START_VALUE': 'configured'},
           ),
+          stdinStream: io.input,
+          stdoutSink: io.output,
+          stderrSink: io.error,
         );
 
         final directory = Directory.systemTemp.createTempSync('process-start-');
@@ -827,6 +877,9 @@ void main() {
           normalizedTools: const {},
           effectiveChildEnvironment: const {'Path': 'configured'},
         ),
+        stdinStream: io.input,
+        stdoutSink: io.output,
+        stderrSink: io.error,
       );
 
       final result = await runner.run(
@@ -872,6 +925,9 @@ void main() {
               'OVERRIDE': 'configured',
             },
           ),
+          stdinStream: io.input,
+          stdoutSink: io.output,
+          stderrSink: io.error,
         );
 
         final result = await runner.run(

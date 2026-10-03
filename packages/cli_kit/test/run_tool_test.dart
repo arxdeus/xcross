@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import 'support/test_log_output.dart';
+import 'support/test_process_io.dart';
 
 List<String> _capture(void Function() body) {
   final lines = <String>[];
@@ -31,10 +32,20 @@ Future<List<String>> _captureAsync(Future<void> Function() body) async {
 }
 
 void main() {
+  final io = TestProcessIo();
+  tearDownAll(io.close);
   final log = Log(output: TestLogOutput(emit: print));
   final nativeHost = detectPlatformHost();
   late ProcessRunner<PlatformHostInterface> runner;
-  setUp(() => runner = ProcessRunner(nativeHost, log: log));
+  setUp(
+    () => runner = ProcessRunner(
+      nativeHost,
+      log: log,
+      stdinStream: io.input,
+      stdoutSink: io.output,
+      stderrSink: io.error,
+    ),
+  );
 
   late Directory temp;
 

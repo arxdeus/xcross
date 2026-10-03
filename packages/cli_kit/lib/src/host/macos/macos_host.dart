@@ -25,7 +25,7 @@ final class MacOSHost implements MacOSHostInterface {
     this.fileSystem =
         fileSystem ??
         NativeFileSystem(this.paths, permissions: MacOSPermissions());
-    this.processes = processes ?? PosixProcesses();
+    this.processes = processes ?? PosixProcesses(paths: this.paths);
   }
   @override
   String get name => 'macos';

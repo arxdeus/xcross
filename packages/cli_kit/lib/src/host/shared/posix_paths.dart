@@ -28,7 +28,7 @@ final class PosixPaths implements HostPathsInterface {
       _nonempty(_environment['XDG_CACHE_HOME']) ??
       context.join(_home, '.cache');
   @override
-  String ioPath(String path) => path;
+  String ioPath(String path) => context.normalize(context.absolute(path));
   @override
   String executableName(String name, {String extension = '.exe'}) => name;
   @override

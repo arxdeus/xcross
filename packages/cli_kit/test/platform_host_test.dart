@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import 'support/test_log_output.dart';
+import 'support/test_process_io.dart';
 
 final class RecordingProcesses implements HostProcessInterface {
   RecordingProcesses(this.delegate);
@@ -73,6 +74,8 @@ final class UnownedTestProcess implements Process {
 }
 
 void main() {
+  final io = TestProcessIo();
+  tearDownAll(io.close);
   final log = Log(output: TestLogOutput(emit: print));
   final snapshot = detectPlatformHostSnapshot();
   final native = snapshot.host;
@@ -215,6 +218,9 @@ void main() {
         native,
         log: log,
         configuration: configuration,
+        stdinStream: io.input,
+        stdoutSink: io.output,
+        stderrSink: io.error,
       );
       final second = ProcessRunner(
         native,
@@ -223,6 +229,9 @@ void main() {
           normalizedTools: const {'clang': '/second/clang'},
           effectiveChildEnvironment: const {'SECOND': '2'},
         ),
+        stdinStream: io.input,
+        stdoutSink: io.output,
+        stderrSink: io.error,
       );
       expect(await first.which('clang'), '/first/clang');
       expect(await second.which('clang'), '/second/clang');
@@ -252,7 +261,13 @@ void main() {
       fileSystem: native.fileSystem,
       processes: processes,
     );
-    final runner = ProcessRunner(host, log: log);
+    final runner = ProcessRunner(
+      host,
+      log: log,
+      stdinStream: io.input,
+      stdoutSink: io.output,
+      stderrSink: io.error,
+    );
     final result = await runner.run(
       Platform.resolvedExecutable,
       [script.path],
@@ -284,6 +299,9 @@ void main() {
           normalizedTools: const {},
           effectiveChildEnvironment: const {'Path': 'base', 'BASE': 'yes'},
         ),
+        stdinStream: io.input,
+        stdoutSink: io.output,
+        stderrSink: io.error,
       );
       await runner.run(
         Platform.resolvedExecutable,
@@ -299,7 +317,13 @@ void main() {
   test('Windows administrator caches belong to privilege instances', () async {
     var allowedCalls = 0;
     var deniedCalls = 0;
-    final runner = ProcessRunner(WindowsHost(), log: log);
+    final runner = ProcessRunner(
+      WindowsHost(),
+      log: log,
+      stdinStream: io.input,
+      stdoutSink: io.output,
+      stderrSink: io.error,
+    );
     final allowed = WindowsPrivileges(
       runner,
       administratorProbe: () async {
@@ -333,7 +357,13 @@ void main() {
 
   test('unreadable Windows administrator probe is denied safely', () async {
     final privileges = WindowsPrivileges(
-      ProcessRunner(WindowsHost(), log: log),
+      ProcessRunner(
+        WindowsHost(),
+        log: log,
+        stdinStream: io.input,
+        stdoutSink: io.output,
+        stderrSink: io.error,
+      ),
       administratorProbe: () async => throw StateError('unavailable'),
     );
     await expectLater(privileges.ensureElevated(), throwsA(isA<CliError>()));
@@ -344,7 +374,13 @@ void main() {
     () async {
       var probes = 0;
       final privileges = WindowsPrivileges(
-        ProcessRunner(WindowsHost(), log: log),
+        ProcessRunner(
+          WindowsHost(),
+          log: log,
+          stdinStream: io.input,
+          stdoutSink: io.output,
+          stderrSink: io.error,
+        ),
         administratorProbe: () async {
           probes++;
           return const CapturedProcess(0, 'false', '');
@@ -359,7 +395,15 @@ void main() {
     'POSIX privilege helpers do not launch tools absent from injected PATH',
     () async {
       for (final host in <PlatformHostInterface>[LinuxHost(), MacOSHost()]) {
-        final privileges = PosixPrivileges(ProcessRunner(host, log: log));
+        final privileges = PosixPrivileges(
+          ProcessRunner(
+            host,
+            log: log,
+            stdinStream: io.input,
+            stdoutSink: io.output,
+            stderrSink: io.error,
+          ),
+        );
         expect(await privileges.resolve(), isNull);
         await privileges.cacheCredentials();
         await privileges.ensureElevated();
@@ -405,7 +449,7 @@ void main() {
 
   test('native cleanup refuses unowned process identities', () async {
     final process = UnownedTestProcess();
-    await PosixProcesses().killTree(process);
+    await PosixProcesses(paths: native.paths).killTree(process);
     await WindowsProcesses().killTree(process);
     expect(process.killed, isFalse);
   });
@@ -433,6 +477,9 @@ void main() {
           log: log,
           configuration: config,
           toolLookup: tools,
+          stdinStream: io.input,
+          stdoutSink: io.output,
+          stderrSink: io.error,
         ),
         throwsArgumentError,
       );
@@ -442,6 +489,9 @@ void main() {
           log: log,
           configuration: otherConfig,
           toolLookup: tools,
+          stdinStream: io.input,
+          stdoutSink: io.output,
+          stderrSink: io.error,
         ),
         throwsArgumentError,
       );
@@ -451,6 +501,9 @@ void main() {
         log: log,
         configuration: config,
         executor: executor,
+        stdinStream: io.input,
+        stdoutSink: io.output,
+        stderrSink: io.error,
       );
       expect(runner.toolLookup, same(tools));
       expect(
@@ -459,6 +512,9 @@ void main() {
           log: Log(output: TestLogOutput(emit: print)),
           configuration: config,
           executor: executor,
+          stdinStream: io.input,
+          stdoutSink: io.output,
+          stderrSink: io.error,
         ),
         throwsArgumentError,
       );
