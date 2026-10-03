@@ -25,22 +25,28 @@ abstract final class DapSession {
   static Future<void> run({
     required void Function(ByteStreamServerChannel channel) startXcross,
     required ProcessRunner runner,
+    required Stream<List<int>> input,
+    required StreamSink<List<int>> output,
+    required IOSink errors,
     String? flutterRoot,
     String? environmentRoot,
     String? flutterTool,
     bool declarative = false,
-    Stream<List<int>>? input,
-    StreamSink<List<int>>? output,
+    bool testAdapter = false,
+    List<String> flutterAdapterArguments = const [],
   }) {
     return DapRouter(
-      input ?? stdin,
-      output ?? stdout,
+      input,
+      output,
       startXcross,
       runner: runner,
+      errors: errors,
       flutterRoot: flutterRoot,
       environmentRoot: environmentRoot,
       flutterTool: flutterTool,
       declarative: declarative,
+      testAdapter: testAdapter,
+      flutterAdapterArguments: flutterAdapterArguments,
     ).run();
   }
 }

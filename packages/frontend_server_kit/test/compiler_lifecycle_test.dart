@@ -97,6 +97,9 @@ Future<void> main() async {
 }
 """);
       final runner = ProcessRunner(
+        stdinStream: const Stream.empty(),
+        stdoutSink: testSink(),
+        stderrSink: testSink(),
         MacOSHost(environment: Platform.environment),
         configuration: ProcessConfiguration(
           normalizedTools: const {},

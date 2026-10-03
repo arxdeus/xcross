@@ -8,7 +8,13 @@ import 'package:test/test.dart';
 import 'test_log_output.dart';
 
 void main() {
-  final runner = ProcessRunner(MacOSHost(), log: testLog());
+  final runner = ProcessRunner(
+    stdinStream: const Stream.empty(),
+    stdoutSink: testSink(),
+    stderrSink: testSink(),
+    MacOSHost(),
+    log: testLog(),
+  );
   var pairing = RemotePairing(
     Pymd(
       console: TestDeviceConsole(),

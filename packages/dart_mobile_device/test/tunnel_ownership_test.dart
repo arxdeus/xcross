@@ -15,6 +15,9 @@ void main() {
     File('${directory.path}/xcross-tunneld.pid').writeAsStringSync('123');
     final processes = Processes();
     final runner = ProcessRunner(
+      stdinStream: const Stream.empty(),
+      stdoutSink: testSink(),
+      stderrSink: testSink(),
       MacOSHost(temporaryDirectory: directory.path, processes: processes),
       log: testLog(),
     );
@@ -41,6 +44,9 @@ void main() {
       addTearDown(() => directory.deleteSync(recursive: true));
       final processes = Processes();
       final runner = ProcessRunner(
+        stdinStream: const Stream.empty(),
+        stdoutSink: testSink(),
+        stderrSink: testSink(),
         MacOSHost(temporaryDirectory: directory.path, processes: processes),
         log: testLog(),
       );

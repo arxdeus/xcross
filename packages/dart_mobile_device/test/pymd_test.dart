@@ -8,6 +8,9 @@ import 'test_log_output.dart';
 
 void main() {
   final runner = ProcessRunner(
+    stdinStream: const Stream.empty(),
+    stdoutSink: testSink(),
+    stderrSink: testSink(),
     MacOSHost(environment: Platform.environment),
     log: testLog(),
   );

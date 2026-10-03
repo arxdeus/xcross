@@ -14,6 +14,9 @@ void main() {
     () async {
       final processes = RecordingDapProcesses();
       final runner = ProcessRunner(
+        stdinStream: const Stream.empty(),
+        stdoutSink: testSink(),
+        stderrSink: testSink(),
         WindowsHost(processes: processes),
         log: testLog(),
         configuration: ProcessConfiguration(

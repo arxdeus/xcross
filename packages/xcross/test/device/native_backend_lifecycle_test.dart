@@ -83,7 +83,13 @@ void main() {
       final app = Directory(p.join(fixture.path, 'Test.app'))..createSync();
       final plist = File(p.join(app.path, 'Info.plist'))
         ..writeAsStringSync('untouched');
-      final runner = ProcessRunner(host, log: testLog());
+      final runner = ProcessRunner(
+        stdinStream: const Stream.empty(),
+        stdoutSink: testSink(),
+        stderrSink: testSink(),
+        host,
+        log: testLog(),
+      );
       final client = FailingProvisioningClient();
       final anisette = CountingAnisetteProvider();
       final provider = FixedSigningSessionProvider(

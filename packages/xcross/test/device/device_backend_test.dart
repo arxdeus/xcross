@@ -15,7 +15,13 @@ import 'package:xcross/src/target/iphone/device/signing_session_resolver.dart';
 import 'test_log_output.dart';
 
 void main() {
-  final runner = ProcessRunner(MacOSHost(), log: testLog());
+  final runner = ProcessRunner(
+    stdinStream: const Stream.empty(),
+    stdoutSink: testSink(),
+    stderrSink: testSink(),
+    MacOSHost(),
+    log: testLog(),
+  );
   group('saved Apple ID session provider', () {
     final directory = p.join(Directory.systemTemp.absolute.path, 'adi-fixture');
 

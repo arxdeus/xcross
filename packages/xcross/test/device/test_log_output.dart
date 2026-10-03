@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
@@ -42,3 +43,5 @@ final class TestDeviceConsole implements DeviceConsole {
 
 LocalHttp<PlatformHostInterface> testLocalHttp() =>
     LocalHttp(MacOSHost(), createClient: HttpClient.new);
+
+IOSink testSink() => IOSink(StreamController<List<int>>.broadcast().sink);

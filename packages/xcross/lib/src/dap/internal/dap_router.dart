@@ -15,17 +15,23 @@ final class DapRouter {
     this._output,
     this._startXcross, {
     required this.runner,
+    required this.errors,
     this.flutterRoot,
     this.environmentRoot,
     this.flutterTool,
     this.declarative = false,
-  });
+    this.testAdapter = false,
+    List<String> flutterAdapterArguments = const [],
+  }) : flutterAdapterArguments = List.unmodifiable(flutterAdapterArguments);
 
   final ProcessRunner runner;
+  final IOSink errors;
   final String? flutterRoot;
   final String? environmentRoot;
   final String? flutterTool;
   final bool declarative;
+  final bool testAdapter;
+  final List<String> flutterAdapterArguments;
 
   String? resolveFlutterExecutable({String? projectRoot}) {
     var flutterRoot =
@@ -43,8 +49,11 @@ final class DapRouter {
         '.fvm',
         'flutter_sdk',
       );
-      if (Directory(fvm).existsSync() || Link(fvm).existsSync()) {
-        flutterRoot = Link(fvm).resolveSymbolicLinksSync();
+      if (runner.host.fileSystem.directory(fvm).existsSync() ||
+          runner.host.fileSystem.link(fvm).existsSync()) {
+        flutterRoot = runner.host.fileSystem
+            .link(fvm)
+            .resolveSymbolicLinksSync();
       }
     }
     return flutterRoot == null
@@ -147,7 +156,7 @@ final class DapRouter {
   }
 
   Future<void> _handoff(Map<String, Object?> launchRequest) async {
-    final useXcross = _wantsXcross(launchRequest['arguments']);
+    final useXcross = !testAdapter && _wantsXcross(launchRequest['arguments']);
 
     final filtered = DapResponseFilter(_output, _answered);
     final inbound = StreamController<List<int>>();
@@ -190,7 +199,7 @@ final class DapRouter {
   ) async {
     final flutter = resolveFlutterExecutable();
     if (flutter == null) {
-      stderr.writeln(
+      errors.writeln(
         'xcross dap: launch config is missing "env": {"XCROSS": "true"} '
         'and no Flutter SDK is configured — cannot fall back to the Flutter '
         'DAP.\nConfigure roots.flutterSdk, environment FLUTTER_ROOT, or '
@@ -199,8 +208,12 @@ final class DapRouter {
       await outbound.close();
       return false;
     }
-    final child = await runner.start(flutter, const ['debug-adapter']);
-    child.stderr.listen(stderr.add, onError: (_) {});
+    final child = await runner.start(flutter, [
+      'debug-adapter',
+      if (testAdapter) '--test',
+      ...flutterAdapterArguments,
+    ]);
+    child.stderr.listen(errors.add, onError: (_) {});
     inbound.listen(
       child.stdin.add,
       onError: (_) {},
