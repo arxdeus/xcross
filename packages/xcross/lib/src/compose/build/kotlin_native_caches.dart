@@ -137,7 +137,7 @@ final class KotlinNativeCaches {
       files.file(p.join(staging, _completeMarker)).writeAsStringSync(node.path);
       final target = files.directory(node.cacheRoot);
       if (target.existsSync()) target.deleteSync(recursive: true);
-      stagingDir.renameSync(node.cacheRoot);
+      stagingDir.renameSync(files.directory(node.cacheRoot).path);
     });
 
     _pruneStale(plan);

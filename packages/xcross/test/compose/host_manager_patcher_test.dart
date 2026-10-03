@@ -20,6 +20,36 @@ const int vreturn = 0xB1; // RETURN (void)
 const int invokeSpecial = 0xB7; // INVOKESPECIAL
 
 void main() {
+  test(
+    'jar patch streams and publishes through selected remapped file paths',
+    () {
+      final root = Directory.systemTemp.createTempSync('compose-remapped-jar-');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final files = RemappedComposeFileSystem(root.path);
+      final jar = files.file('/virtual-compose/compiler.jar')
+        ..createSync(recursive: true)
+        ..writeAsBytesSync(
+          buildJar({
+            hostManagerClassEntry: buildFakeHostManagerClass().toList(),
+          }),
+        );
+      expect(
+        KotlinNativeJarPatcher(files).patch('/virtual-compose/compiler.jar'),
+        isTrue,
+      );
+      final archive = ZipDecoder().decodeBytes(jar.readAsBytesSync());
+      expect(archive.files.any((entry) => entry.name == jarMarkerPath), isTrue);
+      expect(
+        files.file('/virtual-compose/compiler.jar.xcross-tmp').existsSync(),
+        isFalse,
+      );
+      expect(
+        KotlinNativeJarPatcher(files).patch('/virtual-compose/compiler.jar'),
+        isFalse,
+      );
+    },
+  );
+
   // ── CP parser: Long/Double consume two slots ──────────────────────────────
 
   group('CP double-slot (Long/Double)', () {

@@ -83,7 +83,9 @@ final class KonanConfiguration<T extends PlatformHostInterface> {
       runner.host.fileSystem
           .file(p.join(stagingRoot, '.xcross-complete'))
           .writeAsStringSync('complete\n');
-      await runner.host.fileSystem.directory(stagingRoot).rename(root);
+      await runner.host.fileSystem
+          .directory(stagingRoot)
+          .rename(runner.host.fileSystem.directory(root).path);
     } on FileSystemException {
       await _deleteIfExists(runner.host.fileSystem.directory(stagingRoot));
       if (runner.host.fileSystem.file(markerPath).existsSync()) {
@@ -281,7 +283,7 @@ final class KonanConfiguration<T extends PlatformHostInterface> {
     await runner.host.fileSystem
         .directory(p.dirname(target))
         .create(recursive: true);
-    await file.copy(target);
+    await file.copy(runner.host.fileSystem.file(target).path);
   }
 
   Future<void> _patchJars(String kotlinHome) async {

@@ -636,6 +636,9 @@ final class ComposeFixture {
       log: fixtureLog,
       (simulator ? ComposeTestHosts.macosArm64 : ComposeTestHosts.linuxX64)
           .host,
+      stdinStream: const Stream<List<int>>.empty(),
+      stdoutSink: stdout,
+      stderrSink: stderr,
     ),
     kotlinHome: p.join(root, 'kotlin'),
     konanCache: p.join(root, 'konan-cache'),

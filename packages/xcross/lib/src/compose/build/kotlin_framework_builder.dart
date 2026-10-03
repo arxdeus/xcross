@@ -287,7 +287,7 @@ final class KotlinFrameworkBuilder<T extends PlatformHostInterface> {
         await runner.host.fileSystem
             .directory(p.dirname(destination))
             .create(recursive: true);
-        await entity.copy(destination);
+        await entity.copy(runner.host.fileSystem.file(destination).path);
       } else {
         throw XcrossError(
           'refusing to copy link from Kotlin framework: ${entity.path}',

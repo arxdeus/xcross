@@ -807,7 +807,13 @@ final class ComposeFixture {
   ComposeToolchain get toolchain => ComposeToolchain(
     log: fixtureLog,
     target: fixtureTarget(host, simulator: simulator),
-    runner: ProcessRunner(log: fixtureLog, host.host),
+    runner: ProcessRunner(
+      log: fixtureLog,
+      host.host,
+      stdinStream: const Stream<List<int>>.empty(),
+      stdoutSink: stdout,
+      stderrSink: stderr,
+    ),
     kotlinHome: kotlinHome,
     konanCache: konanCache,
     konancExecutable: host.konancExecutable(kotlinHome),

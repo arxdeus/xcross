@@ -21,9 +21,6 @@ typedef ComposeSignSimulator = Future<void> Function(String appPath);
 typedef ComposeRenameDirectory =
     Future<Directory> Function(Directory source, String newPath);
 
-Future<Directory> _renameDirectoryDefault(Directory source, String newPath) =>
-    source.rename(newPath);
-
 Future<void> _copyDirectoryNoSymlinks(
   Directory source,
   Directory destination,
@@ -37,7 +34,7 @@ Future<void> _copyDirectoryNoSymlinks(
       await _copyDirectoryNoSymlinks(entity, files.directory(target), files);
     } else if (entity is File) {
       await files.directory(p.dirname(target)).create(recursive: true);
-      await entity.copy(target);
+      await entity.copy(files.file(target).path);
     }
   }
 }
@@ -50,7 +47,8 @@ final class ComposeAppAssembler<T extends PlatformHostInterface> {
         target.host.fileSystem,
       )),
       _makeExecutable = runner.makeExecutable,
-      _renameDirectory = _renameDirectoryDefault,
+      _renameDirectory = ((source, newPath) =>
+          source.rename(target.host.fileSystem.directory(newPath).path)),
       _finishBundle = ((path) => target.finishBundle(path, runner));
   ComposeAppAssembler.withSeams(
     this.target,
@@ -68,7 +66,10 @@ final class ComposeAppAssembler<T extends PlatformHostInterface> {
              target.host.fileSystem,
            )),
        _makeExecutable = makeExecutable ?? runner.makeExecutable,
-       _renameDirectory = renameDirectory ?? _renameDirectoryDefault,
+       _renameDirectory =
+           renameDirectory ??
+           ((source, newPath) =>
+               source.rename(target.host.fileSystem.directory(newPath).path)),
        _finishBundle =
            finishBundle ?? ((path) => target.finishBundle(path, runner));
 
@@ -195,7 +196,7 @@ final class ComposeAppAssembler<T extends PlatformHostInterface> {
     ).read(project.root, project.appName, appDir: project.swiftAppDir);
     final capabilities = AscCapabilities.forEntitlements(declared ?? const {});
     final runnerDest = p.join(stagingPath, 'Runner');
-    await runner.copy(runnerDest);
+    await runner.copy(target.host.fileSystem.file(runnerDest).path);
     await target.host.fileSystem
         .file(p.join(stagingPath, 'Info.plist'))
         .writeAsString(

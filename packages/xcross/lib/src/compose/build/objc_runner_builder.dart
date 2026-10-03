@@ -92,7 +92,7 @@ final class ObjcRunnerBuilder<T extends PlatformHostInterface> {
       '-platform_version',
       toolchain.target.linkerPlatform,
       _iosMinimumVersion,
-      _sdkVersion(iphoneSdk) ?? composeDefaultSdkVersion,
+      toolchain.target.sdkVersion(iphoneSdk) ?? composeDefaultSdkVersion,
       '-syslibroot',
       iphoneSdk,
       '-o',
@@ -186,16 +186,6 @@ String _iphoneSdk<T extends PlatformHostInterface>(
   throw XcrossError(
     '${toolchain.target.buildPlatform.sdkName} SDK not found at ${toolchain.darwinSdkPath}',
   );
-}
-
-String? _sdkVersion(String sdkPath) {
-  final name = p.basenameWithoutExtension(sdkPath);
-  final prefix = name.startsWith('iPhoneSimulator')
-      ? 'iPhoneSimulator'
-      : 'iPhoneOS';
-  if (!name.startsWith(prefix)) return null;
-  final version = name.substring(prefix.length);
-  return version.isEmpty ? null : version;
 }
 
 void _validateFramework(

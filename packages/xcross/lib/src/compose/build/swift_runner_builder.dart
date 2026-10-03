@@ -114,7 +114,7 @@ final class SwiftRunnerBuilder<T extends PlatformHostInterface> {
       '-Xlinker',
       _iosMinimumVersion,
       '-Xlinker',
-      _sdkVersion(iphoneSdk) ?? composeDefaultSdkVersion,
+      toolchain.target.sdkVersion(iphoneSdk) ?? composeDefaultSdkVersion,
       // Same non-Apple-clang gap as above, one layer further in: Apple
       // clang's Darwin driver also auto-links the platform's compiler-rt
       // static archive (libclang_rt.ios.a, which provides
@@ -165,20 +165,6 @@ String _iphoneSdk<T extends PlatformHostInterface>(
   throw XcrossError(
     '${toolchain.target.buildPlatform.sdkName} SDK not found at ${toolchain.darwinSdkPath}',
   );
-}
-
-/// The SDK version suffix off an `iPhoneOS<version>.sdk` leaf name, or null
-/// for a bare `iPhoneOS.sdk` with no version in its name. Duplicated from
-/// objc_runner_builder.dart's identical helper rather than shared, to keep
-/// each runner builder file self-contained.
-String? _sdkVersion(String sdkPath) {
-  final name = p.basenameWithoutExtension(sdkPath);
-  final prefix = name.startsWith('iPhoneSimulator')
-      ? 'iPhoneSimulator'
-      : 'iPhoneOS';
-  if (!name.startsWith(prefix)) return null;
-  final version = name.substring(prefix.length);
-  return version.isEmpty ? null : version;
 }
 
 /// `libclang_rt.ios.a` under

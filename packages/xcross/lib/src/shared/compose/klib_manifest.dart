@@ -11,7 +11,7 @@ final class KlibManifestReader {
   Map<String, String> read(String path) {
     String? text;
     if (files.file(path).existsSync()) {
-      final input = InputFileStream(path);
+      final input = InputFileStream(files.file(path).path);
       try {
         final archive = ZipDecoder().decodeStream(input);
         for (final entry in archive) {

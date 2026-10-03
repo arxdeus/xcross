@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:path/path.dart' as p;
 import 'package:xcross/src/compose/build/framework_build_stamp.dart';
 import 'package:xcross/src/compose/compose.dart';
 import 'package:xcross/src/compose/watch/kotlin_source_watcher.dart';
@@ -54,12 +55,24 @@ final fixtureSimulatorTarget = fixtureTarget(
   ComposeTestHosts.macosArm64,
   simulator: true,
 );
-final fixtureRunner = ProcessRunner(log: fixtureLog, fixtureIPhoneTarget.host);
+final fixtureRunner = ProcessRunner(
+  log: fixtureLog,
+  fixtureIPhoneTarget.host,
+  stdinStream: const Stream<List<int>>.empty(),
+  stdoutSink: stdout,
+  stderrSink: stderr,
+);
 final fixtureTools = fixtureToolsFor(fixtureIPhoneTarget.host);
 DarwinToolchainResolver<PlatformHostInterface> fixtureToolsFor(
   PlatformHostInterface host,
 ) => DarwinToolchainResolver(
-  ProcessRunner(host, log: fixtureLog),
+  ProcessRunner(
+    host,
+    log: fixtureLog,
+    stdinStream: const Stream<List<int>>.empty(),
+    stdoutSink: stdout,
+    stderrSink: stderr,
+  ),
   const ComposeFixtureDarwinToolchainLocations(),
 );
 
@@ -124,3 +137,39 @@ final fixtureDownloader = Downloader(
 DarwinSdkRepository<PlatformHostInterface> fixtureSdkRepositoryFor(
   PlatformHostInterface host,
 ) => DarwinSdkRepository(host, log: fixtureLog);
+
+final class RemappedComposeFileSystem implements HostFileSystemInterface {
+  RemappedComposeFileSystem(this.root);
+  final String root;
+  final List<String> requests = [];
+  String resolve(String path) {
+    requests.add(path);
+    if (path == root || p.isWithin(root, path)) return path;
+    return p.join(root, p.relative(path, from: '/virtual-compose'));
+  }
+
+  @override
+  File file(String path) => File(resolve(path));
+  @override
+  Directory directory(String path) => Directory(resolve(path));
+  @override
+  Link link(String path) => Link(resolve(path));
+  @override
+  void makeExecutable(String path) => throw UnsupportedError('not expected');
+  @override
+  void setPermissions(String path, int mode) =>
+      throw UnsupportedError('not expected');
+  @override
+  Future<void> createArchiveLink(String destination, String target) =>
+      throw UnsupportedError('not expected');
+}
+
+ProcessRunner<T> fixtureProcessRunner<T extends PlatformHostInterface>(
+  T host,
+) => ProcessRunner(
+  host,
+  log: fixtureLog,
+  stdinStream: const Stream<List<int>>.empty(),
+  stdoutSink: stdout,
+  stderrSink: stderr,
+);

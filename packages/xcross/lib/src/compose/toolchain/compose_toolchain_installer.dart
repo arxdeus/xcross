@@ -171,10 +171,10 @@ final class ComposeToolchainInstaller<T extends PlatformHostInterface> {
   );
 
   Future<Directory> _rename(Directory source, String newPath) =>
-      (_renameDirectory ?? ((source, newPath) => source.rename(newPath)))(
-        source,
-        newPath,
-      );
+      (_renameDirectory ??
+      ((source, newPath) => source.rename(
+        runner.host.fileSystem.directory(newPath).path,
+      )))(source, newPath);
 
   Future<void> _defaultPatchCompilerJar(File jar) async {
     KotlinNativeJarPatcher(runner.host.fileSystem).patch(jar.path);
@@ -246,7 +246,7 @@ final class ComposeToolchainInstaller<T extends PlatformHostInterface> {
         await runner.host.fileSystem
             .directory(p.dirname(target))
             .create(recursive: true);
-        await entity.copy(target);
+        await entity.copy(runner.host.fileSystem.file(target).path);
       } else {
         throw XcrossError(
           'refusing to copy link from Kotlin/Native overlay: ${entity.path}',

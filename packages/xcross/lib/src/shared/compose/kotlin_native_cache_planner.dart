@@ -139,14 +139,7 @@ final class KotlinNativeCachePlanner {
   /// file in an unpacked klib directory (a project dependency is rewritten in
   /// place by Gradle on every change to it).
   String _contentStamp(String path) {
-    final type = (files.link(path).existsSync()
-        ? FileSystemEntityType.link
-        : files.directory(path).existsSync()
-        ? FileSystemEntityType.directory
-        : files.file(path).existsSync()
-        ? FileSystemEntityType.file
-        : FileSystemEntityType.notFound);
-    if (type == FileSystemEntityType.file) {
+    if (files.file(path).existsSync()) {
       final stat = files.file(path).statSync();
       return '${stat.size}:${stat.modified.microsecondsSinceEpoch}';
     }
@@ -160,7 +153,7 @@ final class KotlinNativeCachePlanner {
     return entries
         .map((file) {
           final stat = file.statSync();
-          return '${p.relative(file.path, from: path)}:${stat.size}:'
+          return '${p.relative(file.path, from: files.directory(path).path)}:${stat.size}:'
               '${stat.modified.microsecondsSinceEpoch}';
         })
         .join('|');

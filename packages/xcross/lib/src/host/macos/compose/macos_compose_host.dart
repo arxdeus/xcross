@@ -1,4 +1,3 @@
-
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/host/macos/compose/macos_compose_simulator_signing.dart';

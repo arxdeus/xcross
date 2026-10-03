@@ -95,7 +95,13 @@ void main() {
       for (final repository in repositories) {
         final resolver = ComposeToolchainResolver.withSeams(
           selectedTarget,
-          runner: ProcessRunner(selectedHost, log: fixtureLog),
+          runner: ProcessRunner(
+            selectedHost,
+            log: fixtureLog,
+            stdinStream: const Stream<List<int>>.empty(),
+            stdoutSink: stdout,
+            stderrSink: stderr,
+          ),
           log: fixtureLog,
           downloader: fixtureDownloader,
           sdkRepository: repository,
@@ -397,6 +403,9 @@ void main() {
                 },
             currentDarwinSdk: (_) => FakeDarwinSdk('/sdk'),
             resolveLd64Lld: (_) async => '/tools/ld64.lld',
+            runner: fixtureProcessRunner(
+              fixtureTarget(ComposeTestHosts.macosArm64).host,
+            ),
           );
 
           final toolchain = await resolver.resolve(
@@ -502,9 +511,15 @@ void main() {
     test('rejects Linux simulator capability before any probes or install', () {
       final host = LinuxHost(architecture: 'x64');
       expect(
-        () => LinuxComposeHost(
-          host,
-        ).simulatorSigning(ProcessRunner(log: fixtureLog, host)),
+        () => LinuxComposeHost(host).simulatorSigning(
+          ProcessRunner(
+            log: fixtureLog,
+            host,
+            stdinStream: const Stream<List<int>>.empty(),
+            stdoutSink: stdout,
+            stderrSink: stderr,
+          ),
+        ),
         throwsA(
           isA<XcrossError>().having(
             (error) => error.message,
@@ -519,10 +534,16 @@ void main() {
       () {
         final host = WindowsHost(architecture: 'x64');
         expect(
-          () => WindowsComposeHost(
-            host,
-            runningExecutable: '/unused-xcross',
-          ).simulatorSigning(ProcessRunner(log: fixtureLog, host)),
+          () => WindowsComposeHost(host, runningExecutable: '/unused-xcross')
+              .simulatorSigning(
+                ProcessRunner(
+                  log: fixtureLog,
+                  host,
+                  stdinStream: const Stream<List<int>>.empty(),
+                  stdoutSink: stdout,
+                  stderrSink: stderr,
+                ),
+              ),
           throwsA(
             isA<XcrossError>().having(
               (error) => error.message,
@@ -654,6 +675,9 @@ void main() {
             currentDarwinSdk: (_) => null,
             resolveLd64Lld: (_) async =>
                 throw XcrossError('No ld64.lld that can link for iOS.'),
+            runner: fixtureProcessRunner(
+              fixtureTarget(ComposeTestHosts.linuxX64).host,
+            ),
           );
 
           final problems = await resolver.problems(
@@ -864,6 +888,9 @@ void main() {
           resolveLd64Lld: (_) async =>
               throw XcrossError('No ld64.lld that can link for iOS.'),
           installer: installer,
+          runner: fixtureProcessRunner(
+            fixtureTarget(ComposeTestHosts.linuxX64).host,
+          ),
         );
 
         await expectLater(
@@ -1845,6 +1872,9 @@ ComposeToolchainResolver _resolverWithPreflight({
   resolveLd64Lld: (_) async => p.join(home, 'ld64.lld'),
   installer: installer,
   downloader: fixtureDownloader,
+  runner: fixtureProcessRunner(
+    (target ?? fixtureTarget(host ?? ComposeTestHosts.linuxX64)).host,
+  ),
 );
 
 final class FakeDarwinSdk implements ComposeDarwinSdk {

@@ -108,7 +108,7 @@ final class KotlinNativeJarPatcher {
       }
 
       // Rebuild the archive with patched entries, streaming to a temp file.
-      final output = OutputFileStream(tmpPath);
+      final output = OutputFileStream(files.file(tmpPath).path);
       final encoder = ZipEncoder();
       encoder.startEncode(output);
       var didPatch = false;
@@ -172,7 +172,7 @@ final class KotlinNativeJarPatcher {
       output.closeSync();
 
       // Atomic replace.
-      files.file(tmpPath).renameSync(jarPath);
+      files.file(tmpPath).renameSync(files.file(jarPath).path);
       return true;
     } catch (_) {
       final tmp = files.file(tmpPath);

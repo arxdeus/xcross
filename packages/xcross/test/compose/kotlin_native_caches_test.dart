@@ -11,6 +11,45 @@ import 'package:xcross/src/errors.dart';
 import 'support/compose_platforms.dart';
 
 void main() {
+  test('packed klib manifest uses selected remapped file path', () {
+    final root = Directory.systemTemp.createTempSync('compose-remapped-klib-');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final files = RemappedComposeFileSystem(root.path);
+    final bytes = utf8.encode('unique_name=selected.library\ndepends=stdlib\n');
+    final archive = Archive()
+      ..addFile(ArchiveFile('default/manifest', bytes.length, bytes));
+    files.file('/virtual-compose/selected.klib')
+      ..createSync(recursive: true)
+      ..writeAsBytesSync(ZipEncoder().encode(archive));
+    expect(
+      KlibManifestReader(files).read('/virtual-compose/selected.klib'),
+      containsPair('unique_name', 'selected.library'),
+    );
+  });
+
+  test('packed klib symlinks retain file content stamps in cache planning', () {
+    final fixture = ComposeFixture.create();
+    addTearDown(fixture.dispose);
+    final bytes = utf8.encode(
+      'unique_name=org.example:lib-a\ndepends=stdlib org.jetbrains.kotlin.native.platform.Foundation\n',
+    );
+    final archive = Archive()
+      ..addFile(ArchiveFile('default/manifest', bytes.length, bytes));
+    final packed = File(p.join(fixture.temp.path, 'packed.klib'))
+      ..writeAsBytesSync(ZipEncoder().encode(archive));
+    Directory(fixture.libA).deleteSync(recursive: true);
+    Link(fixture.libA).createSync(packed.path);
+    final first = fixture.plan().libraries.singleWhere(
+      (node) => node.uniqueName == 'org.example:lib-a',
+    );
+    expect(first.path, fixture.libA);
+    packed.writeAsBytesSync([...packed.readAsBytesSync(), 0]);
+    final second = fixture.plan().libraries.singleWhere(
+      (node) => node.uniqueName == 'org.example:lib-a',
+    );
+    expect(second.cacheRoot, isNot(first.cacheRoot));
+  });
+
   test(
     'simulator cache plan selects simulator platform and compile target',
     () async {
@@ -591,6 +630,9 @@ final class ComposeFixture {
       log: fixtureLog,
       (simulator ? ComposeTestHosts.macosArm64 : ComposeTestHosts.linuxX64)
           .host,
+      stdinStream: const Stream<List<int>>.empty(),
+      stdoutSink: stdout,
+      stderrSink: stderr,
     ),
     kotlinHome: kotlinHome,
     konanCache: p.join(temp.path, 'konan-cache'),

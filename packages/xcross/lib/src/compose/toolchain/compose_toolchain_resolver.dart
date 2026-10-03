@@ -66,7 +66,7 @@ final class ComposeToolchainResolver<T extends PlatformHostInterface> {
     ComposeTarget<T> target, {
     required Log log,
     required Downloader downloader,
-    ProcessRunner<T>? runner,
+    required ProcessRunner<T> runner,
     DarwinSdkRepository<T>? sdkRepository,
     String? cacheRoot,
     ComposeWhich? which,
@@ -75,7 +75,14 @@ final class ComposeToolchainResolver<T extends PlatformHostInterface> {
     ResolveLd64Lld? resolveLd64Lld,
     ComposeToolchainInstaller<T>? installer,
   }) {
-    final selectedRunner = runner ?? ProcessRunner(target.host, log: log);
+    final selectedRunner = runner;
+    if (!identical(target.host, runner.host) ||
+        !identical(log, runner.log) ||
+        !identical(log, downloader.log)) {
+      throw ArgumentError(
+        'Compose resolver effects must share the injected host and logger.',
+      );
+    }
     if (sdkRepository != null &&
         (!identical(sdkRepository.host, target.host) ||
             !identical(sdkRepository.log, log))) {
@@ -131,10 +138,9 @@ final class ComposeToolchainResolver<T extends PlatformHostInterface> {
     required CurrentDarwinSdk currentDarwinSdk,
     required ResolveLd64Lld resolveLd64Lld,
     required ComposeToolchainInstaller<T> installer,
-    ProcessRunner<T>? runner,
+    required this.runner,
     this.cacheRoot,
-  }) : runner = runner ?? ProcessRunner(target.host, log: log),
-       _which = which,
+  }) : _which = which,
        _run = run,
        _currentDarwinSdk = currentDarwinSdk,
        _resolveLd64Lld = resolveLd64Lld,

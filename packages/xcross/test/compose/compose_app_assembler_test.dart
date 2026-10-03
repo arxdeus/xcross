@@ -28,7 +28,13 @@ void main() {
       final app =
           await ComposeAppAssembler.withSeams(
             fixtureSimulatorTarget,
-            ProcessRunner(log: fixtureLog, fixtureSimulatorTarget.host),
+            ProcessRunner(
+              log: fixtureLog,
+              fixtureSimulatorTarget.host,
+              stdinStream: const Stream<List<int>>.empty(),
+              stdoutSink: stdout,
+              stderrSink: stderr,
+            ),
             log: fixtureLog,
             finishBundle: (path) async {
               expect(File(p.join(path, 'Runner')).existsSync(), isTrue);
@@ -107,7 +113,13 @@ void main() {
       await expectLater(
         ComposeAppAssembler.withSeams(
           fixtureSimulatorTarget,
-          ProcessRunner(log: fixtureLog, fixtureSimulatorTarget.host),
+          ProcessRunner(
+            log: fixtureLog,
+            fixtureSimulatorTarget.host,
+            stdinStream: const Stream<List<int>>.empty(),
+            stdoutSink: stdout,
+            stderrSink: stderr,
+          ),
           log: fixtureLog,
           finishBundle: (_) async => throw StateError('signing failed'),
         ).assemble(
@@ -574,7 +586,7 @@ Future<void> main() async {
   final host = LinuxHost(architecture: 'x64');
   final target = IPhoneComposeTarget(IPhoneTarget(host), LinuxComposeHost(host));
   final log = Log(output: StreamLogOutput(stdout: stdout, stderr: stderr, supportsAnsi: false, terminalColumns: () => 80));
-  await ComposeAppAssembler(target, ProcessRunner(host, log: log), log: log).assemble(
+  await ComposeAppAssembler(target, ProcessRunner(host, log: log, stdinStream: const Stream<List<int>>.empty(), stdoutSink: stdout, stderrSink: stderr), log: log).assemble(
     project: KmpProject(
       root: r'${fixture.root}',
       modulePath: r'${p.join(fixture.root, 'shared')}',

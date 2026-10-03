@@ -51,7 +51,9 @@ final class AppleToolchainStager<T extends PlatformHostInterface> {
       for (final name in _compilerRtLibraryNames) {
         final source = runner.host.fileSystem.file(p.join(darwinRt, name));
         if (source.existsSync()) {
-          source.copySync(p.join(stagedDarwin.path, name));
+          source.copySync(
+            runner.host.fileSystem.file(p.join(stagedDarwin.path, name)).path,
+          );
         }
       }
     }

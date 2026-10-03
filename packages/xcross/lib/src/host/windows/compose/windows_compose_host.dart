@@ -75,7 +75,10 @@ final class WindowsComposeHost<T extends WindowsHostInterface>
     String variable,
     String runningExecutable,
     void Function(String) makeExecutable,
-  ) => host.fileSystem.file(runningExecutable).copy(path).then((_) {});
+  ) => host.fileSystem
+      .file(runningExecutable)
+      .copy(host.fileSystem.file(path).path)
+      .then((_) {});
   @override
   String resolveAppleTool(
     String directory,

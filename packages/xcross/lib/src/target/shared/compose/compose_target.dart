@@ -17,6 +17,7 @@ abstract interface class ComposeTarget<T extends PlatformHostInterface> {
   String get compilerRtName;
   String get targetTriple;
   String get linkerPlatform;
+  String? sdkVersion(String sdkPath);
   String runnerDirectory(String projectRoot, String language);
   String generatedRunnerDirectory(String projectRoot);
   List<String> gradleArguments(String kotlinHome);
@@ -47,6 +48,14 @@ abstract class BaseComposeTarget<T extends PlatformHostInterface>
       buildPlatform.buildTriple(composeMinimumIosVersion);
   @override
   String get linkerPlatform => buildPlatform.linkerPlatform;
+  @override
+  String? sdkVersion(String sdkPath) {
+    final name = p.basenameWithoutExtension(sdkPath);
+    final prefix = buildPlatform.platformName;
+    if (!name.startsWith(prefix)) return null;
+    final version = name.substring(prefix.length);
+    return version.isEmpty ? null : version;
+  }
 }
 
 Iterable<String> primaryResourceCandidates(

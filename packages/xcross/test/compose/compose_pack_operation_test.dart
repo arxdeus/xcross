@@ -35,7 +35,13 @@ void main() {
       files.requests.clear();
       final operation = ComposePackOperation.withSeams(
         target,
-        runner: ProcessRunner(host, log: fixtureLog),
+        runner: ProcessRunner(
+          host,
+          log: fixtureLog,
+          stdinStream: const Stream<List<int>>.empty(),
+          stdoutSink: stdout,
+          stderrSink: stderr,
+        ),
         tools: fixtureToolsFor(host),
         sdkRepository: fixtureSdkRepositoryFor(host),
         log: fixtureLog,
@@ -43,10 +49,8 @@ void main() {
         currentDirectory: () => '/virtual-compose',
         detectProject: (path, {bundleId, appName, gradleTarget = 'iosArm64'}) =>
             project,
-        packProject: ({required project, required options}) async => PackResult(
-          outputPath: 'Demo.app',
-          bundleId: project.bundleId,
-        ),
+        packProject: ({required project, required options}) async =>
+            PackResult(outputPath: 'Demo.app', bundleId: project.bundleId),
       );
       await operation.pack(options: const ComposeBuildOptions());
       expect(app.existsSync(), isFalse);
@@ -98,6 +102,9 @@ kotlin {
             runner: ProcessRunner(
               log: fixtureLog,
               (simulator ? fixtureSimulatorTarget : fixtureIPhoneTarget).host,
+              stdinStream: const Stream<List<int>>.empty(),
+              stdoutSink: stdout,
+              stderrSink: stderr,
             ),
             sdkRepository: fixtureSdkRepositoryFor(
               (simulator ? fixtureSimulatorTarget : fixtureIPhoneTarget).host,
@@ -152,6 +159,9 @@ kotlin {
           runner: ProcessRunner(
             log: fixtureLog,
             (simulator ? fixtureSimulatorTarget : fixtureIPhoneTarget).host,
+            stdinStream: const Stream<List<int>>.empty(),
+            stdoutSink: stdout,
+            stderrSink: stderr,
           ),
           sdkRepository: fixtureSdkRepositoryFor(
             (simulator ? fixtureSimulatorTarget : fixtureIPhoneTarget).host,
@@ -205,7 +215,13 @@ kotlin {
         final operation = ComposePackOperation.withSeams(
           fixtureSimulatorTarget,
           log: fixtureLog,
-          runner: ProcessRunner(log: fixtureLog, fixtureSimulatorTarget.host),
+          runner: ProcessRunner(
+            log: fixtureLog,
+            fixtureSimulatorTarget.host,
+            stdinStream: const Stream<List<int>>.empty(),
+            stdoutSink: stdout,
+            stderrSink: stderr,
+          ),
           tools: fixtureToolsFor(fixtureSimulatorTarget.host),
           sdkRepository: fixtureSdkRepositoryFor(fixtureSimulatorTarget.host),
           downloader: fixtureDownloader,
@@ -256,7 +272,13 @@ kotlin {
       final operation = ComposePackOperation.withSeams(
         fixtureIPhoneTarget,
         log: fixtureLog,
-        runner: ProcessRunner(log: fixtureLog, fixtureIPhoneTarget.host),
+        runner: ProcessRunner(
+          log: fixtureLog,
+          fixtureIPhoneTarget.host,
+          stdinStream: const Stream<List<int>>.empty(),
+          stdoutSink: stdout,
+          stderrSink: stderr,
+        ),
         tools: fixtureTools,
         sdkRepository: fixtureSdkRepositoryFor(fixtureIPhoneTarget.host),
         downloader: fixtureDownloader,
@@ -293,7 +315,13 @@ kotlin {
       final operation = ComposePackOperation.withSeams(
         fixtureIPhoneTarget,
         log: fixtureLog,
-        runner: ProcessRunner(log: fixtureLog, fixtureIPhoneTarget.host),
+        runner: ProcessRunner(
+          log: fixtureLog,
+          fixtureIPhoneTarget.host,
+          stdinStream: const Stream<List<int>>.empty(),
+          stdoutSink: stdout,
+          stderrSink: stderr,
+        ),
         tools: fixtureTools,
         sdkRepository: fixtureSdkRepositoryFor(fixtureIPhoneTarget.host),
         downloader: fixtureDownloader,
@@ -333,7 +361,13 @@ kotlin {
       final operation = ComposePackOperation.withSeams(
         fixtureIPhoneTarget,
         log: fixtureLog,
-        runner: ProcessRunner(log: fixtureLog, fixtureIPhoneTarget.host),
+        runner: ProcessRunner(
+          log: fixtureLog,
+          fixtureIPhoneTarget.host,
+          stdinStream: const Stream<List<int>>.empty(),
+          stdoutSink: stdout,
+          stderrSink: stderr,
+        ),
         tools: fixtureTools,
         sdkRepository: fixtureSdkRepositoryFor(fixtureIPhoneTarget.host),
         downloader: fixtureDownloader,
@@ -589,28 +623,3 @@ final _toolchain = ComposeToolchain(
   darwinSdkPath: '/sdk',
   darwinSdkBundle: '/sdk-bundle',
 );
-
-final class RemappedComposeFileSystem implements HostFileSystemInterface {
-  RemappedComposeFileSystem(this.root);
-  final String root;
-  final List<String> requests = [];
-  String resolve(String path) {
-    requests.add(path);
-    return p.join(root, p.relative(path, from: '/virtual-compose'));
-  }
-
-  @override
-  File file(String path) => File(resolve(path));
-  @override
-  Directory directory(String path) => Directory(resolve(path));
-  @override
-  Link link(String path) => Link(resolve(path));
-  @override
-  void makeExecutable(String path) => throw UnsupportedError('not expected');
-  @override
-  void setPermissions(String path, int mode) =>
-      throw UnsupportedError('not expected');
-  @override
-  Future<void> createArchiveLink(String destination, String target) =>
-      throw UnsupportedError('not expected');
-}
