@@ -1,4 +1,4 @@
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:darwin_sdk_kit/src/host/shared/darwin_toolchain_locations.dart';
 
 final class LinuxDarwinToolchainLocations

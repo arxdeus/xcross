@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:darwin_sdk_kit/src/errors.dart';
 import 'package:darwin_sdk_kit/src/host/shared/darwin_toolchain_locations.dart';
 
@@ -398,7 +398,7 @@ final class DarwinToolchainResolver<T extends PlatformHostInterface> {
     // only an outright crash disqualifies a candidate.
     if (ProcessRunner.crashed(result.exitCode)) {
       return _rememberDarwinDriver(
-        clang,
+        key,
         'crashed on a Darwin driver run: '
         '${ProcessRunner.describeExitCode(result.exitCode)}',
       );

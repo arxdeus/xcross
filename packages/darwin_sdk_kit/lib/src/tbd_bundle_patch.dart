@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:darwin_sdk_kit/src/tbd_architecture_rewrite.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;

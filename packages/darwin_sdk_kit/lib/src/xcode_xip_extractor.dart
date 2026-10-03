@@ -6,7 +6,7 @@
 /// fixtures matching the documented wire formats.
 library;
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:darwin_sdk_kit/src/cpio_reader.dart';
 import 'package:darwin_sdk_kit/src/errors.dart';
 import 'package:darwin_sdk_kit/src/pbzx_reader.dart';

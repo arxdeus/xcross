@@ -569,6 +569,14 @@ void main() {
       expect(
         await resolver.probeDarwinDriver(
           'same-clang',
+          sysroot: 'bad-sdk',
+          runProcess: run,
+        ),
+        contains('crashed'),
+      );
+      expect(
+        await resolver.probeDarwinDriver(
+          'same-clang',
           sysroot: 'good-sdk',
           runProcess: run,
         ),
@@ -907,6 +915,8 @@ final class _FixtureFileSystem implements HostFileSystemInterface {
   Link link(String path) => Link(_path(path));
   @override
   void makeExecutable(String path) {}
+  @override
+  void setPermissions(String path, int mode) {}
   @override
   Future<void> createArchiveLink(String destination, String target) =>
       link(destination).create(target);
