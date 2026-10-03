@@ -57,10 +57,12 @@ Future<void> _buildWithSystemCc({
     hostOS: OS.current,
     hostArchitecture: Architecture.current,
   );
-  final cc = _resolveSystemCc();
+  final macOSCompiler = os == OS.macOS ? await resolveMacOSCompiler() : null;
+  final cc = macOSCompiler?.executable ?? _resolveSystemCc();
 
   final args = <String>[
     ...targetFlags,
+    if (macOSCompiler != null) ...macOSCompiler.flags,
     '-shared',
     '-fPIC',
     '-O2',
@@ -96,6 +98,50 @@ Future<void> _buildWithSystemCc({
   );
   output.dependencies.add(source);
   output.dependencies.add(posixSource);
+}
+
+Future<({String executable, List<String> flags})> resolveMacOSCompiler({
+  Map<String, String>? environment,
+  Future<ProcessResult> Function(
+        String,
+        List<String>, {
+        Map<String, String>? environment,
+        required bool includeParentEnvironment,
+      })
+      runProcess =
+      Process.run,
+}) async {
+  final nativeEnvironment = Map<String, String>.of(
+    environment ?? Platform.environment,
+  )..remove('SDKROOT');
+  Future<String> resolve(List<String> arguments) async {
+    final args = ['--sdk', 'macosx', ...arguments];
+    final result = await runProcess(
+      '/usr/bin/xcrun',
+      args,
+      environment: nativeEnvironment,
+      includeParentEnvironment: false,
+    );
+    if (result.exitCode != 0) {
+      throw ProcessException(
+        '/usr/bin/xcrun',
+        args,
+        result.stderr.toString(),
+        result.exitCode,
+      );
+    }
+    final path = result.stdout.toString().trim();
+    if (path.isEmpty) throw StateError('xcrun returned an empty native path.');
+    return path;
+  }
+
+  return (
+    executable: await resolve(['--find', 'clang']),
+    flags: [
+      '-isysroot',
+      await resolve(['--show-sdk-path']),
+    ],
+  );
 }
 
 /// Prefer absolute system compilers that are not swiftly shims.
