@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
@@ -9,6 +10,7 @@ import 'sdk_log_test_support.dart';
 
 void main() {
   late Directory tmp;
+  late DarwinToolchainTestIo io;
   late MacOSHost host;
   late Log log;
   late DarwinToolchainResolver<MacOSHost> resolver;
@@ -16,12 +18,22 @@ void main() {
     tmp = await Directory.systemTemp.createTemp('xcross-sdk-fixture-');
     host = MacOSHost(temporaryDirectory: tmp.path);
     log = sdkTestLog();
+    io = DarwinToolchainTestIo();
     resolver = DarwinToolchainResolver(
-      ProcessRunner(host, log: log),
+      ProcessRunner(
+        host,
+        log: log,
+        stdinStream: io.input,
+        stdoutSink: io.output,
+        stderrSink: io.error,
+      ),
       MacOSDarwinToolchainLocations(host),
     );
   });
-  tearDown(() => tmp.delete(recursive: true));
+  tearDown(() async {
+    await io.close();
+    await tmp.delete(recursive: true);
+  });
 
   group('probeDarwinDriver', () {
     test('accepts a driver that only misses its input file', () async {
@@ -97,8 +109,16 @@ void main() {
     });
 
     test('does not share version cache across resolver instances', () async {
+      final otherIo = DarwinToolchainTestIo();
+      addTearDown(otherIo.close);
       final other = DarwinToolchainResolver(
-        ProcessRunner(host, log: log),
+        ProcessRunner(
+          host,
+          log: log,
+          stdinStream: otherIo.input,
+          stdoutSink: otherIo.output,
+          stderrSink: otherIo.error,
+        ),
         MacOSDarwinToolchainLocations(host),
       );
       expect(
@@ -423,4 +443,25 @@ final class FixtureFileSystem implements HostFileSystemInterface {
   @override
   Future<void> createArchiveLink(String destination, String target) =>
       link(destination).create(target);
+}
+
+final class DarwinToolchainTestIo {
+  DarwinToolchainTestIo() {
+    outputController.stream.listen((_) {});
+    errorController.stream.listen((_) {});
+    output = IOSink(outputController.sink);
+    error = IOSink(errorController.sink);
+  }
+
+  final Stream<List<int>> input = const Stream<List<int>>.empty();
+  final StreamController<List<int>> outputController =
+      StreamController<List<int>>();
+  final StreamController<List<int>> errorController =
+      StreamController<List<int>>();
+  late final IOSink output;
+  late final IOSink error;
+
+  Future<void> close() async {
+    await Future.wait([output.close(), error.close()]);
+  }
 }

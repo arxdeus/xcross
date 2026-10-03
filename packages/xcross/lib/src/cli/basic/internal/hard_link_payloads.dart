@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:meta/meta.dart';
 
 /// `(dev, ino)` identity of a cpio hard-link group.
