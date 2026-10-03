@@ -21,11 +21,13 @@ SetupRequirementServices _services(
   DarwinToolchainResolver toolchain,
   Pymd pymd,
   HostPrivilegesInterface privileges,
+  SetupConsole console,
 ) => SetupRequirementServices(
   host: host,
   runner: runner,
   toolchain: toolchain,
   privileges: privileges,
+  console: console,
   resolvePipx: pymd.resolvePipx,
   ensurePymdInstalled: pymd.ensureInstalled,
 );
@@ -36,10 +38,11 @@ HostOperations windowsHostOperations(
   DarwinToolchainResolver toolchain,
   Pymd pymd,
   HostPrivilegesInterface privileges,
+  SetupConsole console,
 ) => HostOperations(
   setupScript: WindowsSetupScript(host, runner),
   setupRequirements: WindowsSetupRequirements(
-    _services(host, runner, toolchain, pymd, privileges),
+    _services(host, runner, toolchain, pymd, privileges, console),
   ),
   swiftInstallGuidance: SwiftRequirement.installHint('windows'),
   update: WindowsUpdatePolicy(host, privileges),
@@ -57,10 +60,11 @@ HostOperations linuxHostOperations(
   DarwinToolchainResolver toolchain,
   Pymd pymd,
   HostPrivilegesInterface privileges,
+  SetupConsole console,
 ) => HostOperations(
   setupScript: PosixSetupScript(host),
   setupRequirements: LinuxSetupRequirements(
-    _services(host, runner, toolchain, pymd, privileges),
+    _services(host, runner, toolchain, pymd, privileges, console),
   ),
   swiftInstallGuidance: SwiftRequirement.installHint('linux'),
   update: LinuxUpdatePolicy(host, runner, privileges),
@@ -74,10 +78,11 @@ HostOperations macOSHostOperations(
   DarwinToolchainResolver toolchain,
   Pymd pymd,
   HostPrivilegesInterface privileges,
+  SetupConsole console,
 ) => HostOperations(
   setupScript: PosixSetupScript(host),
   setupRequirements: MacOSSetupRequirements(
-    _services(host, runner, toolchain, pymd, privileges),
+    _services(host, runner, toolchain, pymd, privileges, console),
   ),
   swiftInstallGuidance: SwiftRequirement.installHint('macos'),
   update: MacOSUpdatePolicy(host, runner, privileges),

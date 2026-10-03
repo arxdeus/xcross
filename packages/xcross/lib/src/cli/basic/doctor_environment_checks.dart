@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:apple_developer_kit/apple_developer_kit.dart';
+import 'package:apple_developer_kit/apple_developer_kit_shared.dart';
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';

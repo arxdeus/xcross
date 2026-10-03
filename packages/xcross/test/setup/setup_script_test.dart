@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:cli_kit/cli_kit.dart';
 
 import 'package:crypto/crypto.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/errors.dart';
@@ -21,13 +24,13 @@ void main() {
     host = LinuxHost(
       environment: {'XDG_CACHE_HOME': temporary.path, 'HOME': temporary.path},
     );
-    runner = ProcessRunner(host, log: fixtureLog());
+    runner = fixtureRunner(host, log: fixtureLog());
   });
   tearDown(() => temporary.deleteSync(recursive: true));
 
   test('Windows invokes PowerShell with exact script flags', () async {
     final powershell = File(p.join(temporary.path, 'powershell'))..createSync();
-    final windowsRunner = ProcessRunner(
+    final windowsRunner = fixtureRunner(
       LinuxHost(environment: {'PATH': temporary.path}),
       log: fixtureLog(),
     );
@@ -47,7 +50,7 @@ void main() {
     WindowsSetupScript(
       host,
       runner,
-    ).replace(_SharingFailure(temporaryFile), destination);
+    ).replace(FixtureSharingFailure(temporaryFile), destination);
     expect(destination.readAsStringSync(), 'new');
     expect(
       temporary.listSync().where((entry) => entry.path.endsWith('.bak')),
@@ -62,7 +65,7 @@ void main() {
       ..writeAsStringSync('new');
     expect(
       () => WindowsSetupScript(host, runner).replace(
-        _SharingFailure(temporaryFile, failPromotion: true),
+        FixtureSharingFailure(temporaryFile, failPromotion: true),
         destination,
       ),
       throwsA(isA<FileSystemException>()),
@@ -81,6 +84,8 @@ void main() {
     String? executable;
     List<String>? arguments;
     final manager = SetupScriptManager(
+      createHttpClient: () =>
+          throw StateError('unexpected fixture HTTP client'),
       source: script.path,
       host: host,
       runner: runner,
@@ -103,6 +108,8 @@ void main() {
       final bytes = utf8.encode('#!/bin/sh\necho setup\n');
       var downloads = 0;
       final manager = SetupScriptManager(
+        createHttpClient: () =>
+            throw StateError('unexpected fixture HTTP client'),
         source: 'https://example.com/setup.sh',
         host: host,
         runner: runner,
@@ -127,6 +134,8 @@ void main() {
     final bytes = utf8.encode('echo setup');
     var downloads = 0;
     final manager = SetupScriptManager(
+      createHttpClient: () =>
+          throw StateError('unexpected fixture HTTP client'),
       source: 'https://example.com/setup.sh',
       host: host,
       runner: runner,
@@ -155,6 +164,8 @@ void main() {
     final bytes = utf8.encode('echo setup');
     var downloads = 0;
     final manager = SetupScriptManager(
+      createHttpClient: () =>
+          throw StateError('unexpected fixture HTTP client'),
       source: 'https://example.com/setup.sh',
       host: host,
       runner: runner,
@@ -175,35 +186,104 @@ void main() {
     expect(resolved.readAsBytesSync(), bytes);
   });
 
-  test('wraps download transport failures in a user-facing error', () async {
-    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    final port = server.port;
-    await server.close(force: true);
+  test(
+    'wraps injected download transport failures and closes client',
+    () async {
+      final client = FixtureSetupHttpClient(
+        (_) async => throw http.ClientException('fixture denied'),
+      );
+      final manager = SetupScriptManager(
+        createHttpClient: () => client,
+        source: 'https://fixture.invalid/setup.sh',
+        host: host,
+        runner: runner,
+        policy: PosixSetupScript(host),
+      );
+      await expectLater(
+        manager.resolve(),
+        throwsA(
+          isA<XcrossError>().having(
+            (error) => error.message,
+            'message',
+            contains('Failed to download configured setup script from'),
+          ),
+        ),
+      );
+      expect(client.closed, isTrue);
+    },
+  );
+
+  test(
+    'uses configured HTTP client for success without native transport',
+    () async {
+      final client = FixtureSetupHttpClient(
+        (_) async => http.Response('echo fixture', 200),
+      );
+      final manager = SetupScriptManager(
+        createHttpClient: () => client,
+        source: 'https://fixture.invalid/setup.sh',
+        host: host,
+        runner: runner,
+        policy: PosixSetupScript(host),
+      );
+      expect((await manager.resolve())!.readAsStringSync(), 'echo fixture');
+      expect(client.closed, isTrue);
+    },
+  );
+
+  test('rejects injected HTTP error and closes client', () async {
+    final client = FixtureSetupHttpClient(
+      (_) async => http.Response('denied', 403),
+    );
     final manager = SetupScriptManager(
-      source: 'http://localhost:$port/setup.sh',
+      createHttpClient: () => client,
+      source: 'https://fixture.invalid/setup.sh',
       host: host,
       runner: runner,
       policy: PosixSetupScript(host),
     );
-
     await expectLater(
       manager.resolve(),
       throwsA(
         isA<XcrossError>().having(
           (error) => error.message,
           'message',
-          allOf(
-            contains('Failed to download configured setup script from'),
-            contains('/setup.sh'),
-          ),
+          contains('HTTP 403'),
         ),
       ),
     );
+    expect(client.closed, isTrue);
+  });
+
+  test('rejects injected HTTP timeout and closes client', () async {
+    final client = FixtureSetupHttpClient(
+      (_) async => throw TimeoutException('fixture timeout'),
+    );
+    final manager = SetupScriptManager(
+      createHttpClient: () => client,
+      source: 'https://fixture.invalid/setup.sh',
+      host: host,
+      runner: runner,
+      policy: PosixSetupScript(host),
+    );
+    await expectLater(
+      manager.resolve(),
+      throwsA(
+        isA<XcrossError>().having(
+          (error) => error.message,
+          'message',
+          contains('request timed out'),
+        ),
+      ),
+    );
+    expect(client.closed, isTrue);
   });
 
   test('refresh downloads content and advances the cached hash', () async {
     var payload = utf8.encode('one');
     final manager = SetupScriptManager(
+      createHttpClient: () =>
+          throw StateError('unexpected fixture HTTP client'),
       source: 'https://example.com/setup.sh',
       host: host,
       runner: runner,
@@ -222,8 +302,8 @@ void main() {
   });
 }
 
-final class _SharingFailure implements File {
-  _SharingFailure(this.file, {this.failPromotion = false});
+final class FixtureSharingFailure implements File {
+  FixtureSharingFailure(this.file, {this.failPromotion = false});
   final File file;
   final bool failPromotion;
   int attempts = 0;
@@ -240,4 +320,14 @@ final class _SharingFailure implements File {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+final class FixtureSetupHttpClient extends MockClient {
+  FixtureSetupHttpClient(super.handler);
+  bool closed = false;
+  @override
+  void close() {
+    closed = true;
+    super.close();
+  }
 }

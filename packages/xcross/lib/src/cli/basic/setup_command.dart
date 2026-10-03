@@ -1,8 +1,8 @@
 import 'package:args/command_runner.dart';
 import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:http/http.dart' as http;
 import 'package:xcross/src/cli/basic/internal/swift_requirement.dart';
 import 'package:xcross/src/setup/setup_script.dart';
-
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
 import 'package:xcross/src/shared/setup/setup_script_policy.dart';
 
@@ -12,6 +12,7 @@ import 'package:xcross/src/shared/setup/setup_script_policy.dart';
 final class SetupCommand extends Command<void> {
   SetupCommand({
     required this.host,
+    required this.createHttpClient,
     required ProcessRunner runner,
     required this.requirements,
     required this.scriptPolicy,
@@ -26,6 +27,7 @@ final class SetupCommand extends Command<void> {
   }
 
   final PlatformHostInterface host;
+  final http.Client Function() createHttpClient;
   final ProcessRunner processRunner;
   final SetupRequirements requirements;
   final SetupScriptPolicy scriptPolicy;
@@ -44,6 +46,7 @@ final class SetupCommand extends Command<void> {
   Future<void> run() async {
     final configuredScript = SetupScriptManager(
       host: host,
+      createHttpClient: createHttpClient,
       runner: processRunner,
       source: setupSource,
       policy: scriptPolicy,

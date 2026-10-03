@@ -14,9 +14,9 @@ import '../host_operations_fixtures.dart';
 
 void main() {
   late Directory fixture;
-  late _Privileges privileges;
+  late FixturePrivileges privileges;
   late ProcessRunner<LinuxHost> runner;
-  late _Processes processes;
+  late FixtureProcesses processes;
   late SetupRequirementServices services;
   late int pymdInstalls;
 
@@ -36,23 +36,27 @@ void main() {
     ]) {
       File(p.join(fixture.path, tool)).createSync();
     }
-    privileges = _Privileges();
-    processes = _Processes();
+    privileges = FixturePrivileges();
+    processes = FixtureProcesses();
     final host = LinuxHost(
       processes: processes,
       environment: {'PATH': fixture.path},
     );
-    runner = ProcessRunner(
-      host,
-      log: fixtureLog(),
-      stdinStream: const Stream.empty(),
-    );
+    runner = fixtureRunner(host, log: fixtureLog());
     pymdInstalls = 0;
     services = SetupRequirementServices(
       host: host,
       runner: runner,
       privileges: privileges,
-      toolchain: DarwinToolchainResolver(runner, _Locations(fixture.path)),
+      console: SetupConsole(
+        hasTerminal: false,
+        readLine: () => throw StateError('unexpected fixture input'),
+        output: fixtureSink(),
+      ),
+      toolchain: DarwinToolchainResolver(
+        runner,
+        FixtureLocations(fixture.path),
+      ),
       resolvePipx: () async => 'pipx',
       ensurePymdInstalled: () async {
         pymdInstalls++;
@@ -61,6 +65,64 @@ void main() {
     );
   });
   tearDown(() => fixture.deleteSync(recursive: true));
+
+  test('package-manager prompt uses only supplied console', () {
+    final unused = fixtureSink();
+    final selected = fixtureSink();
+    var reads = 0;
+    final console = SetupConsole(
+      hasTerminal: true,
+      readLine: () {
+        reads++;
+        return '2';
+      },
+      output: selected,
+    );
+    final configured = SetupRequirementServices(
+      host: services.host,
+      runner: runner,
+      privileges: privileges,
+      console: console,
+      toolchain: services.toolchain,
+      resolvePipx: services.resolvePipx,
+      ensurePymdInstalled: services.ensurePymdInstalled,
+    );
+    expect(
+      LinuxSetupRequirements(configured).promptForPackageManager([
+        LinuxPackageManager.apt,
+        LinuxPackageManager.dnf,
+      ], 'fixture selection'),
+      LinuxPackageManager.dnf,
+    );
+    expect(reads, 1);
+    expect(selected.buffer.toString(), contains('fixture selection'));
+    expect(unused.buffer.isEmpty, isTrue);
+  });
+
+  test('linker scan uses supplied mapped host filesystem', () {
+    final mapped = FixtureMappedFileSystem(fixture);
+    final bin = Directory(mapped.physical('/usr/bin'))
+      ..createSync(recursive: true);
+    File(p.join(bin.path, 'ld64.lld-22')).createSync();
+    final host = LinuxHost(fileSystem: mapped);
+    final mappedRunner = fixtureRunner(host, log: fixtureLog());
+    final configured = SetupRequirementServices(
+      host: host,
+      runner: mappedRunner,
+      privileges: privileges,
+      console: services.console,
+      toolchain: DarwinToolchainResolver(
+        mappedRunner,
+        const FixtureLocations('/usr/bin'),
+      ),
+      resolvePipx: services.resolvePipx,
+      ensurePymdInstalled: services.ensurePymdInstalled,
+    );
+    expect(LinuxSetupRequirements(configured).versionedLd64Llds(), {
+      22: '/usr/bin/ld64.lld-22',
+    });
+    expect(mapped.touched, ['/usr/bin']);
+  });
 
   test(
     'Linux installs through selected manager then verifies compilers and pipx',
@@ -128,8 +190,8 @@ void main() {
   });
 }
 
-final class _Locations implements DarwinToolchainLocationsInterface {
-  const _Locations(this.directory);
+final class FixtureLocations implements DarwinToolchainLocationsInterface {
+  const FixtureLocations(this.directory);
   final String directory;
   @override
   List<String> llvmToolDirectories() => [directory];
@@ -139,7 +201,7 @@ final class _Locations implements DarwinToolchainLocationsInterface {
   String get linkerInstallationHint => 'fixture linker';
 }
 
-final class _Processes implements HostProcessInterface {
+final class FixtureProcesses implements HostProcessInterface {
   final commands = <String>[];
   @override
   Future<Process> start(
@@ -156,7 +218,7 @@ final class _Processes implements HostProcessInterface {
     if (!isVersion && !isIndex) {
       commands.add('$executable ${arguments.join(' ')}');
     }
-    return _Child(
+    return FixtureChild(
       isIndex
           ? LinuxPackageManager.apt.packages.join('\n')
           : executable.contains('ld64.lld')
@@ -179,8 +241,8 @@ final class _Processes implements HostProcessInterface {
   }) async {}
 }
 
-final class _Child implements Process {
-  _Child(this.output);
+final class FixtureChild implements Process {
+  FixtureChild(this.output);
   final String output;
   @override
   int get pid => 1;
@@ -191,12 +253,12 @@ final class _Child implements Process {
   @override
   Stream<List<int>> get stderr => const Stream.empty();
   @override
-  IOSink get stdin => _Input();
+  IOSink get stdin => FixtureInput();
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-final class _Input implements IOSink {
+final class FixtureInput implements IOSink {
   @override
   Future<void> get done async {}
   @override
@@ -205,7 +267,7 @@ final class _Input implements IOSink {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-final class _Privileges implements HostPrivilegesInterface {
+final class FixturePrivileges implements HostPrivilegesInterface {
   int cached = 0;
   @override
   Future<void> cacheCredentials({String? manualHint}) async {

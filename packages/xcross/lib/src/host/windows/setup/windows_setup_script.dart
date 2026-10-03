@@ -37,7 +37,7 @@ final class WindowsSetupScript implements SetupScriptPolicy {
     } on FileSystemException {
       if (!destination.existsSync()) rethrow;
     }
-    final backup = File(
+    final backup = host.fileSystem.file(
       '${destination.path}.$pid.${DateTime.now().microsecondsSinceEpoch}.bak',
     );
     destination.renameSync(backup.path);

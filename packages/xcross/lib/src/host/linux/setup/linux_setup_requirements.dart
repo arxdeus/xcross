@@ -126,7 +126,7 @@ final class LinuxSetupRequirements implements SetupRequirements {
     List<LinuxPackageManager> choices,
     String reason,
   ) {
-    if (!stdin.hasTerminal) {
+    if (!services.console.hasTerminal) {
       throw XcrossError(
         '$reason\n'
         'Re-run `xcross setup` from a terminal to choose one, or install the '
@@ -135,17 +135,17 @@ final class LinuxSetupRequirements implements SetupRequirements {
       );
     }
 
-    stdout.writeln(reason);
-    stdout.writeln('Which one should xcross use?');
+    services.console.output.writeln(reason);
+    services.console.output.writeln('Which one should xcross use?');
     for (var i = 0; i < choices.length; i++) {
-      stdout.writeln(
+      services.console.output.writeln(
         '  [${i + 1}] ${choices[i].name} '
         '(${choices[i].executable})',
       );
     }
     while (true) {
-      stdout.write('Choice (1-${choices.length}): ');
-      final raw = stdin.readLineSync()?.trim();
+      services.console.output.write('Choice (1-${choices.length}): ');
+      final raw = services.console.readLine()?.trim();
       if (raw == null) {
         throw XcrossError('No package manager selected (stdin closed).');
       }
@@ -153,7 +153,7 @@ final class LinuxSetupRequirements implements SetupRequirements {
       if (choice != null && choice >= 1 && choice <= choices.length) {
         return choices[choice - 1];
       }
-      stdout.writeln(
+      services.console.output.writeln(
         'Invalid choice "$raw". Enter a number 1-${choices.length}.',
       );
     }
@@ -240,10 +240,17 @@ final class LinuxSetupRequirements implements SetupRequirements {
       return;
     }
     const stable = '/usr/local/bin/ld64.lld';
-    final existing = FileSystemEntity.typeSync(stable, followLinks: false);
+    final managedLink = host.fileSystem.link(stable);
+    final existing = managedLink.existsSync()
+        ? FileSystemEntityType.link
+        : host.fileSystem.file(stable).existsSync()
+        ? FileSystemEntityType.file
+        : host.fileSystem.directory(stable).existsSync()
+        ? FileSystemEntityType.directory
+        : FileSystemEntityType.notFound;
     if (existing != FileSystemEntityType.notFound &&
         (existing != FileSystemEntityType.link ||
-            !p.basename(Link(stable).targetSync()).startsWith('ld64.lld-'))) {
+            !p.basename(managedLink.targetSync()).startsWith('ld64.lld-'))) {
       runner.log.logWarn(
         '$stable is not managed by xcross; leaving it alone. '
         'Put ${versioned[newest]} ahead of it on PATH to use lld $newest.',
@@ -260,13 +267,18 @@ final class LinuxSetupRequirements implements SetupRequirements {
   }
 
   Map<int, String> versionedLd64Llds() {
-    final bin = Directory('/usr/bin');
+    final bin = host.fileSystem.directory('/usr/bin');
     if (!bin.existsSync()) return const {};
     final found = <int, String>{};
     for (final entry in bin.listSync()) {
       if (entry is! File && entry is! Link) continue;
       final match = _versionedLd64Lld.firstMatch(p.basename(entry.path));
-      if (match != null) found[int.parse(match.group(1)!)] = entry.path;
+      if (match != null) {
+        found[int.parse(match.group(1)!)] = host.paths.context.join(
+          '/usr/bin',
+          p.basename(entry.path),
+        );
+      }
     }
     return found;
   }

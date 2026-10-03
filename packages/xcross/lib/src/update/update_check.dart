@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:meta/meta.dart';
@@ -13,9 +12,18 @@ import 'package:xcross/src/version.dart';
 /// command pays for the network. The refresh runs after the command finished
 /// and its result is what the *next* invocation reports.
 final class UpdateCheck {
-  const UpdateCheck(this.host, {required this.log});
+  const UpdateCheck(
+    this.host, {
+    required this.log,
+    required this.outputHasTerminal,
+    required this.releaseLookup,
+    this.released = XcrossVersion.isReleased,
+  });
   final PlatformHostInterface host;
   final Log log;
+  final bool outputHasTerminal;
+  final ReleaseLookup releaseLookup;
+  final bool released;
 
   /// How long a cached answer is trusted.
   static const interval = Duration(hours: 24);
@@ -32,14 +40,14 @@ final class UpdateCheck {
   /// Off for unreleased builds (nothing to compare against), for machine
   /// consumers of stdout, for CI, and whenever the user opted out.
   bool isEnabled({required bool ownsStdout}) {
-    if (ownsStdout || XcrossVersion.isDev) return false;
+    if (ownsStdout || !released) return false;
     final env = host.environment.values;
     if (env.containsKey(disableEnvVar) || env.containsKey('CI')) return false;
     // Under `sudo xcross ...` the cache path still resolves through the
     // invoking user's HOME, so writing it as root would follow whatever that
     // user planted there.
     if (env.containsKey('SUDO_USER')) return false;
-    return stdout.hasTerminal;
+    return outputHasTerminal;
   }
 
   /// Prints a one-line hint when the cache knows of a newer release.
@@ -64,10 +72,12 @@ final class UpdateCheck {
     final cached = _read();
     if (cached != null && !cached.isStale) return;
     try {
-      final tag = await ReleaseLookup.latestTag(
-        environment: host.environment.values,
-        timeout: refreshTimeout,
-      ).timeout(refreshTimeout);
+      final tag = await releaseLookup
+          .latestTag(
+            environment: host.environment.values,
+            timeout: refreshTimeout,
+          )
+          .timeout(refreshTimeout);
       _write(tag);
     } on Object {
       // An unreachable or rate-limited GitHub must never affect the exit code;
@@ -87,7 +97,7 @@ final class UpdateCheck {
 
   UpdateCheckCache? _read() {
     try {
-      final file = File(cachePath());
+      final file = host.fileSystem.file(cachePath());
       if (!file.existsSync()) return null;
       final decoded = jsonDecode(file.readAsStringSync());
       if (decoded is! Map<String, Object?>) return null;
@@ -99,7 +109,7 @@ final class UpdateCheck {
 
   void _write(String? latest) {
     try {
-      final file = File(cachePath());
+      final file = host.fileSystem.file(cachePath());
       file.parent.createSync(recursive: true);
       file.writeAsStringSync(
         jsonEncode({

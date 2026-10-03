@@ -19,19 +19,21 @@ final class SetupScriptManager {
 
   SetupScriptManager({
     required this.host,
+    required this.createHttpClient,
     required ProcessRunner runner,
     required SetupScriptPolicy policy,
     this.source,
     SetupScriptDownload? download,
     SetupScriptExecute? execute,
   }) : _policy = policy,
-       _download = download ?? _downloadBytes,
+       _download = download ?? ((uri) => _downloadBytes(uri, createHttpClient)),
        _execute =
            execute ??
            ((executable, arguments) =>
                runner.runChecked(executable, arguments, label: 'setup script'));
 
   final PlatformHostInterface host;
+  final http.Client Function() createHttpClient;
   final String? source;
   final SetupScriptPolicy _policy;
   final SetupScriptDownload _download;
@@ -45,7 +47,7 @@ final class SetupScriptManager {
     if (configuredSource == null) return null;
 
     final uri = _remoteUri(configuredSource);
-    if (uri == null) return File(configuredSource);
+    if (uri == null) return host.fileSystem.file(configuredSource);
 
     return _cachedScript(uri) ?? refresh();
   }
@@ -55,7 +57,7 @@ final class SetupScriptManager {
     if (configuredSource == null) return null;
 
     final uri = _remoteUri(configuredSource);
-    if (uri == null) return File(configuredSource);
+    if (uri == null) return host.fileSystem.file(configuredSource);
 
     final contents = await _download(uri);
     if (contents.isEmpty) {
@@ -150,9 +152,14 @@ final class SetupScriptManager {
   static Uri? _remoteUri(String value) =>
       XcrossConfig.remoteSetupScriptUri(value);
 
-  static Future<List<int>> _downloadBytes(Uri uri) async {
+  static Future<List<int>> _downloadBytes(
+    Uri uri,
+    http.Client Function() createClient,
+  ) async {
+    http.Client? client;
     try {
-      final response = await http.get(uri).timeout(_downloadTimeout);
+      client = createClient();
+      final response = await client.get(uri).timeout(_downloadTimeout);
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw XcrossError(
           'Failed to download configured setup script: '
@@ -173,6 +180,8 @@ final class SetupScriptManager {
         'Failed to download configured setup script from '
         '${_displayUri(uri)}: $error',
       );
+    } finally {
+      client?.close();
     }
   }
 

@@ -13,7 +13,9 @@ String xcrossAssetBaseUrl(String tag) =>
     'https://github.com/$xcrossRepo/releases/download/$tag';
 
 /// Discovers the newest published release tag.
-abstract final class ReleaseLookup {
+final class ReleaseLookup {
+  const ReleaseLookup({required this.createClient});
+  final HttpClient Function() createClient;
   static const _apiUrl =
       'https://api.github.com/repos/$xcrossRepo/releases/latest';
   static const _htmlUrl = 'https://github.com/$xcrossRepo/releases/latest';
@@ -22,7 +24,7 @@ abstract final class ReleaseLookup {
   ///
   /// Tries the REST API first, then falls back to the `releases/latest`
   /// redirect the installers already rely on, which needs no API quota.
-  static Future<String> latestTag({
+  Future<String> latestTag({
     required Map<String, String> environment,
     Duration timeout = const Duration(seconds: 10),
   }) async {
@@ -48,7 +50,7 @@ abstract final class ReleaseLookup {
   /// the redirect target, which would hand `GITHUB_TOKEN` to whatever host the
   /// `Location` names. The endpoint does not redirect in practice, and the
   /// unauthenticated fallback covers it if that ever changes.
-  static Future<String?> _fromApi(
+  Future<String?> _fromApi(
     Duration timeout,
     Map<String, String> environment,
   ) async {
@@ -72,7 +74,7 @@ abstract final class ReleaseLookup {
   /// A repository with no releases redirects to the plain `releases` listing
   /// instead, which is why the `tag` segment has to be matched rather than the
   /// last segment simply taken.
-  static Future<String?> _fromRedirect(
+  Future<String?> _fromRedirect(
     Duration timeout,
     Map<String, String> environment,
   ) async {
@@ -103,7 +105,7 @@ abstract final class ReleaseLookup {
 
   static final _tagShape = RegExp(r'^v?[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.+-]*$');
 
-  static Future<HttpResult> _get(
+  Future<HttpResult> _get(
     String url, {
     required Duration timeout,
     required Map<String, String> environment,
@@ -111,7 +113,7 @@ abstract final class ReleaseLookup {
     required Map<String, String> headers,
     required bool readBody,
   }) async {
-    final client = HttpClient()..connectionTimeout = timeout;
+    final client = createClient()..connectionTimeout = timeout;
     try {
       final request = await client.getUrl(Uri.parse(url)).timeout(timeout);
       request.followRedirects = followRedirects;

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:xcross/src/errors.dart';
@@ -11,6 +12,7 @@ final class SetupRequirementServices {
     required this.host,
     required this.runner,
     required this.privileges,
+    required this.console,
     required this.toolchain,
     required this.resolvePipx,
     required this.ensurePymdInstalled,
@@ -18,6 +20,7 @@ final class SetupRequirementServices {
   final PlatformHostInterface host;
   final ProcessRunner runner;
   final HostPrivilegesInterface privileges;
+  final SetupConsole console;
   final DarwinToolchainResolver toolchain;
   final Future<String?> Function() resolvePipx;
   final Future<bool> Function() ensurePymdInstalled;
@@ -95,4 +98,15 @@ final class SetupRequirementServices {
     accept: tool == 'ld64.lld' ? toolchain.usableLd64Lld : null,
     extraDirectories: toolchain.llvmToolDirs(),
   );
+}
+
+final class SetupConsole {
+  const SetupConsole({
+    required this.hasTerminal,
+    required this.readLine,
+    required this.output,
+  });
+  final bool hasTerminal;
+  final String? Function() readLine;
+  final IOSink output;
 }
