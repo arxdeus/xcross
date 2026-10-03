@@ -130,7 +130,7 @@ abstract final class XcrossCli {
       excludedCommands: excludedCommands,
     );
     _completeArgs(args, runner);
-    final ownsStdout = _ownsStdout(args);
+    final ownsStdout = ownsMachineStdout(args, runner);
     if (!ownsStdout) _printCredits(runtime.log);
 
     final updateCheck = UpdateCheck(
@@ -183,11 +183,15 @@ abstract final class XcrossCli {
 
   /// Both completion and DAP own stdout as a machine protocol; a credits line
   /// corrupts either stream.
-  static bool _ownsStdout(List<String> args) => switch (args) {
-    ['completion', ...] => true,
-    ['flutter', 'dap', ...] => true,
-    _ => false,
-  };
+  static bool ownsMachineStdout(List<String> args, CommandRunner<void> runner) {
+    try {
+      final command = runner.argParser.parse(args).command;
+      return command?.name == 'completion' ||
+          command?.name == 'flutter' && command?.command?.name == 'dap';
+    } on FormatException {
+      return false;
+    }
+  }
 
   /// One-line credits banner printed before every command dispatch.
   static void _printCredits(Log log) {

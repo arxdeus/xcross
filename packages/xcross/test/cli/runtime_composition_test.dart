@@ -18,6 +18,36 @@ import 'package:xcross/src/update/release_lookup.dart';
 import 'runtime_fixture.dart';
 
 void main() {
+  test(
+    'DAP test adapter options and machine stdout survive global verbose flags',
+    () {
+      final runner = XcrossCli.buildRunner(
+        testRuntime(),
+        configTerminal: TestTerminal(),
+      );
+      const arguments = [
+        '--verbose',
+        'flutter',
+        'dap',
+        '--test',
+        '--',
+        '--machine',
+      ];
+      final dap = runner.argParser.parse(arguments).command!.command!;
+      expect(dap.flag('test'), isTrue);
+      expect(dap.rest, ['--machine']);
+      expect(XcrossCli.ownsMachineStdout(arguments, runner), isTrue);
+      expect(
+        XcrossCli.ownsMachineStdout(['--verbose', 'completion'], runner),
+        isTrue,
+      );
+      expect(
+        XcrossCli.ownsMachineStdout(['--verbose', 'doctor'], runner),
+        isFalse,
+      );
+    },
+  );
+
   for (final (name, abi, createHost)
       in <(String, Abi, PlatformHostInterface Function(String))>[
         (

@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-(int, int)? arm64SliceRange(Uint8List bytes) {
+(int, int)? arm64SliceRange(Uint8List bytes, {int? fileLength}) {
   if (bytes.length < 8) return null;
   final data = ByteData.sublistView(bytes);
   if (data.getUint32(0) != 0xcafebabe) return null;
@@ -11,7 +11,10 @@ import 'dart:typed_data';
     if (data.getUint32(base) != 0x0100000c) continue;
     final offset = data.getUint32(base + 8);
     final length = data.getUint32(base + 12);
-    if (offset > bytes.length || length > bytes.length - offset) return null;
+    final limit = fileLength ?? bytes.length;
+    if (offset < 8 + count * 20 || offset > limit || length > limit - offset) {
+      return null;
+    }
     return (offset, offset + length);
   }
   return null;

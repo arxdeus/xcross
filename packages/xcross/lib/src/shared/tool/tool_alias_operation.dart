@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/shared/tool/mach_o_slices.dart';
@@ -131,18 +132,34 @@ final class ToolAliasOperation {
   String? _arm64Slice(String path, Directory dir, int index) {
     final file = runner.host.fileSystem.file(path);
     if (!file.existsSync()) return null;
-    final bytes = file.readAsBytesSync();
-    final range = arm64SliceRange(bytes);
-    if (range == null) return null;
-    dir.createSync(recursive: true);
-    final slice = runner.host.paths.context.join(
-      dir.path,
-      '$index-${runner.host.paths.context.basename(path)}',
-    );
-    runner.host.fileSystem
-        .file(slice)
-        .writeAsBytesSync(bytes.sublist(range.$1, range.$2));
-    return slice;
+    final handle = file.openSync();
+    try {
+      final length = handle.lengthSync();
+      final header = handle.readSync(8);
+      if (header.length < 8) return null;
+      final data = ByteData.sublistView(header);
+      if (data.getUint32(0) != 0xcafebabe) return null;
+      final count = data.getUint32(4);
+      if (count > (length - 8) ~/ 20) return null;
+      final entries = handle.readSync(count * 20);
+      final table = Uint8List(8 + entries.length)
+        ..setAll(0, header)
+        ..setAll(8, entries);
+      final range = arm64SliceRange(table, fileLength: length);
+      if (range == null) return null;
+      handle.setPositionSync(range.$1);
+      final bytes = handle.readSync(range.$2 - range.$1);
+      if (bytes.length != range.$2 - range.$1) return null;
+      dir.createSync(recursive: true);
+      final slice = runner.host.paths.context.join(
+        dir.path,
+        '$index-${runner.host.paths.context.basename(path)}',
+      );
+      runner.host.fileSystem.file(slice).writeAsBytesSync(bytes);
+      return slice;
+    } finally {
+      handle.closeSync();
+    }
   }
 
   bool _isAppleCompilerInvocation(List<String> arguments) {
