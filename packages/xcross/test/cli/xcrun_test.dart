@@ -1,13 +1,53 @@
-import 'dart:convert';
 import 'dart:io';
+import 'package:cli_kit/cli_kit.dart';
 
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-
-import '../../bin/xcrun.dart' as xcrun;
+import 'package:xcross/src/composition/xcrun_sdk.dart';
+import 'package:xcross/src/host/macos/xcrun/native_xcrun.dart';
+import 'package:xcross/src/shared/xcrun/xcrun_operation.dart';
+import 'package:xcross/src/shared/xcrun/cross_xcrun.dart' as xcrun;
+import '../host_operations_fixtures.dart';
 
 void main() {
+  test(
+    'cross version and trusted sidecar probes never load configuration',
+    () async {
+      final directory = Directory.systemTemp.createTempSync('lazy-xcrun-');
+      final executable = p.join(directory.path, 'xcrun');
+      File(
+        '$executable.sdk',
+      ).writeAsStringSync('/fixture/iPhoneSimulator26.0.sdk');
+      final loader = _UnusedLoader();
+      final output = _ProbeOutput();
+      try {
+        await IOOverrides.runZoned(() async {
+          final operation = xcrun.CrossXcrunOperation(
+            loader,
+            executable: executable,
+          );
+          expect(await operation.run(['--version']), 0);
+          expect(
+            await operation.run([
+              '--sdk',
+              'iphonesimulator',
+              '--show-sdk-path',
+            ]),
+            0,
+          );
+        }, stdout: () => output);
+        expect(
+          output.buffer.toString(),
+          contains('/fixture/iPhoneSimulator26.0.sdk'),
+        );
+        expect(loader.calls, 0);
+      } finally {
+        directory.deleteSync(recursive: true);
+      }
+    },
+  );
+
   test(
     'simulator sidecar accepts generic exact and implicit simulator selection',
     () {
@@ -159,9 +199,9 @@ void main() {
         ['--sdk=iphonesimulator26.5'],
       ]) {
         expect(
-          await xcrun.runXcrun(
+          await _runXcrun(
             [...selection, 'clang', '--sdk=iphoneos'],
-            sdk: DarwinSdk('/unused'),
+            sdk: const DarwinSdk('/unused'),
             executable: executable,
             findOnPath: (_) async {
               lookups++;
@@ -179,9 +219,9 @@ void main() {
       expect(lookups, 3);
       for (final rejected in ['iphoneos', 'iphonesimulator26.4', 'macosx']) {
         expect(
-          await xcrun.runXcrun(
+          await _runXcrun(
             ['--sdk=$rejected', '--find', 'clang'],
-            sdk: DarwinSdk('/unused'),
+            sdk: const DarwinSdk('/unused'),
             executable: executable,
             findOnPath: (_) async {
               lookups++;
@@ -203,9 +243,12 @@ void main() {
       );
       addTearDown(() => directory.deleteSync(recursive: true));
       final bundle = p.join(directory.path, 'bundle');
-      final paths = <IosTarget, String>{};
-      for (final target in IosTarget.values) {
-        paths[target] = p.join(
+      final paths = <String, String>{};
+      for (final target in const <IosBuildPlatformInterface>[
+        IPhoneBuildPlatform(),
+        SimulatorBuildPlatform(),
+      ]) {
+        paths[target.sdkName] = p.join(
           bundle,
           'Developer',
           'Platforms',
@@ -214,59 +257,41 @@ void main() {
           'SDKs',
           '${target.platformName}26.5.sdk',
         );
-        Directory(paths[target]!).createSync(recursive: true);
+        Directory(paths[target.sdkName]!).createSync(recursive: true);
       }
       final executable = p.join(directory.path, 'xcrun.exe');
-      final script = File(p.join(directory.path, 'probe.dart'));
-      final shim = File(
-        p.join(
-          Directory.current.path,
-          'packages',
-          'xcross',
-          'bin',
-          'xcrun.dart',
-        ),
-      );
-      final shimFile = shim.existsSync()
-          ? shim
-          : File(p.join(Directory.current.path, 'bin', 'xcrun.dart'));
-      script.writeAsStringSync("""
-import 'dart:io';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
-import '${shimFile.uri}' as xcrun;
-Future<void> main(List<String> args) async {
-  exitCode = await xcrun.runXcrun(args, sdk: DarwinSdk(r'$bundle'), executable: r'$executable');
-}
-""");
-      final packageConfig = p.fromUri(
-        Platform.packageConfig ??
-            p.join(Directory.current.path, '.dart_tool', 'package_config.json'),
-      );
-      final kernel = p.join(directory.path, 'probe.dill');
-      final compile = await Process.run(Platform.resolvedExecutable, [
-        'compile',
-        'kernel',
-        '--packages=$packageConfig',
-        script.path,
-        '-o',
-        kernel,
-      ]);
-      expect(
-        compile.exitCode,
-        0,
-        reason: '${compile.stdout}\n${compile.stderr}',
-      );
-      Future<ProcessResult> probe(List<String> arguments) =>
-          Process.run(Platform.resolvedExecutable, [kernel, ...arguments]);
-      for (final target in IosTarget.values) {
+      Future<ProcessResult> probe(List<String> arguments) async {
+        final output = _ProbeOutput();
+        final errors = _ProbeOutput();
+        final code = await IOOverrides.runZoned(
+          () => _runXcrun(
+            arguments,
+            sdk: DarwinSdk(bundle),
+            executable: executable,
+          ),
+          stdout: () => output,
+          stderr: () => errors,
+        );
+        return ProcessResult(
+          0,
+          code,
+          output.buffer.toString(),
+          errors.buffer.toString(),
+        );
+      }
+
+      for (final target in const <IosBuildPlatformInterface>[
+        IPhoneBuildPlatform(),
+        SimulatorBuildPlatform(),
+      ]) {
         for (final selection in <List<String>>[
-          if (target == IosTarget.device) [],
+          if (target.sdkName == 'iphoneos') [],
           ['--sdk', target.sdkName],
           ['--sdk=${target.sdkName}26.5'],
         ]) {
           final path = await probe([...selection, '--show-sdk-path']);
           expect(path.exitCode, 0, reason: path.stderr.toString());
-          expect(path.stdout.toString().trim(), paths[target]);
+          expect(path.stdout.toString().trim(), paths[target.sdkName]);
           final version = await probe([...selection, '--show-sdk-version']);
           expect(version.exitCode, 0, reason: version.stderr.toString());
           expect(version.stdout.toString().trim(), '26.5');
@@ -277,7 +302,7 @@ Future<void> main(List<String> args) async {
           expect(platform.exitCode, 0, reason: platform.stderr.toString());
           expect(
             platform.stdout.toString().trim(),
-            p.dirname(p.dirname(p.dirname(paths[target]!))),
+            p.dirname(p.dirname(p.dirname(paths[target.sdkName]!))),
           );
         }
       }
@@ -297,18 +322,18 @@ Future<void> main(List<String> args) async {
           1,
         );
       }
-      File('$executable.sdk').writeAsStringSync(paths[IosTarget.simulator]!);
+      File('$executable.sdk').writeAsStringSync(paths['iphonesimulator']!);
       expect(
         (await probe(['--show-sdk-version'])).stdout.toString().trim(),
         '26.5',
       );
       expect(
         (await probe(['--show-sdk-path'])).stdout.toString().trim(),
-        paths[IosTarget.simulator],
+        paths['iphonesimulator'],
       );
       expect((await probe(['--sdk=iphoneos', '--show-sdk-path'])).exitCode, 1);
       File('$executable.sdk').deleteSync();
-      Directory(paths[IosTarget.simulator]!).deleteSync(recursive: true);
+      Directory(paths['iphonesimulator']!).deleteSync(recursive: true);
       expect(
         (await probe(['--sdk=iphonesimulator', '--show-sdk-path'])).exitCode,
         1,
@@ -332,7 +357,10 @@ Future<void> main(List<String> args) async {
       );
       addTearDown(() => directory.deleteSync(recursive: true));
       final executable = p.join(directory.path, 'xcrun.exe');
-      for (final target in IosTarget.values) {
+      for (final target in const <IosBuildPlatformInterface>[
+        IPhoneBuildPlatform(),
+        SimulatorBuildPlatform(),
+      ]) {
         final sdk = p.join(directory.path, '${target.platformName}.sdk');
         Directory(sdk).createSync();
         File(
@@ -400,9 +428,9 @@ Future<void> main(List<String> args) async {
       throwsFormatException,
     );
     expect(
-      await xcrun.runXcrun(
+      await _runXcrun(
         ['clang'],
-        sdk: DarwinSdk('/unused'),
+        sdk: const DarwinSdk('/unused'),
         executable: executable,
         findOnPath: (_) async =>
             throw StateError('must not resolve a mismatched compiler'),
@@ -412,150 +440,59 @@ Future<void> main(List<String> args) async {
   });
 
   test(
-    'macOS entry point delegates native probes without cross configuration',
+    'native bootstrap preserves environment and never reads configuration',
     () async {
-      final directory = Directory.systemTemp.createTempSync(
-        'xcross-xcrun-native-',
-      );
-      addTearDown(() => directory.deleteSync(recursive: true));
-      final rootShim = File(
-        p.join(
-          Directory.current.path,
-          'packages',
-          'xcross',
-          'bin',
-          'xcrun.dart',
-        ),
-      );
-      final shim = rootShim.existsSync()
-          ? rootShim
-          : File(p.join(Directory.current.path, 'bin', 'xcrun.dart'));
-      final packageConfig =
-          Platform.packageConfig ??
-          p.join(Directory.current.path, '.dart_tool', 'package_config.json');
-      final kernel = p.join(directory.path, 'xcrun.dill');
-      final compile = await Process.run(Platform.resolvedExecutable, [
-        'compile',
-        'kernel',
-        '--packages=${p.fromUri(packageConfig)}',
-        shim.path,
-        '-o',
-        kernel,
-      ]);
-      expect(
-        compile.exitCode,
-        0,
-        reason: '${compile.stdout}\n${compile.stderr}',
-      );
-      final selection = await Process.run('/usr/bin/xcode-select', ['-p']);
-      expect(selection.exitCode, 0, reason: selection.stderr.toString());
-      final developer = Link(p.join(directory.path, 'chosen developer'))
-        ..createSync(selection.stdout.toString().trim());
-      final config = File(p.join(directory.path, 'invalid-config.json'))
-        ..writeAsStringSync('{invalid');
-      final shadow = File(p.join(directory.path, 'xcrun'))
-        ..writeAsStringSync('#!/bin/sh\nexit 91\n');
-      final chmod = await Process.run('/bin/chmod', ['+x', shadow.path]);
-      expect(chmod.exitCode, 0, reason: chmod.stderr.toString());
-      final environment = {
-        'DEVELOPER_DIR': developer.path,
-        'XCROSS_CONFIG': config.path,
-        'PATH': directory.path,
-      };
-      Future<ProcessResult> probe(
-        List<String> arguments, {
-        String? developerDir,
-      }) => Process.run(
-        Platform.resolvedExecutable,
-        [kernel, ...arguments],
+      final processes = _NativeProcesses();
+      final host = MacOSHost(
         environment: {
-          ...environment,
-          if (developerDir != null) 'DEVELOPER_DIR': developerDir,
+          'DEVELOPER_DIR': '/chosen developer',
+          'XCROSS_CONFIG': '/invalid-config',
+          'PATH': '/shadow',
         },
+        processes: processes,
       );
-      for (final arguments in <List<String>>[
-        ['--version'],
-        ['-version'],
-        ['--sdk', 'iphonesimulator', '--show-sdk-path'],
-        ['--sdk', 'iphonesimulator', '--show-sdk-version'],
-        ['--sdk', 'iphonesimulator', '--show-sdk-platform-path'],
-      ]) {
-        final native = await Process.run(
-          '/usr/bin/xcrun',
-          arguments,
-          environment: environment,
-        );
-        expect(native.exitCode, 0, reason: native.stderr.toString());
-        final result = await probe(arguments);
-        expect(result.exitCode, native.exitCode);
-        expect(result.stdout, native.stdout);
-        expect(result.stderr, native.stderr);
-      }
-      final invalidDeveloper = p.join(directory.path, 'missing developer');
-      final arguments = ['--sdk', 'iphonesimulator', '--show-sdk-path'];
-      final native = await Process.run(
-        '/usr/bin/xcrun',
-        arguments,
-        environment: {...environment, 'DEVELOPER_DIR': invalidDeveloper},
-      );
-      expect(native.exitCode, isNot(0));
-      final result = await probe(arguments, developerDir: invalidDeveloper);
-      expect(result.exitCode, native.exitCode);
-      expect(result.stdout, native.stdout);
-      expect(result.stderr, native.stderr);
-
-      final child = await Process.start(Platform.resolvedExecutable, [
-        kernel,
-        '/bin/sh',
-        '-c',
-        r'IFS= read -r value; printf "out:%s\n" "$value"; printf "err:%s\n" "$value" >&2; exit 37',
-      ], environment: environment);
-      final output = child.stdout.transform(utf8.decoder).join();
-      final errors = child.stderr.transform(utf8.decoder).join();
-      child.stdin.writeln('stdin preserved');
-      await child.stdin.close();
-      expect(await child.exitCode, 37);
-      expect(await output, 'out:stdin preserved\n');
-      expect(await errors, 'err:stdin preserved\n');
+      final arguments = ['--sdk', 'iphonesimulator', 'clang', '', '--version'];
+      expect(await NativeMacXcrun(host).run(arguments), 37);
+      expect(processes.executable, '/usr/bin/xcrun');
+      expect(identical(processes.arguments, arguments), isTrue);
+      expect(processes.environment, host.environment.values);
+      expect(processes.includeParentEnvironment, isFalse);
+      expect(processes.mode, ProcessStartMode.inheritStdio);
     },
-    skip: !Platform.isMacOS,
   );
 
   test(
     'native delegation preserves arguments, inherited stdio and exit code',
     () async {
       final arguments = ['--sdk', 'iphonesimulator', 'clang', '--version', ''];
-      final child = await Process.start(Platform.resolvedExecutable, [
-        '--version',
-      ]);
-      await child.stdout.drain<void>();
-      await child.stderr.drain<void>();
+      final child = _NativeChild();
       expect(
-        await xcrun.runNativeXcrun(
-          arguments,
+        await NativeMacXcrun(
+          MacOSHost(),
           start: (tool, forwarded, {required mode}) async {
             expect(tool, '/usr/bin/xcrun');
             expect(identical(forwarded, arguments), isTrue);
             expect(mode, ProcessStartMode.inheritStdio);
             return child;
           },
-        ),
-        0,
+        ).run(arguments),
+        37,
       );
     },
   );
 
   test('native delegation propagates process startup failure', () async {
-    final error = ProcessException(
+    const error = ProcessException(
       '/usr/bin/xcrun',
       ['--version'],
       'denied',
       13,
     );
     await expectLater(
-      xcrun.runNativeXcrun([
-        '--version',
-      ], start: (_, _, {required mode}) async => throw error),
+      NativeMacXcrun(
+        MacOSHost(),
+        start: (_, _, {required mode}) async => throw error,
+      ).run(['--version']),
       throwsA(same(error)),
     );
   });
@@ -601,34 +538,23 @@ Future<void> main(List<String> args) async {
     );
   });
   test('rejects an invocation without a tool', () async {
-    expect(await xcrun.runXcrun(const [], sdk: DarwinSdk('/unused')), 1);
+    expect(await _runXcrun(const [], sdk: const DarwinSdk('/unused')), 1);
   });
 
   test('answers the --version probe without an SDK', () async {
-    expect(await xcrun.runXcrun(const ['--version']), 0);
+    expect(await _runXcrun(const ['--version']), 0);
   });
 
   test('normalizes PATHEXT uppercase .EXE for native_toolchain_c', () {
     expect(
       xcrun.normalizeWindowsExecutableExtension(
         r'C:\Temp\xcross-tools\clang.EXE',
-        windows: true,
       ),
       r'C:\Temp\xcross-tools\clang.exe',
     );
     expect(
-      xcrun.normalizeWindowsExecutableExtension(
-        r'C:\Temp\xcross-tools\ar.EXE',
-        windows: true,
-      ),
+      xcrun.normalizeWindowsExecutableExtension(r'C:\Temp\xcross-tools\ar.EXE'),
       r'C:\Temp\xcross-tools\ar.exe',
-    );
-    expect(
-      xcrun.normalizeWindowsExecutableExtension(
-        '/tools/clang.EXE',
-        windows: false,
-      ),
-      '/tools/clang.EXE',
     );
   });
 
@@ -644,6 +570,7 @@ Future<void> main(List<String> args) async {
       await xcrun.runResolvedTool(
         '/ignored',
         const [],
+        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
         start: (_, _) async => child,
       ),
       37,
@@ -651,11 +578,11 @@ Future<void> main(List<String> args) async {
   });
 
   test('prefers build shims on PATH for known Apple tools', () async {
-    final sdk = DarwinSdk('/unused');
+    const sdk = DarwinSdk('/unused');
     for (final tool in const ['clang', 'otool']) {
       final shim = '/build/shims/$tool';
       expect(
-        await xcrun.runXcrun(
+        await _runXcrun(
           ['--find', tool],
           sdk: sdk,
           findOnPath: (name) async => name == tool ? shim : null,
@@ -753,11 +680,11 @@ Future<void> main(List<String> args) async {
 
   test('rejects unavailable SDKs before resolving a tool', () async {
     expect(
-      await xcrun.runXcrun(const [
+      await _runXcrun(const [
         '--sdk=macosx',
         '--find',
         'clang',
-      ], sdk: DarwinSdk('/unused')),
+      ], sdk: const DarwinSdk('/unused')),
       1,
     );
   });
@@ -772,9 +699,9 @@ Future<void> main(List<String> args) async {
       '--find',
     ]) {
       expect(
-        await xcrun.runXcrun(
+        await _runXcrun(
           ['clang', probe],
-          sdk: DarwinSdk('/unused'),
+          sdk: const DarwinSdk('/unused'),
           findOnPath: (_) async => '/fake/clang',
           runTool: (tool, arguments) async {
             expect(tool, '/fake/clang');
@@ -793,4 +720,107 @@ Future<void> main(List<String> args) async {
       '--find',
     ]);
   });
+}
+
+Future<int> _runXcrun(
+  List<String> arguments, {
+  DarwinSdk? sdk,
+  String executable = '/fixture/xcrun',
+  Future<String?> Function(String)? findOnPath,
+  Future<int> Function(String, List<String>)? runTool,
+}) {
+  final host = LinuxHost();
+  final runner = ProcessRunner(host, log: fixtureLog());
+  return xcrun.runXcrun(
+    arguments,
+    runner: runner,
+    repository: DarwinSdkRepository(
+      host,
+      log: runner.log,
+      installBundle: '/fixture/missing-sdk',
+    ),
+    toolchain: DarwinToolchainResolver(
+      runner,
+      LinuxDarwinToolchainLocations(host),
+    ),
+    normalizeExecutable: (path) => path,
+    target: _fixtureTarget(arguments),
+    executable: executable,
+    sdk: sdk,
+    findOnPath: findOnPath,
+    runTool: runTool,
+  );
+}
+
+final class _ProbeOutput implements Stdout {
+  final buffer = StringBuffer();
+  @override
+  void writeln([Object? value = '']) => buffer.writeln(value);
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+final class _NativeProcesses implements HostProcessInterface {
+  String? executable;
+  List<String>? arguments;
+  Map<String, String>? environment;
+  bool? includeParentEnvironment;
+  ProcessStartMode? mode;
+  @override
+  Future<Process> start(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+    Map<String, String>? environment,
+    bool includeParentEnvironment = true,
+    bool runInShell = false,
+    ProcessStartMode mode = ProcessStartMode.normal,
+  }) async {
+    this.executable = executable;
+    this.arguments = arguments;
+    this.environment = environment;
+    this.includeParentEnvironment = includeParentEnvironment;
+    this.mode = mode;
+    return _NativeChild();
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+final class _NativeChild implements Process {
+  @override
+  Future<int> get exitCode async => 37;
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+String _requestedSdkForFixture(List<String> arguments) {
+  for (var index = 0; index < arguments.length; index++) {
+    if (arguments[index] == '--sdk' && index + 1 < arguments.length) {
+      return arguments[index + 1];
+    }
+    if (arguments[index].startsWith('--sdk=')) {
+      return arguments[index].substring(6);
+    }
+    if (!arguments[index].startsWith('-')) break;
+  }
+  return 'iphoneos';
+}
+
+IosBuildPlatformInterface _fixtureTarget(List<String> arguments) {
+  try {
+    return parseXcrunSdkName(_requestedSdkForFixture(arguments));
+  } on FormatException {
+    return const IPhoneBuildPlatform();
+  }
+}
+
+final class _UnusedLoader implements XcrunRuntimeLoader {
+  int calls = 0;
+  @override
+  Future<XcrunServices> loadXcrun({required String sdkName}) async {
+    calls++;
+    throw StateError('configuration must not load');
+  }
 }
