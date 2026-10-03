@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:args/command_runner.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
@@ -166,7 +167,261 @@ void main() {
         data: Uint8List.fromList(utf8.encode(data)),
       );
 
+  group('Xcode.app import', () {
+    late Directory root;
+    late String app;
+    late String destination;
+
+    File sourceFile(String relative, String contents) =>
+        File(p.joinAll([app, 'Contents', ...relative.split('/')]))
+          ..createSync(recursive: true)
+          ..writeAsStringSync(contents);
+
+    setUp(() {
+      root = Directory.systemTemp.createTempSync('xcross-native-sdk-');
+      app = p.join(root.path, 'Xcode.app');
+      destination = p.join(root.path, 'sdk');
+    });
+    tearDown(() => root.deleteSync(recursive: true));
+
+    test(
+      'copies both SDKs and descriptors without changing the source',
+      () async {
+        final sources = [
+          for (final relative in sdkIncludedRoots)
+            sourceFile('$relative/kept.txt', relative),
+          for (final relative in sdkIncludedFiles)
+            sourceFile(relative, relative),
+        ];
+        sourceFile('Developer/usr/bin/excluded', 'excluded');
+
+        final count = await SdkInstall.writeSdkEntries(
+          SdkInstall.xcodeAppEntries(app),
+          destination,
+        );
+
+        expect(count, sdkIncludedRoots.length * 2 + sdkIncludedFiles.length);
+        for (final file in sources) {
+          final relative = p.relative(file.path, from: p.join(app, 'Contents'));
+          expect(
+            File(p.join(destination, relative)).readAsStringSync(),
+            file.readAsStringSync(),
+          );
+        }
+        expect(
+          File(
+            p.join(destination, 'Developer', 'usr', 'bin', 'excluded'),
+          ).existsSync(),
+          isFalse,
+        );
+        expect(
+          Directory(
+            p.join(app, 'Contents'),
+          ).listSync(recursive: true).whereType<File>().length,
+          sources.length + 1,
+        );
+      },
+    );
+
+    test('rejects non-Xcode directories before touching the install', () async {
+      Directory(app).createSync();
+      final runner = CommandRunner<void>('xcross', 'test')
+        ..addCommand(SdkCommand());
+      await expectLater(
+        runner.run(['sdk', 'install', app]),
+        throwsA(
+          isA<XcrossError>().having(
+            (error) => error.message,
+            'message',
+            contains('No Xcode Developer directory'),
+          ),
+        ),
+      );
+      expect(Directory(destination).existsSync(), isFalse);
+      await expectLater(
+        SdkInstall.xcodeAppEntries(app).toList(),
+        throwsA(isA<XcrossError>()),
+      );
+    });
+
+    test(
+      'preserves simulator aliases and does not follow source links',
+      () async {
+        const sdks =
+            'Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs';
+        final file = sourceFile(
+          '$sdks/iPhoneSimulator.sdk/usr/include/header.h',
+          'header',
+        );
+        final base = p.joinAll([app, 'Contents', ...sdks.split('/')]);
+        await Link(
+          p.join(base, 'iPhoneSimulator18.2.sdk'),
+        ).create('iPhoneSimulator.sdk');
+
+        await SdkInstall.writeSdkEntries(
+          SdkInstall.xcodeAppEntries(app),
+          destination,
+        );
+
+        final installed = p.joinAll([destination, ...sdks.split('/')]);
+        expect(
+          Link(p.join(installed, 'iPhoneSimulator18.2.sdk')).targetSync(),
+          'iPhoneSimulator.sdk',
+        );
+        expect(
+          DarwinSdk(destination).iPhoneSimulatorSdk(),
+          p.join(installed, 'iPhoneSimulator18.2.sdk'),
+        );
+        expect(file.readAsStringSync(), 'header');
+      },
+      skip: Platform.isWindows,
+    );
+
+    test('rejects links outside the isolated bundle', () async {
+      const sdks =
+          'Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs';
+      sourceFile('$sdks/iPhoneSimulator18.2.sdk/header.h', 'header');
+      final outside = Directory(p.join(root.path, 'outside'))..createSync();
+      File(p.join(outside.path, 'secret')).writeAsStringSync('untouched');
+      final link = p.joinAll([
+        app,
+        'Contents',
+        ...sdks.split('/'),
+        'outside.sdk',
+      ]);
+      await Link(link).create(outside.path);
+      final entries = await SdkInstall.xcodeAppEntries(app).toList();
+      expect(entries.any((entry) => entry.name.endsWith('/secret')), isFalse);
+
+      await expectLater(
+        SdkInstall.writeSdkEntries(Stream.fromIterable(entries), destination),
+        throwsA(isA<XcrossError>()),
+      );
+      expect(
+        File(p.join(outside.path, 'secret')).readAsStringSync(),
+        'untouched',
+      );
+    }, skip: Platform.isWindows);
+
+    test(
+      'rejects source ancestors that redirect SDK roots outside the app',
+      () async {
+        final outside = Directory(p.join(root.path, 'outside', 'SDKs'))
+          ..createSync(recursive: true);
+        File(p.join(outside.path, 'secret')).writeAsStringSync('untouched');
+        final developer = Directory(
+          p.join(
+            app,
+            'Contents',
+            'Developer',
+            'Platforms',
+            'iPhoneSimulator.platform',
+          ),
+        )..createSync(recursive: true);
+        await Link(
+          p.join(developer.path, 'Developer'),
+        ).create(p.dirname(outside.path));
+
+        await expectLater(
+          SdkInstall.xcodeAppEntries(app).toList(),
+          throwsA(
+            isA<XcrossError>().having(
+              (error) => error.message,
+              'message',
+              contains('source escapes the app'),
+            ),
+          ),
+        );
+        expect(
+          File(p.join(outside.path, 'secret')).readAsStringSync(),
+          'untouched',
+        );
+      },
+      skip: Platform.isWindows,
+    );
+  });
+
+  group('Xcode.app source boundaries', () {
+    for (final ancestor in ['Contents', 'Contents/Developer']) {
+      test('rejects an external $ancestor symlink', () async {
+        final root = Directory.systemTemp.createTempSync(
+          'xcross-sdk-boundary-',
+        );
+        addTearDown(() => root.deleteSync(recursive: true));
+        final app = p.join(root.path, 'Xcode.app');
+        final outside = p.join(root.path, 'outside');
+        final relative = ancestor == 'Contents'
+            ? 'Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.2.sdk'
+            : 'Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.2.sdk';
+        Directory(
+          p.joinAll([outside, ...relative.split('/')]),
+        ).createSync(recursive: true);
+        final link = p.joinAll([app, ...ancestor.split('/')]);
+        Directory(p.dirname(link)).createSync(recursive: true);
+        await Link(link).create(outside);
+
+        await expectLater(
+          SdkInstall.xcodeAppEntries(app).toList(),
+          throwsA(
+            isA<XcrossError>().having(
+              (error) => error.message,
+              'message',
+              contains('source escapes the app'),
+            ),
+          ),
+        );
+      }, skip: Platform.isWindows);
+    }
+
+    test('accepts a symlink to the selected app itself', () async {
+      final root = Directory.systemTemp.createTempSync('xcross-sdk-app-alias-');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final app = Directory(p.join(root.path, 'Xcode-real.app'))..createSync();
+      const relative = 'Developer/Platforms/iPhoneOS.platform/Info.plist';
+      File(p.joinAll([app.path, 'Contents', ...relative.split('/')]))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('descriptor');
+      final alias = Link(p.join(root.path, 'Xcode.app'));
+      await alias.create(app.path);
+      final entries = await SdkInstall.xcodeAppEntries(alias.path).toList();
+      expect(entries.single.name, relative);
+      expect(utf8.decode(entries.single.data), 'descriptor');
+    }, skip: Platform.isWindows);
+  });
+
   group('SdkInstall.sdkRelativePath', () {
+    test('includes simulator SDK, libraries and exact platform descriptor', () {
+      const paths = [
+        'Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.2.sdk/usr/include/stdio.h',
+        'Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/Test.framework/Test',
+        'Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/Test.framework/Test',
+        'Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libTest.tbd',
+        'Developer/Platforms/iPhoneSimulator.platform/Info.plist',
+      ];
+      for (final path in paths) {
+        expect(SdkInstall.sdkRelativePath(path), path);
+        expect(SdkInstall.sdkRelativePath('Xcode.app/Contents/$path'), path);
+        expect(
+          SdkInstall.sdkRelativePath(
+            'Xcode.app/Contents/$path'.replaceAll('/', r'\'),
+          ),
+          path,
+        );
+      }
+      expect(
+        SdkInstall.sdkRelativePath(
+          'Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs-other/file',
+        ),
+        isNull,
+      );
+      expect(
+        SdkInstall.sdkRelativePath(
+          'Developer/Platforms/iPhoneSimulator.platform/Info.plist/child',
+        ),
+        isNull,
+      );
+    });
+
     test('includes the exact iOS cross-SDK subset', () {
       final names = [
         for (final root in sdkIncludedRoots) 'Xcode.app/Contents/$root/kept',
@@ -184,7 +439,7 @@ void main() {
     test('excludes neighboring Xcode content', () {
       const excluded = [
         'Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX14.sdk/usr/include/stdio.h',
-        'Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.2.sdk/usr/include/stdio.h',
+        'Xcode.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator18.2.sdk/usr/include/stdio.h',
         'Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/Library/OtherFrameworks/No.framework/file',
         'Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift',
         'Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-driver/file',
@@ -254,8 +509,8 @@ void main() {
           buildCpioEntry(
             name:
                 'Xcode.app/Contents/Developer/Platforms/'
-                'iPhoneSimulator.platform/Developer/SDKs/'
-                'iPhoneSimulator18.2.sdk/usr/include/hard-link.h',
+                'AppleTVSimulator.platform/Developer/SDKs/'
+                'AppleTVSimulator18.2.sdk/usr/include/hard-link.h',
             data: canonical,
             dev: 1,
             ino: 42,
@@ -593,6 +848,8 @@ void main() {
       'aarch64-unknown-linux-gnu',
       'x86_64-unknown-windows-msvc',
       'aarch64-unknown-windows-msvc',
+      'x86_64-apple-macosx',
+      'arm64-apple-macosx',
     ]);
 
     final swiftSdk =
@@ -604,6 +861,7 @@ void main() {
         (swiftSdk['targetTriples'] as Map<String, dynamic>)['arm64-apple-ios']
             as Map<String, dynamic>;
     expect(swiftSdk['schemaVersion'], '4.0');
+    expect((swiftSdk['targetTriples'] as Map).keys, ['arm64-apple-ios']);
     expect(
       target['sdkRootPath'],
       'Developer/Platforms/iPhoneOS.platform/Developer/SDKs/'
@@ -640,6 +898,167 @@ void main() {
       },
     });
     expect(DarwinSdk.isValidBundle(bundle.path), isTrue);
+  });
+
+  group('simulator SDK metadata', () {
+    late Directory bundle;
+
+    String sdkRoot(IosTarget target, {String version = '18.2'}) => p.join(
+      bundle.path,
+      'Developer',
+      'Platforms',
+      '${target.platformName}.platform',
+      'Developer',
+      'SDKs',
+      '${target.platformName}$version.sdk',
+    );
+
+    Map<String, dynamic> targetMetadata() =>
+        (jsonDecode(
+                  File(
+                    p.join(bundle.path, 'swift-sdk.json'),
+                  ).readAsStringSync(),
+                )
+                as Map<String, dynamic>)['targetTriples']
+            as Map<String, dynamic>;
+
+    setUp(() {
+      bundle = Directory.systemTemp.createTempSync(
+        'xcross-simulator-metadata-',
+      );
+      Directory(sdkRoot(IosTarget.device)).createSync(recursive: true);
+    });
+    tearDown(() => bundle.deleteSync(recursive: true));
+
+    test('adds ARM64 simulator metadata with platform-specific paths', () async {
+      Directory(sdkRoot(IosTarget.simulator)).createSync(recursive: true);
+      await SdkInstall.writeSwiftSdkBundleMetadata(bundle.path);
+      final targets = targetMetadata();
+      expect(targets.keys, ['arm64-apple-ios', 'arm64-apple-ios-simulator']);
+      expect(targets['arm64-apple-ios-simulator'], {
+        'sdkRootPath':
+            'Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.2.sdk',
+        'swiftResourcesPath':
+            'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift',
+        'swiftStaticResourcesPath':
+            'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift_static',
+        'includeSearchPaths': [
+          'Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib',
+          'Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.2.sdk/usr/include/c++/v1',
+        ],
+        'librarySearchPaths': [
+          'Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib',
+        ],
+        'toolsetPaths': ['toolset.json'],
+      });
+      expect(
+        (targets['arm64-apple-ios'] as Map)['sdkRootPath'],
+        contains('iPhoneOS18.2.sdk'),
+      );
+    });
+
+    test('uses shared toolchain C++ includes for both targets', () async {
+      Directory(sdkRoot(IosTarget.simulator)).createSync(recursive: true);
+      const include =
+          'Developer/Toolchains/XcodeDefault.xctoolchain/usr/include/c++/v1';
+      Directory(
+        p.joinAll([bundle.path, ...include.split('/')]),
+      ).createSync(recursive: true);
+      await SdkInstall.writeSwiftSdkBundleMetadata(bundle.path);
+      for (final target in targetMetadata().values) {
+        expect((target as Map)['includeSearchPaths'], contains(include));
+      }
+    });
+
+    test(
+      'rejects an unversioned simulator SDK before writing metadata',
+      () async {
+        Directory(
+          sdkRoot(IosTarget.simulator, version: ''),
+        ).createSync(recursive: true);
+        await expectLater(
+          SdkInstall.writeSwiftSdkBundleMetadata(bundle.path),
+          throwsA(
+            isA<XcrossError>().having(
+              (error) => error.message,
+              'message',
+              contains('versioned iPhoneSimulator SDK'),
+            ),
+          ),
+        );
+        expect(
+          File(p.join(bundle.path, 'swift-sdk.json')).existsSync(),
+          isFalse,
+        );
+      },
+    );
+
+    test('rejects a present but empty simulator SDK directory', () async {
+      Directory(
+        p.dirname(sdkRoot(IosTarget.simulator)),
+      ).createSync(recursive: true);
+      await expectLater(
+        SdkInstall.writeSwiftSdkBundleMetadata(bundle.path),
+        throwsA(isA<DarwinSdkError>()),
+      );
+      expect(File(p.join(bundle.path, 'info.json')).existsSync(), isFalse);
+    });
+
+    test('still requires a device SDK for simulator-enabled bundles', () async {
+      Directory(sdkRoot(IosTarget.device)).deleteSync(recursive: true);
+      Directory(sdkRoot(IosTarget.simulator)).createSync(recursive: true);
+      await expectLater(
+        SdkInstall.writeSwiftSdkBundleMetadata(bundle.path),
+        throwsA(isA<DarwinSdkError>()),
+      );
+    });
+
+    for (final target in IosTarget.values) {
+      for (final relative in [
+        'SDKSettings.json',
+        'SDKSettings.plist',
+        'System/Library/CoreServices/SystemVersion.plist',
+      ]) {
+        test(
+          'invalidates SDK identity for ${target.name} $relative changes',
+          () async {
+            final file =
+                File(p.joinAll([sdkRoot(target), ...relative.split('/')]))
+                  ..createSync(recursive: true)
+                  ..writeAsStringSync('version one');
+            final originalTime = file.lastModifiedSync();
+            final before = await SdkInstall.sdkBuildIdentity(bundle.path);
+            file.writeAsStringSync('version two');
+            file.setLastModifiedSync(originalTime);
+            final after = await SdkInstall.sdkBuildIdentity(bundle.path);
+            final key = p
+                .relative(file.path, from: bundle.path)
+                .replaceAll(r'\', '/');
+            final oldMetadata = (before['metadata'] as Map)[key] as Map;
+            final newMetadata = (after['metadata'] as Map)[key] as Map;
+            expect(oldMetadata['size'], newMetadata['size']);
+            expect(oldMetadata['modified'], newMetadata['modified']);
+            expect(oldMetadata['digest'], isNot(newMetadata['digest']));
+            expect(before, isNot(after));
+          },
+        );
+      }
+    }
+
+    test(
+      'invalidates SDK identity when a simulator SDK is added or removed',
+      () async {
+        final deviceOnly = await SdkInstall.sdkBuildIdentity(bundle.path);
+        final metadata =
+            File(p.join(sdkRoot(IosTarget.simulator), 'SDKSettings.json'))
+              ..createSync(recursive: true)
+              ..writeAsStringSync('{}');
+        final withSimulator = await SdkInstall.sdkBuildIdentity(bundle.path);
+        expect(withSimulator, isNot(deviceOnly));
+        metadata.parent.deleteSync(recursive: true);
+        expect(await SdkInstall.sdkBuildIdentity(bundle.path), deviceOnly);
+      },
+    );
   });
 
   group('host toolchain stamp', () {

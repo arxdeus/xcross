@@ -5,6 +5,25 @@ import 'package:darwin_sdk_kit/src/errors.dart';
 import 'package:darwin_sdk_kit/src/tbd_bundle_patch.dart';
 import 'package:path/path.dart' as p;
 
+enum IosTarget {
+  device,
+  simulator;
+
+  bool get isSimulator => this == simulator;
+
+  String get sdkName => isSimulator ? 'iphonesimulator' : 'iphoneos';
+
+  String get platformName => isSimulator ? 'iPhoneSimulator' : 'iPhoneOS';
+
+  String get swiftSdkTriple =>
+      isSimulator ? 'arm64-apple-ios-simulator' : 'arm64-apple-ios';
+
+  String get linkerPlatform => isSimulator ? 'ios-simulator' : 'ios';
+
+  String buildTriple(String minimumVersion) =>
+      'arm64-apple-ios$minimumVersion${isSimulator ? '-simulator' : ''}';
+}
+
 /// An xcross-owned Swift SDK artifact bundle containing the Darwin SDK files
 /// needed to build for iOS.
 final class DarwinSdk {
@@ -108,13 +127,18 @@ final class DarwinSdk {
       file.existsSync() && file.lengthSync() > 0;
 
   /// First versioned iPhoneOSXX.X.sdk found, else first iPhoneOS.sdk.
-  String iPhoneOSSdk() {
-    final dir = _sdksDir(bundle, 'iPhoneOS');
-    final pick = _firstSdk(dir, 'iPhoneOS');
+  String iPhoneOSSdk() => iosSdk();
+
+  String iPhoneSimulatorSdk() => iosSdk(target: IosTarget.simulator);
+
+  String iosSdk({IosTarget target = IosTarget.device}) {
+    final platform = target.platformName;
+    final dir = _sdksDir(bundle, platform);
+    final pick = _firstSdk(dir, platform);
     if (pick == null) {
       throw DarwinSdkError(
-        'DarwinSdk: Could not find an iPhoneOS SDK under $dir.\n'
-        'Install one with `xcross sdk install <Xcode.xip>`.',
+        'DarwinSdk: Could not find an $platform SDK under $dir.\n'
+        'Install one with `xcross sdk install <Xcode.xip|Xcode.app>`.',
       );
     }
     return pick;

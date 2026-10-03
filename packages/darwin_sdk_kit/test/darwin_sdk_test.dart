@@ -15,14 +15,38 @@ void main() {
 
   tearDown(() => tmp.delete(recursive: true));
 
-  String sdksDir(String bundle) => p.join(
-    bundle,
-    'Developer',
-    'Platforms',
-    'iPhoneOS.platform',
-    'Developer',
-    'SDKs',
-  );
+  String sdksDir(String bundle, {IosTarget target = IosTarget.device}) =>
+      p.join(
+        bundle,
+        'Developer',
+        'Platforms',
+        '${target.platformName}.platform',
+        'Developer',
+        'SDKs',
+      );
+
+  group('IosTarget', () {
+    test('preserves ARM64 device values', () {
+      const target = IosTarget.device;
+      expect(target.isSimulator, isFalse);
+      expect(target.sdkName, 'iphoneos');
+      expect(target.platformName, 'iPhoneOS');
+      expect(target.swiftSdkTriple, 'arm64-apple-ios');
+      expect(target.linkerPlatform, 'ios');
+      expect(target.buildTriple('15.0'), 'arm64-apple-ios15.0');
+    });
+
+    test('selects ARM64 simulator values', () {
+      const target = IosTarget.simulator;
+      expect(target.isSimulator, isTrue);
+      expect(target.sdkName, 'iphonesimulator');
+      expect(target.platformName, 'iPhoneSimulator');
+      expect(target.swiftSdkTriple, 'arm64-apple-ios-simulator');
+      expect(target.linkerPlatform, 'ios-simulator');
+      expect(target.buildTriple('15.0'), 'arm64-apple-ios15.0-simulator');
+      expect(target.buildTriple('26.1'), 'arm64-apple-ios26.1-simulator');
+    });
+  });
 
   group('native bundle', () {
     test('uses xcross artifact-bundle storage', () {
@@ -176,6 +200,84 @@ void main() {
         ),
       );
     });
+  });
+
+  group('iosSdk', () {
+    test('keeps device default and selects simulator independently', () async {
+      for (final target in IosTarget.values) {
+        final dir = sdksDir(tmp.path, target: target);
+        await Directory(
+          p.join(dir, '${target.platformName}.sdk'),
+        ).create(recursive: true);
+        await Directory(
+          p.join(dir, '${target.platformName}18.2.sdk'),
+        ).create(recursive: true);
+      }
+      final sdk = DarwinSdk(tmp.path);
+      expect(sdk.iosSdk(), sdk.iPhoneOSSdk());
+      expect(sdk.iosSdk(target: IosTarget.device), sdk.iPhoneOSSdk());
+      expect(
+        sdk.iosSdk(target: IosTarget.simulator),
+        p.join(
+          sdksDir(tmp.path, target: IosTarget.simulator),
+          'iPhoneSimulator18.2.sdk',
+        ),
+      );
+      expect(sdk.iPhoneSimulatorSdk(), sdk.iosSdk(target: IosTarget.simulator));
+    });
+
+    test('allows a device-only bundle without a simulator fallback', () async {
+      final device = p.join(sdksDir(tmp.path), 'iPhoneOS18.2.sdk');
+      await Directory(device).create(recursive: true);
+      final sdk = DarwinSdk(tmp.path);
+      expect(sdk.iosSdk(), device);
+      expect(
+        sdk.iPhoneSimulatorSdk,
+        throwsA(
+          isA<DarwinSdkError>().having(
+            (error) => error.message,
+            'message',
+            allOf(
+              contains('Could not find an iPhoneSimulator SDK'),
+              contains('xcross sdk install'),
+            ),
+          ),
+        ),
+      );
+    });
+
+    test('falls back to an unversioned simulator SDK', () async {
+      final simulator = p.join(
+        sdksDir(tmp.path, target: IosTarget.simulator),
+        'iPhoneSimulator.sdk',
+      );
+      await Directory(simulator).create(recursive: true);
+      expect(DarwinSdk(tmp.path).iPhoneSimulatorSdk(), simulator);
+    });
+
+    test('rejects a simulator SDK directory without matching SDKs', () async {
+      final dir = sdksDir(tmp.path, target: IosTarget.simulator);
+      await Directory(p.join(dir, 'iPhoneOS18.2.sdk')).create(recursive: true);
+      await File(p.join(dir, 'iPhoneSimulator18.2.sdk')).writeAsString('file');
+      expect(
+        DarwinSdk(tmp.path).iPhoneSimulatorSdk,
+        throwsA(isA<DarwinSdkError>()),
+      );
+    });
+
+    test('resolves versioned simulator SDK aliases', () async {
+      final dir = sdksDir(tmp.path, target: IosTarget.simulator);
+      await Directory(
+        p.join(dir, 'iPhoneSimulator.sdk'),
+      ).create(recursive: true);
+      await Link(
+        p.join(dir, 'iPhoneSimulator18.2.sdk'),
+      ).create('iPhoneSimulator.sdk');
+      expect(
+        DarwinSdk(tmp.path).iPhoneSimulatorSdk(),
+        p.join(dir, 'iPhoneSimulator18.2.sdk'),
+      );
+    }, skip: Platform.isWindows);
   });
 
   group('probeDarwinDriver', () {

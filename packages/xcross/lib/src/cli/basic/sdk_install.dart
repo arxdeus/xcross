@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:crypto/crypto.dart';
@@ -15,6 +16,10 @@ const sdkIncludedRoots = <String>[
   'Developer/Platforms/iPhoneOS.platform/Developer/Library/Frameworks',
   'Developer/Platforms/iPhoneOS.platform/Developer/Library/PrivateFrameworks',
   'Developer/Platforms/iPhoneOS.platform/Developer/usr/lib',
+  'Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs',
+  'Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks',
+  'Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks',
+  'Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib',
   'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift',
   'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift_static',
   'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang',
@@ -25,10 +30,10 @@ const sdkIncludedRoots = <String>[
 /// and toolchain as well as their SDK and library subtrees.
 const sdkIncludedFiles = <String>[
   'Developer/Platforms/iPhoneOS.platform/Info.plist',
+  'Developer/Platforms/iPhoneSimulator.platform/Info.plist',
   'Developer/Toolchains/XcodeDefault.xctoolchain/Info.plist',
 ];
 
-const _platformDeveloper = 'Developer/Platforms/iPhoneOS.platform/Developer';
 const _toolchain = 'Developer/Toolchains/XcodeDefault.xctoolchain';
 const _swiftResources = '$_toolchain/usr/lib/swift';
 const _swiftStaticResources = '$_toolchain/usr/lib/swift_static';
@@ -59,6 +64,77 @@ const swiftSdkMismatchMarker = 'this SDK is not supported by the compiler';
 
 /// Helpers for extracting and wiring the Darwin Swift SDK bundle.
 abstract final class SdkInstall {
+  static Stream<CpioEntry> xcodeAppEntries(String appPath) async* {
+    final sourceContents = p.join(appPath, 'Contents');
+    if (!Directory(p.join(sourceContents, 'Developer')).existsSync()) {
+      throw XcrossError('No Xcode Developer directory found in "$appPath".');
+    }
+    final canonicalApp = await Directory(appPath).resolveSymbolicLinks();
+    final contents = await Directory(sourceContents).resolveSymbolicLinks();
+    if (!p.isWithin(canonicalApp, contents)) {
+      throw XcrossError('Xcode SDK source escapes the app: $sourceContents');
+    }
+    for (final relative in [...sdkIncludedRoots, ...sdkIncludedFiles]) {
+      final source = p.joinAll([contents, ...relative.split('/')]);
+      final type = await FileSystemEntity.type(source, followLinks: false);
+      if (type == FileSystemEntityType.notFound) continue;
+      final resolved = switch (type) {
+        FileSystemEntityType.directory => await Directory(
+          source,
+        ).resolveSymbolicLinks(),
+        FileSystemEntityType.file => await File(source).resolveSymbolicLinks(),
+        _ => source,
+      };
+      if (!p.isWithin(contents, resolved)) {
+        throw XcrossError('Xcode SDK source escapes the app: $source');
+      }
+      yield await _xcodeAppEntry(source, relative, type);
+      if (type != FileSystemEntityType.directory) continue;
+      await for (final entity in Directory(
+        source,
+      ).list(recursive: true, followLinks: false)) {
+        final entityType = await FileSystemEntity.type(
+          entity.path,
+          followLinks: false,
+        );
+        final name = p
+            .relative(entity.path, from: contents)
+            .replaceAll(r'\', '/');
+        yield await _xcodeAppEntry(entity.path, name, entityType);
+      }
+    }
+  }
+
+  static Future<CpioEntry> _xcodeAppEntry(
+    String source,
+    String name,
+    FileSystemEntityType type,
+  ) async {
+    switch (type) {
+      case FileSystemEntityType.directory:
+        return CpioEntry(
+          name: name,
+          mode: _directoryType | 0x1ed,
+          data: Uint8List(0),
+        );
+      case FileSystemEntityType.link:
+        return CpioEntry(
+          name: name,
+          mode: _symbolicLinkType | 0x1ff,
+          data: utf8.encode(await Link(source).target()),
+        );
+      case FileSystemEntityType.file:
+        final file = File(source);
+        return CpioEntry(
+          name: name,
+          mode: _regularFileType | ((await file.stat()).mode & 0x1ff),
+          data: await file.readAsBytes(),
+        );
+      default:
+        throw XcrossError('Unsupported Xcode SDK file: $source');
+    }
+  }
+
   /// Destination-relative path for an included cpio entry, or null when the
   /// entry is outside [sdkIncludedRoots] and [sdkIncludedFiles].
   static String? sdkRelativePath(String name) {
@@ -371,33 +447,28 @@ abstract final class SdkInstall {
 
   /// Write the Swift artifact-bundle metadata after extraction.
   static Future<void> writeSwiftSdkBundleMetadata(String artifactRoot) async {
-    final sdkRoot = DarwinSdk(artifactRoot).iPhoneOSSdk();
-    if (!RegExp('[0-9]').hasMatch(p.basename(sdkRoot))) {
-      throw XcrossError(
-        'The extracted Xcode archive did not contain a versioned iPhoneOS SDK.',
-      );
-    }
-    // Bundle metadata is always forward-slashed, including on Windows.
-    final relativeSdkRoot = p
-        .relative(sdkRoot, from: artifactRoot)
-        .replaceAll(r'\', '/');
-    final toolchainCxx = p.join(artifactRoot, _toolchain, 'usr/include/c++/v1');
-    final sdkCxx = p.join(sdkRoot, 'usr/include/c++/v1');
-    final cxxInclude = Directory(toolchainCxx).existsSync()
-        ? '$_toolchain/usr/include/c++/v1'
-        : p.relative(sdkCxx, from: artifactRoot).replaceAll(r'\', '/');
-
+    final simulatorSdks = Directory(
+      p.join(
+        artifactRoot,
+        'Developer',
+        'Platforms',
+        'iPhoneSimulator.platform',
+        'Developer',
+        'SDKs',
+      ),
+    );
     await _writeJson(p.join(artifactRoot, 'swift-sdk.json'), {
       'schemaVersion': '4.0',
       'targetTriples': {
-        'arm64-apple-ios': {
-          'sdkRootPath': relativeSdkRoot,
-          'swiftResourcesPath': _swiftResources,
-          'swiftStaticResourcesPath': _swiftStaticResources,
-          'includeSearchPaths': ['$_platformDeveloper/usr/lib', cxxInclude],
-          'librarySearchPaths': ['$_platformDeveloper/usr/lib'],
-          'toolsetPaths': ['toolset.json'],
-        },
+        IosTarget.device.swiftSdkTriple: _swiftSdkTargetMetadata(
+          artifactRoot,
+          IosTarget.device,
+        ),
+        if (simulatorSdks.existsSync())
+          IosTarget.simulator.swiftSdkTriple: _swiftSdkTargetMetadata(
+            artifactRoot,
+            IosTarget.simulator,
+          ),
       },
     });
     await _writeJson(p.join(artifactRoot, 'toolset.json'), const {
@@ -424,12 +495,45 @@ abstract final class SdkInstall {
                 'aarch64-unknown-linux-gnu',
                 'x86_64-unknown-windows-msvc',
                 'aarch64-unknown-windows-msvc',
+                'x86_64-apple-macosx',
+                'arm64-apple-macosx',
               ],
             },
           ],
         },
       },
     });
+  }
+
+  static Map<String, Object> _swiftSdkTargetMetadata(
+    String artifactRoot,
+    IosTarget target,
+  ) {
+    final sdkRoot = DarwinSdk(artifactRoot).iosSdk(target: target);
+    if (!RegExp('[0-9]').hasMatch(p.basename(sdkRoot))) {
+      throw XcrossError(
+        'The extracted Xcode archive did not contain a versioned '
+        '${target.platformName} SDK.',
+      );
+    }
+    final relativeSdkRoot = p
+        .relative(sdkRoot, from: artifactRoot)
+        .replaceAll(r'\', '/');
+    final toolchainCxx = p.join(artifactRoot, _toolchain, 'usr/include/c++/v1');
+    final sdkCxx = p.join(sdkRoot, 'usr/include/c++/v1');
+    final cxxInclude = Directory(toolchainCxx).existsSync()
+        ? '$_toolchain/usr/include/c++/v1'
+        : p.relative(sdkCxx, from: artifactRoot).replaceAll(r'\', '/');
+    final platformDeveloper =
+        'Developer/Platforms/${target.platformName}.platform/Developer';
+    return {
+      'sdkRootPath': relativeSdkRoot,
+      'swiftResourcesPath': _swiftResources,
+      'swiftStaticResourcesPath': _swiftStaticResources,
+      'includeSearchPaths': ['$platformDeveloper/usr/lib', cxxInclude],
+      'librarySearchPaths': ['$platformDeveloper/usr/lib'],
+      'toolsetPaths': ['toolset.json'],
+    };
   }
 
   static Future<void> _writeJson(String path, Map<String, Object?> value) =>
@@ -509,17 +613,21 @@ abstract final class SdkInstall {
       hostToolchainStampName,
     };
     final sdk = DarwinSdk(sdkRoot);
-    try {
-      final iphoneOs = sdk.iPhoneOSSdk();
-      for (final name in const [
-        'SDKSettings.json',
-        'SDKSettings.plist',
-        'System/Library/CoreServices/SystemVersion.plist',
-      ]) {
-        files.add(p.relative(p.join(iphoneOs, name), from: sdkRoot));
+    for (final target in IosTarget.values) {
+      try {
+        final platformSdk = sdk.iosSdk(target: target);
+        for (final name in const [
+          'SDKSettings.json',
+          'SDKSettings.plist',
+          'System/Library/CoreServices/SystemVersion.plist',
+        ]) {
+          files.add(p.relative(p.join(platformSdk, name), from: sdkRoot));
+        }
+      } on DarwinSdkError catch (error) {
+        Log.logTrace(
+          'Could not resolve ${target.platformName} SDK identity metadata: $error',
+        );
       }
-    } on Object catch (error) {
-      Log.logTrace('Could not resolve iPhoneOS SDK identity metadata: $error');
     }
     final metadata = <String, Object>{};
     for (final relative in files.toList()..sort()) {
