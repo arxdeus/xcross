@@ -1,5 +1,6 @@
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/config/config.dart';
+import 'package:xcross/src/shared/config/config_host.dart';
 
 final class XcrossRuntimeConfig {
   XcrossRuntimeConfig({
@@ -38,11 +39,13 @@ final class XcrossRuntimeConfig {
 
   static Future<XcrossRuntimeConfig> load<T extends PlatformHostInterface>(
     T host, {
+    required ConfigHostInterface policy,
     XcrossConfigStore<T>? store,
     String? configDirectory,
   }) async {
     final selectedStore =
-        store ?? XcrossConfigStore(host, directory: configDirectory);
+        store ??
+        XcrossConfigStore(host, directory: configDirectory, policy: policy);
     final selected = selectedStore.selectedFile();
     final config = await selectedStore.load();
     final inherited = host.environment.values;
@@ -60,12 +63,15 @@ final class XcrossRuntimeConfig {
           _ => throw StateError('Unsupported environment value: ${entry.key}'),
         };
       }
-      if (config.roots.javaHome case final javaHome?)
+      if (config.roots.javaHome case final javaHome?) {
         overrides['JAVA_HOME'] = javaHome;
-      if (config.roots.konanData case final konanData?)
+      }
+      if (config.roots.konanData case final konanData?) {
         overrides['KONAN_DATA_DIR'] = konanData;
-      if (selected case final file?)
+      }
+      if (selected case final file?) {
         overrides[XcrossConfigStore.selectorVariable] = file.path;
+      }
     }
     return XcrossRuntimeConfig(
       config: config,

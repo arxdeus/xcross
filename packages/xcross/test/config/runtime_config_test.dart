@@ -1,300 +1,167 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/ide/xcross_executable.dart';
-import 'package:xcross/src/compose/toolchain/compose_host.dart';
-import 'package:xcross/src/compose/toolchain/compose_toolchain_resolver.dart';
-import 'package:xcross/src/dap/internal/dap_router.dart';
-import 'package:xcross/src/flutter/build/flutter_packer.dart';
-import 'package:xcross/xcross.dart';
+import 'package:xcross/src/config/config.dart';
+import 'package:xcross/src/config/runtime_config.dart';
+import 'package:xcross/src/host/shared/config/posix_config_host.dart';
+import 'package:xcross/src/host/windows/config/windows_config_host.dart';
+
+import '../log_fixture.dart';
 
 void main() {
   late Directory temporary;
+  setUp(
+    () => temporary = Directory.systemTemp.createTempSync(
+      'xcross-runtime-config-',
+    ),
+  );
+  tearDown(() => temporary.deleteSync(recursive: true));
 
-  setUp(() {
-    XcrossRuntimeConfig.resetForTests();
-    temporary = Directory.systemTemp.createTempSync('xcross-runtime-config-');
-  });
-  tearDown(() {
-    XcrossRuntimeConfig.resetForTests();
-    temporary.deleteSync(recursive: true);
-  });
-
-  test('absent config initializes legacy context', () async {
-    final runtime = await XcrossRuntimeConfig.initialize(
-      configDirectory: temporary.path,
-      environment: const {'HOME': '/home/test', 'SECRET': 'legacy-visible'},
-      windows: false,
+  test('absent configuration preserves immutable legacy environment', () async {
+    final host = LinuxHost(
+      environment: const {'HOME': '/home/test', 'SECRET': 'visible'},
     );
-
+    final runtime = await XcrossRuntimeConfig.load(
+      host,
+      configDirectory: temporary.path,
+      policy: const PosixConfigHost(),
+    );
     expect(runtime.isLegacy, isTrue);
     expect(runtime.config, isNull);
-    expect(runtime.environment['SECRET'], 'legacy-visible');
-    expect(XcrossRuntimeConfig.current, same(runtime));
+    expect(runtime.processConfiguration, isNull);
+    expect(runtime.childEnvironment['SECRET'], 'visible');
+    expect(
+      () => runtime.childEnvironment['PATH'] = '/other',
+      throwsUnsupportedError,
+    );
   });
 
   test(
-    'present config overlays explicit tools and prepends configured PATH',
+    'configuration prepends path and overlays roots without global state',
     () async {
-      final git = File(
-        p.join(temporary.path, ProcessRunner.hostExecutableName('git')),
-      )..writeAsStringSync('#!/bin/sh\n');
-      final swiftBin = Directory(p.join(temporary.path, 'swift-bin'))
-        ..createSync();
-      final llvmBin = Directory(p.join(temporary.path, 'llvm-bin'))
-        ..createSync();
-      final swift = File(
-        p.join(swiftBin.path, ProcessRunner.hostExecutableName('swift')),
-      )..createSync();
-      final clang = File(
-        p.join(llvmBin.path, ProcessRunner.hostExecutableName('clang')),
-      )..createSync();
-      final flutterRoot = p.join(temporary.path, 'flutter');
-      final darwinRoot = p.join(temporary.path, 'darwin');
-      final xcross = p.join(
-        temporary.path,
-        ProcessRunner.hostExecutableName('xcross'),
+      final host = LinuxHost(
+        environment: const {
+          'HOME': '/home/test',
+          'PATH': '/usr/bin',
+          'SECRET': 'inherited',
+        },
       );
-      final javaHome = p.join(temporary.path, 'java');
-      final konanData = p.join(temporary.path, 'konan');
-      final toolsPath = p.join(temporary.path, 'tools');
-      if (!Platform.isWindows) Process.runSync('chmod', ['755', git.path]);
       File(p.join(temporary.path, 'config.yaml')).writeAsStringSync('''
 roots:
-  flutterSdk: $flutterRoot
-  darwinSdk: $darwinRoot
-  xcross: $xcross
-  javaHome: $javaHome
-  konanData: $konanData
+  darwinSdk: /sdk
+  flutterSdk: /flutter
+  xcross: /bin/xcross
+  javaHome: /java
+  konanData: /konan
 toolchains:
-  swift: ${swiftBin.path}
-  llvm: ${llvmBin.path}
-tools:
-  git.exe: ${git.path}
+  swift: /swift/bin
+  llvm: /llvm/bin
 environment:
   PATH:
-    - $toolsPath
+    - /tools
 ''');
-      final inheritedPath = Platform.environment['PATH'] ?? '';
-      final runtime = await XcrossRuntimeConfig.initialize(
+      final runtime = await XcrossRuntimeConfig.load(
+        host,
         configDirectory: temporary.path,
-        environment: {
-          'HOME': '/home/test',
-          'SECRET': 'inherited',
-          'PATH': inheritedPath,
-        },
-        windows: Platform.isWindows,
+        policy: const PosixConfigHost(),
       );
-
       expect(runtime.isConfigured, isTrue);
-      expect(runtime.config!.tool('git'), git.path);
-      expect(runtime.environment, {
-        'PATH': [toolsPath],
+      expect(runtime.roots!.darwinSdk, '/sdk');
+      expect(runtime.childEnvironment['PATH'], '/tools:/usr/bin');
+      expect(runtime.childEnvironment['JAVA_HOME'], '/java');
+      expect(runtime.childEnvironment['KONAN_DATA_DIR'], '/konan');
+      expect(runtime.childEnvironment['SECRET'], 'inherited');
+      expect(
+        runtime.childEnvironment['XCROSS_CONFIG'],
+        p.join(temporary.path, 'config.yaml'),
+      );
+      expect(runtime.processConfiguration!.toolchainDirectories, {
+        'swift': ['/swift/bin'],
+        'llvm': ['/llvm/bin'],
       });
-      expect(runtime.processEnvironment['SECRET'], 'inherited');
-      final process = ProcessRunner.configuration!;
-      expect(process.normalizedTools['git'], git.path);
-      expect(process.toolchainDirectories['swift'], [swiftBin.path]);
-      expect(process.toolchainDirectories['llvm'], [llvmBin.path]);
-      expect(
-        await ProcessRunner.which('swift'),
-        equalsIgnoringCase(swift.path),
+      final runner = ProcessRunner(
+        host,
+        log: testLog(),
+        configuration: runtime.processConfiguration,
       );
-      expect(
-        await ProcessRunner.which('clang'),
-        equalsIgnoringCase(clang.path),
-      );
-      expect(
-        process.effectiveChildEnvironment,
-        containsPair(
-          'PATH',
-          '$toolsPath${Platform.isWindows ? ';' : ':'}$inheritedPath',
-        ),
-      );
-      expect(
-        process.effectiveChildEnvironment,
-        containsPair('SECRET', 'inherited'),
-      );
-      expect(
-        process.effectiveChildEnvironment,
-        containsPair('JAVA_HOME', javaHome),
-      );
-      expect(
-        process.effectiveChildEnvironment,
-        containsPair('KONAN_DATA_DIR', konanData),
-      );
-      expect(
-        process.effectiveChildEnvironment,
-        containsPair('XCROSS_CONFIG', p.join(temporary.path, 'config.yaml')),
-      );
-      expect(
-        await ProcessRunner.which('git'),
-        git.path,
-        reason: 'explicit override wins over PATH',
-      );
-      expect(
-        await ProcessRunner.which('dart'),
-        isNotNull,
-        reason: 'unspecified tools remain discoverable through inherited PATH',
-      );
-      expect(DarwinSdk.nativeInstallDir(), darwinRoot);
-      expect(
-        await FlutterPacker.resolveFlutterRoot(
-          projectRoot: temporary.path,
-          root: '/explicit/flutter',
-        ),
-        '/explicit/flutter',
-      );
-      expect(
-        ComposeSetupOptions.resolve(
-          env: const {'KONAN_DATA_DIR': '/environment/konan'},
-          projectRoot: temporary.path,
-          host: ComposeHost.linuxX64,
-        ).cacheRoot,
-        konanData,
-      );
-      expect(
-        resolveXcrossExecutable(subcommand: 'vscode', brokenFeature: 'DAP'),
-        xcross,
-      );
+      expect(runner.effectiveEnvironment, runtime.childEnvironment);
     },
   );
 
-  test('Windows PATH overlay preserves inherited mixed-case Path', () async {
-    if (!Platform.isWindows) return;
-    final configuredPath = p.join(temporary.path, 'tools');
-    File(p.join(temporary.path, 'config.yaml')).writeAsStringSync('''
-environment:
-  PATH:
-    - $configuredPath
-''');
+  test(
+    'injected Windows overlay folds case and uses Windows separator on POSIX',
+    () async {
+      final host = WindowsHost(
+        environment: const {'Path': r'C:\Windows', 'JAVA_HOME': r'C:\old'},
+      );
+      final config = XcrossConfig(
+        roots: const XcrossConfigRoots(javaHome: r'C:\java'),
+        environment: {
+          'PATH': <String>[r'C:\tools'],
+        },
+      );
+      final store = XcrossConfigStore(
+        host,
+        directory: temporary.path,
+        policy: const WindowsConfigHost(),
+      );
+      await store.save(config);
+      final runtime = await XcrossRuntimeConfig.load(
+        host,
+        store: store,
+        policy: const WindowsConfigHost(),
+      );
+      expect(runtime.childEnvironment['PATH'], r'C:\tools;C:\Windows');
+      expect(runtime.childEnvironment, isNot(contains('Path')));
+      expect(runtime.childEnvironment['JAVA_HOME'], r'C:\java');
+    },
+  );
 
-    final runtime = await XcrossRuntimeConfig.initialize(
-      configDirectory: temporary.path,
-      environment: const {'Path': r'C:\inherited\bin'},
-      windows: true,
+  test('independent and concurrent loads do not share runtime state', () async {
+    final first = LinuxHost(
+      environment: const {'HOME': '/first', 'PATH': '/first/bin'},
     );
-    final child = runtime.childEnvironment;
-    expect(child['PATH'], '$configuredPath;${r'C:\inherited\bin'}');
-    expect(child.keys.where((key) => key.toUpperCase() == 'PATH'), ['PATH']);
-  });
-
-  test('configured FLUTTER_ROOT reaches packer and DAP resolution', () async {
-    File(p.join(temporary.path, 'config.yaml')).writeAsStringSync('''
-environment:
-  FLUTTER_ROOT: /configured/flutter
-''');
-
-    await XcrossRuntimeConfig.initialize(
-      configDirectory: temporary.path,
-      environment: const {
-        'HOME': '/home/test',
-        'FLUTTER_ROOT': '/inherited/flutter',
-      },
-      windows: false,
+    final second = LinuxHost(
+      environment: const {'HOME': '/second', 'PATH': '/second/bin'},
     );
-
-    expect(
-      await FlutterPacker.resolveFlutterRoot(projectRoot: temporary.path),
-      '/configured/flutter',
-    );
-    expect(
-      DapRouter.resolveFlutterExecutable(projectRoot: temporary.path),
-      p.join(
-        '/configured/flutter',
-        'bin',
-        Platform.isWindows ? 'flutter.bat' : 'flutter',
-      ),
-    );
-  });
-
-  test('rejects an explicit invalid tool override', () async {
-    File(p.join(temporary.path, 'config.yaml')).writeAsStringSync('''
- tools:
-   git: ${p.join(temporary.path, 'missing-git')}
-''');
-
-    await expectLater(
-      XcrossRuntimeConfig.initialize(
+    final loaded = await Future.wait([
+      XcrossRuntimeConfig.load(
+        first,
         configDirectory: temporary.path,
-        environment: const {'HOME': '/home/test'},
-        windows: false,
+        policy: const PosixConfigHost(),
+      ),
+      XcrossRuntimeConfig.load(
+        second,
+        configDirectory: temporary.path,
+        policy: const PosixConfigHost(),
+      ),
+    ]);
+    expect(loaded[0], isNot(same(loaded[1])));
+    expect(loaded[0].childEnvironment['PATH'], '/first/bin');
+    expect(loaded[1].childEnvironment['PATH'], '/second/bin');
+  });
+
+  test('failed configuration load cannot poison another runtime', () async {
+    final host = LinuxHost(environment: const {'HOME': '/home/test'});
+    File(
+      p.join(temporary.path, 'config.yaml'),
+    ).writeAsStringSync('roots: [bad]');
+    await expectLater(
+      XcrossRuntimeConfig.load(
+        host,
+        configDirectory: temporary.path,
+        policy: const PosixConfigHost(),
       ),
       throwsA(isA<XcrossConfigException>()),
     );
-  });
-
-  test(
-    'current requires initialization and reset supports isolated tests',
-    () async {
-      expect(() => XcrossRuntimeConfig.current, throwsStateError);
-      await XcrossRuntimeConfig.initialize(
-        configDirectory: temporary.path,
-        environment: const {'HOME': '/home/test'},
-        windows: false,
-      );
-      expect(XcrossRuntimeConfig.isInitialized, isTrue);
-
-      XcrossRuntimeConfig.resetForTests();
-      expect(XcrossRuntimeConfig.isInitialized, isFalse);
-      expect(() => XcrossRuntimeConfig.current, throwsStateError);
-    },
-  );
-
-  test('absent config retains legacy static overrides', () async {
-    ProcessRunner.configure(
-      normalizedTools: const {'git': '/legacy/git'},
-      effectiveChildEnvironment: const {'LEGACY': '1'},
-    );
-    FlutterPacker.configureFlutterRootOverride('/legacy/flutter');
-    ComposeSetupOptions.configureCacheRootOverride('/legacy/konan');
-    DarwinSdk.configureInstallBundleOverride('/legacy/darwin');
-    configureXcrossLauncherOverride('/legacy/xcross');
-
-    await XcrossRuntimeConfig.initialize(
+    File(p.join(temporary.path, 'config.yaml')).writeAsStringSync('roots: {}');
+    final runtime = await XcrossRuntimeConfig.load(
+      host,
       configDirectory: temporary.path,
-      environment: const {'HOME': '/home/test'},
-      windows: false,
+      policy: const PosixConfigHost(),
     );
-
-    expect(ProcessRunner.configuration!.normalizedTools['git'], '/legacy/git');
-    expect(DarwinSdk.nativeInstallDir(), '/legacy/darwin');
-    expect(
-      await FlutterPacker.resolveFlutterRoot(projectRoot: temporary.path),
-      '/legacy/flutter',
-    );
-    expect(
-      ComposeSetupOptions.resolve(
-        env: const {'KONAN_DATA_DIR': '/environment/konan'},
-        projectRoot: temporary.path,
-        host: ComposeHost.linuxX64,
-      ).cacheRoot,
-      '/legacy/konan',
-    );
-    expect(
-      resolveXcrossExecutable(subcommand: 'vscode', brokenFeature: 'DAP'),
-      '/legacy/xcross',
-    );
-  });
-
-  test('concurrent and repeated initialization returns one context', () async {
-    final values = await Future.wait([
-      XcrossRuntimeConfig.initialize(
-        configDirectory: temporary.path,
-        environment: const {'HOME': '/home/test'},
-        windows: false,
-      ),
-      XcrossRuntimeConfig.initialize(
-        configDirectory: temporary.path,
-        environment: const {'HOME': '/home/test'},
-        windows: false,
-      ),
-    ]);
-    expect(values[0], same(values[1]));
-    expect(await XcrossRuntimeConfig.initialize(), same(values[0]));
+    expect(runtime.isConfigured, isTrue);
   });
 }
