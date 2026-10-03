@@ -29,11 +29,14 @@ final class AppleToolShimConfig {
     required this.installNameTool,
     required this.xcrun,
     required this.deploymentTarget,
+    this.hostCompilerArguments = const [],
+    this.simulator = false,
   });
 
   final String iosSdk;
   final String clang;
   final String hostCompiler;
+  final List<String> hostCompilerArguments;
   final String archiver;
   final String linker;
   final String lipo;
@@ -41,8 +44,14 @@ final class AppleToolShimConfig {
   final String? installNameTool;
   final String xcrun;
   final String deploymentTarget;
+  final bool simulator;
 
-  static Future<AppleToolShimConfig> resolve(String deploymentTarget) async {
+  IosTarget get target => simulator ? IosTarget.simulator : IosTarget.device;
+
+  static Future<AppleToolShimConfig> resolve(
+    String deploymentTarget, {
+    bool simulator = false,
+  }) async {
     final sdk = DarwinSdk.current();
     if (sdk == null) {
       throw FlutterBuildError(
@@ -51,10 +60,14 @@ final class AppleToolShimConfig {
       );
     }
     final clang = await DarwinSdk.resolveDarwinClang(sdk);
+    final hostCompiler = await resolveHostCompiler(clang);
     return AppleToolShimConfig(
-      iosSdk: sdk.iPhoneOSSdk(),
+      iosSdk: sdk.iosSdk(
+        target: simulator ? IosTarget.simulator : IosTarget.device,
+      ),
       clang: clang,
-      hostCompiler: await resolveHostCompiler(clang),
+      hostCompiler: hostCompiler.executable,
+      hostCompilerArguments: hostCompiler.arguments,
       archiver: await _locateArchiver(clang),
       linker: await DarwinSdk.resolveLd64Lld(sdk),
       lipo: await locateLlvmTool('llvm-lipo'),
@@ -62,6 +75,7 @@ final class AppleToolShimConfig {
       installNameTool: await findLlvmTool('llvm-install-name-tool'),
       xcrun: await resolveXcrun(),
       deploymentTarget: deploymentTarget,
+      simulator: simulator,
     );
   }
 }
@@ -119,8 +133,26 @@ Future<String> resolveXcrun({String? launcher}) async {
   return ProcessRunner.locateTool('xcrun');
 }
 
-Future<String> resolveHostCompiler(String clang, {bool? windows}) async =>
-    (windows ?? Platform.isWindows) ? clang : ProcessRunner.locateTool('cc');
+Future<({String executable, List<String> arguments})> resolveHostCompiler(
+  String clang, {
+  bool? windows,
+  bool? macos,
+  Future<String> Function(String name)? locate,
+}) async {
+  if (windows ?? Platform.isWindows) {
+    return (executable: clang, arguments: const <String>[]);
+  }
+  if (macos ?? Platform.isMacOS) {
+    return (
+      executable: '/usr/bin/xcrun',
+      arguments: const ['--sdk', 'macosx', 'clang'],
+    );
+  }
+  return (
+    executable: await (locate ?? ProcessRunner.locateTool)('cc'),
+    arguments: const <String>[],
+  );
+}
 
 /// Locates the native `xcross.exe` that Windows tool aliases are copies of.
 ///
@@ -240,14 +272,14 @@ Future<void> _installWindowsToolShims(
     if (entry.key == 'clang' || entry.key == 'cc') {
       await File('$executable.args').writeAsString(
         jsonEncode([
-          '--target=arm64-apple-ios${config.deploymentTarget}',
+          '--target=${config.target.buildTriple(config.deploymentTarget)}',
           '-isysroot',
           config.iosSdk,
-          '-miphoneos-version-min=${config.deploymentTarget}',
+          '-m${config.simulator ? 'ios-simulator' : 'iphoneos'}-version-min=${config.deploymentTarget}',
           '-fuse-ld=lld',
           '--ld-path=${config.linker}',
           '-Wl,-arch,arm64',
-          '-Wl,-platform_version,ios,${config.deploymentTarget},26.5',
+          '-Wl,-platform_version,${config.target.linkerPlatform},${config.deploymentTarget},26.5',
         ]),
       );
     }
@@ -319,8 +351,10 @@ Future<void> _installUnixToolShims(
     iosSdk: config.iosSdk,
     clang: config.clang,
     hostCompiler: config.hostCompiler,
+    hostCompilerArguments: config.hostCompilerArguments,
     linker: config.linker,
     deploymentTarget: config.deploymentTarget,
+    simulator: config.simulator,
   );
   await _writeUnixShim(directory, 'clang', compilerScript);
   await _writeUnixShim(directory, 'cc', compilerScript);

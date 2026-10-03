@@ -26,6 +26,7 @@ final class ComposeSetupOptions {
     required this.overlayArchiveUrl,
     required this.hostArchiveSha256,
     required this.overlayArchiveSha256,
+    this.environment = const {},
   });
 
   static const defaultKotlinNativeVersion = '2.2.20';
@@ -46,9 +47,10 @@ final class ComposeSetupOptions {
   final String kotlinHome;
   final String konanCache;
   final String hostArchiveUrl;
-  final String overlayArchiveUrl;
+  final String? overlayArchiveUrl;
   final String? hostArchiveSha256;
   final String? overlayArchiveSha256;
+  final Map<String, String> environment;
 
   static ComposeSetupOptions resolve({
     required Map<String, String> env,
@@ -69,6 +71,7 @@ final class ComposeSetupOptions {
     return ComposeSetupOptions(
       host: host,
       version: version,
+      environment: Map.unmodifiable(env),
       projectRoot: projectRoot,
       cacheRoot: cacheRoot,
       kotlinHome: p.join(
@@ -78,11 +81,13 @@ final class ComposeSetupOptions {
       konanCache: p.join(cacheRoot, 'cache'),
       hostArchiveUrl:
           '$kotlinNativeMavenBase/$version/${host.hostArtifact(version)}',
-      overlayArchiveUrl:
-          '$kotlinNativeMavenBase/$version/${ComposeHost.macosX64OverlayArtifact(version)}',
+      overlayArchiveUrl: host.isMacOS
+          ? null
+          : '$kotlinNativeMavenBase/$version/${ComposeHost.macosX64OverlayArtifact(version)}',
       hostArchiveSha256: _sha256ByArtifact[host.hostArtifact(version)],
-      overlayArchiveSha256:
-          _sha256ByArtifact[ComposeHost.macosX64OverlayArtifact(version)],
+      overlayArchiveSha256: host.isMacOS
+          ? null
+          : _sha256ByArtifact[ComposeHost.macosX64OverlayArtifact(version)],
     );
   }
 
@@ -93,12 +98,16 @@ final class ComposeSetupOptions {
         '2bf86caed1b5a67f0cd15c685cb8584a2e61f3221d0985f4fc6a590f51c398df',
     'kotlin-native-prebuilt-2.2.20-macos-x86_64.tar.gz':
         'ca9eb2dbb87703176bdbafaad887dc5036c9e5dbfd2eec113b7f4f4a346ca60b',
+    'kotlin-native-prebuilt-2.2.20-macos-aarch64.tar.gz':
+        '2acd3a2e0e5a9782b5cc2cb90c18f2412eda86ab3fb8adf2d18a3e3ca9b80ee6',
     'kotlin-native-prebuilt-2.4.0-linux-x86_64.tar.gz':
         '1fdad03264fc398d24df961bf6563e35b82706bb67cf3ba926eb7b768ce7d536',
     'kotlin-native-prebuilt-2.4.0-windows-x86_64.zip':
         'cf91af2dbe53767ec89d0eb0f744e588f316a8d115e5faba401ae3f2db7db535',
     'kotlin-native-prebuilt-2.4.0-macos-x86_64.tar.gz':
         'da0684965d6f33c55b5e6e85b6de8a5327dbd3ccfedcb1ab6c1131900e8b3e83',
+    'kotlin-native-prebuilt-2.4.0-macos-aarch64.tar.gz':
+        '9ef8c0f9fd90f4082d6e62f14655d23d81651d89d49205e5c49177ff34f552b8',
   };
 
   static String? _nonEmpty(String? value) =>
@@ -182,20 +191,24 @@ abstract final class ComposeToolchainResolver {
     required ComposeHost host,
     required Map<String, String> environment,
     required String projectRoot,
+    bool simulator = false,
   }) => _default.resolve(
     host: host,
     environment: environment,
     projectRoot: projectRoot,
+    simulator: simulator,
   );
 
   static Future<List<String>> problems({
     required ComposeHost host,
     required Map<String, String> environment,
     required String projectRoot,
+    bool simulator = false,
   }) => _default.problems(
     host: host,
     environment: environment,
     projectRoot: projectRoot,
+    simulator: simulator,
   );
 
   static Future<ComposeToolchain> ensure({
@@ -204,12 +217,14 @@ abstract final class ComposeToolchainResolver {
     required String projectRoot,
     bool allowInstall = true,
     bool force = false,
+    bool simulator = false,
   }) => _default.ensure(
     host: host,
     environment: environment,
     projectRoot: projectRoot,
     allowInstall: allowInstall,
     force: force,
+    simulator: simulator,
   );
 
   static Future<String?> _defaultWhich(
@@ -263,6 +278,7 @@ final class InjectedComposeToolchainResolver {
     required ComposeHost host,
     required Map<String, String> environment,
     required String projectRoot,
+    bool simulator = false,
   }) async {
     final options = ComposeSetupOptions.resolve(
       env: environment,
@@ -274,6 +290,7 @@ final class InjectedComposeToolchainResolver {
       environment: environment,
       projectRoot: projectRoot,
       options: options,
+      simulator: simulator,
     );
     return found.problems.isEmpty ? found.toolchain : null;
   }
@@ -282,6 +299,7 @@ final class InjectedComposeToolchainResolver {
     required ComposeHost host,
     required Map<String, String> environment,
     required String projectRoot,
+    bool simulator = false,
   }) async {
     final options = ComposeSetupOptions.resolve(
       env: environment,
@@ -293,6 +311,7 @@ final class InjectedComposeToolchainResolver {
       environment: environment,
       projectRoot: projectRoot,
       options: options,
+      simulator: simulator,
     );
     return found.problems;
   }
@@ -303,6 +322,7 @@ final class InjectedComposeToolchainResolver {
     required String projectRoot,
     bool allowInstall = true,
     bool force = false,
+    bool simulator = false,
   }) async {
     final options = ComposeSetupOptions.resolve(
       env: environment,
@@ -314,6 +334,7 @@ final class InjectedComposeToolchainResolver {
       environment: environment,
       projectRoot: projectRoot,
       options: options,
+      simulator: simulator,
     );
     if (found.toolchain != null && !force) return found.toolchain!;
     final kotlinProblem = found.problems.firstWhere(
@@ -340,6 +361,7 @@ final class InjectedComposeToolchainResolver {
       host: host,
       environment: environment,
       projectRoot: projectRoot,
+      simulator: simulator,
     );
     if (installed != null) return installed;
     throw XcrossError(
@@ -347,6 +369,7 @@ final class InjectedComposeToolchainResolver {
         host: host,
         environment: environment,
         projectRoot: projectRoot,
+        simulator: simulator,
       )).join('\n'),
     );
   }
@@ -356,7 +379,16 @@ final class InjectedComposeToolchainResolver {
     required Map<String, String> environment,
     required String projectRoot,
     required ComposeSetupOptions options,
+    required bool simulator,
   }) async {
+    if (simulator && !host.isMacOS) {
+      return _ResolvedToolchain(null, [
+        'Compose iOS simulator builds are supported only on macOS. '
+            '${host.classifier} toolchains include ios_arm64 device libraries '
+            'but not ios_simulator_arm64. Use a macOS host for simulator '
+            'builds or build for an iOS device.',
+      ]);
+    }
     final problems = <String>[];
     final konancExecutable = host.konancExecutable(options.kotlinHome);
     if (!ComposeToolchainInstaller.isComplete(options)) {
@@ -393,6 +425,18 @@ final class InjectedComposeToolchainResolver {
         'Missing Darwin SDK. Install with `xcross sdk install <Xcode.xip|Xcode.app>` first.',
       );
     }
+    String? sdkPath;
+    if (sdk != null) {
+      try {
+        sdkPath = simulator
+            ? sdk.iPhoneSimulatorSdk() as String
+            : sdk.iPhoneOSSdk() as String;
+      } on Object catch (error) {
+        problems.add(
+          'Missing ${simulator ? 'iPhoneSimulator' : 'iPhoneOS'} SDK. $error',
+        );
+      }
+    }
     String? ld64;
     if (sdk != null) {
       try {
@@ -410,7 +454,8 @@ final class InjectedComposeToolchainResolver {
         swiftc == null ||
         clang == null ||
         ld64 == null ||
-        sdk == null) {
+        sdk == null ||
+        sdkPath == null) {
       return _ResolvedToolchain(null, problems);
     }
     return _ResolvedToolchain(
@@ -425,7 +470,8 @@ final class InjectedComposeToolchainResolver {
         swiftc: swiftc,
         clang: clang,
         ld64Lld: ld64,
-        darwinSdkPath: sdk.iPhoneOSSdk() as String,
+        darwinSdkPath: sdkPath,
+        simulator: simulator,
         darwinSdkBundle: sdk.swiftSdkPath as String,
       ),
       problems,
@@ -452,6 +498,7 @@ final class InjectedComposeToolchainResolver {
       return null;
     }
     final result = await _run(candidate, const [
+      '-XshowSettings:properties',
       '-version',
     ], environment: environment);
     final output = '${result.stdout}\n${result.stderr}';
@@ -462,7 +509,34 @@ final class InjectedComposeToolchainResolver {
       );
       return null;
     }
-    return _Java(javaHome ?? p.dirname(p.dirname(candidate)), candidate);
+    final architecture = RegExp(
+      r'^\s*os\.arch\s*=\s*(\S+)',
+      multiLine: true,
+    ).firstMatch(output)?.group(1);
+    if (architecture == null || !host.supportsJavaArchitecture(architecture)) {
+      problems.add(
+        'JDK architecture ${architecture ?? 'unknown'} does not match '
+        'Kotlin/Native host ${host.classifier}. Set JAVA_HOME to a matching '
+        'JDK 21+ install so its JNI libraries can load.',
+      );
+      return null;
+    }
+    if (javaHome != null) return _Java(javaHome, candidate);
+    final reportedHome = RegExp(
+      r'^[ \t]*java\.home[ \t]*=[ \t]*([^\r\n]*)',
+      multiLine: true,
+    ).firstMatch(output)?.group(1)?.trim();
+    if (reportedHome == null ||
+        !p.isAbsolute(reportedHome) ||
+        !File(host.javaExecutable(reportedHome)).existsSync()) {
+      problems.add(
+        'Cannot determine a valid JDK home from java.home reported by '
+        '$candidate. Set JAVA_HOME to a JDK 21+ install containing bin/'
+        '${host.isWindows ? 'java.exe' : 'java'}.',
+      );
+      return null;
+    }
+    return _Java(reportedHome, candidate);
   }
 
   Future<String?> _resolveGradle(

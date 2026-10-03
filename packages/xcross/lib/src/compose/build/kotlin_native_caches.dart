@@ -53,6 +53,7 @@ final class KotlinNativeCachePlan {
   const KotlinNativeCachePlan({
     required this.libraries,
     required this.moduleCacheRoot,
+    this.konanTarget = 'ios_arm64',
   });
 
   /// Every library of the link, dependencies before their dependents.
@@ -60,6 +61,7 @@ final class KotlinNativeCachePlan {
 
   /// Per-file cache of the module itself, rebuilt for every link.
   final String moduleCacheRoot;
+  final String konanTarget;
 
   List<String> get linkArguments => [
     for (final library in libraries) '-Xcache-directory=${library.cacheRoot}',
@@ -112,11 +114,15 @@ final class KotlinNativeCaches {
     required GradleKlibResult klib,
   }) {
     final distribution = p.join(toolchain.kotlinHome, 'klib');
-    final platformDir = p.join(distribution, 'platform', 'ios_arm64');
+    final platformDir = p.join(
+      distribution,
+      'platform',
+      toolchain.buildOptions.konanTarget,
+    );
     final cachesDir = p.join(
       project.root,
       'build',
-      'xcross-ios',
+      toolchain.buildOptions.outputDirectory,
       'konan-caches',
     );
 
@@ -191,6 +197,7 @@ final class KotlinNativeCaches {
             utf8.encode(
               [
                 compiler,
+                toolchain.buildOptions.konanTarget,
                 library.path,
                 _contentStamp(library.path),
                 for (final dependency in dependencies) keys[dependency],
@@ -212,6 +219,7 @@ final class KotlinNativeCaches {
     }
     return KotlinNativeCachePlan(
       libraries: nodes,
+      konanTarget: toolchain.buildOptions.konanTarget,
       moduleCacheRoot: p.join(cachesDir, 'module-${project.moduleLeaf}'),
     );
   }
@@ -244,7 +252,7 @@ final class KotlinNativeCaches {
         prepared.javaExecutable,
         [
           ...prepared.compilerArguments,
-          ..._common(prepared),
+          ..._common(prepared, plan.konanTarget),
           '-p',
           'static_cache',
           '-Xadd-cache=${node.path}',
@@ -281,7 +289,7 @@ final class KotlinNativeCaches {
       prepared.javaExecutable,
       [
         ...prepared.compilerArguments,
-        ..._common(prepared),
+        ..._common(prepared, plan.konanTarget),
         '-p',
         'static_cache',
         '-Xadd-cache=${klib.moduleKlibPath}',
@@ -302,10 +310,13 @@ final class KotlinNativeCaches {
       name.endsWith('.') ||
       name.endsWith(' ');
 
-  List<String> _common(PreparedKonanConfiguration prepared) => [
+  List<String> _common(
+    PreparedKonanConfiguration prepared,
+    String konanTarget,
+  ) => [
     '-Xoverride-konan-properties=${prepared.konanPropertyOverrides}',
     '-target',
-    'ios_arm64',
+    konanTarget,
     // Same reason as the framework link (see KotlinFrameworkBuilder): the
     // assertion fires for any Apple target on a non-Apple host, and cache
     // builds do not inherit it from anywhere.

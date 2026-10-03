@@ -10,6 +10,7 @@ permissions:
   contents: read
 
 env:
+  FLUTTER_VERSION: 3.47.2
   SWIFT_VERSION: 6.3.3
   SWIFT_WINDOWS_SHA256: >-
     235626548F249CD516D3D4D90EEE980DCCAD46F3822DAC1F8E3119B0FEDE94B7
@@ -31,11 +32,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-2022]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, windows-2022]
     runs-on: ${{ matrix.os }}
 
     steps:
-      # Fork PR code must never receive the private Apple SDK cache, so those
+      # Fork PR code must never receive the private Apple SDK or its URL, so those
       # runs stop after the toolchain checks instead of being skipped outright.
       - name: Resolve Darwin SDK availability
         id: darwin
@@ -49,7 +50,7 @@ jobs:
           if [[ "$IS_FORK_PR" == "true" ]]; then
             echo "available=false" >> "$GITHUB_OUTPUT"
             notice='Fork pull request: building the xcross CLI and toolchain'
-            notice="$notice only. The private Apple SDK cache and the iOS"
+            notice="$notice only. The private Apple SDK download and the iOS"
             notice="$notice build steps run once a maintainer pushes the"
             notice="$notice branch to this repository."
             echo "::notice::$notice"
@@ -71,10 +72,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${JAVA_HOME_21_X64:-}"
-          echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
-          echo "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
-          "$JAVA_HOME_21_X64/bin/java" -version
+          case "$RUNNER_ARCH" in
+            ARM64)
+              jdk="${JAVA_HOME_21_ARM64:-${JAVA_HOME_21_arm64:-${JAVA_HOME_21_X64:-}}}"
+              expected_arch='aarch64|arm64'
+              ;;
+            X64)
+              jdk="${JAVA_HOME_21_X64:?JDK 21 x64 is required}"
+              expected_arch='amd64|x86_64'
+              ;;
+            *) echo "Unsupported runner architecture: $RUNNER_ARCH"; exit 1 ;;
+          esac
+          test -n "$jdk"
+          echo "JAVA_HOME=$jdk" >> "$GITHUB_ENV"
+          echo "$jdk/bin" >> "$GITHUB_PATH"
+          "$jdk/bin/java" -XshowSettings:properties -version 2>&1 |
+            tee "$RUNNER_TEMP/java-properties.txt"
+          grep -Eq "os.arch = ($expected_arch)" "$RUNNER_TEMP/java-properties.txt"
+          grep -Eq 'java.specification.version = 21$' "$RUNNER_TEMP/java-properties.txt"
 
       - name: Use JDK 21 on Windows
         if: runner.os == 'Windows'
@@ -97,7 +112,7 @@ jobs:
           set -euo pipefail
           git clone \
             --depth 1 \
-            --branch stable \
+            --branch "$FLUTTER_VERSION" \
             https://github.com/flutter/flutter.git \
             "$RUNNER_TEMP/flutter"
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
@@ -109,11 +124,47 @@ jobs:
           $ErrorActionPreference = 'Stop'
           git clone `
             --depth 1 `
-            --branch stable `
+            --branch $env:FLUTTER_VERSION `
             https://github.com/flutter/flutter.git `
             "$env:RUNNER_TEMP\flutter"
           "$env:RUNNER_TEMP\flutter\bin" |
             Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Ensure native Swift on Linux ARM64
+        if: runner.os == 'Linux' && runner.arch == 'ARM64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! swift --version 2>/dev/null | grep -Eq 'Target: aarch64-.*linux'; then
+            sudo apt-get update
+            sudo apt-get install -y \
+              binutils git gnupg2 libc6-dev libcurl4-openssl-dev libedit2 \
+              libgcc-13-dev libncurses-dev libpython3-dev libsqlite3-0 \
+              libstdc++-13-dev libxml2-dev libz3-dev pkg-config tzdata \
+              zip unzip zlib1g-dev
+            release="swift-$SWIFT_VERSION-release"
+            version="swift-$SWIFT_VERSION-RELEASE"
+            archive="$version-ubuntu24.04-aarch64.tar.gz"
+            base="https://download.swift.org/$release/ubuntu2404-aarch64/$version"
+            download="$RUNNER_TEMP/swift-download"
+            mkdir -p "$download/gnupg" "$RUNNER_TEMP/swift"
+            chmod 700 "$download/gnupg"
+            curl --fail --location --retry 3 "$base/$archive" -o "$download/$archive"
+            curl --fail --location --retry 3 "$base/$archive.sig" -o "$download/$archive.sig"
+            curl --fail --location --retry 3 https://www.swift.org/keys/all-keys.asc \
+              -o "$download/all-keys.asc"
+            gpg --batch --homedir "$download/gnupg" --import "$download/all-keys.asc"
+            gpg --batch --homedir "$download/gnupg" \
+              --verify "$download/$archive.sig" "$download/$archive"
+            tar -xzf "$download/$archive" -C "$RUNNER_TEMP/swift" --strip-components=1
+            echo "$RUNNER_TEMP/swift/usr/bin" >> "$GITHUB_PATH"
+            export PATH="$RUNNER_TEMP/swift/usr/bin:$PATH"
+          fi
+          swift --version | tee "$RUNNER_TEMP/swift-version.txt"
+          grep -Eq 'Target: aarch64-.*linux' "$RUNNER_TEMP/swift-version.txt"
+          swift sdk list
+          printf 'print("ok")\n' > "$RUNNER_TEMP/swift-probe.swift"
+          swiftc -typecheck "$RUNNER_TEMP/swift-probe.swift"
 
       - name: Install Linux requirements
         if: runner.os == 'Linux'
@@ -304,9 +355,11 @@ jobs:
           & "$env:RUNNER_TEMP\xcross-bundle\bin\xcross.exe" doctor --help
           if ($LASTEXITCODE -ne 0) { throw 'doctor help failed' }
 
-      - name: Restore cached Darwin SDK
+      - name: Download Darwin SDK
         if: steps.darwin.outputs.available == 'true'
         uses: ./.github/actions/setup-darwin-sdk
+        with:
+          artifactbundle-url: ${{ secrets.DARWIN_ARTIFACTBUNDLE_URL }}
 
       - name: Build Flutter example on Linux
         if: runner.os == 'Linux' && steps.darwin.outputs.available == 'true'
@@ -395,3 +448,184 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'No-hook fixture build failed' }
           dart run "$env:GITHUB_WORKSPACE/packages/xcross/tool/verify_flutter_notices.dart" build/xcross-ios
           if ($LASTEXITCODE -ne 0) { throw 'Packaged Flutter notices are invalid' }
+
+  flutter-simulator:
+    name: Flutter ARM64 iOS Simulator
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+      - name: Test simulator CI helpers without simulator access
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+
+      - name: Select compatible native Xcode
+        uses: ./.github/actions/configure-xcode
+
+      - name: Install native Flutter and LLVM toolchains
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(/usr/bin/uname -m)" = arm64
+          git clone --depth 1 --branch "$FLUTTER_VERSION" \
+            https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          brew install llvm lld
+          {
+            echo "$(brew --prefix llvm)/bin"
+            echo "$(brew --prefix lld)/bin"
+            echo "$DEVELOPER_DIR/Toolchains/XcodeDefault.xctoolchain/usr/bin"
+            echo "$RUNNER_TEMP/flutter/bin"
+          } >> "$GITHUB_PATH"
+
+      - name: Build native production xcross CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter config --no-analytics
+          flutter precache --ios
+          dart pub get
+          (cd packages/xcross && dart run tool/build_xcross.dart)
+          shopt -s nullglob
+          bundles=(packages/xcross/build/cli/*/bundle)
+          test "${#bundles[@]}" -eq 1
+          cp -R "${bundles[0]}" "$RUNNER_TEMP/xcross-bundle"
+          /usr/bin/xcrun lipo "$RUNNER_TEMP/xcross-bundle/bin/xcross" -verify_arch arm64
+          echo "$RUNNER_TEMP/xcross-bundle/bin" >> "$GITHUB_PATH"
+          swift --version
+
+      - name: Install selected native Xcode SDK through xcross
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcross sdk install "$XCODE_APP" 2>&1 | \
+            tee "$RUNNER_TEMP/ios-simulator-smoke/sdk-install.log"
+
+      - name: Prepare Flutter plugin and native-hook fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/prepare_simulator_fixture.py flutter \
+            "$RUNNER_TEMP/flutter-simulator"
+
+      - name: Build ARM64 simulator app through production xcross
+        shell: bash
+        working-directory: ${{ runner.temp }}/flutter-simulator
+        run: |
+          set -euo pipefail
+          xcross --verbose flutter build --simulator --debug 2>&1 | \
+            tee "$RUNNER_TEMP/ios-simulator-smoke/build.log"
+
+      - name: Boot install launch and observe Flutter app headlessly
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apps=("$RUNNER_TEMP/flutter-simulator/build/xcross-ios-simulator/"*.app)
+          test "${#apps[@]}" -eq 1
+          python3 .github/scripts/simulator_smoke.py "${apps[0]}" \
+            --output "$RUNNER_TEMP/ios-simulator-smoke/flutter" \
+            --ready-marker XCROSS_SIMULATOR_NATIVE_FIRST_FRAME_READY
+
+      - name: Upload simulator evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: flutter-arm64-ios-simulator-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ios-simulator-smoke
+          if-no-files-found: warn
+          retention-days: 7
+
+  native-host:
+    name: Native ARM64 host (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04-arm, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+      - name: Verify native ARM64 host and JDK 21
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ARCH" = ARM64
+          case "$(uname -m)" in
+            aarch64|arm64) ;;
+            *) echo 'Expected a native ARM64 host'; exit 1 ;;
+          esac
+          jdk="${JAVA_HOME_21_ARM64:-${JAVA_HOME_21_arm64:-${JAVA_HOME_21_X64:-}}}"
+          test -n "$jdk"
+          echo "JAVA_HOME=$jdk" >> "$GITHUB_ENV"
+          echo "$jdk/bin" >> "$GITHUB_PATH"
+          "$jdk/bin/java" -XshowSettings:properties -version 2>&1 |
+            tee "$RUNNER_TEMP/java-properties.txt"
+          grep -Eq 'os.arch = (aarch64|arm64)' "$RUNNER_TEMP/java-properties.txt"
+          grep -Eq 'java.specification.version = 21$' "$RUNNER_TEMP/java-properties.txt"
+          cc --version
+
+      - name: Set up native Dart
+        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260
+        with:
+          sdk: stable
+          architecture: arm64
+
+      - name: Resolve dependencies
+        run: dart pub get
+
+      - name: Build and test native ADI bridge
+        working-directory: packages/apple_developer_kit
+        run: dart run test/adi/posix_bridge_test.dart
+
+      - name: Test xcross host workflows
+        working-directory: packages/xcross
+        run: dart test
+
+      - name: Test Apple developer kit and native ADI bridge
+        working-directory: packages/apple_developer_kit
+        run: dart test
+
+      - name: Test shared packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          dart test packages/cli_kit
+          dart test packages/darwin_sdk_kit
+          dart test packages/dart_mobile_device
+          dart test packages/frontend_server_kit
+
+      - name: Smoke-test isolated real ARM64 ADI libraries
+        working-directory: packages/apple_developer_kit
+        env:
+          ADI_NATIVE_SMOKE: '1'
+        run: dart test --compiler cli test/adi/adi_client_test.dart test/adi/posix_bridge_test.dart
+
+      - name: Build native CLI bundle
+        working-directory: packages/xcross
+        run: dart run tool/build_xcross.dart
+
+      - name: Smoke-test native CLI bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          bundles=(packages/xcross/build/cli/*/bundle)
+          test "${#bundles[@]}" -eq 1
+          bundle="${bundles[0]}"
+          for executable in xcross xcrun; do
+            test -x "$bundle/bin/$executable"
+            file "$bundle/bin/$executable" | tee "$RUNNER_TEMP/$executable-file.txt"
+            grep -Eq 'aarch64|arm64' "$RUNNER_TEMP/$executable-file.txt"
+          done
+          "$bundle/bin/xcross" --help
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            "$bundle/bin/xcrun" --version
+          fi

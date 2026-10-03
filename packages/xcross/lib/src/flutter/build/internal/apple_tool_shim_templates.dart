@@ -8,6 +8,8 @@ String renderUnixCompilerShim({
   required String hostCompiler,
   required String linker,
   required String deploymentTarget,
+  List<String> hostCompilerArguments = const [],
+  bool simulator = false,
 }) =>
     '''
 #!/bin/sh
@@ -32,18 +34,18 @@ for arg in "\$@"; do
       case "\${arg#*=}" in *-apple-*) is_apple_target=true;; esac;;
     -arch|-arch=*) is_apple_target=true;;
     -miphoneos-version-min=*) is_apple_target=true; has_deployment=true;;
-    -mios-simulator-version-min=*) is_apple_target=true;;
+    -mios-simulator-version-min=*) is_apple_target=true; has_deployment=true;;
     -isysroot|--sysroot|-isysroot=*|--sysroot=*) has_sysroot=true;;
     -fuse-ld=*) has_fuse_ld=true;;
     --ld-path=*) has_ld_path=true;;
   esac
 done
-\$is_apple_target || exec ${shellQuote(hostCompiler)} "\$@"
+\$is_apple_target || exec ${[hostCompiler, ...hostCompilerArguments].map(shellQuote).join(' ')} "\$@"
 \$has_ld_path || set -- ${shellQuote('--ld-path=$linker')} "\$@"
 \$has_fuse_ld || set -- ${shellQuote('-fuse-ld=lld')} "\$@"
-\$has_deployment || set -- ${shellQuote('-miphoneos-version-min=$deploymentTarget')} "\$@"
+\$has_deployment || set -- ${shellQuote('-m${simulator ? 'ios-simulator' : 'iphoneos'}-version-min=$deploymentTarget')} "\$@"
 \$has_sysroot || set -- ${shellQuote('-isysroot')} ${shellQuote(iosSdk)} "\$@"
-\$has_target || set -- ${shellQuote('--target=arm64-apple-ios$deploymentTarget')} "\$@"
+\$has_target || set -- ${shellQuote('--target=arm64-apple-ios$deploymentTarget${simulator ? '-simulator' : ''}')} "\$@"
 exec ${shellQuote(clang)} "\$@"
 ''';
 

@@ -3,8 +3,11 @@
 // ("Dependencies"): download the Apple Music Android APK and extract the
 // two native ADI libraries from it. See NOTICE.md.
 
+import 'dart:ffi';
 import 'dart:io';
 
+import 'package:apple_developer_kit/src/adi/adi_architecture.dart';
+import 'package:apple_developer_kit/src/adi/elf/elf_reader.dart';
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
@@ -31,22 +34,45 @@ final class AdiLibraryPaths {
 const appleMusicApkUrl =
     'https://apps.mzstatic.com/content/android-apple-music-apk/applemusic.apk';
 
-const _coreAdiEntry = 'lib/x86_64/libCoreADI.so';
-const _storeServicesEntry = 'lib/x86_64/libstoreservicescore.so';
+const _libraryNames = ['libCoreADI.so', 'libstoreservicescore.so'];
 
 /// Downloads (if not already cached) the Apple Music APK and extracts the
 /// two native ADI shared libraries (`libCoreADI.so`,
-/// `libstoreservicescore.so`, x86_64 slice) it contains.
+/// `libstoreservicescore.so`, matching the host ABI) it contains.
 ///
 /// Apple's libraries themselves are never redistributed by this package;
 /// they are downloaded on demand and cached locally, matching upstream's
 /// documented approach.
 class AdiLibraryFetcher {
-  AdiLibraryFetcher({Directory? cacheDir})
-    : cacheDir = cacheDir ?? _defaultCacheDir();
+  AdiLibraryFetcher({Directory? cacheDir, Abi? abi})
+    : cacheDir = cacheDir ?? _defaultCacheDir(),
+      _architecture = AdiArchitecture.forAbi(abi ?? Abi.current());
+
+  final AdiArchitecture _architecture;
+
+  Directory get libraryDirectory =>
+      Directory(p.join(cacheDir.path, _architecture.apkAbi));
 
   /// Directory the APK and extracted libraries are cached in.
   final Directory cacheDir;
+
+  static bool supportsAbi(Abi abi) => AdiArchitecture.tryForAbi(abi) != null;
+
+  static Directory? resolveLibraryDirectory(Directory directory, {Abi? abi}) {
+    final architecture = AdiArchitecture.forAbi(abi ?? Abi.current());
+    final scoped = Directory(p.join(directory.path, architecture.apkAbi));
+    final selected = scoped.existsSync() ? scoped : directory;
+    final files = [
+      for (final name in _libraryNames) File(p.join(selected.path, name)),
+    ];
+    if (files.any((file) => !file.existsSync())) return null;
+    for (final file in files) {
+      ElfReader(
+        file.readAsBytesSync(),
+      ).validate(machine: architecture.elfMachine);
+    }
+    return selected;
+  }
 
   static Directory _defaultCacheDir() {
     final home =
@@ -65,18 +91,19 @@ class AdiLibraryFetcher {
   File get _apkShaSidecar => File('${_apkFile.path}.sha256');
 
   /// Path the extracted `libCoreADI.so` is cached at.
-  File get coreAdiFile => File(p.join(cacheDir.path, 'libCoreADI.so'));
+  File get coreAdiFile => File(p.join(libraryDirectory.path, 'libCoreADI.so'));
 
   /// Path the extracted `libstoreservicescore.so` is cached at.
   File get storeServicesFile =>
-      File(p.join(cacheDir.path, 'libstoreservicescore.so'));
+      File(p.join(libraryDirectory.path, 'libstoreservicescore.so'));
 
   /// Ensures both native libraries are present in [cacheDir], downloading
   /// and extracting them first if needed.
   Future<AdiLibraryPaths> ensureLibraries() async {
     if (coreAdiFile.existsSync() &&
         storeServicesFile.existsSync() &&
-        _apkShaSidecar.existsSync()) {
+        _apkShaSidecar.existsSync() &&
+        _librariesMatchArchitecture()) {
       return AdiLibraryPaths(
         coreAdiPath: coreAdiFile.path,
         storeServicesPath: storeServicesFile.path,
@@ -88,6 +115,7 @@ class AdiLibraryFetcher {
     await _downloadApkIfNeeded();
     final apkSha256 = _recordApkHash();
     _extractLibraries();
+    _validateLibraries();
 
     return AdiLibraryPaths(
       coreAdiPath: coreAdiFile.path,
@@ -116,15 +144,41 @@ class AdiLibraryFetcher {
   void _extractLibraries() {
     final archive = ZipDecoder().decodeBytes(_apkFile.readAsBytesSync());
 
-    for (final entryName in [_coreAdiEntry, _storeServicesEntry]) {
+    final entries = <String, List<int>>{};
+    for (final name in _libraryNames) {
+      final entryName = 'lib/${_architecture.apkAbi}/$name';
       final entry = archive.findFile(entryName);
       if (entry == null) {
         throw StateError(
           'Apple Music APK is missing expected entry: $entryName',
         );
       }
-      final outPath = p.join(cacheDir.path, p.basename(entryName));
-      File(outPath).writeAsBytesSync(entry.content as List<int>);
+      final bytes = entry.content;
+      ElfReader(bytes).validate(machine: _architecture.elfMachine);
+      entries[name] = bytes;
+    }
+    libraryDirectory.createSync(recursive: true);
+    for (final entry in entries.entries) {
+      File(
+        p.join(libraryDirectory.path, entry.key),
+      ).writeAsBytesSync(entry.value);
+    }
+  }
+
+  bool _librariesMatchArchitecture() {
+    try {
+      _validateLibraries();
+      return true;
+    } on FormatException {
+      return false;
+    }
+  }
+
+  void _validateLibraries() {
+    for (final file in [coreAdiFile, storeServicesFile]) {
+      ElfReader(
+        file.readAsBytesSync(),
+      ).validate(machine: _architecture.elfMachine);
     }
   }
 }

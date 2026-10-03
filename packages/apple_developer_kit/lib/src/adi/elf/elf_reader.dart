@@ -110,6 +110,61 @@ class ElfReader {
   final Uint8List bytes;
   final ByteData data;
 
+  int get machine => data.getUint16(18, Endian.little);
+
+  void validate({required int machine}) {
+    if (bytes.length < 64 ||
+        bytes[0] != 0x7f ||
+        bytes[1] != 69 ||
+        bytes[2] != 76 ||
+        bytes[3] != 70 ||
+        bytes[4] != 2 ||
+        bytes[5] != 1 ||
+        bytes[6] != 1) {
+      throw const FormatException('Expected a little-endian ELF64 image.');
+    }
+    if (this.machine != machine) {
+      throw FormatException(
+        'ELF machine ${this.machine} does not match host machine $machine.',
+      );
+    }
+    if (data.getUint16(16, Endian.little) != 3 ||
+        data.getUint16(54, Endian.little) != 56 ||
+        data.getUint16(58, Endian.little) != 64 ||
+        ehPhnum == 0 ||
+        ehShnum == 0 ||
+        ehShstrndx >= ehShnum) {
+      throw const FormatException('Unsupported ELF shared-object headers.');
+    }
+    checkRange(ehPhoff, ehPhnum * 56);
+    checkRange(ehShoff, ehShnum * 64);
+    var loadCount = 0;
+    for (var i = 0; i < ehPhnum; i++) {
+      if (phType(i) != ElfSegmentType.load) continue;
+      loadCount++;
+      checkRange(phOffset(i), phFilesz(i));
+      if (phFilesz(i) > phMemsz(i) ||
+          phVaddr(i) < 0 ||
+          phMemsz(i) < 0 ||
+          phVaddr(i) > 1 << 32 ||
+          phMemsz(i) > (1 << 32) - phVaddr(i)) {
+        throw const FormatException('Invalid ELF load segment.');
+      }
+    }
+    if (loadCount == 0) {
+      throw const FormatException('ELF has no load segments.');
+    }
+    for (var i = 0; i < ehShnum; i++) {
+      if (shType(i) != 8) checkRange(shOffset(i), shSize(i));
+    }
+  }
+
+  void checkRange(int offset, int length) {
+    if (offset < 0 || length < 0 || offset > bytes.length - length) {
+      throw const FormatException('ELF range exceeds file bounds.');
+    }
+  }
+
   // --- Ehdr (Elf64_Ehdr) ---
   int get ehPhoff => data.getUint64(32, Endian.little);
   int get ehShoff => data.getUint64(40, Endian.little);
@@ -170,6 +225,9 @@ class ElfDynamicSymbolTable {
   final int count;
   final int _stringTableOffset;
   final Uint8List _bytes;
+
+  int sectionIndex(int i) =>
+      _data.getUint16(_offset + i * symSize + 6, Endian.little);
 
   /// `st_value` — the symbol's address, relative to the load base.
   int value(int i) => _data.getUint64(_offset + i * symSize + 8, Endian.little);

@@ -14,7 +14,6 @@ typedef SwiftRunnerRunChecked =
       String? workingDirectory,
     });
 
-const _iosTargetTriple = 'arm64-apple-ios15.0';
 const _iosMinimumVersion = '15.0';
 
 final class SwiftRunnerBuilder {
@@ -41,7 +40,14 @@ final class SwiftRunnerBuilder {
       }
     }
     final iphoneSdk = _iphoneSdk(toolchain);
-    final buildDir = p.join(project.root, 'build', 'xcross-compose');
+    final buildDir = toolchain.simulator
+        ? p.join(
+            project.root,
+            'build',
+            toolchain.buildOptions.outputDirectory,
+            'swift-runner',
+          )
+        : p.join(project.root, 'build', 'xcross-compose');
     await Directory(buildDir).create(recursive: true);
     final runnerPath = p.join(buildDir, 'Runner');
     final resourceDir = p.join(
@@ -56,13 +62,16 @@ final class SwiftRunnerBuilder {
     final moduleCache = p.join(buildDir, 'swift-module-cache');
     await Directory(moduleCache).create(recursive: true);
     final clangBuiltins = _clangBuiltins(resourceDir);
-    final compilerRt = compilerRtIos(toolchain.darwinSdkBundle);
+    final compilerRt = compilerRtIos(
+      toolchain.darwinSdkBundle,
+      simulator: toolchain.simulator,
+    );
 
     final swiftc = ProcessInvocation.forHost(toolchain.host, toolchain.swiftc, [
       '-sdk',
       iphoneSdk,
       '-target',
-      _iosTargetTriple,
+      toolchain.buildOptions.targetTriple,
       '-resource-dir',
       resourceDir,
       '-F',
@@ -103,7 +112,7 @@ final class SwiftRunnerBuilder {
       '-Xlinker',
       '-platform_version',
       '-Xlinker',
-      'ios',
+      toolchain.buildOptions.linkerPlatform,
       '-Xlinker',
       _iosMinimumVersion,
       '-Xlinker',
@@ -161,7 +170,9 @@ String _iphoneSdk(ComposeToolchain toolchain) {
   if (Directory(toolchain.darwinSdkPath).existsSync()) {
     return toolchain.darwinSdkPath;
   }
-  throw XcrossError('iPhoneOS SDK not found at ${toolchain.darwinSdkPath}');
+  throw XcrossError(
+    '${toolchain.simulator ? 'iPhoneSimulator' : 'iPhoneOS'} SDK not found at ${toolchain.darwinSdkPath}',
+  );
 }
 
 /// The SDK version suffix off an `iPhoneOS<version>.sdk` leaf name, or null
@@ -170,8 +181,11 @@ String _iphoneSdk(ComposeToolchain toolchain) {
 /// each runner builder file self-contained.
 String? _sdkVersion(String sdkPath) {
   final name = p.basenameWithoutExtension(sdkPath);
-  if (!name.startsWith('iPhoneOS')) return null;
-  final version = name.substring('iPhoneOS'.length);
+  final prefix = name.startsWith('iPhoneSimulator')
+      ? 'iPhoneSimulator'
+      : 'iPhoneOS';
+  if (!name.startsWith(prefix)) return null;
+  final version = name.substring(prefix.length);
   return version.isEmpty ? null : version;
 }
 
@@ -183,7 +197,7 @@ String? _sdkVersion(String sdkPath) {
 /// the call site's comment. Mirrors konan_configuration.dart's
 /// _findCompilerRtDarwinDir, duplicated rather than shared for the same
 /// reason as _sdkVersion above.
-String? compilerRtIos(String darwinSdkBundle) {
+String? compilerRtIos(String darwinSdkBundle, {bool simulator = false}) {
   final clang = Directory(
     p.join(
       darwinSdkBundle,
@@ -202,7 +216,12 @@ String? compilerRtIos(String darwinSdkBundle) {
   final versions = clang.listSync().whereType<Directory>().toList()
     ..sort((a, b) => b.path.compareTo(a.path));
   for (final entry in versions) {
-    final candidate = p.join(entry.path, 'lib', 'darwin', 'libclang_rt.ios.a');
+    final candidate = p.join(
+      entry.path,
+      'lib',
+      'darwin',
+      simulator ? 'libclang_rt.iossim.a' : 'libclang_rt.ios.a',
+    );
     if (File(candidate).existsSync()) return candidate;
   }
   return null;

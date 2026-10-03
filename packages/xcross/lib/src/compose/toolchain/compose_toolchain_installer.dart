@@ -64,7 +64,6 @@ final class ComposeToolchainInstaller {
     required ComposeSetupOptions options,
     bool force = false,
   }) async {
-    _rejectUnsupported(options.host);
     if (!force && _isComplete(options)) return options.kotlinHome;
     final installRoot = _installRoot;
     if (installRoot != null) return installRoot(options, force: force);
@@ -76,35 +75,47 @@ final class ComposeToolchainInstaller {
     final staging = await Directory(
       p.dirname(options.kotlinHome),
     ).createTemp('.compose-staging-');
-    final overlayExtract = await cache.createTemp('compose-overlay-');
+    final overlayExtract = options.host.isMacOS
+        ? null
+        : await cache.createTemp('compose-overlay-');
     try {
       final hostArchive = File(
         p.join(downloads.path, options.host.hostArtifact(options.version)),
       );
-      final overlayArchive = File(
-        p.join(
-          downloads.path,
-          ComposeHost.macosX64OverlayArtifact(options.version),
-        ),
-      );
+      final overlayArchive = options.host.isMacOS
+          ? null
+          : File(
+              p.join(
+                downloads.path,
+                ComposeHost.macosX64OverlayArtifact(options.version),
+              ),
+            );
       final hostSha256 = _requireDigest(
         p.basename(hostArchive.path),
         options.hostArchiveSha256,
       );
-      final overlaySha256 = _requireDigest(
-        p.basename(overlayArchive.path),
-        options.overlayArchiveSha256,
-      );
+      final overlaySha256 = overlayArchive == null
+          ? null
+          : _requireDigest(
+              p.basename(overlayArchive.path),
+              options.overlayArchiveSha256,
+            );
       await _download(options.hostArchiveUrl, hostArchive);
       await _verifyDigest(hostArchive, hostSha256);
-      await _download(options.overlayArchiveUrl, overlayArchive);
-      await _verifyDigest(overlayArchive, overlaySha256);
+      if (overlayArchive != null) {
+        await _download(options.overlayArchiveUrl!, overlayArchive);
+        await _verifyDigest(overlayArchive, overlaySha256!);
+      }
       await _extract(hostArchive, hostExtract);
-      await _extract(overlayArchive, overlayExtract);
+      if (overlayArchive != null && overlayExtract != null) {
+        await _extract(overlayArchive, overlayExtract);
+      }
       await _moveRoot(_archiveRoot(hostExtract), staging);
       _restoreExecutables(options.host, staging.path);
       await _warmDependencies(options, staging.path);
-      await _copyOverlay(_archiveRoot(overlayExtract), staging);
+      if (overlayExtract != null) {
+        await _copyOverlay(_archiveRoot(overlayExtract), staging);
+      }
       await _patchJars(staging);
       await _writeCompletionMarker(options, staging);
       await _atomicInstall(
@@ -116,7 +127,7 @@ final class ComposeToolchainInstaller {
     } finally {
       if (downloads.existsSync()) await downloads.delete(recursive: true);
       if (hostExtract.existsSync()) await hostExtract.delete(recursive: true);
-      if (overlayExtract.existsSync()) {
+      if (overlayExtract != null && overlayExtract.existsSync()) {
         await overlayExtract.delete(recursive: true);
       }
       if (staging.existsSync()) await staging.delete(recursive: true);
@@ -133,15 +144,6 @@ final class ComposeToolchainInstaller {
   }
 
   bool _isComplete(ComposeSetupOptions options) => isComplete(options);
-
-  void _rejectUnsupported(ComposeHost host) {
-    if (host != ComposeHost.linuxX64 && host != ComposeHost.windowsX64) {
-      throw XcrossError(
-        'Compose Kotlin/Native toolchain supports Linux x64 and Windows x64 only; '
-        '${host.classifier} is not supported.',
-      );
-    }
-  }
 
   Future<void> _download(String url, File file) =>
       (_downloadToFile ?? _defaultDownload)(url, file);
@@ -304,7 +306,14 @@ final class ComposeToolchainInstaller {
         '-o',
         p.join(scratch.path, 'hello'),
       ]);
-      await _run(invocation.first, invocation.skip(1).toList());
+      await _run(
+        invocation.first,
+        invocation.skip(1).toList(),
+        environment: {
+          ...options.environment,
+          'KONAN_DATA_DIR': options.konanCache,
+        },
+      );
     } finally {
       if (scratch.existsSync()) await scratch.delete(recursive: true);
     }
@@ -324,7 +333,7 @@ final class ComposeToolchainInstaller {
       'host=${options.host.classifier}\n'
       'hostArchive=${options.host.hostArtifact(options.version)}\n'
       'hostSha256=${options.hostArchiveSha256}\n'
-      'overlayArchive=${ComposeHost.macosX64OverlayArtifact(options.version)}\n'
+      'overlayArchive=${options.host.isMacOS ? 'none' : ComposeHost.macosX64OverlayArtifact(options.version)}\n'
       'overlaySha256=${options.overlayArchiveSha256}\n';
 
   static String completionMarkerPath(String kotlinHome) =>

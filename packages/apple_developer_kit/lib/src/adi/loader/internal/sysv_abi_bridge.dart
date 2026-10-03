@@ -51,3 +51,9 @@ abstract final class SysvAbiBridge {
     return wrapped.cast();
   }
 }
+
+@Native<Void Function(Pointer<Void>, IntPtr)>(isLeaf: true)
+external void provision_clear_cache(Pointer<Void> address, int size);
+
+@Native<Pointer<Void> Function(Pointer<Char>)>(isLeaf: true)
+external Pointer<Void> provision_posix_symbol(Pointer<Char> name);

@@ -47,7 +47,12 @@ final class IosNativeAssetsBuilder {
   final String? flavor;
 
   Future<IosNativeAssetsBuildResult> build() async {
-    final output = p.join(projectRoot, 'build', 'xcross-native-assets');
+    final output = p.joinAll([
+      projectRoot,
+      'build',
+      if (deploymentTarget.simulator) 'xcross-ios-simulator',
+      'xcross-native-assets',
+    ]);
     final outputDirectory = Directory(output);
     // Deliberately not cleared. `flutter assemble` is incremental and treats
     // this directory as its output set, so deleting it forced every target,
@@ -58,12 +63,18 @@ final class IosNativeAssetsBuilder {
       return _buildBundleWithoutHooks(output);
     }
 
-    final tools = await AppleToolShimConfig.resolve(deploymentTarget.version);
+    final tools = await AppleToolShimConfig.resolve(
+      deploymentTarget.version,
+      simulator: deploymentTarget.simulator,
+    );
     final forwarder = await resolveNativeAssetToolForwarder(
       Platform.resolvedExecutable,
     );
     if (forwarder == null) throw missingNativeAssetToolForwarderError();
-    final engineCache = IosEngineCache(flutterRoot: flutterRoot);
+    final engineCache = IosEngineCache(
+      flutterRoot: flutterRoot,
+      simulator: deploymentTarget.simulator,
+    );
     await engineCache.ensureArtifactsAvailable();
     final workspace = await FlutterToolWorkspace.create(
       flutterRoot: flutterRoot,
@@ -121,7 +132,10 @@ final class IosNativeAssetsBuilder {
   Future<IosNativeAssetsBuildResult> _buildBundleWithoutHooks(
     String output,
   ) async {
-    final engineCache = IosEngineCache(flutterRoot: flutterRoot);
+    final engineCache = IosEngineCache(
+      flutterRoot: flutterRoot,
+      simulator: deploymentTarget.simulator,
+    );
     await engineCache.ensureArtifactsAvailable();
     final workspace = await FlutterToolWorkspace.create(
       flutterRoot: flutterRoot,

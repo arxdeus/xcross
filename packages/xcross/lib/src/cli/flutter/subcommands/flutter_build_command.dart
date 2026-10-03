@@ -32,6 +32,21 @@ class CommonFlutterArgs {
 /// Options for `xcross flutter build`.
 @CliOptions(createCommand: true)
 final class FlutterBuildArgs extends CommonFlutterArgs {
+  @CliOption(negatable: false, help: 'Build for the ARM64 iOS Simulator.')
+  late bool simulator;
+
+  @CliOption(
+    negatable: false,
+    help: 'Build in debug mode (the only supported mode).',
+  )
+  late bool debug;
+
+  @CliOption(negatable: false, help: 'Profile mode is unsupported by xcross.')
+  late bool profile;
+
+  @CliOption(negatable: false, help: 'Release mode is unsupported by xcross.')
+  late bool release;
+
   @CliOption(help: 'Version name (CFBundleShortVersionString).')
   late String? buildName;
 
@@ -59,6 +74,22 @@ final class FlutterBuildCommand extends _$FlutterBuildArgsCommand<void> {
 
   @override
   Future<void> run() async {
+    if (_options.simulator && _options.ipa) {
+      usageException('--simulator cannot be combined with --ipa.');
+    }
+    if ([
+          _options.debug,
+          _options.profile,
+          _options.release,
+        ].where((enabled) => enabled).length >
+        1) {
+      usageException('Choose only one of --debug, --profile or --release.');
+    }
+    if (_options.profile || _options.release) {
+      usageException(
+        'xcross Flutter builds support debug mode only. Use --debug.',
+      );
+    }
     final options = await FlutterBuildOptions.resolve(
       target: _options.target,
       dartDefine: _options.dartDefine,
@@ -67,6 +98,7 @@ final class FlutterBuildCommand extends _$FlutterBuildArgsCommand<void> {
       buildName: _options.buildName,
       buildNumber: _options.buildNumber,
       flavor: _options.flavor,
+      simulator: _options.simulator,
     );
 
     final result = await FlutterPackOperation.pack(options: options);

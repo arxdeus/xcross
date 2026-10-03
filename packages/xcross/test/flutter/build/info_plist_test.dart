@@ -16,6 +16,32 @@ const _minimalPlist =
     '</plist>\n';
 
 void main() {
+  test(
+    'simulator platform metadata handles formatted template keys and selected SDK version',
+    () {
+      final xml = InfoPlist.applyIosPlatformKeys(
+        '<plist><dict><key> CFBundleSupportedPlatforms </key><array><string>iPhoneOS</string></array></dict></plist>',
+        deploymentTarget: const IosDeploymentTarget('15.0', simulator: true),
+        sdkName: 'iphonesimulator26.4',
+      );
+      expect(xml, contains('<string>iPhoneSimulator</string>'));
+      expect(xml, contains('<string>iphonesimulator26.4</string>'));
+      expect(xml, contains('<string>26.4</string>'));
+    },
+  );
+
+  test('forces simulator platform metadata over stale device template keys', () {
+    final xml = InfoPlist.applyIosRequiredKeys(
+      '<plist><dict><key>DTPlatformName</key><string>iphoneos</string><key>DTSDKName</key><string>iphoneos26.5</string><key>CFBundleSupportedPlatforms</key><array><string>iPhoneOS</string></array></dict></plist>',
+      bundleId: 'dev.test.simulator',
+      deploymentTarget: const IosDeploymentTarget('15.0', simulator: true),
+    );
+    expect(xml, contains('<string>iphonesimulator</string>'));
+    expect(xml, contains('<string>iPhoneSimulator</string>'));
+    expect(xml, isNot(contains('<string>iPhoneOS</string>')));
+    expect(xml, isNot(contains('<string>iphoneos</string>')));
+  });
+
   group('expandVars', () {
     test(
       r'replaces $(KEY) and ${KEY} forms, leaving unknown keys untouched',

@@ -7,6 +7,85 @@ import 'package:xcross/src/errors.dart';
 
 void main() {
   test(
+    'ObjC and Swift runners use simulator triples SDK linker and runtime',
+    () async {
+      final fixture = _Fixture.create(simulator: true)
+        ..createSdk()
+        ..createCompilerRt();
+      addTearDown(fixture.dispose);
+      final objc = <_Call>[];
+      await ObjcRunnerBuilder.withSeams(
+        runChecked: (executable, arguments, {workingDirectory}) async {
+          objc.add(_Call(executable, arguments, workingDirectory));
+          fixture.writeMachO(arguments[arguments.indexOf('-o') + 1]);
+        },
+      ).build(
+        project: fixture.objcProject,
+        frameworkPath: fixture.frameworkPath,
+        toolchain: fixture.toolchain,
+      );
+      expect(
+        objc.first.arguments,
+        containsAllInOrder(['-target', 'arm64-apple-ios15.0-simulator']),
+      );
+      expect(
+        objc.first.arguments,
+        contains('-mios-simulator-version-min=15.0'),
+      );
+      expect(objc.first.arguments, contains(fixture.iphoneSdk));
+      expect(
+        objc.last.arguments,
+        containsAllInOrder([
+          '-platform_version',
+          'ios-simulator',
+          '15.0',
+          '26.5',
+        ]),
+      );
+      expect(objc.last.arguments, contains(fixture.compilerRtIosPath));
+      expect(
+        objc.last.arguments,
+        contains(p.join(fixture.objcBuildDir, 'Runner')),
+      );
+      final swift = <_Call>[];
+      final output =
+          await SwiftRunnerBuilder.withSeams(
+            runChecked: (executable, arguments, {workingDirectory}) async {
+              swift.add(_Call(executable, arguments, workingDirectory));
+              fixture.writeMachO(arguments[arguments.indexOf('-o') + 1]);
+            },
+          ).build(
+            project: fixture.swiftProject,
+            frameworkPath: fixture.frameworkPath,
+            toolchain: fixture.toolchain,
+          );
+      expect(
+        output,
+        p.join(
+          fixture.root,
+          'build',
+          'xcross-ios-simulator',
+          'swift-runner',
+          'Runner',
+        ),
+      );
+      expect(
+        swift.single.arguments,
+        containsAllInOrder(['-target', 'arm64-apple-ios15.0-simulator']),
+      );
+      expect(
+        swift.single.arguments,
+        containsAllInOrder(['-sdk', fixture.iphoneSdk]),
+      );
+      expect(
+        swift.single.arguments,
+        containsAllInOrder(['-platform_version', '-Xlinker', 'ios-simulator']),
+      );
+      expect(swift.single.arguments, contains(fixture.compilerRtIosPath));
+    },
+  );
+
+  test(
     'ObjC runner imports UIKit and framework and links exact iOS runner inputs',
     () async {
       final fixture = _Fixture.create()..createSdk();
@@ -478,15 +557,17 @@ final class _MachOOutput {
 }
 
 final class _Fixture {
-  _Fixture._(this.temp)
+  _Fixture._(this.temp, this.simulator)
     : root = temp.path,
       frameworkPath = p.join(temp.path, 'Shared.framework');
 
-  factory _Fixture.create() => _Fixture._(
+  factory _Fixture.create({bool simulator = false}) => _Fixture._(
     Directory.systemTemp.createTempSync('xcross_runner_builder_test_'),
+    simulator,
   );
 
   final Directory temp;
+  final bool simulator;
   final String root;
   final String frameworkPath;
 
@@ -495,10 +576,10 @@ final class _Fixture {
     'DarwinSDK',
     'Developer',
     'Platforms',
-    'iPhoneOS.platform',
+    simulator ? 'iPhoneSimulator.platform' : 'iPhoneOS.platform',
     'Developer',
     'SDKs',
-    'iPhoneOS.sdk',
+    simulator ? 'iPhoneSimulator26.5.sdk' : 'iPhoneOS.sdk',
   );
   String get darwinSdkBundle => p.join(root, 'DarwinSDK');
   String get resourceDir => p.join(
@@ -510,7 +591,9 @@ final class _Fixture {
     'lib',
     'swift',
   );
-  String get objcBuildDir => p.join(root, 'iosApp', '.build', 'runner');
+  String get objcBuildDir => simulator
+      ? p.join(root, 'build', 'xcross-ios-simulator', 'runner')
+      : p.join(root, 'iosApp', '.build', 'runner');
 
   /// Where `_compilerRtIos` looks for `libclang_rt.ios.a`, mirroring the
   /// real `.../XcodeDefault.xctoolchain/usr/lib/clang/<version>/lib/darwin/`
@@ -526,11 +609,12 @@ final class _Fixture {
     '21',
     'lib',
     'darwin',
-    'libclang_rt.ios.a',
+    simulator ? 'libclang_rt.iossim.a' : 'libclang_rt.ios.a',
   );
 
   ComposeToolchain get toolchain => ComposeToolchain(
-    host: ComposeHost.linuxX64,
+    host: simulator ? ComposeHost.macosArm64 : ComposeHost.linuxX64,
+    simulator: simulator,
     kotlinHome: p.join(root, 'kotlin'),
     konanCache: p.join(root, 'konan-cache'),
     konancExecutable: p.join(root, 'kotlin', 'bin', 'konanc'),

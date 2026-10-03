@@ -1,9 +1,27 @@
-name: 'Configure Xcode'
-description: 'Set up Xcode version'
+name: Configure Xcode
+description: Select native Xcode with matching SDKs and an available iOS runtime
+outputs:
+  app:
+    description: Selected native Xcode app
+    value: ${{ steps.select.outputs.app }}
+  runtime:
+    description: Compatible available iOS runtime
+    value: ${{ steps.select.outputs.runtime }}
 runs:
   using: composite
   steps:
-    - name: Set up Xcode
+    - name: Select compatible native Xcode
+      id: select
       shell: bash
       run: |
-        sudo xcode-select -s /Applications/Xcode_26.4.app
+        set -euo pipefail
+        test "$RUNNER_ARCH" = ARM64
+        test "$(/usr/bin/uname -m)" = arm64
+        {
+          echo "XDG_CONFIG_HOME=$RUNNER_TEMP/xcross-config"
+          echo "XCROSS_CACHE_DIR=$RUNNER_TEMP/xcross-cache"
+          echo "KONAN_DATA_DIR=$RUNNER_TEMP/konan"
+          echo "GRADLE_USER_HOME=$RUNNER_TEMP/gradle"
+        } >> "$GITHUB_ENV"
+        python3 "$GITHUB_ACTION_PATH/../../scripts/configure_xcode.py" \
+          --output "$RUNNER_TEMP/ios-simulator-smoke/xcode"

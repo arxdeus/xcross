@@ -17,7 +17,6 @@ typedef ComposeRunChecked =
     });
 
 const _iosMinimumVersion = '15.0';
-const _iosTargetTriple = 'arm64-apple-ios15.0';
 
 final class ObjcRunnerBuilder {
   ObjcRunnerBuilder() : _runChecked = _defaultRunChecked;
@@ -35,7 +34,14 @@ final class ObjcRunnerBuilder {
     _validateFramework(project, frameworkPath);
     final iphoneSdk = _iphoneSdk(toolchain);
     final frameworkParent = p.dirname(frameworkPath);
-    final buildDir = p.join(project.root, 'iosApp', '.build', 'runner');
+    final buildDir = toolchain.simulator
+        ? p.join(
+            project.root,
+            'build',
+            toolchain.buildOptions.outputDirectory,
+            'runner',
+          )
+        : p.join(project.root, 'iosApp', '.build', 'runner');
     final runnerBuildDir = Directory(buildDir);
     if (runnerBuildDir.existsSync()) {
       await runnerBuildDir.delete(recursive: true);
@@ -45,7 +51,9 @@ final class ObjcRunnerBuilder {
     final generatedDir = p.join(
       project.root,
       'build',
-      'xcross-compose',
+      toolchain.simulator
+          ? toolchain.buildOptions.outputDirectory
+          : 'xcross-compose',
       'Runner',
     );
     await Directory(generatedDir).create(recursive: true);
@@ -55,7 +63,7 @@ final class ObjcRunnerBuilder {
     final objectPath = p.join(buildDir, 'main.o');
     final clang = ProcessInvocation.forHost(toolchain.host, toolchain.clang, [
       '-target',
-      _iosTargetTriple,
+      toolchain.buildOptions.targetTriple,
       '-isysroot',
       iphoneSdk,
       '-F',
@@ -67,7 +75,10 @@ final class ObjcRunnerBuilder {
       '-I',
       p.join(frameworkPath, 'Headers'),
       '-fobjc-arc',
-      '-miphoneos-version-min=$_iosMinimumVersion',
+      if (toolchain.simulator)
+        '-mios-simulator-version-min=$_iosMinimumVersion'
+      else
+        '-miphoneos-version-min=$_iosMinimumVersion',
       '-c',
       sourcePath,
       '-o',
@@ -87,7 +98,7 @@ final class ObjcRunnerBuilder {
       '-arch',
       'arm64',
       '-platform_version',
-      'ios',
+      toolchain.buildOptions.linkerPlatform,
       _iosMinimumVersion,
       _sdkVersion(iphoneSdk) ?? '26.5',
       '-syslibroot',
@@ -111,7 +122,12 @@ final class ObjcRunnerBuilder {
       '-lc',
       // Apple clang's driver links compiler-rt implicitly; ld64.lld does not.
       // Skia in Compose calls `__isPlatformVersionAtLeast` from it.
-      if (compilerRtIos(toolchain.darwinSdkBundle) case final String rt) rt,
+      if (compilerRtIos(
+            toolchain.darwinSdkBundle,
+            simulator: toolchain.simulator,
+          )
+          case final String rt)
+        rt,
       '-rpath',
       '@executable_path/Frameworks',
     ]);
@@ -180,13 +196,18 @@ String _iphoneSdk(ComposeToolchain toolchain) {
   if (Directory(toolchain.darwinSdkPath).existsSync()) {
     return toolchain.darwinSdkPath;
   }
-  throw XcrossError('iPhoneOS SDK not found at ${toolchain.darwinSdkPath}');
+  throw XcrossError(
+    '${toolchain.simulator ? 'iPhoneSimulator' : 'iPhoneOS'} SDK not found at ${toolchain.darwinSdkPath}',
+  );
 }
 
 String? _sdkVersion(String sdkPath) {
   final name = p.basenameWithoutExtension(sdkPath);
-  if (!name.startsWith('iPhoneOS')) return null;
-  final version = name.substring('iPhoneOS'.length);
+  final prefix = name.startsWith('iPhoneSimulator')
+      ? 'iPhoneSimulator'
+      : 'iPhoneOS';
+  if (!name.startsWith(prefix)) return null;
+  final version = name.substring(prefix.length);
   return version.isEmpty ? null : version;
 }
 

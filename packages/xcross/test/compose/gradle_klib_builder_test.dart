@@ -8,6 +8,67 @@ import 'package:xcross/src/compose/toolchain/compose_host.dart';
 import 'package:xcross/src/compose/toolchain/compose_toolchain.dart';
 
 void main() {
+  test('compiles simulator Gradle klib and only simulator resources', () async {
+    final fixture =
+        _Fixture.create(
+            moduleName: 'app:shared',
+            host: ComposeHost.macosArm64,
+            simulator: true,
+          )
+          ..createWrapper()
+          ..createModuleKlib();
+    addTearDown(fixture.dispose);
+    final result = await GradleKlibBuilder.withSeams(
+      runChecked:
+          (executable, arguments, {workingDirectory, environment}) async {
+            final script = File(
+              arguments[arguments.indexOf('--init-script') + 1],
+            ).readAsStringSync();
+            expect(script, contains('if (path != ":app:shared")'));
+            expect(
+              script,
+              contains('dependsOn("compileKotlinIosSimulatorArm64")'),
+            );
+            expect(script, contains('"iosSimulatorArm64ProcessResources"'));
+            expect(script, contains('"iosSimulatorArm64AggregateResources"'));
+            expect(script, isNot(contains('compileKotlinIosArm64')));
+            File(environment!['XCROSS_DEPS_OUT']!).writeAsStringSync('');
+          },
+    ).build(project: fixture.project, toolchain: fixture.toolchain);
+    expect(result.moduleKlibPath, contains('/iosSimulatorArm64/'));
+  });
+
+  test(
+    'runs native macOS ARM64 Gradle with matching Java and Konan cache',
+    () async {
+      final fixture =
+          _Fixture.create(moduleName: 'shared', host: ComposeHost.macosArm64)
+            ..createWrapper()
+            ..createModuleKlib();
+      addTearDown(fixture.dispose);
+      var calls = 0;
+      await GradleKlibBuilder.withSeams(
+        runChecked:
+            (executable, arguments, {workingDirectory, environment}) async {
+              calls++;
+              expect(executable, p.join(fixture.root, 'gradlew'));
+              expect(arguments, contains(':shared:dumpIosDeps'));
+              expect(environment!['JAVA_HOME'], fixture.toolchain.javaHome);
+              expect(
+                environment['KONAN_DATA_DIR'],
+                fixture.toolchain.konanCache,
+              );
+              expect(
+                environment['PATH'],
+                startsWith('${p.join(fixture.toolchain.javaHome, 'bin')}:'),
+              );
+              File(environment['XCROSS_DEPS_OUT']!).writeAsStringSync('');
+            },
+      ).build(project: fixture.project, toolchain: fixture.toolchain);
+      expect(calls, 1);
+    },
+  );
+
   test(
     'build compiles nested module and dumps filtered ios dependencies',
     () async {
@@ -63,7 +124,10 @@ void main() {
                   arguments[arguments.indexOf('--init-script') + 1],
                 );
                 final source = initScript.readAsStringSync();
-                expect(source, contains('if (name != "b") return@allprojects'));
+                expect(
+                  source,
+                  contains('if (path != ":a:b") return@allprojects'),
+                );
                 expect(source, contains('tasks.register("dumpIosDeps")'));
                 // Compose resources are refreshed in the same build, but only
                 // where the project has the tasks.
@@ -443,7 +507,7 @@ void main() {
 }
 
 final class _Fixture {
-  _Fixture._(this.temp, this.root, this.moduleName, this.host)
+  _Fixture._(this.temp, this.root, this.moduleName, this.host, this.simulator)
     : modulePath = p.joinAll([root, ...moduleName.split(':')]),
       kotlinHome = p.join(root, 'kotlinc'),
       javaHome = p.join(root, 'jdk');
@@ -451,11 +515,12 @@ final class _Fixture {
   static _Fixture create({
     required String moduleName,
     required ComposeHost host,
+    bool simulator = false,
   }) {
     final temp = Directory.systemTemp.createTempSync(
       'xcross_gradle_builder_test_',
     );
-    final fixture = _Fixture._(temp, temp.path, moduleName, host);
+    final fixture = _Fixture._(temp, temp.path, moduleName, host, simulator);
     Directory(fixture.modulePath).createSync(recursive: true);
     return fixture;
   }
@@ -464,6 +529,7 @@ final class _Fixture {
   final String root;
   final String moduleName;
   final ComposeHost host;
+  final bool simulator;
   final String modulePath;
   final String kotlinHome;
   final String javaHome;
@@ -474,7 +540,7 @@ final class _Fixture {
     'build',
     'classes',
     'kotlin',
-    'iosArm64',
+    simulator ? 'iosSimulatorArm64' : 'iosArm64',
     'main',
     'klib',
     moduleLeaf,
@@ -492,6 +558,7 @@ final class _Fixture {
 
   ComposeToolchain get toolchain => ComposeToolchain(
     host: host,
+    simulator: simulator,
     kotlinHome: kotlinHome,
     konanCache: p.join(root, 'konan-cache'),
     konancExecutable: p.join(

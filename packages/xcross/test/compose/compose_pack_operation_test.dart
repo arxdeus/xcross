@@ -24,6 +24,143 @@ void main() {
       if (root.existsSync()) root.deleteSync(recursive: true);
     });
 
+    for (final simulator in [false, true]) {
+      test(
+        'selects ${simulator ? 'simulator' : 'device'} module before pack',
+        () async {
+          File(
+            p.join(root.path, 'settings.gradle.kts'),
+          ).writeAsStringSync('include(":device", ":simulator")');
+          for (final target in {
+            'device': 'iosArm64',
+            'simulator': 'iosSimulatorArm64',
+          }.entries) {
+            File(p.join(root.path, target.key, 'build.gradle.kts'))
+              ..createSync(recursive: true)
+              ..writeAsStringSync('''
+kotlin {
+  ${target.value}()
+  binaries.framework { baseName = "${target.key}" }
+}
+''');
+          }
+          final operation = ComposePackOperation.withSeams(
+            currentDirectory: () => root.path,
+            packProject: ({required project, required options}) async {
+              expect(project.moduleName, simulator ? 'simulator' : 'device');
+              expect(options.simulator, simulator);
+              return PackResult(
+                outputPath: '${project.baseName}.framework',
+                bundleId: project.bundleId,
+                kind: PackOutputKind.framework,
+              );
+            },
+          );
+
+          await operation.pack(
+            options: ComposeBuildOptions(simulator: simulator),
+          );
+        },
+      );
+
+      test('missing selected target preserves outputs before pack', () async {
+        final options = ComposeBuildOptions(simulator: simulator);
+        File(
+          p.join(root.path, 'settings.gradle.kts'),
+        ).writeAsStringSync('include(":shared")');
+        File(p.join(root.path, 'shared', 'build.gradle.kts'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('''
+kotlin {
+  ${simulator ? 'iosArm64' : 'iosSimulatorArm64'}()
+  binaries.framework { baseName = "Shared" }
+}
+''');
+        final stale =
+            File(
+                p.join(
+                  root.path,
+                  'build',
+                  options.outputDirectory,
+                  'Shared.framework',
+                  'stale',
+                ),
+              )
+              ..createSync(recursive: true)
+              ..writeAsStringSync('preserve');
+        final operation = ComposePackOperation.withSeams(
+          currentDirectory: () => root.path,
+          packProject: ({required project, required options}) async =>
+              fail('missing selected target must not reach packing'),
+        );
+
+        await expectLater(
+          operation.pack(options: options),
+          throwsA(
+            isA<XcrossError>().having(
+              (error) => error.message,
+              'message',
+              contains('No KMP module with ${options.gradleTarget}()'),
+            ),
+          ),
+        );
+        expect(stale.readAsStringSync(), 'preserve');
+      });
+    }
+
+    test(
+      'simulator pack leaves device outputs and rejects IPA before detection',
+      () async {
+        final project = _project(root.path, KmpEntryKind.runnableApp);
+        final device =
+            File(p.join(root.path, 'build', 'xcross-ios', 'Demo.app', 'Runner'))
+              ..createSync(recursive: true)
+              ..writeAsStringSync('device');
+        final stale =
+            File(
+                p.join(
+                  root.path,
+                  'build',
+                  'xcross-ios-simulator',
+                  'Demo.app',
+                  'Runner',
+                ),
+              )
+              ..createSync(recursive: true)
+              ..writeAsStringSync('simulator');
+        var detections = 0;
+        final operation = ComposePackOperation.withSeams(
+          currentDirectory: () => root.path,
+          detectProject: (path, {bundleId, appName, simulator = false}) {
+            detections++;
+            expect(simulator, isTrue);
+            return project;
+          },
+          packProject: ({required project, required options}) async {
+            expect(options.simulator, isTrue);
+            expect(stale.existsSync(), isFalse);
+            expect(device.readAsStringSync(), 'device');
+            return PackResult(
+              outputPath: 'simulator.app',
+              bundleId: project.bundleId,
+            );
+          },
+        );
+        await expectLater(
+          operation.pack(
+            options: const ComposeBuildOptions(simulator: true, ipa: true),
+          ),
+          throwsA(isA<XcrossError>()),
+        );
+        expect(detections, 0);
+        await operation.pack(
+          options: const ComposeBuildOptions(simulator: true),
+        );
+        expect(detections, 1);
+        expect(device.readAsStringSync(), 'device');
+      },
+    );
+
     test('detects, deletes stale outputs, then delegates packing', () async {
       final events = <String>[];
       final project = _project(root.path, KmpEntryKind.runnableApp);
@@ -43,7 +180,8 @@ void main() {
 
       final operation = ComposePackOperation.withSeams(
         currentDirectory: () => root.path,
-        detectProject: (path, {bundleId, appName}) {
+        detectProject: (path, {bundleId, appName, simulator = false}) {
+          expect(simulator, isFalse);
           events.add('detect:$path:$bundleId:$appName');
           return project;
         },
@@ -73,7 +211,7 @@ void main() {
       final events = <String>[];
       final operation = ComposePackOperation.withSeams(
         currentDirectory: () => root.path,
-        detectProject: (path, {bundleId, appName}) {
+        detectProject: (path, {bundleId, appName, simulator = false}) {
           events.add('detect');
           return _project(root.path, KmpEntryKind.frameworkOnly);
         },
@@ -107,7 +245,7 @@ void main() {
       final events = <String>[];
       final operation = ComposePackOperation.withSeams(
         currentDirectory: () => root.path,
-        detectProject: (path, {bundleId, appName}) {
+        detectProject: (path, {bundleId, appName, simulator = false}) {
           events.add('detect');
           return _project(root.path, KmpEntryKind.frameworkOnly);
         },
@@ -245,6 +383,7 @@ void main() {
               required projectRoot,
               required allowInstall,
               required force,
+              required simulator,
             }) async {
               ensures++;
               return _toolchain;
@@ -277,6 +416,7 @@ ComposePacker _packer({
         required projectRoot,
         required allowInstall,
         required force,
+        required simulator,
       }) async {
         events.add('toolchain');
         return _toolchain;
@@ -316,7 +456,12 @@ ComposePacker _packer({
         return 'Runner';
       },
   assembleApp:
-      ({required project, required runnerPath, required frameworkPath}) async {
+      ({
+        required project,
+        required runnerPath,
+        required frameworkPath,
+        required simulator,
+      }) async {
         events.add('assemble');
         return p.join(
           project.root,

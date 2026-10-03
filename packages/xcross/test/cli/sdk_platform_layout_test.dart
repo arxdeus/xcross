@@ -19,7 +19,7 @@ void main() {
     }
     expect(
       SdkInstall.sdkRelativePath(
-        'Developer/Platforms/iPhoneSimulator.platform/Info.plist',
+        'Developer/Platforms/AppleTVSimulator.platform/Info.plist',
       ),
       isNull,
     );

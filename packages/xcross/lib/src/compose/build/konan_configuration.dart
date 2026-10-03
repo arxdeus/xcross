@@ -58,7 +58,12 @@ final class KonanConfiguration {
     required KmpProject project,
     required ComposeToolchain toolchain,
   }) async {
-    final baseDir = p.join(project.root, 'build', 'xcross-ios', 'toolchain');
+    final baseDir = p.join(
+      project.root,
+      'build',
+      toolchain.buildOptions.outputDirectory,
+      'toolchain',
+    );
     final fingerprint = await _fingerprint(toolchain);
     final root = p.join(baseDir, fingerprint);
     final markerPath = p.join(root, '.xcross-complete');
@@ -178,6 +183,7 @@ final class KonanConfiguration {
     }
 
     addString(toolchain.host.classifier);
+    addString(toolchain.buildOptions.konanTarget);
     addString(toolchain.kotlinHome);
     addString(toolchain.konanCache);
     addString(toolchain.konancExecutable);
@@ -305,7 +311,8 @@ final class KonanConfiguration {
       properties['targetSysRoot.$target'] = sdk;
       properties['targetToolchain.$host-$target'] = appleToolchain;
     }
-    properties['linker.$host-ios_arm64'] = '$appleToolchain/bin/ld';
+    properties['linker.$host-${toolchain.buildOptions.konanTarget}'] =
+        '$appleToolchain/bin/ld';
     // konan.properties lists ios_arm64 as cacheable only from macOS hosts, so
     // on any other host Kotlin/Native refuses (or silently ignores) compiler
     // caches for it. Without caches a debug link compiles the program and
@@ -314,7 +321,7 @@ final class KonanConfiguration {
     // the caches is host-specific - they are ios_arm64 objects produced by the
     // same compiler - so declare the target cacheable here. This prepared
     // compiler only ever targets ios_arm64, so it is the whole list.
-    properties['cacheableTargets.$host'] = 'ios_arm64';
+    properties['cacheableTargets.$host'] = toolchain.buildOptions.konanTarget;
     return properties;
   }
 
@@ -392,16 +399,33 @@ final class KonanConfiguration {
     final directory = p.dirname(toolchain.ld64Lld);
     final extension = toolchain.host.isWindows ? '.exe' : '';
     final separator = toolchain.host.isWindows ? ';' : ':';
-    String llvmTool(String name) => _siblingOrOnPath(
-      directory,
-      '$name$extension',
-      searchPath.split(separator),
-    );
+    String llvmTool(String name, {String? macosFallback}) {
+      final resolved = _siblingOrOnPath(
+        directory,
+        '$name$extension',
+        searchPath.split(separator),
+      );
+      if (!toolchain.host.isMacOS ||
+          macosFallback == null ||
+          File(resolved).existsSync()) {
+        return resolved;
+      }
+      final native = _siblingOrOnPath(
+        directory,
+        macosFallback,
+        searchPath.split(separator),
+      );
+      return File(native).existsSync() ? native : resolved;
+    }
+
     return {
       'XCROSS_APPLE_TOOL_LD': toolchain.ld64Lld,
-      'XCROSS_APPLE_TOOL_STRIP': llvmTool('llvm-strip'),
+      'XCROSS_APPLE_TOOL_STRIP': llvmTool('llvm-strip', macosFallback: 'strip'),
       'XCROSS_APPLE_TOOL_DSYMUTIL': llvmTool('dsymutil'),
-      'XCROSS_APPLE_TOOL_LIBTOOL': llvmTool('llvm-libtool-darwin'),
+      'XCROSS_APPLE_TOOL_LIBTOOL': llvmTool(
+        'llvm-libtool-darwin',
+        macosFallback: 'libtool',
+      ),
       'XCROSS_APPLE_TOOL_CLANG': toolchain.clang,
       'XCROSS_APPLE_TOOL_CLANGXX': p.join(
         p.dirname(toolchain.clang),

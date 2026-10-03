@@ -202,9 +202,13 @@ abstract final class FlutterPackOperation {
   }
 
   static Future<PackResult> pack({required FlutterBuildOptions options}) async {
+    options.validate();
     final projectRoot = Directory.current.path;
     final bundleId = IosBundleId.resolve(projectRoot);
-    final workspace = SwiftPmWorkspace.forProject(projectRoot);
+    final workspace = SwiftPmWorkspace.forProject(
+      projectRoot,
+      simulator: options.simulator,
+    );
 
     final packer = FlutterPacker(
       projectRoot: projectRoot,
@@ -217,7 +221,7 @@ abstract final class FlutterPackOperation {
     // Always delete any previous bundle BEFORE packing, otherwise stale
     // binaries from an earlier build get codesigned into the new one.
     final bundleDir = Directory(
-      p.join(projectRoot, 'build', 'xcross-ios', '${packer.appName}.app'),
+      p.join(packer.outputDirectory, '${packer.appName}.app'),
     );
     if (bundleDir.existsSync()) await bundleDir.delete(recursive: true);
 

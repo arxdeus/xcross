@@ -58,6 +58,26 @@ final class WindowsMemoryAllocator implements NativeMemoryAllocator {
             _VirtualFreeDart
           >('VirtualFree');
 
+  @override
+  int get pageSize => 4096;
+
+  @override
+  void flushInstructionCache(NativeMemoryBlock block) {
+    final process = DynamicLibrary.process();
+    final getCurrentProcess = process
+        .lookupFunction<Pointer<Void> Function(), Pointer<Void> Function()>(
+          'GetCurrentProcess',
+        );
+    final flush = process
+        .lookupFunction<
+          Int32 Function(Pointer<Void>, Pointer<Void>, IntPtr),
+          int Function(Pointer<Void>, Pointer<Void>, int)
+        >('FlushInstructionCache');
+    if (flush(getCurrentProcess(), block.pointer.cast(), block.length) == 0) {
+      throw StateError('FlushInstructionCache failed.');
+    }
+  }
+
   final _VirtualAllocDart _virtualAlloc;
   final _VirtualProtectDart _virtualProtect;
   final _VirtualFreeDart _virtualFree;

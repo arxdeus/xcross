@@ -31,17 +31,22 @@ final class SdkInstallCommand extends Command<void> {
 
   @override
   String get description =>
-      'Extract a host-neutral Darwin Swift SDK from an Xcode.xip.';
+      'Extract a host-neutral Darwin Swift SDK from an Xcode.xip or Xcode.app.';
 
   @override
-  String get invocation => 'xcross sdk install <path-to-Xcode.xip>';
+  String get invocation => 'xcross sdk install <path-to-Xcode.xip|Xcode.app>';
 
   @override
   Future<void> run() async {
-    final xipPath = argResults!.rest.firstOrNull;
-    if (xipPath == null) throw XcrossError('Usage: $invocation');
-    if (!File(xipPath).existsSync()) {
-      throw XcrossError('No file found at "$xipPath".');
+    final sourcePath = argResults!.rest.firstOrNull;
+    if (sourcePath == null) throw XcrossError('Usage: $invocation');
+    final isXcodeApp = Directory(sourcePath).existsSync();
+    if (!isXcodeApp && !File(sourcePath).existsSync()) {
+      throw XcrossError('No file found at "$sourcePath".');
+    }
+    if (isXcodeApp &&
+        !Directory(p.join(sourcePath, 'Contents', 'Developer')).existsSync()) {
+      throw XcrossError('No Xcode Developer directory found in "$sourcePath".');
     }
 
     // Checked before the archive is touched: extraction takes a long while
@@ -58,25 +63,31 @@ final class SdkInstallCommand extends Command<void> {
     // does name a generation this costs the user nothing to learn early; the
     // extracted SDK is checked again below, where the answer is authoritative.
     await _requireSwiftForXcode(
-      XcodeSwiftRequirement.xcodeMajorFromXipPath(xipPath),
+      XcodeSwiftRequirement.xcodeMajorFromXipPath(sourcePath),
       swift,
     );
 
     // Check the archive before allocating space for a second SDK copy.
-    await Log.logStep(
-      'Verifying archive',
-      () => XcodeXipExtractor.validate(xipPath),
-    );
+    if (!isXcodeApp) {
+      await Log.logStep(
+        'Verifying archive',
+        () => XcodeXipExtractor.validate(sourcePath),
+      );
+    }
 
     final destDir = DarwinSdk.nativeInstallDir();
     await prepareExistingSdk(destDir);
     final staged = await _createStagingSibling(destDir);
     try {
-      final written = await _extract(xipPath, staged.path);
+      final written = await _extract(
+        sourcePath,
+        staged.path,
+        isXcodeApp: isXcodeApp,
+      );
       if (written == 0) {
         throw XcrossError(
-          '$xipPath: extraction produced no files from the required iOS SDK '
-          'subset. Verify that this is a complete Xcode.xip.',
+          '$sourcePath: extraction produced no files from the required iOS SDK '
+          'subset. Verify that this is a complete Xcode installation.',
         );
       }
       await _completeStagedSdk(staged.path);
@@ -228,17 +239,23 @@ final class SdkInstallCommand extends Command<void> {
   /// Percentages track the compressed `Content` stream, the only size the
   /// archive declares up front; the entry and symlink counts ride along as the
   /// bar's trailing note so a stalled phase is still visibly doing work.
-  Future<int> _extract(String xipPath, String destDir) async {
+  Future<int> _extract(
+    String sourcePath,
+    String destDir, {
+    bool isXcodeApp = false,
+  }) async {
     final bar = ProgressBar('Extracting Darwin SDK');
     try {
       final written = await SdkInstall.writeSdkEntries(
-        XcodeXipExtractor.extract(
-          xipPath,
-          onProgress: (consumed, total) {
-            bar.total = total;
-            bar.update(consumed);
-          },
-        ),
+        isXcodeApp
+            ? SdkInstall.xcodeAppEntries(sourcePath)
+            : XcodeXipExtractor.extract(
+                sourcePath,
+                onProgress: (consumed, total) {
+                  bar.total = total;
+                  bar.update(consumed);
+                },
+              ),
         destDir,
         onProgress: (count) =>
             bar.note = '${ProgressBar.formatCount(count)} entries',

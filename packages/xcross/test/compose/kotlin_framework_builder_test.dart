@@ -7,6 +7,54 @@ import 'package:xcross/src/errors.dart';
 
 void main() {
   test(
+    'simulator framework uses Kotlin simulator target and isolated output',
+    () async {
+      final fixture = _Fixture.create(ComposeHost.macosArm64)..createInputs();
+      addTearDown(fixture.dispose);
+      final calls = <List<String>>[];
+      final output =
+          await KotlinFrameworkBuilder.withSeams(
+            runChecked:
+                (executable, arguments, {workingDirectory, environment}) async {
+                  calls.add(arguments);
+                  final produced = arguments[arguments.indexOf('-o') + 1];
+                  expect(
+                    produced,
+                    contains('/bin/iosSimulatorArm64/debugFramework/'),
+                  );
+                  File(p.join(produced, 'Headers', 'Shared.h'))
+                    ..createSync(recursive: true)
+                    ..writeAsStringSync('header');
+                  File(p.join(produced, 'Shared'))
+                    ..createSync(recursive: true)
+                    ..writeAsStringSync('simulator');
+                },
+            prepareKonan: ({required project, required toolchain}) async =>
+                fixture.prepared,
+          ).build(
+            project: fixture.project,
+            options: const ComposeBuildOptions(simulator: true),
+            toolchain: fixture.toolchain,
+            klib: fixture.klib,
+          );
+      expect(
+        output,
+        p.join(
+          fixture.root,
+          'build',
+          'xcross-ios-simulator',
+          'Shared.framework',
+        ),
+      );
+      expect(
+        calls.single,
+        containsAllInOrder(['-target', 'ios_simulator_arm64']),
+      );
+      expect(File(p.join(output, 'Shared')).readAsStringSync(), 'simulator');
+    },
+  );
+
+  test(
     'builds debug framework with module klib, dependency libraries, and bundle id',
     () async {
       final fixture = _Fixture.create(ComposeHost.linuxX64)..createInputs();

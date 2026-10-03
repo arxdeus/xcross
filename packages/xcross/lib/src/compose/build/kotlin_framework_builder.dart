@@ -56,7 +56,11 @@ final class KotlinFrameworkBuilder {
           project: project,
           toolchain: toolchain,
         );
-    final produced = expectedFramework(project, options.configuration);
+    final produced = expectedFramework(
+      project,
+      options.configuration,
+      simulator: options.simulator,
+    );
     final args = buildKonancArguments(
       project: project,
       options: options,
@@ -127,7 +131,7 @@ final class KotlinFrameworkBuilder {
     final copied = p.join(
       project.root,
       'build',
-      'xcross-ios',
+      options.outputDirectory,
       '${project.baseName}.framework',
     );
     final copiedDir = Directory(copied);
@@ -144,7 +148,7 @@ final class KotlinFrameworkBuilder {
     final path = p.join(
       project.root,
       'build',
-      'xcross-ios',
+      options.outputDirectory,
       'konanc-${options.configuration.name}.args',
     );
     final file = File(path)..createSync(recursive: true);
@@ -163,7 +167,7 @@ final class KotlinFrameworkBuilder {
   }) {
     final args = <String>[
       '-target',
-      'ios_arm64',
+      options.konanTarget,
       '-produce',
       'framework',
       '-Xinclude=${klib.moduleKlibPath}',
@@ -192,12 +196,13 @@ final class KotlinFrameworkBuilder {
 
   String expectedFramework(
     KmpProject project,
-    ComposeConfiguration configuration,
-  ) => p.join(
+    ComposeConfiguration configuration, {
+    bool simulator = false,
+  }) => p.join(
     project.modulePath,
     'build',
     'bin',
-    'iosArm64',
+    ComposeBuildOptions(simulator: simulator).gradleTarget,
     configuration == ComposeConfiguration.release
         ? 'releaseFramework'
         : 'debugFramework',

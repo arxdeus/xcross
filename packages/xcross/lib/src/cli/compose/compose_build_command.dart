@@ -4,6 +4,7 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:xcross/src/cli/shared/ipa_packager.dart';
 import 'package:xcross/src/compose/build/compose_pack_operation.dart';
 import 'package:xcross/src/compose/models/compose_build_options.dart';
+import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/models/pack_result.dart';
 
 part 'compose_build_command.g.dart';
@@ -36,6 +37,9 @@ final class ComposeBuildArgs {
         'Output a .ipa file instead of a .app when the project produces an app.',
   )
   late bool ipa;
+
+  @CliOption(negatable: false, help: 'Build for the ARM64 iOS Simulator.')
+  late bool simulator;
 
   @CliOption(
     abbr: 'v',
@@ -74,12 +78,16 @@ final class ComposeBuildCommand extends _$ComposeBuildArgsCommand<void> {
 
   @override
   Future<void> run() async {
+    if (_options.simulator && _options.ipa) {
+      throw XcrossError('Simulator builds cannot be packaged as an IPA.');
+    }
     if (_options.verbose) Log.setVerbose();
     final options = ComposeBuildOptions(
       configuration: _options.configuration,
       bundleId: _options.bundleId,
       appName: _options.appName,
       ipa: _options.ipa,
+      simulator: _options.simulator,
     );
     final result = await _packOperation(
       options: options,

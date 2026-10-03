@@ -43,6 +43,7 @@ void main() {
       final results = command.argParser.parse([]);
       expect(results.option('configuration'), 'debug');
       expect(results.flag('ipa'), isFalse);
+      expect(results.flag('simulator'), isFalse);
     });
 
     test('accepts configuration, bundle id, app name, and ipa', () {
@@ -60,6 +61,48 @@ void main() {
       expect(results.option('app-name'), 'Demo');
       expect(results.flag('ipa'), isTrue);
     });
+
+    test(
+      'passes simulator target and rejects simulator IPA before packing',
+      () async {
+        final seen = <ComposeBuildOptions>[];
+        final command = ComposeBuildCommand.withSeams(
+          packOperation:
+              ({required options, required requireRunnableApp}) async {
+                seen.add(options);
+                return const PackResult(
+                  outputPath: 'build/xcross-ios-simulator/Demo.app',
+                  bundleId: 'dev.example.demo',
+                );
+              },
+          packageIpa: (_) async => throw StateError('unexpected IPA'),
+          logDone: (_) {},
+        );
+        final runner = CommandRunner<void>('xcross', 'test')
+          ..addCommand(command);
+        await runner.run(['build', '--simulator']);
+        expect(seen.single.simulator, isTrue);
+        expect(seen.single.konanTarget, 'ios_simulator_arm64');
+        expect(seen.single.gradleTarget, 'iosSimulatorArm64');
+        expect(seen.single.outputDirectory, 'xcross-ios-simulator');
+        expect(seen.single.targetTriple, 'arm64-apple-ios15.0-simulator');
+        expect(seen.single.linkerPlatform, 'ios-simulator');
+        final reject = CommandRunner<void>('xcross', 'test')
+          ..addCommand(
+            ComposeBuildCommand.withSeams(
+              packOperation:
+                  ({required options, required requireRunnableApp}) async =>
+                      throw StateError('unexpected build'),
+              packageIpa: (_) async => throw StateError('unexpected IPA'),
+              logDone: (_) {},
+            ),
+          );
+        await expectLater(
+          reject.run(['build', '--simulator', '--ipa']),
+          throwsA(isA<XcrossError>()),
+        );
+      },
+    );
 
     test('packages ipa only for app output and logs the ipa path', () async {
       final writes = <String>[];

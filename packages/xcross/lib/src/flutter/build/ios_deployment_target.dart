@@ -1,9 +1,10 @@
 import 'dart:io';
 
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 
 final class IosDeploymentTarget {
-  const IosDeploymentTarget(this.version);
+  const IosDeploymentTarget(this.version, {this.simulator = false});
 
   static const fallback = IosDeploymentTarget('13.0');
 
@@ -19,17 +20,36 @@ final class IosDeploymentTarget {
   static final _versionPattern = RegExp(r'^\d+(?:\.\d+)*$');
 
   final String version;
+  final bool simulator;
 
-  String get buildTriple => 'arm64-apple-ios$version';
+  IosTarget get target => simulator ? IosTarget.simulator : IosTarget.device;
 
-  factory IosDeploymentTarget.resolve(String projectRoot) {
+  String get buildTriple => target.buildTriple(version);
+
+  String get swiftSdkTriple => target.swiftSdkTriple;
+
+  String get linkerPlatform => target.linkerPlatform;
+
+  String get minimumVersionFlag =>
+      '-m${simulator ? 'ios-simulator' : 'iphoneos'}-version-min=$version';
+
+  String sdkPath(DarwinSdk sdk) => sdk.iosSdk(target: target);
+
+  factory IosDeploymentTarget.resolve(
+    String projectRoot, {
+    bool simulator = false,
+  }) {
     final fromPbxproj = _deploymentTargetFromPbxproj(projectRoot);
-    if (fromPbxproj != null) return IosDeploymentTarget(fromPbxproj);
+    if (fromPbxproj != null) {
+      return IosDeploymentTarget(fromPbxproj, simulator: simulator);
+    }
 
     final fromPlist = _minimumOsVersionFromPlist(projectRoot);
-    if (fromPlist != null) return IosDeploymentTarget(fromPlist);
+    if (fromPlist != null) {
+      return IosDeploymentTarget(fromPlist, simulator: simulator);
+    }
 
-    return fallback;
+    return IosDeploymentTarget(fallback.version, simulator: simulator);
   }
 
   static String? _deploymentTargetFromPbxproj(String projectRoot) {

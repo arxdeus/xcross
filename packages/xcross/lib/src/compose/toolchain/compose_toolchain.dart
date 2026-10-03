@@ -1,3 +1,4 @@
+import 'package:xcross/src/compose/models/compose_build_options.dart';
 import 'package:xcross/src/compose/toolchain/compose_host.dart';
 
 final class ComposeToolchain {
@@ -14,9 +15,13 @@ final class ComposeToolchain {
     required this.ld64Lld,
     required this.darwinSdkPath,
     required this.darwinSdkBundle,
+    this.simulator = false,
   });
 
   final ComposeHost host;
+  final bool simulator;
+  ComposeBuildOptions get buildOptions =>
+      ComposeBuildOptions(simulator: simulator);
   final String kotlinHome;
   final String konanCache;
   final String konancExecutable;

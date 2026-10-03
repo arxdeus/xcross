@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
@@ -6,13 +7,11 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/xcross.dart';
 
 Future<void> main(List<String> arguments) async {
-  if (Platform.isMacOS) {
-    stderr.writeln('xcross xcrun is only intended for Windows and Linux.');
-    exitCode = 1;
-    return;
-  }
-
   try {
+    if (Platform.isMacOS) {
+      exitCode = await runNativeXcrun(arguments);
+      return;
+    }
     final shimResponse = xcrunShimResponse(arguments);
     if (shimResponse != null) {
       stdout.writeln(shimResponse);
@@ -24,6 +23,23 @@ Future<void> main(List<String> arguments) async {
     stderr.writeln('xcrun: $error');
     exitCode = 1;
   }
+}
+
+Future<int> runNativeXcrun(
+  List<String> arguments, {
+  Future<Process> Function(
+    String tool,
+    List<String> arguments, {
+    required ProcessStartMode mode,
+  })?
+  start,
+}) async {
+  final child = await (start ?? Process.start)(
+    '/usr/bin/xcrun',
+    arguments,
+    mode: ProcessStartMode.inheritStdio,
+  );
+  return child.exitCode;
 }
 
 /// Version reported by `xcrun --version`, matching a recent Xcode's xcrun.
@@ -53,9 +69,12 @@ String? xcrunShimResponse(List<String> arguments, {String? executable}) {
   if (shimSdk == null) return null;
 
   final wrapperArguments = _wrapperArguments(arguments);
-  _requireIPhoneOsSdk(wrapperArguments, shimSdk);
+  _requireSdkSelection(wrapperArguments, shimSdk);
 
   if (wrapperArguments.contains('--show-sdk-path')) return shimSdk;
+  if (wrapperArguments.contains('--show-sdk-version')) {
+    return _sdkVersion(shimSdk);
+  }
   if (wrapperArguments.contains('--show-sdk-platform-path')) {
     return _sdkPlatformPath(shimSdk);
   }
@@ -70,9 +89,11 @@ String? xcrunShimResponse(List<String> arguments, {String? executable}) {
 /// spelling is rejected by native_toolchain_c's case-sensitive recognizer.
 String? findShimTool(List<String> arguments, {String? executable}) {
   final xcrunExecutable = executable ?? Platform.resolvedExecutable;
-  if (_readShimSdk(xcrunExecutable) == null) return null;
+  final shimSdk = _readShimSdk(xcrunExecutable);
+  if (shimSdk == null) return null;
 
   final wrapperArguments = _wrapperArguments(arguments);
+  _requireSdkSelection(wrapperArguments, shimSdk);
   final find = wrapperArguments.indexOf('--find');
   if (find == -1 || find + 1 >= wrapperArguments.length) return null;
 
@@ -86,6 +107,7 @@ String? findShimTool(List<String> arguments, {String? executable}) {
 Future<int> runXcrun(
   List<String> arguments, {
   DarwinSdk? sdk,
+  String? executable,
   Future<String?> Function(String name)? findOnPath,
   Future<int> Function(String tool, List<String> arguments)? runTool,
 }) async {
@@ -106,19 +128,40 @@ Future<int> runXcrun(
   }
 
   final wrapperArguments = _wrapperArguments(arguments);
+  String? installedSdk;
   try {
-    _requireInstalledSdk(wrapperArguments, sdk);
-  } on FormatException catch (error) {
+    final shimSdk = _readShimSdk(executable ?? Platform.resolvedExecutable);
+    if (shimSdk != null) {
+      _requireSdkSelection(wrapperArguments, shimSdk);
+      installedSdk = shimSdk;
+    } else {
+      final requested = _requestedSdk(wrapperArguments);
+      final target = requested == null
+          ? IosTarget.device
+          : _requestedTarget(requested);
+      if (requested != null ||
+          wrapperArguments.contains('--show-sdk-path') ||
+          wrapperArguments.contains('--show-sdk-version') ||
+          wrapperArguments.contains('--show-sdk-platform-path')) {
+        installedSdk = sdk.iosSdk(target: target);
+        _requireSdkSelection(wrapperArguments, installedSdk);
+      }
+    }
+    if (wrapperArguments.contains('--show-sdk-version')) {
+      stdout.writeln(_sdkVersion(installedSdk!));
+      return 0;
+    }
+  } on Object catch (error) {
     stderr.writeln('xcrun: $error');
     return 1;
   }
 
   if (wrapperArguments.contains('--show-sdk-path')) {
-    stdout.writeln(sdk.iPhoneOSSdk());
+    stdout.writeln(installedSdk);
     return 0;
   }
   if (wrapperArguments.contains('--show-sdk-platform-path')) {
-    stdout.writeln(_sdkPlatformPath(sdk.iPhoneOSSdk()));
+    stdout.writeln(_sdkPlatformPath(installedSdk!));
     return 0;
   }
 
@@ -184,29 +227,52 @@ List<String> _wrapperArguments(List<String> arguments) {
   return arguments.sublist(0, toolIndex < 0 ? arguments.length : toolIndex);
 }
 
-/// Rejects an `--sdk` selection other than the installed iPhoneOS SDK.
-///
-/// Non-iPhoneOS names are rejected before [DarwinSdk.iPhoneOSSdk] is
-/// consulted, so they fail with a [FormatException] even when no iPhoneOS SDK
-/// can be located.
-void _requireInstalledSdk(List<String> wrapperArguments, DarwinSdk sdk) {
-  final requested = _requestedSdk(wrapperArguments);
-  if (requested == null) return;
-  if (!requested.toLowerCase().startsWith('iphoneos')) {
-    throw FormatException('SDK $requested is not installed');
+IosTarget _requestedTarget(String name) {
+  final normalized = name.toLowerCase();
+  for (final target in IosTarget.values) {
+    if (RegExp(
+      '^${target.sdkName}(?:[0-9]+(?:\\.[0-9]+)*)?\$',
+    ).hasMatch(normalized)) {
+      return target;
+    }
   }
-  _requireIPhoneOsSdk(wrapperArguments, sdk.iPhoneOSSdk());
+  throw FormatException('SDK $name is not installed');
 }
 
-/// Accepts `--sdk iphoneos` or the exact name of [installedSdk].
-void _requireIPhoneOsSdk(List<String> arguments, String installedSdk) {
+void _requireSdkSelection(List<String> arguments, String installedSdk) {
+  final installedName = _sdkName(installedSdk);
+  final target = _requestedTarget(installedName);
   final requested = _requestedSdk(arguments);
   if (requested == null) return;
   final name = requested.toLowerCase();
-  final installedName = p.basenameWithoutExtension(installedSdk).toLowerCase();
-  if (name != 'iphoneos' && name != installedName) {
-    throw FormatException('SDK $requested is not installed');
+  if (name == target.sdkName || name == installedName) return;
+  if (_requestedTarget(name) == target &&
+      name == '${target.sdkName}${_sdkVersion(installedSdk)}') {
+    return;
   }
+  throw FormatException('SDK $requested is not installed');
+}
+
+String _sdkName(String sdkPath) =>
+    (sdkPath.contains(r'\')
+            ? p.windows.basenameWithoutExtension(sdkPath)
+            : p.basenameWithoutExtension(sdkPath))
+        .toLowerCase();
+
+String _sdkVersion(String sdkPath) {
+  final name = _sdkName(sdkPath);
+  final target = _requestedTarget(name);
+  final version = name.substring(target.sdkName.length);
+  if (version.isNotEmpty) return version;
+  final settings = File(p.join(sdkPath, 'SDKSettings.json'));
+  if (settings.existsSync()) {
+    final data = jsonDecode(settings.readAsStringSync());
+    if (data is Map<String, dynamic> && data['Version'] is String) {
+      final version = data['Version'] as String;
+      if (RegExp(r'^[0-9]+(?:\.[0-9]+)*$').hasMatch(version)) return version;
+    }
+  }
+  throw FormatException('SDK version is unavailable for $sdkPath');
 }
 
 /// The last `--sdk <name>` or `--sdk=<name>` value, as real xcrun honors.
@@ -292,6 +358,7 @@ String normalizeWindowsExecutableExtension(String path, {bool? windows}) {
 bool _isCurrentExecutable(String path) =>
     p.canonicalize(path) == p.canonicalize(Platform.resolvedExecutable);
 
-/// The iPhoneOS SDK lives at `<platform>/Developer/SDKs/<sdk>.sdk`.
-String _sdkPlatformPath(String sdkPath) =>
-    p.dirname(p.dirname(p.dirname(sdkPath)));
+String _sdkPlatformPath(String sdkPath) {
+  final context = sdkPath.contains(r'\') ? p.windows : p.context;
+  return context.dirname(context.dirname(context.dirname(sdkPath)));
+}

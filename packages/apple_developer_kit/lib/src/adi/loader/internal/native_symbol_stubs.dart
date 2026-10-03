@@ -17,24 +17,12 @@
 // corruption is exactly why this whole custom loader exists instead of a
 // plain `dlopen()` — see NOTICE.md.
 //
-// NOTE — Linux only for now: the direct pass-through bindings below
-// (open/lstat/fstat/etc., ported from compat/linux.d) forward straight
-// to the *host's* real libc. On Linux this is safe because the kernel's
-// `struct stat`/`open()` flag values are the same ABI bionic itself
-// targets. On macOS neither holds (Darwin's `open()` flag bits and
-// `struct stat` layout both differ from Linux's) — upstream handles this
-// with per-call translation in `compat/macos.d`, which was not fetched
-// or ported this round. Loading on macOS with this file as-is would risk
-// the exact same class of silent-corruption bug this loader exists to
-// avoid, just via stat/open instead of pthreads. `PosixNativeLibraryLoader`
-// therefore refuses to run on anything but Linux until macos.d is ported
-// — see NOTICE.md.
-
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:math';
 
 import 'package:apple_developer_kit/src/adi/elf/elf_loaded_library.dart';
+import 'package:apple_developer_kit/src/adi/loader/internal/sysv_abi_bridge.dart';
 import 'package:ffi/ffi.dart';
 import 'package:meta/meta.dart';
 
@@ -105,9 +93,20 @@ final class NativeSymbolStubs {
       'malloc',
       'free',
       'strncpy',
+      'memcpy',
+      'memmove',
+      'memset',
+      'strlen',
+      '__stack_chk_fail',
       '__errno_location',
     ]) {
-      _table[name] = libc.lookup<NativeFunction<Void Function()>>(name).cast();
+      final shim = using(
+        (arena) =>
+            provision_posix_symbol(name.toNativeUtf8(allocator: arena).cast()),
+      );
+      _table[name] = shim != nullptr
+          ? shim
+          : libc.lookup<NativeFunction<Void Function()>>(name).cast();
     }
     // symbols.d's gperf wordlist imports this one under the name
     // "__errno" (not "__errno_location") but binds it to the same

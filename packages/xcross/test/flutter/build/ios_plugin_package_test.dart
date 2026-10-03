@@ -2,6 +2,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
@@ -11,6 +12,7 @@ import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/cli/basic/sdk_install.dart';
+import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/flutter/build/internal/host_symlink_capability.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_workspace.dart';
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
@@ -49,6 +51,37 @@ String packageSrcPath(String relative) => p.join(
 );
 
 void main() {
+  test(
+    'simulator SwiftPM invocation selects simulator target instead of device',
+    () {
+      final build = GeneratedPluginsPackage.swiftBuildArguments(
+        pluginsDir: '/plugins',
+        scratchPath: '/scratch',
+        swiftSdksPath: '/sdk',
+        iosSdk: '/simulator-sdk',
+        flutterFrameworkSlice: '/ios-arm64_x86_64-simulator',
+        swiftSdkTriple: 'arm64-apple-ios-simulator',
+      );
+      expect(
+        build,
+        containsAllInOrder(['--swift-sdk', 'arm64-apple-ios-simulator']),
+      );
+      expect(build, isNot(contains('arm64-apple-ios')));
+      expect(build, contains('/simulator-sdk'));
+      final resolve = GeneratedPluginsPackage.swiftResolveArguments(
+        pluginsDir: '/plugins',
+        scratchPath: '/scratch',
+        swiftSdksPath: '/sdk',
+        toolsetPath: '/toolset',
+        swiftSdkTriple: 'arm64-apple-ios-simulator',
+      );
+      expect(
+        resolve,
+        containsAllInOrder(['--swift-sdk', 'arm64-apple-ios-simulator']),
+      );
+    },
+  );
+
   test(
     'Windows manifests import host CRT without package-specific overrides',
     () {
@@ -5634,6 +5667,107 @@ module FirebaseFirestore {
   });
 
   group('preview macro stub', () {
+    test(
+      'compiles a native macOS stub with Xcode-first PATH and no SDKROOT workaround',
+      () async {
+        addTearDown(ProcessRunner.resetConfiguration);
+        final selection = await Process.run('/usr/bin/xcode-select', ['-p']);
+        expect(selection.exitCode, 0, reason: selection.stderr.toString());
+        final developer = Link(p.join(tmp.path, 'chosen developer'))
+          ..createSync(selection.stdout.toString().trim());
+        final environment = Map<String, String>.of(Platform.environment)
+          ..remove('SDKROOT')
+          ..['DEVELOPER_DIR'] = developer.path;
+        final native = await Process.run(
+          '/usr/bin/xcrun',
+          ['--sdk', 'macosx', '--find', 'clang'],
+          environment: environment,
+          includeParentEnvironment: false,
+        );
+        expect(native.exitCode, 0, reason: native.stderr.toString());
+        final iosSdk = await Process.run(
+          '/usr/bin/xcrun',
+          ['--sdk', 'iphonesimulator', '--show-sdk-path'],
+          environment: environment,
+          includeParentEnvironment: false,
+        );
+        expect(iosSdk.exitCode, 0, reason: iosSdk.stderr.toString());
+        environment['PATH'] =
+            '${p.dirname(native.stdout.toString().trim())}:/usr/bin:/bin';
+        for (final sdkRoot in <String?>[
+          null,
+          iosSdk.stdout.toString().trim(),
+        ]) {
+          ProcessRunner.configure(
+            normalizedTools: const {},
+            effectiveChildEnvironment: {
+              ...environment,
+              if (sdkRoot != null) 'SDKROOT': sdkRoot,
+            },
+          );
+          final compiler = await resolveHostCompiler('/cross/clang');
+          final executable =
+              await GeneratedPluginsPackage.writePreviewMacroStub(
+                outputDir: p.join(
+                  tmp.path,
+                  sdkRoot == null ? 'clean' : 'polluted',
+                ),
+                cCompilerPath: compiler.executable,
+                cCompilerArguments: compiler.arguments,
+              );
+          final header = ByteData.sublistView(
+            File(executable).readAsBytesSync(),
+          );
+          expect(header.getUint32(0, Endian.little), 0xfeedfacf);
+          expect(
+            header.getUint32(4, Endian.little),
+            Abi.current() == Abi.macosArm64 ? 0x0100000c : 0x01000007,
+          );
+          final loadCommands = await Process.run(
+            '/usr/bin/xcrun',
+            ['--sdk', 'macosx', 'otool', '-l', executable],
+            environment: environment,
+            includeParentEnvironment: false,
+          );
+          expect(
+            loadCommands.exitCode,
+            0,
+            reason: loadCommands.stderr.toString(),
+          );
+          expect(
+            loadCommands.stdout,
+            contains(RegExp(r'platform\s+(?:MACOS|1)(?:\s|$)')),
+          );
+          final child = await Process.start(executable, []);
+          final output = child.stdout.fold<List<int>>(
+            [],
+            (bytes, chunk) => bytes..addAll(chunk),
+          );
+          final errors = child.stderr.transform(utf8.decoder).join();
+          final request = utf8.encode('{"getCapability":{}}');
+          child.stdin.add(
+            (ByteData(8)..setUint64(0, request.length, Endian.little)).buffer
+                .asUint8List(),
+          );
+          child.stdin.add(request);
+          await child.stdin.close();
+          expect(await child.exitCode, 0);
+          expect(await errors, isEmpty);
+          final response = Uint8List.fromList(await output);
+          expect(
+            ByteData.sublistView(response).getUint64(0, Endian.little),
+            response.length - 8,
+          );
+          expect(jsonDecode(utf8.decode(response.sublist(8))), {
+            'getCapabilityResult': {
+              'capability': {'protocolVersion': 8},
+            },
+          });
+        }
+      },
+      skip: !Platform.isMacOS,
+    );
+
     test('threads the stub path onto the frontend', () {
       final arguments = GeneratedPluginsPackage.swiftBuildArguments(
         pluginsDir: 'plugins',

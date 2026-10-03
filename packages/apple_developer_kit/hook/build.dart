@@ -24,6 +24,9 @@ void main(List<String> args) async {
     // dart build then fails with "file does not exist". Compile with a real
     // system cc ourselves on non-Windows hosts.
     if (input.config.code.targetOS == OS.windows) {
+      if (input.config.code.targetArchitecture != Architecture.x64) {
+        throw UnsupportedError('Windows ADI requires x64.');
+      }
       final cBuilder = CBuilder.library(
         name: 'sysv_abi_bridge',
         assetName: _assetName,
@@ -47,15 +50,26 @@ Future<void> _buildWithSystemCc({
     ..createSync(recursive: true);
   final outFile = outDir.uri.resolve(os.dylibFileName('sysv_abi_bridge'));
   final source = input.packageRoot.resolve('src/sysv_abi_bridge.c');
-  final cc = _resolveSystemCc();
+  final posixSource = input.packageRoot.resolve('src/posix_bridge.c');
+  final targetFlags = systemCompilerFlags(
+    targetOS: os,
+    targetArchitecture: input.config.code.targetArchitecture,
+    hostOS: OS.current,
+    hostArchitecture: Architecture.current,
+  );
+  final macOSCompiler = os == OS.macOS ? await resolveMacOSCompiler() : null;
+  final cc = macOSCompiler?.executable ?? _resolveSystemCc();
 
   final args = <String>[
+    ...targetFlags,
+    if (macOSCompiler != null) ...macOSCompiler.flags,
     '-shared',
     '-fPIC',
     '-O2',
     '-o',
     outFile.toFilePath(),
     source.toFilePath(),
+    posixSource.toFilePath(),
   ];
   logger.info('Running `$cc ${args.join(' ')}`.');
   final result = await Process.run(cc, args);
@@ -83,6 +97,51 @@ Future<void> _buildWithSystemCc({
     ),
   );
   output.dependencies.add(source);
+  output.dependencies.add(posixSource);
+}
+
+Future<({String executable, List<String> flags})> resolveMacOSCompiler({
+  Map<String, String>? environment,
+  Future<ProcessResult> Function(
+        String,
+        List<String>, {
+        Map<String, String>? environment,
+        required bool includeParentEnvironment,
+      })
+      runProcess =
+      Process.run,
+}) async {
+  final nativeEnvironment = Map<String, String>.of(
+    environment ?? Platform.environment,
+  )..remove('SDKROOT');
+  Future<String> resolve(List<String> arguments) async {
+    final args = ['--sdk', 'macosx', ...arguments];
+    final result = await runProcess(
+      '/usr/bin/xcrun',
+      args,
+      environment: nativeEnvironment,
+      includeParentEnvironment: false,
+    );
+    if (result.exitCode != 0) {
+      throw ProcessException(
+        '/usr/bin/xcrun',
+        args,
+        result.stderr.toString(),
+        result.exitCode,
+      );
+    }
+    final path = result.stdout.toString().trim();
+    if (path.isEmpty) throw StateError('xcrun returned an empty native path.');
+    return path;
+  }
+
+  return (
+    executable: await resolve(['--find', 'clang']),
+    flags: [
+      '-isysroot',
+      await resolve(['--show-sdk-path']),
+    ],
+  );
 }
 
 /// Prefer absolute system compilers that are not swiftly shims.
@@ -107,4 +166,34 @@ String _resolveSystemCc() {
     'No usable system C compiler found (cc|gcc|clang) on PATH. '
     "Install build-essential, or remove swiftly's clang shim from PATH.",
   );
+}
+
+List<String> systemCompilerFlags({
+  required OS targetOS,
+  required Architecture targetArchitecture,
+  required OS hostOS,
+  required Architecture hostArchitecture,
+}) {
+  if (targetOS != hostOS || (targetOS != OS.macOS && targetOS != OS.linux)) {
+    throw UnsupportedError(
+      'ADI native bridge requires a matching Linux or macOS build host.',
+    );
+  }
+  if (targetArchitecture != Architecture.x64 &&
+      targetArchitecture != Architecture.arm64) {
+    throw UnsupportedError(
+      'Unsupported ADI target architecture: $targetArchitecture',
+    );
+  }
+  if (targetOS == OS.linux && targetArchitecture != hostArchitecture) {
+    throw UnsupportedError(
+      'ADI Linux cross-compilation requires a target toolchain.',
+    );
+  }
+  return [
+    if (targetOS == OS.macOS) ...[
+      '-arch',
+      if (targetArchitecture == Architecture.arm64) 'arm64' else 'x86_64',
+    ],
+  ];
 }

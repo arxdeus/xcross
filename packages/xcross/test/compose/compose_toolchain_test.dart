@@ -56,6 +56,34 @@ void main() {
       );
     });
 
+    for (final entry in {
+      '2.2.20':
+          '2acd3a2e0e5a9782b5cc2cb90c18f2412eda86ab3fb8adf2d18a3e3ca9b80ee6',
+      '2.4.0':
+          '9ef8c0f9fd90f4082d6e62f14655d23d81651d89d49205e5c49177ff34f552b8',
+    }.entries) {
+      test('pins macOS ARM64 ${entry.key} without an x64 overlay', () {
+        final options = ComposeSetupOptions.resolve(
+          env: {'HOME': home.path, 'KN_VERSION': entry.key},
+          projectRoot: project.path,
+          host: ComposeHost.macosArm64,
+        );
+        expect(options.hostArchiveSha256, entry.value);
+        expect(
+          options.hostArchiveUrl,
+          endsWith(
+            '/${entry.key}/kotlin-native-prebuilt-${entry.key}-macos-aarch64.tar.gz',
+          ),
+        );
+        expect(
+          options.kotlinHome,
+          endsWith('kotlin-native-prebuilt-macos-aarch64-${entry.key}'),
+        );
+        expect(options.overlayArchiveUrl, isNull);
+        expect(options.overlayArchiveSha256, isNull);
+      });
+    }
+
     test('prefers explicit and configured Konan data roots', () {
       addTearDown(ComposeSetupOptions.resetCacheRootOverride);
       ComposeSetupOptions.configureCacheRootOverride('/configured/konan');
@@ -147,6 +175,364 @@ void main() {
   });
 
   group('ComposeToolchainResolver', () {
+    group('PATH JVM home', () {
+      late Directory home;
+      late Map<String, String> environment;
+      late String javaHome;
+
+      setUp(() {
+        home = Directory.systemTemp.createTempSync('xcross-compose-java-');
+        environment = {'HOME': home.path};
+        javaHome = p.join(home.path, 'JDK with spaces', 'Contents', 'Home');
+        File(ComposeHost.macosArm64.javaExecutable(javaHome))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('java');
+        File(p.join(home.path, 'gradlew')).writeAsStringSync('#!/bin/sh');
+        final options = ComposeSetupOptions.resolve(
+          env: environment,
+          projectRoot: home.path,
+          host: ComposeHost.macosArm64,
+        );
+        _writeValidCache(options, binary: 'konanc', marker: 'complete');
+      });
+
+      tearDown(() => home.deleteSync(recursive: true));
+
+      for (final candidate in [
+        '/usr/bin/java',
+        '/opt/homebrew/bin/java',
+        '/home/user/.local/share/mise/shims/java',
+      ]) {
+        test('uses reported JVM home with spaces for $candidate', () async {
+          final resolver = _resolverWithPreflight(
+            javaHome: javaHome,
+            javaExecutable: candidate,
+            javaSettings: '    java.home = $javaHome\r\n',
+            javaArchitecture: 'aarch64',
+            sdk: FakeDarwinSdk('/sdk'),
+            home: home.path,
+          );
+
+          final toolchain = await resolver.resolve(
+            host: ComposeHost.macosArm64,
+            environment: environment,
+            projectRoot: home.path,
+          );
+
+          expect(toolchain, isNotNull);
+          expect(toolchain!.javaHome, javaHome);
+          expect(toolchain.javaExecutable, candidate);
+          expect(environment.containsKey('JAVA_HOME'), isFalse);
+        });
+      }
+
+      test('uses reported JVM home for a filesystem symlink', () async {
+        final candidate = p.join(home.path, 'homebrew', 'bin', 'java');
+        Directory(p.dirname(candidate)).createSync(recursive: true);
+        Link(
+          candidate,
+        ).createSync(ComposeHost.macosArm64.javaExecutable(javaHome));
+        final resolver = _resolverWithPreflight(
+          javaHome: javaHome,
+          javaExecutable: candidate,
+          javaSettings: '    java.home = $javaHome\n',
+          javaArchitecture: 'arm64',
+          sdk: FakeDarwinSdk('/sdk'),
+          home: home.path,
+        );
+
+        final toolchain = await resolver.resolve(
+          host: ComposeHost.macosArm64,
+          environment: environment,
+          projectRoot: home.path,
+        );
+
+        expect(toolchain, isNotNull);
+        expect(toolchain!.javaHome, javaHome);
+        expect(toolchain.javaExecutable, candidate);
+      });
+
+      test(
+        'preserves explicit JAVA_HOME over reported home and PATH',
+        () async {
+          final explicitHome = p.join(home.path, 'explicit-jdk');
+          environment['JAVA_HOME'] = explicitHome;
+          final probed = <String>[];
+          final resolver = ComposeToolchainResolver.withSeams(
+            which:
+                (
+                  name, {
+                  environment,
+                  windows,
+                  extraDirectories = const [],
+                }) async {
+                  expect(name, isNot('java'));
+                  return p.join(home.path, name);
+                },
+            run:
+                (executable, arguments, {workingDirectory, environment}) async {
+                  probed.add(executable);
+                  expect(arguments, ['-XshowSettings:properties', '-version']);
+                  return ComposeProcessResult(
+                    0,
+                    '    java.home = $javaHome\n',
+                    'os.arch = aarch64\nopenjdk version "21.0.2"',
+                  );
+                },
+            currentDarwinSdk: (_) => FakeDarwinSdk('/sdk'),
+            resolveLd64Lld: (_, {runProcess}) async => '/tools/ld64.lld',
+          );
+
+          final toolchain = await resolver.resolve(
+            host: ComposeHost.macosArm64,
+            environment: environment,
+            projectRoot: home.path,
+          );
+
+          expect(toolchain, isNotNull);
+          expect(toolchain!.javaHome, explicitHome);
+          expect(
+            toolchain.javaExecutable,
+            ComposeHost.macosArm64.javaExecutable(explicitHome),
+          );
+          expect(probed, [toolchain.javaExecutable]);
+        },
+      );
+
+      for (final settings in {
+        'missing': '',
+        'empty': '    java.home = \n    user.home = /not/a/jdk\n',
+        'relative': '    java.home = relative/jdk\n',
+        'nonexistent': '    java.home = /missing/xcross-test-jdk\n',
+        'wrong property': '    java.home.extra = /not/a/jdk\n',
+      }.entries) {
+        test('reports actionable ${settings.key} JVM home', () async {
+          final resolver = _resolverWithPreflight(
+            javaHome: javaHome,
+            javaExecutable: '/usr/bin/java',
+            javaSettings: settings.value,
+            javaArchitecture: 'aarch64',
+            sdk: FakeDarwinSdk('/sdk'),
+            home: home.path,
+          );
+          final problems = await resolver.problems(
+            host: ComposeHost.macosArm64,
+            environment: environment,
+            projectRoot: home.path,
+          );
+
+          expect(problems, hasLength(1));
+          expect(problems.single, contains('java.home'));
+          expect(problems.single, contains('/usr/bin/java'));
+          expect(problems.single, contains('Set JAVA_HOME'));
+          expect(
+            await resolver.resolve(
+              host: ComposeHost.macosArm64,
+              environment: environment,
+              projectRoot: home.path,
+            ),
+            isNull,
+          );
+          await expectLater(
+            resolver.ensure(
+              host: ComposeHost.macosArm64,
+              environment: environment,
+              projectRoot: home.path,
+            ),
+            throwsA(
+              isA<XcrossError>().having(
+                (error) => error.message,
+                'message',
+                contains('Set JAVA_HOME'),
+              ),
+            ),
+          );
+        });
+      }
+
+      test('rejects reported home without bin/java', () async {
+        final resolver = _resolverWithPreflight(
+          javaHome: javaHome,
+          javaExecutable: '/usr/bin/java',
+          javaSettings: '    java.home = ${home.path}\n',
+          javaArchitecture: 'aarch64',
+          sdk: FakeDarwinSdk('/sdk'),
+          home: home.path,
+        );
+
+        expect(
+          await resolver.problems(
+            host: ComposeHost.macosArm64,
+            environment: environment,
+            projectRoot: home.path,
+          ),
+          contains(contains('install containing bin/java')),
+        );
+      });
+
+      test('rejects incompatible PATH JVM architecture before home', () async {
+        final resolver = _resolverWithPreflight(
+          javaHome: javaHome,
+          javaExecutable: '/usr/bin/java',
+          javaArchitecture: 'amd64',
+          sdk: FakeDarwinSdk('/sdk'),
+          home: home.path,
+        );
+
+        final problems = await resolver.problems(
+          host: ComposeHost.macosArm64,
+          environment: environment,
+          projectRoot: home.path,
+        );
+
+        expect(problems, hasLength(1));
+        expect(problems.single, contains('JDK architecture amd64'));
+      });
+    });
+
+    for (final host in [ComposeHost.linuxX64, ComposeHost.windowsX64]) {
+      for (final completeCache in [false, true]) {
+        test('rejects ${host.classifier} simulator before preflight with '
+            '${completeCache ? 'complete' : 'missing'} cache', () async {
+          final home = Directory.systemTemp.createTempSync(
+            'xcross-compose-simulator-',
+          );
+          addTearDown(() => home.deleteSync(recursive: true));
+          final environment = {'HOME': home.path};
+          if (completeCache) {
+            _writeValidCache(
+              ComposeSetupOptions.resolve(
+                env: environment,
+                projectRoot: home.path,
+                host: host,
+              ),
+              binary: 'konanc',
+              marker: 'complete',
+            );
+          }
+          final resolver = ComposeToolchainResolver.withSeams(
+            which:
+                (
+                  _, {
+                  environment,
+                  windows,
+                  extraDirectories = const [],
+                }) async => fail('unsupported simulator must not probe tools'),
+            run: (_, __, {workingDirectory, environment}) async =>
+                fail('unsupported simulator must not run tools'),
+            currentDarwinSdk: (_) =>
+                fail('unsupported simulator must not probe SDKs'),
+            installer: ComposeToolchainInstaller.withSeams(
+              installRoot: (_, {required force}) async =>
+                  fail('unsupported simulator must not install'),
+            ),
+          );
+
+          final problems = await resolver.problems(
+            host: host,
+            environment: environment,
+            projectRoot: home.path,
+            simulator: true,
+          );
+          expect(problems, hasLength(1));
+          expect(problems.single, contains('supported only on macOS'));
+          expect(problems.single, contains(host.classifier));
+          expect(problems.single, contains('ios_simulator_arm64'));
+          expect(problems.single, contains('build for an iOS device'));
+          expect(
+            await resolver.resolve(
+              host: host,
+              environment: environment,
+              projectRoot: home.path,
+              simulator: true,
+            ),
+            isNull,
+          );
+          for (final force in [false, true]) {
+            await expectLater(
+              resolver.ensure(
+                host: host,
+                environment: environment,
+                projectRoot: home.path,
+                simulator: true,
+                force: force,
+              ),
+              throwsA(
+                isA<XcrossError>().having(
+                  (error) => error.message,
+                  'message',
+                  problems.single,
+                ),
+              ),
+            );
+          }
+        });
+      }
+    }
+
+    for (final architecture in ['aarch64', 'arm64', 'amd64', 'unknown']) {
+      test('checks macOS ARM64 JVM $architecture before loading JNI', () async {
+        final home = Directory.systemTemp.createTempSync(
+          'xcross-compose-macos-',
+        );
+        addTearDown(() => home.deleteSync(recursive: true));
+        final environment = {
+          'HOME': home.path,
+          'JAVA_HOME': p.join(home.path, 'jdk'),
+        };
+        File(p.join(home.path, 'gradlew')).writeAsStringSync('#!/bin/sh');
+        final options = ComposeSetupOptions.resolve(
+          env: environment,
+          projectRoot: home.path,
+          host: ComposeHost.macosArm64,
+        );
+        File(options.host.konancExecutable(options.kotlinHome))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('konanc');
+        _writeCompleteMarker(options);
+        final resolver = _resolverWithPreflight(
+          javaHome: environment['JAVA_HOME']!,
+          sdk: FakeDarwinSdk('/sdk'),
+          home: home.path,
+          javaArchitecture: architecture,
+        );
+        final problems = await resolver.problems(
+          host: ComposeHost.macosArm64,
+          environment: environment,
+          projectRoot: home.path,
+        );
+        if (architecture == 'aarch64' || architecture == 'arm64') {
+          expect(problems, isEmpty);
+          final toolchain = await resolver.resolve(
+            host: ComposeHost.macosArm64,
+            environment: environment,
+            projectRoot: home.path,
+          );
+          expect(toolchain!.gradleInvocation, [p.join(home.path, 'gradlew')]);
+          final simulator = await resolver.ensure(
+            host: ComposeHost.macosArm64,
+            environment: environment,
+            projectRoot: home.path,
+            simulator: true,
+            allowInstall: false,
+          );
+          expect(simulator.simulator, isTrue);
+          expect(simulator.darwinSdkPath, '/sdk/iPhoneSimulator.sdk');
+          expect(toolchain.simulator, isFalse);
+          expect(toolchain.darwinSdkPath, '/sdk');
+          expect(toolchain.konancInvocation(['-version']), [
+            options.host.konancExecutable(options.kotlinHome),
+            '-version',
+          ]);
+        } else {
+          expect(
+            problems,
+            contains(contains('JDK architecture $architecture does not match')),
+          );
+        }
+      });
+    }
+
     test('does not resolve when Kotlin/Native is not installed', () async {
       final project = Directory.systemTemp.createTempSync(
         'xcross-compose-project-',
@@ -469,6 +855,73 @@ void main() {
   });
 
   group('ComposeToolchainInstaller', () {
+    for (final host in [ComposeHost.macosArm64, ComposeHost.macosX64]) {
+      test('installs ${host.classifier} from one native archive', () async {
+        final root = Directory.systemTemp.createTempSync(
+          'xcross-compose-native-',
+        );
+        addTearDown(() => root.deleteSync(recursive: true));
+        final options = ComposeSetupOptions.resolve(
+          env: {
+            'HOME': root.path,
+            'KN_VERSION': '2.4.0',
+            'JAVA_HOME': '/native/jdk',
+          },
+          projectRoot: root.path,
+          host: host,
+        );
+        final downloads = <String>[];
+        final patches = <String>[];
+        final installer = ComposeToolchainInstaller.withSeams(
+          downloadToFile: (url, file) async {
+            downloads.add(url);
+            await file.writeAsString('archive');
+          },
+          digestFile: (file) async => options.hostArchiveSha256!,
+          extractArchive: (archive, destination) async {
+            final path = p.join(destination.path, 'native');
+            for (final name in [
+              'bin/konanc',
+              'konan/lib/kotlin-native-compiler-embeddable.jar',
+              'konan/targets/ios_arm64/native.bc',
+              'klib/platform/ios_arm64/UIKit',
+            ]) {
+              File(p.join(path, name))
+                ..createSync(recursive: true)
+                ..writeAsStringSync(name);
+            }
+          },
+          patchCompilerJar: (file) async => patches.add(file.path),
+          runChecked:
+              (executable, arguments, {workingDirectory, environment}) async {
+                expect(executable, endsWith(p.join('bin', 'konanc')));
+                expect(
+                  arguments,
+                  containsAllInOrder(['-target', host.konanTarget]),
+                );
+                expect(environment!['JAVA_HOME'], '/native/jdk');
+                expect(environment['KONAN_DATA_DIR'], options.konanCache);
+              },
+        );
+        await installer.install(options: options);
+        expect(downloads, [options.hostArchiveUrl]);
+        expect(patches, hasLength(1));
+        expect(
+          File(
+            p.join(options.kotlinHome, 'klib/platform/ios_arm64/UIKit'),
+          ).readAsStringSync(),
+          'klib/platform/ios_arm64/UIKit',
+        );
+        expect(ComposeToolchainInstaller.isComplete(options), isTrue);
+        expect(
+          ComposeToolchainInstaller.completionMarkerContent(options),
+          contains('overlayArchive=none'),
+        );
+        await installer.install(options: options);
+        expect(downloads, hasLength(1));
+      });
+    }
+
     test(
       'uses cached fast path without download, extraction, process, or patch calls',
       () async {
@@ -1267,21 +1720,26 @@ InjectedComposeToolchainResolver _resolverWithPreflight({
   required FakeDarwinSdk sdk,
   required String home,
   ComposeToolchainInstaller? installer,
+  String javaArchitecture = 'amd64',
+  String? javaExecutable,
+  String javaSettings = '',
 }) => ComposeToolchainResolver.withSeams(
   which: (name, {environment, windows, extraDirectories = const []}) async =>
       switch (name) {
-        'java' => p.join(
-          javaHome,
-          'bin',
-          windows == true ? 'java.exe' : 'java',
-        ),
+        'java' =>
+          javaExecutable ??
+              p.join(javaHome, 'bin', windows == true ? 'java.exe' : 'java'),
         'swiftc' => p.join(home, windows == true ? 'swiftc.exe' : 'swiftc'),
         'clang' => p.join(home, windows == true ? 'clang.exe' : 'clang'),
         _ => null,
       },
   run: (executable, arguments, {workingDirectory, environment}) async =>
       executable.contains('java') && arguments.contains('-version')
-      ? const ComposeProcessResult(0, '', 'openjdk version "21.0.2"')
+      ? ComposeProcessResult(
+          0,
+          '',
+          '${javaSettings}os.arch = $javaArchitecture\nopenjdk version "21.0.2"',
+        )
       : const ComposeProcessResult(0, '', ''),
   currentDarwinSdk: (_) => sdk,
   resolveLd64Lld: (_, {runProcess}) async => p.join(home, 'ld64.lld'),
@@ -1296,4 +1754,5 @@ final class FakeDarwinSdk {
   final String _iphoneSdk;
 
   String iPhoneOSSdk() => _iphoneSdk;
+  String iPhoneSimulatorSdk() => '$swiftSdkPath/iPhoneSimulator.sdk';
 }

@@ -20,6 +20,7 @@ typedef ComposeEnsureToolchain =
       required String projectRoot,
       required bool allowInstall,
       required bool force,
+      required bool simulator,
     });
 typedef ComposeBuildKlib =
     Future<GradleKlibResult> Function({
@@ -49,6 +50,7 @@ typedef ComposeAssembleApp =
     Future<String> Function({
       required KmpProject project,
       required String runnerPath,
+      required bool simulator,
       required String frameworkPath,
     });
 
@@ -105,6 +107,7 @@ final class ComposePacker {
         projectRoot: project.root,
         allowInstall: true,
         force: false,
+        simulator: options.simulator,
       ),
     );
     final klib = await Log.logStep(
@@ -156,6 +159,7 @@ final class ComposePacker {
       () => (_assembleApp ?? _defaultAssembleApp)(
         project: project,
         runnerPath: runnerPath,
+        simulator: options.simulator,
         frameworkPath: frameworkPath,
       ),
     );
@@ -172,12 +176,14 @@ final class ComposePacker {
     required String projectRoot,
     required bool allowInstall,
     required bool force,
+    required bool simulator,
   }) => ComposeToolchainResolver.ensure(
     host: host,
     environment: environment,
     projectRoot: projectRoot,
     allowInstall: allowInstall,
     force: force,
+    simulator: simulator,
   );
 
   static Future<GradleKlibResult> _defaultBuildKlib({
@@ -220,10 +226,12 @@ final class ComposePacker {
   static Future<String> _defaultAssembleApp({
     required KmpProject project,
     required String runnerPath,
+    required bool simulator,
     required String frameworkPath,
   }) => ComposeAppAssembler.assemble(
     project: project,
     runnerPath: runnerPath,
+    simulator: simulator,
     frameworkPath: frameworkPath,
   );
 }

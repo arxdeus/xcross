@@ -1,9 +1,29 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/src/errors.dart';
 import 'package:darwin_sdk_kit/src/tbd_bundle_patch.dart';
 import 'package:path/path.dart' as p;
+
+enum IosTarget {
+  device,
+  simulator;
+
+  bool get isSimulator => this == simulator;
+
+  String get sdkName => isSimulator ? 'iphonesimulator' : 'iphoneos';
+
+  String get platformName => isSimulator ? 'iPhoneSimulator' : 'iPhoneOS';
+
+  String get swiftSdkTriple =>
+      isSimulator ? 'arm64-apple-ios-simulator' : 'arm64-apple-ios';
+
+  String get linkerPlatform => isSimulator ? 'ios-simulator' : 'ios';
+
+  String buildTriple(String minimumVersion) =>
+      'arm64-apple-ios$minimumVersion${isSimulator ? '-simulator' : ''}';
+}
 
 /// An xcross-owned Swift SDK artifact bundle containing the Darwin SDK files
 /// needed to build for iOS.
@@ -91,30 +111,109 @@ final class DarwinSdk {
       return false;
     }
 
-    final sdk = _firstSdk(_sdksDir(candidate, 'iPhoneOS'), 'iPhoneOS');
-    if (sdk == null) return false;
+    try {
+      final sdk = _firstSdk(_sdksDir(candidate, 'iPhoneOS'), 'iPhoneOS');
+      if (sdk == null) return false;
 
-    final canonicalLayout = _canonicalLayout(candidate);
-    final swiftResources = canonicalLayout.parent;
-    return Directory(
-          p.join(sdk, 'System', 'Library', 'Frameworks'),
-        ).existsSync() &&
-        swiftResources.existsSync() &&
-        _hasContent(canonicalLayout) &&
-        _hasContent(_runtimeLayout(candidate));
+      final canonicalLayout = _canonicalLayout(candidate);
+      final swiftResources = canonicalLayout.parent;
+      if (!Directory(
+            p.join(sdk, 'System', 'Library', 'Frameworks'),
+          ).existsSync() ||
+          !swiftResources.existsSync() ||
+          !_hasContent(canonicalLayout) ||
+          !_hasContent(_runtimeLayout(candidate))) {
+        return false;
+      }
+
+      final simulatorPlatform = p.join(
+        candidate,
+        'Developer',
+        'Platforms',
+        'iPhoneSimulator.platform',
+      );
+      if (FileSystemEntity.typeSync(simulatorPlatform, followLinks: false) !=
+              FileSystemEntityType.notFound &&
+          !isValidSimulatorSlice(candidate)) {
+        return false;
+      }
+      final metadata = jsonDecode(
+        File(p.join(candidate, 'swift-sdk.json')).readAsStringSync(),
+      );
+      final targets = metadata is Map ? metadata['targetTriples'] : null;
+      if (targets is Map) {
+        for (final target in targets.entries) {
+          final triple = target.key;
+          if (triple is! String ||
+              !triple.contains('-apple-ios') ||
+              !triple.endsWith('-simulator')) {
+            continue;
+          }
+          if (!isValidSimulatorSlice(candidate)) return false;
+          final properties = target.value;
+          if (properties is Map &&
+              !isValidSimulatorSlice(
+                candidate,
+                sdkRootPath: properties['sdkRootPath'] is String
+                    ? properties['sdkRootPath'] as String
+                    : null,
+                swiftResourcesPath: properties['swiftResourcesPath'] is String
+                    ? properties['swiftResourcesPath'] as String
+                    : null,
+              )) {
+            return false;
+          }
+        }
+      }
+      return true;
+    } on FileSystemException {
+      return false;
+    } on FormatException {
+      return false;
+    }
   }
+
+  static bool isValidSimulatorSlice(
+    String candidate, {
+    String? sdkRootPath,
+    String? swiftResourcesPath,
+  }) {
+    try {
+      final sdk = sdkRootPath == null
+          ? _firstSdk(_sdksDir(candidate, 'iPhoneSimulator'), 'iPhoneSimulator')
+          : p.join(candidate, sdkRootPath);
+      if (sdk == null) return false;
+      final resources = swiftResourcesPath == null
+          ? _canonicalLayout(candidate).parent.parent.path
+          : p.join(candidate, swiftResourcesPath);
+      return _hasEntries(
+            Directory(p.join(sdk, 'System', 'Library', 'Frameworks')),
+          ) &&
+          _hasEntries(Directory(p.join(resources, 'iphonesimulator')));
+    } on FileSystemException {
+      return false;
+    }
+  }
+
+  static bool _hasEntries(Directory directory) =>
+      directory.existsSync() && directory.listSync().isNotEmpty;
 
   static bool _hasContent(File file) =>
       file.existsSync() && file.lengthSync() > 0;
 
   /// First versioned iPhoneOSXX.X.sdk found, else first iPhoneOS.sdk.
-  String iPhoneOSSdk() {
-    final dir = _sdksDir(bundle, 'iPhoneOS');
-    final pick = _firstSdk(dir, 'iPhoneOS');
+  String iPhoneOSSdk() => iosSdk();
+
+  String iPhoneSimulatorSdk() => iosSdk(target: IosTarget.simulator);
+
+  String iosSdk({IosTarget target = IosTarget.device}) {
+    final platform = target.platformName;
+    final dir = _sdksDir(bundle, platform);
+    final pick = _firstSdk(dir, platform);
     if (pick == null) {
       throw DarwinSdkError(
-        'DarwinSdk: Could not find an iPhoneOS SDK under $dir.\n'
-        'Install one with `xcross sdk install <Xcode.xip>`.',
+        'DarwinSdk: Could not find an $platform SDK under $dir.\n'
+        'Install one with `xcross sdk install <Xcode.xip|Xcode.app>`.',
       );
     }
     return pick;

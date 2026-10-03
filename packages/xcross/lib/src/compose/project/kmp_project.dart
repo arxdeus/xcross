@@ -47,12 +47,17 @@ final class KmpProject {
 
   String get moduleLeaf => moduleName.split(':').last;
 
-  static KmpProject detect(String root, {String? bundleId, String? appName}) =>
-      _KmpProjectDetector(
-        root: root,
-        bundleIdOverride: bundleId,
-        appNameOverride: appName,
-      ).detect();
+  static KmpProject detect(
+    String root, {
+    String? bundleId,
+    String? appName,
+    bool simulator = false,
+  }) => _KmpProjectDetector(
+    root: root,
+    bundleIdOverride: bundleId,
+    appNameOverride: appName,
+    simulator: simulator,
+  ).detect();
 }
 
 final class _KmpProjectDetector {
@@ -60,11 +65,13 @@ final class _KmpProjectDetector {
     required this.root,
     this.bundleIdOverride,
     this.appNameOverride,
+    this.simulator = false,
   });
 
   final String root;
   final String? bundleIdOverride;
   final String? appNameOverride;
+  final bool simulator;
 
   KmpProject detect() {
     final rootDir = Directory(root);
@@ -86,26 +93,37 @@ final class _KmpProjectDetector {
     }
 
     final candidates = <_Candidate>[];
+    final target = simulator ? 'iosSimulatorArm64' : 'iosArm64';
     for (final module in modules) {
       final buildFile = _findFile(module.diskPath, [
         'build.gradle.kts',
         'build.gradle',
       ]);
       if (buildFile == null) continue;
-      final content = buildFile.readAsStringSync();
-      if (!_hasIosArm64(content) || !_hasFrameworkBlock(content)) continue;
+      final content = _stripComments(buildFile.readAsStringSync());
+      if (!_hasIosTarget(content, target) || !_hasFrameworkBlock(content)) {
+        continue;
+      }
+      final metadata = _frameworkMetadata(
+        content,
+        defaultBaseName: _capitalize(module.leaf),
+        buildFile: buildFile.path,
+        target: target,
+      );
       candidates.add(
         _Candidate(
           module.gradleId,
           module.diskPath,
-          _extractBaseName(content) ?? _capitalize(module.leaf),
-          isStaticFramework: _extractIsStaticFramework(content),
+          metadata.baseName,
+          isStaticFramework: metadata.isStatic,
         ),
       );
     }
     if (candidates.isEmpty) {
       throw XcrossError(
-        'No KMP module with iosArm64() + binaries.framework found in $root. Check your build.gradle.kts files.',
+        'No KMP module with $target() + binaries.framework found in $root. '
+        'Declare $target in your build.gradle.kts files or select '
+        '${simulator ? 'a device build' : 'a simulator build with --simulator'}.',
       );
     }
     final chosen = candidates.length == 1
@@ -216,15 +234,50 @@ List<_ModuleSpec> _parseIncludedModules(String content, String projectRoot) {
   return result;
 }
 
-bool _hasIosArm64(String content) =>
-    RegExp(r'iosArm64\s*[({]').hasMatch(content) ||
-    content.contains('iosArm64()');
+bool _hasIosTarget(String content, String target) =>
+    RegExp('\\b$target\\s*[({]').hasMatch(content);
 
 bool _hasFrameworkBlock(String content) =>
     content.contains('binaries.framework');
 
 String? _extractBaseName(String content) =>
     RegExp(r'baseName\s*=\s*"([^"]+)"').firstMatch(content)?.group(1);
+
+({String baseName, bool isStatic}) _frameworkMetadata(
+  String content, {
+  required String defaultBaseName,
+  required String buildFile,
+  required String target,
+}) {
+  final metadata = _frameworkBlocks(content)
+      .map(
+        (block) => (
+          baseName: _extractBaseName(block) ?? defaultBaseName,
+          isStatic: _extractIsStaticFramework([block]),
+        ),
+      )
+      .toSet();
+  if (metadata.isEmpty) {
+    throw XcrossError(
+      'Cannot read binaries.framework metadata in $buildFile for $target. '
+      'Use a supported binaries.framework { ... } block.',
+    );
+  }
+  if (metadata.length > 1) {
+    final settings = metadata
+        .map(
+          (value) => 'baseName="${value.baseName}", isStatic=${value.isStatic}',
+        )
+        .join('; ');
+    throw XcrossError(
+      'Conflicting binaries.framework metadata in $buildFile for $target: '
+      '$settings. xcross cannot reliably assign these settings to the selected '
+      'target. Use the same literal baseName and isStatic settings across '
+      'framework blocks or separate the targets into modules.',
+    );
+  }
+  return metadata.single;
+}
 
 /// Whether the module's framework is declared static.
 ///
@@ -237,8 +290,8 @@ String? _extractBaseName(String content) =>
 ///
 /// Both assignment styles Gradle accepts are recognised (`isStatic = true` in
 /// Kotlin DSL, `isStatic.set(true)` via the property API).
-bool _extractIsStaticFramework(String content) {
-  for (final block in _frameworkBlocks(_stripComments(content))) {
+bool _extractIsStaticFramework(Iterable<String> blocks) {
+  for (final block in blocks) {
     if (RegExp(
       r'isStatic\s*(?:=\s*true\b|\.set\s*\(\s*true\s*\))',
     ).hasMatch(block)) {
@@ -311,6 +364,10 @@ Iterable<String> _frameworkBlocks(String content) sync* {
     var depth = 0;
     for (var i = start.end - 1; i < content.length; i++) {
       final char = content[i];
+      if (char == '"') {
+        i = _stringEnd(content, i) - 1;
+        continue;
+      }
       if (char == '{') depth++;
       if (char == '}') {
         depth--;

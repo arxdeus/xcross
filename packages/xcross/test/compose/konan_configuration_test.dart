@@ -7,6 +7,112 @@ import 'package:xcross/src/compose/compose.dart';
 
 void main() {
   test(
+    'simulator Konan configuration isolates sysroot linker and caches',
+    () async {
+      final fixture = _Fixture.create(ComposeHost.macosArm64, simulator: true)
+        ..createKotlinHome();
+      addTearDown(fixture.dispose);
+      final prepared = await KonanConfiguration.withSeams(
+        patchCompilerJar: (_) async {},
+        makeExecutable: (_) {},
+        parentEnvironment: const {'PATH': '/safe/path'},
+      ).prepare(project: fixture.project, toolchain: fixture.toolchain);
+      expect(
+        prepared.kotlinHome,
+        contains('/build/xcross-ios-simulator/toolchain/'),
+      );
+      expect(
+        prepared.konanPropertyOverrides,
+        contains('targetSysRoot.ios_simulator_arm64=${_slash(fixture.sdk)}'),
+      );
+      expect(
+        prepared.konanPropertyOverrides,
+        contains('linker.macos_arm64-ios_simulator_arm64='),
+      );
+      expect(
+        prepared.konanPropertyOverrides,
+        contains('cacheableTargets.macos_arm64=ios_simulator_arm64'),
+      );
+      expect(
+        prepared.konanPropertyOverrides,
+        isNot(contains('cacheableTargets.macos_arm64=ios_arm64')),
+      );
+    },
+  );
+
+  for (final host in [ComposeHost.macosArm64, ComposeHost.linuxX64]) {
+    test('selects native Apple tools only on ${host.classifier}', () async {
+      final fixture = _Fixture.create(host)..createKotlinHome();
+      addTearDown(fixture.dispose);
+      final nativeBin = Directory(p.join(fixture.root, 'native-tools'))
+        ..createSync();
+      for (final name in ['strip', 'libtool']) {
+        File(p.join(nativeBin.path, name)).writeAsStringSync('native');
+      }
+      final configuration = KonanConfiguration.withSeams(
+        patchCompilerJar: (_) async {},
+        makeExecutable: (_) {},
+        parentEnvironment: {'PATH': nativeBin.path},
+      );
+      final prepared = await configuration.prepare(
+        project: fixture.project,
+        toolchain: fixture.toolchain,
+      );
+      expect(
+        prepared.environment['XCROSS_APPLE_TOOL_STRIP'],
+        host.isMacOS
+            ? p.join(nativeBin.path, 'strip')
+            : p.join(p.dirname(fixture.ld64), 'llvm-strip'),
+      );
+      expect(
+        prepared.environment['XCROSS_APPLE_TOOL_LIBTOOL'],
+        host.isMacOS
+            ? p.join(nativeBin.path, 'libtool')
+            : p.join(p.dirname(fixture.ld64), 'llvm-libtool-darwin'),
+      );
+      final llvmStrip = File(p.join(p.dirname(fixture.ld64), 'llvm-strip'))
+        ..writeAsStringSync('llvm');
+      final cached = await configuration.prepare(
+        project: fixture.project,
+        toolchain: fixture.toolchain,
+      );
+      expect(cached.environment['XCROSS_APPLE_TOOL_STRIP'], llvmStrip.path);
+    });
+  }
+
+  test('uses macOS ARM64 LLVM and Apple target configuration', () async {
+    final fixture = _Fixture.create(ComposeHost.macosArm64)..createKotlinHome();
+    addTearDown(fixture.dispose);
+    final properties =
+        File(p.join(fixture.kotlinHome, 'konan', 'konan.properties'))
+          ..writeAsStringSync(
+            r'llvmHome.macos_arm64 = $llvm.macos_arm64.user'
+            '\n'
+            'llvm.macos_arm64.user=llvm-21-aarch64-macos-essentials-97\n',
+          );
+    final prepared = await KonanConfiguration.withSeams(
+      patchCompilerJar: (_) async {},
+      makeExecutable: (_) {},
+      parentEnvironment: const {'PATH': '/native/bin'},
+    ).prepare(project: fixture.project, toolchain: fixture.toolchain);
+    final overrides = prepared.konanPropertyOverrides;
+    expect(overrides, contains('targetToolchain.macos_arm64-ios_arm64='));
+    expect(overrides, contains('linker.macos_arm64-ios_arm64='));
+    expect(overrides, contains('additionalToolsDir.macos_arm64='));
+    expect(overrides, contains('cacheableTargets.macos_arm64=ios_arm64'));
+    expect(overrides, isNot(contains('linux_x64')));
+    expect(overrides, isNot(contains('llvmHome.')));
+    expect(
+      File(
+        p.join(prepared.kotlinHome, 'konan', 'konan.properties'),
+      ).readAsStringSync(),
+      properties.readAsStringSync(),
+    );
+    expect(prepared.javaExecutable, p.join(fixture.javaHome, 'bin', 'java'));
+    expect(prepared.environment['PATH'], endsWith(':/native/bin'));
+  });
+
+  test(
     'prepares isolated konan configuration with resolved Apple tool paths',
     () async {
       final fixture = _Fixture.create(ComposeHost.linuxX64)..createKotlinHome();
@@ -624,27 +730,32 @@ String _slash(String value) =>
     p.normalize(value).replaceAll(String.fromCharCode(92), '/');
 
 final class _Fixture {
-  _Fixture._(this.temp, this.host)
+  _Fixture._(this.temp, this.host, this.simulator)
     : root = temp.path,
       modulePath = p.join(temp.path, 'shared'),
       kotlinHome = p.join(temp.path, 'global-kotlin'),
       konanCache = p.join(temp.path, 'konan-cache'),
       javaHome = p.join(temp.path, 'jdk'),
       sdkBundle = p.join(temp.path, 'Apple SDKs'),
-      sdk = p.join(temp.path, 'Apple SDKs', 'iPhoneOS.sdk'),
+      sdk = p.join(
+        temp.path,
+        'Apple SDKs',
+        simulator ? 'iPhoneSimulator.sdk' : 'iPhoneOS.sdk',
+      ),
       ld64 = p.join(temp.path, 'llvm', 'bin', 'ld64.lld'),
       clang = p.join(temp.path, 'swift', 'bin', 'clang'),
       swiftc = p.join(temp.path, 'swift', 'bin', 'swiftc');
 
-  factory _Fixture.create(ComposeHost host) {
+  factory _Fixture.create(ComposeHost host, {bool simulator = false}) {
     final temp = Directory.systemTemp.createTempSync(
       'xcross_konan_config_test_',
     );
-    return _Fixture._(temp, host);
+    return _Fixture._(temp, host, simulator);
   }
 
   final Directory temp;
   final ComposeHost host;
+  final bool simulator;
   final String root;
   final String modulePath;
   final String kotlinHome;
@@ -668,6 +779,7 @@ final class _Fixture {
 
   ComposeToolchain get toolchain => ComposeToolchain(
     host: host,
+    simulator: simulator,
     kotlinHome: kotlinHome,
     konanCache: konanCache,
     konancExecutable: p.join(

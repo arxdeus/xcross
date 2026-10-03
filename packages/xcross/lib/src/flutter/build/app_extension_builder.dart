@@ -5,9 +5,11 @@ import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/device/internal/embedded_extension.dart';
+import 'package:xcross/src/flutter/build/info_plist.dart';
 import 'package:xcross/src/flutter/build/ios_app_extensions.dart';
 import 'package:xcross/src/flutter/build/ios_bundle_versions.dart';
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
+import 'package:xcross/src/flutter/build/ios_engine_cache.dart';
 import 'package:xcross/src/flutter/errors.dart';
 
 /// A built `.appex` bundle staged outside the host app.
@@ -121,7 +123,10 @@ abstract final class AppExtensionBuilder {
 
     final target = extension.deploymentTarget == null
         ? deploymentTarget
-        : IosDeploymentTarget(extension.deploymentTarget!);
+        : IosDeploymentTarget(
+            extension.deploymentTarget!,
+            simulator: deploymentTarget.simulator,
+          );
 
     await _compile(
       sdk: sdk,
@@ -140,6 +145,7 @@ abstract final class AppExtensionBuilder {
       bundleDir: bundleDir,
       deploymentTarget: target,
       versions: versions,
+      sdkName: p.basenameWithoutExtension(target.sdkPath(sdk)).toLowerCase(),
     );
     await copyResources(extension: extension, bundleDir: bundleDir);
 
@@ -159,15 +165,21 @@ abstract final class AppExtensionBuilder {
     String? pluginModulesDir,
   }) async {
     final swiftc = await _resolveSwiftc();
-    final iosSdk = sdk.iPhoneOSSdk();
-    final flutterSlice = p.join(flutterXcframework, 'ios-arm64');
+    final iosSdk = deploymentTarget.sdkPath(sdk);
+    final flutterSlice = IosEngineCache.flutterSlice(
+      flutterXcframework,
+      simulator: deploymentTarget.simulator,
+    );
     await Directory(moduleCache).create(recursive: true);
 
     final arguments = compileArguments(
       iosSdk: iosSdk,
       resourceDir: _swiftResourceDir(sdk),
       clangBuiltins: _clangBuiltins(_swiftResourceDir(sdk)),
-      compilerRtIos: _compilerRtIos(sdk.bundle),
+      compilerRtIos: _compilerRtIos(
+        sdk.bundle,
+        simulator: deploymentTarget.simulator,
+      ),
       sources: sources,
       outputPath: outputPath,
       deploymentTarget: deploymentTarget,
@@ -272,7 +284,7 @@ abstract final class AppExtensionBuilder {
     '-Xlinker',
     '-platform_version',
     '-Xlinker',
-    'ios',
+    deploymentTarget.linkerPlatform,
     '-Xlinker',
     deploymentTarget.version,
     '-Xlinker',
@@ -302,6 +314,7 @@ abstract final class AppExtensionBuilder {
     required String bundleDir,
     required IosDeploymentTarget deploymentTarget,
     required IosBundleVersions versions,
+    String? sdkName,
   }) async {
     final source = extension.infoPlistPath;
     var xml = source != null && File(source).existsSync()
@@ -325,6 +338,11 @@ abstract final class AppExtensionBuilder {
     // Record the target's App Groups so the sign/install stage can provision
     // them without re-reading the Xcode project.
     xml = AppExtensionPlist.setAppGroups(xml, extension.appGroups);
+    xml = InfoPlist.applyIosPlatformKeys(
+      xml,
+      deploymentTarget: deploymentTarget,
+      sdkName: sdkName,
+    );
 
     await File(p.join(bundleDir, 'Info.plist')).writeAsString(xml);
   }
@@ -521,7 +539,10 @@ abstract final class AppExtensionBuilder {
   }
 
   /// `libclang_rt.ios.a` inside the Darwin SDK bundle's Xcode toolchain.
-  static String? _compilerRtIos(String darwinSdkBundle) {
+  static String? _compilerRtIos(
+    String darwinSdkBundle, {
+    bool simulator = false,
+  }) {
     final clang = Directory(
       p.join(
         darwinSdkBundle,
@@ -541,7 +562,7 @@ abstract final class AppExtensionBuilder {
         entry.path,
         'lib',
         'darwin',
-        'libclang_rt.ios.a',
+        simulator ? 'libclang_rt.iossim.a' : 'libclang_rt.ios.a',
       );
       if (File(candidate).existsSync()) return candidate;
     }
@@ -550,8 +571,8 @@ abstract final class AppExtensionBuilder {
 
   static String? _sdkVersion(String sdkPath) {
     final name = p.basenameWithoutExtension(sdkPath);
-    if (!name.startsWith('iPhoneOS')) return null;
-    final version = name.substring('iPhoneOS'.length);
+    final match = RegExp(r'^iPhone(?:OS|Simulator)([0-9.]+)$').firstMatch(name);
+    final version = match?.group(1) ?? '';
     return version.isEmpty ? null : version;
   }
 

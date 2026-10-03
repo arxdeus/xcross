@@ -65,13 +65,17 @@ final class GradleKlibBuilder {
       // and on every `compose run --watch` rebuild). The daemon stays allowed
       // for the same reason; Gradle hands it this client's environment
       // (XCROSS_DEPS_OUT, KONAN_DATA_DIR) on every build.
-      await File(initScriptPath).writeAsString(_dumpIosDepsInitScript(project));
+      await File(initScriptPath).writeAsString(
+        _dumpIosDepsInitScript(project, toolchain.buildOptions.gradleTarget),
+      );
       await _run(
         gradle.executable,
         [
           ...gradle.arguments,
           ':${project.moduleName}:dumpIosDeps',
           '-Pkotlin.native.enableKlibsCrossCompilation=true',
+          if (toolchain.simulator)
+            '-Pkotlin.native.home=${toolchain.kotlinHome}',
           '-Pxcross.depsOut=$depsOutPath',
           '--init-script',
           initScriptPath,
@@ -87,7 +91,7 @@ final class GradleKlibBuilder {
         'build',
         'classes',
         'kotlin',
-        'iosArm64',
+        toolchain.buildOptions.gradleTarget,
         'main',
         'klib',
         project.moduleLeaf,
@@ -153,12 +157,12 @@ final class GradleKlibBuilder {
     );
   }
 
-  String _dumpIosDepsInitScript(KmpProject project) =>
+  String _dumpIosDepsInitScript(KmpProject project, String target) =>
       '''
 allprojects {
-    if (name != "${project.moduleLeaf}") return@allprojects
+    if (path != ":${project.moduleName}") return@allprojects
     tasks.register("dumpIosDeps") {
-        dependsOn("compileKotlinIosArm64")
+        dependsOn("compileKotlin${target[0].toUpperCase()}${target.substring(1)}")
         // The app bundle's compose-resources/ is copied from these tasks'
         // outputs. Nothing else runs them, so without this the bundle ships
         // whatever an earlier IDE or Xcode build left there, while the code
@@ -166,7 +170,7 @@ allprojects {
         // current files: a changed strings file aborted the app at launch
         // (Base64 decode failure in getStringItem). Projects without Compose
         // resources do not have the tasks.
-        listOf("iosArm64ProcessResources", "iosArm64AggregateResources")
+        listOf("${target}ProcessResources", "${target}AggregateResources")
             .mapNotNull { project.tasks.findByName(it) }
             .forEach { dependsOn(it) }
         doLast {
@@ -176,7 +180,7 @@ allprojects {
             val kotlinExt = project.extensions.findByName("kotlin") ?: error("no kotlin extension")
             val targets = kotlinExt.javaClass.getMethod("getTargets").invoke(kotlinExt)
             val findByName = targets.javaClass.methods.first { it.name == "findByName" }
-            val target = findByName.invoke(targets, "iosArm64") ?: error("no iosArm64 target")
+            val target = findByName.invoke(targets, "$target") ?: error("no $target target")
             val compilations = target.javaClass.getMethod("getCompilations").invoke(target)
             val getByName = compilations.javaClass.methods.first { it.name == "getByName" && it.parameterCount == 1 }
             val main = getByName.invoke(compilations, "main")

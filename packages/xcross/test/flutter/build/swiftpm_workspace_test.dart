@@ -6,6 +6,33 @@ import 'package:xcross/src/flutter/build/internal/swiftpm_workspace.dart';
 
 void main() {
   late Directory temp;
+  test(
+    'isolates simulator build workspace and binary artifacts from device',
+    () {
+      final environment = {'XCROSS_CACHE_DIR': p.join(temp.path, 'cache')};
+      final device = SwiftPmWorkspace.forProject(
+        temp.path,
+        environment: environment,
+      );
+      final simulator = SwiftPmWorkspace.forProject(
+        temp.path,
+        environment: environment,
+        simulator: true,
+      );
+      expect(simulator.root, isNot(device.root));
+      expect(simulator.binaryArtifactStore, isNot(device.binaryArtifactStore));
+      expect(simulator.packages, isNot(device.packages));
+      expect(simulator.scratch, isNot(device.scratch));
+      expect(
+        SwiftPmWorkspace.forProject(
+          temp.path,
+          environment: environment,
+          simulator: true,
+        ).root,
+        simulator.root,
+      );
+    },
+  );
 
   setUp(() {
     temp = Directory.systemTemp.createTempSync('xcross_swiftpm_workspace-');

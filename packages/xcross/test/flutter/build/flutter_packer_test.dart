@@ -665,7 +665,7 @@ void main() {
       reason: 'the native-assets builder owns this manifest',
     );
     expect(debugBundler, contains("'xcross-flutter-stub-'"));
-    expect(packOperation, contains("'xcross-ios'"));
+    expect(packOperation, contains('packer.outputDirectory'));
     expect(hotReload, contains("'xcross-flutter-debug'"));
     expect(hotReloadSources, contains('build/xcross-flutter-debug'));
     expect(FlutterDeviceConstants.devFsName, 'xcross');

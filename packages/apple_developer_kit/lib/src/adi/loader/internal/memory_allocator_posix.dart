@@ -13,6 +13,7 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:apple_developer_kit/src/adi/loader/internal/memory_allocator.dart';
+import 'package:apple_developer_kit/src/adi/loader/internal/sysv_abi_bridge.dart';
 import 'package:meta/meta.dart';
 
 const int _protNone = 0;
@@ -66,6 +67,14 @@ final class PosixMemoryAllocator implements NativeMemoryAllocator {
           .lookupFunction<Int32 Function(Pointer<Void>, IntPtr), _MunmapDart>(
             'munmap',
           );
+
+  @override
+  int get pageSize => DynamicLibrary.process()
+      .lookupFunction<Int32 Function(), int Function()>('getpagesize')();
+
+  @override
+  void flushInstructionCache(NativeMemoryBlock block) =>
+      provision_clear_cache(block.pointer.cast(), block.length);
 
   final bool _isMacos;
   final _MmapDart _mmap;

@@ -24,6 +24,114 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  compose-simulator:
+    name: Compose ARM64 iOS Simulator
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+      - name: Update example submodule
+        shell: bash
+        run: git submodule update --init --checkout examples
+
+      - name: Select compatible native Xcode
+        uses: ./.github/actions/configure-xcode
+
+      - name: Install native Dart
+        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260
+        with:
+          sdk: stable
+          architecture: arm64
+
+      - name: Select native JDK 21 and LLVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(/usr/bin/uname -m)" = arm64
+          jdk="$(/usr/libexec/java_home -v 21 -a arm64)"
+          "$jdk/bin/java" -XshowSettings:properties -version 2>&1 | \
+            tee "$RUNNER_TEMP/ios-simulator-smoke/java-properties.log"
+          grep -Eq 'os.arch = (aarch64|arm64)' \
+            "$RUNNER_TEMP/ios-simulator-smoke/java-properties.log"
+          grep -Eq 'java.specification.version = 21$' \
+            "$RUNNER_TEMP/ios-simulator-smoke/java-properties.log"
+          echo "JAVA_HOME=$jdk" >> "$GITHUB_ENV"
+          brew install llvm lld
+          {
+            echo "$jdk/bin"
+            echo "$(brew --prefix llvm)/bin"
+            echo "$(brew --prefix lld)/bin"
+            echo "$DEVELOPER_DIR/Toolchains/XcodeDefault.xctoolchain/usr/bin"
+          } >> "$GITHUB_PATH"
+
+      - name: Build native production xcross CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          dart pub get
+          (cd packages/xcross && dart run tool/build_xcross.dart)
+          shopt -s nullglob
+          bundles=(packages/xcross/build/cli/*/bundle)
+          test "${#bundles[@]}" -eq 1
+          cp -R "${bundles[0]}" "$RUNNER_TEMP/xcross-bundle"
+          /usr/bin/xcrun lipo "$RUNNER_TEMP/xcross-bundle/bin/xcross" -verify_arch arm64
+          echo "$RUNNER_TEMP/xcross-bundle/bin" >> "$GITHUB_PATH"
+          swift --version
+
+      - name: Install selected native Xcode SDK through xcross
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcross sdk install "$XCODE_APP" 2>&1 | \
+            tee "$RUNNER_TEMP/ios-simulator-smoke/sdk-install.log"
+
+      - name: Prepare scratch Compose simulator fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/prepare_simulator_fixture.py compose \
+            "$RUNNER_TEMP/compose-simulator" --source examples/compose_app
+
+      - name: Set up Compose toolchain
+        shell: bash
+        working-directory: ${{ runner.temp }}/compose-simulator
+        run: |
+          set -euo pipefail
+          xcross --verbose compose setup 2>&1 | \
+            tee "$RUNNER_TEMP/ios-simulator-smoke/compose-setup.log"
+
+      - name: Build ARM64 simulator app through production xcross
+        shell: bash
+        working-directory: ${{ runner.temp }}/compose-simulator
+        run: |
+          set -euo pipefail
+          xcross --verbose compose build --simulator 2>&1 | \
+            tee "$RUNNER_TEMP/ios-simulator-smoke/build.log"
+
+      - name: Boot install launch and observe Compose app headlessly
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apps=("$RUNNER_TEMP/compose-simulator/build/xcross-ios-simulator/"*.app)
+          test "${#apps[@]}" -eq 1
+          python3 .github/scripts/simulator_smoke.py "${apps[0]}" \
+            --output "$RUNNER_TEMP/ios-simulator-smoke/compose" \
+            --ready-marker XCROSS_COMPOSE_READY
+
+      - name: Upload simulator evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: compose-arm64-ios-simulator-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ios-simulator-smoke
+          if-no-files-found: warn
+          retention-days: 7
+
   compose-build:
     name: Compose build (${{ matrix.os }})
     permissions:
@@ -36,7 +144,7 @@ jobs:
     timeout-minutes: 90
 
     steps:
-      # Fork PR code must never receive the private Apple SDK cache, so those
+      # Fork PR code must never receive the private Apple SDK or its URL, so those
       # runs stop after the toolchain checks instead of being skipped outright.
       - name: Resolve Darwin SDK availability
         id: darwin
@@ -50,7 +158,7 @@ jobs:
           if [[ "$IS_FORK_PR" == "true" ]]; then
             echo "available=false" >> "$GITHUB_OUTPUT"
             notice='Fork pull request: building the xcross CLI and toolchain'
-            notice="$notice only. The private Apple SDK cache and the Compose"
+            notice="$notice only. The private Apple SDK download and the Compose"
             notice="$notice build steps run once a maintainer pushes the"
             notice="$notice branch to this repository."
             echo "::notice::$notice"
@@ -274,9 +382,11 @@ jobs:
           "$env:RUNNER_TEMP\xcross-bundle\bin" |
             Out-File $env:GITHUB_PATH -Encoding utf8 -Append
 
-      - name: Restore cached Darwin SDK
+      - name: Download Darwin SDK
         if: steps.darwin.outputs.available == 'true'
         uses: ./.github/actions/setup-darwin-sdk
+        with:
+          artifactbundle-url: ${{ secrets.DARWIN_ARTIFACTBUNDLE_URL }}
 
       - name: Set up Compose toolchain
         if: steps.darwin.outputs.available == 'true'
