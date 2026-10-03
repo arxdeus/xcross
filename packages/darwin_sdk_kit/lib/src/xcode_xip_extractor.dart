@@ -6,15 +6,18 @@
 /// fixtures matching the documented wire formats.
 library;
 
-import 'dart:io';
-
+import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/src/cpio_reader.dart';
 import 'package:darwin_sdk_kit/src/errors.dart';
 import 'package:darwin_sdk_kit/src/pbzx_reader.dart';
 import 'package:darwin_sdk_kit/src/xar_reader.dart';
 
+
 /// Streams the decoded `Content` entry of an Xcode `.xip` as [CpioEntry]s.
-abstract final class XcodeXipExtractor {
+final class XcodeXipExtractor<T extends PlatformHostInterface> {
+  const XcodeXipExtractor(this.host);
+  final T host;
+
   /// Verifies [xipPath] is a XAR archive carrying the `Content` entry an
   /// Xcode `.xip` must have, throwing [DarwinSdkError] otherwise.
   ///
@@ -22,8 +25,8 @@ abstract final class XcodeXipExtractor {
   /// before anything destructive. `sdk install` replaces a working SDK, and
   /// discovering "not a XAR file" *after* deleting it costs the user a
   /// multi-gigabyte reinstall over a typo.
-  static Future<void> validate(String xipPath) async {
-    final file = await File(xipPath).open();
+  Future<void> validate(String xipPath) async {
+    final file = await host.fileSystem.file(xipPath).open();
     try {
       final entry = await XarReader.findEntry(file, 'Content');
       if (entry == null) {
@@ -44,11 +47,11 @@ abstract final class XcodeXipExtractor {
   /// [onProgress] reports compressed bytes of the `Content` entry consumed so
   /// far against its total size — the only length known before the archive is
   /// decoded, and the one that tracks the work still to do.
-  static Stream<CpioEntry> extract(
+  Stream<CpioEntry> extract(
     String xipPath, {
     void Function(int consumed, int total)? onProgress,
   }) async* {
-    final file = await File(xipPath).open();
+    final file = await host.fileSystem.file(xipPath).open();
     try {
       final entry = await XarReader.findEntry(file, 'Content');
       if (entry == null) {

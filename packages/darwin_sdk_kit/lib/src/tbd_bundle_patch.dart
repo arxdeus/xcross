@@ -1,11 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
-
 import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/src/tbd_architecture_rewrite.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
+
 
 /// Outcome of rewriting the `.tbd` files under one bundle.
 @immutable
@@ -30,7 +30,10 @@ final class TbdPatchResult {
 /// The stamp is what keeps this affordable: every resolve of an installed SDK
 /// passes through [ensureApplied], and a stamped bundle costs one small file
 /// read instead of a walk over tens of megabytes of text stubs.
-abstract final class TbdBundlePatch {
+final class TbdBundlePatch<T extends PlatformHostInterface> {
+  const TbdBundlePatch(this.host);
+  final T host;
+
   /// Records that a bundle's stubs were rewritten, so the scan runs once.
   static const stampName = 'xcross-tbd-targets.json';
 
@@ -62,7 +65,7 @@ abstract final class TbdBundlePatch {
   /// A bundle whose stubs could not all be written is left unstamped, so a
   /// later run with the permissions to fix it tries again instead of
   /// trusting a repair that did not happen.
-  static int ensureApplied(String bundle) {
+  int ensureApplied(String bundle) {
     if (isStamped(bundle)) return 0;
     final result = apply(bundle);
     if (result.complete) {
@@ -83,8 +86,8 @@ abstract final class TbdBundlePatch {
   }
 
   /// Rewrite every `.tbd` under [bundle] in place, whatever the stamp says.
-  static TbdPatchResult apply(String bundle) {
-    final root = Directory(HostPaths.long(bundle));
+  TbdPatchResult apply(String bundle) {
+    final root = host.fileSystem.directory(bundle);
     if (!root.existsSync()) return TbdPatchResult.none;
 
     var patched = 0;
@@ -103,7 +106,7 @@ abstract final class TbdBundlePatch {
     return TbdPatchResult(patched: patched, failed: failed);
   }
 
-  static _FileOutcome _rewriteFile(File stub) {
+  _FileOutcome _rewriteFile(File stub) {
     try {
       final rewritten = rewriteBytes(stub.readAsBytesSync());
       if (rewritten == null) return _FileOutcome.unchanged;
@@ -119,8 +122,10 @@ abstract final class TbdBundlePatch {
   }
 
   /// Whether [bundle] already carries a stamp for [patchVersion].
-  static bool isStamped(String bundle) {
-    final stamp = File(HostPaths.long(p.join(bundle, stampName)));
+  bool isStamped(String bundle) {
+    final stamp = host.fileSystem.file(
+      host.paths.context.join(bundle, stampName),
+    );
     if (!stamp.existsSync()) return false;
     try {
       final decoded = jsonDecode(stamp.readAsStringSync());
@@ -136,14 +141,16 @@ abstract final class TbdBundlePatch {
   }
 
   /// Record that [bundle]'s stubs carry [patchVersion] of the rewrite.
-  static void stamp(String bundle, {required int files}) {
+  void stamp(String bundle, {required int files}) {
     const encoder = JsonEncoder.withIndent('  ');
     final contents = encoder.convert({
       'patchVersion': patchVersion,
       'renamedArchitectures': tbdArchitectureAliases,
       'files': files,
     });
-    final stamp = File(HostPaths.long(p.join(bundle, stampName)));
+    final stamp = host.fileSystem.file(
+      host.paths.context.join(bundle, stampName),
+    );
     try {
       stamp.writeAsStringSync('$contents\n');
     } on FileSystemException catch (error) {

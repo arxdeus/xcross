@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/src/tbd_architecture_rewrite.dart';
 import 'package:darwin_sdk_kit/src/tbd_bundle_patch.dart';
 import 'package:darwin_sdk_kit/src/tbd_linker_diagnostic.dart';
@@ -167,7 +168,7 @@ void main() {
       final notAStub = File(p.join(tmp.path, 'C.txt'))
         ..writeAsStringSync(stub('arm64e.x1-ios'));
 
-      final result = TbdBundlePatch.apply(tmp.path);
+      final result = TbdBundlePatch(MacOSHost()).apply(tmp.path);
 
       expect(result.patched, 1);
       expect(result.complete, isTrue);
@@ -177,7 +178,9 @@ void main() {
     });
 
     test('is a no-op on a bundle that does not exist', () {
-      final result = TbdBundlePatch.apply(p.join(tmp.path, 'missing'));
+      final result = TbdBundlePatch(
+        MacOSHost(),
+      ).apply(p.join(tmp.path, 'missing'));
       expect(result.patched, 0);
       expect(result.complete, isTrue);
     });
@@ -193,7 +196,7 @@ void main() {
           return; // Unprivileged Windows has no symlinks; nothing to assert.
         }
 
-        expect(TbdBundlePatch.apply(tmp.path).patched, 1);
+        expect(TbdBundlePatch(MacOSHost()).apply(tmp.path).patched, 1);
         expect(File(real).readAsStringSync(), stub('arm64e-ios'));
       },
     );
@@ -206,7 +209,7 @@ void main() {
         await Process.run('chmod', ['444', path]);
         addTearDown(() => Process.run('chmod', ['644', path]));
 
-        final result = TbdBundlePatch.apply(tmp.path);
+        final result = TbdBundlePatch(MacOSHost()).apply(tmp.path);
 
         expect(result.patched, 0);
         expect(result.failed, 1);
@@ -220,9 +223,9 @@ void main() {
       final file = File(p.join(tmp.path, 'libExample.tbd'));
       await file.writeAsString(stub('arm64e-ios, arm64e.x1-ios'));
 
-      expect(TbdBundlePatch.ensureApplied(tmp.path), 1);
+      expect(TbdBundlePatch(MacOSHost()).ensureApplied(tmp.path), 1);
       expect(file.readAsStringSync(), stub('arm64e-ios, arm64e-ios'));
-      expect(TbdBundlePatch.isStamped(tmp.path), isTrue);
+      expect(TbdBundlePatch(MacOSHost()).isStamped(tmp.path), isTrue);
 
       final stamp = jsonDecode(
         File(p.join(tmp.path, TbdBundlePatch.stampName)).readAsStringSync(),
@@ -232,11 +235,11 @@ void main() {
     });
 
     test('skips a stamped bundle instead of rescanning it', () async {
-      TbdBundlePatch.stamp(tmp.path, files: 0);
+      TbdBundlePatch(MacOSHost()).stamp(tmp.path, files: 0);
       final file = File(p.join(tmp.path, 'libLater.tbd'));
       await file.writeAsString(stub('arm64e.x1-ios'));
 
-      expect(TbdBundlePatch.ensureApplied(tmp.path), 0);
+      expect(TbdBundlePatch(MacOSHost()).ensureApplied(tmp.path), 0);
       expect(file.readAsStringSync(), contains('arm64e.x1'));
     });
 
@@ -247,7 +250,7 @@ void main() {
       final file = File(p.join(tmp.path, 'libExample.tbd'));
       await file.writeAsString(stub('arm64e.x1-ios'));
 
-      expect(TbdBundlePatch.ensureApplied(tmp.path), 1);
+      expect(TbdBundlePatch(MacOSHost()).ensureApplied(tmp.path), 1);
       expect(file.readAsStringSync(), stub('arm64e-ios'));
     });
 
@@ -258,8 +261,8 @@ void main() {
       final file = File(p.join(tmp.path, 'libExample.tbd'));
       await file.writeAsString(stub('arm64e.x1-ios'));
 
-      expect(TbdBundlePatch.ensureApplied(tmp.path), 1);
-      expect(TbdBundlePatch.isStamped(tmp.path), isTrue);
+      expect(TbdBundlePatch(MacOSHost()).ensureApplied(tmp.path), 1);
+      expect(TbdBundlePatch(MacOSHost()).isStamped(tmp.path), isTrue);
     });
 
     test('stamps a bundle that needed no rewrite', () async {
@@ -267,8 +270,8 @@ void main() {
         p.join(tmp.path, 'libExample.tbd'),
       ).writeAsString(stub('arm64-ios, arm64e-ios'));
 
-      expect(TbdBundlePatch.ensureApplied(tmp.path), 0);
-      expect(TbdBundlePatch.isStamped(tmp.path), isTrue);
+      expect(TbdBundlePatch(MacOSHost()).ensureApplied(tmp.path), 0);
+      expect(TbdBundlePatch(MacOSHost()).isStamped(tmp.path), isTrue);
     });
 
     test('leaves a bundle it could not fully rewrite unstamped', () async {
@@ -278,10 +281,10 @@ void main() {
       await Process.run('chmod', ['444', path]);
       addTearDown(() => Process.run('chmod', ['644', path]));
 
-      expect(TbdBundlePatch.ensureApplied(tmp.path), 0);
+      expect(TbdBundlePatch(MacOSHost()).ensureApplied(tmp.path), 0);
       // Unstamped, so a later run with the right permissions retries rather
       // than trusting a repair that never happened.
-      expect(TbdBundlePatch.isStamped(tmp.path), isFalse);
+      expect(TbdBundlePatch(MacOSHost()).isStamped(tmp.path), isFalse);
     });
   });
 
