@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:xcross/src/composition/flutter/swiftpm_checkout.dart';
+import 'package:xcross/src/composition/flutter/swiftpm_foundation.dart';
 import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/host/linux/flutter/native_host_tools.dart';
@@ -13,10 +15,15 @@ import 'package:xcross/src/host/shared/flutter/swiftpm/artifact_publication_lock
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_artifact_copy_policy.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_artifact_filesystem.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_build_execution.dart';
+import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_attributes.dart';
+import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_link_creator.dart';
+import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_link_policy.dart';
+import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_manifest_policy.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_dependency_preparation.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
 import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
@@ -86,22 +93,75 @@ FlutterBuildRuntime<LinuxHost> testFlutterRuntime(
     executable: resolution.executable,
   );
   final artifactFileSystem = PosixSwiftPmArtifactFileSystem(host);
+  const hostPolicy = LinuxSwiftPmHostPolicy();
+  const sdkIdentity = TestSwiftPmSdkIdentity();
+  const transport = HttpSwiftPmArchiveTransport(createClient: HttpClient.new);
+  final copyPolicy = PosixSwiftPmArtifactCopyPolicy(artifactFileSystem);
+  final publicationCoordinator = SwiftPmPublicationCoordinator(
+    locks: FileSwiftPmPublicationLockProvider(artifactFileSystem),
+    pathKey: host.paths.pathKey,
+  );
+  final parts = SwiftPmCheckoutAssemblyParts.prepare(
+    runner: runner,
+    fileSystem: artifactFileSystem,
+  );
+  const attributes = PosixSwiftPmCheckoutAttributes();
+  final checkout = assembleSwiftPmCheckout(
+    parts: parts,
+    gitPolicy: const PosixSwiftPmCheckoutGitPolicy(),
+    fallback: PosixSwiftPmCheckoutFallback(
+      fileSystem: artifactFileSystem,
+      filesystem: parts.filesystem,
+      graph: parts.graph,
+    ),
+    attributes: attributes,
+    linkCreator: PosixSwiftPmCheckoutLinkCreator(artifactFileSystem),
+    environment: runner.effectiveEnvironment,
+  );
+  final normalizer = SwiftPmCheckoutManifestNormalizer(
+    fileSystem: artifactFileSystem,
+    filesystem: parts.filesystem,
+    attributes: attributes,
+    policy: PosixSwiftPmVendoredManifestPolicy(
+      sourceNormalizer: parts.sourceNormalizer,
+      sourceFallback: parts.sourceFallback,
+    ),
+  );
+  final foundation = prepareSwiftPmFoundation(
+    policy: policy,
+    runner: runner,
+    sdkRepository: repository,
+    toolchainResolver: toolchain,
+    tools: tools,
+    hostPolicy: hostPolicy,
+    artifactFileSystem: artifactFileSystem,
+    sdkIdentity: sdkIdentity,
+    publicationCoordinator: publicationCoordinator,
+    transport: transport,
+    copyPolicy: copyPolicy,
+    checkoutAttributes: attributes,
+    filesystem: parts.filesystem,
+  );
   final plugins = GeneratedPluginsPackage(
     policy,
     runner: runner,
     sdkRepository: repository,
     toolchain: toolchain,
     tools: tools,
-    hostPolicy: const LinuxSwiftPmHostPolicy(),
+    hostPolicy: hostPolicy,
     artifactFileSystem: artifactFileSystem,
-    transport: const HttpSwiftPmArchiveTransport(createClient: HttpClient.new),
-    copyPolicy: PosixSwiftPmArtifactCopyPolicy(artifactFileSystem),
-    publicationCoordinator: SwiftPmPublicationCoordinator(
-      locks: FileSwiftPmPublicationLockProvider(artifactFileSystem),
-      pathKey: host.paths.pathKey,
+    transport: transport,
+    copyPolicy: copyPolicy,
+    publicationCoordinator: publicationCoordinator,
+    sdkIdentity: sdkIdentity,
+    foundation: foundation,
+    checkout: checkout,
+    checkoutAttributes: attributes,
+    checkoutManifestNormalizer: normalizer,
+    buildExecution: PosixSwiftPmBuildExecution(
+      runner: runner,
+      sourceRepair: foundation.sourceRepair,
     ),
-    sdkIdentity: const TestSwiftPmSdkIdentity(),
-    buildExecution: PosixSwiftPmBuildExecution(runner: runner),
     dependencyPreparation: const PosixSwiftPmDependencyPreparation<LinuxHost>(),
   );
   return FlutterBuildRuntime(
