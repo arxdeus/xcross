@@ -9,6 +9,37 @@ import 'package:xcross/src/compose/toolchain/compose_toolchain.dart';
 
 void main() {
   test(
+    'runs native macOS ARM64 Gradle with matching Java and Konan cache',
+    () async {
+      final fixture =
+          _Fixture.create(moduleName: 'shared', host: ComposeHost.macosArm64)
+            ..createWrapper()
+            ..createModuleKlib();
+      addTearDown(fixture.dispose);
+      var calls = 0;
+      await GradleKlibBuilder.withSeams(
+        runChecked:
+            (executable, arguments, {workingDirectory, environment}) async {
+              calls++;
+              expect(executable, p.join(fixture.root, 'gradlew'));
+              expect(arguments, contains(':shared:dumpIosDeps'));
+              expect(environment!['JAVA_HOME'], fixture.toolchain.javaHome);
+              expect(
+                environment['KONAN_DATA_DIR'],
+                fixture.toolchain.konanCache,
+              );
+              expect(
+                environment['PATH'],
+                startsWith('${p.join(fixture.toolchain.javaHome, 'bin')}:'),
+              );
+              File(environment['XCROSS_DEPS_OUT']!).writeAsStringSync('');
+            },
+      ).build(project: fixture.project, toolchain: fixture.toolchain);
+      expect(calls, 1);
+    },
+  );
+
+  test(
     'build compiles nested module and dumps filtered ios dependencies',
     () async {
       final fixture =

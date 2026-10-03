@@ -392,16 +392,33 @@ final class KonanConfiguration {
     final directory = p.dirname(toolchain.ld64Lld);
     final extension = toolchain.host.isWindows ? '.exe' : '';
     final separator = toolchain.host.isWindows ? ';' : ':';
-    String llvmTool(String name) => _siblingOrOnPath(
-      directory,
-      '$name$extension',
-      searchPath.split(separator),
-    );
+    String llvmTool(String name, {String? macosFallback}) {
+      final resolved = _siblingOrOnPath(
+        directory,
+        '$name$extension',
+        searchPath.split(separator),
+      );
+      if (!toolchain.host.isMacOS ||
+          macosFallback == null ||
+          File(resolved).existsSync()) {
+        return resolved;
+      }
+      final native = _siblingOrOnPath(
+        directory,
+        macosFallback,
+        searchPath.split(separator),
+      );
+      return File(native).existsSync() ? native : resolved;
+    }
+
     return {
       'XCROSS_APPLE_TOOL_LD': toolchain.ld64Lld,
-      'XCROSS_APPLE_TOOL_STRIP': llvmTool('llvm-strip'),
+      'XCROSS_APPLE_TOOL_STRIP': llvmTool('llvm-strip', macosFallback: 'strip'),
       'XCROSS_APPLE_TOOL_DSYMUTIL': llvmTool('dsymutil'),
-      'XCROSS_APPLE_TOOL_LIBTOOL': llvmTool('llvm-libtool-darwin'),
+      'XCROSS_APPLE_TOOL_LIBTOOL': llvmTool(
+        'llvm-libtool-darwin',
+        macosFallback: 'libtool',
+      ),
       'XCROSS_APPLE_TOOL_CLANG': toolchain.clang,
       'XCROSS_APPLE_TOOL_CLANGXX': p.join(
         p.dirname(toolchain.clang),

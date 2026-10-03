@@ -56,6 +56,34 @@ void main() {
       );
     });
 
+    for (final entry in {
+      '2.2.20':
+          '2acd3a2e0e5a9782b5cc2cb90c18f2412eda86ab3fb8adf2d18a3e3ca9b80ee6',
+      '2.4.0':
+          '9ef8c0f9fd90f4082d6e62f14655d23d81651d89d49205e5c49177ff34f552b8',
+    }.entries) {
+      test('pins macOS ARM64 ${entry.key} without an x64 overlay', () {
+        final options = ComposeSetupOptions.resolve(
+          env: {'HOME': home.path, 'KN_VERSION': entry.key},
+          projectRoot: project.path,
+          host: ComposeHost.macosArm64,
+        );
+        expect(options.hostArchiveSha256, entry.value);
+        expect(
+          options.hostArchiveUrl,
+          endsWith(
+            '/${entry.key}/kotlin-native-prebuilt-${entry.key}-macos-aarch64.tar.gz',
+          ),
+        );
+        expect(
+          options.kotlinHome,
+          endsWith('kotlin-native-prebuilt-macos-aarch64-${entry.key}'),
+        );
+        expect(options.overlayArchiveUrl, isNull);
+        expect(options.overlayArchiveSha256, isNull);
+      });
+    }
+
     test('prefers explicit and configured Konan data roots', () {
       addTearDown(ComposeSetupOptions.resetCacheRootOverride);
       ComposeSetupOptions.configureCacheRootOverride('/configured/konan');
@@ -147,6 +175,58 @@ void main() {
   });
 
   group('ComposeToolchainResolver', () {
+    for (final architecture in ['aarch64', 'arm64', 'amd64', 'unknown']) {
+      test('checks macOS ARM64 JVM $architecture before loading JNI', () async {
+        final home = Directory.systemTemp.createTempSync(
+          'xcross-compose-macos-',
+        );
+        addTearDown(() => home.deleteSync(recursive: true));
+        final environment = {
+          'HOME': home.path,
+          'JAVA_HOME': p.join(home.path, 'jdk'),
+        };
+        File(p.join(home.path, 'gradlew')).writeAsStringSync('#!/bin/sh');
+        final options = ComposeSetupOptions.resolve(
+          env: environment,
+          projectRoot: home.path,
+          host: ComposeHost.macosArm64,
+        );
+        File(options.host.konancExecutable(options.kotlinHome))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('konanc');
+        _writeCompleteMarker(options);
+        final resolver = _resolverWithPreflight(
+          javaHome: environment['JAVA_HOME']!,
+          sdk: FakeDarwinSdk('/sdk'),
+          home: home.path,
+          javaArchitecture: architecture,
+        );
+        final problems = await resolver.problems(
+          host: ComposeHost.macosArm64,
+          environment: environment,
+          projectRoot: home.path,
+        );
+        if (architecture == 'aarch64' || architecture == 'arm64') {
+          expect(problems, isEmpty);
+          final toolchain = await resolver.resolve(
+            host: ComposeHost.macosArm64,
+            environment: environment,
+            projectRoot: home.path,
+          );
+          expect(toolchain!.gradleInvocation, [p.join(home.path, 'gradlew')]);
+          expect(toolchain.konancInvocation(['-version']), [
+            options.host.konancExecutable(options.kotlinHome),
+            '-version',
+          ]);
+        } else {
+          expect(
+            problems,
+            contains(contains('JDK architecture $architecture does not match')),
+          );
+        }
+      });
+    }
+
     test('does not resolve when Kotlin/Native is not installed', () async {
       final project = Directory.systemTemp.createTempSync(
         'xcross-compose-project-',
@@ -469,6 +549,73 @@ void main() {
   });
 
   group('ComposeToolchainInstaller', () {
+    for (final host in [ComposeHost.macosArm64, ComposeHost.macosX64]) {
+      test('installs ${host.classifier} from one native archive', () async {
+        final root = Directory.systemTemp.createTempSync(
+          'xcross-compose-native-',
+        );
+        addTearDown(() => root.deleteSync(recursive: true));
+        final options = ComposeSetupOptions.resolve(
+          env: {
+            'HOME': root.path,
+            'KN_VERSION': '2.4.0',
+            'JAVA_HOME': '/native/jdk',
+          },
+          projectRoot: root.path,
+          host: host,
+        );
+        final downloads = <String>[];
+        final patches = <String>[];
+        final installer = ComposeToolchainInstaller.withSeams(
+          downloadToFile: (url, file) async {
+            downloads.add(url);
+            await file.writeAsString('archive');
+          },
+          digestFile: (file) async => options.hostArchiveSha256!,
+          extractArchive: (archive, destination) async {
+            final path = p.join(destination.path, 'native');
+            for (final name in [
+              'bin/konanc',
+              'konan/lib/kotlin-native-compiler-embeddable.jar',
+              'konan/targets/ios_arm64/native.bc',
+              'klib/platform/ios_arm64/UIKit',
+            ]) {
+              File(p.join(path, name))
+                ..createSync(recursive: true)
+                ..writeAsStringSync(name);
+            }
+          },
+          patchCompilerJar: (file) async => patches.add(file.path),
+          runChecked:
+              (executable, arguments, {workingDirectory, environment}) async {
+                expect(executable, endsWith(p.join('bin', 'konanc')));
+                expect(
+                  arguments,
+                  containsAllInOrder(['-target', host.konanTarget]),
+                );
+                expect(environment!['JAVA_HOME'], '/native/jdk');
+                expect(environment['KONAN_DATA_DIR'], options.konanCache);
+              },
+        );
+        await installer.install(options: options);
+        expect(downloads, [options.hostArchiveUrl]);
+        expect(patches, hasLength(1));
+        expect(
+          File(
+            p.join(options.kotlinHome, 'klib/platform/ios_arm64/UIKit'),
+          ).readAsStringSync(),
+          'klib/platform/ios_arm64/UIKit',
+        );
+        expect(ComposeToolchainInstaller.isComplete(options), isTrue);
+        expect(
+          ComposeToolchainInstaller.completionMarkerContent(options),
+          contains('overlayArchive=none'),
+        );
+        await installer.install(options: options);
+        expect(downloads, hasLength(1));
+      });
+    }
+
     test(
       'uses cached fast path without download, extraction, process, or patch calls',
       () async {
@@ -1267,6 +1414,7 @@ InjectedComposeToolchainResolver _resolverWithPreflight({
   required FakeDarwinSdk sdk,
   required String home,
   ComposeToolchainInstaller? installer,
+  String javaArchitecture = 'amd64',
 }) => ComposeToolchainResolver.withSeams(
   which: (name, {environment, windows, extraDirectories = const []}) async =>
       switch (name) {
@@ -1281,7 +1429,11 @@ InjectedComposeToolchainResolver _resolverWithPreflight({
       },
   run: (executable, arguments, {workingDirectory, environment}) async =>
       executable.contains('java') && arguments.contains('-version')
-      ? const ComposeProcessResult(0, '', 'openjdk version "21.0.2"')
+      ? ComposeProcessResult(
+          0,
+          '',
+          'os.arch = $javaArchitecture\nopenjdk version "21.0.2"',
+        )
       : const ComposeProcessResult(0, '', ''),
   currentDarwinSdk: (_) => sdk,
   resolveLd64Lld: (_, {runProcess}) async => p.join(home, 'ld64.lld'),

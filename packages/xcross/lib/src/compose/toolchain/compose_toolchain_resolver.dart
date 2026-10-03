@@ -26,6 +26,7 @@ final class ComposeSetupOptions {
     required this.overlayArchiveUrl,
     required this.hostArchiveSha256,
     required this.overlayArchiveSha256,
+    this.environment = const {},
   });
 
   static const defaultKotlinNativeVersion = '2.2.20';
@@ -46,9 +47,10 @@ final class ComposeSetupOptions {
   final String kotlinHome;
   final String konanCache;
   final String hostArchiveUrl;
-  final String overlayArchiveUrl;
+  final String? overlayArchiveUrl;
   final String? hostArchiveSha256;
   final String? overlayArchiveSha256;
+  final Map<String, String> environment;
 
   static ComposeSetupOptions resolve({
     required Map<String, String> env,
@@ -69,6 +71,7 @@ final class ComposeSetupOptions {
     return ComposeSetupOptions(
       host: host,
       version: version,
+      environment: Map.unmodifiable(env),
       projectRoot: projectRoot,
       cacheRoot: cacheRoot,
       kotlinHome: p.join(
@@ -78,11 +81,13 @@ final class ComposeSetupOptions {
       konanCache: p.join(cacheRoot, 'cache'),
       hostArchiveUrl:
           '$kotlinNativeMavenBase/$version/${host.hostArtifact(version)}',
-      overlayArchiveUrl:
-          '$kotlinNativeMavenBase/$version/${ComposeHost.macosX64OverlayArtifact(version)}',
+      overlayArchiveUrl: host.isMacOS
+          ? null
+          : '$kotlinNativeMavenBase/$version/${ComposeHost.macosX64OverlayArtifact(version)}',
       hostArchiveSha256: _sha256ByArtifact[host.hostArtifact(version)],
-      overlayArchiveSha256:
-          _sha256ByArtifact[ComposeHost.macosX64OverlayArtifact(version)],
+      overlayArchiveSha256: host.isMacOS
+          ? null
+          : _sha256ByArtifact[ComposeHost.macosX64OverlayArtifact(version)],
     );
   }
 
@@ -93,12 +98,16 @@ final class ComposeSetupOptions {
         '2bf86caed1b5a67f0cd15c685cb8584a2e61f3221d0985f4fc6a590f51c398df',
     'kotlin-native-prebuilt-2.2.20-macos-x86_64.tar.gz':
         'ca9eb2dbb87703176bdbafaad887dc5036c9e5dbfd2eec113b7f4f4a346ca60b',
+    'kotlin-native-prebuilt-2.2.20-macos-aarch64.tar.gz':
+        '2acd3a2e0e5a9782b5cc2cb90c18f2412eda86ab3fb8adf2d18a3e3ca9b80ee6',
     'kotlin-native-prebuilt-2.4.0-linux-x86_64.tar.gz':
         '1fdad03264fc398d24df961bf6563e35b82706bb67cf3ba926eb7b768ce7d536',
     'kotlin-native-prebuilt-2.4.0-windows-x86_64.zip':
         'cf91af2dbe53767ec89d0eb0f744e588f316a8d115e5faba401ae3f2db7db535',
     'kotlin-native-prebuilt-2.4.0-macos-x86_64.tar.gz':
         'da0684965d6f33c55b5e6e85b6de8a5327dbd3ccfedcb1ab6c1131900e8b3e83',
+    'kotlin-native-prebuilt-2.4.0-macos-aarch64.tar.gz':
+        '9ef8c0f9fd90f4082d6e62f14655d23d81651d89d49205e5c49177ff34f552b8',
   };
 
   static String? _nonEmpty(String? value) =>
@@ -452,6 +461,7 @@ final class InjectedComposeToolchainResolver {
       return null;
     }
     final result = await _run(candidate, const [
+      '-XshowSettings:properties',
       '-version',
     ], environment: environment);
     final output = '${result.stdout}\n${result.stderr}';
@@ -459,6 +469,18 @@ final class InjectedComposeToolchainResolver {
     if (result.exitCode != 0 || version == null || int.parse(version) < 21) {
       problems.add(
         'Missing JDK 21+. Found java at $candidate but it is not Java 21+.',
+      );
+      return null;
+    }
+    final architecture = RegExp(
+      r'^\s*os\.arch\s*=\s*(\S+)',
+      multiLine: true,
+    ).firstMatch(output)?.group(1);
+    if (architecture == null || !host.supportsJavaArchitecture(architecture)) {
+      problems.add(
+        'JDK architecture ${architecture ?? 'unknown'} does not match '
+        'Kotlin/Native host ${host.classifier}. Set JAVA_HOME to a matching '
+        'JDK 21+ install so its JNI libraries can load.',
       );
       return null;
     }
