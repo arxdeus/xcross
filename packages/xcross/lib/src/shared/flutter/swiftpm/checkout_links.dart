@@ -38,6 +38,12 @@ final class SwiftPmCheckoutLinks<T extends PlatformHostInterface> {
     final containment = SwiftPmCheckoutContainment(fileSystem);
     for (final link in links.keys) {
       containment.validateDestination(root, link);
+      containment.validateLinkTarget(
+        root,
+        link,
+        targets[link]!,
+        indexedTargets: targets,
+      );
       containment.validateTarget(root, resolved[link]!);
     }
     String linkText(String link) => policy.linkText(targets[link]!);

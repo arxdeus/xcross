@@ -476,6 +476,36 @@ void main() {
     },
   );
 
+  test(
+    'direct link entrypoint rejects planned raw target before any effects',
+    () async {
+      context = CheckoutTestContext(
+        root,
+        (_) => fail('No process may start for escaping raw target'),
+      );
+      final a = p.join(root.path, 'a');
+      final link = p.join(root.path, 'link');
+      File(a).writeAsStringSync('.');
+      File(link).writeAsStringSync('a/../outside');
+      final records = <Map<String, Object?>>[];
+      await expectLater(
+        context.links.materializeAsSymlinks(
+          root.path,
+          {a: 'aa', link: 'bb'},
+          {a: '.', link: 'a/../outside'},
+          {a: root.path, link: p.join(root.path, 'outside')},
+          '/fixture/git',
+          records,
+        ),
+        throwsA(isA<FlutterBuildError>()),
+      );
+      expect(context.processes.commands, isEmpty);
+      expect(records, isEmpty);
+      expect(File(a).readAsStringSync(), '.');
+      expect(File(link).readAsStringSync(), 'a/../outside');
+    },
+  );
+
   test('rejects live link cycles with bounded traversal', () async {
     context = CheckoutTestContext(root, (_) => CheckoutTestProcess());
     await Link(p.join(root.path, 'a')).create('b');
