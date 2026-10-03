@@ -1,9 +1,10 @@
 import 'dart:convert';
 import 'dart:ffi';
-
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:cli_kit/cli_kit.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/flutter/build/internal/apple_tool_shim_templates.dart';
@@ -11,10 +12,178 @@ import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/flutter/build/internal/flutter_tool_workspace.dart';
 import 'package:xcross/src/flutter/build/internal/native_asset_frameworks.dart';
 import 'package:xcross/src/flutter/build/internal/native_assets_hook_discovery.dart';
+import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/build/ios_engine_cache.dart';
+import 'package:xcross/src/flutter/build/ios_native_assets.dart';
 import 'package:xcross/src/flutter/errors.dart';
+import 'package:xcross/src/host/linux/flutter/native_host_tools.dart';
+import 'package:xcross/src/host/macos/flutter/native_host_tools.dart';
+import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer_posix.dart';
+import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
+import 'package:xcross/src/host/windows/flutter/apple_tool_shim_renderer.dart';
+import 'package:xcross/src/host/windows/flutter/native_host_tools.dart';
+import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
+import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
+import 'package:xcross/src/target/simulator/flutter/simulator_flutter_target.dart';
 
 void main() {
+  test('native hook assembly preserves target, manifest and flavor inputs', () {
+    final host = LinuxHost(architecture: 'arm64');
+    final runner = ProcessRunner(host);
+    final hostTools = LinuxNativeHostTools(host, runner);
+    final target = SimulatorTarget(host);
+    final cache = IosEngineCache(
+      targetPolicy: SimulatorFlutterTarget(target),
+      hostTools: hostTools,
+      flutterRoot: '/flutter',
+    );
+    final builder = IosNativeAssetsBuilder(
+      engineCache: cache,
+      renderer: PosixAppleToolShimRenderer(host),
+      runner: runner,
+      tools: AppleToolShimResolver(
+        target,
+        runner,
+        DarwinSdkRepository(host),
+        DarwinToolchainResolver(runner, LinuxDarwinToolchainLocations(host)),
+        hostTools: hostTools,
+        executable: '/xcross',
+      ),
+      projectRoot: '/project',
+      flutterRoot: '/flutter',
+      deploymentTarget: const IosDeploymentTarget(
+        '15.0',
+        platform: SimulatorBuildPlatform(),
+      ),
+      entrypoint: 'lib/flavored.dart',
+      dartDefines: const ['CUSTOM=value'],
+      flavor: 'development',
+    );
+    final arguments = builder.assembleArguments(
+      output: '/output',
+      iosSdk: '/simulator-sdk',
+    );
+    expect(
+      arguments,
+      containsAll([
+        '-dTargetPlatform=ios',
+        '-dBuildMode=debug',
+        '-dIosArchs=arm64',
+        '-dSdkRoot=/simulator-sdk',
+        '-dTargetFile=lib/flavored.dart',
+        '-dIosDeploymentTarget=15.0',
+        'debug_ios_bundle_flutter_assets',
+      ]),
+    );
+    final defines = arguments
+        .singleWhere((arg) => arg.startsWith('-dDartDefines='))
+        .substring('-dDartDefines='.length)
+        .split(',')
+        .map((value) => utf8.decode(base64.decode(value)));
+    expect(
+      defines,
+      containsAll(['CUSTOM=value', 'FLUTTER_APP_FLAVOR=development']),
+    );
+    expect(
+      builder.assembleArguments(output: '/bundle').last,
+      'copy_flutter_bundle',
+    );
+    expect(
+      cache.targetPolicy.buildDirectory('/project', 'xcross-native-assets'),
+      p.join(
+        '/project',
+        'build',
+        'xcross-ios-simulator',
+        'xcross-native-assets',
+      ),
+    );
+  });
+
+  test(
+    'Windows simulator sidecars preserve SDK and explicit linker platform',
+    () async {
+      final tmp = await Directory.systemTemp.createTemp('simulator-sidecars-');
+      addTearDown(() => tmp.delete(recursive: true));
+      final forwarder = File(p.join(tmp.path, 'xcross.exe'))
+        ..writeAsStringSync('forwarder');
+      final xcrun = File(p.join(tmp.path, 'source-xcrun.exe'))
+        ..writeAsStringSync('bundled-xcrun');
+      final directory = p.join(tmp.path, 'shims with spaces');
+      await installAppleToolShims(
+        directory,
+        AppleToolShimConfig(
+          target: const SimulatorBuildPlatform(),
+          iosSdk: r'C:\SDK\iPhoneSimulator.sdk',
+          clang: r'C:\LLVM\clang.exe',
+          hostCompiler: r'C:\LLVM\clang.exe',
+          archiver: r'C:\LLVM\llvm-ar.exe',
+          linker: r'C:\LLVM\ld64.lld.exe',
+          lipo: r'C:\LLVM\llvm-lipo.exe',
+          otool: null,
+          installNameTool: null,
+          xcrun: xcrun.path,
+          deploymentTarget: '15.0',
+        ),
+        renderer: WindowsAppleToolShimRenderer(_windowsHost()),
+        toolForwarderExecutable: forwarder.path,
+      );
+      final flags = jsonDecode(
+        File(p.join(directory, 'clang.exe.args')).readAsStringSync(),
+      );
+      expect(
+        flags,
+        containsAll([
+          '--target=arm64-apple-ios15.0-simulator',
+          '-mios-simulator-version-min=15.0',
+          '-Wl,-arch,arm64',
+          '-Wl,-platform_version,ios-simulator,15.0,26.5',
+          '-fuse-ld=lld',
+        ]),
+      );
+      expect(
+        File(p.join(directory, 'xcrun.exe')).readAsStringSync(),
+        'bundled-xcrun',
+      );
+      expect(
+        File(p.join(directory, 'xcrun.exe.sdk')).readAsStringSync(),
+        r'C:\SDK\iPhoneSimulator.sdk',
+      );
+      expect(
+        File(p.join(directory, 'cc.exe.args')).readAsStringSync(),
+        File(p.join(directory, 'clang.exe.args')).readAsStringSync(),
+      );
+    },
+  );
+
+  test(
+    'macOS tool resolution retains bundled xcross xcrun delegation',
+    () async {
+      final tmp = await Directory.systemTemp.createTemp('macos-bundled-xcrun-');
+      addTearDown(() => tmp.delete(recursive: true));
+      final launcher = File(p.join(tmp.path, 'xcross'))..writeAsStringSync('');
+      final sibling = File(p.join(tmp.path, 'xcrun'))
+        ..writeAsStringSync('bundled');
+      final host = MacOSHost(architecture: 'arm64');
+      final runner = ProcessRunner(host);
+      final resolver = AppleToolShimResolver(
+        IPhoneTarget(host),
+        runner,
+        DarwinSdkRepository(host),
+        DarwinToolchainResolver(runner, MacOSDarwinToolchainLocations(host)),
+        hostTools: MacOSNativeHostTools(host, runner),
+        executable: '/dart',
+        launcher: launcher.path,
+        declarative: true,
+      );
+      expect(await resolver.resolveXcrun(), sibling.path);
+      expect((await resolver.resolveHostCompiler('/cross/clang')).arguments, [
+        '--sdk',
+        'macosx',
+        'clang',
+      ]);
+    },
+  );
+
   test(
     'simulator compiler shim preserves explicit simulator deployment and host work',
     () async {
@@ -31,7 +200,7 @@ void main() {
             hostCompiler: '/bin/echo',
             linker: '/ld64.lld',
             deploymentTarget: '15.0',
-            simulator: true,
+            target: const SimulatorBuildPlatform(),
           ),
         );
         final simulator = await Process.run('/bin/sh', [
@@ -86,25 +255,20 @@ void main() {
         File(
           p.join(sdkCache.path, 'flutter_tools.snapshot'),
         ).writeAsStringSync('snapshot');
-        for (final abi in [
-          Abi.linuxArm64,
-          Abi.linuxX64,
-          Abi.macosArm64,
-          Abi.macosX64,
-          Abi.windowsX64,
-        ]) {
+        for (final (abi, hostTools, targetPolicy) in _hostCases()) {
           final cache = IosEngineCache(
+            targetPolicy: targetPolicy,
+            hostTools: hostTools,
             flutterRoot: flutterRoot,
             cacheRoot: p.join(tmp.path, 'cache'),
-            hostAbi: abi,
           );
           Directory(cache.flutterXcframework).createSync(recursive: true);
           iosFrameworks.add(cache.flutterXcframework);
           Directory(cache.patchedSdkRoot).createSync(recursive: true);
           File(cache.vmSnapshotData)
             ..createSync(recursive: true)
-            ..writeAsStringSync('$abi');
-          File(cache.isolateSnapshotData).writeAsStringSync('$abi');
+            ..writeAsStringSync(abi);
+          File(cache.isolateSnapshotData).writeAsStringSync(abi);
           final workspace = await FlutterToolWorkspace.create(
             flutterRoot: flutterRoot,
             engineCache: cache,
@@ -127,7 +291,7 @@ void main() {
                 'vm_isolate_snapshot.bin',
               ),
             ).readAsStringSync(),
-            '$abi',
+            abi,
           );
           expect(
             Directory(
@@ -135,7 +299,7 @@ void main() {
             ).existsSync(),
             isTrue,
           );
-          if (abi == Abi.macosArm64) {
+          if (cache.hostArtifactPlatform == 'darwin-arm64') {
             expect(
               Directory(p.join(engine, 'darwin-arm64')).existsSync(),
               isFalse,
@@ -216,9 +380,13 @@ void main() {
         final second = await FlutterToolWorkspace.create(
           flutterRoot: alias.path,
           engineCache: IosEngineCache(
+            targetPolicy: IPhoneFlutterTarget(IPhoneTarget(_linuxHost)),
+            hostTools: LinuxNativeHostTools(
+              _linuxHost,
+              ProcessRunner(_linuxHost),
+            ),
             flutterRoot: alias.path,
             cacheRoot: cache.cacheRoot,
-            hostAbi: Abi.linuxArm64,
           ),
         );
 
@@ -257,9 +425,13 @@ void main() {
         final workspace = await FlutterToolWorkspace.create(
           flutterRoot: alias.path,
           engineCache: IosEngineCache(
+            targetPolicy: IPhoneFlutterTarget(IPhoneTarget(_linuxHost)),
+            hostTools: LinuxNativeHostTools(
+              _linuxHost,
+              ProcessRunner(_linuxHost),
+            ),
             flutterRoot: alias.path,
             cacheRoot: cacheRoot,
-            hostAbi: Abi.linuxArm64,
           ),
         );
         final sentinel = File(p.join(workspace.flutterRoot, 'retained'))
@@ -385,9 +557,10 @@ void main() {
       final alias = Link(p.join(tmp.path, 'alias'))
         ..createSync(firstCache.flutterRoot);
       final aliasCache = IosEngineCache(
+        targetPolicy: IPhoneFlutterTarget(IPhoneTarget(_linuxHost)),
+        hostTools: LinuxNativeHostTools(_linuxHost, ProcessRunner(_linuxHost)),
         flutterRoot: alias.path,
         cacheRoot: cacheRoot,
-        hostAbi: Abi.linuxArm64,
       );
       final legacy = await FlutterToolWorkspace.create(
         flutterRoot: alias.path,
@@ -602,6 +775,11 @@ void main() {
         ).writeAsStringSync('snapshot');
         Directory(p.join(sdkCache.path, 'dart-sdk')).createSync();
         final engineCache = IosEngineCache(
+          targetPolicy: IPhoneFlutterTarget(IPhoneTarget(_linuxHost)),
+          hostTools: LinuxNativeHostTools(
+            _linuxHost,
+            ProcessRunner(_linuxHost),
+          ),
           flutterRoot: flutterRoot,
           cacheRoot: cacheRoot,
         );
@@ -672,6 +850,8 @@ void main() {
       ).writeAsStringSync('snapshot');
       Directory(p.join(sdkCache.path, 'dart-sdk')).createSync();
       final engineCache = IosEngineCache(
+        targetPolicy: IPhoneFlutterTarget(IPhoneTarget(_linuxHost)),
+        hostTools: LinuxNativeHostTools(_linuxHost, ProcessRunner(_linuxHost)),
         flutterRoot: flutterRoot,
         cacheRoot: p.join(tmp.path, 'cache'),
       );
@@ -889,42 +1069,45 @@ void main() {
   });
 
   test('Windows uses the resolved clang as its host C compiler', () async {
-    final compiler = await resolveHostCompiler(
-      r'C:\Program Files\LLVM\bin\clang.exe',
-      windows: true,
-      locate: (_) async => fail('must not search'),
-    );
+    final host = _windowsHost();
+    final compiler = await WindowsNativeHostTools(
+      host,
+      ProcessRunner(host),
+    ).compiler(r'C:\Program Files\LLVM\bin\clang.exe');
     expect(compiler.executable, r'C:\Program Files\LLVM\bin\clang.exe');
     expect(compiler.arguments, isEmpty);
   });
-
+  test('macOS host compiler selects macosx despite SDKROOT', () async {
+    final host = MacOSHost(
+      architecture: 'arm64',
+      environment: const {'SDKROOT': '/ios/sdk'},
+    );
+    final compiler = await MacOSNativeHostTools(
+      host,
+      ProcessRunner(host),
+    ).compiler('/cross/clang');
+    expect(compiler.executable, '/usr/bin/xcrun');
+    expect(compiler.arguments, ['--sdk', 'macosx', 'clang']);
+  });
   test(
-    'macOS host compiler selects native macosx SDK independently of PATH',
+    'Linux host compiler retains configured cc without Apple arguments',
     () async {
-      final compiler = await resolveHostCompiler(
-        '/cross/clang',
-        windows: false,
-        macos: true,
-        locate: (_) async => fail('must not search'),
+      final host = LinuxHost(architecture: 'arm64');
+      final runner = ProcessRunner(
+        host,
+        configuration: ProcessConfiguration(
+          normalizedTools: const {'cc': '/host/cc'},
+          effectiveChildEnvironment: const {},
+        ),
       );
-      expect(compiler.executable, '/usr/bin/xcrun');
-      expect(compiler.arguments, ['--sdk', 'macosx', 'clang']);
+      final compiler = await LinuxNativeHostTools(
+        host,
+        runner,
+      ).compiler('/cross/clang');
+      expect(compiler.executable, '/host/cc');
+      expect(compiler.arguments, isEmpty);
     },
   );
-
-  test('Linux host compiler retains PATH cc without Apple arguments', () async {
-    final compiler = await resolveHostCompiler(
-      '/cross/clang',
-      windows: false,
-      macos: false,
-      locate: (name) async {
-        expect(name, 'cc');
-        return '/host/cc';
-      },
-    );
-    expect(compiler.executable, '/host/cc');
-    expect(compiler.arguments, isEmpty);
-  });
 
   test('Unix host compiler prefix arguments are shell quoted', () async {
     final temp = await Directory.systemTemp.createTemp('host-prefix-shim-');
@@ -932,6 +1115,7 @@ void main() {
     final shim = File(p.join(temp.path, 'clang'))
       ..writeAsStringSync(
         renderUnixCompilerShim(
+          target: const IPhoneBuildPlatform(),
           iosSdk: '/simulator-sdk',
           clang: '/cross/clang',
           hostCompiler: '/usr/bin/printf',
@@ -973,7 +1157,10 @@ void main() {
       expect(iosSdk.exitCode, 0, reason: iosSdk.stderr.toString());
       environment['PATH'] =
           '${p.dirname(native.stdout.toString().trim())}:/usr/bin:/bin';
-      final compiler = await resolveHostCompiler('/cross/clang');
+      final compiler = await MacOSNativeHostTools(
+        MacOSHost(architecture: 'arm64'),
+        ProcessRunner(MacOSHost(architecture: 'arm64')),
+      ).compiler('/cross/clang');
       final shims = p.join(temp.path, 'shims');
       await installAppleToolShims(
         shims,
@@ -989,8 +1176,9 @@ void main() {
           installNameTool: null,
           xcrun: '/usr/bin/xcrun',
           deploymentTarget: '15.0',
-          simulator: true,
+          target: const SimulatorBuildPlatform(),
         ),
+        renderer: PosixAppleToolShimRenderer(_linuxHost),
       );
       final source = File(p.join(temp.path, 'host.c'))
         ..writeAsStringSync(
@@ -1037,62 +1225,38 @@ void main() {
         expect(run.stdout, 'native host\n');
       }
     },
-    skip: !Platform.isMacOS,
+    skip:
+        !Platform.isMacOS ||
+        Platform.environment['XCROSS_NATIVE_COMPILER_ACCEPTANCE'] != '1',
   );
 
-  test('Windows resolves xcross as the tool forwarder', () async {
-    expect(
-      await resolveNativeAssetToolForwarder(
-        r'C:\bundle\xcross.exe',
-        windows: true,
-        findInstalled: () async => fail('must not search'),
+  test('Windows resolves native forwarders and configured launchers', () async {
+    final tmp = await Directory.systemTemp.createTemp('native-forwarder-');
+    addTearDown(() => tmp.delete(recursive: true));
+    final launcher = File(p.join(tmp.path, 'xcross.exe'))
+      ..writeAsStringSync('');
+    final host = _windowsHost();
+    final runner = ProcessRunner(
+      host,
+      configuration: ProcessConfiguration(
+        normalizedTools: {'xcross': launcher.path},
+        effectiveChildEnvironment: const {},
       ),
+    );
+    final tools = WindowsNativeHostTools(host, runner);
+    expect(
+      await tools.forwarder(r'C:\bundle\xcross.exe', null),
       r'C:\bundle\xcross.exe',
     );
+    expect(await tools.forwarder('/dart', launcher.path), launcher.path);
+    expect(await tools.forwarder('/dart', null), launcher.path);
     expect(
-      await resolveNativeAssetToolForwarder(
-        r'C:\flutter\bin\cache\dart-sdk\bin\dart.exe',
-        windows: true,
-        findInstalled: () async => r'C:\installed\xcross.exe',
-      ),
-      r'C:\installed\xcross.exe',
-    );
-    expect(
-      await resolveNativeAssetToolForwarder(
-        r'C:\flutter\bin\cache\dart-sdk\bin\dartaotruntime',
-        windows: true,
-        findInstalled: () async => null,
-      ),
+      await WindowsNativeHostTools(
+        host,
+        ProcessRunner(host),
+      ).forwarder('/dart', null),
       isNull,
     );
-  });
-
-  test('Windows prefers a configured native xcross launcher', () async {
-    final tmp = await Directory.systemTemp.createTemp('apple_shims_fwd-');
-    try {
-      final launcher = File(p.join(tmp.path, 'xcross.exe'))
-        ..writeAsStringSync('');
-      expect(
-        await resolveNativeAssetToolForwarder(
-          r'C:\flutter\bin\cache\dart-sdk\bin\dart.exe',
-          windows: true,
-          launcher: launcher.path,
-          findInstalled: () async => fail('must not search'),
-        ),
-        launcher.path,
-      );
-      expect(
-        await resolveNativeAssetToolForwarder(
-          r'C:\flutter\bin\cache\dart-sdk\bin\dart.exe',
-          windows: true,
-          launcher: p.join(tmp.path, 'xcross.bat'),
-          findInstalled: () async => null,
-        ),
-        isNull,
-      );
-    } finally {
-      await tmp.delete(recursive: true);
-    }
   });
 
   test('Windows refuses batch compiler shims without a forwarder', () async {
@@ -1102,6 +1266,7 @@ void main() {
         installAppleToolShims(
           tmp.path,
           const AppleToolShimConfig(
+            target: IPhoneBuildPlatform(),
             iosSdk: r'C:\SDK\iPhoneOS.sdk',
             clang: r'C:\LLVM\clang.exe',
             hostCompiler: r'C:\LLVM\clang.exe',
@@ -1113,7 +1278,7 @@ void main() {
             installNameTool: null,
             xcrun: r'C:\xcross\xcrun.exe',
           ),
-          windows: true,
+          renderer: WindowsAppleToolShimRenderer(_windowsHost()),
         ),
         throwsA(
           isA<FlutterBuildError>().having(
@@ -1136,7 +1301,10 @@ void main() {
       final xcrun = File(
         p.join(tmp.path, Platform.isWindows ? 'xcrun.exe' : 'xcrun'),
       )..writeAsStringSync('');
-      expect(await resolveXcrun(launcher: launcher.path), xcrun.path);
+      expect(
+        await _resolver(launcher: launcher.path).resolveXcrun(),
+        xcrun.path,
+      );
     } finally {
       await tmp.delete(recursive: true);
     }
@@ -1147,16 +1315,15 @@ void main() {
     () async {
       final tmp = await Directory.systemTemp.createTemp('apple_shims_config-');
       try {
-        addTearDown(resetAppleToolShimLauncherOverride);
         final launcher = File(p.join(tmp.path, 'xcross'))
           ..writeAsStringSync('');
         File(p.join(tmp.path, 'xcrun')).writeAsStringSync('');
-        configureAppleToolShimResolution(
+        final resolver = _resolver(
           launcher: launcher.path,
           xcrun: '/configured/xcrun',
           declarative: true,
         );
-        expect(await resolveXcrun(), '/configured/xcrun');
+        expect(await resolver.resolveXcrun(), '/configured/xcrun');
       } finally {
         await tmp.delete(recursive: true);
       }
@@ -1164,9 +1331,11 @@ void main() {
   );
 
   test('declarative xcrun only checks a configured launcher sibling', () async {
-    addTearDown(resetAppleToolShimLauncherOverride);
-    configureAppleToolShimResolution(declarative: true);
-    await expectLater(resolveXcrun(), throwsA(isA<FlutterBuildError>()));
+    final resolver = _resolver(declarative: true);
+    await expectLater(
+      resolver.resolveXcrun(),
+      throwsA(isA<FlutterBuildError>()),
+    );
   });
 
   test('Windows exposes a recognizable clang executable forwarder', () async {
@@ -1181,6 +1350,7 @@ void main() {
       await installAppleToolShims(
         shims.path,
         AppleToolShimConfig(
+          target: const IPhoneBuildPlatform(),
           iosSdk: r'C:\SDK\iPhoneOS.sdk',
           clang: r'C:\LLVM\clang.exe',
           hostCompiler: r'C:\LLVM\clang.exe',
@@ -1193,7 +1363,7 @@ void main() {
           xcrun: xcrun.path,
         ),
         toolForwarderExecutable: forwarder.path,
-        windows: true,
+        renderer: WindowsAppleToolShimRenderer(_windowsHost()),
       );
 
       final clang = File(p.join(shims.path, 'clang.exe'));
@@ -1226,6 +1396,7 @@ void main() {
       await installAppleToolShims(
         tmp.path,
         const AppleToolShimConfig(
+          target: IPhoneBuildPlatform(),
           iosSdk: '/sdk/iPhoneOS.sdk',
           clang: '/bin/echo',
           hostCompiler: '/bin/echo',
@@ -1238,6 +1409,7 @@ void main() {
           xcrun: '/bin/echo',
         ),
         toolForwarderExecutable: Platform.resolvedExecutable,
+        renderer: PosixAppleToolShimRenderer(_linuxHost),
       );
       expect(File(p.join(tmp.path, 'xcrun')).existsSync(), isTrue);
       expect(File(p.join(tmp.path, 'plutil')).existsSync(), isTrue);
@@ -1387,9 +1559,10 @@ IosEngineCache _workspaceSdk(
     p.join(root, 'bin', 'internal', 'engine.version'),
   ).writeAsStringSync('engine-hash');
   final cache = IosEngineCache(
+    targetPolicy: IPhoneFlutterTarget(IPhoneTarget(_linuxHost)),
+    hostTools: LinuxNativeHostTools(_linuxHost, ProcessRunner(_linuxHost)),
     flutterRoot: root,
     cacheRoot: cacheRoot,
-    hostAbi: Abi.linuxArm64,
   );
   Directory(cache.flutterXcframework).createSync(recursive: true);
   Directory(cache.patchedSdkRoot).createSync(recursive: true);
@@ -1464,4 +1637,109 @@ List<String> _dylibNames(Uint8List bytes) {
     offset += size;
   }
   return names;
+}
+
+AppleToolShimResolver<LinuxHost> _resolver({
+  String? launcher,
+  String? xcrun,
+  bool declarative = false,
+}) {
+  final host = LinuxHost(architecture: 'arm64');
+  final runner = ProcessRunner(host);
+  return AppleToolShimResolver(
+    IPhoneTarget(host),
+    runner,
+    DarwinSdkRepository(host),
+    DarwinToolchainResolver(runner, LinuxDarwinToolchainLocations(host)),
+    launcher: launcher,
+    xcrun: xcrun,
+    declarative: declarative,
+    hostTools: LinuxNativeHostTools(host, runner),
+    executable: '/isolated/dart',
+  );
+}
+
+WindowsHost _windowsHost() => WindowsHost(
+  architecture: 'x64',
+  paths: PosixPaths(),
+  processes: _WindowsFixtureProcesses(),
+  fileSystem: PosixFileSystem(PosixPaths()),
+  environment: const {'PATH': '', 'PATHEXT': '.EXE'},
+);
+
+final class _WindowsFixtureProcesses implements HostProcessInterface {
+  @override
+  Future<Process> start(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+    Map<String, String>? environment,
+    bool includeParentEnvironment = true,
+    bool runInShell = false,
+    ProcessStartMode mode = ProcessStartMode.normal,
+  }) {
+    if (arguments.length == 5 && arguments[1] == 'mklink') {
+      return Process.start('/bin/ln', [
+        '-s',
+        arguments[4],
+        arguments[3],
+      ], mode: mode);
+    }
+    return Process.start(
+      executable,
+      arguments,
+      workingDirectory: workingDirectory,
+      environment: environment,
+      includeParentEnvironment: includeParentEnvironment,
+      runInShell: runInShell,
+      mode: mode,
+    );
+  }
+
+  @override
+  Future<String?> findOnShellPath(
+    String name, {
+    Map<String, String>? environment,
+    bool includeParentEnvironment = true,
+  }) async => name == 'cmd' ? '/fixture/cmd' : null;
+  @override
+  Future<void> killTree(Process process) async {
+    process.kill();
+  }
+}
+
+final _linuxHost = LinuxHost(architecture: 'arm64');
+List<(String, NativeHostTools, FlutterTargetBuildPolicy)> _hostCases() {
+  final linuxArm = LinuxHost(architecture: 'arm64');
+  final linuxX64 = LinuxHost(architecture: 'x64');
+  final macArm = MacOSHost(architecture: 'arm64');
+  final macX64 = MacOSHost(architecture: 'x64');
+  final windows = _windowsHost();
+  return [
+    (
+      'linux-arm64',
+      LinuxNativeHostTools(linuxArm, ProcessRunner(linuxArm)),
+      IPhoneFlutterTarget(IPhoneTarget(linuxArm)),
+    ),
+    (
+      'linux-x64',
+      LinuxNativeHostTools(linuxX64, ProcessRunner(linuxX64)),
+      IPhoneFlutterTarget(IPhoneTarget(linuxX64)),
+    ),
+    (
+      'darwin-arm64',
+      MacOSNativeHostTools(macArm, ProcessRunner(macArm)),
+      IPhoneFlutterTarget(IPhoneTarget(macArm)),
+    ),
+    (
+      'darwin-x64',
+      MacOSNativeHostTools(macX64, ProcessRunner(macX64)),
+      IPhoneFlutterTarget(IPhoneTarget(macX64)),
+    ),
+    (
+      'windows-x64',
+      WindowsNativeHostTools(windows, ProcessRunner(windows)),
+      IPhoneFlutterTarget(IPhoneTarget(windows)),
+    ),
+  ];
 }

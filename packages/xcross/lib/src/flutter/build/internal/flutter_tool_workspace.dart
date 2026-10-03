@@ -22,13 +22,17 @@ final class FlutterToolWorkspace {
   /// Kept deliberately: see [_workspaceRoot].
   Future<void> dispose() async {}
 
-  static Future<FlutterToolWorkspace> create({
+  static Future<FlutterToolWorkspace> create<T extends PlatformHostInterface>({
     required String flutterRoot,
-    required IosEngineCache engineCache,
+    required IosEngineCache<T> engineCache,
   }) async {
-    final sourceRoot = await Directory(flutterRoot).resolveSymbolicLinks();
+    final sourceRoot = await engineCache.host.fileSystem
+        .directory(flutterRoot)
+        .resolveSymbolicLinks();
     final root = _workspaceRoot(engineCache, sourceRoot);
-    final marker = File(p.join(root, '.xcross-workspace-ready'));
+    final marker = engineCache.host.fileSystem.file(
+      p.join(root, '.xcross-workspace-ready'),
+    );
     if (marker.existsSync() &&
         await marker.readAsString() == _readyMarkerContents &&
         await _isReady(
@@ -38,15 +42,19 @@ final class FlutterToolWorkspace {
         )) {
       return FlutterToolWorkspace._(
         flutterRoot: root,
-        dart: _dartPath(sourceRoot),
+        dart: _dartPath(sourceRoot, engineCache.host),
         flutterToolsSnapshot: _snapshotPath(sourceRoot),
       );
     }
-    await _deleteFailedWorkspace(root);
-    await Directory(root).create(recursive: true);
+    await _deleteFailedWorkspace(engineCache, root);
+    await engineCache.host.fileSystem.directory(root).create(recursive: true);
     try {
-      final cache = await _createCacheDirectory(root);
-      await _overlaySdkMetadata(flutterRoot: sourceRoot, workspaceRoot: root);
+      final cache = await _createCacheDirectory(engineCache, root);
+      await _overlaySdkMetadata(
+        engineCache: engineCache,
+        flutterRoot: sourceRoot,
+        workspaceRoot: root,
+      );
 
       final sdkCache = p.join(sourceRoot, 'bin', 'cache');
       await _overlaySdkCache(
@@ -58,30 +66,34 @@ final class FlutterToolWorkspace {
       await marker.writeAsString(_readyMarkerContents);
       return FlutterToolWorkspace._(
         flutterRoot: root,
-        dart: _dartPath(sourceRoot),
+        dart: _dartPath(sourceRoot, engineCache.host),
         flutterToolsSnapshot: _snapshotPath(sourceRoot),
       );
     } on Object {
-      await _deleteFailedWorkspace(root);
+      await _deleteFailedWorkspace(engineCache, root);
       rethrow;
     }
   }
 
-  static String _dartPath(String flutterRoot) => p.join(
-    flutterRoot,
-    'bin',
-    'cache',
-    'dart-sdk',
-    'bin',
-    Platform.isWindows ? 'dart.exe' : 'dart',
-  );
+  static String _dartPath(String flutterRoot, PlatformHostInterface host) =>
+      p.join(
+        flutterRoot,
+        'bin',
+        'cache',
+        'dart-sdk',
+        'bin',
+        host.paths.executableName('dart'),
+      );
 
   static String _snapshotPath(String flutterRoot) =>
       p.join(flutterRoot, 'bin', 'cache', 'flutter_tools.snapshot');
 
-  static Future<void> _deleteFailedWorkspace(String root) async {
+  static Future<void> _deleteFailedWorkspace(
+    IosEngineCache engineCache,
+    String root,
+  ) async {
     try {
-      await Directory(root).delete(recursive: true);
+      await engineCache.host.fileSystem.directory(root).delete(recursive: true);
     } on FileSystemException {
       return;
     }
@@ -109,7 +121,9 @@ final class FlutterToolWorkspace {
     'workspaces',
     'flutter',
     engineCache.hostArtifactPlatform,
-    sha256.convert(utf8.encode(flutterRoot)).toString(),
+    sha256
+        .convert(utf8.encode(engineCache.host.paths.pathKey(flutterRoot)))
+        .toString(),
   );
 
   static Future<bool> _isReady({
@@ -133,7 +147,9 @@ final class FlutterToolWorkspace {
     };
     try {
       for (final entry in links.entries) {
-        if (!await _matchesLink(entry.key, entry.value)) return false;
+        if (!await _matchesLink(engineCache, entry.key, entry.value)) {
+          return false;
+        }
       }
       for (final (source, destination, skip) in [
         (
@@ -149,17 +165,23 @@ final class FlutterToolWorkspace {
           {'ios', engineCache.hostEngineCacheDirectory, 'common'},
         ),
       ]) {
-        if (!Directory(source).existsSync()) continue;
-        await for (final entity in Directory(source).list(followLinks: false)) {
+        if (!engineCache.host.fileSystem.directory(source).existsSync()) {
+          continue;
+        }
+        await for (final entity
+            in engineCache.host.fileSystem
+                .directory(source)
+                .list(followLinks: false)) {
           final name = p.basename(entity.path);
           if (skip.contains(name)) continue;
           final target = p.join(destination, name);
           if (entity is File) {
-            if (!File(target).existsSync() ||
-                await File(target).length() != await entity.length()) {
+            if (!engineCache.host.fileSystem.file(target).existsSync() ||
+                await engineCache.host.fileSystem.file(target).length() !=
+                    await entity.length()) {
               return false;
             }
-          } else if (!await _matchesLink(target, entity.path)) {
+          } else if (!await _matchesLink(engineCache, target, entity.path)) {
             return false;
           }
         }
@@ -170,30 +192,45 @@ final class FlutterToolWorkspace {
     }
   }
 
-  static Future<bool> _matchesLink(String path, String target) async =>
-      p.equals(
-        await File(path).resolveSymbolicLinks(),
-        await File(target).resolveSymbolicLinks(),
+  static Future<bool> _matchesLink(
+    IosEngineCache engineCache,
+    String path,
+    String target,
+  ) async =>
+      engineCache.host.paths.pathKey(
+        await engineCache.host.fileSystem.file(path).resolveSymbolicLinks(),
+      ) ==
+      engineCache.host.paths.pathKey(
+        await engineCache.host.fileSystem.file(target).resolveSymbolicLinks(),
       );
 
-  static Future<String> _createCacheDirectory(String workspaceRoot) async {
+  static Future<String> _createCacheDirectory(
+    IosEngineCache engineCache,
+    String workspaceRoot,
+  ) async {
     final cache = p.join(workspaceRoot, 'bin', 'cache');
-    await Directory(cache).create(recursive: true);
+    await engineCache.host.fileSystem.directory(cache).create(recursive: true);
     return cache;
   }
 
   static Future<void> _overlaySdkMetadata({
+    required IosEngineCache engineCache,
     required String flutterRoot,
     required String workspaceRoot,
   }) async {
     await _link(
+      engineCache,
       p.join(workspaceRoot, 'packages'),
       p.join(flutterRoot, 'packages'),
     );
 
     final sdkInternal = p.join(flutterRoot, 'bin', 'internal');
-    if (Directory(sdkInternal).existsSync()) {
-      await _overlay(sdkInternal, p.join(workspaceRoot, 'bin', 'internal'));
+    if (engineCache.host.fileSystem.directory(sdkInternal).existsSync()) {
+      await _overlay(
+        engineCache,
+        sdkInternal,
+        p.join(workspaceRoot, 'bin', 'internal'),
+      );
     }
   }
 
@@ -202,15 +239,27 @@ final class FlutterToolWorkspace {
     required String workspaceCache,
     required IosEngineCache engineCache,
   }) async {
-    if (Directory(sdkCache).existsSync()) {
-      await _overlay(sdkCache, workspaceCache, skip: const {'artifacts'});
+    if (engineCache.host.fileSystem.directory(sdkCache).existsSync()) {
+      await _overlay(
+        engineCache,
+        sdkCache,
+        workspaceCache,
+        skip: const {'artifacts'},
+      );
     }
 
     final sdkArtifacts = p.join(sdkCache, 'artifacts');
     final artifacts = p.join(workspaceCache, 'artifacts');
-    await Directory(artifacts).create(recursive: true);
-    if (Directory(sdkArtifacts).existsSync()) {
-      await _overlay(sdkArtifacts, artifacts, skip: const {'engine'});
+    await engineCache.host.fileSystem
+        .directory(artifacts)
+        .create(recursive: true);
+    if (engineCache.host.fileSystem.directory(sdkArtifacts).existsSync()) {
+      await _overlay(
+        engineCache,
+        sdkArtifacts,
+        artifacts,
+        skip: const {'engine'},
+      );
     }
 
     await _overlayEngine(
@@ -227,9 +276,10 @@ final class FlutterToolWorkspace {
   }) async {
     final sdkEngine = p.join(sdkArtifacts, 'engine');
     final engine = p.join(artifacts, 'engine');
-    await Directory(engine).create(recursive: true);
-    if (Directory(sdkEngine).existsSync()) {
+    await engineCache.host.fileSystem.directory(engine).create(recursive: true);
+    if (engineCache.host.fileSystem.directory(sdkEngine).existsSync()) {
       await _overlay(
+        engineCache,
         sdkEngine,
         engine,
         skip: {'ios', engineCache.hostEngineCacheDirectory, 'common'},
@@ -244,68 +294,73 @@ final class FlutterToolWorkspace {
     required IosEngineCache engineCache,
   }) async {
     await _link(
+      engineCache,
       p.join(engine, 'ios'),
       p.dirname(engineCache.flutterXcframework),
     );
     await _link(
+      engineCache,
       p.join(engine, engineCache.hostEngineCacheDirectory),
       p.dirname(engineCache.vmSnapshotData),
     );
     await _link(
+      engineCache,
       p.join(engine, 'common'),
       p.dirname(engineCache.patchedSdkRoot),
     );
   }
 
   static Future<void> _overlay(
+    IosEngineCache engineCache,
     String source,
     String destination, {
     Set<String> skip = const {},
   }) async {
-    await for (final entity in Directory(source).list(followLinks: false)) {
+    await for (final entity
+        in engineCache.host.fileSystem
+            .directory(source)
+            .list(followLinks: false)) {
       final name = p.basename(entity.path);
       if (skip.contains(name)) {
         continue;
       }
       final target = p.join(destination, name);
-      await Directory(destination).create(recursive: true);
+      await engineCache.host.fileSystem
+          .directory(destination)
+          .create(recursive: true);
       if (entity is File) {
         await entity.copy(target);
       } else {
-        await _link(target, entity.path);
+        await _link(engineCache, target, entity.path);
       }
     }
   }
 
-  static Future<void> _link(String path, String target) async {
-    if (FileSystemEntity.typeSync(path, followLinks: false) !=
+  static Future<void> _link(
+    IosEngineCache engineCache,
+    String path,
+    String target,
+  ) async {
+    if (FileSystemEntity.typeSync(
+          engineCache.host.paths.ioPath(path),
+          followLinks: false,
+        ) !=
         FileSystemEntityType.notFound) {
       return;
     }
-    await Directory(p.dirname(path)).create(recursive: true);
+    await engineCache.host.fileSystem
+        .directory(p.dirname(path))
+        .create(recursive: true);
     final absoluteTarget = p.normalize(p.absolute(target));
     final resolvedTarget =
-        FileSystemEntity.typeSync(absoluteTarget) ==
+        FileSystemEntity.typeSync(
+              engineCache.host.paths.ioPath(absoluteTarget),
+            ) ==
             FileSystemEntityType.notFound
         ? absoluteTarget
-        : await File(absoluteTarget).resolveSymbolicLinks();
-    if (!Platform.isWindows) {
-      await Link(path).create(resolvedTarget);
-      return;
-    }
-    final arguments = [
-      '/c',
-      'mklink',
-      if (Directory(resolvedTarget).existsSync()) '/J' else '/H',
-      path,
-      resolvedTarget,
-    ];
-    final result = await ProcessRunner.run(
-      await ProcessRunner.locateTool('cmd'),
-      arguments,
-    );
-    if (result.exitCode != 0) {
-      throw FileSystemException(result.stderr.trim(), path);
-    }
+        : await engineCache.host.fileSystem
+              .file(absoluteTarget)
+              .resolveSymbolicLinks();
+    await engineCache.hostTools.link(path, resolvedTarget);
   }
 }

@@ -1,7 +1,7 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
@@ -10,10 +10,10 @@ import 'package:xcross/src/flutter/build/internal/native_asset_frameworks.dart';
 import 'package:xcross/src/flutter/build/internal/native_assets_hook_discovery.dart';
 import 'package:xcross/src/flutter/build/internal/native_assets_manifest.dart';
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
-
 import 'package:xcross/src/flutter/build/ios_engine_cache.dart';
 import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/flutter/models/flutter/dart_defines.dart';
+import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer.dart';
 
 /// Native code assets produced by Flutter's Dart build-hook pipeline.
 @immutable
@@ -29,8 +29,12 @@ final class IosNativeAssetsBuildResult {
 
 /// Runs Flutter's iOS asset assembly to collect native assets and notices
 /// without replacing xcross's custom kernel/App.framework build.
-final class IosNativeAssetsBuilder {
+final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
   IosNativeAssetsBuilder({
+    required this.engineCache,
+    required this.renderer,
+    required this.runner,
+    required this.tools,
     required this.projectRoot,
     required this.flutterRoot,
     required this.deploymentTarget,
@@ -39,6 +43,12 @@ final class IosNativeAssetsBuilder {
     this.flavor,
   });
 
+  final IosEngineCache<T> engineCache;
+  final AppleToolShimRenderer<T> renderer;
+  IosTarget<T> get target => engineCache.target;
+  T get host => target.host;
+  final ProcessRunner<T> runner;
+  final AppleToolShimResolver<T> tools;
   final String projectRoot;
   final String flutterRoot;
   final IosDeploymentTarget deploymentTarget;
@@ -47,13 +57,11 @@ final class IosNativeAssetsBuilder {
   final String? flavor;
 
   Future<IosNativeAssetsBuildResult> build() async {
-    final output = p.joinAll([
+    final output = engineCache.targetPolicy.buildDirectory(
       projectRoot,
-      'build',
-      if (deploymentTarget.simulator) 'xcross-ios-simulator',
       'xcross-native-assets',
-    ]);
-    final outputDirectory = Directory(output);
+    );
+    final outputDirectory = host.fileSystem.directory(output);
     // Deliberately not cleared. `flutter assemble` is incremental and treats
     // this directory as its output set, so deleting it forced every target,
     // including every native build hook, to re-run on each build.
@@ -63,31 +71,27 @@ final class IosNativeAssetsBuilder {
       return _buildBundleWithoutHooks(output);
     }
 
-    final tools = await AppleToolShimConfig.resolve(
-      deploymentTarget.version,
-      simulator: deploymentTarget.simulator,
-    );
-    final forwarder = await resolveNativeAssetToolForwarder(
-      Platform.resolvedExecutable,
+    final config = await tools.resolve(deploymentTarget.version);
+    final forwarder = await tools.resolveNativeAssetToolForwarder(
+      tools.executable,
     );
     if (forwarder == null) throw missingNativeAssetToolForwarderError();
-    final engineCache = IosEngineCache(
-      flutterRoot: flutterRoot,
-      simulator: deploymentTarget.simulator,
-    );
     await engineCache.ensureArtifactsAvailable();
     final workspace = await FlutterToolWorkspace.create(
       flutterRoot: flutterRoot,
       engineCache: engineCache,
     );
-    final shims = await Directory.systemTemp.createTemp('xcross-apple-tools-');
+    final shims = await host.fileSystem
+        .directory(host.paths.temporaryRoot)
+        .createTemp('xcross-apple-tools-');
     try {
       await installAppleToolShims(
         shims.path,
-        tools,
+        config,
+        renderer: renderer,
         toolForwarderExecutable: forwarder,
       );
-      await _runFlutterAssemble(output, shims.path, tools.iosSdk, workspace);
+      await _runFlutterAssemble(output, shims.path, config.iosSdk, workspace);
     } finally {
       try {
         await shims.delete(recursive: true);
@@ -102,13 +106,13 @@ final class IosNativeAssetsBuilder {
       'flutter_assets',
       'NativeAssetsManifest.json',
     );
-    if (!File(manifest).existsSync()) {
+    if (!host.fileSystem.file(manifest).existsSync()) {
       throw FlutterBuildError(
         'Flutter native-assets build did not produce $manifest',
       );
     }
 
-    final manifestFile = File(manifest);
+    final manifestFile = host.fileSystem.file(manifest);
     final original = await manifestFile.readAsString();
     final normalized = normalizeIosNativeAssetsManifest(original);
     if (normalized != original) await manifestFile.writeAsString(normalized);
@@ -119,7 +123,7 @@ final class IosNativeAssetsBuilder {
       projectRoot: projectRoot,
     );
     final frameworks = await stageNativeAssetFrameworks(sources, output);
-    await thinFrameworksToArm64(frameworks, lipo: tools.lipo);
+    await thinFrameworksToArm64(frameworks, lipo: config.lipo, runner: runner);
     await alignNativeAssetLinkedit(frameworks);
     await normalizeNativeAssetInstallNames(frameworks);
 
@@ -132,10 +136,6 @@ final class IosNativeAssetsBuilder {
   Future<IosNativeAssetsBuildResult> _buildBundleWithoutHooks(
     String output,
   ) async {
-    final engineCache = IosEngineCache(
-      flutterRoot: flutterRoot,
-      simulator: deploymentTarget.simulator,
-    );
     await engineCache.ensureArtifactsAvailable();
     final workspace = await FlutterToolWorkspace.create(
       flutterRoot: flutterRoot,
@@ -143,7 +143,7 @@ final class IosNativeAssetsBuilder {
     );
     final assets = p.join(output, 'App.framework', 'flutter_assets');
     try {
-      await ProcessRunner.runChecked(
+      await runner.runChecked(
         workspace.dart,
         [workspace.flutterToolsSnapshot, ...assembleArguments(output: assets)],
         workingDirectory: projectRoot,
@@ -156,7 +156,7 @@ final class IosNativeAssetsBuilder {
     }
 
     final manifest = p.join(assets, 'NativeAssetsManifest.json');
-    if (!File(manifest).existsSync()) {
+    if (!host.fileSystem.file(manifest).existsSync()) {
       throw FlutterBuildError('Flutter asset bundle did not produce $manifest');
     }
     return IosNativeAssetsBuildResult(
@@ -193,7 +193,7 @@ final class IosNativeAssetsBuilder {
     String iosSdk,
     FlutterToolWorkspace workspace,
   ) async {
-    await ProcessRunner.runChecked(
+    await runner.runChecked(
       workspace.dart,
       [
         workspace.flutterToolsSnapshot,
@@ -206,10 +206,7 @@ final class IosNativeAssetsBuilder {
         'FLUTTER_ROOT': workspace.flutterRoot,
         'PATH': _prependPath(
           shimDirectory,
-          ProcessRunner.environmentValue(
-            ProcessRunner.effectiveEnvironment,
-            'PATH',
-          ),
+          runner.environmentValue(runner.effectiveEnvironment, 'PATH'),
         ),
       },
       inheritStdio: Log.isVerbose,
@@ -218,7 +215,9 @@ final class IosNativeAssetsBuilder {
   }
 
   String _prependPath(String directory, String? base) =>
-      base == null || base.isEmpty
-      ? directory
-      : '$directory${Platform.isWindows ? ';' : ':'}$base';
+      host.environment.joinPathList([
+        directory,
+        if (base != null && base.isNotEmpty)
+          ...host.environment.splitPathList(base),
+      ]);
 }

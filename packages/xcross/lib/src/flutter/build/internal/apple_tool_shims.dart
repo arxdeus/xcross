@@ -1,12 +1,9 @@
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:meta/meta.dart';
-import 'package:path/path.dart' as p;
-import 'package:xcross/src/flutter/build/internal/apple_tool_shim_templates.dart';
 import 'package:xcross/src/flutter/errors.dart';
+import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer.dart';
+import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
 
 @immutable
 final class OtoolConfig {
@@ -29,8 +26,8 @@ final class AppleToolShimConfig {
     required this.installNameTool,
     required this.xcrun,
     required this.deploymentTarget,
+    required this.target,
     this.hostCompilerArguments = const [],
-    this.simulator = false,
   });
 
   final String iosSdk;
@@ -44,166 +41,111 @@ final class AppleToolShimConfig {
   final String? installNameTool;
   final String xcrun;
   final String deploymentTarget;
-  final bool simulator;
+  final IosBuildPlatformInterface target;
+}
 
-  IosTarget get target => simulator ? IosTarget.simulator : IosTarget.device;
+final class AppleToolShimResolver<T extends PlatformHostInterface> {
+  AppleToolShimResolver(
+    this.target,
+    this.runner,
+    this.repository,
+    this.toolchain, {
+    required this.executable,
+    required this.hostTools,
+    this.launcher,
+    this.xcrun,
+    this.declarative = false,
+  });
+  final IosTarget<T> target;
+  T get host => target.host;
+  final ProcessRunner<T> runner;
+  final DarwinSdkRepository<T> repository;
+  final DarwinToolchainResolver<T> toolchain;
+  final NativeHostTools<T> hostTools;
+  final String? launcher;
+  final String? xcrun;
+  final bool declarative;
+  final String executable;
 
-  static Future<AppleToolShimConfig> resolve(
-    String deploymentTarget, {
-    bool simulator = false,
-  }) async {
-    final sdk = DarwinSdk.current();
+  Future<AppleToolShimConfig> resolve(String deploymentTarget) async {
+    final sdk = repository.current();
     if (sdk == null) {
       throw FlutterBuildError(
-        'Native assets require an installed Darwin SDK. Run '
-        '`xcross sdk install <Xcode.xip|Xcode.app>` first.',
+        'Native assets require an installed Darwin SDK. Run `xcross sdk install <Xcode.xip|Xcode.app>` first.',
       );
     }
-    final clang = await DarwinSdk.resolveDarwinClang(sdk);
-    final hostCompiler = await resolveHostCompiler(clang);
+    final iosSdk = repository.iosSdk(sdk, target: target.buildPlatform);
+    final clang = await toolchain.resolveDarwinClang(iosSdk);
+    final compiler = await resolveHostCompiler(clang);
     return AppleToolShimConfig(
-      iosSdk: sdk.iosSdk(
-        target: simulator ? IosTarget.simulator : IosTarget.device,
-      ),
+      iosSdk: iosSdk,
       clang: clang,
-      hostCompiler: hostCompiler.executable,
-      hostCompilerArguments: hostCompiler.arguments,
+      hostCompiler: compiler.executable,
+      hostCompilerArguments: compiler.arguments,
       archiver: await _locateArchiver(clang),
-      linker: await DarwinSdk.resolveLd64Lld(sdk),
+      linker: await toolchain.resolveLd64Lld(),
       lipo: await locateLlvmTool('llvm-lipo'),
       otool: await resolveOtool(),
       installNameTool: await findLlvmTool('llvm-install-name-tool'),
       xcrun: await resolveXcrun(),
       deploymentTarget: deploymentTarget,
-      simulator: simulator,
+      target: target.buildPlatform,
     );
   }
-}
 
-String? _launcherOverride;
-String? _xcrunOverride;
-bool _declarative = false;
-
-/// Configures helper resolution without coupling this layer to config types.
-void configureAppleToolShimResolution({
-  required bool declarative,
-  String? launcher,
-  String? xcrun,
-}) {
-  _launcherOverride = launcher;
-  _xcrunOverride = xcrun;
-  _declarative = declarative;
-}
-
-/// Configures the launcher directory searched for bundled Apple tool shims.
-void configureAppleToolShimLauncherOverride(String? launcher) {
-  _launcherOverride = launcher;
-}
-
-/// Removes configured Apple tool-shim resolution.
-void resetAppleToolShimLauncherOverride() {
-  _launcherOverride = null;
-  _xcrunOverride = null;
-  _declarative = false;
-}
-
-Future<String> resolveXcrun({String? launcher}) async {
-  if (_xcrunOverride case final configured? when configured.isNotEmpty) {
-    return configured;
-  }
-  final effectiveLauncher = _launcherOverride ?? launcher;
-  if (effectiveLauncher != null) {
-    final sibling = p.join(
-      p.dirname(effectiveLauncher),
-      ProcessRunner.hostExecutableName('xcrun'),
+  Future<String> resolveXcrun({String? launcher}) async {
+    if (xcrun case final configured? when configured.isNotEmpty) {
+      return configured;
+    }
+    final effectiveLauncher = this.launcher ?? launcher;
+    if (effectiveLauncher != null) {
+      final sibling = host.paths.context.join(
+        host.paths.context.dirname(effectiveLauncher),
+        host.paths.executableName('xcrun'),
+      );
+      if (host.fileSystem.file(sibling).existsSync()) return sibling;
+    }
+    if (declarative) {
+      throw FlutterBuildError(
+        'xcrun not configured. Set tools.xcrun or configure an xcross launcher with a bundled xcrun sibling.',
+      );
+    }
+    final sibling = host.paths.context.join(
+      host.paths.context.dirname(executable),
+      host.paths.executableName('xcrun'),
     );
-    if (File(sibling).existsSync()) return sibling;
+    if (host.fileSystem.file(sibling).existsSync()) return sibling;
+    return runner.locateTool('xcrun');
   }
-  if (_declarative) {
-    throw FlutterBuildError(
-      'xcrun not configured. Set tools.xcrun or configure an xcross launcher '
-      'with a bundled xcrun sibling.',
+
+  Future<HostCompiler> resolveHostCompiler(String clang) =>
+      hostTools.compiler(clang);
+  Future<String?> resolveNativeAssetToolForwarder(
+    String executable, {
+    String? launcher,
+  }) => hostTools.forwarder(executable, launcher ?? this.launcher);
+  Future<String> _locateArchiver(String clang) async {
+    final beside = host.paths.context.join(
+      host.paths.context.dirname(clang),
+      host.paths.executableName('llvm-ar'),
     );
+    if (host.fileSystem.file(beside).existsSync()) return beside;
+    return locateLlvmTool('llvm-ar');
   }
-  final platformSibling = p.join(
-    p.dirname(Platform.resolvedExecutable),
-    ProcessRunner.hostExecutableName('xcrun'),
-  );
-  if (File(platformSibling).existsSync()) return platformSibling;
-  return ProcessRunner.locateTool('xcrun');
+
+  Future<String?> findLlvmTool(String name) =>
+      toolchain.locateLlvmTool(host.paths.executableName(name));
+  Future<String> locateLlvmTool(String name) async {
+    final tool = await findLlvmTool(name);
+    if (tool != null) return tool;
+    throw FlutterBuildError("Could not find '$name'. Install LLVM and retry.");
+  }
+
+  Future<OtoolConfig?> resolveOtool() => resolveOtoolWith(find: findLlvmTool);
 }
 
-Future<({String executable, List<String> arguments})> resolveHostCompiler(
-  String clang, {
-  bool? windows,
-  bool? macos,
-  Future<String> Function(String name)? locate,
-}) async {
-  if (windows ?? Platform.isWindows) {
-    return (executable: clang, arguments: const <String>[]);
-  }
-  if (macos ?? Platform.isMacOS) {
-    return (
-      executable: '/usr/bin/xcrun',
-      arguments: const ['--sdk', 'macosx', 'clang'],
-    );
-  }
-  return (
-    executable: await (locate ?? ProcessRunner.locateTool)('cc'),
-    arguments: const <String>[],
-  );
-}
-
-/// Locates the native `xcross.exe` that Windows tool aliases are copies of.
-///
-/// native_toolchain_c only recognizes a compiler whose path ends in
-/// `clang.exe`, so batch shims cannot stand in for it. Returns null when no
-/// native binary is available; callers must fail loudly rather than emit
-/// unusable shims.
-Future<String?> resolveNativeAssetToolForwarder(
-  String executable, {
-  bool? windows,
-  String? launcher,
-  Future<String?> Function()? findInstalled,
-}) async {
-  if (!(windows ?? Platform.isWindows)) return executable;
-  if (_isNativeXcross(executable)) return executable;
-  final configured = launcher ?? _launcherOverride;
-  if (configured != null &&
-      _isNativeXcross(configured) &&
-      File(configured).existsSync()) {
-    return configured;
-  }
-  return (findInstalled ?? () => ProcessRunner.which('xcross.exe'))();
-}
-
-bool _isNativeXcross(String path) =>
-    p.windows.basename(path).toLowerCase() == 'xcross.exe';
-
-FlutterBuildError missingNativeAssetToolForwarderError() => FlutterBuildError(
-  "Windows native assets need the native xcross.exe binary: Flutter's "
-  'native_toolchain_c only accepts a C compiler named clang.exe, so xcross '
-  'installs copies of xcross.exe as clang.exe/cc.exe/ar.exe/ld.exe tool '
-  'aliases. No xcross.exe was found (this happens when xcross runs through '
-  '`dart run` or a `dart pub global` .bat launcher). Install the xcross '
-  'release binary, add its directory to PATH, or set the xcross launcher path '
-  'in `xcross config`.',
-);
-
-Future<String> _locateArchiver(String clang) async {
-  final besideClang = p.join(
-    p.dirname(clang),
-    'llvm-ar${Platform.isWindows ? '.exe' : ''}',
-  );
-  if (File(besideClang).existsSync()) return besideClang;
-  return locateLlvmTool('llvm-ar');
-}
-
-Future<String?> findLlvmTool(String name) =>
-    DarwinSdk.locateLlvmTool(ProcessRunner.hostExecutableName(name));
-
-Future<OtoolConfig?> resolveOtool({
-  Future<String?> Function(String name) find = findLlvmTool,
+Future<OtoolConfig?> resolveOtoolWith({
+  required Future<String?> Function(String name) find,
 }) async {
   final otool = await find('llvm-otool');
   if (otool != null) return OtoolConfig(otool, usesObjdump: false);
@@ -211,186 +153,21 @@ Future<OtoolConfig?> resolveOtool({
   return objdump == null ? null : OtoolConfig(objdump, usesObjdump: true);
 }
 
-Future<String> locateLlvmTool(String name) async {
-  final tool = await findLlvmTool(name);
-  if (tool != null) return tool;
-  throw FlutterBuildError("Could not find '$name'. Install LLVM and retry.");
-}
+Future<OtoolConfig?> resolveOtool({
+  required Future<String?> Function(String name) find,
+}) => resolveOtoolWith(find: find);
 
-/// Installs the Apple command-line surface needed by Flutter build hooks.
-Future<void> installAppleToolShims(
+FlutterBuildError missingNativeAssetToolForwarderError() => FlutterBuildError(
+  "Windows native assets need the native xcross.exe binary: Flutter's native_toolchain_c only accepts a C compiler named clang.exe. Install the xcross release binary, add its directory to PATH, or set the xcross launcher path in `xcross config`.",
+);
+
+Future<void> installAppleToolShims<T extends PlatformHostInterface>(
   String directory,
   AppleToolShimConfig config, {
+  required AppleToolShimRenderer<T> renderer,
   String? toolForwarderExecutable,
-  bool? windows,
-}) async {
-  final isWindows = windows ?? Platform.isWindows;
-  await Directory(directory).create(recursive: true);
-  final otoolShim = p.join(directory, isWindows ? 'otool.bat' : 'otool');
-  final auxiliaryTools = <String, String>{
-    'lipo': config.lipo,
-    if (config.otool != null) 'otool': otoolShim,
-    if (config.installNameTool case final tool?) 'install_name_tool': tool,
-  };
-
-  if (isWindows) {
-    await _installWindowsToolShims(
-      directory,
-      config,
-      auxiliaryTools: auxiliaryTools,
-      toolForwarderExecutable: toolForwarderExecutable,
-    );
-    return;
-  }
-
-  await _installUnixToolShims(
-    directory,
-    config,
-    auxiliaryTools: auxiliaryTools,
-    toolForwarderExecutable: toolForwarderExecutable,
-  );
-}
-
-Future<void> _installWindowsToolShims(
-  String directory,
-  AppleToolShimConfig config, {
-  required Map<String, String> auxiliaryTools,
-  required String? toolForwarderExecutable,
-}) async {
-  if (toolForwarderExecutable == null) {
-    throw missingNativeAssetToolForwarderError();
-  }
-  for (final entry in {
-    'clang': config.clang,
-    'cc': config.clang,
-    'ar': config.archiver,
-    'ld': config.linker,
-  }.entries) {
-    final executable = p.join(directory, '${entry.key}.exe');
-    await File(toolForwarderExecutable).copy(executable);
-    await File('$executable.path').writeAsString(entry.value);
-    if (entry.key == 'clang' || entry.key == 'cc') {
-      await File('$executable.args').writeAsString(
-        jsonEncode([
-          '--target=${config.target.buildTriple(config.deploymentTarget)}',
-          '-isysroot',
-          config.iosSdk,
-          '-m${config.simulator ? 'ios-simulator' : 'iphoneos'}-version-min=${config.deploymentTarget}',
-          '-fuse-ld=lld',
-          '--ld-path=${config.linker}',
-          '-Wl,-arch,arm64',
-          '-Wl,-platform_version,${config.target.linkerPlatform},${config.deploymentTarget},26.5',
-        ]),
-      );
-    }
-  }
-  final xcrunShim = p.join(directory, 'xcrun.exe');
-  await File(config.xcrun).copy(xcrunShim);
-  await File('$xcrunShim.sdk').writeAsString(config.iosSdk);
-  await File(toolForwarderExecutable).copy(p.join(directory, 'plutil.exe'));
-
-  if (config.otool case final otool?) {
-    await File(p.join(directory, 'otool.ps1')).writeAsString(
-      renderPowerShellOtoolShim(
-        tool: otool.executable,
-        usesObjdump: otool.usesObjdump,
-      ),
-    );
-    await _writeWindowsShim(
-      directory,
-      'otool',
-      renderBatchPowerShellShim('otool.ps1'),
-    );
-  }
-
-  for (final tool in auxiliaryTools.entries) {
-    if (tool.key != 'otool') {
-      await _writeWindowsShim(
-        directory,
-        tool.key,
-        renderBatchToolShim(tool.value),
-      );
-    }
-  }
-  if (config.installNameTool == null) {
-    await _writeWindowsShim(directory, 'install_name_tool', batchCodesignShim);
-  }
-  await _writeWindowsShim(directory, 'codesign', batchCodesignShim);
-  await File(p.join(directory, 'rsync.ps1')).writeAsString(r'''
-$items = @($args | Where-Object { -not $_.StartsWith('-') -and $_ -ne '.DS_Store/' })
-if ($items.Count -lt 2) { exit 1 }
-$source = $items[$items.Count - 2]
-$destination = $items[$items.Count - 1]
-Copy-Item -LiteralPath $source -Destination $destination -Recurse -Force
-exit 0
-''');
-  await _writeWindowsShim(
-    directory,
-    'rsync',
-    renderBatchPowerShellShim('rsync.ps1'),
-  );
-}
-
-Future<void> _installUnixToolShims(
-  String directory,
-  AppleToolShimConfig config, {
-  required Map<String, String> auxiliaryTools,
-  required String? toolForwarderExecutable,
-}) async {
-  if (config.otool case final otool?) {
-    await _writeUnixShim(
-      directory,
-      'otool',
-      renderUnixOtoolShim(
-        tool: otool.executable,
-        usesObjdump: otool.usesObjdump,
-      ),
-    );
-  }
-  final compilerScript = renderUnixCompilerShim(
-    iosSdk: config.iosSdk,
-    clang: config.clang,
-    hostCompiler: config.hostCompiler,
-    hostCompilerArguments: config.hostCompilerArguments,
-    linker: config.linker,
-    deploymentTarget: config.deploymentTarget,
-    simulator: config.simulator,
-  );
-  await _writeUnixShim(directory, 'clang', compilerScript);
-  await _writeUnixShim(directory, 'cc', compilerScript);
-  // flutter_tools asks `xcrun --find ar` for the archiver, and xcrun prefers
-  // PATH. Without this shim that is the host's GNU ar, whose archives carry
-  // no Mach-O symbol index, so ld64.lld rejects them ("archive has no index").
-  await _writeUnixShim(directory, 'ar', renderUnixToolShim(config.archiver));
-  await _writeUnixShim(directory, 'xcrun', renderUnixXcrunShim(config.xcrun));
-  if (toolForwarderExecutable != null) {
-    await _writeUnixShim(
-      directory,
-      'plutil',
-      renderUnixToolShim(toolForwarderExecutable),
-    );
-  }
-
-  for (final tool in auxiliaryTools.entries) {
-    if (tool.key != 'otool') {
-      await _writeUnixShim(directory, tool.key, renderUnixToolShim(tool.value));
-    }
-  }
-  await _writeUnixShim(directory, 'codesign', unixCodesignShim);
-}
-
-Future<void> _writeUnixShim(
-  String directory,
-  String name,
-  String contents,
-) async {
-  final file = File(p.join(directory, name));
-  await file.writeAsString(contents);
-  ProcessRunner.makeExecutable(file.path);
-}
-
-Future<void> _writeWindowsShim(
-  String directory,
-  String name,
-  String contents,
-) => File(p.join(directory, '$name.bat')).writeAsString(contents);
+}) => renderer.install(
+  directory,
+  config,
+  toolForwarderExecutable: toolForwarderExecutable,
+);
