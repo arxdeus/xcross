@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:xcross/src/cli/basic/doctor_environment_checks.dart';
 import 'package:xcross/src/cli/basic/doctor_models.dart';
@@ -12,11 +10,12 @@ typedef DoctorProjectCheckRunner =
 
 final class DoctorExaminer {
   DoctorExaminer({
+    required String projectRoot,
     required DoctorEnvironmentChecks environmentChecks,
     required DoctorProjectChecks projectChecks,
   }) : this.withSeams(
          hostChecks: environmentChecks.host,
-         detectProject: _detectCurrentProject,
+         detectProject: () async => projectChecks.detect(projectRoot),
          projectChecks: projectChecks.examine,
          runChecks: environmentChecks.run,
        );
@@ -53,10 +52,6 @@ final class DoctorExaminer {
     return checks;
   }
 
-  static Future<DoctorProject?> _detectCurrentProject() async =>
-      detectProjectAt(Directory.current.path);
-  static DoctorProject? detectProjectAt(String root) =>
-      DoctorProjectChecks.detect(root);
   static Future<List<DoctorCheck>> deviceChecks(
     List<Device> devices, {
     required Future<int?> Function(Device device) osMajorVersion,

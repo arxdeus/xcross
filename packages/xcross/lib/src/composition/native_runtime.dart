@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:xcross/src/composition/xcross_host_context.dart';
 import 'package:xcross/src/composition/xcross_runtime.dart';
 import 'package:xcross/src/flutter/hot_reload/vm_service_output.dart';
+import 'package:xcross/src/host/shared/cli/native_command_prompt.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
 import 'package:xcross/src/target/iphone/device/signing_http_client_factory.dart';
 import 'package:xcross/src/update/release_lookup.dart';
@@ -24,6 +25,7 @@ XcrossHostContext<PlatformHostInterface> createNativeXcrossContext() {
   );
   return composeXcrossHost(
     snapshot.host,
+    commandPrompt: NativeCommandPrompt(input: stdin, output: stdout),
     setupConsole: SetupConsole(
       hasTerminal: stdin.hasTerminal,
       readLine: stdin.readLineSync,

@@ -1,10 +1,9 @@
-import 'dart:io';
-
 import 'package:build_cli_annotations/build_cli_annotations.dart';
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/cli/internal/parsed_command.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/setup/setup_script.dart';
+import 'package:xcross/src/shared/cli/command_prompt.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 import 'package:xcross/src/update/git_ref_source_bundle_builder.dart';
 import 'package:xcross/src/update/git_update_ref_resolver.dart';
@@ -78,7 +77,8 @@ final class UpdateCommand extends ParsedCommand<UpdateArgs, void> {
     bool Function()? currentIsReleased,
     bool Function(InstallLayout layout)? hasNativeLibraries,
     Future<void> Function()? refreshSetupScript,
-  }) : log = runtime.log,
+  }) : commandPrompt = runtime.commandPrompt,
+       log = runtime.log,
        _latestTagLookup = _withLatestTagStep(
          runtime.log,
          latestTagLookup ??
@@ -131,6 +131,7 @@ final class UpdateCommand extends ParsedCommand<UpdateArgs, void> {
            refreshSetupScript ?? (() => _defaultRefreshSetupScript(runtime));
 
   final Log log;
+  final CommandPrompt commandPrompt;
   final Future<String> Function() _latestTagLookup;
   final Future<GitUpdateRef> Function(String ref) _resolveRef;
   final InstallLayout Function() _resolveInstallLayout;
@@ -278,10 +279,12 @@ final class UpdateCommand extends ParsedCommand<UpdateArgs, void> {
 
   /// A non-interactive shell cannot answer, so it is treated as consent: the
   /// user explicitly ran `xcross update` to get exactly this.
-  static bool _confirm({required String target, required bool skipPrompt}) {
-    if (skipPrompt || !stdin.hasTerminal) return true;
-    stdout.write('Update xcross to $target? [y/N] ');
-    final answer = stdin.readLineSync()?.trim().toLowerCase();
+  bool _confirm({required String target, required bool skipPrompt}) {
+    if (skipPrompt || !commandPrompt.isInteractive) return true;
+    final answer = commandPrompt
+        .readLine('Update xcross to $target? [y/N] ')
+        ?.trim()
+        .toLowerCase();
     return answer == 'y' || answer == 'yes';
   }
 

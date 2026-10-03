@@ -9,6 +9,7 @@ import 'package:xcross/src/composition/host/macos_xcross_context.dart';
 import 'package:xcross/src/composition/host/windows_xcross_context.dart';
 import 'package:xcross/src/composition/xcross_host_context.dart';
 import 'package:xcross/src/flutter/hot_reload/vm_service_output.dart';
+import 'package:xcross/src/shared/cli/command_prompt.dart';
 import 'package:xcross/src/shared/device/signing_http_client_factory.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
 import 'package:xcross/src/update/release_lookup.dart';
@@ -18,6 +19,7 @@ export 'package:xcross/src/composition/native_runtime.dart';
 XcrossHostContext<PlatformHostInterface> composeXcrossHost(
   PlatformHostInterface host, {
   required Abi abi,
+  required CommandPrompt commandPrompt,
   required SetupConsole setupConsole,
   required ReleaseLookup releaseLookup,
   required bool outputHasTerminal,
@@ -40,6 +42,7 @@ XcrossHostContext<PlatformHostInterface> composeXcrossHost(
   WindowsHostInterface() => WindowsXcrossHostContext(
     host,
     abi: abi,
+    commandPrompt: commandPrompt,
     setupConsole: setupConsole,
     releaseLookup: releaseLookup,
     outputHasTerminal: outputHasTerminal,
@@ -63,6 +66,7 @@ XcrossHostContext<PlatformHostInterface> composeXcrossHost(
   LinuxHostInterface() => LinuxXcrossHostContext(
     host,
     abi: abi,
+    commandPrompt: commandPrompt,
     setupConsole: setupConsole,
     releaseLookup: releaseLookup,
     outputHasTerminal: outputHasTerminal,
@@ -86,6 +90,7 @@ XcrossHostContext<PlatformHostInterface> composeXcrossHost(
   MacOSHostInterface() => MacOSXcrossHostContext(
     host,
     abi: abi,
+    commandPrompt: commandPrompt,
     setupConsole: setupConsole,
     releaseLookup: releaseLookup,
     outputHasTerminal: outputHasTerminal,

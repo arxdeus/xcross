@@ -11,6 +11,7 @@ import 'package:xcross/src/composition/host/linux_xcross_context.dart';
 import 'package:xcross/src/config/config.dart';
 import 'package:xcross/src/config/runtime_config.dart';
 import 'package:xcross/src/flutter/hot_reload/vm_service_output.dart';
+import 'package:xcross/src/shared/cli/command_prompt.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
 import 'package:xcross/src/target/iphone/device/signing_http_client_factory.dart';
@@ -22,6 +23,7 @@ export '../log_fixture.dart';
 
 XcrossRuntime<LinuxHostInterface> testRuntime({
   XcrossConfig? configuration,
+  CommandPrompt? commandPrompt,
   Map<String, String> environment = const {},
   int processorCount = 1,
   String architecture = 'x64',
@@ -31,6 +33,7 @@ XcrossRuntime<LinuxHostInterface> testRuntime({
   final context = LinuxXcrossHostContext(
     host,
     abi: Abi.linuxX64,
+    commandPrompt: commandPrompt ?? TestCommandPrompt(),
     setupConsole: SetupConsole(
       hasTerminal: false,
       readLine: () => null,
@@ -109,4 +112,16 @@ final class TestDeviceConsole implements DeviceConsole {
   void writeln(String value) {}
   @override
   void add(List<int> value) {}
+}
+
+final class TestCommandPrompt implements CommandPrompt {
+  @override
+  bool get isInteractive => false;
+  @override
+  void write(String value) {}
+  @override
+  String? readLine(String prompt) => null;
+  @override
+  String? readSecret(String prompt, {required String valueName}) =>
+      throw StateError('Fixture secret input must not be requested');
 }

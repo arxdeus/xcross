@@ -1,7 +1,7 @@
 import 'dart:ffi';
 import 'dart:io';
 
-import 'package:apple_developer_kit/apple_developer_kit.dart';
+import 'package:apple_developer_kit/apple_developer_kit_shared.dart';
 import 'package:build_cli_annotations/build_cli_annotations.dart';
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:http/http.dart' as http;
@@ -10,6 +10,7 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/cli/internal/parsed_command.dart';
 import 'package:xcross/src/device/internal/signing_session.dart';
 import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/cli/command_prompt.dart';
 
 part 'auth_command.g.dart';
 
@@ -78,6 +79,8 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
 
   AuthCommand({
     required this.log,
+    required this.commandPrompt,
+    required this.createAdiHttpClient,
     required this.hostServices,
     required this.createNativeLibraryLoader,
     required this.createHttpClient,
@@ -85,6 +88,8 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
 
   final http.Client Function() createHttpClient;
   final Log log;
+  final CommandPrompt commandPrompt;
+  final http.Client Function() createAdiHttpClient;
   final AppleHostServices hostServices;
   final NativeLibraryLoader Function() createNativeLibraryLoader;
   @override
@@ -341,13 +346,14 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
   }
 
   DeveloperServicesTeam _promptForTeam(List<DeveloperServicesTeam> teams) {
-    stdout.writeln('Multiple teams available. Choose one:');
+    commandPrompt.write('Multiple teams available. Choose one:\n');
     for (var i = 0; i < teams.length; i++) {
-      stdout.writeln('  [${i + 1}] ${teams[i].name} (${teams[i].id})');
+      commandPrompt.write('  [${i + 1}] ${teams[i].name} (${teams[i].id})\n');
     }
     while (true) {
-      stdout.write('Choice (1-${teams.length}): ');
-      final raw = stdin.readLineSync()?.trim();
+      final raw = commandPrompt
+          .readLine('Choice (1-${teams.length}): ')
+          ?.trim();
       if (raw == null) {
         throw XcrossError('No team selection made (stdin closed).');
       }
@@ -355,8 +361,8 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
       if (choice != null && choice >= 1 && choice <= teams.length) {
         return teams[choice - 1];
       }
-      stdout.writeln(
-        'Invalid choice "$raw". Enter a number 1-${teams.length}.',
+      commandPrompt.write(
+        'Invalid choice "$raw". Enter a number 1-${teams.length}.\n',
       );
     }
   }
@@ -388,6 +394,7 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
   Future<String> _resolveAdiLibraryDirectory() => resolveAdiLibraryDirectory(
     configuredDirectory: options.adiLibraryDir,
     cacheDirectory: hostServices.adiCacheDirectory.path,
+    createClient: createAdiHttpClient,
     abi: hostServices.abi,
     log: log,
   );
@@ -395,6 +402,7 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
   @visibleForTesting
   static Future<String> resolveAdiLibraryDirectory({
     required String cacheDirectory,
+    required http.Client Function() createClient,
     required Abi abi,
     required Log log,
     String? configuredDirectory,
@@ -420,7 +428,11 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
       _throwMissingAdiLibs(directory.path);
     }
 
-    final fetcher = AdiLibraryFetcher(cacheDir: directory, abi: hostAbi);
+    final fetcher = AdiLibraryFetcher(
+      cacheDir: directory,
+      abi: hostAbi,
+      createClient: createClient,
+    );
     await log.logStep(
       'Fetching Apple ADI libraries',
       () => fetchLibraries == null
@@ -443,61 +455,14 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
     );
   }
 
-  // ------------------------------------------------------------ stdin input
-
-  // Never call stdout/stderr.flush() without awaiting it. Unawaited flush
-  // leaves the IOSink "bound to a stream" (dart-lang/sdk#25277), so the next
-  // write throws — especially visible on Windows AOT (`dart build cli`).
-  // readLineSync itself is fine; there is no stdin.readLine().
-
-  String _readRequiredLine(String prompt) {
-    stdout.write(prompt);
-    final value = stdin.readLineSync()?.trim();
-    if (!_present(value)) throw XcrossError('No value entered for $prompt');
+  String _readRequiredLine(String label) {
+    final value = commandPrompt.readLine(label)?.trim();
+    if (!_present(value)) throw XcrossError('No value entered for $label');
     return value!;
   }
 
-  String? _readHiddenLine(String prompt, {required String valueName}) {
-    if (!stdin.hasTerminal) {
-      throw XcrossError('$valueName prompt requires an interactive terminal.');
-    }
-
-    // Write before touching console modes.
-    stdout.write(prompt);
-
-    final bool priorEcho;
-    final bool priorLine;
-    try {
-      priorEcho = stdin.echoMode;
-      priorLine = stdin.lineMode;
-    } on Object catch (e) {
-      throw XcrossError('Secure $valueName input is unavailable: $e');
-    }
-
-    try {
-      try {
-        // Windows: lineMode must stay on while echoMode is toggled.
-        stdin.lineMode = true;
-        stdin.echoMode = false;
-      } on Object catch (e) {
-        throw XcrossError(
-          'Could not disable terminal echo; refusing to read the $valueName: $e',
-        );
-      }
-      final value = stdin.readLineSync();
-      return _present(value) ? value : null;
-    } finally {
-      _trySet(() => stdin.echoMode = priorEcho);
-      _trySet(() => stdin.lineMode = priorLine);
-      stdout.writeln();
-    }
-  }
+  String? _readHiddenLine(String label, {required String valueName}) =>
+      commandPrompt.readSecret(label, valueName: valueName);
 
   static bool _present(String? value) => value != null && value.isNotEmpty;
-
-  static void _trySet(void Function() f) {
-    try {
-      f();
-    } catch (_) {}
-  }
 }

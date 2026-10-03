@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:args/command_runner.dart';
 import 'package:completion/completion.dart';
 
@@ -18,6 +16,8 @@ import 'package:completion/completion.dart';
 /// earlier in [XcrossCli.run] via `tryArgsCompletion`, before the command
 /// runner parses args.
 final class CompletionCommand extends Command<void> {
+  CompletionCommand({required this.write});
+  final void Function(String) write;
   @override
   String get name => 'completion';
 
@@ -29,6 +29,6 @@ final class CompletionCommand extends Command<void> {
 
   @override
   void run() {
-    stdout.write(generateCompletionScript(const ['xcross']));
+    write(generateCompletionScript(const ['xcross']));
   }
 }

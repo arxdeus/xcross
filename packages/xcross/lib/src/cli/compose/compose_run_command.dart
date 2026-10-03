@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:build_cli_annotations/build_cli_annotations.dart';
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
@@ -88,6 +86,7 @@ final class ComposeRunCommand<T extends PlatformHostInterface>
   ) : this.withSeams(
         log: runtime.log,
         files: runtime.host.fileSystem,
+        projectRoot: runtime.host.paths.context.current,
         packOperation:
             ({
               required options,
@@ -126,12 +125,14 @@ final class ComposeRunCommand<T extends PlatformHostInterface>
   ComposeRunCommand.withSeams({
     required this.log,
     required this.files,
+    required this.projectRoot,
     required ComposeCliPackOperation packOperation,
     required ComposeRunDevice runDevice,
   }) : _packOperation = packOperation,
        _runDevice = runDevice;
 
   final HostFileSystemInterface files;
+  final String projectRoot;
   final Log log;
   final ComposeCliPackOperation _packOperation;
   final ComposeRunDevice _runDevice;
@@ -184,7 +185,7 @@ final class ComposeRunCommand<T extends PlatformHostInterface>
     final session = ComposeWatchSession(
       log: log,
       watcher: KotlinSourceWatcher(
-        pack.projectRoot ?? Directory.current.path,
+        pack.projectRoot ?? projectRoot,
         files: files,
       ),
       rebuild: () => _packOperation(

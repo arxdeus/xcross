@@ -1,23 +1,120 @@
 import 'dart:ffi';
 import 'dart:io';
 
+import 'package:args/command_runner.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:http/http.dart' as http;
 import 'package:test/test.dart';
+import 'package:xcross/src/cli/basic/auth_command.dart';
+import 'package:xcross/src/cli/basic/completion_command.dart';
+import 'package:xcross/src/cli/basic/update_command.dart';
 import 'package:xcross/src/cli/runner.dart';
 import 'package:xcross/src/composition/ios_target.dart';
 import 'package:xcross/src/composition/xcross_runtime.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/flutter/hot_reload/vm_service_output.dart';
+import 'package:xcross/src/shared/cli/command_prompt.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
 import 'package:xcross/src/target/iphone/device/signing_http_client_factory.dart';
+import 'package:xcross/src/update/install_layout.dart';
 import 'package:xcross/src/update/release_lookup.dart';
 
 import 'runtime_fixture.dart';
 
 void main() {
+  test(
+    'non-macOS simulator diagnostic precedes unsupported ARM64 host resolution',
+    () {
+      final runtime = testRuntime(architecture: 'arm64');
+      final simulator = composeBuildFeatures('simulator', runtime);
+      expect(simulator.flutterRuntime.host, same(runtime.host));
+      expect(
+        () => simulator.composeOperation,
+        throwsA(
+          isA<XcrossError>().having(
+            (error) => error.message,
+            'message',
+            contains('only on macOS'),
+          ),
+        ),
+      );
+    },
+  );
+
+  test(
+    'auth delegates secure input failure before network or ADI access',
+    () async {
+      final failure = XcrossError(
+        'password prompt requires an interactive terminal.',
+      );
+      final prompt = RecordingGuardPrompt(
+        interactive: false,
+        secretError: failure,
+      );
+      final runtime = testRuntime(commandPrompt: prompt);
+      final command = AuthCommand(
+        log: runtime.log,
+        commandPrompt: prompt,
+        hostServices: runtime.appleHostServices,
+        createHttpClient: () => throw StateError('No Apple HTTP call expected'),
+        createAdiHttpClient: () =>
+            throw StateError('No ADI HTTP call expected'),
+        createNativeLibraryLoader: () =>
+            throw StateError('No native load expected'),
+      );
+      final runner = CommandRunner<void>('xcross', 'test')..addCommand(command);
+      await expectLater(
+        runner.run(['auth', '--apple-id', 'fixture@example.test']),
+        throwsA(same(failure)),
+      );
+      expect(prompt.messages, ['secret:Password: :password']);
+    },
+  );
+
+  test(
+    'update confirmation uses injected prompt and preserves default refusal',
+    () async {
+      final prompt = RecordingGuardPrompt(interactive: true, answers: ['no']);
+      final runtime = testRuntime(commandPrompt: prompt);
+      var installed = false;
+      final command = UpdateCommand.withSeams(
+        runtime,
+        latestTagLookup: () async => '1.2.0',
+        currentVersion: () => '1.0.0',
+        currentIsReleased: () => true,
+        hasNativeLibraries: (_) => true,
+        assetName: () => 'fixture.zip',
+        resolveInstallLayout: () => InstallLayout(
+          host: runtime.host,
+          binaryPath: '/fixture/bin/xcross',
+          binDir: '/fixture/bin',
+          libDir: '/fixture/lib',
+        ),
+        installRelease: ({required layout, required tag}) async {
+          installed = true;
+        },
+        refreshSetupScript: () async =>
+            throw StateError('No setup update expected'),
+      );
+      final runner = CommandRunner<void>('xcross', 'test')..addCommand(command);
+      await runner.run(['update']);
+      expect(installed, isFalse);
+      expect(prompt.messages, ['line:Update xcross to 1.2.0? [y/N] ']);
+    },
+  );
+
+  test(
+    'completion writes its script only to the supplied output collaborator',
+    () {
+      final output = StringBuffer();
+      CompletionCommand(write: output.write).run();
+      expect(output.toString(), contains('xcross'));
+      expect(output.length, greaterThan(100));
+    },
+  );
+
   test(
     'DAP test adapter options and machine stdout survive global verbose flags',
     () {
@@ -82,6 +179,7 @@ void main() {
           host,
           abi: abi,
           executable: '/test/xcross',
+          commandPrompt: TestCommandPrompt(),
           log: log,
           stdinStream: const Stream.empty(),
           stdoutSink: testByteSink(),
@@ -140,6 +238,7 @@ void main() {
         host,
         abi: Abi.linuxX64,
         executable: '/test/xcross',
+        commandPrompt: TestCommandPrompt(),
         log: log,
         stdinStream: const Stream.empty(),
         stdoutSink: testByteSink(),
@@ -313,6 +412,7 @@ XcrossRuntime<LinuxHostInterface> copyRuntime(
   DarwinSdkRepository<LinuxHostInterface>? repository,
 }) => XcrossRuntime(
   config: runtime.config,
+  commandPrompt: runtime.commandPrompt,
   input: runtime.input,
   output: runtime.output,
   errors: runtime.errors,
@@ -326,7 +426,8 @@ XcrossRuntime<LinuxHostInterface> copyRuntime(
   darwinToolchain: runtime.darwinToolchain,
   pymd: runtime.pymd,
   flutter: runtime.flutter,
-  compose: runtime.compose,
+  composeHostProvider: runtime.composeHostProvider,
+  composeSimulatorCapability: runtime.composeSimulatorCapability,
   executable: runtime.executable,
   operations: runtime.operations,
   appleHostServices: runtime.appleHostServices,
@@ -340,3 +441,31 @@ XcrossRuntime<LinuxHostInterface> copyRuntime(
   localHttp: runtime.localHttp,
   signingHttpClients: runtime.signingHttpClients,
 );
+
+final class RecordingGuardPrompt implements CommandPrompt {
+  RecordingGuardPrompt({
+    required this.interactive,
+    List<String?> answers = const [],
+    this.secretError,
+  }) : answers = List.of(answers);
+  final bool interactive;
+  final Exception? secretError;
+  final List<String?> answers;
+  final messages = <String>[];
+  @override
+  bool get isInteractive => interactive;
+  @override
+  void write(String value) => messages.add(value);
+  @override
+  String? readLine(String prompt) {
+    messages.add('line:$prompt');
+    return answers.isEmpty ? null : answers.removeAt(0);
+  }
+
+  @override
+  String? readSecret(String prompt, {required String valueName}) {
+    messages.add('secret:$prompt:$valueName');
+    if (secretError case final error?) throw error;
+    return answers.isEmpty ? null : answers.removeAt(0);
+  }
+}

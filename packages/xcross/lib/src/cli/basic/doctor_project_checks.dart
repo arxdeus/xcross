@@ -1,7 +1,4 @@
-import 'dart:io';
-
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:path/path.dart' as p;
 import 'package:xcross/src/cli/basic/doctor_models.dart';
 import 'package:xcross/src/composition/ios_target.dart';
 import 'package:xcross/src/package_config_resolver.dart';
@@ -16,12 +13,18 @@ final class DoctorProjectChecks<T extends PlatformHostInterface> {
   final XcrossBuildFeatures<T> features;
 
   final XcrossRuntime<T> runtime;
-  static DoctorProject? detect(String root) {
-    if (File(p.join(root, 'pubspec.yaml')).existsSync()) {
+  DoctorProject? detect(String root) {
+    if (runtime.host.fileSystem
+        .file(runtime.host.paths.context.join(root, 'pubspec.yaml'))
+        .existsSync()) {
       return DoctorProject.flutter(root);
     }
-    if (File(p.join(root, 'settings.gradle.kts')).existsSync() ||
-        File(p.join(root, 'settings.gradle')).existsSync()) {
+    if (runtime.host.fileSystem
+            .file(runtime.host.paths.context.join(root, 'settings.gradle.kts'))
+            .existsSync() ||
+        runtime.host.fileSystem
+            .file(runtime.host.paths.context.join(root, 'settings.gradle'))
+            .existsSync()) {
       return DoctorProject.compose(root);
     }
     return null;
@@ -56,8 +59,10 @@ final class DoctorProjectChecks<T extends PlatformHostInterface> {
     }
   }
 
-  static DoctorCheck _flutterEntrypoint(String root) {
-    final entrypoint = File(p.join(root, 'lib', 'main.dart'));
+  DoctorCheck _flutterEntrypoint(String root) {
+    final entrypoint = runtime.host.fileSystem.file(
+      runtime.host.paths.context.join(root, 'lib', 'main.dart'),
+    );
     return entrypoint.existsSync()
         ? DoctorCheck.success(
             'Flutter entrypoint',

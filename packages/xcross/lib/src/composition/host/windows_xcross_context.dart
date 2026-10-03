@@ -8,28 +8,28 @@ import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:http/http.dart' as http;
 import 'package:xcross/src/cli/basic/sdk_install.dart';
 import 'package:xcross/src/composition/flutter/swiftpm_checkout.dart';
+import 'package:xcross/src/composition/flutter/windows_flutter_feature_services.dart';
 import 'package:xcross/src/composition/host_operations.dart';
 import 'package:xcross/src/composition/xcross_host_context.dart';
 import 'package:xcross/src/config/runtime_config.dart';
-import 'package:xcross/src/flutter/build/internal/windows_swift_plan_repair.dart';
 import 'package:xcross/src/flutter/hot_reload/vm_service_output.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/artifact_publication_lock.dart';
+import 'package:xcross/src/host/shared/runtime/unsupported_compose_simulator_capability.dart';
 import 'package:xcross/src/host/windows/config/windows_config_host.dart';
 import 'package:xcross/src/host/windows/flutter/apple_tool_shim_renderer.dart';
 import 'package:xcross/src/host/windows/flutter/native_host_tools.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/artifact_copy_policy.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/artifact_filesystem.dart';
-import 'package:xcross/src/host/windows/flutter/swiftpm/build_execution.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/checkout_attributes.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/checkout_link_creator.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/checkout_link_policy.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/checkout_manifest_policy.dart';
-import 'package:xcross/src/host/windows/flutter/swiftpm/dependency_preparation.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/swiftpm_host_policy.dart';
 import 'package:xcross/src/host/windows/flutter/windows_flutter_sdk_policy.dart';
-import 'package:xcross/src/host/windows/runtime/compose_feature_factory.dart';
+import 'package:xcross/src/host/windows/runtime/compose_host_provider.dart';
 import 'package:xcross/src/host/windows/sdk/materialized_sdk_archive_links.dart';
 import 'package:xcross/src/host/windows/tools/windows_swiftpm_gate.dart';
+import 'package:xcross/src/shared/cli/command_prompt.dart';
 import 'package:xcross/src/shared/config/config_host.dart';
 import 'package:xcross/src/shared/device/signing_http_client_factory.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
@@ -39,7 +39,6 @@ import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_install_identity.dart';
 import 'package:xcross/src/shared/flutter/vm_service_connector.dart';
-import 'package:xcross/src/shared/runtime/flutter_feature_services.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
 import 'package:xcross/src/shared/tools/swiftpm_gate_operation.dart';
@@ -58,6 +57,7 @@ final class WindowsXcrossHostContext
     required this.outputHasTerminal,
     required this.createHttpClient,
     required this.abi,
+    required this.commandPrompt,
     required this.executable,
     required this.log,
     required this.stdinStream,
@@ -101,6 +101,8 @@ final class WindowsXcrossHostContext
   final bool outputHasTerminal;
   @override
   final http.Client Function() createHttpClient;
+  @override
+  final CommandPrompt commandPrompt;
   @override
   final http.Client Function() createAppleHttpClient;
   @override
@@ -235,17 +237,10 @@ final class WindowsXcrossHostContext
             sourceFallback: checkoutParts.sourceFallback,
           ),
         );
-    final flutter = FlutterFeatureServices<WindowsHostInterface>(
+    final flutter = WindowsFlutterFeatureServices<WindowsHostInterface>(
       checkout: checkout,
       checkoutAttributes: checkoutAttributes,
       checkoutManifestNormalizer: checkoutManifestNormalizer,
-      buildExecution: WindowsSwiftPmBuildExecution(
-        runner: runner,
-        repair: WindowsSwiftPlanRepair(runner),
-      ),
-      dependencyPreparation: WindowsSwiftPmDependencyPreparation(
-        runner: runner,
-      ),
       runner: runner,
       repository: repository,
       toolchain: toolchain,
@@ -265,6 +260,7 @@ final class WindowsXcrossHostContext
       resolution: resolution,
     );
     return XcrossRuntime(
+      commandPrompt: commandPrompt,
       setupConsole: setupConsole,
       releaseLookup: releaseLookup,
       outputHasTerminal: outputHasTerminal,
@@ -280,7 +276,8 @@ final class WindowsXcrossHostContext
       darwinToolchain: toolchain,
       pymd: pymd,
       flutter: flutter,
-      compose: WindowsComposeFeatureFactory(host, runner, resolvedExecutable),
+      composeHostProvider: WindowsComposeHostProvider(host, resolvedExecutable),
+      composeSimulatorCapability: UnsupportedComposeSimulatorCapability(host),
       executable: resolvedExecutable,
       operations: operations,
       appleHostServices: createWindowsAppleHostServices(

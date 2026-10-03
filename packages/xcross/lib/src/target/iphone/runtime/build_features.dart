@@ -4,6 +4,7 @@ import 'package:xcross/src/compose/build/compose_pack_operation.dart';
 import 'package:xcross/src/compose/toolchain/compose_toolchain_resolver.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
+import 'package:xcross/src/target/iphone/compose/iphone_compose_target.dart';
 import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
 import 'package:xcross/src/target/shared/compose/compose_target.dart';
 import 'package:xcross/src/target/shared/runtime/build_features.dart';
@@ -18,7 +19,10 @@ final class IPhoneBuildFeatures<T extends PlatformHostInterface>
   late final FlutterBuildRuntime<T> flutterRuntime = runtime.flutter.build(
     IPhoneFlutterTarget(target),
   );
-  late final ComposeTarget<T> _composeTarget = runtime.compose.iphone(target);
+  late final ComposeTarget<T> _composeTarget = IPhoneComposeTarget(
+    target,
+    runtime.composeHostProvider.resolve(),
+  );
   @override
   late final ComposePackOperation<T> composeOperation = ComposePackOperation(
     _composeTarget,

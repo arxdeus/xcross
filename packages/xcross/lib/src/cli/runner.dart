@@ -72,6 +72,7 @@ abstract final class XcrossCli {
       ComposeCommand(runtime),
       TunnelCommand(DevicePrepare(runtime.pymd)),
       CleanCommand(
+        projectRoot: runtime.host.paths.context.current,
         log: runtime.log,
         policy: physical.flutterRuntime.policy,
         environment: runtime.runner.effectiveEnvironment,
@@ -83,6 +84,7 @@ abstract final class XcrossCli {
       ),
       DoctorCommand(
         DoctorExaminer(
+          projectRoot: runtime.host.paths.context.current,
           environmentChecks: environmentChecks,
           projectChecks: DoctorProjectChecks(runtime),
         ),
@@ -98,6 +100,8 @@ abstract final class XcrossCli {
         setupSource: runtime.config.config?.setup,
       ),
       AuthCommand(
+        commandPrompt: runtime.commandPrompt,
+        createAdiHttpClient: runtime.createHttpClient,
         createHttpClient: runtime.createAppleHttpClient,
         log: runtime.log,
         hostServices: runtime.appleHostServices,
@@ -106,7 +110,7 @@ abstract final class XcrossCli {
       SdkCommand(runtime.sdkInstall),
       IdeCommand(ideLauncher),
       UpdateCommand(runtime),
-      CompletionCommand(),
+      CompletionCommand(write: runtime.log.output.write),
     ];
     for (final command in commands) {
       if (!excluded.contains(command.name.toLowerCase())) {

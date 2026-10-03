@@ -6,6 +6,7 @@ import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 import 'package:xcross/src/target/shared/compose/compose_target.dart';
 import 'package:xcross/src/target/shared/runtime/build_features.dart';
+import 'package:xcross/src/target/simulator/compose/simulator_compose_target.dart';
 import 'package:xcross/src/target/simulator/flutter/simulator_flutter_target.dart';
 
 final class SimulatorBuildFeatures<T extends PlatformHostInterface>
@@ -18,9 +19,16 @@ final class SimulatorBuildFeatures<T extends PlatformHostInterface>
   late final FlutterBuildRuntime<T> flutterRuntime = runtime.flutter.build(
     SimulatorFlutterTarget(target),
   );
-  late final ComposeTarget<T> _composeTarget = runtime.compose.simulator(
-    target,
-  );
+  late final ComposeTarget<T> _composeTarget = _resolveComposeTarget();
+  ComposeTarget<T> _resolveComposeTarget() {
+    final signing = runtime.composeSimulatorCapability.requireSigning();
+    return SimulatorComposeTarget(
+      target,
+      runtime.composeHostProvider.resolve(),
+      signing: signing,
+    );
+  }
+
   @override
   late final ComposePackOperation<T> composeOperation = ComposePackOperation(
     _composeTarget,

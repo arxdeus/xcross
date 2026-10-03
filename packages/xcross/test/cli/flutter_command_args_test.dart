@@ -197,6 +197,8 @@ void main() {
 
     setUp(
       () => command = AuthCommand(
+        commandPrompt: TestCommandPrompt(),
+        createAdiHttpClient: testRuntime().createHttpClient,
         log: testLog(),
         hostServices: testRuntime().appleHostServices,
         createNativeLibraryLoader: testRuntime().createNativeLibraryLoader,

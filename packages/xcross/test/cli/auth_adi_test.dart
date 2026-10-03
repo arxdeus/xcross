@@ -49,7 +49,7 @@ void main() {
       await root.delete(recursive: true);
     });
 
-    Future<AdiLibraryPaths> noFetch(AdiLibraryFetcher fetcher) async {
+    Future<AdiLibraryPaths> noFetch(AdiLibraryFetcher fetcher) {
       fail('Unexpected ADI download for ${fetcher.libraryDirectory.path}');
     }
 
@@ -61,6 +61,8 @@ void main() {
 
         expect(
           await AuthCommand.resolveAdiLibraryDirectory(
+            createClient: () =>
+                throw StateError('No HTTP client expected in fixture'),
             log: testLog(),
             cacheDirectory: root.path,
             abi: abi,
@@ -76,6 +78,8 @@ void main() {
 
       expect(
         await AuthCommand.resolveAdiLibraryDirectory(
+          createClient: () =>
+              throw StateError('No HTTP client expected in fixture'),
           log: testLog(),
           cacheDirectory: root.path,
           abi: Abi.linuxX64,
@@ -93,6 +97,8 @@ void main() {
       var fetches = 0;
 
       final result = await AuthCommand.resolveAdiLibraryDirectory(
+        createClient: () =>
+            throw StateError('No HTTP client expected in fixture'),
         log: testLog(),
         cacheDirectory: root.path,
         abi: Abi.linuxArm64,
@@ -117,6 +123,8 @@ void main() {
 
       expect(
         await AuthCommand.resolveAdiLibraryDirectory(
+          createClient: () =>
+              throw StateError('No HTTP client expected in fixture'),
           log: testLog(),
           cacheDirectory: Directory.systemTemp.path,
           configuredDirectory: libraries.path,
@@ -132,6 +140,8 @@ void main() {
 
       await expectLater(
         AuthCommand.resolveAdiLibraryDirectory(
+          createClient: () =>
+              throw StateError('No HTTP client expected in fixture'),
           log: testLog(),
           cacheDirectory: Directory.systemTemp.path,
           configuredDirectory: root.path,
@@ -149,6 +159,8 @@ void main() {
 
       await expectLater(
         AuthCommand.resolveAdiLibraryDirectory(
+          createClient: () =>
+              throw StateError('No HTTP client expected in fixture'),
           log: testLog(),
           cacheDirectory: Directory.systemTemp.path,
           configuredDirectory: root.path,
@@ -161,6 +173,8 @@ void main() {
 
     test('fetches into the host architecture directory', () async {
       final result = await AuthCommand.resolveAdiLibraryDirectory(
+        createClient: () =>
+            throw StateError('No HTTP client expected in fixture'),
         log: testLog(),
         cacheDirectory: root.path,
         abi: Abi.windowsX64,
@@ -176,6 +190,8 @@ void main() {
     test('rejects unsupported hosts without changing the cache', () async {
       await expectLater(
         AuthCommand.resolveAdiLibraryDirectory(
+          createClient: () =>
+              throw StateError('No HTTP client expected in fixture'),
           log: testLog(),
           cacheDirectory: root.path,
           abi: Abi.windowsArm64,
@@ -189,6 +205,8 @@ void main() {
     test('checks that a download actually produced libraries', () async {
       await expectLater(
         AuthCommand.resolveAdiLibraryDirectory(
+          createClient: () =>
+              throw StateError('No HTTP client expected in fixture'),
           log: testLog(),
           cacheDirectory: root.path,
           abi: Abi.linuxArm64,

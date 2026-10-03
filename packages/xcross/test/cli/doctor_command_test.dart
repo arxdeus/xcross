@@ -155,7 +155,7 @@ void main() {
     File('${compose.path}/settings.gradle.kts').writeAsStringSync('');
 
     expect(
-      DoctorExaminer.detectProjectAt(flutter.path),
+      DoctorProjectChecks(testRuntime()).detect(flutter.path),
       isA<DoctorProject>().having(
         (project) => project.kind,
         'kind',
@@ -163,7 +163,7 @@ void main() {
       ),
     );
     expect(
-      DoctorExaminer.detectProjectAt(compose.path),
+      DoctorProjectChecks(testRuntime()).detect(compose.path),
       isA<DoctorProject>().having(
         (project) => project.kind,
         'kind',

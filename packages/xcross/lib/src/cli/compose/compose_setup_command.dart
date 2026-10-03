@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:build_cli_annotations/build_cli_annotations.dart';
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/cli/internal/parsed_command.dart';
@@ -55,12 +53,12 @@ final class ComposeSetupCommand<T extends PlatformHostInterface>
         log: runtime.log,
         problems: () => features.composeResolver.problems(
           environment: runtime.runner.effectiveEnvironment,
-          projectRoot: Directory.current.path,
+          projectRoot: runtime.host.paths.context.current,
         ),
         ensure: ({required force}) async {
           await features.composeResolver.ensure(
             environment: runtime.runner.effectiveEnvironment,
-            projectRoot: Directory.current.path,
+            projectRoot: runtime.host.paths.context.current,
             force: force,
           );
         },

@@ -214,6 +214,7 @@ void main() {
         final launchedProfiles = <CoreDeviceLaunchProfile>[];
         final seenRequireRunnable = <bool>[];
         final command = ComposeRunCommand.withSeams(
+          projectRoot: '/test/project',
           log: testLog(),
           files: testRuntime().host.fileSystem,
           packOperation:
@@ -275,6 +276,7 @@ void main() {
       final seen = <String?>[];
       Future<void> run(List<String> args) {
         final command = ComposeRunCommand.withSeams(
+          projectRoot: '/test/project',
           log: testLog(),
           files: testRuntime().host.fileSystem,
           packOperation:

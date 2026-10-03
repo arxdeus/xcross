@@ -14,6 +14,7 @@ import 'package:xcross/src/config/config.dart';
 import 'package:xcross/src/config/runtime_config.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_gate_evidence.dart';
 import 'package:xcross/src/flutter/hot_reload/vm_service_output.dart';
+import 'package:xcross/src/shared/cli/command_prompt.dart';
 import 'package:xcross/src/shared/config/config_host.dart';
 import 'package:xcross/src/shared/device/signing_http_client_factory.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
@@ -26,6 +27,7 @@ import 'package:xcross/src/update/release_lookup.dart';
 abstract class XcrossHostContext<T extends PlatformHostInterface>
     implements XcrunRuntimeLoader, SwiftPmGateRuntimeLoader {
   T get host;
+  CommandPrompt get commandPrompt;
   SetupConsole get setupConsole;
   ReleaseLookup get releaseLookup;
   bool get outputHasTerminal;

@@ -8,10 +8,12 @@ import 'package:http/http.dart' as http;
 import 'package:xcross/src/cli/basic/sdk_install.dart';
 import 'package:xcross/src/config/runtime_config.dart';
 import 'package:xcross/src/flutter/hot_reload/vm_service_output.dart';
+import 'package:xcross/src/shared/cli/command_prompt.dart';
 import 'package:xcross/src/shared/config/config_host.dart';
 import 'package:xcross/src/shared/device/signing_http_client_factory.dart';
 import 'package:xcross/src/shared/flutter/vm_service_connector.dart';
-import 'package:xcross/src/shared/runtime/compose_feature_factory.dart';
+import 'package:xcross/src/shared/runtime/compose_host_provider.dart';
+import 'package:xcross/src/shared/runtime/compose_simulator_capability.dart';
 import 'package:xcross/src/shared/runtime/flutter_feature_services.dart';
 import 'package:xcross/src/shared/setup/host_operations.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
@@ -24,6 +26,7 @@ final class XcrossRuntime<T extends PlatformHostInterface> {
     required this.outputHasTerminal,
     required this.createHttpClient,
     required this.config,
+    required this.commandPrompt,
     required this.input,
     required this.output,
     required this.errors,
@@ -33,7 +36,8 @@ final class XcrossRuntime<T extends PlatformHostInterface> {
     required this.darwinToolchain,
     required this.pymd,
     required this.flutter,
-    required this.compose,
+    required this.composeHostProvider,
+    required this.composeSimulatorCapability,
     required this.executable,
     required this.operations,
     required this.appleHostServices,
@@ -53,7 +57,9 @@ final class XcrossRuntime<T extends PlatformHostInterface> {
         !identical(host, flutter.runner.host) ||
         !identical(host, appleHostServices.host) ||
         !identical(host, sdkInstall.runner.host) ||
-        !identical(host, localHttp.host)) {
+        !identical(host, localHttp.host) ||
+        !identical(host, composeHostProvider.host) ||
+        !identical(host, composeSimulatorCapability.host)) {
       throw ArgumentError('Runtime dependencies must share one selected host');
     }
     if (!identical(runner, darwinToolchain.runner) ||
@@ -74,6 +80,7 @@ final class XcrossRuntime<T extends PlatformHostInterface> {
   final ReleaseLookup releaseLookup;
   final bool outputHasTerminal;
   final http.Client Function() createHttpClient;
+  final CommandPrompt commandPrompt;
   final http.Client Function() createAppleHttpClient;
   final VmServiceConnector vmConnector;
   final VmServiceOutput vmOutput;
@@ -89,7 +96,8 @@ final class XcrossRuntime<T extends PlatformHostInterface> {
   final DarwinToolchainResolver<T> darwinToolchain;
   final Pymd pymd;
   final FlutterFeatureServices<T> flutter;
-  final ComposeFeatureFactory<T> compose;
+  final ComposeHostProvider<T> composeHostProvider;
+  final ComposeSimulatorCapability<T> composeSimulatorCapability;
   final String executable;
   final HostOperations operations;
   final AppleHostServices appleHostServices;
