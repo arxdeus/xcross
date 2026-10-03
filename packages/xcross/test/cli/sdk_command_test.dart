@@ -13,6 +13,7 @@ import 'sdk_test_support.dart';
 
 void main() {
   final sdkContext = SdkTestContext();
+  tearDownAll(sdkContext.close);
   final installer = sdkContext.installer();
   final publication = SdkInstallCommand(installer);
 
@@ -178,6 +179,7 @@ void main() {
       final destination = p.join(root.path, 'Darwin.artifactbundle');
       createValidBundle('$destination.previous');
       final unrelated = SdkTestContext();
+      addTearDown(unrelated.close);
       sdkContext.output.messages.clear();
       final repository = DarwinSdkRepository(
         sdkContext.host,

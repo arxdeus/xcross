@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:xcross/src/cli/basic/sdk_install.dart';
@@ -16,7 +19,17 @@ final class SdkTestContext {
     host = MacOSHost();
     output = SdkFixtureLogOutput();
     log = Log(output: output);
-    runner = ProcessRunner(host, log: log);
+    processOutput.stream.listen((_) {});
+    processError.stream.listen((_) {});
+    stdoutSink = IOSink(processOutput.sink);
+    stderrSink = IOSink(processError.sink);
+    runner = ProcessRunner(
+      host,
+      log: log,
+      stdinStream: const Stream<List<int>>.empty(),
+      stdoutSink: stdoutSink,
+      stderrSink: stderrSink,
+    );
     repository = DarwinSdkRepository(host, log: log);
   }
   late final MacOSHost host;
@@ -24,6 +37,16 @@ final class SdkTestContext {
   late final Log log;
   late final ProcessRunner<MacOSHost> runner;
   late final DarwinSdkRepository<MacOSHost> repository;
+  final StreamController<List<int>> processOutput =
+      StreamController<List<int>>();
+  final StreamController<List<int>> processError =
+      StreamController<List<int>>();
+  late final IOSink stdoutSink;
+  late final IOSink stderrSink;
+
+  Future<void> close() async {
+    await Future.wait([stdoutSink.close(), stderrSink.close()]);
+  }
 
   SdkInstall<MacOSHost> installer({SdkArchiveLinksInterface? links}) =>
       SdkInstall(
