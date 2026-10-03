@@ -1,6 +1,8 @@
 import 'package:build_cli_annotations/build_cli_annotations.dart';
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart' show Pymd;
+import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
+    show DeviceSearchMode, DeviceSockets;
 import 'package:xcross/src/cli/flutter/subcommands/flutter_build_command.dart';
 import 'package:xcross/src/cli/internal/parsed_command.dart';
 import 'package:xcross/src/cli/shared/device_selection.dart';
@@ -59,11 +61,14 @@ final class FlutterRunCommand<T extends PlatformHostInterface>
   FlutterRunArgs parseOptions(ArgResults results) =>
       _$parseFlutterRunArgsResult(results);
 
-  FlutterRunCommand(this.runtime) : features = composePhysicalFeatures(runtime);
+  FlutterRunCommand(this.runtime, this.pymd, {required this.sockets})
+    : features = composePhysicalFeatures(runtime);
 
   final XcrossBuildFeatures<T> features;
 
   final XcrossRuntime<T> runtime;
+  final Pymd pymd;
+  final DeviceSockets sockets;
   static bool shouldUseCoreDevice(int? osMajor) =>
       osMajor == null || osMajor >= 17;
 
@@ -130,7 +135,8 @@ final class FlutterRunCommand<T extends PlatformHostInterface>
     runtime.log.logInfo('App', '${pack.bundleId} ${runtime.log.dim(mode)}');
 
     final operation = await DeviceRunOperation.resolve(
-      runtime.pymd,
+      pymd,
+      sockets: sockets,
       httpClients: runtime.signingHttpClients,
       connector: runtime.vmConnector,
       vmOutput: runtime.vmOutput,

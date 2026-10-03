@@ -18,7 +18,7 @@ void main() {
     test('is registered by the top-level runner', () {
       expect(
         XcrossCli.buildRunner(
-          testRuntime(),
+          testApplication(),
           configTerminal: TestTerminal(),
         ).commands.keys,
         contains('compose'),
@@ -27,7 +27,7 @@ void main() {
 
     test('top-level description covers Flutter and Compose Multiplatform', () {
       final runner = XcrossCli.buildRunner(
-        testRuntime(),
+        testApplication(),
         configTerminal: TestTerminal(),
       );
 
@@ -38,8 +38,13 @@ void main() {
     });
 
     test('groups build, run, and setup', () {
+      final application = testApplication();
       expect(
-        ComposeCommand(testRuntime()).subcommands.keys,
+        ComposeCommand(
+          application.runtime,
+          application.pymd,
+          application.sockets,
+        ).subcommands.keys,
         containsAll(['build', 'run', 'setup']),
       );
     });
@@ -173,7 +178,14 @@ void main() {
   group('ComposeRunCommand', () {
     late Command<void> command;
 
-    setUp(() => command = ComposeRunCommand(testRuntime()));
+    setUp(() {
+      final application = testApplication();
+      command = ComposeRunCommand(
+        application.runtime,
+        application.pymd,
+        sockets: application.sockets,
+      );
+    });
 
     test('supports Flutter-compatible device connection options', () {
       final results = command.argParser.parse([
@@ -263,10 +275,13 @@ void main() {
         expect(launchedSelectors, ['UDID']);
         expect(launchedModes, [DeviceSearchMode.usb]);
         expect(launchedProfiles.single.arguments, ['one', 'two']);
-        expect(launchedProfiles.single.argumentsForLaunch(isDap: true), [
-          'one',
-          'two',
-        ]);
+        expect(
+          launchedProfiles.single.argumentsForLaunch(
+            isDap: true,
+            vmServiceBindAddress: '0.0.0.0',
+          ),
+          ['one', 'two'],
+        );
       },
     );
   });

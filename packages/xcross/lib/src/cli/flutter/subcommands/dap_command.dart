@@ -1,4 +1,6 @@
 import 'package:args/command_runner.dart';
+import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
+    show TunnelAvailability;
 import 'package:xcross/src/dap/dap.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 
@@ -10,11 +12,12 @@ import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 /// `"env": {"XCROSS": "true"}`; other Flutter sessions are proxied to
 /// Flutter's DAP.
 final class DapCommand extends Command<void> {
-  DapCommand(this.runtime) {
+  DapCommand(this.runtime, {required this.tunnelAvailability}) {
     argParser.addFlag('test', negatable: false);
   }
 
   final XcrossRuntime runtime;
+  final TunnelAvailability tunnelAvailability;
   @override
   String get name => 'dap';
 
@@ -40,7 +43,7 @@ final class DapCommand extends Command<void> {
     declarative: runtime.config.isConfigured,
     startXcross: (channel) => XcrossDap(
       channel,
-      localHttp: runtime.localHttp,
+      tunnelAvailability: tunnelAvailability,
       runner: runtime.runner,
       launcher: runtime.executable,
     ),

@@ -4,10 +4,12 @@ import 'dart:io';
 
 import 'package:apple_developer_kit/apple_developer_kit.dart';
 import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart' show DeviceConsole;
+import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
+    show DeviceConsole, DeviceSockets;
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:http/http.dart' as http;
 import 'package:xcross/src/composition/host/linux_xcross_context.dart';
+import 'package:xcross/src/composition/xcross_application.dart';
 import 'package:xcross/src/config/config.dart';
 import 'package:xcross/src/config/runtime_config.dart';
 import 'package:xcross/src/flutter/hot_reload/vm_service_output.dart';
@@ -21,7 +23,7 @@ import '../log_fixture.dart';
 
 export '../log_fixture.dart';
 
-XcrossRuntime<LinuxHostInterface> testRuntime({
+XcrossApplication<LinuxHostInterface> testApplication({
   XcrossConfig? configuration,
   CommandPrompt? commandPrompt,
   Map<String, String> environment = const {},
@@ -49,6 +51,7 @@ XcrossRuntime<LinuxHostInterface> testRuntime({
     stderrSink: testByteSink(),
     processorCount: processorCount,
     deviceConsole: TestDeviceConsole(),
+    deviceSockets: const TestDeviceSockets(),
     downloader: Downloader(createClient: HttpClient.new, log: log),
     createAppleHttpClient: AppleHttp.createAppleHttpClient,
     signingHttpClients: const HttpSigningClientFactory(),
@@ -77,6 +80,20 @@ XcrossRuntime<LinuxHostInterface> testRuntime({
     DarwinToolchainResolver(runner, context.toolchainLocations),
   );
 }
+
+XcrossRuntime<LinuxHostInterface> testRuntime({
+  XcrossConfig? configuration,
+  CommandPrompt? commandPrompt,
+  Map<String, String> environment = const {},
+  int processorCount = 1,
+  String architecture = 'x64',
+}) => testApplication(
+  configuration: configuration,
+  commandPrompt: commandPrompt,
+  environment: environment,
+  processorCount: processorCount,
+  architecture: architecture,
+).runtime;
 
 final class TestTerminal implements TuiTerminal {
   @override
@@ -124,4 +141,14 @@ final class TestCommandPrompt implements CommandPrompt {
   @override
   String? readSecret(String prompt, {required String valueName}) =>
       throw StateError('Fixture secret input must not be requested');
+}
+
+final class TestDeviceSockets implements DeviceSockets {
+  const TestDeviceSockets();
+  @override
+  Future<Socket> connect(String host, int port, {Duration? timeout}) =>
+      throw StateError('Fixture must not open device sockets');
+  @override
+  Future<ServerSocket> bindLoopback({int port = 0}) =>
+      throw StateError('Fixture must not bind device sockets');
 }

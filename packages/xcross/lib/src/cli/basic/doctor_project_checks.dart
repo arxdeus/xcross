@@ -3,16 +3,19 @@ import 'package:xcross/src/cli/basic/doctor_models.dart';
 import 'package:xcross/src/composition/ios_target.dart';
 import 'package:xcross/src/package_config_resolver.dart';
 import 'package:xcross/src/shared/compose/kmp_project_detector.dart';
+import 'package:xcross/src/shared/diagnostics/doctor_project_inspector.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 import 'package:xcross/src/target/shared/runtime/build_features.dart';
 
-final class DoctorProjectChecks<T extends PlatformHostInterface> {
+final class DoctorProjectChecks<T extends PlatformHostInterface>
+    implements DoctorProjectInspector {
   DoctorProjectChecks(this.runtime)
     : features = composePhysicalFeatures(runtime);
 
   final XcrossBuildFeatures<T> features;
 
   final XcrossRuntime<T> runtime;
+  @override
   DoctorProject? detect(String root) {
     if (runtime.host.fileSystem
         .file(runtime.host.paths.context.join(root, 'pubspec.yaml'))
@@ -30,6 +33,7 @@ final class DoctorProjectChecks<T extends PlatformHostInterface> {
     return null;
   }
 
+  @override
   Future<List<DoctorCheck>> examine(DoctorProject project) =>
       switch (project.kind) {
         DoctorProjectKind.flutter => _flutter(project.root),

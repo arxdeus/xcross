@@ -13,7 +13,7 @@ void main() {
   test('clean is registered by the top-level runner', () {
     expect(
       XcrossCli.buildRunner(
-        testRuntime(),
+        testApplication(),
         configTerminal: TestTerminal(),
       ).commands.keys,
       contains('clean'),

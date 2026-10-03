@@ -1,15 +1,23 @@
 import 'dart:ffi';
 import 'dart:io';
 
-import 'package:apple_developer_kit/apple_developer_kit.dart';
-import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:apple_developer_kit/apple_developer_kit.dart'
+    show createLinuxAppleHostServices, createLinuxNativeLibraryLoader;
+import 'package:cli_kit/cli_kit.dart' show PosixPrivileges;
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart'
+    show LinuxDeviceHost, Pymd;
+import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
+    show DeviceConsole, DeviceSockets;
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart'
+    show LinuxDarwinToolchainLocations;
+import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:http/http.dart' as http;
 import 'package:xcross/src/cli/basic/sdk_install.dart';
 import 'package:xcross/src/composition/flutter/posix_flutter_feature_services.dart';
 import 'package:xcross/src/composition/flutter/swiftpm_checkout.dart';
 import 'package:xcross/src/composition/host_operations.dart';
+import 'package:xcross/src/composition/xcross_application.dart';
 import 'package:xcross/src/composition/xcross_host_context.dart';
 import 'package:xcross/src/config/runtime_config.dart';
 import 'package:xcross/src/flutter/hot_reload/vm_service_output.dart';
@@ -64,6 +72,7 @@ final class LinuxXcrossHostContext
     required this.stderrSink,
     required this.downloader,
     required this.deviceConsole,
+    required this.deviceSockets,
     required this.signingHttpClients,
     required this.createAppleHttpClient,
     required this.createLocalHttpClient,
@@ -90,6 +99,8 @@ final class LinuxXcrossHostContext
   final Downloader downloader;
   @override
   final DeviceConsole deviceConsole;
+  @override
+  final DeviceSockets deviceSockets;
   @override
   final SigningHttpClientFactory signingHttpClients;
   @override
@@ -131,7 +142,7 @@ final class LinuxXcrossHostContext
   );
 
   @override
-  XcrossRuntime<LinuxHostInterface> bind(
+  XcrossApplication<LinuxHostInterface> bind(
     XcrossRuntimeConfig config,
     ProcessRunner<LinuxHostInterface> runner,
     DarwinSdkRepository<LinuxHostInterface> repository,
@@ -239,7 +250,7 @@ final class LinuxXcrossHostContext
       ),
       resolution: resolution,
     );
-    return XcrossRuntime(
+    final runtime = XcrossRuntime(
       commandPrompt: commandPrompt,
       setupConsole: setupConsole,
       releaseLookup: releaseLookup,
@@ -254,7 +265,6 @@ final class LinuxXcrossHostContext
       runner: runner,
       sdkRepository: repository,
       darwinToolchain: toolchain,
-      pymd: pymd,
       flutter: flutter,
       composeHostProvider: LinuxComposeHostProvider(host),
       composeSimulatorCapability: UnsupportedComposeSimulatorCapability(host),
@@ -274,6 +284,11 @@ final class LinuxXcrossHostContext
       sdkInstall: installer,
       configPolicy: configPolicy,
       createNativeLibraryLoader: createLinuxNativeLibraryLoader,
+    );
+    return XcrossApplication(
+      runtime: runtime,
+      pymd: pymd,
+      sockets: deviceSockets,
     );
   }
 }

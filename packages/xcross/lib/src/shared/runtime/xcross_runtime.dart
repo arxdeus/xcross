@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:apple_developer_kit/apple_developer_kit_shared.dart';
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:dart_mobile_device/dart_mobile_device_shared.dart' show Pymd;
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:http/http.dart' as http;
 import 'package:xcross/src/cli/basic/sdk_install.dart';
@@ -34,7 +33,6 @@ final class XcrossRuntime<T extends PlatformHostInterface> {
     required this.runner,
     required this.sdkRepository,
     required this.darwinToolchain,
-    required this.pymd,
     required this.flutter,
     required this.composeHostProvider,
     required this.composeSimulatorCapability,
@@ -53,7 +51,6 @@ final class XcrossRuntime<T extends PlatformHostInterface> {
   }) {
     if (!identical(host, sdkRepository.host) ||
         !identical(host, darwinToolchain.host) ||
-        !identical(host, pymd.runner.host) ||
         !identical(host, flutter.runner.host) ||
         !identical(host, appleHostServices.host) ||
         !identical(host, sdkInstall.runner.host) ||
@@ -63,7 +60,6 @@ final class XcrossRuntime<T extends PlatformHostInterface> {
       throw ArgumentError('Runtime dependencies must share one selected host');
     }
     if (!identical(runner, darwinToolchain.runner) ||
-        !identical(runner, pymd.runner) ||
         !identical(runner, flutter.runner) ||
         !identical(runner, sdkInstall.runner) ||
         !identical(log, sdkRepository.log) ||
@@ -94,7 +90,6 @@ final class XcrossRuntime<T extends PlatformHostInterface> {
   final ProcessRunner<T> runner;
   final DarwinSdkRepository<T> sdkRepository;
   final DarwinToolchainResolver<T> darwinToolchain;
-  final Pymd pymd;
   final FlutterFeatureServices<T> flutter;
   final ComposeHostProvider<T> composeHostProvider;
   final ComposeSimulatorCapability<T> composeSimulatorCapability;

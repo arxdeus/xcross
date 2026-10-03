@@ -322,12 +322,10 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
     try {
       teams = await log.logStep(
         'Fetching Developer Services teams',
-        () => DeveloperServicesClient.listTeams(
-          localeName: hostServices.localeName,
-          token: token,
+        () => DeveloperServicesTeamDiscoveryClient(
           fetchAnisetteHeaders: anisette.fetchAnisetteHeaders,
           httpClient: httpClient,
-        ),
+        ).listTeams(localeName: hostServices.localeName, token: token),
       );
     } finally {
       httpClient.close();

@@ -30,7 +30,7 @@ void main() {
   test('runner registers top-level config command', () {
     expect(
       XcrossCli.buildRunner(
-        testRuntime(),
+        testApplication(),
         configTerminal: TestTerminal(),
       ).commands['config'],
       isA<ConfigCommand>(),
@@ -39,7 +39,7 @@ void main() {
 
   test('runner omits configured top-level commands', () async {
     final runner = XcrossCli.buildRunner(
-      testRuntime(),
+      testApplication(),
       configTerminal: TestTerminal(),
       excludedCommands: const ['setup', 'config'],
     );

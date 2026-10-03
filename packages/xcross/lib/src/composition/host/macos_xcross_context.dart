@@ -1,18 +1,27 @@
 import 'dart:ffi';
 import 'dart:io';
 
-import 'package:apple_developer_kit/apple_developer_kit.dart';
-import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:apple_developer_kit/apple_developer_kit.dart'
+    show createMacOSAppleHostServices, createMacOSNativeLibraryLoader;
+import 'package:cli_kit/cli_kit.dart' show PosixPrivileges;
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart'
+    show MacOSDeviceHost, Pymd;
+import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
+    show DeviceConsole, DeviceSockets;
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart'
+    show MacOSDarwinToolchainLocations;
+import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:http/http.dart' as http;
 import 'package:xcross/src/cli/basic/sdk_install.dart';
 import 'package:xcross/src/composition/flutter/posix_flutter_feature_services.dart';
 import 'package:xcross/src/composition/flutter/swiftpm_checkout.dart';
 import 'package:xcross/src/composition/host_operations.dart';
+import 'package:xcross/src/composition/xcross_application.dart';
 import 'package:xcross/src/composition/xcross_host_context.dart';
 import 'package:xcross/src/config/runtime_config.dart';
 import 'package:xcross/src/flutter/hot_reload/vm_service_output.dart';
+import 'package:xcross/src/host/macos/compose/macos_compose_simulator_signing.dart';
 import 'package:xcross/src/host/macos/flutter/native_host_tools.dart';
 import 'package:xcross/src/host/macos/flutter/swiftpm/swiftpm_host_policy.dart';
 import 'package:xcross/src/host/macos/runtime/compose_host_provider.dart';
@@ -64,6 +73,7 @@ final class MacOSXcrossHostContext
     required this.stderrSink,
     required this.downloader,
     required this.deviceConsole,
+    required this.deviceSockets,
     required this.signingHttpClients,
     required this.createAppleHttpClient,
     required this.createLocalHttpClient,
@@ -90,6 +100,8 @@ final class MacOSXcrossHostContext
   final Downloader downloader;
   @override
   final DeviceConsole deviceConsole;
+  @override
+  final DeviceSockets deviceSockets;
   @override
   final SigningHttpClientFactory signingHttpClients;
   @override
@@ -126,7 +138,7 @@ final class MacOSXcrossHostContext
   XcrunOperation get xcrun => NativeMacXcrun(host);
 
   @override
-  XcrossRuntime<MacOSHostInterface> bind(
+  XcrossApplication<MacOSHostInterface> bind(
     XcrossRuntimeConfig config,
     ProcessRunner<MacOSHostInterface> runner,
     DarwinSdkRepository<MacOSHostInterface> repository,
@@ -234,7 +246,7 @@ final class MacOSXcrossHostContext
       ),
       resolution: resolution,
     );
-    return XcrossRuntime(
+    final runtime = XcrossRuntime(
       commandPrompt: commandPrompt,
       setupConsole: setupConsole,
       releaseLookup: releaseLookup,
@@ -249,10 +261,11 @@ final class MacOSXcrossHostContext
       runner: runner,
       sdkRepository: repository,
       darwinToolchain: toolchain,
-      pymd: pymd,
       flutter: flutter,
       composeHostProvider: MacOSComposeHostProvider(host),
-      composeSimulatorCapability: MacOSComposeSimulatorCapability(runner),
+      composeSimulatorCapability: MacOSComposeSimulatorCapability(
+        MacOSComposeSimulatorSigning(runner),
+      ),
       executable: resolvedExecutable,
       operations: operations,
       appleHostServices: createMacOSAppleHostServices(
@@ -270,6 +283,11 @@ final class MacOSXcrossHostContext
       sdkInstall: installer,
       configPolicy: configPolicy,
       createNativeLibraryLoader: createMacOSNativeLibraryLoader,
+    );
+    return XcrossApplication(
+      runtime: runtime,
+      pymd: pymd,
+      sockets: deviceSockets,
     );
   }
 }

@@ -3,18 +3,27 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:cli_kit/cli_kit.dart';
+import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
+    show Device, DeviceDiagnostics, DevicePreparation, TunnelAvailability;
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:http/http.dart' as http;
 import 'package:test/test.dart';
 import 'package:xcross/src/cli/basic/auth_command.dart';
 import 'package:xcross/src/cli/basic/completion_command.dart';
+import 'package:xcross/src/cli/basic/doctor_environment_checks.dart';
+import 'package:xcross/src/cli/basic/doctor_models.dart';
+import 'package:xcross/src/cli/basic/tunnel_command.dart';
 import 'package:xcross/src/cli/basic/update_command.dart';
+import 'package:xcross/src/cli/flutter/subcommands/dap_command.dart';
 import 'package:xcross/src/cli/runner.dart';
 import 'package:xcross/src/composition/ios_target.dart';
+import 'package:xcross/src/composition/xcross_application.dart';
 import 'package:xcross/src/composition/xcross_runtime.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/flutter/hot_reload/vm_service_output.dart';
+import 'package:xcross/src/host/macos/runtime/compose_simulator_capability.dart';
 import 'package:xcross/src/shared/cli/command_prompt.dart';
+import 'package:xcross/src/shared/compose/compose_simulator_signing.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
 import 'package:xcross/src/target/iphone/device/signing_http_client_factory.dart';
@@ -24,6 +33,80 @@ import 'package:xcross/src/update/release_lookup.dart';
 import 'runtime_fixture.dart';
 
 void main() {
+  test(
+    'application rejects physical services from another configured runner',
+    () {
+      final application = testApplication();
+      final other = testApplication();
+      expect(application.pymd.runner, same(application.runtime.runner));
+      expect(
+        () => XcrossApplication(
+          runtime: application.runtime,
+          pymd: other.pymd,
+          sockets: application.sockets,
+        ),
+        throwsArgumentError,
+      );
+    },
+  );
+
+  test('macOS simulator capability retains the selected signing port', () {
+    final signing = RecordingSimulatorSigning(MacOSHost());
+    final capability = MacOSComposeSimulatorCapability(signing);
+    expect(capability.host, same(signing.host));
+    expect(capability.requireSigning(), same(signing));
+    expect(signing.calls, 0);
+  });
+
+  test(
+    'doctor fails tool resolution before authentication or discovery',
+    () async {
+      final runtime = testRuntime();
+      final diagnostics = FailingDeviceDiagnostics();
+      var httpCalls = 0;
+      final checks = DoctorEnvironmentChecks(
+        hostPlatform: runtime.host,
+        runner: runtime.runner,
+        repository: runtime.sdkRepository,
+        toolchain: runtime.darwinToolchain,
+        deviceDiagnostics: diagnostics,
+        buildPlatform: composePhysicalFeatures(runtime).target.buildPlatform,
+        appleHostServices: runtime.appleHostServices,
+        sdkMismatch: (_) => throw StateError('No SDK probe expected'),
+        sdkToolchainIdentity: () =>
+            throw StateError('No toolchain probe expected'),
+        createAppleHttpClient: () {
+          httpCalls++;
+          throw StateError('No authentication HTTP expected');
+        },
+      );
+      final result = await checks.run();
+      expect(result, hasLength(1));
+      expect(result.single.status, DoctorStatus.failure);
+      expect(result.single.name, 'Device tools');
+      expect(diagnostics.resolveCalls, 1);
+      expect(diagnostics.discoveryCalls, 0);
+      expect(httpCalls, 0);
+    },
+  );
+
+  test('tunnel command selects only the requested preparation route', () async {
+    final preparation = RecordingDevicePreparation();
+    final runner = CommandRunner<void>('xcross', 'test')
+      ..addCommand(TunnelCommand(preparation));
+    await runner.run(['tunnel']);
+    expect(preparation.calls, ['usb']);
+    await runner.run(['tunnel', '--wifi']);
+    expect(preparation.calls, ['usb', 'wireless']);
+  });
+
+  test('DAP command retains only its explicitly supplied tunnel probe', () {
+    final availability = RecordingTunnelAvailability();
+    final command = DapCommand(testRuntime(), tunnelAvailability: availability);
+    expect(command.tunnelAvailability, same(availability));
+    expect(availability.calls, 0);
+  });
+
   test(
     'non-macOS simulator diagnostic precedes unsupported ARM64 host resolution',
     () {
@@ -119,7 +202,7 @@ void main() {
     'DAP test adapter options and machine stdout survive global verbose flags',
     () {
       final runner = XcrossCli.buildRunner(
-        testRuntime(),
+        testApplication(),
         configTerminal: TestTerminal(),
       );
       const arguments = [
@@ -186,6 +269,7 @@ void main() {
           stderrSink: testByteSink(),
           downloader: Downloader(createClient: HttpClient.new, log: log),
           deviceConsole: TestDeviceConsole(),
+          deviceSockets: const TestDeviceSockets(),
           signingHttpClients: const HttpSigningClientFactory(),
           createAppleHttpClient: http.Client.new,
           createHttpClient: http.Client.new,
@@ -245,6 +329,7 @@ void main() {
         stderrSink: testByteSink(),
         downloader: Downloader(createClient: HttpClient.new, log: log),
         deviceConsole: TestDeviceConsole(),
+        deviceSockets: const TestDeviceSockets(),
         signingHttpClients: const HttpSigningClientFactory(),
         createAppleHttpClient: http.Client.new,
         createHttpClient: http.Client.new,
@@ -313,11 +398,15 @@ void main() {
   test(
     'unsupported Compose architecture does not poison Flutter or CLI startup',
     () {
-      final runtime = testRuntime(architecture: 'arm64');
+      final application = testApplication(architecture: 'arm64');
+      final runtime = application.runtime;
       final physical = composePhysicalFeatures(runtime);
       expect(physical.flutterRuntime.host.architecture, 'arm64');
       expect(
-        XcrossCli.buildRunner(runtime, configTerminal: TestTerminal()).commands,
+        XcrossCli.buildRunner(
+          application,
+          configTerminal: TestTerminal(),
+        ).commands,
         contains('flutter'),
       );
       expect(() => physical.composeOperation, throwsA(isA<XcrossError>()));
@@ -389,12 +478,13 @@ void main() {
   test(
     'CLI usage failures reach the supplied sink without process stderr',
     () async {
-      final runtime = testRuntime(
+      final application = testApplication(
         environment: const {'XCROSS_NO_UPDATE_CHECK': '1'},
       );
+      final runtime = application.runtime;
       final code = await XcrossCli.run(
         ['flutter', 'build', '--profile'],
-        runtime,
+        application,
         configTerminal: TestTerminal(),
       );
       expect(code, 64);
@@ -424,7 +514,6 @@ XcrossRuntime<LinuxHostInterface> copyRuntime(
   processorCount: runtime.processorCount,
   sdkRepository: repository ?? runtime.sdkRepository,
   darwinToolchain: runtime.darwinToolchain,
-  pymd: runtime.pymd,
   flutter: runtime.flutter,
   composeHostProvider: runtime.composeHostProvider,
   composeSimulatorCapability: runtime.composeSimulatorCapability,
@@ -467,5 +556,59 @@ final class RecordingGuardPrompt implements CommandPrompt {
     messages.add('secret:$prompt:$valueName');
     if (secretError case final error?) throw error;
     return answers.isEmpty ? null : answers.removeAt(0);
+  }
+}
+
+final class RecordingSimulatorSigning
+    implements ComposeSimulatorSigning<MacOSHostInterface> {
+  RecordingSimulatorSigning(this.host);
+  @override
+  final MacOSHostInterface host;
+  int calls = 0;
+  @override
+  Future<void> signBundle(String appPath) async {
+    calls++;
+  }
+}
+
+final class FailingDeviceDiagnostics implements DeviceDiagnostics {
+  int resolveCalls = 0;
+  int discoveryCalls = 0;
+  @override
+  Future<String> resolveExecutable() {
+    resolveCalls++;
+    throw StateError('Fixture executable unavailable');
+  }
+
+  @override
+  Future<List<Device>> devices() {
+    discoveryCalls++;
+    throw StateError('Discovery must not run');
+  }
+
+  @override
+  Future<int?> osMajorVersion(Device device) =>
+      throw StateError('Version probe must not run');
+}
+
+final class RecordingDevicePreparation implements DevicePreparation {
+  final List<String> calls = [];
+  @override
+  Future<void> prepare() async {
+    calls.add('usb');
+  }
+
+  @override
+  Future<void> prepareWireless() async {
+    calls.add('wireless');
+  }
+}
+
+final class RecordingTunnelAvailability implements TunnelAvailability {
+  int calls = 0;
+  @override
+  Future<bool> isReachable() async {
+    calls++;
+    return true;
   }
 }

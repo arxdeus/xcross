@@ -3,12 +3,14 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart' show DeviceConsole;
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
+    show DeviceConsole, DeviceSockets;
+import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:http/http.dart' as http;
 import 'package:xcross/src/cli/runner.dart';
 import 'package:xcross/src/composition/ios_target.dart';
+import 'package:xcross/src/composition/xcross_application.dart';
 import 'package:xcross/src/composition/xcrun_sdk.dart';
 import 'package:xcross/src/config/config.dart';
 import 'package:xcross/src/config/runtime_config.dart';
@@ -17,7 +19,6 @@ import 'package:xcross/src/flutter/hot_reload/vm_service_output.dart';
 import 'package:xcross/src/shared/cli/command_prompt.dart';
 import 'package:xcross/src/shared/config/config_host.dart';
 import 'package:xcross/src/shared/device/signing_http_client_factory.dart';
-import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
 import 'package:xcross/src/shared/tools/swiftpm_gate_operation.dart';
 import 'package:xcross/src/shared/xcrun/xcrun_operation.dart';
@@ -37,6 +38,7 @@ abstract class XcrossHostContext<T extends PlatformHostInterface>
   IOSink get stderrSink;
   int get processorCount;
   DeviceConsole get deviceConsole;
+  DeviceSockets get deviceSockets;
   Downloader get downloader;
   SigningHttpClientFactory get signingHttpClients;
   http.Client Function() get createAppleHttpClient;
@@ -66,9 +68,10 @@ abstract class XcrossHostContext<T extends PlatformHostInterface>
   Future<XcrossBuildFeatures<T>> createBuildFeatures(
     String targetPlatform, {
     bool ipa = false,
-  }) async => composeBuildFeatures<T>(targetPlatform, await load(), ipa: ipa);
+  }) async =>
+      composeBuildFeatures<T>(targetPlatform, (await load()).runtime, ipa: ipa);
 
-  Future<XcrossRuntime<T>> load({
+  Future<XcrossApplication<T>> load({
     XcrossConfigStore<T>? store,
     String? configDirectory,
   }) async {
@@ -98,7 +101,7 @@ abstract class XcrossHostContext<T extends PlatformHostInterface>
     return bind(config, runner, repository, toolchain);
   }
 
-  XcrossRuntime<T> bind(
+  XcrossApplication<T> bind(
     XcrossRuntimeConfig config,
     ProcessRunner<T> runner,
     DarwinSdkRepository<T> repository,
@@ -107,7 +110,7 @@ abstract class XcrossHostContext<T extends PlatformHostInterface>
 
   @override
   Future<SwiftPmGateServices> loadSwiftPmGate() async {
-    final runtime = await load();
+    final runtime = (await load()).runtime;
     final features = composePhysicalFeatures(runtime);
     final plugins = features.flutterRuntime.plugins.runtime;
     final sdk = runtime.sdkRepository.current();
@@ -154,7 +157,7 @@ abstract class XcrossHostContext<T extends PlatformHostInterface>
 
   @override
   Future<XcrunServices> loadXcrun({required String sdkName}) async {
-    final runtime = await load();
+    final runtime = (await load()).runtime;
     return XcrunServices(
       target: parseXcrunSdkName(sdkName),
       runner: runtime.runner,

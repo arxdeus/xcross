@@ -1,8 +1,9 @@
 import 'dart:ffi';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart' show DeviceConsole;
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
+    show DeviceConsole, DeviceSockets;
 import 'package:http/http.dart' as http;
 import 'package:xcross/src/composition/host/linux_xcross_context.dart';
 import 'package:xcross/src/composition/host/macos_xcross_context.dart';
@@ -31,6 +32,7 @@ XcrossHostContext<PlatformHostInterface> composeXcrossHost(
   required IOSink stderrSink,
   required Downloader downloader,
   required DeviceConsole deviceConsole,
+  required DeviceSockets deviceSockets,
   required SigningHttpClientFactory signingHttpClients,
   required http.Client Function() createAppleHttpClient,
   required HttpClient Function() createLocalHttpClient,
@@ -55,6 +57,7 @@ XcrossHostContext<PlatformHostInterface> composeXcrossHost(
     stderrSink: stderrSink,
     downloader: downloader,
     deviceConsole: deviceConsole,
+    deviceSockets: deviceSockets,
     signingHttpClients: signingHttpClients,
     createAppleHttpClient: createAppleHttpClient,
     createLocalHttpClient: createLocalHttpClient,
@@ -79,6 +82,7 @@ XcrossHostContext<PlatformHostInterface> composeXcrossHost(
     stderrSink: stderrSink,
     downloader: downloader,
     deviceConsole: deviceConsole,
+    deviceSockets: deviceSockets,
     signingHttpClients: signingHttpClients,
     createAppleHttpClient: createAppleHttpClient,
     createLocalHttpClient: createLocalHttpClient,
@@ -103,6 +107,7 @@ XcrossHostContext<PlatformHostInterface> composeXcrossHost(
     stderrSink: stderrSink,
     downloader: downloader,
     deviceConsole: deviceConsole,
+    deviceSockets: deviceSockets,
     signingHttpClients: signingHttpClients,
     createAppleHttpClient: createAppleHttpClient,
     createLocalHttpClient: createLocalHttpClient,

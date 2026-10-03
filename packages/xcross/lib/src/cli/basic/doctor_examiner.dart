@@ -1,7 +1,7 @@
-import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:dart_mobile_device/dart_mobile_device_shared.dart' show Device;
 import 'package:xcross/src/cli/basic/doctor_environment_checks.dart';
 import 'package:xcross/src/cli/basic/doctor_models.dart';
-import 'package:xcross/src/cli/basic/doctor_project_checks.dart';
+import 'package:xcross/src/shared/diagnostics/doctor_project_inspector.dart';
 
 typedef DoctorChecks = Future<List<DoctorCheck>> Function();
 typedef DoctorDetectProject = Future<DoctorProject?> Function();
@@ -12,7 +12,7 @@ final class DoctorExaminer {
   DoctorExaminer({
     required String projectRoot,
     required DoctorEnvironmentChecks environmentChecks,
-    required DoctorProjectChecks projectChecks,
+    required DoctorProjectInspector projectChecks,
   }) : this.withSeams(
          hostChecks: environmentChecks.host,
          detectProject: () async => projectChecks.detect(projectRoot),

@@ -1,6 +1,8 @@
 import 'package:build_cli_annotations/build_cli_annotations.dart';
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart' show Pymd;
+import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
+    show DeviceSearchMode, DeviceSockets;
 import 'package:xcross/src/cli/compose/compose_build_command.dart';
 import 'package:xcross/src/cli/internal/parsed_command.dart';
 import 'package:xcross/src/cli/shared/device_selection.dart';
@@ -77,11 +79,21 @@ final class ComposeRunCommand<T extends PlatformHostInterface>
   ComposeRunArgs parseOptions(ArgResults results) =>
       _$parseComposeRunArgsResult(results);
 
-  ComposeRunCommand(XcrossRuntime<T> runtime)
-    : this._withRuntime(runtime, composePhysicalFeatures(runtime));
+  ComposeRunCommand(
+    XcrossRuntime<T> runtime,
+    Pymd pymd, {
+    required DeviceSockets sockets,
+  }) : this._withRuntime(
+         runtime,
+         pymd,
+         sockets,
+         composePhysicalFeatures(runtime),
+       );
 
   ComposeRunCommand._withRuntime(
     XcrossRuntime<T> runtime,
+    Pymd pymd,
+    DeviceSockets sockets,
     XcrossBuildFeatures<T> features,
   ) : this.withSeams(
         log: runtime.log,
@@ -105,7 +117,8 @@ final class ComposeRunCommand<T extends PlatformHostInterface>
               onRestartRequested,
             }) async {
               final operation = await DeviceRunOperation.resolve(
-                runtime.pymd,
+                pymd,
+                sockets: sockets,
                 httpClients: runtime.signingHttpClients,
                 connector: runtime.vmConnector,
                 vmOutput: runtime.vmOutput,

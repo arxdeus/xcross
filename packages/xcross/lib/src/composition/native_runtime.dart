@@ -1,9 +1,11 @@
 import 'dart:io';
 
-import 'package:apple_developer_kit/apple_developer_kit.dart';
-import 'package:cli_kit/cli_kit.dart';
+import 'package:apple_developer_kit/apple_developer_kit_shared.dart'
+    show AppleHttp;
+import 'package:cli_kit/cli_kit.dart' show detectPlatformHostSnapshot;
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart'
-    show NativeDeviceConsole;
+    show NativeDeviceConsole, NativeDeviceSockets;
 import 'package:http/http.dart' as http;
 import 'package:xcross/src/composition/xcross_host_context.dart';
 import 'package:xcross/src/composition/xcross_runtime.dart';
@@ -41,6 +43,7 @@ XcrossHostContext<PlatformHostInterface> createNativeXcrossContext() {
     stdoutSink: stdout,
     stderrSink: stderr,
     deviceConsole: NativeDeviceConsole(input: stdin, output: stdout),
+    deviceSockets: const NativeDeviceSockets(),
     downloader: Downloader(createClient: HttpClient.new, log: log),
     signingHttpClients: const HttpSigningClientFactory(),
     createAppleHttpClient: AppleHttp.createAppleHttpClient,

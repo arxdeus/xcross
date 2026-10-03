@@ -1,8 +1,12 @@
-import 'package:apple_developer_kit/apple_developer_kit.dart';
+import 'package:apple_developer_kit/apple_developer_kit_shared.dart'
+    show AppleError;
 import 'package:args/command_runner.dart';
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:completion/completion.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart'
+    show DevicePrepare, PymdDeviceDiagnostics;
+import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
+    show TunnelError;
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:xcross/src/cli/basic/auth_command.dart';
 import 'package:xcross/src/cli/basic/clean_command.dart';
@@ -21,10 +25,10 @@ import 'package:xcross/src/cli/ide/ide_command.dart';
 import 'package:xcross/src/cli/ide/xcross_executable.dart';
 import 'package:xcross/src/cli/internal/xcross_runner.dart';
 import 'package:xcross/src/composition/ios_target.dart';
+import 'package:xcross/src/composition/xcross_application.dart';
 import 'package:xcross/src/config/config.dart';
 import 'package:xcross/src/errors.dart';
-import 'package:xcross/src/flutter/flutter.dart';
-import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
+import 'package:xcross/src/flutter/flutter.dart' show FlutterBuildError;
 import 'package:xcross/src/update/install_layout.dart';
 import 'package:xcross/src/update/self_update.dart';
 import 'package:xcross/src/update/update_check.dart';
@@ -32,10 +36,12 @@ import 'package:xcross/src/update/update_check.dart';
 /// Namespace for building and running the xcross CLI.
 abstract final class XcrossCli {
   static CommandRunner<void> buildRunner<T extends PlatformHostInterface>(
-    XcrossRuntime<T> runtime, {
+    XcrossApplication<T> application, {
     required TuiTerminal configTerminal,
     Iterable<String> excludedCommands = const [],
   }) {
+    final runtime = application.runtime;
+    final pymd = application.pymd;
     final excluded = excludedCommands
         .map((command) => command.trim().toLowerCase())
         .toSet();
@@ -51,7 +57,7 @@ abstract final class XcrossCli {
       runner: runtime.runner,
       repository: runtime.sdkRepository,
       toolchain: runtime.darwinToolchain,
-      pymd: runtime.pymd,
+      deviceDiagnostics: PymdDeviceDiagnostics(pymd),
       buildPlatform: physical.target.buildPlatform,
       appleHostServices: runtime.appleHostServices,
       sdkMismatch: runtime.sdkInstall.hostToolchainMismatch,
@@ -68,9 +74,9 @@ abstract final class XcrossCli {
       declarative: runtime.config.isConfigured,
     );
     final commands = <Command<void>>[
-      FlutterCommand(runtime),
-      ComposeCommand(runtime),
-      TunnelCommand(DevicePrepare(runtime.pymd)),
+      FlutterCommand(runtime, pymd, application.sockets),
+      ComposeCommand(runtime, pymd, application.sockets),
+      TunnelCommand(DevicePrepare(pymd)),
       CleanCommand(
         projectRoot: runtime.host.paths.context.current,
         log: runtime.log,
@@ -123,13 +129,14 @@ abstract final class XcrossCli {
   /// Entry point used by `bin/xcross.dart`.
   static Future<int> run<T extends PlatformHostInterface>(
     List<String> args,
-    XcrossRuntime<T> runtime, {
+    XcrossApplication<T> application, {
     required TuiTerminal configTerminal,
   }) async {
+    final runtime = application.runtime;
     final excludedCommands =
         runtime.config.config?.excludedCommands ?? const <String>{};
     final runner = buildRunner(
-      runtime,
+      application,
       configTerminal: configTerminal,
       excludedCommands: excludedCommands,
     );

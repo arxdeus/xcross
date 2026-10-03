@@ -27,7 +27,14 @@ void main() {
   group('FlutterRunCommand', () {
     late Command<void> command;
 
-    setUp(() => command = FlutterRunCommand(testRuntime()));
+    setUp(() {
+      final application = testApplication();
+      command = FlutterRunCommand(
+        application.runtime,
+        application.pymd,
+        sockets: application.sockets,
+      );
+    });
 
     test(
       'defaults: usb/wifi off, device-connection both, target/pub inherited',
@@ -233,7 +240,7 @@ void main() {
   group('XcrossCli global -v', () {
     test('-v sets the verbose flag on the runner', () {
       final results = XcrossCli.buildRunner(
-        testRuntime(),
+        testApplication(),
         configTerminal: TestTerminal(),
       ).argParser.parse(['-v']);
       expect(results.flag('verbose'), isTrue);
@@ -241,7 +248,7 @@ void main() {
 
     test('verbose is accepted after the flutter build command', () {
       final results = XcrossCli.buildRunner(
-        testRuntime(),
+        testApplication(),
         configTerminal: TestTerminal(),
       ).argParser.parse(['flutter', 'build', '--verbose']);
       expect(results.flag('verbose'), isTrue);
