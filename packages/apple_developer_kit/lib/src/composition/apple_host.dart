@@ -2,7 +2,7 @@ import 'dart:ffi';
 import 'package:apple_developer_kit/src/host/linux/linux_machine_identity.dart';
 import 'package:apple_developer_kit/src/host/macos/macos_machine_identity.dart';
 import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
-import 'package:apple_developer_kit/src/host/shared/posix_file_permissions.dart';
+import 'package:apple_developer_kit/src/host/shared/file_system_file_permissions.dart';
 import 'package:apple_developer_kit/src/host/windows/windows_file_permissions.dart';
 import 'package:apple_developer_kit/src/host/windows/windows_machine_identity.dart';
 import 'package:cli_kit/cli_kit.dart';
@@ -16,7 +16,7 @@ AppleHostServices createLinuxAppleHostServices(
   abi: abi,
   localeName: localeName,
   machineIdentity: LinuxMachineIdentity(host.fileSystem),
-  permissions: const PosixAppleFilePermissions(),
+  permissions: FileSystemAppleFilePermissions(host.fileSystem),
 );
 
 AppleHostServices createMacOSAppleHostServices(
@@ -29,7 +29,7 @@ AppleHostServices createMacOSAppleHostServices(
   abi: abi,
   localeName: localeName,
   machineIdentity: MacOSMachineIdentity(runner.run),
-  permissions: const PosixAppleFilePermissions(),
+  permissions: FileSystemAppleFilePermissions(host.fileSystem),
 );
 
 AppleHostServices createWindowsAppleHostServices(
