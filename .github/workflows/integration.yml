@@ -490,6 +490,10 @@ jobs:
       - name: Resolve dependencies
         run: dart pub get
 
+      - name: Build and test native ADI bridge
+        working-directory: packages/apple_developer_kit
+        run: dart run test/adi/posix_bridge_test.dart
+
       - name: Test xcross host workflows
         working-directory: packages/xcross
         run: dart test
@@ -511,7 +515,7 @@ jobs:
         working-directory: packages/apple_developer_kit
         env:
           ADI_NATIVE_SMOKE: '1'
-        run: dart test test/adi/adi_client_test.dart
+        run: dart test --compiler cli test/adi/adi_client_test.dart test/adi/posix_bridge_test.dart
 
       - name: Build native CLI bundle
         working-directory: packages/xcross
