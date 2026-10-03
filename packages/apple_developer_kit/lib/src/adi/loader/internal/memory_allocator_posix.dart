@@ -10,7 +10,6 @@
 // lives. See NOTICE.md.
 
 import 'dart:ffi';
-import 'dart:io';
 
 import 'package:apple_developer_kit/src/adi/loader/internal/memory_allocator.dart';
 import 'package:apple_developer_kit/src/adi/loader/internal/sysv_abi_bridge.dart';
@@ -25,8 +24,6 @@ const int _mapPrivate = 0x02;
 // MAP_ANONYMOUS/MAP_ANON: standard POSIX <sys/mman.h> values, which differ
 // between Linux and macOS (Darwin) — well-documented platform constants,
 // not Provision-specific.
-const int _mapAnonymousLinux = 0x20;
-const int _mapAnonymousMacos = 0x1000;
 
 typedef _MmapDart =
     Pointer<Void> Function(
@@ -43,9 +40,9 @@ typedef _MprotectDart = int Function(Pointer<Void> addr, int length, int prot);
 typedef _MunmapDart = int Function(Pointer<Void> addr, int length);
 
 @internal
-final class PosixMemoryAllocator implements NativeMemoryAllocator {
-  PosixMemoryAllocator({bool? isMacos})
-    : _isMacos = isMacos ?? Platform.isMacOS,
+abstract class PosixMemoryAllocator implements NativeMemoryAllocator {
+  PosixMemoryAllocator({required int anonymousMappingFlag})
+    : _anonymousMappingFlag = anonymousMappingFlag,
       _mmap = DynamicLibrary.process()
           .lookupFunction<
             Pointer<Void> Function(
@@ -76,19 +73,18 @@ final class PosixMemoryAllocator implements NativeMemoryAllocator {
   void flushInstructionCache(NativeMemoryBlock block) =>
       provision_clear_cache(block.pointer.cast(), block.length);
 
-  final bool _isMacos;
+  final int _anonymousMappingFlag;
   final _MmapDart _mmap;
   final _MprotectDart _mprotect;
   final _MunmapDart _munmap;
 
   @override
   NativeMemoryBlock alloc(int size) {
-    final mapAnon = _isMacos ? _mapAnonymousMacos : _mapAnonymousLinux;
     final result = _mmap(
       nullptr,
       size,
       _protRead | _protWrite,
-      _mapPrivate | mapAnon,
+      _mapPrivate | _anonymousMappingFlag,
       -1,
       0,
     );

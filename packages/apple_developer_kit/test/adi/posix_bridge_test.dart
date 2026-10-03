@@ -7,11 +7,11 @@ import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/adi/adi_architecture.dart';
 import 'package:apple_developer_kit/src/adi/elf/elf_loaded_library.dart';
-import 'package:apple_developer_kit/src/adi/loader/internal/memory_allocator_posix.dart';
 import 'package:apple_developer_kit/src/adi/loader/internal/sysv_abi_bridge.dart';
 import 'package:ffi/ffi.dart';
 import 'package:test/test.dart';
 
+import '../support/host_services.dart';
 import 'support/elf_fixture.dart';
 
 Pointer<Void> symbol(String name) => using(
@@ -247,8 +247,9 @@ void main() {
       );
       final library = ElfLoadedLibrary.load(
         bytes,
-        PosixMemoryAllocator(),
+        testPosixAllocator(),
         (_) => nullptr,
+        machine: architecture.elfMachine,
       );
       final call = library
           .lookup('local')

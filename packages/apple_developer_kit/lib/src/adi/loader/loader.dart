@@ -23,4 +23,9 @@ abstract interface class LoadedNativeLibrary {
   /// [T].
   @useResult
   Pointer<NativeFunction<T>> lookup<T extends Function>(String symbolName);
+
+  Pointer<NativeFunction<T>> callable<T extends Function>(
+    String symbolName,
+    int argumentCount,
+  );
 }

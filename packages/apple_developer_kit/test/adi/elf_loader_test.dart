@@ -74,6 +74,7 @@ void main() {
               expect(name, 'external');
               return Pointer.fromAddress(0x12340000);
             },
+            machine: machine,
           );
           final target = library.lookup('export').cast<Uint64>();
           expect(target[0], target.address + 0x100);
@@ -97,7 +98,12 @@ void main() {
     final data = ByteData.sublistView(bytes);
     data.setUint16(0x400 + 3 * 24 + 6, 0xfff1, Endian.little);
     data.setUint64(0x400 + 3 * 24 + 8, 0x87654320, Endian.little);
-    final library = ElfLoadedLibrary.load(bytes, allocator, (_) => nullptr);
+    final library = ElfLoadedLibrary.load(
+      bytes,
+      allocator,
+      (_) => nullptr,
+      machine: machine,
+    );
     expect(library.lookup('local').address, 0x87654320);
     expect(library.lookup('export').cast<Uint64>()[1], 0x87654323);
   });
@@ -110,7 +116,12 @@ void main() {
       bytes,
     ).setUint64(0x400 + 3 * 24 + 8, 0xffff0000, Endian.little);
     expect(
-      () => ElfLoadedLibrary.load(bytes, allocator, (_) => nullptr),
+      () => ElfLoadedLibrary.load(
+        bytes,
+        allocator,
+        (_) => nullptr,
+        machine: machine,
+      ),
       throwsFormatException,
     );
     expect(allocator.freed, isTrue);
@@ -126,7 +137,12 @@ void main() {
         bytes,
       ).setUint64(0x600, (0x7fffffff << 32) | 0xfffffff8, Endian.little);
       expect(
-        () => ElfLoadedLibrary.load(bytes, allocator, (_) => nullptr),
+        () => ElfLoadedLibrary.load(
+          bytes,
+          allocator,
+          (_) => nullptr,
+          machine: machine,
+        ),
         throwsFormatException,
       );
       expect(allocator.freed, isTrue);
@@ -140,7 +156,12 @@ void main() {
     data.setUint64(64 + 16, (0x7fffffff << 32) | 0xfffff000, Endian.little);
     data.setUint64(64 + 40, 0x1000, Endian.little);
     expect(
-      () => ElfLoadedLibrary.load(bytes, allocator, (_) => nullptr),
+      () => ElfLoadedLibrary.load(
+        bytes,
+        allocator,
+        (_) => nullptr,
+        machine: machine,
+      ),
       throwsFormatException,
     );
     expect(allocator.allocated, isNull);
@@ -153,6 +174,7 @@ void main() {
         elfFixture(machine == 183 ? 62 : 183),
         allocator,
         (_) => nullptr,
+        machine: machine,
       ),
       throwsFormatException,
     );
@@ -180,7 +202,12 @@ void main() {
           data.setUint64(0x200 + 3 * 64 + 32, 121, Endian.little);
       }
       expect(
-        () => ElfLoadedLibrary.load(bytes, allocator, (_) => nullptr),
+        () => ElfLoadedLibrary.load(
+          bytes,
+          allocator,
+          (_) => nullptr,
+          machine: machine,
+        ),
         throwsA(anyOf(isA<FormatException>(), isA<UnsupportedError>())),
       );
       expect(allocator.freed, isTrue);
@@ -192,7 +219,12 @@ void main() {
     final bytes = elfFixture(machine);
     ByteData.sublistView(bytes).setUint32(68, 7, Endian.little);
     expect(
-      () => ElfLoadedLibrary.load(bytes, allocator, (_) => nullptr),
+      () => ElfLoadedLibrary.load(
+        bytes,
+        allocator,
+        (_) => nullptr,
+        machine: machine,
+      ),
       throwsUnsupportedError,
     );
     expect(allocator.allocated, isNull);

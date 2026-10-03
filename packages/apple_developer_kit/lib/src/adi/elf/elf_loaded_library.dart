@@ -18,7 +18,6 @@
 import 'dart:ffi';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/adi/adi_architecture.dart';
 import 'package:apple_developer_kit/src/adi/elf/elf_reader.dart';
 import 'package:apple_developer_kit/src/adi/loader/internal/memory_allocator.dart';
 import 'package:meta/meta.dart';
@@ -33,10 +32,11 @@ class ElfLoadedLibrary {
   factory ElfLoadedLibrary.load(
     Uint8List bytes,
     NativeMemoryAllocator allocator,
-    ExternalSymbolResolver resolveExternalSymbol,
-  ) {
+    ExternalSymbolResolver resolveExternalSymbol, {
+    required int machine,
+  }) {
     final elf = ElfReader(bytes);
-    elf.validate(machine: AdiArchitecture.forAbi(Abi.current()).elfMachine);
+    elf.validate(machine: machine);
     final pageSize = allocator.pageSize;
     if (pageSize < 4096 || pageSize & (pageSize - 1) != 0) {
       throw StateError('Unsupported host page size: $pageSize');

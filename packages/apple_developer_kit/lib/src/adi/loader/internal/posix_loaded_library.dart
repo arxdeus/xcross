@@ -11,4 +11,10 @@ final class PosixLoadedLibrary implements LoadedNativeLibrary {
   @override
   Pointer<NativeFunction<T>> lookup<T extends Function>(String symbolName) =>
       _lib.lookup(symbolName).cast();
+
+  @override
+  Pointer<NativeFunction<T>> callable<T extends Function>(
+    String symbolName,
+    int argumentCount,
+  ) => lookup<T>(symbolName);
 }

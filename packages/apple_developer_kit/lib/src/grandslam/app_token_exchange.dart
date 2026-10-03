@@ -10,7 +10,6 @@ library;
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/apple_http_client.dart';
 import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/grandslam_endpoints.dart';
 import 'package:apple_developer_kit/src/grandslam/grandslam_login_data.dart';
@@ -53,10 +52,10 @@ final class GrandSlamAppTokenExchange {
   GrandSlamAppTokenExchange({
     required this.endpoints,
     required Future<Map<String, String>> Function() fetchAnisetteHeaders,
-    http.Client? httpClient,
+    required http.Client httpClient,
     this.locale = 'en_US',
   }) : _fetchAnisetteHeaders = fetchAnisetteHeaders,
-       _http = httpClient ?? AppleHttp.createAppleHttpClient();
+       _http = httpClient;
 
   final GrandSlamEndpoints endpoints;
   final String locale;

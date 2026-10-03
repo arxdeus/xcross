@@ -11,6 +11,8 @@ import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
 
+import '../support/host_services.dart';
+
 void main() {
   final signingTime = DateTime.utc(2030, 2, 3, 4, 5, 6);
   late Directory temporaryDirectory;
@@ -66,7 +68,7 @@ void main() {
         ).writeAsStringSync('nested');
       }
 
-      final signer = BundleSigner(exactAsset);
+      final signer = BundleSigner(exactAsset, hostServices: testHostServices);
       await signer.signApp(app.path, signingTime: signingTime);
 
       expect(
@@ -209,10 +211,16 @@ void main() {
         'wildcard-app',
         'dev.xcross.Wildcard',
       );
-      await BundleSigner(wildcardAsset).preflight(wildcardApp.path);
+      await BundleSigner(
+        wildcardAsset,
+        hostServices: testHostServices,
+      ).preflight(wildcardApp.path);
 
       await expectLater(
-        BundleSigner(exactAsset).preflight(wildcardApp.path),
+        BundleSigner(
+          exactAsset,
+          hostServices: testHostServices,
+        ).preflight(wildcardApp.path),
         throwsA(
           isA<AppleError>().having(
             (error) => error.message,
@@ -236,6 +244,7 @@ void main() {
     }
     await BundleSigner(
       exactAsset,
+      hostServices: testHostServices,
     ).signApp(safeApp.path, signingTime: signingTime);
     final resources = _plist(
       File(
@@ -260,7 +269,10 @@ void main() {
       ..writeAsStringSync('outside');
     expect(_link(p.join(unsafeApp.path, 'escape'), outside.path), isTrue);
     await expectLater(
-      BundleSigner(exactAsset).preflight(unsafeApp.path),
+      BundleSigner(
+        exactAsset,
+        hostServices: testHostServices,
+      ).preflight(unsafeApp.path),
       throwsA(
         isA<AppleError>().having(
           (error) => error.message,
@@ -285,7 +297,10 @@ void main() {
     ).createSync(recursive: true);
 
     await expectLater(
-      BundleSigner(exactAsset).signApp(app.path, signingTime: signingTime),
+      BundleSigner(
+        exactAsset,
+        hostServices: testHostServices,
+      ).signApp(app.path, signingTime: signingTime),
       throwsA(
         isA<AppleError>().having(
           (error) => error.message,
@@ -308,7 +323,10 @@ void main() {
     _writeInfo(hiddenCode.path, 'Hidden', 'dev.xcross.Hidden');
     File(p.join(hiddenCode.path, 'Hidden')).writeAsStringSync('not Mach-O');
     await expectLater(
-      BundleSigner(exactAsset).preflight(unknown.path),
+      BundleSigner(
+        exactAsset,
+        hostServices: testHostServices,
+      ).preflight(unknown.path),
       throwsA(
         isA<AppleError>().having(
           (error) => error.message,
@@ -333,7 +351,10 @@ void main() {
     ).writeAsBytesSync([0xca, 0xfe, 0xba, 0xbe]);
 
     await expectLater(
-      BundleSigner(exactAsset).signApp(app.path, signingTime: signingTime),
+      BundleSigner(
+        exactAsset,
+        hostServices: testHostServices,
+      ).signApp(app.path, signingTime: signingTime),
       throwsA(
         isA<AppleError>().having(
           (error) => error.message,
@@ -350,7 +371,10 @@ void main() {
     final file = File(p.join(temporaryDirectory.path, 'input.ipa'))
       ..writeAsStringSync('ipa');
     await expectLater(
-      BundleSigner(exactAsset).preflight(file.path),
+      BundleSigner(
+        exactAsset,
+        hostServices: testHostServices,
+      ).preflight(file.path),
       throwsA(
         isA<AppleError>().having(
           (error) => error.message,
@@ -363,7 +387,10 @@ void main() {
     final app = Directory(p.join(temporaryDirectory.path, 'missing.app'))
       ..createSync();
     await expectLater(
-      BundleSigner(exactAsset).preflight(app.path),
+      BundleSigner(
+        exactAsset,
+        hostServices: testHostServices,
+      ).preflight(app.path),
       throwsA(
         isA<AppleError>().having(
           (error) => error.message,
@@ -387,6 +414,7 @@ void main() {
     await BundleSigner(
       exactAsset,
       extensionAssets: {extensionId: extensionAsset},
+      hostServices: testHostServices,
     ).signApp(app.path, signingTime: signingTime);
 
     final appexDir = p.join(app.path, 'PlugIns', 'Share.appex');
@@ -411,7 +439,10 @@ void main() {
     _appExtension(app.path, 'Share', 'dev.xcross.Runner.Share');
 
     await expectLater(
-      BundleSigner(exactAsset).signApp(app.path, signingTime: signingTime),
+      BundleSigner(
+        exactAsset,
+        hostServices: testHostServices,
+      ).signApp(app.path, signingTime: signingTime),
       throwsA(
         isA<AppleError>().having(
           (error) => error.message,
@@ -429,7 +460,10 @@ void main() {
     File(p.join(stray.path, 'Stray')).writeAsBytesSync(_macho());
 
     await expectLater(
-      BundleSigner(exactAsset).preflight(app.path),
+      BundleSigner(
+        exactAsset,
+        hostServices: testHostServices,
+      ).preflight(app.path),
       throwsA(
         isA<AppleError>().having(
           (error) => error.message,

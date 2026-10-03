@@ -3,13 +3,12 @@
 library;
 
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/config_dir.dart';
 import 'package:apple_developer_kit/src/errors.dart';
+import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
 import 'package:apple_developer_kit/src/secure/secure_file.dart';
-import 'package:cli_kit/cli_kit.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:pointycastle/export.dart' as pc;
@@ -21,7 +20,7 @@ final class LocalCipherError extends AppleError {
 
 /// Which inputs the encryption key is derived from. Recorded in every
 /// envelope so that opening never depends on re-detecting the environment.
-enum _Binding {
+enum LocalCipherBinding {
   /// Key file + machine id: the config directory is useless elsewhere.
   machine('machine'),
 
@@ -29,11 +28,11 @@ enum _Binding {
   /// Used where no stable machine id exists, such as containers.
   keyOnly('key-only');
 
-  const _Binding(this.wireName);
+  const LocalCipherBinding(this.wireName);
 
   final String wireName;
 
-  static _Binding? byWireName(Object? name) {
+  static LocalCipherBinding? byWireName(Object? name) {
     for (final binding in values) {
       if (binding.wireName == name) return binding;
     }
@@ -85,13 +84,21 @@ enum _Binding {
 final class LocalCipher {
   /// [machineId] overrides machine-id detection; intended for tests. Pass
   /// `''` to simulate a host that exposes none.
-  LocalCipher({String? keyFilePath, String? machineId})
-    : keyFilePath = keyFilePath ?? defaultKeyFilePath(),
-      _machineIdOverride = machineId;
+  LocalCipher({
+    required AppleHostServices hostServices,
+    String? keyFilePath,
+    String? machineId,
+  }) : hostServices = hostServices,
+       keyFilePath =
+           keyFilePath ?? defaultKeyFilePath(hostServices: hostServices),
+       _machineIdOverride = machineId;
+
+  final AppleHostServices hostServices;
 
   /// `<config>/xcross/local.key`.
   @useResult
-  static String defaultKeyFilePath() => p.join(xcrossConfigDir(), 'local.key');
+  static String defaultKeyFilePath({required AppleHostServices hostServices}) =>
+      p.join(xcrossConfigDir(hostServices: hostServices), 'local.key');
 
   final String keyFilePath;
   final String? _machineIdOverride;
@@ -99,7 +106,7 @@ final class LocalCipher {
   /// Derived once per process per binding: both the key file read and the
   /// machine-id lookup (a subprocess on macOS/Windows) are too costly to
   /// repeat.
-  final Map<_Binding, Future<Uint8List>> _keys = {};
+  final Map<LocalCipherBinding, Future<Uint8List>> _keys = {};
   Future<String>? _machineIdCache;
 
   static const int _keyBytes = 32;
@@ -165,8 +172,8 @@ final class LocalCipher {
     }
 
     // Envelopes predating the `bind` field were always machine-bound.
-    final binding = _Binding.byWireName(
-      doc['bind'] ?? _Binding.machine.wireName,
+    final binding = LocalCipherBinding.byWireName(
+      doc['bind'] ?? LocalCipherBinding.machine.wireName,
     );
     if (binding == null) {
       throw const LocalCipherError('sealed data uses an unknown key binding');
@@ -215,30 +222,31 @@ final class LocalCipher {
 
   /// Machine binding unless the host cannot supply a stable id, or the
   /// operator opted out via [bindingEnvironmentVariable].
-  Future<_Binding> _bindingForSealing() async {
-    final requested = Platform.environment[bindingEnvironmentVariable];
+  Future<LocalCipherBinding> _bindingForSealing() async {
+    final requested =
+        hostServices.host.environment.values[bindingEnvironmentVariable];
     if (requested != null && requested.trim().isNotEmpty) {
-      final binding = _Binding.byWireName(requested.trim());
+      final binding = LocalCipherBinding.byWireName(requested.trim());
       if (binding == null) {
         throw LocalCipherError(
           '$bindingEnvironmentVariable must be one of '
-          '${_Binding.values.map((b) => b.wireName).join(', ')}',
+          '${LocalCipherBinding.values.map((b) => b.wireName).join(', ')}',
         );
       }
-      if (binding == _Binding.keyOnly) return binding;
+      if (binding == LocalCipherBinding.keyOnly) return binding;
     }
     return (await _machineIdValue()).isEmpty
-        ? _Binding.keyOnly
-        : _Binding.machine;
+        ? LocalCipherBinding.keyOnly
+        : LocalCipherBinding.machine;
   }
 
-  Future<Uint8List> _keyFor(_Binding binding) =>
+  Future<Uint8List> _keyFor(LocalCipherBinding binding) =>
       _keys[binding] ??= _deriveKey(binding);
 
-  Future<Uint8List> _deriveKey(_Binding binding) async {
+  Future<Uint8List> _deriveKey(LocalCipherBinding binding) async {
     final ikm = await _readOrCreateKeyFile();
     var machineId = '';
-    if (binding == _Binding.machine) {
+    if (binding == LocalCipherBinding.machine) {
       machineId = await _machineIdValue();
       if (machineId.isEmpty) {
         throw const LocalCipherError(
@@ -263,14 +271,14 @@ final class LocalCipher {
   /// processes racing on first use must converge on one key rather than
   /// each keeping the one it generated.
   Future<Uint8List> _readOrCreateKeyFile() async {
-    final file = File(keyFilePath);
+    final file = hostServices.host.fileSystem.file(keyFilePath);
     if (!file.existsSync()) {
-      await SecureFile.writeString(
+      await SecureFile(hostServices: hostServices).writeString(
         keyFilePath,
         base64.encode(SecureFile.randomBytes(_keyBytes)),
       );
     } else {
-      SecureFile.harden(keyFilePath);
+      SecureFile(hostServices: hostServices).harden(keyFilePath);
     }
 
     final Uint8List key;
@@ -288,66 +296,6 @@ final class LocalCipher {
   Future<String> _machineIdValue() {
     final override = _machineIdOverride;
     if (override != null) return Future.value(override);
-    return _machineIdCache ??= _machineId();
-  }
-
-  /// A stable per-machine identifier, or `''` when the host offers none.
-  ///
-  /// An empty result is not fatal: it only means files sealed here are
-  /// bound to the key file alone. It must, however, be *consistent* —
-  /// a value that appears and disappears between runs would rotate the
-  /// key and force a re-login, so every lookup below is a plain read of
-  /// an OS-managed identifier with no fallback to volatile data such as
-  /// the hostname.
-  static Future<String> _machineId() async {
-    try {
-      if (Platform.isLinux || Platform.isAndroid) {
-        for (final path in const [
-          '/etc/machine-id',
-          '/var/lib/dbus/machine-id',
-        ]) {
-          final file = File(path);
-          if (file.existsSync()) {
-            final id = (await file.readAsString()).trim();
-            if (id.isNotEmpty) return id;
-          }
-        }
-        return '';
-      }
-      if (Platform.isMacOS) {
-        final result = await Process.run('/usr/sbin/ioreg', const [
-          '-rd1',
-          '-c',
-          'IOPlatformExpertDevice',
-        ]);
-        if (result.exitCode != 0) return '';
-        return RegExp(
-              r'"IOPlatformUUID"\s*=\s*"([^"]+)"',
-            ).firstMatch('${result.stdout}')?[1] ??
-            '';
-      }
-      if (Platform.isWindows) {
-        final result = await ProcessRunner.run(
-          await ProcessRunner.locateTool('reg'),
-          const [
-            'query',
-            r'HKLM\SOFTWARE\Microsoft\Cryptography',
-            '/v',
-            'MachineGuid',
-          ],
-        );
-        if (result.exitCode != 0) return '';
-        return RegExp(
-              r'MachineGuid\s+REG_SZ\s+(\S+)',
-            ).firstMatch(result.stdout)?[1] ??
-            '';
-      }
-    } on Object {
-      // Sandboxes and stripped containers can deny process spawning or
-      // /etc reads. Degrade to key-file-only binding rather than
-      // refusing to load a session.
-      return '';
-    }
-    return '';
+    return _machineIdCache ??= hostServices.machineIdentity.read();
   }
 }

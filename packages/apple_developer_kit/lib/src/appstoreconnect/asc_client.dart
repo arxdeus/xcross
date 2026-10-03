@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import 'package:apple_developer_kit/src/apple_http_client.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/asc_config.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/asc_jwt.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/asc_models.dart';
@@ -107,8 +106,8 @@ abstract interface class DevelopmentProvisioningClient {
 /// profiles) using only a Team-scoped API key - no interactive Apple ID
 /// login.
 final class AscClient implements DevelopmentProvisioningClient {
-  AscClient(this.credentials, {http.Client? httpClient})
-    : _http = httpClient ?? AppleHttp.createAppleHttpClient();
+  AscClient(this.credentials, {required http.Client httpClient})
+    : _http = httpClient;
 
   final AscCredentials credentials;
   final http.Client _http;

@@ -6,14 +6,10 @@
 
 import 'dart:convert';
 import 'dart:ffi';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/adi/adi_bindings.dart';
-import 'package:apple_developer_kit/src/adi/apk_fetch.dart';
 import 'package:apple_developer_kit/src/adi/loader/loader.dart';
-import 'package:apple_developer_kit/src/adi/loader/loader_posix.dart';
-import 'package:apple_developer_kit/src/adi/loader/loader_windows.dart';
 import 'package:ffi/ffi.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
@@ -183,19 +179,11 @@ class AdiClient {
   /// Mirrors `ADI.this(string libraryPath)` in adi.d.
   factory AdiClient.fromDirectory(
     String nativeLibraryDir, {
-    NativeLibraryLoader? loader,
+    required NativeLibraryLoader loader,
   }) {
-    final libraryDir = loader == null
-        ? (AdiLibraryFetcher.resolveLibraryDirectory(
-                Directory(nativeLibraryDir),
-              )?.path ??
-              (throw StateError(
-                'ADI libraries are missing from $nativeLibraryDir.',
-              )))
-        : nativeLibraryDir;
-    final resolvedLoader = loader ?? AdiClient.defaultNativeLibraryLoader();
+    final libraryDir = nativeLibraryDir;
     final storeServicesPath = p.join(libraryDir, 'libstoreservicescore.so');
-    final storeServicesCore = resolvedLoader.load(storeServicesPath);
+    final storeServicesCore = loader.load(storeServicesPath);
 
     final client = AdiClient._(AdiNativeBindings(storeServicesCore));
     client._loadLibrary(libraryDir);
@@ -397,18 +385,5 @@ class AdiClient {
     if (errorCode != 0) {
       throw AdiException(errorCode);
     }
-  }
-
-  /// Default loader for the current host: Windows ELF+SysV bridge, or Linux
-  /// POSIX mmap loader. See NOTICE.md for why plain dlopen/LoadLibrary is
-  /// unsafe for these Android libraries.
-  @useResult
-  static NativeLibraryLoader defaultNativeLibraryLoader() {
-    if (Platform.isWindows) return WindowsNativeLibraryLoader();
-    if (Platform.isLinux || Platform.isMacOS) return PosixNativeLibraryLoader();
-    throw UnsupportedError(
-      'provision_dart ADI loader supports Linux, macOS and Windows '
-      '(got ${Platform.operatingSystem}).',
-    );
   }
 }

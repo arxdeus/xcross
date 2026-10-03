@@ -14,9 +14,7 @@
 // entirely — the host ABI is already SysV.
 
 import 'dart:ffi';
-import 'dart:io';
 
-import 'package:apple_developer_kit/src/adi/loader/internal/sysv_abi_bridge.dart';
 import 'package:apple_developer_kit/src/adi/loader/loader.dart';
 import 'package:ffi/ffi.dart';
 
@@ -198,8 +196,6 @@ class AdiNativeBindings {
     String symbol,
     int argc,
   ) {
-    final raw = lib.lookup<T>(symbol);
-    if (!Platform.isWindows) return raw;
-    return SysvAbiBridge.sysvImport(raw, argc);
+    return lib.callable<T>(symbol, argc);
   }
 }

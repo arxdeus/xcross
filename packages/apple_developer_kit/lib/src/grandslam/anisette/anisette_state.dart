@@ -7,9 +7,9 @@ library;
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-
 import 'package:apple_developer_kit/src/config_dir.dart';
 import 'package:apple_developer_kit/src/errors.dart';
+import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
 import 'package:apple_developer_kit/src/secure/secure_file.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
@@ -90,14 +90,18 @@ final class AnisetteState {
 /// permanent loss. The file is owner-only instead. It holds a device
 /// pseudo-identity, not a credential.
 final class AnisetteStateStore {
-  AnisetteStateStore({String? path}) : path = path ?? defaultPath();
+  AnisetteStateStore({required AppleHostServices hostServices, String? path})
+    : hostServices = hostServices,
+      path = path ?? defaultPath(hostServices: hostServices);
+
+  final AppleHostServices hostServices;
 
   final String path;
 
   /// `<config-dir>/xcross/anisette-state.json` — see [xcrossConfigDir].
   @useResult
-  static String defaultPath() =>
-      p.join(xcrossConfigDir(), 'anisette-state.json');
+  static String defaultPath({required AppleHostServices hostServices}) => p
+      .join(xcrossConfigDir(hostServices: hostServices), 'anisette-state.json');
 
   /// Directory the ADI library provisions itself into, next to [path].
   ///
@@ -125,6 +129,7 @@ final class AnisetteStateStore {
     return AnisetteState.fromJson(doc.cast());
   }
 
-  Future<void> save(AnisetteState state) =>
-      SecureFile.writeString(path, jsonEncode(state.toJson()));
+  Future<void> save(AnisetteState state) => SecureFile(
+    hostServices: hostServices,
+  ).writeString(path, jsonEncode(state.toJson()));
 }

@@ -7,6 +7,8 @@ import 'dart:io';
 import 'package:apple_developer_kit/apple_developer_kit.dart';
 import 'package:test/test.dart';
 
+import '../support/host_services.dart';
+
 void main() {
   // Downloads the real Apple Music APK on first run (not redistributed;
   // see NOTICE.md). Proves Windows VirtualAlloc ELF load + SysV bridge +
@@ -14,14 +16,24 @@ void main() {
   test(
     'native ADI library can be fetched, ELF-loaded on Windows, and symbols resolved',
     () async {
-      final fetcher = AdiLibraryFetcher();
+      final directory = Directory.systemTemp.createTempSync(
+        'adi-windows-smoke-',
+      );
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final fetcher = AdiLibraryFetcher(
+        cacheDir: directory,
+        abi: testHostServices.abi,
+      );
       final paths = await fetcher.ensureLibraries();
 
       expect(File(paths.coreAdiPath).existsSync(), isTrue);
       expect(File(paths.storeServicesPath).existsSync(), isTrue);
       expect(paths.apkSha256, isNotEmpty);
 
-      final client = AdiClient.fromDirectory(fetcher.cacheDir.path);
+      final client = AdiClient.fromDirectory(
+        fetcher.libraryDirectory.path,
+        loader: testNativeLoader(),
+      );
       expect(client, isNotNull);
       // First real ADI calls (hits SysV import trampolines). A bad bridge
       // used to kill the process here with no Dart exception.

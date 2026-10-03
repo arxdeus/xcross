@@ -10,9 +10,11 @@
 library;
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:apple_developer_kit/src/adi/adi_client.dart';
-import 'package:apple_developer_kit/src/apple_http_client.dart';
+import 'package:apple_developer_kit/src/adi/apk_fetch.dart';
+import 'package:apple_developer_kit/src/adi/loader/loader.dart';
 import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/anisette_headers.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/anisette_provider.dart';
@@ -21,6 +23,7 @@ import 'package:apple_developer_kit/src/grandslam/anisette/grandslam_endpoints.d
 import 'package:apple_developer_kit/src/grandslam/anisette/internal/adi_provisioning.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/internal/real_adi_provisioning.dart';
 import 'package:apple_developer_kit/src/grandslam/internal/grandslam_response_decoder.dart';
+import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
 import 'package:http/http.dart' as http;
 import 'package:propertylistserialization/propertylistserialization.dart';
 
@@ -32,12 +35,17 @@ import 'package:propertylistserialization/propertylistserialization.dart';
 final class AnisetteDataProvider implements AnisetteProvider {
   AnisetteDataProvider(
     this.adiLibraryDirectory, {
-    http.Client? httpClient,
+    required AppleHostServices hostServices,
+    required NativeLibraryLoader loader,
+    required http.Client httpClient,
     AnisetteStateStore? stateStore,
     AdiProvisioningFactory? adiFactory,
-  }) : _http = httpClient ?? AppleHttp.createAppleHttpClient(),
-       _stateStore = stateStore ?? AnisetteStateStore(),
-       _adiFactory = adiFactory ?? _defaultAdiFactory;
+  }) : hostServices = hostServices,
+       _loader = loader,
+       _http = httpClient,
+       _stateStore =
+           stateStore ?? AnisetteStateStore(hostServices: hostServices),
+       _adiFactory = adiFactory;
 
   /// Directory holding the extracted `libCoreADI.so` and
   /// `libstoreservicescore.so`. On Linux x86_64 `xcross auth` can fetch
@@ -45,9 +53,11 @@ final class AnisetteDataProvider implements AnisetteProvider {
   /// supplies them.
   final String adiLibraryDirectory;
 
+  final AppleHostServices hostServices;
+  final NativeLibraryLoader _loader;
   final http.Client _http;
   final AnisetteStateStore _stateStore;
-  final AdiProvisioningFactory _adiFactory;
+  final AdiProvisioningFactory? _adiFactory;
 
   AnisetteState? _state;
   AdiProvisioning? _adi;
@@ -64,6 +74,7 @@ final class AnisetteDataProvider implements AnisetteProvider {
       machineIdentifier: base64Encode(otp.machineIdentifier),
       routingInfo: '${state.routingInfo}',
       localUserUid: state.localUserUid,
+      localeName: hostServices.localeName,
     );
   }
 
@@ -81,16 +92,20 @@ final class AnisetteDataProvider implements AnisetteProvider {
   Future<AnisetteState> _loadState() async =>
       _state ??= await _stateStore.load();
 
-  AdiProvisioning _adiFor(AnisetteState state) => _adi ??= _adiFactory(
-    adiLibraryDirectory: adiLibraryDirectory,
-    provisioningPath: _stateStore.provisioningDirectory,
-    identifier: _androidId(state.localUserUid),
-  );
+  AdiProvisioning _adiFor(AnisetteState state) =>
+      _adi ??= (_adiFactory ?? _defaultAdiFactory)(
+        adiLibraryDirectory: adiLibraryDirectory,
+        provisioningPath: _stateStore.provisioningDirectory,
+        identifier: _androidId(state.localUserUid),
+      );
 
   Future<GrandSlamEndpoints> _grandSlamEndpoints(AnisetteState state) async =>
       _endpoints ??= await GrandSlamEndpoints.fetchGrandSlamEndpoints(
         _http,
-        headers: AnisetteHeaders.buildAnisetteLookupHeaders(state),
+        headers: AnisetteHeaders.buildAnisetteLookupHeaders(
+          state,
+          localeName: hostServices.localeName,
+        ),
       );
 
   /// Runs the one-time provisioning handshake unless [state] already
@@ -154,7 +169,10 @@ final class AnisetteDataProvider implements AnisetteProvider {
       method: 'POST',
       url: url,
       operation: 'Anisette provisioning',
-      headers: AnisetteHeaders.buildAnisetteProvisioningHeaders(state),
+      headers: AnisetteHeaders.buildAnisetteProvisioningHeaders(
+        state,
+        localeName: hostServices.localeName,
+      ),
       body: PropertyListSerialization.stringWithPropertyList({
         'Header': <String, Object?>{},
         'Request': request,
@@ -169,7 +187,7 @@ final class AnisetteDataProvider implements AnisetteProvider {
     return GrandSlamResponse.decodeGrandSlamResponse(response.body);
   }
 
-  static AdiProvisioning _defaultAdiFactory({
+  AdiProvisioning _defaultAdiFactory({
     required String adiLibraryDirectory,
     required String provisioningPath,
     required String identifier,
@@ -178,7 +196,14 @@ final class AnisetteDataProvider implements AnisetteProvider {
     // (bionic open() stubs translate them); the trailing slash matches
     // Provision's usage.
     final path = provisioningPath.replaceAll(r'\', '/');
-    final client = AdiClient.fromDirectory(adiLibraryDirectory)
+    final directory = AdiLibraryFetcher.resolveLibraryDirectory(
+      Directory(adiLibraryDirectory),
+      abi: hostServices.abi,
+    );
+    if (directory == null) {
+      throw StateError('ADI libraries are missing from $adiLibraryDirectory.');
+    }
+    final client = AdiClient.fromDirectory(directory.path, loader: _loader)
       ..provisioningPath = path.endsWith('/') ? path : '$path/'
       ..identifier = identifier;
     return RealAdiProvisioning(client);

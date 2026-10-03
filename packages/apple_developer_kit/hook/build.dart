@@ -105,8 +105,8 @@ Future<({String executable, List<String> flags})> resolveMacOSCompiler({
   Future<ProcessResult> Function(
         String,
         List<String>, {
-        Map<String, String>? environment,
         required bool includeParentEnvironment,
+        Map<String, String>? environment,
       })
       runProcess =
       Process.run,
@@ -150,7 +150,7 @@ String _resolveSystemCc() {
   // has no /usr/bin at all), so search PATH generically instead, filtering
   // out the swiftly clang shim by the same symlink check as before.
   final pathEnv = Platform.environment['PATH'] ?? '';
-  final dirs = pathEnv.split(Platform.isWindows ? ';' : ':');
+  final dirs = pathEnv.split(':');
 
   for (final name in const ['cc', 'gcc', 'clang']) {
     for (final dir in dirs) {

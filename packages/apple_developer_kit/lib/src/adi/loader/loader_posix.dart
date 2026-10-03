@@ -11,26 +11,22 @@
 // the instant they're called. That path has been removed entirely — see
 // NOTICE.md.
 
-import 'dart:ffi';
 import 'dart:io';
 
-import 'package:apple_developer_kit/src/adi/adi_architecture.dart';
 import 'package:apple_developer_kit/src/adi/elf/elf_loaded_library.dart';
-import 'package:apple_developer_kit/src/adi/loader/internal/memory_allocator_posix.dart';
+import 'package:apple_developer_kit/src/adi/loader/internal/memory_allocator.dart';
 import 'package:apple_developer_kit/src/adi/loader/internal/native_symbol_stubs.dart';
 import 'package:apple_developer_kit/src/adi/loader/internal/posix_loaded_library.dart';
 import 'package:apple_developer_kit/src/adi/loader/loader.dart';
 
-final class PosixNativeLibraryLoader implements NativeLibraryLoader {
-  PosixNativeLibraryLoader() : _allocator = PosixMemoryAllocator() {
-    if (!Platform.isLinux && !Platform.isMacOS) {
-      throw UnsupportedError('POSIX ADI requires Linux or macOS.');
-    }
-    AdiArchitecture.forAbi(Abi.current());
+abstract class PosixNativeLibraryLoader implements NativeLibraryLoader {
+  PosixNativeLibraryLoader(this._allocator, {required int machine})
+    : _machine = machine {
     _stubs = NativeSymbolStubs(loadLibraryForDlopen: _loadByPath);
   }
 
-  final PosixMemoryAllocator _allocator;
+  final int _machine;
+  final NativeMemoryAllocator _allocator;
   late final NativeSymbolStubs _stubs;
   final Map<String, ElfLoadedLibrary> _loaded = {};
   String? _lastLoadDir;
@@ -43,6 +39,7 @@ final class PosixNativeLibraryLoader implements NativeLibraryLoader {
       File(_resolvePath(path)).readAsBytesSync(),
       _allocator,
       _stubs.resolve,
+      machine: _machine,
     );
     _loaded[path] = lib;
     return lib;
@@ -66,7 +63,7 @@ final class PosixNativeLibraryLoader implements NativeLibraryLoader {
     final isBareName = !path.contains('/') && !path.contains(r'$');
     if (fallbackDir == null || !isBareName) return path;
 
-    final candidate = File('$fallbackDir${Platform.pathSeparator}$path');
+    final candidate = File('$fallbackDir/$path');
     return candidate.existsSync() ? candidate.path : path;
   }
 

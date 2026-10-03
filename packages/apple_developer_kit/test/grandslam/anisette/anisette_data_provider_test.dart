@@ -20,6 +20,8 @@ import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
 
+import '../../support/host_services.dart';
+
 const _lookupUrl = 'https://gsa.apple.com/grandslam/GsService2/lookup';
 const _midStartUrl = 'https://gsa.apple.com/gsa/midStartProvisioning';
 const _midFinishUrl = 'https://gsa.apple.com/gsa/midFinishProvisioning';
@@ -103,7 +105,7 @@ class FakeAdiProvisioning implements AdiProvisioning {
   }
 }
 
-class _RefusingAdiProvisioning implements AdiProvisioning {
+class RefusingAdiProvisioning implements AdiProvisioning {
   @override
   Future<bool> isMachineProvisioned(int dsId) =>
       throw StateError('unexpected ADI call: isMachineProvisioned');
@@ -152,6 +154,7 @@ void main() {
       const localUserUid = '11111111-2222-4333-8444-555555555555';
       await AnisetteStateStore(
         path: statePath,
+        hostServices: testHostServices,
       ).save(const AnisetteState(localUserUid: localUserUid));
 
       final fake = FakeAdiProvisioning();
@@ -185,8 +188,12 @@ void main() {
 
       final provider = AnisetteDataProvider(
         '/fake/adi/lib/dir',
+        hostServices: testHostServices,
         httpClient: client,
-        stateStore: AnisetteStateStore(path: statePath),
+        stateStore: AnisetteStateStore(
+          path: statePath,
+          hostServices: testHostServices,
+        ),
         adiFactory:
             ({
               required adiLibraryDirectory,
@@ -199,6 +206,7 @@ void main() {
               expect(identifier, '1111111122224333');
               return fake;
             },
+        loader: UnusedNativeLoader(),
       );
 
       final headers = await provider.fetchAnisetteHeaders();
@@ -239,7 +247,10 @@ void main() {
       );
 
       // --- persisted state now has provisioned=true + the real routingInfo ---
-      final persisted = await AnisetteStateStore(path: statePath).load();
+      final persisted = await AnisetteStateStore(
+        path: statePath,
+        hostServices: testHostServices,
+      ).load();
       expect(persisted.provisioned, isTrue);
       expect(persisted.routingInfo, 1234567890123);
       expect(persisted.localUserUid, localUserUid);
@@ -276,7 +287,10 @@ void main() {
     'skips the provisioning handshake entirely once already provisioned',
     () async {
       const localUserUid = '99999999-8888-4777-8666-555555555555';
-      await AnisetteStateStore(path: statePath).save(
+      await AnisetteStateStore(
+        path: statePath,
+        hostServices: testHostServices,
+      ).save(
         const AnisetteState(
           localUserUid: localUserUid,
           provisioned: true,
@@ -284,7 +298,7 @@ void main() {
         ),
       );
 
-      final fake = _RefusingAdiProvisioning();
+      final fake = RefusingAdiProvisioning();
       final client = MockClient(
         (request) async =>
             throw StateError('unexpected HTTP call to ${request.url}'),
@@ -292,14 +306,19 @@ void main() {
 
       final provider = AnisetteDataProvider(
         '/fake/adi/lib/dir',
+        hostServices: testHostServices,
         httpClient: client,
-        stateStore: AnisetteStateStore(path: statePath),
+        stateStore: AnisetteStateStore(
+          path: statePath,
+          hostServices: testHostServices,
+        ),
         adiFactory:
             ({
               required adiLibraryDirectory,
               required provisioningPath,
               required identifier,
             }) => fake,
+        loader: UnusedNativeLoader(),
       );
 
       final headers = await provider.fetchAnisetteHeaders();
@@ -313,7 +332,10 @@ void main() {
   test(
     'throws a clear error when local state disagrees with ADI-reported provisioning',
     () async {
-      await AnisetteStateStore(path: statePath).save(
+      await AnisetteStateStore(
+        path: statePath,
+        hostServices: testHostServices,
+      ).save(
         const AnisetteState(
           localUserUid: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
         ),
@@ -326,14 +348,19 @@ void main() {
 
       final provider = AnisetteDataProvider(
         '/fake/adi/lib/dir',
+        hostServices: testHostServices,
         httpClient: client,
-        stateStore: AnisetteStateStore(path: statePath),
+        stateStore: AnisetteStateStore(
+          path: statePath,
+          hostServices: testHostServices,
+        ),
         adiFactory:
             ({
               required adiLibraryDirectory,
               required provisioningPath,
               required identifier,
             }) => FakeAdiProvisioning(alreadyProvisioned: true),
+        loader: UnusedNativeLoader(),
       );
 
       await expectLater(

@@ -2,21 +2,23 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/errors.dart';
+import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
 import 'package:apple_developer_kit/src/signing/code_signature.dart';
 import 'package:apple_developer_kit/src/signing/internal/signature_inputs.dart';
 import 'package:apple_developer_kit/src/signing/macho_format.dart';
 import 'package:apple_developer_kit/src/signing/signing_asset.dart';
 import 'package:meta/meta.dart';
-import 'package:posix/posix.dart' as posix;
 
 /// Signs xcross-generated thin arm64 Mach-O files without invoking zsign.
 class MachOSigner {
-  MachOSigner(this.signingAsset);
+  MachOSigner(this.signingAsset, {required this.hostServices});
+
+  final AppleHostServices hostServices;
 
   final SigningAsset signingAsset;
 
   /// Validates the complete Mach-O structure without changing [path].
-  static Future<void> preflight(String path) async {
+  Future<void> preflight(String path) async {
     final bytes = await _read(path);
     MachOLayout.parse(bytes, path);
   }
@@ -50,18 +52,16 @@ class MachOSigner {
     );
     final int mode;
     try {
-      mode = File(path).statSync().mode & 0xfff;
+      mode = hostServices.host.fileSystem.file(path).statSync().mode & 0xfff;
     } on Object catch (error) {
       throw AppleError('Could not stat Mach-O "$path": $error');
     }
-    final temporary = File(
+    final temporary = hostServices.host.fileSystem.file(
       '$path.xcross-sign-$pid-${DateTime.now().microsecondsSinceEpoch}.tmp',
     );
     try {
       await temporary.writeAsBytes(signed, flush: true);
-      if (!Platform.isWindows && posix.isPosixSupported) {
-        posix.chmod(temporary.path, mode.toRadixString(8).padLeft(4, '0'));
-      }
+      hostServices.permissions.preserve(temporary.path, mode);
       await temporary.rename(path);
     } on Object catch (error) {
       if (temporary.existsSync()) temporary.deleteSync();
@@ -323,9 +323,9 @@ class MachOSigner {
     return code;
   }
 
-  static Future<Uint8List> _read(String path) async {
+  Future<Uint8List> _read(String path) async {
     try {
-      return await File(path).readAsBytes();
+      return await hostServices.host.fileSystem.file(path).readAsBytes();
     } on Object catch (error) {
       throw AppleError('Could not read Mach-O "$path": $error');
     }

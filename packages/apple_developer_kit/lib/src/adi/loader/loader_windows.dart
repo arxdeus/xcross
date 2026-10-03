@@ -9,20 +9,20 @@ import 'package:apple_developer_kit/src/adi/loader/internal/memory_allocator_win
 import 'package:apple_developer_kit/src/adi/loader/internal/native_symbol_stubs_windows.dart';
 import 'package:apple_developer_kit/src/adi/loader/internal/windows_loaded_library.dart';
 import 'package:apple_developer_kit/src/adi/loader/loader.dart';
+import 'package:path/path.dart' as p;
 
 final class WindowsNativeLibraryLoader implements NativeLibraryLoader {
-  WindowsNativeLibraryLoader() : _allocator = WindowsMemoryAllocator() {
-    if (!Platform.isWindows) {
-      throw UnsupportedError(
-        'WindowsNativeLibraryLoader only runs on Windows.',
-      );
-    }
+  WindowsNativeLibraryLoader() : _allocator = _createAllocator() {
+    _stubs = WindowsNativeSymbolStubs(loadLibraryForDlopen: _loadByPath);
+  }
+
+  static WindowsMemoryAllocator _createAllocator() {
     if (Abi.current() != Abi.windowsX64) {
       throw UnsupportedError(
         'Windows ADI loader requires windows_x64 (got ${Abi.current()}).',
       );
     }
-    _stubs = WindowsNativeSymbolStubs(loadLibraryForDlopen: _loadByPath);
+    return WindowsMemoryAllocator();
   }
 
   final WindowsMemoryAllocator _allocator;
@@ -43,6 +43,7 @@ final class WindowsNativeLibraryLoader implements NativeLibraryLoader {
       File(resolvedPath).readAsBytesSync(),
       _allocator,
       _stubs.resolve,
+      machine: 62,
     );
     _loaded[resolvedPath] = lib;
     return lib;
@@ -58,7 +59,7 @@ final class WindowsNativeLibraryLoader implements NativeLibraryLoader {
     final isBareName = !requested.contains('/') && !requested.contains(r'\');
     if (fallbackDir == null || !isBareName) return canonical;
 
-    final candidate = File('$fallbackDir${Platform.pathSeparator}$requested');
+    final candidate = File(p.windows.join(fallbackDir, requested));
     return candidate.existsSync() ? candidate.absolute.path : canonical;
   }
 

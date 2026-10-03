@@ -8,7 +8,7 @@
 // (this task's equivalent of layer 2a's injectable `AdiProvisioning`).
 //
 // To make the "incorrect password" and 2FA-retry scenarios meaningful (not
-// trivially-always-true), [_FakeGsaServer] below is a real, independent
+// trivially-always-true), [FakeGsaServer] below is a real, independent
 // SRP-6a server-side implementation - deliberately re-derived from the
 // protocol spec rather than copy-pasted from `srp_client.dart` or
 // `srp_client_test.dart` - that the mocked HTTP handlers drive to produce
@@ -64,7 +64,7 @@ void main() {
       () async {
         const username = 'test@example.com';
         const password = 'hunter2';
-        final server = _FakeGsaServer(username: username, password: password);
+        final server = FakeGsaServer(username: username, password: password);
 
         http.Request? initRequest;
         http.Request? completeRequest;
@@ -189,7 +189,7 @@ void main() {
 
     test('lowercases the username before both the request and SRP', () async {
       const password = 'hunter2';
-      final server = _FakeGsaServer(
+      final server = FakeGsaServer(
         username: 'test@example.com',
         password: password,
       );
@@ -252,7 +252,7 @@ void main() {
       'throws GrandSlamAuthError when the server hamk does not verify',
       () async {
         const username = 'test@example.com';
-        final server = _FakeGsaServer(
+        final server = FakeGsaServer(
           username: username,
           password: 'correct-password',
         );
@@ -317,7 +317,7 @@ void main() {
       () async {
         const username = 'test@example.com';
         const password = 'hunter2';
-        final server = _FakeGsaServer(username: username, password: password);
+        final server = FakeGsaServer(username: username, password: password);
 
         var completeCallCount = 0;
         var pushSent = false;
@@ -428,7 +428,7 @@ void main() {
       () async {
         const username = 'test@example.com';
         const password = 'hunter2';
-        final server = _FakeGsaServer(username: username, password: password);
+        final server = FakeGsaServer(username: username, password: password);
 
         var completeCallCount = 0;
         var smsSent = false;
@@ -530,7 +530,7 @@ void main() {
       () async {
         const username = 'test@example.com';
         const password = 'hunter2';
-        final server = _FakeGsaServer(username: username, password: password);
+        final server = FakeGsaServer(username: username, password: password);
 
         final client = MockClient((request) async {
           if (request.url.toString() == _validateCodeUrl) {
@@ -611,7 +611,7 @@ void main() {
       () async {
         const username = 'test@example.com';
         const password = 'hunter2';
-        final server = _FakeGsaServer(username: username, password: password);
+        final server = FakeGsaServer(username: username, password: password);
 
         final client = MockClient((request) async {
           final envelope =
@@ -675,7 +675,7 @@ void main() {
       () async {
         const username = 'test@example.com';
         const password = 'hunter2';
-        final server = _FakeGsaServer(username: username, password: password);
+        final server = FakeGsaServer(username: username, password: password);
 
         final client = MockClient((request) async {
           if (request.url.toString() == _validateCodeUrl) {
@@ -747,7 +747,7 @@ void main() {
       () async {
         const username = 'test@example.com';
         const password = 'hunter2';
-        final server = _FakeGsaServer(username: username, password: password);
+        final server = FakeGsaServer(username: username, password: password);
 
         final client = MockClient((request) async {
           final envelope =
@@ -855,8 +855,8 @@ final BigInt _n = BigInt.parse(
 final BigInt _g = BigInt.two;
 final int _nByteLength = (_n.bitLength + 7) ~/ 8;
 
-class _SrpVerifyResult {
-  _SrpVerifyResult({required this.hamk, required this.sessionKey});
+class SrpVerifyResult {
+  SrpVerifyResult({required this.hamk, required this.sessionKey});
   final Uint8List hamk;
   final Uint8List sessionKey;
 }
@@ -865,8 +865,8 @@ class _SrpVerifyResult {
 /// its verifier `v`), accepts the client's public key `A`, generates its
 /// own ephemeral `b`/`B`, and can verify a client-submitted `M1` against
 /// its own independently-derived expectation.
-class _FakeGsaServer {
-  _FakeGsaServer({required this.username, required this.password})
+class FakeGsaServer {
+  FakeGsaServer({required this.username, required this.password})
     : salt = _randomBytes(16);
 
   final String username;
@@ -908,7 +908,7 @@ class _FakeGsaServer {
   /// independently-computed expectation, returns the resulting `hamk`
   /// (`M2`) and session key `K`. Returns `null` on mismatch (e.g. the
   /// client used the wrong password, so its `K` - and thus `M` - differs).
-  _SrpVerifyResult? verifyAndRespond(Uint8List m1) {
+  SrpVerifyResult? verifyAndRespond(Uint8List m1) {
     final u = _calcXY(_bigA, _bigB);
     final s = (_bigA * _v.modPow(u, _n) % _n).modPow(_b, _n);
     final k = Uint8List.fromList(
@@ -941,7 +941,7 @@ class _FakeGsaServer {
     final hamk = Uint8List.fromList(
       crypto.sha256.convert([...aBytes, ...m1, ...k]).bytes,
     );
-    return _SrpVerifyResult(hamk: hamk, sessionKey: k);
+    return SrpVerifyResult(hamk: hamk, sessionKey: k);
   }
 }
 

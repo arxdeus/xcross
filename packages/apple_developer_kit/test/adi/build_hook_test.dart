@@ -22,8 +22,8 @@ void main() {
               (
                 executable,
                 arguments, {
-                environment,
                 required includeParentEnvironment,
+                environment,
               }) async {
                 expect(executable, '/usr/bin/xcrun');
                 expect(includeParentEnvironment, isFalse);
@@ -66,8 +66,8 @@ void main() {
                   (
                     executable,
                     arguments, {
-                    environment,
                     required includeParentEnvironment,
+                    environment,
                   }) async {
                     calls++;
                     return ProcessResult(

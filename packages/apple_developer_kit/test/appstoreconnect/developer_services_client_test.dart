@@ -527,6 +527,7 @@ void main() {
           token: _token(),
           fetchAnisetteHeaders: () async => {},
           httpClient: client,
+          localeName: 'en_US',
         ),
         throwsA(
           isA<AppleRateLimitError>()
@@ -585,6 +586,7 @@ void main() {
             200,
           );
         }),
+        localeName: 'en_US',
       );
 
       expect(anisetteCalls, 1);
@@ -608,6 +610,7 @@ void main() {
               200,
             ),
           ),
+          localeName: 'en_US',
         ),
         throwsA(
           isA<AppleError>().having(

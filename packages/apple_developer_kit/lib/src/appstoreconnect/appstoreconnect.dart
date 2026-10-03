@@ -12,6 +12,7 @@ import 'package:apple_developer_kit/src/appstoreconnect/asc_csr.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/asc_models.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/provisioning_identifiers.dart';
 import 'package:apple_developer_kit/src/errors.dart';
+import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
 import 'package:basic_utils/basic_utils.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
@@ -70,6 +71,7 @@ abstract final class AscProvisioning {
   ///    id alone), attach every iOS-capable device on the team, and create an
   ///    `IOS_APP_DEVELOPMENT` profile.
   static Future<DevelopmentIdentityPaths> provisionDevelopmentIdentity({
+    required AppleHostServices hostServices,
     required DevelopmentProvisioningClient client,
     required String bundleId,
     required List<String> deviceUdids,
@@ -90,6 +92,7 @@ abstract final class AscProvisioning {
     final profilePath = p.join(outputDir, 'profile.mobileprovision');
 
     final serialNumber = await _loadOrIssueIdentity(
+      hostServices: hostServices,
       client: client,
       certPath: certPath,
       keyPath: keyPath,
@@ -319,6 +322,7 @@ abstract final class AscProvisioning {
   /// otherwise revoke team certificates and create a new one. Returns the
   /// certificate's serial number.
   static Future<String> _loadOrIssueIdentity({
+    required AppleHostServices hostServices,
     required DevelopmentProvisioningClient client,
     required String certPath,
     required String keyPath,
@@ -337,6 +341,7 @@ abstract final class AscProvisioning {
       await _revokeAllCertificates(client, onProgress: onProgress);
     }
     return _issueAndPersistIdentity(
+      hostServices: hostServices,
       client: client,
       certPath: certPath,
       keyPath: keyPath,
@@ -346,6 +351,7 @@ abstract final class AscProvisioning {
   }
 
   static Future<String> _issueAndPersistIdentity({
+    required AppleHostServices hostServices,
     required DevelopmentProvisioningClient client,
     required String certPath,
     required String keyPath,
@@ -364,6 +370,7 @@ abstract final class AscProvisioning {
     await AscCsr.writePrivateKeyPem(
       keyPath,
       AscCsr.privateKeyToPem(csr.privateKey),
+      hostServices: hostServices,
     );
     final serialNumber =
         certificate.serialNumber ??

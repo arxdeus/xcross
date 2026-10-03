@@ -3,13 +3,12 @@
 library;
 
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/errors.dart';
+import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
 import 'package:meta/meta.dart';
-import 'package:posix/posix.dart' as posix;
 
 /// Filesystem helpers that keep secret files out of other users' reach.
 ///
@@ -21,21 +20,23 @@ import 'package:posix/posix.dart' as posix;
 ///
 /// Windows has no POSIX mode bits and `dart:io` exposes no ACL API, so
 /// hardening is a no-op there; `%APPDATA%` is already per-user.
-abstract final class SecureFile {
-  /// Mode 600: read/write for the owner, nothing for anyone else.
-  static const String _ownerOnly = '0600';
+final class SecureFile {
+  SecureFile({required this.hostServices});
+  final AppleHostServices hostServices;
 
   /// Atomically writes [contents] to [path] as an owner-only file,
   /// creating the parent directory if needed.
-  static Future<void> writeString(String path, String contents) =>
+  Future<void> writeString(String path, String contents) =>
       writeBytes(path, utf8.encode(contents));
 
   /// Byte-oriented [writeString].
-  static Future<void> writeBytes(String path, List<int> bytes) async {
-    final file = File(path);
+  Future<void> writeBytes(String path, List<int> bytes) async {
+    final file = hostServices.host.fileSystem.file(path);
     await file.parent.create(recursive: true);
 
-    final temporary = File('$path.${_temporarySuffix()}.tmp');
+    final temporary = hostServices.host.fileSystem.file(
+      '$path.${_temporarySuffix()}.tmp',
+    );
     try {
       await temporary.writeAsBytes(bytes, flush: true);
       harden(temporary.path);
@@ -49,15 +50,7 @@ abstract final class SecureFile {
   /// Restricts an existing file to its owner. Silently does nothing on
   /// Windows, on hosts without POSIX support, or when [path] is missing —
   /// permission hardening is defence in depth, never a hard requirement.
-  static void harden(String path) {
-    if (Platform.isWindows || !posix.isPosixSupported) return;
-    try {
-      posix.chmod(path, _ownerOnly);
-    } on Object {
-      // Best effort: an exotic filesystem (FAT, some network mounts)
-      // rejecting chmod must not fail an otherwise successful write.
-    }
-  }
+  void harden(String path) => hostServices.permissions.harden(path);
 
   /// 16 random hex characters — enough that two concurrent writers never
   /// collide on the same temporary file.

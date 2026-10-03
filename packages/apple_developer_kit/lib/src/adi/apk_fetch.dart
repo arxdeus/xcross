@@ -44,9 +44,8 @@ const _libraryNames = ['libCoreADI.so', 'libstoreservicescore.so'];
 /// they are downloaded on demand and cached locally, matching upstream's
 /// documented approach.
 class AdiLibraryFetcher {
-  AdiLibraryFetcher({Directory? cacheDir, Abi? abi})
-    : cacheDir = cacheDir ?? _defaultCacheDir(),
-      _architecture = AdiArchitecture.forAbi(abi ?? Abi.current());
+  AdiLibraryFetcher({required this.cacheDir, required Abi abi})
+    : _architecture = AdiArchitecture.forAbi(abi);
 
   final AdiArchitecture _architecture;
 
@@ -58,8 +57,11 @@ class AdiLibraryFetcher {
 
   static bool supportsAbi(Abi abi) => AdiArchitecture.tryForAbi(abi) != null;
 
-  static Directory? resolveLibraryDirectory(Directory directory, {Abi? abi}) {
-    final architecture = AdiArchitecture.forAbi(abi ?? Abi.current());
+  static Directory? resolveLibraryDirectory(
+    Directory directory, {
+    required Abi abi,
+  }) {
+    final architecture = AdiArchitecture.forAbi(abi);
     final scoped = Directory(p.join(directory.path, architecture.apkAbi));
     final selected = scoped.existsSync() ? scoped : directory;
     final files = [
@@ -72,15 +74,6 @@ class AdiLibraryFetcher {
       ).validate(machine: architecture.elfMachine);
     }
     return selected;
-  }
-
-  static Directory _defaultCacheDir() {
-    final home =
-        Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
-    if (home == null) {
-      throw StateError('Cannot determine a home directory (HOME is not set).');
-    }
-    return Directory(p.join(home, '.cache', 'provision_dart'));
   }
 
   File get _apkFile => File(p.join(cacheDir.path, 'applemusic.apk'));

@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:apple_developer_kit/src/apple_http_client.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/asc_client.dart';
@@ -42,14 +41,14 @@ final class DeveloperServicesClient implements DevelopmentProvisioningClient {
     required this.token,
     required this.teamId,
     required Future<Map<String, String>> Function() fetchAnisetteHeaders,
-    http.Client? httpClient,
+    required http.Client httpClient,
   }) : _fetchAnisetteHeaders = fetchAnisetteHeaders,
-       _http = httpClient ?? AppleHttp.createAppleHttpClient();
+       _http = httpClient;
 
   factory DeveloperServicesClient.fromSession(
     GrandSlamSession session,
     Future<Map<String, String>> Function() fetchAnisetteHeaders, {
-    http.Client? httpClient,
+    required http.Client httpClient,
   }) => DeveloperServicesClient(
     token: session.token,
     teamId: session.teamId,
@@ -75,29 +74,24 @@ final class DeveloperServicesClient implements DevelopmentProvisioningClient {
   /// header set and its own `resultCode` error convention.
   static Future<List<DeveloperServicesTeam>> listTeams({
     required DeveloperServicesLoginToken token,
+    required String localeName,
     required Future<Map<String, String>> Function() fetchAnisetteHeaders,
-    http.Client? httpClient,
+    required http.Client httpClient,
   }) async {
     _rejectExpired(token);
     final anisette = await fetchAnisetteHeaders();
-    final client = httpClient ?? AppleHttp.createAppleHttpClient();
-    try {
-      final response = await client.post(
-        Uri.parse(
-          '$_baseUrl/QH65B2/listTeams.action?clientId=$_legacyClientId',
-        ),
-        headers: {...anisette, ..._legacyHeaders(token)},
-        body: PropertyListSerialization.stringWithPropertyList({
-          'requestId': AnisetteState.generateUuidV4(),
-          'clientId': _legacyClientId,
-          'protocolVersion': 'QH65B2',
-          'userLocale': [Platform.localeName],
-        }),
-      );
-      return _parseTeams(response);
-    } finally {
-      if (httpClient == null) client.close();
-    }
+    final client = httpClient;
+    final response = await client.post(
+      Uri.parse('$_baseUrl/QH65B2/listTeams.action?clientId=$_legacyClientId'),
+      headers: {...anisette, ..._legacyHeaders(token)},
+      body: PropertyListSerialization.stringWithPropertyList({
+        'requestId': AnisetteState.generateUuidV4(),
+        'clientId': _legacyClientId,
+        'protocolVersion': 'QH65B2',
+        'userLocale': [localeName],
+      }),
+    );
+    return _parseTeams(response);
   }
 
   @override

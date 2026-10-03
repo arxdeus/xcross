@@ -10,6 +10,8 @@ import 'package:crypto/crypto.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
 
+import '../support/host_services.dart';
+
 void main() {
   final signingTime = DateTime.utc(2030, 2, 3, 4, 5, 6);
   late Directory temporaryDirectory;
@@ -21,7 +23,7 @@ void main() {
       'xcross_macho_signer-',
     );
     asset = await _signingAsset(temporaryDirectory);
-    signer = MachOSigner(asset);
+    signer = MachOSigner(asset, hostServices: testHostServices);
   });
 
   tearDownAll(() {
@@ -263,7 +265,10 @@ void main() {
         file.writeAsBytesSync(entry.value);
         final before = file.readAsBytesSync();
         await expectLater(
-          MachOSigner.preflight(file.path),
+          MachOSigner(
+            asset,
+            hostServices: testHostServices,
+          ).preflight(file.path),
           throwsA(
             isA<AppleError>().having(
               (error) => error.message,
@@ -289,7 +294,7 @@ void main() {
     final file = File('${temporaryDirectory.path}/bad-signature.macho')
       ..writeAsBytesSync(malformed);
     await expectLater(
-      MachOSigner.preflight(file.path),
+      MachOSigner(asset, hostServices: testHostServices).preflight(file.path),
       throwsA(
         isA<AppleError>().having(
           (error) => error.message,
@@ -331,7 +336,10 @@ void main() {
         signingTime: signingTime,
       );
 
-      await MachOSigner.preflight(file.path);
+      await MachOSigner(
+        asset,
+        hostServices: testHostServices,
+      ).preflight(file.path);
       expect(_u32le(file.readAsBytesSync(), 16), 3);
       if (!Platform.isWindows) expect(file.statSync().mode & 0xfff, oldMode);
     },

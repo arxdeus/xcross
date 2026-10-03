@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
-
 import 'package:apple_developer_kit/src/config_dir.dart';
 import 'package:apple_developer_kit/src/errors.dart';
+import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
 import 'package:apple_developer_kit/src/secure/secure_file.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
@@ -37,8 +37,11 @@ final class AscCredentials {
 
   /// Default per-user config file location,
   /// `<config-dir>/xcross/appstoreconnect.json` — see [xcrossConfigDir].
-  static String defaultConfigPath() =>
-      p.join(xcrossConfigDir(), 'appstoreconnect.json');
+  static String defaultConfigPath({required AppleHostServices hostServices}) =>
+      p.join(
+        xcrossConfigDir(hostServices: hostServices),
+        'appstoreconnect.json',
+      );
 
   /// Writes these credentials to [path] as an owner-only file.
   ///
@@ -46,18 +49,22 @@ final class AscCredentials {
   /// file holds identifiers and a path, while the actual secret is the
   /// `.p8` it points at, which the user manages and which
   /// [AscCsr.writePrivateKeyPem] already restricts to its owner.
-  Future<void> save([String? path]) => SecureFile.writeString(
-    path ?? defaultConfigPath(),
-    const JsonEncoder.withIndent('  ').convert({
-      'issuerId': issuerId,
-      'keyId': keyId,
-      'privateKeyPath': privateKeyPath,
-    }),
-  );
+  Future<void> save({required AppleHostServices hostServices, String? path}) =>
+      SecureFile(hostServices: hostServices).writeString(
+        path ?? defaultConfigPath(hostServices: hostServices),
+        const JsonEncoder.withIndent('  ').convert({
+          'issuerId': issuerId,
+          'keyId': keyId,
+          'privateKeyPath': privateKeyPath,
+        }),
+      );
 
   /// Loads credentials from [path] (defaults to [defaultConfigPath]).
-  static Future<AscCredentials> fromFile([String? path]) async {
-    final file = File(path ?? defaultConfigPath());
+  static Future<AscCredentials> fromFile({
+    required AppleHostServices hostServices,
+    String? path,
+  }) async {
+    final file = File(path ?? defaultConfigPath(hostServices: hostServices));
     if (!file.existsSync()) {
       throw AppleError(
         'App Store Connect credentials not found at ${file.path}.\n'
@@ -67,7 +74,7 @@ final class AscCredentials {
     }
     // Repairs configs written by older xcross versions, or hand-created
     // with a permissive umask.
-    SecureFile.harden(file.path);
+    SecureFile(hostServices: hostServices).harden(file.path);
     final Object? doc;
     try {
       doc = jsonDecode(await file.readAsString());

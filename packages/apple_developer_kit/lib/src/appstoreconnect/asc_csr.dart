@@ -1,3 +1,4 @@
+import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
 import 'package:apple_developer_kit/src/secure/secure_file.dart';
 import 'package:basic_utils/basic_utils.dart';
 import 'package:meta/meta.dart';
@@ -36,8 +37,11 @@ abstract final class AscCsr {
 
   /// Writes [pem] to [path] as an owner-only file. This is the private
   /// signing key, the longest-lived secret xcross puts on disk.
-  static Future<void> writePrivateKeyPem(String path, String pem) =>
-      SecureFile.writeString(path, pem);
+  static Future<void> writePrivateKeyPem(
+    String path,
+    String pem, {
+    required AppleHostServices hostServices,
+  }) => SecureFile(hostServices: hostServices).writeString(path, pem);
 }
 
 /// A freshly generated RSA keypair and its PKCS#10 CSR, from [AscCsr.generate].

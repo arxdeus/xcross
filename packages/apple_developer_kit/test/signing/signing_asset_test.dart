@@ -347,7 +347,7 @@ void main() {
       expect(_oidValue(signerDigestAlgorithm.single), _oidSha256);
       final implicitAttributes = signerInfo[3];
       expect(implicitAttributes.tag, 0xa0);
-      final attributes = _TestReader(implicitAttributes.value).all();
+      final attributes = TestReader(implicitAttributes.value).all();
       final encodedAttributes = attributes
           .map((attribute) => base64.encode(attribute.encoded))
           .toList();
@@ -358,7 +358,7 @@ void main() {
         orderedEquals(sortedAttributes.map(base64.encode)),
       );
 
-      final valuesByOid = <String, _TestValue>{};
+      final valuesByOid = <String, TestValue>{};
       for (final attribute in attributes) {
         final parts = attribute.children();
         valuesByOid[_oidValue(parts[0])] = parts[1].children().single;
@@ -897,15 +897,15 @@ int _compareBytes(List<int> left, List<int> right) {
   return left.length.compareTo(right.length);
 }
 
-_TestValue _single(Uint8List bytes, int tag) {
-  final reader = _TestReader(bytes);
+TestValue _single(Uint8List bytes, int tag) {
+  final reader = TestReader(bytes);
   final value = reader.read();
   expect(value.tag, tag);
   expect(reader.isDone, isTrue);
   return value;
 }
 
-String _oidValue(_TestValue oid) {
+String _oidValue(TestValue oid) {
   final values = <int>[];
   var current = 0;
   for (final byte in oid.value) {
@@ -924,15 +924,15 @@ String _oidValue(_TestValue oid) {
   return [firstArc, first - firstArc * 40, ...values].join('.');
 }
 
-class _TestReader {
-  _TestReader(this._bytes);
+class TestReader {
+  TestReader(this._bytes);
 
   final Uint8List _bytes;
   var _offset = 0;
 
   bool get isDone => _offset == _bytes.length;
 
-  _TestValue read() {
+  TestValue read() {
     final start = _offset;
     final tag = _bytes[_offset++];
     final firstLength = _bytes[_offset++];
@@ -946,15 +946,15 @@ class _TestReader {
     }
     final valueStart = _offset;
     _offset += length;
-    return _TestValue(
+    return TestValue(
       tag,
       Uint8List.sublistView(_bytes, start, _offset),
       Uint8List.sublistView(_bytes, valueStart, _offset),
     );
   }
 
-  List<_TestValue> all() {
-    final values = <_TestValue>[];
+  List<TestValue> all() {
+    final values = <TestValue>[];
     while (!isDone) {
       values.add(read());
     }
@@ -962,12 +962,12 @@ class _TestReader {
   }
 }
 
-class _TestValue {
-  const _TestValue(this.tag, this.encoded, this.value);
+class TestValue {
+  const TestValue(this.tag, this.encoded, this.value);
 
   final int tag;
   final Uint8List encoded;
   final Uint8List value;
 
-  List<_TestValue> children() => _TestReader(value).all();
+  List<TestValue> children() => TestReader(value).all();
 }

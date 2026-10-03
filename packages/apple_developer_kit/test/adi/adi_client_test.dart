@@ -6,6 +6,8 @@ import 'dart:io';
 import 'package:apple_developer_kit/apple_developer_kit.dart';
 import 'package:test/test.dart';
 
+import '../support/host_services.dart';
+
 void main() {
   test(
     'real ADI initializes and queries isolated unprovisioned state',
@@ -16,12 +18,18 @@ void main() {
       addTearDown(() => directory.deleteSync(recursive: true));
       final apk = Platform.environment['ADI_TEST_APK'];
       if (apk != null) File(apk).copySync('${directory.path}/applemusic.apk');
-      final fetcher = AdiLibraryFetcher(cacheDir: directory);
+      final fetcher = AdiLibraryFetcher(
+        cacheDir: directory,
+        abi: testHostServices.abi,
+      );
       final paths = await fetcher.ensureLibraries();
       expect(File(paths.coreAdiPath).existsSync(), isTrue);
       expect(File(paths.storeServicesPath).existsSync(), isTrue);
       expect(paths.apkSha256, hasLength(64));
-      final client = AdiClient.fromDirectory(directory.path);
+      final client = AdiClient.fromDirectory(
+        fetcher.libraryDirectory.path,
+        loader: testNativeLoader(),
+      );
       final state = Directory('${directory.path}/state')..createSync();
       client.provisioningPath = state.path;
       client.identifier = '0123456789abcdef';

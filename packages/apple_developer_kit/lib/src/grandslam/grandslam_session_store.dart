@@ -4,10 +4,10 @@ library;
 
 import 'dart:convert';
 import 'dart:io';
-
 import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/anisette_state.dart';
 import 'package:apple_developer_kit/src/grandslam/app_token_exchange.dart';
+import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
 import 'package:apple_developer_kit/src/secure/local_cipher.dart';
 import 'package:apple_developer_kit/src/secure/secure_file.dart';
 import 'package:meta/meta.dart';
@@ -95,18 +95,25 @@ final class GrandSlamSession {
 /// re-obtainable: if the key file or the machine changes, [load] reports
 /// the session as unreadable and `xcross auth` mints a new one.
 final class GrandSlamSessionStore {
-  GrandSlamSessionStore({String? path, LocalCipher? cipher})
-    : path = path ?? defaultPath(),
-      _cipher = cipher ?? LocalCipher();
+  GrandSlamSessionStore({
+    required AppleHostServices hostServices,
+    String? path,
+    LocalCipher? cipher,
+  }) : hostServices = hostServices,
+       path = path ?? defaultPath(hostServices: hostServices),
+       _cipher = cipher ?? LocalCipher(hostServices: hostServices);
+
+  final AppleHostServices hostServices;
 
   final String path;
   final LocalCipher _cipher;
 
   @useResult
-  static String defaultPath() => p.join(
-    p.dirname(AnisetteStateStore.defaultPath()),
-    'grandslam-session.json',
-  );
+  static String defaultPath({required AppleHostServices hostServices}) =>
+      p.join(
+        p.dirname(AnisetteStateStore.defaultPath(hostServices: hostServices)),
+        'grandslam-session.json',
+      );
 
   /// Returns null when no session is stored.
   ///
@@ -139,10 +146,9 @@ final class GrandSlamSessionStore {
   }
 
   Future<void> save(GrandSlamSession session) async {
-    await SecureFile.writeString(
-      path,
-      await _cipher.seal(jsonEncode(session.toJson())),
-    );
+    await SecureFile(
+      hostServices: hostServices,
+    ).writeString(path, await _cipher.seal(jsonEncode(session.toJson())));
   }
 
   Future<void> clear() async {

@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:apple_developer_kit/src/grandslam/anisette/anisette_state.dart';
 import 'package:crypto/crypto.dart' as crypto;
@@ -30,7 +29,7 @@ abstract final class AnisetteHeaders {
     required String machineIdentifier,
     required String routingInfo,
     required String localUserUid,
-    String? clientInfo,
+    required String localeName, String? clientInfo,
     String? deviceId,
     String? localUserId,
   }) => {
@@ -40,7 +39,7 @@ abstract final class AnisetteHeaders {
     'X-Apple-I-MD-LU': localUserId ?? anisetteLocalUserIdHash(localUserUid),
     'X-Mme-Device-Id': deviceId ?? localUserUid,
     'X-MMe-Client-Info': clientInfo ?? anisetteClientInfo,
-    'X-Apple-Locale': anisetteSystemLocale(),
+    'X-Apple-Locale': anisetteSystemLocale(localeName: localeName),
     'X-Apple-I-TimeZone': _defaultTimeZone,
     'X-Apple-I-Client-Time': anisetteIsoClientTime(),
   };
@@ -50,12 +49,12 @@ abstract final class AnisetteHeaders {
   @useResult
   static Map<String, String> buildAnisetteLookupHeaders(
     AnisetteState state, {
-    String? clientInfo,
+    required String localeName, String? clientInfo,
     String? deviceId,
   }) => {
     'X-MMe-Client-Info': clientInfo ?? anisetteClientInfo,
     'X-Mme-Device-Id': deviceId ?? state.localUserUid,
-    'X-Apple-I-Locale': anisetteSystemLocale(),
+    'X-Apple-I-Locale': anisetteSystemLocale(localeName: localeName),
     'X-Apple-I-TimeZone': _defaultTimeZone,
     'X-Apple-I-TimeZone-Offset': '${DateTime.now().timeZoneOffset.inSeconds}',
     'X-MMe-Country': _defaultCountry,
@@ -64,15 +63,16 @@ abstract final class AnisetteHeaders {
   /// Headers for the one-time device provisioning POSTs.
   @useResult
   static Map<String, String> buildAnisetteProvisioningHeaders(
-    AnisetteState state,
-  ) => {
+    AnisetteState state, {
+    required String localeName,
+  }) => {
     'Content-Type': 'text/x-xml-plist',
     'X-Apple-I-Client-Time': anisetteIsoClientTime(),
     'X-Apple-I-MD-LU': anisetteLocalUserIdHash(state.localUserUid),
     'X-Mme-Device-Id': state.localUserUid,
     'X-MMe-Client-Info': anisetteClientInfo,
     'X-MMe-Country': _defaultCountry,
-    'X-Apple-I-Locale': anisetteSystemLocale(),
+    'X-Apple-I-Locale': anisetteSystemLocale(localeName: localeName),
     'X-Apple-I-TimeZone': _defaultTimeZone,
   };
 
@@ -99,11 +99,8 @@ abstract final class AnisetteHeaders {
   /// The host locale as `ll_CC`, falling back to [_defaultLocale] when the
   /// platform reports something Apple would not recognise.
   @useResult
-  static String anisetteSystemLocale() {
-    final raw = Platform.localeName
-        .split(RegExp('[.@]'))
-        .first
-        .replaceAll('-', '_');
+  static String anisetteSystemLocale({required String localeName}) {
+    final raw = localeName.split(RegExp('[.@]')).first.replaceAll('-', '_');
     return RegExp(r'^[a-zA-Z]{2,3}_[a-zA-Z]{2,4}$').hasMatch(raw)
         ? raw
         : _defaultLocale;

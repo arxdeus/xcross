@@ -10,7 +10,7 @@ void main() {
   test(
     'real GrandSlam lookup uses a fresh TLS connection for each request',
     () async {
-      final connections = _CountingConnections();
+      final connections = CountingConnections();
       await HttpOverrides.runWithHttpOverrides(() async {
         // Same client factory and request sender used by xcross auth.
         final client = AppleHttp.createAppleHttpClient();
@@ -22,6 +22,7 @@ void main() {
               const AnisetteState(
                 localUserUid: '9A9023E0-923A-4A84-A76D-41EB56C3F1B2',
               ),
+              localeName: 'en_US',
             ),
           );
           expect(Uri.parse(endpoints.gsService).scheme, 'https');
@@ -41,7 +42,7 @@ void main() {
   );
 }
 
-final class _CountingConnections extends HttpOverrides {
+final class CountingConnections extends HttpOverrides {
   int opened = 0;
 
   @override

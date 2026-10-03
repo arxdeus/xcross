@@ -7,6 +7,8 @@ import 'package:apple_developer_kit/src/secure/local_cipher.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import '../support/host_services.dart';
+
 void main() {
   late Directory tempDir;
   late String sessionPath;
@@ -16,10 +18,14 @@ void main() {
   LocalCipher cipher() => LocalCipher(
     keyFilePath: p.join(tempDir.path, 'local.key'),
     machineId: 'test-machine',
+    hostServices: testHostServices,
   );
 
-  GrandSlamSessionStore store() =>
-      GrandSlamSessionStore(path: sessionPath, cipher: cipher());
+  GrandSlamSessionStore store() => GrandSlamSessionStore(
+    path: sessionPath,
+    cipher: cipher(),
+    hostServices: testHostServices,
+  );
 
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('xcross_grandslam_session');
@@ -154,7 +160,9 @@ void main() {
       cipher: LocalCipher(
         keyFilePath: p.join(tempDir.path, 'local.key'),
         machineId: 'a-different-machine',
+        hostServices: testHostServices,
       ),
+      hostServices: testHostServices,
     );
     await expectLater(elsewhere.load(), throwsA(isA<LocalCipherError>()));
   });

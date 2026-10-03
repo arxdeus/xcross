@@ -38,6 +38,7 @@ void main() {
                 machineIdentifier: 'mid',
                 routingInfo: '123',
                 localUserUid: 'test-device',
+                localeName: 'en_US',
               ),
           extraParams: const {},
         ),

@@ -1,6 +1,5 @@
-import 'dart:io';
-
 import 'package:apple_developer_kit/src/errors.dart';
+import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
@@ -20,16 +19,27 @@ Never bundleFail(String root, String path, String reason) => throw AppleError(
 /// are case-insensitive, so they are folded before comparing.
 @internal
 @useResult
-String pathKey(String path) {
-  final normalized = p.normalize(p.absolute(path));
-  return Platform.isWindows ? normalized.toLowerCase() : normalized;
+String pathKey(String path, {required AppleHostServices hostServices}) =>
+    hostServices.pathKey(path);
+
+@internal
+@useResult
+bool samePath(
+  String left,
+  String right, {
+  required AppleHostServices hostServices,
+}) =>
+    pathKey(left, hostServices: hostServices) ==
+    pathKey(right, hostServices: hostServices);
+
+@internal
+@useResult
+bool isWithinOrEqual(
+  String parent,
+  String child, {
+  required AppleHostServices hostServices,
+}) {
+  final services = hostServices;
+  return samePath(parent, child, hostServices: services) ||
+      services.host.paths.context.isWithin(parent, child);
 }
-
-@internal
-@useResult
-bool samePath(String left, String right) => pathKey(left) == pathKey(right);
-
-@internal
-@useResult
-bool isWithinOrEqual(String parent, String child) =>
-    samePath(parent, child) || p.isWithin(parent, child);
