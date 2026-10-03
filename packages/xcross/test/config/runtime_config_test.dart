@@ -83,7 +83,10 @@ environment:
       });
       final runner = ProcessRunner(
         host,
-        log: testLog(), stdinStream: const Stream.empty(), stdoutSink: testByteSink(), stderrSink: testByteSink(),
+        log: testLog(),
+        stdinStream: const Stream.empty(),
+        stdoutSink: testByteSink(),
+        stderrSink: testByteSink(),
         configuration: runtime.processConfiguration,
       );
       expect(runner.effectiveEnvironment, runtime.childEnvironment);
@@ -181,7 +184,8 @@ final class ConfigFixtureFileSystem implements HostFileSystemInterface {
   @override
   void makeExecutable(String path) => delegate.makeExecutable(normalize(path));
   @override
-  void setPermissions(String path, int mode) => delegate.setPermissions(normalize(path), mode);
+  void setPermissions(String path, int mode) =>
+      delegate.setPermissions(normalize(path), mode);
   @override
   Future<void> createArchiveLink(String destination, String target) =>
       delegate.createArchiveLink(normalize(destination), normalize(target));
