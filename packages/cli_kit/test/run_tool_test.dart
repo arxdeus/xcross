@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-// ignore: implementation_imports
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';

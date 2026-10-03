@@ -247,23 +247,7 @@ void main() {
         final file = File(p.join(tmp.path, 'script.sh'));
         await file.writeAsString('#!/bin/sh\necho hi\n');
 
-        try {
-          runner.makeExecutable(file.path);
-          // ignore: avoid_catching_errors
-        } on ArgumentError catch (e) {
-          // The installed posix package dlopens its native helper library
-          // eagerly, at construction, instead of catching a missing library
-          // and reporting it through isPosixSupported — so on a host lacking
-          // that helper (this dev box has no primitives.dll) even the
-          // isPosixSupported guard inside makeExecutable throws instead of
-          // returning false. That is an environment/dependency gap, not
-          // something a test on this file can fix — skip gracefully.
-          if (e.toString().contains('dynamic library')) {
-            markTestSkipped('posix native helper library unavailable: $e');
-            return;
-          }
-          rethrow;
-        }
+        expect(() => runner.makeExecutable(file.path), returnsNormally);
 
         if (Platform.isLinux || Platform.isMacOS) {
           final mode = file.statSync().mode;
