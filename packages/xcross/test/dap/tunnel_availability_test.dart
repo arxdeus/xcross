@@ -20,8 +20,9 @@ void main() {
         '${root.path}/.dart_tool/package_config.json',
       ).writeAsStringSync('{"configVersion":2,"packages":[]}');
       final processes = AvailabilityProcesses();
+      final fileSystem = DapFixtureFileSystem();
       final runner = ProcessRunner(
-        MacOSHost(processes: processes),
+        MacOSHost(processes: processes, fileSystem: fileSystem),
         log: testLog(),
         stdinStream: const Stream.empty(),
         stdoutSink: testSink(),
@@ -52,6 +53,11 @@ void main() {
       watch.stop();
       await Future<void>.delayed(Duration.zero);
       expect(availability.calls, 1);
+      expect(fileSystem.directories, [root.path]);
+      expect(
+        fileSystem.files,
+        contains('${root.path}/.dart_tool/package_config.json'),
+      );
       expect(responded, isTrue);
       expect(processes.executable, '/selected/xcross');
       expect(processes.arguments, [
@@ -161,4 +167,25 @@ final class AvailabilityChild implements Process {
   @override
   bool kill([ProcessSignal signal = ProcessSignal.sigterm]) =>
       throw StateError('no native signals');
+}
+
+final class DapFixtureFileSystem implements HostFileSystemInterface {
+  final directories = <String>[];
+  final files = <String>[];
+
+  @override
+  File file(String path) {
+    files.add(path);
+    return File(path);
+  }
+
+  @override
+  Directory directory(String path) {
+    directories.add(path);
+    return Directory(path);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw StateError('unexpected filesystem operation');
 }

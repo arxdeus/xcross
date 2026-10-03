@@ -139,7 +139,10 @@ final class XcrossDap
   }
 
   Future<void> _prepareUriMappings(String cwd) async {
-    final packageConfig = await PackageConfigResolver.require(cwd);
+    final packageConfig = await PackageConfigResolver(
+      fileSystem: runner.host.fileSystem,
+      paths: runner.host.paths.context,
+    ).require(cwd);
     _packageUris ??= await PackageUris.load(packageConfig);
     orgDartlangSdkMappings.clear();
   }
