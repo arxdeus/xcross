@@ -1,14 +1,19 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
-
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:crypto/crypto.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/cli/basic/internal/hard_link_payloads.dart';
 import 'package:xcross/src/cli/basic/internal/swift_sibling_clang.dart';
 import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/sdk/sdk_archive_links.dart';
+import 'package:xcross/src/shared/sdk/sdk_directory_copy.dart';
+import 'package:xcross/src/shared/sdk/sdk_metadata_platform.dart';
+
+export 'package:xcross/src/shared/sdk/sdk_archive_links.dart';
+export 'package:xcross/src/shared/sdk/sdk_metadata_platform.dart';
 
 /// The iOS subset required by Swift's Linux cross-SDK protocol.
 const sdkIncludedRoots = <String>[
@@ -63,36 +68,67 @@ const _statusDllNotFound = 0xC0000135;
 const swiftSdkMismatchMarker = 'this SDK is not supported by the compiler';
 
 /// Helpers for extracting and wiring the Darwin Swift SDK bundle.
-abstract final class SdkInstall {
-  static Stream<CpioEntry> xcodeAppEntries(String appPath) async* {
-    final sourceContents = p.join(appPath, 'Contents');
-    if (!Directory(p.join(sourceContents, 'Developer')).existsSync()) {
+final class SdkInstall<T extends PlatformHostInterface> {
+  SdkInstall(
+    this.runner,
+    this.repository, {
+    required this.links,
+    required this.swiftInstallGuidance,
+    required List<String> swiftBuildTools,
+    required List<SdkMetadataPlatformInterface<T>> metadataPlatforms,
+  }) : swiftBuildTools = List.unmodifiable(swiftBuildTools),
+       metadataPlatforms = List.unmodifiable(metadataPlatforms) {
+    if (!identical(runner.host, repository.host)) {
+      throw ArgumentError(
+        'SDK repository and process runner must share a host',
+      );
+    }
+  }
+  final ProcessRunner<T> runner;
+  final DarwinSdkRepository<T> repository;
+  final SdkArchiveLinksInterface links;
+  final String swiftInstallGuidance;
+  final List<String> swiftBuildTools;
+  final List<SdkMetadataPlatformInterface<T>> metadataPlatforms;
+  T get host => runner.host;
+  p.Context get _paths => host.paths.context;
+
+  Stream<CpioEntry> xcodeAppEntries(String appPath) async* {
+    final sourceContents = _paths.join(appPath, 'Contents');
+    if (!host.fileSystem
+        .directory(_paths.join(sourceContents, 'Developer'))
+        .existsSync()) {
       throw XcrossError('No Xcode Developer directory found in "$appPath".');
     }
-    final canonicalApp = await Directory(appPath).resolveSymbolicLinks();
-    final contents = await Directory(sourceContents).resolveSymbolicLinks();
-    if (!p.isWithin(canonicalApp, contents)) {
+    final canonicalApp = await host.fileSystem
+        .directory(appPath)
+        .resolveSymbolicLinks();
+    final contents = await host.fileSystem
+        .directory(sourceContents)
+        .resolveSymbolicLinks();
+    if (!_paths.isWithin(canonicalApp, contents)) {
       throw XcrossError('Xcode SDK source escapes the app: $sourceContents');
     }
     for (final relative in [...sdkIncludedRoots, ...sdkIncludedFiles]) {
-      final source = p.joinAll([contents, ...relative.split('/')]);
-      final type = FileSystemEntity.typeSync(source, followLinks: false);
+      final source = _paths.joinAll([contents, ...relative.split('/')]);
+      final type = FileSystemEntity.typeSync(ioPath(source), followLinks: false);
       if (type == FileSystemEntityType.notFound) continue;
       final resolved = switch (type) {
-        FileSystemEntityType.directory => await Directory(
-          source,
-        ).resolveSymbolicLinks(),
-        FileSystemEntityType.file => await File(source).resolveSymbolicLinks(),
+        FileSystemEntityType.directory =>
+          await host.fileSystem.directory(source).resolveSymbolicLinks(),
+        FileSystemEntityType.file =>
+          await host.fileSystem.file(source).resolveSymbolicLinks(),
         _ => source,
       };
-      if (!p.isWithin(contents, resolved)) {
+      if (!_paths.isWithin(contents, resolved)) {
         throw XcrossError('Xcode SDK source escapes the app: $source');
       }
       yield await _xcodeAppEntry(source, relative, type);
       if (type != FileSystemEntityType.directory) continue;
-      await for (final entity in Directory(
-        source,
-      ).list(recursive: true, followLinks: false)) {
+      await for (final entity
+          in host.fileSystem
+              .directory(source)
+              .list(recursive: true, followLinks: false)) {
         final entityType = FileSystemEntity.typeSync(
           entity.path,
           followLinks: false,
@@ -105,7 +141,7 @@ abstract final class SdkInstall {
     }
   }
 
-  static Future<CpioEntry> _xcodeAppEntry(
+  Future<CpioEntry> _xcodeAppEntry(
     String source,
     String name,
     FileSystemEntityType type,
@@ -121,10 +157,10 @@ abstract final class SdkInstall {
         return CpioEntry(
           name: name,
           mode: _symbolicLinkType | 0x1ff,
-          data: utf8.encode(await Link(source).target()),
+          data: utf8.encode(await host.fileSystem.link(source).target()),
         );
       case FileSystemEntityType.file:
-        final file = File(source);
+        final file = host.fileSystem.file(source);
         return CpioEntry(
           name: name,
           mode: _regularFileType | (file.statSync().mode & 0x1ff),
@@ -175,16 +211,15 @@ abstract final class SdkInstall {
     return null;
   }
 
-  static Future<int> writeSdkEntries(
+  Future<int> writeSdkEntries(
     Stream<CpioEntry> entries,
     String destDir, {
-    bool? materializeLinks,
     void Function(int count)? onProgress,
     void Function(int done, int total)? onLinkProgress,
   }) async {
-    final root = p.normalize(p.absolute(destDir));
-    await Directory(ioPath(root)).create(recursive: true);
-    final links = <String, String>{};
+    final root = _paths.normalize(_paths.absolute(destDir));
+    await host.fileSystem.directory(ioPath(root)).create(recursive: true);
+    final archiveLinks = <String, String>{};
     final paths = <String, (String, int)>{};
     final hardLinks = HardLinkPayloads();
     final descriptors = <String, String>{};
@@ -224,15 +259,17 @@ abstract final class SdkInstall {
 
       switch (entry.mode & _fileTypeMask) {
         case _directoryType:
-          await Directory(ioPath(destPath)).create(recursive: true);
+          await host.fileSystem
+              .directory(ioPath(destPath))
+              .create(recursive: true);
         case _symbolicLinkType:
           await _createParentDirectory(destPath);
-          links[destPath] = utf8.decode(entry.data);
+          archiveLinks[destPath] = utf8.decode(entry.data);
         case _regularFileType || 0:
           await _createParentDirectory(destPath);
-          await File(ioPath(destPath)).writeAsBytes(data);
+          await host.fileSystem.file(ioPath(destPath)).writeAsBytes(data);
           if (entry.mode & _anyExecuteBit != 0) {
-            ProcessRunner.makeExecutable(destPath);
+            runner.makeExecutable(destPath);
           }
         default:
           continue;
@@ -242,25 +279,12 @@ abstract final class SdkInstall {
       onProgress?.call(written);
     }
 
-    final resolvedLinks = _resolvedSdkLinks(root, links);
-    if (materializeLinks ?? Platform.isWindows) {
-      await _materializeSdkLinks(resolvedLinks, onProgress: onLinkProgress);
-      // Keep both names: callers may reference the canonical iPhoneOS.sdk
-      // directly even when discovery prefers its versioned counterpart.
-    } else {
-      var linked = 0;
-      for (final link in resolvedLinks.entries) {
-        await Link(link.key).create(
-          p.relative(link.value, from: p.dirname(link.key)),
-          recursive: true,
-        );
-        onLinkProgress?.call(++linked, links.length);
-      }
-    }
+    final resolvedLinks = _resolvedSdkLinks(root, archiveLinks);
+    await links.createLinks(resolvedLinks, onProgress: onLinkProgress);
     // Stamped unconditionally: a freshly extracted bundle has been through
     // the rewrite whether or not any stub needed it, and the stamp is what
     // stops every later SDK resolve from rescanning the tree.
-    TbdBundlePatch.stamp(root, files: patchedStubs);
+    repository.patch.stamp(root, files: patchedStubs);
     if (patchedStubs > 0) {
       Log.logTrace(
         'Renamed ${tbdArchitectureAliases.keys.join(', ')} in '
@@ -272,13 +296,13 @@ abstract final class SdkInstall {
 
   /// Several archive prefixes can map onto one descriptor destination.
   /// Reject two different sources rather than letting the last one win.
-  static void _recordDescriptorSource(
+  void _recordDescriptorSource(
     Map<String, String> descriptors,
     String destPath,
     String entryName,
   ) {
     final isDescriptor = sdkIncludedFiles.any(
-      (file) => destPath.endsWith(file.replaceAll('/', p.separator)),
+      (file) => destPath.endsWith(file.replaceAll('/', _paths.separator)),
     );
     if (!isDescriptor) return;
     final previous = descriptors[destPath];
@@ -295,73 +319,20 @@ abstract final class SdkInstall {
   ///
   /// Rejects `..` segments and anything resolving outside [root] so a hostile
   /// archive cannot write over arbitrary host files.
-  static String? _destinationPath(String root, CpioEntry entry) {
+  String? _destinationPath(String root, CpioEntry entry) {
     final archivePath = sdkRelativePath(entry.name);
     if (archivePath == null) return null;
     if (archivePath.split('/').contains('..')) {
       throw XcrossError('Unsafe SDK archive path: ${entry.name}');
     }
-    final relative = p.normalize(archivePath.replaceAll('/', p.separator));
-    final destPath = p.normalize(p.join(root, relative));
-    if (p.isAbsolute(relative) || !p.isWithin(root, destPath)) {
+    final relative = _paths.normalize(
+      archivePath.replaceAll('/', _paths.separator),
+    );
+    final destPath = _paths.normalize(_paths.join(root, relative));
+    if (_paths.isAbsolute(relative) || !_paths.isWithin(root, destPath)) {
       throw XcrossError('Unsafe SDK archive path: ${entry.name}');
     }
     return destPath;
-  }
-
-  /// Windows has no usable unprivileged symlink, so every link becomes a copy
-  /// of its target. Targets may themselves be links, so this loops until no
-  /// link makes progress; a directory waits until nothing else links inside it.
-  static Future<void> _materializeSdkLinks(
-    Map<String, String> links, {
-    void Function(int done, int total)? onProgress,
-  }) async {
-    for (final link in links.entries) {
-      final target = link.value.toLowerCase();
-      final destination = link.key.toLowerCase();
-      if (FileSystemEntity.typeSync(ioPath(link.value)) ==
-              FileSystemEntityType.directory &&
-          (target == destination || p.isWithin(target, destination))) {
-        throw XcrossError(
-          'Cannot materialize an SDK directory symlink inside its target: '
-          '${link.key}',
-        );
-      }
-    }
-    final pending = Map<String, String>.from(links);
-    while (pending.isNotEmpty) {
-      var progressed = false;
-      for (final link in pending.entries.toList()) {
-        final target = link.value;
-        final type = FileSystemEntity.typeSync(ioPath(target));
-        if (type == FileSystemEntityType.notFound) continue;
-        if (type == FileSystemEntityType.directory &&
-            pending.keys.any(
-              (other) =>
-                  other != link.key &&
-                  p.isWithin(target.toLowerCase(), other.toLowerCase()),
-            )) {
-          continue;
-        }
-
-        switch (type) {
-          case FileSystemEntityType.directory:
-            await _copySdkDirectory(target, link.key);
-          case FileSystemEntityType.file:
-            await File(ioPath(target)).copy(ioPath(link.key));
-          default:
-            throw XcrossError('Unsupported SDK symlink target: ${link.value}');
-        }
-        pending.remove(link.key);
-        progressed = true;
-        onProgress?.call(links.length - pending.length, links.length);
-      }
-      if (!progressed) {
-        throw XcrossError(
-          'Could not resolve SDK symlinks: ${pending.values.join(', ')}',
-        );
-      }
-    }
   }
 
   /// Unversioned SDK directories duplicated by link materialization.
@@ -369,22 +340,19 @@ abstract final class SdkInstall {
   /// Only directory aliases directly under an SDKs directory qualify. The
   /// platform name is irrelevant: device and simulator layouts use the same
   /// versioned/unversioned alias convention.
-  static Set<String> materializedSdkAliases(
-    String root,
-    Map<String, String> links,
-  ) {
+  Set<String> materializedSdkAliases(String root, Map<String, String> links) {
     final aliases = <String>{};
     final versioned = RegExp(r'^(.+?)[0-9]+(?:\.[0-9]+)*\.sdk$');
     for (final link in _resolvedSdkLinks(root, links).entries) {
       final target = link.value;
-      final parent = p.dirname(link.key);
-      if (!p.isWithin(root, link.key) ||
-          p.basename(parent) != 'SDKs' ||
-          parent != p.dirname(target)) {
+      final parent = _paths.dirname(link.key);
+      if (!_paths.isWithin(root, link.key) ||
+          _paths.basename(parent) != 'SDKs' ||
+          parent != _paths.dirname(target)) {
         continue;
       }
-      final linkName = p.basename(link.key);
-      final targetName = p.basename(target);
+      final linkName = _paths.basename(link.key);
+      final targetName = _paths.basename(target);
       final linkVersion = versioned.firstMatch(linkName);
       final targetVersion = versioned.firstMatch(targetName);
       if (linkVersion != null && targetName == '${linkVersion[1]}.sdk') {
@@ -398,13 +366,13 @@ abstract final class SdkInstall {
   }
 
   /// Resolves a link target and rejects anything reaching outside the bundle.
-  static Map<String, String> _resolvedSdkLinks(
+  Map<String, String> _resolvedSdkLinks(
     String root,
     Map<String, String> links,
   ) {
     final folded = <String, String>{};
     for (final link in links.entries) {
-      if (!p.isWithin(root, link.key)) {
+      if (!_paths.isWithin(root, link.key)) {
         throw XcrossError('SDK symlink is outside the SDK: ${link.key}');
       }
       final key = link.key.toLowerCase();
@@ -414,12 +382,12 @@ abstract final class SdkInstall {
       folded[key] = link.value;
     }
     for (final link in links.keys) {
-      var parent = p.dirname(link);
-      while (p.isWithin(root, parent)) {
+      var parent = _paths.dirname(link);
+      while (_paths.isWithin(root, parent)) {
         if (folded.containsKey(parent.toLowerCase())) {
           throw XcrossError('Overlapping SDK symlinks: $link');
         }
-        parent = p.dirname(parent);
+        parent = _paths.dirname(parent);
       }
     }
     return {
@@ -428,7 +396,7 @@ abstract final class SdkInstall {
     };
   }
 
-  static void _recordSdkPath(
+  void _recordSdkPath(
     String root,
     Map<String, (String, int)> paths,
     String path,
@@ -436,7 +404,7 @@ abstract final class SdkInstall {
   ) {
     var candidate = path;
     var candidateType = type == 0 ? _regularFileType : type;
-    while (p.isWithin(root, candidate)) {
+    while (_paths.isWithin(root, candidate)) {
       final key = candidate.toLowerCase();
       final previous = paths[key];
       if (previous != null &&
@@ -444,17 +412,17 @@ abstract final class SdkInstall {
         throw XcrossError('Ambiguous SDK entry path: $path');
       }
       paths[key] = (candidate, candidateType);
-      candidate = p.dirname(candidate);
+      candidate = _paths.dirname(candidate);
       candidateType = _directoryType;
     }
   }
 
-  static String _resolvedSdkLinkPath(
+  String _resolvedSdkLinkPath(
     String root,
     String path,
     Map<String, String> links,
   ) {
-    final components = p.split(p.relative(path, from: root));
+    final components = _paths.split(_paths.relative(path, from: root));
     final resolved = <String>[];
     var expansions = 0;
     while (components.isNotEmpty) {
@@ -468,58 +436,46 @@ abstract final class SdkInstall {
         continue;
       }
       resolved.add(component);
-      final candidate = p.joinAll([root, ...resolved]);
+      final candidate = _paths.joinAll([root, ...resolved]);
       final target = links[candidate.toLowerCase()];
       if (target == null) continue;
       if (++expansions > 40) {
         throw XcrossError('SDK symlink cycle or excessive chain: $path');
       }
-      final targetPath = target.replaceAll('/', p.separator);
-      if (p.isAbsolute(targetPath)) {
+      final targetPath = target.replaceAll('/', _paths.separator);
+      if (_paths.isAbsolute(targetPath)) {
         throw XcrossError('SDK symlink target is absolute: $target');
       }
       resolved.removeLast();
-      components.insertAll(0, p.split(targetPath));
+      components.insertAll(0, _paths.split(targetPath));
     }
-    final result = p.joinAll([root, ...resolved]);
-    if (result != root && !p.isWithin(root, result)) {
+    final result = _paths.joinAll([root, ...resolved]);
+    if (result != root && !_paths.isWithin(root, result)) {
       throw XcrossError('SDK symlink escapes the SDK: $path');
     }
     return result;
   }
 
-  static Future<void> _copySdkDirectory(
-    String source,
-    String destination,
-  ) async {
-    await Directory(ioPath(destination)).create(recursive: true);
-    await for (final entity in Directory(ioPath(source)).list()) {
-      final target = p.join(destination, p.basename(entity.path));
-      switch (FileSystemEntity.typeSync(entity.path)) {
-        case FileSystemEntityType.directory:
-          await _copySdkDirectory(entity.path, target);
-        case FileSystemEntityType.file:
-          await File(entity.path).copy(ioPath(target));
-        default:
-          continue;
-      }
-    }
-  }
-
-  static Future<Directory> _createParentDirectory(String path) =>
-      Directory(ioPath(p.dirname(path))).create(recursive: true);
+  Future<Directory> _createParentDirectory(String path) => host.fileSystem
+      .directory(ioPath(_paths.dirname(path)))
+      .create(recursive: true);
 
   /// Win32 directory enumeration appends `\\*`, which still hits `MAX_PATH`
   /// unless the absolute path uses the extended-length prefix.
-  static String ioPath(String path) => HostPaths.long(path);
+  String ioPath(String path) => host.paths.ioPath(path);
 
   /// Copy Swift's canonical iPhoneOS layout into its legacy Runtime location.
-  static Future<void> materializeSwiftCompatibilityResources(
+  Future<void> materializeSwiftCompatibilityResources(
     String artifactRoot,
   ) async {
-    final source = File(
+    final source = host.fileSystem.file(
       ioPath(
-        p.join(artifactRoot, _swiftResources, 'iphoneos', 'layouts-arm64.yaml'),
+        _paths.join(
+          artifactRoot,
+          _swiftResources,
+          'iphoneos',
+          'layouts-arm64.yaml',
+        ),
       ),
     );
     if (!source.existsSync() || source.lengthSync() == 0) {
@@ -528,7 +484,7 @@ abstract final class SdkInstall {
       );
     }
     final destination = ioPath(
-      p.join(
+      _paths.join(
         artifactRoot,
         'Developer',
         'Runtimes',
@@ -538,37 +494,27 @@ abstract final class SdkInstall {
         'layouts-arm64.yaml',
       ),
     );
-    await Directory(p.dirname(destination)).create(recursive: true);
+    await host.fileSystem
+        .directory(_paths.dirname(destination))
+        .create(recursive: true);
     await source.copy(destination);
   }
 
   /// Write the Swift artifact-bundle metadata after extraction.
-  static Future<void> writeSwiftSdkBundleMetadata(String artifactRoot) async {
-    final simulatorSdks = Directory(
-      p.join(
-        artifactRoot,
-        'Developer',
-        'Platforms',
-        'iPhoneSimulator.platform',
-        'Developer',
-        'SDKs',
-      ),
-    );
-    await _writeJson(p.join(artifactRoot, 'swift-sdk.json'), {
+  Future<void> writeSwiftSdkBundleMetadata(String artifactRoot) async {
+    final targetMetadata = <String, Object>{};
+    final sdk = DarwinSdk(artifactRoot);
+    for (final platform in metadataPlatforms) {
+      final root = platform.resolveSdkRoot(repository, sdk);
+      if (root == null) continue;
+      targetMetadata[platform.buildPlatform.swiftSdkTriple] =
+          _swiftSdkTargetMetadata(artifactRoot, platform.buildPlatform, root);
+    }
+    await _writeJson(_paths.join(artifactRoot, 'swift-sdk.json'), {
       'schemaVersion': '4.0',
-      'targetTriples': {
-        IosTarget.device.swiftSdkTriple: _swiftSdkTargetMetadata(
-          artifactRoot,
-          IosTarget.device,
-        ),
-        if (simulatorSdks.existsSync())
-          IosTarget.simulator.swiftSdkTriple: _swiftSdkTargetMetadata(
-            artifactRoot,
-            IosTarget.simulator,
-          ),
-      },
+      'targetTriples': targetMetadata,
     });
-    await _writeJson(p.join(artifactRoot, 'toolset.json'), const {
+    await _writeJson(_paths.join(artifactRoot, 'toolset.json'), const {
       'schemaVersion': '1.0',
       'swiftCompiler': {
         'extraCLIOptions': [
@@ -578,7 +524,7 @@ abstract final class SdkInstall {
         ],
       },
     });
-    await _writeJson(p.join(artifactRoot, 'info.json'), const {
+    await _writeJson(_paths.join(artifactRoot, 'info.json'), const {
       'schemaVersion': '1.0',
       'artifacts': {
         'xcross-darwin': {
@@ -602,31 +548,29 @@ abstract final class SdkInstall {
     });
   }
 
-  static Map<String, Object> _swiftSdkTargetMetadata(
+  Map<String, Object> _swiftSdkTargetMetadata(
     String artifactRoot,
-    IosTarget target,
+    IosBuildPlatformInterface target,
+    String sdkRoot,
   ) {
-    final sdkRoot = DarwinSdk(artifactRoot).iosSdk(target: target);
-    if (!RegExp('[0-9]').hasMatch(p.basename(sdkRoot))) {
+    if (!RegExp('[0-9]').hasMatch(_paths.basename(sdkRoot))) {
       throw XcrossError(
         'The extracted Xcode archive did not contain a versioned '
         '${target.platformName} SDK.',
       );
     }
-    if (target.isSimulator && !DarwinSdk.isValidSimulatorSlice(artifactRoot)) {
-      throw XcrossError(
-        'The extracted Xcode archive contains an incomplete '
-        'iPhoneSimulator SDK or Swift resources.',
-      );
-    }
     final relativeSdkRoot = p
         .relative(sdkRoot, from: artifactRoot)
         .replaceAll(r'\', '/');
-    final toolchainCxx = p.join(artifactRoot, _toolchain, 'usr/include/c++/v1');
-    final sdkCxx = p.join(sdkRoot, 'usr/include/c++/v1');
-    final cxxInclude = Directory(toolchainCxx).existsSync()
+    final toolchainCxx = _paths.join(
+      artifactRoot,
+      _toolchain,
+      'usr/include/c++/v1',
+    );
+    final sdkCxx = _paths.join(sdkRoot, 'usr/include/c++/v1');
+    final cxxInclude = host.fileSystem.directory(toolchainCxx).existsSync()
         ? '$_toolchain/usr/include/c++/v1'
-        : p.relative(sdkCxx, from: artifactRoot).replaceAll(r'\', '/');
+        : _paths.relative(sdkCxx, from: artifactRoot).replaceAll(r'\', '/');
     final platformDeveloper =
         'Developer/Platforms/${target.platformName}.platform/Developer';
     return {
@@ -639,25 +583,23 @@ abstract final class SdkInstall {
     };
   }
 
-  static Future<void> _writeJson(String path, Map<String, Object?> value) =>
-      File(path).writeAsString('${_json.convert(value)}\n');
+  Future<void> _writeJson(String path, Map<String, Object?> value) =>
+      host.fileSystem.file(path).writeAsString('${_json.convert(value)}\n');
 
   /// Replace Xcode's clang builtin headers with headers matching host Swift.
-  static Future<void> replaceClangBuiltinHeaders(
+  Future<void> replaceClangBuiltinHeaders(
     String artifactRoot, {
     Future<String> Function(String name)? locateTool,
     Future<CapturedProcess> Function(String executable, List<String> arguments)?
     runProcess,
   }) async {
-    final sibling = await _swiftSiblingClang(
-      locateTool ?? ProcessRunner.locateTool,
-    );
+    final sibling = await _swiftSiblingClang(locateTool ?? runner.locateTool);
     final source = await _clangBuiltinHeaderDir(
       sibling.clang,
       sibling.swift,
-      runProcess ?? ProcessRunner.run,
+      runProcess ?? runner.run,
     );
-    final destination = p.join(
+    final destination = _paths.join(
       artifactRoot,
       'Developer',
       'Toolchains',
@@ -669,11 +611,11 @@ abstract final class SdkInstall {
       'include',
     );
     await _deleteAnyEntity(destination);
-    await _copySdkDirectory(source, destination);
+    await SdkDirectoryCopy(host).copy(source, destination);
     await _writeHostToolchainStamp(
       artifactRoot,
       sibling,
-      runProcess ?? ProcessRunner.run,
+      runProcess ?? runner.run,
     );
   }
 
@@ -683,23 +625,19 @@ abstract final class SdkInstall {
   /// toolchain upgrades — and the version alone is not enough either, since
   /// two builds of the same version can differ in module ABI (the reported
   /// "swiftlang-…" build differs between a vendor and a swift.org build).
-  static Future<Map<String, Object>> swiftPmBuildToolchainIdentity({
+  Future<Map<String, Object>> swiftPmBuildToolchainIdentity({
     required String cCompilerPath,
     required String cxxCompilerPath,
     required String linkerPath,
     required String librarianPath,
-    bool? windows,
     Future<String> Function(String name)? locateTool,
     Future<CapturedProcess> Function(String executable, List<String> arguments)?
     runProcess,
   }) async {
-    final locate = locateTool ?? ProcessRunner.locateTool;
-    final run = runProcess ?? ProcessRunner.run;
-    final toolNames = (windows ?? Platform.isWindows)
-        ? const ['swift-package', 'swift-build', 'swiftc']
-        : const ['swift', 'swiftc'];
+    final locate = locateTool ?? runner.locateTool;
+    final run = runProcess ?? runner.run;
     return {
-      for (final name in toolNames)
+      for (final name in swiftBuildTools)
         name: await _executableBuildIdentity(name, locate, run),
       'clang': await _fileBuildIdentity(cCompilerPath),
       'clang++': await _fileBuildIdentity(cxxCompilerPath),
@@ -708,7 +646,7 @@ abstract final class SdkInstall {
     };
   }
 
-  static Future<Map<String, Object>> sdkBuildIdentity(String sdkRoot) async {
+  Future<Map<String, Object>> sdkBuildIdentity(String sdkRoot) async {
     final files = <String>{
       'info.json',
       'swift-sdk.json',
@@ -716,25 +654,28 @@ abstract final class SdkInstall {
       hostToolchainStampName,
     };
     final sdk = DarwinSdk(sdkRoot);
-    for (final target in IosTarget.values) {
+    for (final policy in metadataPlatforms) {
       try {
-        final platformSdk = sdk.iosSdk(target: target);
+        final target = policy.buildPlatform;
+        final platformSdk = repository.iosSdk(sdk, target: target);
         for (final name in const [
           'SDKSettings.json',
           'SDKSettings.plist',
           'System/Library/CoreServices/SystemVersion.plist',
         ]) {
-          files.add(p.relative(p.join(platformSdk, name), from: sdkRoot));
+          files.add(
+            _paths.relative(_paths.join(platformSdk, name), from: sdkRoot),
+          );
         }
       } on DarwinSdkError catch (error) {
         Log.logTrace(
-          'Could not resolve ${target.platformName} SDK identity metadata: $error',
+          'Could not resolve ${policy.buildPlatform.platformName} SDK identity metadata: $error',
         );
       }
     }
     final metadata = <String, Object>{};
     for (final relative in files.toList()..sort()) {
-      final file = File(p.join(sdkRoot, relative));
+      final file = host.fileSystem.file(_paths.join(sdkRoot, relative));
       if (!file.existsSync()) continue;
       final stat = file.statSync();
       metadata[relative.replaceAll(r'\', '/')] = {
@@ -744,23 +685,28 @@ abstract final class SdkInstall {
         'digest': sha256.convert(file.readAsBytesSync()).toString(),
       };
     }
-    return {'path': p.normalize(p.absolute(sdkRoot)), 'metadata': metadata};
+    return {
+      'path': _paths.normalize(_paths.absolute(sdkRoot)),
+      'metadata': metadata,
+    };
   }
 
-  static Future<Map<String, Object>> _executableBuildIdentity(
+  Future<Map<String, Object>> _executableBuildIdentity(
     String name,
     Future<String> Function(String name) locate,
     Future<CapturedProcess> Function(String executable, List<String> arguments)
     run,
   ) async => _executablePathBuildIdentity(name, await locate(name), run);
 
-  static Future<Map<String, Object>> _executablePathBuildIdentity(
+  Future<Map<String, Object>> _executablePathBuildIdentity(
     String name,
     String path,
     Future<CapturedProcess> Function(String executable, List<String> arguments)
     run,
   ) async {
-    final file = File(File(path).resolveSymbolicLinksSync());
+    final file = host.fileSystem.file(
+      host.fileSystem.file(path).resolveSymbolicLinksSync(),
+    );
     final result = await run(path, const ['--version']);
     if (result.exitCode != 0) {
       throw StateError('$name --version failed: ${result.stderr.trim()}');
@@ -774,8 +720,10 @@ abstract final class SdkInstall {
     };
   }
 
-  static Future<Map<String, Object>> _fileBuildIdentity(String path) {
-    final file = File(File(path).resolveSymbolicLinksSync());
+  Future<Map<String, Object>> _fileBuildIdentity(String path) {
+    final file = host.fileSystem.file(
+      host.fileSystem.file(path).resolveSymbolicLinksSync(),
+    );
     final stat = file.statSync();
     return Future.value({
       'path': file.path,
@@ -786,18 +734,16 @@ abstract final class SdkInstall {
     });
   }
 
-  static Future<Map<String, String>> hostToolchainIdentity({
+  Future<Map<String, String>> hostToolchainIdentity({
     Future<String> Function(String name)? locateTool,
     Future<CapturedProcess> Function(String executable, List<String> arguments)?
     runProcess,
   }) async {
-    final sibling = await _swiftSiblingClang(
-      locateTool ?? ProcessRunner.locateTool,
-    );
-    return _identity(sibling, runProcess ?? ProcessRunner.run);
+    final sibling = await _swiftSiblingClang(locateTool ?? runner.locateTool);
+    return _identity(sibling, runProcess ?? runner.run);
   }
 
-  static Future<Map<String, String>> _identity(
+  Future<Map<String, String>> _identity(
     SwiftSiblingClang sibling,
     Future<CapturedProcess> Function(String, List<String>) run,
   ) async {
@@ -816,18 +762,21 @@ abstract final class SdkInstall {
   /// both the more accurate answer and the one that always responds; the
   /// sibling `clang` is the last resort. An empty result is not fatal: the
   /// comparison falls back to the recorded toolchain path.
-  static Future<String> _toolchainVersion(
+  Future<String> _toolchainVersion(
     SwiftSiblingClang sibling,
     Future<CapturedProcess> Function(String, List<String>) run,
   ) async {
-    final bin = p.dirname(sibling.swift);
+    final bin = _paths.dirname(sibling.swift);
     final candidates = <String>[
-      p.join(bin, ProcessRunner.hostExecutableName('swift-frontend')),
+      _paths.join(bin, runner.hostExecutableName('swift-frontend')),
       sibling.swift,
       sibling.clang,
     ];
     for (final candidate in candidates) {
-      if (candidate != sibling.swift && !File(candidate).existsSync()) continue;
+      if (candidate != sibling.swift &&
+          !host.fileSystem.file(candidate).existsSync()) {
+        continue;
+      }
       try {
         final printed = await run(candidate, const ['--version']);
         if (printed.exitCode != 0) continue;
@@ -847,19 +796,24 @@ abstract final class SdkInstall {
     return '';
   }
 
-  static Future<void> _writeHostToolchainStamp(
+  Future<void> _writeHostToolchainStamp(
     String artifactRoot,
     SwiftSiblingClang sibling,
     Future<CapturedProcess> Function(String, List<String>) run,
   ) async {
     final identity = await _identity(sibling, run);
-    await _writeJson(p.join(artifactRoot, hostToolchainStampName), identity);
+    await _writeJson(
+      _paths.join(artifactRoot, hostToolchainStampName),
+      identity,
+    );
   }
 
   /// The toolchain identity recorded when the bundle was installed, or null
   /// when the bundle predates stamping or the stamp is unreadable.
-  static Map<String, String>? readHostToolchainStamp(String artifactRoot) {
-    final file = File(p.join(artifactRoot, hostToolchainStampName));
+  Map<String, String>? readHostToolchainStamp(String artifactRoot) {
+    final file = host.fileSystem.file(
+      _paths.join(artifactRoot, hostToolchainStampName),
+    );
     if (!file.existsSync()) return null;
     try {
       final decoded = jsonDecode(file.readAsStringSync());
@@ -880,7 +834,7 @@ abstract final class SdkInstall {
   /// An unstamped bundle is never reported as mismatched: it was installed
   /// by an older xcross and may well be fine, and guessing wrong would send
   /// users through a multi-gigabyte reinstall for nothing.
-  static Future<String?> hostToolchainMismatch(
+  Future<String?> hostToolchainMismatch(
     String artifactRoot, {
     Future<String> Function(String name)? locateTool,
     Future<CapturedProcess> Function(String executable, List<String> arguments)?
@@ -937,7 +891,7 @@ abstract final class SdkInstall {
 
   /// The clang shipped beside the selected `swift`, which is the one whose
   /// builtin headers match that Swift's module ABI.
-  static Future<SwiftSiblingClang> _swiftSiblingClang(
+  Future<SwiftSiblingClang> _swiftSiblingClang(
     Future<String> Function(String name) locate,
   ) async {
     final String swift;
@@ -951,18 +905,18 @@ abstract final class SdkInstall {
 
     final String resolvedSwift;
     try {
-      resolvedSwift = await File(swift).resolveSymbolicLinks();
+      resolvedSwift = await host.fileSystem.file(swift).resolveSymbolicLinks();
     } on Object {
       throw XcrossError(
         'Could not resolve selected Swift executable "$swift".',
       );
     }
 
-    final clang = p.join(
-      p.dirname(resolvedSwift),
-      ProcessRunner.hostExecutableName('clang'),
+    final clang = _paths.join(
+      _paths.dirname(resolvedSwift),
+      runner.hostExecutableName('clang'),
     );
-    if (!File(clang).existsSync()) {
+    if (!host.fileSystem.file(clang).existsSync()) {
       throw XcrossError(
         'Selected Swift executable "$resolvedSwift" has no sibling clang at '
         '"$clang".',
@@ -971,7 +925,7 @@ abstract final class SdkInstall {
     return SwiftSiblingClang(clang: clang, swift: resolvedSwift);
   }
 
-  static Future<String> _clangBuiltinHeaderDir(
+  Future<String> _clangBuiltinHeaderDir(
     String clang,
     String resolvedSwift,
     Future<CapturedProcess> Function(String, List<String>) run,
@@ -987,8 +941,8 @@ abstract final class SdkInstall {
     if (printed != null && printed.exitCode == 0) {
       final resourceDir = printed.stdout.trim();
       if (resourceDir.isNotEmpty) {
-        final source = p.join(resourceDir, 'include');
-        if (Directory(source).existsSync()) return source;
+        final source = _paths.join(resourceDir, 'include');
+        if (host.fileSystem.directory(source).existsSync()) return source;
       }
     }
 
@@ -1014,25 +968,27 @@ abstract final class SdkInstall {
   /// The builtin headers a toolchain ships, located without running clang:
   /// `usr/lib/clang/<version>/include`, or the copy Swift keeps beside its own
   /// resources at `usr/lib/swift/clang/include`.
-  static String? _shippedClangHeaderDir(String clang) {
-    final lib = p.join(p.dirname(p.dirname(clang)), 'lib');
-    final versions = Directory(p.join(lib, 'clang'));
+  String? _shippedClangHeaderDir(String clang) {
+    final lib = _paths.join(_paths.dirname(_paths.dirname(clang)), 'lib');
+    final versions = host.fileSystem.directory(_paths.join(lib, 'clang'));
     final candidates = <String>[];
     if (versions.existsSync()) {
       final byVersion =
           versions
               .listSync()
               .whereType<Directory>()
-              .map((entity) => p.basename(entity.path))
+              .map((entity) => _paths.basename(entity.path))
               .toList()
             ..sort(_compareClangVersions);
       candidates.addAll(
-        byVersion.map((version) => p.join(lib, 'clang', version, 'include')),
+        byVersion.map(
+          (version) => _paths.join(lib, 'clang', version, 'include'),
+        ),
       );
     }
-    candidates.add(p.join(lib, 'swift', 'clang', 'include'));
+    candidates.add(_paths.join(lib, 'swift', 'clang', 'include'));
     for (final candidate in candidates) {
-      if (Directory(candidate).existsSync()) return candidate;
+      if (host.fileSystem.directory(candidate).existsSync()) return candidate;
     }
     return null;
   }
@@ -1081,15 +1037,15 @@ abstract final class SdkInstall {
 
   /// The destination may be a real directory, a file, or a symlink Xcode
   /// shipped, so delete whichever kind is actually there.
-  static Future<void> _deleteAnyEntity(String path) async {
+  Future<void> _deleteAnyEntity(String path) async {
     final type = FileSystemEntity.typeSync(path, followLinks: false);
     switch (type) {
       case FileSystemEntityType.directory:
-        await Directory(path).delete(recursive: true);
+        await host.fileSystem.directory(path).delete(recursive: true);
       case FileSystemEntityType.link:
-        await Link(path).delete();
+        await host.fileSystem.link(path).delete();
       case FileSystemEntityType.file:
-        await File(path).delete();
+        await host.fileSystem.file(path).delete();
       default:
     }
   }

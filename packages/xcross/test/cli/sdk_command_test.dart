@@ -11,8 +11,14 @@ import 'package:xcross/src/cli/basic/sdk_command.dart';
 import 'package:xcross/src/errors.dart';
 
 import '../../../darwin_sdk_kit/test/test_fixtures.dart';
+import 'sdk_test_support.dart';
 
 void main() {
+  final installer = sdkFixtureInstaller();
+  final materializedInstaller = sdkFixtureInstaller(
+    links: MaterializedSdkArchiveLinks(sdkFixtureHost),
+  );
+  final publication = SdkInstallCommand(installer);
   group('SDK publication', () {
     late Directory root;
 
@@ -78,16 +84,16 @@ void main() {
           ...List.filled(6, 'nested-sdk-directory-with-long-name'),
         ]);
         expect(deepPath.length, greaterThan(260));
-        Directory(SdkInstall.ioPath(deepPath)).createSync(recursive: true);
+        Directory(installer.ioPath(deepPath)).createSync(recursive: true);
         File(
-          SdkInstall.ioPath(p.join(deepPath, 'header.h')),
+          installer.ioPath(p.join(deepPath, 'header.h')),
         ).writeAsStringSync('header');
       }
       final staged = Directory(p.join(root.path, 'Darwin.staging'))
         ..createSync();
       File(p.join(staged.path, 'new.txt')).writeAsStringSync('new');
 
-      await SdkInstallCommand.activateStagedSdk(staged, destination);
+      await publication.activateStagedSdk(staged, destination);
 
       expect(File(p.join(destination, 'new.txt')).readAsStringSync(), 'new');
       expect(File(p.join(destination, 'old.txt')).existsSync(), isFalse);
@@ -104,7 +110,7 @@ void main() {
       File(p.join(staged.path, 'new.txt')).writeAsStringSync('new');
 
       await expectLater(
-        SdkInstallCommand.activateStagedSdk(
+        publication.activateStagedSdk(
           staged,
           destination,
           renameStaged: (_, _) async =>
@@ -141,7 +147,7 @@ void main() {
       ).createSync(recursive: true);
 
       expect(
-        () => SdkInstallCommand.requireValidStagedSdk(staged.path),
+        () => publication.requireValidStagedSdk(staged.path),
         throwsA(isA<XcrossError>()),
       );
       expect(File(p.join(destination, 'old.txt')).readAsStringSync(), 'old');
@@ -153,9 +159,9 @@ void main() {
       final backup = Directory('$destination.previous')..createSync();
       File(p.join(backup.path, 'old.txt')).writeAsStringSync('old');
 
-      await SdkInstallCommand.prepareExistingSdk(destination);
+      await publication.prepareExistingSdk(destination);
 
-      expect(DarwinSdk.isValidBundle(destination), isTrue);
+      expect(sdkFixtureRepository.isValidBundle(destination), isTrue);
       expect(backup.existsSync(), isFalse);
     });
 
@@ -174,16 +180,16 @@ void main() {
       File(p.join(staged, 'swift-sdk.json')).writeAsStringSync(
         jsonEncode({
           'targetTriples': {
-            IosTarget.simulator.swiftSdkTriple: <String, String>{},
+            const SimulatorBuildPlatform().swiftSdkTriple: <String, String>{},
           },
         }),
       );
 
       expect(
-        () => SdkInstallCommand.requireValidStagedSdk(staged),
+        () => publication.requireValidStagedSdk(staged),
         throwsA(isA<XcrossError>()),
       );
-      expect(DarwinSdk.isValidBundle(destination), isTrue);
+      expect(sdkFixtureRepository.isValidBundle(destination), isTrue);
       expect(File(p.join(destination, 'old.txt')).readAsStringSync(), 'old');
       expect(Directory('$destination.previous').existsSync(), isFalse);
     });
@@ -224,8 +230,8 @@ void main() {
         ];
         sourceFile('Developer/usr/bin/excluded', 'excluded');
 
-        final count = await SdkInstall.writeSdkEntries(
-          SdkInstall.xcodeAppEntries(app),
+        final count = await installer.writeSdkEntries(
+          installer.xcodeAppEntries(app),
           destination,
         );
 
@@ -255,7 +261,7 @@ void main() {
     test('rejects non-Xcode directories before touching the install', () async {
       Directory(app).createSync();
       final runner = CommandRunner<void>('xcross', 'test')
-        ..addCommand(SdkCommand());
+        ..addCommand(SdkCommand(installer));
       await expectLater(
         runner.run(['sdk', 'install', app]),
         throwsA(
@@ -268,7 +274,7 @@ void main() {
       );
       expect(Directory(destination).existsSync(), isFalse);
       await expectLater(
-        SdkInstall.xcodeAppEntries(app).toList(),
+        installer.xcodeAppEntries(app).toList(),
         throwsA(isA<XcrossError>()),
       );
     });
@@ -291,10 +297,13 @@ void main() {
           () async {
             const swift =
                 'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift';
-            for (final target in IosTarget.values) {
+            for (final target in const <IosBuildPlatformInterface>[
+              IPhoneBuildPlatform(),
+              SimulatorBuildPlatform(),
+            ]) {
               sourceFile(
                 'Developer/Platforms/${target.platformName}.platform/Developer/SDKs/${target.platformName}26.5.sdk/System/Library/Frameworks/Foundation.framework/Foundation.tbd',
-                '${target.name} stub',
+                '${target.sdkName} stub',
               );
             }
             sourceFile('$swift/iphoneos/layouts-arm64.yaml', 'layout');
@@ -302,15 +311,13 @@ void main() {
               '$swift/iphonesimulator/libswiftCompatibility50.a',
               'resource',
             );
-            await SdkInstall.writeSdkEntries(
-              SdkInstall.xcodeAppEntries(app),
+            await installer.writeSdkEntries(
+              installer.xcodeAppEntries(app),
               destination,
             );
-            await SdkInstall.materializeSwiftCompatibilityResources(
-              destination,
-            );
-            await SdkInstall.writeSwiftSdkBundleMetadata(destination);
-            expect(DarwinSdk.isValidBundle(destination), isTrue);
+            await installer.materializeSwiftCompatibilityResources(destination);
+            await installer.writeSwiftSdkBundleMetadata(destination);
+            expect(sdkFixtureRepository.isValidBundle(destination), isTrue);
             final previous = snapshot(destination);
             const simulator =
                 'Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk';
@@ -327,7 +334,7 @@ void main() {
             List<int>? archiveBefore;
             if (archive) {
               final cpio = BytesBuilder();
-              await for (final entry in SdkInstall.xcodeAppEntries(app)) {
+              await for (final entry in installer.xcodeAppEntries(app)) {
                 cpio.add(
                   buildCpioEntry(
                     name: 'Xcode.app/Contents/${entry.name}',
@@ -354,24 +361,24 @@ void main() {
             final staged = Directory(p.join(root.path, 'sdk.staging'));
             await expectLater(() async {
               try {
-                await SdkInstall.writeSdkEntries(
+                await installer.writeSdkEntries(
                   xip == null
-                      ? SdkInstall.xcodeAppEntries(app)
-                      : XcodeXipExtractor.extract(xip.path),
+                      ? installer.xcodeAppEntries(app)
+                      : XcodeXipExtractor(sdkFixtureHost).extract(xip.path),
                   staged.path,
                 );
-                await SdkInstall.materializeSwiftCompatibilityResources(
+                await installer.materializeSwiftCompatibilityResources(
                   staged.path,
                 );
-                await SdkInstall.writeSwiftSdkBundleMetadata(staged.path);
-                SdkInstallCommand.requireValidStagedSdk(staged.path);
-                await SdkInstallCommand.activateStagedSdk(staged, destination);
+                await installer.writeSwiftSdkBundleMetadata(staged.path);
+                publication.requireValidStagedSdk(staged.path);
+                await publication.activateStagedSdk(staged, destination);
               } finally {
                 if (staged.existsSync()) staged.deleteSync(recursive: true);
               }
             }, throwsA(isA<XcrossError>()));
             expect(snapshot(destination), previous);
-            expect(DarwinSdk.isValidBundle(destination), isTrue);
+            expect(sdkFixtureRepository.isValidBundle(destination), isTrue);
             expect(Directory('$destination.previous').existsSync(), isFalse);
             expect(staged.existsSync(), isFalse);
             expect(snapshot(app), sourceBefore);
@@ -395,8 +402,8 @@ void main() {
           p.join(base, 'iPhoneSimulator18.2.sdk'),
         ).create('iPhoneSimulator.sdk');
 
-        await SdkInstall.writeSdkEntries(
-          SdkInstall.xcodeAppEntries(app),
+        await installer.writeSdkEntries(
+          installer.xcodeAppEntries(app),
           destination,
         );
 
@@ -406,7 +413,10 @@ void main() {
           'iPhoneSimulator.sdk',
         );
         expect(
-          DarwinSdk(destination).iPhoneSimulatorSdk(),
+          sdkFixtureRepository.iosSdk(
+            DarwinSdk(destination),
+            target: const SimulatorBuildPlatform(),
+          ),
           p.join(installed, 'iPhoneSimulator18.2.sdk'),
         );
         expect(file.readAsStringSync(), 'header');
@@ -427,11 +437,11 @@ void main() {
         'outside.sdk',
       ]);
       await Link(link).create(outside.path);
-      final entries = await SdkInstall.xcodeAppEntries(app).toList();
+      final entries = await installer.xcodeAppEntries(app).toList();
       expect(entries.any((entry) => entry.name.endsWith('/secret')), isFalse);
 
       await expectLater(
-        SdkInstall.writeSdkEntries(Stream.fromIterable(entries), destination),
+        installer.writeSdkEntries(Stream.fromIterable(entries), destination),
         throwsA(isA<XcrossError>()),
       );
       expect(
@@ -460,7 +470,7 @@ void main() {
         ).create(p.dirname(outside.path));
 
         await expectLater(
-          SdkInstall.xcodeAppEntries(app).toList(),
+          installer.xcodeAppEntries(app).toList(),
           throwsA(
             isA<XcrossError>().having(
               (error) => error.message,
@@ -498,7 +508,7 @@ void main() {
         await Link(link).create(outside);
 
         await expectLater(
-          SdkInstall.xcodeAppEntries(app).toList(),
+          installer.xcodeAppEntries(app).toList(),
           throwsA(
             isA<XcrossError>().having(
               (error) => error.message,
@@ -520,7 +530,7 @@ void main() {
         ..writeAsStringSync('descriptor');
       final alias = Link(p.join(root.path, 'Xcode.app'));
       await alias.create(app.path);
-      final entries = await SdkInstall.xcodeAppEntries(alias.path).toList();
+      final entries = await installer.xcodeAppEntries(alias.path).toList();
       expect(entries.single.name, relative);
       expect(utf8.decode(entries.single.data), 'descriptor');
     }, skip: Platform.isWindows);
@@ -606,14 +616,13 @@ void main() {
         'Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/'
         'Developer/SDKs/iPhoneOS17.5.sdk';
 
-    final count = await SdkInstall.writeSdkEntries(
+    final count = await materializedInstaller.writeSdkEntries(
       Stream.fromIterable([
         entry('$sdk/usr/include', mode: 0x41ed),
         entry('$sdk/usr/include/real.h', data: 'header'),
         entry('$sdk/usr/include/alias.h', mode: 0xa1ff, data: 'real.h'),
       ]),
       temp.path,
-      materializeLinks: true,
     );
 
     final include = p.join(
@@ -665,7 +674,7 @@ void main() {
         )
         ..add(buildCpioTrailer());
 
-      final count = await SdkInstall.writeSdkEntries(
+      final count = await installer.writeSdkEntries(
         CpioReader.read(Stream.value(archive.takeBytes())),
         temp.path,
       );
@@ -693,7 +702,7 @@ void main() {
     final second = List.filled(90, 'b').join();
     final target = '$sdk/System/Library/Frameworks/$first/$second';
 
-    await SdkInstall.writeSdkEntries(
+    await materializedInstaller.writeSdkEntries(
       Stream.fromIterable([
         entry(target, mode: 0x41ed),
         entry('$target/value.txt', data: 'long path'),
@@ -704,7 +713,6 @@ void main() {
         ),
       ]),
       temp.path,
-      materializeLinks: true,
     );
 
     final copied = p.join(
@@ -730,7 +738,7 @@ void main() {
     addTearDown(() => temp.deleteSync(recursive: true));
 
     await expectLater(
-      SdkInstall.writeSdkEntries(
+      installer.writeSdkEntries(
         Stream.value(
           entry(
             'Developer/Platforms/iPhoneOS.platform/Developer/SDKs/'
@@ -748,7 +756,7 @@ void main() {
     addTearDown(() => temp.deleteSync(recursive: true));
 
     await expectLater(
-      SdkInstall.writeSdkEntries(
+      materializedInstaller.writeSdkEntries(
         Stream.value(
           entry(
             'Developer/Platforms/iPhoneOS.platform/Developer/SDKs/'
@@ -758,7 +766,6 @@ void main() {
           ),
         ),
         temp.path,
-        materializeLinks: true,
       ),
       throwsA(isA<Exception>()),
     );
@@ -782,14 +789,13 @@ void main() {
 
     Future<void> rejectsBeforePublication(
       List<CpioEntry> entries, {
-      required bool materialize,
+      required SdkArchiveLinksInterface links,
     }) async {
       var published = 0;
       await expectLater(
-        SdkInstall.writeSdkEntries(
+        sdkFixtureInstaller(links: links).writeSdkEntries(
           Stream.fromIterable(entries),
           destination,
-          materializeLinks: materialize,
           onLinkProgress: (_, _) => published++,
         ),
         throwsA(isA<XcrossError>()),
@@ -805,11 +811,14 @@ void main() {
       );
     }
 
-    for (final materialize in [false, true]) {
+    for (final policy in [
+      ('preserved', PreservedSdkArchiveLinks(sdkFixtureHost)),
+      ('materialized', MaterializedSdkArchiveLinks(sdkFixtureHost)),
+    ]) {
       for (final reverse in [false, true]) {
         for (final reference in ['redirect', 'REDIRECT', 'hop']) {
           test(
-            'rejects semantic dotdot escape $materialize/$reverse/$reference',
+            'rejects semantic dotdot escape ${policy.$1}/$reverse/$reference',
             () async {
               final links = [
                 entry('$swift/redirect', mode: 0xa1ff, data: '../../../../../'),
@@ -823,23 +832,23 @@ void main() {
               ];
               await rejectsBeforePublication(
                 reverse ? links.reversed.toList() : links,
-                materialize: materialize,
+                links: policy.$2,
               );
             },
-            skip: !materialize && Platform.isWindows,
+            skip: policy.$1 == 'preserved' && Platform.isWindows,
           );
         }
 
-        test('rejects link cycles $materialize/$reverse', () async {
+        test('rejects link cycles ${policy.$1}/$reverse', () async {
           final links = [
             entry('$swift/first', mode: 0xa1ff, data: 'second'),
             entry('$swift/second', mode: 0xa1ff, data: 'FIRST'),
           ];
           await rejectsBeforePublication(
             reverse ? links.reversed.toList() : links,
-            materialize: materialize,
+            links: policy.$2,
           );
-        }, skip: !materialize && Platform.isWindows);
+        }, skip: policy.$1 == 'preserved' && Platform.isWindows);
 
         for (final child in [
           entry('$swift/alias/child', mode: 0xa1ff, data: '../../outside'),
@@ -848,7 +857,7 @@ void main() {
           entry('$swift/ALIAS', mode: 0xa1ff, data: '../clang/18'),
         ]) {
           test(
-            'rejects overlapping destinations $materialize/$reverse/${child.name}/${child.mode}',
+            'rejects overlapping destinations ${policy.$1}/$reverse/${child.name}/${child.mode}',
             () async {
               final entries = [
                 entry('$swift/alias', mode: 0xa1ff, data: '../clang/17'),
@@ -856,18 +865,18 @@ void main() {
               ];
               await rejectsBeforePublication(
                 reverse ? entries.reversed.toList() : entries,
-                materialize: materialize,
+                links: policy.$2,
               );
             },
-            skip: !materialize && Platform.isWindows,
+            skip: policy.$1 == 'preserved' && Platform.isWindows,
           );
         }
       }
 
       test(
-        'uses semantic targets for safe nested dotdot aliases $materialize',
+        'uses semantic targets for safe nested dotdot aliases ${policy.$1}',
         () async {
-          await SdkInstall.writeSdkEntries(
+          await sdkFixtureInstaller(links: policy.$2).writeSdkEntries(
             Stream.fromIterable([
               entry('$clang/17', mode: 0x41ed),
               entry('$clang/18/include/header.h', data: 'correct target'),
@@ -880,7 +889,6 @@ void main() {
               entry('$swift/redirect', mode: 0xa1ff, data: '../clang/17'),
             ]),
             destination,
-            materializeLinks: materialize,
           );
           expect(
             File(
@@ -895,7 +903,7 @@ void main() {
           );
           expect(sentinel.readAsStringSync(), 'untouched');
         },
-        skip: !materialize && Platform.isWindows,
+        skip: policy.$1 == 'preserved' && Platform.isWindows,
       );
     }
 
@@ -906,7 +914,7 @@ void main() {
           entry('$swift/header.h', data: 'header'),
           entry('$swift/copy.h', mode: 0xa1ff, data: 'header.h'),
           entry('$swift/ancestor', mode: 0xa1ff, data: '..'),
-        ], materialize: true);
+        ], links: MaterializedSdkArchiveLinks(sdkFixtureHost));
         expect(
           File(
             p.joinAll([destination, ...swift.split('/'), 'copy.h']),
@@ -917,14 +925,13 @@ void main() {
     );
 
     test('preserves internal POSIX ancestor and bundle aliases', () async {
-      await SdkInstall.writeSdkEntries(
+      await installer.writeSdkEntries(
         Stream.fromIterable([
           entry('$swift/header.h', data: 'header'),
           entry('$swift/ancestor', mode: 0xa1ff, data: '..'),
           entry('$swift/bundle', mode: 0xa1ff, data: '../../../../../..'),
         ]),
         destination,
-        materializeLinks: false,
       );
       final installed = p.joinAll([destination, ...swift.split('/')]);
       expect(Link(p.join(installed, 'ancestor')).targetSync(), '..');
@@ -955,7 +962,7 @@ void main() {
     await source.parent.create(recursive: true);
     await source.writeAsBytes([1, 2, 3, 4]);
 
-    await SdkInstall.materializeSwiftCompatibilityResources(temp.path);
+    await installer.materializeSwiftCompatibilityResources(temp.path);
 
     expect(
       File(
@@ -978,17 +985,17 @@ void main() {
     addTearDown(() => temp.deleteSync(recursive: true));
     final bin = await Directory(p.join(temp.path, 'bin')).create();
     final swift = File(
-      p.join(bin.path, ProcessRunner.hostExecutableName('swift')),
+      p.join(bin.path, sdkFixtureRunner.hostExecutableName('swift')),
     )..createSync();
     final clang = File(
-      p.join(bin.path, ProcessRunner.hostExecutableName('clang')),
+      p.join(bin.path, sdkFixtureRunner.hostExecutableName('clang')),
     )..createSync();
     final include = await Directory(
       p.join(temp.path, 'resource', 'include'),
     ).create(recursive: true);
     await File(p.join(include.path, 'arm_neon.h')).writeAsString('swift clang');
 
-    await SdkInstall.replaceClangBuiltinHeaders(
+    await installer.replaceClangBuiltinHeaders(
       temp.path,
       locateTool: (name) async {
         expect(name, 'swift');
@@ -1033,10 +1040,10 @@ void main() {
     final usr = p.join(temp.path, 'usr');
     final bin = await Directory(p.join(usr, 'bin')).create(recursive: true);
     File(
-      p.join(bin.path, ProcessRunner.hostExecutableName('swift')),
+      p.join(bin.path, sdkFixtureRunner.hostExecutableName('swift')),
     ).createSync();
     File(
-      p.join(bin.path, ProcessRunner.hostExecutableName('clang')),
+      p.join(bin.path, sdkFixtureRunner.hostExecutableName('clang')),
     ).createSync();
     for (final version in ['9.0.1', '21', '19.1.7']) {
       final include = await Directory(
@@ -1045,10 +1052,10 @@ void main() {
       await File(p.join(include.path, 'arm_neon.h')).writeAsString(version);
     }
 
-    await SdkInstall.replaceClangBuiltinHeaders(
+    await installer.replaceClangBuiltinHeaders(
       temp.path,
       locateTool: (name) async =>
-          p.join(bin.path, ProcessRunner.hostExecutableName('swift')),
+          p.join(bin.path, sdkFixtureRunner.hostExecutableName('swift')),
       // 0xC0000135 (STATUS_DLL_NOT_FOUND) with no output on either stream is
       // exactly what Windows reports when the Swift runtime is off PATH.
       runProcess: (executable, arguments) async =>
@@ -1077,17 +1084,17 @@ void main() {
       p.join(temp.path, 'usr', 'bin'),
     ).create(recursive: true);
     File(
-      p.join(bin.path, ProcessRunner.hostExecutableName('swift')),
+      p.join(bin.path, sdkFixtureRunner.hostExecutableName('swift')),
     ).createSync();
     File(
-      p.join(bin.path, ProcessRunner.hostExecutableName('clang')),
+      p.join(bin.path, sdkFixtureRunner.hostExecutableName('clang')),
     ).createSync();
 
     await expectLater(
-      SdkInstall.replaceClangBuiltinHeaders(
+      installer.replaceClangBuiltinHeaders(
         temp.path,
         locateTool: (name) async =>
-            p.join(bin.path, ProcessRunner.hostExecutableName('swift')),
+            p.join(bin.path, sdkFixtureRunner.hostExecutableName('swift')),
         runProcess: (executable, arguments) async =>
             const CapturedProcess(0xC0000135, '', ''),
       ),
@@ -1137,9 +1144,9 @@ void main() {
     );
     await layout.parent.create(recursive: true);
     await layout.writeAsString('layout');
-    await SdkInstall.materializeSwiftCompatibilityResources(bundle.path);
+    await installer.materializeSwiftCompatibilityResources(bundle.path);
 
-    await SdkInstall.writeSwiftSdkBundleMetadata(bundle.path);
+    await installer.writeSwiftSdkBundleMetadata(bundle.path);
 
     final info =
         jsonDecode(File(p.join(bundle.path, 'info.json')).readAsStringSync())
@@ -1206,13 +1213,16 @@ void main() {
         ],
       },
     });
-    expect(DarwinSdk.isValidBundle(bundle.path), isTrue);
+    expect(sdkFixtureRepository.isValidBundle(bundle.path), isTrue);
   });
 
   group('simulator SDK metadata', () {
     late Directory bundle;
 
-    String sdkRoot(IosTarget target, {String version = '18.2'}) => p.join(
+    String sdkRoot(
+      IosBuildPlatformInterface target, {
+      String version = '18.2',
+    }) => p.join(
       bundle.path,
       'Developer',
       'Platforms',
@@ -1225,7 +1235,7 @@ void main() {
     void createSimulatorSlice() {
       File(
           p.join(
-            sdkRoot(IosTarget.simulator),
+            sdkRoot(const SimulatorBuildPlatform()),
             'System/Library/Frameworks/Foundation.framework/Foundation.tbd',
           ),
         )
@@ -1254,13 +1264,15 @@ void main() {
       bundle = Directory.systemTemp.createTempSync(
         'xcross-simulator-metadata-',
       );
-      Directory(sdkRoot(IosTarget.device)).createSync(recursive: true);
+      Directory(
+        sdkRoot(const IPhoneBuildPlatform()),
+      ).createSync(recursive: true);
     });
     tearDown(() => bundle.deleteSync(recursive: true));
 
     test('adds ARM64 simulator metadata with platform-specific paths', () async {
       createSimulatorSlice();
-      await SdkInstall.writeSwiftSdkBundleMetadata(bundle.path);
+      await installer.writeSwiftSdkBundleMetadata(bundle.path);
       final targets = targetMetadata();
       expect(targets.keys, ['arm64-apple-ios', 'arm64-apple-ios-simulator']);
       expect(targets['arm64-apple-ios-simulator'], {
@@ -1292,7 +1304,7 @@ void main() {
       Directory(
         p.joinAll([bundle.path, ...include.split('/')]),
       ).createSync(recursive: true);
-      await SdkInstall.writeSwiftSdkBundleMetadata(bundle.path);
+      await installer.writeSwiftSdkBundleMetadata(bundle.path);
       for (final target in targetMetadata().values) {
         expect((target as Map)['includeSearchPaths'], contains(include));
       }
@@ -1302,10 +1314,10 @@ void main() {
       'rejects an unversioned simulator SDK before writing metadata',
       () async {
         Directory(
-          sdkRoot(IosTarget.simulator, version: ''),
+          sdkRoot(const SimulatorBuildPlatform(), version: ''),
         ).createSync(recursive: true);
         await expectLater(
-          SdkInstall.writeSwiftSdkBundleMetadata(bundle.path),
+          installer.writeSwiftSdkBundleMetadata(bundle.path),
           throwsA(
             isA<XcrossError>().having(
               (error) => error.message,
@@ -1323,10 +1335,10 @@ void main() {
 
     test('rejects a present but empty simulator SDK directory', () async {
       Directory(
-        p.dirname(sdkRoot(IosTarget.simulator)),
+        p.dirname(sdkRoot(const SimulatorBuildPlatform())),
       ).createSync(recursive: true);
       await expectLater(
-        SdkInstall.writeSwiftSdkBundleMetadata(bundle.path),
+        installer.writeSwiftSdkBundleMetadata(bundle.path),
         throwsA(isA<DarwinSdkError>()),
       );
       expect(File(p.join(bundle.path, 'info.json')).existsSync(), isFalse);
@@ -1334,10 +1346,10 @@ void main() {
 
     test('rejects an empty versioned simulator leaf before metadata', () async {
       Directory(
-        sdkRoot(IosTarget.simulator, version: '26.5'),
+        sdkRoot(const SimulatorBuildPlatform(), version: '26.5'),
       ).createSync(recursive: true);
       await expectLater(
-        SdkInstall.writeSwiftSdkBundleMetadata(bundle.path),
+        installer.writeSwiftSdkBundleMetadata(bundle.path),
         throwsA(
           isA<XcrossError>().having(
             (error) => error.message,
@@ -1352,32 +1364,39 @@ void main() {
     });
 
     test('still requires a device SDK for simulator-enabled bundles', () async {
-      Directory(sdkRoot(IosTarget.device)).deleteSync(recursive: true);
-      Directory(sdkRoot(IosTarget.simulator)).createSync(recursive: true);
+      Directory(
+        sdkRoot(const IPhoneBuildPlatform()),
+      ).deleteSync(recursive: true);
+      Directory(
+        sdkRoot(const SimulatorBuildPlatform()),
+      ).createSync(recursive: true);
       await expectLater(
-        SdkInstall.writeSwiftSdkBundleMetadata(bundle.path),
+        installer.writeSwiftSdkBundleMetadata(bundle.path),
         throwsA(isA<DarwinSdkError>()),
       );
     });
 
-    for (final target in IosTarget.values) {
+    for (final target in const <IosBuildPlatformInterface>[
+      IPhoneBuildPlatform(),
+      SimulatorBuildPlatform(),
+    ]) {
       for (final relative in [
         'SDKSettings.json',
         'SDKSettings.plist',
         'System/Library/CoreServices/SystemVersion.plist',
       ]) {
         test(
-          'invalidates SDK identity for ${target.name} $relative changes',
+          'invalidates SDK identity for ${target.sdkName} $relative changes',
           () async {
             final file =
                 File(p.joinAll([sdkRoot(target), ...relative.split('/')]))
                   ..createSync(recursive: true)
                   ..writeAsStringSync('version one');
             final originalTime = file.lastModifiedSync();
-            final before = await SdkInstall.sdkBuildIdentity(bundle.path);
+            final before = await installer.sdkBuildIdentity(bundle.path);
             file.writeAsStringSync('version two');
             file.setLastModifiedSync(originalTime);
-            final after = await SdkInstall.sdkBuildIdentity(bundle.path);
+            final after = await installer.sdkBuildIdentity(bundle.path);
             final key = p
                 .relative(file.path, from: bundle.path)
                 .replaceAll(r'\', '/');
@@ -1395,15 +1414,20 @@ void main() {
     test(
       'invalidates SDK identity when a simulator SDK is added or removed',
       () async {
-        final deviceOnly = await SdkInstall.sdkBuildIdentity(bundle.path);
+        final deviceOnly = await installer.sdkBuildIdentity(bundle.path);
         final metadata =
-            File(p.join(sdkRoot(IosTarget.simulator), 'SDKSettings.json'))
+            File(
+                p.join(
+                  sdkRoot(const SimulatorBuildPlatform()),
+                  'SDKSettings.json',
+                ),
+              )
               ..createSync(recursive: true)
               ..writeAsStringSync('{}');
-        final withSimulator = await SdkInstall.sdkBuildIdentity(bundle.path);
+        final withSimulator = await installer.sdkBuildIdentity(bundle.path);
         expect(withSimulator, isNot(deviceOnly));
         metadata.parent.deleteSync(recursive: true);
-        expect(await SdkInstall.sdkBuildIdentity(bundle.path), deviceOnly);
+        expect(await installer.sdkBuildIdentity(bundle.path), deviceOnly);
       },
     );
   });
@@ -1420,10 +1444,10 @@ void main() {
       final bin = Directory(p.join(root.path, 'bin'))
         ..createSync(recursive: true);
       final swift = File(
-        p.join(bin.path, ProcessRunner.hostExecutableName('swift')),
+        p.join(bin.path, sdkFixtureRunner.hostExecutableName('swift')),
       )..createSync();
       File(
-        p.join(bin.path, ProcessRunner.hostExecutableName('clang')),
+        p.join(bin.path, sdkFixtureRunner.hostExecutableName('clang')),
       ).createSync();
       final include = Directory(p.join(root.path, 'resource', 'include'))
         ..createSync(recursive: true);
@@ -1446,13 +1470,13 @@ void main() {
         'Swift version 6.3.2',
       );
 
-      await SdkInstall.replaceClangBuiltinHeaders(
+      await installer.replaceClangBuiltinHeaders(
         bundle.path,
         locateTool: tools.locate,
         runProcess: tools.run,
       );
 
-      final stamp = SdkInstall.readHostToolchainStamp(bundle.path);
+      final stamp = installer.readHostToolchainStamp(bundle.path);
       expect(stamp, isNotNull);
       expect(stamp!['version'], 'Swift version 6.3.2');
       expect(
@@ -1469,14 +1493,14 @@ void main() {
         Directory(p.join(temp.path, 'tc')),
         'Swift version 6.3.2',
       );
-      await SdkInstall.replaceClangBuiltinHeaders(
+      await installer.replaceClangBuiltinHeaders(
         bundle.path,
         locateTool: tools.locate,
         runProcess: tools.run,
       );
 
       expect(
-        await SdkInstall.hostToolchainMismatch(
+        await installer.hostToolchainMismatch(
           bundle.path,
           locateTool: tools.locate,
           runProcess: tools.run,
@@ -1493,7 +1517,7 @@ void main() {
         Directory(p.join(temp.path, 'tc')),
         'Swift version 6.3.2',
       );
-      await SdkInstall.replaceClangBuiltinHeaders(
+      await installer.replaceClangBuiltinHeaders(
         bundle.path,
         locateTool: installed.locate,
         runProcess: installed.run,
@@ -1504,7 +1528,7 @@ void main() {
         Directory(p.join(temp.path, 'tc')),
         'Swift version 6.3.3',
       );
-      final mismatch = await SdkInstall.hostToolchainMismatch(
+      final mismatch = await installer.hostToolchainMismatch(
         bundle.path,
         locateTool: upgraded.locate,
         runProcess: upgraded.run,
@@ -1527,9 +1551,9 @@ void main() {
         'Swift version 6.3.3',
       );
 
-      expect(SdkInstall.readHostToolchainStamp(temp.path), isNull);
+      expect(installer.readHostToolchainStamp(temp.path), isNull);
       expect(
-        await SdkInstall.hostToolchainMismatch(
+        await installer.hostToolchainMismatch(
           temp.path,
           locateTool: tools.locate,
           runProcess: tools.run,
@@ -1545,7 +1569,7 @@ void main() {
         addTearDown(() => temp.deleteSync(recursive: true));
         final bundle = Directory(p.join(temp.path, 'bundle'))..createSync();
         final installed = fakeToolchain(Directory(p.join(temp.path, 'a')), '');
-        await SdkInstall.replaceClangBuiltinHeaders(
+        await installer.replaceClangBuiltinHeaders(
           bundle.path,
           locateTool: installed.locate,
           runProcess: installed.run,
@@ -1553,7 +1577,7 @@ void main() {
 
         final other = fakeToolchain(Directory(p.join(temp.path, 'b')), '');
         expect(
-          await SdkInstall.hostToolchainMismatch(
+          await installer.hostToolchainMismatch(
             bundle.path,
             locateTool: other.locate,
             runProcess: other.run,
