@@ -1,21 +1,25 @@
-import 'package:xcross/src/shared/flutter/swiftpm/build_session.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/build_execution.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/package_metadata.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
 import 'dart:async';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_workspace.dart';
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/binary_recovery.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/build_execution.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/build_plan.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/build_session.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/extracted_artifact_recovery.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/interop_repair.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/interop_build_recovery.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/interop_consumer_repair.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/network_retry.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/package_metadata.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/plan_reader.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/source_repair.dart';
@@ -26,11 +30,11 @@ const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
-  SwiftPmBuildDriver({required this.binaryRecovery,required this.buildPlan,required this.hostPolicy,required this.interopRepair,required this.processPolicy,required this.runner,required this.sdkIdentity,required this.sdkRepository,required this.sourceRepair,required this.target,required this.targetPolicy,required this.toolchain,required this.toolchainResolver,required this.tools,required this.buildExecution,required this.dependencyPreparation,required this.checkout,required this.packageMetadata});
-  final SwiftPmBinaryRecovery<T> binaryRecovery;
+  SwiftPmBuildDriver({required this.buildPlan,required this.hostPolicy,required this.consumerRepair,required this.planReader,required this.processPolicy,required this.runner,required this.sdkIdentity,required this.sdkRepository,required this.sourceRepair,required this.target,required this.targetPolicy,required this.toolchain,required this.toolchainResolver,required this.tools,required this.buildExecution,required this.dependencyPreparation,required this.checkout});
   final SwiftPmBuildPlan<T> buildPlan;
   final SwiftPmHostPolicy hostPolicy;
-  final SwiftPmInteropRepair<T> interopRepair;
+  final SwiftPmInteropConsumerRepair<T> consumerRepair;
+final SwiftPmPlanReader planReader;
   final SwiftPmProcessPolicy<T> processPolicy;
   final ProcessRunner<T> runner;
   final SwiftPmSdkIdentity sdkIdentity;
@@ -44,7 +48,6 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
 final SwiftPmBuildExecution<T> buildExecution;
 final SwiftPmDependencyPreparation<T> dependencyPreparation;
 final SwiftPmCheckout<T> checkout;
-final SwiftPmPackageMetadata packageMetadata;
 
   /// Cross-compiles the synthesized packages in [pluginsDir] with
 
@@ -130,8 +133,8 @@ final SwiftPmPackageMetadata packageMetadata;
     final swiftSdksPath = p.dirname(sdk.swiftSdkPath);
     final environment = processPolicy.swiftProcessEnvironment();
     await dependencyPreparation.prepare(
-      SwiftPmDependencyPreparationRequest<T>(
-        binaryRecovery:binaryRecovery,checkout:checkout,interopRepair:interopRepair,packageMetadata:packageMetadata,processPolicy:processPolicy,swiftSdkTriple:target.buildPlatform.swiftSdkTriple,
+      SwiftPmDependencyCommand(
+        swiftSdkTriple:target.buildPlatform.swiftSdkTriple,
         swift: swiftPackage,
         pluginsDir: pluginsDir,
 
@@ -172,12 +175,12 @@ final SwiftPmPackageMetadata packageMetadata;
       ),
     );
     // Inspect the plan just emitted, not a directory from an earlier build.
-    final targetBuildDir = SwiftPmBuildPlan.resolveTargetBuildDir(
+    final targetBuildDir = planReader.resolveTargetBuildDir(
       scratchPath,
       triple: deploymentTarget.swiftSdkTriple,
     );
     await hostPolicy.repairBuildPlan(scratchPath, targetBuildDir);
-    final interopArguments = SwiftPmBuildPlan.plannedSwiftInteropSearchPaths(
+    final interopArguments = planReader.plannedSwiftInteropSearchPaths(
       targetBuildDir,
     );
     // The first plan run could not carry [interopArguments], because the
@@ -194,7 +197,7 @@ final SwiftPmPackageMetadata packageMetadata;
     // examples/flutter_example) on every build including incremental ones,
     // to reproduce a manifest that is already byte-identical.
     if (interopArguments.isNotEmpty &&
-        !SwiftPmBuildPlan.manifestCarriesInteropSearchPaths(
+        !planReader.manifestCarriesInteropSearchPaths(
           scratchPath,
           interopArguments,
         )) {
@@ -208,11 +211,10 @@ final SwiftPmPackageMetadata packageMetadata;
       );
       await hostPolicy.repairBuildPlan(scratchPath, targetBuildDir);
     }
-    final operation = SwiftPmBuildSession<T>(execution:buildExecution,command:SwiftPmBuildCommand(executable:swiftBuild,arguments:[...baseArguments,...interopArguments],environment:environment,scratchPath:scratchPath,targetBuildDir:targetBuildDir),sourceRepair:sourceRepair,interopRepair:interopRepair,ownedRoots:[workspace.vendor,p.join(outputDir,'Packages')],consumerProducts:interopConsumers);
+    final operation = SwiftPmBuildSession<T>(execution:buildExecution,command:SwiftPmBuildCommand(executable:swiftBuild,arguments:[...baseArguments,...interopArguments],environment:environment,scratchPath:scratchPath,targetBuildDir:targetBuildDir,ownedRoots:[workspace.vendor,p.join(outputDir,'Packages')],consumerProducts:interopConsumers),consumerRepair:consumerRepair);
 
     await sourceRepair.buildTranslatingSdkMismatch(
-      () => interopRepair.buildWithInteropRecovery(
-        operation:operation,
+      () => SwiftPmInteropBuildRecovery<T>(session:operation,planReader:planReader,consumerRepair:consumerRepair,hostPolicy:hostPolicy,execution:buildExecution).build(
         targetBuildDir: targetBuildDir,
         interopTargetCandidates: interopTargetCandidates,
         skipInitialRecovery: true,

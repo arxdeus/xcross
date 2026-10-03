@@ -105,4 +105,9 @@ static Set<String> consumedProducts(String manifest, String package) {
     }
     return products;
   }
+static Set<String> dependencyProductNames(String manifest) => {
+    for (final call in SwiftPmManifestLexer.swiftCalls(manifest, '.product'))
+      if (SwiftPmManifestLexer.namedString(call.text, 'name') case final String name)
+        name,
+  };
 }

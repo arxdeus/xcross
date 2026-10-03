@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:crypto/crypto.dart';
 import 'package:xcross/src/flutter/build/preview_macro_stub_source.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
@@ -61,7 +61,9 @@ final class SwiftPmPreviewMacroCompiler<T extends PlatformHostInterface> {
             recorded['digest'] == (await sha256.bind(executable.openRead()).first).toString()) {
           return executable.path;
         }
-      } on Object {}
+      } on Object {
+        if(stamp.existsSync()) await stamp.delete();
+      }
     }
     final staging = await root.createTemp('compile-');
     try {

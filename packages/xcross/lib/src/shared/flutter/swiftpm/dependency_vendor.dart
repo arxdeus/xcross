@@ -1,64 +1,27 @@
-import 'package:xcross/src/shared/flutter/swiftpm/checkout_attributes.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/artifact_identity.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/gate_execution.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/build_execution.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
-import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
-
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
-import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
-import 'package:xcross/src/flutter/build/internal/host_symlink_capability.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/artifact_capabilities.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/assembly.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/binary_recovery.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/build_driver.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/build_plan.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/checkout_links.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/discovery.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/host_source_normalizer.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/interop_repair.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/manifest.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/module_files.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/package_metadata.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/plugin_overlay.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/preview_macro_compiler.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/source_fallback.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/source_repair.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/toolchain.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/workspace_stager.dart';
-import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
-
-import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
 import 'dart:async';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/flutter/errors.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/binary_recovery.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/binary_provenance.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/dependency_evaluator.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_dependencies.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
 
 const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmDependencyVendor<T extends PlatformHostInterface> {
-  SwiftPmDependencyVendor({required this.binaryRecovery,required this.checkout,required this.checkoutManifestNormalizer,required this.dependencyPreparation,required this.runner});
-  final SwiftPmBinaryRecovery<T> binaryRecovery;
+  SwiftPmDependencyVendor({required this.checkout,required this.checkoutManifestNormalizer,required this.dependencyPreparation,required this.runner,required this.dependencyEvaluator,required this.binaryProvenance,required this.processPolicy});
+final SwiftPmBinaryProvenance<T> binaryProvenance;
+final SwiftPmProcessPolicy<T> processPolicy;
+final SwiftPmDependencyEvaluator<T> dependencyEvaluator;
+  
   final SwiftPmCheckout<T> checkout;
   final SwiftPmCheckoutManifestNormalizer<T> checkoutManifestNormalizer;
   final SwiftPmDependencyPreparation<T> dependencyPreparation;
@@ -109,7 +72,7 @@ final class SwiftPmDependencyVendor<T extends PlatformHostInterface> {
           required dependencies,
         }) => evaluateDependencyRefs != null
             ? evaluateDependencyRefs(directory)
-            : binaryRecovery.evaluatedDependencyRefs(
+            : dependencyEvaluator.evaluatedDependencyRefs(
                 directory,
                 locate,
 
@@ -136,8 +99,7 @@ final class SwiftPmDependencyVendor<T extends PlatformHostInterface> {
         dependencies: dependencies,
       );
       if (evaluationCache == null) return run();
-      final evaluationKey = await binaryRecovery
-          .dependencyEvaluationKey(manifest, directory);
+      final evaluationKey = await binaryProvenance.dependencyEvaluationKey(manifest, directory);
       final pending = evaluationCache.putIfAbsent(evaluationKey, run);
       try {
         return await pending;
@@ -164,7 +126,7 @@ final class SwiftPmDependencyVendor<T extends PlatformHostInterface> {
       );
     }
 
-    final clone = clonePackage ?? this.checkout.repository.cloneGitPackage;
+    final clone = clonePackage ?? checkout.repository.cloneGitPackage;
 
     Future<void> cloneAndMaterialize(
       String url,
@@ -173,7 +135,7 @@ final class SwiftPmDependencyVendor<T extends PlatformHostInterface> {
     ) async {
       await clone(git, url, ref, destination);
       if (clonePackage == null) {
-        await dependencyPreparation.materializeClone(this.checkout,destination,git,vendorDir);
+        await dependencyPreparation.materializeClone(destination,git,vendorDir);
       }
     }
 
@@ -205,7 +167,7 @@ final class SwiftPmDependencyVendor<T extends PlatformHostInterface> {
       vendored: <String>{},
       requireResolvedRefs: true,
       evaluateNested: evaluateCached,
-      fallbackSwiftModules: fallbackSwiftModules,
+      fallbackSwiftModules: processPolicy.sourceFallbackActive ? fallbackSwiftModules : null,
       normalizationCache: normalizationCache,
     );
   }
@@ -242,7 +204,7 @@ final class SwiftPmDependencyVendor<T extends PlatformHostInterface> {
     var result = manifest;
     final namedPathDeps = SwiftPmManifestDependencies.supportsNamedPathDeps(manifest);
     for (final dep in deps) {
-      final ref = evaluatedRefs[SwiftPmBinaryRecovery.canonicalGitUrl(dep.url)];
+      final ref = evaluatedRefs[SwiftPmBinaryProvenance.canonicalGitUrl(dep.url)];
       if (ref == null) {
         // The root resolution pins the whole transitive graph, so a missing
         // pin only happens for manifest variants SwiftPM itself ignores.
@@ -276,7 +238,7 @@ final class SwiftPmDependencyVendor<T extends PlatformHostInterface> {
           await checkoutManifestNormalizer.normalizeVendoredPackageManifests(
             destination,
             consumedProducts: consumedProducts,
-            fallbackSwiftModules: fallbackSwiftModules,
+            fallbackSwiftModules: processPolicy.sourceFallbackActive ? fallbackSwiftModules : null,
             rewriteDependencies: (nested) async {
               // A vendored package's manifest may declare deps the parent's
               // resolution never saw (firebase-ios-sdk hides them behind
@@ -289,7 +251,7 @@ final class SwiftPmDependencyVendor<T extends PlatformHostInterface> {
               if (evaluateNested != null &&
                   nestedDeps.any(
                     (dep) => !refs.containsKey(
-                      SwiftPmBinaryRecovery.canonicalGitUrl(dep.url),
+                      SwiftPmBinaryProvenance.canonicalGitUrl(dep.url),
                     ),
                   )) {
                 refs = {
@@ -305,7 +267,7 @@ final class SwiftPmDependencyVendor<T extends PlatformHostInterface> {
                 vendored: vendored,
                 requireResolvedRefs: false,
                 evaluateNested: evaluateNested,
-                fallbackSwiftModules: fallbackSwiftModules,
+                fallbackSwiftModules: processPolicy.sourceFallbackActive ? fallbackSwiftModules : null,
                 normalizationCache: normalizationCache,
               );
             },

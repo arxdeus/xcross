@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/errors.dart';
@@ -63,7 +63,7 @@ final class WindowsSwiftPlanRepair {
     String scratchPath,
     String targetBuildDir,
   ) async {
-    final root = Directory(targetBuildDir);
+    final root = runner.host.fileSystem.directory(targetBuildDir);
     if (!root.existsSync()) return false;
     var changed = await repairWindowsSwiftResponseFiles(scratchPath);
     changed = await _repairJsonPlans(root, scratchPath) || changed;
@@ -75,7 +75,7 @@ final class WindowsSwiftPlanRepair {
     var changed = false;
     for (final json in [
       ..._filesUnder(root).where((file) => p.extension(file.path) == '.json'),
-      File(
+      runner.host.fileSystem.file(
         p.join(
           scratchPath,
           'x86_64-unknown-windows-msvc',
@@ -155,7 +155,7 @@ final class WindowsSwiftPlanRepair {
 
   /// The replacement for a plan [line] whose Swift or Clang argv is too long
   /// for CreateProcess, or null when the line needs no change.
-  static Future<String?> _externalizeLongCompilerArguments(
+  Future<String?> _externalizeLongCompilerArguments(
     String line,
     String scratchPath,
   ) async {
@@ -179,7 +179,7 @@ final class WindowsSwiftPlanRepair {
         .map(swift ? SwiftPmResponseArguments.quoteWindowsArgument : SwiftPmResponseArguments.quoteGnuArgument)
         .join('\n');
     final digest = sha256.convert(utf8.encode(contents));
-    final file = File(
+    final file = runner.host.fileSystem.file(
       p.join(_responseCacheDirectory(scratchPath), '$digest.rsp'),
     );
     await file.parent.create(recursive: true);
@@ -193,8 +193,8 @@ final class WindowsSwiftPlanRepair {
     return _encodeLlbuildArgs(shortened);
   }
 
-  static Future<void> _pruneWindowsResponseFiles(String scratchPath) async {
-    final cache = Directory(_responseCacheDirectory(scratchPath));
+  Future<void> _pruneWindowsResponseFiles(String scratchPath) async {
+    final cache = runner.host.fileSystem.directory(_responseCacheDirectory(scratchPath));
     if (!cache.existsSync()) return;
     // Plans reference response files by absolute path, so compare absolute
     // paths: a relative scratch path would otherwise never match and a still
@@ -225,8 +225,8 @@ final class WindowsSwiftPlanRepair {
   }
 
   /// The top-level llbuild plans (`*.yaml`) SwiftPM wrote to [scratchPath].
-  static Iterable<File> _llbuildPlans(String scratchPath) =>
-      Directory(scratchPath).listSync().whereType<File>().where(
+  Iterable<File> _llbuildPlans(String scratchPath) =>
+      runner.host.fileSystem.directory(scratchPath).listSync().whereType<File>().where(
         (plan) => p.extension(plan.path) == '.yaml',
       );
 
@@ -272,7 +272,7 @@ final class WindowsSwiftPlanRepair {
   /// Foundation's directory copy mishandles extended drive paths as file URLs
   /// on Windows. Keep llbuild's node identities intact and normalize only the
   /// directory source passed by CopyCommand to FileManager in description.json.
-  static String normalizeWindowsDirectoryCopyInputs(String description) {
+  String normalizeWindowsDirectoryCopyInputs(String description) {
     final decoded = jsonDecode(description);
     var changed = false;
     for (final input in _directoryCopyInputs(decoded)) {
@@ -300,7 +300,7 @@ final class WindowsSwiftPlanRepair {
       final source = _extendedDriveSource(name);
       if (source == null) continue;
       if (_windowsCopyTreeFitsLegacyPaths(source)) continue;
-      if (!Directory(name as String).existsSync()) continue;
+      if (!runner.host.fileSystem.directory(name as String).existsSync()) continue;
       final digest = sha256.convert(utf8.encode(p.windows.normalize(source)));
       final alias = p.join(
         scratchPath,
@@ -355,11 +355,10 @@ final class WindowsSwiftPlanRepair {
     String source,
   ) async {
     final target = p.windows.normalize(
-      await Directory(source).resolveSymbolicLinks(),
+      await runner.host.fileSystem.directory(source).resolveSymbolicLinks(),
     );
-    final aliasDirectory = Directory(alias);
-    if (FileSystemEntity.typeSync(alias, followLinks: false) ==
-        FileSystemEntityType.notFound) {
+    final aliasDirectory = runner.host.fileSystem.directory(alias);
+    if (!runner.host.fileSystem.file(alias).existsSync() && !runner.host.fileSystem.directory(alias).existsSync() && !runner.host.fileSystem.link(alias).existsSync()) {
       await aliasDirectory.parent.create(recursive: true);
       // PowerShell receives the paths as quoted literals, unlike cmd /c
       // mklink, which expands %NAME% and interprets & in user directory names.
@@ -373,8 +372,7 @@ final class WindowsSwiftPlanRepair {
         'New-Item -ItemType Junction -Path ${literal(alias)} -Target ${literal(literalTarget)} | Out-Null',
       ]);
       if (result.exitCode != 0 &&
-          FileSystemEntity.typeSync(alias, followLinks: false) ==
-              FileSystemEntityType.notFound) {
+          (!runner.host.fileSystem.file(alias).existsSync() && !runner.host.fileSystem.directory(alias).existsSync() && !runner.host.fileSystem.link(alias).existsSync())) {
         throw FlutterBuildError(
           'Could not stage long SwiftPM directory copy: ${result.stderr}',
         );
@@ -397,9 +395,9 @@ final class WindowsSwiftPlanRepair {
     }
   }
 
-  static bool _windowsCopyTreeFitsLegacyPaths(String root) {
+  bool _windowsCopyTreeFitsLegacyPaths(String root) {
     if (root.length >= _legacyMaxPath) return false;
-    final directory = Directory(root);
+    final directory = runner.host.fileSystem.directory(root);
     if (!directory.existsSync()) return true;
     return directory
         .listSync(recursive: true, followLinks: false)

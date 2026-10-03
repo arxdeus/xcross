@@ -1,4 +1,4 @@
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 
@@ -81,9 +81,7 @@ final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
         value: hostPolicy.gitConfiguration[index + 1],
       ),
   ];
-  bool? sourceFallbackOverride;
-  bool get sourceFallbackActive =>
-      sourceFallbackOverride ?? hostPolicy.sourceFallbackActive;
+  bool get sourceFallbackActive => host.environment.lookup(host.environment.overlay(runner.effectiveEnvironment,swiftProcessEnvironment()), 'EXPERIMENTAL_SPM_BUILDS') != null;
   Map<String, String> swiftProcessEnvironment({
     String? executable,
     Map<String, String>? environment,

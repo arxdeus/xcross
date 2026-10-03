@@ -1,5 +1,5 @@
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/build/ios_plugins.dart';
 import 'package:xcross/src/flutter/constants.dart';
@@ -125,7 +125,6 @@ let package = Package(
 
     return '''
 // swift-tools-version: 5.9
-import PackageDescription
 
 let package = Package(
     name: "$pluginsProductName",

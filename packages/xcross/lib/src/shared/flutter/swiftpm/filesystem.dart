@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/errors.dart';
@@ -23,7 +23,7 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
       await syncDirectory(source, destination);
     } else {
       await deleteEntity(destination);
-      await Link(destination).create(source);
+      await artifactFileSystem.link(destination).create(source);
     }
   }
 
@@ -39,7 +39,7 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
   /// build compiled. The timestamp is therefore derived from the content, so
   /// identical output always presents SwiftPM with an identical timestamp.
   Future<void> writeStable(String path, String content) async {
-    final file = File(path);
+    final file = artifactFileSystem.file(path);
     if (!(file.existsSync() && await file.readAsString() == content)) {
       await writeAtomic(path, utf8.encode(content));
     }
@@ -70,7 +70,7 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
           ((digest[0] << 24) | (digest[1] << 16) | (digest[2] << 8) | digest[3])
               .toUnsigned(32) %
           const Duration(days: 3650).inSeconds;
-      await File(
+      await artifactFileSystem.file(
         path,
       ).setLastModified(DateTime.utc(2010).add(Duration(seconds: offset)));
     } on Object {
@@ -79,7 +79,7 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
   }
 
   Future<void> writeAtomic(String path, List<int> bytes) async {
-    final temporary = File(
+    final temporary = artifactFileSystem.file(
       '$path.xcross-$pid-${DateTime.now().microsecondsSinceEpoch}',
     );
     try {
@@ -91,12 +91,12 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
   }
 
   int fileBytes(String path) {
-    final file = File(path);
+    final file = artifactFileSystem.file(path);
     return file.existsSync() ? file.lengthSync() : 0;
   }
 
   int directoryBytes(String path) {
-    final directory = Directory(ioPath(path));
+    final directory = artifactFileSystem.directory(ioPath(path));
     if (!directory.existsSync()) return 0;
     var bytes = 0;
     for (final entity in directory.listSync(
@@ -142,7 +142,7 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
     if (rewrite != null) {
       bytes = utf8.encode(rewrite(utf8.decode(bytes)));
     }
-    final existing = File(destination);
+    final existing = artifactFileSystem.file(destination);
     if (existing.existsSync() &&
         SwiftPmFilesystem.sameBytes(await existing.readAsBytes(), bytes)) {
       return false;
@@ -177,8 +177,8 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
     final root = artifactRoot == null
         ? p.normalize(p.absolute(ioSource))
         : ioPath(artifactRoot);
-    await Directory(ioDestination).create(recursive: true);
-    await for (final entity in Directory(ioSource).list(followLinks: false)) {
+    await artifactFileSystem.directory(ioDestination).create(recursive: true);
+    await for (final entity in artifactFileSystem.directory(ioSource).list(followLinks: false)) {
       final name = p.basename(entity.path);
       if (artifactRoot == null &&
           includeTopLevel != null &&
@@ -198,15 +198,15 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
           isSecurityFailure: true,
         );
       }
-      if (Directory(resolved).existsSync()) {
+      if (artifactFileSystem.directory(resolved).existsSync()) {
         await copyResolvedArtifactTree(
           resolved,
           target,
           artifactRoot: root,
           includeTopLevel: includeTopLevel,
         );
-      } else if (File(resolved).existsSync()) {
-        await File(resolved).copy(target);
+      } else if (artifactFileSystem.file(resolved).existsSync()) {
+        await artifactFileSystem.file(resolved).copy(target);
       } else {
         throw FlutterBuildError(
           'SwiftPM binary artifact contains an unresolved link',
@@ -232,16 +232,16 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
     final absoluteSource = p.normalize(p.absolute(source));
     final absoluteDestination = p.normalize(p.absolute(destination));
     if (p.equals(absoluteSource, absoluteDestination)) return false;
-    var changed = !Directory(destination).existsSync();
+    var changed = !artifactFileSystem.directory(destination).existsSync();
     final excluded = excludedSourcePath == null
         ? (p.isWithin(absoluteSource, absoluteDestination)
               ? absoluteDestination
               : null)
         : p.normalize(p.absolute(excludedSourcePath));
-    await Directory(destination).create(recursive: true);
+    await artifactFileSystem.directory(destination).create(recursive: true);
 
     final expected = <String>{...preserve};
-    await for (final entity in Directory(source).list(followLinks: false)) {
+    await for (final entity in artifactFileSystem.directory(source).list(followLinks: false)) {
       if (excluded != null &&
           p.equals(p.normalize(p.absolute(entity.path)), excluded)) {
         continue;
@@ -253,8 +253,8 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
       final resolved = entity is Link
           ? entity.resolveSymbolicLinksSync()
           : entity.path;
-      if (Directory(resolved).existsSync()) {
-        final existingType = FileSystemEntity.typeSync(
+      if (artifactFileSystem.directory(resolved).existsSync()) {
+        final existingType = artifactFileSystem.typeSync(
           destinationPath,
           followLinks: false,
         );
@@ -269,14 +269,14 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
             existingType != FileSystemEntityType.directory ||
             changed;
       } else {
-        final existingType = FileSystemEntity.typeSync(
+        final existingType = artifactFileSystem.typeSync(
           destinationPath,
           followLinks: false,
         );
         await deleteUnless(destinationPath, FileSystemEntityType.file);
         changed =
             await syncFile(
-              File(resolved),
+              artifactFileSystem.file(resolved),
               destinationPath,
               transform: transform,
             ) ||
@@ -285,7 +285,7 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
       }
     }
 
-    await for (final entity in Directory(
+    await for (final entity in artifactFileSystem.directory(
       destination,
     ).list(followLinks: false)) {
       if (!expected.contains(p.basename(entity.path))) {
@@ -312,19 +312,19 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
       ];
 
   Future<void> deleteUnless(String path, FileSystemEntityType keep) async {
-    final type = FileSystemEntity.typeSync(path, followLinks: false);
+    final type = artifactFileSystem.typeSync(path, followLinks: false);
     if (type == FileSystemEntityType.notFound || type == keep) return;
     await deleteEntity(path);
   }
 
   Future<void> deleteEntity(String path) async {
-    final type = FileSystemEntity.typeSync(path, followLinks: false);
+    final type = artifactFileSystem.typeSync(path, followLinks: false);
     if (type == FileSystemEntityType.link) {
-      await Link(path).delete();
+      await artifactFileSystem.link(path).delete();
     } else if (type == FileSystemEntityType.directory) {
-      await Directory(path).delete(recursive: true);
+      await artifactFileSystem.directory(path).delete(recursive: true);
     } else if (type == FileSystemEntityType.file) {
-      await File(path).delete();
+      await artifactFileSystem.file(path).delete();
     }
   }
 

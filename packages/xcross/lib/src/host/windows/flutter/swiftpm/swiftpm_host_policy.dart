@@ -1,24 +1,16 @@
-import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/toolchain.dart';
-import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/flutter/build/internal/host_symlink_capability.dart';
 import 'package:xcross/src/flutter/build/internal/windows_swift_plan_repair.dart';
-import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/flutter/build/macho_dylib_rewriter.dart';
 import 'package:xcross/src/flutter/errors.dart';
-import 'package:xcross/src/host/windows/flutter/swiftpm/checkout_attributes.dart';
-import 'package:xcross/src/host/windows/flutter/swiftpm/checkout_link_creator.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/gate_platform.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/build_plan.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/checkout_attributes.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/checkout_link_creator.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/build_plan.dart' show SwiftPmBuildPlan;
+import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/plan_reader.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/toolchain.dart';
 
 final class WindowsSwiftPmHostPolicy implements SwiftPmHostPolicy {
   WindowsSwiftPmHostPolicy(this.runner):repairs=WindowsSwiftPlanRepair(runner);
@@ -66,8 +58,6 @@ final class WindowsSwiftPmHostPolicy implements SwiftPmHostPolicy {
     'EXPERIMENTAL_SPM_BUILDS': '1',
   };
   @override
-  bool get sourceFallbackActive => true;
-  @override
   bool get captureBuildOutput => runner.log.isVerbose;
   
   @override
@@ -79,10 +69,10 @@ final class WindowsSwiftPmHostPolicy implements SwiftPmHostPolicy {
   Future<void> rewriteDylib(String path, Set<String> names) =>
       MachODylibRewriter.rewriteFile(path, producedDylibNames: names);
   @override
-  List<String> orderInteropTargets(String root, List<String> targets) =>
-      SwiftPmBuildPlan.orderedWindowsSwiftInteropTargets(root, targets);
+  List<String> orderInteropTargets(Map<String, dynamic>? dependencies, List<String> targets) =>
+      SwiftPmPlanReader.orderTargetsByDependencies(dependencies, targets);
   @override
-  bool includesInteropTarget(String target, Set<String> candidates) => true;
+  List<String> selectInteropTargets(List<String> planned, Set<String> candidates) => planned;
   
 
   @override
@@ -115,7 +105,7 @@ final class WindowsSwiftPmHostPolicy implements SwiftPmHostPolicy {
       };
     }
     toolset['linker'] = {
-      'path': File(linker).resolveSymbolicLinksSync().replaceAll(r'\', '/'),
+      'path': runner.host.fileSystem.file(linker).resolveSymbolicLinksSync().replaceAll(r'\', '/'),
     };
   }
 
@@ -126,7 +116,7 @@ final class WindowsSwiftPmHostPolicy implements SwiftPmHostPolicy {
     Map<String, String> environment,
   ) {
     final directory = p.dirname(executable);
-    if (!File(
+    if (!runner.host.fileSystem.file(
       p.join(directory, host.paths.executableName('xcrun')),
     ).existsSync()) {
       return const {};

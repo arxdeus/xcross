@@ -56,7 +56,7 @@ final class SwiftPmWorkspace {
   ) {
     final absolute = p.normalize(p.absolute(projectRoot));
     try {
-      final resolved = Directory(absolute).resolveSymbolicLinksSync();
+      final resolved = policy.target.host.fileSystem.directory(absolute).resolveSymbolicLinksSync();
       return policy.target.host.paths.pathKey(resolved);
     } on FileSystemException {
       return policy.target.host.paths.pathKey(absolute);

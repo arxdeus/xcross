@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/clang_modules.dart';
@@ -169,7 +169,7 @@ final SwiftPmModuleFiles moduleFiles;
       final target = targets[name]!;
       if (target.headers == null) continue;
       final root = p.normalize(p.join(packageDir, target.path, target.headers));
-      final moduleMap = File(p.join(root, 'module.modulemap'));
+      final moduleMap = filesystem.artifactFileSystem.file(p.join(root, 'module.modulemap'));
       final modules = moduleMap.existsSync()
           ? SwiftPmClangModules.topLevelModuleNames(moduleMap.readAsStringSync())
           : [name];
@@ -180,7 +180,7 @@ final SwiftPmModuleFiles moduleFiles;
     }
 
     final canonicalMaps = <({File file, String text})>[];
-    for (final entity in Directory(
+    for (final entity in filesystem.artifactFileSystem.directory(
       packageDir,
     ).listSync(recursive: true, followLinks: false)) {
       if (entity is! File ||
@@ -232,13 +232,13 @@ final SwiftPmModuleFiles moduleFiles;
     final swiftModules = <String>[];
     for (final name in closure) {
       final target = targets[name]!;
-      final root = Directory(p.join(packageDir, target.path));
+      final root = filesystem.artifactFileSystem.directory(p.join(packageDir, target.path));
       if (!root.existsSync()) continue;
       final sourceRoots = target.sources.isEmpty
           ? [root.path]
           : [for (final source in target.sources) p.join(root.path, source)];
       final hasSwift = sourceRoots.any((sourceRoot) {
-        final directory = Directory(sourceRoot);
+        final directory = filesystem.artifactFileSystem.directory(sourceRoot);
         if (directory.existsSync()) {
           return directory.listSync(recursive: true, followLinks: false).any((
             entity,
@@ -254,8 +254,8 @@ final SwiftPmModuleFiles moduleFiles;
             );
           });
         }
-        return File(sourceRoot).path.endsWith('.swift') &&
-            File(sourceRoot).existsSync();
+        return filesystem.artifactFileSystem.file(sourceRoot).path.endsWith('.swift') &&
+            filesystem.artifactFileSystem.file(sourceRoot).existsSync();
       });
       if (hasSwift) swiftModules.add(name);
     }
@@ -295,7 +295,7 @@ final SwiftPmModuleFiles moduleFiles;
     if (indentedNested.isNotEmpty) moduleMap.writeln(indentedNested);
     moduleMap.writeln('}');
 
-    await Directory(includeDir).create(recursive: true);
+    await filesystem.artifactFileSystem.directory(includeDir).create(recursive: true);
     final shim = StringBuffer()
       ..writeln('@import ${publicModules.single.modules.single};');
     // The fallback's Swift half completes the Objective-C surface: the

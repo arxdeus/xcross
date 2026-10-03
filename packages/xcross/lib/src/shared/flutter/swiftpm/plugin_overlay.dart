@@ -1,21 +1,14 @@
-import 'package:xcross/src/shared/flutter/swiftpm/host_source_normalizer.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/host_source_normalizer.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/dependency_vendor.dart';
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
-import 'package:xcross/src/flutter/build/ios_plugins.dart';
-import 'package:xcross/src/flutter/errors.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/binary_recovery.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/binary_preparation.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/dependency_vendor.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/manifest.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/manifest_dependencies.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/host_source_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
 
 
 const String flutterFrameworkPackageName = 'FlutterFramework';
@@ -47,8 +40,9 @@ final class SwiftPmPluginOverlay<T extends PlatformHostInterface> {
     // development time, never referenced by the generated iOS build
     'pigeons',
   };
-SwiftPmPluginOverlay({required this.binaryRecovery,required this.dependencyVendor,required this.filesystem,required this.sourceNormalizer});
-final SwiftPmBinaryRecovery<T> binaryRecovery;
+SwiftPmPluginOverlay({required this.dependencyVendor,required this.filesystem,required this.sourceNormalizer,required this.binaryPreparation});
+final SwiftPmBinaryPreparation<T> binaryPreparation;
+
 final SwiftPmDependencyVendor<T> dependencyVendor;
 final SwiftPmFilesystem<T> filesystem;
 final SwiftPmHostSourceNormalizer sourceNormalizer;
@@ -107,7 +101,7 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
       stagedPackage = p.join(alias, platformDir, p.basename(target));
     }
 
-    final manifest = await File(p.join(target, 'Package.swift')).readAsString();
+    final manifest = await filesystem.artifactFileSystem.file(p.join(target, 'Package.swift')).readAsString();
     var normalizedManifest = sourceNormalizer.removeMissingResources(
       sourceNormalizer.normalizeHostManifest(manifest),
       target,
@@ -183,7 +177,7 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
       );
     }
     if (binaryArtifactStore != null && binaryArtifactFallback != null) {
-      await binaryRecovery.prepareSupportedBinaryArtifacts(
+      await binaryPreparation.prepareSupportedBinaryArtifacts(
         packageRoot: stagedPackage,
         binaryArtifactStore: binaryArtifactStore,
         binaryArtifactFallback: binaryArtifactFallback,
@@ -256,12 +250,12 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
     String manifest,
   ) async {
     await filesystem.deleteEntity(staged);
-    await Directory(staged).create(recursive: true);
+    await filesystem.artifactFileSystem.directory(staged).create(recursive: true);
     await filesystem.writeStable(
       p.join(staged, 'Package.swift'),
       manifest,
     );
-    await for (final entity in Directory(target).list(followLinks: false)) {
+    await for (final entity in filesystem.artifactFileSystem.directory(target).list(followLinks: false)) {
       if (p.basename(entity.path) == 'Package.swift') continue;
       await stageEntity(
         entity,
@@ -277,11 +271,11 @@ Future<void> stageAncestorOverlay({
     required String packageName,
     String platformDir = 'ios',
   }) async {
-    await Directory(
+    await filesystem.artifactFileSystem.directory(
       p.join(destinationRoot, platformDir),
     ).create(recursive: true);
     final staged = <String>{platformDir};
-    await for (final entity in Directory(sourceRoot).list(followLinks: false)) {
+    await for (final entity in filesystem.artifactFileSystem.directory(sourceRoot).list(followLinks: false)) {
       final name = p.basename(entity.path);
       if (name == platformDir ||
           iosUnreachableEntries.contains(name.toLowerCase())) {
@@ -298,7 +292,7 @@ Future<void> stageAncestorOverlay({
     await pruneUnexpected(destinationRoot, staged);
 
     final stagedIos = <String>{packageName, flutterFrameworkPackageName};
-    await for (final entity in Directory(
+    await for (final entity in filesystem.artifactFileSystem.directory(
       p.join(sourceRoot, platformDir),
     ).list(followLinks: false)) {
       final name = p.basename(entity.path);
@@ -317,7 +311,7 @@ Future<void> stageAncestorOverlay({
 /// Deletes entries of [directory] not named in [expected], so previously
   /// staged files that no longer qualify do not linger in the build tree.
   Future<void> pruneUnexpected(String directory, Set<String> expected) async {
-    await for (final entity in Directory(directory).list(followLinks: false)) {
+    await for (final entity in filesystem.artifactFileSystem.directory(directory).list(followLinks: false)) {
       if (!expected.contains(p.basename(entity.path))) {
         await filesystem.deleteEntity(entity.path);
       }
@@ -333,8 +327,8 @@ Future<void> stageEntity(
     final resolved = entity is Link
         ? entity.resolveSymbolicLinksSync()
         : entity.path;
-    if (!Directory(resolved).existsSync()) {
-      await filesystem.syncFile(File(resolved), destination);
+    if (!filesystem.artifactFileSystem.directory(resolved).existsSync()) {
+      await filesystem.syncFile(filesystem.artifactFileSystem.file(resolved), destination);
     } else if (copyDirectories) {
       await filesystem.syncDirectory(
         resolved,

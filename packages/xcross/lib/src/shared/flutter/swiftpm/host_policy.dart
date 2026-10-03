@@ -1,11 +1,8 @@
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/toolchain.dart';
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
-import 'package:xcross/src/flutter/build/internal/host_symlink_capability.dart';
-import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/gate_platform.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/toolchain.dart';
 
 abstract interface class SwiftPmHostPolicy {
   Future<void> stageFlutterFramework<T extends PlatformHostInterface>(SwiftPmFilesystem<T> filesystem, String source, String destination, {bool? copy});
@@ -20,13 +17,12 @@ abstract interface class SwiftPmHostPolicy {
   List<String> get fingerprintArguments;
   List<String> get gitConfiguration;
   Map<String, String> get sourceEnvironment;
-  bool get sourceFallbackActive;
   
   Future<bool> repairBuildPlan(String scratchPath, String targetBuildDir);
   
   Future<void> rewriteDylib(String path, Set<String> names);
-  List<String> orderInteropTargets(String root, List<String> targets);
-  bool includesInteropTarget(String target, Set<String> candidates);
+  List<String> orderInteropTargets(Map<String, dynamic>? dependencies, List<String> targets);
+  List<String> selectInteropTargets(List<String> planned, Set<String> candidates);
   
   Future<String?> cCompiler(String sysroot, DarwinToolchainResolver toolchain);
   Future<String?> cxxCompiler(

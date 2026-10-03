@@ -2,9 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:crypto/crypto.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/build/ios_linker_compatibility.dart';
@@ -78,7 +78,7 @@ final class SwiftPmDiscovery<T extends PlatformHostInterface> {
     add(resolvedSdkIdentity);
 
     Future<void> addTree(String root) async {
-      final directory = Directory(root);
+      final directory = sdkRepository.host.fileSystem.directory(root);
       if (!directory.existsSync()) {
         add('missing:$root');
         return;
@@ -102,7 +102,7 @@ final class SwiftPmDiscovery<T extends PlatformHostInterface> {
       await addTree(plugin.swiftPackageDir);
     }
     final frameworkFiles = <File>[];
-    await for (final entity in Directory(
+    await for (final entity in sdkRepository.host.fileSystem.directory(
       flutterXcframework,
     ).list(recursive: true)) {
       if (entity is File) frameworkFiles.add(entity);

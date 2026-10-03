@@ -6,6 +6,7 @@ import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 
 final class SwiftPmBinaryFixture {
   const SwiftPmBinaryFixture({
@@ -106,11 +107,12 @@ public final class BinaryFixturePlugin: NSObject, FlutterPlugin {
   }
 
   static Directory generateXcframework({
+    required SwiftPmArtifactFileSystem fileSystem,
     required String root,
     required String name,
   }) {
-    final framework = Directory(p.join(root, '$name.xcframework'));
-    File(p.join(framework.path, 'Info.plist'))
+    final framework = fileSystem.directory(p.join(root, '$name.xcframework'));
+    fileSystem.file(p.join(framework.path, 'Info.plist'))
       ..createSync(recursive: true)
       ..writeAsStringSync(
         PropertyListSerialization.stringWithPropertyList({
@@ -126,13 +128,14 @@ public final class BinaryFixturePlugin: NSObject, FlutterPlugin {
           'XCFrameworkFormatVersion': '1.0',
         }),
       );
-    File(p.join(framework.path, 'ios-arm64', '$name.framework', name))
+    fileSystem.file(p.join(framework.path, 'ios-arm64', '$name.framework', name))
       ..createSync(recursive: true)
       ..writeAsBytesSync(_emptyMachO());
     return framework;
   }
 
   static File archiveXcframework({
+    required SwiftPmArtifactFileSystem fileSystem,
     required Directory framework,
     required String output,
   }) {
@@ -145,11 +148,12 @@ public final class BinaryFixturePlugin: NSObject, FlutterPlugin {
           ..lastModTime = 0,
       );
     }
-    return File(output)
+    return fileSystem.file(output)
       ..writeAsBytesSync(ZipEncoder().encode(archive), flush: true);
   }
 
   static void writeGatePackage({
+    required SwiftPmArtifactFileSystem fileSystem,
     required String root,
     required String targetName,
     String? path,
@@ -162,12 +166,11 @@ public final class BinaryFixturePlugin: NSObject, FlutterPlugin {
     final binaryTarget = path != null
         ? '.binaryTarget(name: "$targetName", path: "$path")'
         : '.binaryTarget(name: "$targetName", url: "$url", checksum: "$checksum")';
-    File(p.join(root, 'Sources', 'GateProbe', 'GateProbe.swift'))
+    fileSystem.file(p.join(root, 'Sources', 'GateProbe', 'GateProbe.swift'))
       ..createSync(recursive: true)
       ..writeAsStringSync('public enum GateProbe {}\n');
-    File(p.join(root, 'Package.swift')).writeAsStringSync('''
+    fileSystem.file(p.join(root, 'Package.swift')).writeAsStringSync('''
 // swift-tools-version: 6.0
-import PackageDescription
 let package = Package(name: "Gate", products: [.library(name: "Gate", targets: ["GateProbe"])], targets: [$binaryTarget, .target(name: "GateProbe", dependencies: ["$targetName"])])
 ''');
   }

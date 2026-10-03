@@ -1,7 +1,6 @@
 import 'dart:async';
-import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/swift_package_host_patches.dart';
 import 'package:xcross/src/flutter/errors.dart';
@@ -90,16 +89,16 @@ final class SwiftPmSourceRepair<T extends PlatformHostInterface> {
     if (paths.isEmpty) return false;
     final roots = <(String, String)>[
       for (final root in ownedRoots)
-        if (Directory(root).existsSync())
+        if (filesystem.artifactFileSystem.directory(root).existsSync())
           (
             p.normalize(p.absolute(root)),
-            Directory(root).resolveSymbolicLinksSync(),
+            filesystem.artifactFileSystem.directory(root).resolveSymbolicLinksSync(),
           ),
     ];
     var changed = false;
     for (final path in paths) {
       if (!p.isAbsolute(path)) continue;
-      final file = File(p.normalize(path));
+      final file = filesystem.artifactFileSystem.file(p.normalize(path));
       if (!file.existsSync()) continue;
       final realPath = file.resolveSymbolicLinksSync();
       if (!roots.any(

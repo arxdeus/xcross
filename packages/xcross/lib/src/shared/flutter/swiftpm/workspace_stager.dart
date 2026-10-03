@@ -1,72 +1,35 @@
-import 'package:xcross/src/shared/flutter/swiftpm/checkout_attributes.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/artifact_identity.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/gate_execution.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/build_execution.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
-import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
-
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
-import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
-import 'package:xcross/src/flutter/build/internal/host_symlink_capability.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/artifact_capabilities.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/assembly.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/binary_recovery.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/build_driver.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/build_plan.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/checkout_links.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/dependency_vendor.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/discovery.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/host_source_normalizer.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/interop_repair.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/manifest.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/module_files.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/package_metadata.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/plugin_overlay.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/preview_macro_compiler.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/source_fallback.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/source_repair.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/toolchain.dart';
-import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
-
-import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/flutter/build/ios_plugins.dart';
-import 'package:xcross/src/flutter/errors.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/binary_recovery.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/binary_preparation.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/binary_provenance.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/dependency_evaluator.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/host_source_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_dependencies.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/plugin_overlay.dart';
 
 const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
-  SwiftPmWorkspaceStager({required this.artifactFileSystem,required this.binaryRecovery,required this.checkout,required this.checkoutManifestNormalizer,required this.dependencyPreparation,required this.filesystem,required this.hostPolicy,required this.manifest,required this.pluginOverlay,required this.runner,required this.sourceNormalizer});
+  SwiftPmWorkspaceStager({required this.artifactFileSystem,required this.checkout,required this.dependencyPreparation,required this.filesystem,required this.hostPolicy,required this.manifest,required this.pluginOverlay,required this.runner,required this.sourceNormalizer,required this.dependencyEvaluator});
+final SwiftPmDependencyEvaluator<T> dependencyEvaluator;
 final SwiftPmArtifactFileSystem artifactFileSystem;
-final SwiftPmBinaryRecovery<T> binaryRecovery;
+
 final SwiftPmCheckout<T> checkout;
-final SwiftPmCheckoutManifestNormalizer<T> checkoutManifestNormalizer;
 final SwiftPmDependencyPreparation<T> dependencyPreparation;
 final SwiftPmFilesystem<T> filesystem;
 final SwiftPmHostPolicy hostPolicy;
@@ -129,7 +92,7 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
     final resolvedVendorDir = vendorDir ?? p.join(outputDir, 'vendor');
     final shouldVendor = vendorRemotePackages ?? true;
 
-    await Directory(packagesDir).create(recursive: true);
+    await artifactFileSystem.directory(packagesDir).create(recursive: true);
     await writeFlutterFrameworkPackage(
       frameworkDir: frameworkDir,
       flutterXcframework: flutterXcframework,
@@ -171,7 +134,7 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
         );
       }
       final scoped = evaluateDependencyRefs;
-      final bootstrap = await dependencyPreparation.bootstrapPinned(SwiftPmPinnedDependencyRequest(packageDirectories:prestaged,vendorDir:resolvedVendorDir,runner:runner,fileSystem:artifactFileSystem,filesystem:filesystem,repository:checkout.repository,manifestNormalizer:checkoutManifestNormalizer,clonePackage:clonePackage));
+      final bootstrap = await dependencyPreparation.bootstrapPinned(SwiftPmPinnedDependencyCommand(packageDirectories:prestaged,vendorDir:resolvedVendorDir));
       Map<String, String>? unified;
       try {
         unified = await resolveUnifiedDependencyRefs(
@@ -189,7 +152,7 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
                       packageLocalArtifactJunctionCapability,
                   dependencies: dependencies,
                 )
-              : binaryRecovery.evaluatedDependencyRefs(
+              : dependencyEvaluator.evaluatedDependencyRefs(
                   directory,
                   runner.locateTool,
 
@@ -247,7 +210,7 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
     if (shouldVendor &&
         binaryArtifactStore != null &&
         binaryArtifactFallback != null) {
-      await dependencyPreparation.prepareArtifacts(binaryRecovery,resolvedVendorDir,binaryArtifactStore,binaryArtifactFallback,packageLocalArtifactJunctionCapability);
+      await dependencyPreparation.prepareArtifacts(resolvedVendorDir,binaryArtifactStore,binaryArtifactFallback,capability:packageLocalArtifactJunctionCapability);
     }
     final packagesByDirectoryName = {
       for (final package in pluginPackageDirs.values)
@@ -256,7 +219,7 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
     for (final plugin in plugins) {
       if (!shouldVendor && !copyPluginPackages.contains(plugin.name)) continue;
       final stagedPackage = pluginPackageDirs[plugin.name]!;
-      final manifestFile = File(p.join(stagedPackage, 'Package.swift'));
+      final manifestFile = artifactFileSystem.file(p.join(stagedPackage, 'Package.swift'));
       var manifest = await manifestFile.readAsString();
       final original = manifest;
       for (final call in SwiftPmManifestLexer.swiftCalls(
@@ -304,20 +267,20 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
   }) async {
     final dependencies = <String, SwiftPmPackageDependency>{};
     for (final directory in packageDirectories) {
-      final manifest = File(p.join(directory, 'Package.swift'));
+      final manifest = artifactFileSystem.file(p.join(directory, 'Package.swift'));
       if (!manifest.existsSync()) continue;
       for (final dep in SwiftPmManifestDependencies.parseUrlPackageDeps(
         await manifest.readAsString(),
       )) {
         dependencies.putIfAbsent(
-          SwiftPmBinaryRecovery.canonicalGitUrl(dep.url),
+          SwiftPmBinaryProvenance.canonicalGitUrl(dep.url),
           () => dep,
         );
       }
     }
     if (dependencies.isEmpty) return null;
 
-    await Directory(resolveRoot).create(recursive: true);
+    await artifactFileSystem.directory(resolveRoot).create(recursive: true);
     final hidden = <String, String>{};
     var refs = <String, String>{};
     for (var round = 0; round < maxRounds; round++) {
@@ -375,7 +338,7 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
     required Set<String> declared,
   }) async {
     final result = <String, String>{};
-    final checkouts = Directory(checkoutsDir);
+    final checkouts = artifactFileSystem.directory(checkoutsDir);
     if (!checkouts.existsSync()) return result;
     // Checkouts left behind by earlier builds must not feed constraints in.
     final pinned = {
@@ -389,7 +352,7 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
           !pinned.contains(p.basename(checkout.path).toLowerCase())) {
         continue;
       }
-      final manifestFile = File(p.join(checkout.path, 'Package.swift'));
+      final manifestFile = artifactFileSystem.file(p.join(checkout.path, 'Package.swift'));
       if (!manifestFile.existsSync()) continue;
       final manifest = sourceNormalizer.normalizeHostManifest(
         await manifestFile.readAsString(),
@@ -397,12 +360,12 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
       final deps = SwiftPmManifestDependencies.parseUrlPackageDeps(manifest);
       final unpinned = deps.where(
         (dep) =>
-            !refs.containsKey(SwiftPmBinaryRecovery.canonicalGitUrl(dep.url)),
+            !refs.containsKey(SwiftPmBinaryProvenance.canonicalGitUrl(dep.url)),
       );
       if (unpinned.isEmpty ||
           unpinned.every(
             (dep) => dependencies.containsKey(
-              SwiftPmBinaryRecovery.canonicalGitUrl(dep.url),
+              SwiftPmBinaryProvenance.canonicalGitUrl(dep.url),
             ),
           )) {
         continue;
@@ -422,7 +385,7 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
           result[identity] = call;
         }
         dependencies.putIfAbsent(
-          SwiftPmBinaryRecovery.canonicalGitUrl(dep.url),
+          SwiftPmBinaryProvenance.canonicalGitUrl(dep.url),
           () => dep,
         );
       }
@@ -493,7 +456,7 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
     required String flutterXcframework,
     required bool? copyFlutterXcframework,
   }) async {
-    await Directory(frameworkDir).create(recursive: true);
+    await artifactFileSystem.directory(frameworkDir).create(recursive: true);
     await filesystem.writeStable(
       p.join(frameworkDir, 'Package.swift'),
       SwiftPmManifest.flutterFrameworkManifest(),
@@ -513,7 +476,7 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
     required bool verbose,
   }) async {
     final sourcesDir = p.join(pluginsDir, 'Sources', pluginsProductName);
-    await Directory(sourcesDir).create(recursive: true);
+    await artifactFileSystem.directory(sourcesDir).create(recursive: true);
 
     await filesystem.writeStable(
       p.join(pluginsDir, 'Package.swift'),

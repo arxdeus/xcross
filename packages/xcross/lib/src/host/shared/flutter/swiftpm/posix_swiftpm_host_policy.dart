@@ -1,15 +1,10 @@
-import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/toolchain.dart';
-import 'dart:io';
-
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
-import 'package:xcross/src/flutter/build/internal/host_symlink_capability.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:xcross/src/flutter/build/ios_linker_compatibility.dart';
-import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_gate_platform.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/toolchain.dart';
 
 abstract class PosixSwiftPmHostPolicy implements SwiftPmHostPolicy {
   const PosixSwiftPmHostPolicy();
@@ -38,8 +33,6 @@ abstract class PosixSwiftPmHostPolicy implements SwiftPmHostPolicy {
   @override
   Map<String, String> get sourceEnvironment => const {};
   @override
-  bool get sourceFallbackActive => false;
-  @override
   bool get captureBuildOutput => false;
   
   @override
@@ -49,11 +42,10 @@ abstract class PosixSwiftPmHostPolicy implements SwiftPmHostPolicy {
   ) async => false;
   
   @override
-  List<String> orderInteropTargets(String root, List<String> targets) =>
+  List<String> orderInteropTargets(Map<String, dynamic>? dependencies, List<String> targets) =>
       targets;
   @override
-  bool includesInteropTarget(String target, Set<String> candidates) =>
-      candidates.contains(target);
+  List<String> selectInteropTargets(List<String> planned, Set<String> candidates) => planned.where(candidates.contains).toList();
   
 
   @override

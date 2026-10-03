@@ -1,13 +1,7 @@
-import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/checkout_attributes.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/build_execution.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
 import 'dart:async';
-import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_workspace.dart';
@@ -19,8 +13,14 @@ import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/build_execution.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_attributes.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/foundation.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/interop_repair.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/manifest_dependencies.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
@@ -114,6 +114,7 @@ required SwiftPmDependencyPreparation<T> dependencyPreparation,
 required SwiftPmCheckout<T> checkout,
 required SwiftPmCheckoutAttributes checkoutAttributes,
 required SwiftPmCheckoutManifestNormalizer<T> checkoutManifestNormalizer,
+required SwiftPmFoundation<T> foundation,
   }) : runtime = SwiftPmRuntime(
          policy,
          runner,
@@ -131,6 +132,7 @@ required SwiftPmCheckoutManifestNormalizer<T> checkoutManifestNormalizer,
       checkout,
       checkoutAttributes,
       checkoutManifestNormalizer,
+      foundation,
        );
   final SwiftPmRuntime<T> runtime;
 
@@ -201,18 +203,18 @@ required SwiftPmCheckoutManifestNormalizer<T> checkoutManifestNormalizer,
         toolchainIdentity: toolchainIdentity,
         sdkIdentity: sdkIdentity,
       );
-      final fingerprintFile = File(
+      final fingerprintFile = runtime.artifactFileSystem.file(
         p.join(outputDir, '.xcross-build-fingerprint'),
       );
       if (fingerprintFile.existsSync() &&
           await fingerprintFile.readAsString() == fingerprint &&
-          File(
+          runtime.artifactFileSystem.file(
             p.join(targetDebugDir, 'lib$pluginsProductName.dylib'),
           ).existsSync()) {
         runtime.runner.log.logTrace('reusing unchanged SwiftPM plugin build');
         return runtime.assembly.discoverAndRewriteDylibs(targetDebugDir);
       }
-      final targetDirectory = Directory(targetDebugDir);
+      final targetDirectory = runtime.artifactFileSystem.directory(targetDebugDir);
       if (targetDirectory.existsSync()) {
         await targetDirectory.delete(recursive: true);
       }
@@ -220,10 +222,10 @@ required SwiftPmCheckoutManifestNormalizer<T> checkoutManifestNormalizer,
       final interopProductsByPlugin = <String, Set<String>>{};
 
       for (final plugin in spmPlugins) {
-        final manifest = await File(
+        final manifest = await runtime.artifactFileSystem.file(
           p.join(plugin.swiftPackageDir, 'Package.swift'),
         ).readAsString();
-        final products = SwiftPmInteropRepair.dependencyProductNames(manifest);
+        final products = SwiftPmManifestDependencies.dependencyProductNames(manifest);
         if (products.isNotEmpty) {
           interopProductsByPlugin[plugin.name] = products;
         }

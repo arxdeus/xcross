@@ -2,13 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/internal/swiftpm_binary_fixture.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_gate_evidence.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/gate_platform.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/gate_execution.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/gate_platform.dart';
 
 final class WindowsSwiftPmGatePlatform implements SwiftPmGatePlatform {
   const WindowsSwiftPmGatePlatform();
@@ -35,7 +36,7 @@ final class WindowsSwiftPmGatePlatform implements SwiftPmGatePlatform {
     SwiftPmGateExecution<T> execution,
     String alias,
     String target,
-  ) => _createJunction(alias, target, execution.runGateProcess);
+  ) => _createJunction(alias, target, execution.runGateProcess,execution.artifactFileSystem);
   @override
   Future<bool> verifyAlias<T extends PlatformHostInterface>(
     SwiftPmGateExecution<T> execution,
@@ -59,16 +60,16 @@ final class WindowsSwiftPmGatePlatform implements SwiftPmGatePlatform {
       if (identity is! Map) return false;
       final swiftPackage = await _boundExecutable(
         identity['swift-package'],
-        execute,
+        execute,execution.artifactFileSystem,
       );
       final swiftBuild = await _boundExecutable(
         identity['swift-build'],
-        execute,
+        execute,execution.artifactFileSystem,
       );
       if (swiftPackage == null ||
           swiftBuild == null ||
           !await validSwiftPmGateToolchainIdentity(
-            Map<String, Object?>.from(identity),
+            Map<String, Object?>.from(identity),fileSystem:execution.artifactFileSystem,
           )) {
         return false;
       }
@@ -84,37 +85,37 @@ final class WindowsSwiftPmGatePlatform implements SwiftPmGatePlatform {
       }
 
       stage = 'creating fixture';
-      final probeParent = Directory(p.join(root, '.probe-${mode.name}'));
+      final probeParent = execution.artifactFileSystem.directory(p.join(root, '.probe-${mode.name}'));
       await probeParent.create(recursive: true);
       probeRoot = await probeParent.createTemp('run-');
       final fixture = SwiftPmBinaryFixture.generateXcframework(
-        root: probeRoot.path,
+        fileSystem:execution.artifactFileSystem,        root: probeRoot.path,
         name: 'GateFixture',
       );
-      final package = Directory(p.join(probeRoot.path, 'package'))
+      final package = execution.artifactFileSystem.directory(p.join(probeRoot.path, 'package'))
         ..createSync();
       final scratch = p.join(probeRoot.path, 'scratch');
       String? junction;
 
       if (mode == SwiftPmGateMode.packageLocalArtifact) {
         junction = p.join(package.path, 'artifacts', 'GateFixture.xcframework');
-        Directory(p.dirname(junction)).createSync();
+        execution.artifactFileSystem.directory(p.dirname(junction)).createSync();
         SwiftPmBinaryFixture.writeGatePackage(
-          root: package.path,
+          fileSystem:execution.artifactFileSystem,          root: package.path,
           targetName: 'GateFixture',
           path: 'artifacts/GateFixture.xcframework',
         );
         stage = 'creating package-local junction';
-        if (!await _createJunction(junction, fixture.path, execute)) {
+        if (!await _createJunction(junction, fixture.path, execute,execution.artifactFileSystem)) {
           return false;
         }
       } else {
         SwiftPmBinaryFixture.archiveXcframework(
-          framework: fixture,
+          fileSystem:execution.artifactFileSystem,          framework: fixture,
           output: p.join(package.path, 'GateFixture.zip'),
         );
         SwiftPmBinaryFixture.writeGatePackage(
-          root: package.path,
+          fileSystem:execution.artifactFileSystem,          root: package.path,
           targetName: 'GateFixture',
           path: 'GateFixture.zip',
         );
@@ -149,10 +150,10 @@ final class WindowsSwiftPmGatePlatform implements SwiftPmGatePlatform {
       final environment = execution.processPolicy.swiftProcessEnvironment();
 
       if (mode == SwiftPmGateMode.swiftPmArtifact) {
-        if (!await _runSwift(swiftPackage, resolve, environment, execute)) {
+        if (!await _runSwift(swiftPackage, resolve, environment, execute, execution.runner.log)) {
           return false;
         }
-        final artifacts = Directory(scratch)
+        final artifacts = execution.artifactFileSystem.directory(scratch)
             .listSync(recursive: true, followLinks: false)
             .whereType<Directory>()
             .where(
@@ -162,27 +163,27 @@ final class WindowsSwiftPmGatePlatform implements SwiftPmGatePlatform {
         if (artifacts.length != 1) return false;
         junction = artifacts.single.path;
         await artifacts.single.delete(recursive: true);
-        if (!await _createJunction(junction, fixture.path, execute)) {
+        if (!await _createJunction(junction, fixture.path, execute,execution.artifactFileSystem)) {
           return false;
         }
       }
 
       for (var repetition = 0; repetition < 2; repetition++) {
         stage = 'resolve ${repetition + 1}';
-        if (!await _runSwift(swiftPackage, resolve, environment, execute)) {
+        if (!await _runSwift(swiftPackage, resolve, environment, execute, execution.runner.log)) {
           return false;
         }
         stage = 'build ${repetition + 1}';
-        if (!await _runSwift(swiftBuild, build, environment, execute)) {
+        if (!await _runSwift(swiftBuild, build, environment, execute, execution.runner.log)) {
           return false;
         }
         stage = 'verifying junction ${repetition + 1}';
         final actual = p.normalize(
-          await Directory(junction!).resolveSymbolicLinks(),
+          await execution.artifactFileSystem.directory(junction!).resolveSymbolicLinks(),
         );
         final expected = p.normalize(await fixture.resolveSymbolicLinks());
         if (!p.equals(actual, expected)) {
-          stderr.writeln(
+          execution.runner.log.output.stderr(
             'SwiftPM junction gate target mismatch at $stage: '
             'expected $expected, got $actual',
           );
@@ -191,8 +192,8 @@ final class WindowsSwiftPmGatePlatform implements SwiftPmGatePlatform {
       }
       return true;
     } on Object catch (error, stackTrace) {
-      stderr.writeln('SwiftPM junction gate failed at $stage: $error');
-      stderr.writeln(stackTrace);
+      execution.runner.log.output.stderr('SwiftPM junction gate failed at $stage: $error');
+      execution.runner.log.output.stderr(stackTrace.toString());
       return false;
     } finally {
       if (probeRoot != null && probeRoot.existsSync()) {
@@ -205,15 +206,15 @@ final class WindowsSwiftPmGatePlatform implements SwiftPmGatePlatform {
     }
   }
 
-  Future<String?> _boundExecutable(Object? encoded, SwiftPmGateRun run) async {
+  Future<String?> _boundExecutable(Object? encoded, SwiftPmGateRun run,SwiftPmArtifactFileSystem fileSystem) async {
     if (encoded is! Map ||
         encoded['path'] is! String ||
         encoded['version'] is! String) {
       return null;
     }
     final recordedPath = encoded['path'] as String;
-    if (recordedPath.isEmpty || !File(recordedPath).existsSync()) return null;
-    final resolvedPath = await File(recordedPath).resolveSymbolicLinks();
+    if (recordedPath.isEmpty || !fileSystem.file(recordedPath).existsSync()) return null;
+    final resolvedPath = await fileSystem.file(recordedPath).resolveSymbolicLinks();
     if (p.normalize(resolvedPath) != p.normalize(recordedPath)) return null;
     final result = await run(resolvedPath, const [
       '--version',
@@ -232,6 +233,7 @@ final class WindowsSwiftPmGatePlatform implements SwiftPmGatePlatform {
     String alias,
     String target,
     SwiftPmGateRun run,
+    SwiftPmArtifactFileSystem fileSystem,
   ) async {
     final result = await run('cmd.exe', [
       '/c',
@@ -240,7 +242,7 @@ final class WindowsSwiftPmGatePlatform implements SwiftPmGatePlatform {
       p.windows.normalize(alias),
       p.windows.normalize(target),
     ], timeout: const Duration(seconds: 5));
-    return result.exitCode == 0 && Directory(alias).existsSync();
+    return result.exitCode == 0 && fileSystem.directory(alias).existsSync();
   }
 
   Future<bool> _runSwift(
@@ -248,6 +250,7 @@ final class WindowsSwiftPmGatePlatform implements SwiftPmGatePlatform {
     List<String> arguments,
     Map<String, String>? environment,
     SwiftPmGateRun run,
+    Log log,
   ) async {
     final result = await run(
       swift,
@@ -256,7 +259,7 @@ final class WindowsSwiftPmGatePlatform implements SwiftPmGatePlatform {
       timeout: const Duration(minutes: 5),
     );
     if (result.exitCode != 0) {
-      stderr.writeln(
+      log.output.stderr(
         'SwiftPM junction gate command failed (${result.exitCode}): '
         '${result.stderr}\n${result.stdout}',
       );

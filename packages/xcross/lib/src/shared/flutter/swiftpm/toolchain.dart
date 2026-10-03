@@ -1,9 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
@@ -56,7 +55,7 @@ final class SwiftPmToolchain<T extends PlatformHostInterface> {
     Future<String?> Function(String name)? locateTool,
     String? librarianPath,
   }) async {
-    final output = Directory(outputDir);
+    final output = filesystem.artifactFileSystem.directory(outputDir);
     await output.create(recursive: true);
     // LLVM often never registers itself on PATH, so reach into its install
     // directories too (see [DarwinSdk.llvmToolDirs]).
@@ -70,7 +69,7 @@ final class SwiftPmToolchain<T extends PlatformHostInterface> {
       final path = await locate(runner.hostExecutableName(name));
       return path == null
           ? null
-          : SwiftPmFilesystem.jsonPath(File(path).resolveSymbolicLinksSync());
+          : SwiftPmFilesystem.jsonPath(filesystem.artifactFileSystem.file(path).resolveSymbolicLinksSync());
     }
 
     final librarian =
@@ -104,7 +103,7 @@ final class SwiftPmToolchain<T extends PlatformHostInterface> {
       final path = await locate(runner.hostExecutableName(name));
       return path == null
           ? null
-          : SwiftPmFilesystem.jsonPath(File(path).resolveSymbolicLinksSync());
+          : SwiftPmFilesystem.jsonPath(filesystem.artifactFileSystem.file(path).resolveSymbolicLinksSync());
     }
 
     final librarian = await resolveLibrarianInternal(resolve);
@@ -126,7 +125,7 @@ final class SwiftPmToolchain<T extends PlatformHostInterface> {
       p.dirname(archiver),
       runner.hostExecutableName(SwiftPmToolchain.libtool),
     );
-    return File(sibling).existsSync()
+    return filesystem.artifactFileSystem.file(sibling).existsSync()
         ? SwiftPmFilesystem.jsonPath(sibling)
         : archiver;
   }

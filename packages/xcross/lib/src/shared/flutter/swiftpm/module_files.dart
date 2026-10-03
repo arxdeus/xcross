@@ -1,18 +1,9 @@
-import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
-import 'package:xcross/src/flutter/build/ios_plugins.dart';
-import 'package:xcross/src/flutter/build/swift_package_host_patches.dart';
-import 'package:xcross/src/flutter/constants.dart';
 import 'package:xcross/src/flutter/errors.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
-import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
-
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 
 final class SwiftPmModuleFiles {
 SwiftPmModuleFiles({required this.fileSystem});

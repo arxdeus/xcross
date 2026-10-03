@@ -1,13 +1,14 @@
 import 'dart:io';
-import 'package:cli_kit/cli_kit.dart';
+
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
 
 final class HostSymlinkCapability {
   HostSymlinkCapability(this.host);
   final PlatformHostInterface host;
-  bool? _cached;
+  bool? override;
   Future<bool> probe({String? directory}) async {
-    final cached = _cached;
+    final cached = override;
     if (cached != null) return cached;
     final root = await host.fileSystem
         .directory(directory ?? host.paths.temporaryRoot)
@@ -19,14 +20,12 @@ final class HostSymlinkCapability {
       try {
         link.createSync(target.path);
       } on FileSystemException {
-        return _cached = false;
+        return override = false;
       }
-      return _cached = FileSystemEntity.isLinkSync(link.path);
+      return override = link.existsSync();
     } finally {
       if (root.existsSync()) root.deleteSync(recursive: true);
     }
   }
 
-  bool? get override => _cached;
-  set override(bool? value) => _cached = value;
 }

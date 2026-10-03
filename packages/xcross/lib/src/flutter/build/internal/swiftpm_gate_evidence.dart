@@ -3,14 +3,14 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:crypto/crypto.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/swiftpm/gate_mode.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/gate_execution.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/gate_platform.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/gate_execution.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/gate_mode.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/gate_platform.dart';
 
 export 'package:xcross/src/shared/flutter/swiftpm/gate_mode.dart';
 
@@ -214,10 +214,10 @@ final SwiftPmArtifactFileSystem fileSystem;
     final toolchain = decodedSwiftPmGateMap(toolchainIdentity);
     final sdk = decodedSwiftPmGateMap(sdkIdentity);
     if (toolchain == null || sdk == null) return null;
-    if (!await validSwiftPmGateToolchainIdentity(toolchain) ||
+    if (!await validSwiftPmGateToolchainIdentity(toolchain,fileSystem:fileSystem) ||
         !await validSwiftPmGateSdkIdentity(
           sdk,
-          repository: execution.sdkRepository,
+          repository: execution.sdkRepository,fileSystem:fileSystem,
         )) {
       return null;
     }
@@ -250,7 +250,7 @@ Map<String, Object?>? decodedSwiftPmGateMap(String encoded) {
 }
 
 Future<bool> validSwiftPmGateToolchainIdentity(
-  Map<String, Object?> identity,
+  Map<String, Object?> identity, {required SwiftPmArtifactFileSystem fileSystem}
 ) async {
   const versionedTools = {'swift-package', 'swift-build', 'swiftc'};
   const tools = {
@@ -275,10 +275,10 @@ Future<bool> validSwiftPmGateToolchainIdentity(
         (versionedTools.contains(name) && executable['version'] is! String)) {
       return false;
     }
-    final file = File(executable['path'] as String);
+    final file = fileSystem.file(executable['path'] as String);
     if (!file.existsSync()) return false;
     final resolved = file.resolveSymbolicLinksSync();
-    final stat = File(resolved).statSync();
+    final stat = fileSystem.file(resolved).statSync();
     if (p.normalize(resolved) != p.normalize(executable['path'] as String) ||
         stat.size != executable['size'] ||
         stat.modified.microsecondsSinceEpoch != executable['modified'] ||
@@ -292,6 +292,7 @@ Future<bool> validSwiftPmGateToolchainIdentity(
 Future<bool> validSwiftPmGateSdkIdentity(
   Map<String, Object?> identity, {
   required DarwinSdkRepository repository,
+  required SwiftPmArtifactFileSystem fileSystem,
 }) async {
   if (identity['path'] is! String || identity['metadata'] is! Map) return false;
   final root = identity['path']! as String;
@@ -307,7 +308,7 @@ Future<bool> validSwiftPmGateSdkIdentity(
         expected['digest'] is! String) {
       return false;
     }
-    final file = File(p.join(root, entry.key as String));
+    final file = fileSystem.file(p.join(root, entry.key as String));
     if (!file.existsSync()) return false;
     final stat = file.statSync();
     if (stat.size != expected['size'] ||

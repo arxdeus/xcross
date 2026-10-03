@@ -1,10 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:cli_kit/cli_kit.dart';
+
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_gate_evidence.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_workspace.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/artifact_identity.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_identity.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/gate_execution.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/gate_platform.dart';
 
