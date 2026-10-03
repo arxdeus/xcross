@@ -6,8 +6,8 @@ import 'package:xcross/src/composition/flutter/swiftpm_foundation.dart';
 import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/host/linux/flutter/native_host_tools.dart';
+import 'package:xcross/src/host/linux/flutter/swiftpm/host_build_services.dart';
 import 'package:xcross/src/host/linux/flutter/swiftpm/swiftpm_host_policy.dart';
-
 import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer_posix.dart';
 import 'package:xcross/src/host/shared/flutter/flutter_sdk_host_policy.dart';
 import 'package:xcross/src/host/shared/flutter/posix_flutter_sdk_policy.dart';
@@ -20,10 +20,12 @@ import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_link_creat
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_link_policy.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_manifest_policy.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_dependency_preparation.dart';
+import 'package:xcross/src/host/shared/flutter/swiftpm/posix_gate_platform.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/librarian_resolver.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
 import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
@@ -127,7 +129,19 @@ FlutterBuildRuntime<LinuxHost> testFlutterRuntime(
       sourceFallback: parts.sourceFallback,
     ),
   );
+  final librarianResolver = SwiftPmLibrarianResolver(
+    runner: runner,
+    filesystem: parts.filesystem,
+    lookup: DarwinSwiftPmLlvmToolLookup(toolchain),
+  );
+  final hostBuildServices = LinuxSwiftPmHostBuildServices(
+    target: policy.target,
+    filesystem: parts.filesystem,
+    sdkIdentity: sdkIdentity,
+  );
   final foundation = prepareSwiftPmFoundation(
+    hostBuildServices: hostBuildServices,
+    librarianResolver: librarianResolver,
     policy: policy,
     runner: runner,
     sdkRepository: repository,
@@ -155,6 +169,7 @@ FlutterBuildRuntime<LinuxHost> testFlutterRuntime(
     publicationCoordinator: publicationCoordinator,
     sdkIdentity: sdkIdentity,
     foundation: foundation,
+    gatePlatform: PosixSwiftPmGatePlatform(fileSystem: artifactFileSystem),
     checkout: checkout,
     checkoutAttributes: attributes,
     checkoutManifestNormalizer: normalizer,
