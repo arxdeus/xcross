@@ -1,3 +1,47 @@
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_attributes.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_identity.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/gate_execution.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/build_execution.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:cli_kit/cli_kit.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
+import 'package:xcross/src/flutter/build/internal/host_symlink_capability.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_capabilities.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/assembly.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/build_driver.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/build_plan.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_links.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/dependency_vendor.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/discovery.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/host_source_normalizer.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/interop_repair.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/manifest.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/module_files.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/package_metadata.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/plugin_overlay.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/preview_macro_compiler.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/source_fallback.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/source_repair.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/toolchain.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/workspace_stager.dart';
+import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
+
+import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -11,8 +55,10 @@ import 'package:xcross/src/flutter/build/swiftpm_binary_artifact_preparer.dart';
 import 'package:xcross/src/flutter/build/swiftpm_binary_artifact_store.dart';
 import 'package:xcross/src/flutter/build/swiftpm_binary_target.dart';
 import 'package:xcross/src/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_offline_publisher.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/manifest.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/manifest_dependencies.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/source_repair.dart';
 
@@ -20,73 +66,20 @@ const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmBinaryRecovery<T extends PlatformHostInterface> {
-  SwiftPmBinaryRecovery(this.runtime);
-  final SwiftPmRuntime<T> runtime;
-
-  /// Resolves Windows dependencies with the external toolset, materializes
-  /// the Git-for-Windows symlink placeholders the resolve leaves behind, and
-  /// normalizes the resulting Swift sources for host compatibility.
-  ///
-  /// Order matters: resolution must run before the placeholders are
-  /// materialized (see [materializeCheckoutSymlinks]'s own doc comment), and
-  /// normalization must run after, since it rewrites the materialized
-  /// sources, not the placeholders.
-  Future<void> prepareWindowsDependencyGraph({
-    required String swift,
-    required String pluginsDir,
-    required String scratchPath,
-    required String swiftSdksPath,
-    required String toolsetPath,
-    required String vendorDir,
-    required String binaryArtifactStore,
-    required String binaryArtifactFallback,
-    required bool swiftPmArtifactJunctionCapability,
-    required bool packageLocalArtifactJunctionCapability,
-    required Map<String, String>? environment,
-  }) async {
-    Future<void> resolve() => runtime.runner.runChecked(
-      swift,
-      runtime.processPolicy
-          .swiftResolveArguments(
-            pluginsDir: pluginsDir,
-            scratchPath: scratchPath,
-            swiftSdksPath: swiftSdksPath,
-            toolsetPath: toolsetPath,
-            swiftSdkTriple: runtime.target.buildPlatform.swiftSdkTriple,
-          )
-          .skip(1)
-          .toList(),
-      environment: environment,
-      inheritStdio: runtime.runner.log.isVerbose,
-      label: 'swift package resolve',
-    );
-    Future<void> resolveWithRetries() => retryingTransientNetworkFailure(
-      resolve,
-      label: 'swift package resolve',
-    );
-    final attemptState = SwiftPmBinaryAttemptState();
-    final packageIdentities = await runtime.manifest
-        .packageIdentitiesByDirectory(pluginsDir);
-    Future<bool> recover() => stageExtractedBinaryArtifacts(
-      scratchPath: scratchPath,
-      vendorDir: vendorDir,
-      packageIdentities: packageIdentities,
-      binaryArtifactStore: binaryArtifactStore,
-      binaryArtifactFallback: binaryArtifactFallback,
-      attemptState: attemptState,
-      packageLocalArtifactJunctionCapability:
-          packageLocalArtifactJunctionCapability,
-    );
-    await resolveWindowsDependencies(
-      resolve: resolveWithRetries,
-      recoverBootstrap: recover,
-      materialize: () =>
-          runtime.checkout.materializeCheckoutSymlinks(scratchPath),
-      normalize: () =>
-          runtime.interopRepair.normalizeResolvedPackageManifests(scratchPath),
-      recoverFinal: recover,
-    );
-  }
+  SwiftPmBinaryRecovery({required this.artifactFileSystem,required this.checkoutAttributes,required this.copyPolicy,required this.dependencyPreparation,required this.filesystem,required this.host,required this.hostPolicy,required this.interopRepair,required this.publicationCoordinator,required this.runner,required this.sourceRepair,required this.targetPolicy,required this.transport});
+  final SwiftPmArtifactFileSystem artifactFileSystem;
+  final SwiftPmCheckoutAttributes checkoutAttributes;
+  final SwiftPmArtifactCopyPolicy copyPolicy;
+  final SwiftPmDependencyPreparation<T> dependencyPreparation;
+  final SwiftPmFilesystem<T> filesystem;
+  final T host;
+  final SwiftPmHostPolicy hostPolicy;
+  final SwiftPmInteropRepair<T> interopRepair;
+  final SwiftPmPublicationCoordinator publicationCoordinator;
+  final ProcessRunner<T> runner;
+  final SwiftPmSourceRepair<T> sourceRepair;
+  final FlutterTargetBuildPolicy<T> targetPolicy;
+  final SwiftPmArchiveTransport transport;
 
   static bool isTransientNetworkFailure(Object error) {
     final text = error.toString().toLowerCase();
@@ -119,33 +112,13 @@ final class SwiftPmBinaryRecovery<T extends PlatformHostInterface> {
           rethrow;
         }
         final pause = backoff * attempt;
-        runtime.runner.log.logTrace(
+        runner.log.logTrace(
           '$label failed on a transient network error '
           '(attempt $attempt of $attempts), retrying in '
           '${pause.inSeconds}s: $error',
         );
         await (delay ?? Future<void>.delayed)(pause);
       }
-    }
-  }
-
-  Future<void> resolveWindowsDependencies({
-    required Future<void> Function() resolve,
-    required Future<bool> Function() recoverBootstrap,
-    required Future<bool> Function() materialize,
-    required Future<bool> Function() normalize,
-    required Future<bool> Function() recoverFinal,
-  }) async {
-    await resolveWithFinalBinaryRecovery(
-      resolve: resolve,
-      recover: recoverBootstrap,
-    );
-    final changed = await materialize() | await normalize();
-    if (changed) {
-      await resolveWithFinalBinaryRecovery(
-        resolve: resolve,
-        recover: recoverFinal,
-      );
     }
   }
 
@@ -161,24 +134,26 @@ final class SwiftPmBinaryRecovery<T extends PlatformHostInterface> {
     Future<void> Function(String alias)? removeAlias,
     Future<void> Function(String path, List<int> bytes)? writeManifest,
   }) async {
-    final root = Directory(runtime.filesystem.ioPath(packageRoot));
+    final root = Directory(filesystem.ioPath(packageRoot));
     if (!root.existsSync()) return;
 
     final store = SwiftPmBinaryArtifactStore(
       binaryArtifactStore,
-      host: runtime.host,
-      runner: runtime.runner,
-      fileSystem: runtime.artifactFileSystem,
+      host: host,
+      publicationCoordinator: publicationCoordinator,
+      fileSystem: artifactFileSystem,
     );
     final preparer = SwiftPmBinaryArtifactPreparer(
-      policy: runtime.targetPolicy,
+      policy: targetPolicy,
+      transport: transport,
+      copyPolicy: copyPolicy,
       store: store,
     );
     final runPrepare = prepare ?? preparer.prepare;
     final create = createAlias ?? preparer.createBinaryArtifactJunction;
     final copy = materialize ?? preparer.materializeBinaryArtifact;
     final remove = removeAlias ?? preparer.removeBinaryArtifactAlias;
-    final write = writeManifest ?? runtime.filesystem.writeAtomic;
+    final write = writeManifest ?? filesystem.writeAtomic;
     final manifests = root
         .listSync(recursive: true, followLinks: false)
         .whereType<File>()
@@ -210,17 +185,17 @@ final class SwiftPmBinaryRecovery<T extends PlatformHostInterface> {
               store.archivePath(target.checksum),
             ).existsSync();
             final result = await runPrepare(target);
-            runtime.filesystem.traceBinaryOperation(
+            filesystem.traceBinaryOperation(
               target: target.name,
               operation: reused != null
                   ? 'reuse'
                   : hadArchive
                   ? 'extract'
                   : 'download',
-              archiveBytes: runtime.filesystem.fileBytes(
+              archiveBytes: filesystem.fileBytes(
                 store.archivePath(target.checksum),
               ),
-              extractedBytes: runtime.filesystem.directoryBytes(
+              extractedBytes: filesystem.directoryBytes(
                 result.entry.artifactPath,
               ),
               elapsedMilliseconds: started.elapsedMilliseconds,
@@ -326,7 +301,7 @@ final class SwiftPmBinaryRecovery<T extends PlatformHostInterface> {
           // bytes does: identical patched manifests always carry an
           // identical timestamp, and a genuinely new patch still gets a new
           // one.
-          await runtime.filesystem.stampByContent(manifestFile.path, rewritten);
+          await filesystem.stampByContent(manifestFile.path, rewritten);
         }
       } on Object {
         for (final created in createdDestinations.entries.toList().reversed) {
@@ -381,37 +356,34 @@ final class SwiftPmBinaryRecovery<T extends PlatformHostInterface> {
     String? materializedDestination,
     CreateSwiftPmBinaryAlias? createAlias,
     MaterializeSwiftPmBinaryArtifact? materialize,
-    StartBinaryCopy? materializeStartProcess,
+    SwiftPmArtifactCopyPolicy? materializeCopyPolicy,
   }) async {
     final key = binaryArtifactAttemptKey(provenance);
     if (attemptState.finalRecovered.contains(key)) return null;
     attemptState.finalRecovered.add(key);
     final preparer = SwiftPmBinaryArtifactPreparer(
-      policy: runtime.targetPolicy,
+      policy: targetPolicy,
+      transport: transport,
+      copyPolicy: copyPolicy,
       store: SwiftPmBinaryArtifactStore(
         binaryArtifactStore,
-        host: runtime.host,
-        runner: runtime.runner,
-        fileSystem: runtime.artifactFileSystem,
+        host: host,
+        publicationCoordinator: publicationCoordinator,
+        fileSystem: artifactFileSystem,
       ),
     );
     final create = createAlias ?? preparer.createBinaryArtifactJunction;
     final copy =
         materialize ??
-        ({required source, required destination}) =>
-            preparer.materializeBinaryArtifact(
-              source: source,
-              destination: destination,
-              startProcess: materializeStartProcess,
-            );
+        preparer.materializeBinaryArtifact;
     if (packageLocalArtifactJunctionCapability) {
       try {
         final started = Stopwatch()..start();
         await create(alias: destination, target: preparedArtifactPath);
-        runtime.filesystem.traceBinaryOperation(
+        filesystem.traceBinaryOperation(
           target: provenance.target.name,
           operation: 'recover',
-          extractedBytes: runtime.filesystem.directoryBytes(
+          extractedBytes: filesystem.directoryBytes(
             preparedArtifactPath,
           ),
           elapsedMilliseconds: started.elapsedMilliseconds,
@@ -429,10 +401,10 @@ final class SwiftPmBinaryRecovery<T extends PlatformHostInterface> {
       source: preparedArtifactPath,
       destination: materializedDestination ?? destination,
     );
-    runtime.filesystem.traceBinaryOperation(
+    filesystem.traceBinaryOperation(
       target: provenance.target.name,
       operation: 'copy',
-      extractedBytes: runtime.filesystem.directoryBytes(preparedArtifactPath),
+      extractedBytes: filesystem.directoryBytes(preparedArtifactPath),
       elapsedMilliseconds: started.elapsedMilliseconds,
       attempt: 1,
     );
@@ -468,17 +440,19 @@ final class SwiftPmBinaryRecovery<T extends PlatformHostInterface> {
       return false;
     }
     final preparer = SwiftPmBinaryArtifactPreparer(
-      policy: runtime.targetPolicy,
+      policy: targetPolicy,
+      transport: transport,
+      copyPolicy: copyPolicy,
       store: SwiftPmBinaryArtifactStore(
         binaryArtifactStore,
-        host: runtime.host,
-        runner: runtime.runner,
-        fileSystem: runtime.artifactFileSystem,
+        host: host,
+        publicationCoordinator: publicationCoordinator,
+        fileSystem: artifactFileSystem,
       ),
     );
     var changed = false;
-    final remove = removeDestination ?? runtime.filesystem.deleteEntity;
-    final write = writeManifest ?? runtime.filesystem.writeAtomic;
+    final remove = removeDestination ?? filesystem.deleteEntity;
+    final write = writeManifest ?? filesystem.writeAtomic;
     final packageRoots = <Directory>[
       if (vendor.existsSync()) vendor,
       if (checkouts.existsSync()) checkouts,
@@ -560,34 +534,34 @@ final class SwiftPmBinaryRecovery<T extends PlatformHostInterface> {
                   )
                   .toList();
               if (extracted.length == 1) {
-                final store = Directory(binaryArtifactStore);
+                final extractedStore = p.join(binaryArtifactFallback, 'extracted-artifacts');
+                final store = Directory(extractedStore);
                 await store.create(recursive: true);
                 final staging = await store.createTemp('.extracted-');
                 try {
                   final artifactName = p.basename(extracted.single.path);
                   final retainedNames = libraryIdentifiers(extracted.single);
                   if (retainedNames.isEmpty) continue;
-                  await runtime.filesystem.copyResolvedArtifactTree(
+                  await filesystem.copyResolvedArtifactTree(
                     extracted.single.path,
                     p.join(staging.path, artifactName),
                     includeTopLevel: (name) =>
                         name == 'Info.plist' || retainedNames.contains(name),
                   );
 
-                  verified.add(
-                    await SwiftPmBinaryArtifactStore(
-                      binaryArtifactStore,
-                      host: runtime.host,
-                      runner: runtime.runner,
-                      fileSystem: runtime.artifactFileSystem,
-                    ).publishTarget(
-                      checksum: candidate.target.checksum,
-                      targetName: candidate.target.name,
-                      stagingRoot: staging,
-                      artifactDirectoryName: artifactName,
-                      metadata: const {'source': 'swiftpm-extracted-artifact'},
-                    ),
+                  final artifactPath = await SwiftPmOfflineArtifactPublisher(
+                    fileSystem: artifactFileSystem,
+                    publicationCoordinator: publicationCoordinator,
+                  ).publish(
+                    stagingRoot: staging,
+                    destination: p.join(extractedStore, candidate.target.checksum, candidate.target.name),
+                    artifactDirectoryName: artifactName,
                   );
+                  verified.add(SwiftPmBinaryArtifactEntry(
+                    archiveChecksum: candidate.target.checksum,
+                    targetName: candidate.target.name,
+                    artifactPath: artifactPath,
+                  ));
                 } finally {
                   if (staging.existsSync()) {
                     await staging.delete(recursive: true);
@@ -665,7 +639,7 @@ final class SwiftPmBinaryRecovery<T extends PlatformHostInterface> {
             utf8.encode(manifest),
           )) {
             try {
-              await runtime.checkout.clearPlaceholderAttributes(entity.path);
+              await checkoutAttributes.clear(entity.path);
               await write(entity.path, utf8.encode(manifest));
             } on Object {
               for (final created
@@ -782,7 +756,7 @@ final class SwiftPmBinaryRecovery<T extends PlatformHostInterface> {
     return matches.length == 1 ? matches.single : null;
   }
 
-  String swiftPmComponent(String value) => runtime.hostPolicy.artifactIdentity(value);
+  String swiftPmComponent(String value) => hostPolicy.artifactIdentity(value);
 
   String binaryArtifactAttemptKey(SwiftPmBinaryArtifactProvenance provenance) =>
       [
@@ -799,7 +773,7 @@ final class SwiftPmBinaryRecovery<T extends PlatformHostInterface> {
     String packageDirectory, {
     Future<CapturedProcess> Function(String, List<String>)? runProcess,
   }) async {
-    final result = await (runProcess ?? runtime.runner.run)('git', [
+    final result = await (runProcess ?? runner.run)('git', [
       '-c',
       'core.longpaths=true',
       '-C',
@@ -854,7 +828,7 @@ final class SwiftPmBinaryRecovery<T extends PlatformHostInterface> {
       roots[p.join(checkoutRoot, dependency.identity)] = dependency.identity;
       roots[p.join(
             checkoutRoot,
-            SwiftPmManifest.packageIdentityFromUrl(dependency.url),
+            SwiftPmManifestDependencies.packageIdentityFromUrl(dependency.url),
           )] =
           dependency.identity;
     }
@@ -894,12 +868,14 @@ final class SwiftPmBinaryRecovery<T extends PlatformHostInterface> {
     final artifacts = Directory(artifactsRoot);
     if (!artifacts.existsSync()) return false;
     final preparer = SwiftPmBinaryArtifactPreparer(
-      policy: runtime.targetPolicy,
+      policy: targetPolicy,
+      transport: transport,
+      copyPolicy: copyPolicy,
       store: SwiftPmBinaryArtifactStore(
         binaryArtifactStore,
-        host: runtime.host,
-        runner: runtime.runner,
-        fileSystem: runtime.artifactFileSystem,
+        host: host,
+        publicationCoordinator: publicationCoordinator,
+        fileSystem: artifactFileSystem,
       ),
     );
     final candidates =
@@ -1009,7 +985,7 @@ final class SwiftPmBinaryRecovery<T extends PlatformHostInterface> {
   }
 
   Set<String> libraryIdentifiers(Directory artifact) {
-    final fallback = {for(final id in runtime.targetPolicy.engineSliceIdentifiers) if(Directory(p.join(artifact.path,id)).existsSync()) id};
+    final fallback = {for(final id in targetPolicy.engineSliceIdentifiers) if(Directory(p.join(artifact.path,id)).existsSync()) id};
     final info = File(p.join(artifact.path, 'Info.plist'));
     try {
       final plist = PropertyListSerialization.propertyListWithString(
@@ -1020,7 +996,7 @@ final class SwiftPmBinaryRecovery<T extends PlatformHostInterface> {
         for (final library in plist['AvailableLibraries'] as List)
           if (library is Map &&
               library['SupportedPlatform'] == 'ios' &&
-              runtime.targetPolicy.matchesLibraryVariant(
+              targetPolicy.matchesLibraryVariant(
                 library['SupportedPlatformVariant'] as String?,
               ) &&
               library['SupportedArchitectures'] is List &&
@@ -1046,7 +1022,7 @@ final class SwiftPmBinaryRecovery<T extends PlatformHostInterface> {
       for (final value in libraries) {
         if (value is! Map ||
             value['SupportedPlatform'] != 'ios' ||
-            !runtime.targetPolicy.matchesLibraryVariant(
+            !targetPolicy.matchesLibraryVariant(
               value['SupportedPlatformVariant'] as String?,
             )) {
           continue;
@@ -1125,11 +1101,11 @@ final class SwiftPmBinaryRecovery<T extends PlatformHostInterface> {
     bool swiftPmArtifactJunctionCapability = false,
     List<SwiftPmPackageDependency> dependencies = const [],
   }) async {
-    final swift = await locateTool(runtime.hostPolicy.packageTool);
+    final swift = await locateTool(hostPolicy.packageTool);
     final runResolve =
         resolve ??
         (directory) => retryingTransientNetworkFailure(
-          () => runtime.sourceRepair.resolveOnce(swift, directory),
+          () => sourceRepair.resolveOnce(swift, directory),
           label: 'swift package resolve',
         );
     // `swift package --package-path <directory> resolve` uses
@@ -1153,16 +1129,7 @@ final class SwiftPmBinaryRecovery<T extends PlatformHostInterface> {
           recover ??
           (_, state) async {
             if (!canRecover) return false;
-            return runtime.hostPolicy.recoverDependencyArtifacts(
-              runtime,
-              packageDirectory,
-              resolverScratchPath,
-              binaryArtifactStore,
-              binaryArtifactFallback,
-              dependencies,
-              state,
-              swiftPmArtifactJunctionCapability,
-            );
+            return dependencyPreparation.recoverArtifacts(SwiftPmDependencyArtifactRecoveryRequest(recovery:this,interopRepair:interopRepair,packageRoot:packageDirectory,scratchPath:resolverScratchPath,store:binaryArtifactStore,fallback:binaryArtifactFallback,dependencies:dependencies,state:state,capability:swiftPmArtifactJunctionCapability));
           },
       attemptState: attemptState ?? SwiftPmBinaryAttemptState(),
     );

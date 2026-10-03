@@ -1,3 +1,47 @@
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_attributes.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_identity.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/gate_execution.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/build_execution.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:cli_kit/cli_kit.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
+import 'package:xcross/src/flutter/build/internal/host_symlink_capability.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_capabilities.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/assembly.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/binary_recovery.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/build_driver.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/build_plan.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_links.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/discovery.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/host_source_normalizer.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/interop_repair.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/manifest.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/module_files.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/package_metadata.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/plugin_overlay.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/preview_macro_compiler.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/source_fallback.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/source_repair.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/toolchain.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/workspace_stager.dart';
+import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
+
+import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
 import 'dart:async';
 
 import 'package:cli_kit/cli_kit.dart';
@@ -6,15 +50,19 @@ import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/binary_recovery.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/manifest.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/manifest_dependencies.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
 
 const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmDependencyVendor<T extends PlatformHostInterface> {
-  SwiftPmDependencyVendor(this.runtime);
-  final SwiftPmRuntime<T> runtime;
+  SwiftPmDependencyVendor({required this.binaryRecovery,required this.checkout,required this.checkoutManifestNormalizer,required this.dependencyPreparation,required this.runner});
+  final SwiftPmBinaryRecovery<T> binaryRecovery;
+  final SwiftPmCheckout<T> checkout;
+  final SwiftPmCheckoutManifestNormalizer<T> checkoutManifestNormalizer;
+  final SwiftPmDependencyPreparation<T> dependencyPreparation;
+  final ProcessRunner<T> runner;
 
   /// Clones each `.package(url:)` dependency under [vendorDir], normalizes its
   /// host manifests, and rewrites the plugin manifest to `.package(path:)`.
@@ -45,10 +93,10 @@ final class SwiftPmDependencyVendor<T extends PlatformHostInterface> {
     bool swiftPmArtifactJunctionCapability = false,
     bool packageLocalArtifactJunctionCapability = false,
   }) async {
-    final deps = SwiftPmManifest.parseUrlPackageDeps(manifest);
+    final deps = SwiftPmManifestDependencies.parseUrlPackageDeps(manifest);
     if (deps.isEmpty) return manifest;
 
-    final locate = locateTool ?? runtime.runner.locateTool;
+    final locate = locateTool ?? runner.locateTool;
     final evaluate =
         scopedDependencyRefEvaluator ??
         (
@@ -61,7 +109,7 @@ final class SwiftPmDependencyVendor<T extends PlatformHostInterface> {
           required dependencies,
         }) => evaluateDependencyRefs != null
             ? evaluateDependencyRefs(directory)
-            : runtime.binaryRecovery.evaluatedDependencyRefs(
+            : binaryRecovery.evaluatedDependencyRefs(
                 directory,
                 locate,
 
@@ -88,7 +136,7 @@ final class SwiftPmDependencyVendor<T extends PlatformHostInterface> {
         dependencies: dependencies,
       );
       if (evaluationCache == null) return run();
-      final evaluationKey = await runtime.binaryRecovery
+      final evaluationKey = await binaryRecovery
           .dependencyEvaluationKey(manifest, directory);
       final pending = evaluationCache.putIfAbsent(evaluationKey, run);
       try {
@@ -116,7 +164,7 @@ final class SwiftPmDependencyVendor<T extends PlatformHostInterface> {
       );
     }
 
-    final clone = clonePackage ?? runtime.checkout.cloneGitPackage;
+    final clone = clonePackage ?? this.checkout.repository.cloneGitPackage;
 
     Future<void> cloneAndMaterialize(
       String url,
@@ -125,16 +173,11 @@ final class SwiftPmDependencyVendor<T extends PlatformHostInterface> {
     ) async {
       await clone(git, url, ref, destination);
       if (clonePackage == null) {
-        await runtime.hostPolicy.materializeClone(
-          runtime,
-          destination,
-          git,
-          vendorDir,
-        );
+        await dependencyPreparation.materializeClone(this.checkout,destination,git,vendorDir);
       }
     }
 
-    Future<void> checkout(String url, String ref, String destination) async {
+    Future<void> checkoutDependency(String url, String ref, String destination) async {
       if (checkoutCache == null) {
         await cloneAndMaterialize(url, ref, destination);
         return;
@@ -158,7 +201,7 @@ final class SwiftPmDependencyVendor<T extends PlatformHostInterface> {
       manifest,
       vendorDir: vendorDir,
       evaluatedRefs: evaluatedRefs,
-      checkout: checkout,
+      checkout: checkoutDependency,
       vendored: <String>{},
       requireResolvedRefs: true,
       evaluateNested: evaluateCached,
@@ -193,11 +236,11 @@ final class SwiftPmDependencyVendor<T extends PlatformHostInterface> {
     Map<String, List<String>>? fallbackSwiftModules,
     Map<String, Map<String, List<String>>>? normalizationCache,
   }) async {
-    final deps = SwiftPmManifest.parseUrlPackageDeps(manifest);
+    final deps = SwiftPmManifestDependencies.parseUrlPackageDeps(manifest);
     if (deps.isEmpty) return manifest;
 
     var result = manifest;
-    final namedPathDeps = SwiftPmManifest.supportsNamedPathDeps(manifest);
+    final namedPathDeps = SwiftPmManifestDependencies.supportsNamedPathDeps(manifest);
     for (final dep in deps) {
       final ref = evaluatedRefs[SwiftPmBinaryRecovery.canonicalGitUrl(dep.url)];
       if (ref == null) {
@@ -210,14 +253,14 @@ final class SwiftPmDependencyVendor<T extends PlatformHostInterface> {
           'contains no matching source-control revision.',
         );
       }
-      final dirName = SwiftPmManifest.vendorPackageDirName(dep.url, ref);
+      final dirName = SwiftPmManifestDependencies.vendorPackageDirName(dep.url, ref);
       // Always set name: — without it SwiftPM uses the directory basename
       // (`pkg@1.2.3`), which breaks `.product(..., package: "pkg")`.
       final identity = dep.identity;
       final destination = p.join(vendorDir, dirName);
       if (vendored.add(p.normalize(destination))) {
         await checkout(dep.url, ref, destination);
-        final consumedProducts = SwiftPmManifest.consumedProducts(
+        final consumedProducts = SwiftPmManifestDependencies.consumedProducts(
           manifest,
           identity,
         );
@@ -230,7 +273,7 @@ final class SwiftPmDependencyVendor<T extends PlatformHostInterface> {
         if (cachedModules == null) {
           final existingModules =
               fallbackSwiftModules?.keys.toSet() ?? const {};
-          await runtime.checkout.normalizeVendoredPackageManifests(
+          await checkoutManifestNormalizer.normalizeVendoredPackageManifests(
             destination,
             consumedProducts: consumedProducts,
             fallbackSwiftModules: fallbackSwiftModules,
@@ -242,7 +285,7 @@ final class SwiftPmDependencyVendor<T extends PlatformHostInterface> {
               // gets `<name>@<ref>` while the URL dep pulls `<name>` — so
               // resolve the checkout itself and vendor them too.
               var refs = evaluatedRefs;
-              final nestedDeps = SwiftPmManifest.parseUrlPackageDeps(nested);
+              final nestedDeps = SwiftPmManifestDependencies.parseUrlPackageDeps(nested);
               if (evaluateNested != null &&
                   nestedDeps.any(
                     (dep) => !refs.containsKey(

@@ -1,12 +1,17 @@
 import 'package:cli_kit/cli_kit.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
+import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 
 const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
-  SwiftPmProcessPolicy(this.runtime);
-  final SwiftPmRuntime<T> runtime;
+  SwiftPmProcessPolicy({required this.host,required this.hostPolicy,required this.runner,required this.tools});
+  final T host;
+  final SwiftPmHostPolicy hostPolicy;
+  final ProcessRunner<T> runner;
+  final AppleToolShimResolver<T> tools;
+
 
   /// Environment that makes Git — and anything spawning it, including
   /// SwiftPM's own dependency resolution — fail instead of waiting on a
@@ -68,16 +73,17 @@ final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
     (key: 'http.lowSpeedTime', value: '60'),
     for (
       var index = 0;
-      index < runtime.hostPolicy.gitConfiguration.length;
+      index < hostPolicy.gitConfiguration.length;
       index += 2
     )
       (
-        key: runtime.hostPolicy.gitConfiguration[index],
-        value: runtime.hostPolicy.gitConfiguration[index + 1],
+        key: hostPolicy.gitConfiguration[index],
+        value: hostPolicy.gitConfiguration[index + 1],
       ),
   ];
+  bool? sourceFallbackOverride;
   bool get sourceFallbackActive =>
-      runtime.sourceFallbackOverride ?? runtime.hostPolicy.sourceFallbackActive;
+      sourceFallbackOverride ?? hostPolicy.sourceFallbackActive;
   Map<String, String> swiftProcessEnvironment({
     String? executable,
     Map<String, String>? environment,
@@ -90,11 +96,11 @@ final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
         'GIT_CONFIG_KEY_$index': entry.key,
         'GIT_CONFIG_VALUE_$index': entry.value,
       },
-      ...runtime.hostPolicy.sourceEnvironment,
-      ...runtime.hostPolicy.bundledToolEnvironment(
-        runtime.host,
-        executable ?? runtime.tools.executable,
-        environment ?? runtime.runner.effectiveEnvironment,
+      ...hostPolicy.sourceEnvironment,
+      ...hostPolicy.bundledToolEnvironment(
+        host,
+        executable ?? tools.executable,
+        environment ?? runner.effectiveEnvironment,
       ),
     };
   }
@@ -108,7 +114,7 @@ final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
     required String toolsetPath,
     String swiftSdkTriple = 'arm64-apple-ios',
   }) => [
-    ...runtime.hostPolicy.packagePrefix,
+    ...hostPolicy.packagePrefix,
     ...hostManifestArguments(),
     '--package-path',
     pluginsDir,
@@ -127,5 +133,5 @@ final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
   /// SwiftPM evaluates before creating a checkout. Swift 6 replaced MSVCRT with
   /// CRT, so old conditional imports otherwise leave C APIs such as getenv
   /// unavailable. These flags affect host manifests, never iOS target sources.
-  List<String> hostManifestArguments() => runtime.hostPolicy.manifestArguments;
+  List<String> hostManifestArguments() => hostPolicy.manifestArguments;
 }

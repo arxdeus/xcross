@@ -4,13 +4,13 @@ import 'dart:io';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_gate_evidence.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/gate_platform.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/gate_execution.dart';
 
 final class PosixSwiftPmGatePlatform implements SwiftPmGatePlatform {
   const PosixSwiftPmGatePlatform();
   @override
   Future<String?> volumeIdentity<T extends PlatformHostInterface>(
-    SwiftPmRuntime<T> runtime,
+    SwiftPmGateExecution<T> execution,
     String path,
   ) async {
     final stat = await FileStat.stat(path);
@@ -19,7 +19,7 @@ final class PosixSwiftPmGatePlatform implements SwiftPmGatePlatform {
 
   @override
   Future<bool> createProofAlias<T extends PlatformHostInterface>(
-    SwiftPmRuntime<T> runtime,
+    SwiftPmGateExecution<T> execution,
     String alias,
     String target,
   ) async {
@@ -29,13 +29,13 @@ final class PosixSwiftPmGatePlatform implements SwiftPmGatePlatform {
 
   @override
   Future<bool> verifyAlias<T extends PlatformHostInterface>(
-    SwiftPmRuntime<T> runtime,
+    SwiftPmGateExecution<T> execution,
     String alias,
     String target,
-  ) => runtime.artifactFileSystem.isAliasTo(alias, target);
+  ) => execution.artifactFileSystem.isAliasTo(alias, target);
   @override
   Future<bool> probe<T extends PlatformHostInterface>(
-    SwiftPmRuntime<T> runtime, {
+    SwiftPmGateExecution<T> execution, {
     required SwiftPmGateMode mode,
     required String root,
     required String toolchainIdentity,

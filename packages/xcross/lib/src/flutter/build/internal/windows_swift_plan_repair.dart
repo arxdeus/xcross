@@ -4,8 +4,8 @@ import 'dart:io';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/flutter/build/swiftpm_binary_artifact_preparer.dart';
 import 'package:xcross/src/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/response_arguments.dart';
 
 /// Win32 extended-length path prefix. Foundation mishandles it in some
 /// directory copies, so copy inputs carrying it are rewritten.
@@ -16,7 +16,7 @@ const String _extendedPathPrefix = r'\\?\';
 const int _legacyMaxPath = 260;
 
 /// The CreateProcess command-line limit in UTF-16 units, including the
-/// terminating NUL that [WindowsSwiftPlanRepair.windowsCommandLineLength]
+/// terminating NUL that [SwiftPmResponseArguments.windowsCommandLineLength]
 /// counts, so staying below it keeps one unit of headroom.
 const int _maxCommandLineLength = 32767;
 
@@ -57,6 +57,8 @@ const Set<String> _clangCompilers = {
 final class WindowsSwiftPlanRepair {
   WindowsSwiftPlanRepair(this.runner);
   final ProcessRunner runner;
+  static bool isWindowsMountPointReparseOutput(String output) => RegExp(r'0x0*a0000003\b',caseSensitive:false).hasMatch(output);
+
   Future<bool> repairWindowsGeneratedBuildFiles(
     String scratchPath,
     String targetBuildDir,
@@ -169,12 +171,12 @@ final class WindowsSwiftPlanRepair {
     final swift = _swiftCompilers.contains(tool);
     final clang = _clangCompilers.contains(tool);
     if ((!swift && !clang) ||
-        windowsCommandLineLength(args) < _responseFileThreshold) {
+        SwiftPmResponseArguments.windowsCommandLineLength(args) < _responseFileThreshold) {
       return null;
     }
     final contents = args
         .skip(1)
-        .map(swift ? quoteWindowsArgument : quoteGnuArgument)
+        .map(swift ? SwiftPmResponseArguments.quoteWindowsArgument : SwiftPmResponseArguments.quoteGnuArgument)
         .join('\n');
     final digest = sha256.convert(utf8.encode(contents));
     final file = File(
@@ -185,7 +187,7 @@ final class WindowsSwiftPlanRepair {
       await file.writeAsString(contents);
     }
     final shortened = [args.first, '@${p.absolute(file.path)}'];
-    if (windowsCommandLineLength(shortened) >= _maxCommandLineLength) {
+    if (SwiftPmResponseArguments.windowsCommandLineLength(shortened) >= _maxCommandLineLength) {
       throw FlutterBuildError('Compiler response-file path is too long');
     }
     return _encodeLlbuildArgs(shortened);
@@ -267,53 +269,6 @@ final class WindowsSwiftPlanRepair {
   ///
   /// Symlinks and files not named like a generated response file are
   /// ignored. Returns null when a referenced response file cannot be read.
-  static Set<String>? referencedResponseArguments(
-    String manifest,
-    String scratchPath,
-  ) {
-    final cache = p.absolute(_responseCacheDirectory(scratchPath));
-    final arguments = <String>{};
-    for (final line in manifest.split('\n')) {
-      final decoded = _tryDecodeLlbuildArgs(line);
-      if (decoded == null) continue;
-      for (final reference in _responseFileReferences(decoded)) {
-        final path = p.normalize(p.absolute(reference));
-        if (!p.isWithin(cache, path) ||
-            FileSystemEntity.isLinkSync(path) ||
-            !_responseFileName.hasMatch(p.basename(path))) {
-          continue;
-        }
-        try {
-          arguments.addAll(File(path).readAsLinesSync());
-        } on FileSystemException {
-          return null;
-        }
-      }
-    }
-    return arguments;
-  }
-
-  /// Conservative CreateProcess length in UTF-16 units, including the NUL.
-  static int windowsCommandLineLength(List<String> arguments) =>
-      arguments.map(quoteWindowsArgument).join(' ').length + 1;
-
-  /// Quotes [argument] for `CommandLineToArgvW`, as swiftc parses it.
-  static String quoteWindowsArgument(String argument) {
-    // Double the backslashes preceding a quote or the closing quote, so they
-    // stay literal, and escape each embedded quote.
-    final escaped = argument
-        .replaceAllMapped(
-          RegExp(r'(\\*)"'),
-          (match) => '${match[1]}${match[1]}\\"',
-        )
-        .replaceAllMapped(RegExp(r'\\+$'), (match) => '${match[0]}${match[0]}');
-    return '"$escaped"';
-  }
-
-  /// Quotes [argument] for a GNU-style response file, as Clang parses it.
-  static String quoteGnuArgument(String argument) =>
-      '"${argument.replaceAll(r'\', r'\\').replaceAll('"', r'\"')}"';
-
   /// Foundation's directory copy mishandles extended drive paths as file URLs
   /// on Windows. Keep llbuild's node identities intact and normalize only the
   /// directory source passed by CopyCommand to FileManager in description.json.

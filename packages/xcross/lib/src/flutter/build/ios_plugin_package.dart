@@ -1,3 +1,8 @@
+import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_attributes.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/build_execution.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -10,7 +15,10 @@ import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/build/ios_plugins.dart';
 import 'package:xcross/src/flutter/build/swiftpm_binary_artifact_preparer.dart';
 import 'package:xcross/src/flutter/build/swiftpm_binary_target.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/interop_repair.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
@@ -98,6 +106,14 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
     required SwiftPmHostPolicy hostPolicy,
     required SwiftPmArtifactFileSystem artifactFileSystem,
     required SwiftPmSdkIdentity sdkIdentity,
+    required SwiftPmPublicationCoordinator publicationCoordinator,
+    required SwiftPmArchiveTransport transport,
+    required SwiftPmArtifactCopyPolicy copyPolicy,
+required SwiftPmBuildExecution<T> buildExecution,
+required SwiftPmDependencyPreparation<T> dependencyPreparation,
+required SwiftPmCheckout<T> checkout,
+required SwiftPmCheckoutAttributes checkoutAttributes,
+required SwiftPmCheckoutManifestNormalizer<T> checkoutManifestNormalizer,
   }) : runtime = SwiftPmRuntime(
          policy,
          runner,
@@ -107,6 +123,14 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
          hostPolicy,
          artifactFileSystem,
          sdkIdentity,
+         publicationCoordinator,
+         transport,
+         copyPolicy,
+      buildExecution,
+      dependencyPreparation,
+      checkout,
+      checkoutAttributes,
+      checkoutManifestNormalizer,
        );
   final SwiftPmRuntime<T> runtime;
 

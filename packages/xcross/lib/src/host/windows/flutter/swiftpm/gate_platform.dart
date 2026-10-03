@@ -8,16 +8,16 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/internal/swiftpm_binary_fixture.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_gate_evidence.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/gate_platform.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/gate_execution.dart';
 
 final class WindowsSwiftPmGatePlatform implements SwiftPmGatePlatform {
   const WindowsSwiftPmGatePlatform();
   @override
   Future<String?> volumeIdentity<T extends PlatformHostInterface>(
-    SwiftPmRuntime<T> runtime,
+    SwiftPmGateExecution<T> execution,
     String path,
   ) async {
-    final result = await runtime.runGateProcess('fsutil.exe', [
+    final result = await execution.runGateProcess('fsutil.exe', [
       'fsinfo',
       'volumeinfo',
       p.windows.rootPrefix(p.windows.absolute(path)),
@@ -32,26 +32,26 @@ final class WindowsSwiftPmGatePlatform implements SwiftPmGatePlatform {
 
   @override
   Future<bool> createProofAlias<T extends PlatformHostInterface>(
-    SwiftPmRuntime<T> runtime,
+    SwiftPmGateExecution<T> execution,
     String alias,
     String target,
-  ) => _createJunction(alias, target, runtime.runGateProcess);
+  ) => _createJunction(alias, target, execution.runGateProcess);
   @override
   Future<bool> verifyAlias<T extends PlatformHostInterface>(
-    SwiftPmRuntime<T> runtime,
+    SwiftPmGateExecution<T> execution,
     String alias,
     String target,
-  ) => runtime.artifactFileSystem.isAliasTo(alias, target);
+  ) => execution.artifactFileSystem.isAliasTo(alias, target);
   @override
   Future<bool> probe<T extends PlatformHostInterface>(
-    SwiftPmRuntime<T> runtime, {
+    SwiftPmGateExecution<T> execution, {
     required SwiftPmGateMode mode,
     required String root,
     required String toolchainIdentity,
     required String sdkIdentity,
     SwiftPmGateRun? run,
   }) async {
-    final execute = run ?? runtime.runGateProcess;
+    final execute = run ?? execution.runGateProcess;
     Directory? probeRoot;
     var stage = 'validating toolchain';
     try {
@@ -78,7 +78,7 @@ final class WindowsSwiftPmGatePlatform implements SwiftPmGatePlatform {
       final sdkPath = encodedSdk?['path'];
       if (sdkPath is! String) return false;
       final sdk = DarwinSdk(sdkPath);
-      if (!runtime.sdkRepository.isValidBundle(sdkPath) ||
+      if (!execution.sdkRepository.isValidBundle(sdkPath) ||
           p.normalize(sdk.swiftSdkPath) != p.normalize(sdkPath)) {
         return false;
       }
@@ -121,7 +121,7 @@ final class WindowsSwiftPmGatePlatform implements SwiftPmGatePlatform {
       }
 
       stage = 'writing toolset';
-      final toolset = await runtime.toolchain.writeToolset(
+      final toolset = await execution.toolchain.writeToolset(
         outputDir: package.path,
         linkerPath: toolPath('ld64.lld'),
         cCompilerPath: toolPath('clang'),
@@ -129,24 +129,24 @@ final class WindowsSwiftPmGatePlatform implements SwiftPmGatePlatform {
         librarianPath: toolPath('librarian'),
       );
       final swiftSdksPath = p.dirname(sdkPath);
-      final resolve = runtime.processPolicy.swiftResolveArguments(
+      final resolve = execution.processPolicy.swiftResolveArguments(
         pluginsDir: package.path,
         scratchPath: scratch,
         swiftSdksPath: swiftSdksPath,
         toolsetPath: toolset,
       );
-      final build = runtime.buildPlan.swiftBuildArguments(
+      final build = execution.buildPlan.swiftBuildArguments(
         pluginsDir: package.path,
         scratchPath: scratch,
         swiftSdksPath: swiftSdksPath,
-        iosSdk: runtime.sdkRepository.iosSdk(
+        iosSdk: execution.sdkRepository.iosSdk(
           sdk,
-          target: runtime.target.buildPlatform,
+          target: execution.target.buildPlatform,
         ),
         flutterFrameworkSlice: package.path,
         toolsetPath: toolset,
       );
-      final environment = runtime.processPolicy.swiftProcessEnvironment();
+      final environment = execution.processPolicy.swiftProcessEnvironment();
 
       if (mode == SwiftPmGateMode.swiftPmArtifact) {
         if (!await _runSwift(swiftPackage, resolve, environment, execute)) {

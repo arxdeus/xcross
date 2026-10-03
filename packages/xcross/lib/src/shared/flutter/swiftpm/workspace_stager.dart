@@ -1,3 +1,47 @@
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_attributes.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_identity.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/gate_execution.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/build_execution.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:cli_kit/cli_kit.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
+import 'package:xcross/src/flutter/build/internal/host_symlink_capability.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_capabilities.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/assembly.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/binary_recovery.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/build_driver.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/build_plan.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_links.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/dependency_vendor.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/discovery.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/host_source_normalizer.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/interop_repair.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/manifest.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/module_files.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/package_metadata.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/plugin_overlay.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/preview_macro_compiler.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/source_fallback.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/source_repair.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/toolchain.dart';
+import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
+
+import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -10,14 +54,26 @@ import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/binary_recovery.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/manifest_dependencies.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
 
 const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
-  SwiftPmWorkspaceStager(this.runtime);
-  final SwiftPmRuntime<T> runtime;
+  SwiftPmWorkspaceStager({required this.artifactFileSystem,required this.binaryRecovery,required this.checkout,required this.checkoutManifestNormalizer,required this.dependencyPreparation,required this.filesystem,required this.hostPolicy,required this.manifest,required this.pluginOverlay,required this.runner,required this.sourceNormalizer});
+final SwiftPmArtifactFileSystem artifactFileSystem;
+final SwiftPmBinaryRecovery<T> binaryRecovery;
+final SwiftPmCheckout<T> checkout;
+final SwiftPmCheckoutManifestNormalizer<T> checkoutManifestNormalizer;
+final SwiftPmDependencyPreparation<T> dependencyPreparation;
+final SwiftPmFilesystem<T> filesystem;
+final SwiftPmHostPolicy hostPolicy;
+final SwiftPmManifest<T> manifest;
+final SwiftPmPluginOverlay<T> pluginOverlay;
+final ProcessRunner<T> runner;
+final SwiftPmHostSourceNormalizer sourceNormalizer;
 
   /// Package-root entries a plugin's iOS SwiftPM build can never reach:
   /// Dart code, other platforms, development trees, and pub metadata.
@@ -27,32 +83,7 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
   /// to arbitrary sibling directories from their iOS package (`../../src`
   /// sources, `../../include` header search paths, shared `darwin/`
   /// trees), so only the provably unreachable entries are skipped.
-  static const _iosUnreachableEntries = {
-    // development trees
-    '.dart_tool',
-    '.git',
-    '.github',
-    'build',
-    'example',
-    'test',
-    'tests',
-    // dart code and pub metadata
-    'lib',
-    'pubspec.yaml',
-    'pubspec.lock',
-    'analysis_options.yaml',
-    'readme.md',
-    'changelog.md',
-    // other platforms ('darwin' stays: it is shared with iOS)
-    'android',
-    'macos',
-    'windows',
-    'linux',
-    'web',
-    // pigeon input definitions: consumed by the pigeon generator at
-    // development time, never referenced by the generated iOS build
-    'pigeons',
-  };
+
 
   /// Identifiers a `.package(url:)` requirement may use as values without a
   /// declaration; argument labels (`from:`, `branch:`) are skipped separately.
@@ -123,7 +154,7 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
       final prestaged = <String>[];
       for (final plugin in plugins) {
         prestaged.add(
-          await stagePluginPackage(
+          await pluginOverlay.stagePluginPackage(
             alias: p.join(packagesDir, plugin.name),
             target: plugin.swiftPackageDir,
             platformDir: plugin.platformDirectoryName,
@@ -140,12 +171,7 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
         );
       }
       final scoped = evaluateDependencyRefs;
-      final bootstrap = await runtime.hostPolicy.bootstrapPinnedDependencies(
-        runtime,
-        prestaged,
-        resolvedVendorDir,
-        clonePackage,
-      );
+      final bootstrap = await dependencyPreparation.bootstrapPinned(SwiftPmPinnedDependencyRequest(packageDirectories:prestaged,vendorDir:resolvedVendorDir,runner:runner,fileSystem:artifactFileSystem,filesystem:filesystem,repository:checkout.repository,manifestNormalizer:checkoutManifestNormalizer,clonePackage:clonePackage));
       Map<String, String>? unified;
       try {
         unified = await resolveUnifiedDependencyRefs(
@@ -163,9 +189,9 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
                       packageLocalArtifactJunctionCapability,
                   dependencies: dependencies,
                 )
-              : runtime.binaryRecovery.evaluatedDependencyRefs(
+              : binaryRecovery.evaluatedDependencyRefs(
                   directory,
-                  runtime.runner.locateTool,
+                  runner.locateTool,
 
                   scratchPath: scratchPath,
                   binaryArtifactStore: binaryArtifactStore,
@@ -177,7 +203,7 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
         );
       } finally {
         for (final entry in bootstrap.originals.entries) {
-          await runtime.filesystem.writeStable(entry.key, entry.value);
+          await filesystem.writeStable(entry.key, entry.value);
         }
       }
       final pinned = {...?unified, ...bootstrap.pins};
@@ -197,7 +223,7 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
 
     for (final plugin in plugins) {
       final packageAlias = p.join(packagesDir, plugin.name);
-      pluginPackageDirs[plugin.name] = await stagePluginPackage(
+      pluginPackageDirs[plugin.name] = await pluginOverlay.stagePluginPackage(
         alias: packageAlias,
         target: plugin.swiftPackageDir,
         platformDir: plugin.platformDirectoryName,
@@ -221,13 +247,7 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
     if (shouldVendor &&
         binaryArtifactStore != null &&
         binaryArtifactFallback != null) {
-      await runtime.hostPolicy.prepareBinaryArtifacts(
-        runtime,
-        resolvedVendorDir,
-        binaryArtifactStore,
-        binaryArtifactFallback,
-        packageLocalArtifactJunctionCapability,
-      );
+      await dependencyPreparation.prepareArtifacts(binaryRecovery,resolvedVendorDir,binaryArtifactStore,binaryArtifactFallback,packageLocalArtifactJunctionCapability);
     }
     final packagesByDirectoryName = {
       for (final package in pluginPackageDirs.values)
@@ -239,14 +259,14 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
       final manifestFile = File(p.join(stagedPackage, 'Package.swift'));
       var manifest = await manifestFile.readAsString();
       final original = manifest;
-      for (final call in SwiftPmManifest.swiftCalls(
+      for (final call in SwiftPmManifestLexer.swiftCalls(
         manifest,
         '.package',
       ).reversed) {
-        final dependencyPath = SwiftPmManifest.namedString(call.text, 'path');
+        final dependencyPath = SwiftPmManifestLexer.namedString(call.text, 'path');
         if (dependencyPath == null) continue;
         final dependencyName =
-            SwiftPmManifest.namedString(call.text, 'name') ??
+            SwiftPmManifestLexer.namedString(call.text, 'name') ??
             p.basename(dependencyPath);
         final sharedPackage = packagesByDirectoryName[dependencyName];
         if (sharedPackage == null || p.equals(dependencyPath, sharedPackage)) {
@@ -259,7 +279,7 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
         manifest = manifest.replaceRange(call.start, call.end, rewritten);
       }
       if (manifest != original) {
-        await runtime.filesystem.writeStable(manifestFile.path, manifest);
+        await filesystem.writeStable(manifestFile.path, manifest);
       }
     }
     await writePluginsPackage(
@@ -272,130 +292,6 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
     );
   }
 
-  /// SwiftPM evaluates remote manifests before checkout normalization can fix
-  /// host-incompatible declarations. Prestage deterministically pinned Git
-  /// dependencies through normalized local checkouts for the resolve pass,
-  /// then restore the original plugin manifests for normal vendoring. Leave
-  /// version ranges to SwiftPM's solver rather than choosing a version here.
-  Future<({Map<String, String> pins, Map<String, String> originals})>
-  bootstrapWindowsPinnedDependencyResolve(
-    Iterable<String> packageDirectories,
-    String vendorDir, {
-    Future<void> Function(
-      String git,
-      String url,
-      String ref,
-      String destination,
-    )?
-    clonePackage,
-  }) async {
-    final originals = <String, String>{};
-    final rewrites = <String, String>{};
-    final pins = <String, String>{};
-    final replacements = <String, String>{};
-    final manifests = <String, String>{};
-    final urls = <String, String>{};
-    final products = <String, Set<String>>{};
-    final unpinned = <String>{};
-    String? git;
-    for (final directory in packageDirectories) {
-      final manifestFile = File(p.join(directory, 'Package.swift'));
-      if (!manifestFile.existsSync()) continue;
-      final original = await manifestFile.readAsString();
-      manifests[manifestFile.path] = original;
-      for (final dependency in SwiftPmManifest.parseUrlPackageDeps(original)) {
-        final identity = SwiftPmBinaryRecovery.canonicalGitUrl(dependency.url);
-        final ref = RegExp(
-          r'\b(?:exact|revision)\s*:\s*"([^"\r\n]+)"',
-        ).firstMatch(dependency.match)?[1];
-        if (ref == null) {
-          unpinned.add(identity);
-          continue;
-        }
-        final previousRef = pins[identity];
-        if (previousRef != null && previousRef != ref) {
-          throw FlutterBuildError(
-            'Conflicting pinned refs for $identity: $previousRef and $ref',
-          );
-        }
-        pins[identity] = ref;
-        urls.putIfAbsent(identity, () => dependency.url);
-        products
-            .putIfAbsent(identity, () => <String>{})
-            .addAll(
-              SwiftPmManifest.consumedProducts(original, dependency.identity),
-            );
-      }
-    }
-    // A range for the same URL must continue through SwiftPM's solver.
-    for (final identity in unpinned) {
-      pins.remove(identity);
-      urls.remove(identity);
-      products.remove(identity);
-    }
-    for (final entry in pins.entries) {
-      final identity = entry.key;
-      final ref = entry.value;
-      final url = urls[identity]!;
-      final destination = p.join(
-        vendorDir,
-        SwiftPmManifest.vendorPackageDirName(url, ref),
-      );
-      git ??= await runtime.runner.locateTool('git');
-      await (clonePackage ?? runtime.checkout.cloneGitPackage)(
-        git,
-        url,
-        ref,
-        destination,
-      );
-      await runtime.checkout.normalizeVendoredPackageManifests(
-        destination,
-        consumedProducts: products[identity]!,
-      );
-      replacements[identity] = destination;
-    }
-    for (final entry in manifests.entries) {
-      var rewritten = entry.value;
-      for (final dependency in SwiftPmManifest.parseUrlPackageDeps(
-        entry.value,
-      )) {
-        final identity = SwiftPmBinaryRecovery.canonicalGitUrl(dependency.url);
-        if (!replacements.containsKey(identity)) continue;
-        rewritten = rewritten.replaceAll(
-          dependency.match,
-          '.package(name: "${dependency.identity}", '
-          'path: "${SwiftPmFilesystem.swiftPath(replacements[identity]!)}")',
-        );
-      }
-      if (rewritten != entry.value) {
-        originals[entry.key] = entry.value;
-        rewrites[entry.key] = rewritten;
-      }
-    }
-    try {
-      for (final entry in rewrites.entries) {
-        await runtime.filesystem.writeStable(entry.key, entry.value);
-      }
-    } on Object {
-      for (final entry in originals.entries) {
-        await runtime.filesystem.writeStable(entry.key, entry.value);
-      }
-      rethrow;
-    }
-    return (pins: pins, originals: originals);
-  }
-
-  /// Pins every URL dependency reachable from [packageDirectories] with a
-  /// single `swift package resolve`, so each package identity maps to exactly
-  /// one revision across the whole plugin graph. Returns null when nothing
-  /// declares a URL dependency.
-  ///
-  /// SwiftPM only sees dependencies a checkout's manifest declares for the
-  /// host, so entries firebase-ios-sdk hides behind `#if os(macOS)` are never
-  /// pinned. Each round scans the resolved checkouts for such unpinned deps,
-  /// re-declares them on the resolve root (root dependencies are the only
-  /// ones SwiftPM never prunes as unused), and resolves again until the pins
-  /// cover the graph.
   Future<Map<String, String>?> resolveUnifiedDependencyRefs({
     required String resolveRoot,
     required Iterable<String> packageDirectories,
@@ -410,7 +306,7 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
     for (final directory in packageDirectories) {
       final manifest = File(p.join(directory, 'Package.swift'));
       if (!manifest.existsSync()) continue;
-      for (final dep in SwiftPmManifest.parseUrlPackageDeps(
+      for (final dep in SwiftPmManifestDependencies.parseUrlPackageDeps(
         await manifest.readAsString(),
       )) {
         dependencies.putIfAbsent(
@@ -425,7 +321,7 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
     final hidden = <String, String>{};
     var refs = <String, String>{};
     for (var round = 0; round < maxRounds; round++) {
-      await runtime.filesystem.writeStable(
+      await filesystem.writeStable(
         p.join(resolveRoot, 'Package.swift'),
         resolveManifest(packageDirectories, hidden.values),
       );
@@ -484,7 +380,7 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
     // Checkouts left behind by earlier builds must not feed constraints in.
     final pinned = {
       for (final url in refs.keys)
-        SwiftPmManifest.packageIdentityFromUrl(url).toLowerCase(),
+        SwiftPmManifestDependencies.packageIdentityFromUrl(url).toLowerCase(),
     };
     final entries = checkouts.listSync(followLinks: false)
       ..sort((a, b) => a.path.compareTo(b.path));
@@ -495,10 +391,10 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
       }
       final manifestFile = File(p.join(checkout.path, 'Package.swift'));
       if (!manifestFile.existsSync()) continue;
-      final manifest = runtime.manifest.normalizeHostManifest(
+      final manifest = sourceNormalizer.normalizeHostManifest(
         await manifestFile.readAsString(),
       );
-      final deps = SwiftPmManifest.parseUrlPackageDeps(manifest);
+      final deps = SwiftPmManifestDependencies.parseUrlPackageDeps(manifest);
       final unpinned = deps.where(
         (dep) =>
             !refs.containsKey(SwiftPmBinaryRecovery.canonicalGitUrl(dep.url)),
@@ -512,7 +408,7 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
         continue;
       }
       for (final dep in deps) {
-        final identity = SwiftPmManifest.packageIdentityFromUrl(
+        final identity = SwiftPmManifestDependencies.packageIdentityFromUrl(
           dep.url,
         ).toLowerCase();
         if (declared.contains(identity)) continue;
@@ -553,7 +449,7 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
           RegExp(r'url:\s*(?:"[^"]+"|[A-Za-z_]\w*)'),
           'url: "${dep.url}"',
         );
-    final constants = SwiftPmManifest.manifestStringConstants(manifest);
+    final constants = SwiftPmManifestLexer.manifestStringConstants(manifest);
     final code = inner.replaceAll(RegExp(r'"(?:[^"\\]|\\.)*"'), '""');
     final identifier = RegExp(r'\.?\b[A-Za-z_]\w*(?<label>\s*:)?');
     final substitutions = <String, String>{};
@@ -575,299 +471,19 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
     return '.package(${inner.replaceAll(RegExp(r'\s+'), ' ').trim()})';
   }
 
-  /// Stages [target] at [alias], using a shallow overlay when the Swift
-  /// manifest needs host fixes (linker flags, Windows CRT imports) or when
-  /// remote URL dependencies are vendored to path deps.
-  ///
-  /// [platformDir] is the package-root subdirectory [target] sits in — `ios`
-  /// normally, `darwin` for shared-source Apple plugins. The staged tree keeps
-  /// the same shape so relative paths inside the plugin's `Package.swift`
-  /// (`../../src`, shared header search paths) still resolve.
-  Future<String> stagePluginPackage({
-    required String alias,
-    required String target,
-    String platformDir = 'ios',
-    String? vendorDir,
-    Map<String, String> packageTargets = const {},
-    bool copySources = false,
-    Map<String, Map<String, List<String>>>? vendorNormalizationCache,
-    Map<String, Future<Map<String, String>>>? dependencyEvaluationCache,
-    Map<String, Future<void>>? vendorCheckoutCache,
-    String? scratchPath,
+  
 
-    String? binaryArtifactStore,
+  
 
-    String? binaryArtifactFallback,
-    bool swiftPmArtifactJunctionCapability = false,
-    bool packageLocalArtifactJunctionCapability = false,
-    SwiftPmDependencyRefEvaluator? evaluateDependencyRefs,
-    Future<void> Function(
-      String git,
-      String url,
-      String ref,
-      String destination,
-    )?
-    clonePackage,
-  }) async {
-    var stagedPackage = alias;
-    final shouldCopySources = vendorDir != null || copySources;
-    if (shouldCopySources) {
-      await runtime.filesystem.deleteUnless(
-        alias,
-        FileSystemEntityType.directory,
-      );
-      final packageRoot = p.dirname(p.dirname(target));
-      await stageAncestorOverlay(
-        sourceRoot: packageRoot,
-        destinationRoot: alias,
-        packageName: p.basename(target),
-        platformDir: platformDir,
-      );
-      await runtime.filesystem.createDirectoryAlias(
-        p.join(alias, platformDir, flutterFrameworkPackageName),
-        p.join(p.dirname(alias), flutterFrameworkPackageName),
-      );
-      stagedPackage = p.join(alias, platformDir, p.basename(target));
-    }
+  
 
-    final manifest = await File(p.join(target, 'Package.swift')).readAsString();
-    var normalizedManifest = SwiftPmManifest.removeMissingResources(
-      runtime.manifest.normalizeHostManifest(manifest),
-      target,
-    );
-    for (final call in SwiftPmManifest.swiftCalls(
-      normalizedManifest,
-      '.package',
-    ).reversed) {
-      final relativePath = SwiftPmManifest.namedString(call.text, 'path');
-      if (relativePath == null || p.isAbsolute(relativePath)) continue;
-      final dependencyName =
-          SwiftPmManifest.namedString(call.text, 'name') ??
-          p.basename(relativePath);
-      final targetPath = packageTargets[dependencyName];
-      if (targetPath == null) continue;
-      final rewritten = call.text.replaceFirst(
-        RegExp(r'path\s*:\s*"[^"]+"'),
-        'path: "${SwiftPmFilesystem.swiftPath(targetPath)}"',
-      );
-      normalizedManifest = normalizedManifest.replaceRange(
-        call.start,
-        call.end,
-        rewritten,
-      );
-    }
-    final fallbackSwiftModules = <String, List<String>>{};
-    if (vendorDir != null) {
-      await mirrorPluginPackage(target, stagedPackage, normalizedManifest);
-      normalizedManifest = await runtime.dependencyVendor
-          .vendorUrlPackagesAsPathDeps(
-            normalizedManifest,
+  
 
-            vendorDir: vendorDir,
-            packageDirectory: stagedPackage,
-            fallbackSwiftModules: fallbackSwiftModules,
-            normalizationCache: vendorNormalizationCache,
-            evaluationCache: dependencyEvaluationCache,
-            checkoutCache: vendorCheckoutCache,
-            scratchPath: scratchPath,
+  
 
-            binaryArtifactStore: binaryArtifactStore,
-            binaryArtifactFallback: binaryArtifactFallback,
-            swiftPmArtifactJunctionCapability:
-                swiftPmArtifactJunctionCapability,
-            packageLocalArtifactJunctionCapability:
-                packageLocalArtifactJunctionCapability,
-            scopedDependencyRefEvaluator: evaluateDependencyRefs,
-            clonePackage: clonePackage,
-          );
-    }
+  
 
-    if (shouldCopySources) {
-      // Normalizing during the mirror keeps re-runs byte-stable: copying
-      // first and normalizing after would rewrite (and re-timestamp) every
-      // normalized source on every build.
-      await mirrorPluginPackage(
-        target,
-        stagedPackage,
-        normalizedManifest,
-        transform: hostSwiftTransform(fallbackSwiftModules),
-      );
-    } else if (normalizedManifest == manifest) {
-      await runtime.filesystem.createDirectoryAlias(stagedPackage, target);
-      await runtime.manifest.normalizeHostSwiftTree(
-        stagedPackage,
-        fallbackSwiftModules: fallbackSwiftModules,
-      );
-    } else {
-      await overlayPluginManifest(target, stagedPackage, normalizedManifest);
-      await runtime.manifest.normalizeHostSwiftTree(
-        stagedPackage,
-        fallbackSwiftModules: fallbackSwiftModules,
-      );
-    }
-    if (binaryArtifactStore != null && binaryArtifactFallback != null) {
-      await runtime.binaryRecovery.prepareSupportedBinaryArtifacts(
-        packageRoot: stagedPackage,
-        binaryArtifactStore: binaryArtifactStore,
-        binaryArtifactFallback: binaryArtifactFallback,
-        packageLocalArtifactJunctionCapability:
-            packageLocalArtifactJunctionCapability,
-      );
-    }
-
-    return stagedPackage;
-  }
-
-  /// Mirrors [target] at [staged] with [manifest] as its `Package.swift`.
-  ///
-  /// Only differing files are rewritten, so a rebuild presents SwiftPM with
-  /// the timestamps it already compiled and its incremental state stays
-  /// warm.
-  Future<void> mirrorPluginPackage(
-    String target,
-    String staged,
-    String manifest, {
-    SwiftPmSourceTransform? transform,
-  }) async {
-    await runtime.filesystem.deleteUnless(
-      staged,
-      FileSystemEntityType.directory,
-    );
-    await runtime.filesystem.syncDirectory(
-      target,
-      staged,
-      preserve: const {'Package.swift'},
-      transform: transform,
-    );
-    await runtime.filesystem.writeStable(
-      p.join(staged, 'Package.swift'),
-      manifest,
-    );
-    // The manifest is regenerated from the plugin's own each build and can
-    // legitimately differ between the staging write and a later pass, so
-    // "write only when changed" cannot keep its timestamp fixed on its own.
-    // SwiftPM invalidates a package's whole target set on its manifest
-    // timestamp, so stamp by content: identical output keeps the timestamp
-    // SwiftPM already compiled against.
-    await runtime.filesystem.stampByContent(
-      p.join(staged, 'Package.swift'),
-      manifest,
-    );
-  }
-
-  /// The host-compatibility source rewrite as a sync transform, electing
-  /// Swift sources but never package manifests or binary files.
-  SwiftPmSourceTransform hostSwiftTransform(
-    Map<String, List<String>> fallbackSwiftModules,
-  ) => (path) {
-    final name = p.basename(path);
-    final isManifest =
-        name == 'Package.swift' ||
-        (name.startsWith('Package@') && name.endsWith('.swift'));
-    if (p.extension(name) != '.swift' || isManifest) return null;
-    return (content) => SwiftPmManifest.normalizeHostSwiftSource(
-      content,
-      fallbackSwiftModules: fallbackSwiftModules,
-    );
-  };
-
-  /// Stages [target] at [staged] as per-entry aliases beneath a rewritten
-  /// `Package.swift`, for hosts where symbolic links are first-class.
-  Future<void> overlayPluginManifest(
-    String target,
-    String staged,
-    String manifest,
-  ) async {
-    await runtime.filesystem.deleteEntity(staged);
-    await Directory(staged).create(recursive: true);
-    await runtime.filesystem.writeStable(
-      p.join(staged, 'Package.swift'),
-      manifest,
-    );
-    await for (final entity in Directory(target).list(followLinks: false)) {
-      if (p.basename(entity.path) == 'Package.swift') continue;
-      await stageEntity(
-        entity,
-        p.join(staged, p.basename(entity.path)),
-        copyDirectories: false,
-      );
-    }
-  }
-
-  Future<void> stageAncestorOverlay({
-    required String sourceRoot,
-    required String destinationRoot,
-    required String packageName,
-    String platformDir = 'ios',
-  }) async {
-    await Directory(
-      p.join(destinationRoot, platformDir),
-    ).create(recursive: true);
-    final staged = <String>{platformDir};
-    await for (final entity in Directory(sourceRoot).list(followLinks: false)) {
-      final name = p.basename(entity.path);
-      if (name == platformDir ||
-          _iosUnreachableEntries.contains(name.toLowerCase())) {
-        continue;
-      }
-      staged.add(name);
-      await stageEntity(
-        entity,
-        p.join(destinationRoot, name),
-        copyDirectories: true,
-        excludedSourcePath: destinationRoot,
-      );
-    }
-    await pruneUnexpected(destinationRoot, staged);
-
-    final stagedIos = <String>{packageName, flutterFrameworkPackageName};
-    await for (final entity in Directory(
-      p.join(sourceRoot, platformDir),
-    ).list(followLinks: false)) {
-      final name = p.basename(entity.path);
-      if (name == packageName || name == flutterFrameworkPackageName) continue;
-      stagedIos.add(name);
-      await stageEntity(
-        entity,
-        p.join(destinationRoot, platformDir, name),
-        copyDirectories: true,
-        excludedSourcePath: destinationRoot,
-      );
-    }
-    await pruneUnexpected(p.join(destinationRoot, platformDir), stagedIos);
-  }
-
-  /// Deletes entries of [directory] not named in [expected], so previously
-  /// staged files that no longer qualify do not linger in the build tree.
-  Future<void> pruneUnexpected(String directory, Set<String> expected) async {
-    await for (final entity in Directory(directory).list(followLinks: false)) {
-      if (!expected.contains(p.basename(entity.path))) {
-        await runtime.filesystem.deleteEntity(entity.path);
-      }
-    }
-  }
-
-  Future<void> stageEntity(
-    FileSystemEntity entity,
-    String destination, {
-    required bool copyDirectories,
-    String? excludedSourcePath,
-  }) async {
-    final resolved = entity is Link
-        ? entity.resolveSymbolicLinksSync()
-        : entity.path;
-    if (!Directory(resolved).existsSync()) {
-      await runtime.filesystem.syncFile(File(resolved), destination);
-    } else if (copyDirectories) {
-      await runtime.filesystem.syncDirectory(
-        resolved,
-        destination,
-        excludedSourcePath: excludedSourcePath,
-      );
-    } else {
-      await runtime.filesystem.createDirectoryAlias(destination, resolved);
-    }
-  }
+  
 
   /// Writes `FlutterFramework/Package.swift` and links or copies the real
   /// [flutterXcframework]. Windows copies because creating symlinks commonly
@@ -878,13 +494,13 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
     required bool? copyFlutterXcframework,
   }) async {
     await Directory(frameworkDir).create(recursive: true);
-    await runtime.filesystem.writeStable(
+    await filesystem.writeStable(
       p.join(frameworkDir, 'Package.swift'),
       SwiftPmManifest.flutterFrameworkManifest(),
     );
 
     final frameworkPath = p.join(frameworkDir, 'Flutter.xcframework');
-    await runtime.hostPolicy.stageFlutterFramework(runtime, flutterXcframework, frameworkPath, copy: copyFlutterXcframework);
+    await hostPolicy.stageFlutterFramework(filesystem,flutterXcframework,frameworkPath,copy: copyFlutterXcframework);
   }
 
   /// Writes `Plugins/Package.swift` and the generated registrant source.
@@ -899,7 +515,7 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
     final sourcesDir = p.join(pluginsDir, 'Sources', pluginsProductName);
     await Directory(sourcesDir).create(recursive: true);
 
-    await runtime.filesystem.writeStable(
+    await filesystem.writeStable(
       p.join(pluginsDir, 'Package.swift'),
       SwiftPmManifest.pluginsManifest(
         plugins,
@@ -909,9 +525,9 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
       ),
     );
 
-    await runtime.filesystem.writeStable(
+    await filesystem.writeStable(
       p.join(sourcesDir, 'GeneratedPluginRegistrant.swift'),
-      runtime.manifest.registrantSource(
+      manifest.registrantSource(
         plugins,
         verbose: verbose,
         stagedPackageDirs: pluginPackageDirs,

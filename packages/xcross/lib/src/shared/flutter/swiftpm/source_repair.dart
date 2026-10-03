@@ -5,15 +5,23 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/swift_package_host_patches.dart';
 import 'package:xcross/src/flutter/errors.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
 import 'package:xcross/src/shared/sdk/sdk_install_constants.dart';
 
 const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmSourceRepair<T extends PlatformHostInterface> {
-  SwiftPmSourceRepair(this.runtime);
-  final SwiftPmRuntime<T> runtime;
+  SwiftPmSourceRepair({required this.filesystem,required this.hostPolicy,required this.processPolicy,required this.runner,required this.sdkIdentity});
+  final SwiftPmFilesystem<T> filesystem;
+  final SwiftPmHostPolicy hostPolicy;
+  final SwiftPmProcessPolicy<T> processPolicy;
+  final ProcessRunner<T> runner;
+  final SwiftPmSdkIdentity sdkIdentity;
+
 
   /// Fragments that mark a dependency fetch as a transient network failure
   /// rather than a real, reproducible error.
@@ -103,7 +111,7 @@ final class SwiftPmSourceRepair<T extends PlatformHostInterface> {
       final original = await file.readAsString();
       final repaired = restoreSwiftUIStatePropertyWrapper(original);
       if (repaired == original) continue;
-      await runtime.filesystem.writeStable(file.path, repaired);
+      await filesystem.writeStable(file.path, repaired);
       changed = true;
     }
     return changed;
@@ -116,7 +124,7 @@ final class SwiftPmSourceRepair<T extends PlatformHostInterface> {
       await build();
     } on Object catch (error) {
       if (!'$error'.contains(swiftSdkMismatchMarker)) rethrow;
-      throw FlutterBuildError(runtime.sdkIdentity.mismatchGuidance(null));
+      throw FlutterBuildError(sdkIdentity.mismatchGuidance(null));
     }
   }
 
@@ -133,13 +141,13 @@ final class SwiftPmSourceRepair<T extends PlatformHostInterface> {
   /// [swiftProcessEnvironment] are what keep a credential prompt from
   /// hanging forever, not a timeout.
   Future<void> resolveOnce(String swift, String directory) async {
-    final result = await runtime.runner.run(swift, [
-      ...runtime.hostPolicy.packagePrefix,
-      ...runtime.processPolicy.hostManifestArguments(),
+    final result = await runner.run(swift, [
+      ...hostPolicy.packagePrefix,
+      ...processPolicy.hostManifestArguments(),
       '--package-path',
       directory,
       'resolve',
-    ], environment: runtime.processPolicy.swiftProcessEnvironment());
+    ], environment: processPolicy.swiftProcessEnvironment());
     if (result.exitCode != 0) {
       throw FlutterBuildError(
         'Cannot resolve SwiftPM dependencies in $directory:\n'

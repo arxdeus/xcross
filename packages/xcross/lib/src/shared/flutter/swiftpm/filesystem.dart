@@ -6,14 +6,17 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/errors.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 
 const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmFilesystem<T extends PlatformHostInterface> {
-  SwiftPmFilesystem(this.runtime);
-  final SwiftPmRuntime<T> runtime;
+  SwiftPmFilesystem({required this.host,required this.runner,required this.artifactFileSystem});
+  final T host;
+  final ProcessRunner<T> runner;
+  final SwiftPmArtifactFileSystem artifactFileSystem;
+
   Future<void> stageFlutterFramework(String source, String destination, {required bool copy}) async {
     if(copy) {
       await deleteUnless(destination, FileSystemEntityType.directory);
@@ -105,7 +108,7 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
     return bytes;
   }
 
-  String ioPath(String path) => runtime.host.paths.ioPath(path);
+  String ioPath(String path) => host.paths.ioPath(path);
 
   void traceBinaryOperation({
     required String target,
@@ -115,7 +118,7 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
     int archiveBytes = 0,
     int extractedBytes = 0,
   }) {
-    runtime.runner.log.logTrace(
+    runner.log.logTrace(
       'binary target=$target operation=$operation '
       'archive_bytes=$archiveBytes extracted_bytes=$extractedBytes '
       'elapsed_ms=$elapsedMilliseconds attempt=$attempt',
@@ -331,7 +334,7 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
   /// privilege requirements.
   Future<void> createDirectoryAlias(String alias, String target) async {
     await deleteEntity(alias);
-    await runtime.artifactFileSystem.createAlias(alias, p.absolute(target));
+    await artifactFileSystem.createAlias(alias, p.absolute(target));
   }
 
   static String jsonPath(String path) => path.replaceAll(r'\', '/');

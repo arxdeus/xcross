@@ -1,19 +1,50 @@
+import 'package:xcross/src/shared/flutter/swiftpm/build_session.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/build_execution.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/package_metadata.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
 import 'dart:async';
 
 import 'package:cli_kit/cli_kit.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_workspace.dart';
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/binary_recovery.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/build_plan.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/interop_repair.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/source_repair.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/toolchain.dart';
+import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
 const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
-  SwiftPmBuildDriver(this.runtime);
-  final SwiftPmRuntime<T> runtime;
+  SwiftPmBuildDriver({required this.binaryRecovery,required this.buildPlan,required this.hostPolicy,required this.interopRepair,required this.processPolicy,required this.runner,required this.sdkIdentity,required this.sdkRepository,required this.sourceRepair,required this.target,required this.targetPolicy,required this.toolchain,required this.toolchainResolver,required this.tools,required this.buildExecution,required this.dependencyPreparation,required this.checkout,required this.packageMetadata});
+  final SwiftPmBinaryRecovery<T> binaryRecovery;
+  final SwiftPmBuildPlan<T> buildPlan;
+  final SwiftPmHostPolicy hostPolicy;
+  final SwiftPmInteropRepair<T> interopRepair;
+  final SwiftPmProcessPolicy<T> processPolicy;
+  final ProcessRunner<T> runner;
+  final SwiftPmSdkIdentity sdkIdentity;
+  final DarwinSdkRepository<T> sdkRepository;
+  final SwiftPmSourceRepair<T> sourceRepair;
+  final IosTarget<T> target;
+  final FlutterTargetBuildPolicy<T> targetPolicy;
+  final SwiftPmToolchain<T> toolchain;
+  final DarwinToolchainResolver<T> toolchainResolver;
+  final AppleToolShimResolver<T> tools;
+final SwiftPmBuildExecution<T> buildExecution;
+final SwiftPmDependencyPreparation<T> dependencyPreparation;
+final SwiftPmCheckout<T> checkout;
+final SwiftPmPackageMetadata packageMetadata;
 
   /// Cross-compiles the synthesized packages in [pluginsDir] with
 
@@ -30,7 +61,7 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
     bool packageLocalArtifactJunctionCapability = false,
   }) async {
     final outputDir = workspace.packages;
-    final sdk = runtime.sdkRepository.current();
+    final sdk = sdkRepository.current();
     if (sdk == null) {
       throw FlutterBuildError(
         'Darwin Swift SDK not found. Run '
@@ -40,17 +71,17 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
     // The bundle only compiles against the toolchain it was patched with,
     // so say so up front instead of letting Swift fail per source file with
     // hundreds of "this SDK is not supported by the compiler" errors.
-    final mismatch = await runtime.sdkIdentity.hostToolchainMismatch(
+    final mismatch = await sdkIdentity.hostToolchainMismatch(
       sdk.swiftSdkPath,
     );
     if (mismatch != null) {
-      throw FlutterBuildError(runtime.sdkIdentity.mismatchGuidance(mismatch));
+      throw FlutterBuildError(sdkIdentity.mismatchGuidance(mismatch));
     }
-    final swiftPackage = await runtime.runner.locateTool(
-      runtime.hostPolicy.packageTool,
+    final swiftPackage = await runner.locateTool(
+      hostPolicy.packageTool,
     );
-    final swiftBuild = await runtime.runner.locateTool(
-      runtime.hostPolicy.buildTool,
+    final swiftBuild = await runner.locateTool(
+      hostPolicy.buildTool,
     );
     // Real `Flutter.framework` (not our FlutterFramework binary-target
     // wrapper). Our own aggregate target resolves `import Flutter` via
@@ -64,21 +95,21 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
     // reproduce it ourselves with build-wide framework search flags. Swift
     // targets need `-Xswiftc -F`; C and Objective-C targets need the matching
     // `-Xcc -F` pair so imports such as `<Flutter/Flutter.h>` resolve too.
-    final flutterFrameworkSlice = runtime.targetPolicy.selectEngineSlice(
+    final flutterFrameworkSlice = targetPolicy.selectEngineSlice(
       flutterXcframework,
     );
-    final linker = await runtime.toolchainResolver.resolveLd64Lld();
-    final darwinClang = await runtime.hostPolicy.cCompiler(
-      runtime.sdkRepository.iosSdk(sdk, target: runtime.target.buildPlatform),
-      runtime.toolchainResolver,
+    final linker = await toolchainResolver.resolveLd64Lld();
+    final darwinClang = await hostPolicy.cCompiler(
+      sdkRepository.iosSdk(sdk, target: target.buildPlatform),
+      toolchainResolver,
     );
-    final toolsetPath = await runtime.toolchain.writeToolset(
+    final toolsetPath = await toolchain.writeToolset(
       outputDir: outputDir,
       linkerPath: linker,
       cCompilerPath: darwinClang,
-      cxxCompilerPath: await runtime.hostPolicy.cxxCompiler(
-        runtime.sdkRepository.iosSdk(sdk, target: runtime.target.buildPlatform),
-        runtime.toolchainResolver,
+      cxxCompilerPath: await hostPolicy.cxxCompiler(
+        sdkRepository.iosSdk(sdk, target: target.buildPlatform),
+        toolchainResolver,
       ),
     );
     // Apple's real `#Preview` macro plugin ships only inside Xcode, so no
@@ -86,20 +117,21 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
     // Swift's own `-load-plugin-executable` extension point instead — its
     // host compiler is whichever one built [darwinClang], available on
     // every host that can build this project at all.
-    final hostCompiler = await runtime.tools.resolveHostCompiler(
+    final hostCompiler = await tools.resolveHostCompiler(
       darwinClang ?? 'cc',
     );
-    final previewMacroStub = await runtime.buildPlan.writePreviewMacroStub(
+    final previewMacroStub = await buildPlan.writePreviewMacroStub(
       outputDir: outputDir,
       cCompilerPath: hostCompiler.executable,
       cCompilerArguments: hostCompiler.arguments,
     );
-    final objectiveCCompatibilityHeader = await runtime.buildPlan
+    final objectiveCCompatibilityHeader = await buildPlan
         .writeObjectiveCCompatibilityHeader(outputDir);
     final swiftSdksPath = p.dirname(sdk.swiftSdkPath);
-    final environment = runtime.processPolicy.swiftProcessEnvironment();
-    await runtime.hostPolicy.resolveDependencies(
-      () => runtime.binaryRecovery.prepareWindowsDependencyGraph(
+    final environment = processPolicy.swiftProcessEnvironment();
+    await dependencyPreparation.prepare(
+      SwiftPmDependencyPreparationRequest<T>(
+        binaryRecovery:binaryRecovery,checkout:checkout,interopRepair:interopRepair,packageMetadata:packageMetadata,processPolicy:processPolicy,swiftSdkTriple:target.buildPlatform.swiftSdkTriple,
         swift: swiftPackage,
         pluginsDir: pluginsDir,
 
@@ -115,11 +147,11 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
         environment: environment,
       ),
     );
-    final baseArguments = runtime.buildPlan.swiftBuildArguments(
+    final baseArguments = buildPlan.swiftBuildArguments(
       pluginsDir: pluginsDir,
       scratchPath: scratchPath,
       swiftSdksPath: swiftSdksPath,
-      iosSdk: runtime.sdkRepository.iosSdk(
+      iosSdk: sdkRepository.iosSdk(
         sdk,
         target: deploymentTarget.platform,
       ),
@@ -131,8 +163,8 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
       previewMacroStubPath: previewMacroStub,
     );
 
-    await runtime.sourceRepair.buildTranslatingSdkMismatch(
-      () => runtime.runner.runChecked(
+    await sourceRepair.buildTranslatingSdkMismatch(
+      () => runner.runChecked(
         swiftBuild,
         [...baseArguments, '--print-manifest-job-graph'],
         environment: environment,
@@ -144,7 +176,7 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
       scratchPath,
       triple: deploymentTarget.swiftSdkTriple,
     );
-    await runtime.hostPolicy.repairBuildPlan(scratchPath, targetBuildDir);
+    await hostPolicy.repairBuildPlan(scratchPath, targetBuildDir);
     final interopArguments = SwiftPmBuildPlan.plannedSwiftInteropSearchPaths(
       targetBuildDir,
     );
@@ -166,51 +198,25 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
           scratchPath,
           interopArguments,
         )) {
-      await runtime.sourceRepair.buildTranslatingSdkMismatch(
-        () => runtime.runner.runChecked(
+      await sourceRepair.buildTranslatingSdkMismatch(
+        () => runner.runChecked(
           swiftBuild,
           [...baseArguments, ...interopArguments, '--print-manifest-job-graph'],
           environment: environment,
           label: 'swift build plan (interop)',
         ),
       );
-      await runtime.hostPolicy.repairBuildPlan(scratchPath, targetBuildDir);
+      await hostPolicy.repairBuildPlan(scratchPath, targetBuildDir);
     }
-    Future<void> runBuild([List<String> selection = const []]) async {
-      final arguments = <String>[
-        ...baseArguments,
-        ...interopArguments,
-        ...selection,
-      ];
+    final operation = SwiftPmBuildSession<T>(execution:buildExecution,command:SwiftPmBuildCommand(executable:swiftBuild,arguments:[...baseArguments,...interopArguments],environment:environment,scratchPath:scratchPath,targetBuildDir:targetBuildDir),sourceRepair:sourceRepair,interopRepair:interopRepair,ownedRoots:[workspace.vendor,p.join(outputDir,'Packages')],consumerProducts:interopConsumers);
 
-      Future<void> invoke() => runtime.runner.runChecked(
-        swiftBuild,
-        arguments,
-        environment: environment,
-        captureAndEcho: runtime.hostPolicy.captureBuildOutput,
-        label: 'swift build',
-      );
-
-      await runtime.hostPolicy.repairBuildPlan(scratchPath, targetBuildDir);
-      await runtime.sourceRepair.buildWithSwiftUIStateRecovery(
-        ownedRoots: [workspace.vendor, p.join(outputDir, 'Packages')],
-        build: () =>
-            runtime.hostPolicy.invokeBuild(invoke, scratchPath, targetBuildDir),
-      );
-    }
-
-    await runtime.sourceRepair.buildTranslatingSdkMismatch(
-      () => runtime.interopRepair.buildWithInteropRecovery(
-        build: runBuild,
-        buildTarget: (target) => runBuild(['--target', target]),
+    await sourceRepair.buildTranslatingSdkMismatch(
+      () => interopRepair.buildWithInteropRecovery(
+        operation:operation,
         targetBuildDir: targetBuildDir,
         interopTargetCandidates: interopTargetCandidates,
         skipInitialRecovery: true,
-        repairConsumers: () =>
-            runtime.interopRepair.repairSwiftInteropConsumers(
-              targetBuildDir: targetBuildDir,
-              consumerProducts: interopConsumers,
-            ),
+
       ),
     );
   }

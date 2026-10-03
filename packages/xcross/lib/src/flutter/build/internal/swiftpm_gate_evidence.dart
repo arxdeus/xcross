@@ -8,7 +8,9 @@ import 'package:crypto/crypto.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/swiftpm/gate_mode.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/gate_execution.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/gate_platform.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 
 export 'package:xcross/src/shared/flutter/swiftpm/gate_mode.dart';
 
@@ -41,8 +43,11 @@ const _gateImplementationVersion = 3;
 const _extractorBuildVersion = 'xcross-1.3.1-swiftpm-gate-3';
 
 final class SwiftPmGateEvidence<T extends PlatformHostInterface> {
-  SwiftPmGateEvidence(this.root, this.runtime);
-  final SwiftPmRuntime<T> runtime;
+  SwiftPmGateEvidence(this.root,{required this.execution,required this.platform,required this.platformIdentity,required this.fileSystem});
+final SwiftPmGateExecution<T> execution;
+final SwiftPmGatePlatform platform;
+final String platformIdentity;
+final SwiftPmArtifactFileSystem fileSystem;
   final _probeResults = <String, Future<bool>>{};
 
   final String root;
@@ -55,7 +60,7 @@ final class SwiftPmGateEvidence<T extends PlatformHostInterface> {
     SwiftPmGateProbe? probe,
     SwiftPmGateRuntimeBinding? runtimeBinding,
   }) async {
-    if (platformIdentity != runtime.sdkIdentity.platformIdentity) return false;
+    if (platformIdentity != this.platformIdentity) return false;
     try {
       final resolveRuntime = runtimeBinding ?? defaultRuntimeBinding;
       final runProbe =
@@ -65,8 +70,8 @@ final class SwiftPmGateEvidence<T extends PlatformHostInterface> {
             required root,
             required toolchainIdentity,
             required sdkIdentity,
-          }) => this.runtime.hostPolicy.gatePlatform.probe(
-            this.runtime,
+          }) => platform.probe(
+            execution,
             mode: mode,
             root: root,
             toolchainIdentity: toolchainIdentity,
@@ -79,19 +84,14 @@ final class SwiftPmGateEvidence<T extends PlatformHostInterface> {
         toolchainIdentity: toolchainIdentity,
         sdkIdentity: sdkIdentity,
       );
-      if (runtime != null && await _validEvidence(mode, runtime)) return true;
+      if (runtime == null) return false;
+      if (await _validEvidence(mode, runtime)) return true;
 
       final cacheKey = sha256
           .convert(
             utf8.encode(
               jsonEncode(
-                runtime ??
-                    {
-                      'mode': mode.name,
-                      'platform': platformIdentity,
-                      'toolchain': toolchainIdentity,
-                      'sdk': sdkIdentity,
-                    },
+                runtime,
               ),
             ),
           )
@@ -105,16 +105,14 @@ final class SwiftPmGateEvidence<T extends PlatformHostInterface> {
             sdkIdentity: sdkIdentity,
           ).timeout(const Duration(minutes: 10), onTimeout: () => false);
           if (!passed) return false;
-          final binding =
-              runtime ??
-              await resolveRuntime(
-                mode: mode,
-                root: root,
-                platformIdentity: platformIdentity,
-                toolchainIdentity: toolchainIdentity,
-                sdkIdentity: sdkIdentity,
-              );
-          if (binding == null) return false;
+          final binding = await resolveRuntime(
+            mode: mode,
+            root: root,
+            platformIdentity: platformIdentity,
+            toolchainIdentity: toolchainIdentity,
+            sdkIdentity: sdkIdentity,
+          );
+          if (binding == null || jsonEncode(binding) != jsonEncode(runtime)) return false;
           await _record(mode, binding);
           return await _validEvidence(mode, binding);
         } on Object {
@@ -138,16 +136,16 @@ final class SwiftPmGateEvidence<T extends PlatformHostInterface> {
     SwiftPmGateMode mode,
     Map<String, Object?> binding,
   ) async {
-    final proofParent = Directory(p.join(root, 'proofs'))
+    final proofParent = fileSystem.directory(p.join(root, 'proofs'))
       ..createSync(recursive: true);
     final proof = await proofParent.createTemp('${mode.name}-');
     final nonce = List<int>.generate(32, (_) => _secureRandomByte());
-    final target = Directory(p.join(proof.path, 'target'))..createSync();
-    final result = File(p.join(target.path, 'probe-result.bin'))
+    final target = fileSystem.directory(p.join(proof.path, 'target'))..createSync();
+    final result = fileSystem.file(p.join(target.path, 'probe-result.bin'))
       ..writeAsBytesSync(nonce, flush: true);
     final alias = p.join(proof.path, 'junction');
-    if (!await runtime.hostPolicy.gatePlatform.createProofAlias(
-      runtime,
+    if (!await platform.createProofAlias(
+      execution,
       alias,
       target.path,
     )) {
@@ -161,9 +159,9 @@ final class SwiftPmGateEvidence<T extends PlatformHostInterface> {
         'resultDigest': sha256.convert(result.readAsBytesSync()).toString(),
       },
     };
-    final file = File(_path(mode));
+    final file = fileSystem.file(_path(mode));
     await file.parent.create(recursive: true);
-    final temporary = File('${file.path}.tmp-$pid');
+    final temporary = fileSystem.file('${file.path}.tmp-$pid');
     await temporary.writeAsString(jsonEncode(payload), flush: true);
     await temporary.rename(file.path);
   }
@@ -172,7 +170,7 @@ final class SwiftPmGateEvidence<T extends PlatformHostInterface> {
     SwiftPmGateMode mode,
     Map<String, Object?> binding,
   ) async {
-    final file = File(_path(mode));
+    final file = fileSystem.file(_path(mode));
     if (!file.existsSync()) return false;
     final encoded = jsonDecode(await file.readAsString());
     if (encoded is! Map) return false;
@@ -185,9 +183,9 @@ final class SwiftPmGateEvidence<T extends PlatformHostInterface> {
     }
     final proofRoot = p.normalize(p.join(root, proof['directory'] as String));
     if (!p.isWithin(p.normalize(root), proofRoot)) return false;
-    final target = Directory(p.join(proofRoot, 'target'));
-    final alias = Directory(p.join(proofRoot, 'junction'));
-    final result = File(p.join(target.path, 'probe-result.bin'));
+    final target = fileSystem.directory(p.join(proofRoot, 'target'));
+    final alias = fileSystem.directory(p.join(proofRoot, 'junction'));
+    final result = fileSystem.file(p.join(target.path, 'probe-result.bin'));
     if (!target.existsSync() || !alias.existsSync() || !result.existsSync()) {
       return false;
     }
@@ -199,8 +197,8 @@ final class SwiftPmGateEvidence<T extends PlatformHostInterface> {
         p.normalize(await target.resolveSymbolicLinks())) {
       return false;
     }
-    return runtime.hostPolicy.gatePlatform.verifyAlias(
-      runtime,
+    return platform.verifyAlias(
+      execution,
       alias.path,
       target.path,
     );
@@ -219,13 +217,13 @@ final class SwiftPmGateEvidence<T extends PlatformHostInterface> {
     if (!await validSwiftPmGateToolchainIdentity(toolchain) ||
         !await validSwiftPmGateSdkIdentity(
           sdk,
-          repository: runtime.sdkRepository,
+          repository: execution.sdkRepository,
         )) {
       return null;
     }
-    await Directory(root).create(recursive: true);
-    final volume = await runtime.hostPolicy.gatePlatform.volumeIdentity(
-      runtime,
+    await fileSystem.directory(root).create(recursive: true);
+    final volume = await platform.volumeIdentity(
+      execution,
       root,
     );
     if (volume == null) return null;

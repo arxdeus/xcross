@@ -7,28 +7,36 @@ import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
 
 const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmToolchain<T extends PlatformHostInterface> {
-  SwiftPmToolchain(this.runtime);
-  final SwiftPmRuntime<T> runtime;
+  SwiftPmToolchain({required this.filesystem,required this.hostPolicy,required this.runner,required this.sdkIdentity,required this.sdkRepository,required this.target,required this.toolchainResolver});
+  final SwiftPmFilesystem<T> filesystem;
+  final SwiftPmHostPolicy hostPolicy;
+  final ProcessRunner<T> runner;
+  final SwiftPmSdkIdentity sdkIdentity;
+  final DarwinSdkRepository<T> sdkRepository;
+  final IosTarget<T> target;
+  final DarwinToolchainResolver<T> toolchainResolver;
+
   static const libtool = 'llvm-libtool-darwin';
   static const librarians = [libtool, 'llvm-ar'];
 
   Future<Map<String, Object>> resolveBuildToolchainIdentity(
     DarwinSdk sdk,
-  ) async => runtime.sdkIdentity.swiftPmBuildToolchainIdentity(
-    cCompilerPath: await runtime.toolchainResolver.resolveDarwinClang(
-      runtime.sdkRepository.iosSdk(sdk, target: runtime.target.buildPlatform),
+  ) async => sdkIdentity.swiftPmBuildToolchainIdentity(
+    cCompilerPath: await toolchainResolver.resolveDarwinClang(
+      sdkRepository.iosSdk(sdk, target: target.buildPlatform),
     ),
-    cxxCompilerPath: await runtime.toolchainResolver.resolveDarwinClang(
-      runtime.sdkRepository.iosSdk(sdk, target: runtime.target.buildPlatform),
+    cxxCompilerPath: await toolchainResolver.resolveDarwinClang(
+      sdkRepository.iosSdk(sdk, target: target.buildPlatform),
       name: 'clang++',
     ),
-    linkerPath: await runtime.toolchainResolver.resolveLd64Lld(),
+    linkerPath: await toolchainResolver.resolveLd64Lld(),
     librarianPath: await resolveLibrarian(),
   );
 
@@ -52,14 +60,14 @@ final class SwiftPmToolchain<T extends PlatformHostInterface> {
     await output.create(recursive: true);
     // LLVM often never registers itself on PATH, so reach into its install
     // directories too (see [DarwinSdk.llvmToolDirs]).
-    final locate = locateTool ?? runtime.toolchainResolver.locateLlvmTool;
+    final locate = locateTool ?? toolchainResolver.locateLlvmTool;
     final toolset = <String, Object>{
       'schemaVersion': '1.0',
       'rootPath': SwiftPmFilesystem.jsonPath(output.resolveSymbolicLinksSync()),
     };
 
     Future<String?> resolve(String name) async {
-      final path = await locate(runtime.runner.hostExecutableName(name));
+      final path = await locate(runner.hostExecutableName(name));
       return path == null
           ? null
           : SwiftPmFilesystem.jsonPath(File(path).resolveSymbolicLinksSync());
@@ -69,7 +77,7 @@ final class SwiftPmToolchain<T extends PlatformHostInterface> {
         librarianPath ?? await resolveLibrarian(locateTool: locateTool);
     toolset['librarian'] = {'path': librarian};
 
-    await runtime.hostPolicy.configureToolset(
+    await hostPolicy.configureToolset(
       toolset,
       linkerPath,
       cCompilerPath,
@@ -77,7 +85,7 @@ final class SwiftPmToolchain<T extends PlatformHostInterface> {
       resolve,
     );
     final toolsetPath = p.join(outputDir, 'xcross-toolset.json');
-    await runtime.filesystem.writeStable(
+    await filesystem.writeStable(
       toolsetPath,
       '${const JsonEncoder.withIndent('  ').convert(toolset)}\n',
     );
@@ -91,9 +99,9 @@ final class SwiftPmToolchain<T extends PlatformHostInterface> {
   Future<String> resolveLibrarian({
     Future<String?> Function(String name)? locateTool,
   }) async {
-    final locate = locateTool ?? runtime.toolchainResolver.locateLlvmTool;
+    final locate = locateTool ?? toolchainResolver.locateLlvmTool;
     Future<String?> resolve(String name) async {
-      final path = await locate(runtime.runner.hostExecutableName(name));
+      final path = await locate(runner.hostExecutableName(name));
       return path == null
           ? null
           : SwiftPmFilesystem.jsonPath(File(path).resolveSymbolicLinksSync());
@@ -116,7 +124,7 @@ final class SwiftPmToolchain<T extends PlatformHostInterface> {
     if (archiver == null) return null;
     final sibling = p.join(
       p.dirname(archiver),
-      runtime.runner.hostExecutableName(SwiftPmToolchain.libtool),
+      runner.hostExecutableName(SwiftPmToolchain.libtool),
     );
     return File(sibling).existsSync()
         ? SwiftPmFilesystem.jsonPath(sibling)

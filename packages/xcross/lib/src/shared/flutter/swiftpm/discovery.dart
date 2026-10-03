@@ -4,19 +4,26 @@ import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:crypto/crypto.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/build/ios_linker_compatibility.dart';
 import 'package:xcross/src/flutter/build/ios_plugins.dart';
 import 'package:xcross/src/flutter/errors.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/toolchain.dart';
 
 const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmDiscovery<T extends PlatformHostInterface> {
-  SwiftPmDiscovery(this.runtime);
-  final SwiftPmRuntime<T> runtime;
+  SwiftPmDiscovery({required this.hostPolicy,required this.sdkIdentity,required this.sdkRepository,required this.toolchain});
+  final SwiftPmHostPolicy hostPolicy;
+  final SwiftPmSdkIdentity sdkIdentity;
+  final DarwinSdkRepository<T> sdkRepository;
+  final SwiftPmToolchain<T> toolchain;
+
 
   Future<String> incrementalBuildFingerprint({
     required List<IosPlugin> plugins,
@@ -40,11 +47,11 @@ final class SwiftPmDiscovery<T extends PlatformHostInterface> {
     // invalidates staged sources compiled before State-wrapper recovery.
     add('xcross-swiftpm-build-v8-state-wrapper-recovery');
     add(objectiveCLinkerSwiftDriverArguments.join('\u0001'));
-    add(runtime.hostPolicy.fingerprintArguments.join('\u0001'));
+    add(hostPolicy.fingerprintArguments.join('\u0001'));
     add(deploymentTarget.version);
     add(deploymentTarget.swiftSdkTriple);
     add(verbose.toString());
-    final sdk = runtime.sdkRepository.current();
+    final sdk = sdkRepository.current();
     if (toolchainIdentity == null && sdk == null) {
       throw FlutterBuildError(
         'Darwin Swift SDK not found. Run '
@@ -55,7 +62,7 @@ final class SwiftPmDiscovery<T extends PlatformHostInterface> {
         toolchainIdentity ??
         jsonEncode(
           SwiftPmDiscovery.contentBuildIdentity(
-            await runtime.toolchain.resolveBuildToolchainIdentity(sdk!),
+            await toolchain.resolveBuildToolchainIdentity(sdk!),
           ),
         );
     add(resolvedToolchainIdentity);
@@ -65,7 +72,7 @@ final class SwiftPmDiscovery<T extends PlatformHostInterface> {
             ? ''
             : jsonEncode(
                 SwiftPmDiscovery.contentBuildIdentity(
-                  await runtime.sdkIdentity.sdkBuildIdentity(sdk.swiftSdkPath),
+                  await this.sdkIdentity.sdkBuildIdentity(sdk.swiftSdkPath),
                 ),
               ));
     add(resolvedSdkIdentity);

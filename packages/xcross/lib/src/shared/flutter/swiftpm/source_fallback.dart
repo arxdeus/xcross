@@ -4,15 +4,19 @@ import 'dart:io';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/errors.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/manifest.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/clang_modules.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/module_files.dart';
 
 const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmSourceFallback<T extends PlatformHostInterface> {
-  SwiftPmSourceFallback(this.runtime);
-  final SwiftPmRuntime<T> runtime;
+  SwiftPmSourceFallback({required this.filesystem,required this.moduleFiles});
+  final SwiftPmFilesystem<T> filesystem;
+final SwiftPmModuleFiles moduleFiles;
+
 
   /// Adds a dependency-scoped Clang module when a source fallback preserves
   /// its implementation modules but no longer emits a consumed binary module.
@@ -40,7 +44,7 @@ final class SwiftPmSourceFallback<T extends PlatformHostInterface> {
     required String product,
     Map<String, List<String>>? fallbackSwiftModules,
   }) async {
-    final fallback = SwiftPmManifest.fallbackBlock(manifest);
+    final fallback = SwiftPmManifestLexer.fallbackBlock(manifest);
     if (fallback == null) return manifest;
     if (!RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(product)) {
       throw FlutterBuildError(
@@ -51,19 +55,19 @@ final class SwiftPmSourceFallback<T extends PlatformHostInterface> {
 
     final normalManifest = manifest.substring(0, fallback.open);
     final binaryTargets = {
-      for (final call in SwiftPmManifest.swiftCalls(
+      for (final call in SwiftPmManifestLexer.swiftCalls(
         normalManifest,
         '.binaryTarget',
       ))
-        if (SwiftPmManifest.namedString(call.text, 'name')
+        if (SwiftPmManifestLexer.namedString(call.text, 'name')
             case final String name)
           name,
     };
-    final binaryBacked = SwiftPmManifest.swiftCalls(normalManifest, '.library')
+    final binaryBacked = SwiftPmManifestLexer.swiftCalls(normalManifest, '.library')
         .any(
           (call) =>
-              SwiftPmManifest.namedString(call.text, 'name') == product &&
-              SwiftPmManifest.namedStringList(
+              SwiftPmManifestLexer.namedString(call.text, 'name') == product &&
+              SwiftPmManifestLexer.namedStringList(
                 call.text,
                 'targets',
               ).any(binaryTargets.contains),
@@ -72,13 +76,13 @@ final class SwiftPmSourceFallback<T extends PlatformHostInterface> {
 
     final blockText = manifest.substring(fallback.open + 1, fallback.close);
     final synthetic = '_xcross_$product';
-    final productCalls = SwiftPmManifest.swiftCalls(blockText, '.library');
+    final productCalls = SwiftPmManifestLexer.swiftCalls(blockText, '.library');
     final fallbackProducts = [
       for (final call in productCalls)
         (
           call: call,
-          name: SwiftPmManifest.namedString(call.text, 'name'),
-          targets: SwiftPmManifest.namedStringList(call.text, 'targets'),
+          name: SwiftPmManifestLexer.namedString(call.text, 'name'),
+          targets: SwiftPmManifestLexer.namedStringList(call.text, 'targets'),
         ),
     ].where((entry) => entry.name != null && entry.targets.isNotEmpty).toList();
     final sourceProducts = [
@@ -104,7 +108,7 @@ final class SwiftPmSourceFallback<T extends PlatformHostInterface> {
       );
     }
 
-    final targetCalls = SwiftPmManifest.swiftCalls(blockText, '.target');
+    final targetCalls = SwiftPmManifestLexer.swiftCalls(blockText, '.target');
     final targets =
         <
           String,
@@ -118,20 +122,20 @@ final class SwiftPmSourceFallback<T extends PlatformHostInterface> {
           })
         >{};
     for (final call in targetCalls) {
-      final name = SwiftPmManifest.namedString(call.text, 'name');
+      final name = SwiftPmManifestLexer.namedString(call.text, 'name');
       if (name == null) continue;
       targets[name] = (
         call: call.text,
-        dependencies: SwiftPmManifest.namedStringList(
+        dependencies: SwiftPmManifestLexer.namedStringList(
           call.text,
           'dependencies',
         ),
         path:
-            SwiftPmManifest.namedString(call.text, 'path') ??
+            SwiftPmManifestLexer.namedString(call.text, 'path') ??
             p.join('Sources', name),
-        headers: SwiftPmManifest.namedString(call.text, 'publicHeadersPath'),
-        sources: SwiftPmManifest.namedStringList(call.text, 'sources'),
-        excludes: SwiftPmManifest.namedStringList(call.text, 'exclude'),
+        headers: SwiftPmManifestLexer.namedString(call.text, 'publicHeadersPath'),
+        sources: SwiftPmManifestLexer.namedStringList(call.text, 'sources'),
+        excludes: SwiftPmManifestLexer.namedStringList(call.text, 'exclude'),
       );
     }
 
@@ -167,7 +171,7 @@ final class SwiftPmSourceFallback<T extends PlatformHostInterface> {
       final root = p.normalize(p.join(packageDir, target.path, target.headers));
       final moduleMap = File(p.join(root, 'module.modulemap'));
       final modules = moduleMap.existsSync()
-          ? SwiftPmManifest.topLevelModuleNames(moduleMap.readAsStringSync())
+          ? SwiftPmClangModules.topLevelModuleNames(moduleMap.readAsStringSync())
           : [name];
       if (modules.contains(product)) return manifest;
       if (modules.isNotEmpty) {
@@ -180,13 +184,13 @@ final class SwiftPmSourceFallback<T extends PlatformHostInterface> {
       packageDir,
     ).listSync(recursive: true, followLinks: false)) {
       if (entity is! File ||
-          SwiftPmManifest.ignoredPackageEvidencePath(packageDir, entity.path) ||
+          SwiftPmModuleFiles.ignoredPackageEvidencePath(packageDir, entity.path) ||
           !(p.basename(entity.path) == 'module.modulemap' ||
               p.basename(entity.path).endsWith('.modulemap'))) {
         continue;
       }
       final text = entity.readAsStringSync();
-      if (SwiftPmManifest.moduleBlock(text, product) != null) {
+      if (SwiftPmClangModules.moduleBlock(text, product) != null) {
         canonicalMaps.add((file: entity, text: text));
       }
     }
@@ -197,16 +201,16 @@ final class SwiftPmSourceFallback<T extends PlatformHostInterface> {
       );
     }
     final canonical = canonicalMaps.single;
-    final canonicalBlock = SwiftPmManifest.moduleBlock(
+    final canonicalBlock = SwiftPmClangModules.moduleBlock(
       canonical.text,
       product,
     )!;
     final publicHeaders = [
-      for (final header in SwiftPmManifest.directModuleHeaders(
+      for (final header in SwiftPmClangModules.directModuleHeaders(
         canonical.text,
         canonicalBlock,
       ))
-        SwiftPmManifest.resolveModuleReference(
+        moduleFiles.resolveModuleReference(
           packageDir,
           header.path,
           directory: header.directory,
@@ -262,15 +266,15 @@ final class SwiftPmSourceFallback<T extends PlatformHostInterface> {
     final compatibilityDir = p.join(packageDir, '.xcross', synthetic);
     final includeDir = p.join(compatibilityDir, 'include');
     final nested = [
-      for (final module in SwiftPmManifest.directNestedModules(
+      for (final module in SwiftPmClangModules.directNestedModules(
         canonical.text,
         canonicalBlock,
       ))
-        SwiftPmManifest.absoluteNestedModuleHeaders(packageDir, module),
+        moduleFiles.absoluteNestedModuleHeaders(packageDir, module),
     ];
     final nestedNames = [
       for (final module in nested)
-        ...SwiftPmManifest.topLevelModuleNames(module),
+        ...SwiftPmClangModules.topLevelModuleNames(module),
     ];
     final indentedNested = nested
         .map(
@@ -310,15 +314,15 @@ final class SwiftPmSourceFallback<T extends PlatformHostInterface> {
         ..writeln('@import $module;')
         ..writeln('#endif');
     }
-    await runtime.filesystem.writeStable(
+    await filesystem.writeStable(
       p.join(includeDir, '$product.h'),
       shim.toString(),
     );
-    await runtime.filesystem.writeStable(
+    await filesystem.writeStable(
       p.join(includeDir, 'module.modulemap'),
       moduleMap.toString(),
     );
-    await runtime.filesystem.writeStable(
+    await filesystem.writeStable(
       p.join(compatibilityDir, '$synthetic.m'),
       '#import "$product.h"\n',
     );

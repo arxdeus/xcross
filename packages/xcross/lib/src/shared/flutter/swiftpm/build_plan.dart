@@ -4,18 +4,24 @@ import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/flutter/build/internal/windows_swift_plan_repair.dart';
 import 'package:xcross/src/flutter/build/ios_linker_compatibility.dart';
 import 'package:xcross/src/flutter/build/preview_macro_stub_source.dart';
 import 'package:xcross/src/flutter/errors.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/preview_macro_compiler.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/response_arguments.dart';
 
 const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmBuildPlan<T extends PlatformHostInterface> {
-  SwiftPmBuildPlan(this.runtime);
-  final SwiftPmRuntime<T> runtime;
+  SwiftPmBuildPlan({required this.filesystem,required this.hostPolicy,required this.runner,required this.previewCompiler});
+  final SwiftPmFilesystem<T> filesystem;
+  final SwiftPmHostPolicy hostPolicy;
+  final ProcessRunner<T> runner;
+  final SwiftPmPreviewMacroCompiler<T> previewCompiler;
+
 
   /// Disables Clang's implicit-module lock files, whose POSIX lock
   /// protocol deadlocks competing frontends on Windows.
@@ -56,33 +62,12 @@ final class SwiftPmBuildPlan<T extends PlatformHostInterface> {
   ///
   /// Its C source lives at `assets/preview_macro_stub.c` and is embedded
   /// as [previewMacroStubSource] — see that constant's doc comment.
-  Future<String> writePreviewMacroStub({
-    required String outputDir,
-    required String cCompilerPath,
-    List<String> cCompilerArguments = const [],
-  }) async {
-    final stubDir = p.join(outputDir, '.xcross', 'preview-macro-stub');
-    await Directory(stubDir).create(recursive: true);
-    final sourcePath = p.join(stubDir, 'stub.c');
-    await runtime.filesystem.writeStable(sourcePath, previewMacroStubSource);
-    final exePath = p.join(stubDir, runtime.runner.hostExecutableName('stub'));
-    // The stub only depends on its own source, so a matching binary from
-    // a previous build needs no recompilation.
-    if (File(exePath).existsSync()) return exePath;
-    await runtime.runner.runChecked(cCompilerPath, [
-      ...cCompilerArguments,
-      '-O2',
-      '-o',
-      exePath,
-      sourcePath,
-    ], label: 'compile preview macro stub');
-    return exePath;
-  }
+  Future<String> writePreviewMacroStub({required String outputDir,required String cCompilerPath,List<String> cCompilerArguments=const []}) => previewCompiler.write(outputDir:outputDir,cCompilerPath:cCompilerPath,cCompilerArguments:cCompilerArguments);
 
   Future<String> writeObjectiveCCompatibilityHeader(String outputDir) async {
     final path = p.join(outputDir, '.xcross', 'objective-c-compatibility.h');
     await Directory(p.dirname(path)).create(recursive: true);
-    await runtime.filesystem.writeStable(
+    await filesystem.writeStable(
       path,
       '#ifdef __OBJC__\n#import <Foundation/Foundation.h>\n#endif\n',
     );
@@ -212,7 +197,7 @@ final class SwiftPmBuildPlan<T extends PlatformHostInterface> {
       // Windows must include reachable internal Swift header targets,
       // including when older plans carry no dependency map. Preserve the
       // public-product candidate filter on POSIX hosts for every plan.
-      if (!runtime.hostPolicy.includesInteropTarget(target, candidates)) {
+      if (!hostPolicy.includesInteropTarget(target, candidates)) {
         continue;
       }
       if (reachable != null && !reachable.contains(target)) continue;
@@ -324,15 +309,15 @@ final class SwiftPmBuildPlan<T extends PlatformHostInterface> {
     // On Windows, long compiler command lines move into response files, so
     // a path may be recorded there instead of in the manifest itself.
     final responseArguments =
-        WindowsSwiftPlanRepair.referencedResponseArguments(text, scratchPath);
+        SwiftPmResponseArguments.referencedResponseArguments(text, scratchPath);
     if (responseArguments == null) return false;
     bool recorded(String path) =>
         text.contains(jsonEncode(path)) ||
         responseArguments.contains(
-          WindowsSwiftPlanRepair.quoteWindowsArgument(path),
+          SwiftPmResponseArguments.quoteWindowsArgument(path),
         ) ||
         responseArguments.contains(
-          WindowsSwiftPlanRepair.quoteGnuArgument(path),
+          SwiftPmResponseArguments.quoteGnuArgument(path),
         );
     var checked = 0;
     // [plannedSwiftInteropSearchPaths] emits each include as the quadruple
@@ -398,7 +383,7 @@ final class SwiftPmBuildPlan<T extends PlatformHostInterface> {
     List<String> interopSearchPaths = const [],
     String? previewMacroStubPath,
   }) => [
-    ...runtime.hostPolicy.buildPrefix,
+    ...hostPolicy.buildPrefix,
     '--package-path',
     pluginsDir,
     // Swift 6.4 made `swiftbuild` the default build system. It only knows
@@ -426,7 +411,7 @@ final class SwiftPmBuildPlan<T extends PlatformHostInterface> {
     if (toolsetPath != null) ...['--toolset', toolsetPath],
     '--scratch-path',
     scratchPath,
-    ...runtime.hostPolicy.buildArguments,
+    ...hostPolicy.buildArguments,
     ...interopSearchPaths,
     // Apple's `PreviewsMacros` plugin ships only inside Xcode, so `#Preview`
     // needs the stub on every cross host, not just Windows.
@@ -476,12 +461,12 @@ final class SwiftPmBuildPlan<T extends PlatformHostInterface> {
     '-Xswiftc',
     iosSdk,
     ...objectiveCLinkerSwiftDriverArguments,
-    ...runtime.hostPolicy.linkerArguments,
+    ...hostPolicy.linkerArguments,
     // The link runs through the toolchain's own clang, which resolves
     // `-use-ld=lld` to the `ld64.lld` sitting next to itself — swiftly's, the
     // one that refuses iOS (see [resolveLd64Lld]). `--ld-path` overrides that
     // choice with the stock LLVM linker.
     if (linkerPath != null)
-      ...runtime.hostPolicy.linkerPathArguments(linkerPath),
+      ...hostPolicy.linkerPathArguments(linkerPath),
   ];
 }

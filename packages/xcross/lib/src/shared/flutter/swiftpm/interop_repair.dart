@@ -1,18 +1,25 @@
+import 'package:xcross/src/shared/flutter/swiftpm/build_execution.dart';
 import 'dart:async';
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/swiftpm/build_plan.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/manifest.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
 
 const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmInteropRepair<T extends PlatformHostInterface> {
-  SwiftPmInteropRepair(this.runtime);
-  final SwiftPmRuntime<T> runtime;
+  SwiftPmInteropRepair({required this.buildPlan,required this.checkoutManifestNormalizer,required this.filesystem,required this.hostPolicy,required this.buildExecution});
+  final SwiftPmBuildPlan<T> buildPlan;
+  final SwiftPmCheckoutManifestNormalizer<T> checkoutManifestNormalizer;
+  final SwiftPmFilesystem<T> filesystem;
+  final SwiftPmHostPolicy hostPolicy;
+final SwiftPmBuildExecution<T> buildExecution;
 
   /// A compiler diagnostic naming a generated `<Target>-Swift.h` header that
   /// could not be found.
@@ -28,7 +35,7 @@ final class SwiftPmInteropRepair<T extends PlatformHostInterface> {
       for (final checkout in checkouts.listSync(followLinks: false)) {
         if (checkout is Directory) {
           changed =
-              await runtime.checkout.normalizeVendoredPackageManifests(
+              await checkoutManifestNormalizer.normalizeVendoredPackageManifests(
                 checkout.path,
                 consumedProducts: const {},
               ) ||
@@ -49,14 +56,14 @@ final class SwiftPmInteropRepair<T extends PlatformHostInterface> {
   /// existing one-retry fallback for compatibility modules whose failure does
   /// not leave a missing generated-header reference behind.
   Future<void> buildWithInteropRecovery({
-    required Future<void> Function() build,
-    required Future<void> Function(String target) buildTarget,
+    required SwiftPmInteropBuild operation,
     required String targetBuildDir,
     required Set<String> interopTargetCandidates,
-    Future<void> Function()? repairConsumers,
     bool skipInitialRecovery = false,
   }) async {
-    final repair = repairConsumers ?? () async {};
+    final repair = operation.repairConsumers;
+final build=operation.build;
+final buildTarget=operation.buildTarget;
 
     Future<bool> recoverMissingTargets({Set<String>? candidates}) async {
       final targets = SwiftPmInteropRepair.missingSwiftInteropTargets(
@@ -78,11 +85,11 @@ final class SwiftPmInteropRepair<T extends PlatformHostInterface> {
     // checkout failed on `header not found`, then on `module not found`, then
     // elsewhere, moving a little further each run as another header happened
     // to land.
-    final planned = runtime.buildPlan.plannedSwiftInteropTargets(
+    final planned = buildPlan.plannedSwiftInteropTargets(
       targetBuildDir,
       candidates: interopTargetCandidates,
     );
-    final prebuild = runtime.hostPolicy.orderInteropTargets(
+    final prebuild = hostPolicy.orderInteropTargets(
       targetBuildDir,
       planned,
     );
@@ -134,13 +141,7 @@ final class SwiftPmInteropRepair<T extends PlatformHostInterface> {
       final emitted = SwiftPmBuildPlan.swiftInteropSearchPaths(
         targetBuildDir,
       ).toSet().difference(before);
-      await runtime.hostPolicy.recoverEmittedInterop(
-        emitted,
-        repair,
-        build,
-        error,
-        stack,
-      );
+      await buildExecution.recoverInterop(emitted:emitted,operation:operation,error:error,stack:stack);
     }
   }
 
@@ -221,8 +222,8 @@ final class SwiftPmInteropRepair<T extends PlatformHostInterface> {
   }
 
   static Set<String> dependencyProductNames(String manifest) => {
-    for (final call in SwiftPmManifest.swiftCalls(manifest, '.product'))
-      if (SwiftPmManifest.namedString(call.text, 'name') case final String name)
+    for (final call in SwiftPmManifestLexer.swiftCalls(manifest, '.product'))
+      if (SwiftPmManifestLexer.namedString(call.text, 'name') case final String name)
         name,
   };
 
@@ -292,7 +293,7 @@ final class SwiftPmInteropRepair<T extends PlatformHostInterface> {
           );
         }
         if (source != original) {
-          await runtime.filesystem.writeStable(entity.path, source);
+          await filesystem.writeStable(entity.path, source);
         }
       }
     }
