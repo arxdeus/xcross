@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/apple/mach_o.dart';
 import 'package:xcross/src/flutter/build/objc_fast_stub_rewriter.dart';
@@ -48,7 +47,6 @@ abstract final class MachODylibRewriter {
   }
 
   /// Rewrites load-command strings in [bytes]. Returns whether bytes changed.
-  @visibleForTesting
   static bool rewriteBytes(
     Uint8List bytes, {
     required String dylibName,
