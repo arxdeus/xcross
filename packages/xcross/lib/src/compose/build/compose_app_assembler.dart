@@ -5,6 +5,7 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/compose/build/compose_entitlements.dart';
 import 'package:xcross/src/compose/build/compose_info_plist.dart';
+import 'package:xcross/src/compose/models/compose_build_options.dart';
 import 'package:xcross/src/compose/project/kmp_project.dart';
 import 'package:xcross/src/device/internal/app_capabilities.dart';
 import 'package:xcross/src/device/internal/app_entitlements.dart';
@@ -15,6 +16,8 @@ typedef ComposeCopyDirectory =
 
 typedef ComposeMakeExecutable = void Function(String path);
 
+typedef ComposeSignSimulator = Future<void> Function(String appPath);
+
 typedef ComposeRenameDirectory =
     Future<Directory> Function(Directory source, String newPath);
 
@@ -23,21 +26,48 @@ abstract final class ComposeAppAssembler {
     required KmpProject project,
     required String runnerPath,
     required String frameworkPath,
+    bool simulator = false,
   }) => ComposeAppAssembler.withSeams().assemble(
     project: project,
     runnerPath: runnerPath,
     frameworkPath: frameworkPath,
+    simulator: simulator,
   );
 
   static ComposeAppAssemblerWithSeams withSeams({
     ComposeCopyDirectory copyDirectory = _copyDirectoryNoSymlinks,
     ComposeMakeExecutable makeExecutable = ProcessRunner.makeExecutable,
     ComposeRenameDirectory renameDirectory = _renameDirectory,
+    ComposeSignSimulator signSimulator = _signSimulator,
   }) => ComposeAppAssemblerWithSeams(
     copyDirectory: copyDirectory,
     makeExecutable: makeExecutable,
     renameDirectory: renameDirectory,
+    signSimulator: signSimulator,
   );
+
+  static Future<void> _signSimulator(String appPath) async {
+    if (!Platform.isMacOS) return;
+    final frameworks = Directory(p.join(appPath, 'Frameworks'));
+    if (frameworks.existsSync()) {
+      for (final framework in frameworks.listSync().whereType<Directory>()) {
+        await ProcessRunner.runTool('/usr/bin/codesign', [
+          '--force',
+          '--sign',
+          '-',
+          '--timestamp=none',
+          framework.path,
+        ]);
+      }
+    }
+    await ProcessRunner.runTool('/usr/bin/codesign', [
+      '--force',
+      '--sign',
+      '-',
+      '--timestamp=none',
+      appPath,
+    ]);
+  }
 
   static Future<Directory> _renameDirectory(Directory source, String newPath) =>
       source.rename(newPath);
@@ -65,18 +95,22 @@ final class ComposeAppAssemblerWithSeams {
     required ComposeCopyDirectory copyDirectory,
     required ComposeMakeExecutable makeExecutable,
     required ComposeRenameDirectory renameDirectory,
+    required ComposeSignSimulator signSimulator,
   }) : _copyDirectory = copyDirectory,
        _makeExecutable = makeExecutable,
-       _renameDirectory = renameDirectory;
+       _renameDirectory = renameDirectory,
+       _signSimulator = signSimulator;
 
   final ComposeCopyDirectory _copyDirectory;
   final ComposeMakeExecutable _makeExecutable;
   final ComposeRenameDirectory _renameDirectory;
+  final ComposeSignSimulator _signSimulator;
 
   Future<String> assemble({
     required KmpProject project,
     required String runnerPath,
     required String frameworkPath,
+    bool simulator = false,
   }) async {
     final runner = File(runnerPath);
     if (!runner.existsSync()) {
@@ -93,7 +127,11 @@ final class ComposeAppAssemblerWithSeams {
       );
     }
 
-    final outputDir = p.join(project.root, 'build', 'xcross-ios');
+    final outputDir = p.join(
+      project.root,
+      'build',
+      ComposeBuildOptions(simulator: simulator).outputDirectory,
+    );
     final outputDirectory = Directory(outputDir);
     final appPath = p.join(outputDir, '${project.appName}.app');
     await outputDirectory.create(recursive: true);
@@ -113,8 +151,10 @@ final class ComposeAppAssemblerWithSeams {
         runner: runner,
         framework: framework,
         stagingPath: stagingApp,
+        simulator: simulator,
       );
       _validateStagedApp(project: project, appPath: stagingApp);
+      if (simulator) await _signSimulator(stagingApp);
 
       final finalDir = Directory(appPath);
       if (finalDir.existsSync()) {
@@ -169,6 +209,7 @@ final class ComposeAppAssemblerWithSeams {
     required File runner,
     required Directory framework,
     required String stagingPath,
+    required bool simulator,
   }) async {
     await Directory(stagingPath).create(recursive: true);
     // What the app declares it needs. A profile only grants what the App ID has
@@ -184,6 +225,7 @@ final class ComposeAppAssemblerWithSeams {
     await File(p.join(stagingPath, 'Info.plist')).writeAsString(
       ComposeInfoPlist.build(
         project: project,
+        simulator: simulator,
         extras: {
           // Read back at signing time, when the project may be long gone.
           if (capabilities.isNotEmpty)
@@ -217,6 +259,7 @@ final class ComposeAppAssemblerWithSeams {
       project: project,
       frameworkPath: framework.path,
       stagingPath: stagingPath,
+      simulator: simulator,
     );
 
     if (!Platform.isWindows) {
@@ -238,8 +281,9 @@ final class ComposeAppAssemblerWithSeams {
     required KmpProject project,
     required String frameworkPath,
     required String stagingPath,
+    required bool simulator,
   }) async {
-    final source = _composeResourcesRoot(project, frameworkPath);
+    final source = _composeResourcesRoot(project, frameworkPath, simulator);
     if (source == null) {
       // A project with no resources is normal and stages nothing. One that has
       // them but whose layout was not recognised would instead ship a bundle
@@ -286,10 +330,15 @@ final class ComposeAppAssemblerWithSeams {
   /// builder hands over a copy under `build/xcross-ios/`, which names none. The
   /// scanning fallbacks skip simulator and x64 outputs, so a stale simulator
   /// build can never supply a device app's resources.
-  Directory? _composeResourcesRoot(KmpProject project, String frameworkPath) {
+  Directory? _composeResourcesRoot(
+    KmpProject project,
+    String frameworkPath,
+    bool simulator,
+  ) {
     final buildDir = p.join(project.modulePath, 'build');
-    final target =
-        _targetFromFrameworkPath(frameworkPath) ?? deviceResourceTarget;
+    final target = simulator
+        ? 'iosSimulatorArm64'
+        : (_targetFromFrameworkPath(frameworkPath) ?? deviceResourceTarget);
     final aggregated = p.join(
       buildDir,
       'kotlin-multiplatform-resources',
@@ -298,8 +347,9 @@ final class ComposeAppAssemblerWithSeams {
     final candidates = <String>[
       p.join(aggregated, target),
       p.join(buildDir, 'processedResources', target, 'main'),
-      ..._resourceCandidates(aggregated, ''),
-      ..._resourceCandidates(p.join(buildDir, 'processedResources'), 'main'),
+      if (!simulator) ..._resourceCandidates(aggregated, ''),
+      if (!simulator)
+        ..._resourceCandidates(p.join(buildDir, 'processedResources'), 'main'),
     ];
     for (final candidate in candidates) {
       final directory = Directory(candidate);

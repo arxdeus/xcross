@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:cli_kit/cli_kit.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:xcross/src/compose/project/ios_app_config.dart';
@@ -10,6 +11,7 @@ import 'package:xcross/src/flutter/constants.dart';
 abstract final class ComposeInfoPlist {
   static String build({
     required KmpProject project,
+    bool simulator = false,
     Map<String, Object?> extras = const {},
   }) {
     final merged = <String, Object?>{..._composeDefaults};
@@ -20,7 +22,7 @@ abstract final class ComposeInfoPlist {
       );
     }
     merged.addAll(_safeMap(extras, 'extras'));
-    merged.addAll(_required(project));
+    merged.addAll(_required(project, simulator));
     return PropertyListSerialization.stringWithPropertyList(merged);
   }
 
@@ -39,7 +41,8 @@ abstract final class ComposeInfoPlist {
     'CADisableMinimumFrameDurationOnPhone': true,
   };
 
-  static Map<String, Object?> _required(KmpProject project) {
+  static Map<String, Object?> _required(KmpProject project, bool simulator) {
+    final target = simulator ? IosTarget.simulator : IosTarget.device;
     final config = project.iosConfig;
     final appName = project.appName;
     final bundleId = project.bundleId;
@@ -53,12 +56,12 @@ abstract final class ComposeInfoPlist {
       'CFBundlePackageType': 'APPL',
       'LSRequiresIPhoneOS': true,
       IosDeploymentConstants.minimumOsVersionKey: '15.0',
-      'CFBundleSupportedPlatforms': ['iPhoneOS'],
+      'CFBundleSupportedPlatforms': [target.platformName],
       'UIRequiredDeviceCapabilities': ['arm64'],
       'UIDeviceFamily': [1],
       'UILaunchScreen': <String, Object?>{},
-      'DTPlatformName': 'iphoneos',
-      'DTSDKName': IosDeploymentConstants.sdkTriple,
+      'DTPlatformName': target.sdkName,
+      'DTSDKName': '${target.sdkName}${IosDeploymentConstants.sdkVersion}',
       'DTPlatformVersion': IosDeploymentConstants.sdkVersion,
     };
   }

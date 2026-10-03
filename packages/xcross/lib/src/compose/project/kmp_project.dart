@@ -105,7 +105,7 @@ final class _KmpProjectDetector {
     }
     if (candidates.isEmpty) {
       throw XcrossError(
-        'No KMP module with iosArm64() + binaries.framework found in $root. Check your build.gradle.kts files.',
+        'No KMP module with iosArm64() or iosSimulatorArm64() + binaries.framework found in $root. Check your build.gradle.kts files.',
       );
     }
     final chosen = candidates.length == 1
@@ -217,7 +217,7 @@ List<_ModuleSpec> _parseIncludedModules(String content, String projectRoot) {
 }
 
 bool _hasIosArm64(String content) =>
-    RegExp(r'iosArm64\s*[({]').hasMatch(content) ||
+    RegExp(r'ios(?:Simulator)?Arm64\s*[({]').hasMatch(content) ||
     content.contains('iosArm64()');
 
 bool _hasFrameworkBlock(String content) =>

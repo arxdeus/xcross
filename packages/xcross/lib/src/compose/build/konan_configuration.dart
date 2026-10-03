@@ -58,7 +58,12 @@ final class KonanConfiguration {
     required KmpProject project,
     required ComposeToolchain toolchain,
   }) async {
-    final baseDir = p.join(project.root, 'build', 'xcross-ios', 'toolchain');
+    final baseDir = p.join(
+      project.root,
+      'build',
+      toolchain.buildOptions.outputDirectory,
+      'toolchain',
+    );
     final fingerprint = await _fingerprint(toolchain);
     final root = p.join(baseDir, fingerprint);
     final markerPath = p.join(root, '.xcross-complete');
@@ -178,6 +183,7 @@ final class KonanConfiguration {
     }
 
     addString(toolchain.host.classifier);
+    addString(toolchain.buildOptions.konanTarget);
     addString(toolchain.kotlinHome);
     addString(toolchain.konanCache);
     addString(toolchain.konancExecutable);
@@ -305,7 +311,8 @@ final class KonanConfiguration {
       properties['targetSysRoot.$target'] = sdk;
       properties['targetToolchain.$host-$target'] = appleToolchain;
     }
-    properties['linker.$host-ios_arm64'] = '$appleToolchain/bin/ld';
+    properties['linker.$host-${toolchain.buildOptions.konanTarget}'] =
+        '$appleToolchain/bin/ld';
     // konan.properties lists ios_arm64 as cacheable only from macOS hosts, so
     // on any other host Kotlin/Native refuses (or silently ignores) compiler
     // caches for it. Without caches a debug link compiles the program and
@@ -314,7 +321,7 @@ final class KonanConfiguration {
     // the caches is host-specific - they are ios_arm64 objects produced by the
     // same compiler - so declare the target cacheable here. This prepared
     // compiler only ever targets ios_arm64, so it is the whole list.
-    properties['cacheableTargets.$host'] = 'ios_arm64';
+    properties['cacheableTargets.$host'] = toolchain.buildOptions.konanTarget;
     return properties;
   }
 

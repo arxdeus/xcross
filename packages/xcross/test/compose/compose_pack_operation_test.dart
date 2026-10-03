@@ -24,6 +24,58 @@ void main() {
       if (root.existsSync()) root.deleteSync(recursive: true);
     });
 
+    test(
+      'simulator pack leaves device outputs and rejects IPA before detection',
+      () async {
+        final project = _project(root.path, KmpEntryKind.runnableApp);
+        final device =
+            File(p.join(root.path, 'build', 'xcross-ios', 'Demo.app', 'Runner'))
+              ..createSync(recursive: true)
+              ..writeAsStringSync('device');
+        final stale =
+            File(
+                p.join(
+                  root.path,
+                  'build',
+                  'xcross-ios-simulator',
+                  'Demo.app',
+                  'Runner',
+                ),
+              )
+              ..createSync(recursive: true)
+              ..writeAsStringSync('simulator');
+        var detections = 0;
+        final operation = ComposePackOperation.withSeams(
+          currentDirectory: () => root.path,
+          detectProject: (path, {bundleId, appName}) {
+            detections++;
+            return project;
+          },
+          packProject: ({required project, required options}) async {
+            expect(options.simulator, isTrue);
+            expect(stale.existsSync(), isFalse);
+            expect(device.readAsStringSync(), 'device');
+            return PackResult(
+              outputPath: 'simulator.app',
+              bundleId: project.bundleId,
+            );
+          },
+        );
+        await expectLater(
+          operation.pack(
+            options: const ComposeBuildOptions(simulator: true, ipa: true),
+          ),
+          throwsA(isA<XcrossError>()),
+        );
+        expect(detections, 0);
+        await operation.pack(
+          options: const ComposeBuildOptions(simulator: true),
+        );
+        expect(detections, 1);
+        expect(device.readAsStringSync(), 'device');
+      },
+    );
+
     test('detects, deletes stale outputs, then delegates packing', () async {
       final events = <String>[];
       final project = _project(root.path, KmpEntryKind.runnableApp);
@@ -245,6 +297,7 @@ void main() {
               required projectRoot,
               required allowInstall,
               required force,
+              required simulator,
             }) async {
               ensures++;
               return _toolchain;
@@ -277,6 +330,7 @@ ComposePacker _packer({
         required projectRoot,
         required allowInstall,
         required force,
+        required simulator,
       }) async {
         events.add('toolchain');
         return _toolchain;
@@ -316,7 +370,12 @@ ComposePacker _packer({
         return 'Runner';
       },
   assembleApp:
-      ({required project, required runnerPath, required frameworkPath}) async {
+      ({
+        required project,
+        required runnerPath,
+        required frameworkPath,
+        required simulator,
+      }) async {
         events.add('assemble');
         return p.join(
           project.root,

@@ -191,20 +191,24 @@ abstract final class ComposeToolchainResolver {
     required ComposeHost host,
     required Map<String, String> environment,
     required String projectRoot,
+    bool simulator = false,
   }) => _default.resolve(
     host: host,
     environment: environment,
     projectRoot: projectRoot,
+    simulator: simulator,
   );
 
   static Future<List<String>> problems({
     required ComposeHost host,
     required Map<String, String> environment,
     required String projectRoot,
+    bool simulator = false,
   }) => _default.problems(
     host: host,
     environment: environment,
     projectRoot: projectRoot,
+    simulator: simulator,
   );
 
   static Future<ComposeToolchain> ensure({
@@ -213,12 +217,14 @@ abstract final class ComposeToolchainResolver {
     required String projectRoot,
     bool allowInstall = true,
     bool force = false,
+    bool simulator = false,
   }) => _default.ensure(
     host: host,
     environment: environment,
     projectRoot: projectRoot,
     allowInstall: allowInstall,
     force: force,
+    simulator: simulator,
   );
 
   static Future<String?> _defaultWhich(
@@ -272,6 +278,7 @@ final class InjectedComposeToolchainResolver {
     required ComposeHost host,
     required Map<String, String> environment,
     required String projectRoot,
+    bool simulator = false,
   }) async {
     final options = ComposeSetupOptions.resolve(
       env: environment,
@@ -283,6 +290,7 @@ final class InjectedComposeToolchainResolver {
       environment: environment,
       projectRoot: projectRoot,
       options: options,
+      simulator: simulator,
     );
     return found.problems.isEmpty ? found.toolchain : null;
   }
@@ -291,6 +299,7 @@ final class InjectedComposeToolchainResolver {
     required ComposeHost host,
     required Map<String, String> environment,
     required String projectRoot,
+    bool simulator = false,
   }) async {
     final options = ComposeSetupOptions.resolve(
       env: environment,
@@ -302,6 +311,7 @@ final class InjectedComposeToolchainResolver {
       environment: environment,
       projectRoot: projectRoot,
       options: options,
+      simulator: simulator,
     );
     return found.problems;
   }
@@ -312,6 +322,7 @@ final class InjectedComposeToolchainResolver {
     required String projectRoot,
     bool allowInstall = true,
     bool force = false,
+    bool simulator = false,
   }) async {
     final options = ComposeSetupOptions.resolve(
       env: environment,
@@ -323,6 +334,7 @@ final class InjectedComposeToolchainResolver {
       environment: environment,
       projectRoot: projectRoot,
       options: options,
+      simulator: simulator,
     );
     if (found.toolchain != null && !force) return found.toolchain!;
     final kotlinProblem = found.problems.firstWhere(
@@ -349,6 +361,7 @@ final class InjectedComposeToolchainResolver {
       host: host,
       environment: environment,
       projectRoot: projectRoot,
+      simulator: simulator,
     );
     if (installed != null) return installed;
     throw XcrossError(
@@ -356,6 +369,7 @@ final class InjectedComposeToolchainResolver {
         host: host,
         environment: environment,
         projectRoot: projectRoot,
+        simulator: simulator,
       )).join('\n'),
     );
   }
@@ -365,6 +379,7 @@ final class InjectedComposeToolchainResolver {
     required Map<String, String> environment,
     required String projectRoot,
     required ComposeSetupOptions options,
+    required bool simulator,
   }) async {
     final problems = <String>[];
     final konancExecutable = host.konancExecutable(options.kotlinHome);
@@ -402,6 +417,18 @@ final class InjectedComposeToolchainResolver {
         'Missing Darwin SDK. Install with `xcross sdk install <Xcode.xip|Xcode.app>` first.',
       );
     }
+    String? sdkPath;
+    if (sdk != null) {
+      try {
+        sdkPath = simulator
+            ? sdk.iPhoneSimulatorSdk() as String
+            : sdk.iPhoneOSSdk() as String;
+      } on Object catch (error) {
+        problems.add(
+          'Missing ${simulator ? 'iPhoneSimulator' : 'iPhoneOS'} SDK. $error',
+        );
+      }
+    }
     String? ld64;
     if (sdk != null) {
       try {
@@ -419,7 +446,8 @@ final class InjectedComposeToolchainResolver {
         swiftc == null ||
         clang == null ||
         ld64 == null ||
-        sdk == null) {
+        sdk == null ||
+        sdkPath == null) {
       return _ResolvedToolchain(null, problems);
     }
     return _ResolvedToolchain(
@@ -434,7 +462,8 @@ final class InjectedComposeToolchainResolver {
         swiftc: swiftc,
         clang: clang,
         ld64Lld: ld64,
-        darwinSdkPath: sdk.iPhoneOSSdk() as String,
+        darwinSdkPath: sdkPath,
+        simulator: simulator,
         darwinSdkBundle: sdk.swiftSdkPath as String,
       ),
       problems,

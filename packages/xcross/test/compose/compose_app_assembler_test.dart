@@ -8,6 +8,113 @@ import 'package:xcross/src/errors.dart';
 
 void main() {
   test(
+    'simulator bundle isolates resources plist output and ad-hoc signing',
+    () async {
+      final fixture = _Fixture.create()..createInputs();
+      addTearDown(fixture.dispose);
+      final deviceApp = fixture.createPreviousApp();
+      fixture.createResources(
+        'kotlin-multiplatform-resources/aggregated-resources/iosArm64',
+        {'composeResources/sample/device.txt': 'device'},
+      );
+      fixture.createResources(
+        'kotlin-multiplatform-resources/aggregated-resources/iosSimulatorArm64',
+        {'composeResources/sample/sim.txt': 'simulator'},
+      );
+      final signed = <String>[];
+      final app =
+          await ComposeAppAssembler.withSeams(
+            signSimulator: (path) async {
+              expect(File(p.join(path, 'Runner')).existsSync(), isTrue);
+              expect(
+                File(
+                  p.join(
+                    path,
+                    'compose-resources',
+                    'composeResources',
+                    'sample',
+                    'sim.txt',
+                  ),
+                ).existsSync(),
+                isTrue,
+              );
+              signed.add(path);
+            },
+          ).assemble(
+            project: fixture.project,
+            runnerPath: fixture.runnerPath,
+            frameworkPath: fixture.frameworkPath,
+            simulator: true,
+          );
+      expect(
+        app,
+        p.join(fixture.root, 'build', 'xcross-ios-simulator', 'Example.app'),
+      );
+      expect(signed, hasLength(1));
+      expect(
+        File(p.join(deviceApp, 'Runner')).readAsStringSync(),
+        'old-runner',
+      );
+      expect(
+        File(
+          p.join(
+            app,
+            'compose-resources',
+            'composeResources',
+            'sample',
+            'device.txt',
+          ),
+        ).existsSync(),
+        isFalse,
+      );
+      final plist =
+          PropertyListSerialization.propertyListWithString(
+                File(p.join(app, 'Info.plist')).readAsStringSync(),
+              )
+              as Map;
+      expect(plist['CFBundleSupportedPlatforms'], ['iPhoneSimulator']);
+      expect(plist['DTPlatformName'], 'iphonesimulator');
+      expect(plist['DTSDKName'], startsWith('iphonesimulator'));
+      expect(
+        File(p.join(app, 'embedded.mobileprovision')).existsSync(),
+        isFalse,
+      );
+    },
+  );
+
+  test(
+    'failed simulator signing preserves previous simulator bundle',
+    () async {
+      final fixture = _Fixture.create()..createInputs();
+      addTearDown(fixture.dispose);
+      final previous =
+          File(
+              p.join(
+                fixture.root,
+                'build',
+                'xcross-ios-simulator',
+                'Example.app',
+                'Runner',
+              ),
+            )
+            ..createSync(recursive: true)
+            ..writeAsStringSync('old');
+      await expectLater(
+        ComposeAppAssembler.withSeams(
+          signSimulator: (_) async => throw StateError('signing failed'),
+        ).assemble(
+          project: fixture.project,
+          runnerPath: fixture.runnerPath,
+          frameworkPath: fixture.frameworkPath,
+          simulator: true,
+        ),
+        throwsStateError,
+      );
+      expect(previous.readAsStringSync(), 'old');
+    },
+  );
+
+  test(
     'assembles clean app bundle with runner plist framework and executable bits',
     () async {
       final fixture = _Fixture.create()..createInputs();

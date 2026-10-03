@@ -214,6 +214,17 @@ void main() {
             projectRoot: home.path,
           );
           expect(toolchain!.gradleInvocation, [p.join(home.path, 'gradlew')]);
+          final simulator = await resolver.ensure(
+            host: ComposeHost.macosArm64,
+            environment: environment,
+            projectRoot: home.path,
+            simulator: true,
+            allowInstall: false,
+          );
+          expect(simulator.simulator, isTrue);
+          expect(simulator.darwinSdkPath, '/sdk/iPhoneSimulator.sdk');
+          expect(toolchain.simulator, isFalse);
+          expect(toolchain.darwinSdkPath, '/sdk');
           expect(toolchain.konancInvocation(['-version']), [
             options.host.konancExecutable(options.kotlinHome),
             '-version',
@@ -1448,4 +1459,5 @@ final class FakeDarwinSdk {
   final String _iphoneSdk;
 
   String iPhoneOSSdk() => _iphoneSdk;
+  String iPhoneSimulatorSdk() => '$swiftSdkPath/iPhoneSimulator.sdk';
 }

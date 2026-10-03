@@ -8,6 +8,49 @@ import 'package:xcross/src/compose/compose.dart';
 import 'package:xcross/src/errors.dart';
 
 void main() {
+  test(
+    'simulator cache plan selects simulator platform and compile target',
+    () async {
+      final fixture = _Fixture.create(simulator: true);
+      addTearDown(fixture.dispose);
+      final plan = fixture.plan();
+      expect(plan.konanTarget, 'ios_simulator_arm64');
+      expect(
+        plan.moduleCacheRoot,
+        contains('/build/xcross-ios-simulator/konan-caches/'),
+      );
+      expect(
+        plan.libraries
+            .where((node) => node.uniqueName.contains('native.platform'))
+            .every(
+              (node) => node.path.contains('/platform/ios_simulator_arm64/'),
+            ),
+        isTrue,
+      );
+      final calls = <List<String>>[];
+      await const KotlinNativeCaches(jobs: 1).build(
+        plan: plan,
+        prepared: fixture.prepared,
+        klib: fixture.klib,
+        workingDirectory: fixture.root,
+        run:
+            (
+              executable,
+              arguments, {
+              required workingDirectory,
+              required environment,
+            }) async {
+              calls.add(arguments);
+              _produceCache(arguments, plan);
+            },
+      );
+      expect(calls, isNotEmpty);
+      for (final call in calls) {
+        expect(call, containsAllInOrder(['-target', 'ios_simulator_arm64']));
+      }
+    },
+  );
+
   group('parseJavaProperties', () {
     test('unescapes keys and values the way klib manifests write them', () {
       final properties = parseJavaProperties(
@@ -405,15 +448,21 @@ String _unpackedKlib(
 }
 
 final class _Fixture {
-  _Fixture._(this.temp);
+  _Fixture._(this.temp, this.simulator);
 
-  factory _Fixture.create() {
+  factory _Fixture.create({bool simulator = false}) {
     final fixture = _Fixture._(
       Directory.systemTemp.createTempSync('xcross_konan_caches_'),
+      simulator,
     );
     final home = fixture.kotlinHome;
     _unpackedKlib(p.join(home, 'klib', 'common'), 'stdlib', 'stdlib', const []);
-    final platform = p.join(home, 'klib', 'platform', 'ios_arm64');
+    final platform = p.join(
+      home,
+      'klib',
+      'platform',
+      simulator ? 'ios_simulator_arm64' : 'ios_arm64',
+    );
     _unpackedKlib(
       platform,
       'org.jetbrains.kotlin.native.platform.Foundation',
@@ -465,6 +514,7 @@ final class _Fixture {
   }
 
   final Directory temp;
+  final bool simulator;
 
   String get root => p.join(temp.path, 'project');
   String get modulePath => p.join(root, 'shared');
@@ -497,7 +547,8 @@ final class _Fixture {
   );
 
   ComposeToolchain get toolchain => ComposeToolchain(
-    host: ComposeHost.linuxX64,
+    host: simulator ? ComposeHost.macosArm64 : ComposeHost.linuxX64,
+    simulator: simulator,
     kotlinHome: kotlinHome,
     konanCache: p.join(temp.path, 'konan-cache'),
     konancExecutable: p.join(kotlinHome, 'bin', 'konanc'),

@@ -57,6 +57,9 @@ final class ComposePackOperationWithSeams {
     required ComposeBuildOptions options,
     bool requireRunnableApp = false,
   }) async {
+    if (options.simulator && options.ipa) {
+      throw XcrossError('Simulator builds cannot be packaged as an IPA.');
+    }
     final project = _detectProject(
       _currentDirectory(),
       bundleId: options.bundleId,
@@ -66,17 +69,25 @@ final class ComposePackOperationWithSeams {
         (requireRunnableApp || options.ipa)) {
       throw XcrossError('This KMP project produces a framework only.');
     }
-    await _deleteStaleOutputs(project);
+    await _deleteStaleOutputs(project, options);
     return _packProject(project: project, options: options);
   }
 
-  Future<void> _deleteStaleOutputs(KmpProject project) async {
+  Future<void> _deleteStaleOutputs(
+    KmpProject project,
+    ComposeBuildOptions options,
+  ) async {
     for (final path in [
-      p.join(project.root, 'build', 'xcross-ios', '${project.appName}.app'),
       p.join(
         project.root,
         'build',
-        'xcross-ios',
+        options.outputDirectory,
+        '${project.appName}.app',
+      ),
+      p.join(
+        project.root,
+        'build',
+        options.outputDirectory,
         '${project.baseName}.framework',
       ),
     ]) {
