@@ -26,8 +26,11 @@ void main() {
     });
   });
 
-  test('leaves paths alone off Windows', () {
+  test('POSIX paths anchor relative names without rewriting traversal', () {
     expect(LinuxHost().paths.ioPath('/usr/lib/x'), '/usr/lib/x');
-    expect(MacOSHost().paths.ioPath('relative/x'), 'relative/x');
+    final paths = MacOSHost(currentDirectory: '/snapshot').paths;
+    expect(paths.ioPath('relative/x'), '/snapshot/relative/x');
+    expect(paths.ioPath('link/../x'), '/snapshot/link/../x');
+    expect(paths.ioPath('/absolute/link/../x'), '/absolute/link/../x');
   });
 }
