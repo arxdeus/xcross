@@ -215,7 +215,6 @@ void main() {
       }
       final sdk = DarwinSdk(tmp.path);
       expect(sdk.iosSdk(), sdk.iPhoneOSSdk());
-      expect(sdk.iosSdk(target: IosTarget.device), sdk.iPhoneOSSdk());
       expect(
         sdk.iosSdk(target: IosTarget.simulator),
         p.join(

@@ -627,6 +627,178 @@ void main() {
     );
   });
 
+  group('SDK symlink graph safety', () {
+    const swift = 'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift';
+    const clang = 'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang';
+    late Directory fixture;
+    late String destination;
+    late File sentinel;
+
+    setUp(() {
+      fixture = Directory.systemTemp.createTempSync('xcross-sdk-link-graph-');
+      destination = p.join(fixture.path, 'scope', 'bundle');
+      sentinel = File(p.join(fixture.path, 'victim', 'include', 'sentinel'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('untouched');
+    });
+    tearDown(() => fixture.deleteSync(recursive: true));
+
+    Future<void> rejectsBeforePublication(
+      List<CpioEntry> entries, {
+      required bool materialize,
+    }) async {
+      var published = 0;
+      await expectLater(
+        SdkInstall.writeSdkEntries(
+          Stream.fromIterable(entries),
+          destination,
+          materializeLinks: materialize,
+          onLinkProgress: (_, _) => published++,
+        ),
+        throwsA(isA<XcrossError>()),
+      );
+      expect(published, 0);
+      expect(sentinel.readAsStringSync(), 'untouched');
+      expect(sentinel.parent.listSync().length, 1);
+      expect(
+        Directory(
+          destination,
+        ).listSync(recursive: true, followLinks: false).whereType<Link>(),
+        isEmpty,
+      );
+    }
+
+    for (final materialize in [false, true]) {
+      for (final reverse in [false, true]) {
+        for (final reference in ['redirect', 'REDIRECT', 'hop']) {
+          test(
+            'rejects semantic dotdot escape $materialize/$reverse/$reference',
+            () async {
+              final links = [
+                entry('$swift/redirect', mode: 0xa1ff, data: '../../../../../'),
+                if (reference == 'hop')
+                  entry('$swift/hop', mode: 0xa1ff, data: 'redirect'),
+                entry(
+                  '$swift/clang',
+                  mode: 0xa1ff,
+                  data: '$reference/../../../victim',
+                ),
+              ];
+              await rejectsBeforePublication(
+                reverse ? links.reversed.toList() : links,
+                materialize: materialize,
+              );
+            },
+            skip: !materialize && Platform.isWindows,
+          );
+        }
+
+        test('rejects link cycles $materialize/$reverse', () async {
+          final links = [
+            entry('$swift/first', mode: 0xa1ff, data: 'second'),
+            entry('$swift/second', mode: 0xa1ff, data: 'FIRST'),
+          ];
+          await rejectsBeforePublication(
+            reverse ? links.reversed.toList() : links,
+            materialize: materialize,
+          );
+        }, skip: !materialize && Platform.isWindows);
+
+        for (final child in [
+          entry('$swift/alias/child', mode: 0xa1ff, data: '../../outside'),
+          entry('$swift/ALIAS/child', data: 'shadowed'),
+          entry('$swift/alias', data: 'shadowed'),
+          entry('$swift/ALIAS', mode: 0xa1ff, data: '../clang/18'),
+        ]) {
+          test(
+            'rejects overlapping destinations $materialize/$reverse/${child.name}/${child.mode}',
+            () async {
+              final entries = [
+                entry('$swift/alias', mode: 0xa1ff, data: '../clang/17'),
+                child,
+              ];
+              await rejectsBeforePublication(
+                reverse ? entries.reversed.toList() : entries,
+                materialize: materialize,
+              );
+            },
+            skip: !materialize && Platform.isWindows,
+          );
+        }
+      }
+
+      test(
+        'uses semantic targets for safe nested dotdot aliases $materialize',
+        () async {
+          await SdkInstall.writeSdkEntries(
+            Stream.fromIterable([
+              entry('$clang/17', mode: 0x41ed),
+              entry('$clang/18/include/header.h', data: 'correct target'),
+              entry('$swift/18/include/header.h', data: 'lexical target'),
+              entry(
+                '$swift/alias',
+                mode: 0xa1ff,
+                data: 'redirect/../18/include',
+              ),
+              entry('$swift/redirect', mode: 0xa1ff, data: '../clang/17'),
+            ]),
+            destination,
+            materializeLinks: materialize,
+          );
+          expect(
+            File(
+              p.joinAll([
+                destination,
+                ...swift.split('/'),
+                'alias',
+                'header.h',
+              ]),
+            ).readAsStringSync(),
+            'correct target',
+          );
+          expect(sentinel.readAsStringSync(), 'untouched');
+        },
+        skip: !materialize && Platform.isWindows,
+      );
+    }
+
+    test(
+      'rejects recursive ancestor copies before materializing any link',
+      () async {
+        await rejectsBeforePublication([
+          entry('$swift/header.h', data: 'header'),
+          entry('$swift/copy.h', mode: 0xa1ff, data: 'header.h'),
+          entry('$swift/ancestor', mode: 0xa1ff, data: '..'),
+        ], materialize: true);
+        expect(
+          File(
+            p.joinAll([destination, ...swift.split('/'), 'copy.h']),
+          ).existsSync(),
+          isFalse,
+        );
+      },
+    );
+
+    test('preserves internal POSIX ancestor and bundle aliases', () async {
+      await SdkInstall.writeSdkEntries(
+        Stream.fromIterable([
+          entry('$swift/header.h', data: 'header'),
+          entry('$swift/ancestor', mode: 0xa1ff, data: '..'),
+          entry('$swift/bundle', mode: 0xa1ff, data: '../../../../../..'),
+        ]),
+        destination,
+        materializeLinks: false,
+      );
+      final installed = p.joinAll([destination, ...swift.split('/')]);
+      expect(Link(p.join(installed, 'ancestor')).targetSync(), '..');
+      expect(
+        Directory(p.join(installed, 'bundle')).resolveSymbolicLinksSync(),
+        Directory(destination).resolveSymbolicLinksSync(),
+      );
+      expect(sentinel.readAsStringSync(), 'untouched');
+    }, skip: Platform.isWindows);
+  });
+
   test('materializes the Swift compatibility layout', () async {
     final temp = Directory.systemTemp.createTempSync('xcross-sdk-layout-');
     addTearDown(() => temp.deleteSync(recursive: true));
@@ -1034,8 +1206,8 @@ void main() {
             final key = p
                 .relative(file.path, from: bundle.path)
                 .replaceAll(r'\', '/');
-            final oldMetadata = (before['metadata'] as Map)[key] as Map;
-            final newMetadata = (after['metadata'] as Map)[key] as Map;
+            final oldMetadata = (before['metadata']! as Map)[key]! as Map;
+            final newMetadata = (after['metadata']! as Map)[key]! as Map;
             expect(oldMetadata['size'], newMetadata['size']);
             expect(oldMetadata['modified'], newMetadata['modified']);
             expect(oldMetadata['digest'], isNot(newMetadata['digest']));

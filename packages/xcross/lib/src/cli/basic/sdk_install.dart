@@ -76,7 +76,7 @@ abstract final class SdkInstall {
     }
     for (final relative in [...sdkIncludedRoots, ...sdkIncludedFiles]) {
       final source = p.joinAll([contents, ...relative.split('/')]);
-      final type = await FileSystemEntity.type(source, followLinks: false);
+      final type = FileSystemEntity.typeSync(source, followLinks: false);
       if (type == FileSystemEntityType.notFound) continue;
       final resolved = switch (type) {
         FileSystemEntityType.directory => await Directory(
@@ -93,7 +93,7 @@ abstract final class SdkInstall {
       await for (final entity in Directory(
         source,
       ).list(recursive: true, followLinks: false)) {
-        final entityType = await FileSystemEntity.type(
+        final entityType = FileSystemEntity.typeSync(
           entity.path,
           followLinks: false,
         );
@@ -127,7 +127,7 @@ abstract final class SdkInstall {
         final file = File(source);
         return CpioEntry(
           name: name,
-          mode: _regularFileType | ((await file.stat()).mode & 0x1ff),
+          mode: _regularFileType | (file.statSync().mode & 0x1ff),
           data: await file.readAsBytes(),
         );
       default:
@@ -185,6 +185,7 @@ abstract final class SdkInstall {
     final root = p.normalize(p.absolute(destDir));
     await Directory(ioPath(root)).create(recursive: true);
     final links = <String, String>{};
+    final paths = <String, (String, int)>{};
     final hardLinks = HardLinkPayloads();
     final descriptors = <String, String>{};
     var written = 0;
@@ -200,6 +201,12 @@ abstract final class SdkInstall {
       );
       final destPath = _destinationPath(root, entry);
       if (destPath == null) continue;
+      if (fileType == _directoryType ||
+          fileType == _symbolicLinkType ||
+          fileType == _regularFileType ||
+          fileType == 0) {
+        _recordSdkPath(root, paths, destPath, fileType);
+      }
       _recordDescriptorSource(descriptors, destPath, entry.name);
 
       // Text stubs are rewritten on the way in rather than in a pass over
@@ -235,15 +242,18 @@ abstract final class SdkInstall {
       onProgress?.call(written);
     }
 
+    final resolvedLinks = _resolvedSdkLinks(root, links);
     if (materializeLinks ?? Platform.isWindows) {
-      await _materializeSdkLinks(root, links, onProgress: onLinkProgress);
+      await _materializeSdkLinks(resolvedLinks, onProgress: onLinkProgress);
       // Keep both names: callers may reference the canonical iPhoneOS.sdk
       // directly even when discovery prefers its versioned counterpart.
     } else {
       var linked = 0;
-      for (final link in links.entries) {
-        _resolvedSdkLinkTarget(root, link.key, link.value);
-        await Link(link.key).create(link.value, recursive: true);
+      for (final link in resolvedLinks.entries) {
+        await Link(link.key).create(
+          p.relative(link.value, from: p.dirname(link.key)),
+          recursive: true,
+        );
         onLinkProgress?.call(++linked, links.length);
       }
     }
@@ -303,20 +313,33 @@ abstract final class SdkInstall {
   /// of its target. Targets may themselves be links, so this loops until no
   /// link makes progress; a directory waits until nothing else links inside it.
   static Future<void> _materializeSdkLinks(
-    String root,
     Map<String, String> links, {
     void Function(int done, int total)? onProgress,
   }) async {
+    for (final link in links.entries) {
+      final target = link.value.toLowerCase();
+      final destination = link.key.toLowerCase();
+      if (FileSystemEntity.typeSync(ioPath(link.value)) ==
+              FileSystemEntityType.directory &&
+          (target == destination || p.isWithin(target, destination))) {
+        throw XcrossError(
+          'Cannot materialize an SDK directory symlink inside its target: '
+          '${link.key}',
+        );
+      }
+    }
     final pending = Map<String, String>.from(links);
     while (pending.isNotEmpty) {
       var progressed = false;
       for (final link in pending.entries.toList()) {
-        final target = _resolvedSdkLinkTarget(root, link.key, link.value);
+        final target = link.value;
         final type = FileSystemEntity.typeSync(ioPath(target));
         if (type == FileSystemEntityType.notFound) continue;
         if (type == FileSystemEntityType.directory &&
             pending.keys.any(
-              (other) => other != link.key && p.isWithin(target, other),
+              (other) =>
+                  other != link.key &&
+                  p.isWithin(target.toLowerCase(), other.toLowerCase()),
             )) {
           continue;
         }
@@ -352,8 +375,8 @@ abstract final class SdkInstall {
   ) {
     final aliases = <String>{};
     final versioned = RegExp(r'^(.+?)[0-9]+(?:\.[0-9]+)*\.sdk$');
-    for (final link in links.entries) {
-      final target = _resolvedSdkLinkTarget(root, link.key, link.value);
+    for (final link in _resolvedSdkLinks(root, links).entries) {
+      final target = link.value;
       final parent = p.dirname(link.key);
       if (!p.isWithin(root, link.key) ||
           p.basename(parent) != 'SDKs' ||
@@ -375,20 +398,94 @@ abstract final class SdkInstall {
   }
 
   /// Resolves a link target and rejects anything reaching outside the bundle.
-  static String _resolvedSdkLinkTarget(
+  static Map<String, String> _resolvedSdkLinks(
     String root,
-    String link,
-    String rawTarget,
+    Map<String, String> links,
   ) {
-    final targetPath = rawTarget.replaceAll('/', p.separator);
-    if (p.isAbsolute(targetPath)) {
-      throw XcrossError('SDK symlink target is absolute: $rawTarget');
+    final folded = <String, String>{};
+    for (final link in links.entries) {
+      if (!p.isWithin(root, link.key)) {
+        throw XcrossError('SDK symlink is outside the SDK: ${link.key}');
+      }
+      final key = link.key.toLowerCase();
+      if (folded.containsKey(key)) {
+        throw XcrossError('Case-ambiguous SDK symlinks: ${link.key}');
+      }
+      folded[key] = link.value;
     }
-    final target = p.normalize(p.join(p.dirname(link), targetPath));
-    if (!p.isWithin(root, target)) {
-      throw XcrossError('SDK symlink escapes the SDK: $rawTarget');
+    for (final link in links.keys) {
+      var parent = p.dirname(link);
+      while (p.isWithin(root, parent)) {
+        if (folded.containsKey(parent.toLowerCase())) {
+          throw XcrossError('Overlapping SDK symlinks: $link');
+        }
+        parent = p.dirname(parent);
+      }
     }
-    return target;
+    return {
+      for (final link in links.keys)
+        link: _resolvedSdkLinkPath(root, link, folded),
+    };
+  }
+
+  static void _recordSdkPath(
+    String root,
+    Map<String, (String, int)> paths,
+    String path,
+    int type,
+  ) {
+    var candidate = path;
+    var candidateType = type == 0 ? _regularFileType : type;
+    while (p.isWithin(root, candidate)) {
+      final key = candidate.toLowerCase();
+      final previous = paths[key];
+      if (previous != null &&
+          (previous.$1 != candidate || previous.$2 != candidateType)) {
+        throw XcrossError('Ambiguous SDK entry path: $path');
+      }
+      paths[key] = (candidate, candidateType);
+      candidate = p.dirname(candidate);
+      candidateType = _directoryType;
+    }
+  }
+
+  static String _resolvedSdkLinkPath(
+    String root,
+    String path,
+    Map<String, String> links,
+  ) {
+    final components = p.split(p.relative(path, from: root));
+    final resolved = <String>[];
+    var expansions = 0;
+    while (components.isNotEmpty) {
+      final component = components.removeAt(0);
+      if (component.isEmpty || component == '.') continue;
+      if (component == '..') {
+        if (resolved.isEmpty) {
+          throw XcrossError('SDK symlink escapes the SDK: $path');
+        }
+        resolved.removeLast();
+        continue;
+      }
+      resolved.add(component);
+      final candidate = p.joinAll([root, ...resolved]);
+      final target = links[candidate.toLowerCase()];
+      if (target == null) continue;
+      if (++expansions > 40) {
+        throw XcrossError('SDK symlink cycle or excessive chain: $path');
+      }
+      final targetPath = target.replaceAll('/', p.separator);
+      if (p.isAbsolute(targetPath)) {
+        throw XcrossError('SDK symlink target is absolute: $target');
+      }
+      resolved.removeLast();
+      components.insertAll(0, p.split(targetPath));
+    }
+    final result = p.joinAll([root, ...resolved]);
+    if (result != root && !p.isWithin(root, result)) {
+      throw XcrossError('SDK symlink escapes the SDK: $path');
+    }
+    return result;
   }
 
   static Future<void> _copySdkDirectory(
