@@ -1,5 +1,3 @@
-import 'dart:io';
-
 enum TuiKey {
   tab,
   backTab,
@@ -23,44 +21,6 @@ abstract interface class TuiTerminal {
   int readByte();
   String? readLine();
   void write(String value);
-}
-
-final class IoTuiTerminal implements TuiTerminal {
-  late bool _echoMode;
-  late bool _lineMode;
-  bool _raw = false;
-
-  @override
-  bool get isInteractive => stdin.hasTerminal;
-
-  @override
-  void enterRaw() {
-    if (_raw) return;
-    _echoMode = stdin.echoMode;
-    _lineMode = stdin.lineMode;
-    stdin
-      ..echoMode = false
-      ..lineMode = false;
-    _raw = true;
-  }
-
-  @override
-  void leaveRaw() {
-    if (!_raw) return;
-    stdin
-      ..echoMode = _echoMode
-      ..lineMode = _lineMode;
-    _raw = false;
-  }
-
-  @override
-  int readByte() => stdin.readByteSync();
-
-  @override
-  String? readLine() => stdin.readLineSync();
-
-  @override
-  void write(String value) => stdout.write(value);
 }
 
 abstract final class AnsiTuiStyle {
@@ -194,14 +154,12 @@ abstract final class AnsiTuiRenderer {
 
 final class AnsiTui {
   AnsiTui({
-    TuiTerminal? terminal,
-    Map<String, String>? environment,
+    required this.terminal,
+    Map<String, String> environment = const {},
     bool? useAnsi,
     bool? useColor,
-  }) : terminal = terminal ?? IoTuiTerminal(),
-       useAnsi = useAnsi ?? supportsAnsi(environment ?? Platform.environment),
-       useColor =
-           useColor ?? supportsColor(environment ?? Platform.environment);
+  }) : useAnsi = useAnsi ?? supportsAnsi(environment),
+       useColor = useColor ?? supportsColor(environment);
 
   final TuiTerminal terminal;
   final bool useAnsi;

@@ -2,13 +2,11 @@ import 'dart:async';
 import 'dart:io';
 
 // ignore: implementation_imports
-import 'package:cli_kit/src/errors.dart';
-// ignore: implementation_imports
-import 'package:cli_kit/src/logging.dart';
-// ignore: implementation_imports
-import 'package:cli_kit/src/process.dart';
+import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+
+import 'support/test_log_output.dart';
 
 List<String> _capture(void Function() body) {
   final lines = <String>[];
@@ -33,6 +31,11 @@ Future<List<String>> _captureAsync(Future<void> Function() body) async {
 }
 
 void main() {
+  final log = Log(output: TestLogOutput(emit: print));
+  final nativeHost = detectPlatformHost();
+  late ProcessRunner<PlatformHostInterface> runner;
+  setUp(() => runner = ProcessRunner(nativeHost, log: log));
+
   late Directory temp;
 
   setUpAll(() {
@@ -57,31 +60,31 @@ void main() {
     return [file.path];
   }
 
-  group('Log.activeStep', () {
+  group('log.activeStep', () {
     test('is null when no phase is running', () {
-      Log.stopStep();
-      expect(Log.activeStep, isNull);
+      log.stopStep();
+      expect(log.activeStep, isNull);
     });
 
     // runTool reaches for this instead of threading a Step through every
     // builder, so a closed phase must not leave a dangling tail behind.
     test('tracks the running phase and clears on close', () {
       _capture(() {
-        final step = Log.beginStep('Building');
-        expect(Log.activeStep, same(step));
+        final step = log.beginStep('Building');
+        expect(log.activeStep, same(step));
         step.done();
-        expect(Log.activeStep, isNull);
+        expect(log.activeStep, isNull);
       });
     });
   });
 
-  group('ProcessRunner.runTool', () {
+  group('runner.runTool', () {
     // The whole point: Gradle and konanc print hundreds of lines, and a
     // successful build should show nothing but its own phase.
     test('keeps a successful tool quiet', () async {
       final lines = await _captureAsync(() async {
-        final step = Log.beginStep('Compiling');
-        await ProcessRunner.runTool(
+        final step = log.beginStep('Compiling');
+        await runner.runTool(
           Platform.resolvedExecutable,
           script('ok', '> Task :shared:compileKotlinIosArm64'),
         );
@@ -94,9 +97,9 @@ void main() {
     // output is the only surviving copy of why the build broke.
     test('quotes the output when the tool fails', () async {
       await _captureAsync(() async {
-        final step = Log.beginStep('Compiling');
+        final step = log.beginStep('Compiling');
         await expectLater(
-          ProcessRunner.runTool(
+          runner.runTool(
             Platform.resolvedExecutable,
             script('bad', 'e: Unresolved reference', exitCode: 1),
           ),
@@ -113,9 +116,9 @@ void main() {
     });
 
     test('runs with no phase on screen', () async {
-      Log.stopStep();
+      log.stopStep();
       await _captureAsync(
-        () => ProcessRunner.runTool(
+        () => runner.runTool(
           Platform.resolvedExecutable,
           script('bare', 'no phase'),
         ),

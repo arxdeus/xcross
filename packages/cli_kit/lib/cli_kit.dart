@@ -1,13 +1,34 @@
 /// Shared CLI utilities for logging, processes, downloads, and privileges.
 library;
 
+export 'src/composition/native_host.dart';
 export 'src/download.dart';
 export 'src/errors.dart';
-export 'src/host_paths.dart';
-export 'src/host_privileges.dart';
+export 'src/host/linux/linux_host.dart';
+export 'src/host/linux/linux_permissions.dart';
+export 'src/host/macos/macos_host.dart';
+export 'src/host/macos/macos_permissions.dart';
+export 'src/host/shared/io_tui_terminal.dart';
+export 'src/host/shared/native_file_system.dart';
+export 'src/host/shared/posix_environment.dart';
+export 'src/host/shared/posix_paths.dart';
+export 'src/host/shared/posix_privileges.dart';
+export 'src/host/shared/posix_processes.dart';
+export 'src/host/windows/windows_batch.dart';
+export 'src/host/windows/windows_environment.dart';
+export 'src/host/windows/windows_file_system.dart';
+export 'src/host/windows/windows_host.dart';
+export 'src/host/windows/windows_paths.dart';
+export 'src/host/windows/windows_privileges.dart';
+export 'src/host/windows/windows_processes.dart';
 export 'src/local_http.dart';
 export 'src/logging.dart';
 export 'src/process.dart';
 export 'src/progress.dart';
-export 'src/sudo.dart';
+export 'src/shared/platform/platform_host.dart';
+export 'src/shared/process/process_executor.dart';
+export 'src/shared/process/process_helpers.dart';
+export 'src/shared/process/process_models.dart';
+export 'src/shared/process/tool_lookup.dart';
+export 'src/target/shared/platform_target.dart';
 export 'src/tui.dart';

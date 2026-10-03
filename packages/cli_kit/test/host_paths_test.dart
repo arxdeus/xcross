@@ -1,9 +1,9 @@
-import 'package:cli_kit/src/host_paths.dart';
+import 'package:cli_kit/cli_kit.dart';
 import 'package:test/test.dart';
 
 void main() {
-  // `windows: true` everywhere, so the Win32 form is covered from any host.
-  String long(String path) => HostPaths.long(path, windows: true);
+  final windows = WindowsHost();
+  String long(String path) => windows.paths.ioPath(path);
 
   group('HostPaths.long on Windows', () {
     test('prefixes an absolute path so it can exceed MAX_PATH', () {
@@ -27,7 +27,7 @@ void main() {
   });
 
   test('leaves paths alone off Windows', () {
-    expect(HostPaths.long('/usr/lib/x', windows: false), '/usr/lib/x');
-    expect(HostPaths.long('relative/x', windows: false), 'relative/x');
+    expect(LinuxHost().paths.ioPath('/usr/lib/x'), '/usr/lib/x');
+    expect(MacOSHost().paths.ioPath('relative/x'), 'relative/x');
   });
 }
