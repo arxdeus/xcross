@@ -1,23 +1,29 @@
 import 'dart:io';
+
 import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/compose/compose.dart';
 import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/host/linux/compose/linux_compose_host.dart';
+import 'package:xcross/src/host/macos/compose/macos_compose_host.dart';
+import 'package:xcross/src/host/windows/compose/windows_compose_host.dart';
+import 'package:xcross/src/target/iphone/compose/iphone_compose_target.dart';
+import 'package:xcross/src/target/simulator/compose/simulator_compose_target.dart';
+
 import 'support/compose_platforms.dart';
 
 void main() {
   late ComposeTestSession session;
   setUp(() {
-    session = ComposeTestSession();
+    session = createComposeTestSession();
   });
   tearDown(() => session.dispose());
   test(
     'explicit fixture sessions isolate effects and dispose owned resources',
     () async {
-      final first = ComposeTestSession();
-      final second = ComposeTestSession();
+      final first = createComposeTestSession();
+      final second = createComposeTestSession();
       try {
         expect(identical(first.fixtureRunner, second.fixtureRunner), isFalse);
         expect(identical(first.fixtureTools, second.fixtureTools), isFalse);

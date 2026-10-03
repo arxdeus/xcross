@@ -22,7 +22,7 @@ const int invokeSpecial = 0xB7; // INVOKESPECIAL
 void main() {
   late ComposeTestSession session;
   setUp(() {
-    session = ComposeTestSession();
+    session = createComposeTestSession();
   });
   tearDown(() => session.dispose());
   test(

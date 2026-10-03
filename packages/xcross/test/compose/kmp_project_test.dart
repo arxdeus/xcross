@@ -11,7 +11,7 @@ import 'support/compose_platforms.dart';
 void main() {
   late ComposeTestSession session;
   setUp(() {
-    session = ComposeTestSession();
+    session = createComposeTestSession();
   });
   tearDown(() => session.dispose());
   group('KmpProject.detect', () {

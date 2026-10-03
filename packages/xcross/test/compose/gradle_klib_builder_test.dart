@@ -7,13 +7,14 @@ import 'package:xcross/src/compose/build/gradle_klib_builder.dart';
 import 'package:xcross/src/compose/project/kmp_project.dart';
 import 'package:xcross/src/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/shared/compose/compose_host.dart';
+import 'package:xcross/src/target/shared/compose/compose_target.dart';
 
 import 'support/compose_platforms.dart';
 
 void main() {
   late ComposeTestSession session;
   setUp(() {
-    session = ComposeTestSession();
+    session = createComposeTestSession();
   });
   tearDown(() => session.dispose());
   test('compiles simulator Gradle klib and only simulator resources', () async {
@@ -21,8 +22,7 @@ void main() {
         ComposeFixture.create(
             session,
             moduleName: 'app:shared',
-            host: session.hosts.macosArm64,
-            simulator: true,
+            target: fixtureSimulatorTargetFor(session.hosts.macosArm64),
           )
           ..createWrapper()
           ..createModuleKlib();
@@ -55,7 +55,7 @@ void main() {
           ComposeFixture.create(
               session,
               moduleName: 'shared',
-              host: session.hosts.macosArm64,
+              target: fixtureIPhoneTargetFor(session.hosts.macosArm64),
             )
             ..createWrapper()
             ..createModuleKlib();
@@ -91,7 +91,7 @@ void main() {
           ComposeFixture.create(
               session,
               moduleName: 'a:b',
-              host: session.hosts.linuxX64,
+              target: fixtureIPhoneTargetFor(session.hosts.linuxX64),
             )
             ..createWrapper()
             ..createModuleKlib();
@@ -206,7 +206,7 @@ void main() {
           ComposeFixture.create(
               session,
               moduleName: 'app:shared',
-              host: session.hosts.linuxX64,
+              target: fixtureIPhoneTargetFor(session.hosts.linuxX64),
             )
             ..createWrapper()
             ..createModuleKlib();
@@ -279,7 +279,7 @@ void main() {
         ComposeFixture.create(
             session,
             moduleName: 'shared',
-            host: session.hosts.linuxX64,
+            target: fixtureIPhoneTargetFor(session.hosts.linuxX64),
           )
           ..createWrapper()
           ..createModuleKlib();
@@ -335,7 +335,7 @@ void main() {
     final fixture = ComposeFixture.create(
       session,
       moduleName: 'shared',
-      host: session.hosts.linuxX64,
+      target: fixtureIPhoneTargetFor(session.hosts.linuxX64),
     )..createModuleKlib();
     final calls = <ComposeCall>[];
     addTearDown(fixture.dispose);
@@ -363,7 +363,7 @@ void main() {
           ComposeFixture.create(
               session,
               moduleName: 'shared',
-              host: session.hosts.windowsX64,
+              target: fixtureIPhoneTargetFor(session.hosts.windowsX64),
             )
             ..createWrapper()
             ..createModuleKlib();
@@ -400,7 +400,7 @@ void main() {
         ComposeFixture.create(
             session,
             moduleName: 'shared',
-            host: session.hosts.linuxX64,
+            target: fixtureIPhoneTargetFor(session.hosts.linuxX64),
           )
           ..createWrapper()
           ..createModuleKlib();
@@ -437,7 +437,7 @@ void main() {
       final fixture = ComposeFixture.create(
         session,
         moduleName: 'shared',
-        host: session.hosts.linuxX64,
+        target: fixtureIPhoneTargetFor(session.hosts.linuxX64),
       )..createWrapper();
       ComposeCall? depsCall;
       addTearDown(fixture.dispose);
@@ -473,7 +473,7 @@ void main() {
           ComposeFixture.create(
               session,
               moduleName: 'shared',
-              host: session.hosts.linuxX64,
+              target: fixtureIPhoneTargetFor(session.hosts.linuxX64),
             )
             ..createWrapper()
             ..createModuleKlib();
@@ -509,7 +509,7 @@ void main() {
       final fixture = ComposeFixture.create(
         session,
         moduleName: 'shared',
-        host: session.hosts.linuxX64,
+        target: fixtureIPhoneTargetFor(session.hosts.linuxX64),
       )..createWrapper();
       String? depsOutPath;
       addTearDown(fixture.dispose);
@@ -535,7 +535,7 @@ void main() {
       final fixture = ComposeFixture.create(
         session,
         moduleName: 'shared',
-        host: session.hosts.linuxX64,
+        target: fixtureIPhoneTargetFor(session.hosts.linuxX64),
       )..createWrapper();
       ComposeCall? depsCall;
       addTearDown(fixture.dispose);
@@ -572,8 +572,7 @@ final class ComposeFixture {
     this.temp,
     this.root,
     this.moduleName,
-    this.host,
-    this.simulator,
+    this.target,
   ) : modulePath = p.joinAll([root, ...moduleName.split(':')]),
       kotlinHome = p.join(root, 'kotlinc'),
       javaHome = p.join(root, 'jdk');
@@ -581,8 +580,7 @@ final class ComposeFixture {
   static ComposeFixture create(
     ComposeTestSession session, {
     required String moduleName,
-    required ComposeHost host,
-    bool simulator = false,
+    required ComposeTarget<PlatformHostInterface> target,
   }) {
     final temp = Directory.systemTemp.createTempSync(
       'xcross_gradle_builder_test_',
@@ -592,8 +590,7 @@ final class ComposeFixture {
       temp,
       temp.path,
       moduleName,
-      host,
-      simulator,
+      target,
     );
     Directory(fixture.modulePath).createSync(recursive: true);
     return fixture;
@@ -602,8 +599,8 @@ final class ComposeFixture {
   final Directory temp;
   final String root;
   final String moduleName;
-  final ComposeHost host;
-  final bool simulator;
+  final ComposeTarget<PlatformHostInterface> target;
+  ComposeHost<PlatformHostInterface> get host => target.toolchainHost;
   final String modulePath;
   final String kotlinHome;
   final String javaHome;
@@ -614,7 +611,7 @@ final class ComposeFixture {
     'build',
     'classes',
     'kotlin',
-    simulator ? 'iosSimulatorArm64' : 'iosArm64',
+    target.gradleTarget,
     'main',
     'klib',
     moduleLeaf,
@@ -632,7 +629,7 @@ final class ComposeFixture {
 
   ComposeToolchain get toolchain => ComposeToolchain(
     log: session.fixtureLog,
-    target: fixtureTarget(host, simulator: simulator),
+    target: target,
     runner: ProcessRunner(
       log: session.fixtureLog,
       host.host,

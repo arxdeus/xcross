@@ -6,7 +6,6 @@ import 'package:xcross/src/compose/build/process_invocation.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/host/shared/compose/posix_compose_host.dart';
 import 'package:xcross/src/shared/compose/compose_host.dart';
-import 'package:xcross/src/shared/compose/compose_simulator_signing.dart';
 
 final class WindowsComposeHost<T extends WindowsHostInterface>
     implements ComposeHost<T> {
@@ -17,12 +16,6 @@ final class WindowsComposeHost<T extends WindowsHostInterface>
       );
     }
   }
-  @override
-  ComposeSimulatorSigning<T> simulatorSigning(
-    ProcessRunner<T> runner,
-  ) => throw XcrossError(
-    'Compose iOS simulator builds are supported only on macOS. $classifier toolchains include ios_arm64 device libraries but not ios_simulator_arm64. Use a macOS host for simulator builds or build for an iOS device.',
-  );
   @override
   final T host;
   @override

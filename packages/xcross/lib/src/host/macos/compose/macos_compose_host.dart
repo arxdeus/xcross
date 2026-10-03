@@ -1,8 +1,6 @@
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/errors.dart';
-import 'package:xcross/src/host/macos/compose/macos_compose_simulator_signing.dart';
 import 'package:xcross/src/host/shared/compose/posix_compose_host.dart';
-import 'package:xcross/src/shared/compose/compose_simulator_signing.dart';
 
 final class MacOSComposeHost<T extends MacOSHostInterface>
     extends PosixComposeHost<T> {
@@ -14,9 +12,6 @@ final class MacOSComposeHost<T extends MacOSHostInterface>
       );
     }
   }
-  @override
-  ComposeSimulatorSigning<T> simulatorSigning(ProcessRunner<T> runner) =>
-      MacOSComposeSimulatorSigning(runner);
   @override
   String get classifier =>
       isArm64Architecture(host.architecture) ? 'macos-aarch64' : 'macos-x86_64';

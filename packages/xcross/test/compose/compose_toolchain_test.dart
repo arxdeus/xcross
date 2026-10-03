@@ -12,7 +12,7 @@ import 'package:xcross/src/compose/toolchain/compose_toolchain_installer.dart';
 import 'package:xcross/src/compose/toolchain/compose_toolchain_resolver.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/host/linux/compose/linux_compose_host.dart';
-import 'package:xcross/src/host/windows/compose/windows_compose_host.dart';
+import 'package:xcross/src/host/shared/runtime/unsupported_compose_simulator_capability.dart';
 import 'package:xcross/src/shared/compose/compose_host.dart';
 import 'package:xcross/src/target/shared/compose/compose_target.dart';
 
@@ -21,7 +21,7 @@ import 'support/compose_platforms.dart';
 void main() {
   late ComposeTestSession session;
   setUp(() {
-    session = ComposeTestSession();
+    session = createComposeTestSession();
   });
   tearDown(() => session.dispose());
   test(
@@ -33,7 +33,9 @@ void main() {
         architecture: 'x64',
         environment: {'HOME': root.path},
       );
-      final selectedTarget = fixtureTarget(LinuxComposeHost(selectedHost));
+      final selectedTarget = fixtureIPhoneTargetFor(
+        LinuxComposeHost(selectedHost),
+      );
       final repositories = <DarwinSdkRepository<PlatformHostInterface>>[];
       for (final name in ['first', 'second']) {
         final bundle = p.join(root.path, name);
@@ -391,7 +393,7 @@ void main() {
           environment['JAVA_HOME'] = explicitHome;
           final probed = <String>[];
           final resolver = ComposeToolchainResolver.withSeams(
-            fixtureTarget(session.hosts.macosArm64),
+            fixtureIPhoneTargetFor(session.hosts.macosArm64),
             log: session.fixtureLog,
             downloader: session.fixtureDownloader,
             which: (name, {environment, extraDirectories = const []}) async {
@@ -411,7 +413,7 @@ void main() {
             currentDarwinSdk: (_) => FakeDarwinSdk('/sdk'),
             resolveLd64Lld: (_) async => '/tools/ld64.lld',
             runner: session.fixtureProcessRunner(
-              fixtureTarget(session.hosts.macosArm64).host,
+              fixtureIPhoneTargetFor(session.hosts.macosArm64).host,
             ),
           );
 
@@ -521,20 +523,12 @@ void main() {
     test('rejects Linux simulator capability before any probes or install', () {
       final host = LinuxHost(architecture: 'x64');
       expect(
-        () => LinuxComposeHost(host).simulatorSigning(
-          ProcessRunner(
-            log: session.fixtureLog,
-            host,
-            stdinStream: const Stream<List<int>>.empty(),
-            stdoutSink: session.stdoutSink,
-            stderrSink: session.stderrSink,
-          ),
-        ),
+        () => UnsupportedComposeSimulatorCapability(host).requireSigning(),
         throwsA(
           isA<XcrossError>().having(
             (error) => error.message,
             'reason',
-            contains('ios_simulator_arm64'),
+            contains('supported only on macOS'),
           ),
         ),
       );
@@ -544,21 +538,12 @@ void main() {
       () {
         final host = WindowsHost(architecture: 'x64');
         expect(
-          () => WindowsComposeHost(host, runningExecutable: '/unused-xcross')
-              .simulatorSigning(
-                ProcessRunner(
-                  log: session.fixtureLog,
-                  host,
-                  stdinStream: const Stream<List<int>>.empty(),
-                  stdoutSink: session.stdoutSink,
-                  stderrSink: session.stderrSink,
-                ),
-              ),
+          () => UnsupportedComposeSimulatorCapability(host).requireSigning(),
           throwsA(
             isA<XcrossError>().having(
               (error) => error.message,
               'reason',
-              contains('ios_simulator_arm64'),
+              contains('supported only on macOS'),
             ),
           ),
         );
@@ -680,7 +665,7 @@ void main() {
         );
         try {
           final resolver = ComposeToolchainResolver.withSeams(
-            fixtureTarget(session.hosts.linuxX64),
+            fixtureIPhoneTargetFor(session.hosts.linuxX64),
             log: session.fixtureLog,
             downloader: session.fixtureDownloader,
             which: (_, {environment, extraDirectories = const []}) async =>
@@ -689,7 +674,7 @@ void main() {
             resolveLd64Lld: (_) async =>
                 throw XcrossError('No ld64.lld that can link for iOS.'),
             runner: session.fixtureProcessRunner(
-              fixtureTarget(session.hosts.linuxX64).host,
+              fixtureIPhoneTargetFor(session.hosts.linuxX64).host,
             ),
           );
 
@@ -896,7 +881,7 @@ void main() {
           },
         );
         final resolver = ComposeToolchainResolver.withSeams(
-          fixtureTarget(session.hosts.linuxX64),
+          fixtureIPhoneTargetFor(session.hosts.linuxX64),
           log: session.fixtureLog,
           downloader: session.fixtureDownloader,
           which: (_, {environment, extraDirectories = const []}) async => null,
@@ -905,7 +890,7 @@ void main() {
               throw XcrossError('No ld64.lld that can link for iOS.'),
           installer: installer,
           runner: session.fixtureProcessRunner(
-            fixtureTarget(session.hosts.linuxX64).host,
+            fixtureIPhoneTargetFor(session.hosts.linuxX64).host,
           ),
         );
 
@@ -1866,7 +1851,7 @@ ComposeToolchainResolver _resolverWithPreflight(
   String? javaExecutable,
   String javaSettings = '',
 }) => ComposeToolchainResolver.withSeams(
-  target ?? fixtureTarget(host ?? session.hosts.linuxX64),
+  target ?? fixtureIPhoneTargetFor(host ?? session.hosts.linuxX64),
   log: session.fixtureLog,
   which: (name, {environment, extraDirectories = const []}) async =>
       switch (name) {
@@ -1896,7 +1881,7 @@ ComposeToolchainResolver _resolverWithPreflight(
   installer: installer,
   downloader: session.fixtureDownloader,
   runner: session.fixtureProcessRunner(
-    (target ?? fixtureTarget(host ?? session.hosts.linuxX64)).host,
+    (target ?? fixtureIPhoneTargetFor(host ?? session.hosts.linuxX64)).host,
   ),
 );
 

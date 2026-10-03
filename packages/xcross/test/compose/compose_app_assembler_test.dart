@@ -12,7 +12,7 @@ import 'support/compose_platforms.dart';
 void main() {
   late ComposeTestSession session;
   setUp(() {
-    session = ComposeTestSession();
+    session = createComposeTestSession();
   });
   tearDown(() => session.dispose());
   test(
@@ -583,6 +583,8 @@ void main() {
     final script = File(p.join(fixture.root, 'assemble.dart'))
       ..writeAsStringSync('''
 import 'dart:io';
+import 'package:xcross/src/host/linux/compose/linux_compose_host.dart';
+import 'package:xcross/src/target/iphone/compose/iphone_compose_target.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:xcross/src/compose/compose.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';

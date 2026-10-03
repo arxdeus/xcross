@@ -11,7 +11,7 @@ import 'support/compose_platforms.dart';
 void main() {
   late ComposeTestSession session;
   setUp(() {
-    session = ComposeTestSession();
+    session = createComposeTestSession();
   });
   tearDown(() => session.dispose());
   test(
@@ -19,8 +19,7 @@ void main() {
     () async {
       final fixture = ComposeFixture.create(
         session,
-        session.hosts.macosArm64,
-        simulator: true,
+        fixtureSimulatorTargetFor(session.hosts.macosArm64),
       )..createInputs();
       addTearDown(fixture.dispose);
       final calls = <List<String>>[];
@@ -71,8 +70,10 @@ void main() {
   test(
     'builds debug framework with module klib, dependency libraries, and bundle id',
     () async {
-      final fixture = ComposeFixture.create(session, session.hosts.linuxX64)
-        ..createInputs();
+      final fixture = ComposeFixture.create(
+        session,
+        fixtureIPhoneTargetFor(session.hosts.linuxX64),
+      )..createInputs();
       final calls = <ComposeCall>[];
       addTearDown(fixture.dispose);
 
@@ -170,8 +171,10 @@ void main() {
   );
 
   test('passes -Xstatic-framework only for static frameworks', () async {
-    final fixture = ComposeFixture.create(session, session.hosts.linuxX64)
-      ..createInputs();
+    final fixture = ComposeFixture.create(
+      session,
+      fixtureIPhoneTargetFor(session.hosts.linuxX64),
+    )..createInputs();
     final calls = <ComposeCall>[];
     addTearDown(fixture.dispose);
 
@@ -209,8 +212,10 @@ void main() {
   });
 
   test('builds release framework with opt and project bundle id', () async {
-    final fixture = ComposeFixture.create(session, session.hosts.linuxX64)
-      ..createInputs();
+    final fixture = ComposeFixture.create(
+      session,
+      fixtureIPhoneTargetFor(session.hosts.linuxX64),
+    )..createInputs();
     ComposeCall? call;
     addTearDown(fixture.dispose);
 
@@ -261,8 +266,10 @@ void main() {
   });
 
   test('invokes Java directly with a Kotlin argfile on Windows', () async {
-    final fixture = ComposeFixture.create(session, session.hosts.windowsX64)
-      ..createInputs();
+    final fixture = ComposeFixture.create(
+      session,
+      fixtureIPhoneTargetFor(session.hosts.windowsX64),
+    )..createInputs();
     ComposeCall? call;
     addTearDown(fixture.dispose);
 
@@ -304,8 +311,10 @@ void main() {
   });
 
   test('throws when Kotlin Native omits the framework binary', () async {
-    final fixture = ComposeFixture.create(session, session.hosts.linuxX64)
-      ..createInputs();
+    final fixture = ComposeFixture.create(
+      session,
+      fixtureIPhoneTargetFor(session.hosts.linuxX64),
+    )..createInputs();
     addTearDown(fixture.dispose);
 
     await expectLater(
@@ -337,8 +346,10 @@ void main() {
     );
   });
   test('throws when Kotlin Native omits the framework header', () async {
-    final fixture = ComposeFixture.create(session, session.hosts.linuxX64)
-      ..createInputs();
+    final fixture = ComposeFixture.create(
+      session,
+      fixtureIPhoneTargetFor(session.hosts.linuxX64),
+    )..createInputs();
     addTearDown(fixture.dispose);
 
     await expectLater(
@@ -364,8 +375,10 @@ void main() {
   });
 
   test('replaces stale framework-only destination contents', () async {
-    final fixture = ComposeFixture.create(session, session.hosts.linuxX64)
-      ..createInputs();
+    final fixture = ComposeFixture.create(
+      session,
+      fixtureIPhoneTargetFor(session.hosts.linuxX64),
+    )..createInputs();
     final destination = Directory(
       p.join(fixture.root, 'build', 'xcross-ios', 'Shared.framework'),
     )..createSync(recursive: true);
@@ -399,7 +412,7 @@ void main() {
 
 final class ComposeFixture {
   final ComposeTestSession session;
-  ComposeFixture._(this.session, this.temp, this.host, this.simulator)
+  ComposeFixture._(this.session, this.temp, this.target)
     : root = temp.path,
       modulePath = p.join(temp.path, 'shared'),
       kotlinHome = p.join(temp.path, 'kotlin-home'),
@@ -410,7 +423,7 @@ final class ComposeFixture {
         'build',
         'classes',
         'kotlin',
-        'iosArm64',
+        target.gradleTarget,
         'main',
         'klib',
         'shared',
@@ -420,18 +433,17 @@ final class ComposeFixture {
 
   factory ComposeFixture.create(
     ComposeTestSession session,
-    ComposeHost host, {
-    bool simulator = false,
-  }) {
+    ComposeTarget<PlatformHostInterface> target,
+  ) {
     final temp = Directory.systemTemp.createTempSync(
       'xcross_framework_builder_test_',
     );
-    return ComposeFixture._(session, temp, host, simulator);
+    return ComposeFixture._(session, temp, target);
   }
 
   final Directory temp;
-  final ComposeHost host;
-  final bool simulator;
+  final ComposeTarget<PlatformHostInterface> target;
+  ComposeHost<PlatformHostInterface> get host => target.toolchainHost;
   final String root;
   final String modulePath;
   final String kotlinHome;
@@ -488,7 +500,7 @@ final class ComposeFixture {
 
   ComposeToolchain get toolchain => ComposeToolchain(
     log: session.fixtureLog,
-    target: fixtureTarget(host, simulator: simulator),
+    target: target,
     runner: ProcessRunner(
       log: session.fixtureLog,
       host.host,

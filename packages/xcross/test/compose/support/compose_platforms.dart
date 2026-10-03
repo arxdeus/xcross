@@ -1,22 +1,28 @@
 import 'dart:async';
 import 'dart:io';
+
 import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/compose/build/framework_build_stamp.dart';
 import 'package:xcross/src/compose/compose.dart';
 import 'package:xcross/src/compose/watch/kotlin_source_watcher.dart';
+import 'package:xcross/src/host/linux/compose/linux_compose_host.dart';
+import 'package:xcross/src/host/macos/compose/macos_compose_host.dart';
+import 'package:xcross/src/host/windows/compose/windows_compose_host.dart';
+import 'package:xcross/src/target/iphone/compose/iphone_compose_target.dart';
+import 'package:xcross/src/target/simulator/compose/simulator_compose_target.dart';
 
-ComposeTarget<PlatformHostInterface> fixtureTarget(
-  ComposeHost<PlatformHostInterface> host, {
-  bool simulator = false,
-}) => simulator
-    ? SimulatorComposeTarget(
-        SimulatorTarget(host.host),
-        host,
-        signing: FixtureSimulatorSigning(host.host),
-      )
-    : IPhoneComposeTarget(IPhoneTarget(host.host), host);
+ComposeTarget<PlatformHostInterface> fixtureIPhoneTargetFor(
+  ComposeHost<PlatformHostInterface> host,
+) => IPhoneComposeTarget(IPhoneTarget(host.host), host);
+ComposeTarget<PlatformHostInterface> fixtureSimulatorTargetFor(
+  ComposeHost<PlatformHostInterface> host,
+) => SimulatorComposeTarget(
+  SimulatorTarget(host.host),
+  host,
+  signing: FixtureSimulatorSigning(host.host),
+);
 
 final class FixtureSimulatorSigning
     implements ComposeSimulatorSigning<PlatformHostInterface> {
@@ -78,8 +84,12 @@ final class RemappedComposeFileSystem implements HostFileSystemInterface {
 }
 
 final class ComposeTestSession {
-  ComposeTestSession()
-    : temporaryRoot = Directory.systemTemp.createTempSync('compose-session-') {
+  ComposeTestSession({
+    required this.logOutput,
+    required this.stdoutConsumer,
+    required this.stderrConsumer,
+    required this.temporaryRoot,
+  }) {
     stdoutSink = IOSink(stdoutConsumer);
     stderrSink = IOSink(stderrConsumer);
     hosts = ComposeFixtureHosts(temporaryRoot.path);
@@ -89,17 +99,15 @@ final class ComposeTestSession {
           throw StateError('Tests must not download toolchains.'),
       log: fixtureLog,
     );
-    fixtureIPhoneTarget = fixtureTarget(hosts.linuxX64);
-    fixtureSimulatorTarget = fixtureTarget(hosts.macosArm64, simulator: true);
+    fixtureIPhoneTarget = fixtureIPhoneTargetFor(hosts.linuxX64);
+    fixtureSimulatorTarget = fixtureSimulatorTargetFor(hosts.macosArm64);
     fixtureRunner = fixtureProcessRunner(fixtureIPhoneTarget.host);
     fixtureTools = fixtureToolsFor(fixtureIPhoneTarget.host);
   }
   final Directory temporaryRoot;
-  final ComposeFixtureByteConsumer stdoutConsumer =
-      ComposeFixtureByteConsumer();
-  final ComposeFixtureByteConsumer stderrConsumer =
-      ComposeFixtureByteConsumer();
-  final ComposeFixtureLogOutput logOutput = ComposeFixtureLogOutput();
+  final ComposeFixtureByteConsumer stdoutConsumer;
+  final ComposeFixtureByteConsumer stderrConsumer;
+  final LogOutput logOutput;
   late final IOSink stdoutSink;
   late final IOSink stderrSink;
   late final ComposeFixtureHosts hosts;
@@ -205,3 +213,10 @@ final class ComposeFixtureByteConsumer implements StreamConsumer<List<int>> {
   @override
   Future<void> close() async {}
 }
+
+ComposeTestSession createComposeTestSession() => ComposeTestSession(
+  logOutput: ComposeFixtureLogOutput(),
+  stdoutConsumer: ComposeFixtureByteConsumer(),
+  stderrConsumer: ComposeFixtureByteConsumer(),
+  temporaryRoot: Directory.systemTemp.createTempSync('compose-session-'),
+);

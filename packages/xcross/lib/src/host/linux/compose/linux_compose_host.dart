@@ -1,7 +1,6 @@
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/host/shared/compose/posix_compose_host.dart';
-import 'package:xcross/src/shared/compose/compose_simulator_signing.dart';
 
 final class LinuxComposeHost<T extends LinuxHostInterface>
     extends PosixComposeHost<T> {
@@ -12,12 +11,6 @@ final class LinuxComposeHost<T extends LinuxHostInterface>
       );
     }
   }
-  @override
-  ComposeSimulatorSigning<T> simulatorSigning(
-    ProcessRunner<T> runner,
-  ) => throw XcrossError(
-    'Compose iOS simulator builds are supported only on macOS. $classifier toolchains include ios_arm64 device libraries but not ios_simulator_arm64. Use a macOS host for simulator builds or build for an iOS device.',
-  );
   @override
   String get classifier => 'linux-x86_64';
   @override

@@ -13,7 +13,7 @@ import 'support/compose_platforms.dart';
 void main() {
   late ComposeTestSession session;
   setUp(() {
-    session = ComposeTestSession();
+    session = createComposeTestSession();
   });
   tearDown(() => session.dispose());
   test('packed klib manifest uses selected remapped file path', () {
@@ -33,7 +33,7 @@ void main() {
   });
 
   test('packed klib symlinks retain file content stamps in cache planning', () {
-    final fixture = ComposeFixture.create(session);
+    final fixture = ComposeFixture.create(session, session.fixtureIPhoneTarget);
     addTearDown(fixture.dispose);
     final bytes = utf8.encode(
       'unique_name=org.example:lib-a\ndepends=stdlib org.jetbrains.kotlin.native.platform.Foundation\n',
@@ -58,7 +58,10 @@ void main() {
   test(
     'simulator cache plan selects simulator platform and compile target',
     () async {
-      final fixture = ComposeFixture.create(session, simulator: true);
+      final fixture = ComposeFixture.create(
+        session,
+        session.fixtureSimulatorTarget,
+      );
       addTearDown(fixture.dispose);
       final plan = fixture.plan();
       expect(plan.konanTarget, 'ios_simulator_arm64');
@@ -183,7 +186,10 @@ void main() {
 
   group('KotlinNativeCaches', () {
     late ComposeFixture fixture;
-    setUp(() => fixture = ComposeFixture.create(session));
+    setUp(
+      () =>
+          fixture = ComposeFixture.create(session, session.fixtureIPhoneTarget),
+    );
     tearDown(() => fixture.dispose());
 
     test('plans every library in dependency order, stdlib first', () {
@@ -530,25 +536,20 @@ String _unpackedKlib(
 
 final class ComposeFixture {
   final ComposeTestSession session;
-  ComposeFixture._(this.session, this.temp, this.simulator);
+  ComposeFixture._(this.session, this.temp, this.target);
 
   factory ComposeFixture.create(
-    ComposeTestSession session, {
-    bool simulator = false,
-  }) {
+    ComposeTestSession session,
+    ComposeTarget<PlatformHostInterface> target,
+  ) {
     final fixture = ComposeFixture._(
       session,
       Directory.systemTemp.createTempSync('xcross_konan_caches_'),
-      simulator,
+      target,
     );
     final home = fixture.kotlinHome;
     _unpackedKlib(p.join(home, 'klib', 'common'), 'stdlib', 'stdlib', const []);
-    final platform = p.join(
-      home,
-      'klib',
-      'platform',
-      simulator ? 'ios_simulator_arm64' : 'ios_arm64',
-    );
+    final platform = p.join(home, 'klib', 'platform', target.konanTarget);
     _unpackedKlib(
       platform,
       'org.jetbrains.kotlin.native.platform.Foundation',
@@ -600,7 +601,7 @@ final class ComposeFixture {
   }
 
   final Directory temp;
-  final bool simulator;
+  final ComposeTarget<PlatformHostInterface> target;
 
   String get root => p.join(temp.path, 'project');
   String get modulePath => p.join(root, 'shared');
@@ -634,13 +635,10 @@ final class ComposeFixture {
 
   ComposeToolchain get toolchain => ComposeToolchain(
     log: session.fixtureLog,
-    target: fixtureTarget(
-      simulator ? session.hosts.macosArm64 : session.hosts.linuxX64,
-      simulator: simulator,
-    ),
+    target: target,
     runner: ProcessRunner(
       log: session.fixtureLog,
-      (simulator ? session.hosts.macosArm64 : session.hosts.linuxX64).host,
+      target.host,
       stdinStream: const Stream<List<int>>.empty(),
       stdoutSink: session.stdoutSink,
       stderrSink: session.stderrSink,

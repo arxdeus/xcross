@@ -12,13 +12,14 @@ import 'package:xcross/src/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/host/linux/compose/linux_compose_host.dart';
 import 'package:xcross/src/models/pack_result.dart';
+import 'package:xcross/src/target/shared/compose/compose_target.dart';
 
 import 'support/compose_platforms.dart';
 
 void main() {
   late ComposeTestSession session;
   setUp(() {
-    session = ComposeTestSession();
+    session = createComposeTestSession();
   });
   tearDown(() => session.dispose());
   test(
@@ -30,7 +31,7 @@ void main() {
       addTearDown(() => root.deleteSync(recursive: true));
       final files = RemappedComposeFileSystem(root.path);
       final host = LinuxHost(architecture: 'x64', fileSystem: files);
-      final target = fixtureTarget(LinuxComposeHost(host));
+      final target = fixtureIPhoneTargetFor(LinuxComposeHost(host));
       final project = _project('/virtual-compose', KmpEntryKind.swiftApp);
       final app = files.directory('/virtual-compose/build/xcross-ios/Demo.app')
         ..createSync(recursive: true);
@@ -81,142 +82,120 @@ void main() {
       if (root.existsSync()) root.deleteSync(recursive: true);
     });
 
-    for (final simulator in [false, true]) {
-      test(
-        'selects ${simulator ? 'simulator' : 'device'} module before pack',
-        () async {
-          File(
-            p.join(root.path, 'settings.gradle.kts'),
-          ).writeAsStringSync('include(":device", ":simulator")');
-          for (final target in {
-            'device': 'iosArm64',
-            'simulator': 'iosSimulatorArm64',
-          }.entries) {
-            File(p.join(root.path, target.key, 'build.gradle.kts'))
-              ..createSync(recursive: true)
-              ..writeAsStringSync('''
-kotlin {
-  ${target.value}()
-  binaries.framework { baseName = "${target.key}" }
-}
-''');
-          }
-          final operation = ComposePackOperation.withSeams(
-            simulator
-                ? session.fixtureSimulatorTarget
-                : session.fixtureIPhoneTarget,
-            log: session.fixtureLog,
-            runner: ProcessRunner(
-              log: session.fixtureLog,
-              (simulator
-                      ? session.fixtureSimulatorTarget
-                      : session.fixtureIPhoneTarget)
-                  .host,
-              stdinStream: const Stream<List<int>>.empty(),
-              stdoutSink: session.stdoutSink,
-              stderrSink: session.stderrSink,
-            ),
-            sdkRepository: session.fixtureSdkRepositoryFor(
-              (simulator
-                      ? session.fixtureSimulatorTarget
-                      : session.fixtureIPhoneTarget)
-                  .host,
-            ),
-            tools: session.fixtureToolsFor(
-              (simulator
-                      ? session.fixtureSimulatorTarget
-                      : session.fixtureIPhoneTarget)
-                  .host,
-            ),
-            downloader: session.fixtureDownloader,
-            currentDirectory: () => root.path,
-            packProject: ({required project, required options}) async {
-              expect(project.moduleName, simulator ? 'simulator' : 'device');
-              return PackResult(
-                outputPath: '${project.baseName}.framework',
-                bundleId: project.bundleId,
-                kind: PackOutputKind.framework,
-              );
-            },
-          );
-
-          await operation.pack(options: const ComposeBuildOptions());
-        },
-      );
-
-      test('missing selected target preserves outputs before pack', () async {
-        const options = ComposeBuildOptions();
-        File(
-          p.join(root.path, 'settings.gradle.kts'),
-        ).writeAsStringSync('include(":shared")');
-        File(p.join(root.path, 'shared', 'build.gradle.kts'))
+    Future<void> selectedModuleCase(
+      ComposeTarget<PlatformHostInterface> target,
+      String module,
+    ) async {
+      File(
+        p.join(root.path, 'settings.gradle.kts'),
+      ).writeAsStringSync('include(":device", ":simulator")');
+      for (final entry in {
+        'device': 'iosArm64',
+        'simulator': 'iosSimulatorArm64',
+      }.entries) {
+        File(p.join(root.path, entry.key, 'build.gradle.kts'))
           ..createSync(recursive: true)
           ..writeAsStringSync('''
 kotlin {
-  ${simulator ? 'iosArm64' : 'iosSimulatorArm64'}()
+  ${entry.value}()
+  binaries.framework { baseName = "${entry.key}" }
+}
+''');
+      }
+      final operation = ComposePackOperation.withSeams(
+        target,
+        log: session.fixtureLog,
+        runner: session.fixtureProcessRunner(target.host),
+        sdkRepository: session.fixtureSdkRepositoryFor(target.host),
+        tools: session.fixtureToolsFor(target.host),
+        downloader: session.fixtureDownloader,
+        currentDirectory: () => root.path,
+        packProject: ({required project, required options}) async {
+          expect(project.moduleName, module);
+          return PackResult(
+            outputPath: '${project.baseName}.framework',
+            bundleId: project.bundleId,
+            kind: PackOutputKind.framework,
+          );
+        },
+      );
+      await operation.pack(options: const ComposeBuildOptions());
+    }
+
+    Future<void> missingTargetCase(
+      ComposeTarget<PlatformHostInterface> target,
+      ComposeTarget<PlatformHostInterface> other,
+    ) async {
+      const options = ComposeBuildOptions();
+      File(
+        p.join(root.path, 'settings.gradle.kts'),
+      ).writeAsStringSync('include(":shared")');
+      File(p.join(root.path, 'shared', 'build.gradle.kts'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('''
+kotlin {
+  ${other.gradleTarget}()
   binaries.framework { baseName = "Shared" }
 }
 ''');
-        final stale =
-            File(
-                p.join(
-                  root.path,
-                  'build',
-                  simulator ? 'xcross-ios-simulator' : 'xcross-ios',
-                  'Shared.framework',
-                  'stale',
-                ),
-              )
-              ..createSync(recursive: true)
-              ..writeAsStringSync('preserve');
-        final operation = ComposePackOperation.withSeams(
-          simulator
-              ? session.fixtureSimulatorTarget
-              : session.fixtureIPhoneTarget,
-          log: session.fixtureLog,
-          runner: ProcessRunner(
-            log: session.fixtureLog,
-            (simulator
-                    ? session.fixtureSimulatorTarget
-                    : session.fixtureIPhoneTarget)
-                .host,
-            stdinStream: const Stream<List<int>>.empty(),
-            stdoutSink: session.stdoutSink,
-            stderrSink: session.stderrSink,
-          ),
-          sdkRepository: session.fixtureSdkRepositoryFor(
-            (simulator
-                    ? session.fixtureSimulatorTarget
-                    : session.fixtureIPhoneTarget)
-                .host,
-          ),
-          tools: session.fixtureToolsFor(
-            (simulator
-                    ? session.fixtureSimulatorTarget
-                    : session.fixtureIPhoneTarget)
-                .host,
-          ),
-          downloader: session.fixtureDownloader,
-          currentDirectory: () => root.path,
-          packProject: ({required project, required options}) async =>
-              fail('missing selected target must not reach packing'),
-        );
-
-        await expectLater(
-          operation.pack(options: options),
-          throwsA(
-            isA<XcrossError>().having(
-              (error) => error.message,
-              'message',
-              contains(
-                'No KMP module with ${simulator ? 'iosSimulatorArm64' : 'iosArm64'}()',
+      final stale =
+          File(
+              p.join(
+                root.path,
+                'build',
+                target.outputDirectory,
+                'Shared.framework',
+                'stale',
               ),
-            ),
+            )
+            ..createSync(recursive: true)
+            ..writeAsStringSync('preserve');
+      final operation = ComposePackOperation.withSeams(
+        target,
+        log: session.fixtureLog,
+        runner: session.fixtureProcessRunner(target.host),
+        sdkRepository: session.fixtureSdkRepositoryFor(target.host),
+        tools: session.fixtureToolsFor(target.host),
+        downloader: session.fixtureDownloader,
+        currentDirectory: () => root.path,
+        packProject: ({required project, required options}) async =>
+            fail('missing selected target must not reach packing'),
+      );
+      await expectLater(
+        operation.pack(options: options),
+        throwsA(
+          isA<XcrossError>().having(
+            (error) => error.message,
+            'message',
+            contains('No KMP module with ${target.gradleTarget}()'),
           ),
-        );
-        expect(stale.readAsStringSync(), 'preserve');
-      });
+        ),
+      );
+      expect(stale.readAsStringSync(), 'preserve');
     }
+
+    test(
+      'selects device module before pack',
+      () => selectedModuleCase(session.fixtureIPhoneTarget, 'device'),
+    );
+    test(
+      'selects simulator module before pack',
+      () => selectedModuleCase(session.fixtureSimulatorTarget, 'simulator'),
+    );
+    test(
+      'missing selected device target preserves outputs before pack',
+      () => missingTargetCase(
+        session.fixtureIPhoneTarget,
+        session.fixtureSimulatorTarget,
+      ),
+    );
+    test(
+      'missing selected simulator target preserves outputs before pack',
+      () => missingTargetCase(
+        session.fixtureSimulatorTarget,
+        session.fixtureIPhoneTarget,
+      ),
+    );
 
     test(
       'simulator pack leaves device outputs and rejects IPA before detection',

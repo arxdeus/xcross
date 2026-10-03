@@ -1,14 +1,8 @@
-export 'package:xcross/src/host/linux/compose/linux_compose_host.dart';
-export 'package:xcross/src/host/macos/compose/macos_compose_host.dart';
-export 'package:xcross/src/host/macos/compose/macos_compose_simulator_signing.dart';
-export 'package:xcross/src/host/windows/compose/windows_compose_host.dart';
 export 'package:xcross/src/shared/compose/compose_build_context.dart';
 export 'package:xcross/src/shared/compose/compose_host.dart';
 export 'package:xcross/src/shared/compose/compose_simulator_signing.dart';
 export 'package:xcross/src/shared/compose/kmp_project_detector.dart';
-export 'package:xcross/src/target/iphone/compose/iphone_compose_target.dart';
 export 'package:xcross/src/target/shared/compose/compose_target.dart';
-export 'package:xcross/src/target/simulator/compose/simulator_compose_target.dart';
 
 export 'build/compose_app_assembler.dart';
 export 'build/compose_info_plist.dart';
