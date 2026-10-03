@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
@@ -410,24 +411,154 @@ Future<void> main(List<String> args) async {
     );
   });
 
-  test('macOS entry point rejects the cross-host shim', () async {
-    final rootShim = File(
-      p.join(Directory.current.path, 'packages', 'xcross', 'bin', 'xcrun.dart'),
+  test(
+    'macOS entry point delegates native probes without cross configuration',
+    () async {
+      final directory = Directory.systemTemp.createTempSync(
+        'xcross-xcrun-native-',
+      );
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final rootShim = File(
+        p.join(
+          Directory.current.path,
+          'packages',
+          'xcross',
+          'bin',
+          'xcrun.dart',
+        ),
+      );
+      final shim = rootShim.existsSync()
+          ? rootShim
+          : File(p.join(Directory.current.path, 'bin', 'xcrun.dart'));
+      final packageConfig =
+          Platform.packageConfig ??
+          p.join(Directory.current.path, '.dart_tool', 'package_config.json');
+      final kernel = p.join(directory.path, 'xcrun.dill');
+      final compile = await Process.run(Platform.resolvedExecutable, [
+        'compile',
+        'kernel',
+        '--packages=${p.fromUri(packageConfig)}',
+        shim.path,
+        '-o',
+        kernel,
+      ]);
+      expect(
+        compile.exitCode,
+        0,
+        reason: '${compile.stdout}\n${compile.stderr}',
+      );
+      final selection = await Process.run('/usr/bin/xcode-select', ['-p']);
+      expect(selection.exitCode, 0, reason: selection.stderr.toString());
+      final developer = Link(p.join(directory.path, 'chosen developer'))
+        ..createSync(selection.stdout.toString().trim());
+      final config = File(p.join(directory.path, 'invalid-config.json'))
+        ..writeAsStringSync('{invalid');
+      final shadow = File(p.join(directory.path, 'xcrun'))
+        ..writeAsStringSync('#!/bin/sh\nexit 91\n');
+      final chmod = await Process.run('/bin/chmod', ['+x', shadow.path]);
+      expect(chmod.exitCode, 0, reason: chmod.stderr.toString());
+      final environment = {
+        'DEVELOPER_DIR': developer.path,
+        'XCROSS_CONFIG': config.path,
+        'PATH': directory.path,
+      };
+      Future<ProcessResult> probe(
+        List<String> arguments, {
+        String? developerDir,
+      }) => Process.run(
+        Platform.resolvedExecutable,
+        [kernel, ...arguments],
+        environment: {
+          ...environment,
+          if (developerDir != null) 'DEVELOPER_DIR': developerDir,
+        },
+      );
+      for (final arguments in <List<String>>[
+        ['--version'],
+        ['-version'],
+        ['--sdk', 'iphonesimulator', '--show-sdk-path'],
+        ['--sdk', 'iphonesimulator', '--show-sdk-version'],
+        ['--sdk', 'iphonesimulator', '--show-sdk-platform-path'],
+      ]) {
+        final native = await Process.run(
+          '/usr/bin/xcrun',
+          arguments,
+          environment: environment,
+        );
+        expect(native.exitCode, 0, reason: native.stderr.toString());
+        final result = await probe(arguments);
+        expect(result.exitCode, native.exitCode);
+        expect(result.stdout, native.stdout);
+        expect(result.stderr, native.stderr);
+      }
+      final invalidDeveloper = p.join(directory.path, 'missing developer');
+      final arguments = ['--sdk', 'iphonesimulator', '--show-sdk-path'];
+      final native = await Process.run(
+        '/usr/bin/xcrun',
+        arguments,
+        environment: {...environment, 'DEVELOPER_DIR': invalidDeveloper},
+      );
+      expect(native.exitCode, isNot(0));
+      final result = await probe(arguments, developerDir: invalidDeveloper);
+      expect(result.exitCode, native.exitCode);
+      expect(result.stdout, native.stdout);
+      expect(result.stderr, native.stderr);
+
+      final child = await Process.start(Platform.resolvedExecutable, [
+        kernel,
+        '/bin/sh',
+        '-c',
+        r'IFS= read -r value; printf "out:%s\n" "$value"; printf "err:%s\n" "$value" >&2; exit 37',
+      ], environment: environment);
+      final output = child.stdout.transform(utf8.decoder).join();
+      final errors = child.stderr.transform(utf8.decoder).join();
+      child.stdin.writeln('stdin preserved');
+      await child.stdin.close();
+      expect(await child.exitCode, 37);
+      expect(await output, 'out:stdin preserved\n');
+      expect(await errors, 'err:stdin preserved\n');
+    },
+    skip: !Platform.isMacOS,
+  );
+
+  test(
+    'native delegation preserves arguments, inherited stdio and exit code',
+    () async {
+      final arguments = ['--sdk', 'iphonesimulator', 'clang', '--version', ''];
+      final child = await Process.start(Platform.resolvedExecutable, [
+        '--version',
+      ]);
+      await child.stdout.drain<void>();
+      await child.stderr.drain<void>();
+      expect(
+        await xcrun.runNativeXcrun(
+          arguments,
+          start: (tool, forwarded, {required mode}) async {
+            expect(tool, '/usr/bin/xcrun');
+            expect(identical(forwarded, arguments), isTrue);
+            expect(mode, ProcessStartMode.inheritStdio);
+            return child;
+          },
+        ),
+        0,
+      );
+    },
+  );
+
+  test('native delegation propagates process startup failure', () async {
+    final error = ProcessException(
+      '/usr/bin/xcrun',
+      ['--version'],
+      'denied',
+      13,
     );
-    final shim = rootShim.existsSync()
-        ? rootShim
-        : File(p.join(Directory.current.path, 'bin', 'xcrun.dart'));
-    final packageConfig =
-        Platform.packageConfig ??
-        p.join(Directory.current.path, '.dart_tool', 'package_config.json');
-    final result = await Process.run(Platform.resolvedExecutable, [
-      '--packages=$packageConfig',
-      shim.path,
-      '--version',
-    ]);
-    expect(result.exitCode, 1);
-    expect(result.stderr, contains('only intended for Windows and Linux'));
-  }, skip: !Platform.isMacOS);
+    await expectLater(
+      xcrun.runNativeXcrun([
+        '--version',
+      ], start: (_, _, {required mode}) async => throw error),
+      throwsA(same(error)),
+    );
+  });
 
   test('falls back without a sidecar or a supported sibling tool', () {
     final directory = Directory.systemTemp.createTempSync('xcross-xcrun-');

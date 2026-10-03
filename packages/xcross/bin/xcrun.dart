@@ -7,13 +7,11 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/xcross.dart';
 
 Future<void> main(List<String> arguments) async {
-  if (Platform.isMacOS) {
-    stderr.writeln('xcross xcrun is only intended for Windows and Linux.');
-    exitCode = 1;
-    return;
-  }
-
   try {
+    if (Platform.isMacOS) {
+      exitCode = await runNativeXcrun(arguments);
+      return;
+    }
     final shimResponse = xcrunShimResponse(arguments);
     if (shimResponse != null) {
       stdout.writeln(shimResponse);
@@ -25,6 +23,23 @@ Future<void> main(List<String> arguments) async {
     stderr.writeln('xcrun: $error');
     exitCode = 1;
   }
+}
+
+Future<int> runNativeXcrun(
+  List<String> arguments, {
+  Future<Process> Function(
+    String tool,
+    List<String> arguments, {
+    required ProcessStartMode mode,
+  })?
+  start,
+}) async {
+  final child = await (start ?? Process.start)(
+    '/usr/bin/xcrun',
+    arguments,
+    mode: ProcessStartMode.inheritStdio,
+  );
+  return child.exitCode;
 }
 
 /// Version reported by `xcrun --version`, matching a recent Xcode's xcrun.
