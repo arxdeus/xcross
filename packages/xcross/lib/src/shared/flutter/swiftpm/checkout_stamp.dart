@@ -49,19 +49,13 @@ final class SwiftPmCheckoutStampValidator {
         if (kind == _stampKindDirectory) {
           containment.validateTarget(root, target);
         } else if (kind == _stampKindSymlink || kind == _stampKindHardLink) {
-          containment.validateTarget(
-            root,
-            p.normalize(p.absolute(p.dirname(path), target)),
-          );
+          containment.validateLinkTarget(root, path, target);
         } else if (kind == _stampKindForwarder) {
           final include = RegExp(
             r'^#include "([^"\n]+)"\n$',
           ).firstMatch(target);
           if (include == null) return false;
-          containment.validateTarget(
-            root,
-            p.normalize(p.absolute(p.dirname(path), include[1])),
-          );
+          containment.validateLinkTarget(root, path, include[1]!);
         }
       } on FlutterBuildError {
         return false;

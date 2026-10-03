@@ -23,6 +23,49 @@ final class SwiftPmCheckoutContainment {
   }
 
   void validateTarget(String root, String target) {
+    if (!p.equals(root, target) && !p.isWithin(root, target)) {
+      throw FlutterBuildError(
+        'Symlink target escapes SwiftPM checkout: $target',
+        isSecurityFailure: true,
+      );
+    }
+    _validateComponents(root, root, p.split(p.relative(target, from: root)));
+  }
+
+  void validateLinkTarget(
+    String root,
+    String link,
+    String target, {
+    Map<String, String> indexedTargets = const {},
+  }) {
+    if (p.isAbsolute(target)) {
+      throw FlutterBuildError(
+        'Absolute symlink target in SwiftPM checkout: $target',
+        isSecurityFailure: true,
+      );
+    }
+    final parent = p.dirname(link);
+    validateTarget(root, parent);
+    final resolvedParent = _validateComponents(
+      root,
+      root,
+      p.split(p.relative(parent, from: root)),
+      indexedTargets: indexedTargets,
+    );
+    _validateComponents(
+      root,
+      resolvedParent,
+      p.split(target),
+      indexedTargets: indexedTargets,
+    );
+  }
+
+  String _validateComponents(
+    String root,
+    String start,
+    Iterable<String> components, {
+    Map<String, String> indexedTargets = const {},
+  }) {
     final canonicalRoot = fileSystem.directory(root).resolveSymbolicLinksSync();
     final activeLinks = <String>{};
     var hops = 0;
@@ -41,10 +84,12 @@ final class SwiftPmCheckoutContainment {
         current = p.normalize(p.join(current, component));
         contained(current);
         final type = fileSystem.typeSync(current, followLinks: false);
-        if (type == FileSystemEntityType.link) {
+        if (indexedTargets.containsKey(current) ||
+            type == FileSystemEntityType.link) {
           if (++hops > 256 || !activeLinks.add(current)) reject(current);
           final link = current;
-          final destination = fileSystem.link(link).targetSync();
+          final destination =
+              indexedTargets[link] ?? fileSystem.link(link).targetSync();
           if (p.isAbsolute(destination)) {
             if (!destination.startsWith('$root${p.separator}')) {
               if (!p.equals(root, destination)) reject(destination);
@@ -67,12 +112,15 @@ final class SwiftPmCheckoutContainment {
               !p.isWithin(canonicalRoot, canonical)) {
             reject(current);
           }
+          current = p.normalize(
+            p.join(root, p.relative(canonical, from: canonicalRoot)),
+          );
         }
       }
       return current;
     }
 
-    contained(target);
-    walk(root, p.split(p.relative(target, from: root)));
+    contained(start);
+    return walk(start, components);
   }
 }

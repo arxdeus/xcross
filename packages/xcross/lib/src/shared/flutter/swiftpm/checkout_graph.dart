@@ -72,6 +72,12 @@ final class SwiftPmCheckoutGraph {
     for (final link in targets.keys) {
       final target = resolved[link]!;
       containment.validateDestination(root, link);
+      containment.validateLinkTarget(
+        root,
+        link,
+        targets[link]!,
+        indexedTargets: targets,
+      );
       containment.validateTarget(root, target);
       if (!fileSystem.directory(target).existsSync() &&
           !fileSystem.file(target).existsSync() &&

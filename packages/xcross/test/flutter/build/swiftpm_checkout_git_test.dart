@@ -360,6 +360,122 @@ void main() {
     },
   );
 
+  for (final warm in [false, true]) {
+    test(
+      'raw indexed target rejects outside intermediary, warm $warm',
+      () async {
+        final outside = Directory.systemTemp.createTempSync(
+          'xcross-checkout-raw-',
+        );
+        addTearDown(() => outside.deleteSync(recursive: true));
+        final sentinel = File(p.join(outside.path, 'keep'))
+          ..writeAsStringSync('sentinel');
+        const target = '../bridge/../missing';
+        context = CheckoutTestContext(root, (command) {
+          if (command.arguments.contains('ls-files')) {
+            return CheckoutTestProcess(
+              output: utf8.encode('120000 aa 0\tExamples/link\u0000'),
+            );
+          }
+          if (command.arguments.contains('cat-file')) {
+            return CheckoutTestProcess(
+              output: utf8.encode('aa blob ${target.length}\n$target\n'),
+            );
+          }
+          return CheckoutTestProcess();
+        });
+        Directory(p.join(root.path, '.git')).createSync();
+        File(p.join(root.path, '.git/HEAD')).writeAsStringSync('identity');
+        Directory(p.join(root.path, 'Examples')).createSync();
+        File(
+          p.join(root.path, 'Package.swift'),
+        ).writeAsStringSync('.target(name: "Core", path: "Sources/Core")');
+        File(p.join(root.path, 'Examples/link')).writeAsStringSync(target);
+        final bridge = Directory(p.join(root.path, 'bridge'));
+        if (warm) {
+          bridge.createSync();
+          expect(
+            await context.checkout.materializeGitCheckoutSymlinks(
+              root.path,
+              git: '/fixture/git',
+              symlinks: true,
+            ),
+            isTrue,
+          );
+          final count = context.processes.commands.length;
+          expect(
+            await context.checkout.materializeGitCheckoutSymlinks(
+              root.path,
+              git: '/fixture/git',
+              symlinks: true,
+            ),
+            isFalse,
+          );
+          expect(context.processes.commands, hasLength(count));
+          bridge.deleteSync();
+        }
+        await Link(bridge.path).create(outside.path);
+        final count = context.processes.commands.length;
+        await expectLater(
+          context.checkout.materializeGitCheckoutSymlinks(
+            root.path,
+            git: '/fixture/git',
+            symlinks: true,
+          ),
+          throwsA(isA<FlutterBuildError>()),
+        );
+        expect(context.processes.commands, hasLength(count + 2));
+        expect(sentinel.readAsStringSync(), 'sentinel');
+        if (!warm) {
+          expect(
+            File(p.join(root.path, 'Examples/link')).readAsStringSync(),
+            target,
+          );
+        }
+      },
+    );
+  }
+
+  test(
+    'cold raw components resolve planned indexed placeholders before parent traversal',
+    () async {
+      context = CheckoutTestContext(root, (command) {
+        if (command.arguments.contains('ls-files')) {
+          return CheckoutTestProcess(
+            output: utf8.encode('120000 aa 0\ta\u0000120000 bb 0\tlink\u0000'),
+          );
+        }
+        if (command.arguments.contains('cat-file')) {
+          return CheckoutTestProcess(
+            output: utf8.encode('aa blob 1\n.\nbb blob 12\na/../outside\n'),
+          );
+        }
+        fail('No checkout may run after planned-link escape detection');
+      });
+      File(p.join(root.path, 'a')).writeAsStringSync('.');
+      File(p.join(root.path, 'link')).writeAsStringSync('a/../outside');
+      File(p.join(root.path, 'outside')).writeAsStringSync('inside sentinel');
+      await expectLater(
+        context.checkout.materializeGitCheckoutSymlinks(
+          root.path,
+          git: '/fixture/git',
+          symlinks: true,
+        ),
+        throwsA(isA<FlutterBuildError>()),
+      );
+      expect(context.processes.commands, hasLength(2));
+      expect(File(p.join(root.path, 'a')).readAsStringSync(), '.');
+      expect(
+        File(p.join(root.path, 'link')).readAsStringSync(),
+        'a/../outside',
+      );
+      expect(
+        File(p.join(root.path, 'outside')).readAsStringSync(),
+        'inside sentinel',
+      );
+    },
+  );
+
   test('rejects live link cycles with bounded traversal', () async {
     context = CheckoutTestContext(root, (_) => CheckoutTestProcess());
     await Link(p.join(root.path, 'a')).create('b');
