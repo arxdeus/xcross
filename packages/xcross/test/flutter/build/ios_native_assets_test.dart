@@ -75,6 +75,17 @@ void main() {
       try {
         final roots = <String>{};
         final iosFrameworks = <String>{};
+        final flutterRoot = p.join(tmp.path, 'sdk');
+        Directory(p.join(flutterRoot, 'packages')).createSync(recursive: true);
+        final sdkCache = Directory(p.join(flutterRoot, 'bin', 'cache'))
+          ..createSync(recursive: true);
+        File(p.join(flutterRoot, 'bin', 'internal', 'engine.version'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('engine-hash');
+        Directory(p.join(sdkCache.path, 'dart-sdk')).createSync();
+        File(
+          p.join(sdkCache.path, 'flutter_tools.snapshot'),
+        ).writeAsStringSync('snapshot');
         for (final abi in [
           Abi.linuxArm64,
           Abi.linuxX64,
@@ -82,19 +93,6 @@ void main() {
           Abi.macosX64,
           Abi.windowsX64,
         ]) {
-          final flutterRoot = p.join(tmp.path, 'sdk-$abi');
-          Directory(
-            p.join(flutterRoot, 'packages'),
-          ).createSync(recursive: true);
-          final sdkCache = Directory(p.join(flutterRoot, 'bin', 'cache'))
-            ..createSync(recursive: true);
-          File(p.join(flutterRoot, 'bin', 'internal', 'engine.version'))
-            ..createSync(recursive: true)
-            ..writeAsStringSync('engine-hash');
-          Directory(p.join(sdkCache.path, 'dart-sdk')).createSync();
-          File(
-            p.join(sdkCache.path, 'flutter_tools.snapshot'),
-          ).writeAsStringSync('$abi');
           final cache = IosEngineCache(
             flutterRoot: flutterRoot,
             cacheRoot: p.join(tmp.path, 'cache'),
@@ -151,6 +149,217 @@ void main() {
       }
     },
   );
+
+  for (final removeOldRoot in [false, true]) {
+    test(
+      'isolates same-engine SDK roots with old root removed: $removeOldRoot',
+      () async {
+        final tmp = await Directory.systemTemp.createTemp('workspace_sources-');
+        try {
+          final cacheRoot = p.join(tmp.path, 'cache');
+          final firstCache = _workspaceSdk(
+            p.join(tmp.path, 'sdk-a'),
+            cacheRoot,
+            'sdk-a',
+          );
+          final secondCache = _workspaceSdk(
+            p.join(tmp.path, 'sdk-b'),
+            cacheRoot,
+            'sdk-b',
+          );
+          final first = await FlutterToolWorkspace.create(
+            flutterRoot: firstCache.flutterRoot,
+            engineCache: firstCache,
+          );
+          if (removeOldRoot) {
+            await Directory(firstCache.flutterRoot).delete(recursive: true);
+          }
+          final second = await FlutterToolWorkspace.create(
+            flutterRoot: secondCache.flutterRoot,
+            engineCache: secondCache,
+          );
+
+          _expectWorkspaceSdk(second, 'sdk-b');
+          expect(second.flutterRoot, isNot(first.flutterRoot));
+          expect(Directory(first.flutterRoot).existsSync(), isTrue);
+          expect(second.dart, startsWith(secondCache.flutterRoot));
+          expect(
+            second.flutterToolsSnapshot,
+            startsWith(secondCache.flutterRoot),
+          );
+        } finally {
+          await tmp.delete(recursive: true);
+        }
+      },
+    );
+  }
+
+  test(
+    'reuses a canonical SDK root through relative paths and aliases',
+    () async {
+      if (Platform.isWindows) return;
+      final tmp = await Directory.systemTemp.createTemp('workspace_alias-');
+      try {
+        final cache = _workspaceSdk(
+          p.join(tmp.path, 'sdk'),
+          p.join(tmp.path, 'cache'),
+          'sdk',
+        );
+        final first = await FlutterToolWorkspace.create(
+          flutterRoot: p.relative(cache.flutterRoot),
+          engineCache: cache,
+        );
+        final sentinel = File(p.join(first.flutterRoot, 'retained'))
+          ..writeAsStringSync('retained');
+        final alias = Link(p.join(tmp.path, 'alias'))
+          ..createSync(cache.flutterRoot);
+        final second = await FlutterToolWorkspace.create(
+          flutterRoot: alias.path,
+          engineCache: IosEngineCache(
+            flutterRoot: alias.path,
+            cacheRoot: cache.cacheRoot,
+            hostAbi: Abi.linuxArm64,
+          ),
+        );
+
+        expect(second.flutterRoot, first.flutterRoot);
+        expect(sentinel.readAsStringSync(), 'retained');
+        _expectWorkspaceSdk(second, 'sdk');
+      } finally {
+        await tmp.delete(recursive: true);
+      }
+    },
+  );
+
+  for (final (staleEntry, dangling) in [
+    (p.join('packages'), false),
+    (p.join('bin', 'cache', 'dart-sdk'), false),
+    (p.join('bin', 'cache', 'dart-sdk'), true),
+    (p.join('bin', 'cache', 'artifacts', 'fonts'), false),
+    (p.join('bin', 'cache', 'artifacts', 'engine', 'linux-arm64'), false),
+    (p.join('bin', 'cache', 'artifacts', 'engine', 'ios'), false),
+    (p.join('bin', 'cache', 'artifacts', 'engine', 'common'), false),
+    (p.join('bin', 'cache', 'flutter_tools.snapshot'), false),
+    (p.join('bin', 'internal', 'engine.version'), false),
+  ]) {
+    test(
+      'repairs a ready workspace with stale $staleEntry dangling: $dangling',
+      () async {
+        if (Platform.isWindows) return;
+        final tmp = await Directory.systemTemp.createTemp('workspace_stale-');
+        try {
+          final cache = _workspaceSdk(
+            p.join(tmp.path, 'sdk'),
+            p.join(tmp.path, 'cache'),
+            'sdk',
+          );
+          final first = await FlutterToolWorkspace.create(
+            flutterRoot: cache.flutterRoot,
+            engineCache: cache,
+          );
+          final stalePath = p.join(first.flutterRoot, staleEntry);
+          if (FileSystemEntity.isLinkSync(stalePath)) {
+            await Link(stalePath).delete();
+            final wrongTarget = Directory(p.join(tmp.path, 'wrong-target'))
+              ..createSync();
+            await Link(stalePath).create(wrongTarget.path);
+            if (dangling) await wrongTarget.delete();
+          } else {
+            await File(stalePath).delete();
+          }
+          final second = await FlutterToolWorkspace.create(
+            flutterRoot: cache.flutterRoot,
+            engineCache: cache,
+          );
+
+          expect(second.flutterRoot, first.flutterRoot);
+          _expectWorkspaceSdk(second, 'sdk');
+          expect(
+            File(
+              p.join(second.flutterRoot, 'bin', 'internal', 'engine.version'),
+            ).readAsStringSync(),
+            'engine-hash',
+          );
+          expect(
+            File(
+              p.join(
+                second.flutterRoot,
+                'bin',
+                'cache',
+                'artifacts',
+                'engine',
+                'linux-arm64',
+                'vm_isolate_snapshot.bin',
+              ),
+            ).readAsStringSync(),
+            'host',
+          );
+          final engine = p.join(
+            second.flutterRoot,
+            'bin',
+            'cache',
+            'artifacts',
+            'engine',
+          );
+          expect(
+            await Directory(p.join(engine, 'ios')).resolveSymbolicLinks(),
+            await Directory(
+              p.dirname(cache.flutterXcframework),
+            ).resolveSymbolicLinks(),
+          );
+          expect(
+            await Directory(p.join(engine, 'common')).resolveSymbolicLinks(),
+            await Directory(
+              p.dirname(cache.patchedSdkRoot),
+            ).resolveSymbolicLinks(),
+          );
+        } finally {
+          await tmp.delete(recursive: true);
+        }
+      },
+    );
+  }
+
+  test('isolates engine versions at the same SDK root', () async {
+    final tmp = await Directory.systemTemp.createTemp('workspace_engines-');
+    try {
+      final cache = _workspaceSdk(
+        p.join(tmp.path, 'sdk'),
+        p.join(tmp.path, 'cache'),
+        'sdk',
+      );
+      final first = await FlutterToolWorkspace.create(
+        flutterRoot: cache.flutterRoot,
+        engineCache: cache,
+      );
+      File(
+        p.join(cache.flutterRoot, 'bin', 'internal', 'engine.version'),
+      ).writeAsStringSync('other-engine');
+      Directory(cache.flutterXcframework).createSync(recursive: true);
+      Directory(p.dirname(cache.vmSnapshotData)).createSync(recursive: true);
+      Directory(cache.patchedSdkRoot).createSync(recursive: true);
+      final second = await FlutterToolWorkspace.create(
+        flutterRoot: cache.flutterRoot,
+        engineCache: cache,
+      );
+
+      expect(second.flutterRoot, isNot(first.flutterRoot));
+      expect(
+        File(
+          p.join(first.flutterRoot, 'bin', 'internal', 'engine.version'),
+        ).readAsStringSync(),
+        'engine-hash',
+      );
+      expect(
+        File(
+          p.join(second.flutterRoot, 'bin', 'internal', 'engine.version'),
+        ).readAsStringSync(),
+        'other-engine',
+      );
+    } finally {
+      await tmp.delete(recursive: true);
+    }
+  });
 
   test(
     'creates a writable Flutter tool workspace without changing SDK',
@@ -261,6 +470,8 @@ void main() {
         flutterRoot: flutterRoot,
         engineCache: engineCache,
       );
+      final sentinel = File(p.join(first.flutterRoot, 'retained'))
+        ..writeAsStringSync('retained');
       await first.dispose();
       final second = await FlutterToolWorkspace.create(
         flutterRoot: flutterRoot,
@@ -268,6 +479,7 @@ void main() {
       );
 
       expect(second.flutterRoot, first.flutterRoot);
+      expect(sentinel.readAsStringSync(), 'retained');
       expect(
         Directory(first.flutterRoot).existsSync(),
         isTrue,
@@ -756,6 +968,47 @@ void main() {
       await tmp.delete(recursive: true);
     }
   });
+}
+
+IosEngineCache _workspaceSdk(String root, String cacheRoot, String label) {
+  for (final path in [
+    p.join('packages', 'source'),
+    p.join('bin', 'internal', 'source'),
+    p.join('bin', 'cache', 'dart-sdk', 'source'),
+    p.join('bin', 'cache', 'artifacts', 'fonts', 'source'),
+    p.join('bin', 'cache', 'flutter_tools.snapshot'),
+  ]) {
+    File(p.join(root, path))
+      ..createSync(recursive: true)
+      ..writeAsStringSync(label);
+  }
+  File(
+    p.join(root, 'bin', 'internal', 'engine.version'),
+  ).writeAsStringSync('engine-hash');
+  final cache = IosEngineCache(
+    flutterRoot: root,
+    cacheRoot: cacheRoot,
+    hostAbi: Abi.linuxArm64,
+  );
+  Directory(cache.flutterXcframework).createSync(recursive: true);
+  Directory(cache.patchedSdkRoot).createSync(recursive: true);
+  File(cache.vmSnapshotData)
+    ..createSync(recursive: true)
+    ..writeAsStringSync('host');
+  File(cache.isolateSnapshotData).writeAsStringSync('host');
+  return cache;
+}
+
+void _expectWorkspaceSdk(FlutterToolWorkspace workspace, String label) {
+  for (final path in [
+    p.join('packages', 'source'),
+    p.join('bin', 'internal', 'source'),
+    p.join('bin', 'cache', 'dart-sdk', 'source'),
+    p.join('bin', 'cache', 'artifacts', 'fonts', 'source'),
+    p.join('bin', 'cache', 'flutter_tools.snapshot'),
+  ]) {
+    expect(File(p.join(workspace.flutterRoot, path)).readAsStringSync(), label);
+  }
 }
 
 Future<List<String>> _tree(String root) async {

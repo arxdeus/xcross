@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/ios_engine_cache.dart';
 
@@ -22,9 +24,15 @@ final class FlutterToolWorkspace {
     required String flutterRoot,
     required IosEngineCache engineCache,
   }) async {
-    final root = _workspaceRoot(engineCache);
+    final sourceRoot = await Directory(flutterRoot).resolveSymbolicLinks();
+    final root = _workspaceRoot(engineCache, sourceRoot);
     final marker = File(p.join(root, '.xcross-workspace-ready'));
-    if (marker.existsSync()) {
+    if (marker.existsSync() &&
+        await _isReady(
+          flutterRoot: sourceRoot,
+          workspaceRoot: root,
+          engineCache: engineCache,
+        )) {
       return FlutterToolWorkspace._(
         flutterRoot: root,
         dart: _dartPath(flutterRoot),
@@ -35,9 +43,9 @@ final class FlutterToolWorkspace {
     await Directory(root).create(recursive: true);
     try {
       final cache = await _createCacheDirectory(root);
-      await _overlaySdkMetadata(flutterRoot: flutterRoot, workspaceRoot: root);
+      await _overlaySdkMetadata(flutterRoot: sourceRoot, workspaceRoot: root);
 
-      final sdkCache = p.join(flutterRoot, 'bin', 'cache');
+      final sdkCache = p.join(sourceRoot, 'bin', 'cache');
       await _overlaySdkCache(
         sdkCache: sdkCache,
         workspaceCache: cache,
@@ -89,13 +97,81 @@ final class FlutterToolWorkspace {
   /// The path is scoped by engine hash, so a different engine still gets its
   /// own workspace and its contents stay consistent with the artifacts they
   /// were overlaid from.
-  static String _workspaceRoot(IosEngineCache engineCache) => p.join(
+  static String _workspaceRoot(
+    IosEngineCache engineCache,
+    String flutterRoot,
+  ) => p.join(
     engineCache.cacheRoot,
     engineCache.engineHash,
     'workspaces',
     'flutter',
     engineCache.hostArtifactPlatform,
+    sha256.convert(utf8.encode(flutterRoot)).toString(),
   );
+
+  static Future<bool> _isReady({
+    required String flutterRoot,
+    required String workspaceRoot,
+    required IosEngineCache engineCache,
+  }) async {
+    final sdkCache = p.join(flutterRoot, 'bin', 'cache');
+    final cache = p.join(workspaceRoot, 'bin', 'cache');
+    final sdkArtifacts = p.join(sdkCache, 'artifacts');
+    final artifacts = p.join(cache, 'artifacts');
+    final engine = p.join(artifacts, 'engine');
+    final links = {
+      p.join(workspaceRoot, 'packages'): p.join(flutterRoot, 'packages'),
+      p.join(cache, 'dart-sdk'): p.join(sdkCache, 'dart-sdk'),
+      p.join(engine, 'ios'): p.dirname(engineCache.flutterXcframework),
+      p.join(engine, engineCache.hostEngineCacheDirectory): p.dirname(
+        engineCache.vmSnapshotData,
+      ),
+      p.join(engine, 'common'): p.dirname(engineCache.patchedSdkRoot),
+    };
+    try {
+      for (final entry in links.entries) {
+        if (!await _matchesLink(entry.key, entry.value)) return false;
+      }
+      for (final (source, destination, skip) in [
+        (
+          p.join(flutterRoot, 'bin', 'internal'),
+          p.join(workspaceRoot, 'bin', 'internal'),
+          const <String>{},
+        ),
+        (sdkCache, cache, const {'artifacts'}),
+        (sdkArtifacts, artifacts, const {'engine'}),
+        (
+          p.join(sdkArtifacts, 'engine'),
+          engine,
+          {'ios', engineCache.hostEngineCacheDirectory, 'common'},
+        ),
+      ]) {
+        if (!Directory(source).existsSync()) continue;
+        await for (final entity in Directory(source).list(followLinks: false)) {
+          final name = p.basename(entity.path);
+          if (skip.contains(name)) continue;
+          final target = p.join(destination, name);
+          if (entity is File) {
+            if (!File(target).existsSync() ||
+                await File(target).length() != await entity.length()) {
+              return false;
+            }
+          } else if (!await _matchesLink(target, entity.path)) {
+            return false;
+          }
+        }
+      }
+      return true;
+    } on FileSystemException {
+      return false;
+    }
+  }
+
+  static Future<bool> _matchesLink(String path, String target) async =>
+      p.equals(
+        await File(path).resolveSymbolicLinks(),
+        await File(target).resolveSymbolicLinks(),
+      );
 
   static Future<String> _createCacheDirectory(String workspaceRoot) async {
     final cache = p.join(workspaceRoot, 'bin', 'cache');
@@ -205,7 +281,7 @@ final class FlutterToolWorkspace {
     }
     await Directory(p.dirname(path)).create(recursive: true);
     if (!Platform.isWindows) {
-      await Link(path).create(target);
+      await Link(path).create(p.normalize(p.absolute(target)));
       return;
     }
     final arguments = [
@@ -213,7 +289,7 @@ final class FlutterToolWorkspace {
       'mklink',
       if (Directory(target).existsSync()) '/J' else '/H',
       path,
-      target,
+      p.normalize(p.absolute(target)),
     ];
     final result = await ProcessRunner.run(
       await ProcessRunner.locateTool('cmd'),
