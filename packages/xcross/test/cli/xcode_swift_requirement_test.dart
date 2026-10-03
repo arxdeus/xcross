@@ -5,6 +5,8 @@ import 'package:test/test.dart';
 import 'package:xcross/src/cli/basic/doctor_environment_checks.dart';
 import 'package:xcross/src/cli/basic/internal/xcode_swift_requirement.dart';
 
+import '../host_operations_fixtures.dart';
+
 void main() {
   group('XcodeSwiftRequirement.xcodeMajorFromXipPath', () {
     test('reads the version out of the usual download names', () {
@@ -98,6 +100,17 @@ void main() {
     Future<String?> run(String version) =>
         DoctorEnvironmentChecks.swiftTooOldForSdk(
           bundle.path,
+          log: fixtureLog(),
+          sdkPath: (root) => Directory(
+            p.join(
+              root,
+              'Developer',
+              'Platforms',
+              'iPhoneOS.platform',
+              'Developer',
+              'SDKs',
+            ),
+          ).listSync().whereType<Directory>().single.path,
           toolchainIdentity: () async => {
             'swift': '/usr/bin/swift',
             'version': version,

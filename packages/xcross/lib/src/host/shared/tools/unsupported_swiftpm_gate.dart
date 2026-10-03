@@ -4,7 +4,9 @@ final class UnsupportedSwiftPmGate implements SwiftPmGateOperation {
   const UnsupportedSwiftPmGate(this.hostName);
   final String hostName;
   @override
-  Future<void> run(List<String> arguments) async {
-    throw UnsupportedError('SwiftPM feasibility evidence is supported only on Windows, not $hostName');
-  }
+  Future<void> run(List<String> arguments) => Future.error(
+    UnsupportedError(
+      'SwiftPM feasibility evidence is supported only on Windows, not $hostName',
+    ),
+  );
 }

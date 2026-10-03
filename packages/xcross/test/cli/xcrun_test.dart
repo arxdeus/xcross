@@ -1,13 +1,14 @@
 import 'dart:io';
-import 'package:cli_kit/cli_kit.dart';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/composition/xcrun_sdk.dart';
 import 'package:xcross/src/host/macos/xcrun/native_xcrun.dart';
-import 'package:xcross/src/shared/xcrun/xcrun_operation.dart';
 import 'package:xcross/src/shared/xcrun/cross_xcrun.dart' as xcrun;
+import 'package:xcross/src/shared/xcrun/xcrun_operation.dart';
+
 import '../host_operations_fixtures.dart';
 
 void main() {
@@ -819,8 +820,8 @@ IosBuildPlatformInterface _fixtureTarget(List<String> arguments) {
 final class _UnusedLoader implements XcrunRuntimeLoader {
   int calls = 0;
   @override
-  Future<XcrunServices> loadXcrun({required String sdkName}) async {
+  Future<XcrunServices> loadXcrun({required String sdkName}) {
     calls++;
-    throw StateError('configuration must not load');
+    return Future.error(StateError('configuration must not load'));
   }
 }

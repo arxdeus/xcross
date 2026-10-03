@@ -11,10 +11,19 @@ final class WindowsSwiftPmGate implements SwiftPmGateOperation {
     if (arguments.length != 2 || arguments.first != 'record') {
       throw ArgumentError('usage: swiftpm_gate_evidence record <mode>');
     }
-    final mode = SwiftPmGateMode.values.singleWhere((candidate) => candidate.name == arguments[1]);
+    final mode = SwiftPmGateMode.values.singleWhere(
+      (candidate) => candidate.name == arguments[1],
+    );
     final services = await loader.loadSwiftPmGate();
-    if (services.cacheRoot.isEmpty) throw StateError('XCROSS_CACHE_DIR is required');
-    final passed = await services.verify(root: p.join(services.cacheRoot, 'swiftpm', 'gate-evidence-v2'), mode: mode, platformIdentity: services.platformIdentity, toolchainIdentity: await services.toolchainIdentity(), sdkIdentity: await services.sdkIdentity());
+    if (services.cacheRoot.isEmpty)
+      throw StateError('XCROSS_CACHE_DIR is required');
+    final passed = await services.verify(
+      root: p.join(services.cacheRoot, 'swiftpm', 'gate-evidence-v2'),
+      mode: mode,
+      platformIdentity: services.platformIdentity,
+      toolchainIdentity: await services.toolchainIdentity(),
+      sdkIdentity: await services.sdkIdentity(),
+    );
     if (!passed) throw StateError('${mode.name} feasibility probe failed');
   }
 }
