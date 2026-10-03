@@ -13,6 +13,10 @@ FlutterBuildArgs _$parseFlutterBuildArgsResult(ArgResults result) =>
       ..dartDefine = result['dart-define'] as List<String>
       ..dartDefineFromFile = result['dart-define-from-file'] as List<String>
       ..pub = result['pub'] as bool
+      ..simulator = result['simulator'] as bool
+      ..debug = result['debug'] as bool
+      ..profile = result['profile'] as bool
+      ..release = result['release'] as bool
       ..buildName = result['build-name'] as String?
       ..buildNumber = result['build-number'] as String?
       ..ipa = result['ipa'] as bool;
@@ -41,6 +45,26 @@ ArgParser _$populateFlutterBuildArgsParser(ArgParser parser) => parser
     'pub',
     help: 'Run "flutter pub get" before building.',
     defaultsTo: true,
+  )
+  ..addFlag(
+    'simulator',
+    help: 'Build for the ARM64 iOS Simulator.',
+    negatable: false,
+  )
+  ..addFlag(
+    'debug',
+    help: 'Build in debug mode (the only supported mode).',
+    negatable: false,
+  )
+  ..addFlag(
+    'profile',
+    help: 'Profile mode is unsupported by xcross.',
+    negatable: false,
+  )
+  ..addFlag(
+    'release',
+    help: 'Release mode is unsupported by xcross.',
+    negatable: false,
   )
   ..addOption('build-name', help: 'Version name (CFBundleShortVersionString).')
   ..addOption('build-number', help: 'Version code (CFBundleVersion).')

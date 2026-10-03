@@ -104,6 +104,7 @@ abstract final class InfoPlist {
     String plistXml, {
     required String bundleId,
     required IosDeploymentTarget deploymentTarget,
+    String? sdkName,
   }) {
     var xml = _setPlistKey(
       plistXml,
@@ -124,7 +125,48 @@ abstract final class InfoPlist {
         '\t<key>${entry.key}</key>\n\t${entry.value}\n',
       );
     }
-    return xml;
+    return applyIosPlatformKeys(
+      xml,
+      deploymentTarget: deploymentTarget,
+      sdkName: sdkName,
+    );
+  }
+
+  static String applyIosPlatformKeys(
+    String plistXml, {
+    required IosDeploymentTarget deploymentTarget,
+    String? sdkName,
+  }) {
+    if (!deploymentTarget.simulator) return plistXml;
+    final document = XmlDocument.parse(plistXml);
+    final root = document.rootElement.getElement('dict');
+    if (root == null) {
+      throw const FormatException('Info.plist has no root dict');
+    }
+    final target = deploymentTarget.target;
+    final selectedSdkName =
+        sdkName ?? '${target.sdkName}${IosDeploymentConstants.sdkVersion}';
+    final sdkVersion =
+        RegExp(r'[0-9].*$').firstMatch(selectedSdkName)?.group(0) ??
+        IosDeploymentConstants.sdkVersion;
+    final platforms = _plistElement('array')
+      ..children.add(_plistElement('string', target.platformName));
+    for (final entry in {
+      'CFBundleSupportedPlatforms': platforms,
+      'DTPlatformName': _plistElement('string', target.sdkName),
+      'DTSDKName': _plistElement('string', selectedSdkName),
+      'DTPlatformVersion': _plistElement('string', sdkVersion),
+    }.entries) {
+      final current = _plistValueFor(root, entry.key);
+      if (current == null) {
+        root.children
+          ..add(_plistElement('key', entry.key))
+          ..add(entry.value);
+      } else {
+        root.children[root.children.indexOf(current)] = entry.value;
+      }
+    }
+    return document.toXmlString();
   }
 
   /// Add the Debug-only local-network declarations Flutter's Xcode backend
@@ -182,7 +224,8 @@ abstract final class InfoPlist {
   static XmlElement? _plistValueFor(XmlElement dict, String name) {
     final entries = dict.childElements.toList();
     for (var i = 0; i < entries.length; i++) {
-      if (entries[i].name.local == 'key' && entries[i].innerText == name) {
+      if (entries[i].name.local == 'key' &&
+          entries[i].innerText.trim() == name) {
         if (i + 1 >= entries.length || entries[i + 1].name.local == 'key') {
           throw FormatException('Info.plist key $name has no value');
         }

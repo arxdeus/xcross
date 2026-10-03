@@ -50,6 +50,37 @@ String packageSrcPath(String relative) => p.join(
 
 void main() {
   test(
+    'simulator SwiftPM invocation selects simulator target instead of device',
+    () {
+      final build = GeneratedPluginsPackage.swiftBuildArguments(
+        pluginsDir: '/plugins',
+        scratchPath: '/scratch',
+        swiftSdksPath: '/sdk',
+        iosSdk: '/simulator-sdk',
+        flutterFrameworkSlice: '/ios-arm64_x86_64-simulator',
+        swiftSdkTriple: 'arm64-apple-ios-simulator',
+      );
+      expect(
+        build,
+        containsAllInOrder(['--swift-sdk', 'arm64-apple-ios-simulator']),
+      );
+      expect(build, isNot(contains('arm64-apple-ios')));
+      expect(build, contains('/simulator-sdk'));
+      final resolve = GeneratedPluginsPackage.swiftResolveArguments(
+        pluginsDir: '/plugins',
+        scratchPath: '/scratch',
+        swiftSdksPath: '/sdk',
+        toolsetPath: '/toolset',
+        swiftSdkTriple: 'arm64-apple-ios-simulator',
+      );
+      expect(
+        resolve,
+        containsAllInOrder(['--swift-sdk', 'arm64-apple-ios-simulator']),
+      );
+    },
+  );
+
+  test(
     'Windows manifests import host CRT without package-specific overrides',
     () {
       expect(GeneratedPluginsPackage.hostManifestArguments(windows: true), [

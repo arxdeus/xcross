@@ -29,6 +29,32 @@ IosAppExtension _extension({
 );
 
 void main() {
+  test(
+    'compiles extension for ARM64 simulator with simulator linker platform',
+    () {
+      final args = AppExtensionBuilder.compileArguments(
+        iosSdk: '/sim-sdk',
+        resourceDir: '/swift',
+        sources: ['/Extension.swift'],
+        outputPath: '/Extension',
+        deploymentTarget: const IosDeploymentTarget('16.0', simulator: true),
+        flutterSlice: '/simulator',
+        moduleCache: '/cache',
+        ld64lld: '/ld64.lld',
+        sdkVersion: '26.5',
+        moduleName: 'Extension',
+      );
+      expect(
+        args,
+        containsAllInOrder(['-target', 'arm64-apple-ios16.0-simulator']),
+      );
+      expect(
+        args,
+        containsAllInOrder(['-platform_version', '-Xlinker', 'ios-simulator']),
+      );
+    },
+  );
+
   group('compileArguments', () {
     List<String> argumentsWith({
       String? pluginsLibrary,

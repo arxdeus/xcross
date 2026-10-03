@@ -29,6 +29,7 @@ final class AppleToolShimConfig {
     required this.installNameTool,
     required this.xcrun,
     required this.deploymentTarget,
+    this.simulator = false,
   });
 
   final String iosSdk;
@@ -41,8 +42,14 @@ final class AppleToolShimConfig {
   final String? installNameTool;
   final String xcrun;
   final String deploymentTarget;
+  final bool simulator;
 
-  static Future<AppleToolShimConfig> resolve(String deploymentTarget) async {
+  IosTarget get target => simulator ? IosTarget.simulator : IosTarget.device;
+
+  static Future<AppleToolShimConfig> resolve(
+    String deploymentTarget, {
+    bool simulator = false,
+  }) async {
     final sdk = DarwinSdk.current();
     if (sdk == null) {
       throw FlutterBuildError(
@@ -52,7 +59,9 @@ final class AppleToolShimConfig {
     }
     final clang = await DarwinSdk.resolveDarwinClang(sdk);
     return AppleToolShimConfig(
-      iosSdk: sdk.iPhoneOSSdk(),
+      iosSdk: sdk.iosSdk(
+        target: simulator ? IosTarget.simulator : IosTarget.device,
+      ),
       clang: clang,
       hostCompiler: await resolveHostCompiler(clang),
       archiver: await _locateArchiver(clang),
@@ -62,6 +71,7 @@ final class AppleToolShimConfig {
       installNameTool: await findLlvmTool('llvm-install-name-tool'),
       xcrun: await resolveXcrun(),
       deploymentTarget: deploymentTarget,
+      simulator: simulator,
     );
   }
 }
@@ -240,14 +250,14 @@ Future<void> _installWindowsToolShims(
     if (entry.key == 'clang' || entry.key == 'cc') {
       await File('$executable.args').writeAsString(
         jsonEncode([
-          '--target=arm64-apple-ios${config.deploymentTarget}',
+          '--target=${config.target.buildTriple(config.deploymentTarget)}',
           '-isysroot',
           config.iosSdk,
-          '-miphoneos-version-min=${config.deploymentTarget}',
+          '-m${config.simulator ? 'ios-simulator' : 'iphoneos'}-version-min=${config.deploymentTarget}',
           '-fuse-ld=lld',
           '--ld-path=${config.linker}',
           '-Wl,-arch,arm64',
-          '-Wl,-platform_version,ios,${config.deploymentTarget},26.5',
+          '-Wl,-platform_version,${config.target.linkerPlatform},${config.deploymentTarget},26.5',
         ]),
       );
     }
@@ -321,6 +331,7 @@ Future<void> _installUnixToolShims(
     hostCompiler: config.hostCompiler,
     linker: config.linker,
     deploymentTarget: config.deploymentTarget,
+    simulator: config.simulator,
   );
   await _writeUnixShim(directory, 'clang', compilerScript);
   await _writeUnixShim(directory, 'cc', compilerScript);

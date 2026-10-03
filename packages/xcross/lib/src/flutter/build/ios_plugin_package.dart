@@ -13,6 +13,7 @@ import 'package:xcross/src/flutter/build/internal/host_symlink_capability.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_workspace.dart';
 import 'package:xcross/src/flutter/build/internal/windows_swift_plan_repair.dart';
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
+import 'package:xcross/src/flutter/build/ios_engine_cache.dart';
 import 'package:xcross/src/flutter/build/ios_linker_compatibility.dart';
 import 'package:xcross/src/flutter/build/ios_plugins.dart';
 import 'package:xcross/src/flutter/build/macho_dylib_rewriter.dart';
@@ -188,7 +189,7 @@ abstract final class GeneratedPluginsPackage {
 
         final targetDebugDir = p.join(
           workspace.scratch,
-          'arm64-apple-ios',
+          deploymentTarget.swiftSdkTriple,
           'debug',
         );
         final fingerprint = await incrementalBuildFingerprint(
@@ -262,6 +263,7 @@ abstract final class GeneratedPluginsPackage {
           pluginsDir: pluginsDir,
           scratchPath: scratchPath,
           flutterXcframework: stagedFlutterXcframework,
+          deploymentTarget: deploymentTarget,
           interopTargetCandidates: interopTargetCandidates,
           interopConsumers: {
             for (final plugin in spmPlugins)
@@ -311,6 +313,7 @@ abstract final class GeneratedPluginsPackage {
       add(objectiveCSmallStubSwiftDriverArguments.join('\u0001'));
     }
     add(deploymentTarget.version);
+    add(deploymentTarget.swiftSdkTriple);
     add(verbose.toString());
     final sdk = DarwinSdk.current();
     if (toolchainIdentity == null && sdk == null) {
@@ -397,11 +400,13 @@ abstract final class GeneratedPluginsPackage {
     required String pluginsDir,
     required String scratchPath,
     required String flutterXcframework,
+    required IosDeploymentTarget deploymentTarget,
     required Set<String> interopTargetCandidates,
     required Map<String, Set<String>> interopConsumers,
     bool swiftPmArtifactJunctionCapability = false,
     bool packageLocalArtifactJunctionCapability = false,
   }) async {
+    final simulator = deploymentTarget.simulator;
     final outputDir = workspace.packages;
     final sdk = DarwinSdk.current();
     if (sdk == null) {
@@ -437,7 +442,10 @@ abstract final class GeneratedPluginsPackage {
     // reproduce it ourselves with build-wide framework search flags. Swift
     // targets need `-Xswiftc -F`; C and Objective-C targets need the matching
     // `-Xcc -F` pair so imports such as `<Flutter/Flutter.h>` resolve too.
-    final flutterFrameworkSlice = p.join(flutterXcframework, 'ios-arm64');
+    final flutterFrameworkSlice = IosEngineCache.flutterSlice(
+      flutterXcframework,
+      simulator: deploymentTarget.simulator,
+    );
     final linker = await DarwinSdk.resolveLd64Lld(sdk);
     final windows = Platform.isWindows;
     final darwinClang = windows
@@ -468,6 +476,7 @@ abstract final class GeneratedPluginsPackage {
       await _resolveWindowsDependencies(
         swift: swiftPackage,
         pluginsDir: pluginsDir,
+        simulator: simulator,
         scratchPath: scratchPath,
         swiftSdksPath: swiftSdksPath,
         toolsetPath: toolsetPath,
@@ -484,7 +493,8 @@ abstract final class GeneratedPluginsPackage {
       pluginsDir: pluginsDir,
       scratchPath: scratchPath,
       swiftSdksPath: swiftSdksPath,
-      iosSdk: sdk.iPhoneOSSdk(),
+      iosSdk: deploymentTarget.sdkPath(sdk),
+      swiftSdkTriple: deploymentTarget.swiftSdkTriple,
       flutterFrameworkSlice: flutterFrameworkSlice,
       objectiveCCompatibilityHeader: objectiveCCompatibilityHeader,
       toolsetPath: toolsetPath,
@@ -502,7 +512,10 @@ abstract final class GeneratedPluginsPackage {
       ),
     );
     // Inspect the plan just emitted, not a directory from an earlier build.
-    final targetBuildDir = resolveTargetBuildDir(scratchPath);
+    final targetBuildDir = resolveTargetBuildDir(
+      scratchPath,
+      triple: deploymentTarget.swiftSdkTriple,
+    );
     await repairWindowsGeneratedBuildFiles(
       scratchPath,
       targetBuildDir,
@@ -784,6 +797,7 @@ abstract final class GeneratedPluginsPackage {
     required bool swiftPmArtifactJunctionCapability,
     required bool packageLocalArtifactJunctionCapability,
     required Map<String, String>? environment,
+    bool simulator = false,
   }) async {
     Future<void> resolve() => ProcessRunner.runChecked(
       swift,
@@ -792,6 +806,9 @@ abstract final class GeneratedPluginsPackage {
         scratchPath: scratchPath,
         swiftSdksPath: swiftSdksPath,
         toolsetPath: toolsetPath,
+        swiftSdkTriple: simulator
+            ? 'arm64-apple-ios-simulator'
+            : 'arm64-apple-ios',
       ).skip(1).toList(),
       environment: environment,
       inheritStdio: Log.isVerbose,
@@ -804,6 +821,7 @@ abstract final class GeneratedPluginsPackage {
     final attemptState = SwiftPmBinaryAttemptState();
     final packageIdentities = await _packageIdentitiesByDirectory(pluginsDir);
     Future<bool> recover() => stageExtractedBinaryArtifacts(
+      simulator: simulator,
       scratchPath: scratchPath,
       vendorDir: vendorDir,
       packageIdentities: packageIdentities,
@@ -918,6 +936,7 @@ abstract final class GeneratedPluginsPackage {
     required String binaryArtifactStore,
     required String binaryArtifactFallback,
     required bool packageLocalArtifactJunctionCapability,
+    bool simulator = false,
     PrepareSwiftPmBinaryArtifact? prepare,
     CreateSwiftPmBinaryAlias? createAlias,
     MaterializeSwiftPmBinaryArtifact? materialize,
@@ -930,7 +949,10 @@ abstract final class GeneratedPluginsPackage {
     if (!root.existsSync()) return;
 
     final store = SwiftPmBinaryArtifactStore(binaryArtifactStore);
-    final preparer = SwiftPmBinaryArtifactPreparer(store: store);
+    final preparer = SwiftPmBinaryArtifactPreparer(
+      store: store,
+      simulator: simulator,
+    );
     final runPrepare = prepare ?? preparer.prepare;
     final create = createAlias ?? preparer.createBinaryArtifactJunction;
     final copy = materialize ?? preparer.materializeBinaryArtifact;
@@ -1133,6 +1155,7 @@ abstract final class GeneratedPluginsPackage {
     required String destination,
     required SwiftPmBinaryAttemptState attemptState,
     required bool packageLocalArtifactJunctionCapability,
+    bool simulator = false,
     String? materializedDestination,
     CreateSwiftPmBinaryAlias? createAlias,
     MaterializeSwiftPmBinaryArtifact? materialize,
@@ -1145,6 +1168,7 @@ abstract final class GeneratedPluginsPackage {
     attemptState.finalRecovered.add(key);
     final preparer = SwiftPmBinaryArtifactPreparer(
       store: SwiftPmBinaryArtifactStore(binaryArtifactStore),
+      simulator: simulator,
     );
     final create = createAlias ?? preparer.createBinaryArtifactJunction;
     final copy =
@@ -1194,6 +1218,7 @@ abstract final class GeneratedPluginsPackage {
     required String vendorDir,
     Map<String, String> packageIdentities = const {},
     String? binaryArtifactStore,
+    bool simulator = false,
     String? binaryArtifactFallback,
     SwiftPmBinaryAttemptState? attemptState,
     bool packageLocalArtifactJunctionCapability = false,
@@ -1220,6 +1245,7 @@ abstract final class GeneratedPluginsPackage {
     }
     final preparer = SwiftPmBinaryArtifactPreparer(
       store: SwiftPmBinaryArtifactStore(binaryArtifactStore),
+      simulator: simulator,
     );
     var changed = false;
     final remove = removeDestination ?? _deleteEntity;
@@ -1310,11 +1336,15 @@ abstract final class GeneratedPluginsPackage {
                 final staging = await store.createTemp('.extracted-');
                 try {
                   final artifactName = p.basename(extracted.single.path);
+                  final retainedNames = simulator
+                      ? _simulatorLibraryIdentifiers(extracted.single)
+                      : {'ios-arm64'};
+                  if (retainedNames.isEmpty) continue;
                   await _copyResolvedArtifactTree(
                     extracted.single.path,
                     p.join(staging.path, artifactName),
                     includeTopLevel: (name) =>
-                        name == 'Info.plist' || name == 'ios-arm64',
+                        name == 'Info.plist' || retainedNames.contains(name),
                   );
 
                   verified.add(
@@ -1364,6 +1394,7 @@ abstract final class GeneratedPluginsPackage {
               publication = SwiftPmBinaryArtifactPublication.reused;
             } else {
               publication = await recoverFinalBinaryArtifact(
+                simulator: simulator,
                 provenance: candidate,
                 preparedArtifactPath: verified.single.artifactPath,
                 binaryArtifactStore: binaryArtifactStore,
@@ -1833,6 +1864,7 @@ abstract final class GeneratedPluginsPackage {
     required String scratchPath,
     required String swiftSdksPath,
     required String toolsetPath,
+    String swiftSdkTriple = 'arm64-apple-ios',
   }) => [
     'package',
     ...hostManifestArguments(),
@@ -1843,7 +1875,7 @@ abstract final class GeneratedPluginsPackage {
     '--swift-sdks-path',
     swiftSdksPath,
     '--swift-sdk',
-    'arm64-apple-ios',
+    swiftSdkTriple,
     '--toolset',
     toolsetPath,
     'resolve',
@@ -2255,6 +2287,7 @@ abstract final class GeneratedPluginsPackage {
     required String swiftSdksPath,
     required String iosSdk,
     required String flutterFrameworkSlice,
+    String swiftSdkTriple = 'arm64-apple-ios',
     String? objectiveCCompatibilityHeader,
     String? toolsetPath,
     String? linkerPath,
@@ -2286,7 +2319,7 @@ abstract final class GeneratedPluginsPackage {
     '--swift-sdks-path',
     swiftSdksPath,
     '--swift-sdk',
-    'arm64-apple-ios',
+    swiftSdkTriple,
     if (toolsetPath != null) ...['--toolset', toolsetPath],
     '--scratch-path',
     scratchPath,
@@ -2585,6 +2618,7 @@ abstract final class GeneratedPluginsPackage {
     )?
     clonePackage,
   }) async {
+    final simulator = deploymentTarget.simulator;
     final windows = Platform.isWindows;
     final packagesDir = p.join(outputDir, 'Packages');
     final frameworkDir = p.join(packagesDir, _flutterFrameworkPackageName);
@@ -2618,6 +2652,7 @@ abstract final class GeneratedPluginsPackage {
       for (final plugin in plugins) {
         prestaged.add(
           await _stagePluginPackage(
+            simulator: simulator,
             alias: p.join(packagesDir, plugin.name),
             target: plugin.swiftPackageDir,
             platformDir: plugin.platformDirectoryName,
@@ -2661,6 +2696,7 @@ abstract final class GeneratedPluginsPackage {
               : _evaluatedDependencyRefs(
                   directory,
                   ProcessRunner.locateTool,
+                  simulator: simulator,
                   scratchPath: scratchPath,
                   binaryArtifactStore: binaryArtifactStore,
                   binaryArtifactFallback: binaryArtifactFallback,
@@ -2692,6 +2728,7 @@ abstract final class GeneratedPluginsPackage {
     for (final plugin in plugins) {
       final packageAlias = p.join(packagesDir, plugin.name);
       pluginPackageDirs[plugin.name] = await _stagePluginPackage(
+        simulator: simulator,
         alias: packageAlias,
         target: plugin.swiftPackageDir,
         platformDir: plugin.platformDirectoryName,
@@ -2717,6 +2754,7 @@ abstract final class GeneratedPluginsPackage {
         binaryArtifactStore != null &&
         binaryArtifactFallback != null) {
       await prepareSupportedBinaryArtifacts(
+        simulator: simulator,
         packageRoot: resolvedVendorDir,
         binaryArtifactStore: binaryArtifactStore,
         binaryArtifactFallback: binaryArtifactFallback,
@@ -3065,6 +3103,7 @@ abstract final class GeneratedPluginsPackage {
     String? scratchPath,
 
     String? binaryArtifactStore,
+    bool simulator = false,
     String? binaryArtifactFallback,
     bool swiftPmArtifactJunctionCapability = false,
     bool packageLocalArtifactJunctionCapability = false,
@@ -3122,6 +3161,7 @@ abstract final class GeneratedPluginsPackage {
       await _mirrorPluginPackage(target, stagedPackage, normalizedManifest);
       normalizedManifest = await vendorUrlPackagesAsPathDeps(
         normalizedManifest,
+        simulator: simulator,
         vendorDir: vendorDir,
         packageDirectory: stagedPackage,
         fallbackSwiftModules: fallbackSwiftModules,
@@ -3167,6 +3207,7 @@ abstract final class GeneratedPluginsPackage {
         binaryArtifactStore != null &&
         binaryArtifactFallback != null) {
       await prepareSupportedBinaryArtifacts(
+        simulator: simulator,
         packageRoot: stagedPackage,
         binaryArtifactStore: binaryArtifactStore,
         binaryArtifactFallback: binaryArtifactFallback,
@@ -4651,6 +4692,7 @@ let package = Package(
     required String binaryArtifactStore,
     required Iterable<SwiftPmBinaryArtifactProvenance> provenance,
     required SwiftPmBinaryAttemptState attemptState,
+    bool simulator = false,
     bool swiftPmArtifactJunctionCapability = false,
     bool? windows,
   }) async {
@@ -4660,6 +4702,7 @@ let package = Package(
     if (!artifacts.existsSync()) return false;
     final preparer = SwiftPmBinaryArtifactPreparer(
       store: SwiftPmBinaryArtifactStore(binaryArtifactStore),
+      simulator: simulator,
     );
     final candidates =
         <
@@ -4709,7 +4752,7 @@ let package = Package(
           );
       var hasFinalArtifact = false;
       for (final artifact in completeArtifacts) {
-        if (await hasCompleteSwiftPmArtifact(artifact)) {
+        if (await hasCompleteSwiftPmArtifact(artifact, simulator: simulator)) {
           hasFinalArtifact = true;
           break;
         }
@@ -4772,8 +4815,33 @@ let package = Package(
     return recovered;
   }
 
+  static Set<String> _simulatorLibraryIdentifiers(Directory artifact) {
+    final info = File(p.join(artifact.path, 'Info.plist'));
+    try {
+      final plist = PropertyListSerialization.propertyListWithString(
+        info.readAsStringSync(),
+      );
+      if (plist is! Map || plist['AvailableLibraries'] is! List) return {};
+      return {
+        for (final library in plist['AvailableLibraries'] as List)
+          if (library is Map &&
+              library['SupportedPlatform'] == 'ios' &&
+              library['SupportedPlatformVariant'] == 'simulator' &&
+              library['SupportedArchitectures'] is List &&
+              (library['SupportedArchitectures'] as List).contains('arm64') &&
+              library['LibraryIdentifier'] is String)
+            library['LibraryIdentifier'] as String,
+      };
+    } on Object {
+      return {};
+    }
+  }
+
   @visibleForTesting
-  static Future<bool> hasCompleteSwiftPmArtifact(Directory artifact) async {
+  static Future<bool> hasCompleteSwiftPmArtifact(
+    Directory artifact, {
+    bool simulator = false,
+  }) async {
     final info = File(p.join(artifact.path, 'Info.plist'));
     if (!info.existsSync()) return false;
     try {
@@ -4784,7 +4852,12 @@ let package = Package(
       final libraries = value['AvailableLibraries'];
       if (libraries is! List) return false;
       for (final value in libraries) {
-        if (value is! Map || value['SupportedPlatform'] != 'ios') continue;
+        if (value is! Map ||
+            value['SupportedPlatform'] != 'ios' ||
+            value['SupportedPlatformVariant'] !=
+                (simulator ? 'simulator' : null)) {
+          continue;
+        }
         final architectures = value['SupportedArchitectures'];
         final identifier = value['LibraryIdentifier'];
         final libraryPath = value['LibraryPath'];
@@ -4856,6 +4929,7 @@ let package = Package(
     SwiftPmBinaryAttemptState? attemptState,
     String? scratchPath,
     String? binaryArtifactStore,
+    bool simulator = false,
     String? binaryArtifactFallback,
     bool swiftPmArtifactJunctionCapability = false,
     List<SwiftPmPackageDependency> dependencies = const [],
@@ -4906,6 +4980,7 @@ let package = Package(
               resolverScratchPath!,
             );
             final recoveredArchive = await recoverBootstrapBinaryArtifacts(
+              simulator: simulator,
               scratchPath: resolverScratchPath,
               binaryArtifactStore: binaryArtifactStore!,
               provenance: scannedProvenance!,
@@ -4914,6 +4989,7 @@ let package = Package(
                   swiftPmArtifactJunctionCapability,
             );
             final recoveredExtraction = await stageExtractedBinaryArtifacts(
+              simulator: simulator,
               scratchPath: resolverScratchPath,
               vendorDir: p.join(resolverScratchPath, '.xcross-vendor'),
               binaryArtifactStore: binaryArtifactStore,
@@ -4952,6 +5028,7 @@ let package = Package(
     String? scratchPath,
 
     String? binaryArtifactStore,
+    bool simulator = false,
     String? binaryArtifactFallback,
     bool swiftPmArtifactJunctionCapability = false,
     bool packageLocalArtifactJunctionCapability = false,
@@ -4975,6 +5052,7 @@ let package = Package(
             : _evaluatedDependencyRefs(
                 directory,
                 locate,
+                simulator: simulator,
                 scratchPath: scratchPath,
                 binaryArtifactStore: binaryArtifactStore,
                 binaryArtifactFallback: binaryArtifactFallback,

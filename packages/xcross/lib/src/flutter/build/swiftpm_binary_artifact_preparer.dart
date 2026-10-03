@@ -86,6 +86,7 @@ final class SwiftPmPreparedBinaryArtifact {
 final class SwiftPmBinaryArtifactPreparer {
   SwiftPmBinaryArtifactPreparer({
     required SwiftPmBinaryArtifactStore store,
+    this.simulator = false,
     DownloadBinaryArchive? download,
     int maxEntries = 100000,
     int maxExpandedBytes = 4294967296,
@@ -117,6 +118,7 @@ final class SwiftPmBinaryArtifactPreparer {
   static final Map<String, Future<void>> _destinationTails = {};
 
   final SwiftPmBinaryArtifactStore _store;
+  final bool simulator;
   final DownloadBinaryArchive _download;
   final int _maxEntries;
   final int _maxExpandedBytes;
@@ -1013,14 +1015,14 @@ final class SwiftPmBinaryArtifactPreparer {
         .where(
           (library) =>
               library.platform == 'ios' &&
-              library.variant == null &&
+              library.variant == (simulator ? 'simulator' : null) &&
               library.architectures.contains('arm64'),
         )
         .toList();
     if (eligible.length != 1) {
       throw FlutterBuildError(
         'SwiftPM XCFramework must contain exactly one eligible arm64 iOS '
-        'device library; found ${eligible.length}',
+        '${simulator ? 'simulator' : 'device'} library; found ${eligible.length}',
       );
     }
     final library = eligible.single;

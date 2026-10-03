@@ -65,7 +65,10 @@ final class FlutterDebugBundler {
 
   /// Build `App.framework` inside [outputDir]. Returns the framework path.
   Future<String> build() async {
-    final engineCache = IosEngineCache(flutterRoot: flutterRoot);
+    final engineCache = IosEngineCache(
+      flutterRoot: flutterRoot,
+      simulator: deploymentTarget.simulator,
+    );
     await Log.logStep(
       'Fetching Flutter engine artifacts',
       engineCache.ensureArtifactsAvailable,
@@ -213,7 +216,9 @@ final class FlutterDebugBundler {
   /// Recreate the kernel scratch directory and return its `app.dill` path.
   Future<String> _prepareKernelScratch() async {
     final scratch = Directory(
-      p.join(projectRoot, 'build', 'xcross-flutter-debug', '.kernel'),
+      deploymentTarget.simulator
+          ? p.join(outputDir, '.kernel')
+          : p.join(projectRoot, 'build', 'xcross-flutter-debug', '.kernel'),
     );
     if (scratch.existsSync()) await scratch.delete(recursive: true);
     await scratch.create(recursive: true);
@@ -469,7 +474,7 @@ final class FlutterDebugBundler {
     }
     return Toolchain(
       clang: await DarwinSdk.resolveDarwinClang(darwin),
-      iosSdk: darwin.iPhoneOSSdk(),
+      iosSdk: deploymentTarget.sdkPath(darwin),
       linker: await DarwinSdk.resolveLd64Lld(darwin),
     );
   }
@@ -528,7 +533,7 @@ final class FlutterDebugBundler {
       '--target=${deploymentTarget.buildTriple}',
       '-arch',
       'arm64',
-      '-miphoneos-version-min=${deploymentTarget.version}',
+      deploymentTarget.minimumVersionFlag,
       '-isysroot',
       toolchain.iosSdk,
       '-x',

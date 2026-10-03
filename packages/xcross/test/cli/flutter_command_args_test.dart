@@ -94,6 +94,33 @@ void main() {
   });
 
   group('FlutterBuildCommand', () {
+    test('accepts explicit simulator debug and preserves device default', () {
+      final command = FlutterBuildCommand();
+      expect(command.argParser.parse([]).flag('simulator'), isFalse);
+      final results = command.argParser.parse(['--simulator', '--debug']);
+      expect(results.flag('simulator'), isTrue);
+      expect(results.flag('debug'), isTrue);
+    });
+
+    for (final flags in [
+      ['--simulator', '--ipa'],
+      ['--simulator', '--profile'],
+      ['--simulator', '--release'],
+      ['--debug', '--profile'],
+    ]) {
+      test(
+        'rejects unsupported combination $flags before accessing a project',
+        () async {
+          final runner = CommandRunner<void>('test', 'test')
+            ..addCommand(FlutterBuildCommand());
+          await expectLater(
+            runner.run(['build', ...flags]),
+            throwsA(isA<UsageException>()),
+          );
+        },
+      );
+    }
+
     late Command<void> command;
 
     setUp(() => command = FlutterBuildCommand());

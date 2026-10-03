@@ -5,6 +5,7 @@ import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
+import 'package:xcross/src/flutter/build/ios_engine_cache.dart';
 import 'package:xcross/src/flutter/constants.dart';
 import 'package:xcross/src/flutter/errors.dart';
 
@@ -39,8 +40,11 @@ final class RunnerShim {
     bool verbose = false,
   }) => Log.logStep('Compiling Runner', () async {
     final clang = await DarwinSdk.resolveDarwinClang(sdk);
-    final iosSdk = _resolveIPhoneOsSDK(sdk);
-    final flutterSlice = _flutterDeviceSlice(flutterXcframework);
+    final iosSdk = deploymentTarget.sdkPath(sdk);
+    final flutterSlice = IosEngineCache.flutterSlice(
+      flutterXcframework,
+      simulator: deploymentTarget.simulator,
+    );
     final subframeworks = p.join(iosSdk, 'System', 'Library', 'SubFrameworks');
 
     await Directory(outputDir).create(recursive: true);
@@ -140,7 +144,7 @@ final class RunnerShim {
     '-I',
     p.join(flutterSlice, 'Flutter.framework', 'Headers'),
     '-fobjc-arc',
-    '-miphoneos-version-min=${deploymentTarget.version}',
+    deploymentTarget.minimumVersionFlag,
     '-c',
     sourcePath,
     '-o',
@@ -206,7 +210,7 @@ final class RunnerShim {
     '-arch',
     'arm64',
     '-platform_version',
-    'ios',
+    deploymentTarget.linkerPlatform,
     deploymentTarget.version,
     sdkVersion,
     '-syslibroot',
@@ -239,38 +243,11 @@ final class RunnerShim {
     '@executable_path/Frameworks',
   ];
 
-  /// Prefer the generic `iPhoneOS.sdk` symlink; fall back to the versioned SDK.
-  static String _resolveIPhoneOsSDK(DarwinSdk sdk) {
-    final generic = p.join(
-      sdk.bundle,
-      'Developer',
-      'Platforms',
-      'iPhoneOS.platform',
-      'Developer',
-      'SDKs',
-      'iPhoneOS.sdk',
-    );
-    if (Directory(generic).existsSync()) return generic;
-    return sdk.iPhoneOSSdk();
-  }
-
-  /// Returns the `ios-arm64` slice directory inside [xcframework].
-  static String _flutterDeviceSlice(String xcframework) {
-    final slice = p.join(xcframework, 'ios-arm64');
-    final framework = p.join(slice, 'Flutter.framework');
-    if (!Directory(framework).existsSync()) {
-      throw FlutterBuildError(
-        'RunnerShim: Flutter device slice not found at $framework',
-      );
-    }
-    return slice;
-  }
-
   /// Version number from an SDK dir name: `iPhoneOS17.5.sdk` → `17.5`.
   static String? _sdkVersion(String sdkPath) {
     final name = p.basenameWithoutExtension(sdkPath);
-    if (!name.startsWith('iPhoneOS')) return null;
-    final version = name.substring('iPhoneOS'.length);
+    final match = RegExp(r'^iPhone(?:OS|Simulator)([0-9.]+)$').firstMatch(name);
+    final version = match?.group(1) ?? '';
     return version.isEmpty ? null : version;
   }
 

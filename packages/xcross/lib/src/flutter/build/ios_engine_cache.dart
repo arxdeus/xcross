@@ -14,11 +14,16 @@ import 'package:xcross/src/flutter/errors.dart';
 /// so we fetch them ourselves from `storage.googleapis.com`. Missing artifacts
 /// are stored outside the Flutter SDK so read-only installations work.
 final class IosEngineCache {
-  IosEngineCache({required this.flutterRoot, String? cacheRoot, Abi? hostAbi})
-    : cacheRoot = cacheRoot ?? _defaultCacheRoot,
-      hostArtifactPlatform = _hostArtifactPlatform(hostAbi ?? Abi.current());
+  IosEngineCache({
+    required this.flutterRoot,
+    String? cacheRoot,
+    Abi? hostAbi,
+    this.simulator = false,
+  }) : cacheRoot = cacheRoot ?? _defaultCacheRoot,
+       hostArtifactPlatform = _hostArtifactPlatform(hostAbi ?? Abi.current());
 
   final String flutterRoot;
+  final bool simulator;
   final String cacheRoot;
   final String hostArtifactPlatform;
 
@@ -49,6 +54,21 @@ final class IosEngineCache {
 
   /// Flutter.xcframework inside [_engineDir].
   String get flutterXcframework => p.join(_engineDir, 'Flutter.xcframework');
+
+  static String flutterSlice(String xcframework, {bool simulator = false}) {
+    final identifiers = simulator
+        ? const ['ios-arm64_x86_64-simulator', 'ios-arm64-simulator']
+        : const ['ios-arm64'];
+    for (final identifier in identifiers) {
+      final slice = p.join(xcframework, identifier);
+      if (Directory(p.join(slice, 'Flutter.framework')).existsSync()) {
+        return slice;
+      }
+    }
+    throw FlutterBuildError(
+      'Flutter ARM64 ${simulator ? 'simulator' : 'device'} slice missing in $xcframework',
+    );
+  }
 
   /// `vm_isolate_snapshot.bin` from the host engine cache.
   String get vmSnapshotData =>
@@ -135,6 +155,7 @@ final class IosEngineCache {
     if (!Directory(flutterXcframework).existsSync()) {
       await _downloadIosArtifacts();
     }
+    flutterSlice(flutterXcframework, simulator: simulator);
     if (!File(vmSnapshotData).existsSync() ||
         !File(isolateSnapshotData).existsSync()) {
       await _downloadHostArtifacts();

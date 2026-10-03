@@ -16,6 +16,57 @@ import 'package:xcross/src/flutter/errors.dart';
 
 void main() {
   test(
+    'simulator compiler shim preserves explicit simulator deployment and host work',
+    () async {
+      if (Platform.isWindows) return;
+      final temp = await Directory.systemTemp.createTemp(
+        'simulator-compiler-shim-',
+      );
+      try {
+        final shim = File(p.join(temp.path, 'clang'));
+        await shim.writeAsString(
+          renderUnixCompilerShim(
+            iosSdk: '/simulator-sdk',
+            clang: '/bin/echo',
+            hostCompiler: '/bin/echo',
+            linker: '/ld64.lld',
+            deploymentTarget: '15.0',
+            simulator: true,
+          ),
+        );
+        final simulator = await Process.run('/bin/sh', [
+          shim.path,
+          '-arch',
+          'arm64',
+          '-c',
+          'probe.c',
+        ]);
+        expect(simulator.exitCode, 0);
+        expect(
+          simulator.stdout,
+          contains('--target=arm64-apple-ios15.0-simulator'),
+        );
+        expect(simulator.stdout, contains('-mios-simulator-version-min=15.0'));
+        expect(simulator.stdout, isNot(contains('-miphoneos-version-min')));
+        final explicit = await Process.run('/bin/sh', [
+          shim.path,
+          '-target',
+          'arm64-apple-ios16.0-simulator',
+          '-mios-simulator-version-min=16.0',
+          '-c',
+          'probe.c',
+        ]);
+        expect(explicit.stdout, contains('-mios-simulator-version-min=16.0'));
+        expect(explicit.stdout, isNot(contains('-version-min=15.0')));
+        final host = await Process.run('/bin/sh', [shim.path, '-c', 'host.c']);
+        expect(host.stdout.toString().trim(), '-c host.c');
+      } finally {
+        await temp.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
     'isolates host workspaces and exposes canonical Flutter cache paths',
     () async {
       final tmp = await Directory.systemTemp.createTemp(

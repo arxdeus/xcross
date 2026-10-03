@@ -21,6 +21,49 @@ import 'package:xcross/src/flutter/errors.dart';
 void main() {
   late Directory temp;
   late SwiftPmBinaryArtifactStore store;
+  test('selects simulator binary metadata and excludes device slice', () async {
+    final fixture = createFixture(temp, 'Simulator', defaultLibraries);
+    final entry = await SwiftPmBinaryArtifactPreparer(
+      store: store,
+      simulator: true,
+    ).prepareDownloadedArchive(target: fixture.target, archive: fixture.file);
+    expect(
+      Directory(
+        p.join(entry.artifactPath, 'ios-arm64_x86_64-simulator'),
+      ).existsSync(),
+      isTrue,
+    );
+    expect(
+      Directory(p.join(entry.artifactPath, 'ios-arm64_armv7')).existsSync(),
+      isFalse,
+    );
+    final libraries =
+        readPlist(
+              p.join(entry.artifactPath, 'Info.plist'),
+            )['AvailableLibraries']!
+            as List;
+    expect(libraries, hasLength(1));
+    expect((libraries.single as Map)['SupportedPlatformVariant'], 'simulator');
+  });
+
+  test(
+    'rejects simulator binary request when only device slice exists',
+    () async {
+      final fixture = createFixture(temp, 'DeviceOnly', [
+        defaultLibraries.first,
+      ]);
+      await expectLater(
+        SwiftPmBinaryArtifactPreparer(
+          store: store,
+          simulator: true,
+        ).prepareDownloadedArchive(
+          target: fixture.target,
+          archive: fixture.file,
+        ),
+        throwsBuildErrorContaining('simulator library'),
+      );
+    },
+  );
 
   setUp(() {
     temp = Directory.systemTemp.createTempSync('xcross_swiftpm_preparer-');

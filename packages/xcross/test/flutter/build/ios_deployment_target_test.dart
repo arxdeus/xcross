@@ -6,6 +6,15 @@ import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 
 void main() {
   late Directory tmp;
+  test('resolves simulator triples while preserving device default', () {
+    final target = IosDeploymentTarget.resolve(tmp.path, simulator: true);
+    expect(target.simulator, isTrue);
+    expect(target.buildTriple, 'arm64-apple-ios13.0-simulator');
+    expect(target.swiftSdkTriple, 'arm64-apple-ios-simulator');
+    expect(target.linkerPlatform, 'ios-simulator');
+    expect(target.minimumVersionFlag, '-mios-simulator-version-min=13.0');
+    expect(IosDeploymentTarget.resolve(tmp.path).simulator, isFalse);
+  });
 
   setUp(() async {
     tmp = await Directory.systemTemp.createTemp(

@@ -85,6 +85,16 @@ final class FlutterPacker {
   /// App name read from `pubspec.yaml` `name:` key.
   final String appName;
 
+  String get outputDirectory => p.join(
+    projectRoot,
+    'build',
+    options.simulator ? 'xcross-ios-simulator' : 'xcross-ios',
+  );
+
+  String _buildDirectory(String deviceDirectory) => options.simulator
+      ? p.join(outputDirectory, deviceDirectory)
+      : p.join(projectRoot, 'build', deviceDirectory);
+
   FlutterPacker({
     required this.projectRoot,
     required this.bundleId,
@@ -105,6 +115,7 @@ final class FlutterPacker {
   /// Build the Flutter iOS app.
   /// Returns path to `<projectRoot>/build/xcross-ios/<appName>.app`.
   Future<String> pack() async {
+    options.validate();
     final flutterRoot = await resolveFlutterRoot(projectRoot: projectRoot);
     Log.logTrace('Flutter SDK: $flutterRoot');
 
@@ -118,7 +129,10 @@ final class FlutterPacker {
       Log.logTrace('building flavor "${options.flavor}"');
     }
 
-    final deploymentTarget = IosDeploymentTarget.resolve(projectRoot);
+    final deploymentTarget = IosDeploymentTarget.resolve(
+      projectRoot,
+      simulator: options.simulator,
+    );
     Log.logTrace('iOS deployment target: ${deploymentTarget.version}');
 
     final appFramework = await _buildAppFramework(
@@ -286,7 +300,7 @@ final class FlutterPacker {
     String flutterRoot, {
     required IosDeploymentTarget deploymentTarget,
   }) async {
-    final assembleOut = p.join(projectRoot, 'build', 'xcross-flutter-debug');
+    final assembleOut = _buildDirectory('xcross-flutter-debug');
     final assembleDir = Directory(assembleOut);
     if (assembleDir.existsSync()) await assembleDir.delete(recursive: true);
     await assembleDir.create(recursive: true);
@@ -345,6 +359,7 @@ final class FlutterPacker {
 
     final xcframework = IosEngineCache(
       flutterRoot: flutterRoot,
+      simulator: options.simulator,
     ).flutterXcframework;
     final capabilities =
         await artifactJunctionCapabilityResolver?.call() ??
@@ -353,7 +368,10 @@ final class FlutterPacker {
           packageLocalArtifact: packageLocalArtifactJunctionCapability,
         );
 
-    final workspace = SwiftPmWorkspace.forProject(projectRoot);
+    final workspace = SwiftPmWorkspace.forProject(
+      projectRoot,
+      simulator: options.simulator,
+    );
     return GeneratedPluginsPackage.build(
       projectRoot: projectRoot,
       workspace: workspace,
@@ -395,7 +413,7 @@ final class FlutterPacker {
       projectRoot: projectRoot,
       extensions: buildable,
       deploymentTarget: deploymentTarget,
-      outputDir: p.join(projectRoot, 'build', 'xcross-flutter-extensions'),
+      outputDir: _buildDirectory('xcross-flutter-extensions'),
       versions: _versions,
       flutterXcframework: flutterXcframework,
       pluginsLibrary: pluginsBuild?.libraryPath,
@@ -414,6 +432,7 @@ final class FlutterPacker {
   }) async {
     final xcframework = IosEngineCache(
       flutterRoot: flutterRoot,
+      simulator: options.simulator,
     ).flutterXcframework;
 
     final darwin = DarwinSdk.current();
@@ -428,7 +447,7 @@ final class FlutterPacker {
       projectRoot: projectRoot,
       sdk: darwin,
       flutterXcframework: xcframework,
-      outputDir: p.join(projectRoot, 'build', 'xcross-flutter-runner-bin'),
+      outputDir: _buildDirectory('xcross-flutter-runner-bin'),
       deploymentTarget: deploymentTarget,
       pluginsLibrary: pluginsLibrary,
       nativeAssetFrameworks: nativeAssetFrameworks,
@@ -438,7 +457,9 @@ final class FlutterPacker {
     return RunnerBinary(
       xcframework: xcframework,
       runnerBinary: runnerBinary,
-      sdkName: p.basenameWithoutExtension(darwin.iPhoneOSSdk()).toLowerCase(),
+      sdkName: p
+          .basenameWithoutExtension(deploymentTarget.sdkPath(darwin))
+          .toLowerCase(),
     );
   }
 
@@ -461,7 +482,10 @@ final class FlutterPacker {
     await _stageBundle(
       bundleDir: tmp.path,
       appFramework: appFramework,
-      flutterFramework: p.join(xcframework, 'ios-arm64', 'Flutter.framework'),
+      flutterFramework: p.join(
+        IosEngineCache.flutterSlice(xcframework, simulator: options.simulator),
+        'Flutter.framework',
+      ),
       runnerBinary: runnerBinary,
       sdkName: sdkName,
       pluginLibraries: pluginLibraries,
@@ -470,7 +494,7 @@ final class FlutterPacker {
       extensions: extensions,
     );
 
-    final dest = p.join(projectRoot, 'build', 'xcross-ios', '$appName.app');
+    final dest = p.join(outputDirectory, '$appName.app');
     final destDir = Directory(dest);
     if (destDir.existsSync()) {
       await destDir.delete(recursive: true);
@@ -589,6 +613,7 @@ final class FlutterPacker {
       plistXml,
       bundleId: bundleId,
       deploymentTarget: deploymentTarget,
+      sdkName: sdkName,
     );
     plistXml = InfoPlist.applyDebugVmServiceDiscovery(plistXml);
     plistXml = InfoPlist.stripUnsatisfiableStoryboards(plistXml, bundleDir);

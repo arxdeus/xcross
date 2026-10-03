@@ -5,13 +5,21 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 final class SwiftPmWorkspace {
-  const SwiftPmWorkspace._({required this.cacheRoot, required this.root});
+  const SwiftPmWorkspace._({
+    required this.cacheRoot,
+    required this.root,
+    required this.simulator,
+  });
 
   final String cacheRoot;
   final String root;
+  final bool simulator;
 
-  String get binaryArtifactStore =>
-      p.join(cacheRoot, 'swiftpm', 'binary-artifacts-v1');
+  String get binaryArtifactStore => p.join(
+    cacheRoot,
+    'swiftpm',
+    simulator ? 'binary-artifacts-simulator-v1' : 'binary-artifacts-v1',
+  );
   String get binaryArtifactFallback => p.join(root, 'binary-artifacts');
   String get gateEvidence => p.join(cacheRoot, 'swiftpm', 'gate-evidence-v2');
   String get gateIdentityCache => p.join(gateEvidence, 'build-identities.json');
@@ -25,6 +33,7 @@ final class SwiftPmWorkspace {
     String projectRoot, {
     Map<String, String>? environment,
     bool? windows,
+    bool simulator = false,
   }) {
     final env = environment ?? Platform.environment;
     final cache = env['XCROSS_CACHE_DIR'];
@@ -38,7 +47,8 @@ final class SwiftPmWorkspace {
         .substring(0, 16);
     return SwiftPmWorkspace._(
       cacheRoot: base,
-      root: p.join(base, 'swiftpm', key),
+      simulator: simulator,
+      root: p.join(base, 'swiftpm', simulator ? '$key-simulator' : key),
     );
   }
 

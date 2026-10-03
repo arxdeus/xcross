@@ -5,6 +5,28 @@ import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/build/ios_native_assets.dart';
 
 void main() {
+  test(
+    'native-hook simulator assembly selects simulator SDK in debug mode',
+    () {
+      final args =
+          IosNativeAssetsBuilder(
+            projectRoot: '/project',
+            flutterRoot: '/flutter',
+            deploymentTarget: const IosDeploymentTarget(
+              '15.0',
+              simulator: true,
+            ),
+          ).assembleArguments(
+            output: '/output',
+            iosSdk: '/sdk/iPhoneSimulator26.5.sdk',
+          );
+      expect(args, contains('-dSdkRoot=/sdk/iPhoneSimulator26.5.sdk'));
+      expect(args, contains('-dBuildMode=debug'));
+      expect(args, contains('-dIosArchs=arm64'));
+      expect(args.last, 'debug_ios_bundle_flutter_assets');
+    },
+  );
+
   for (final withHooks in [false, true]) {
     group(withHooks ? 'native-hook assembly' : 'bundle assembly', () {
       List<String> arguments(List<String> defines, {String? flavor}) =>

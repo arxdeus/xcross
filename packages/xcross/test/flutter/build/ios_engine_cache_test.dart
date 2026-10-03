@@ -10,6 +10,36 @@ void main() {
   late Directory temporaryDirectory;
   late String flutterRoot;
   late String cacheRoot;
+  test('selects universal ARM64 simulator engine without device fallback', () {
+    final framework = p.join(temporaryDirectory.path, 'Flutter.xcframework');
+    for (final identifier in ['ios-arm64', 'ios-arm64_x86_64-simulator']) {
+      Directory(
+        p.join(framework, identifier, 'Flutter.framework'),
+      ).createSync(recursive: true);
+    }
+    expect(
+      IosEngineCache.flutterSlice(framework),
+      p.join(framework, 'ios-arm64'),
+    );
+    expect(
+      IosEngineCache.flutterSlice(framework, simulator: true),
+      p.join(framework, 'ios-arm64_x86_64-simulator'),
+    );
+    Directory(
+      p.join(framework, 'ios-arm64_x86_64-simulator'),
+    ).deleteSync(recursive: true);
+    expect(
+      () => IosEngineCache.flutterSlice(framework, simulator: true),
+      throwsA(isA<FlutterBuildError>()),
+    );
+    Directory(
+      p.join(framework, 'ios-arm64-simulator', 'Flutter.framework'),
+    ).createSync(recursive: true);
+    expect(
+      IosEngineCache.flutterSlice(framework, simulator: true),
+      p.join(framework, 'ios-arm64-simulator'),
+    );
+  });
 
   setUp(() async {
     temporaryDirectory = await Directory.systemTemp.createTemp(
