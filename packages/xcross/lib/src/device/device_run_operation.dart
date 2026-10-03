@@ -8,8 +8,8 @@ import 'package:xcross/src/device/device_backend.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/flutter/hot_reload/vm_service_output.dart';
 import 'package:xcross/src/models/pack_result.dart';
+import 'package:xcross/src/shared/device/signing_http_client_factory.dart';
 import 'package:xcross/src/shared/flutter/vm_service_connector.dart';
-import 'package:xcross/src/target/iphone/device/signing_http_client_factory.dart';
 
 typedef OsMajorVersion = Future<int?> Function(Device device);
 typedef TerminateInstalledApp =

@@ -14,8 +14,8 @@ import 'package:xcross/src/device/internal/signed_bundle_identity.dart';
 import 'package:xcross/src/device/internal/signing_session.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/shared/artifact/plist_mutations.dart';
+import 'package:xcross/src/shared/device/signing_http_client_factory.dart';
 import 'package:xcross/src/target/iphone/device/signed_bundle_preparer.dart';
-import 'package:xcross/src/target/iphone/device/signing_http_client_factory.dart';
 import 'package:xcross/src/target/iphone/device/signing_session_resolver.dart';
 
 /// Resolves, signs, and installs to a device using the native pipeline.
