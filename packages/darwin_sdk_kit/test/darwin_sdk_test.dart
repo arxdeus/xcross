@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
@@ -49,6 +50,148 @@ void main() {
   });
 
   group('native bundle', () {
+    const swift = 'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift';
+
+    void writeFile(String bundle, String relative, String contents) {
+      File(p.joinAll([bundle, ...relative.split('/')]))
+        ..createSync(recursive: true)
+        ..writeAsStringSync(contents);
+    }
+
+    void createDeviceBundle(String bundle) {
+      for (final name in ['info.json', 'swift-sdk.json', 'toolset.json']) {
+        writeFile(bundle, name, '{}');
+      }
+      Directory(
+        p.join(
+          sdksDir(bundle),
+          'iPhoneOS26.5.sdk',
+          'System/Library/Frameworks',
+        ),
+      ).createSync(recursive: true);
+      writeFile(bundle, '$swift/iphoneos/layouts-arm64.yaml', 'layout');
+      writeFile(
+        bundle,
+        'Developer/Runtimes/XcodeDefault.xctoolchain/usr/bin/layouts-arm64.yaml',
+        'layout',
+      );
+    }
+
+    void createSimulatorSlice(String bundle) {
+      final simulator = p.join(
+        sdksDir(bundle, target: IosTarget.simulator),
+        'iPhoneSimulator26.5.sdk',
+      );
+      writeFile(
+        simulator,
+        'System/Library/Frameworks/Foundation.framework/Foundation.tbd',
+        'stub',
+      );
+      writeFile(
+        bundle,
+        '$swift/iphonesimulator/libswiftCompatibility50.a',
+        'resource',
+      );
+    }
+
+    void advertiseSimulator(String bundle, [Map<String, String>? properties]) {
+      writeFile(
+        bundle,
+        'swift-sdk.json',
+        jsonEncode({
+          'targetTriples': {
+            IosTarget.simulator.swiftSdkTriple:
+                properties ?? <String, String>{},
+          },
+        }),
+      );
+    }
+
+    test(
+      'keeps device-only legacy bundles valid with shared Swift resources',
+      () {
+        createDeviceBundle(tmp.path);
+        writeFile(
+          tmp.path,
+          '$swift/iphonesimulator/libswiftCompatibility50.a',
+          'resource',
+        );
+        expect(DarwinSdk.isValidBundle(tmp.path), isTrue);
+      },
+    );
+
+    test('accepts a populated simulator without an ARM64 simulator layout', () {
+      createDeviceBundle(tmp.path);
+      createSimulatorSlice(tmp.path);
+      advertiseSimulator(tmp.path);
+      expect(DarwinSdk.isValidBundle(tmp.path), isTrue);
+      expect(
+        File(
+          p.join(tmp.path, swift, 'iphonesimulator/layouts-arm64.yaml'),
+        ).existsSync(),
+        isFalse,
+      );
+    });
+
+    test('rejects an empty versioned simulator SDK leaf', () {
+      createDeviceBundle(tmp.path);
+      Directory(
+        p.join(
+          sdksDir(tmp.path, target: IosTarget.simulator),
+          'iPhoneSimulator26.5.sdk',
+        ),
+      ).createSync(recursive: true);
+      expect(DarwinSdk.isValidBundle(tmp.path), isFalse);
+    });
+
+    for (final missing in ['frameworks', 'resources']) {
+      for (final empty in [false, true]) {
+        test('rejects ${empty ? 'empty' : 'missing'} simulator $missing', () {
+          createDeviceBundle(tmp.path);
+          createSimulatorSlice(tmp.path);
+          final directory = Directory(
+            missing == 'frameworks'
+                ? p.join(
+                    sdksDir(tmp.path, target: IosTarget.simulator),
+                    'iPhoneSimulator26.5.sdk/System/Library/Frameworks',
+                  )
+                : p.join(tmp.path, swift, 'iphonesimulator'),
+          );
+          directory.deleteSync(recursive: true);
+          if (empty) directory.createSync();
+          expect(DarwinSdk.isValidBundle(tmp.path), isFalse);
+        });
+      }
+    }
+
+    test('rejects an advertised simulator target with no slice', () {
+      createDeviceBundle(tmp.path);
+      advertiseSimulator(tmp.path);
+      expect(DarwinSdk.isValidBundle(tmp.path), isFalse);
+    });
+
+    for (final property in ['sdkRootPath', 'swiftResourcesPath']) {
+      test(
+        'rejects missing simulator metadata $property with a present slice',
+        () {
+          createDeviceBundle(tmp.path);
+          createSimulatorSlice(tmp.path);
+          advertiseSimulator(tmp.path, {property: 'missing'});
+          expect(DarwinSdk.isValidBundle(tmp.path), isFalse);
+        },
+      );
+    }
+
+    test('rejects a partial simulator platform with no SDKs directory', () {
+      createDeviceBundle(tmp.path);
+      writeFile(
+        tmp.path,
+        'Developer/Platforms/iPhoneSimulator.platform/Info.plist',
+        'descriptor',
+      );
+      expect(DarwinSdk.isValidBundle(tmp.path), isFalse);
+    });
+
     test('uses xcross artifact-bundle storage', () {
       final expected = p.join(
         tmp.path,

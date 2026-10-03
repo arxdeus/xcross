@@ -158,6 +158,35 @@ void main() {
       expect(DarwinSdk.isValidBundle(destination), isTrue);
       expect(backup.existsSync(), isFalse);
     });
+
+    test('rejects a truncated simulator at the final publication gate', () {
+      final destination = p.join(root.path, 'Darwin.artifactbundle');
+      final staged = p.join(root.path, 'Darwin.staging');
+      createValidBundle(destination);
+      createValidBundle(staged);
+      File(p.join(destination, 'old.txt')).writeAsStringSync('old');
+      Directory(
+        p.join(
+          staged,
+          'Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk',
+        ),
+      ).createSync(recursive: true);
+      File(p.join(staged, 'swift-sdk.json')).writeAsStringSync(
+        jsonEncode({
+          'targetTriples': {
+            IosTarget.simulator.swiftSdkTriple: <String, String>{},
+          },
+        }),
+      );
+
+      expect(
+        () => SdkInstallCommand.requireValidStagedSdk(staged),
+        throwsA(isA<XcrossError>()),
+      );
+      expect(DarwinSdk.isValidBundle(destination), isTrue);
+      expect(File(p.join(destination, 'old.txt')).readAsStringSync(), 'old');
+      expect(Directory('$destination.previous').existsSync(), isFalse);
+    });
   });
 
   CpioEntry entry(String name, {int mode = 0x81a4, String data = ''}) =>
@@ -243,6 +272,114 @@ void main() {
         throwsA(isA<XcrossError>()),
       );
     });
+
+    Map<String, String> snapshot(String path) => {
+      for (final entity in Directory(path).listSync(recursive: true))
+        p.relative(entity.path, from: path): entity is File
+            ? base64Encode(entity.readAsBytesSync())
+            : 'directory',
+    };
+
+    for (final archive in [false, true]) {
+      for (final partial in [
+        'empty leaf',
+        'missing frameworks',
+        'missing resources',
+      ]) {
+        test(
+          'failed ${archive ? 'XIP' : 'app'} import preserves SDK and source: $partial',
+          () async {
+            const swift =
+                'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift';
+            for (final target in IosTarget.values) {
+              sourceFile(
+                'Developer/Platforms/${target.platformName}.platform/Developer/SDKs/${target.platformName}26.5.sdk/System/Library/Frameworks/Foundation.framework/Foundation.tbd',
+                '${target.name} stub',
+              );
+            }
+            sourceFile('$swift/iphoneos/layouts-arm64.yaml', 'layout');
+            sourceFile(
+              '$swift/iphonesimulator/libswiftCompatibility50.a',
+              'resource',
+            );
+            await SdkInstall.writeSdkEntries(
+              SdkInstall.xcodeAppEntries(app),
+              destination,
+            );
+            await SdkInstall.materializeSwiftCompatibilityResources(
+              destination,
+            );
+            await SdkInstall.writeSwiftSdkBundleMetadata(destination);
+            expect(DarwinSdk.isValidBundle(destination), isTrue);
+            final previous = snapshot(destination);
+            const simulator =
+                'Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk';
+            final removed = switch (partial) {
+              'empty leaf' => '$simulator/System',
+              'missing frameworks' => '$simulator/System/Library/Frameworks',
+              _ => '$swift/iphonesimulator',
+            };
+            Directory(
+              p.joinAll([app, 'Contents', ...removed.split('/')]),
+            ).deleteSync(recursive: true);
+            final sourceBefore = snapshot(app);
+            File? xip;
+            List<int>? archiveBefore;
+            if (archive) {
+              final cpio = BytesBuilder();
+              await for (final entry in SdkInstall.xcodeAppEntries(app)) {
+                cpio.add(
+                  buildCpioEntry(
+                    name: 'Xcode.app/Contents/${entry.name}',
+                    data: entry.data,
+                    mode: entry.mode,
+                  ),
+                );
+              }
+              cpio.add(buildCpioTrailer());
+              final bytes = cpio.takeBytes();
+              xip = File(p.join(root.path, 'Xcode.xip'));
+              xip.writeAsBytesSync(
+                buildXar({
+                  'Content': buildPbzx([
+                    PbzxChunk(
+                      decompressedSize: bytes.length,
+                      bytes: xzCompress(bytes),
+                    ),
+                  ]),
+                }),
+              );
+              archiveBefore = xip.readAsBytesSync();
+            }
+            final staged = Directory(p.join(root.path, 'sdk.staging'));
+            await expectLater(() async {
+              try {
+                await SdkInstall.writeSdkEntries(
+                  xip == null
+                      ? SdkInstall.xcodeAppEntries(app)
+                      : XcodeXipExtractor.extract(xip.path),
+                  staged.path,
+                );
+                await SdkInstall.materializeSwiftCompatibilityResources(
+                  staged.path,
+                );
+                await SdkInstall.writeSwiftSdkBundleMetadata(staged.path);
+                SdkInstallCommand.requireValidStagedSdk(staged.path);
+                await SdkInstallCommand.activateStagedSdk(staged, destination);
+              } finally {
+                if (staged.existsSync()) staged.deleteSync(recursive: true);
+              }
+            }, throwsA(isA<XcrossError>()));
+            expect(snapshot(destination), previous);
+            expect(DarwinSdk.isValidBundle(destination), isTrue);
+            expect(Directory('$destination.previous').existsSync(), isFalse);
+            expect(staged.existsSync(), isFalse);
+            expect(snapshot(app), sourceBefore);
+            if (xip != null) expect(xip.readAsBytesSync(), archiveBefore);
+          },
+        );
+      }
+    }
 
     test(
       'preserves simulator aliases and does not follow source links',
@@ -1085,6 +1222,25 @@ void main() {
       '${target.platformName}$version.sdk',
     );
 
+    void createSimulatorSlice() {
+      File(
+          p.join(
+            sdkRoot(IosTarget.simulator),
+            'System/Library/Frameworks/Foundation.framework/Foundation.tbd',
+          ),
+        )
+        ..createSync(recursive: true)
+        ..writeAsStringSync('stub');
+      File(
+          p.join(
+            bundle.path,
+            'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphonesimulator/libswiftCompatibility50.a',
+          ),
+        )
+        ..createSync(recursive: true)
+        ..writeAsStringSync('resource');
+    }
+
     Map<String, dynamic> targetMetadata() =>
         (jsonDecode(
                   File(
@@ -1103,7 +1259,7 @@ void main() {
     tearDown(() => bundle.deleteSync(recursive: true));
 
     test('adds ARM64 simulator metadata with platform-specific paths', () async {
-      Directory(sdkRoot(IosTarget.simulator)).createSync(recursive: true);
+      createSimulatorSlice();
       await SdkInstall.writeSwiftSdkBundleMetadata(bundle.path);
       final targets = targetMetadata();
       expect(targets.keys, ['arm64-apple-ios', 'arm64-apple-ios-simulator']);
@@ -1130,7 +1286,7 @@ void main() {
     });
 
     test('uses shared toolchain C++ includes for both targets', () async {
-      Directory(sdkRoot(IosTarget.simulator)).createSync(recursive: true);
+      createSimulatorSlice();
       const include =
           'Developer/Toolchains/XcodeDefault.xctoolchain/usr/include/c++/v1';
       Directory(
@@ -1174,6 +1330,25 @@ void main() {
         throwsA(isA<DarwinSdkError>()),
       );
       expect(File(p.join(bundle.path, 'info.json')).existsSync(), isFalse);
+    });
+
+    test('rejects an empty versioned simulator leaf before metadata', () async {
+      Directory(
+        sdkRoot(IosTarget.simulator, version: '26.5'),
+      ).createSync(recursive: true);
+      await expectLater(
+        SdkInstall.writeSwiftSdkBundleMetadata(bundle.path),
+        throwsA(
+          isA<XcrossError>().having(
+            (error) => error.message,
+            'message',
+            contains('incomplete iPhoneSimulator SDK'),
+          ),
+        ),
+      );
+      for (final name in ['swift-sdk.json', 'toolset.json', 'info.json']) {
+        expect(File(p.join(bundle.path, name)).existsSync(), isFalse);
+      }
     });
 
     test('still requires a device SDK for simulator-enabled bundles', () async {

@@ -613,6 +613,12 @@ abstract final class SdkInstall {
         '${target.platformName} SDK.',
       );
     }
+    if (target.isSimulator && !DarwinSdk.isValidSimulatorSlice(artifactRoot)) {
+      throw XcrossError(
+        'The extracted Xcode archive contains an incomplete '
+        'iPhoneSimulator SDK or Swift resources.',
+      );
+    }
     final relativeSdkRoot = p
         .relative(sdkRoot, from: artifactRoot)
         .replaceAll(r'\', '/');
