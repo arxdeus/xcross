@@ -44,9 +44,14 @@ const _libraryNames = ['libCoreADI.so', 'libstoreservicescore.so'];
 /// they are downloaded on demand and cached locally, matching upstream's
 /// documented approach.
 class AdiLibraryFetcher {
-  AdiLibraryFetcher({required this.cacheDir, required Abi abi})
-    : _architecture = AdiArchitecture.forAbi(abi);
+  AdiLibraryFetcher({
+    required this.cacheDir,
+    required Abi abi,
+    required http.Client Function() createClient,
+  }) : _createClient = createClient,
+       _architecture = AdiArchitecture.forAbi(abi);
 
+  final http.Client Function() _createClient;
   final AdiArchitecture _architecture;
 
   Directory get libraryDirectory =>
@@ -125,13 +130,26 @@ class AdiLibraryFetcher {
 
   Future<void> _downloadApkIfNeeded() async {
     if (_apkFile.existsSync()) return;
-    final response = await http.get(Uri.parse(appleMusicApkUrl));
-    if (response.statusCode != 200) {
-      throw HttpException(
-        'Failed to download Apple Music APK: HTTP ${response.statusCode}',
-      );
+    final client = _createClient();
+    var failed = false;
+    try {
+      final response = await client.get(Uri.parse(appleMusicApkUrl));
+      if (response.statusCode != 200) {
+        throw HttpException(
+          'Failed to download Apple Music APK: HTTP ${response.statusCode}',
+        );
+      }
+      await _apkFile.writeAsBytes(response.bodyBytes);
+    } catch (_) {
+      failed = true;
+      rethrow;
+    } finally {
+      try {
+        client.close();
+      } catch (_) {
+        if (!failed) rethrow;
+      }
     }
-    await _apkFile.writeAsBytes(response.bodyBytes);
   }
 
   void _extractLibraries() {

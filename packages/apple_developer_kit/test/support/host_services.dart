@@ -50,7 +50,13 @@ AppleHostServices testMacOSAppleHostServices(
   required Abi abi,
 }) => createMacOSAppleHostServices(
   host,
-  runner: ProcessRunner(host, log: Log(output: SilentLogOutput())),
+  runner: ProcessRunner(
+    host,
+    log: Log(output: SilentLogOutput()),
+    stdinStream: const Stream<List<int>>.empty(),
+    stdoutSink: stdout,
+    stderrSink: stderr,
+  ),
   localeName: localeName,
   abi: abi,
 );
@@ -60,7 +66,13 @@ AppleHostServices testWindowsAppleHostServices(
   required Abi abi,
 }) => createWindowsAppleHostServices(
   host,
-  runner: ProcessRunner(host, log: Log(output: SilentLogOutput())),
+  runner: ProcessRunner(
+    host,
+    log: Log(output: SilentLogOutput()),
+    stdinStream: const Stream<List<int>>.empty(),
+    stdoutSink: stdout,
+    stderrSink: stderr,
+  ),
   localeName: localeName,
   abi: abi,
 );

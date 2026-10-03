@@ -4,6 +4,7 @@ library;
 import 'dart:io';
 
 import 'package:apple_developer_kit/apple_developer_kit.dart';
+import 'package:http/http.dart' as http;
 import 'package:test/test.dart';
 
 import '../support/host_services.dart';
@@ -21,6 +22,7 @@ void main() {
       final fetcher = AdiLibraryFetcher(
         cacheDir: directory,
         abi: testHostServices.abi,
+        createClient: http.Client.new,
       );
       final paths = await fetcher.ensureLibraries();
       expect(File(paths.coreAdiPath).existsSync(), isTrue);

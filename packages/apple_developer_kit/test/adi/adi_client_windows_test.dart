@@ -5,6 +5,7 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:apple_developer_kit/apple_developer_kit.dart';
+import 'package:http/http.dart' as http;
 import 'package:test/test.dart';
 
 import '../support/host_services.dart';
@@ -23,6 +24,7 @@ void main() {
       final fetcher = AdiLibraryFetcher(
         cacheDir: directory,
         abi: testHostServices.abi,
+        createClient: http.Client.new,
       );
       final paths = await fetcher.ensureLibraries();
 
@@ -46,7 +48,9 @@ void main() {
     },
     timeout: const Timeout(Duration(minutes: 2)),
     // The SysV bridge and the loaded code are both x86_64.
-    skip: Abi.current() == Abi.windowsX64
+    skip: Platform.environment['ADI_NATIVE_SMOKE'] != '1'
+        ? 'Set ADI_NATIVE_SMOKE=1 for isolated real Apple APK validation.'
+        : Abi.current() == Abi.windowsX64
         ? null
         : 'ADI is x86_64-only (host is ${Abi.current()}).',
   );

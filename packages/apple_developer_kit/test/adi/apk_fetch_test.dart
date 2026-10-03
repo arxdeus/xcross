@@ -4,16 +4,40 @@ import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/adi/apk_fetch.dart';
 import 'package:archive/archive.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:test/test.dart';
 
 import 'support/elf_fixture.dart';
+
+class RecordingApkClient extends MockClient {
+  RecordingApkClient(super.handler, {this.closeError});
+
+  final Error? closeError;
+  int closeCount = 0;
+
+  @override
+  void close() {
+    closeCount++;
+    super.close();
+    final error = closeError;
+    if (error != null) throw error;
+  }
+}
 
 void main() {
   late Directory cache;
   setUp(() => cache = Directory.systemTemp.createTempSync('adi-fetch-test-'));
   tearDown(() => cache.deleteSync(recursive: true));
 
-  void writeApk({bool arm64 = true, bool x64 = true, bool wrongArm = false}) {
+  http.Client unexpectedClient() =>
+      throw StateError('Cached artifacts must not create a client');
+
+  List<int> apkBytes({
+    bool arm64 = true,
+    bool x64 = true,
+    bool wrongArm = false,
+  }) {
     final archive = Archive();
     for (final (abi, machine) in [
       if (arm64) ('arm64-v8a', wrongArm ? 62 : 183),
@@ -24,10 +48,159 @@ void main() {
         archive.addFile(ArchiveFile('lib/$abi/$name', bytes.length, bytes));
       }
     }
+    return ZipEncoder().encode(archive);
+  }
+
+  void writeApk({bool arm64 = true, bool x64 = true, bool wrongArm = false}) {
     File(
       '${cache.path}/applemusic.apk',
-    ).writeAsBytesSync(ZipEncoder().encode(archive));
+    ).writeAsBytesSync(apkBytes(arm64: arm64, x64: x64, wrongArm: wrongArm));
   }
+
+  test(
+    'downloads through one owned client then reuses cached libraries',
+    () async {
+      final bytes = apkBytes();
+      var creates = 0;
+      var requests = 0;
+      final client = RecordingApkClient((request) async {
+        requests++;
+        expect(request.method, 'GET');
+        expect(request.url, Uri.parse(appleMusicApkUrl));
+        return http.Response.bytes(bytes, 200);
+      });
+      final fetcher = AdiLibraryFetcher(
+        cacheDir: cache,
+        abi: Abi.linuxArm64,
+        createClient: () {
+          creates++;
+          return client;
+        },
+      );
+      expect(creates, 0);
+      final paths = await fetcher.ensureLibraries();
+      expect(paths.apkSha256, hasLength(64));
+      expect(fetcher.coreAdiFile.readAsBytesSync(), elfFixture(183));
+      expect(File('${cache.path}/applemusic.apk').readAsBytesSync(), bytes);
+      await fetcher.ensureLibraries();
+      expect(creates, 1);
+      expect(requests, 1);
+      expect(client.closeCount, 1);
+    },
+  );
+
+  for (final closeThrows in [false, true]) {
+    test('preserves request error with closeThrows=$closeThrows', () async {
+      final failure = StateError('request failed');
+      final stack = StackTrace.current;
+      final client = RecordingApkClient(
+        (_) => Future<http.Response>.error(failure, stack),
+        closeError: closeThrows ? StateError('close failed') : null,
+      );
+      final fetcher = AdiLibraryFetcher(
+        cacheDir: cache,
+        abi: Abi.linuxArm64,
+        createClient: () => client,
+      );
+      try {
+        await fetcher.ensureLibraries();
+        fail('Expected request error');
+      } catch (error, actualStack) {
+        expect(error, same(failure));
+        expect(actualStack.toString(), stack.toString());
+      }
+      expect(client.closeCount, 1);
+      expect(File('${cache.path}/applemusic.apk').existsSync(), isFalse);
+    });
+
+    test('preserves HTTP error with closeThrows=$closeThrows', () async {
+      final client = RecordingApkClient(
+        (_) async => http.Response('unavailable', 503),
+        closeError: closeThrows ? StateError('close failed') : null,
+      );
+      final fetcher = AdiLibraryFetcher(
+        cacheDir: cache,
+        abi: Abi.linuxArm64,
+        createClient: () => client,
+      );
+      await expectLater(
+        fetcher.ensureLibraries(),
+        throwsA(
+          isA<HttpException>().having(
+            (error) => error.message,
+            'message',
+            contains('HTTP 503'),
+          ),
+        ),
+      );
+      expect(client.closeCount, 1);
+      expect(File('${cache.path}/applemusic.apk').existsSync(), isFalse);
+    });
+
+    test('preserves write error with closeThrows=$closeThrows', () async {
+      final client = RecordingApkClient((_) async {
+        Directory('${cache.path}/applemusic.apk').createSync();
+        return http.Response.bytes(apkBytes(), 200);
+      }, closeError: closeThrows ? StateError('close failed') : null);
+      final fetcher = AdiLibraryFetcher(
+        cacheDir: cache,
+        abi: Abi.linuxArm64,
+        createClient: () => client,
+      );
+      await expectLater(
+        fetcher.ensureLibraries(),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(client.closeCount, 1);
+    });
+  }
+
+  test('reports close failure when download succeeds', () async {
+    final failure = StateError('close failed');
+    final client = RecordingApkClient(
+      (_) async => http.Response.bytes(apkBytes(), 200),
+      closeError: failure,
+    );
+    final fetcher = AdiLibraryFetcher(
+      cacheDir: cache,
+      abi: Abi.linuxArm64,
+      createClient: () => client,
+    );
+    await expectLater(fetcher.ensureLibraries(), throwsA(same(failure)));
+    expect(client.closeCount, 1);
+    expect(File('${cache.path}/applemusic.apk').existsSync(), isTrue);
+    final retry = AdiLibraryFetcher(
+      cacheDir: cache,
+      abi: Abi.linuxArm64,
+      createClient: unexpectedClient,
+    );
+    await retry.ensureLibraries();
+  });
+
+  test('propagates factory failure without creating APK', () async {
+    final failure = StateError('factory failed');
+    final fetcher = AdiLibraryFetcher(
+      cacheDir: cache,
+      abi: Abi.linuxArm64,
+      createClient: () => throw failure,
+    );
+    await expectLater(fetcher.ensureLibraries(), throwsA(same(failure)));
+    expect(File('${cache.path}/applemusic.apk').existsSync(), isFalse);
+  });
+
+  test('closes client before rejecting invalid downloaded ELF', () async {
+    final client = RecordingApkClient(
+      (_) async => http.Response.bytes(apkBytes(wrongArm: true), 200),
+    );
+    final fetcher = AdiLibraryFetcher(
+      cacheDir: cache,
+      abi: Abi.linuxArm64,
+      createClient: () => client,
+    );
+    await expectLater(fetcher.ensureLibraries(), throwsFormatException);
+    expect(client.closeCount, 1);
+    expect(fetcher.coreAdiFile.existsSync(), isFalse);
+  });
 
   test('host selection allows ARM64 POSIX and keeps Windows x64-only', () {
     for (final abi in [
@@ -47,7 +220,11 @@ void main() {
     ]) {
       expect(AdiLibraryFetcher.supportsAbi(abi), isFalse);
       expect(
-        () => AdiLibraryFetcher(cacheDir: cache, abi: abi),
+        () => AdiLibraryFetcher(
+          cacheDir: cache,
+          abi: abi,
+          createClient: unexpectedClient,
+        ),
         throwsUnsupportedError,
       );
     }
@@ -55,8 +232,16 @@ void main() {
 
   test('extracts both host slices into independent caches', () async {
     writeApk();
-    final arm = AdiLibraryFetcher(cacheDir: cache, abi: Abi.linuxArm64);
-    final x64 = AdiLibraryFetcher(cacheDir: cache, abi: Abi.linuxX64);
+    final arm = AdiLibraryFetcher(
+      cacheDir: cache,
+      abi: Abi.linuxArm64,
+      createClient: unexpectedClient,
+    );
+    final x64 = AdiLibraryFetcher(
+      cacheDir: cache,
+      abi: Abi.linuxX64,
+      createClient: unexpectedClient,
+    );
     final a = await arm.ensureLibraries();
     final x = await x64.ensureLibraries();
     expect(a.coreAdiPath, contains('arm64-v8a'));
@@ -78,18 +263,28 @@ void main() {
     );
     final cached = await arm.ensureLibraries();
     expect(cached.coreAdiPath, a.coreAdiPath);
+    File('${cache.path}/applemusic.apk').deleteSync();
+    expect((await arm.ensureLibraries()).apkSha256, a.apkSha256);
   });
 
   test('never falls back to wrong APK architecture', () async {
     writeApk(arm64: false);
-    final fetcher = AdiLibraryFetcher(cacheDir: cache, abi: Abi.linuxArm64);
+    final fetcher = AdiLibraryFetcher(
+      cacheDir: cache,
+      abi: Abi.linuxArm64,
+      createClient: unexpectedClient,
+    );
     await expectLater(fetcher.ensureLibraries(), throwsStateError);
     expect(fetcher.coreAdiFile.existsSync(), isFalse);
   });
 
   test('validates actual machine before writing a slice', () async {
     writeApk(wrongArm: true);
-    final fetcher = AdiLibraryFetcher(cacheDir: cache, abi: Abi.linuxArm64);
+    final fetcher = AdiLibraryFetcher(
+      cacheDir: cache,
+      abi: Abi.linuxArm64,
+      createClient: unexpectedClient,
+    );
     await expectLater(fetcher.ensureLibraries(), throwsFormatException);
     expect(fetcher.coreAdiFile.existsSync(), isFalse);
   });
@@ -98,7 +293,11 @@ void main() {
     'repairs scoped cache but rejects explicit mismatches without mutation',
     () async {
       writeApk();
-      final fetcher = AdiLibraryFetcher(cacheDir: cache, abi: Abi.linuxArm64);
+      final fetcher = AdiLibraryFetcher(
+        cacheDir: cache,
+        abi: Abi.linuxArm64,
+        createClient: unexpectedClient,
+      );
       await fetcher.ensureLibraries();
       fetcher.coreAdiFile.writeAsBytesSync(elfFixture(62));
       expect(
