@@ -447,6 +447,95 @@ jobs:
           dart run "$env:GITHUB_WORKSPACE/packages/xcross/tool/verify_flutter_notices.dart" build/xcross-ios
           if ($LASTEXITCODE -ne 0) { throw 'Packaged Flutter notices are invalid' }
 
+  flutter-simulator:
+    name: Flutter ARM64 iOS Simulator
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+      - name: Test simulator CI helpers without simulator access
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+
+      - name: Select compatible native Xcode
+        uses: ./.github/actions/configure-xcode
+
+      - name: Install native Flutter and LLVM toolchains
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(/usr/bin/uname -m)" = arm64
+          git clone --depth 1 --branch "$FLUTTER_VERSION" \
+            https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          brew install llvm lld
+          {
+            echo "$(brew --prefix llvm)/bin"
+            echo "$(brew --prefix lld)/bin"
+            echo "$DEVELOPER_DIR/Toolchains/XcodeDefault.xctoolchain/usr/bin"
+            echo "$RUNNER_TEMP/flutter/bin"
+          } >> "$GITHUB_PATH"
+
+      - name: Build native production xcross CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter config --no-analytics
+          flutter precache --ios
+          dart pub get
+          (cd packages/xcross && dart run tool/build_xcross.dart)
+          shopt -s nullglob
+          bundles=(packages/xcross/build/cli/*/bundle)
+          test "${#bundles[@]}" -eq 1
+          cp -R "${bundles[0]}" "$RUNNER_TEMP/xcross-bundle"
+          /usr/bin/xcrun lipo -verify_arch arm64 "$RUNNER_TEMP/xcross-bundle/bin/xcross"
+          echo "$RUNNER_TEMP/xcross-bundle/bin" >> "$GITHUB_PATH"
+          swift --version
+
+      - name: Install selected native Xcode SDK through xcross
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcross sdk install "$XCODE_APP" 2>&1 | \
+            tee "$RUNNER_TEMP/ios-simulator-smoke/sdk-install.log"
+
+      - name: Prepare Flutter plugin and native-hook fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/prepare_simulator_fixture.py flutter \
+            "$RUNNER_TEMP/flutter-simulator"
+
+      - name: Build ARM64 simulator app through production xcross
+        shell: bash
+        working-directory: ${{ runner.temp }}/flutter-simulator
+        run: |
+          set -euo pipefail
+          xcross --verbose flutter build --simulator --debug 2>&1 | \
+            tee "$RUNNER_TEMP/ios-simulator-smoke/build.log"
+
+      - name: Boot install launch and observe Flutter app headlessly
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apps=("$RUNNER_TEMP/flutter-simulator/build/xcross-ios-simulator/"*.app)
+          test "${#apps[@]}" -eq 1
+          python3 .github/scripts/simulator_smoke.py "${apps[0]}" \
+            --output "$RUNNER_TEMP/ios-simulator-smoke/flutter" \
+            --ready-marker XCROSS_SIMULATOR_NATIVE_FIRST_FRAME_READY
+
+      - name: Upload simulator evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: flutter-arm64-ios-simulator-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ios-simulator-smoke
+          if-no-files-found: warn
+          retention-days: 7
+
   native-host:
     name: Native ARM64 host (${{ matrix.os }})
     strategy:
