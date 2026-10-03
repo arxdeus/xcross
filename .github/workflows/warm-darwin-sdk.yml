@@ -36,7 +36,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-2022]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, windows-2022]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -44,6 +44,42 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
           persist-credentials: false
+
+      - name: Ensure native Swift on Linux ARM64
+        if: runner.os == 'Linux' && runner.arch == 'ARM64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! swift --version 2>/dev/null | grep -Eq 'Target: aarch64-.*linux'; then
+            sudo apt-get update
+            sudo apt-get install -y \
+              binutils git gnupg2 libc6-dev libcurl4-openssl-dev libedit2 \
+              libgcc-13-dev libncurses-dev libpython3-dev libsqlite3-0 \
+              libstdc++-13-dev libxml2-dev libz3-dev pkg-config tzdata \
+              zip unzip zlib1g-dev
+            release="swift-$SWIFT_VERSION-release"
+            version="swift-$SWIFT_VERSION-RELEASE"
+            archive="$version-ubuntu24.04-aarch64.tar.gz"
+            base="https://download.swift.org/$release/ubuntu2404-aarch64/$version"
+            download="$RUNNER_TEMP/swift-download"
+            mkdir -p "$download/gnupg" "$RUNNER_TEMP/swift"
+            chmod 700 "$download/gnupg"
+            curl --fail --location --retry 3 "$base/$archive" -o "$download/$archive"
+            curl --fail --location --retry 3 "$base/$archive.sig" -o "$download/$archive.sig"
+            curl --fail --location --retry 3 https://www.swift.org/keys/all-keys.asc \
+              -o "$download/all-keys.asc"
+            gpg --batch --homedir "$download/gnupg" --import "$download/all-keys.asc"
+            gpg --batch --homedir "$download/gnupg" \
+              --verify "$download/$archive.sig" "$download/$archive"
+            tar -xzf "$download/$archive" -C "$RUNNER_TEMP/swift" --strip-components=1
+            echo "$RUNNER_TEMP/swift/usr/bin" >> "$GITHUB_PATH"
+            export PATH="$RUNNER_TEMP/swift/usr/bin:$PATH"
+          fi
+          swift --version | tee "$RUNNER_TEMP/swift-version.txt"
+          grep -Eq 'Target: aarch64-.*linux' "$RUNNER_TEMP/swift-version.txt"
+          swift sdk list
+          printf 'print("ok")\n' > "$RUNNER_TEMP/swift-probe.swift"
+          swiftc -typecheck "$RUNNER_TEMP/swift-probe.swift"
 
       - name: Install Linux LLVM requirements
         if: runner.os == 'Linux'

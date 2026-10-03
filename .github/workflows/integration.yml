@@ -10,6 +10,7 @@ permissions:
   contents: read
 
 env:
+  FLUTTER_VERSION: 3.47.2
   SWIFT_VERSION: 6.3.3
   SWIFT_WINDOWS_SHA256: >-
     235626548F249CD516D3D4D90EEE980DCCAD46F3822DAC1F8E3119B0FEDE94B7
@@ -31,7 +32,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-2022]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, windows-2022]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -71,10 +72,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${JAVA_HOME_21_X64:-}"
-          echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
-          echo "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
-          "$JAVA_HOME_21_X64/bin/java" -version
+          case "$RUNNER_ARCH" in
+            ARM64)
+              jdk="${JAVA_HOME_21_ARM64:-${JAVA_HOME_21_arm64:-${JAVA_HOME_21_X64:-}}}"
+              expected_arch='aarch64|arm64'
+              ;;
+            X64)
+              jdk="${JAVA_HOME_21_X64:?JDK 21 x64 is required}"
+              expected_arch='amd64|x86_64'
+              ;;
+            *) echo "Unsupported runner architecture: $RUNNER_ARCH"; exit 1 ;;
+          esac
+          test -n "$jdk"
+          echo "JAVA_HOME=$jdk" >> "$GITHUB_ENV"
+          echo "$jdk/bin" >> "$GITHUB_PATH"
+          "$jdk/bin/java" -XshowSettings:properties -version 2>&1 |
+            tee "$RUNNER_TEMP/java-properties.txt"
+          grep -Eq "os.arch = ($expected_arch)" "$RUNNER_TEMP/java-properties.txt"
+          grep -Eq 'java.specification.version = 21$' "$RUNNER_TEMP/java-properties.txt"
 
       - name: Use JDK 21 on Windows
         if: runner.os == 'Windows'
@@ -97,7 +112,7 @@ jobs:
           set -euo pipefail
           git clone \
             --depth 1 \
-            --branch stable \
+            --branch "$FLUTTER_VERSION" \
             https://github.com/flutter/flutter.git \
             "$RUNNER_TEMP/flutter"
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
@@ -109,11 +124,47 @@ jobs:
           $ErrorActionPreference = 'Stop'
           git clone `
             --depth 1 `
-            --branch stable `
+            --branch $env:FLUTTER_VERSION `
             https://github.com/flutter/flutter.git `
             "$env:RUNNER_TEMP\flutter"
           "$env:RUNNER_TEMP\flutter\bin" |
             Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Ensure native Swift on Linux ARM64
+        if: runner.os == 'Linux' && runner.arch == 'ARM64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! swift --version 2>/dev/null | grep -Eq 'Target: aarch64-.*linux'; then
+            sudo apt-get update
+            sudo apt-get install -y \
+              binutils git gnupg2 libc6-dev libcurl4-openssl-dev libedit2 \
+              libgcc-13-dev libncurses-dev libpython3-dev libsqlite3-0 \
+              libstdc++-13-dev libxml2-dev libz3-dev pkg-config tzdata \
+              zip unzip zlib1g-dev
+            release="swift-$SWIFT_VERSION-release"
+            version="swift-$SWIFT_VERSION-RELEASE"
+            archive="$version-ubuntu24.04-aarch64.tar.gz"
+            base="https://download.swift.org/$release/ubuntu2404-aarch64/$version"
+            download="$RUNNER_TEMP/swift-download"
+            mkdir -p "$download/gnupg" "$RUNNER_TEMP/swift"
+            chmod 700 "$download/gnupg"
+            curl --fail --location --retry 3 "$base/$archive" -o "$download/$archive"
+            curl --fail --location --retry 3 "$base/$archive.sig" -o "$download/$archive.sig"
+            curl --fail --location --retry 3 https://www.swift.org/keys/all-keys.asc \
+              -o "$download/all-keys.asc"
+            gpg --batch --homedir "$download/gnupg" --import "$download/all-keys.asc"
+            gpg --batch --homedir "$download/gnupg" \
+              --verify "$download/$archive.sig" "$download/$archive"
+            tar -xzf "$download/$archive" -C "$RUNNER_TEMP/swift" --strip-components=1
+            echo "$RUNNER_TEMP/swift/usr/bin" >> "$GITHUB_PATH"
+            export PATH="$RUNNER_TEMP/swift/usr/bin:$PATH"
+          fi
+          swift --version | tee "$RUNNER_TEMP/swift-version.txt"
+          grep -Eq 'Target: aarch64-.*linux' "$RUNNER_TEMP/swift-version.txt"
+          swift sdk list
+          printf 'print("ok")\n' > "$RUNNER_TEMP/swift-probe.swift"
+          swiftc -typecheck "$RUNNER_TEMP/swift-probe.swift"
 
       - name: Install Linux requirements
         if: runner.os == 'Linux'
@@ -395,3 +446,89 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'No-hook fixture build failed' }
           dart run "$env:GITHUB_WORKSPACE/packages/xcross/tool/verify_flutter_notices.dart" build/xcross-ios
           if ($LASTEXITCODE -ne 0) { throw 'Packaged Flutter notices are invalid' }
+
+  native-host:
+    name: Native ARM64 host (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04-arm, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+      - name: Verify native ARM64 host and JDK 21
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ARCH" = ARM64
+          case "$(uname -m)" in
+            aarch64|arm64) ;;
+            *) echo 'Expected a native ARM64 host'; exit 1 ;;
+          esac
+          jdk="${JAVA_HOME_21_ARM64:-${JAVA_HOME_21_arm64:-${JAVA_HOME_21_X64:-}}}"
+          test -n "$jdk"
+          echo "JAVA_HOME=$jdk" >> "$GITHUB_ENV"
+          echo "$jdk/bin" >> "$GITHUB_PATH"
+          "$jdk/bin/java" -XshowSettings:properties -version 2>&1 |
+            tee "$RUNNER_TEMP/java-properties.txt"
+          grep -Eq 'os.arch = (aarch64|arm64)' "$RUNNER_TEMP/java-properties.txt"
+          grep -Eq 'java.specification.version = 21$' "$RUNNER_TEMP/java-properties.txt"
+          cc --version
+
+      - name: Set up native Dart
+        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260
+        with:
+          sdk: stable
+          architecture: arm64
+
+      - name: Resolve dependencies
+        run: dart pub get
+
+      - name: Test xcross host workflows
+        working-directory: packages/xcross
+        run: dart test
+
+      - name: Test Apple developer kit and native ADI bridge
+        working-directory: packages/apple_developer_kit
+        run: dart test
+
+      - name: Test shared packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          dart test packages/cli_kit
+          dart test packages/darwin_sdk_kit
+          dart test packages/dart_mobile_device
+          dart test packages/frontend_server_kit
+
+      - name: Smoke-test isolated real ARM64 ADI libraries
+        working-directory: packages/apple_developer_kit
+        env:
+          ADI_NATIVE_SMOKE: '1'
+        run: dart test test/adi/adi_client_test.dart
+
+      - name: Build native CLI bundle
+        working-directory: packages/xcross
+        run: dart run tool/build_xcross.dart
+
+      - name: Smoke-test native CLI bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          bundles=(packages/xcross/build/cli/*/bundle)
+          test "${#bundles[@]}" -eq 1
+          bundle="${bundles[0]}"
+          file "$bundle/bin/xcross" | tee "$RUNNER_TEMP/xcross-file.txt"
+          grep -Eq 'aarch64|arm64' "$RUNNER_TEMP/xcross-file.txt"
+          "$bundle/bin/xcross" --help
+          test -x "$bundle/bin/xcrun"
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            "$bundle/bin/xcrun" --version
+          fi
