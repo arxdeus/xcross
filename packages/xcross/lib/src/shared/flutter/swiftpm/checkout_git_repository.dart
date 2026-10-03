@@ -9,7 +9,17 @@ import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_link_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 
-final class SwiftPmGitRepository<T extends PlatformHostInterface> {
+abstract interface class SwiftPmGitPackageCloner {
+  Future<void> cloneGitPackage(
+    String git,
+    String url,
+    String ref,
+    String destination,
+  );
+}
+
+final class SwiftPmGitRepository<T extends PlatformHostInterface>
+    implements SwiftPmGitPackageCloner {
   SwiftPmGitRepository({
     required this.runner,
     required this.fileSystem,
@@ -144,6 +154,7 @@ final class SwiftPmGitRepository<T extends PlatformHostInterface> {
     return blobs;
   }
 
+  @override
   Future<void> cloneGitPackage(
     String git,
     String url,
