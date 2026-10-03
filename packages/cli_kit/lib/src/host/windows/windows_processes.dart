@@ -4,16 +4,13 @@ import 'dart:io';
 import 'package:cli_kit/src/host/shared/native_tool_lookup.dart';
 import 'package:cli_kit/src/host/shared/owned_processes.dart';
 import 'package:cli_kit/src/host/windows/windows_batch.dart';
-import 'package:cli_kit/src/host/windows/windows_environment.dart';
-import 'package:cli_kit/src/host/windows/windows_file_system.dart';
-import 'package:cli_kit/src/host/windows/windows_paths.dart';
 import 'package:cli_kit/src/shared/platform/platform_host.dart';
 
 final class WindowsProcesses implements HostProcessInterface {
   WindowsProcesses({
-    HostPathsInterface? paths,
-    HostEnvironmentInterface? environment,
-    HostFileSystemInterface? fileSystem,
+    required HostPathsInterface paths,
+    required HostEnvironmentInterface environment,
+    required HostFileSystemInterface fileSystem,
     Future<ProcessResult> Function(
       String,
       List<String>, {
@@ -21,9 +18,9 @@ final class WindowsProcesses implements HostProcessInterface {
       bool includeParentEnvironment,
     })?
     runProcess,
-  }) : _paths = paths ?? WindowsPaths(),
-       _environment = environment ?? WindowsEnvironment(const {}),
-       _fileSystem = fileSystem ?? WindowsFileSystem(paths ?? WindowsPaths()),
+  }) : _paths = paths,
+       _environment = environment,
+       _fileSystem = fileSystem,
        _runProcess = runProcess ?? Process.run;
   final OwnedProcesses _owned = OwnedProcesses();
   final HostPathsInterface _paths;

@@ -450,7 +450,11 @@ void main() {
   test('native cleanup refuses unowned process identities', () async {
     final process = UnownedTestProcess();
     await PosixProcesses(paths: native.paths).killTree(process);
-    await WindowsProcesses().killTree(process);
+    await WindowsProcesses(
+      paths: native.paths,
+      environment: native.environment,
+      fileSystem: native.fileSystem,
+    ).killTree(process);
     expect(process.killed, isFalse);
   });
   test(
