@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/constants.dart';
 import 'package:dart_mobile_device/src/device_prepare.dart';
@@ -14,7 +12,10 @@ import 'package:dart_mobile_device/src/tunnel/userspace_tunnel_transport.dart';
 
 /// Builds the [DeviceTransport] for a session, preferring the kernel tunnel
 /// and falling back to the userspace tunnel when it is unusable.
-abstract final class DeviceTransportResolver {
+final class DeviceTransportResolver {
+  DeviceTransportResolver(this.pymd);
+  final Pymd pymd;
+
   /// `auto` (default), `kernel`, or `userspace`.
   static const String modeEnvironmentVariable = 'XCROSS_TUNNEL_MODE';
 
@@ -22,7 +23,7 @@ abstract final class DeviceTransportResolver {
   /// tunnel mounts the Developer Disk Image and starts a lockdown tunnel,
   /// which is minutes of work and a sudo prompt that only a real session has
   /// earned the right to spend.
-  static Future<DeviceTransport> resolve({
+  Future<DeviceTransport> resolve({
     required String udid,
     Duration discoveryTimeout = const Duration(seconds: 60),
     bool allowTunnelRepair = true,
@@ -30,7 +31,7 @@ abstract final class DeviceTransportResolver {
     final mode = _modeFromEnvironment();
     switch (mode) {
       case DeviceTransportMode.userspace:
-        return UserspaceTunnelTransport(udid: udid);
+        return UserspaceTunnelTransport(pymd: pymd, udid: udid);
       case DeviceTransportMode.kernel:
         return _kernelTransport(
           udid: udid,
@@ -61,13 +62,13 @@ abstract final class DeviceTransportResolver {
                       '${_firstLine(error.message)}',
           );
           Log.logTrace(error.message);
-          return UserspaceTunnelTransport(udid: udid);
+          return UserspaceTunnelTransport(pymd: pymd, udid: udid);
         }
     }
   }
 
-  static DeviceTransportMode _modeFromEnvironment() {
-    final value = Platform.environment[modeEnvironmentVariable]
+  DeviceTransportMode _modeFromEnvironment() {
+    final value = pymd.runner.effectiveEnvironment[modeEnvironmentVariable]
         ?.trim()
         .toLowerCase();
     return switch (value) {
@@ -78,12 +79,12 @@ abstract final class DeviceTransportResolver {
     };
   }
 
-  static Future<DeviceTransport> _kernelTransport({
+  Future<DeviceTransport> _kernelTransport({
     required String udid,
     required Duration discoveryTimeout,
     required bool allowTunnelRepair,
   }) async {
-    final daemon = TunnelDaemon();
+    final daemon = TunnelDaemon(pymd);
     try {
       await daemon.ensureRunning();
       final tunnel = await _discoverOrRepair(
@@ -114,7 +115,7 @@ abstract final class DeviceTransportResolver {
   /// `mounter auto-mount` cannot reach a wireless-only device, but the RSD
   /// tunnel we already hold can: `--rsd <host> <port>` routes the mount over
   /// it regardless of how the device is connected.
-  static Future<int> _debugproxyPortWithMountRepair(
+  Future<int> _debugproxyPortWithMountRepair(
     Tunnel tunnel, {
     required bool allowTunnelRepair,
   }) async {
@@ -128,7 +129,7 @@ abstract final class DeviceTransportResolver {
       try {
         await Log.logStep(
           'Mounting Developer Disk Image',
-          () => Pymd.run([
+          () => pymd.run([
             'mounter',
             'auto-mount',
             '--rsd',
@@ -150,7 +151,7 @@ abstract final class DeviceTransportResolver {
   /// `xcross tunnel` is the documented prerequisite, but forgetting it used to
   /// cost a 60 s stall and a silently degraded session; every repair step is
   /// idempotent, so running them here is cheaper than the stall it replaces.
-  static Future<Tunnel> _discoverOrRepair({
+  Future<Tunnel> _discoverOrRepair({
     required String udid,
     required Duration discoveryTimeout,
     required bool allowTunnelRepair,
@@ -168,7 +169,7 @@ abstract final class DeviceTransportResolver {
       );
       Log.logTrace(error.message);
       try {
-        await DevicePrepare.repairRsdTunnel();
+        await DevicePrepare(pymd).repairRsdTunnel();
       } on Object catch (repairFailure) {
         // Report what tunneld refused to do, not how the repair went: the
         // repair is an extra chance, never the thing the user asked for.
@@ -186,9 +187,9 @@ abstract final class DeviceTransportResolver {
       .split('\n')
       .firstWhere((line) => line.trim().isNotEmpty, orElse: () => message);
 
-  static Future<int> _debugproxyPort(Tunnel tunnel) async {
+  Future<int> _debugproxyPort(Tunnel tunnel) async {
     try {
-      return await Pymd.rsdServicePort(
+      return await pymd.rsdServicePort(
         rsdHost: tunnel.address,
         rsdPort: tunnel.port,
         service: TunnelConstants.debugproxyService,
@@ -201,7 +202,7 @@ abstract final class DeviceTransportResolver {
           'debugproxy service. Mount it and retry:\n\n'
           '    xcross tunnel\n\n'
           'Or manually:\n\n'
-          '    ${Pymd.elevatedCommand('mounter auto-mount')}\n\n'
+          '    ${pymd.elevatedCommand('mounter auto-mount')}\n\n'
           'If you just mounted it, restart `pymobiledevice3 remote tunneld` '
           'so the RSD service list is refreshed.\n\n'
           'Underlying error:\n$detail',

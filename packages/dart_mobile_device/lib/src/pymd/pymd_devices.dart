@@ -8,17 +8,20 @@ import 'package:dart_mobile_device/src/tunnel/tunnel_discovery.dart';
 
 /// pymobiledevice3-backed device enumeration and app install.
 ///
-/// Same shape as [Pymd]: static-only, builds on [Pymd.run]/[Pymd.resolve]
+/// Same shape as [Pymd]: static-only, builds on [pymd.run]/[pymd.resolve]
 /// rather than a competing subprocess abstraction. Kept as a separate class
 /// (not added to [Pymd] itself) since Dart can't extend an `abstract final`
 /// class from another file.
-abstract final class PymdDevices {
+final class PymdDevices {
+  PymdDevices(this.pymd);
+  final Pymd pymd;
+
   /// How long a bonjour browse is allowed to look around the local network.
   static const _bonjourTimeout = 5;
 
   /// Cached `DeviceName` per tunneled UDID, so discovery polling does not
   /// spawn a `lockdown info` subprocess on every tick.
-  static final Map<String, String?> _tunnelNameCache = {};
+  final Map<String, String?> _tunnelNameCache = {};
 
   /// Enumerate reachable devices.
   ///
@@ -33,7 +36,7 @@ abstract final class PymdDevices {
   ///   wireless devices appear on Linux/Windows: tunneld's RemotePairing
   ///   monitor finds them over mDNS and builds the tunnel, no usbmuxd
   ///   involved.
-  static Future<List<Device>> devices({
+  Future<List<Device>> devices({
     DeviceSearchMode mode = DeviceSearchMode.all,
   }) async {
     final args = <String>[
@@ -46,7 +49,7 @@ abstract final class PymdDevices {
 
     List<Device> viaUsbmux;
     try {
-      final result = await Pymd.run(args);
+      final result = await pymd.run(args);
       viaUsbmux = parseDevices(
         result.stdout,
         allowEmptyOutput: wirelessAllowed,
@@ -64,9 +67,7 @@ abstract final class PymdDevices {
   /// Devices with an active RSD tunnel in tunneld, excluding [known] ones.
   ///
   /// Best-effort: when tunneld is not running this is simply an empty list.
-  static Future<List<Device>> _tunneldDevices({
-    required List<Device> known,
-  }) async {
+  Future<List<Device>> _tunneldDevices({required List<Device> known}) async {
     final tunnels = await TunnelDiscovery.activeTunnels();
     if (tunnels.isEmpty) return const [];
     final knownUdids = known.map((d) => normalizeUdid(d.udid)).toSet();
@@ -92,11 +93,11 @@ abstract final class PymdDevices {
   /// arbitrarily — discovery polling (and with it the whole run) would sit
   /// on "resolving a name" while looking simply stuck. The UDID is a fine
   /// name until a later poll fills the cache.
-  static Future<String?> _tunneledDeviceName(String udid) async {
+  Future<String?> _tunneledDeviceName(String udid) async {
     if (_tunnelNameCache.containsKey(udid)) return _tunnelNameCache[udid];
     String? name;
     try {
-      final result = await Pymd.run([
+      final result = await pymd.run([
         'lockdown',
         'info',
         '--tunnel',
@@ -134,7 +135,7 @@ abstract final class PymdDevices {
   }) {
     // `usbmux list` exits 0 even when it cannot reach usbmuxd: it logs
     // "Failed to connect to usbmuxd socket" to stderr and prints nothing,
-    // so Pymd.run's exit-code check passes and jsonDecode('') would blow up
+    // so pymd.run's exit-code check passes and jsonDecode('') would blow up
     // with a bare FormatException stack trace. Turn the empty case into the
     // actionable message instead.
     if (output.trim().isEmpty) {
@@ -174,9 +175,9 @@ abstract final class PymdDevices {
   /// True when some iOS device advertises `_remotepairing._tcp` on this
   /// network: it is reachable and wireless-debugging capable, whether or not
   /// this host is paired with it. Diagnostics only; never throws.
-  static Future<bool> wirelessPairingAdvertised() async {
+  Future<bool> wirelessPairingAdvertised() async {
     try {
-      final result = await Pymd.run([
+      final result = await pymd.run([
         'bonjour',
         'remotepairing',
         '--timeout',
@@ -202,12 +203,12 @@ abstract final class PymdDevices {
   /// and surfaces failures as [TunnelError]. Does not forward stdin — install
   /// is non-interactive, and a cooked-mode sharedStdin listen here leaves the
   /// later hot-reload `r`/`R`/`q` loop deaf on Windows.
-  static Future<void> install(
+  Future<void> install(
     String appOrIpaPath, {
     String? udid,
     bool overTunnel = false,
   }) async {
-    final inv = await Pymd.resolve();
+    final inv = await pymd.resolve();
     final args = <String>['apps', 'install', appOrIpaPath];
     if (udid != null) {
       args.addAll(overTunnel ? ['--tunnel', udid] : ['--udid', udid]);
@@ -215,13 +216,13 @@ abstract final class PymdDevices {
 
     final step = Log.beginStep('Installing to device');
     try {
-      await ProcessRunner.runChecked(
+      await pymd.runner.runChecked(
         inv.executable,
         [...inv.prefixArgs, ...args],
         label: 'pymobiledevice3',
         tail: step,
         forwardStdin: false,
-        environment: Pymd.usbmuxEnvironment(),
+        environment: pymd.usbmuxEnvironment(),
       );
       step.done();
     } on Object {

@@ -80,7 +80,7 @@ abstract final class TunnelDiscovery {
         'Run:\n\n'
         '    xcross tunnel\n\n'
         'Or start it manually (in another terminal, leave it running):\n\n'
-        '    ${Pymd.elevatedCommand('remote tunneld')}',
+        '    pymobiledevice3 remote tunneld',
       );
     }
     final target = udid != null ? 'for device $udid' : 'for any device';
@@ -89,9 +89,9 @@ abstract final class TunnelDiscovery {
       'Run:\n\n'
       '    xcross tunnel\n\n'
       'Or in another terminal (iOS 17.4+ / 18 / 26):\n\n'
-      '    ${Pymd.elevatedCommand('lockdown start-tunnel')}\n\n'
+      '    pymobiledevice3 lockdown start-tunnel\n\n'
       'Or mount the Developer Disk Image first:\n\n'
-      '    ${Pymd.elevatedCommand('mounter auto-mount')}\n\n'
+      '    pymobiledevice3 mounter auto-mount\n\n'
       'Keep the phone unlocked and trusted. usbipd often fails here — '
       'Apple Mobile Device Service + USBMUXD_SOCKET_ADDRESS=127.0.0.1:27015 '
       'is more reliable on WSL.',
@@ -163,8 +163,8 @@ abstract final class TunnelDiscovery {
         'Run:\n\n'
         '    xcross tunnel\n\n'
         'Or manually (leave the second one running):\n\n'
-        '    ${Pymd.elevatedCommand('mounter auto-mount')}\n'
-        '    ${Pymd.elevatedCommand('lockdown start-tunnel')}\n\n'
+        '    pymobiledevice3 mounter auto-mount\n'
+        '    pymobiledevice3 lockdown start-tunnel\n\n'
         'Keep the phone unlocked and trusted.\n\n'
         'tunneld said: $detail',
       );

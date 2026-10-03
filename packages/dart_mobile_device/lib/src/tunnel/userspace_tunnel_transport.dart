@@ -24,7 +24,9 @@ import 'package:dart_mobile_device/src/transport/device_transport.dart';
 ///   (the tunnel's IPv6 connect then fails with `WinError 10013`), and
 /// * hosts without Administrator/root rights, since no TUN device is created.
 class UserspaceTunnelTransport implements DeviceTransport {
-  UserspaceTunnelTransport({required this.udid});
+  UserspaceTunnelTransport({required this.pymd, required this.udid});
+
+  final Pymd pymd;
 
   final String udid;
 
@@ -95,7 +97,7 @@ class UserspaceTunnelTransport implements DeviceTransport {
     _devicePortRelays.clear();
     _debugproxy = null;
     for (final relay in relays) {
-      await ProcessRunner.killTree(relay);
+      await pymd.runner.killTree(relay);
     }
   }
 
@@ -105,7 +107,7 @@ class UserspaceTunnelTransport implements DeviceTransport {
     required List<String> Function(int localPort) buildArgs,
   }) async {
     final localPort = await _reserveLocalPort();
-    final invocation = await Pymd.resolve();
+    final invocation = await pymd.resolve();
     final arguments = [...invocation.prefixArgs, ...buildArgs(localPort)];
 
     Log.logTrace(
@@ -115,10 +117,10 @@ class UserspaceTunnelTransport implements DeviceTransport {
 
     final Process relay;
     try {
-      relay = await ProcessRunner.start(
+      relay = await pymd.runner.start(
         invocation.executable,
         arguments,
-        environment: Pymd.usbmuxEnvironment(),
+        environment: pymd.usbmuxEnvironment(),
       );
     } on Object catch (e) {
       throw TunnelError('could not start the $label relay: $e');
@@ -150,7 +152,7 @@ class UserspaceTunnelTransport implements DeviceTransport {
       return DeviceEndpoint(host: _loopback, port: localPort);
     }
 
-    await ProcessRunner.killTree(relay);
+    await pymd.runner.killTree(relay);
     _relays.remove(relay);
     final detail = output.toString().trim();
     throw TunnelError(

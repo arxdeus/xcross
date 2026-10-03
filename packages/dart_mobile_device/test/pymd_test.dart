@@ -1,9 +1,12 @@
 import 'dart:io';
 
-import 'package:dart_mobile_device/src/pymd/pymd.dart';
+import 'package:cli_kit/cli_kit.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:test/test.dart';
 
 void main() {
+  final runner = ProcessRunner(MacOSHost(environment: Platform.environment));
+  final pymd = Pymd(runner, hostPolicy: MacOSDeviceHost(runner));
   group('Pymd.asPort', () {
     test('passes through an int unchanged', () {
       expect(Pymd.asPort(12345), 12345);
@@ -32,7 +35,7 @@ void main() {
 
   group('Pymd.usbmuxEnvironment', () {
     test('is a superset of Platform.environment', () {
-      final env = Pymd.usbmuxEnvironment();
+      final env = pymd.usbmuxEnvironment();
       for (final entry in Platform.environment.entries) {
         expect(env[entry.key], entry.value);
       }
@@ -49,7 +52,7 @@ void main() {
     test('honours USBMUXD_SOCKET_ADDRESS when set, else mirrors '
         '/var/run/usbmuxd existence', () {
       final envValue = Platform.environment['USBMUXD_SOCKET_ADDRESS'];
-      final result = Pymd.resolvedUsbmuxAddress();
+      final result = pymd.resolvedUsbmuxAddress();
 
       if (envValue != null && envValue.isNotEmpty) {
         expect(result, envValue);

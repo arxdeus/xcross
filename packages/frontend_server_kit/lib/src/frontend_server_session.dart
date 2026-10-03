@@ -1,23 +1,30 @@
-import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:async/async.dart';
 import 'package:frontend_server_kit/src/errors.dart';
 import 'package:frontend_server_kit/src/frontend_server_options.dart';
-import 'package:frontend_server_kit/src/internal/process_kill.dart';
 import 'package:frontend_server_kit/src/package_uris.dart';
+import 'package:frontend_server_kit/src/shared/process/compiler_transport.dart';
 
 /// Drives a persistent `frontend_server` subprocess over its stdin/stdout
 /// protocol, producing incremental kernel diffs for hot reload.
 final class FrontendServerSession {
-  FrontendServerSession(this.options);
+  FrontendServerSession(
+    this.options, {
+    required this.processFactory,
+    required this.diagnostics,
+  });
+
+  final CompilerProcessFactory processFactory;
+  final void Function(String) diagnostics;
+  StreamSubscription<String>? _diagnosticsSubscription;
 
   static final _whitespacePattern = RegExp(r'\s+');
 
   final FrontendServerOptions options;
 
-  Process? _process;
-  IOSink? _sink;
+  CompilerTransport? _process;
 
   PackageUris? _packageUris;
 
@@ -36,17 +43,13 @@ final class FrontendServerSession {
     options.onTrace?.call(
       '[frontend_server] running: ${options.dart} ${args.join(' ')}',
     );
-    final proc = await Process.start(options.dart, args);
-
+    if (_process != null) {
+      throw FrontendServerException('frontend_server already running');
+    }
+    final proc = await processFactory.start(options.dart, args);
     _process = proc;
-    _sink = proc.stdin;
-    _queue = StreamQueue<String>(
-      proc.stdout.transform(utf8.decoder).transform(const LineSplitter()),
-    );
-    proc.stderr
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .listen((line) => stderr.writeln('[frontend_server] $line'));
+    _queue = StreamQueue<String>(proc.output);
+    _diagnosticsSubscription = proc.diagnostics.listen(diagnostics);
   }
 
   List<String> _spawnArguments() {
@@ -165,42 +168,21 @@ final class FrontendServerSession {
   });
 
   Future<void> close() async {
-    // Try a polite quit first so frontend_server can flush, but never wait
-    // forever for it.
-    try {
-      await _send('quit\n').timeout(const Duration(milliseconds: 500));
-    } on Object catch (_) {
-      options.onTrace?.call('[frontend_server] quit failed or timed out');
-    }
     final process = _process;
     _process = null;
-    if (process != null) {
-      try {
-        await ProcessKill.killTree(process).timeout(const Duration(seconds: 2));
-      } on Object catch (_) {
-        process.kill();
-      }
-    }
-    final sink = _sink;
-    _sink = null;
-    try {
-      await sink?.close().timeout(const Duration(milliseconds: 200));
-    } on Object catch (_) {
-      options.onTrace?.call(
-        '[frontend_server] stdin close failed or timed out',
-      );
-    }
+    await _diagnosticsSubscription?.cancel();
+    _diagnosticsSubscription = null;
     await _queue?.cancel(immediate: true);
     _queue = null;
+    await process?.close();
   }
 
   Future<void> _send(String s) async {
-    final sink = _sink;
-    if (sink == null) {
+    final process = _process;
+    if (process == null) {
       throw FrontendServerException('frontend_server closed unexpectedly');
     }
-    sink.write(s);
-    await sink.flush();
+    await process.send(s);
   }
 
   Future<String> _readResultBoundary() {

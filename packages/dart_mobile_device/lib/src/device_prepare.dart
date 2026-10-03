@@ -1,17 +1,17 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/errors.dart';
+import 'package:dart_mobile_device/src/host/shared/tunnel/lockdown_tunnel_controller.dart';
 import 'package:dart_mobile_device/src/models/device.dart';
 import 'package:dart_mobile_device/src/pymd/pymd.dart';
 import 'package:dart_mobile_device/src/pymd/pymd_devices.dart';
 import 'package:dart_mobile_device/src/pymd/remote_pairing.dart';
+import 'package:dart_mobile_device/src/shared/preparation/developer_disk_image.dart';
 import 'package:dart_mobile_device/src/tunnel/tunnel_daemon.dart';
 import 'package:dart_mobile_device/src/tunnel/tunnel_discovery.dart';
 import 'package:meta/meta.dart';
-import 'package:path/path.dart' as p;
 
 /// Bootstrap route selected by `xcross tunnel --wifi`.
 enum WirelessBootstrapPath { usbLockdown, savedPairing, pairHost }
@@ -26,10 +26,16 @@ enum WirelessBootstrapPath { usbLockdown, savedPairing, pairHost }
 /// ```
 /// plus ensuring `remote tunneld` is up (the REST discovery path used by
 /// `xcross flutter run`).
-abstract final class DevicePrepare {
-  static final _tunnelReadyPattern = RegExp(
-    'tunnel created|RSD Address|RSD Port',
-    caseSensitive: false,
+final class DevicePrepare {
+  DevicePrepare(this.pymd);
+  final Pymd pymd;
+  late final LockdownTunnelController _lockdown = LockdownTunnelController(
+    pymd,
+    describeFailure: explainTunnelExit,
+  );
+  late final DeveloperDiskImage _diskImage = DeveloperDiskImage(
+    pymd,
+    describeFailure: explainTunnelExit,
   );
 
   /// How long the wireless fallback waits for tunneld to build a tunnel once
@@ -40,7 +46,6 @@ abstract final class DevicePrepare {
   /// A sleeping or unreachable phone can leave pymobiledevice3 blocked in a
   /// RemoteXPC exchange indefinitely. Keep the one-shot DDI mount bounded so
   /// the caller gets an actionable failure instead of a permanent spinner.
-  static const _wirelessMountTimeout = Duration(seconds: 30);
 
   static const _pollInterval = Duration(seconds: 2);
 
@@ -51,7 +56,7 @@ abstract final class DevicePrepare {
   /// tunnel-routed DDI mount) lives in [prepareWireless] behind an explicit
   /// `--wifi`, so the cable path stays simple and never blocks waiting for
   /// a phone that is not there.
-  static Future<void> prepare() async {
+  Future<void> prepare() async {
     await _prepareSteps();
     Log.logDone(
       'Device ready '
@@ -71,15 +76,15 @@ abstract final class DevicePrepare {
   /// 3. No USB and no saved device: advertise `remote pair-host` immediately.
   ///
   /// Finally, mounts the DDI through the resulting RSD tunnel.
-  static Future<void> prepareWireless() async {
-    if (!await Pymd.ensureInstalled()) {
+  Future<void> prepareWireless() async {
+    if (!await pymd.ensureInstalled()) {
       throw TunnelError(
         'pymobiledevice3 is required but could not be installed automatically.',
       );
     }
 
     final usbDevice = await _firstUsbDevice();
-    final savedPairings = RemotePairing.pairingRecordIds();
+    final savedPairings = RemotePairing(pymd).pairingRecordIds();
     final bootstrapSequence = wirelessBootstrapSequence(
       hasUsbDevice: usbDevice != null,
       hasSavedPairings: savedPairings.isNotEmpty,
@@ -92,7 +97,7 @@ abstract final class DevicePrepare {
     // [TunnelDaemon.ensureRunning] requests elevation only when it actually
     // needs to start or replace the daemon. Reusing an already-reachable
     // tunneld must not prompt for sudo again.
-    await TunnelDaemon().ensureRunning();
+    await TunnelDaemon(pymd).ensureRunning();
 
     var tunnel = await TunnelDiscovery.findExistingTunnel();
     if (tunnel == null &&
@@ -108,18 +113,16 @@ abstract final class DevicePrepare {
         bootstrapSequence.contains(WirelessBootstrapPath.pairHost)) {
       final fresh = savedPairings.isNotEmpty;
       final name = fresh
-          ? RemotePairing.freshAdvertiseName()
-          : RemotePairing.advertiseName;
+          ? RemotePairing(pymd).freshAdvertiseName()
+          : RemotePairing(pymd).advertiseName;
       if (fresh) {
         Log.logWarn(
           'saved wireless devices did not reconnect — starting fresh pairing',
         );
       }
-      final pairHost = await RemotePairing.startPairHost(
-        onLine: _onPairHostLine,
-        fresh: fresh,
-        name: name,
-      );
+      final pairHost = await RemotePairing(
+        pymd,
+      ).startPairHost(onLine: _onPairHostLine, fresh: fresh, name: name);
       if (pairHost != null) {
         Log.logInfo(
           'Wireless',
@@ -136,7 +139,7 @@ abstract final class DevicePrepare {
           Log.logInfo(
             'Wireless',
             'tap exactly "$name" under "Other Devices"; delete the older '
-                '"${RemotePairing.advertiseName}" entry because its saved '
+                '"${RemotePairing(pymd).advertiseName}" entry because its saved '
                 'pairing no longer reconnects',
           );
         }
@@ -159,7 +162,7 @@ abstract final class DevicePrepare {
                 'rerun this command.';
       throw TunnelError('No wireless device connected.\n$guidance');
     }
-    await _autoMountOverRsd(tunnel);
+    await _diskImage.mountOverRsd(tunnel);
     Log.logDone(
       'Device ready '
       '${Log.dim('— DDI mounted, wireless RSD tunnel up')}',
@@ -186,9 +189,11 @@ abstract final class DevicePrepare {
 
   /// First USB-attached phone, or null when usbmuxd is unavailable/no cable is
   /// attached. A missing usbmuxd is routine for the cable-free pairing path.
-  static Future<Device?> _firstUsbDevice() async {
+  Future<Device?> _firstUsbDevice() async {
     try {
-      final devices = await PymdDevices.devices(mode: DeviceSearchMode.usb);
+      final devices = await PymdDevices(
+        pymd,
+      ).devices(mode: DeviceSearchMode.usb);
       return devices.isEmpty ? null : devices.first;
     } on TunnelError catch (e) {
       Log.logTrace('USB probe before wireless pairing failed: ${e.message}');
@@ -204,27 +209,27 @@ abstract final class DevicePrepare {
   /// here: rewriting an existing usbmux pair record is rejected by some Linux
   /// usbmuxd versions with `BadDevError`. Enabling Wi-Fi connections keeps the
   /// device discoverable after unplug.
-  static Future<void> _prepareWirelessOverUsb(Device device) async {
+  Future<void> _prepareWirelessOverUsb(Device device) async {
     Log.logInfo(
       'Wireless',
       '${device.name} found on USB — pairing wireless services over lockdown',
     );
     await Log.logStep(
       'Pairing wireless services over USB',
-      () => Pymd.run(lockdownRemotePairArgs(device.udid)),
+      () => pymd.run(lockdownRemotePairArgs(device.udid)),
     );
     await Log.logStep(
       'Enabling Wi-Fi connections',
-      () => Pymd.run(lockdownWifiArgs(device.udid)),
+      () => pymd.run(lockdownWifiArgs(device.udid)),
     );
 
-    await TunnelDaemon().ensureRunning();
+    await TunnelDaemon(pymd).ensureRunning();
     final tunnel = await TunnelDiscovery.discoverTunnel(
       udid: device.udid,
       timeout: _wirelessTunnelTimeout,
       pollInterval: _pollInterval,
     );
-    await _autoMountOverRsd(tunnel);
+    await _diskImage.mountOverRsd(tunnel);
     Log.logDone(
       'Device ready '
       '${Log.dim('— paired over USB, wireless RSD tunnel up')}',
@@ -262,7 +267,7 @@ abstract final class DevicePrepare {
   /// against this advertisement (which holds fresh keys every run) — the
   /// user must delete the entry on the phone, and without this hint the tap
   /// looks like it simply did nothing.
-  static void _onPairHostLine(String line) {
+  void _onPairHostLine(String line) {
     // Protocol lines from the bundled runner (see scripts/pair_host.py).
     if (line.startsWith('XCROSS-PAIR-')) {
       _onPairProtocolLine(line);
@@ -274,7 +279,7 @@ abstract final class DevicePrepare {
         _warnedPairResumeFailure = true;
         Log.logWarn(
           'the iPhone tried to resume an old pairing with this host and '
-          'failed. On the phone, delete "${RemotePairing.advertiseName}" '
+          'failed. On the phone, delete "${RemotePairing(pymd).advertiseName}" '
           'under Settings > Developer > Paired Macs, then tap it under '
           '"Other Devices" to pair fresh (the 6-digit code appears here).',
         );
@@ -295,10 +300,10 @@ abstract final class DevicePrepare {
     }
   }
 
-  static bool _warnedPairResumeFailure = false;
+  bool _warnedPairResumeFailure = false;
 
   /// Render the bundled runner's machine-readable protocol.
-  static void _onPairProtocolLine(String line) {
+  void _onPairProtocolLine(String line) {
     final rest = line.split(' ').skip(1).join(' ');
     switch (line.split(' ').first) {
       case 'XCROSS-PAIR-PIN':
@@ -333,21 +338,21 @@ abstract final class DevicePrepare {
   /// Called mid-session when tunneld itself refused to create a tunnel: every
   /// step is idempotent, so a session that only lacks the Developer Disk Image
   /// or a lockdown tunnel repairs itself instead of silently degrading.
-  static Future<void> repairRsdTunnel() => _prepareSteps();
+  Future<void> repairRsdTunnel() => _prepareSteps();
 
-  static Future<void> _prepareSteps() async {
-    if (!await Pymd.ensureInstalled()) {
+  Future<void> _prepareSteps() async {
+    if (!await pymd.ensureInstalled()) {
       throw TunnelError(
         'pymobiledevice3 is required but could not be installed automatically.',
       );
     }
 
-    await HostPrivileges.ensureDeviceToolAccess(
-      posixManualHint:
+    await pymd.runner.host.privileges.ensureElevated(
+      manualHint:
           'Start prepare steps manually:\n'
-          '    ${Pymd.elevatedCommand('mounter auto-mount')}\n'
-          '    ${Pymd.elevatedCommand('lockdown start-tunnel')}',
-      windowsDeniedMessage:
+          '    ${pymd.elevatedCommand('mounter auto-mount')}\n'
+          '    ${pymd.elevatedCommand('lockdown start-tunnel')}',
+      deniedMessage:
           'xcross needs Administrator rights to create the Windows RSD tunnel.\n'
           'Open PowerShell with "Run as administrator", then run:\n'
           '    xcross tunnel',
@@ -355,20 +360,21 @@ abstract final class DevicePrepare {
 
     // tunneld first: it needs no device and `_ensureLockdownTunnel` skips
     // itself when tunneld already carries a tunnel.
-    await TunnelDaemon().ensureRunning();
-    await _autoMount();
+    await TunnelDaemon(pymd).ensureRunning();
+    await _diskImage.mountUsb();
     await _ensureLockdownTunnel();
   }
 
   /// Wait for tunneld to have any RSD tunnel, while the pairing
   /// advertisement (when running) gives the user the chance to create the
   /// pairing it needs. Null when waiting is pointless or nothing appeared.
-  static Future<Tunnel?> _awaitWirelessTunnel({Process? pairHost}) async {
-    final hasRecord = RemotePairing.pairingRecordIds().isNotEmpty;
+  Future<Tunnel?> _awaitWirelessTunnel({Process? pairHost}) async {
+    final hasRecord = RemotePairing(pymd).pairingRecordIds().isNotEmpty;
     if (pairHost == null && !hasRecord) return null;
 
     final step = Log.beginStep('Waiting for a wireless device');
     final diagnostics = _WirelessWaitDiagnostics(
+      pymd: pymd,
       step: step,
       hasRecord: hasRecord,
     );
@@ -423,52 +429,13 @@ abstract final class DevicePrepare {
   /// `pymobiledevice3 mounter auto-mount --rsd <host> <port>` — mounts the
   /// DDI through the RSD tunnel itself, the only route that reaches a
   /// wireless-only device. Needs no root.
-  static Future<void> _autoMountOverRsd(Tunnel tunnel) => Log.logStep(
-    'Mounting Developer Disk Image',
-    () => Pymd.run([
-      'mounter',
-      'auto-mount',
-      '--rsd',
-      tunnel.address,
-      '${tunnel.port}',
-    ], timeout: _wirelessMountTimeout),
-  );
-
-  /// `sudo pymobiledevice3 mounter auto-mount` (one-shot).
-  static Future<void> _autoMount() async {
-    final argv = await Pymd.elevatedArgs(['mounter', 'auto-mount']);
-    Log.logTrace('[pymobiledevice3] mounting DDI: ${argv.join(' ')}');
-    // Captured (not inheritStdio): a child writing to fd1 would shred the
-    // spinner. Runs under `sudo -n`, so there is no prompt to hide.
-    await Log.logStep('Mounting Developer Disk Image', () async {
-      final result = await ProcessRunner.run(
-        argv.first,
-        argv.sublist(1),
-        environment: Pymd.usbmuxEnvironment(),
-      );
-      Log.logTrace(result.stdout.trim());
-      // auto-mount exits 0 even when it never reached the device (it just
-      // logs "ERROR Device is not connected"), which otherwise shows a green
-      // checkmark and defers the real failure to the tunnel step.
-      final stderr = result.stderr.trim();
-      if (result.exitCode != 0 || _isDeviceMissing(stderr)) {
-        throw TunnelError(
-          'mounter auto-mount failed (exit ${result.exitCode}).\n'
-          '${explainTunnelExit(stderr.isEmpty ? const [] : stderr.split('\n'))}'
-          'Retry manually:\n'
-          '    ${Pymd.elevatedCommand('mounter auto-mount')}',
-        );
-      }
-    });
-  }
-
   /// Start `lockdown start-tunnel` in the background if one is not already
   /// producing an RSD tunnel. Leaves the process running after prepare exits.
   ///
   /// Skips when tunneld already exposes a tunnel: on Windows a second
   /// `lockdown start-tunnel` creates another WinTun adapter for the same
   /// device and breaks IPv6 RSD connectivity (connect → WinError 10013).
-  static Future<void> _ensureLockdownTunnel() async {
+  Future<void> _ensureLockdownTunnel() async {
     if (await _tunneldHasTunnel()) {
       Log.logTrace(
         'tunneld already has an RSD tunnel; skipping lockdown start-tunnel',
@@ -479,107 +446,14 @@ abstract final class DevicePrepare {
       Log.logTrace('lockdown start-tunnel already running');
       return;
     }
-    await Log.logStep('Starting lockdown RSD tunnel', _startLockdownTunnel);
+    await Log.logStep('Starting lockdown RSD tunnel', _lockdown.start);
   }
 
   /// True when the local tunneld REST API already lists at least one tunnel.
-  static Future<bool> _tunneldHasTunnel() async =>
+  Future<bool> _tunneldHasTunnel() async =>
       await TunnelDiscovery.findExistingTunnel() != null;
 
   /// Spawn `lockdown start-tunnel` and wait for it to report an RSD tunnel.
-  static Future<void> _startLockdownTunnel() async {
-    final argv = await Pymd.elevatedArgs(['lockdown', 'start-tunnel']);
-    final logPath = p.join(
-      Directory.systemTemp.path,
-      'xcross-start-tunnel.log',
-    );
-    final logFile = File(logPath);
-    if (!logFile.existsSync()) logFile.createSync(recursive: true);
-
-    Log.logTrace(
-      '[pymobiledevice3] starting lockdown RSD tunnel'
-      ' (background; log: $logPath): ${argv.join(' ')}',
-    );
-
-    late Process proc;
-    try {
-      // Piped (never inheritStdio): an inherited stdin steals `r`/`R`/`q` from
-      // the hot-reload keypress loop for the whole session.
-      proc = await ProcessRunner.start(
-        argv.first,
-        argv.sublist(1),
-        environment: Pymd.usbmuxEnvironment(),
-      );
-    } catch (e) {
-      throw TunnelError('could not start lockdown start-tunnel: $e');
-    }
-
-    try {
-      await proc.stdin.close();
-    } catch (_) {}
-
-    final logSink = logFile.openWrite(mode: FileMode.append);
-    final ready = Completer<void>();
-
-    // pymobiledevice3 reports real failures ("Device is not connected",
-    // "Failed to connect to usbmuxd socket") on stderr and then exits 0, so
-    // the exit code says nothing. Keep the last lines to explain *why* it
-    // stopped instead of pointing at a log file the user has to open.
-    final recent = <String>[];
-    void onLine(String line) {
-      final trimmed = line.trimRight();
-      if (trimmed.isEmpty) return;
-      Log.logTrace(trimmed);
-      recent.add(trimmed);
-      if (recent.length > 5) recent.removeAt(0);
-      if (!ready.isCompleted && _tunnelReadyPattern.hasMatch(trimmed)) {
-        ready.complete();
-      }
-    }
-
-    _teeOutput(proc, logSink, onLine);
-    unawaited(
-      proc.exitCode.then((code) async {
-        try {
-          await logSink.flush();
-          await logSink.close();
-        } catch (_) {}
-        if (!ready.isCompleted) {
-          ready.completeError(
-            TunnelError(
-              'lockdown start-tunnel exited early (code $code).\n'
-              '${explainTunnelExit(recent)}'
-              'See $logPath',
-            ),
-          );
-        }
-      }),
-    );
-
-    try {
-      await ready.future.timeout(const Duration(seconds: 60));
-    } on TimeoutException {
-      throw TunnelError(
-        'lockdown start-tunnel did not report a tunnel within 60s.\n'
-        'Keep the phone unlocked and trusted, then retry:\n'
-        '    ${Pymd.elevatedCommand('lockdown start-tunnel')}\n'
-        'See $logPath for output.',
-      );
-    } on TunnelError {
-      rethrow;
-    }
-
-    Log.logTrace(
-      '[pymobiledevice3] lockdown RSD tunnel is up '
-      '(pid ${proc.pid}; leave it running)',
-    );
-  }
-
-  /// Whether pymobiledevice3 output says the device vanished from usbmux.
-  static bool _isDeviceMissing(String output) =>
-      output.contains('Device is not connected') ||
-      output.contains('Failed to connect to usbmuxd socket');
-
   /// Turn the daemon's last output lines into an actionable hint.
   @visibleForTesting
   static String explainTunnelExit(List<String> recent) {
@@ -602,61 +476,8 @@ abstract final class DevicePrepare {
 
   /// Tee the raw bytes of both output streams to [logSink], then decode a
   /// separate view of the same broadcast stream into lines for [onLine].
-  static void _teeOutput(
-    Process proc,
-    IOSink logSink,
-    void Function(String line) onLine,
-  ) {
-    for (final raw in [proc.stdout, proc.stderr]) {
-      final stream = raw.asBroadcastStream();
-      stream.listen(logSink.add, onError: (_) {});
-      stream
-          // Lossy on purpose: pymobiledevice3 can emit non-UTF-8 bytes, and a
-          // strict decoder would drop the whole chunk — losing the ASCII
-          // readiness line with it and stalling until the readiness timeout.
-          .transform(const Utf8Decoder(allowMalformed: true))
-          .transform(const LineSplitter())
-          .listen(onLine, onError: (_) {});
-    }
-  }
-
-  /// Best-effort: a live `start-tunnel` child usually holds a tun interface
-  /// and shows up in the process list.
-  static Future<bool> _lockdownTunnelLooksAlive() async {
-    if (Platform.isWindows) {
-      return _windowsLockdownTunnelLooksAlive();
-    }
-    try {
-      final result = await ProcessRunner.run(
-        await ProcessRunner.locateTool('pgrep'),
-        ['-f', 'pymobiledevice3.*lockdown.*start-tunnel'],
-      );
-      return result.exitCode == 0 && result.stdout.trim().isNotEmpty;
-    } on Object {
-      return false;
-    }
-  }
-
-  /// `pgrep` is unavailable on Windows; match elevated tunnel children via
-  /// CIM instead. Command lines of other users' elevated processes may be
-  /// blank — treat any `pymobiledevice3` image as "already running" only when
-  /// tunneld already has a tunnel (handled by [_tunneldHasTunnel] first).
-  static Future<bool> _windowsLockdownTunnelLooksAlive() async {
-    try {
-      final result = await ProcessRunner.run(
-        await ProcessRunner.locateTool('powershell'),
-        const [
-          '-NoProfile',
-          '-NonInteractive',
-          '-Command',
-          r"Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'lockdown.*start-tunnel|start-tunnel' } | Select-Object -First 1 -ExpandProperty ProcessId",
-        ],
-      );
-      return result.exitCode == 0 && result.stdout.trim().isNotEmpty;
-    } on Object {
-      return false;
-    }
-  }
+  Future<bool> _lockdownTunnelLooksAlive() =>
+      pymd.hostPolicy.lockdownTunnelLooksAlive();
 }
 
 /// Periodic "what is actually going on" reporting for the wireless wait.
@@ -668,7 +489,13 @@ abstract final class DevicePrepare {
 /// and the message updates once per state change — locked phones drop off
 /// mDNS entirely, which is by far the most common reason this wait hangs.
 final class _WirelessWaitDiagnostics {
-  _WirelessWaitDiagnostics({required this.step, required this.hasRecord});
+  _WirelessWaitDiagnostics({
+    required this.pymd,
+    required this.step,
+    required this.hasRecord,
+  });
+
+  final Pymd pymd;
 
   static const _browseEvery = Duration(seconds: 20);
 
@@ -680,7 +507,7 @@ final class _WirelessWaitDiagnostics {
   Future<void> tick() async {
     if (DateTime.now().isBefore(_nextBrowse)) return;
     _nextBrowse = DateTime.now().add(_browseEvery);
-    final advertised = await PymdDevices.wirelessPairingAdvertised();
+    final advertised = await PymdDevices(pymd).wirelessPairingAdvertised();
     if (advertised == _lastAdvertised) return;
     _lastAdvertised = advertised;
     if (!advertised) {

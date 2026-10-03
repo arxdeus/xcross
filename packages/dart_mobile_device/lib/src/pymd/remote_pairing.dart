@@ -15,15 +15,18 @@ import 'package:path/path.dart' as p;
 /// tunneld's Wi-Fi monitor can only connect to phones it has a record for
 /// (`~/.pymobiledevice3/remote_<UDID>.plist`), so "no record" is the signal
 /// that pairing has to happen before any wireless discovery can succeed.
-abstract final class RemotePairing {
+final class RemotePairing {
+  RemotePairing(this.pymd);
+  final Pymd pymd;
+
   /// How long the pair-host advertisement waits for the user to complete
   /// pairing on the phone before giving up.
   static const Duration pairHostTimeout = Duration(minutes: 3);
 
   /// Name advertised on the phone, `xcross-` prefixed so the entry is
   /// recognizable among real Macs in Settings > Developer > Paired Macs.
-  static String get advertiseName {
-    final host = Platform.localHostname;
+  String get advertiseName {
+    final host = pymd.hostname;
     return host.startsWith('xcross-') ? host : 'xcross-$host';
   }
 
@@ -35,30 +38,26 @@ abstract final class RemotePairing {
   /// pair-verifies against an identifier no longer advertised, so no
   /// connection is even attempted). The suffix makes the new entry
   /// unmistakable in the phone's list.
-  static String freshAdvertiseName() {
+  String freshAdvertiseName() {
     final suffix = (Random().nextInt(0xFFFF) + 0x10000)
         .toRadixString(16)
         .substring(1);
     return '$advertiseName-$suffix';
   }
 
-  /// Test override for [homeFolder].
-  @visibleForTesting
-  static String? homeOverride;
-
   /// pymobiledevice3's home folder (`~/.pymobiledevice3`), where remote
   /// pairing records live. Mirrors upstream `get_home_folder()`.
-  static String get homeFolder {
-    final override = homeOverride;
+  String get homeFolder {
+    final override = pymd.pairingHome;
     if (override != null) return override;
-    final env = Platform.environment;
+    final env = pymd.runner.effectiveEnvironment;
     final home = env['HOME'] ?? env['USERPROFILE'] ?? '.';
     return p.join(home, '.pymobiledevice3');
   }
 
   /// Device identifiers with a remote pairing record on this host
   /// (`remote_<UDID>.plist`).
-  static List<String> pairingRecordIds() {
+  List<String> pairingRecordIds() {
     final dir = Directory(homeFolder);
     if (!dir.existsSync()) return const [];
     final ids = <String>[];
@@ -81,7 +80,7 @@ abstract final class RemotePairing {
   /// assumed to be the phone in question — re-advertising to an
   /// already-paired phone is useless, since it silently ignores a host it
   /// knows instead of showing it under "Other Devices".
-  static bool shouldOfferPairing([String? selector]) {
+  bool shouldOfferPairing([String? selector]) {
     final records = pairingRecordIds();
     if (records.isEmpty) return true;
     if (selector != null && looksLikeUdid(selector)) {
@@ -106,9 +105,7 @@ abstract final class RemotePairing {
   /// Advertise this host for device-initiated pairing and block until the
   /// user completes it on the phone (or [timeout] passes). Returns whether a
   /// pairing record was created.
-  static Future<bool> advertisePairHost({
-    Duration timeout = pairHostTimeout,
-  }) async {
+  Future<bool> advertisePairHost({Duration timeout = pairHostTimeout}) async {
     final process = await startPairHost(timeout: timeout);
     if (process == null) return false;
     return await process.exitCode == 0;
@@ -132,7 +129,7 @@ abstract final class RemotePairing {
   /// deterministic one, forcing pair-*setup* (which shows a PIN) even when
   /// the phone still lists a stale entry for this host. Requires the bundled
   /// runner script; falls back to the plain CLI when it is unavailable.
-  static Future<Process?> startPairHost({
+  Future<Process?> startPairHost({
     Duration timeout = pairHostTimeout,
     void Function(String line)? onLine,
     bool fresh = false,
@@ -140,7 +137,7 @@ abstract final class RemotePairing {
   }) async {
     final PymdInvocation inv;
     try {
-      inv = await Pymd.resolve();
+      inv = await pymd.resolve();
     } on Object {
       return null;
     }
@@ -177,7 +174,7 @@ abstract final class RemotePairing {
       Log.stopStep();
     }
     try {
-      final process = await ProcessRunner.start(
+      final process = await pymd.runner.start(
         inv.executable,
         [
           ...inv.prefixArgs,
@@ -191,7 +188,7 @@ abstract final class RemotePairing {
         // PYTHONUNBUFFERED: with piped stdio python block-buffers stdout, so
         // the 6-digit code would sit invisible in a 4 KB buffer until exit —
         // the one line the whole flow exists to show.
-        environment: {...Pymd.usbmuxEnvironment(), 'PYTHONUNBUFFERED': '1'},
+        environment: {...pymd.usbmuxEnvironment(), 'PYTHONUNBUFFERED': '1'},
         mode: onLine == null
             ? ProcessStartMode.inheritStdio
             : ProcessStartMode.normal,
@@ -226,18 +223,18 @@ abstract final class RemotePairing {
 
   /// Run the bundled `pair_host.py`, which can advertise a random
   /// identifier — something the pymobiledevice3 CLI cannot express.
-  static Future<Process?> _startFreshPairHost({
+  Future<Process?> _startFreshPairHost({
     required Duration timeout,
     required String name,
   }) async {
     final script = await _pairHostScriptPath();
     if (script == null) return null;
-    final python = (await Pymd.tunneldInvocation()).invocation.executable;
+    final python = (await pymd.tunneldInvocation()).invocation.executable;
     try {
-      return await ProcessRunner.start(
+      return await pymd.runner.start(
         python,
         [script, name, '--fresh', '--timeout', '${timeout.inSeconds}'],
-        environment: {...Pymd.usbmuxEnvironment(), 'PYTHONUNBUFFERED': '1'},
+        environment: {...pymd.usbmuxEnvironment(), 'PYTHONUNBUFFERED': '1'},
       );
     } on Object catch (e) {
       Log.logTrace('could not start the fresh pair-host runner: $e');
@@ -247,7 +244,7 @@ abstract final class RemotePairing {
 
   /// Absolute path to the bundled `pair_host.py`, or null when it cannot be
   /// located (an AOT build resolves it relative to the executable).
-  static Future<String?> _pairHostScriptPath() async {
+  Future<String?> _pairHostScriptPath() async {
     const relative = 'src/pymd/scripts/pair_host.py';
     final candidates = <String>[
       // Running from source / `dart run`.
@@ -257,12 +254,8 @@ abstract final class RemotePairing {
           case final Uri resolved when resolved.scheme == 'file')
         resolved.toFilePath(),
       // AOT bundle: shipped alongside the executable.
-      p.join(p.dirname(Platform.resolvedExecutable), 'scripts', 'pair_host.py'),
-      p.join(
-        p.dirname(p.dirname(Platform.resolvedExecutable)),
-        'scripts',
-        'pair_host.py',
-      ),
+      p.join(p.dirname(pymd.executable), 'scripts', 'pair_host.py'),
+      p.join(p.dirname(p.dirname(pymd.executable)), 'scripts', 'pair_host.py'),
     ];
     for (final candidate in candidates) {
       if (File(candidate).existsSync()) return candidate;
@@ -272,9 +265,9 @@ abstract final class RemotePairing {
 
   /// Whether the resolved pymobiledevice3 knows `remote pair-host`
   /// (added upstream for iOS 27 device-initiated pairing).
-  static Future<bool> _supportsPairHost() async {
+  Future<bool> _supportsPairHost() async {
     try {
-      await Pymd.run(['remote', 'pair-host', '--help']);
+      await pymd.run(['remote', 'pair-host', '--help']);
       return true;
     } on Object {
       return false;

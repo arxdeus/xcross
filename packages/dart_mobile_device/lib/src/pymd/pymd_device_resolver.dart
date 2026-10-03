@@ -12,6 +12,9 @@ import 'package:meta/meta.dart';
 
 /// Resolves a target [Device] via pymobiledevice3-backed listing.
 class PymdDeviceResolver {
+  PymdDeviceResolver(this.pymd);
+  final Pymd pymd;
+
   /// How long the wireless bring-up waits for tunneld to find the device and
   /// build its RSD tunnel. tunneld's Wi-Fi monitor rescans every 5 s and the
   /// RemotePairing handshake takes a few more, so this needs to be generous.
@@ -52,7 +55,7 @@ class PymdDeviceResolver {
     // phone), which reads as a dead hang without a spinner.
     var list = await Log.logStep(
       'Finding devices',
-      () => PymdDevices.devices(mode: mode),
+      () => PymdDevices(pymd).devices(mode: mode),
     );
     // Active bring-up only when the user explicitly asked for Wi-Fi: in
     // `all` mode an empty list usually means "forgot to plug the phone in",
@@ -134,7 +137,7 @@ class PymdDeviceResolver {
       await _enableWifiConnectionsOverUsb(overUsb.first);
       return;
     }
-    if (!RemotePairing.shouldOfferPairing(selector)) return;
+    if (!RemotePairing(pymd).shouldOfferPairing(selector)) return;
     if (!stdout.hasTerminal) {
       Log.logTrace(
         'wireless bring-up: no pairing record and no terminal to run '
@@ -147,7 +150,7 @@ class PymdDeviceResolver {
       'no pairing with this host yet — starting device-initiated pairing',
     );
     _offeredPairHost = true;
-    await RemotePairing.advertisePairHost();
+    await RemotePairing(pymd).advertisePairHost();
   }
 
   /// Whether this resolution already ran a pair-host advertisement, so the
@@ -174,7 +177,7 @@ class PymdDeviceResolver {
       'no device connected — its pairing with this host may have been '
           'removed on the phone. Starting device-initiated pairing.',
     );
-    final process = await RemotePairing.startPairHost();
+    final process = await RemotePairing(pymd).startPairHost();
     if (process == null) return last;
 
     var exited = false;
@@ -185,7 +188,7 @@ class PymdDeviceResolver {
     var list = last;
     final deadline = DateTime.now().add(RemotePairing.pairHostTimeout);
     while (DateTime.now().isBefore(deadline)) {
-      list = await PymdDevices.devices(mode: mode);
+      list = await PymdDevices(pymd).devices(mode: mode);
       if (_matches(list, selector).isNotEmpty) {
         process.kill();
         return list;
@@ -204,7 +207,7 @@ class PymdDeviceResolver {
     final step = Log.beginStep('Searching for wireless devices');
     final searchDeadline = DateTime.now().add(wirelessDiscoveryTimeout);
     while (DateTime.now().isBefore(searchDeadline)) {
-      list = await PymdDevices.devices(mode: mode);
+      list = await PymdDevices(pymd).devices(mode: mode);
       if (_matches(list, selector).isNotEmpty) {
         step.done();
         return list;
@@ -219,7 +222,7 @@ class PymdDeviceResolver {
   /// (routine on Linux with no cable plugged in).
   Future<List<Device>> _usbDevices() async {
     try {
-      return await PymdDevices.devices(mode: DeviceSearchMode.usb);
+      return await PymdDevices(pymd).devices(mode: DeviceSearchMode.usb);
     } on TunnelError {
       return const [];
     }
@@ -238,7 +241,7 @@ class PymdDeviceResolver {
       'phone found on USB — setting Wi-Fi connections up over the cable',
     );
     try {
-      await Pymd.run([
+      await pymd.run([
         'lockdown',
         'wifi-connections',
         '--state',
@@ -275,13 +278,13 @@ class PymdDeviceResolver {
     required DeviceSearchMode mode,
     required String? selector,
   }) async {
-    final daemon = TunnelDaemon();
+    final daemon = TunnelDaemon(pymd);
     try {
       await daemon.ensureRunning();
     } on TunnelError catch (e) {
       _daemonFailure = e;
       Log.logTrace('wireless bring-up: tunneld unavailable: $e');
-      return PymdDevices.devices(mode: mode);
+      return PymdDevices(pymd).devices(mode: mode);
     }
 
     final activeTunnels = await TunnelDiscovery.activeTunnels();
@@ -294,14 +297,14 @@ class PymdDeviceResolver {
       }
     }
 
-    final tail = TunneldLogTail.start();
+    final tail = TunneldLogTail.start(path: TunnelDaemon(pymd).logPath);
     var step = Log.beginStep('Searching for wireless devices');
     var list = <Device>[];
     var restartedForQuic = false;
     try {
       var deadline = DateTime.now().add(wirelessDiscoveryTimeout);
       while (DateTime.now().isBefore(deadline)) {
-        list = await PymdDevices.devices(mode: mode);
+        list = await PymdDevices(pymd).devices(mode: mode);
         if (_matches(list, selector).isNotEmpty) {
           step.done();
           return list;
@@ -322,7 +325,7 @@ class PymdDeviceResolver {
               'tunneld is running with the QUIC protocol, which iOS 18.2+ '
               'removed, so its wireless tunnels always fail. Restart it '
               'with TCP:\n'
-              '    ${Pymd.elevatedCommand('remote tunneld -p tcp')}',
+              '    ${pymd.elevatedCommand('remote tunneld -p tcp')}',
             );
           }
           step = Log.beginStep('Searching for wireless devices');
@@ -355,15 +358,13 @@ class PymdDeviceResolver {
   /// When tunneld itself never started ([daemonFailure]), pairing hints are
   /// noise: nothing was going to be discovered no matter what, so lead with
   /// the daemon's own error instead.
-  static Future<String> _noWirelessDeviceMessage([
-    TunnelError? daemonFailure,
-  ]) async {
+  Future<String> _noWirelessDeviceMessage([TunnelError? daemonFailure]) async {
     if (daemonFailure != null) {
       return 'No wireless device found — the RSD tunnel daemon (tunneld) '
           'could not be started, and wireless discovery is impossible '
           'without it:\n${daemonFailure.message}';
     }
-    final advertised = await PymdDevices.wirelessPairingAdvertised();
+    final advertised = await PymdDevices(pymd).wirelessPairingAdvertised();
     final buffer = StringBuffer('No wireless device found.\n');
     if (advertised) {
       buffer.writeln(

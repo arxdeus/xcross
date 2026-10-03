@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/errors.dart';
+import 'package:dart_mobile_device/src/shared/host/device_host_policy.dart';
 import 'package:path/path.dart' as p;
 
 /// Resolved pymobiledevice3 invocation — either the bare CLI or python3 -m.
@@ -29,7 +30,20 @@ class TunneldInvocation {
 
 /// One-shot invocations of `pymobiledevice3` for DVT ProcessControl,
 /// RSD service discovery, and the installed-app list.
-abstract final class Pymd {
+final class Pymd {
+  Pymd(
+    this.runner, {
+    required this.hostPolicy,
+    this.hostname = 'xcross',
+    this.executable = '',
+    this.pairingHome,
+  });
+  final ProcessRunner runner;
+  final String hostname;
+  final String executable;
+  final String? pairingHome;
+  final DeviceHostPolicy hostPolicy;
+
   /// Coerce an `int` or parseable `String` port value into `int?`.
   static int? asPort(Object? value) => switch (value) {
     final int p => p,
@@ -42,20 +56,18 @@ abstract final class Pymd {
   );
   static final _digitsPattern = RegExp(r'\d+');
 
-  static PymdInvocation? _cached;
-  static TunneldInvocation? _tunneldCached;
+  PymdInvocation? _cached;
+  TunneldInvocation? _tunneldCached;
 
-  static String get _installCommand => Platform.isWindows
-      ? 'py -m pip install -U pymobiledevice3'
-      : 'pipx install pymobiledevice3 && pipx ensurepath';
+  String get _installCommand => hostPolicy.installCommand;
 
   /// Directories pipx links its entry points into.
   ///
   /// `pipx ensurepath` only edits shell profiles, so a process started before
   /// that (or by a shell that never sourced them) still has to look there
   /// itself.
-  static List<String> get pipxBinDirectories {
-    final env = Platform.environment;
+  List<String> get pipxBinDirectories {
+    final env = runner.effectiveEnvironment;
     final configured = env['PIPX_BIN_DIR'];
     final home = env['HOME'] ?? env['USERPROFILE'];
     return [
@@ -65,17 +77,17 @@ abstract final class Pymd {
   }
 
   /// Human-readable install hint shown when pymobiledevice3 is not found.
-  static String get _notFoundMessage =>
+  String get _notFoundMessage =>
       'Could not find `pymobiledevice3` in PATH (or a Python 3 that can '
       '`import pymobiledevice3`).\n'
       'Install it once on this machine, e.g.:\n'
       '    $_installCommand';
 
-  static Future<PymdInvocation> resolve() async {
+  Future<PymdInvocation> resolve() async {
     if (_cached != null) return _cached!;
 
     // Prefer the bare CLI when available.
-    final cli = await ProcessRunner.which(
+    final cli = await runner.which(
       'pymobiledevice3',
       extraDirectories: pipxBinDirectories,
     );
@@ -88,7 +100,7 @@ abstract final class Pymd {
     final py = await _resolvePython();
     if (py == null) throw TunnelError(_notFoundMessage);
 
-    final probe = await ProcessRunner.run(py, ['-c', 'import pymobiledevice3']);
+    final probe = await runner.run(py, ['-c', 'import pymobiledevice3']);
     if (probe.exitCode != 0) throw TunnelError(_notFoundMessage);
 
     _cached = PymdInvocation(py, ['-m', 'pymobiledevice3']);
@@ -112,7 +124,7 @@ abstract final class Pymd {
   /// launcher shims around it) may pin an older python that breaks only for
   /// tunneld's TCP tunnels. Falls back to the regular invocation with
   /// `modernPython: false` when no such python exists.
-  static Future<TunneldInvocation> tunneldInvocation() async {
+  Future<TunneldInvocation> tunneldInvocation() async {
     if (_tunneldCached != null) return _tunneldCached!;
     for (final name in const [
       'python3.14',
@@ -121,13 +133,10 @@ abstract final class Pymd {
       'python',
       'py',
     ]) {
-      final candidate = await ProcessRunner.which(name);
+      final candidate = await runner.which(name);
       if (candidate == null) continue;
       try {
-        final probe = await ProcessRunner.run(candidate, [
-          '-c',
-          _modernPythonProbe,
-        ]);
+        final probe = await runner.run(candidate, ['-c', _modernPythonProbe]);
         if (probe.exitCode != 0) continue;
         final real = probe.stdout.trim().split('\n').last.trim();
         if (real.isEmpty || !File(real).existsSync()) continue;
@@ -147,7 +156,7 @@ abstract final class Pymd {
 
   /// True if pymobiledevice3 is invocable (CLI on PATH, or importable by a
   /// python3 on PATH).
-  static Future<bool> _isInstalled() async {
+  Future<bool> _isInstalled() async {
     try {
       await resolve();
       return true;
@@ -158,7 +167,7 @@ abstract final class Pymd {
 
   /// Ensure pymobiledevice3 is installed; install system-wide if missing.
   /// Returns true if available after the call.
-  static Future<bool> ensureInstalled() async {
+  Future<bool> ensureInstalled() async {
     if (await _isInstalled()) return true;
 
     final step = Log.beginStep('Installing pymobiledevice3 (one-time)');
@@ -172,7 +181,7 @@ abstract final class Pymd {
 
     for (final attempt in await _buildInstallAttempts(py)) {
       Log.logTrace('[python] running: ${attempt.join(' ')}');
-      final result = await ProcessRunner.run(attempt[0], attempt.sublist(1));
+      final result = await runner.run(attempt[0], attempt.sublist(1));
       if (result.exitCode == 0) {
         _cached = null;
         if (await _isInstalled()) {
@@ -190,23 +199,23 @@ abstract final class Pymd {
     return false;
   }
 
-  static Future<String?> _resolvePython() async =>
-      await ProcessRunner.which('python3') ??
-      await ProcessRunner.which('python') ??
-      await ProcessRunner.which('py');
+  Future<String?> _resolvePython() async =>
+      await runner.which('python3') ??
+      await runner.which('python') ??
+      await runner.which('py');
 
   /// Absolute path to `pipx`, including the bin directory it installs into
   /// but may not have put on PATH yet.
-  static Future<String?> resolvePipx() =>
-      ProcessRunner.which('pipx', extraDirectories: pipxBinDirectories);
+  Future<String?> resolvePipx() =>
+      runner.which('pipx', extraDirectories: pipxBinDirectories);
 
   /// Build the ordered list of install command vectors to try: pipx first (the
   /// only supported route on PEP 668 distros), then system-wide pip with
   /// `--break-system-packages`, then without, then the `--user` variants
   /// (which need no sudo).
-  static Future<List<List<String>>> _buildInstallAttempts(String py) async {
-    final sudo = await Sudo.resolve();
-    final pipx = Platform.isWindows ? null : await resolvePipx();
+  Future<List<List<String>>> _buildInstallAttempts(String py) async {
+    final sudo = await runner.host.privileges.resolve();
+    final pipx = await hostPolicy.resolvePipx();
     const pipInstall = ['-m', 'pip', 'install'];
     const upgradeTarget = ['-U', 'pymobiledevice3'];
     const breakSystem = '--break-system-packages';
@@ -223,7 +232,7 @@ abstract final class Pymd {
 
   /// Launch [bundleId] suspended via DVT ProcessControl, returning the device
   /// PID.
-  static Future<int> launchSuspended({
+  Future<int> launchSuspended({
     required List<String> deviceArgs,
     required String bundleId,
     required List<String> appArguments,
@@ -262,7 +271,7 @@ abstract final class Pymd {
   /// pymobiledevice3 renamed the `--user`/`--system` filters to `--userspace`
   /// in newer releases (9.x); try the current flag first and fall back to the
   /// legacy flags so both versions work.
-  static Future<List<String>> listInstalledApps({
+  Future<List<String>> listInstalledApps({
     List<String> deviceArgs = const [],
   }) async {
     const attempts = <List<String>>[
@@ -290,7 +299,7 @@ abstract final class Pymd {
   }
 
   /// Query RSD peer info and return the port of [service].
-  static Future<int> rsdServicePort({
+  Future<int> rsdServicePort({
     required String rsdHost,
     required int rsdPort,
     required String service,
@@ -320,7 +329,7 @@ abstract final class Pymd {
   /// Return the device PID of [bundleId] if it is currently running, else null.
   /// Best-effort: returns null (rather than throwing) when the app isn't
   /// running or the query is unsupported.
-  static Future<int?> processIdForBundleId({
+  Future<int?> processIdForBundleId({
     required List<String> deviceArgs,
     required String bundleId,
   }) async {
@@ -349,7 +358,7 @@ abstract final class Pymd {
   }
 
   /// Kill the process with device [pid] via DVT ProcessControl.
-  static Future<void> killPid({
+  Future<void> killPid({
     required List<String> deviceArgs,
     required int pid,
   }) async {
@@ -362,10 +371,7 @@ abstract final class Pymd {
   /// [timeout] bounds the whole subprocess and kills it when exceeded —
   /// required for anything routed over a wireless tunnel, where a phone in
   /// Wi-Fi power save can stretch one RemoteXPC handshake past a minute.
-  static Future<CapturedProcess> run(
-    List<String> args, {
-    Duration? timeout,
-  }) async {
+  Future<CapturedProcess> run(List<String> args, {Duration? timeout}) async {
     final inv = await resolve();
     final executable = inv.executable;
     final arguments = [...inv.prefixArgs, ...args];
@@ -374,7 +380,7 @@ abstract final class Pymd {
       '${ProcessRunner.commandLine(executable, arguments)}',
     );
     final result = timeout == null
-        ? await ProcessRunner.run(
+        ? await runner.run(
             executable,
             arguments,
             environment: usbmuxEnvironment(),
@@ -392,12 +398,12 @@ abstract final class Pymd {
   /// [ProcessRunner.run], except the subprocess is killed when [timeout]
   /// passes (a plain `Future.timeout` would leak it, and a leaked
   /// pymobiledevice3 holding a tunnel connection keeps hanging around).
-  static Future<CapturedProcess> _runWithTimeout(
+  Future<CapturedProcess> _runWithTimeout(
     String executable,
     List<String> arguments,
     Duration timeout,
   ) async {
-    final process = await ProcessRunner.start(
+    final process = await runner.start(
       executable,
       arguments,
       environment: usbmuxEnvironment(),
@@ -431,8 +437,8 @@ abstract final class Pymd {
   /// On Linux, pymobiledevice3 defaults to TCP `127.0.0.1:27015` (Apple Mobile
   /// Device Service). With usbipd that port is closed, so point at the local
   /// unix socket when it exists and the caller hasn't set the env already.
-  static Map<String, String> usbmuxEnvironment() {
-    final env = Map<String, String>.from(Platform.environment);
+  Map<String, String> usbmuxEnvironment() {
+    final env = Map<String, String>.from(runner.effectiveEnvironment);
     final existing = env['USBMUXD_SOCKET_ADDRESS'];
     if (existing != null && existing.isNotEmpty) return env;
     final addr = resolvedUsbmuxAddress();
@@ -440,19 +446,19 @@ abstract final class Pymd {
     return env;
   }
 
-  static String elevatedCommand(String arguments) =>
-      '${Platform.isWindows ? '' : 'sudo '}pymobiledevice3 $arguments';
+  String elevatedCommand(String arguments) =>
+      hostPolicy.elevatedCommand(arguments);
 
   /// `[sudo -n] [env USBMUXD_SOCKET_ADDRESS=…] <pymd> …args`.
   ///
   /// [invocation] overrides which pymobiledevice3 runs (tunneld needs a
   /// python the regular resolution may not pick).
-  static Future<List<String>> elevatedArgs(
+  Future<List<String>> elevatedArgs(
     List<String> pymdArgs, {
     PymdInvocation? invocation,
   }) async {
     final inv = invocation ?? await resolve();
-    final sudo = await Sudo.resolve();
+    final sudo = await runner.host.privileges.resolve();
     final usbmux = resolvedUsbmuxAddress();
     return <String>[
       if (sudo != null) ...[sudo, '-n'],
@@ -467,8 +473,8 @@ abstract final class Pymd {
   }
 
   /// Absolute usbmux address to pass through `sudo env …` (never empty).
-  static String? resolvedUsbmuxAddress() {
-    final fromEnv = Platform.environment['USBMUXD_SOCKET_ADDRESS'];
+  String? resolvedUsbmuxAddress() {
+    final fromEnv = runner.effectiveEnvironment['USBMUXD_SOCKET_ADDRESS'];
     if (fromEnv != null && fromEnv.isNotEmpty) return fromEnv;
     const unix = '/var/run/usbmuxd';
     if (File(unix).existsSync()) return unix;
