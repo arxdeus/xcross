@@ -95,13 +95,22 @@ void main() {
   });
 
   test(
-    'rejects poisoned scoped cache and legacy architecture mismatch',
+    'repairs scoped cache but rejects explicit mismatches without mutation',
     () async {
       writeApk();
       final fetcher = AdiLibraryFetcher(cacheDir: cache, abi: Abi.linuxArm64);
       await fetcher.ensureLibraries();
       fetcher.coreAdiFile.writeAsBytesSync(elfFixture(62));
-      await expectLater(fetcher.ensureLibraries(), throwsFormatException);
+      expect(
+        () => AdiLibraryFetcher.resolveLibraryDirectory(
+          cache,
+          abi: Abi.linuxArm64,
+        ),
+        throwsFormatException,
+      );
+      expect(fetcher.coreAdiFile.readAsBytesSync(), elfFixture(62));
+      await fetcher.ensureLibraries();
+      expect(fetcher.coreAdiFile.readAsBytesSync(), elfFixture(183));
       for (final name in ['libCoreADI.so', 'libstoreservicescore.so']) {
         File('${cache.path}/$name').writeAsBytesSync(elfFixture(183));
       }

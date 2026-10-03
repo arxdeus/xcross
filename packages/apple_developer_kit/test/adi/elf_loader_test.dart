@@ -116,6 +116,36 @@ void main() {
     expect(allocator.freed, isTrue);
   });
 
+  test(
+    'rejects relocation offset overflow without writing outside the image',
+    () {
+      final allocator = RecordingAllocator(4096);
+      addTearDown(allocator.dispose);
+      final bytes = elfFixture(machine);
+      ByteData.sublistView(
+        bytes,
+      ).setUint64(0x600, (0x7fffffff << 32) | 0xfffffff8, Endian.little);
+      expect(
+        () => ElfLoadedLibrary.load(bytes, allocator, (_) => nullptr),
+        throwsFormatException,
+      );
+      expect(allocator.freed, isTrue);
+    },
+  );
+
+  test('rejects overflowing program-header bounds before allocating', () {
+    final allocator = RecordingAllocator(4096);
+    final bytes = elfFixture(machine);
+    final data = ByteData.sublistView(bytes);
+    data.setUint64(64 + 16, (0x7fffffff << 32) | 0xfffff000, Endian.little);
+    data.setUint64(64 + 40, 0x1000, Endian.little);
+    expect(
+      () => ElfLoadedLibrary.load(bytes, allocator, (_) => nullptr),
+      throwsFormatException,
+    );
+    expect(allocator.allocated, isNull);
+  });
+
   test('rejects foreign machine before allocating', () {
     final allocator = RecordingAllocator(4096);
     expect(

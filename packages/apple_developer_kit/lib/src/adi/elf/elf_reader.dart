@@ -146,7 +146,8 @@ class ElfReader {
       if (phFilesz(i) > phMemsz(i) ||
           phVaddr(i) < 0 ||
           phMemsz(i) < 0 ||
-          phVaddr(i) + phMemsz(i) > 1 << 32) {
+          phVaddr(i) > 1 << 32 ||
+          phMemsz(i) > (1 << 32) - phVaddr(i)) {
         throw const FormatException('Invalid ELF load segment.');
       }
     }

@@ -102,8 +102,8 @@ class AdiLibraryFetcher {
   Future<AdiLibraryPaths> ensureLibraries() async {
     if (coreAdiFile.existsSync() &&
         storeServicesFile.existsSync() &&
-        _apkShaSidecar.existsSync()) {
-      _validateLibraries();
+        _apkShaSidecar.existsSync() &&
+        _librariesMatchArchitecture()) {
       return AdiLibraryPaths(
         coreAdiPath: coreAdiFile.path,
         storeServicesPath: storeServicesFile.path,
@@ -162,6 +162,15 @@ class AdiLibraryFetcher {
       File(
         p.join(libraryDirectory.path, entry.key),
       ).writeAsBytesSync(entry.value);
+    }
+  }
+
+  bool _librariesMatchArchitecture() {
+    try {
+      _validateLibraries();
+      return true;
+    } on FormatException {
+      return false;
     }
   }
 

@@ -9,6 +9,109 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 
+static _Thread_local int adi_guest_errno;
+
+static int adi_linux_errno(int value) {
+#if defined(__APPLE__)
+  if (value >= 1 && value <= 34) return value == EDEADLK ? 35 : value;
+  switch (value) {
+    case EAGAIN: return 11;
+    case EINPROGRESS: return 115;
+    case EALREADY: return 114;
+    case ENOTSOCK: return 88;
+    case EDESTADDRREQ: return 89;
+    case EMSGSIZE: return 90;
+    case EPROTOTYPE: return 91;
+    case ENOPROTOOPT: return 92;
+    case EPROTONOSUPPORT: return 93;
+    case ESOCKTNOSUPPORT: return 94;
+    case ENOTSUP: return 95;
+    case EOPNOTSUPP: return 95;
+    case EPFNOSUPPORT: return 96;
+    case EAFNOSUPPORT: return 97;
+    case EADDRINUSE: return 98;
+    case EADDRNOTAVAIL: return 99;
+    case ENETDOWN: return 100;
+    case ENETUNREACH: return 101;
+    case ENETRESET: return 102;
+    case ECONNABORTED: return 103;
+    case ECONNRESET: return 104;
+    case ENOBUFS: return 105;
+    case EISCONN: return 106;
+    case ENOTCONN: return 107;
+    case ESHUTDOWN: return 108;
+    case ETOOMANYREFS: return 109;
+    case ETIMEDOUT: return 110;
+    case ECONNREFUSED: return 111;
+    case ELOOP: return 40;
+    case ENAMETOOLONG: return 36;
+    case EHOSTDOWN: return 112;
+    case EHOSTUNREACH: return 113;
+    case ENOTEMPTY: return 39;
+    case EPROCLIM: return 11;
+    case EUSERS: return 87;
+    case EDQUOT: return 122;
+    case ESTALE: return 116;
+    case EREMOTE: return 66;
+    case ENOLCK: return 37;
+    case ENOSYS: return 38;
+    case EFTYPE: return 22;
+    case EAUTH: return 13;
+    case ENEEDAUTH: return 13;
+    case EOVERFLOW: return 75;
+    case ECANCELED: return 125;
+    case EIDRM: return 43;
+    case ENOMSG: return 42;
+    case EILSEQ: return 84;
+    case ENOATTR: return 61;
+    case EBADMSG: return 74;
+    case EMULTIHOP: return 72;
+    case ENODATA: return 61;
+    case ENOLINK: return 67;
+    case ENOSR: return 63;
+    case ENOSTR: return 60;
+    case EPROTO: return 71;
+    case ETIME: return 62;
+    case ENOTRECOVERABLE: return 131;
+    case EOWNERDEAD: return 130;
+    default: return 5;
+  }
+#else
+  return value;
+#endif
+}
+
+static int adi_result(int result) {
+  if (result == -1) adi_guest_errno = adi_linux_errno(errno);
+  return result;
+}
+
+static int adi_close(int fd) { return adi_result(close(fd)); }
+static int adi_mkdir(const char *path, unsigned mode) {
+  return adi_result(mkdir(path, mode));
+}
+static int adi_chmod(const char *path, unsigned mode) {
+  return adi_result(chmod(path, mode));
+}
+static int adi_ftruncate(int fd, int64_t size) {
+  return adi_result(ftruncate(fd, size));
+}
+static intptr_t adi_read(int fd, void *buffer, size_t size) {
+  ssize_t result = read(fd, buffer, size);
+  if (result == -1) adi_guest_errno = adi_linux_errno(errno);
+  return result;
+}
+static intptr_t adi_write(int fd, const void *buffer, size_t size) {
+  ssize_t result = write(fd, buffer, size);
+  if (result == -1) adi_guest_errno = adi_linux_errno(errno);
+  return result;
+}
+static void *adi_malloc(size_t size) {
+  void *result = malloc(size);
+  if (!result && size) adi_guest_errno = adi_linux_errno(errno);
+  return result;
+}
+
 void provision_clear_cache(void *address, intptr_t size) {
   __builtin___clear_cache((char *)address, (char *)address + size);
 }
@@ -26,7 +129,7 @@ static int adi_open(const char *path, int flags, unsigned mode) {
       010000 | 040000 | 0100000 | 0200000 | 0400000 | 02000000;
   if ((flags & ~known) || (flags & 3) == 3) {
     errno = EINVAL;
-    return -1;
+    return adi_result(-1);
   }
   int native_flags = flags & 3;
   if (flags & 0100) native_flags |= O_CREAT;
@@ -37,13 +140,13 @@ static int adi_open(const char *path, int flags, unsigned mode) {
   if (flags & 04000) native_flags |= O_NONBLOCK;
   if (flags & 010000) native_flags |= O_SYNC;
   (void)largefile;
-  if (flags & direct) { errno = EINVAL; return -1; }
+  if (flags & direct) { errno = EINVAL; return adi_result(-1); }
   if (flags & directory) native_flags |= O_DIRECTORY;
   if (flags & nofollow) native_flags |= O_NOFOLLOW;
   if (flags & 02000000) native_flags |= O_CLOEXEC;
   flags = native_flags;
 #endif
-  return open(path, flags, mode);
+  return adi_result(open(path, flags, mode));
 }
 
 #if defined(__aarch64__) || defined(__arm64__)
@@ -111,17 +214,17 @@ static int adi_lstat(const char *path, AdiStat *out) {
   struct stat value;
   int result = lstat(path, &value);
   if (result == 0) adi_copy_stat(out, &value);
-  return result;
+  return adi_result(result);
 }
 
 static int adi_fstat(int fd, AdiStat *out) {
   struct stat value;
   int result = fstat(fd, &value);
   if (result == 0) adi_copy_stat(out, &value);
-  return result;
+  return adi_result(result);
 }
 
-static int *adi_errno(void) { return &errno; }
+static int *adi_errno(void) { return &adi_guest_errno; }
 
 static int adi_gettimeofday(int64_t *out, void *zone) {
   (void)zone;
@@ -131,10 +234,17 @@ static int adi_gettimeofday(int64_t *out, void *zone) {
     out[0] = value.tv_sec;
     out[1] = value.tv_usec;
   }
-  return result;
+  return adi_result(result);
 }
 
 void *provision_posix_symbol(const char *name) {
+  if (!strcmp(name, "close")) return (void *)&adi_close;
+  if (!strcmp(name, "mkdir")) return (void *)&adi_mkdir;
+  if (!strcmp(name, "chmod")) return (void *)&adi_chmod;
+  if (!strcmp(name, "ftruncate")) return (void *)&adi_ftruncate;
+  if (!strcmp(name, "read")) return (void *)&adi_read;
+  if (!strcmp(name, "write")) return (void *)&adi_write;
+  if (!strcmp(name, "malloc")) return (void *)&adi_malloc;
   if (!strcmp(name, "open")) return (void *)&adi_open;
   if (!strcmp(name, "lstat")) return (void *)&adi_lstat;
   if (!strcmp(name, "fstat")) return (void *)&adi_fstat;

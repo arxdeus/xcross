@@ -69,6 +69,79 @@ void main() {
     });
   });
 
+  test(
+    'guest errno translates failures and preserves caller writes on success',
+    () {
+      final directory = Directory.systemTemp.createTempSync('adi-errno-test-');
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final open = symbol('open')
+          .cast<NativeFunction<Int32 Function(Pointer<Utf8>, Int32, Uint32)>>()
+          .asFunction<int Function(Pointer<Utf8>, int, int)>();
+      final close = symbol('close')
+          .cast<NativeFunction<Int32 Function(Int32)>>()
+          .asFunction<int Function(int)>();
+      final getErrno = symbol('__errno_location')
+          .cast<NativeFunction<Pointer<Int32> Function()>>()
+          .asFunction<Pointer<Int32> Function()>();
+      final read = symbol('read')
+          .cast<
+            NativeFunction<IntPtr Function(Int32, Pointer<Uint8>, IntPtr)>
+          >()
+          .asFunction<int Function(int, Pointer<Uint8>, int)>();
+      final mkfifo = DynamicLibrary.process()
+          .lookupFunction<
+            Int32 Function(Pointer<Utf8>, Uint32),
+            int Function(Pointer<Utf8>, int)
+          >('mkfifo');
+      using((arena) {
+        final file = File('${directory.path}/file')..writeAsStringSync('data');
+        final link = Link('${directory.path}/link')..createSync(file.path);
+        final arm64 =
+            AdiArchitecture.forAbi(Abi.current()) == AdiArchitecture.arm64;
+        expect(
+          open(
+            link.path.toNativeUtf8(allocator: arena),
+            arm64 ? 1 << 15 : 1 << 17,
+            0,
+          ),
+          -1,
+        );
+        expect(getErrno().value, 40);
+        expect(getErrno().value, 40);
+        final guest = getErrno()..value = 123;
+        final fd = open(file.path.toNativeUtf8(allocator: arena), 0, 0);
+        expect(fd, greaterThanOrEqualTo(0));
+        expect(getErrno().address, guest.address);
+        expect(getErrno().value, 123);
+        final buffer = arena<Uint8>(4);
+        expect(read(fd, buffer, 4), 4);
+        expect(getErrno().value, 123);
+        expect(close(fd), 0);
+        expect(getErrno().value, 123);
+        expect(close(-1), -1);
+        expect(getErrno().value, 9);
+        expect(
+          open(
+            '${directory.path}/${'x' * 300}'.toNativeUtf8(allocator: arena),
+            0,
+            0,
+          ),
+          -1,
+        );
+        expect(getErrno().value, 36);
+        final fifo = '${directory.path}/fifo'.toNativeUtf8(allocator: arena);
+        expect(mkfifo(fifo, 0x180), 0);
+        final pipe = open(fifo, 2 | 0x800, 0);
+        expect(pipe, greaterThanOrEqualTo(0));
+        expect(read(pipe, buffer, 1), -1);
+        expect(getErrno().value, 11);
+        expect(getErrno().value, 11);
+        expect(close(pipe), 0);
+        expect(getErrno().value, 11);
+      });
+    },
+  );
+
   test('native stat and timeval write the Android layout without overruns', () {
     final directory = Directory.systemTemp.createTempSync('adi-stat-test-');
     addTearDown(() => directory.deleteSync(recursive: true));

@@ -161,7 +161,7 @@ class ElfLoadedLibrary {
               !segments.any(
                 (s) =>
                     address >= elf.phVaddr(s) &&
-                    address + 8 <= elf.phVaddr(s) + elf.phMemsz(s),
+                    address <= elf.phVaddr(s) + elf.phMemsz(s) - 8,
               )) {
             throw const FormatException(
               'ELF relocation target is outside a load segment or unaligned.',
