@@ -7,15 +7,22 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/xcrun/xcrun_operation.dart';
 
 final class CrossXcrunOperation implements XcrunOperation {
-  const CrossXcrunOperation(this.loader, {required this.executable});
+  const CrossXcrunOperation(
+    this.loader, {
+    required this.executable,
+    required this.output,
+    required this.errors,
+  });
   final XcrunRuntimeLoader loader;
   final String executable;
+  final IOSink output;
+  final IOSink errors;
 
   @override
   Future<int> run(List<String> arguments) async {
     final response = xcrunShimResponse(arguments, executable: executable);
     if (response != null) {
-      stdout.writeln(response);
+      output.writeln(response);
       return 0;
     }
     final services = await loader.loadXcrun(
@@ -27,6 +34,8 @@ final class CrossXcrunOperation implements XcrunOperation {
     return runXcrun(
       arguments,
       runner: services.runner,
+      output: output,
+      errors: errors,
       repository: services.repository,
       toolchain: services.toolchain,
       normalizeExecutable: services.normalizeExecutable,
@@ -104,6 +113,8 @@ String? findShimTool(List<String> arguments, {required String executable}) {
 Future<int> runXcrun(
   List<String> arguments, {
   required ProcessRunner runner,
+  required IOSink output,
+  required IOSink errors,
   required DarwinSdkRepository repository,
   required DarwinToolchainResolver toolchain,
   required String executable,
@@ -117,13 +128,13 @@ Future<int> runXcrun(
   // for SDK paths, and parse a version number out of the output. Mirror the
   // real xcrun's format so that probe succeeds without an installed SDK.
   if (arguments case ['--version'] || ['-version']) {
-    stdout.writeln('xcrun version $xcrunCompatVersion.');
+    output.writeln('xcrun version $xcrunCompatVersion.');
     return 0;
   }
 
   sdk ??= repository.current();
   if (sdk == null) {
-    stderr.writeln(
+    errors.writeln(
       'xcrun: no Darwin SDK installed; run `xcross sdk install` first',
     );
     return 1;
@@ -151,20 +162,20 @@ Future<int> runXcrun(
       }
     }
     if (wrapperArguments.contains('--show-sdk-version')) {
-      stdout.writeln(_sdkVersion(installedSdk!));
+      output.writeln(_sdkVersion(installedSdk!));
       return 0;
     }
   } on Object catch (error) {
-    stderr.writeln('xcrun: $error');
+    errors.writeln('xcrun: $error');
     return 1;
   }
 
   if (wrapperArguments.contains('--show-sdk-path')) {
-    stdout.writeln(installedSdk);
+    output.writeln(installedSdk);
     return 0;
   }
   if (wrapperArguments.contains('--show-sdk-platform-path')) {
-    stdout.writeln(_sdkPlatformPath(installedSdk!));
+    output.writeln(_sdkPlatformPath(installedSdk!));
     return 0;
   }
 
@@ -184,7 +195,7 @@ Future<int> runXcrun(
       findOnPath: findOnPath,
     );
     if (tool == null) return 1;
-    stdout.writeln(tool);
+    output.writeln(tool);
     return 0;
   }
 
@@ -203,12 +214,18 @@ Future<int> runXcrun(
     findOnPath: findOnPath,
   );
   if (tool == null) {
-    stderr.writeln('xcrun: unknown tool ${arguments[toolIndex]}');
+    errors.writeln('xcrun: unknown tool ${arguments[toolIndex]}');
     return 1;
   }
   final toolArguments = arguments.sublist(toolIndex + 1);
   if (runTool != null) return runTool(tool, toolArguments);
-  return runResolvedTool(tool, toolArguments, runner: runner);
+  return runResolvedTool(
+    tool,
+    toolArguments,
+    runner: runner,
+    output: output,
+    errors: errors,
+  );
 }
 
 /// Streams a resolved tool directly and preserves its exact exit status.
@@ -216,16 +233,27 @@ Future<int> runResolvedTool(
   String tool,
   List<String> arguments, {
   required ProcessRunner runner,
+  required IOSink output,
+  required IOSink errors,
   Future<Process> Function(String tool, List<String> arguments)? start,
 }) async {
-  final child =
-      await (start ??
-          ((tool, args) => runner.start(
-            tool,
-            args,
-            mode: ProcessStartMode.inheritStdio,
-          )))(tool, arguments);
-  return child.exitCode;
+  final child = await (start ?? ((tool, args) => runner.start(tool, args)))(
+    tool,
+    arguments,
+  );
+  final outputDone = output.addStream(child.stdout);
+  final errorsDone = errors.addStream(child.stderr);
+  final input = runner.sharedStdin.listen(
+    child.stdin.add,
+    onDone: child.stdin.close,
+  );
+  try {
+    final code = await child.exitCode;
+    await Future.wait([outputDone, errorsDone]);
+    return code;
+  } finally {
+    await input.cancel();
+  }
 }
 
 int _toolIndex(List<String> arguments) {

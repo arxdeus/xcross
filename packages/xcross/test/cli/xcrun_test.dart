@@ -13,6 +13,24 @@ import 'package:xcross/src/shared/xcrun/xcrun_operation.dart';
 import '../host_operations_fixtures.dart';
 
 void main() {
+  test('lazy output uses supplied sink without runtime loading', () async {
+    final unused = fixtureSink();
+    final selected = fixtureSink();
+    final errors = fixtureSink();
+    final loader = FixtureUnusedLoader();
+    final operation = xcrun.CrossXcrunOperation(
+      loader,
+      executable: '/fixture/missing-xcrun',
+      output: selected,
+      errors: errors,
+    );
+    expect(await operation.run(['--version']), 0);
+    expect(selected.buffer.toString(), 'xcrun version 72.\n');
+    expect(unused.buffer.isEmpty, isTrue);
+    expect(errors.buffer.isEmpty, isTrue);
+    expect(loader.calls, 0);
+  });
+
   test(
     'cross version and trusted sidecar probes never load configuration',
     () async {
@@ -21,13 +39,15 @@ void main() {
       File(
         '$executable.sdk',
       ).writeAsStringSync('/fixture/iPhoneSimulator26.0.sdk');
-      final loader = _UnusedLoader();
-      final output = _ProbeOutput();
+      final loader = FixtureUnusedLoader();
+      final output = FixtureProbeOutput();
       try {
         await IOOverrides.runZoned(() async {
           final operation = xcrun.CrossXcrunOperation(
             loader,
             executable: executable,
+            output: output,
+            errors: fixtureSink(),
           );
           expect(await operation.run(['--version']), 0);
           expect(
@@ -263,8 +283,8 @@ void main() {
       }
       final executable = p.join(directory.path, 'xcrun.exe');
       Future<ProcessResult> probe(List<String> arguments) async {
-        final output = _ProbeOutput();
-        final errors = _ProbeOutput();
+        final output = FixtureProbeOutput();
+        final errors = FixtureProbeOutput();
         final code = await IOOverrides.runZoned(
           () => _runXcrun(
             arguments,
@@ -444,7 +464,7 @@ void main() {
   test(
     'native bootstrap preserves environment and never reads configuration',
     () async {
-      final processes = _NativeProcesses();
+      final processes = FixtureNativeProcesses();
       final host = MacOSHost(
         environment: {
           'DEVELOPER_DIR': '/chosen developer',
@@ -467,7 +487,7 @@ void main() {
     'native delegation preserves arguments, inherited stdio and exit code',
     () async {
       final arguments = ['--sdk', 'iphonesimulator', 'clang', '--version', ''];
-      final child = _NativeChild();
+      final child = FixtureNativeChild();
       expect(
         await NativeMacXcrun(
           MacOSHost(),
@@ -549,9 +569,7 @@ void main() {
 
   test('normalizes PATHEXT uppercase .EXE for native_toolchain_c', () {
     expect(
-      normalizeWindowsExecutableExtension(
-        r'C:\Temp\xcross-tools\clang.EXE',
-      ),
+      normalizeWindowsExecutableExtension(r'C:\Temp\xcross-tools\clang.EXE'),
       r'C:\Temp\xcross-tools\clang.exe',
     );
     expect(
@@ -572,7 +590,9 @@ void main() {
       await xcrun.runResolvedTool(
         '/ignored',
         const [],
-        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+        output: fixtureSink(),
+        errors: fixtureSink(),
+        runner: fixtureRunner(LinuxHost(), log: fixtureLog()),
         start: (_, _) async => child,
       ),
       37,
@@ -732,10 +752,12 @@ Future<int> _runXcrun(
   Future<int> Function(String, List<String>)? runTool,
 }) {
   final host = LinuxHost();
-  final runner = ProcessRunner(host, log: fixtureLog());
+  final runner = fixtureRunner(host, log: fixtureLog());
   return xcrun.runXcrun(
     arguments,
     runner: runner,
+    output: stdout,
+    errors: stderr,
     repository: DarwinSdkRepository(
       host,
       log: runner.log,
@@ -754,7 +776,7 @@ Future<int> _runXcrun(
   );
 }
 
-final class _ProbeOutput implements Stdout {
+final class FixtureProbeOutput implements Stdout {
   final buffer = StringBuffer();
   @override
   void writeln([Object? value = '']) => buffer.writeln(value);
@@ -762,7 +784,7 @@ final class _ProbeOutput implements Stdout {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-final class _NativeProcesses implements HostProcessInterface {
+final class FixtureNativeProcesses implements HostProcessInterface {
   String? executable;
   List<String>? arguments;
   Map<String, String>? environment;
@@ -783,14 +805,14 @@ final class _NativeProcesses implements HostProcessInterface {
     this.environment = environment;
     this.includeParentEnvironment = includeParentEnvironment;
     this.mode = mode;
-    return _NativeChild();
+    return FixtureNativeChild();
   }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-final class _NativeChild implements Process {
+final class FixtureNativeChild implements Process {
   @override
   Future<int> get exitCode async => 37;
   @override
@@ -818,7 +840,7 @@ IosBuildPlatformInterface _fixtureTarget(List<String> arguments) {
   }
 }
 
-final class _UnusedLoader implements XcrunRuntimeLoader {
+final class FixtureUnusedLoader implements XcrunRuntimeLoader {
   int calls = 0;
   @override
   Future<XcrunServices> loadXcrun({required String sdkName}) {

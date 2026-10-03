@@ -146,26 +146,25 @@ final class GitRefSourceBundleBuilder {
   }
 
   Directory _findBundle(Directory packageDirectory) {
-    final buildCliDirectory = Directory(
-      p.join(packageDirectory.path, 'build', 'cli'),
+    final bundle = runner.host.fileSystem.directory(
+      p.join(
+        packageDirectory.path,
+        'build',
+        'cli',
+        '${runner.host.name}_${runner.host.architecture}',
+        'bundle',
+      ),
     );
-    final matches = <Directory>[];
-    if (buildCliDirectory.existsSync()) {
-      for (final entry in buildCliDirectory.listSync(followLinks: false)) {
-        if (entry is! Directory) continue;
-        final bundle = Directory(p.join(entry.path, 'bundle'));
-        if (!bundle.existsSync()) continue;
-        if (!Directory(p.join(bundle.path, 'bin')).existsSync()) continue;
-        if (!Directory(p.join(bundle.path, 'lib')).existsSync()) continue;
-        matches.add(bundle);
-      }
+    if (!bundle.existsSync() ||
+        !runner.host.fileSystem
+            .directory(p.join(bundle.path, 'bin'))
+            .existsSync() ||
+        !runner.host.fileSystem
+            .directory(p.join(bundle.path, 'lib'))
+            .existsSync()) {
+      throw XcrossError('expected built update bundle at ${bundle.path}');
     }
-    if (matches.length != 1) {
-      throw XcrossError(
-        'expected exactly one built update bundle under ${buildCliDirectory.path}, found ${matches.length}',
-      );
-    }
-    return matches.single;
+    return bundle;
   }
 
   Future<void> _runChecked(

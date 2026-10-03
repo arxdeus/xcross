@@ -30,7 +30,15 @@ Future<void> main() async {
     ),
   );
   exitCode = await buildXcross(
-    runner: ProcessRunner(snapshot.host, log: log),
+    runner: ProcessRunner(
+      snapshot.host,
+      log: log,
+      stdinStream: stdin,
+      stdoutSink: stdout,
+      stderrSink: stderr,
+    ),
+    output: stdout,
+    errors: stderr,
     dartExecutable: snapshot.resolvedExecutable,
     packageRoot: Directory.current,
     encodedVersion: _encodedVersion,
@@ -40,6 +48,8 @@ Future<void> main() async {
 
 Future<int> buildXcross({
   required ProcessRunner runner,
+  required IOSink output,
+  required IOSink errors,
   required String dartExecutable,
   required Directory packageRoot,
   required String encodedVersion,
@@ -61,12 +71,21 @@ Future<int> buildXcross({
           executable,
           arguments,
           workingDirectory: workingDirectory,
+          output: output,
+          errors: errors,
         ));
+    final xcrossBuild = p.join(
+      packageRoot.path,
+      'build',
+      'cli',
+      '${runner.host.name}_${runner.host.architecture}',
+    );
     final xcrossResult = await _buildCliExecutable(
       run,
       packageRoot,
       dartExecutable: dartExecutable,
       target: 'bin/xcross.dart',
+      output: xcrossBuild,
     );
     if (xcrossResult != 0) return xcrossResult;
 
@@ -83,7 +102,7 @@ Future<int> buildXcross({
     final executable = runner.host.paths.executableName('xcrun');
     final source = p.join(xcrunBuild, 'bundle', 'bin', executable);
     final destination = p.join(
-      _builtBinDirectory(packageRoot, runner.host).path,
+      p.join(xcrossBuild, 'bundle', 'bin'),
       executable,
     );
     await File(source).copy(destination);
@@ -106,21 +125,6 @@ Future<int> _buildCliExecutable(
   target,
   if (output != null) ...['-o', output],
 ], workingDirectory: packageRoot.path);
-
-Directory _builtBinDirectory(
-  Directory packageRoot,
-  PlatformHostInterface host,
-) {
-  final build = Directory(p.join(packageRoot.path, 'build', 'cli'));
-  final executable = host.paths.executableName('xcross');
-  for (final entity in build.listSync(recursive: true).whereType<File>()) {
-    if (p.basename(entity.path) == executable &&
-        p.basename(p.dirname(entity.path)) == 'bin') {
-      return entity.parent;
-    }
-  }
-  throw StateError('dart build cli did not produce bin/$executable');
-}
 
 void _validateIdentity(
   Directory packageRoot,
@@ -175,14 +179,16 @@ Future<int> _runBuild(
   String executable,
   List<String> arguments, {
   required String workingDirectory,
+  required IOSink output,
+  required IOSink errors,
 }) async {
   final process = await runner.start(
     executable,
     arguments,
     workingDirectory: workingDirectory,
   );
-  final stdoutDone = stdout.addStream(process.stdout);
-  final stderrDone = stderr.addStream(process.stderr);
+  final stdoutDone = output.addStream(process.stdout);
+  final stderrDone = errors.addStream(process.stderr);
   final result = await process.exitCode;
   await Future.wait([stdoutDone, stderrDone]);
   return result;
