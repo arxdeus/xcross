@@ -91,12 +91,13 @@ final class FixtureMappedFileSystem implements HostFileSystemInterface {
   FixtureMappedFileSystem(this.root);
   final Directory root;
   final touched = <String>[];
-  String physical(String path) =>
-      '${root.path}/${path.replaceFirst(RegExp('^/+'), '')}';
+  String physical(String path) => path.startsWith('${root.path}/')
+      ? path
+      : '${root.path}/${path.replaceFirst(RegExp('^/+'), '')}';
   @override
   File file(String path) {
     touched.add(path);
-    return FixtureMappedFile(this, path);
+    return File(physical(path));
   }
 
   @override
@@ -124,61 +125,4 @@ final class FixtureMappedFileSystem implements HostFileSystemInterface {
   @override
   Future<void> createArchiveLink(String destination, String target) =>
       link(destination).create(target);
-}
-
-final class FixtureMappedFile implements File {
-  FixtureMappedFile(this.fileSystem, this.path);
-  final FixtureMappedFileSystem fileSystem;
-  @override
-  final String path;
-  File get delegate => File(fileSystem.physical(path));
-  @override
-  bool existsSync() => delegate.existsSync();
-  @override
-  String resolveSymbolicLinksSync() => delegate
-      .resolveSymbolicLinksSync()
-      .substring(fileSystem.root.path.length);
-  @override
-  String readAsStringSync({Encoding encoding = utf8}) =>
-      delegate.readAsStringSync(encoding: encoding);
-  @override
-  void writeAsStringSync(
-    String contents, {
-    FileMode mode = FileMode.write,
-    Encoding encoding = utf8,
-    bool flush = false,
-  }) => delegate.writeAsStringSync(
-    contents,
-    mode: mode,
-    encoding: encoding,
-    flush: flush,
-  );
-  @override
-  File createSync({bool recursive = false, bool exclusive = false}) {
-    delegate.createSync(recursive: recursive, exclusive: exclusive);
-    return this;
-  }
-
-  @override
-  void deleteSync({bool recursive = false}) =>
-      delegate.deleteSync(recursive: recursive);
-  @override
-  Directory get parent => delegate.parent;
-  @override
-  Future<File> copy(String newPath) async {
-    await delegate.copy(fileSystem.physical(newPath));
-    return fileSystem.file(newPath);
-  }
-
-  @override
-  Future<File> rename(String newPath) async {
-    await delegate.rename(fileSystem.physical(newPath));
-    return fileSystem.file(newPath);
-  }
-
-  @override
-  Future<FileSystemEntity> delete({bool recursive = false}) =>
-      delegate.delete(recursive: recursive);
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

@@ -43,12 +43,14 @@ final class WindowsFileSwapOperations implements FileSwapOperations {
 
   @override
   Future<void> copy(String source, String target) async {
-    await host.fileSystem.file(source).copy(host.paths.ioPath(target));
+    await host.fileSystem.file(source).copy(host.fileSystem.file(target).path);
   }
 
   @override
   Future<void> move(String source, String target) async {
-    await host.fileSystem.file(source).rename(host.paths.ioPath(target));
+    await host.fileSystem
+        .file(source)
+        .rename(host.fileSystem.file(target).path);
   }
 
   @override

@@ -31,13 +31,15 @@ final class PosixFileSwapOperations implements FileSwapOperations {
       Future.value(host.fileSystem.file(path).existsSync());
   @override
   Future<void> copy(String source, String target) async {
-    await host.fileSystem.file(source).copy(target);
+    await host.fileSystem.file(source).copy(host.fileSystem.file(target).path);
     host.fileSystem.makeExecutable(target);
   }
 
   @override
   Future<void> move(String source, String target) async {
-    await host.fileSystem.file(source).rename(target);
+    await host.fileSystem
+        .file(source)
+        .rename(host.fileSystem.file(target).path);
   }
 
   @override

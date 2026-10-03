@@ -8,7 +8,6 @@ import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/host/linux/update/linux_update_policy.dart';
 import 'package:xcross/src/host/macos/update/macos_update_policy.dart';
 import 'package:xcross/src/host/windows/update/windows_update_policy.dart';
-import 'package:xcross/src/shared/update/update_host_policy.dart';
 import 'package:xcross/src/update/install_layout.dart';
 import 'package:xcross/src/update/self_update.dart';
 import 'package:xcross/src/update/update_check.dart';
@@ -173,7 +172,7 @@ void main() {
       final updater = SelfUpdate(
         host: host,
         runner: runner,
-        policy: FixtureMappedUpdatePolicy(mapped),
+        policy: LinuxUpdatePolicy(host, runner, FixturePrivileges()),
         downloader: Downloader(
           createClient: () => throw StateError('unexpected download'),
           log: runner.log,
@@ -596,14 +595,4 @@ void main() {
       'old-lib',
     );
   });
-}
-
-final class FixtureMappedUpdatePolicy implements UpdateHostPolicy {
-  const FixtureMappedUpdatePolicy(this.operations);
-  final FileSwapOperations operations;
-  @override
-  String releaseAsset() => 'fixture';
-  @override
-  Future<FileSwapOperations> prepare(InstallLayout layout) =>
-      Future.value(operations);
 }

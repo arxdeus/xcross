@@ -46,16 +46,16 @@ void main() {
         '/logical/bin/xcross',
         host: host,
       );
-      expect(layout.binaryPath, '/logical/bin/xcross');
+      expect(layout.binaryPath, mapped.physical('/logical/bin/xcross'));
       expect(layout.hasNativeLibraries, isTrue);
       expect(layout.isWritable, isTrue);
       expect(
         mapped.touched,
         containsAll([
           '/logical/bin/xcross',
-          '/logical/lib',
-          '/logical/bin/.xcross-write-probe-$pid',
-          '/logical/lib/.xcross-write-probe-$pid',
+          mapped.physical('/logical/lib'),
+          mapped.physical('/logical/bin/.xcross-write-probe-$pid'),
+          mapped.physical('/logical/lib/.xcross-write-probe-$pid'),
         ]),
       );
       expect(

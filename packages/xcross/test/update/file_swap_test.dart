@@ -31,6 +31,36 @@ void main() {
   });
 
   test(
+    'concrete POSIX operations map both source and destination namespaces',
+    () async {
+      final mapped = FixtureMappedFileSystem(root);
+      Directory(mapped.physical('/logical')).createSync(recursive: true);
+      Directory(mapped.physical('/stage')).createSync(recursive: true);
+      File(mapped.physical('/logical/xcross')).writeAsStringSync('old');
+      File(mapped.physical('/stage/xcross')).writeAsStringSync('new');
+      File(mapped.physical('/stage/added')).writeAsStringSync('added');
+      final host = LinuxHost(fileSystem: mapped);
+      final swap = FileSwap(
+        log: fixtureLog(),
+        operations: PosixFileSwapOperations(host),
+      );
+      await swap.replace(source: '/stage/xcross', target: '/logical/xcross');
+      await swap.replace(source: '/stage/added', target: '/logical/added');
+      expect(
+        File(mapped.physical('/logical/xcross')).readAsStringSync(),
+        'new',
+      );
+      expect(swap.entries.first.backup, isNotNull);
+      await swap.rollback();
+      expect(
+        File(mapped.physical('/logical/xcross')).readAsStringSync(),
+        'old',
+      );
+      expect(File(mapped.physical('/logical/added')).existsSync(), isFalse);
+    },
+  );
+
+  test(
     'remapped existing files and new files rollback in reverse transaction order',
     () async {
       final mapped = FixtureRemappedOperations(root);
