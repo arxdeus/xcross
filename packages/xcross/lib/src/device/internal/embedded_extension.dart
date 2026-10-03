@@ -1,7 +1,6 @@
-import 'dart:io';
-
+import 'package:cli_kit/cli_kit_shared.dart'
+    show HostFileSystemInterface, HostPathsInterface;
 import 'package:meta/meta.dart';
-import 'package:path/path.dart' as p;
 
 /// An app extension already embedded in a built `.app`, as seen at
 /// sign-and-install time.
@@ -28,7 +27,14 @@ final class EmbeddedExtension {
 }
 
 /// Reads entitlement facts back off a built `.appex`.
-abstract final class AppExtensionEntitlements {
+final class AppExtensionEntitlements {
+  const AppExtensionEntitlements({
+    required this.fileSystem,
+    required this.paths,
+  });
+  final HostFileSystemInterface fileSystem;
+  final HostPathsInterface paths;
+
   /// `com.apple.security.application-groups` declared by the `.appex` at
   /// [appexPath].
   ///
@@ -36,8 +42,8 @@ abstract final class AppExtensionEntitlements {
   /// [appGroupsInfoKey] precisely so this stage can recover them without
   /// re-reading the Xcode project, which may not even be present when a
   /// prebuilt `.app` is signed.
-  static List<String> appGroupsOf(String appexPath) {
-    final plist = File(p.join(appexPath, 'Info.plist'));
+  List<String> appGroupsOf(String appexPath) {
+    final plist = fileSystem.file(paths.context.join(appexPath, 'Info.plist'));
     if (!plist.existsSync()) return const [];
 
     final array = RegExp(

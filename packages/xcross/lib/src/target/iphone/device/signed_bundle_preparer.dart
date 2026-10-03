@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:cli_kit/cli_kit_shared.dart'
     show HostFileSystemInterface, HostPathsInterface;
-import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:xcross/src/device/internal/app_capabilities.dart';
 import 'package:xcross/src/device/internal/app_entitlements.dart';
@@ -79,7 +78,7 @@ final class SignedBundlePreparer {
       // Preserve the suffix the project declared beneath the app id.
       final suffix = current.startsWith('$hostBundleId.')
           ? current.substring(hostBundleId.length)
-          : '.${p.basenameWithoutExtension(entity.path)}';
+          : '.${paths.context.basenameWithoutExtension(entity.path)}';
       final signed = '$signedHostBundleId$suffix';
 
       await plist.writeAsString(
@@ -89,7 +88,10 @@ final class SignedBundlePreparer {
         EmbeddedExtension(
           path: entity.path,
           bundleId: signed,
-          appGroups: AppExtensionEntitlements.appGroupsOf(entity.path),
+          appGroups: AppExtensionEntitlements(
+            fileSystem: fileSystem,
+            paths: paths,
+          ).appGroupsOf(entity.path),
         ),
       );
     }

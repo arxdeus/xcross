@@ -1,9 +1,7 @@
 import 'dart:ffi';
-import 'dart:io';
 
 import 'package:apple_developer_kit/apple_developer_kit_shared.dart';
 import 'package:meta/meta.dart';
-import 'package:path/path.dart' as p;
 import 'package:xcross/src/device/internal/signing_session.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/target/iphone/device/signing_http_client_factory.dart';
@@ -32,7 +30,7 @@ final class SigningSessionResolver implements SigningSessionProvider {
     final configPath = AscCredentials.defaultConfigPath(
       hostServices: hostServices,
     );
-    final configDirectory = p.dirname(configPath);
+    final configDirectory = hostServices.host.paths.context.dirname(configPath);
 
     Object? appleSessionFailure;
     Object? ascFailure;
@@ -63,7 +61,8 @@ final class SigningSessionResolver implements SigningSessionProvider {
       );
     }
 
-    if (appleSessionFailure == null && File(configPath).existsSync()) {
+    if (appleSessionFailure == null &&
+        hostServices.host.fileSystem.file(configPath).existsSync()) {
       try {
         return await _ascSession(configPath, configDirectory);
       } on Object catch (error) {

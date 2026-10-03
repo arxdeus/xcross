@@ -1,12 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:dart_mobile_device/src/errors.dart';
 import 'package:dart_mobile_device/src/shared/console/device_console.dart';
 import 'package:dart_mobile_device/src/shared/host/device_host_policy.dart';
-import 'package:path/path.dart' as p;
 
 /// Resolved pymobiledevice3 invocation — either the bare CLI or python3 -m.
 class PymdInvocation {
@@ -79,7 +77,8 @@ final class Pymd {
     final home = env['HOME'] ?? env['USERPROFILE'];
     return [
       if (configured != null && configured.isNotEmpty) configured,
-      if (home != null && home.isNotEmpty) p.join(home, '.local', 'bin'),
+      if (home != null && home.isNotEmpty)
+        runner.host.paths.context.join(home, '.local', 'bin'),
     ];
   }
 
@@ -146,7 +145,9 @@ final class Pymd {
         final probe = await runner.run(candidate, ['-c', _modernPythonProbe]);
         if (probe.exitCode != 0) continue;
         final real = probe.stdout.trim().split('\n').last.trim();
-        if (real.isEmpty || !File(real).existsSync()) continue;
+        if (real.isEmpty || !runner.host.fileSystem.file(real).existsSync()) {
+          continue;
+        }
         return _tunneldCached = TunneldInvocation(
           PymdInvocation(real, const ['-m', 'pymobiledevice3']),
           modernPython: true,
@@ -478,7 +479,7 @@ final class Pymd {
     final fromEnv = runner.effectiveEnvironment['USBMUXD_SOCKET_ADDRESS'];
     if (fromEnv != null && fromEnv.isNotEmpty) return fromEnv;
     const unix = '/var/run/usbmuxd';
-    if (File(unix).existsSync()) return unix;
+    if (runner.host.fileSystem.file(unix).existsSync()) return unix;
     return null;
   }
 }

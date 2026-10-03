@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:apple_developer_kit/apple_developer_kit_shared.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart'
     show
@@ -9,7 +7,6 @@ import 'package:dart_mobile_device/dart_mobile_device.dart'
         Pymd,
         PymdDeviceResolver,
         PymdDevices;
-import 'package:path/path.dart' as p;
 import 'package:xcross/src/device/internal/app_capabilities.dart';
 import 'package:xcross/src/device/internal/app_entitlements.dart';
 import 'package:xcross/src/device/internal/embedded_extension.dart';
@@ -123,7 +120,7 @@ final class NativeBackend implements DeviceBackend {
   }) async {
     final udid = device.udid;
     if (!appOrIpaPath.endsWith('.app') ||
-        !Directory(appOrIpaPath).existsSync()) {
+        !pymd.runner.host.fileSystem.directory(appOrIpaPath).existsSync()) {
       throw XcrossError(
         'The in-process signer currently supports xcross-generated .app '
         'directories only; "$appOrIpaPath" is not an existing .app directory.',
@@ -148,8 +145,14 @@ final class NativeBackend implements DeviceBackend {
         signingIdentityId: signing.identityId,
         appIdRegisteredToTeam: appIdRegisteredToTeam,
       );
-      final profilesDir = p.join(p.dirname(signing.identityDir), 'profiles');
-      final outputDir = p.join(profilesDir, bundleIdentity.exact);
+      final profilesDir = pymd.runner.host.paths.context.join(
+        pymd.runner.host.paths.context.dirname(signing.identityDir),
+        'profiles',
+      );
+      final outputDir = pymd.runner.host.paths.context.join(
+        profilesDir,
+        bundleIdentity.exact,
+      );
 
       await _bundlePreparer.rewriteBundleIdentifier(
         appOrIpaPath,
@@ -182,7 +185,10 @@ final class NativeBackend implements DeviceBackend {
       // The app and its extensions must share the same App Groups, or the
       // extension has no way to hand data back to the app.
       final declaredGroups = {
-        ...AppExtensionEntitlements.appGroupsOf(appOrIpaPath),
+        ...AppExtensionEntitlements(
+          fileSystem: pymd.runner.host.fileSystem,
+          paths: pymd.runner.host.paths,
+        ).appGroupsOf(appOrIpaPath),
         for (final extension in extensions) ...extension.appGroups,
       }.toList()..sort();
       // App Group ids are globally unique across all developers, so a
@@ -280,7 +286,9 @@ final class NativeBackend implements DeviceBackend {
           extensionAssets: extensionAssets,
         ).signApp(appOrIpaPath),
       );
-      final signedInfoPlist = File(p.join(appOrIpaPath, 'Info.plist'));
+      final signedInfoPlist = pymd.runner.host.fileSystem.file(
+        pymd.runner.host.paths.context.join(appOrIpaPath, 'Info.plist'),
+      );
       bundleIdentity.verifyArtifact(
         signedInfoPlist.existsSync()
             ? PlistMutations.readBundleIdentifier(
@@ -322,7 +330,10 @@ final class NativeBackend implements DeviceBackend {
           client: signing.client,
           bundleId: extensionBundleId,
           deviceUdids: [udid],
-          outputDir: p.join(profilesDir, extensionBundleId),
+          outputDir: pymd.runner.host.paths.context.join(
+            profilesDir,
+            extensionBundleId,
+          ),
           identityDir: signing.identityDir,
           appGroups: appGroups,
           capabilities: {

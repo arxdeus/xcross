@@ -7,7 +7,6 @@ import 'package:dart_mobile_device/src/constants.dart';
 import 'package:dart_mobile_device/src/errors.dart';
 import 'package:dart_mobile_device/src/host/shared/tunnel/tunnel_process_controller.dart';
 import 'package:dart_mobile_device/src/pymd/pymd.dart';
-import 'package:path/path.dart' as p;
 
 class TunnelDaemon {
   TunnelDaemon(this.pymd) : controller = TunnelProcessController(pymd.runner);
@@ -15,8 +14,10 @@ class TunnelDaemon {
   final Pymd pymd;
   final TunnelProcessController controller;
 
-  String get logPath =>
-      p.join(pymd.runner.host.paths.temporaryRoot, 'xcross-tunneld.log');
+  String get logPath => pymd.runner.host.paths.context.join(
+    pymd.runner.host.paths.temporaryRoot,
+    'xcross-tunneld.log',
+  );
 
   Future<void> ensureRunning() async {
     if (await isReachable(localHttp: pymd.localHttp)) {

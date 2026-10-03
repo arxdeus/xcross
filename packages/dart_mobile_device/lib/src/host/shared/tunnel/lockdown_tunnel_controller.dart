@@ -4,7 +4,6 @@ import 'dart:io';
 
 import 'package:dart_mobile_device/src/errors.dart';
 import 'package:dart_mobile_device/src/pymd/pymd.dart';
-import 'package:path/path.dart' as p;
 
 final class LockdownTunnelController {
   const LockdownTunnelController(this.pymd, {required this.describeFailure});
@@ -16,11 +15,11 @@ final class LockdownTunnelController {
   );
   Future<void> start() async {
     final argv = await pymd.elevatedArgs(['lockdown', 'start-tunnel']);
-    final logPath = p.join(
+    final logPath = pymd.runner.host.paths.context.join(
       pymd.runner.host.paths.temporaryRoot,
       'xcross-start-tunnel.log',
     );
-    final logFile = File(logPath);
+    final logFile = pymd.runner.host.fileSystem.file(logPath);
     if (!logFile.existsSync()) logFile.createSync(recursive: true);
 
     pymd.runner.log.logTrace(

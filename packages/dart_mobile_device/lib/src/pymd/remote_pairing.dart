@@ -6,7 +6,6 @@ import 'dart:math';
 
 import 'package:dart_mobile_device/src/pymd/pymd.dart';
 import 'package:meta/meta.dart';
-import 'package:path/path.dart' as p;
 
 /// Device-initiated wireless pairing (`pymobiledevice3 remote pair-host`)
 /// and the remote pairing records both pairing flows produce.
@@ -51,18 +50,18 @@ final class RemotePairing {
     if (override != null) return override;
     final env = pymd.runner.effectiveEnvironment;
     final home = env['HOME'] ?? env['USERPROFILE'] ?? '.';
-    return p.join(home, '.pymobiledevice3');
+    return pymd.runner.host.paths.context.join(home, '.pymobiledevice3');
   }
 
   /// Device identifiers with a remote pairing record on this host
   /// (`remote_<UDID>.plist`).
   List<String> pairingRecordIds() {
-    final dir = Directory(homeFolder);
+    final dir = pymd.runner.host.fileSystem.directory(homeFolder);
     if (!dir.existsSync()) return const [];
     final ids = <String>[];
     for (final entry in dir.listSync()) {
       if (entry is! File) continue;
-      final name = p.basename(entry.path);
+      final name = pymd.runner.host.paths.context.basename(entry.path);
       if (!name.startsWith('remote_')) continue;
       final id = name.substring('remote_'.length).split('.').first;
       if (id.isNotEmpty) ids.add(id);
@@ -259,11 +258,23 @@ final class RemotePairing {
           case final Uri resolved when resolved.scheme == 'file')
         resolved.toFilePath(),
       // AOT bundle: shipped alongside the executable.
-      p.join(p.dirname(pymd.executable), 'scripts', 'pair_host.py'),
-      p.join(p.dirname(p.dirname(pymd.executable)), 'scripts', 'pair_host.py'),
+      pymd.runner.host.paths.context.join(
+        pymd.runner.host.paths.context.dirname(pymd.executable),
+        'scripts',
+        'pair_host.py',
+      ),
+      pymd.runner.host.paths.context.join(
+        pymd.runner.host.paths.context.dirname(
+          pymd.runner.host.paths.context.dirname(pymd.executable),
+        ),
+        'scripts',
+        'pair_host.py',
+      ),
     ];
     for (final candidate in candidates) {
-      if (File(candidate).existsSync()) return candidate;
+      if (pymd.runner.host.fileSystem.file(candidate).existsSync()) {
+        return candidate;
+      }
     }
     return null;
   }
