@@ -434,23 +434,48 @@ void main() {
     expect(rootSeal, contains('PlugIns/Share.appex'));
   });
 
-  test('refuses an app extension with no provisioning profile', () async {
+  test('missing extension material fails before any mutation', () async {
     final app = _app(temporaryDirectory, 'unprovisioned', 'dev.xcross.Runner');
     _appExtension(app.path, 'Share', 'dev.xcross.Runner.Share');
-
-    await expectLater(
-      BundleSigner(
-        exactAsset,
-        hostServices: testHostServices,
-      ).signApp(app.path, signingTime: signingTime),
-      throwsA(
-        isA<AppleError>().having(
-          (error) => error.message,
-          'message',
-          contains('no provisioning profile'),
+    final extension = p.join(app.path, 'PlugIns', 'Share.appex');
+    for (final bundle in [app.path, extension]) {
+      final signature = Directory(p.join(bundle, '_CodeSignature'))
+        ..createSync();
+      File(
+        p.join(signature.path, 'CodeResources'),
+      ).writeAsStringSync('old seal');
+      File(
+        p.join(bundle, 'embedded.mobileprovision'),
+      ).writeAsStringSync('old profile');
+    }
+    final before = <String, List<int>>{
+      for (final file in app.listSync(recursive: true).whereType<File>())
+        file.path: file.readAsBytesSync(),
+    };
+    final signer = BundleSigner(exactAsset, hostServices: testHostServices);
+    for (final operation in [
+      () => signer.preflight(app.path),
+      () => signer.signApp(app.path, signingTime: signingTime),
+    ]) {
+      await expectLater(
+        operation(),
+        throwsA(
+          isA<AppleError>().having(
+            (error) => error.message,
+            'message',
+            contains('no provisioning profile'),
+          ),
         ),
-      ),
-    );
+      );
+      final after = <String, List<int>>{
+        for (final file in app.listSync(recursive: true).whereType<File>())
+          file.path: file.readAsBytesSync(),
+      };
+      expect(after.keys, unorderedEquals(before.keys));
+      for (final entry in before.entries) {
+        expect(after[entry.key], orderedEquals(entry.value), reason: entry.key);
+      }
+    }
   });
 
   test('refuses a .appex outside PlugIns', () async {

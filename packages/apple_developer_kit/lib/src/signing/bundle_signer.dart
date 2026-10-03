@@ -25,7 +25,7 @@ class BundleSigner {
     Map<String, SigningAsset> extensionAssets = const {},
   }) : hostServices = hostServices,
        _machoSigner = MachOSigner(asset, hostServices: hostServices),
-       _extensionAssets = extensionAssets,
+       _extensionAssets = Map.unmodifiable(extensionAssets),
        _inspector = BundleInspector(
          asset: asset,
          hostServices: hostServices,
@@ -41,12 +41,22 @@ class BundleSigner {
 
   /// Validates the whole bundle without changing it.
   Future<void> preflight(String appPath) async {
-    await _inspector.inspect(appPath);
+    await _inspect(appPath);
+  }
+
+  Future<BundlePlan> _inspect(String appPath) async {
+    final plan = await _inspector.inspect(appPath);
+    for (final bundle in plan.bundles.where(
+      (bundle) => bundle.isAppExtension,
+    )) {
+      _assetFor(bundle);
+    }
+    return plan;
   }
 
   /// Signs nested frameworks and dylibs before sealing and signing the app.
   Future<void> signApp(String appPath, {DateTime? signingTime}) async {
-    final plan = await _inspector.inspect(appPath);
+    final plan = await _inspect(appPath);
 
     for (final bundle in plan.bundles) {
       await _removeIfPresent(p.join(bundle.path, '_CodeSignature'));
