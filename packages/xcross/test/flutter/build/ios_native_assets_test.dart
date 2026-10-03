@@ -360,6 +360,94 @@ void main() {
     },
   );
 
+  test('migrates legacy ready overlays before aliases change', () async {
+    if (Platform.isWindows) return;
+    final tmp = await Directory.systemTemp.createTemp(
+      'workspace_legacy_ready-',
+    );
+    try {
+      final cacheRoot = p.join(tmp.path, 'cache');
+      final firstCache = _workspaceSdk(
+        p.join(tmp.path, 'sdk-a'),
+        cacheRoot,
+        'sdk-a',
+        sdkLocalEngine: true,
+      );
+      final secondCache = _workspaceSdk(
+        p.join(tmp.path, 'sdk-b'),
+        cacheRoot,
+        'sdk-b',
+        sdkLocalEngine: true,
+      );
+      final untouched = File(p.join(cacheRoot, 'unrelated'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('keep');
+      final alias = Link(p.join(tmp.path, 'alias'))
+        ..createSync(firstCache.flutterRoot);
+      final aliasCache = IosEngineCache(
+        flutterRoot: alias.path,
+        cacheRoot: cacheRoot,
+        hostAbi: Abi.linuxArm64,
+      );
+      final legacy = await FlutterToolWorkspace.create(
+        flutterRoot: alias.path,
+        engineCache: aliasCache,
+      );
+      final engine = p.join(
+        legacy.flutterRoot,
+        'bin',
+        'cache',
+        'artifacts',
+        'engine',
+      );
+      for (final name in ['ios', 'linux-arm64', 'common']) {
+        final link = Link(p.join(engine, name));
+        await link.delete();
+        await link.create(
+          p.join(alias.path, 'bin', 'cache', 'artifacts', 'engine', name),
+        );
+      }
+      final marker = File(p.join(legacy.flutterRoot, '.xcross-workspace-ready'))
+        ..writeAsStringSync('ready\n');
+      final migrated = await FlutterToolWorkspace.create(
+        flutterRoot: alias.path,
+        engineCache: aliasCache,
+      );
+      expect(migrated.flutterRoot, legacy.flutterRoot);
+      expect(marker.readAsStringSync(), 'ready-v2\n');
+      expect(untouched.readAsStringSync(), 'keep');
+      for (final name in ['ios', 'linux-arm64', 'common']) {
+        expect(
+          await Link(p.join(engine, name)).target(),
+          await Directory(
+            p.join(
+              firstCache.flutterRoot,
+              'bin',
+              'cache',
+              'artifacts',
+              'engine',
+              name,
+            ),
+          ).resolveSymbolicLinks(),
+        );
+      }
+      for (final removeAlias in [false, true]) {
+        await alias.delete();
+        if (!removeAlias) await alias.create(secondCache.flutterRoot);
+        _expectWorkspaceSdk(migrated, 'sdk-a');
+        for (final relative in [
+          p.join('ios', 'Flutter.xcframework', 'source'),
+          p.join('linux-arm64', 'vm_isolate_snapshot.bin'),
+          p.join('common', 'flutter_patched_sdk', 'source'),
+        ]) {
+          expect(File(p.join(engine, relative)).readAsStringSync(), 'sdk-a');
+        }
+      }
+    } finally {
+      await tmp.delete(recursive: true);
+    }
+  });
+
   for (final (staleEntry, dangling) in [
     (p.join('packages'), false),
     (p.join('bin', 'cache', 'dart-sdk'), false),

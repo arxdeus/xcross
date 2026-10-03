@@ -7,6 +7,8 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/ios_engine_cache.dart';
 
 final class FlutterToolWorkspace {
+  static const _readyMarkerContents = 'ready-v2\n';
+
   const FlutterToolWorkspace._({
     required this.flutterRoot,
     required this.dart,
@@ -28,6 +30,7 @@ final class FlutterToolWorkspace {
     final root = _workspaceRoot(engineCache, sourceRoot);
     final marker = File(p.join(root, '.xcross-workspace-ready'));
     if (marker.existsSync() &&
+        await marker.readAsString() == _readyMarkerContents &&
         await _isReady(
           flutterRoot: sourceRoot,
           workspaceRoot: root,
@@ -52,7 +55,7 @@ final class FlutterToolWorkspace {
         engineCache: engineCache,
       );
 
-      await marker.writeAsString('ready\n');
+      await marker.writeAsString(_readyMarkerContents);
       return FlutterToolWorkspace._(
         flutterRoot: root,
         dart: _dartPath(sourceRoot),
