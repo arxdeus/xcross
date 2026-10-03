@@ -1,7 +1,8 @@
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart' show MacOSDeviceHost;
+import 'package:dart_mobile_device/dart_mobile_device_shared.dart' show Pymd;
 import 'package:test/test.dart';
 
 import 'test_log_output.dart';
