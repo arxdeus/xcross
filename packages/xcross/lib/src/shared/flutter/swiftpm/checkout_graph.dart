@@ -1,7 +1,7 @@
-import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_containment.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
 
 final class SwiftPmCheckoutGraph {
@@ -68,25 +68,11 @@ final class SwiftPmCheckoutGraph {
     Map<String, String> resolved, {
     required bool symlinks,
   }) {
-    final canonicalRoot = fileSystem.directory(root).resolveSymbolicLinksSync();
+    final containment = SwiftPmCheckoutContainment(fileSystem);
     for (final link in targets.keys) {
       final target = resolved[link]!;
-      var existing = target;
-      while (fileSystem.typeSync(existing, followLinks: false) ==
-              FileSystemEntityType.notFound &&
-          existing != root) {
-        existing = p.dirname(existing);
-      }
-      final canonical = fileSystem
-          .directory(existing)
-          .resolveSymbolicLinksSync();
-      if (!p.equals(canonicalRoot, canonical) &&
-          !p.isWithin(canonicalRoot, canonical)) {
-        throw FlutterBuildError(
-          'Symlink escapes SwiftPM checkout through an existing link: $link -> $target',
-          isSecurityFailure: true,
-        );
-      }
+      containment.validateDestination(root, link);
+      containment.validateTarget(root, target);
       if (!fileSystem.directory(target).existsSync() &&
           !fileSystem.file(target).existsSync() &&
           (!symlinks || requiredPackageLink(root, link))) {

@@ -185,6 +185,103 @@ void main() {
     },
   );
 
+  for (final symlinks in [true, false]) {
+    test(
+      'rejects indexed destination parent escape before effects, symlinks $symlinks',
+      () async {
+        final outside = Directory.systemTemp.createTempSync(
+          'xcross-checkout-destination-',
+        );
+        addTearDown(() => outside.deleteSync(recursive: true));
+        final sentinel = File(p.join(outside.path, 'link'))
+          ..writeAsStringSync('outside sentinel');
+        File(p.join(root.path, 'payload')).writeAsStringSync('inside');
+        await Link(p.join(root.path, 'dir')).create(outside.path);
+        context = CheckoutTestContext(root, (command) {
+          if (command.arguments.contains('ls-files')) {
+            return CheckoutTestProcess(
+              output: utf8.encode('120000 aa 0\tdir/link\u0000'),
+            );
+          }
+          if (command.arguments.contains('cat-file')) {
+            return CheckoutTestProcess(
+              output: utf8.encode('aa blob 10\n../payload\n'),
+            );
+          }
+          fail('No effectful checkout command may run after escape detection');
+        });
+        await expectLater(
+          context.checkout.materializeGitCheckoutSymlinks(
+            root.path,
+            git: '/fixture/git',
+            symlinks: symlinks,
+          ),
+          throwsA(isA<FlutterBuildError>()),
+        );
+        expect(sentinel.readAsStringSync(), 'outside sentinel');
+        expect(context.processes.commands, hasLength(2));
+      },
+    );
+  }
+
+  test(
+    'retargeted stamped ancestor cannot skip live destination containment',
+    () async {
+      final outsideParent = Directory.systemTemp.createTempSync(
+        'xcross-checkout-stamp-outside-',
+      );
+      addTearDown(() => outsideParent.deleteSync(recursive: true));
+      final outside = Directory(p.join(outsideParent.path, 'dir'))
+        ..createSync();
+      final externalPayload = File(p.join(outsideParent.path, 'payload'))
+        ..writeAsStringSync('outside payload');
+      await Link(p.join(outside.path, 'link')).create('../payload');
+      final sentinel = File(p.join(outside.path, 'keep'))
+        ..writeAsStringSync('outside sentinel');
+      context = CheckoutTestContext(root, (command) {
+        if (command.arguments.contains('ls-files')) {
+          return CheckoutTestProcess(
+            output: utf8.encode('120000 aa 0\tdir/link\u0000'),
+          );
+        }
+        if (command.arguments.contains('cat-file')) {
+          return CheckoutTestProcess(
+            output: utf8.encode('aa blob 10\n../payload\n'),
+          );
+        }
+        return CheckoutTestProcess();
+      });
+      final git = Directory(p.join(root.path, '.git'))..createSync();
+      File(p.join(git.path, 'HEAD')).writeAsStringSync('identity');
+      File(p.join(root.path, 'payload')).writeAsStringSync('inside');
+      final directory = Directory(p.join(root.path, 'dir'))..createSync();
+      File(p.join(directory.path, 'link')).writeAsStringSync('../payload');
+      expect(
+        await context.checkout.materializeGitCheckoutSymlinks(
+          root.path,
+          git: '/fixture/git',
+          symlinks: true,
+        ),
+        isTrue,
+      );
+      final count = context.processes.commands.length;
+      await directory.rename(p.join(root.path, 'original-dir'));
+      await Link(directory.path).create(outside.path);
+      await expectLater(
+        context.checkout.materializeGitCheckoutSymlinks(
+          root.path,
+          git: '/fixture/git',
+          symlinks: true,
+        ),
+        throwsA(isA<FlutterBuildError>()),
+      );
+      expect(context.processes.commands, hasLength(count + 2));
+      expect(sentinel.readAsStringSync(), 'outside sentinel');
+      expect(externalPayload.readAsStringSync(), 'outside payload');
+      expect(Link(p.join(outside.path, 'link')).targetSync(), '../payload');
+    },
+  );
+
   test(
     'materialization restores symlinks and unchanged HEAD stamp avoids all processes',
     () async {

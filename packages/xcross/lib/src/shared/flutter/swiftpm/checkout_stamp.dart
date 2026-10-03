@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_containment.dart';
 
 final class SwiftPmCheckoutStampValidator {
   const SwiftPmCheckoutStampValidator({required this.fileSystem});
@@ -11,7 +13,11 @@ final class SwiftPmCheckoutStampValidator {
   static const _stampKindHardLink = 'hardlink';
   static const _stampKindForwarder = 'forwarder';
   static const _stampKindSymlink = 'symlink';
-  bool materializedLinksIntact(File stamp, String fingerprint) {
+  bool materializedLinksIntact(
+    File stamp,
+    String fingerprint, {
+    required String root,
+  }) {
     if (!stamp.existsSync()) return false;
     final Object? decoded;
     try {
@@ -37,6 +43,31 @@ final class SwiftPmCheckoutStampValidator {
         return false;
       }
       if (directory != null && directory is! bool) return false;
+      try {
+        final containment = SwiftPmCheckoutContainment(fileSystem);
+        containment.validateDestination(root, path);
+        if (kind == _stampKindDirectory) {
+          containment.validateTarget(root, target);
+        } else if (kind == _stampKindSymlink || kind == _stampKindHardLink) {
+          containment.validateTarget(
+            root,
+            p.normalize(p.absolute(p.dirname(path), target)),
+          );
+        } else if (kind == _stampKindForwarder) {
+          final include = RegExp(
+            r'^#include "([^"\n]+)"\n$',
+          ).firstMatch(target);
+          if (include == null) return false;
+          containment.validateTarget(
+            root,
+            p.normalize(p.absolute(p.dirname(path), include[1])),
+          );
+        }
+      } on FlutterBuildError {
+        return false;
+      } on FileSystemException {
+        return false;
+      }
       if (!linkIntact(path, kind, target, directory: directory as bool?)) {
         return false;
       }

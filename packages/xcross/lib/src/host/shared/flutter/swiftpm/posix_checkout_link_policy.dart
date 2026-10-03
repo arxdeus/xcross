@@ -35,6 +35,7 @@ final class PosixSwiftPmCheckoutFallback<T extends PlatformHostInterface>
     List<Map<String, Object?>> records,
   ) async {
     var changed = false;
+    graph.validateTargets(root, targets, resolved, symlinks: false);
     for (final link in graph.order(links, resolved)) {
       final target = resolved[link]!;
       if (fileSystem.directory(target).existsSync()) {

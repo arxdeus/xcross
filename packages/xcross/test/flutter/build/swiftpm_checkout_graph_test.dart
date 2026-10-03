@@ -213,8 +213,18 @@ void main() {
             ],
           }),
         );
-      expect(context.stamps.materializedLinksIntact(stamp, 'identity'), isTrue);
-      expect(context.stamps.materializedLinksIntact(stamp, 'other'), isFalse);
+      expect(
+        context.stamps.materializedLinksIntact(
+          stamp,
+          'identity',
+          root: root.path,
+        ),
+        isTrue,
+      );
+      expect(
+        context.stamps.materializedLinksIntact(stamp, 'other', root: root.path),
+        isFalse,
+      );
       expect(
         context.stamps.linkIntact(link, 'symlink', 'payload', directory: true),
         isFalse,
@@ -222,7 +232,11 @@ void main() {
       await Link(link).delete();
       target.deleteSync();
       expect(
-        context.stamps.materializedLinksIntact(stamp, 'identity'),
+        context.stamps.materializedLinksIntact(
+          stamp,
+          'identity',
+          root: root.path,
+        ),
         isFalse,
       );
       final placeholder = File(link)..writeAsStringSync('payload');

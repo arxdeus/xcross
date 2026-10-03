@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_attributes.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_containment.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_link_creator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_link_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_stamp.dart';
@@ -34,6 +35,11 @@ final class SwiftPmCheckoutLinks<T extends PlatformHostInterface> {
     String git,
     List<Map<String, Object?>> records,
   ) async {
+    final containment = SwiftPmCheckoutContainment(fileSystem);
+    for (final link in links.keys) {
+      containment.validateDestination(root, link);
+      containment.validateTarget(root, resolved[link]!);
+    }
     String linkText(String link) => policy.linkText(targets[link]!);
     bool intact(String link) =>
         stamps.linkIntact(link, _stampKindSymlink, linkText(link));
@@ -87,8 +93,10 @@ final class SwiftPmCheckoutLinks<T extends PlatformHostInterface> {
     for (final link in pending) {
       if (intact(link)) continue;
       final type = fileSystem.typeSync(link, followLinks: false);
-      if (type == FileSystemEntityType.link) {
-        fileSystem.link(link).deleteSync();
+      if (type == FileSystemEntityType.link ||
+          (type != FileSystemEntityType.notFound &&
+              await fileSystem.isLinkOrReparsePoint(link))) {
+        await fileSystem.deleteAlias(link);
       } else if (type == FileSystemEntityType.directory) {
         fileSystem.directory(link).deleteSync(recursive: true);
       } else if (type != FileSystemEntityType.notFound) {

@@ -63,6 +63,7 @@ final class WindowsSwiftPmCheckoutFallback<T extends PlatformHostInterface>
     final forwarders = <(String, String)>[];
     final directories = <String>[];
     var changed = false;
+    graph.validateTargets(root, targets, resolved, symlinks: false);
 
     final ordered = graph.order(links, resolved);
     for (final link in ordered) {

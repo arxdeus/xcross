@@ -81,7 +81,11 @@ final class SwiftPmCheckout<T extends PlatformHostInterface> {
 
     final head = repository.gitHeadIdentity(root);
     if (head != null &&
-        stamps.materializedLinksIntact(stamp, fingerprintOf(head))) {
+        stamps.materializedLinksIntact(
+          stamp,
+          fingerprintOf(head),
+          root: root,
+        )) {
       return false;
     }
 
@@ -92,7 +96,8 @@ final class SwiftPmCheckout<T extends PlatformHostInterface> {
       );
     }
     final fingerprint = fingerprintOf(head ?? index.stdout);
-    if (head == null && stamps.materializedLinksIntact(stamp, fingerprint)) {
+    if (head == null &&
+        stamps.materializedLinksIntact(stamp, fingerprint, root: root)) {
       return false;
     }
     return materializeGitSymlinks(
