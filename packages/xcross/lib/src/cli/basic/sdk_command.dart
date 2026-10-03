@@ -36,7 +36,7 @@ final class SdkInstallCommand<T extends PlatformHostInterface>
 
   @override
   String get description =>
-      'Extract a host-neutral Darwin Swift SDK from an Xcode.xip or Xcode.ap_paths.';
+      'Extract a host-neutral Darwin Swift SDK from an Xcode.xip or Xcode.app.';
 
   @override
   String get invocation => 'xcross sdk install <path-to-Xcode.xip|Xcode.app>';

@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:xcross/src/cli/basic/sdk_install.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/errors.dart';
@@ -11,6 +13,59 @@ import 'sdk_test_support.dart';
 void main() {
   final sdkContext = SdkTestContext();
   final installer = sdkContext.installer();
+
+  for (final root in [
+    r'C:\fixture\Darwin.artifactbundle',
+    r'\\server\share\Darwin.artifactbundle',
+  ]) {
+    test('writes host-relative Windows SDK metadata for $root', () async {
+      final temp = Directory.systemTemp.createTempSync(
+        'xcross-sdk-win-metadata-',
+      );
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final paths = WindowsHost(currentDirectory: r'C:\fixture').paths;
+      final fileSystem = WindowsSdkMetadataFileSystemFixture(paths, root, temp);
+      final host = WindowsHost(paths: paths, fileSystem: fileSystem);
+      final runner = ProcessRunner(host, log: sdkContext.log);
+      final repository = DarwinSdkRepository(host, log: sdkContext.log);
+      final sdkRoot = paths.context.join(
+        root,
+        'Developer',
+        'Platforms',
+        'iPhoneOS.platform',
+        'Developer',
+        'SDKs',
+        'iPhoneOS18.2.sdk',
+      );
+      final installation = SdkInstall(
+        runner,
+        repository,
+        links: MaterializedSdkArchiveLinks(host),
+        swiftInstallGuidance: 'fixture',
+        swiftBuildTools: const ['swift-build'],
+        metadataPlatforms: [WindowsSdkMetadataPlatformFixture(sdkRoot)],
+      );
+      await installation.writeSwiftSdkBundleMetadata(root);
+      final metadata =
+          jsonDecode(
+                File(p.join(temp.path, 'swift-sdk.json')).readAsStringSync(),
+              )
+              as Map<String, dynamic>;
+      final target =
+          (metadata['targetTriples']
+                  as Map<String, dynamic>)[const IPhoneBuildPlatform()
+                  .swiftSdkTriple]
+              as Map<String, dynamic>;
+      expect(
+        target['sdkRootPath'],
+        'Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.2.sdk',
+      );
+      expect(target['includeSearchPaths'], [
+        'Developer/Platforms/iPhoneOS.platform/Developer/usr/lib',
+        'Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.2.sdk/usr/include/c++/v1',
+      ]);
+    });
+  }
 
   test('materializes the Swift compatibility layout', () async {
     final temp = Directory.systemTemp.createTempSync('xcross-sdk-layout-');
@@ -369,4 +424,46 @@ void main() {
       },
     );
   });
+}
+
+final class WindowsSdkMetadataPlatformFixture
+    implements SdkMetadataPlatformInterface<WindowsHost> {
+  const WindowsSdkMetadataPlatformFixture(this.sdkRoot);
+  final String sdkRoot;
+  @override
+  IosBuildPlatformInterface get buildPlatform => const IPhoneBuildPlatform();
+  @override
+  String resolveSdkRoot(
+    DarwinSdkRepository<WindowsHost> repository,
+    DarwinSdk sdk,
+  ) => sdkRoot;
+}
+
+final class WindowsSdkMetadataFileSystemFixture
+    implements HostFileSystemInterface {
+  const WindowsSdkMetadataFileSystemFixture(
+    this.paths,
+    this.root,
+    this.backing,
+  );
+  final HostPathsInterface paths;
+  final String root;
+  final Directory backing;
+  String localPath(String path) => p.joinAll([
+    backing.path,
+    ...paths.context.relative(path, from: root).split(r'\'),
+  ]);
+  @override
+  File file(String path) => File(localPath(path));
+  @override
+  Directory directory(String path) => Directory(localPath(path));
+  @override
+  Link link(String path) => Link(localPath(path));
+  @override
+  void makeExecutable(String path) => throw UnsupportedError(path);
+  @override
+  void setPermissions(String path, int mode) => throw UnsupportedError(path);
+  @override
+  Future<void> createArchiveLink(String destination, String target) =>
+      throw UnsupportedError(destination);
 }

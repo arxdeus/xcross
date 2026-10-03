@@ -110,7 +110,7 @@ final class SdkBundleMetadataWriter<T extends PlatformHostInterface> {
         '${target.platformName} SDK.',
       );
     }
-    final relativeSdkRoot = p
+    final relativeSdkRoot = _paths
         .relative(sdkRoot, from: artifactRoot)
         .replaceAll(r'\', '/');
     final toolchainCxx = _paths.join(
