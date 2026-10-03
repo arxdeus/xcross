@@ -15,8 +15,9 @@ final class WindowsSwiftPmGate implements SwiftPmGateOperation {
       (candidate) => candidate.name == arguments[1],
     );
     final services = await loader.loadSwiftPmGate();
-    if (services.cacheRoot.isEmpty)
+    if (services.cacheRoot.isEmpty) {
       throw StateError('XCROSS_CACHE_DIR is required');
+    }
     final passed = await services.verify(
       root: p.join(services.cacheRoot, 'swiftpm', 'gate-evidence-v2'),
       mode: mode,
