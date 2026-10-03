@@ -7,10 +7,10 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:crypto/crypto.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/flutter/build/internal/swiftpm_binary_fixture.dart';
-import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/gate_mode.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
 
-enum SwiftPmGateMode { swiftPmArtifact, packageLocalArtifact }
+export 'package:xcross/src/shared/flutter/swiftpm/gate_mode.dart';
 
 typedef SwiftPmGateProbe =
     Future<bool> Function({
@@ -37,12 +37,13 @@ typedef SwiftPmGateRun =
       Map<String, String>? environment,
     });
 
-final _probeResults = <String, Future<bool>>{};
 const _gateImplementationVersion = 3;
 const _extractorBuildVersion = 'xcross-1.3.1-swiftpm-gate-3';
 
-final class SwiftPmGateEvidence {
-  const SwiftPmGateEvidence(this.root);
+final class SwiftPmGateEvidence<T extends PlatformHostInterface> {
+  SwiftPmGateEvidence(this.root, this.runtime);
+  final SwiftPmRuntime<T> runtime;
+  final _probeResults = <String, Future<bool>>{};
 
   final String root;
 
@@ -51,14 +52,26 @@ final class SwiftPmGateEvidence {
     required String platformIdentity,
     required String toolchainIdentity,
     required String sdkIdentity,
-    SwiftPmGateProbe probe = probeSwiftPmGate,
+    SwiftPmGateProbe? probe,
     SwiftPmGateRuntimeBinding? runtimeBinding,
   }) async {
-    if (!Platform.isWindows && platformIdentity.startsWith('windows-')) {
-      return false;
-    }
+    if (platformIdentity != runtime.sdkIdentity.platformIdentity) return false;
     try {
-      final resolveRuntime = runtimeBinding ?? _defaultRuntimeBinding;
+      final resolveRuntime = runtimeBinding ?? defaultRuntimeBinding;
+      final runProbe =
+          probe ??
+          ({
+            required mode,
+            required root,
+            required toolchainIdentity,
+            required sdkIdentity,
+          }) => this.runtime.hostPolicy.gatePlatform.probe(
+            this.runtime,
+            mode: mode,
+            root: root,
+            toolchainIdentity: toolchainIdentity,
+            sdkIdentity: sdkIdentity,
+          );
       final runtime = await resolveRuntime(
         mode: mode,
         root: root,
@@ -85,7 +98,7 @@ final class SwiftPmGateEvidence {
           .toString();
       final result = _probeResults.putIfAbsent(cacheKey, () async {
         try {
-          final passed = await probe(
+          final passed = await runProbe(
             mode: mode,
             root: root,
             toolchainIdentity: toolchainIdentity,
@@ -133,7 +146,11 @@ final class SwiftPmGateEvidence {
     final result = File(p.join(target.path, 'probe-result.bin'))
       ..writeAsBytesSync(nonce, flush: true);
     final alias = p.join(proof.path, 'junction');
-    if (!await _createProofAlias(alias, target.path)) {
+    if (!await runtime.hostPolicy.gatePlatform.createProofAlias(
+      runtime,
+      alias,
+      target.path,
+    )) {
       await proof.delete(recursive: true);
       throw StateError('Could not create proof junction');
     }
@@ -182,40 +199,50 @@ final class SwiftPmGateEvidence {
         p.normalize(await target.resolveSymbolicLinks())) {
       return false;
     }
-    return !Platform.isWindows || await _isJunction(alias.path);
+    return runtime.hostPolicy.gatePlatform.verifyAlias(
+      runtime,
+      alias.path,
+      target.path,
+    );
+  }
+
+  Future<Map<String, Object?>?> defaultRuntimeBinding({
+    required SwiftPmGateMode mode,
+    required String root,
+    required String platformIdentity,
+    required String toolchainIdentity,
+    required String sdkIdentity,
+  }) async {
+    final toolchain = decodedSwiftPmGateMap(toolchainIdentity);
+    final sdk = decodedSwiftPmGateMap(sdkIdentity);
+    if (toolchain == null || sdk == null) return null;
+    if (!await validSwiftPmGateToolchainIdentity(toolchain) ||
+        !await validSwiftPmGateSdkIdentity(
+          sdk,
+          repository: runtime.sdkRepository,
+        )) {
+      return null;
+    }
+    await Directory(root).create(recursive: true);
+    final volume = await runtime.hostPolicy.gatePlatform.volumeIdentity(
+      runtime,
+      root,
+    );
+    if (volume == null) return null;
+    return {
+      'formatVersion': 3,
+      'gateImplementationVersion': _gateImplementationVersion,
+      'extractorBuildVersion': _extractorBuildVersion,
+      'mode': mode.name,
+      'platform': platformIdentity,
+      'toolchain': toolchain,
+      'sdk': sdk,
+      'volume': volume,
+    };
   }
 }
 
-Future<Map<String, Object?>?> _defaultRuntimeBinding({
-  required SwiftPmGateMode mode,
-  required String root,
-  required String platformIdentity,
-  required String toolchainIdentity,
-  required String sdkIdentity,
-}) async {
-  final toolchain = _decodedMap(toolchainIdentity);
-  final sdk = _decodedMap(sdkIdentity);
-  if (toolchain == null || sdk == null) return null;
-  if (!await validSwiftPmGateToolchainIdentity(toolchain) ||
-      !await validSwiftPmGateSdkIdentity(sdk)) {
-    return null;
-  }
-  await Directory(root).create(recursive: true);
-  final volume = await _volumeIdentity(root);
-  if (volume == null) return null;
-  return {
-    'formatVersion': 3,
-    'gateImplementationVersion': _gateImplementationVersion,
-    'extractorBuildVersion': _extractorBuildVersion,
-    'mode': mode.name,
-    'platform': platformIdentity,
-    'toolchain': toolchain,
-    'sdk': sdk,
-    'volume': volume,
-  };
-}
-
-Map<String, Object?>? _decodedMap(String encoded) {
+Map<String, Object?>? decodedSwiftPmGateMap(String encoded) {
   try {
     final value = jsonDecode(encoded);
     return value is Map ? Map<String, Object?>.from(value) : null;
@@ -264,10 +291,13 @@ Future<bool> validSwiftPmGateToolchainIdentity(
   return true;
 }
 
-Future<bool> validSwiftPmGateSdkIdentity(Map<String, Object?> identity) async {
+Future<bool> validSwiftPmGateSdkIdentity(
+  Map<String, Object?> identity, {
+  required DarwinSdkRepository repository,
+}) async {
   if (identity['path'] is! String || identity['metadata'] is! Map) return false;
   final root = identity['path']! as String;
-  if (!DarwinSdk.isValidBundle(root)) return false;
+  if (!repository.isValidBundle(root)) return false;
   final metadata = identity['metadata']! as Map;
   if (metadata.isEmpty) return false;
   for (final entry in metadata.entries) {
@@ -289,296 +319,6 @@ Future<bool> validSwiftPmGateSdkIdentity(Map<String, Object?> identity) async {
     }
   }
   return true;
-}
-
-Future<String?> _volumeIdentity(String path) async {
-  if (!Platform.isWindows) {
-    final stat = await FileStat.stat(path);
-    return '${stat.mode}:${stat.changed.microsecondsSinceEpoch}';
-  }
-  final result = await _runBounded('fsutil.exe', [
-    'fsinfo',
-    'volumeinfo',
-    p.windows.rootPrefix(p.windows.absolute(path)),
-  ], timeout: const Duration(seconds: 5));
-  if (result.exitCode != 0) return null;
-  final match = RegExp(
-    r'Volume Serial Number\s*:\s*(\S+)',
-    caseSensitive: false,
-  ).firstMatch('${result.stdout}');
-  return match?.group(1)?.toLowerCase();
-}
-
-int _secureRandomByte() => Random.secure().nextInt(256);
-
-Future<bool> _createProofAlias(String alias, String target) async {
-  if (Platform.isWindows) return _createJunction(alias, target, _runBounded);
-  await Link(alias).create(target);
-  return Directory(alias).existsSync();
-}
-
-Future<bool> _isJunction(String path) async {
-  final result = await _runBounded('fsutil.exe', [
-    'reparsepoint',
-    'query',
-    path,
-  ], timeout: const Duration(seconds: 5));
-  return result.exitCode == 0 &&
-      RegExp('0xa0000003', caseSensitive: false).hasMatch('${result.stdout}');
-}
-
-Future<bool> probeSwiftPmGate({
-  required SwiftPmGateMode mode,
-  required String root,
-  required String toolchainIdentity,
-  required String sdkIdentity,
-  SwiftPmGateRun run = _runBounded,
-  bool? windows,
-}) async {
-  if (!(windows ?? Platform.isWindows)) return false;
-  Directory? probeRoot;
-  var stage = 'validating toolchain';
-  try {
-    final identity = jsonDecode(toolchainIdentity);
-    if (identity is! Map) return false;
-    final swiftPackage = await _boundExecutable(identity['swift-package'], run);
-    final swiftBuild = await _boundExecutable(identity['swift-build'], run);
-    if (swiftPackage == null ||
-        swiftBuild == null ||
-        !await validSwiftPmGateToolchainIdentity(
-          Map<String, Object?>.from(identity),
-        )) {
-      return false;
-    }
-    String toolPath(String name) => (identity[name] as Map)['path']! as String;
-    final encodedSdk = _decodedMap(sdkIdentity);
-    final sdkPath = encodedSdk?['path'];
-    if (sdkPath is! String) return false;
-    final sdk = DarwinSdk(sdkPath);
-    if (!DarwinSdk.isValidBundle(sdkPath) ||
-        p.normalize(sdk.swiftSdkPath) != p.normalize(sdkPath)) {
-      return false;
-    }
-
-    stage = 'creating fixture';
-    final probeParent = Directory(p.join(root, '.probe-${mode.name}'));
-    await probeParent.create(recursive: true);
-    probeRoot = await probeParent.createTemp('run-');
-    final fixture = SwiftPmBinaryFixture.generateXcframework(
-      root: probeRoot.path,
-      name: 'GateFixture',
-    );
-    final package = Directory(p.join(probeRoot.path, 'package'))..createSync();
-    final scratch = p.join(probeRoot.path, 'scratch');
-    String? junction;
-
-    if (mode == SwiftPmGateMode.packageLocalArtifact) {
-      junction = p.join(package.path, 'artifacts', 'GateFixture.xcframework');
-      Directory(p.dirname(junction)).createSync();
-      SwiftPmBinaryFixture.writeGatePackage(
-        root: package.path,
-        targetName: 'GateFixture',
-        path: 'artifacts/GateFixture.xcframework',
-      );
-      stage = 'creating package-local junction';
-      if (!await _createJunction(junction, fixture.path, run)) return false;
-    } else {
-      SwiftPmBinaryFixture.archiveXcframework(
-        framework: fixture,
-        output: p.join(package.path, 'GateFixture.zip'),
-      );
-      SwiftPmBinaryFixture.writeGatePackage(
-        root: package.path,
-        targetName: 'GateFixture',
-        path: 'GateFixture.zip',
-      );
-    }
-
-    stage = 'writing toolset';
-    final toolset = await GeneratedPluginsPackage.writeToolset(
-      outputDir: package.path,
-      linkerPath: toolPath('ld64.lld'),
-      cCompilerPath: toolPath('clang'),
-      cxxCompilerPath: toolPath('clang++'),
-      librarianPath: toolPath('librarian'),
-      windows: true,
-    );
-    final swiftSdksPath = p.dirname(sdkPath);
-    final resolve = GeneratedPluginsPackage.swiftResolveArguments(
-      pluginsDir: package.path,
-      scratchPath: scratch,
-      swiftSdksPath: swiftSdksPath,
-      toolsetPath: toolset,
-    );
-    final build = GeneratedPluginsPackage.swiftBuildArguments(
-      pluginsDir: package.path,
-      scratchPath: scratch,
-      swiftSdksPath: swiftSdksPath,
-      iosSdk: sdk.iPhoneOSSdk(),
-      flutterFrameworkSlice: package.path,
-      toolsetPath: toolset,
-      windows: true,
-    );
-    final environment = GeneratedPluginsPackage.swiftProcessEnvironment(
-      windows: true,
-    );
-
-    if (mode == SwiftPmGateMode.swiftPmArtifact) {
-      if (!await _runSwift(
-        swiftPackage,
-        resolve.skip(1).toList(),
-        environment,
-        run,
-      )) {
-        return false;
-      }
-      final artifacts = Directory(scratch)
-          .listSync(recursive: true, followLinks: false)
-          .whereType<Directory>()
-          .where((entry) => p.basename(entry.path) == 'GateFixture.xcframework')
-          .toList();
-      if (artifacts.length != 1) return false;
-      junction = artifacts.single.path;
-      await artifacts.single.delete(recursive: true);
-      if (!await _createJunction(junction, fixture.path, run)) return false;
-    }
-
-    for (var repetition = 0; repetition < 2; repetition++) {
-      stage = 'resolve ${repetition + 1}';
-      if (!await _runSwift(
-        swiftPackage,
-        resolve.skip(1).toList(),
-        environment,
-        run,
-      )) {
-        return false;
-      }
-      stage = 'build ${repetition + 1}';
-      if (!await _runSwift(
-        swiftBuild,
-        build.skip(1).toList(),
-        environment,
-        run,
-      )) {
-        return false;
-      }
-      stage = 'verifying junction ${repetition + 1}';
-      final actual = p.normalize(
-        await Directory(junction!).resolveSymbolicLinks(),
-      );
-      final expected = p.normalize(await fixture.resolveSymbolicLinks());
-      if (!p.equals(actual, expected)) {
-        stderr.writeln(
-          'SwiftPM junction gate target mismatch at $stage: '
-          'expected $expected, got $actual',
-        );
-        return false;
-      }
-    }
-    return true;
-  } on Object catch (error, stackTrace) {
-    stderr.writeln('SwiftPM junction gate failed at $stage: $error');
-    stderr.writeln(stackTrace);
-    return false;
-  } finally {
-    if (probeRoot != null && probeRoot.existsSync()) {
-      await probeRoot.delete(recursive: true);
-      final parent = probeRoot.parent;
-      if (parent.existsSync() && parent.listSync().isEmpty) {
-        await parent.delete();
-      }
-    }
-  }
-}
-
-Future<String?> _boundExecutable(Object? encoded, SwiftPmGateRun run) async {
-  if (encoded is! Map ||
-      encoded['path'] is! String ||
-      encoded['version'] is! String) {
-    return null;
-  }
-  final recordedPath = encoded['path'] as String;
-  if (recordedPath.isEmpty || !File(recordedPath).existsSync()) return null;
-  final resolvedPath = await File(recordedPath).resolveSymbolicLinks();
-  if (p.normalize(resolvedPath) != p.normalize(recordedPath)) return null;
-  final result = await run(resolvedPath, const [
-    '--version',
-  ], timeout: const Duration(seconds: 5));
-  final output = '${result.stdout}'.trim().isEmpty
-      ? '${result.stderr}'.trim()
-      : '${result.stdout}'.trim();
-  if (result.exitCode != 0 ||
-      output.split(RegExp(r'\r?\n')).first != encoded['version']) {
-    return null;
-  }
-  return resolvedPath;
-}
-
-Future<bool> _createJunction(
-  String alias,
-  String target,
-  SwiftPmGateRun run,
-) async {
-  final result = await run('cmd.exe', [
-    '/c',
-    'mklink',
-    '/J',
-    p.windows.normalize(alias),
-    p.windows.normalize(target),
-  ], timeout: const Duration(seconds: 5));
-  return result.exitCode == 0 && Directory(alias).existsSync();
-}
-
-Future<bool> _runSwift(
-  String swift,
-  List<String> arguments,
-  Map<String, String>? environment,
-  SwiftPmGateRun run,
-) async {
-  final result = await run(
-    swift,
-    arguments,
-    environment: environment,
-    timeout: const Duration(minutes: 5),
-  );
-  if (result.exitCode != 0) {
-    stderr.writeln(
-      'SwiftPM junction gate command failed (${result.exitCode}): '
-      '${result.stderr}\n${result.stdout}',
-    );
-    return false;
-  }
-  return true;
-}
-
-Future<ProcessResult> _runBounded(
-  String executable,
-  List<String> arguments, {
-  required Duration timeout,
-  Map<String, String>? environment,
-}) async {
-  final process = await ProcessRunner.start(
-    executable,
-    arguments,
-    environment: environment,
-  );
-  try {
-    final output = process.stdout
-        .transform(const Utf8Decoder(allowMalformed: true))
-        .join();
-    final error = process.stderr
-        .transform(const Utf8Decoder(allowMalformed: true))
-        .join();
-    final exitCode = await process.exitCode.timeout(timeout);
-    return ProcessResult(process.pid, exitCode, await output, await error);
-  } on TimeoutException {
-    process.kill();
-    await process.exitCode.timeout(
-      const Duration(seconds: 2),
-      onTimeout: () => -1,
-    );
-    rethrow;
-  }
 }
 
 final class DeepCollectionEquality {
@@ -603,3 +343,5 @@ final class DeepCollectionEquality {
     return left == right;
   }
 }
+
+int _secureRandomByte() => Random.secure().nextInt(256);

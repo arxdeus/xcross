@@ -5,6 +5,25 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/flutter/build/internal/windows_swift_plan_repair.dart';
 import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/build_plan.dart';
+
+import 'swiftpm_test_context.dart';
+
+final _swiftPmRuntime = testSwiftPmRuntime();
+final _windowsRuntime = testWindowsSwiftPmRuntime();
+final _simulatorRuntime = testSimulatorSwiftPmRuntime();
+final _windowsSimulatorRuntime = testWindowsSimulatorSwiftPmRuntime();
+final _windowsRepairs = WindowsSwiftPlanRepair(_windowsRuntime.runner);
+final _plugins = GeneratedPluginsPackage(
+  _swiftPmRuntime.targetPolicy,
+  runner: _swiftPmRuntime.runner,
+  sdkRepository: _swiftPmRuntime.sdkRepository,
+  toolchain: _swiftPmRuntime.toolchainResolver,
+  tools: _swiftPmRuntime.tools,
+  hostPolicy: _swiftPmRuntime.hostPolicy,
+  artifactFileSystem: _swiftPmRuntime.artifactFileSystem,
+  sdkIdentity: _swiftPmRuntime.sdkIdentity,
+);
 
 void main() {
   test('reads only generated response files inside the scratch cache', () {
@@ -61,21 +80,18 @@ void main() {
         p.join(scratch.path, 'debug.yaml'),
       ).writeAsStringSync('    args: ${jsonEncode(arguments)}\n');
       expect(
-        GeneratedPluginsPackage.manifestCarriesInteropSearchPaths(
+        SwiftPmBuildPlan.manifestCarriesInteropSearchPaths(
           scratch.path,
           interop,
         ),
         isTrue,
       );
       expect(
-        await GeneratedPluginsPackage.repairWindowsSwiftResponseFiles(
-          scratch.path,
-          windows: true,
-        ),
+        await _windowsRepairs.repairWindowsSwiftResponseFiles(scratch.path),
         isTrue,
       );
       expect(
-        GeneratedPluginsPackage.manifestCarriesInteropSearchPaths(
+        SwiftPmBuildPlan.manifestCarriesInteropSearchPaths(
           scratch.path,
           interop,
         ),
@@ -98,10 +114,7 @@ void main() {
         ..writeAsStringSync(
           '    args: ${jsonEncode(['swiftc.exe', '-D', 'A' * 29000])}\n',
         );
-      await GeneratedPluginsPackage.repairWindowsSwiftResponseFiles(
-        scratch,
-        windows: true,
-      );
+      await _windowsRepairs.repairWindowsSwiftResponseFiles(scratch);
       final reference =
           (jsonDecode(plan.readAsLinesSync().single.substring(10)) as List)
               .cast<String>()
@@ -113,10 +126,7 @@ void main() {
       response.setLastModifiedSync(
         DateTime.now().subtract(const Duration(days: 30)),
       );
-      await GeneratedPluginsPackage.repairWindowsSwiftResponseFiles(
-        scratch,
-        windows: true,
-      );
+      await _windowsRepairs.repairWindowsSwiftResponseFiles(scratch);
       expect(response.existsSync(), isTrue);
     },
   );
@@ -128,9 +138,7 @@ void main() {
       r'ends\',
       '😀',
     ];
-    final measured = GeneratedPluginsPackage.windowsCommandLineLength(
-      arguments,
-    );
+    final measured = WindowsSwiftPlanRepair.windowsCommandLineLength(arguments);
     expect(measured, greaterThan(arguments.join(' ').length));
     expect(measured, greaterThan(0));
   });
@@ -147,18 +155,12 @@ void main() {
       final original = '    args: ${jsonEncode(args)}\n';
       await plan.writeAsString(original);
       expect(
-        await GeneratedPluginsPackage.repairWindowsSwiftResponseFiles(
-          root.path,
-          windows: false,
-        ),
+        await _swiftPmRuntime.hostPolicy.repairBuildPlan(root.path, root.path),
         isFalse,
       );
       expect(await plan.readAsString(), original);
       expect(
-        await GeneratedPluginsPackage.repairWindowsSwiftResponseFiles(
-          root.path,
-          windows: true,
-        ),
+        await _windowsRepairs.repairWindowsSwiftResponseFiles(root.path),
         isTrue,
       );
       final rewritten =
@@ -188,10 +190,7 @@ void main() {
     final plan = File(p.join(root.path, 'debug.yaml'))
       ..writeAsStringSync('    args: ${jsonEncode(args)}\n');
     expect(
-      await GeneratedPluginsPackage.repairWindowsSwiftResponseFiles(
-        root.path,
-        windows: true,
-      ),
+      await _windowsRepairs.repairWindowsSwiftResponseFiles(root.path),
       isTrue,
     );
     final rewritten =
@@ -223,10 +222,7 @@ void main() {
         'commands:\n    args: ${jsonEncode(arguments)}\n$short\n$other\n',
       );
       expect(
-        await GeneratedPluginsPackage.repairWindowsSwiftResponseFiles(
-          root.path,
-          windows: false,
-        ),
+        await _swiftPmRuntime.hostPolicy.repairBuildPlan(root.path, root.path),
         isFalse,
       );
       expect(
@@ -238,10 +234,7 @@ void main() {
         'commands:\n    args: ${jsonEncode(arguments)}\n$short\n$other\n',
       );
       expect(
-        await GeneratedPluginsPackage.repairWindowsSwiftResponseFiles(
-          root.path,
-          windows: true,
-        ),
+        await _windowsRepairs.repairWindowsSwiftResponseFiles(root.path),
         isTrue,
       );
       final lines = await plan.readAsLines();
@@ -269,10 +262,7 @@ void main() {
       File(invocation.last.substring(1)).setLastModifiedSync(old);
       final content = await plan.readAsString();
       expect(
-        await GeneratedPluginsPackage.repairWindowsSwiftResponseFiles(
-          root.path,
-          windows: true,
-        ),
+        await _windowsRepairs.repairWindowsSwiftResponseFiles(root.path),
         isFalse,
       );
       expect(await plan.readAsString(), content);

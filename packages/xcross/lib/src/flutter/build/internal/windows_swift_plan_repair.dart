@@ -54,28 +54,22 @@ const Set<String> _clangCompilers = {
 };
 
 /// Windows-only normalization of SwiftPM's generated build plans.
-abstract final class WindowsSwiftPlanRepair {
-  static Future<bool> repairWindowsGeneratedBuildFiles(
+final class WindowsSwiftPlanRepair {
+  WindowsSwiftPlanRepair(this.runner);
+  final ProcessRunner runner;
+  Future<bool> repairWindowsGeneratedBuildFiles(
     String scratchPath,
-    String targetBuildDir, {
-    bool? windows,
-  }) async {
-    if (!(windows ?? Platform.isWindows)) return false;
+    String targetBuildDir,
+  ) async {
     final root = Directory(targetBuildDir);
     if (!root.existsSync()) return false;
-    var changed = await repairWindowsSwiftResponseFiles(
-      scratchPath,
-      windows: true,
-    );
+    var changed = await repairWindowsSwiftResponseFiles(scratchPath);
     changed = await _repairJsonPlans(root, scratchPath) || changed;
     changed = await _repairResourceBundleAccessors(root) || changed;
     return changed;
   }
 
-  static Future<bool> _repairJsonPlans(
-    Directory root,
-    String scratchPath,
-  ) async {
+  Future<bool> _repairJsonPlans(Directory root, String scratchPath) async {
     var changed = false;
     for (final json in [
       ..._filesUnder(root).where((file) => p.extension(file.path) == '.json'),
@@ -99,7 +93,6 @@ abstract final class WindowsSwiftPlanRepair {
         normalized = await stageWindowsDirectoryCopyInputs(
           normalized,
           scratchPath,
-          windows: true,
         );
       }
       if (normalized != original) {
@@ -135,11 +128,7 @@ abstract final class WindowsSwiftPlanRepair {
 
   /// llbuild's shell commands bypass compiler response-file fallback.
   /// Keep the generated graph intact, replacing only oversized compiler argv.
-  static Future<bool> repairWindowsSwiftResponseFiles(
-    String scratchPath, {
-    bool? windows,
-  }) async {
-    if (!(windows ?? Platform.isWindows)) return false;
+  Future<bool> repairWindowsSwiftResponseFiles(String scratchPath) async {
     var changed = false;
     for (final plan in _llbuildPlans(scratchPath)) {
       final lines = (await plan.readAsString()).split('\n');
@@ -345,12 +334,10 @@ abstract final class WindowsSwiftPlanRepair {
   /// Foundation's copy command cannot read some extended-length directory
   /// inputs on Windows. Present only those inputs through a short junction
   /// inside this build's scratch directory; vendor sources stay unchanged.
-  static Future<String> stageWindowsDirectoryCopyInputs(
+  Future<String> stageWindowsDirectoryCopyInputs(
     String description,
-    String scratchPath, {
-    bool? windows,
-  }) async {
-    if (!(windows ?? Platform.isWindows)) return description;
+    String scratchPath,
+  ) async {
     final decoded = jsonDecode(description);
     var changed = false;
     for (final input in _directoryCopyInputs(decoded)) {
@@ -408,7 +395,7 @@ abstract final class WindowsSwiftPlanRepair {
   static String _encodeDescription(Object? description) =>
       const JsonEncoder.withIndent('  ').convert(description);
 
-  static Future<void> _ensureWindowsDirectoryCopyAlias(
+  Future<void> _ensureWindowsDirectoryCopyAlias(
     String alias,
     String source,
   ) async {
@@ -424,15 +411,12 @@ abstract final class WindowsSwiftPlanRepair {
       // New-Item treats brackets in the target as wildcard syntax.
       String literal(String path) => "'${path.replaceAll("'", "''")}'";
       final literalTarget = target.replaceAll('[', '`[').replaceAll(']', '`]');
-      final result = await ProcessRunner.run(
-        await ProcessRunner.locateTool('powershell.exe'),
-        [
-          '-NoProfile',
-          '-NonInteractive',
-          '-Command',
-          'New-Item -ItemType Junction -Path ${literal(alias)} -Target ${literal(literalTarget)} | Out-Null',
-        ],
-      );
+      final result = await runner.run(await runner.locateTool('powershell.exe'), [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        'New-Item -ItemType Junction -Path ${literal(alias)} -Target ${literal(literalTarget)} | Out-Null',
+      ]);
       if (result.exitCode != 0 &&
           FileSystemEntity.typeSync(alias, followLinks: false) ==
               FileSystemEntityType.notFound) {
@@ -441,10 +425,11 @@ abstract final class WindowsSwiftPlanRepair {
         );
       }
     }
-    final mount = await ProcessRunner.run(
-      await ProcessRunner.locateTool('fsutil.exe'),
-      ['reparsepoint', 'query', alias],
-    );
+    final mount = await runner.run(await runner.locateTool('fsutil.exe'), [
+      'reparsepoint',
+      'query',
+      alias,
+    ]);
     if (mount.exitCode != 0 ||
         !isWindowsMountPointReparseOutput(mount.stdout) ||
         !p.windows.equals(

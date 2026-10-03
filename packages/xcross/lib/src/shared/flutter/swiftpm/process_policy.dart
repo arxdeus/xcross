@@ -1,0 +1,131 @@
+import 'package:cli_kit/cli_kit.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
+
+const String flutterFrameworkPackageName = 'FlutterFramework';
+const String pluginsProductName = 'FlutterPluginsGenerated';
+
+final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
+  SwiftPmProcessPolicy(this.runtime);
+  final SwiftPmRuntime<T> runtime;
+
+  /// Environment that makes Git — and anything spawning it, including
+  /// SwiftPM's own dependency resolution — fail instead of waiting on a
+  /// human.
+  ///
+  /// Nothing is attached to this build's stdin: our runners pipe it and
+  /// SwiftPM pipes its children too. So when a vendored dependency's
+  /// repository has moved, gone private, or started rate-limiting, Git's
+  /// default answer — prompt for credentials — is a prompt no one can see
+  /// or answer, and the child waits forever. On Windows, Git Credential
+  /// Manager escalates that to an invisible GUI dialog. That is how a CI
+  /// job sits for hours inside `Building Flutter plugins` printing nothing.
+  ///
+  /// * `GIT_TERMINAL_PROMPT=0` refuses username/password prompts on a tty.
+  /// * Empty `GIT_ASKPASS`/`SSH_ASKPASS` with `SSH_ASKPASS_REQUIRE=never`
+  ///   disables the graphical fallbacks Git uses when there is no tty.
+  /// * `GCM_INTERACTIVE=never` and `GCM_PROVIDER=none` keep Git Credential
+  ///   Manager from opening a window of its own.
+  /// * `GIT_SSH_COMMAND` with `BatchMode=yes` fails an SSH remote outright
+  ///   instead of asking for a passphrase or host-key confirmation.
+  ///
+  /// Each one turns a silent hang into an ordinary clone failure whose
+  /// message names the repository that could not be read.
+  static const Map<String, String> nonInteractiveGitEnvironment = {
+    'GIT_TERMINAL_PROMPT': '0',
+    'GIT_ASKPASS': '',
+    'SSH_ASKPASS': '',
+    'SSH_ASKPASS_REQUIRE': 'never',
+    'GCM_INTERACTIVE': 'never',
+    'GCM_PROVIDER': 'none',
+    'GIT_SSH_COMMAND':
+        'ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new',
+  };
+
+  /// Git settings applied through `GIT_CONFIG_*`, in order.
+  ///
+  /// Resetting `credential.helper` closes the last door: a helper
+  /// configured system-wide — Git Credential Manager on the Windows
+  /// runners, `osxkeychain` on a developer's Mac — is consulted before any
+  /// prompt setting applies, and it can block on its own UI. Clearing the
+  /// list leaves Git with nobody to ask.
+  ///
+  /// The value is `""`, not the empty string: Git parses `GIT_CONFIG_VALUE_*`
+  /// the way it parses a config file, and rejects a genuinely empty one with
+  /// "missing config value ... fatal: unable to parse command-line config",
+  /// which would fail every git command this build runs rather than only the
+  /// ones that need credentials. Two quotes are the config-file spelling of
+  /// an empty value, and an empty `credential.helper` is what resets the
+  /// list.
+  ///
+  /// `core.symlinks=false` keeps Windows checkouts on placeholder files
+  /// that [materializeGitCheckoutSymlinks] converts afterwards. Our own
+  /// clones override it per command with `-c core.symlinks=true` where the
+  /// host can create real symlinks; a command-line `-c` outranks these.
+  List<({String key, String value})> gitConfigEntries() => [
+    (key: 'credential.helper', value: '""'),
+    (key: 'credential.interactive', value: 'false'),
+    (key: 'http.lowSpeedLimit', value: '1024'),
+    (key: 'http.lowSpeedTime', value: '60'),
+    for (
+      var index = 0;
+      index < runtime.hostPolicy.gitConfiguration.length;
+      index += 2
+    )
+      (
+        key: runtime.hostPolicy.gitConfiguration[index],
+        value: runtime.hostPolicy.gitConfiguration[index + 1],
+      ),
+  ];
+  bool get sourceFallbackActive =>
+      runtime.sourceFallbackOverride ?? runtime.hostPolicy.sourceFallbackActive;
+  Map<String, String> swiftProcessEnvironment({
+    String? executable,
+    Map<String, String>? environment,
+  }) {
+    final config = gitConfigEntries();
+    return {
+      ...nonInteractiveGitEnvironment,
+      'GIT_CONFIG_COUNT': '${config.length}',
+      for (final (index, entry) in config.indexed) ...{
+        'GIT_CONFIG_KEY_$index': entry.key,
+        'GIT_CONFIG_VALUE_$index': entry.value,
+      },
+      ...runtime.hostPolicy.sourceEnvironment,
+      ...runtime.hostPolicy.bundledToolEnvironment(
+        runtime.host,
+        executable ?? runtime.tools.executable,
+        environment ?? runtime.runner.effectiveEnvironment,
+      ),
+    };
+  }
+
+  /// Resolves Windows dependencies before tracked symlink placeholders are
+  /// materialized and automatic resolution is disabled for the build.
+  List<String> swiftResolveArguments({
+    required String pluginsDir,
+    required String scratchPath,
+    required String swiftSdksPath,
+    required String toolsetPath,
+    String swiftSdkTriple = 'arm64-apple-ios',
+  }) => [
+    ...runtime.hostPolicy.packagePrefix,
+    ...hostManifestArguments(),
+    '--package-path',
+    pluginsDir,
+    '--scratch-path',
+    scratchPath,
+    '--swift-sdks-path',
+    swiftSdksPath,
+    '--swift-sdk',
+    swiftSdkTriple,
+    '--toolset',
+    toolsetPath,
+    'resolve',
+  ];
+
+  /// Supply the Windows C runtime to host manifests, including remote manifests
+  /// SwiftPM evaluates before creating a checkout. Swift 6 replaced MSVCRT with
+  /// CRT, so old conditional imports otherwise leave C APIs such as getenv
+  /// unavailable. These flags affect host manifests, never iOS target sources.
+  List<String> hostManifestArguments() => runtime.hostPolicy.manifestArguments;
+}

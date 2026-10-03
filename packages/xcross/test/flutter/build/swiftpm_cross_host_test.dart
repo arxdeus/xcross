@@ -1,9 +1,30 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/flutter/build/internal/windows_swift_plan_repair.dart';
 import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
+
+import 'swiftpm_test_context.dart';
+
+final _swiftPmRuntime = testSwiftPmRuntime();
+final _windowsRuntime = testWindowsSwiftPmRuntime();
+final _simulatorRuntime = testSimulatorSwiftPmRuntime();
+final _windowsSimulatorRuntime = testWindowsSimulatorSwiftPmRuntime();
+final _windowsRepairs = WindowsSwiftPlanRepair(_windowsRuntime.runner);
+final _plugins = GeneratedPluginsPackage(
+  _swiftPmRuntime.targetPolicy,
+  runner: _swiftPmRuntime.runner,
+  sdkRepository: _swiftPmRuntime.sdkRepository,
+  toolchain: _swiftPmRuntime.toolchainResolver,
+  tools: _swiftPmRuntime.tools,
+  hostPolicy: _swiftPmRuntime.hostPolicy,
+  artifactFileSystem: _swiftPmRuntime.artifactFileSystem,
+  sdkIdentity: _swiftPmRuntime.sdkIdentity,
+);
 
 void main() {
   late Directory root;
@@ -13,25 +34,24 @@ void main() {
   test('prefers bundled xcrun using the Windows PATH list separator', () {
     File(p.join(root.path, 'xcrun.exe')).writeAsStringSync('tool');
     final executable = p.join(root.path, 'xcross.exe');
-    Map<String, String> environment(String path, {required bool windows}) =>
-        GeneratedPluginsPackage.swiftProcessEnvironment(
-          windows: windows,
+    Map<String, String> environment(String path, SwiftPmRuntime runtime) =>
+        runtime.processPolicy.swiftProcessEnvironment(
           executable: executable,
           environment: {'PATH': path},
-        )!;
+        );
     expect(
-      environment('other;tools', windows: true)['PATH'],
+      environment('other;tools', _windowsRuntime)['PATH'],
       '${root.path};other;tools',
     );
-    expect(environment('', windows: true)['PATH'], root.path);
-    expect(environment('other:tools', windows: false), isNot(contains('PATH')));
+    expect(environment('', _windowsRuntime)['PATH'], root.path);
+    expect(environment('other:tools', _swiftPmRuntime), isNot(contains('PATH')));
     File(p.join(root.path, 'xcrun.exe')).deleteSync();
-    expect(environment('other;tools', windows: true), isNot(contains('PATH')));
+    expect(environment('other;tools', _windowsRuntime), isNot(contains('PATH')));
   });
 
-  for (final windows in [false, true]) {
+  for (final runtime in <SwiftPmRuntime<PlatformHostInterface>>[_swiftPmRuntime, _windowsRuntime]) {
     test(
-      'recovers reachable internal headers after a failed aggregate ($windows)',
+      'recovers reachable internal headers after a failed aggregate (${runtime.host.name})',
       () async {
         final include = p.join(root.path, 'Internal.build', 'include');
         Directory(include).createSync(recursive: true);
@@ -56,10 +76,10 @@ void main() {
         );
         final events = <String>[];
         var attempts = 0;
-        await GeneratedPluginsPackage.buildWithInteropRecovery(
+        await runtime.interopRepair.buildWithInteropRecovery(
           targetBuildDir: root.path,
           interopTargetCandidates: const {'Public'},
-          windows: windows,
+
           build: () async {
             events.add('build');
             if (++attempts == 1) {
@@ -96,10 +116,10 @@ void main() {
     final originalError = StateError("'Internal-Swift.h' file not found");
     var builds = 0;
     await expectLater(
-      GeneratedPluginsPackage.buildWithInteropRecovery(
+      _windowsRuntime.interopRepair.buildWithInteropRecovery(
         targetBuildDir: root.path,
         interopTargetCandidates: const {},
-        windows: true,
+
         build: () {
           builds++;
           return Future<void>.error(originalError);

@@ -1,0 +1,1 @@
+enum SwiftPmGateMode { swiftPmArtifact, packageLocalArtifact }

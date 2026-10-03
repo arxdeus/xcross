@@ -1,6 +1,27 @@
 import 'package:cli_kit/cli_kit.dart';
 import 'package:test/test.dart';
+import 'package:xcross/src/flutter/build/internal/windows_swift_plan_repair.dart';
 import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/binary_recovery.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/source_repair.dart';
+
+import 'swiftpm_test_context.dart';
+
+final _swiftPmRuntime = testSwiftPmRuntime();
+final _windowsRuntime = testWindowsSwiftPmRuntime();
+final _simulatorRuntime = testSimulatorSwiftPmRuntime();
+final _windowsSimulatorRuntime = testWindowsSimulatorSwiftPmRuntime();
+final _windowsRepairs = WindowsSwiftPlanRepair(_windowsRuntime.runner);
+final _plugins = GeneratedPluginsPackage(
+  _swiftPmRuntime.targetPolicy,
+  runner: _swiftPmRuntime.runner,
+  sdkRepository: _swiftPmRuntime.sdkRepository,
+  toolchain: _swiftPmRuntime.toolchainResolver,
+  tools: _swiftPmRuntime.tools,
+  hostPolicy: _swiftPmRuntime.hostPolicy,
+  artifactFileSystem: _swiftPmRuntime.artifactFileSystem,
+  sdkIdentity: _swiftPmRuntime.sdkIdentity,
+);
 
 /// Resolving the plugin graph pulls from a dozen GitHub repositories. A reset
 /// or refused connection on any one of them used to fail the whole Windows
@@ -25,7 +46,7 @@ void main() {
       ];
       for (final error in observed) {
         expect(
-          GeneratedPluginsPackage.isTransientNetworkFailure(error),
+          SwiftPmBinaryRecovery.isTransientNetworkFailure(error),
           isTrue,
           reason: error,
         );
@@ -41,7 +62,7 @@ void main() {
       ];
       for (final error in real) {
         expect(
-          GeneratedPluginsPackage.isTransientNetworkFailure(error),
+          SwiftPmBinaryRecovery.isTransientNetworkFailure(error),
           isFalse,
           reason: error,
         );
@@ -52,7 +73,7 @@ void main() {
       // Retrying would multiply the very stall the timeout exists to cut
       // short, turning a bounded failure back into an unbounded one.
       expect(
-        GeneratedPluginsPackage.isTransientNetworkFailure(
+        SwiftPmBinaryRecovery.isTransientNetworkFailure(
           'command timed out after 1800s and was killed: swift package resolve',
         ),
         isFalse,
@@ -64,7 +85,7 @@ void main() {
     test('retries a transient failure and then succeeds', () async {
       var attempts = 0;
       final waits = <Duration>[];
-      await GeneratedPluginsPackage.retryingTransientNetworkFailure(
+      await _swiftPmRuntime.binaryRecovery.retryingTransientNetworkFailure(
         () async {
           attempts++;
           if (attempts < 3) {
@@ -83,7 +104,7 @@ void main() {
     test('gives up after the configured number of attempts', () async {
       var attempts = 0;
       await expectLater(
-        GeneratedPluginsPackage.retryingTransientNetworkFailure(
+        _swiftPmRuntime.binaryRecovery.retryingTransientNetworkFailure(
           () {
             attempts++;
             throw Exception('Could not connect to server');
@@ -99,7 +120,7 @@ void main() {
     test('fails fast on a real error instead of retrying it', () async {
       var attempts = 0;
       await expectLater(
-        GeneratedPluginsPackage.retryingTransientNetworkFailure(
+        _swiftPmRuntime.binaryRecovery.retryingTransientNetworkFailure(
           () {
             attempts++;
             throw Exception("no such module 'Flutter'");
@@ -114,7 +135,7 @@ void main() {
 
     test('does not delay when the first attempt works', () async {
       var called = false;
-      await GeneratedPluginsPackage.retryingTransientNetworkFailure(
+      await _swiftPmRuntime.binaryRecovery.retryingTransientNetworkFailure(
         () async {},
         label: 'resolve',
         delay: (_) async => called = true,
@@ -128,7 +149,7 @@ void main() {
       // The Windows CI failure printed fetch progress on stderr and the
       // reason on stdout, so a stderr-only message ended on a successful
       // "Computed ..." line and never said what went wrong.
-      final text = GeneratedPluginsPackage.resolveDiagnostics(
+      final text = SwiftPmSourceRepair.resolveDiagnostics(
         const CapturedProcess(
           1,
           'error: Dependencies could not be resolved because no versions '
@@ -141,18 +162,18 @@ void main() {
     });
 
     test('retries a transient failure SwiftPM reported on stdout', () {
-      final text = GeneratedPluginsPackage.resolveDiagnostics(
+      final text = SwiftPmSourceRepair.resolveDiagnostics(
         const CapturedProcess(
           1,
           'error: Recv failure: Connection was reset',
           '',
         ),
       );
-      expect(GeneratedPluginsPackage.isTransientNetworkFailure(text), isTrue);
+      expect(SwiftPmBinaryRecovery.isTransientNetworkFailure(text), isTrue);
     });
 
     test('omits an empty stream instead of leaving a blank line', () {
-      final text = GeneratedPluginsPackage.resolveDiagnostics(
+      final text = SwiftPmSourceRepair.resolveDiagnostics(
         const CapturedProcess(1, '', 'only stderr'),
       );
       expect(text, 'only stderr');
@@ -163,7 +184,7 @@ void main() {
     test('recovers and retries an ordinary resolve failure', () async {
       var resolves = 0;
       var recovered = false;
-      await GeneratedPluginsPackage.resolveWithFinalBinaryRecovery(
+      await _swiftPmRuntime.binaryRecovery.resolveWithFinalBinaryRecovery(
         resolve: () async {
           if (resolves++ == 0) throw StateError('missing binary artifact');
         },
@@ -181,7 +202,7 @@ void main() {
         var resolves = 0;
         var recovered = false;
         await expectLater(
-          GeneratedPluginsPackage.resolveWithFinalBinaryRecovery(
+          _swiftPmRuntime.binaryRecovery.resolveWithFinalBinaryRecovery(
             resolve: () {
               resolves++;
               throw StateError(
@@ -202,7 +223,7 @@ void main() {
 
     test('treats the resolve-specific timeout message as terminal too', () {
       expect(
-        GeneratedPluginsPackage.isResolveTimeout(
+        SwiftPmBinaryRecovery.isResolveTimeout(
           StateError(
             r'Resolving SwiftPM dependencies in C:\p took longer than 30 '
             'minutes and was stopped.',
@@ -211,7 +232,7 @@ void main() {
         isTrue,
       );
       expect(
-        GeneratedPluginsPackage.isResolveTimeout(
+        SwiftPmBinaryRecovery.isResolveTimeout(
           StateError('error: no such module'),
         ),
         isFalse,

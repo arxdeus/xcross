@@ -3,6 +3,26 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_workspace.dart';
+import 'package:xcross/src/flutter/build/internal/windows_swift_plan_repair.dart';
+import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
+
+import 'swiftpm_test_context.dart';
+
+final _swiftPmRuntime = testSwiftPmRuntime();
+final _windowsRuntime = testWindowsSwiftPmRuntime();
+final _simulatorRuntime = testSimulatorSwiftPmRuntime();
+final _windowsSimulatorRuntime = testWindowsSimulatorSwiftPmRuntime();
+final _windowsRepairs = WindowsSwiftPlanRepair(_windowsRuntime.runner);
+final _plugins = GeneratedPluginsPackage(
+  _swiftPmRuntime.targetPolicy,
+  runner: _swiftPmRuntime.runner,
+  sdkRepository: _swiftPmRuntime.sdkRepository,
+  toolchain: _swiftPmRuntime.toolchainResolver,
+  tools: _swiftPmRuntime.tools,
+  hostPolicy: _swiftPmRuntime.hostPolicy,
+  artifactFileSystem: _swiftPmRuntime.artifactFileSystem,
+  sdkIdentity: _swiftPmRuntime.sdkIdentity,
+);
 
 void main() {
   late Directory temp;
@@ -13,11 +33,13 @@ void main() {
       final device = SwiftPmWorkspace.forProject(
         temp.path,
         environment: environment,
+        policy: _swiftPmRuntime.targetPolicy,
       );
       final simulator = SwiftPmWorkspace.forProject(
         temp.path,
         environment: environment,
-        simulator: true,
+
+        policy: _simulatorRuntime.targetPolicy,
       );
       expect(simulator.root, isNot(device.root));
       expect(simulator.binaryArtifactStore, isNot(device.binaryArtifactStore));
@@ -27,7 +49,8 @@ void main() {
         SwiftPmWorkspace.forProject(
           temp.path,
           environment: environment,
-          simulator: true,
+
+          policy: _simulatorRuntime.targetPolicy,
         ).root,
         simulator.root,
       );
@@ -44,10 +67,12 @@ void main() {
     final first = SwiftPmWorkspace.forProject(
       temp.path,
       environment: {'XCROSS_CACHE_DIR': p.join(temp.path, 'cache')},
+      policy: _swiftPmRuntime.targetPolicy,
     );
     final second = SwiftPmWorkspace.forProject(
       p.join(temp.path, '.'),
       environment: {'XCROSS_CACHE_DIR': p.join(temp.path, 'cache')},
+      policy: _swiftPmRuntime.targetPolicy,
     );
 
     expect(second.root, first.root);
@@ -62,10 +87,12 @@ void main() {
     final first = SwiftPmWorkspace.forProject(
       firstProject.path,
       environment: environment,
+      policy: _swiftPmRuntime.targetPolicy,
     );
     final second = SwiftPmWorkspace.forProject(
       secondProject.path,
       environment: environment,
+      policy: _swiftPmRuntime.targetPolicy,
     );
 
     expect(second.root, isNot(first.root));
@@ -76,6 +103,7 @@ void main() {
     final workspace = SwiftPmWorkspace.forProject(
       temp.path,
       environment: {'XCROSS_CACHE_DIR': cache},
+      policy: _swiftPmRuntime.targetPolicy,
     );
 
     expect(workspace.cacheRoot, cache);
@@ -98,7 +126,8 @@ void main() {
     final workspace = SwiftPmWorkspace.forProject(
       temp.path,
       environment: {'LOCALAPPDATA': localAppData},
-      windows: true,
+
+      policy: testWindowsSwiftPmRuntime(environment: {'LOCALAPPDATA': localAppData}).targetPolicy,
     );
 
     expect(p.isWithin(p.join(localAppData, 'xcross'), workspace.root), isTrue);
@@ -109,7 +138,8 @@ void main() {
     final workspace = SwiftPmWorkspace.forProject(
       temp.path,
       environment: {'XDG_CACHE_HOME': xdg},
-      windows: false,
+
+      policy: testSwiftPmRuntime(environment: {'XDG_CACHE_HOME': xdg}).targetPolicy,
     );
 
     expect(p.isWithin(p.join(xdg, 'xcross'), workspace.root), isTrue);
@@ -120,7 +150,8 @@ void main() {
     final workspace = SwiftPmWorkspace.forProject(
       temp.path,
       environment: {'HOME': home},
-      windows: false,
+
+      policy: testSwiftPmRuntime(environment: {'HOME': home}).targetPolicy,
     );
 
     expect(
