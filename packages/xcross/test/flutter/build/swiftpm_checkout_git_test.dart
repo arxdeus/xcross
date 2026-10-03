@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_containment.dart';
 
 import 'support/checkout_test_context.dart';
 
@@ -281,6 +282,95 @@ void main() {
       expect(Link(p.join(outside.path, 'link')).targetSync(), '../payload');
     },
   );
+
+  for (final chain in [false, true]) {
+    test('dangling optional link cache reuse, chain $chain', () async {
+      context = CheckoutTestContext(root, (command) {
+        if (command.arguments.contains('ls-files')) {
+          return CheckoutTestProcess(
+            output: utf8.encode(
+              chain
+                  ? '120000 aa 0\tExamples/link\u0000120000 bb 0\tExamples/second\u0000'
+                  : '120000 aa 0\tExamples/link\u0000',
+            ),
+          );
+        }
+        if (command.arguments.contains('cat-file')) {
+          return CheckoutTestProcess(
+            output: utf8.encode(
+              chain
+                  ? 'aa blob 6\nsecond\nbb blob 10\n../missing\n'
+                  : 'aa blob 10\n../missing\n',
+            ),
+          );
+        }
+        return CheckoutTestProcess();
+      });
+      Directory(p.join(root.path, '.git')).createSync();
+      File(p.join(root.path, '.git/HEAD')).writeAsStringSync('identity');
+      Directory(p.join(root.path, 'Examples')).createSync();
+      File(
+        p.join(root.path, 'Package.swift'),
+      ).writeAsStringSync('.target(name: "Core", path: "Sources/Core")');
+      File(
+        p.join(root.path, 'Examples/link'),
+      ).writeAsStringSync(chain ? 'second' : '../missing');
+      if (chain) {
+        File(
+          p.join(root.path, 'Examples/second'),
+        ).writeAsStringSync('../missing');
+      }
+      expect(
+        await context.checkout.materializeGitCheckoutSymlinks(
+          root.path,
+          git: '/fixture/git',
+          symlinks: true,
+        ),
+        isTrue,
+      );
+      final count = context.processes.commands.length;
+      expect(
+        await context.checkout.materializeGitCheckoutSymlinks(
+          root.path,
+          git: '/fixture/git',
+          symlinks: true,
+        ),
+        isFalse,
+      );
+      expect(context.processes.commands, hasLength(count));
+    });
+  }
+
+  test(
+    'rejects link hop through outside ancestor returning lexically inside',
+    () async {
+      context = CheckoutTestContext(root, (_) => CheckoutTestProcess());
+      final outside = Directory.systemTemp.createTempSync(
+        'xcross-checkout-hop-',
+      );
+      addTearDown(() => outside.deleteSync(recursive: true));
+      await Link(p.join(root.path, 'bridge')).create(outside.path);
+      await Link(p.join(root.path, 'chain')).create('bridge/../missing');
+      expect(
+        () => SwiftPmCheckoutContainment(
+          context.fileSystem,
+        ).validateTarget(root.path, p.join(root.path, 'chain')),
+        throwsA(isA<FlutterBuildError>()),
+      );
+    },
+  );
+
+  test('rejects live link cycles with bounded traversal', () async {
+    context = CheckoutTestContext(root, (_) => CheckoutTestProcess());
+    await Link(p.join(root.path, 'a')).create('b');
+    await Link(p.join(root.path, 'b')).create('a');
+    expect(
+      () => SwiftPmCheckoutContainment(
+        context.fileSystem,
+      ).validateTarget(root.path, p.join(root.path, 'a')),
+      throwsA(isA<FlutterBuildError>()),
+    );
+  });
 
   test(
     'materialization restores symlinks and unchanged HEAD stamp avoids all processes',

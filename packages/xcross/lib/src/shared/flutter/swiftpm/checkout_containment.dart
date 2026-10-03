@@ -23,26 +23,56 @@ final class SwiftPmCheckoutContainment {
   }
 
   void validateTarget(String root, String target) {
-    if (!p.equals(root, target) && !p.isWithin(root, target)) {
-      throw FlutterBuildError(
-        'Symlink target escapes SwiftPM checkout: $target',
-        isSecurityFailure: true,
-      );
-    }
     final canonicalRoot = fileSystem.directory(root).resolveSymbolicLinksSync();
-    var existing = target;
-    while (fileSystem.typeSync(existing, followLinks: false) ==
-            FileSystemEntityType.notFound &&
-        existing != root) {
-      existing = p.dirname(existing);
+    final activeLinks = <String>{};
+    var hops = 0;
+    Never reject(String path) => throw FlutterBuildError(
+      'Symlink path escapes SwiftPM checkout or cycles: $path',
+      isSecurityFailure: true,
+    );
+    void contained(String path) {
+      if (!p.equals(root, path) && !p.isWithin(root, path)) reject(path);
     }
-    final canonical = fileSystem.directory(existing).resolveSymbolicLinksSync();
-    if (!p.equals(canonicalRoot, canonical) &&
-        !p.isWithin(canonicalRoot, canonical)) {
-      throw FlutterBuildError(
-        'Symlink path escapes SwiftPM checkout through an existing link: $target',
-        isSecurityFailure: true,
-      );
+
+    String walk(String start, Iterable<String> components) {
+      var current = start;
+      for (final component in components) {
+        if (component == '.' || component.isEmpty) continue;
+        current = p.normalize(p.join(current, component));
+        contained(current);
+        final type = fileSystem.typeSync(current, followLinks: false);
+        if (type == FileSystemEntityType.link) {
+          if (++hops > 256 || !activeLinks.add(current)) reject(current);
+          final link = current;
+          final destination = fileSystem.link(link).targetSync();
+          if (p.isAbsolute(destination)) {
+            if (!destination.startsWith('$root${p.separator}')) {
+              if (!p.equals(root, destination)) reject(destination);
+            }
+            current = walk(
+              root,
+              p.equals(root, destination)
+                  ? const <String>[]
+                  : p.split(destination.substring(root.length + 1)),
+            );
+          } else {
+            current = walk(p.dirname(link), p.split(destination));
+          }
+          activeLinks.remove(link);
+        } else if (type != FileSystemEntityType.notFound) {
+          final canonical = fileSystem
+              .directory(current)
+              .resolveSymbolicLinksSync();
+          if (!p.equals(canonicalRoot, canonical) &&
+              !p.isWithin(canonicalRoot, canonical)) {
+            reject(current);
+          }
+        }
+      }
+      return current;
     }
+
+    contained(target);
+    walk(root, p.split(p.relative(target, from: root)));
   }
 }
