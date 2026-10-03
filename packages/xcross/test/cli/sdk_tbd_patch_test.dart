@@ -13,9 +13,10 @@ import '../../../darwin_sdk_kit/test/test_fixtures.dart';
 import 'sdk_test_support.dart';
 
 void main() {
-  final installer = sdkFixtureInstaller();
-  final materializedInstaller = sdkFixtureInstaller(
-    links: MaterializedSdkArchiveLinks(sdkFixtureHost),
+  final sdkContext = SdkTestContext();
+  final installer = sdkContext.installer();
+  final materializedInstaller = sdkContext.installer(
+    links: MaterializedSdkArchiveLinks(sdkContext.host),
   );
   late Directory tmp;
 
@@ -82,7 +83,7 @@ void main() {
     // Only text stubs are rewritten; nothing else in the SDK is touched.
     expect(read('$sdkRelative/usr/include/notes.txt'), 'arm64e.x1-ios');
     // Stamped, so resolving the bundle later does not rescan it.
-    expect(sdkFixtureRepository.patch.isStamped(tmp.path), isTrue);
+    expect(sdkContext.repository.patch.isStamped(tmp.path), isTrue);
   });
 
   test('rewrites every member of a cpio hard-link group', () async {
@@ -180,22 +181,27 @@ void main() {
     await stubFile.create(recursive: true);
     await stubFile.writeAsString(stub('arm64e-ios, arm64e.x1-ios'));
 
-    expect(sdkFixtureRepository.isValidBundle(bundle), isTrue);
-    expect(sdkFixtureRepository.patch.isStamped(bundle), isFalse);
+    expect(sdkContext.repository.isValidBundle(bundle), isTrue);
+    expect(sdkContext.repository.patch.isStamped(bundle), isFalse);
 
     final sdk = DarwinSdkRepository(
-      sdkFixtureHost,
+      sdkContext.host,
+      log: sdkContext.log,
       installBundle: bundle,
     ).current();
 
     expect(sdk, isNotNull);
     expect(stubFile.readAsStringSync(), isNot(contains('.x1')));
-    expect(sdkFixtureRepository.patch.isStamped(bundle), isTrue);
+    expect(sdkContext.repository.patch.isStamped(bundle), isTrue);
 
     // Second resolve is a stamp read, not another tree scan: re-adding an
     // unparsable stub must not be undone behind the user's back.
     await stubFile.writeAsString(stub('arm64e.x1-ios'));
-    DarwinSdkRepository(sdkFixtureHost, installBundle: bundle).current();
+    DarwinSdkRepository(
+      sdkContext.host,
+      log: sdkContext.log,
+      installBundle: bundle,
+    ).current();
     expect(stubFile.readAsStringSync(), contains('.x1'));
   });
 }

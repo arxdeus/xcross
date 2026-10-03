@@ -25,7 +25,8 @@ const _bundleSdk =
     'Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk';
 
 void main() {
-  final installer = sdkFixtureInstaller();
+  final sdkContext = SdkTestContext();
+  final installer = sdkContext.installer();
   late Directory tmp;
 
   setUp(() async {

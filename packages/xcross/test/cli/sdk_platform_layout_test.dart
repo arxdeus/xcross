@@ -9,9 +9,10 @@ import 'package:xcross/src/cli/basic/sdk_install.dart';
 import 'sdk_test_support.dart';
 
 void main() {
-  final installer = sdkFixtureInstaller();
-  final materializedInstaller = sdkFixtureInstaller(
-    links: MaterializedSdkArchiveLinks(sdkFixtureHost),
+  final sdkContext = SdkTestContext();
+  final installer = sdkContext.installer();
+  final materializedInstaller = sdkContext.installer(
+    links: MaterializedSdkArchiveLinks(sdkContext.host),
   );
   late Directory root;
   setUp(() => root = Directory.systemTemp.createTempSync('xcross-sdk-layout-'));

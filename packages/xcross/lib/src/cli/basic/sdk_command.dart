@@ -29,6 +29,7 @@ final class SdkInstallCommand<T extends PlatformHostInterface>
   SdkInstallCommand(this.installer);
   final SdkInstall<T> installer;
   T get host => installer.host;
+  Log get log => installer.log;
   p.Context get _paths => host.paths.context;
   @override
   String get name => 'install';
@@ -79,7 +80,7 @@ final class SdkInstallCommand<T extends PlatformHostInterface>
 
     // Check the archive before allocating space for a second SDK copy.
     if (!isXcodeApp) {
-      await Log.logStep(
+      await log.logStep(
         'Verifying archive',
         () => XcodeXipExtractor(host).validate(sourcePath),
       );
@@ -87,7 +88,7 @@ final class SdkInstallCommand<T extends PlatformHostInterface>
 
     final destDir = installer.repository.installBundle;
     await prepareExistingSdk(destDir);
-    final staged = await _createStagingSibling(destDir);
+    final staged = await createStagingSibling(destDir);
     try {
       final written = await _extract(
         sourcePath,
@@ -114,7 +115,7 @@ final class SdkInstallCommand<T extends PlatformHostInterface>
       );
       requireValidStagedSdk(staged.path);
       await activateStagedSdk(staged, destDir);
-      Log.logDone(
+      log.logDone(
         'Installed Darwin Swift SDK '
         '(${ProgressBar.formatCount(written)} entries) at $destDir',
       );
@@ -126,7 +127,7 @@ final class SdkInstallCommand<T extends PlatformHostInterface>
   }
 
   /// Extract next to [destDir] so publishing is a same-volume rename.
-  Future<Directory> _createStagingSibling(String destDir) async {
+  Future<Directory> createStagingSibling(String destDir) async {
     final parent = host.fileSystem.directory(_paths.dirname(destDir));
     await parent.create(recursive: true);
     return parent.createTemp('${_paths.basename(destDir)}.staging-');
@@ -134,15 +135,15 @@ final class SdkInstallCommand<T extends PlatformHostInterface>
 
   /// Post-extraction fixups that turn raw Xcode files into a Swift SDK bundle.
   Future<void> _completeStagedSdk(String stagedPath) async {
-    await Log.logStep(
+    await log.logStep(
       'Patching clang builtin headers',
       () => installer.replaceClangBuiltinHeaders(stagedPath),
     );
-    await Log.logStep(
+    await log.logStep(
       'Copying Swift compatibility resources',
       () => installer.materializeSwiftCompatibilityResources(stagedPath),
     );
-    await Log.logStep(
+    await log.logStep(
       'Writing Swift SDK metadata',
       () => installer.writeSwiftSdkBundleMetadata(stagedPath),
     );
@@ -159,7 +160,7 @@ final class SdkInstallCommand<T extends PlatformHostInterface>
     try {
       await _deleteSdkDirectory(path);
     } on Object catch (error) {
-      Log.logWarn('Could not remove $description at $path: $error');
+      log.logWarn('Could not remove $description at $path: $error');
     }
   }
 
@@ -188,7 +189,7 @@ final class SdkInstallCommand<T extends PlatformHostInterface>
         'preserved at ${backup.path}; restore it before installing again.',
       );
     }
-    await Log.logStep(
+    await log.logStep(
       'Removing previous SDK backup',
       () => _deleteSdkDirectory(backup.path),
     );
@@ -201,8 +202,8 @@ final class SdkInstallCommand<T extends PlatformHostInterface>
     String destDir, {
     Future<Directory> Function(Directory, String)? renameStaged,
   }) async {
-    if (_paths.dirname(_paths.normalize(staged.path)) !=
-        _paths.dirname(_paths.normalize(destDir))) {
+    if (host.paths.pathKey(host.paths.ioPath(_paths.dirname(staged.path))) !=
+        host.paths.pathKey(host.paths.ioPath(_paths.dirname(destDir)))) {
       throw ArgumentError(
         'The staged SDK must be a sibling of the destination',
       );
@@ -238,7 +239,7 @@ final class SdkInstallCommand<T extends PlatformHostInterface>
     try {
       version = (await installer.hostToolchainIdentity())['version'] ?? '';
     } on Object catch (error) {
-      Log.logTrace('Could not read the host Swift version: $error');
+      log.logTrace('Could not read the host Swift version: $error');
       return;
     }
     final problem = XcodeSwiftRequirement.mismatchWithHint(
@@ -258,7 +259,7 @@ final class SdkInstallCommand<T extends PlatformHostInterface>
     String destDir, {
     bool isXcodeApp = false,
   }) async {
-    final bar = ProgressBar('Extracting Darwin SDK');
+    final bar = ProgressBar('Extracting Darwin SDK', log: log);
     try {
       final written = await installer.writeSdkEntries(
         isXcodeApp
