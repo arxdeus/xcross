@@ -1,13 +1,15 @@
 import 'dart:convert';
 import 'dart:io';
-
 import 'package:cli_kit/cli_kit.dart';
+
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/errors.dart';
-import 'package:xcross/src/setup/setup_script.dart';
 import 'package:xcross/src/host/shared/setup/posix_setup_script.dart';
+import 'package:xcross/src/host/windows/setup/windows_setup_script.dart';
+import 'package:xcross/src/setup/setup_script.dart';
+import '../host_operations_fixtures.dart';
 
 void main() {
   late Directory temporary;
@@ -19,9 +21,59 @@ void main() {
     host = LinuxHost(
       environment: {'XDG_CACHE_HOME': temporary.path, 'HOME': temporary.path},
     );
-    runner = ProcessRunner(host);
+    runner = ProcessRunner(host, log: fixtureLog());
   });
   tearDown(() => temporary.deleteSync(recursive: true));
+
+  test('Windows invokes PowerShell with exact script flags', () async {
+    final powershell = File(p.join(temporary.path, 'powershell'))..createSync();
+    final windowsRunner = ProcessRunner(
+      LinuxHost(environment: {'PATH': temporary.path}),
+      log: fixtureLog(),
+    );
+    final invocation = await WindowsSetupScript(
+      host,
+      windowsRunner,
+    ).invocation('chosen script.ps1');
+    expect(invocation.executable, powershell.path);
+    expect(invocation.arguments, ['-NoProfile', '-File', 'chosen script.ps1']);
+  });
+
+  test('Windows replacement parks the destination after a sharing failure', () {
+    final destination = File(p.join(temporary.path, 'cache.ps1'))
+      ..writeAsStringSync('old');
+    final temporaryFile = File(p.join(temporary.path, 'next.ps1'))
+      ..writeAsStringSync('new');
+    WindowsSetupScript(
+      host,
+      runner,
+    ).replace(_SharingFailure(temporaryFile), destination);
+    expect(destination.readAsStringSync(), 'new');
+    expect(
+      temporary.listSync().where((entry) => entry.path.endsWith('.bak')),
+      isEmpty,
+    );
+  });
+
+  test('Windows replacement restores parked script when promotion fails', () {
+    final destination = File(p.join(temporary.path, 'cache.ps1'))
+      ..writeAsStringSync('old');
+    final temporaryFile = File(p.join(temporary.path, 'next.ps1'))
+      ..writeAsStringSync('new');
+    expect(
+      () => WindowsSetupScript(host, runner).replace(
+        _SharingFailure(temporaryFile, failPromotion: true),
+        destination,
+      ),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(destination.readAsStringSync(), 'old');
+    expect(temporaryFile.readAsStringSync(), 'new');
+    expect(
+      temporary.listSync().where((entry) => entry.path.endsWith('.bak')),
+      isEmpty,
+    );
+  });
 
   test('runs a configured local script through the host shell', () async {
     final script = File(p.join(temporary.path, 'setup.sh'))
@@ -54,7 +106,7 @@ void main() {
         source: 'https://example.com/setup.sh',
         host: host,
         runner: runner,
-      policy: PosixSetupScript(host),
+        policy: PosixSetupScript(host),
         download: (_) async {
           downloads++;
           return bytes;
@@ -168,4 +220,23 @@ void main() {
     expect(second.existsSync(), isTrue);
     expect((await manager.resolve())!.path, second.path);
   });
+}
+
+final class _SharingFailure implements File {
+  _SharingFailure(this.file, {this.failPromotion = false});
+  final File file;
+  final bool failPromotion;
+  int attempts = 0;
+  @override
+  String get path => file.path;
+  @override
+  File renameSync(String destination) {
+    attempts++;
+    if (attempts == 1 || failPromotion)
+      throw FileSystemException('fixture sharing violation', path);
+    return file.renameSync(destination);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

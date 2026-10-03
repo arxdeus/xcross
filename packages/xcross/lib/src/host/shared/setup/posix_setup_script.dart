@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/shared/setup/setup_script_policy.dart';
 
 final class PosixSetupScript implements SetupScriptPolicy {

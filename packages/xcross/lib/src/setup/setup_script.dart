@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:xcross/src/config/config.dart';
@@ -20,8 +20,8 @@ final class SetupScriptManager {
   SetupScriptManager({
     required this.host,
     required ProcessRunner runner,
-    this.source,
     required SetupScriptPolicy policy,
+    this.source,
     SetupScriptDownload? download,
     SetupScriptExecute? execute,
   }) : _policy = policy,

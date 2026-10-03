@@ -1,7 +1,6 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:path/path.dart' as p;
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/errors.dart';
 
 /// Where each host installs the Swift toolchain, for the "install it first"
@@ -36,19 +35,17 @@ abstract final class SwiftRequirement {
   /// [action] completes the sentence "xcross cannot <action> …".
   static Future<String> require(
     String action, {
+    required ProcessRunner runner,
+    required String installGuidance,
     Future<String?> Function(String name)? locate,
-    bool? windows,
-    String? platformName,
     String? extra,
   }) async {
-    final find = locate ?? ProcessRunner.which;
-    final swift = await find(
-      ProcessRunner.hostExecutableName('swift', windows: windows),
-    );
+    final find = locate ?? runner.which;
+    final swift = await find(runner.hostExecutableName('swift'));
     if (swift == null) {
       throw XcrossError(
         'No Swift toolchain found on PATH, so xcross cannot $action.\n'
-        '${installHint(platformName)}\n'
+        '$installGuidance\n'
         'Verify it with:\n'
         '    swift --version'
         '${extra == null ? '' : '\n\n$extra'}',
@@ -62,7 +59,10 @@ abstract final class SwiftRequirement {
   /// A Swift installation missing its own clang cannot supply the builtin
   /// headers the Darwin SDK bundle is patched with, and the failure would
   /// otherwise surface much later as unresolved `import UIKit`.
-  static Future<void> requireSiblingClang(String swift, {bool? windows}) async {
+  static Future<void> requireSiblingClang(
+    String swift, {
+    required PlatformHostInterface host,
+  }) async {
     final String resolved;
     try {
       resolved = await File(swift).resolveSymbolicLinks();
@@ -71,9 +71,9 @@ abstract final class SwiftRequirement {
       // reason to block here; sdk_install surfaces it with full detail.
       return;
     }
-    final clang = p.join(
-      p.dirname(resolved),
-      ProcessRunner.hostExecutableName('clang', windows: windows),
+    final clang = host.paths.context.join(
+      host.paths.context.dirname(resolved),
+      host.paths.executableName('clang'),
     );
     if (File(clang).existsSync()) return;
     throw XcrossError(
@@ -86,8 +86,7 @@ abstract final class SwiftRequirement {
   }
 
   /// Per-host instructions for installing Swift.
-  static String installHint([String? platformName]) {
-    final name = platformName ?? Platform.operatingSystem;
+  static String installHint(String name) {
     return _swiftInstallHint[name] ??
         'Install Swift from https://www.swift.org/install/ and ensure its bin '
             'directory is on PATH.';

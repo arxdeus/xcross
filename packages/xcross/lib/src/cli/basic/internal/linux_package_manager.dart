@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 
 /// Requirements from the README table, plus the Swift toolchain's own build
 /// dependencies, named the way each distro family spells them. Swift and
@@ -128,10 +128,10 @@ enum LinuxPackageManager {
   final String manualCommand;
 
   /// Managers whose executable is on PATH, in preference order.
-  static Future<List<LinuxPackageManager>> detect() async {
+  static Future<List<LinuxPackageManager>> detect(ProcessRunner runner) async {
     final found = <LinuxPackageManager>[];
     for (final manager in values) {
-      if (await ProcessRunner.which(manager.executable) != null) {
+      if (await runner.which(manager.executable) != null) {
         found.add(manager);
       }
     }
@@ -147,8 +147,12 @@ enum LinuxPackageManager {
   /// be told to shrug that off (`--skip-unavailable` in dnf5, `strict=0` in
   /// dnf4). apt and pacman both refuse the whole transaction over one unknown
   /// target, so those names are filtered out beforehand.
-  Future<List<List<String>>> installAttempts(List<String> wanted) async {
-    final sudo = await Sudo.resolve();
+  Future<List<List<String>>> installAttempts(
+    List<String> wanted,
+    ProcessRunner runner,
+    HostPrivilegesInterface privileges,
+  ) async {
+    final sudo = await privileges.resolve();
     List<String> command(List<String> args) => [
       if (sudo != null) sudo,
       ...args,
@@ -156,7 +160,7 @@ enum LinuxPackageManager {
 
     switch (this) {
       case LinuxPackageManager.apt:
-        final known = await _known(wanted);
+        final known = await _known(wanted, runner);
         return [
           command(['apt-get', 'install', '-y', ...known]),
           // A mirror that has already rotated to a newer point release still
@@ -175,7 +179,7 @@ enum LinuxPackageManager {
           command(['dnf', 'install', '-y', ...wanted]),
         ];
       case LinuxPackageManager.pacman:
-        final known = await _known(wanted);
+        final known = await _known(wanted, runner);
         return [
           command(['pacman', '-S', '--needed', '--noconfirm', ...known]),
           // A stale sync database is the usual reason the plain form fails.
@@ -191,20 +195,20 @@ enum LinuxPackageManager {
   /// Debian and Ubuntu keep a stale `lld` as the default while newer
   /// toolchains sit beside it in the same archive — Ubuntu 24.04 pairs lld
   /// 18 with `lld-19` in noble-updates.
-  Future<List<String>> availableVersionedLld() async {
+  Future<List<String>> availableVersionedLld(ProcessRunner runner) async {
     if (this != LinuxPackageManager.apt) return const [];
     final Set<String> indexed;
     try {
-      final result = await ProcessRunner.run(
-        await ProcessRunner.locateTool('apt-cache'),
-        ['pkgnames', 'lld-'],
-      );
+      final result = await runner.run(await runner.locateTool('apt-cache'), [
+        'pkgnames',
+        'lld-',
+      ]);
       indexed = const LineSplitter()
           .convert(result.stdout)
           .map((line) => line.trim())
           .toSet();
     } on Object catch (e) {
-      Log.logTrace('[$name] package index query failed ($e)');
+      runner.log.logTrace('[$name] package index query failed ($e)');
       return const [];
     }
     final versions = <int, String>{};
@@ -219,13 +223,13 @@ enum LinuxPackageManager {
   }
 
   /// Versioned clang packages offered by apt, newest first.
-  Future<List<String>> availableVersionedClang() async {
+  Future<List<String>> availableVersionedClang(ProcessRunner runner) async {
     if (this != LinuxPackageManager.apt) return const [];
     try {
-      final result = await ProcessRunner.run(
-        await ProcessRunner.locateTool('apt-cache'),
-        ['pkgnames', 'clang-'],
-      );
+      final result = await runner.run(await runner.locateTool('apt-cache'), [
+        'pkgnames',
+        'clang-',
+      ]);
       final versions = <int>[];
       for (final line in const LineSplitter().convert(result.stdout)) {
         final match = RegExp(r'^clang-(\d+)$').firstMatch(line.trim());
@@ -234,7 +238,7 @@ enum LinuxPackageManager {
       versions.sort((a, b) => b.compareTo(a));
       return [for (final version in versions.toSet()) 'clang-$version'];
     } on Object catch (e) {
-      Log.logTrace('[$name] clang package index query failed ($e)');
+      runner.log.logTrace('[$name] clang package index query failed ($e)');
       return const [];
     }
   }
@@ -247,7 +251,7 @@ enum LinuxPackageManager {
   /// ones), and `pacman -Si` reports each miss as
   /// `error: package 'x' was not found` on stderr while still printing the
   /// hits — so one query classifies the whole list either way.
-  Future<List<String>> _known(List<String> wanted) async {
+  Future<List<String>> _known(List<String> wanted, ProcessRunner runner) async {
     final Set<String?> missing;
     // The query is an optimisation — it only trims names this host cannot
     // install anyway. A missing query binary must therefore degrade to "keep
@@ -255,8 +259,8 @@ enum LinuxPackageManager {
     try {
       switch (this) {
         case LinuxPackageManager.apt:
-          final result = await ProcessRunner.run(
-            await ProcessRunner.locateTool('apt-cache'),
+          final result = await runner.run(
+            await runner.locateTool('apt-cache'),
             ['pkgnames'],
           );
           final indexed = const LineSplitter()
@@ -266,10 +270,10 @@ enum LinuxPackageManager {
           if (indexed.isEmpty) return wanted;
           missing = wanted.where((name) => !indexed.contains(name)).toSet();
         case LinuxPackageManager.pacman:
-          final result = await ProcessRunner.run(
-            await ProcessRunner.locateTool('pacman'),
-            ['-Si', ...wanted],
-          );
+          final result = await runner.run(await runner.locateTool('pacman'), [
+            '-Si',
+            ...wanted,
+          ]);
           missing = _pacmanNotFoundPattern
               .allMatches(result.stderr)
               .map((match) => match.group(1))
@@ -278,7 +282,9 @@ enum LinuxPackageManager {
           return wanted;
       }
     } on Object catch (e) {
-      Log.logTrace('[$name] package index query failed ($e); keeping all');
+      runner.log.logTrace(
+        '[$name] package index query failed ($e); keeping all',
+      );
       return wanted;
     }
     if (missing.isEmpty) return wanted;
@@ -289,7 +295,9 @@ enum LinuxPackageManager {
     // running with an empty target list.
     if (known.isEmpty) return wanted;
 
-    Log.logTrace('[$name] unknown packages skipped: ${missing.join(', ')}');
+    runner.log.logTrace(
+      '[$name] unknown packages skipped: ${missing.join(', ')}',
+    );
     return known;
   }
 

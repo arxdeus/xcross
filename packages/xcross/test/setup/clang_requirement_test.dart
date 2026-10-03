@@ -1,7 +1,9 @@
 import 'dart:io';
+import 'package:cli_kit/cli_kit.dart';
 
 import 'package:test/test.dart';
 import 'package:xcross/src/cli/basic/internal/clang_requirement.dart';
+import '../host_operations_fixtures.dart';
 
 void main() {
   for (final suffix in ['.exe', '.EXE']) {
@@ -15,6 +17,7 @@ void main() {
           File('${dir.path}/clang++$suffix').createSync();
           expect(
             await ClangRequirement.resolve(
+              runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
               directories: [dir.path],
               lookup: (name, _) async => name == 'clang' ? executable : null,
               version: (_) async => 'clang version 22.1.8',
@@ -40,6 +43,7 @@ void main() {
         File('${dir.path}/$name').createSync();
       }
       final result = await ClangRequirement.resolve(
+        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
         directories: [dir.path],
         lookup: (name, _) async => name == 'clang'
             ? '${dir.path}/clang'
@@ -62,6 +66,7 @@ void main() {
       File('${dir.path}/clang-20').createSync();
       expect(
         await ClangRequirement.resolve(
+          runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
           directories: [dir.path],
           lookup: (name, _) async => File('${dir.path}/$name').existsSync()
               ? '${dir.path}/$name'

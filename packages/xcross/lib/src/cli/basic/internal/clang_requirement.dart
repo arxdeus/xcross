@@ -1,7 +1,6 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
 
 /// Locate a usable clang pair, including versioned binaries that are not the
@@ -18,6 +17,8 @@ final class ClangRequirement {
   }
 
   static Future<String?> resolve({
+    required ProcessRunner runner,
+    Iterable<String> llvmDirectories = const [],
     Future<String?> Function(String name, List<String> directories)? lookup,
     Future<String> Function(String executable)? version,
     List<String>? directories,
@@ -25,19 +26,17 @@ final class ClangRequirement {
     final dirs =
         directories ??
         [
-          ...Platform.environment['PATH']?.split(
-                Platform.isWindows ? ';' : ':',
-              ) ??
-              <String>[],
-          ...DarwinSdk.llvmToolDirs(),
+          ...runner.host.environment.splitPathList(
+            runner.environmentValue(runner.effectiveEnvironment, 'PATH') ?? '',
+          ),
+          ...llvmDirectories,
         ];
     final find =
-        lookup ??
-        (name, dirs) => ProcessRunner.which(name, extraDirectories: dirs);
+        lookup ?? (name, dirs) => runner.which(name, extraDirectories: dirs);
     final readVersion =
         version ??
         (executable) async {
-          final result = await ProcessRunner.run(executable, ['--version']);
+          final result = await runner.run(executable, ['--version']);
           return result.stdout;
         };
     final names = <String>{'clang'};

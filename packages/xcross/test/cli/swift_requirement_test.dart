@@ -1,20 +1,25 @@
 import 'dart:io';
-
 import 'package:cli_kit/cli_kit.dart';
+
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/cli/basic/internal/swift_requirement.dart';
 import 'package:xcross/src/errors.dart';
+import '../host_operations_fixtures.dart';
 
 void main() {
+  final host = LinuxHost();
+  final runner = ProcessRunner(host, log: fixtureLog());
   group('SwiftRequirement.require', () {
     test('returns the located toolchain when Swift is on PATH', () async {
       expect(
         await SwiftRequirement.require(
           'install the Darwin SDK',
+          runner: runner,
+          installGuidance: SwiftRequirement.installHint('linux'),
           locate: (name) async => '/opt/swift/bin/$name',
         ),
-        '/opt/swift/bin/${ProcessRunner.hostExecutableName('swift')}',
+        '/opt/swift/bin/${runner.hostExecutableName('swift')}',
       );
     });
 
@@ -22,8 +27,9 @@ void main() {
       await expectLater(
         SwiftRequirement.require(
           'install the Darwin SDK',
+          runner: runner,
+          installGuidance: SwiftRequirement.installHint('linux'),
           locate: (_) async => null,
-          platformName: 'linux',
         ),
         throwsA(
           isA<XcrossError>().having(
@@ -44,8 +50,9 @@ void main() {
         try {
           await SwiftRequirement.require(
             'set up this host',
+            runner: runner,
+            installGuidance: SwiftRequirement.installHint(platform),
             locate: (_) async => null,
-            platformName: platform,
           );
         } on XcrossError catch (error) {
           return error.message;
@@ -71,27 +78,23 @@ void main() {
 
     test('accepts a toolchain that ships its own clang', () async {
       final bin = Directory(p.join(temp.path, 'bin'))..createSync();
-      final swift = File(
-        p.join(bin.path, ProcessRunner.hostExecutableName('swift')),
-      )..createSync();
-      File(
-        p.join(bin.path, ProcessRunner.hostExecutableName('clang')),
-      ).createSync();
+      final swift = File(p.join(bin.path, runner.hostExecutableName('swift')))
+        ..createSync();
+      File(p.join(bin.path, runner.hostExecutableName('clang'))).createSync();
 
       await expectLater(
-        SwiftRequirement.requireSiblingClang(swift.path),
+        SwiftRequirement.requireSiblingClang(swift.path, host: host),
         completes,
       );
     });
 
     test('rejects a toolchain with no sibling clang', () async {
       final bin = Directory(p.join(temp.path, 'bin'))..createSync();
-      final swift = File(
-        p.join(bin.path, ProcessRunner.hostExecutableName('swift')),
-      )..createSync();
+      final swift = File(p.join(bin.path, runner.hostExecutableName('swift')))
+        ..createSync();
 
       await expectLater(
-        SwiftRequirement.requireSiblingClang(swift.path),
+        SwiftRequirement.requireSiblingClang(swift.path, host: host),
         throwsA(
           isA<XcrossError>().having(
             (error) => error.message,
@@ -106,7 +109,10 @@ void main() {
       // Not this check's job to report: sdk_install produces a far more
       // detailed diagnostic for a broken toolchain path.
       await expectLater(
-        SwiftRequirement.requireSiblingClang(p.join(temp.path, 'gone')),
+        SwiftRequirement.requireSiblingClang(
+          p.join(temp.path, 'gone'),
+          host: host,
+        ),
         completes,
       );
     });
