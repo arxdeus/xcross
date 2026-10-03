@@ -276,6 +276,8 @@ class SmokeTests(unittest.TestCase):
         self.assertTrue(any("log" in args for args, _ in self.calls))
         boot = next(kwargs for args, kwargs in self.calls if "bootstatus" in args)
         self.assertEqual(boot["timeout"], 7)
+        lipo = next(args for args, _ in self.calls if "lipo" in args)
+        self.assertEqual(lipo, ["/usr/bin/xcrun", "lipo", str(self.app / "Runner"), "-verify_arch", "arm64"])
         self.assert_scoped_cleanup()
 
     def test_ready_marker_from_new_unified_log_is_required(self):

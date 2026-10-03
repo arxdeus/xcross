@@ -118,7 +118,7 @@ class Smoke:
 
     def validate_binary(self, binary):
         self.command(
-            ["/usr/bin/xcrun", "lipo", "-verify_arch", "arm64", str(binary)],
+            ["/usr/bin/xcrun", "lipo", str(binary), "-verify_arch", "arm64"],
             "binary-validation.log",
         )
         result = self.command(

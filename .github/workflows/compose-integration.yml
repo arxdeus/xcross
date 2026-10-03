@@ -78,7 +78,7 @@ jobs:
           bundles=(packages/xcross/build/cli/*/bundle)
           test "${#bundles[@]}" -eq 1
           cp -R "${bundles[0]}" "$RUNNER_TEMP/xcross-bundle"
-          /usr/bin/xcrun lipo -verify_arch arm64 "$RUNNER_TEMP/xcross-bundle/bin/xcross"
+          /usr/bin/xcrun lipo "$RUNNER_TEMP/xcross-bundle/bin/xcross" -verify_arch arm64
           echo "$RUNNER_TEMP/xcross-bundle/bin" >> "$GITHUB_PATH"
           swift --version
 
