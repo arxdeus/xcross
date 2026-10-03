@@ -87,7 +87,7 @@ void main() {
       File(p.join(bin.path, 'dart.bat')).createSync();
 
       final result = await findDartExecutableOnPath(
-        runner: ProcessRunner(
+        runner: fixtureRunner(
           LinuxHost(currentDirectory: Directory.current.path),
           log: fixtureLog(),
         ),
@@ -108,7 +108,7 @@ void main() {
       expect(Process.runSync('chmod', ['755', usable.path]).exitCode, 0);
 
       final result = await findDartExecutableOnPath(
-        runner: ProcessRunner(
+        runner: fixtureRunner(
           LinuxHost(currentDirectory: Directory.current.path),
           log: fixtureLog(),
         ),
@@ -131,7 +131,7 @@ void main() {
         expect(Process.runSync('chmod', ['755', usable.path]).exitCode, 0);
 
         final result = await findDartExecutableOnPath(
-          runner: ProcessRunner(
+          runner: fixtureRunner(
             LinuxHost(currentDirectory: Directory.current.path),
             log: fixtureLog(),
           ),
@@ -156,7 +156,7 @@ void main() {
         final relativeBin = p.relative(bin.path, from: Directory.current.path);
 
         final result = await findDartExecutableOnPath(
-          runner: ProcessRunner(
+          runner: fixtureRunner(
             LinuxHost(currentDirectory: Directory.current.path),
             log: fixtureLog(),
           ),
@@ -182,7 +182,7 @@ void main() {
       final entry = p.join(root.path, 'link', '..', 'bin');
 
       final result = await findDartExecutableOnPath(
-        runner: ProcessRunner(
+        runner: fixtureRunner(
           LinuxHost(currentDirectory: Directory.current.path),
           log: fixtureLog(),
         ),
@@ -206,7 +206,7 @@ void main() {
 
       await expectLater(
         findDartExecutableOnPath(
-          runner: ProcessRunner(
+          runner: fixtureRunner(
             LinuxHost(currentDirectory: Directory.current.path),
             log: fixtureLog(),
           ),
@@ -242,7 +242,7 @@ bool _isRoot() =>
 
 ProcessRunner _windowsRunner() {
   final fixtureHost = LinuxHost(currentDirectory: Directory.current.path);
-  return ProcessRunner(
+  return fixtureRunner(
     WindowsHost(paths: fixtureHost.paths, fileSystem: fixtureHost.fileSystem),
     log: fixtureLog(),
   );

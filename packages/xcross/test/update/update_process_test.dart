@@ -10,7 +10,7 @@ import 'package:xcross/src/update/internal/update_process.dart';
 import '../host_operations_fixtures.dart';
 
 Future<List<String>> _captureAsync(Future<void> Function() body) async {
-  final sink = _LineCaptureStdout();
+  final sink = FixtureLineCaptureStdout();
   await IOOverrides.runZoned(
     () => runZoned(
       body,
@@ -24,7 +24,7 @@ Future<List<String>> _captureAsync(Future<void> Function() body) async {
   return sink.lines;
 }
 
-final class _LineCaptureStdout implements Stdout {
+final class FixtureLineCaptureStdout implements Stdout {
   final _lines = <String>[];
   final _buffer = StringBuffer();
 
@@ -108,7 +108,7 @@ void main() {
 
       await expectLater(
         () => runUpdateProcess(
-          ProcessRunner(LinuxHost(), log: fixtureLog()),
+          fixtureRunner(LinuxHost(), log: fixtureLog()),
           executable,
           const [],
         ),
@@ -136,7 +136,7 @@ void main() {
 
         const encodedBranch = 'feature%2Fa%2Cb%3Dc';
         final result = await runUpdateProcess(
-          ProcessRunner(LinuxHost(), log: fixtureLog()),
+          fixtureRunner(LinuxHost(), log: fixtureLog()),
           script.path,
           [encodedBranch],
           environment: {'2Fa': 'EXPANDED'},
@@ -168,7 +168,7 @@ void main() {
         );
 
       final result = await runUpdateProcess(
-        ProcessRunner(LinuxHost(), log: fixtureLog()),
+        fixtureRunner(LinuxHost(), log: fixtureLog()),
         dartBatch.path,
         ['run', '-DXCROSS_VERSION=feature%2Fa%2Cb%3Dc', script.path],
         environment: {'2Fa': 'EXPANDED'},
@@ -205,7 +205,7 @@ void main() {
       final loggedLines = await _captureAsync(() async {
         final step = log.beginStep('Streaming process');
         final result = await runUpdateProcess(
-          ProcessRunner(LinuxHost(), log: log),
+          fixtureRunner(LinuxHost(), log: log),
           Platform.resolvedExecutable,
           ['run', script.path],
         );

@@ -7,7 +7,7 @@ import 'package:xcross/src/shared/tools/swiftpm_gate_operation.dart';
 
 void main() {
   test('Windows validates arguments before runtime loading', () async {
-    final loader = _Loader();
+    final loader = FixtureLoader();
     await expectLater(
       WindowsSwiftPmGate(loader).run(['install']),
       throwsArgumentError,
@@ -22,7 +22,7 @@ void main() {
   test(
     'Windows passes exact mode root and identities to concrete probe',
     () async {
-      final loader = _Loader();
+      final loader = FixtureLoader();
       await WindowsSwiftPmGate(loader).run(['record', 'packageLocalArtifact']);
       expect(loader.loads, 1);
       expect(loader.request, (
@@ -36,7 +36,7 @@ void main() {
   );
 
   test('Windows preserves failed feasibility outcome', () async {
-    final loader = _Loader()..passed = false;
+    final loader = FixtureLoader()..passed = false;
     await expectLater(
       WindowsSwiftPmGate(loader).run(['record', 'swiftPmArtifact']),
       throwsA(
@@ -59,7 +59,7 @@ void main() {
   }
 }
 
-final class _Loader implements SwiftPmGateRuntimeLoader {
+final class FixtureLoader implements SwiftPmGateRuntimeLoader {
   int loads = 0;
   bool passed = true;
   ({

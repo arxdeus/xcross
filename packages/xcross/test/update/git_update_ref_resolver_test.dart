@@ -17,9 +17,9 @@ void main() {
       'v[12]',
     ]) {
       test('rejects wildcard ref $ref before remote lookup', () async {
-        final runner = _FakeGitRunner([]);
+        final runner = FixtureFakeGitRunner([]);
         final resolver = GitUpdateRefResolver(
-          runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+          runner: fixtureRunner(LinuxHost(), log: fixtureLog()),
           run: runner.run,
         );
 
@@ -40,8 +40,8 @@ void main() {
     test(
       'classifies an exact tag before a branch with the same shorthand',
       () async {
-        final runner = _FakeGitRunner([
-          _GitCall(
+        final runner = FixtureFakeGitRunner([
+          FixtureGitCall(
             arguments: const [
               'ls-remote',
               'https://github.com/arxdeus/xcross.git',
@@ -55,7 +55,7 @@ void main() {
           ),
         ]);
         final resolver = GitUpdateRefResolver(
-          runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+          runner: fixtureRunner(LinuxHost(), log: fixtureLog()),
           run: runner.run,
         );
 
@@ -70,8 +70,8 @@ void main() {
     );
 
     test('classifies a full tag ref and uses the peeled commit sha', () async {
-      final runner = _FakeGitRunner([
-        _GitCall(
+      final runner = FixtureFakeGitRunner([
+        FixtureGitCall(
           arguments: const [
             'ls-remote',
             'https://github.com/arxdeus/xcross.git',
@@ -86,7 +86,7 @@ void main() {
         ),
       ]);
       final resolver = GitUpdateRefResolver(
-        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+        runner: fixtureRunner(LinuxHost(), log: fixtureLog()),
         run: runner.run,
       );
 
@@ -99,8 +99,8 @@ void main() {
     });
 
     test('ignores unrelated peeled rows when resolving an exact tag', () async {
-      final runner = _FakeGitRunner([
-        _GitCall(
+      final runner = FixtureFakeGitRunner([
+        FixtureGitCall(
           arguments: const [
             'ls-remote',
             'https://github.com/arxdeus/xcross.git',
@@ -115,7 +115,7 @@ void main() {
         ),
       ]);
       final resolver = GitUpdateRefResolver(
-        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+        runner: fixtureRunner(LinuxHost(), log: fixtureLog()),
         run: runner.run,
       );
 
@@ -125,8 +125,8 @@ void main() {
     });
 
     test('classifies a branch after the exact tag probe misses', () async {
-      final runner = _FakeGitRunner([
-        _GitCall(
+      final runner = FixtureFakeGitRunner([
+        FixtureGitCall(
           arguments: const [
             'ls-remote',
             'https://github.com/arxdeus/xcross.git',
@@ -135,7 +135,7 @@ void main() {
           ],
           result: _result(exitCode: 2, stderr: 'no tag'),
         ),
-        _GitCall(
+        FixtureGitCall(
           arguments: const [
             'ls-remote',
             'https://github.com/arxdeus/xcross.git',
@@ -148,7 +148,7 @@ void main() {
         ),
       ]);
       final resolver = GitUpdateRefResolver(
-        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+        runner: fixtureRunner(LinuxHost(), log: fixtureLog()),
         run: runner.run,
       );
 
@@ -177,8 +177,8 @@ void main() {
     });
 
     test('classifies a full branch ref', () async {
-      final runner = _FakeGitRunner([
-        _GitCall(
+      final runner = FixtureFakeGitRunner([
+        FixtureGitCall(
           arguments: const [
             'ls-remote',
             'https://github.com/arxdeus/xcross.git',
@@ -191,7 +191,7 @@ void main() {
         ),
       ]);
       final resolver = GitUpdateRefResolver(
-        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+        runner: fixtureRunner(LinuxHost(), log: fixtureLog()),
         run: runner.run,
       );
 
@@ -204,8 +204,8 @@ void main() {
     });
 
     test('does not accept unrelated ls-remote rows for a full branch', () async {
-      final runner = _FakeGitRunner([
-        _GitCall(
+      final runner = FixtureFakeGitRunner([
+        FixtureGitCall(
           arguments: const [
             'ls-remote',
             'https://github.com/arxdeus/xcross.git',
@@ -219,7 +219,7 @@ void main() {
         ),
       ]);
       final resolver = GitUpdateRefResolver(
-        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+        runner: fixtureRunner(LinuxHost(), log: fixtureLog()),
         run: runner.run,
       );
 
@@ -230,8 +230,8 @@ void main() {
     });
 
     test('rejects a non-40-hex sha in an exact remote row', () async {
-      final runner = _FakeGitRunner([
-        _GitCall(
+      final runner = FixtureFakeGitRunner([
+        FixtureGitCall(
           arguments: const [
             'ls-remote',
             'https://github.com/arxdeus/xcross.git',
@@ -241,7 +241,7 @@ void main() {
         ),
       ]);
       final resolver = GitUpdateRefResolver(
-        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+        runner: fixtureRunner(LinuxHost(), log: fixtureLog()),
         run: runner.run,
       );
 
@@ -253,8 +253,8 @@ void main() {
 
     test('hex-looking branch names still win before commit fallback', () async {
       const shortHex = 'deadbeef';
-      final runner = _FakeGitRunner([
-        _GitCall(
+      final runner = FixtureFakeGitRunner([
+        FixtureGitCall(
           arguments: const [
             'ls-remote',
             'https://github.com/arxdeus/xcross.git',
@@ -263,7 +263,7 @@ void main() {
           ],
           result: _result(exitCode: 2),
         ),
-        _GitCall(
+        FixtureGitCall(
           arguments: const [
             'ls-remote',
             'https://github.com/arxdeus/xcross.git',
@@ -276,7 +276,7 @@ void main() {
         ),
       ]);
       final resolver = GitUpdateRefResolver(
-        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+        runner: fixtureRunner(LinuxHost(), log: fixtureLog()),
         run: runner.run,
       );
 
@@ -289,8 +289,8 @@ void main() {
 
     test('rejects an unresolved abbreviated hex sha before temp fetch', () async {
       const shortSha = '85e325f';
-      final runner = _FakeGitRunner([
-        _GitCall(
+      final runner = FixtureFakeGitRunner([
+        FixtureGitCall(
           arguments: const [
             'ls-remote',
             'https://github.com/arxdeus/xcross.git',
@@ -299,7 +299,7 @@ void main() {
           ],
           result: _result(exitCode: 2),
         ),
-        _GitCall(
+        FixtureGitCall(
           arguments: const [
             'ls-remote',
             'https://github.com/arxdeus/xcross.git',
@@ -310,7 +310,7 @@ void main() {
       ]);
       var tempDirectoryRequests = 0;
       final resolver = GitUpdateRefResolver(
-        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+        runner: fixtureRunner(LinuxHost(), log: fixtureLog()),
         run: runner.run,
         createTempDirectory: (_) async {
           tempDirectoryRequests++;
@@ -337,8 +337,8 @@ void main() {
       'resolves a commit sha through a temporary fetch and rev-parse',
       () async {
         const sha = '4444444444444444444444444444444444444444';
-        final runner = _FakeGitRunner([
-          _GitCall(
+        final runner = FixtureFakeGitRunner([
+          FixtureGitCall(
             arguments: const [
               'ls-remote',
               'https://github.com/arxdeus/xcross.git',
@@ -347,7 +347,7 @@ void main() {
             ],
             result: _result(exitCode: 2),
           ),
-          _GitCall(
+          FixtureGitCall(
             arguments: const [
               'ls-remote',
               'https://github.com/arxdeus/xcross.git',
@@ -355,12 +355,12 @@ void main() {
             ],
             result: _result(exitCode: 2),
           ),
-          _GitCall(
+          FixtureGitCall(
             arguments: const ['init'],
             workingDirectory: '/tmp/fake-xcross-update-1',
             result: _result(),
           ),
-          _GitCall(
+          FixtureGitCall(
             arguments: const [
               'fetch',
               '--depth=1',
@@ -370,18 +370,18 @@ void main() {
             workingDirectory: '/tmp/fake-xcross-update-1',
             result: _result(),
           ),
-          _GitCall(
+          FixtureGitCall(
             arguments: const ['rev-parse', 'FETCH_HEAD'],
             workingDirectory: '/tmp/fake-xcross-update-1',
             result: _result(stdout: '$sha\n'),
           ),
         ]);
-        final tempDirs = _FakeTempDirectories([
+        final tempDirs = FixtureFakeTempDirectories([
           Directory('/tmp/fake-xcross-update-1'),
         ]);
         final deleted = <String>[];
         final resolver = GitUpdateRefResolver(
-          runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+          runner: fixtureRunner(LinuxHost(), log: fixtureLog()),
           run: runner.run,
           createTempDirectory: tempDirs.create,
           deleteDirectory: (directory) async => deleted.add(directory.path),
@@ -400,8 +400,8 @@ void main() {
 
     test('rejects a fetched commit that is not a full 40-hex sha', () async {
       const sha = '4444444444444444444444444444444444444444';
-      final runner = _FakeGitRunner([
-        _GitCall(
+      final runner = FixtureFakeGitRunner([
+        FixtureGitCall(
           arguments: const [
             'ls-remote',
             'https://github.com/arxdeus/xcross.git',
@@ -410,7 +410,7 @@ void main() {
           ],
           result: _result(exitCode: 2),
         ),
-        _GitCall(
+        FixtureGitCall(
           arguments: const [
             'ls-remote',
             'https://github.com/arxdeus/xcross.git',
@@ -418,12 +418,12 @@ void main() {
           ],
           result: _result(exitCode: 2),
         ),
-        _GitCall(
+        FixtureGitCall(
           arguments: const ['init'],
           workingDirectory: '/tmp/fake-xcross-update-invalid-sha',
           result: _result(),
         ),
-        _GitCall(
+        FixtureGitCall(
           arguments: const [
             'fetch',
             '--depth=1',
@@ -433,14 +433,14 @@ void main() {
           workingDirectory: '/tmp/fake-xcross-update-invalid-sha',
           result: _result(),
         ),
-        _GitCall(
+        FixtureGitCall(
           arguments: const ['rev-parse', 'FETCH_HEAD'],
           workingDirectory: '/tmp/fake-xcross-update-invalid-sha',
           result: _result(stdout: '4444444\n'),
         ),
       ]);
       final resolver = GitUpdateRefResolver(
-        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+        runner: fixtureRunner(LinuxHost(), log: fixtureLog()),
         run: runner.run,
         createTempDirectory: (_) async =>
             Directory('/tmp/fake-xcross-update-invalid-sha'),
@@ -461,8 +461,8 @@ void main() {
 
     test('cleanup failure does not replace a successful resolution', () async {
       const sha = '6666666666666666666666666666666666666666';
-      final runner = _FakeGitRunner([
-        _GitCall(
+      final runner = FixtureFakeGitRunner([
+        FixtureGitCall(
           arguments: const [
             'ls-remote',
             'https://github.com/arxdeus/xcross.git',
@@ -471,7 +471,7 @@ void main() {
           ],
           result: _result(exitCode: 2),
         ),
-        _GitCall(
+        FixtureGitCall(
           arguments: const [
             'ls-remote',
             'https://github.com/arxdeus/xcross.git',
@@ -479,12 +479,12 @@ void main() {
           ],
           result: _result(exitCode: 2),
         ),
-        _GitCall(
+        FixtureGitCall(
           arguments: const ['init'],
           workingDirectory: '/tmp/fake-xcross-update-cleanup-success',
           result: _result(),
         ),
-        _GitCall(
+        FixtureGitCall(
           arguments: const [
             'fetch',
             '--depth=1',
@@ -494,14 +494,14 @@ void main() {
           workingDirectory: '/tmp/fake-xcross-update-cleanup-success',
           result: _result(),
         ),
-        _GitCall(
+        FixtureGitCall(
           arguments: const ['rev-parse', 'FETCH_HEAD'],
           workingDirectory: '/tmp/fake-xcross-update-cleanup-success',
           result: _result(stdout: '$sha\n'),
         ),
       ]);
       final resolver = GitUpdateRefResolver(
-        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+        runner: fixtureRunner(LinuxHost(), log: fixtureLog()),
         run: runner.run,
         createTempDirectory: (_) async =>
             Directory('/tmp/fake-xcross-update-cleanup-success'),
@@ -514,8 +514,8 @@ void main() {
     });
 
     test('treats any other fetchable ref as a commit kind', () async {
-      final runner = _FakeGitRunner([
-        _GitCall(
+      final runner = FixtureFakeGitRunner([
+        FixtureGitCall(
           arguments: const [
             'ls-remote',
             'https://github.com/arxdeus/xcross.git',
@@ -524,7 +524,7 @@ void main() {
           ],
           result: _result(exitCode: 2),
         ),
-        _GitCall(
+        FixtureGitCall(
           arguments: const [
             'ls-remote',
             'https://github.com/arxdeus/xcross.git',
@@ -532,12 +532,12 @@ void main() {
           ],
           result: _result(exitCode: 2),
         ),
-        _GitCall(
+        FixtureGitCall(
           arguments: const ['init'],
           workingDirectory: '/tmp/fake-xcross-update-2',
           result: _result(),
         ),
-        _GitCall(
+        FixtureGitCall(
           arguments: const [
             'fetch',
             '--depth=1',
@@ -547,18 +547,18 @@ void main() {
           workingDirectory: '/tmp/fake-xcross-update-2',
           result: _result(),
         ),
-        _GitCall(
+        FixtureGitCall(
           arguments: const ['rev-parse', 'FETCH_HEAD'],
           workingDirectory: '/tmp/fake-xcross-update-2',
           result: _result(stdout: '5555555555555555555555555555555555555555\n'),
         ),
       ]);
-      final tempDirs = _FakeTempDirectories([
+      final tempDirs = FixtureFakeTempDirectories([
         Directory('/tmp/fake-xcross-update-2'),
       ]);
       final deleted = <String>[];
       final resolver = GitUpdateRefResolver(
-        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+        runner: fixtureRunner(LinuxHost(), log: fixtureLog()),
         run: runner.run,
         createTempDirectory: tempDirs.create,
         deleteDirectory: (directory) async => deleted.add(directory.path),
@@ -574,8 +574,8 @@ void main() {
     });
 
     test('deletes the temporary directory when fallback fetch fails', () async {
-      final runner = _FakeGitRunner([
-        _GitCall(
+      final runner = FixtureFakeGitRunner([
+        FixtureGitCall(
           arguments: const [
             'ls-remote',
             'https://github.com/arxdeus/xcross.git',
@@ -584,7 +584,7 @@ void main() {
           ],
           result: _result(exitCode: 2),
         ),
-        _GitCall(
+        FixtureGitCall(
           arguments: const [
             'ls-remote',
             'https://github.com/arxdeus/xcross.git',
@@ -592,12 +592,12 @@ void main() {
           ],
           result: _result(exitCode: 2),
         ),
-        _GitCall(
+        FixtureGitCall(
           arguments: const ['init'],
           workingDirectory: '/tmp/fake-xcross-update-3',
           result: _result(),
         ),
-        _GitCall(
+        FixtureGitCall(
           arguments: const [
             'fetch',
             '--depth=1',
@@ -611,12 +611,12 @@ void main() {
           ),
         ),
       ]);
-      final tempDirs = _FakeTempDirectories([
+      final tempDirs = FixtureFakeTempDirectories([
         Directory('/tmp/fake-xcross-update-3'),
       ]);
       final deleted = <String>[];
       final resolver = GitUpdateRefResolver(
-        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+        runner: fixtureRunner(LinuxHost(), log: fixtureLog()),
         run: runner.run,
         createTempDirectory: tempDirs.create,
         deleteDirectory: (directory) async => deleted.add(directory.path),
@@ -636,8 +636,8 @@ void main() {
     });
 
     test('cleanup failure does not replace the original fetch error', () async {
-      final runner = _FakeGitRunner([
-        _GitCall(
+      final runner = FixtureFakeGitRunner([
+        FixtureGitCall(
           arguments: const [
             'ls-remote',
             'https://github.com/arxdeus/xcross.git',
@@ -646,7 +646,7 @@ void main() {
           ],
           result: _result(exitCode: 2),
         ),
-        _GitCall(
+        FixtureGitCall(
           arguments: const [
             'ls-remote',
             'https://github.com/arxdeus/xcross.git',
@@ -654,12 +654,12 @@ void main() {
           ],
           result: _result(exitCode: 2),
         ),
-        _GitCall(
+        FixtureGitCall(
           arguments: const ['init'],
           workingDirectory: '/tmp/fake-xcross-update-cleanup-error',
           result: _result(),
         ),
-        _GitCall(
+        FixtureGitCall(
           arguments: const [
             'fetch',
             '--depth=1',
@@ -671,7 +671,7 @@ void main() {
         ),
       ]);
       final resolver = GitUpdateRefResolver(
-        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+        runner: fixtureRunner(LinuxHost(), log: fixtureLog()),
         run: runner.run,
         createTempDirectory: (_) async =>
             Directory('/tmp/fake-xcross-update-cleanup-error'),
@@ -698,10 +698,10 @@ ProcessResult _result({
   String stderr = '',
 }) => ProcessResult(1, exitCode, stdout, stderr);
 
-final class _FakeGitRunner {
-  _FakeGitRunner(this._calls);
+final class FixtureFakeGitRunner {
+  FixtureFakeGitRunner(this._calls);
 
-  final List<_GitCall> _calls;
+  final List<FixtureGitCall> _calls;
   final calls = <List<String>>[];
 
   Future<ProcessResult> run(
@@ -722,8 +722,8 @@ final class _FakeGitRunner {
   }
 }
 
-final class _GitCall {
-  const _GitCall({
+final class FixtureGitCall {
+  const FixtureGitCall({
     required this.arguments,
     required this.result,
     this.workingDirectory,
@@ -734,8 +734,8 @@ final class _GitCall {
   final String? workingDirectory;
 }
 
-final class _FakeTempDirectories {
-  _FakeTempDirectories(this._directories);
+final class FixtureFakeTempDirectories {
+  FixtureFakeTempDirectories(this._directories);
 
   final List<Directory> _directories;
   final prefixes = <String>[];

@@ -17,7 +17,7 @@ void main() {
           File('${dir.path}/clang++$suffix').createSync();
           expect(
             await ClangRequirement.resolve(
-              runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+              runner: fixtureRunner(LinuxHost(), log: fixtureLog()),
               directories: [dir.path],
               lookup: (name, _) async => name == 'clang' ? executable : null,
               version: (_) async => 'clang version 22.1.8',
@@ -43,7 +43,7 @@ void main() {
         File('${dir.path}/$name').createSync();
       }
       final result = await ClangRequirement.resolve(
-        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+        runner: fixtureRunner(LinuxHost(), log: fixtureLog()),
         directories: [dir.path],
         lookup: (name, _) async => name == 'clang'
             ? '${dir.path}/clang'
@@ -66,7 +66,7 @@ void main() {
       File('${dir.path}/clang-20').createSync();
       expect(
         await ClangRequirement.resolve(
-          runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+          runner: fixtureRunner(LinuxHost(), log: fixtureLog()),
           directories: [dir.path],
           lookup: (name, _) async => File('${dir.path}/$name').existsSync()
               ? '${dir.path}/$name'

@@ -9,7 +9,7 @@ import '../host_operations_fixtures.dart';
 
 void main() {
   final host = LinuxHost();
-  final runner = ProcessRunner(host, log: fixtureLog());
+  final runner = fixtureRunner(host, log: fixtureLog());
   group('SwiftRequirement.require', () {
     test('returns the located toolchain when Swift is on PATH', () async {
       expect(
