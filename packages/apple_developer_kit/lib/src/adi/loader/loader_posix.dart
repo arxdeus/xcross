@@ -14,6 +14,7 @@
 import 'dart:ffi';
 import 'dart:io';
 
+import 'package:apple_developer_kit/src/adi/adi_architecture.dart';
 import 'package:apple_developer_kit/src/adi/elf/elf_loaded_library.dart';
 import 'package:apple_developer_kit/src/adi/loader/internal/memory_allocator_posix.dart';
 import 'package:apple_developer_kit/src/adi/loader/internal/native_symbol_stubs.dart';
@@ -22,28 +23,10 @@ import 'package:apple_developer_kit/src/adi/loader/loader.dart';
 
 final class PosixNativeLibraryLoader implements NativeLibraryLoader {
   PosixNativeLibraryLoader() : _allocator = PosixMemoryAllocator() {
-    // Linux only for now — see native_symbol_stubs.dart's file-level
-    // note. macOS needs compat/macos.d's open()/stat() flag and struct
-    // translation ported first; without it, this loader would risk the
-    // same class of silent-corruption bug on macOS (via stat/open this
-    // time) that it exists to avoid on pthreads.
-    if (!Platform.isLinux) {
-      throw UnsupportedError(
-        "provision_dart's native ELF loader currently only supports "
-        "Linux. macOS needs lib/provision/compat/macos.d's open()/stat() "
-        'translation ported first — see NOTICE.md.',
-      );
+    if (!Platform.isLinux && !Platform.isMacOS) {
+      throw UnsupportedError('POSIX ADI requires Linux or macOS.');
     }
-    // Apple ships only an x86_64 slice of libCoreADI.so, and the ELF
-    // loader maps and runs its code in-process. On any other
-    // architecture that is a segfault waiting to happen, so refuse up
-    // front instead of jumping into foreign instructions.
-    if (Abi.current() != Abi.linuxX64) {
-      throw UnsupportedError(
-        'Linux ADI loader requires linux_x64 (got ${Abi.current()}): '
-        'Apple publishes the ADI libraries as x86_64 only.',
-      );
-    }
+    AdiArchitecture.forAbi(Abi.current());
     _stubs = NativeSymbolStubs(loadLibraryForDlopen: _loadByPath);
   }
 

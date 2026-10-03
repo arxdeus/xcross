@@ -10,6 +10,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/adi/adi_bindings.dart';
+import 'package:apple_developer_kit/src/adi/apk_fetch.dart';
 import 'package:apple_developer_kit/src/adi/loader/loader.dart';
 import 'package:apple_developer_kit/src/adi/loader/loader_posix.dart';
 import 'package:apple_developer_kit/src/adi/loader/loader_windows.dart';
@@ -184,15 +185,20 @@ class AdiClient {
     String nativeLibraryDir, {
     NativeLibraryLoader? loader,
   }) {
+    final libraryDir = loader == null
+        ? (AdiLibraryFetcher.resolveLibraryDirectory(
+                Directory(nativeLibraryDir),
+              )?.path ??
+              (throw StateError(
+                'ADI libraries are missing from $nativeLibraryDir.',
+              )))
+        : nativeLibraryDir;
     final resolvedLoader = loader ?? AdiClient.defaultNativeLibraryLoader();
-    final storeServicesPath = p.join(
-      nativeLibraryDir,
-      'libstoreservicescore.so',
-    );
+    final storeServicesPath = p.join(libraryDir, 'libstoreservicescore.so');
     final storeServicesCore = resolvedLoader.load(storeServicesPath);
 
     final client = AdiClient._(AdiNativeBindings(storeServicesCore));
-    client._loadLibrary(nativeLibraryDir);
+    client._loadLibrary(libraryDir);
     return client;
   }
 
@@ -399,9 +405,9 @@ class AdiClient {
   @useResult
   static NativeLibraryLoader defaultNativeLibraryLoader() {
     if (Platform.isWindows) return WindowsNativeLibraryLoader();
-    if (Platform.isLinux) return PosixNativeLibraryLoader();
+    if (Platform.isLinux || Platform.isMacOS) return PosixNativeLibraryLoader();
     throw UnsupportedError(
-      'provision_dart ADI loader supports Linux and Windows only '
+      'provision_dart ADI loader supports Linux, macOS and Windows '
       '(got ${Platform.operatingSystem}).',
     );
   }

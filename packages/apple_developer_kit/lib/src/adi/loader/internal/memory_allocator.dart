@@ -24,6 +24,10 @@ final class NativeMemoryBlock {
 /// (`native_symbol_stubs.dart`) handles instead.
 @internal
 abstract interface class NativeMemoryAllocator {
+  int get pageSize;
+
+  void flushInstructionCache(NativeMemoryBlock block);
+
   /// Reserves an anonymous block of [size] bytes.
   @useResult
   NativeMemoryBlock alloc(int size);
