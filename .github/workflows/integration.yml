@@ -525,10 +525,12 @@ jobs:
           bundles=(packages/xcross/build/cli/*/bundle)
           test "${#bundles[@]}" -eq 1
           bundle="${bundles[0]}"
-          file "$bundle/bin/xcross" | tee "$RUNNER_TEMP/xcross-file.txt"
-          grep -Eq 'aarch64|arm64' "$RUNNER_TEMP/xcross-file.txt"
+          for executable in xcross xcrun; do
+            test -x "$bundle/bin/$executable"
+            file "$bundle/bin/$executable" | tee "$RUNNER_TEMP/$executable-file.txt"
+            grep -Eq 'aarch64|arm64' "$RUNNER_TEMP/$executable-file.txt"
+          done
           "$bundle/bin/xcross" --help
-          test -x "$bundle/bin/xcrun"
           if [[ "$RUNNER_OS" == Linux ]]; then
             "$bundle/bin/xcrun" --version
           fi
