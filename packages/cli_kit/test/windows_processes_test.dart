@@ -161,9 +161,20 @@ void main() {
         paths.context.join('tools', 'taskkill'),
         paths.context.join('tools', 'taskkill.selected'),
       ]);
-      expect(paths.ioPath(invoked!), taskkill.path);
+      expect(invoked, taskkill.path);
       expect(values, same(environment.values));
       expect(inherited, isFalse);
+      final override = paths.context.join('tools', 'configured-taskkill');
+      final overrideProcess = await startWaitingChild(processes, script);
+      await processes.killTree(
+        overrideProcess,
+        executableOverrides: {'taskkill': override},
+      );
+      await overrideProcess.exitCode;
+      expect(invoked, paths.context.join(temp.path, override));
+      expect(values, same(environment.values));
+      expect(inherited, isFalse);
+      expect(files.probes.length, 2);
     },
   );
 }

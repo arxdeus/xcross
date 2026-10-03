@@ -88,7 +88,7 @@ final class WindowsProcesses implements HostProcessInterface {
         return;
       }
       await _runProcess(
-        taskkill,
+        _paths.ioPath(taskkill),
         ['/PID', '${process.pid}', '/T', '/F'],
         environment: environment ?? _environment.values,
         includeParentEnvironment: false,
