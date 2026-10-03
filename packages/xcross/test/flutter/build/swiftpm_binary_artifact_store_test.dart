@@ -6,17 +6,84 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/flutter/build/swiftpm_binary_artifact_store.dart';
 import 'package:xcross/src/flutter/errors.dart';
+import 'package:xcross/src/host/shared/flutter/swiftpm/artifact_publication_lock.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
+
+import 'swiftpm_test_context.dart';
+
+final _swiftPmRuntime = testSwiftPmRuntime();
+
+final _abcChecksum = sha256.convert(utf8.encode('abc')).toString();
+final _defChecksum = sha256.convert(utf8.encode('def')).toString();
 
 void main() {
   late Directory temp;
   late SwiftPmBinaryArtifactStore store;
 
-  setUp(() {
+  setUp(() async {
     temp = Directory.systemTemp.createTempSync('xcross_swiftpm_store-');
-    store = SwiftPmBinaryArtifactStore(p.join(temp.path, 'store'));
+    store = SwiftPmBinaryArtifactStore(
+      p.join(temp.path, 'store'),
+      host: _swiftPmRuntime.host,
+      publicationCoordinator: SwiftPmPublicationCoordinator(
+        locks: FileSwiftPmPublicationLockProvider(
+          _swiftPmRuntime.artifactFileSystem,
+        ),
+        pathKey: _swiftPmRuntime.host.paths.pathKey,
+      ),
+      fileSystem: _swiftPmRuntime.artifactFileSystem,
+    );
+    for (final content in ['abc', 'def']) {
+      final archive = File(p.join(temp.path, '$content.zip'))
+        ..writeAsStringSync(content);
+      await store.publishArchive(
+        archive,
+        sha256.convert(utf8.encode(content)).toString(),
+      );
+    }
   });
 
   tearDown(() => temp.deleteSync(recursive: true));
+
+  test('rejects extracted target admission without verified archive', () async {
+    final staging = fixture(temp, 'unverified', 'A.artifactbundle', 'partial');
+    await expectLater(
+      store.publishTarget(
+        checksum: '0' * 64,
+        targetName: 'A',
+        stagingRoot: staging,
+        artifactDirectoryName: 'A.artifactbundle',
+        metadata: const {},
+      ),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(await store.findCompleteTarget('0' * 64, 'A'), isNull);
+    expect(
+      File(p.join(store.targetRoot('0' * 64, 'A'), '.complete')).existsSync(),
+      isFalse,
+    );
+  });
+
+  test(
+    'does not reuse legacy completion metadata without archive provenance',
+    () async {
+      final entry = await publishFixture(
+        store,
+        temp,
+        checksum: _abcChecksum,
+        target: 'A',
+      );
+      final metadata = File(
+        p.join(store.targetRoot(_abcChecksum, 'A'), 'metadata.json'),
+      );
+      final value =
+          jsonDecode(metadata.readAsStringSync()) as Map<String, dynamic>;
+      value.remove('verifiedArchiveChecksum');
+      metadata.writeAsStringSync(jsonEncode(value));
+      expect(Directory(entry.artifactPath).existsSync(), isTrue);
+      expect(await store.findCompleteTarget(_abcChecksum, 'A'), isNull);
+    },
+  );
 
   test('publishes and reuses a verified archive', () async {
     final bytes = utf8.encode('archive');
@@ -46,7 +113,7 @@ void main() {
     final target = await publishFixture(
       store,
       temp,
-      checksum: 'ABC',
+      checksum: _abcChecksum.toUpperCase(),
       target: 'A',
     );
 
@@ -55,9 +122,12 @@ void main() {
       store.archivePath(checksum.toUpperCase()),
       store.archivePath(checksum),
     );
-    expect(store.targetRoot('ABC', 'A'), store.targetRoot('abc', 'A'));
-    expect(target.archiveChecksum, 'abc');
-    expect(await store.findCompleteTarget('abc', 'A'), isNotNull);
+    expect(
+      store.targetRoot(_abcChecksum.toUpperCase(), 'A'),
+      store.targetRoot(_abcChecksum, 'A'),
+    );
+    expect(target.archiveChecksum, _abcChecksum);
+    expect(await store.findCompleteTarget(_abcChecksum, 'A'), isNotNull);
   });
 
   test('rejects an archive with a mismatched checksum', () async {
@@ -71,36 +141,68 @@ void main() {
   });
 
   test('same archive supports distinct target entries', () async {
-    final a = await publishFixture(store, temp, checksum: 'abc', target: 'A');
-    final b = await publishFixture(store, temp, checksum: 'abc', target: 'B');
+    final a = await publishFixture(
+      store,
+      temp,
+      checksum: _abcChecksum,
+      target: 'A',
+    );
+    final b = await publishFixture(
+      store,
+      temp,
+      checksum: _abcChecksum,
+      target: 'B',
+    );
 
     expect(a.artifactPath, isNot(b.artifactPath));
-    expect(store.archivePath('abc'), endsWith('abc.zip'));
-    expect(await store.findCompleteTarget('abc', 'A'), isNotNull);
-    expect(await store.findCompleteTarget('abc', 'B'), isNotNull);
+    expect(store.archivePath(_abcChecksum), endsWith('$_abcChecksum.zip'));
+    expect(await store.findCompleteTarget(_abcChecksum, 'A'), isNotNull);
+    expect(await store.findCompleteTarget(_abcChecksum, 'B'), isNotNull);
   });
 
   test('separates target entries by checksum', () async {
-    final a = await publishFixture(store, temp, checksum: 'abc', target: 'A');
-    final b = await publishFixture(store, temp, checksum: 'def', target: 'A');
+    final a = await publishFixture(
+      store,
+      temp,
+      checksum: _abcChecksum,
+      target: 'A',
+    );
+    final b = await publishFixture(
+      store,
+      temp,
+      checksum: _defChecksum,
+      target: 'A',
+    );
 
     expect(a.artifactPath, isNot(b.artifactPath));
   });
 
   test('does not reuse an entry without completion marker', () async {
-    Directory(store.targetRoot('abc', 'A')).createSync(recursive: true);
+    Directory(store.targetRoot(_abcChecksum, 'A')).createSync(recursive: true);
 
-    expect(await store.findCompleteTarget('abc', 'A'), isNull);
+    expect(await store.findCompleteTarget(_abcChecksum, 'A'), isNull);
   });
 
   test('concurrent publication exposes one complete target', () async {
     final results = await Future.wait([
-      publishFixture(store, temp, checksum: 'abc', target: 'A', value: 'one'),
-      publishFixture(store, temp, checksum: 'abc', target: 'A', value: 'two'),
+      publishFixture(
+        store,
+        temp,
+        checksum: _abcChecksum,
+        target: 'A',
+        value: 'one',
+      ),
+      publishFixture(
+        store,
+        temp,
+        checksum: _abcChecksum,
+        target: 'A',
+        value: 'two',
+      ),
     ]);
 
     expect(results[0].artifactPath, results[1].artifactPath);
-    final found = await store.findCompleteTarget('abc', 'A');
+    final found = await store.findCompleteTarget(_abcChecksum, 'A');
     expect(found, isNotNull);
     expect(
       File(p.join(found!.artifactPath, 'payload')).readAsStringSync(),
@@ -109,29 +211,29 @@ void main() {
     final metadata =
         jsonDecode(
               File(
-                p.join(store.targetRoot('abc', 'A'), 'metadata.json'),
+                p.join(store.targetRoot(_abcChecksum, 'A'), 'metadata.json'),
               ).readAsStringSync(),
             )
             as Map<String, Object?>;
-    expect(metadata['archiveChecksum'], 'abc');
+    expect(metadata['archiveChecksum'], _abcChecksum);
     expect(metadata['targetName'], 'A');
     expect(metadata['artifactDirectoryName'], 'A.artifactbundle');
   });
 
   test('recovers publication from an incomplete destination', () async {
-    final poisoned = Directory(store.targetRoot('abc', 'A'))
+    final poisoned = Directory(store.targetRoot(_abcChecksum, 'A'))
       ..createSync(recursive: true);
     File(p.join(poisoned.path, 'partial')).writeAsStringSync('keep');
 
     final published = await publishFixture(
       store,
       temp,
-      checksum: 'abc',
+      checksum: _abcChecksum,
       target: 'A',
     );
 
     expect(Directory(published.artifactPath).existsSync(), isTrue);
-    expect(await store.findCompleteTarget('abc', 'A'), isNotNull);
+    expect(await store.findCompleteTarget(_abcChecksum, 'A'), isNotNull);
     final preserved = poisoned.parent
         .listSync(recursive: true, followLinks: false)
         .whereType<File>()
@@ -178,16 +280,16 @@ void main() {
         return metadata['treeDigest']! as String;
       }
 
-      final first = await publishLarge('abc');
-      final second = await publishLarge('def');
+      final first = await publishLarge(_abcChecksum);
+      final second = await publishLarge(_defChecksum);
 
-      expect(treeDigest('abc'), treeDigest('def'));
+      expect(treeDigest(_abcChecksum), treeDigest(_defChecksum));
       final payload = File(p.join(first.artifactPath, 'payload'));
       final handle = payload.openSync(mode: FileMode.append);
       handle.writeByteSync(1);
       handle.closeSync();
-      expect(await store.findCompleteTarget('abc', 'A'), isNull);
-      expect(await store.findCompleteTarget('def', 'A'), isNotNull);
+      expect(await store.findCompleteTarget(_abcChecksum, 'A'), isNull);
+      expect(await store.findCompleteTarget(_defChecksum, 'A'), isNotNull);
       expect(
         File(p.join(second.artifactPath, 'payload')).lengthSync(),
         3 * 1024 * 1024,
@@ -201,7 +303,7 @@ void main() {
 
     await expectLater(
       store.publishTarget(
-        checksum: 'abc',
+        checksum: _abcChecksum,
         targetName: 'A',
         stagingRoot: staging,
         artifactDirectoryName: 'A.artifactbundle',
@@ -220,7 +322,7 @@ void main() {
 
     await expectLater(
       store.publishTarget(
-        checksum: 'abc',
+        checksum: _abcChecksum,
         targetName: 'A',
         stagingRoot: staging,
         artifactDirectoryName: 'A.artifactbundle',
@@ -228,30 +330,30 @@ void main() {
       ),
       throwsA(isA<FlutterBuildError>()),
     );
-    expect(await store.findCompleteTarget('abc', 'A'), isNull);
+    expect(await store.findCompleteTarget(_abcChecksum, 'A'), isNull);
   });
 
   test('does not reuse a published tree containing a symlink', () async {
     final published = await publishFixture(
       store,
       temp,
-      checksum: 'abc',
+      checksum: _abcChecksum,
       target: 'A',
     );
     final outside = File(p.join(temp.path, 'outside'))..writeAsStringSync('x');
     Link(p.join(published.artifactPath, 'link')).createSync(outside.path);
 
-    expect(await store.findCompleteTarget('abc', 'A'), isNull);
+    expect(await store.findCompleteTarget(_abcChecksum, 'A'), isNull);
   });
 
   test('does not accept a symlink as the target root', () async {
     final elsewhere = temp.createTempSync('elsewhere-');
     File(p.join(elsewhere.path, '.complete')).writeAsStringSync('');
-    final target = store.targetRoot('abc', 'A');
+    final target = store.targetRoot(_abcChecksum, 'A');
     Directory(target).parent.createSync(recursive: true);
     Link(target).createSync(elsewhere.path);
 
-    expect(await store.findCompleteTarget('abc', 'A'), isNull);
+    expect(await store.findCompleteTarget(_abcChecksum, 'A'), isNull);
   });
 
   test('rejects a Windows directory junction in a staged tree', () async {
@@ -274,7 +376,7 @@ void main() {
 
     await expectLater(
       store.publishTarget(
-        checksum: 'abc',
+        checksum: _abcChecksum,
         targetName: 'A',
         stagingRoot: staging,
         artifactDirectoryName: 'A.artifactbundle',
@@ -288,17 +390,17 @@ void main() {
         ),
       ),
     );
-    expect(await store.findCompleteTarget('abc', 'A'), isNull);
+    expect(await store.findCompleteTarget(_abcChecksum, 'A'), isNull);
   });
 
   test('rejects unsafe target and artifact names', () async {
     for (final target in ['.', '..', 'A/B', r'A\B']) {
-      expect(() => store.targetRoot('abc', target), throwsArgumentError);
+      expect(() => store.targetRoot(_abcChecksum, target), throwsArgumentError);
     }
     final staging = fixture(temp, 'unsafe', 'artifact', 'value');
     await expectLater(
       store.publishTarget(
-        checksum: 'abc',
+        checksum: _abcChecksum,
         targetName: 'A',
         stagingRoot: staging,
         artifactDirectoryName: '../artifact',

@@ -1,14 +1,13 @@
-import 'dart:async';
 import 'dart:convert';
-import 'dart:ffi';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:crypto/crypto.dart';
-import 'package:ffi/ffi.dart';
 import 'package:path/path.dart' as p;
-
 import 'package:xcross/src/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_tree.dart';
 
 final class SwiftPmBinaryArtifactEntry {
   const SwiftPmBinaryArtifactEntry({
@@ -23,11 +22,18 @@ final class SwiftPmBinaryArtifactEntry {
 }
 
 final class SwiftPmBinaryArtifactStore {
-  SwiftPmBinaryArtifactStore(this.root);
-
-  static final Map<String, Future<void>> _localPublicationTails = {};
+  SwiftPmBinaryArtifactStore(
+    this.root, {
+    required this.host,
+    required this.fileSystem,
+    required this.publicationCoordinator,
+  });
+  final PlatformHostInterface host;
+  final SwiftPmPublicationCoordinator publicationCoordinator;
+  final SwiftPmArtifactFileSystem fileSystem;
 
   final String root;
+  late final SwiftPmArtifactTree _tree = SwiftPmArtifactTree(fileSystem);
 
   String archivePath(String checksum) =>
       p.join(root, 'archives', '${_checksumComponent(checksum)}.zip');
@@ -45,7 +51,7 @@ final class SwiftPmBinaryArtifactStore {
     int maximumBytes = 536870912,
   }) async {
     final expected = _checksumComponent(checksum);
-    final destination = File(archivePath(expected));
+    final destination = fileSystem.file(archivePath(expected));
     await destination.parent.create(recursive: true);
     return _withPublicationLock(destination.path, () async {
       if (destination.existsSync()) {
@@ -56,7 +62,9 @@ final class SwiftPmBinaryArtifactStore {
       final stagingDirectory = await destination.parent.createTemp(
         '.${p.basename(destination.path)}.staging-',
       );
-      final staging = File(p.join(stagingDirectory.path, 'archive.zip'));
+      final staging = fileSystem.file(
+        p.join(stagingDirectory.path, 'archive.zip'),
+      );
       try {
         await staging.create(exclusive: true);
         final output = await staging.open(mode: FileMode.writeOnly);
@@ -96,7 +104,7 @@ final class SwiftPmBinaryArtifactStore {
     final expected = _checksumComponent(checksum);
     final path = archivePath(expected);
     return _withPublicationLock(path, () async {
-      final file = File(path);
+      final file = fileSystem.file(path);
       final bytes = await file.readAsBytes();
       if (maximumBytes != null && bytes.length > maximumBytes) {
         throw FlutterBuildError(
@@ -123,16 +131,22 @@ final class SwiftPmBinaryArtifactStore {
   }) async {
     final safeChecksum = _checksumComponent(checksum);
     final safeTarget = _component(targetName, 'target name');
+    await _verifyArchive(
+      fileSystem.file(archivePath(safeChecksum)),
+      safeChecksum,
+    );
     final safeArtifact = _component(
       artifactDirectoryName,
       'artifact directory name',
     );
-    final destination = Directory(targetRoot(safeChecksum, safeTarget));
+    final destination = fileSystem.directory(
+      targetRoot(safeChecksum, safeTarget),
+    );
     final existing = await findCompleteTarget(safeChecksum, safeTarget);
     if (existing != null) return existing;
 
     await destination.parent.create(recursive: true);
-    if (FileSystemEntity.typeSync(stagingRoot.path, followLinks: false) !=
+    if (fileSystem.typeSync(stagingRoot.path, followLinks: false) !=
         FileSystemEntityType.directory) {
       throw FlutterBuildError(
         'SwiftPM binary artifact staging root must be a real directory',
@@ -141,7 +155,7 @@ final class SwiftPmBinaryArtifactStore {
     return _withPublicationLock(destination.path, () async {
       final winner = await findCompleteTarget(safeChecksum, safeTarget);
       if (winner != null) return winner;
-      if (FileSystemEntity.typeSync(destination.path, followLinks: false) !=
+      if (fileSystem.typeSync(destination.path, followLinks: false) !=
           FileSystemEntityType.notFound) {
         await _preserveIncomplete(destination.path);
       }
@@ -150,16 +164,16 @@ final class SwiftPmBinaryArtifactStore {
         '.$safeTarget.staging-',
       );
       try {
-        await _copyDirectoryContents(stagingRoot, staging);
+        await _tree.copyDirectoryContents(stagingRoot, staging);
         final artifactPath = p.join(staging.path, safeArtifact);
-        if (FileSystemEntity.typeSync(artifactPath, followLinks: false) !=
+        if (fileSystem.typeSync(artifactPath, followLinks: false) !=
             FileSystemEntityType.directory) {
           throw FlutterBuildError(
             'SwiftPM binary artifact root must be a real directory: '
             '$safeArtifact',
           );
         }
-        if (await _containsLink(staging)) {
+        if (await _tree.containsLink(staging)) {
           throw FlutterBuildError(
             'SwiftPM binary artifact target trees must not contain links or reparse points',
             isSecurityFailure: true,
@@ -168,17 +182,20 @@ final class SwiftPmBinaryArtifactStore {
         final completeMetadata = <String, Object?>{
           ...metadata,
           'archiveChecksum': safeChecksum,
+          'verifiedArchiveChecksum': safeChecksum,
           'targetName': safeTarget,
           'artifactDirectoryName': safeArtifact,
-          'treeDigest': await _treeDigest(Directory(artifactPath)),
+          'treeDigest': await _tree.treeDigest(
+            fileSystem.directory(artifactPath),
+          ),
         };
-        await File(
-          p.join(staging.path, 'metadata.json'),
-        ).writeAsString(jsonEncode(completeMetadata), flush: true);
-        await File(
-          p.join(staging.path, '.complete'),
-        ).writeAsString('', flush: true);
-        if (FileSystemEntity.typeSync(destination.path, followLinks: false) !=
+        await fileSystem
+            .file(p.join(staging.path, 'metadata.json'))
+            .writeAsString(jsonEncode(completeMetadata), flush: true);
+        await fileSystem
+            .file(p.join(staging.path, '.complete'))
+            .writeAsString('', flush: true);
+        if (fileSystem.typeSync(destination.path, followLinks: false) !=
             FileSystemEntityType.notFound) {
           final racedWinner = await findCompleteTarget(
             safeChecksum,
@@ -210,11 +227,11 @@ final class SwiftPmBinaryArtifactStore {
   ) async {
     final safeChecksum = _checksumComponent(checksum);
     final safeTarget = _component(targetName, 'target name');
-    final target = Directory(targetRoot(safeChecksum, safeTarget));
-    if (FileSystemEntity.typeSync(target.path, followLinks: false) !=
+    final target = fileSystem.directory(targetRoot(safeChecksum, safeTarget));
+    if (fileSystem.typeSync(target.path, followLinks: false) !=
             FileSystemEntityType.directory ||
-        await _containsLink(target) ||
-        FileSystemEntity.typeSync(
+        await _tree.containsLink(target) ||
+        fileSystem.typeSync(
               p.join(target.path, '.complete'),
               followLinks: false,
             ) !=
@@ -223,21 +240,29 @@ final class SwiftPmBinaryArtifactStore {
     }
     try {
       final decoded = jsonDecode(
-        await File(p.join(target.path, 'metadata.json')).readAsString(),
+        await fileSystem
+            .file(p.join(target.path, 'metadata.json'))
+            .readAsString(),
       );
       if (decoded is! Map<String, dynamic> ||
           decoded['archiveChecksum'] != safeChecksum ||
+          decoded['verifiedArchiveChecksum'] != safeChecksum ||
           decoded['targetName'] != safeTarget ||
           decoded['artifactDirectoryName'] is! String ||
           decoded['treeDigest'] is! String) {
         return null;
       }
+      await _verifyArchive(
+        fileSystem.file(archivePath(safeChecksum)),
+        safeChecksum,
+      );
       final artifactName = decoded['artifactDirectoryName'] as String;
       if (!_isSafeComponent(artifactName)) return null;
       final artifactPath = p.join(target.path, artifactName);
-      if (FileSystemEntity.typeSync(artifactPath, followLinks: false) !=
+      if (fileSystem.typeSync(artifactPath, followLinks: false) !=
               FileSystemEntityType.directory ||
-          await _treeDigest(Directory(artifactPath)) != decoded['treeDigest']) {
+          await _tree.treeDigest(fileSystem.directory(artifactPath)) !=
+              decoded['treeDigest']) {
         return null;
       }
       return SwiftPmBinaryArtifactEntry(
@@ -297,158 +322,19 @@ final class SwiftPmBinaryArtifactStore {
     }
   }
 
-  static Future<void> _copyDirectoryContents(
-    Directory source,
-    Directory destination,
-  ) async {
-    final names = <String>{};
-    await for (final entity in _ioDirectory(
-      source.path,
-    ).list(followLinks: false)) {
-      final name = p.basename(entity.path);
-      if (!_isSafeComponent(name) || !names.add(name.toLowerCase())) {
-        throw FlutterBuildError(
-          'SwiftPM binary artifact target tree contains an unsafe or case-fold-colliding path',
-          isSecurityFailure: true,
-        );
-      }
-      final target = p.join(destination.path, name);
-      if (await _isLinkOrReparsePoint(entity.path)) {
-        throw FlutterBuildError(
-          'SwiftPM binary artifact target trees must not contain links or reparse points',
-          isSecurityFailure: true,
-        );
-      }
-      if (entity is File) {
-        await entity.copy(_ioPath(target));
-      } else if (entity is Directory) {
-        final child = await _ioDirectory(target).create();
-        await _copyDirectoryContents(entity, child);
-      } else {
-        throw FlutterBuildError(
-          'SwiftPM binary artifact target trees must not contain symlinks',
-        );
-      }
-    }
-  }
-
-  static Future<bool> _containsLink(Directory root) async {
-    await for (final entity in _ioDirectory(
-      root.path,
-    ).list(recursive: true, followLinks: false)) {
-      if (await _isLinkOrReparsePoint(entity.path)) return true;
-    }
-    return false;
-  }
-
-  static Directory _ioDirectory(String path) => Directory(_ioPath(path));
-
-  static String _ioPath(String path) => HostPaths.long(path);
-
-  static Future<bool> _isLinkOrReparsePoint(String path) async {
-    if (FileSystemEntity.typeSync(path, followLinks: false) ==
-        FileSystemEntityType.link) {
-      return true;
-    }
-    if (!Platform.isWindows) return false;
-    final pointer = _ioPath(path).toNativeUtf16();
-    try {
-      final attributes = _getFileAttributes(pointer);
-      if (attributes == _invalidFileAttributes) {
-        throw FileSystemException(
-          'Could not read SwiftPM binary artifact attributes',
-          path,
-        );
-      }
-      return attributes & _fileAttributeReparsePoint != 0;
-    } finally {
-      calloc.free(pointer);
-    }
-  }
-
-  static const _invalidFileAttributes = 0xffffffff;
-  static const _fileAttributeReparsePoint = 0x400;
-  static final int Function(Pointer<Utf16>) _getFileAttributes =
-      Platform.isWindows
-      ? DynamicLibrary.open('kernel32.dll').lookupFunction<
-          Uint32 Function(Pointer<Utf16>),
-          int Function(Pointer<Utf16>)
-        >('GetFileAttributesW')
-      : (_) => _invalidFileAttributes;
-
-  static Future<String> _treeDigest(Directory root) async {
-    final rootPath = _ioPath(root.path);
-    final entries = _ioDirectory(rootPath).listSync(
-      recursive: true,
-      followLinks: false,
-    )..sort((left, right) => left.path.compareTo(right.path));
-
-    Digest? digest;
-    final input = sha256.startChunkedConversion(
-      ChunkedConversionSink.withCallback((digests) => digest = digests.single),
-    );
-
-    void addFrame(String value) {
-      input.add(utf8.encode(value));
-      input.add(const [0]);
-    }
-
-    addFrame('xcross-swiftpm-target-tree-v1');
-    final foldedPaths = <String>{};
-    for (final entity in entries) {
-      if (await _isLinkOrReparsePoint(entity.path)) {
-        throw FlutterBuildError(
-          'SwiftPM binary artifact target trees must not contain links or reparse points',
-          isSecurityFailure: true,
-        );
-      }
-      final relative = p
-          .relative(entity.path, from: rootPath)
-          .replaceAll(r'\', '/');
-
-      if (!foldedPaths.add(relative.toLowerCase())) {
-        throw FlutterBuildError(
-          'SwiftPM binary artifact target tree contains an unsafe or case-fold-colliding path',
-          isSecurityFailure: true,
-        );
-      }
-      final type = FileSystemEntity.typeSync(entity.path, followLinks: false);
-      addFrame(type.toString());
-      addFrame(relative);
-      switch (type) {
-        case FileSystemEntityType.file:
-          final file = File(entity.path);
-          addFrame((await file.length()).toString());
-          await for (final chunk in file.openRead()) {
-            input.add(chunk);
-          }
-        case FileSystemEntityType.directory:
-          addFrame('0');
-        default:
-          throw FlutterBuildError(
-            'SwiftPM binary artifact target trees contain an unsupported entry type',
-            isSecurityFailure: true,
-          );
-      }
-      input.add(const [0]);
-    }
-    input.close();
-    return digest.toString();
-  }
-
-  static Future<void> _preserveIncomplete(String destinationPath) async {
-    final parent = Directory(p.dirname(destinationPath));
+  Future<void> _preserveIncomplete(String destinationPath) async {
+    final parent = fileSystem.directory(p.dirname(destinationPath));
     final quarantine = await parent.createTemp(
       '.${p.basename(destinationPath)}.incomplete-',
     );
     final preservedPath = p.join(quarantine.path, 'entry');
-    switch (FileSystemEntity.typeSync(destinationPath, followLinks: false)) {
+    switch (fileSystem.typeSync(destinationPath, followLinks: false)) {
       case FileSystemEntityType.directory:
-        await Directory(destinationPath).rename(preservedPath);
+        await fileSystem.directory(destinationPath).rename(preservedPath);
       case FileSystemEntityType.file:
-        await File(destinationPath).rename(preservedPath);
+        await fileSystem.file(destinationPath).rename(preservedPath);
       case FileSystemEntityType.link:
-        await Link(destinationPath).rename(preservedPath);
+        await fileSystem.link(destinationPath).rename(preservedPath);
       case FileSystemEntityType.notFound:
       case FileSystemEntityType.pipe:
       case FileSystemEntityType.unixDomainSock:
@@ -458,33 +344,8 @@ final class SwiftPmBinaryArtifactStore {
     }
   }
 
-  static Future<T> _withPublicationLock<T>(
+  Future<T> _withPublicationLock<T>(
     String destinationPath,
     Future<T> Function() action,
-  ) async {
-    final lockKey = Platform.isWindows
-        ? p.windows.normalize(p.absolute(destinationPath)).toLowerCase()
-        : p.normalize(p.absolute(destinationPath));
-    final previous = _localPublicationTails[lockKey];
-    final done = Completer<void>();
-    final tail = done.future;
-    _localPublicationTails[lockKey] = tail;
-    if (previous != null) await previous;
-
-    final lockFile = File('$lockKey.lock');
-    await lockFile.parent.create(recursive: true);
-    final lock = await lockFile.open(mode: FileMode.append);
-    try {
-      await lock.lock();
-      return await action();
-    } finally {
-      await lock.unlock();
-      await lock.close();
-      done.complete();
-      if (identical(_localPublicationTails[lockKey], tail)) {
-        final removed = _localPublicationTails.remove(lockKey);
-        assert(identical(removed, tail), 'publication tail changed');
-      }
-    }
-  }
+  ) => publicationCoordinator.run(destinationPath, action);
 }
