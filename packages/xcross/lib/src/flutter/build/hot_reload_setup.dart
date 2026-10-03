@@ -1,6 +1,5 @@
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/flutter/models/hot_reload_config.dart';
-import 'package:xcross/src/package_config_resolver.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 
 /// Groups hot-reload configuration setup.
@@ -36,7 +35,7 @@ abstract final class HotReloadSetup {
     }
 
     final sdkRoot = engineCache.patchedSdkRoot;
-    final packageConfig = await PackageConfigResolver.require(projectRoot);
+    final packageConfig = await runtime.packageConfigs.require(projectRoot);
     final entrypoint = paths.isAbsolute(target)
         ? target
         : paths.join(projectRoot, target);

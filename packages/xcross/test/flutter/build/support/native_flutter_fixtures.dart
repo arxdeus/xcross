@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
@@ -110,7 +111,13 @@ AppleToolShimResolver<LinuxHost> appleToolResolver({
   bool declarative = false,
 }) {
   final host = LinuxHost(architecture: 'arm64');
-  final runner = ProcessRunner(host, log: nativeTestLog());
+  final runner = ProcessRunner(
+    host,
+    log: nativeTestLog(),
+    stdinStream: const Stream<List<int>>.empty(),
+    stdoutSink: nativeTestSink(),
+    stderrSink: nativeTestSink(),
+  );
   return AppleToolShimResolver(
     IPhoneTarget(host),
     runner,
@@ -187,7 +194,13 @@ List<(String, NativeHostTools, FlutterTargetBuildPolicy)> nativeHostCases() {
       'linux-arm64',
       LinuxNativeHostTools(
         linuxArm,
-        ProcessRunner(linuxArm, log: nativeTestLog()),
+        ProcessRunner(
+          linuxArm,
+          log: nativeTestLog(),
+          stdinStream: const Stream<List<int>>.empty(),
+          stdoutSink: nativeTestSink(),
+          stderrSink: nativeTestSink(),
+        ),
       ),
       IPhoneFlutterTarget(IPhoneTarget(linuxArm)),
     ),
@@ -195,25 +208,55 @@ List<(String, NativeHostTools, FlutterTargetBuildPolicy)> nativeHostCases() {
       'linux-x64',
       LinuxNativeHostTools(
         linuxX64,
-        ProcessRunner(linuxX64, log: nativeTestLog()),
+        ProcessRunner(
+          linuxX64,
+          log: nativeTestLog(),
+          stdinStream: const Stream<List<int>>.empty(),
+          stdoutSink: nativeTestSink(),
+          stderrSink: nativeTestSink(),
+        ),
       ),
       IPhoneFlutterTarget(IPhoneTarget(linuxX64)),
     ),
     (
       'darwin-arm64',
-      MacOSNativeHostTools(macArm, ProcessRunner(macArm, log: nativeTestLog())),
+      MacOSNativeHostTools(
+        macArm,
+        ProcessRunner(
+          macArm,
+          log: nativeTestLog(),
+          stdinStream: const Stream<List<int>>.empty(),
+          stdoutSink: nativeTestSink(),
+          stderrSink: nativeTestSink(),
+        ),
+      ),
       IPhoneFlutterTarget(IPhoneTarget(macArm)),
     ),
     (
       'darwin-x64',
-      MacOSNativeHostTools(macX64, ProcessRunner(macX64, log: nativeTestLog())),
+      MacOSNativeHostTools(
+        macX64,
+        ProcessRunner(
+          macX64,
+          log: nativeTestLog(),
+          stdinStream: const Stream<List<int>>.empty(),
+          stdoutSink: nativeTestSink(),
+          stderrSink: nativeTestSink(),
+        ),
+      ),
       IPhoneFlutterTarget(IPhoneTarget(macX64)),
     ),
     (
       'windows-x64',
       WindowsNativeHostTools(
         windows,
-        ProcessRunner(windows, log: nativeTestLog()),
+        ProcessRunner(
+          windows,
+          log: nativeTestLog(),
+          stdinStream: const Stream<List<int>>.empty(),
+          stdoutSink: nativeTestSink(),
+          stderrSink: nativeTestSink(),
+        ),
       ),
       IPhoneFlutterTarget(IPhoneTarget(windows)),
     ),
@@ -248,7 +291,13 @@ IosEngineCache<LinuxHost> nativeLinuxEngineCache({
 }) {
   final host = LinuxHost(architecture: 'arm64');
   final log = nativeTestLog();
-  final runner = ProcessRunner(host, log: log);
+  final runner = ProcessRunner(
+    host,
+    log: log,
+    stdinStream: const Stream<List<int>>.empty(),
+    stdoutSink: nativeTestSink(),
+    stderrSink: nativeTestSink(),
+  );
   return IosEngineCache(
     targetPolicy: IPhoneFlutterTarget(IPhoneTarget(host)),
     hostTools: LinuxNativeHostTools(host, runner),
@@ -257,4 +306,15 @@ IosEngineCache<LinuxHost> nativeLinuxEngineCache({
     log: log,
     downloader: nativeTestDownloader(),
   );
+}
+
+IOSink nativeTestSink() {
+  final controller = StreamController<List<int>>();
+  final subscription = controller.stream.listen((_) {});
+  final sink = IOSink(controller.sink);
+  addTearDown(() async {
+    await sink.close();
+    await subscription.cancel();
+  });
+  return sink;
 }

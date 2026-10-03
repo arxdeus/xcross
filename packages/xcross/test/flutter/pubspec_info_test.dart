@@ -126,8 +126,10 @@ packages:
       }),
     );
     final assetsDir = Directory(p.join(tmp.path, 'output'))..createSync();
+    final runtime = testIPhoneRuntime();
     final bundler = FlutterAssetsCompiler(
-      fileSystem: testIPhoneRuntime().host.fileSystem,
+      paths: runtime.host.paths.context,
+      fileSystem: runtime.host.fileSystem,
       projectRoot: tmp.path,
       flutterRoot: p.join(tmp.path, 'flutter'),
     );

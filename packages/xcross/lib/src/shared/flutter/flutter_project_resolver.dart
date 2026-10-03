@@ -1,6 +1,5 @@
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/flutter/errors.dart';
-import 'package:xcross/src/package_config_resolver.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
 
@@ -70,7 +69,7 @@ final class FlutterProjectResolver<T extends PlatformHostInterface>
             label: 'flutter',
           );
         } on FlutterBuildError {
-          if (await PackageConfigResolver.find(request.projectRoot) != null) {
+          if (await runtime.packageConfigs.find(request.projectRoot) != null) {
             runtime.runner.log.logWarn(
               'Ignoring flutter pub get error because package_config.json exists.',
             );

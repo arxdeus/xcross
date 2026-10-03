@@ -41,6 +41,7 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
     final nativeAssets = await runtime.runner.log.logStep(
       'Building native assets',
       () => IosNativeAssetsBuilder(
+        hooks: runtime.nativeAssetHooks,
         runner: runtime.runner,
         tools: runtime.nativeTools,
         engineCache: runtime.engineCache(flutterRoot),
@@ -86,6 +87,7 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
     return FlutterDebugBundler(
       runtime: runtime,
       assets: FlutterAssetsCompiler(
+        paths: runtime.host.paths.context,
         fileSystem: runtime.host.fileSystem,
         projectRoot: projectRoot,
         flutterRoot: flutterRoot,

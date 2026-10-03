@@ -1,6 +1,7 @@
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
+import 'package:xcross/src/flutter/build/internal/native_assets_hook_discovery.dart';
 import 'package:xcross/src/flutter/build/internal/xcconfig_resolver.dart';
 import 'package:xcross/src/flutter/build/ios_app_extensions.dart';
 import 'package:xcross/src/flutter/build/ios_bundle_id.dart';
@@ -10,6 +11,7 @@ import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer.dart';
 import 'package:xcross/src/host/shared/flutter/flutter_sdk_host_policy.dart';
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
+import 'package:xcross/src/package_config_resolver.dart';
 import 'package:xcross/src/shared/artifact/plist_storyboard_policy.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_options_resolver.dart';
 import 'package:xcross/src/shared/flutter/flutter_framework_copier.dart';
@@ -64,6 +66,16 @@ final class FlutterBuildRuntime<T extends PlatformHostInterface> {
       );
     }
   }
+  late final PackageConfigResolver packageConfigs = PackageConfigResolver(
+    paths: host.paths.context,
+    fileSystem: host.fileSystem,
+  );
+  late final NativeAssetsHookDiscovery nativeAssetHooks =
+      NativeAssetsHookDiscovery(
+        fileSystem: host.fileSystem,
+        paths: host.paths.context,
+        packageConfigs: packageConfigs,
+      );
   late final DartDefinesReader defines = DartDefinesReader(
     host.fileSystem,
     host.paths.context,

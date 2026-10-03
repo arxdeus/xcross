@@ -15,6 +15,7 @@ import 'package:xcross/src/flutter/build/ios_native_assets.dart';
 import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/host/linux/flutter/native_host_tools.dart';
 import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer_posix.dart';
+import 'package:xcross/src/package_config_resolver.dart';
 import 'package:xcross/src/target/simulator/flutter/simulator_flutter_target.dart';
 
 import 'support/native_flutter_fixtures.dart';
@@ -22,7 +23,13 @@ import 'support/native_flutter_fixtures.dart';
 void main() {
   test('native hook assembly preserves target, manifest and flavor inputs', () {
     final host = LinuxHost(architecture: 'arm64');
-    final runner = ProcessRunner(host, log: nativeTestLog());
+    final runner = ProcessRunner(
+      host,
+      log: nativeTestLog(),
+      stdinStream: const Stream<List<int>>.empty(),
+      stdoutSink: nativeTestSink(),
+      stderrSink: nativeTestSink(),
+    );
     final hostTools = LinuxNativeHostTools(host, runner);
     final target = SimulatorTarget(host);
     final cache = IosEngineCache(
@@ -33,6 +40,14 @@ void main() {
       downloader: nativeTestDownloader(),
     );
     final builder = IosNativeAssetsBuilder(
+      hooks: NativeAssetsHookDiscovery(
+        fileSystem: host.fileSystem,
+        paths: host.paths.context,
+        packageConfigs: PackageConfigResolver(
+          fileSystem: host.fileSystem,
+          paths: host.paths.context,
+        ),
+      ),
       engineCache: cache,
       renderer: PosixAppleToolShimRenderer(host),
       runner: runner,
@@ -97,8 +112,20 @@ void main() {
   test('native builder rejects mixed target, host and SDK contexts', () {
     final host = LinuxHost(architecture: 'arm64');
     final otherHost = LinuxHost(architecture: 'arm64');
-    final runner = ProcessRunner(host, log: nativeTestLog());
-    final otherRunner = ProcessRunner(otherHost, log: nativeTestLog());
+    final runner = ProcessRunner(
+      host,
+      log: nativeTestLog(),
+      stdinStream: const Stream<List<int>>.empty(),
+      stdoutSink: nativeTestSink(),
+      stderrSink: nativeTestSink(),
+    );
+    final otherRunner = ProcessRunner(
+      otherHost,
+      log: nativeTestLog(),
+      stdinStream: const Stream<List<int>>.empty(),
+      stdoutSink: nativeTestSink(),
+      stderrSink: nativeTestSink(),
+    );
     final hostTools = LinuxNativeHostTools(host, runner);
     final target = SimulatorTarget(host);
     final cache = IosEngineCache(
@@ -123,6 +150,14 @@ void main() {
       ProcessRunner<LinuxHost>? processRunner,
       String flutterRoot = '/flutter',
     }) => IosNativeAssetsBuilder(
+      hooks: NativeAssetsHookDiscovery(
+        fileSystem: host.fileSystem,
+        paths: host.paths.context,
+        packageConfigs: PackageConfigResolver(
+          fileSystem: host.fileSystem,
+          paths: host.paths.context,
+        ),
+      ),
       engineCache: cache,
       renderer: PosixAppleToolShimRenderer(renderHost ?? host),
       runner: processRunner ?? runner,
@@ -154,9 +189,15 @@ void main() {
 {"configVersion":2,"packages":[{"name":"dependency","rootUri":"../../dependency","packageUri":"lib/"}]}
 ''');
 
-      expect(await hasNativeAssetsBuildHooks(p.join(tmp.path, 'app')), isTrue);
+      expect(
+        await nativeHookDiscovery().hasBuildHooks(p.join(tmp.path, 'app')),
+        isTrue,
+      );
       File(p.join(package.path, 'hook', 'build.dart')).deleteSync();
-      expect(await hasNativeAssetsBuildHooks(p.join(tmp.path, 'app')), isFalse);
+      expect(
+        await nativeHookDiscovery().hasBuildHooks(p.join(tmp.path, 'app')),
+        isFalse,
+      );
     } finally {
       await tmp.delete(recursive: true);
     }
@@ -170,7 +211,7 @@ void main() {
       File(p.join(dartTool.path, 'package_config.json')).writeAsStringSync('{');
 
       await expectLater(
-        hasNativeAssetsBuildHooks(tmp.path),
+        nativeHookDiscovery().hasBuildHooks(tmp.path),
         throwsA(
           isA<FlutterBuildError>().having(
             (error) => error.message,
@@ -207,15 +248,15 @@ void main() {
         }),
       );
 
-      expect(await hasNativeAssetsBuildHooks(app.path), isTrue);
+      expect(await nativeHookDiscovery().hasBuildHooks(app.path), isTrue);
       hook.deleteSync();
-      expect(await hasNativeAssetsBuildHooks(app.path), isFalse);
+      expect(await nativeHookDiscovery().hasBuildHooks(app.path), isFalse);
 
       hook.createSync();
       File(p.join(app.path, '.dart_tool', 'package_config.json'))
         ..createSync(recursive: true)
         ..writeAsStringSync('{"configVersion":2,"packages":[]}');
-      expect(await hasNativeAssetsBuildHooks(app.path), isFalse);
+      expect(await nativeHookDiscovery().hasBuildHooks(app.path), isFalse);
     } finally {
       await tmp.delete(recursive: true);
     }
@@ -321,4 +362,19 @@ List<String> _dylibNames(Uint8List bytes) {
     offset += size;
   }
   return names;
+}
+
+NativeAssetsHookDiscovery nativeHookDiscovery() {
+  final host = LinuxHost(
+    currentDirectory: Directory.current.path,
+    temporaryDirectory: Directory.systemTemp.path,
+  );
+  return NativeAssetsHookDiscovery(
+    fileSystem: host.fileSystem,
+    paths: host.paths.context,
+    packageConfigs: PackageConfigResolver(
+      fileSystem: host.fileSystem,
+      paths: host.paths.context,
+    ),
+  );
 }

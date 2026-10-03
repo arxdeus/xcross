@@ -15,10 +15,16 @@ import 'package:xcross/src/shared/flutter/project/pubspec_info_reader.dart';
 final class FlutterAssetsCompiler {
   FlutterAssetsCompiler({
     required this.fileSystem,
+    required this.paths,
     required this.projectRoot,
     required this.flutterRoot,
-  });
+  }) : packageConfigs = PackageConfigResolver(
+         fileSystem: fileSystem,
+         paths: paths,
+       );
+  final PackageConfigResolver packageConfigs;
   final HostFileSystemInterface fileSystem;
+  final p.Context paths;
   final String projectRoot;
   final String flutterRoot;
   Future<void> bundle({
@@ -46,14 +52,16 @@ final class FlutterAssetsCompiler {
     String appDill,
   ) async {
     // kernel_blob.bin — Dart kernel for JIT execution.
-    await fileSystem.file(appDill).copy(p.join(assetsDir, 'kernel_blob.bin'));
+    await fileSystem
+        .file(appDill)
+        .copy(paths.join(assetsDir, 'kernel_blob.bin'));
     // Snapshot data files (name remap: .bin suffix dropped, stem changed).
     await fileSystem
         .file(vmSnapshotData)
-        .copy(p.join(assetsDir, 'vm_snapshot_data'));
+        .copy(paths.join(assetsDir, 'vm_snapshot_data'));
     await fileSystem
         .file(isolateSnapshotData)
-        .copy(p.join(assetsDir, 'isolate_snapshot_data'));
+        .copy(paths.join(assetsDir, 'isolate_snapshot_data'));
   }
 
   /// Copy `flutter: assets:` entries into `flutter_assets/`, preserving their
@@ -69,7 +77,7 @@ final class FlutterAssetsCompiler {
     final manifest = <String, List<String>>{};
     for (final entry in pubspec.assets) {
       if (entry.endsWith('/')) {
-        final dir = fileSystem.directory(p.join(projectRoot, entry));
+        final dir = fileSystem.directory(paths.join(projectRoot, entry));
         if (!dir.existsSync()) {
           throw FlutterBuildError(
             'pubspec.yaml: asset directory not found: $entry',
@@ -77,12 +85,12 @@ final class FlutterAssetsCompiler {
         }
         // Non-recursive, matching flutter_tools' folder-entry semantics.
         for (final file in dir.listSync().whereType<File>()) {
-          final key = '$entry${p.basename(file.path)}';
+          final key = '$entry${paths.basename(file.path)}';
           await _copyAssetFile(file.path, assetsDir, key);
           manifest[key] = [key];
         }
       } else {
-        final src = p.join(projectRoot, entry);
+        final src = paths.join(projectRoot, entry);
         final srcExists = fileSystem.file(src).existsSync();
         if (!srcExists) {
           throw FlutterBuildError('pubspec.yaml: asset not found: $entry');
@@ -104,7 +112,7 @@ final class FlutterAssetsCompiler {
     final fonts = <Map<String, Object?>>[];
 
     if (pubspec.usesMaterialDesign) {
-      final src = p.join(
+      final src = paths.join(
         flutterRoot,
         'bin',
         'cache',
@@ -126,7 +134,7 @@ final class FlutterAssetsCompiler {
 
     for (final family in pubspec.fonts) {
       for (final font in family.fonts) {
-        final src = p.join(projectRoot, font.asset);
+        final src = paths.join(projectRoot, font.asset);
         final srcExists = fileSystem.file(src).existsSync();
         if (!srcExists) {
           throw FlutterBuildError(
@@ -138,28 +146,28 @@ final class FlutterAssetsCompiler {
       fonts.add(family.descriptor);
     }
 
-    final packageConfigPath = await PackageConfigResolver.require(projectRoot);
+    final packageConfigPath = await packageConfigs.require(projectRoot);
     final packageConfig = await loadPackageConfig(
       fileSystem.file(packageConfigPath),
     );
     for (final packageName in pubspec.dependencies) {
       final package = packageConfig[packageName];
       if (package == null || package.root.scheme != 'file') continue;
-      final packageRoot = package.root.toFilePath();
+      final packageRoot = paths.fromUri(package.root);
       final packagePubspec = fileSystem.file(
-        p.join(packageRoot, 'pubspec.yaml'),
+        paths.join(packageRoot, 'pubspec.yaml'),
       );
       if (!packagePubspec.existsSync()) continue;
 
       final packageInfo = PubspecInfoReader(
         fileSystem,
-        p.context,
+        paths,
       ).loadSync(packageRoot);
       for (final family in packageInfo.fonts) {
         final descriptors = <Map<String, Object>>[];
         for (final font in family.fonts) {
           final key = p.url.join('packages', packageName, font.asset);
-          final src = p.join(packageRoot, font.asset);
+          final src = paths.join(packageRoot, font.asset);
           if (!fileSystem.file(src).existsSync()) {
             throw FlutterBuildError(
               '$packageName/pubspec.yaml: font asset not found: ${font.asset}',
@@ -180,8 +188,8 @@ final class FlutterAssetsCompiler {
 
   /// Copy [src] to `assetsDir/key`, creating parent directories as needed.
   Future<void> _copyAssetFile(String src, String assetsDir, String key) async {
-    final dst = p.join(assetsDir, key);
-    await fileSystem.directory(p.dirname(dst)).create(recursive: true);
+    final dst = paths.join(assetsDir, key);
+    await fileSystem.directory(paths.dirname(dst)).create(recursive: true);
     await fileSystem.file(src).copy(dst);
   }
 
@@ -200,7 +208,7 @@ final class FlutterAssetsCompiler {
     };
     final binBytes = const StandardMessageCodec().encodeMessage(binMessage);
     fileSystem
-        .file(p.join(assetsDir, 'AssetManifest.bin'))
+        .file(paths.join(assetsDir, 'AssetManifest.bin'))
         .writeAsBytesSync(
           binBytes?.buffer.asUint8List(0, binBytes.lengthInBytes) ??
               Uint8List(0),
@@ -208,12 +216,12 @@ final class FlutterAssetsCompiler {
 
     // AssetManifest.json — legacy JSON variant still read by some plugins.
     fileSystem
-        .file(p.join(assetsDir, 'AssetManifest.json'))
+        .file(paths.join(assetsDir, 'AssetManifest.json'))
         .writeAsStringSync(jsonEncode(assetManifest));
 
     // FontManifest.json — registers custom + Material fonts with the engine.
     fileSystem
-        .file(p.join(assetsDir, 'FontManifest.json'))
+        .file(paths.join(assetsDir, 'FontManifest.json'))
         .writeAsStringSync(jsonEncode(fonts));
   }
 }

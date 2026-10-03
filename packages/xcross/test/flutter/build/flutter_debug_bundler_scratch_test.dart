@@ -60,6 +60,7 @@ printf '%s' "$source" > "$output"
           flutterRoot: '/unused',
         ),
         assets: FlutterAssetsCompiler(
+          paths: host.paths.context,
           fileSystem: host.fileSystem,
           projectRoot: project.path,
           flutterRoot: '/unused',

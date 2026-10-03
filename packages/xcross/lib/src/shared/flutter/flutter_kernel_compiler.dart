@@ -8,7 +8,6 @@ import 'package:xcross/src/flutter/build/ios_engine_cache.dart';
 import 'package:xcross/src/flutter/build/ios_plugins.dart';
 import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/flutter/models/flutter/dart_defines.dart';
-import 'package:xcross/src/package_config_resolver.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 
 final class FlutterKernelCompiler<T extends PlatformHostInterface> {
@@ -35,7 +34,7 @@ final class FlutterKernelCompiler<T extends PlatformHostInterface> {
     _validateKernelDependencies(compiler, engineCache);
 
     final outputDill = await _prepareKernelScratch();
-    final packageConfig = await PackageConfigResolver.require(projectRoot);
+    final packageConfig = await runtime.packageConfigs.require(projectRoot);
 
     final entrypointArg = await _resolveEntrypointArg(packageConfig);
 

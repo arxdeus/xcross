@@ -32,6 +32,7 @@ final class IosNativeAssetsBuildResult {
 final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
   IosNativeAssetsBuilder({
     required this.engineCache,
+    required this.hooks,
     required this.renderer,
     required this.runner,
     required this.tools,
@@ -53,6 +54,7 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
     }
   }
 
+  final NativeAssetsHookDiscovery hooks;
   final IosEngineCache<T> engineCache;
   final AppleToolShimRenderer<T> renderer;
   IosTarget<T> get target => engineCache.target;
@@ -77,7 +79,7 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
     // including every native build hook, to re-run on each build.
     await outputDirectory.create(recursive: true);
 
-    if (!await hasNativeAssetsBuildHooks(projectRoot)) {
+    if (!await hooks.hasBuildHooks(projectRoot)) {
       return _buildBundleWithoutHooks(output);
     }
 
