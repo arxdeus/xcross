@@ -9,6 +9,4 @@ final class IPhoneTarget<T extends PlatformHostInterface>
   final T host;
   @override
   IPhoneBuildPlatform get buildPlatform => const IPhoneBuildPlatform();
-  @override
-  R accept<R>(IosTargetVisitor<R, T> visitor) => visitor.visitIPhone(this);
 }

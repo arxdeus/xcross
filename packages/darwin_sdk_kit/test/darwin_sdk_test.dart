@@ -16,7 +16,7 @@ void main() {
     host = MacOSHost(temporaryDirectory: tmp.path);
     resolver = DarwinToolchainResolver(
       ProcessRunner(host),
-      darwinToolchainLocations(host),
+      MacOSDarwinToolchainLocations(host),
     );
   });
 
@@ -504,12 +504,11 @@ void main() {
   });
 
   group('typed targets', () {
-    test('dispatches with the original coherent host', () {
-      final visitor = _TargetHostVisitor<MacOSHost>();
+    test('keeps the original coherent host', () {
       final phone = IPhoneTarget(host);
       final simulator = SimulatorTarget(host);
-      expect(phone.accept(visitor), same(host));
-      expect(simulator.accept(visitor), same(host));
+      expect(phone.host, same(host));
+      expect(simulator.host, same(host));
       expect(
         phone.buildPlatform.minimumVersionFlag('15.0'),
         '-miphoneos-version-min=15.0',
@@ -589,7 +588,7 @@ void main() {
     test('does not share version cache across resolver instances', () async {
       final other = DarwinToolchainResolver(
         ProcessRunner(host),
-        darwinToolchainLocations(host),
+        MacOSDarwinToolchainLocations(host),
       );
       expect(
         await resolver.clangMajorVersion(
@@ -708,7 +707,7 @@ void main() {
       }
       Directory(p.join(tmp.path, 'unrelated')).createSync();
       final linux = LinuxHost(fileSystem: _FixtureFileSystem(tmp.path));
-      expect(darwinToolchainLocations(linux).llvmToolDirectories(), [
+      expect(LinuxDarwinToolchainLocations(linux).llvmToolDirectories(), [
         '/usr/lib/llvm-22/bin',
         '/usr/lib/llvm-19.1/bin',
         '/usr/lib/llvm-18/bin',
@@ -894,14 +893,6 @@ void main() {
       expect(runs, 1);
     });
   });
-}
-
-final class _TargetHostVisitor<T extends PlatformHostInterface>
-    implements IosTargetVisitor<T, T> {
-  @override
-  T visitIPhone(IPhoneTargetInterface<T> target) => target.host;
-  @override
-  T visitSimulator(SimulatorTargetInterface<T> target) => target.host;
 }
 
 final class _FixtureFileSystem implements HostFileSystemInterface {

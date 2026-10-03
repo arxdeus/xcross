@@ -9,6 +9,4 @@ final class SimulatorTarget<T extends PlatformHostInterface>
   final T host;
   @override
   SimulatorBuildPlatform get buildPlatform => const SimulatorBuildPlatform();
-  @override
-  R accept<R>(IosTargetVisitor<R, T> visitor) => visitor.visitSimulator(this);
 }

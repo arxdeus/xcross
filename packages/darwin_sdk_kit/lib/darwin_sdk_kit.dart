@@ -1,7 +1,6 @@
 /// Darwin/iOS SDK resolution and Xcode.xip extraction.
 library;
 
-export 'src/composition/darwin_toolchain_locations.dart';
 export 'src/cpio_reader.dart';
 export 'src/darwin_sdk.dart';
 export 'src/errors.dart';
