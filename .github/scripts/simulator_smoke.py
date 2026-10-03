@@ -216,6 +216,8 @@ class Smoke:
                     result = self.simctl(*args, name=name, check=False, timeout=30)
                     if result.returncode:
                         failures.append(name)
+                    elif name == "screenshot.log" and not (self.output / "screenshot.png").is_file():
+                        failures.append("screenshot.png was not created")
                 except Exception as error:
                     failures.append(f"{name}: {error}")
         try:
@@ -242,6 +244,11 @@ class Smoke:
             self.simctl("shutdown", self.device, name="cleanup.log", check=False, timeout=30)
         finally:
             self.simctl("delete", self.device, name="cleanup.log", timeout=30)
+        result = self.simctl("list", "devices", "--json", name="cleanup-inventory.json", timeout=30)
+        devices = json.loads(result.stdout).get("devices", {})
+        if any(item.get("udid", "").lower() == self.device.lower()
+               for group in devices.values() for item in group):
+            raise RuntimeError("Job-created simulator still exists after cleanup")
 
     def run(self):
         error = None

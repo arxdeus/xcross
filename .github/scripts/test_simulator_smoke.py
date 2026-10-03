@@ -205,6 +205,8 @@ class SmokeTests(unittest.TestCase):
         self.recover_device = False
         self.ready_output = None
         self.nonzero = None
+        self.screenshot = True
+        self.keep_deleted_device = False
         self.run_mock = patch("simulator_smoke.subprocess.run", side_effect=self.fake_run).start()
         self.addCleanup(patch.stopall)
         patch("simulator_smoke.Path.home", return_value=self.root / "home").start()
@@ -242,6 +244,10 @@ class SmokeTests(unittest.TestCase):
             stdout = DEVICE + "\n"
         elif "launch" in args:
             stdout = self.launch
+        elif "screenshot" in args and self.screenshot:
+            Path(args[-1]).write_bytes(b"png")
+        elif "delete" in args and not self.keep_deleted_device:
+            self.recover_device = False
         elif args[0] == "/bin/ps":
             self.process_calls += 1
             stdout = self.process
@@ -374,6 +380,20 @@ class SmokeTests(unittest.TestCase):
         self.failure = "screenshot"
         with self.assertRaisesRegex(RuntimeError, "diagnostics failed"):
             self.smoke.run()
+        self.assert_scoped_cleanup()
+
+    def test_missing_screenshot_artifact_fails_and_cleans_up(self):
+        self.screenshot = False
+        with self.assertRaisesRegex(RuntimeError, "screenshot.png was not created"):
+            self.smoke.run()
+        self.assert_scoped_cleanup()
+
+    def test_cleanup_failure_cannot_report_success(self):
+        self.recover_device = True
+        self.keep_deleted_device = True
+        with self.assertRaisesRegex(RuntimeError, "still exists after cleanup"):
+            self.smoke.run()
+        self.assertFalse(self.result()["passed"])
         self.assert_scoped_cleanup()
 
     def test_invalid_host_never_creates_or_deletes_a_device(self):
