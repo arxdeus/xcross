@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
@@ -95,7 +93,7 @@ final class FlutterDebugBundler<T extends PlatformHostInterface> {
       ),
     );
 
-    await _buildAppStub(appFramework, toolchain);
+    await buildAppStub(appFramework, toolchain);
 
     runtime.runner.log.logTrace('writing App.framework Info.plist');
     _writeAppFrameworkInfoPlist(appFramework);
@@ -123,11 +121,12 @@ final class FlutterDebugBundler<T extends PlatformHostInterface> {
     );
   }
 
-  Future<void> _buildAppStub(String appFramework, Toolchain toolchain) =>
+  @visibleForTesting
+  Future<void> buildAppStub(String appFramework, Toolchain toolchain) =>
       runtime.runner.log.logStep('Building App.framework', () async {
-        final tmp = await Directory.systemTemp.createTemp(
-          'xcross-flutter-stub-',
-        );
+        final tmp = await runtime.host.fileSystem
+            .directory(runtime.host.paths.temporaryRoot)
+            .createTemp('xcross-flutter-stub-');
         final stubSource = p.join(tmp.path, 'debug_app.c');
         // Exact stub content emitted by flutter_tools.
         await runtime.host.fileSystem
