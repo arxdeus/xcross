@@ -153,8 +153,9 @@ final class _Processes implements HostProcessInterface {
   }) async {
     final isVersion = arguments.contains('--version');
     final isIndex = executable.contains('apt-cache');
-    if (!isVersion && !isIndex)
+    if (!isVersion && !isIndex) {
       commands.add('$executable ${arguments.join(' ')}');
+    }
     return _Child(
       isIndex
           ? LinuxPackageManager.apt.packages.join('\n')

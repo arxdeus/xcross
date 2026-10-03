@@ -1,16 +1,17 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/errors.dart';
 
 Future<ProcessResult> runUpdateProcess(
+  ProcessRunner runner,
   String executable,
   List<String> arguments, {
   String? workingDirectory,
   Map<String, String>? environment,
 }) async {
   try {
-    final process = await ProcessRunner.start(
+    final process = await runner.start(
       executable,
       arguments,
       workingDirectory: workingDirectory,
@@ -22,7 +23,7 @@ Future<ProcessResult> runUpdateProcess(
     Future<void> collect(Stream<List<int>> stream, StringBuffer buffer) async {
       await for (final chunk in stream.transform(systemEncoding.decoder)) {
         buffer.write(chunk);
-        Log.activeStep?.log(chunk);
+        runner.log.activeStep?.log(chunk);
       }
     }
 

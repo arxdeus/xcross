@@ -232,8 +232,9 @@ final class _SharingFailure implements File {
   @override
   File renameSync(String destination) {
     attempts++;
-    if (attempts == 1 || failPromotion)
+    if (attempts == 1 || failPromotion) {
       throw FileSystemException('fixture sharing violation', path);
+    }
     return file.renameSync(destination);
   }
 

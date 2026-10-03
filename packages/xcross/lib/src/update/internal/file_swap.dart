@@ -1,8 +1,8 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/update/update_host_policy.dart';
 import 'package:xcross/src/update/internal/swap_entry.dart';
 
 /// Replaces installed files as one rollback-able unit.
@@ -13,11 +13,10 @@ import 'package:xcross/src/update/internal/swap_entry.dart';
 /// only way to replace a running executable or a loaded DLL on Windows, and it
 /// doubles as the rollback copy on every platform.
 final class FileSwap {
-  FileSwap({required this.useSudo});
+  FileSwap({required this.operations, required this.log});
 
-  /// Whether each step has to run through `sudo` because the install
-  /// directories belong to root.
-  final bool useSudo;
+  final FileSwapOperations operations;
+  final Log log;
 
   final _done = <SwapEntry>[];
 
@@ -76,7 +75,7 @@ final class FileSwap {
           continue;
         }
         if (!File(backup).existsSync()) {
-          Log.logWarn(
+          log.logWarn(
             'could not restore ${entry.target}: backup $backup is missing',
           );
           continue;
@@ -86,7 +85,7 @@ final class FileSwap {
         await _tryMoveAside(entry.target);
         await _move(backup, entry.target);
       } on Object catch (e) {
-        Log.logWarn('could not restore ${entry.target}: $e');
+        log.logWarn('could not restore ${entry.target}: $e');
       }
     }
     _done.clear();
@@ -97,7 +96,7 @@ final class FileSwap {
     try {
       await _move(target, _sibling(target, '$backupMarker$pid-failed'));
     } on Object {
-      Log.logTrace('could not park the failed $target');
+      log.logTrace('could not park the failed $target');
     }
   }
 
@@ -110,7 +109,7 @@ final class FileSwap {
       final backup = entry.backup;
       if (backup == null) continue;
       if (!await _tryDelete(backup)) {
-        Log.logTrace('leaving $backup for a later sweep');
+        log.logTrace('leaving $backup for a later sweep');
       }
     }
   }
@@ -156,41 +155,9 @@ final class FileSwap {
     '${RegExp.escape(incomingMarker)})[0-9]+(?:-failed)?\$',
   );
 
-  Future<void> _copy(String source, String target) async {
-    if (!useSudo) {
-      await File(source).copy(target);
-      if (!Platform.isWindows) ProcessRunner.makeExecutable(target);
-      return;
-    }
-    await _sudo(['install', '-m', '0755', source, target]);
-  }
-
-  Future<void> _move(String source, String target) async {
-    if (!useSudo) {
-      await File(source).rename(target);
-      return;
-    }
-    await _sudo(['mv', '-f', source, target]);
-  }
-
-  Future<void> _delete(String path) async {
-    if (!useSudo) {
-      await File(path).delete();
-      return;
-    }
-    await _sudo(['rm', '-f', path]);
-  }
-
-  /// `-n` matters: these run mid-swap with captured stdio, so a `sudo` that
-  /// decided to prompt would block forever on a pipe nobody is reading, with
-  /// the old binary already renamed aside.
-  static Future<void> _sudo(List<String> arguments) async {
-    final sudo = await Sudo.resolve();
-    if (sudo == null) {
-      throw XcrossError(
-        'sudo is required to write the install directory but was not found',
-      );
-    }
-    await ProcessRunner.runChecked(sudo, ['-n', ...arguments], label: 'update');
-  }
+  Future<void> _copy(String source, String target) =>
+      operations.copy(source, target);
+  Future<void> _move(String source, String target) =>
+      operations.move(source, target);
+  Future<void> _delete(String path) => operations.delete(path);
 }

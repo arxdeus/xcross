@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/src/composition/native_host.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/update/semver.dart';
 
@@ -18,7 +20,18 @@ typedef BuildCliRun =
     });
 
 Future<void> main() async {
+  final snapshot = detectPlatformHostSnapshot();
+  final log = Log(
+    output: StreamLogOutput(
+      stdout: stdout,
+      stderr: stderr,
+      supportsAnsi: stdout.hasTerminal && stdout.supportsAnsiEscapes,
+      terminalColumns: () => stdout.hasTerminal ? stdout.terminalColumns : 80,
+    ),
+  );
   exitCode = await buildXcross(
+    runner: ProcessRunner(snapshot.host, log: log),
+    dartExecutable: snapshot.resolvedExecutable,
     packageRoot: Directory.current,
     encodedVersion: _encodedVersion,
     released: _released,
@@ -26,6 +39,8 @@ Future<void> main() async {
 }
 
 Future<int> buildXcross({
+  required ProcessRunner runner,
+  required String dartExecutable,
   required Directory packageRoot,
   required String encodedVersion,
   required bool released,
@@ -39,10 +54,18 @@ Future<int> buildXcross({
   final original = await generated.readAsBytes();
   try {
     await generated.writeAsString(_identitySource(version, released));
-    final run = runBuild ?? _runBuild;
+    final run =
+        runBuild ??
+        ((executable, arguments, {required workingDirectory}) => _runBuild(
+          runner,
+          executable,
+          arguments,
+          workingDirectory: workingDirectory,
+        ));
     final xcrossResult = await _buildCliExecutable(
       run,
       packageRoot,
+      dartExecutable: dartExecutable,
       target: 'bin/xcross.dart',
     );
     if (xcrossResult != 0) return xcrossResult;
@@ -51,15 +74,16 @@ Future<int> buildXcross({
     final xcrunResult = await _buildCliExecutable(
       run,
       packageRoot,
+      dartExecutable: dartExecutable,
       target: 'bin/xcrun.dart',
       output: xcrunBuild,
     );
     if (xcrunResult != 0) return xcrunResult;
 
-    final executable = Platform.isWindows ? 'xcrun.exe' : 'xcrun';
+    final executable = runner.host.paths.executableName('xcrun');
     final source = p.join(xcrunBuild, 'bundle', 'bin', executable);
     final destination = p.join(
-      _builtBinDirectory(packageRoot).path,
+      _builtBinDirectory(packageRoot, runner.host).path,
       executable,
     );
     await File(source).copy(destination);
@@ -72,9 +96,10 @@ Future<int> buildXcross({
 Future<int> _buildCliExecutable(
   BuildCliRun run,
   Directory packageRoot, {
+  required String dartExecutable,
   required String target,
   String? output,
-}) => run(Platform.resolvedExecutable, [
+}) => run(dartExecutable, [
   'build',
   'cli',
   '-t',
@@ -82,9 +107,12 @@ Future<int> _buildCliExecutable(
   if (output != null) ...['-o', output],
 ], workingDirectory: packageRoot.path);
 
-Directory _builtBinDirectory(Directory packageRoot) {
+Directory _builtBinDirectory(
+  Directory packageRoot,
+  PlatformHostInterface host,
+) {
   final build = Directory(p.join(packageRoot.path, 'build', 'cli'));
-  final executable = Platform.isWindows ? 'xcross.exe' : 'xcross';
+  final executable = host.paths.executableName('xcross');
   for (final entity in build.listSync(recursive: true).whereType<File>()) {
     if (p.basename(entity.path) == executable &&
         p.basename(p.dirname(entity.path)) == 'bin') {
@@ -143,11 +171,12 @@ String _identitySource(String version, bool released) =>
     'const bool _xcrossBuildReleased = $released;\n';
 
 Future<int> _runBuild(
+  ProcessRunner runner,
   String executable,
   List<String> arguments, {
   required String workingDirectory,
 }) async {
-  final process = await Process.start(
+  final process = await runner.start(
     executable,
     arguments,
     workingDirectory: workingDirectory,

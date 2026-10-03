@@ -1,9 +1,11 @@
 import 'dart:io';
+import 'package:cli_kit/cli_kit.dart';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-
 import '../../tool/build_xcross.dart';
+
+import '../host_operations_fixtures.dart';
 
 void main() {
   late Directory sandbox;
@@ -44,6 +46,8 @@ void main() {
     String? generatedDuringBuild;
 
     final result = await buildXcross(
+      runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+      dartExecutable: '/fixture/dart',
       packageRoot: sandbox,
       encodedVersion: Uri.encodeComponent('feature/a,b=c'),
       released: false,
@@ -65,6 +69,8 @@ void main() {
 
     await expectLater(
       () => buildXcross(
+        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+        dartExecutable: '/fixture/dart',
         packageRoot: sandbox,
         encodedVersion: Uri.encodeComponent('feature/throw'),
         released: false,
@@ -84,6 +90,8 @@ void main() {
 
     await expectLater(
       () => buildXcross(
+        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+        dartExecutable: '/fixture/dart',
         packageRoot: sandbox,
         encodedVersion: Uri.encodeComponent('feature/not-a-release'),
         released: true,
@@ -104,6 +112,8 @@ void main() {
 
       await expectLater(
         () => buildXcross(
+          runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+          dartExecutable: '/fixture/dart',
           packageRoot: sandbox,
           encodedVersion: Uri.encodeComponent('2.0.0+1'),
           released: true,
@@ -125,6 +135,8 @@ void main() {
       String? generatedDuringBuild;
 
       final result = await buildXcross(
+        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+        dartExecutable: '/fixture/dart',
         packageRoot: sandbox,
         encodedVersion: Uri.encodeComponent('v1.2.1'),
         released: true,
