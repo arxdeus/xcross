@@ -94,6 +94,7 @@ final class FlutterToolWorkspace {
     engineCache.engineHash,
     'workspaces',
     'flutter',
+    engineCache.hostArtifactPlatform,
   );
 
   static Future<String> _createCacheDirectory(String workspaceRoot) async {
@@ -152,11 +153,7 @@ final class FlutterToolWorkspace {
       await _overlay(
         sdkEngine,
         engine,
-        skip: {
-          'ios',
-          p.basename(p.dirname(engineCache.vmSnapshotData)),
-          'common',
-        },
+        skip: {'ios', engineCache.hostEngineCacheDirectory, 'common'},
       );
     }
 
@@ -172,7 +169,7 @@ final class FlutterToolWorkspace {
       p.dirname(engineCache.flutterXcframework),
     );
     await _link(
-      p.join(engine, p.basename(p.dirname(engineCache.vmSnapshotData))),
+      p.join(engine, engineCache.hostEngineCacheDirectory),
       p.dirname(engineCache.vmSnapshotData),
     );
     await _link(

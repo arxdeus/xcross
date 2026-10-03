@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ffi';
 
 import 'dart:io';
 import 'dart:typed_data';
@@ -14,6 +15,92 @@ import 'package:xcross/src/flutter/build/ios_engine_cache.dart';
 import 'package:xcross/src/flutter/errors.dart';
 
 void main() {
+  test(
+    'isolates host workspaces and exposes canonical Flutter cache paths',
+    () async {
+      final tmp = await Directory.systemTemp.createTemp(
+        'flutter_workspace_hosts-',
+      );
+      try {
+        final roots = <String>{};
+        final iosFrameworks = <String>{};
+        for (final abi in [
+          Abi.linuxArm64,
+          Abi.linuxX64,
+          Abi.macosArm64,
+          Abi.macosX64,
+          Abi.windowsX64,
+        ]) {
+          final flutterRoot = p.join(tmp.path, 'sdk-$abi');
+          Directory(
+            p.join(flutterRoot, 'packages'),
+          ).createSync(recursive: true);
+          final sdkCache = Directory(p.join(flutterRoot, 'bin', 'cache'))
+            ..createSync(recursive: true);
+          File(p.join(flutterRoot, 'bin', 'internal', 'engine.version'))
+            ..createSync(recursive: true)
+            ..writeAsStringSync('engine-hash');
+          Directory(p.join(sdkCache.path, 'dart-sdk')).createSync();
+          File(
+            p.join(sdkCache.path, 'flutter_tools.snapshot'),
+          ).writeAsStringSync('$abi');
+          final cache = IosEngineCache(
+            flutterRoot: flutterRoot,
+            cacheRoot: p.join(tmp.path, 'cache'),
+            hostAbi: abi,
+          );
+          Directory(cache.flutterXcframework).createSync(recursive: true);
+          iosFrameworks.add(cache.flutterXcframework);
+          Directory(cache.patchedSdkRoot).createSync(recursive: true);
+          File(cache.vmSnapshotData)
+            ..createSync(recursive: true)
+            ..writeAsStringSync('$abi');
+          File(cache.isolateSnapshotData).writeAsStringSync('$abi');
+          final workspace = await FlutterToolWorkspace.create(
+            flutterRoot: flutterRoot,
+            engineCache: cache,
+          );
+          roots.add(workspace.flutterRoot);
+          expect(workspace.dart, startsWith(flutterRoot));
+          expect(workspace.flutterToolsSnapshot, startsWith(flutterRoot));
+          final engine = p.join(
+            workspace.flutterRoot,
+            'bin',
+            'cache',
+            'artifacts',
+            'engine',
+          );
+          expect(
+            File(
+              p.join(
+                engine,
+                cache.hostEngineCacheDirectory,
+                'vm_isolate_snapshot.bin',
+              ),
+            ).readAsStringSync(),
+            '$abi',
+          );
+          expect(
+            Directory(
+              p.join(engine, 'ios', 'Flutter.xcframework'),
+            ).existsSync(),
+            isTrue,
+          );
+          if (abi == Abi.macosArm64) {
+            expect(
+              Directory(p.join(engine, 'darwin-arm64')).existsSync(),
+              isFalse,
+            );
+          }
+        }
+        expect(roots, hasLength(5));
+        expect(iosFrameworks, hasLength(1));
+      } finally {
+        await tmp.delete(recursive: true);
+      }
+    },
+  );
+
   test(
     'creates a writable Flutter tool workspace without changing SDK',
     () async {

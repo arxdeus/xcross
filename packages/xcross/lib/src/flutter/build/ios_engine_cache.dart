@@ -14,11 +14,21 @@ import 'package:xcross/src/flutter/errors.dart';
 /// so we fetch them ourselves from `storage.googleapis.com`. Missing artifacts
 /// are stored outside the Flutter SDK so read-only installations work.
 final class IosEngineCache {
-  IosEngineCache({required this.flutterRoot, String? cacheRoot})
-    : cacheRoot = cacheRoot ?? _defaultCacheRoot;
+  IosEngineCache({required this.flutterRoot, String? cacheRoot, Abi? hostAbi})
+    : cacheRoot = cacheRoot ?? _defaultCacheRoot,
+      hostArtifactPlatform = _hostArtifactPlatform(hostAbi ?? Abi.current());
 
   final String flutterRoot;
   final String cacheRoot;
+  final String hostArtifactPlatform;
+
+  String get hostEngineCacheDirectory =>
+      hostArtifactPlatform.startsWith('darwin-')
+      ? 'darwin-x64'
+      : hostArtifactPlatform;
+
+  String get hostArtifactsUrl =>
+      '$flutterArtifactBaseUrl/$engineHash/$hostArtifactPlatform/artifacts.zip';
 
   String get _flutterSdkEngineRoot =>
       p.join(flutterRoot, 'bin', 'cache', 'artifacts', 'engine');
@@ -52,7 +62,7 @@ final class IosEngineCache {
   String get _hostEngineDir {
     final flutterSdkDirectory = p.join(
       _flutterSdkEngineRoot,
-      _hostEngineCacheDir,
+      hostEngineCacheDirectory,
     );
     final hasSnapshotData =
         File(
@@ -61,7 +71,7 @@ final class IosEngineCache {
         File(p.join(flutterSdkDirectory, 'isolate_snapshot.bin')).existsSync();
     if (hasSnapshotData) return flutterSdkDirectory;
 
-    return p.join(_userEngineRoot, _hostEngineCacheDir);
+    return p.join(_userEngineRoot, hostArtifactPlatform);
   }
 
   /// Path to the Dart frontend_server snapshot. Prefers the AOT variant
@@ -135,9 +145,7 @@ final class IosEngineCache {
   }
 
   Future<void> _downloadHostArtifacts() async {
-    final hash = _readEngineHash();
-    final url =
-        '$flutterArtifactBaseUrl/$hash/$_hostEngineCacheDir/artifacts.zip';
+    final url = hostArtifactsUrl;
     Log.logTrace('downloading Flutter host engine artifacts from $url');
     await _fetchAndExtract(
       url,
@@ -220,15 +228,12 @@ final class IosEngineCache {
     return p.join(home, '.cache', 'xcross', 'flutter-engine');
   }
 
-  /// Platform-specific engine cache directory name.
-  /// Mirrors `_HostArtifacts` in flutter_tools.
-  static String get _hostEngineCacheDir => switch (true) {
-    _ when Platform.isLinux =>
-      Abi.current() == Abi.linuxArm64 ? 'linux-arm64' : 'linux-x64',
-    _ when Platform.isMacOS =>
-      Abi.current() == Abi.macosArm64 ? 'darwin-arm64' : 'darwin-x64',
-    // No arm64 Windows engine variant is published.
-    _ when Platform.isWindows => 'windows-x64',
-    _ => 'linux-x64',
+  static String _hostArtifactPlatform(Abi abi) => switch (abi) {
+    Abi.linuxArm64 => 'linux-arm64',
+    Abi.linuxX64 => 'linux-x64',
+    Abi.macosArm64 => 'darwin-arm64',
+    Abi.macosX64 => 'darwin-x64',
+    Abi.windowsX64 => 'windows-x64',
+    _ => throw FlutterBuildError('Unsupported Flutter host ABI: $abi'),
   };
 }

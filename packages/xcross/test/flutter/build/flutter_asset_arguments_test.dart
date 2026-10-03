@@ -28,6 +28,8 @@ void main() {
           'FLUTTER_APP_FLAVOR=staging',
         ]);
         expect(args.first, 'assemble');
+        expect(args, contains('-dTargetPlatform=ios'));
+        expect(args, contains('-dIosArchs=arm64'));
         expect(args, contains('-dTargetFile=lib/entry point.dart'));
         expect(args[args.indexOf('-o') + 1], '/output with spaces');
         expect(
