@@ -1,18 +1,22 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart'
+    show DeviceConsole, GdbRemoteClient, GdbReply, GdbReplyPacket;
 import 'package:meta/meta.dart';
 import 'package:pure/pure.dart';
 import 'package:xcross/src/constants.dart';
-import 'package:xcross/src/flutter/flutter.dart';
+import 'package:xcross/src/flutter/hot_reload/hot_reload_controller.dart';
 
 /// Interactive terminal session for an attached app: streams the app's stdout,
 /// dispatches `r`/`R`/`q` keypresses to hot reload, and stops on SIGINT or when
 /// the app exits.
 final class SessionConsole {
   SessionConsole({
+    required this.log,
+    required this.console,
+    required this.keyboardInput,
     required this.gdb,
     required this.hotReload,
     this.hotReloadUnavailable,
@@ -20,6 +24,7 @@ final class SessionConsole {
     this.crashReason,
     this.recentDeviceLines,
     this.listenForKeyboard = true,
+    this.allowPipedKeyboard = false,
   });
 
   /// Drain and keypress loops are already unwinding via [_stop] by the time we
@@ -27,6 +32,9 @@ final class SessionConsole {
   /// block process exit.
   static const _unwindTimeout = Duration(seconds: 1);
 
+  final Log log;
+  final DeviceConsole console;
+  final Stream<List<int>> keyboardInput;
   final GdbRemoteClient gdb;
   HotReloadController? hotReload;
 
@@ -48,6 +56,7 @@ final class SessionConsole {
 
   /// Whether the session reads interactive reload commands from stdin.
   final bool listenForKeyboard;
+  final bool allowPipedKeyboard;
 
   /// Why [hotReload] is null, shown when `r`/`R` are pressed anyway.
   ///
@@ -104,7 +113,7 @@ final class SessionConsole {
   /// Run until the app exits or the user quits.
   Future<void> run() async {
     // Forward Ctrl-C cleanly; a second Ctrl-C hard-kills in case cleanup hangs.
-    final signals = ProcessSignal.sigint.watch().listen((_) {
+    final signals = console.interrupts.listen((_) {
       if (_stopped) exit(130);
       _stop();
     });
@@ -132,7 +141,7 @@ final class SessionConsole {
       return;
     }
     try {
-      stdout.add(bytes);
+      console.add(bytes);
     } on Object catch (_) {
       // Stdout can be wedged on Windows AOT after console-mode churn; dropping
       // a chunk is better than hanging the drain loop forever.
@@ -163,7 +172,7 @@ final class SessionConsole {
           case GdbReply.stdout:
             _writeAppOutput(reply.stdoutBytes);
           case GdbReply.exited || GdbReply.terminated:
-            Log.logInfo('App exited ${Log.dim('(${reply.payload})')}');
+            log.logInfo('App exited ${log.dim('(${reply.payload})')}');
             _stop();
             finish();
           case GdbReply.stopped:
@@ -231,7 +240,7 @@ final class SessionConsole {
         (_) => _resumePending = false,
         onError: (Object error, StackTrace stack) {
           _resumePending = false;
-          Log.logWarn('could not resume debugger after stop: $error');
+          log.logWarn('could not resume debugger after stop: $error');
           _stop();
           finish();
         },
@@ -257,26 +266,26 @@ final class SessionConsole {
   /// printed with the stop instead of being discarded.
   void _reportStop(GdbReplyPacket reply) {
     if (_isDebuggerStop(reply)) {
-      Log.logError(
+      log.logError(
         'App stopped: ${reply.stopDescription} (${reply.stopReason}). '
         'The process is stopped by the debugger.',
       );
     } else {
-      Log.logError(
+      log.logError(
         'App crashed: ${reply.stopDescription}. '
         'The process is stopped at the fault.',
       );
     }
     final crashDetail = crashReason?.call();
     if (crashDetail != null) {
-      Log.logError(crashDetail);
+      log.logError(crashDetail);
       return;
     }
     final recent = recentDeviceLines?.call() ?? const <String>[];
     if (recent.isEmpty) return;
-    Log.logInfo('Last device log lines');
+    log.logInfo('Last device log lines');
     for (final line in recent) {
-      stdout.writeln('  $line');
+      console.writeln('  $line');
     }
   }
 
@@ -286,11 +295,11 @@ final class SessionConsole {
     // EOF means "controller went away" only when the DAP owns our stdin pipe.
     // Without any controller (CI, docker without -i, `< /dev/null`, nohup)
     // stdin is at EOF from the start and must not stop the session.
-    if (!stdin.hasTerminal && Platform.environment['XCROSS_DAP'] != '1') return;
+    if (!console.inputHasTerminal && !allowPipedKeyboard) return;
 
     // Never swallow failures: silent cooked mode looks like "keys do nothing".
     if (!_enableRawStdin()) {
-      Log.logWarn(
+      log.logWarn(
         "could not enable raw stdin — press Enter after 'r'/'R', or check TTY",
       );
     }
@@ -302,7 +311,7 @@ final class SessionConsole {
     // ProcessRunner.sharedStdin, not stdin: cancelling an earlier raw stdin
     // subscription leaves this listen dead on arrival — onDone fires at once
     // and the session quits the moment the app launches.
-    final sub = ProcessRunner.sharedStdin.listen(
+    final sub = keyboardInput.listen(
       handleKeyByte,
       onDone: () {
         _stop();
@@ -336,33 +345,33 @@ final class SessionConsole {
   ///
   /// Order matches Flutter tools / dart-lang#28599: echoMode off first, then
   /// lineMode (Windows rejects lineMode=false while echo is still on).
-  static bool _enableRawStdin() {
+  bool _enableRawStdin() {
     // A pipe already delivers bytes unbuffered, and setting the terminal modes
     // on one throws — warning about it would be a warning for a non-problem.
-    if (!stdin.hasTerminal) return true;
+    if (!console.inputHasTerminal) return true;
     try {
-      stdin.echoMode = false;
-      stdin.lineMode = false;
+      console.echoMode = false;
+      console.lineMode = false;
       // Verify — a silent no-op leaves "keys do nothing" with no clue why.
-      if (stdin.echoMode || stdin.lineMode) {
-        Log.logWarn(
+      if (console.echoMode || console.lineMode) {
+        log.logWarn(
           'stdin still cooked after raw request '
-          '(echo=${stdin.echoMode}, line=${stdin.lineMode})',
+          '(echo=${console.echoMode}, line=${console.lineMode})',
         );
         return false;
       }
       return true;
     } on Object catch (e) {
-      Log.logWarn('stdin raw mode failed: $e');
+      log.logWarn('stdin raw mode failed: $e');
       return false;
     }
   }
 
-  static void _restoreCookedStdin() {
-    if (!stdin.hasTerminal) return;
+  void _restoreCookedStdin() {
+    if (!console.inputHasTerminal) return;
     try {
-      stdin.lineMode = true;
-      stdin.echoMode = true;
+      console.lineMode = true;
+      console.echoMode = true;
     } on Object catch (_) {}
   }
 
@@ -378,7 +387,7 @@ final class SessionConsole {
             DeviceConstants.keyBigQ ||
             DeviceConstants.keyCtrlC ||
             DeviceConstants.keyCtrlD:
-          Log.logInfo('Quitting');
+          log.logInfo('Quitting');
           _stop();
           return _finishKeypressLoop();
         case DeviceConstants.keyR || DeviceConstants.keyBigR
@@ -399,7 +408,7 @@ final class SessionConsole {
     _flushAppOutput();
   }
 
-  void _reportHotReloadUnavailable() => Log.logWarn(
+  void _reportHotReloadUnavailable() => log.logWarn(
     hotReloadUnavailable ?? 'hot reload is not available in this session.',
   );
 
@@ -418,7 +427,7 @@ final class SessionConsole {
   Future<void> _handleHotReload() async {
     final controller = hotReload;
     if (controller == null) return _reportHotReloadUnavailable();
-    final step = Log.beginStep('Hot reload');
+    final step = log.beginStep('Hot reload');
     try {
       if (await controller.reload()) {
         step.done('Reloaded');
@@ -427,20 +436,20 @@ final class SessionConsole {
       }
     } catch (e) {
       step.fail('Hot reload failed');
-      Log.logError('$e');
+      log.logError('$e');
     }
   }
 
   Future<void> _handleHotRestart() async {
     final controller = hotReload;
     if (controller == null) return _reportHotReloadUnavailable();
-    final step = Log.beginStep('Hot restart');
+    final step = log.beginStep('Hot restart');
     try {
       await controller.restart();
       step.done('Restarted');
     } catch (e) {
       step.fail('Hot restart failed');
-      Log.logError('$e');
+      log.logError('$e');
     }
   }
 }

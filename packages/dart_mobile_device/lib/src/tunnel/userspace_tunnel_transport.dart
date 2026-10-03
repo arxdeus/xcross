@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:dart_mobile_device/src/errors.dart';
 import 'package:dart_mobile_device/src/models/device_endpoint.dart';
 import 'package:dart_mobile_device/src/pymd/pymd.dart';
@@ -110,7 +110,7 @@ class UserspaceTunnelTransport implements DeviceTransport {
     final invocation = await pymd.resolve();
     final arguments = [...invocation.prefixArgs, ...buildArgs(localPort)];
 
-    Log.logTrace(
+    pymd.runner.log.logTrace(
       '[pymobiledevice3] starting $label relay on $_loopback:$localPort: '
       '${ProcessRunner.commandLine(invocation.executable, arguments)}',
     );
@@ -148,7 +148,7 @@ class UserspaceTunnelTransport implements DeviceTransport {
       },
     );
     if (ready ?? false) {
-      Log.logTrace('$label relay ready on $_loopback:$localPort');
+      pymd.runner.log.logTrace('$label relay ready on $_loopback:$localPort');
       return DeviceEndpoint(host: _loopback, port: localPort);
     }
 
@@ -167,7 +167,7 @@ class UserspaceTunnelTransport implements DeviceTransport {
 
   /// Trace every non-empty line the relay prints, keeping a copy in [output]
   /// for the failure message.
-  static void _captureOutput(Process relay, String label, StringBuffer output) {
+  void _captureOutput(Process relay, String label, StringBuffer output) {
     for (final stream in [relay.stdout, relay.stderr]) {
       stream
           // Lossy on purpose: pymobiledevice3 can emit non-UTF-8 bytes, and a
@@ -177,7 +177,7 @@ class UserspaceTunnelTransport implements DeviceTransport {
           .listen((line) {
             if (line.trim().isEmpty) return;
             output.writeln(line);
-            Log.logTrace('[$label relay] $line');
+            pymd.runner.log.logTrace('[$label relay] $line');
           }, onError: (Object _) {});
     }
   }

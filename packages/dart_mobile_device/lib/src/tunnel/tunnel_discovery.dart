@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:dart_mobile_device/src/constants.dart';
 import 'package:dart_mobile_device/src/errors.dart';
 import 'package:dart_mobile_device/src/models/tunnel.dart';
@@ -11,12 +11,16 @@ export 'package:dart_mobile_device/src/models/tunnel.dart';
 /// Stateless REST client for the locally-running tunneld HTTP API. Polls until
 /// a tunnel is available; when the list is empty, asks tunneld to create one
 /// via `GET /start-tunnel?udid=…`.
-abstract final class TunnelDiscovery {
+final class TunnelDiscovery {
+  TunnelDiscovery(this.log, {required this.localHttp});
+  final LocalHttp<PlatformHostInterface> localHttp;
+  final Log log;
+
   /// Find the tunnel endpoint for [udid] (or the first tunneled device when
   /// [udid] is null). Retries until [timeout], sleeping [pollInterval] between
   /// attempts. When [udid] is set and the tunnel list is empty, triggers
   /// tunneld's on-demand `/start-tunnel` endpoint (iOS 17.4+ lockdown path).
-  static Future<Tunnel> discoverTunnel({
+  Future<Tunnel> discoverTunnel({
     required String? udid,
     Duration timeout = const Duration(seconds: 60),
     Duration pollInterval = const Duration(milliseconds: 1500),
@@ -28,7 +32,7 @@ abstract final class TunnelDiscovery {
     // A hand-rolled loop rather than ProcessRunner.pollUntil: a tunneld that
     // refuses to create the tunnel has to abort the wait immediately, and
     // pollUntil has no way to say "stop, more waiting cannot help".
-    final step = Log.beginStep('Waiting for RSD tunnel');
+    final step = log.beginStep('Waiting for RSD tunnel');
     final deadline = DateTime.now().add(timeout);
     while (DateTime.now().isBefore(deadline)) {
       Map<String, dynamic>? data;
@@ -36,7 +40,7 @@ abstract final class TunnelDiscovery {
         data = await _fetch(TunnelConstants.tunneldUrl);
         lastUnreachable = false;
       } on Object catch (e) {
-        Log.logTrace('tunneld list request failed: $e');
+        log.logTrace('tunneld list request failed: $e');
       }
 
       if (data != null) {
@@ -49,7 +53,7 @@ abstract final class TunnelDiscovery {
         // tunneld is up but has no tunnels yet — ask it to create one.
         if (udid != null && !requestedStart) {
           requestedStart = true;
-          Log.logTrace(
+          log.logTrace(
             '[pymobiledevice3] no RSD tunnel yet — requesting '
             '/start-tunnel for $udid…',
           );
@@ -64,7 +68,7 @@ abstract final class TunnelDiscovery {
           }
         } else if (!loggedWaiting) {
           loggedWaiting = true;
-          Log.logTrace(
+          log.logTrace(
             '[pymobiledevice3] waiting for RSD tunnel'
             '${udid != null ? ' ($udid)' : ''}…',
           );
@@ -101,7 +105,7 @@ abstract final class TunnelDiscovery {
   /// Single-shot lookup of a tunnel tunneld already has, without polling or
   /// asking it to create one. Returns null instead of throwing when tunneld is
   /// down or has nothing for [udid].
-  static Future<Tunnel?> findExistingTunnel({String? udid}) async {
+  Future<Tunnel?> findExistingTunnel({String? udid}) async {
     try {
       final data = await _fetch(TunnelConstants.tunneldUrl);
       return _parseTunnelList(data, udid);
@@ -115,12 +119,12 @@ abstract final class TunnelDiscovery {
   /// Empty (never throws) when tunneld is down: callers use this to merge
   /// tunneled devices into discovery, where an unreachable tunneld simply
   /// means "no wireless devices yet".
-  static Future<Map<String, Tunnel>> activeTunnels() async {
+  Future<Map<String, Tunnel>> activeTunnels() async {
     final Map<String, dynamic> data;
     try {
       data = await _fetch(TunnelConstants.tunneldUrl);
     } on Object catch (e) {
-      Log.logTrace('tunneld list request failed: $e');
+      log.logTrace('tunneld list request failed: $e');
       return const {};
     }
     final result = <String, Tunnel>{};
@@ -138,7 +142,7 @@ abstract final class TunnelDiscovery {
   ///
   /// Both fields are null when tunneld answered with a body that carries no
   /// usable endpoint: nothing went wrong, so the caller keeps waiting.
-  static Future<({Tunnel? tunnel, String? failure})> _requestStartTunnel(
+  Future<({Tunnel? tunnel, String? failure})> _requestStartTunnel(
     String udid,
   ) async {
     final uri = Uri.parse(TunnelConstants.tunneldUrl).replace(
@@ -149,7 +153,7 @@ abstract final class TunnelDiscovery {
       final data = await _fetch(uri.toString());
       return (tunnel: _tunnelFromJson(data), failure: null);
     } on Object catch (e) {
-      Log.logTrace('tunneld /start-tunnel failed: $e');
+      log.logTrace('tunneld /start-tunnel failed: $e');
       return (tunnel: null, failure: '$e');
     }
   }
@@ -157,7 +161,7 @@ abstract final class TunnelDiscovery {
   /// tunneld is running but cannot build the tunnel itself: it needs the
   /// Developer Disk Image mounted and a lockdown tunnel, which is what
   /// `xcross tunnel` sets up.
-  static TunnelError _cannotCreateTunnel(String udid, String detail) =>
+  TunnelError _cannotCreateTunnel(String udid, String detail) =>
       TunnelCreationError(
         'tunneld could not create an RSD tunnel for $udid.\n\n'
         'Run:\n\n'
@@ -169,8 +173,8 @@ abstract final class TunnelDiscovery {
         'tunneld said: $detail',
       );
 
-  static Future<Map<String, dynamic>> _fetch(String url) async {
-    final client = LocalHttp.client(
+  Future<Map<String, dynamic>> _fetch(String url) async {
+    final client = localHttp.client(
       connectionTimeout: const Duration(seconds: 5),
     );
     // /start-tunnel can block while creating the TUN — allow longer.
@@ -195,7 +199,7 @@ abstract final class TunnelDiscovery {
   }
 
   /// Parse the `GET /` multi-device map: `{udid: [{address,port}, …], …}`.
-  static Tunnel? _parseTunnelList(Map<String, dynamic> root, String? udid) {
+  Tunnel? _parseTunnelList(Map<String, dynamic> root, String? udid) {
     if (root.isEmpty) return null;
 
     final List<Object?> candidates;
@@ -223,14 +227,14 @@ abstract final class TunnelDiscovery {
   /// Accepts the union of the key spellings seen from `GET /` and
   /// `GET /start-tunnel`; the two endpoints do not agree on them across
   /// pymobiledevice3 versions, and port arrives as int or String.
-  static Tunnel? _tunnelFromJson(Map<Object?, Object?> json) {
+  Tunnel? _tunnelFromJson(Map<Object?, Object?> json) {
     final addrObj =
         json['tunnel-address'] ?? json['address'] ?? json['tunnel_address'];
     final portObj = json['tunnel-port'] ?? json['port'] ?? json['tunnel_port'];
     final addr = addrObj is String ? addrObj : null;
     final port = Pymd.asPort(portObj);
     if (addr == null || port == null) return null;
-    Log.logTrace('found RSD tunnel: $addr:$port');
+    log.logTrace('found RSD tunnel: $addr:$port');
     return Tunnel(address: addr, port: port);
   }
 }

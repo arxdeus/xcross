@@ -1,29 +1,27 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:frontend_server_kit/src/shared/process/compiler_transport.dart';
 
 final class HostCompilerProcessFactory implements CompilerProcessFactory {
-  const HostCompilerProcessFactory(this.processes);
+  const HostCompilerProcessFactory(this.runner);
 
-  final HostProcessInterface processes;
+  final ProcessRunner runner;
 
   @override
   Future<CompilerTransport> start(
     String executable,
     List<String> arguments,
-  ) async => _HostCompilerTransport(
-    await processes.start(executable, arguments),
-    processes,
-  );
+  ) async =>
+      HostCompilerTransport(await runner.start(executable, arguments), runner);
 }
 
-final class _HostCompilerTransport implements CompilerTransport {
-  _HostCompilerTransport(this.process, this.processes);
+final class HostCompilerTransport implements CompilerTransport {
+  HostCompilerTransport(this.process, this.runner);
 
   final Process process;
-  final HostProcessInterface processes;
+  final ProcessRunner runner;
   Future<void>? _closing;
 
   @override
@@ -51,13 +49,13 @@ final class _HostCompilerTransport implements CompilerTransport {
       await send('quit\n').timeout(const Duration(milliseconds: 500));
       await exitCode.timeout(const Duration(milliseconds: 500));
     } on Object {
-      await processes.killTree(process).timeout(const Duration(seconds: 2));
+      await runner.killTree(process).timeout(const Duration(seconds: 2));
     } finally {
       try {
         await process.stdin.close().timeout(const Duration(milliseconds: 200));
       } on Object {
-      process.stdin.done.ignore();
-    }
+        process.stdin.done.ignore();
+      }
     }
   }
 }

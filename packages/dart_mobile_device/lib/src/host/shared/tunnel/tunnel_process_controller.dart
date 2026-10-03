@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 
 final class TunnelProcessController {
   TunnelProcessController(this.runner);
@@ -9,10 +9,21 @@ final class TunnelProcessController {
   final ProcessRunner runner;
   Process? _process;
   Future<void>? _stopping;
+  Future<void>? _starting;
 
   bool get ownsProcess => _process != null;
 
   Future<void> start(
+    List<String> argv, {
+    required String logPath,
+    required Map<String, String> environment,
+  }) => _starting ??= _start(
+    argv,
+    logPath: logPath,
+    environment: environment,
+  ).whenComplete(() => _starting = null);
+
+  Future<void> _start(
     List<String> argv, {
     required String logPath,
     required Map<String, String> environment,
@@ -49,6 +60,7 @@ final class TunnelProcessController {
       _stopping ??= _stop().whenComplete(() => _stopping = null);
 
   Future<void> _stop() async {
+    await _starting;
     final process = _process;
     _process = null;
     if (process == null) return;

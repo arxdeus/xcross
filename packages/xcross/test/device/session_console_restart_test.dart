@@ -3,6 +3,8 @@ import 'package:test/test.dart';
 import 'package:xcross/src/constants.dart';
 import 'package:xcross/src/device/session_console.dart';
 
+import 'test_log_output.dart';
+
 void main() {
   // Kotlin/Native Compose has no in-place reload, so its session supplies a
   // rebuild-and-relaunch handler. `r` and `R` must both route there instead
@@ -10,7 +12,10 @@ void main() {
   // "hot reload is not available" or drive a frontend_server that Compose
   // does not have.
   SessionConsole consoleWith(List<String> events) => SessionConsole(
-    gdb: GdbRemoteClient(host: '127.0.0.1', port: 0),
+    console: TestDeviceConsole(),
+    log: testLog(),
+    keyboardInput: const Stream<List<int>>.empty(),
+    gdb: GdbRemoteClient(log: testLog(), host: '127.0.0.1', port: 0),
     hotReload: null,
     onRestartRequested: () async {
       events.add('restart');
@@ -44,7 +49,10 @@ void main() {
 
   test('without a restart handler r does not crash the session', () async {
     final console = SessionConsole(
-      gdb: GdbRemoteClient(host: '127.0.0.1', port: 0),
+      console: TestDeviceConsole(),
+      log: testLog(),
+      keyboardInput: const Stream<List<int>>.empty(),
+      gdb: GdbRemoteClient(log: testLog(), host: '127.0.0.1', port: 0),
       hotReload: null,
       hotReloadUnavailable: 'no reload here',
     );

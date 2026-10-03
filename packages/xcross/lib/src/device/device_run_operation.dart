@@ -1,10 +1,15 @@
-import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:apple_developer_kit/apple_developer_kit_shared.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart'
+    show Device, DeviceSearchMode, DeviceSource, OsVersion, Pymd;
 import 'package:xcross/src/device/core_device_launch_profile.dart';
 import 'package:xcross/src/device/core_device_launcher.dart';
 import 'package:xcross/src/device/device_backend.dart';
 import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/flutter/hot_reload/vm_service_output.dart';
 import 'package:xcross/src/models/pack_result.dart';
+import 'package:xcross/src/shared/flutter/vm_service_connector.dart';
+import 'package:xcross/src/target/iphone/device/signing_http_client_factory.dart';
 
 typedef OsMajorVersion = Future<int?> Function(Device device);
 typedef TerminateInstalledApp =
@@ -19,23 +24,46 @@ typedef LaunchInstalledApp =
 
 final class DeviceRunOperation {
   DeviceRunOperation({
+    required this.log,
     required this.backend,
-    OsMajorVersion? osMajorVersion,
-    TerminateInstalledApp? terminate,
-    LaunchInstalledApp? launch,
-  }) : _osMajorVersion = osMajorVersion ?? _defaultOsMajorVersion,
-       _terminate = terminate ?? CoreDeviceLauncher.terminateIfRunning,
-       _launch = launch ?? CoreDeviceLauncher.launch;
+    required OsMajorVersion osMajorVersion,
+    required TerminateInstalledApp terminate,
+    required LaunchInstalledApp launch,
+  }) : _osMajorVersion = osMajorVersion,
+       _terminate = terminate,
+       _launch = launch;
 
-  static Future<DeviceRunOperation> resolve() async =>
-      DeviceRunOperation(backend: await DeviceBackend.resolve());
-
-  static Future<int?> _defaultOsMajorVersion(Device device) =>
-      OsVersion.deviceOSMajorVersion(
+  static Future<DeviceRunOperation> resolve(
+    Pymd pymd, {
+    required AppleHostServices hostServices,
+    required NativeLibraryLoader Function() createNativeLibraryLoader,
+    required SigningHttpClientFactory httpClients,
+    required VmServiceConnector connector,
+    required VmServiceOutput vmOutput,
+  }) async {
+    final launcher = CoreDeviceLauncher(
+      pymd,
+      connector: connector,
+      vmOutput: vmOutput,
+    );
+    return DeviceRunOperation(
+      log: pymd.runner.log,
+      backend: await DeviceBackend.resolve(
+        pymd,
+        hostServices: hostServices,
+        createNativeLibraryLoader: createNativeLibraryLoader,
+        httpClients: httpClients,
+      ),
+      osMajorVersion: (device) => OsVersion(pymd).deviceOSMajorVersion(
         device.udid,
         overTunnel: device.source == DeviceSource.tunneld,
-      );
+      ),
+      terminate: launcher.terminateIfRunning,
+      launch: launcher.launch,
+    );
+  }
 
+  final Log log;
   final DeviceBackend backend;
   final OsMajorVersion _osMajorVersion;
   final TerminateInstalledApp _terminate;
@@ -54,10 +82,10 @@ final class DeviceRunOperation {
       );
     }
     final device = await backend.resolveDevice(selector: selector, mode: mode);
-    Log.logInfo('Device', '${device.name} ${Log.dim(device.udid)}');
+    log.logInfo('Device', '${device.name} ${log.dim(device.udid)}');
     final major = await _osMajorVersion(device);
     if (major == null) {
-      Log.logWarn(
+      log.logWarn(
         'Could not read the device OS version; attempting the native '
         'CoreDevice path.',
       );
@@ -65,7 +93,6 @@ final class DeviceRunOperation {
     if (major != null && major < 17) {
       throw XcrossError('Native device launching requires iOS 17 or later.');
     }
-    await _terminate(udid: device.udid, bundleId: pack.bundleId);
     // Launch the exact id install() produced: the device may carry stale
     // team-qualified builds of this app under other identities, and the
     // suffix-matching fallback inside the launcher can land on one of those.
@@ -74,6 +101,7 @@ final class DeviceRunOperation {
       device: device,
       bundleId: pack.bundleId,
     );
+    await _terminate(udid: device.udid, bundleId: installedBundleId);
     await _launch(
       udid: device.udid,
       bundleId: installedBundleId,

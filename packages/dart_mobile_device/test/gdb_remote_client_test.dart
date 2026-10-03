@@ -5,6 +5,8 @@ import 'package:dart_mobile_device/src/errors.dart';
 import 'package:dart_mobile_device/src/gdb_remote_client.dart';
 import 'package:test/test.dart';
 
+import 'test_log_output.dart';
+
 /// ASCII `$` — start-of-packet sentinel (mirrors the production wire format).
 const _packetStart = 0x24;
 
@@ -108,6 +110,7 @@ void main() {
     /// alongside the server-side socket for the accepted connection.
     Future<(GdbRemoteClient, Socket)> connectClient() async {
       final client = GdbRemoteClient(
+        log: testLog(),
         host: device.address.address,
         port: device.port,
       );

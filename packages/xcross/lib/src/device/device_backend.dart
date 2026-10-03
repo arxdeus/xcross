@@ -1,19 +1,25 @@
-import 'dart:ffi';
 import 'dart:io';
 
-import 'package:apple_developer_kit/apple_developer_kit.dart';
-import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart';
-import 'package:meta/meta.dart';
+import 'package:apple_developer_kit/apple_developer_kit_shared.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart'
+    show
+        Device,
+        DeviceSearchMode,
+        DeviceSource,
+        Pymd,
+        PymdDeviceResolver,
+        PymdDevices;
 import 'package:path/path.dart' as p;
-import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:xcross/src/device/internal/app_capabilities.dart';
 import 'package:xcross/src/device/internal/app_entitlements.dart';
 import 'package:xcross/src/device/internal/embedded_extension.dart';
 import 'package:xcross/src/device/internal/signed_bundle_identity.dart';
 import 'package:xcross/src/device/internal/signing_session.dart';
 import 'package:xcross/src/errors.dart';
-import 'package:xcross/src/flutter/flutter.dart';
+import 'package:xcross/src/shared/artifact/plist_mutations.dart';
+import 'package:xcross/src/target/iphone/device/signed_bundle_preparer.dart';
+import 'package:xcross/src/target/iphone/device/signing_http_client_factory.dart';
+import 'package:xcross/src/target/iphone/device/signing_session_resolver.dart';
 
 /// Resolves, signs, and installs to a device using the native pipeline.
 abstract interface class DeviceBackend {
@@ -33,16 +39,63 @@ abstract interface class DeviceBackend {
     required String bundleId,
   });
 
-  static Future<DeviceBackend> resolve() async => NativeBackend();
+  static Future<DeviceBackend> resolve(
+    Pymd pymd, {
+    required AppleHostServices hostServices,
+    required NativeLibraryLoader Function() createNativeLibraryLoader,
+    required SigningHttpClientFactory httpClients,
+  }) async => NativeBackend(
+    pymd,
+    hostServices: hostServices,
+    createNativeLibraryLoader: createNativeLibraryLoader,
+    httpClients: httpClients,
+  );
 }
 
 /// pymobiledevice3 for device discovery/install, with Apple provisioning and
 /// in-process signing.
 final class NativeBackend implements DeviceBackend {
-  NativeBackend([PymdDeviceResolver? resolver])
-    : _resolver = resolver ?? PymdDeviceResolver();
+  NativeBackend(
+    this.pymd, {
+    required this.hostServices,
+    required this.createNativeLibraryLoader,
+    required this.httpClients,
+    PymdDeviceResolver? resolver,
+    SigningSessionProvider? signingSessions,
+  }) : _signingSessions =
+           signingSessions ??
+           SigningSessionResolver(
+             hostServices: hostServices,
+             createNativeLibraryLoader: createNativeLibraryLoader,
+             httpClients: httpClients,
+           ),
+       _resolver = resolver ?? PymdDeviceResolver(pymd) {
+    if (!identical(pymd.runner.host, hostServices.host)) {
+      throw ArgumentError(
+        'device runner and Apple services must share one host',
+      );
+    }
+  }
+
+  final Pymd pymd;
+  late final AppCapabilities _capabilities = AppCapabilities(
+    fileSystem: pymd.runner.host.fileSystem,
+    paths: pymd.runner.host.paths,
+  );
+  late final AppEntitlements _entitlements = AppEntitlements(
+    fileSystem: pymd.runner.host.fileSystem,
+    paths: pymd.runner.host.paths,
+  );
+  late final SignedBundlePreparer _bundlePreparer = SignedBundlePreparer(
+    fileSystem: pymd.runner.host.fileSystem,
+    paths: pymd.runner.host.paths,
+  );
+  final AppleHostServices hostServices;
+  final SigningHttpClientFactory httpClients;
+  final NativeLibraryLoader Function() createNativeLibraryLoader;
 
   final PymdDeviceResolver _resolver;
+  final SigningSessionProvider _signingSessions;
 
   /// Warnings already shown this install.
   ///
@@ -53,7 +106,7 @@ final class NativeBackend implements DeviceBackend {
   final Set<String> _warned = {};
 
   void _warnOnce(String message) {
-    if (_warned.add(message)) Log.logWarn(message);
+    if (_warned.add(message)) pymd.runner.log.logWarn(message);
   }
 
   @override
@@ -77,31 +130,35 @@ final class NativeBackend implements DeviceBackend {
       );
     }
 
-    final signing = await _resolveSigningSession();
-    // xtool-style: qualify with XCR-<identity> so two accounts can share a
-    // project bundle id without racing for a globally unique App ID. An App ID
-    // this team already owns is used as it is: qualifying it makes the app a
-    // different App ID, and everything bound to the real one stops working - an
-    // Apple identity token carries the bundle id as its `aud`, passkeys and
-    // `ASWebAuthenticationSession.Callback.https` are bound through the App ID's
-    // AASA `webcredentials` entry, and push, Sign in with Apple and Associated
-    // Domains are all provisioned per App ID.
-    final appIdRegisteredToTeam =
-        await signing.client.findBundleId(bundleId) != null;
-    final bundleIdentity = SignedBundleIdentity.qualify(
-      requested: bundleId,
-      signingIdentityId: signing.identityId,
-      appIdRegisteredToTeam: appIdRegisteredToTeam,
-    );
-    final profilesDir = p.join(p.dirname(signing.identityDir), 'profiles');
-    final outputDir = p.join(profilesDir, bundleIdentity.exact);
-
+    _bundlePreparer.validateContainment(appOrIpaPath);
+    final signing = await _signingSessions.resolve();
     try {
-      await _rewriteBundleIdentifier(appOrIpaPath, bundleIdentity.exact);
+      // xtool-style: qualify with XCR-<identity> so two accounts can share a
+      // project bundle id without racing for a globally unique App ID. An App ID
+      // this team already owns is used as it is: qualifying it makes the app a
+      // different App ID, and everything bound to the real one stops working - an
+      // Apple identity token carries the bundle id as its `aud`, passkeys and
+      // `ASWebAuthenticationSession.Callback.https` are bound through the App ID's
+      // AASA `webcredentials` entry, and push, Sign in with Apple and Associated
+      // Domains are all provisioned per App ID.
+      final appIdRegisteredToTeam =
+          await signing.client.findBundleId(bundleId) != null;
+      final bundleIdentity = SignedBundleIdentity.qualify(
+        requested: bundleId,
+        signingIdentityId: signing.identityId,
+        appIdRegisteredToTeam: appIdRegisteredToTeam,
+      );
+      final profilesDir = p.join(p.dirname(signing.identityDir), 'profiles');
+      final outputDir = p.join(profilesDir, bundleIdentity.exact);
+
+      await _bundlePreparer.rewriteBundleIdentifier(
+        appOrIpaPath,
+        bundleIdentity.exact,
+      );
       if (bundleIdentity.exact != bundleIdentity.requested) {
-        Log.logInfo(
+        pymd.runner.log.logInfo(
           'App ID',
-          '${bundleIdentity.requested} ${Log.dim('→')} ${bundleIdentity.exact}',
+          '${bundleIdentity.requested} ${pymd.runner.log.dim('→')} ${bundleIdentity.exact}',
         );
         // Custom URL schemes are conventionally derived from the bundle id
         // (`ShareMedia-<bundle id>`), and an extension builds the URL it
@@ -109,7 +166,7 @@ final class NativeBackend implements DeviceBackend {
         // app's declared scheme on the unqualified id means nothing is
         // registered to handle that URL, so the hand-off back into the app
         // silently does nothing.
-        await _rewriteUrlSchemes(
+        await _bundlePreparer.rewriteUrlSchemes(
           appOrIpaPath,
           from: bundleIdentity.requested,
           to: bundleIdentity.exact,
@@ -117,7 +174,7 @@ final class NativeBackend implements DeviceBackend {
       }
       // Embedded extensions must be renamed under the qualified app id and
       // provisioned in their own right before the app can be signed.
-      final extensions = await _rewriteExtensionIdentifiers(
+      final extensions = await _bundlePreparer.rewriteExtensionIdentifiers(
         appOrIpaPath,
         hostBundleId: bundleIdentity.requested,
         signedHostBundleId: bundleIdentity.exact,
@@ -138,7 +195,8 @@ final class NativeBackend implements DeviceBackend {
       // profiles that carry a group attached by other means. Set it to a
       // group you added to these App IDs in Xcode or at developer.apple.com
       // and the whole share flow works on an API key.
-      final override = Platform.environment['XCROSS_APP_GROUP']?.trim();
+      final override = pymd.runner.effectiveEnvironment['XCROSS_APP_GROUP']
+          ?.trim();
       final appGroups = switch (override) {
         final String group when group.isNotEmpty => [group],
         _ => [
@@ -147,6 +205,7 @@ final class NativeBackend implements DeviceBackend {
         ],
       };
       final identity = await AscProvisioning.provisionDevelopmentIdentity(
+        hostServices: hostServices,
         client: signing.client,
         bundleId: bundleIdentity.exact,
         deviceUdids: [udid],
@@ -155,7 +214,7 @@ final class NativeBackend implements DeviceBackend {
         appGroups: appGroups,
         // Recorded by the assembler from the project's entitlements; a profile
         // only grants what the App ID has switched on.
-        capabilities: AppCapabilities.of(appOrIpaPath).toSet(),
+        capabilities: _capabilities.of(appOrIpaPath).toSet(),
         onProgress: _warnOnce,
       );
       final asset = await SigningAsset.load(
@@ -164,7 +223,7 @@ final class NativeBackend implements DeviceBackend {
         provisioningProfilePath: identity.profilePath,
         // The profile's generic values lose to what the app declares, or the
         // app ends up asking iOS for `associated-domains: *`.
-        declaredEntitlements: AppEntitlements.of(appOrIpaPath),
+        declaredEntitlements: _entitlements.of(appOrIpaPath),
       );
       final extensionAssets = await _provisionExtensions(
         extensions,
@@ -180,7 +239,7 @@ final class NativeBackend implements DeviceBackend {
       // accept, so the runtime `AppGroupId` is taken from it.
       final granted = asset.grantedAppGroups;
       if (granted.isNotEmpty) {
-        await _rewriteAppGroupId(appOrIpaPath, granted.first);
+        await _bundlePreparer.rewriteAppGroupId(appOrIpaPath, granted.first);
         // Each extension is signed with its own profile, so a group the app
         // has but an extension lacks would silently break the hand-off at
         // runtime rather than at install time.
@@ -207,270 +266,43 @@ final class NativeBackend implements DeviceBackend {
       // (capabilities were provisioned, entitlements folded into `asset`), and
       // they are not iOS keys. Strip them before the signature seals the plist,
       // or every Compose app ships with them.
-      await _stripPrivateKeys(appOrIpaPath);
+      await _bundlePreparer.stripPrivateKeys(appOrIpaPath);
       for (final extension in extensions) {
         if (extension.path case final String path) {
-          await _stripPrivateKeys(path);
+          await _bundlePreparer.stripPrivateKeys(path);
         }
       }
-      await Log.logStep(
+      await pymd.runner.log.logStep(
         'Signing app',
         () => BundleSigner(
           asset,
+          hostServices: hostServices,
           extensionAssets: extensionAssets,
         ).signApp(appOrIpaPath),
       );
       final signedInfoPlist = File(p.join(appOrIpaPath, 'Info.plist'));
       bundleIdentity.verifyArtifact(
         signedInfoPlist.existsSync()
-            ? InfoPlist.readBundleIdentifier(
+            ? PlistMutations.readBundleIdentifier(
                 await signedInfoPlist.readAsString(),
               )
             : null,
       );
-      await PymdDevices.install(
+      await PymdDevices(pymd).install(
         appOrIpaPath,
         udid: udid,
         overTunnel: device.source == DeviceSource.tunneld,
       );
       return bundleIdentity.exact;
     } finally {
-      signing.client.close();
-      signing.anisette?.close();
-    }
-  }
-
-  /// Prefer a saved Apple ID session, falling back to App Store Connect
-  /// credentials only when no Apple ID session failed — a stored ASC key may
-  /// belong to a different team, so a broken Apple session must never silently
-  /// switch providers. Throws [XcrossError] listing both failures if neither
-  /// works.
-  static Future<SigningSession> _resolveSigningSession() async {
-    final configPath = AscCredentials.defaultConfigPath();
-    final configDirectory = p.dirname(configPath);
-
-    Object? appleSessionFailure;
-    Object? ascFailure;
-    Object? unreadableSession;
-
-    GrandSlamSession? session;
-    try {
-      session = await GrandSlamSessionStore().load();
-    } on LocalCipherError catch (error) {
-      // A session sealed on another machine, or one whose key file is gone,
-      // carries no team identity at all. Unlike a session that loaded and
-      // then failed, it cannot silently point at the wrong team, so falling
-      // through to App Store Connect credentials is safe here.
-      unreadableSession = error;
-    } on Object catch (error) {
-      appleSessionFailure = error;
-    }
-
-    if (session != null && !session.isExpired) {
       try {
-        return await _appleIdSession(session, configDirectory);
-      } on Object catch (error) {
-        appleSessionFailure = error;
-      }
-    } else if (session?.isExpired == true) {
-      appleSessionFailure = XcrossError(
-        'Developer Services session has expired. Run xcross auth again.',
-      );
-    }
-
-    if (appleSessionFailure == null && File(configPath).existsSync()) {
-      try {
-        return await _ascSession(configPath, configDirectory);
-      } on Object catch (error) {
-        ascFailure = error;
+        signing.client.close();
+      } finally {
+        signing.anisette?.close();
       }
     }
-
-    final unreadable =
-        'Apple ID: the saved session cannot be read on this machine, '
-        'sign in again to replace it ($unreadableSession)';
-    final details = [
-      if (appleSessionFailure != null) 'Apple ID: $appleSessionFailure',
-      if (unreadableSession != null) unreadable,
-      if (ascFailure != null) 'App Store Connect: $ascFailure',
-    ];
-    throw XcrossError(
-      'No usable Apple ID session or App Store Connect credentials found. '
-      'Run either:\n'
-      '    xcross auth --apple-id <email>\n'
-      'or:\n'
-      '    xcross auth --issuer-id <id> --key-id <id> '
-      '--private-key <path-to-AuthKey_XXXX.p8>'
-      '${details.isEmpty ? '' : '\n${details.join('\n')}'}',
-    );
   }
 
-  static Future<SigningSession> _ascSession(
-    String configPath,
-    String configDirectory,
-  ) async {
-    final credentials = await AscCredentials.fromFile(configPath);
-    return SigningSession(
-      client: AscClient(credentials),
-      anisette: null,
-      identityId: credentials.issuerId,
-      identityDir: SigningSession.identityDirFor(
-        configDirectory,
-        'appstoreconnect-${credentials.issuerId}',
-      ),
-    );
-  }
-
-  static Future<SigningSession> _appleIdSession(
-    GrandSlamSession session,
-    String configDirectory,
-  ) async {
-    final anisette = anisetteForSession(session);
-    final client = DeveloperServicesClient.fromSession(
-      session,
-      anisette.fetchAnisetteHeaders,
-    );
-    try {
-      // Validate saved auth before any provisioning mutation.
-      await client.verifyAccess();
-    } on Object {
-      client.close();
-      anisette.close();
-      rethrow;
-    }
-    return SigningSession(
-      client: client,
-      anisette: anisette,
-      identityId: session.teamId,
-      identityDir: SigningSession.identityDirFor(
-        configDirectory,
-        'developer-services-${session.teamId}',
-      ),
-    );
-  }
-
-  /// Rewrite every embedded `PlugIns/*.appex` identifier so it stays nested
-  /// under the qualified host App ID, and return the new identifiers.
-  ///
-  /// iOS requires an extension's bundle id to be `<app id>.<suffix>`, so
-  /// qualifying the app id (`com.x.App` → `XCR-TEAM.com.x.App`) must carry the
-  /// extensions along (`XCR-TEAM.com.x.App.Share-Extension`).
-  static Future<List<EmbeddedExtension>> _rewriteExtensionIdentifiers(
-    String appPath, {
-    required String hostBundleId,
-    required String signedHostBundleId,
-  }) async {
-    final plugIns = Directory(p.join(appPath, 'PlugIns'));
-    if (!plugIns.existsSync()) return const [];
-
-    final identifiers = <EmbeddedExtension>[];
-    for (final entity in plugIns.listSync()) {
-      if (entity is! Directory || !entity.path.endsWith('.appex')) continue;
-      final plist = File(p.join(entity.path, 'Info.plist'));
-      if (!plist.existsSync()) continue;
-
-      final xml = await plist.readAsString();
-      final current = InfoPlist.readBundleIdentifier(xml);
-      if (current == null) continue;
-
-      // Preserve the suffix the project declared beneath the app id.
-      final suffix = current.startsWith('$hostBundleId.')
-          ? current.substring(hostBundleId.length)
-          : '.${p.basenameWithoutExtension(entity.path)}';
-      final signed = '$signedHostBundleId$suffix';
-
-      await plist.writeAsString(InfoPlist.setBundleIdentifier(xml, signed));
-      identifiers.add(
-        EmbeddedExtension(
-          path: entity.path,
-          bundleId: signed,
-          appGroups: AppExtensionEntitlements.appGroupsOf(entity.path),
-        ),
-      );
-    }
-    identifiers.sort((a, b) => a.bundleId.compareTo(b.bundleId));
-    return identifiers;
-  }
-
-  /// Removes the assembler's private hand-off keys from the app's `Info.plist`.
-  ///
-  /// [AppCapabilities.infoPlistKey] and [AppEntitlements.infoPlistKey] carry the
-  /// project's entitlements from build time to signing time, which is the only
-  /// span in which they mean anything. Leaving them in ships the app's declared
-  /// entitlements as plain text in a shipped bundle, and puts two keys iOS does
-  /// not know in the signed plist.
-  ///
-  /// Text-level, like the rest of the plist edits here: re-serializing would
-  /// rewrite a plist this code did not necessarily write. The result is parsed
-  /// before it is written back, because this runs on the shared install path -
-  /// a Flutter or prebuilt bundle never has these keys, and a cosmetic cleanup
-  /// must never be the reason an app fails to install.
-  static Future<void> _stripPrivateKeys(String appPath) async {
-    final plist = File(p.join(appPath, 'Info.plist'));
-    if (!plist.existsSync()) return;
-    final xml = await plist.readAsString();
-    if (!xml.contains(AppCapabilities.infoPlistKey) &&
-        !xml.contains(AppEntitlements.infoPlistKey)) {
-      return;
-    }
-    var stripped = xml;
-    for (final key in [
-      AppCapabilities.infoPlistKey,
-      AppEntitlements.infoPlistKey,
-    ]) {
-      stripped = InfoPlist.removePlistKey(stripped, key);
-    }
-    if (stripped == xml) return;
-    try {
-      final reparsed = PropertyListSerialization.propertyListWithString(
-        stripped,
-      );
-      if (reparsed is! Map) return;
-    } on Object {
-      return;
-    }
-    await plist.writeAsString(stripped);
-  }
-
-  /// Point the app and every embedded extension at the qualified App Group.
-  ///
-  /// Plugins such as `receive_sharing_intent` resolve the shared container at
-  /// runtime from the `AppGroupId` Info.plist key, so a qualified group that
-  /// is only written into the entitlements would leave both sides looking at
-  /// a container neither is entitled to.
-  static Future<void> _rewriteAppGroupId(
-    String appPath,
-    String appGroup,
-  ) async {
-    final plists = <File>[
-      File(p.join(appPath, 'Info.plist')),
-      ...?_plugInsPlists(appPath),
-    ];
-    for (final plist in plists) {
-      if (!plist.existsSync()) continue;
-      final xml = await plist.readAsString();
-      if (!xml.contains('<key>AppGroupId</key>')) continue;
-      await plist.writeAsString(
-        InfoPlist.setPlistString(xml, 'AppGroupId', appGroup),
-      );
-    }
-  }
-
-  static Iterable<File>? _plugInsPlists(String appPath) {
-    final plugIns = Directory(p.join(appPath, 'PlugIns'));
-    if (!plugIns.existsSync()) return null;
-    return [
-      for (final entity in plugIns.listSync())
-        if (entity is Directory && entity.path.endsWith('.appex'))
-          File(p.join(entity.path, 'Info.plist')),
-    ];
-  }
-
-  /// Provision a development identity per embedded app extension.
-  ///
-  /// Each extension is a separate App ID on the portal, so it gets its own
-  /// profile. Free Apple developer accounts cap App IDs, hence the explicit
-  /// hint when the portal refuses one.
   Future<Map<String, SigningAsset>> _provisionExtensions(
     List<EmbeddedExtension> extensions, {
     required SigningSession signing,
@@ -483,9 +315,10 @@ final class NativeBackend implements DeviceBackend {
     final assets = <String, SigningAsset>{};
     for (final extension in extensions) {
       final extensionBundleId = extension.bundleId;
-      Log.logInfo('Extension', extensionBundleId);
+      pymd.runner.log.logInfo('Extension', extensionBundleId);
       try {
         final identity = await AscProvisioning.provisionDevelopmentIdentity(
+          hostServices: hostServices,
           client: signing.client,
           bundleId: extensionBundleId,
           deviceUdids: [udid],
@@ -494,7 +327,7 @@ final class NativeBackend implements DeviceBackend {
           appGroups: appGroups,
           capabilities: {
             if (extension.path case final String path)
-              ...AppCapabilities.of(path),
+              ..._capabilities.of(path),
           },
           onProgress: _warnOnce,
         );
@@ -503,7 +336,7 @@ final class NativeBackend implements DeviceBackend {
           certificatePemPath: identity.certificatePemPath,
           provisioningProfilePath: identity.profilePath,
           declaredEntitlements: switch (extension.path) {
-            final String path => AppEntitlements.of(path),
+            final String path => _entitlements.of(path),
             null => const {},
           },
         );
@@ -519,58 +352,4 @@ final class NativeBackend implements DeviceBackend {
   }
 
   /// Point the built `.app` at the qualified App ID before codesign.
-  static Future<void> _rewriteBundleIdentifier(
-    String appPath,
-    String bundleId,
-  ) async {
-    final plist = File(p.join(appPath, 'Info.plist'));
-    if (!plist.existsSync()) {
-      throw XcrossError('Missing Info.plist in "$appPath"');
-    }
-    final updated = InfoPlist.setBundleIdentifier(
-      await plist.readAsString(),
-      bundleId,
-    );
-    await plist.writeAsString(updated);
-  }
-
-  /// Re-point `CFBundleURLSchemes` entries that embed the unqualified bundle
-  /// id at the qualified one.
-  ///
-  /// Only schemes containing [from] are touched, so unrelated schemes (OAuth
-  /// callbacks, `fb<app-id>`, deep links) are left exactly as declared.
-  static Future<void> _rewriteUrlSchemes(
-    String appPath, {
-    required String from,
-    required String to,
-  }) async {
-    final plist = File(p.join(appPath, 'Info.plist'));
-    if (!plist.existsSync()) return;
-    final xml = await plist.readAsString();
-    final rewritten = InfoPlist.rewriteUrlSchemes(xml, from: from, to: to);
-    if (rewritten != xml) await plist.writeAsString(rewritten);
-  }
-
-  @visibleForTesting
-  static AnisetteProvider anisetteForSession(
-    GrandSlamSession session, {
-    Abi? hostAbi,
-    AnisetteProvider Function(String directory)? createProvider,
-  }) {
-    final abi = hostAbi ?? Abi.current();
-    if (!AdiLibraryFetcher.supportsAbi(abi)) {
-      throw XcrossError(
-        'Saved native Apple ID sessions support Linux and macOS x64/ARM64 '
-        'and Windows x64 (got $abi).',
-      );
-    }
-    final adiDir = session.adiLibraryDirectory;
-    if (adiDir == null || adiDir.isEmpty) {
-      throw XcrossError(
-        'Saved Apple ID session is missing adiLibraryDirectory. '
-        'Run xcross auth --apple-id <email> again.',
-      );
-    }
-    return (createProvider ?? AnisetteDataProvider.new)(adiDir);
-  }
 }

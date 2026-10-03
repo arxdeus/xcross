@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:cli_kit/cli_kit.dart';
+
+import 'package:cli_kit/cli_kit_shared.dart';
 
 /// Publishes a device TCP port on `127.0.0.1` so tools that cannot use the RSD
 /// tunnel address directly can still reach it.
@@ -12,7 +13,8 @@ import 'package:cli_kit/cli_kit.dart';
 /// survives none of that reliably. A loopback IPv4 port is what `flutter run`
 /// hands out, so it is the shape every downstream consumer already handles.
 class PortForwarder {
-  PortForwarder._(this._server, this._sockets);
+  PortForwarder._(this._server, this._sockets, this.log);
+  final Log log;
 
   final ServerSocket _server;
   final Set<Socket> _sockets;
@@ -23,12 +25,13 @@ class PortForwarder {
 
   /// Start forwarding `127.0.0.1:<localPort>` to [deviceHost]:[devicePort].
   static Future<PortForwarder> start({
+    required Log log,
     required String deviceHost,
     required int devicePort,
   }) async {
     // Port 0: let the OS pick, so two concurrent sessions never collide.
     final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-    final forwarder = PortForwarder._(server, <Socket>{});
+    final forwarder = PortForwarder._(server, <Socket>{}, log);
 
     server.listen(
       (client) => unawaited(
@@ -38,7 +41,7 @@ class PortForwarder {
           devicePort: devicePort,
         ),
       ),
-      onError: (Object e) => Log.logWarn('vm-service forward error: $e'),
+      onError: (Object e) => log.logWarn('vm-service forward error: $e'),
     );
 
     return forwarder;
@@ -67,7 +70,7 @@ class PortForwarder {
         devicePort,
       );
     } on Object catch (e) {
-      Log.logWarn('vm-service forward failed: $e');
+      log.logWarn('vm-service forward failed: $e');
       _sockets.remove(client);
       client.destroy();
       return;

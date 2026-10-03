@@ -1,6 +1,7 @@
 import 'dart:io';
 
-import 'package:path/path.dart' as p;
+import 'package:cli_kit/cli_kit_shared.dart'
+    show HostFileSystemInterface, HostPathsInterface;
 import 'package:propertylistserialization/propertylistserialization.dart';
 
 /// The entitlements a Compose build recorded in the app's `Info.plist`.
@@ -11,7 +12,11 @@ import 'package:propertylistserialization/propertylistserialization.dart';
 /// an `ASWebAuthenticationSession` callback for one of those domains is refused.
 /// The assembler writes the app target's own entitlements here so the signer can
 /// prefer them, without needing the Xcode project at signing time.
-abstract final class AppEntitlements {
+final class AppEntitlements {
+  const AppEntitlements({required this.fileSystem, required this.paths});
+  final HostFileSystemInterface fileSystem;
+  final HostPathsInterface paths;
+
   /// Private `Info.plist` key the Compose assembler writes the declared
   /// entitlements to. Not an iOS key; it exists only between assembly and
   /// signing.
@@ -27,8 +32,8 @@ abstract final class AppEntitlements {
   /// binary plist and on one without an `<?xml?>` declaration, neither of which
   /// is xcross's business to reject here: signing works off the profile, and
   /// these values only ever refine it.
-  static Map<String, Object?> of(String appPath) {
-    final plist = File(p.join(appPath, 'Info.plist'));
+  Map<String, Object?> of(String appPath) {
+    final plist = fileSystem.file(paths.context.join(appPath, 'Info.plist'));
     if (!plist.existsSync()) return const {};
     final String xml;
     try {

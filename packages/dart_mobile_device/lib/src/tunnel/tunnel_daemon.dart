@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:dart_mobile_device/src/constants.dart';
 import 'package:dart_mobile_device/src/errors.dart';
 import 'package:dart_mobile_device/src/host/shared/tunnel/tunnel_process_controller.dart';
@@ -19,13 +19,15 @@ class TunnelDaemon {
       p.join(pymd.runner.host.paths.temporaryRoot, 'xcross-tunneld.log');
 
   Future<void> ensureRunning() async {
-    if (await isReachable()) {
-      Log.logTrace('RSD tunnel daemon already running (reusing it)');
+    if (await isReachable(localHttp: pymd.localHttp)) {
+      pymd.runner.log.logTrace(
+        'RSD tunnel daemon already running (reusing it)',
+      );
       return;
     }
 
     await _ensureElevated();
-    final sudo = await pymd.runner.host.privileges.resolve();
+    final sudo = await pymd.privileges.resolve();
 
     // Cache sudo credentials interactively first, then start the long-lived
     // daemon with piped stdio (never inheritStdio — that steals `r`/`R`/`q`
@@ -47,7 +49,7 @@ class TunnelDaemon {
     // daemon looks healthy while every wireless tunnel silently dies.
     final tunneld = await pymd.tunneldInvocation();
     if (!tunneld.modernPython) {
-      Log.logWarn(
+      pymd.runner.log.logWarn(
         'no python >= 3.13 with pymobiledevice3 found — wireless (Wi-Fi) '
         'tunnels will likely fail on iOS 18.2+, which only speaks the TCP '
         'tunnel protocol that needs python 3.13. USB devices are '
@@ -62,14 +64,17 @@ class TunnelDaemon {
       'tcp',
     ], invocation: tunneld.invocation);
 
-    Log.logTrace(
+    pymd.runner.log.logTrace(
       '[pymobiledevice3] starting RSD tunnel daemon'
       '${sudo != null ? ' (needs root)' : ''}: ${argv.join(' ')}',
     );
 
     // The sudo prompt above must never be hidden behind the spinner, so the
     // step only covers the spawn + readiness poll.
-    await Log.logStep('Starting RSD tunnel daemon', () => _startDaemon(argv));
+    await pymd.runner.log.logStep(
+      'Starting RSD tunnel daemon',
+      () => _startDaemon(argv),
+    );
   }
 
   /// Demand the rights tunneld needs, as a [TunnelPrivilegeError].
@@ -80,7 +85,7 @@ class TunnelDaemon {
   /// fallback and only reaches it through [TunnelError].
   Future<void> _ensureElevated() async {
     try {
-      await pymd.runner.host.privileges.ensureElevated(
+      await pymd.privileges.ensureElevated(
         manualHint:
             'Start tunneld manually:\n'
             '    ${pymd.elevatedCommand('remote tunneld -p tcp')}',
@@ -110,7 +115,8 @@ class TunnelDaemon {
     final up = await ProcessRunner.pollUntil<bool>(
       timeout: const Duration(seconds: 40),
       interval: const Duration(seconds: 1),
-      attempt: () async => await isReachable() ? true : null,
+      attempt: () async =>
+          await isReachable(localHttp: pymd.localHttp) ? true : null,
     );
     if (up ?? false) return;
     await controller.stop();
@@ -131,16 +137,18 @@ class TunnelDaemon {
   void stop() {
     unawaited(
       controller.stop().catchError((Object error) {
-        Log.logTrace('could not stop owned tunnel process: $error');
+        pymd.runner.log.logTrace('could not stop owned tunnel process: $error');
       }),
     );
   }
 
   /// Whether the tunneld REST API answers. Pure HTTP — never prompts for sudo,
   /// so it is safe as a pre-flight check from stdio-sensitive callers (the DAP).
-  static Future<bool> isReachable() async {
+  static Future<bool> isReachable({
+    required LocalHttp<PlatformHostInterface> localHttp,
+  }) async {
     try {
-      final client = LocalHttp.client(
+      final client = localHttp.client(
         connectionTimeout: const Duration(seconds: 3),
       );
       try {

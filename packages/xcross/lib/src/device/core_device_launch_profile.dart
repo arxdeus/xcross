@@ -1,5 +1,6 @@
-import 'package:dart_mobile_device/dart_mobile_device.dart';
-import 'package:xcross/src/flutter/flutter.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart'
+    show TunnelConstants;
+import 'package:xcross/src/flutter/models/hot_reload_config.dart';
 
 final class CoreDeviceLaunchProfile {
   const CoreDeviceLaunchProfile.native({this.arguments = const []})

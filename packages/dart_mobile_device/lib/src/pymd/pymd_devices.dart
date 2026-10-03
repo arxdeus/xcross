@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/errors.dart';
 import 'package:dart_mobile_device/src/models/device.dart';
 import 'package:dart_mobile_device/src/pymd/pymd.dart';
@@ -68,7 +67,10 @@ final class PymdDevices {
   ///
   /// Best-effort: when tunneld is not running this is simply an empty list.
   Future<List<Device>> _tunneldDevices({required List<Device> known}) async {
-    final tunnels = await TunnelDiscovery.activeTunnels();
+    final tunnels = await TunnelDiscovery(
+      pymd.runner.log,
+      localHttp: pymd.localHttp,
+    ).activeTunnels();
     if (tunnels.isEmpty) return const [];
     final knownUdids = known.map((d) => normalizeUdid(d.udid)).toSet();
     final result = <Device>[];
@@ -107,7 +109,7 @@ final class PymdDevices {
         name = n;
       }
     } on Object catch (e) {
-      Log.logTrace('lockdown info --tunnel $udid failed: $e');
+      pymd.runner.log.logTrace('lockdown info --tunnel $udid failed: $e');
       // Transient (power save, mid-handshake kill): retry on a later poll
       // rather than caching the failure forever.
       return null;
@@ -188,7 +190,7 @@ final class PymdDevices {
       );
       return json is List && json.isNotEmpty;
     } on Object catch (e) {
-      Log.logTrace('bonjour remotepairing browse failed: $e');
+      pymd.runner.log.logTrace('bonjour remotepairing browse failed: $e');
       return false;
     }
   }
@@ -214,7 +216,7 @@ final class PymdDevices {
       args.addAll(overTunnel ? ['--tunnel', udid] : ['--udid', udid]);
     }
 
-    final step = Log.beginStep('Installing to device');
+    final step = pymd.runner.log.beginStep('Installing to device');
     try {
       await pymd.runner.runChecked(
         inv.executable,

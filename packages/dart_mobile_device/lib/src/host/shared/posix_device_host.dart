@@ -1,4 +1,4 @@
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:dart_mobile_device/src/shared/host/device_host_policy.dart';
 
 abstract base class PosixDeviceHost implements DeviceHostPolicy {
@@ -8,8 +8,11 @@ abstract base class PosixDeviceHost implements DeviceHostPolicy {
     final env = runner.effectiveEnvironment;
     final home = env['HOME'] ?? env['USERPROFILE'];
     return [
-      if (env['PIPX_BIN_DIR'] case final String configured when configured.isNotEmpty) configured,
-      if (home != null && home.isNotEmpty) runner.host.paths.context.join(home, '.local', 'bin'),
+      if (env['PIPX_BIN_DIR'] case final String configured
+          when configured.isNotEmpty)
+        configured,
+      if (home != null && home.isNotEmpty)
+        runner.host.paths.context.join(home, '.local', 'bin'),
     ];
   }
 

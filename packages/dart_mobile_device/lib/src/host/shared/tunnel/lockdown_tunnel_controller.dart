@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:cli_kit/cli_kit.dart';
+
 import 'package:dart_mobile_device/src/errors.dart';
 import 'package:dart_mobile_device/src/pymd/pymd.dart';
 import 'package:path/path.dart' as p;
@@ -23,7 +23,7 @@ final class LockdownTunnelController {
     final logFile = File(logPath);
     if (!logFile.existsSync()) logFile.createSync(recursive: true);
 
-    Log.logTrace(
+    pymd.runner.log.logTrace(
       '[pymobiledevice3] starting lockdown RSD tunnel'
       ' (background; log: $logPath): ${argv.join(' ')}',
     );
@@ -50,7 +50,7 @@ final class LockdownTunnelController {
     void onLine(String line) {
       final trimmed = line.trimRight();
       if (trimmed.isEmpty) return;
-      Log.logTrace(trimmed);
+      pymd.runner.log.logTrace(trimmed);
       recent.add(trimmed);
       if (recent.length > 5) recent.removeAt(0);
       if (!ready.isCompleted && _tunnelReadyPattern.hasMatch(trimmed)) {
@@ -91,7 +91,7 @@ final class LockdownTunnelController {
       rethrow;
     }
 
-    Log.logTrace(
+    pymd.runner.log.logTrace(
       '[pymobiledevice3] lockdown RSD tunnel is up '
       '(pid ${proc.pid}; leave it running)',
     );

@@ -1,30 +1,57 @@
 import 'dart:async';
-import 'dart:io';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:dds/dap.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/dap/dap_router.dart';
 import 'package:xcross/src/dap/internal/dap_router.dart';
 
+import '../device/test_log_output.dart';
+
 void main() {
-  tearDown(DapRouter.resetConfiguration);
+  final runner = ProcessRunner(MacOSHost(), log: testLog());
 
   test('configured Flutter environment wins with legacy fallbacks enabled', () {
-    DapRouter.configureFlutterResolution(
+    final router = DapRouter(
+      const Stream<List<int>>.empty(),
+      StreamController<List<int>>().sink,
+      (_) {},
+      runner: runner,
       environmentRoot: '/configured/environment/flutter',
-      declarative: false,
     );
 
     expect(
-      DapRouter.resolveFlutterExecutable(),
-      p.join(
-        '/configured/environment/flutter',
-        'bin',
-        Platform.isWindows ? 'flutter.bat' : 'flutter',
-      ),
+      router.resolveFlutterExecutable(),
+      p.join('/configured/environment/flutter', 'bin', 'flutter'),
     );
   });
+
+  test(
+    'host paths and immutable resolution stay isolated between sessions',
+    () {
+      final output = StreamController<List<int>>.broadcast();
+      addTearDown(output.close);
+      final windows = ProcessRunner(WindowsHost(), log: testLog());
+      final first = DapRouter(
+        const Stream<List<int>>.empty(),
+        output.sink,
+        (_) {},
+        runner: windows,
+        flutterRoot: r'C:\flutter',
+      );
+      final second = DapRouter(
+        const Stream<List<int>>.empty(),
+        output.sink,
+        (_) {},
+        runner: runner,
+        flutterRoot: '/other/flutter',
+      );
+      expect(first.resolveFlutterExecutable(), r'C:\flutter\bin\flutter.bat');
+      expect(second.resolveFlutterExecutable(), '/other/flutter/bin/flutter');
+      expect(first.resolveFlutterExecutable(), r'C:\flutter\bin\flutter.bat');
+    },
+  );
 
   test('DapFrameParser splits Content-Length frames across chunks', () {
     final parser = DapFrameParser();
@@ -106,6 +133,7 @@ void main() {
     ByteStreamServerChannel? started;
 
     final session = DapSession.run(
+      runner: runner,
       startXcross: (channel) {
         started = channel;
         // Don't run a real adapter — just close once launch is replayed.

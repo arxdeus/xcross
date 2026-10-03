@@ -1,14 +1,14 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:dart_mobile_device/src/errors.dart';
 import 'package:dart_mobile_device/src/host/shared/tunnel/lockdown_tunnel_controller.dart';
 import 'package:dart_mobile_device/src/models/device.dart';
 import 'package:dart_mobile_device/src/pymd/pymd.dart';
 import 'package:dart_mobile_device/src/pymd/pymd_devices.dart';
 import 'package:dart_mobile_device/src/pymd/remote_pairing.dart';
-import 'package:dart_mobile_device/src/shared/preparation/developer_disk_image.dart';
+import 'package:dart_mobile_device/src/target/iphone/preparation/developer_disk_image.dart';
 import 'package:dart_mobile_device/src/tunnel/tunnel_daemon.dart';
 import 'package:dart_mobile_device/src/tunnel/tunnel_discovery.dart';
 import 'package:meta/meta.dart';
@@ -58,11 +58,14 @@ final class DevicePrepare {
   /// a phone that is not there.
   Future<void> prepare() async {
     await _prepareSteps();
-    Log.logDone(
+    pymd.runner.log.logDone(
       'Device ready '
-      '${Log.dim('— DDI mounted, RSD tunnel up')}',
+      '${pymd.runner.log.dim('— DDI mounted, RSD tunnel up')}',
     );
-    Log.logInfo('Next', Log.dim('xcross flutter run -u <UDID>'));
+    pymd.runner.log.logInfo(
+      'Next',
+      pymd.runner.log.dim('xcross flutter run -u <UDID>'),
+    );
   }
 
   /// `xcross tunnel --wifi`: bring a wireless device up without a cable.
@@ -99,10 +102,13 @@ final class DevicePrepare {
     // tunneld must not prompt for sudo again.
     await TunnelDaemon(pymd).ensureRunning();
 
-    var tunnel = await TunnelDiscovery.findExistingTunnel();
+    var tunnel = await TunnelDiscovery(
+      pymd.runner.log,
+      localHttp: pymd.localHttp,
+    ).findExistingTunnel();
     if (tunnel == null &&
         bootstrapSequence.contains(WirelessBootstrapPath.savedPairing)) {
-      Log.logInfo(
+      pymd.runner.log.logInfo(
         'Wireless',
         'no USB device — reconnecting to ${savedPairings.length} saved '
             'wireless ${savedPairings.length == 1 ? 'device' : 'devices'}',
@@ -116,7 +122,7 @@ final class DevicePrepare {
           ? RemotePairing(pymd).freshAdvertiseName()
           : RemotePairing(pymd).advertiseName;
       if (fresh) {
-        Log.logWarn(
+        pymd.runner.log.logWarn(
           'saved wireless devices did not reconnect — starting fresh pairing',
         );
       }
@@ -124,19 +130,19 @@ final class DevicePrepare {
         pymd,
       ).startPairHost(onLine: _onPairHostLine, fresh: fresh, name: name);
       if (pairHost != null) {
-        Log.logInfo(
+        pymd.runner.log.logInfo(
           'Wireless',
           'to pair, on the iPhone (iOS 27+): Settings > Developer > Paired '
               'Macs > "Other Devices" > "$name" — the 6-digit code appears '
               'here when the phone connects',
         );
-        Log.logInfo(
+        pymd.runner.log.logInfo(
           'Wireless',
           'device-initiated pairing requires iOS 27+; on older iOS, connect '
               'the iPhone over USB once and rerun this command',
         );
         if (fresh) {
-          Log.logInfo(
+          pymd.runner.log.logInfo(
             'Wireless',
             'tap exactly "$name" under "Other Devices"; delete the older '
                 '"${RemotePairing(pymd).advertiseName}" entry because its saved '
@@ -163,11 +169,14 @@ final class DevicePrepare {
       throw TunnelError('No wireless device connected.\n$guidance');
     }
     await _diskImage.mountOverRsd(tunnel);
-    Log.logDone(
+    pymd.runner.log.logDone(
       'Device ready '
-      '${Log.dim('— DDI mounted, wireless RSD tunnel up')}',
+      '${pymd.runner.log.dim('— DDI mounted, wireless RSD tunnel up')}',
     );
-    Log.logInfo('Next', Log.dim('xcross flutter run --wifi'));
+    pymd.runner.log.logInfo(
+      'Next',
+      pymd.runner.log.dim('xcross flutter run --wifi'),
+    );
   }
 
   /// USB always wins. Without it, saved records get the first attempt and a
@@ -196,7 +205,9 @@ final class DevicePrepare {
       ).devices(mode: DeviceSearchMode.usb);
       return devices.isEmpty ? null : devices.first;
     } on TunnelError catch (e) {
-      Log.logTrace('USB probe before wireless pairing failed: ${e.message}');
+      pymd.runner.log.logTrace(
+        'USB probe before wireless pairing failed: ${e.message}',
+      );
       return null;
     }
   }
@@ -210,31 +221,38 @@ final class DevicePrepare {
   /// usbmuxd versions with `BadDevError`. Enabling Wi-Fi connections keeps the
   /// device discoverable after unplug.
   Future<void> _prepareWirelessOverUsb(Device device) async {
-    Log.logInfo(
+    pymd.runner.log.logInfo(
       'Wireless',
       '${device.name} found on USB — pairing wireless services over lockdown',
     );
-    await Log.logStep(
+    await pymd.runner.log.logStep(
       'Pairing wireless services over USB',
       () => pymd.run(lockdownRemotePairArgs(device.udid)),
     );
-    await Log.logStep(
+    await pymd.runner.log.logStep(
       'Enabling Wi-Fi connections',
       () => pymd.run(lockdownWifiArgs(device.udid)),
     );
 
     await TunnelDaemon(pymd).ensureRunning();
-    final tunnel = await TunnelDiscovery.discoverTunnel(
-      udid: device.udid,
-      timeout: _wirelessTunnelTimeout,
-      pollInterval: _pollInterval,
-    );
+    final tunnel =
+        await TunnelDiscovery(
+          pymd.runner.log,
+          localHttp: pymd.localHttp,
+        ).discoverTunnel(
+          udid: device.udid,
+          timeout: _wirelessTunnelTimeout,
+          pollInterval: _pollInterval,
+        );
     await _diskImage.mountOverRsd(tunnel);
-    Log.logDone(
+    pymd.runner.log.logDone(
       'Device ready '
-      '${Log.dim('— paired over USB, wireless RSD tunnel up')}',
+      '${pymd.runner.log.dim('— paired over USB, wireless RSD tunnel up')}',
     );
-    Log.logInfo('Next', Log.dim('unplug USB, then xcross flutter run --wifi'));
+    pymd.runner.log.logInfo(
+      'Next',
+      pymd.runner.log.dim('unplug USB, then xcross flutter run --wifi'),
+    );
   }
 
   /// Arguments kept explicit and testable because wireless tunneld requires
@@ -274,10 +292,10 @@ final class DevicePrepare {
       return;
     }
     if (line.contains('Pairing attempt from')) {
-      Log.logTrace('[pair-host] $line');
+      pymd.runner.log.logTrace('[pair-host] $line');
       if (!_warnedPairResumeFailure) {
         _warnedPairResumeFailure = true;
-        Log.logWarn(
+        pymd.runner.log.logWarn(
           'the iPhone tried to resume an old pairing with this host and '
           'failed. On the phone, delete "${RemotePairing(pymd).advertiseName}" '
           'under Settings > Developer > Paired Macs, then tap it under '
@@ -294,9 +312,9 @@ final class DevicePrepare {
       'Device connected',
     ];
     if (visible.any(line.contains)) {
-      Log.logStatus(line);
+      pymd.runner.log.logStatus(line);
     } else {
-      Log.logTrace('[pair-host] $line');
+      pymd.runner.log.logTrace('[pair-host] $line');
     }
   }
 
@@ -307,29 +325,33 @@ final class DevicePrepare {
     final rest = line.split(' ').skip(1).join(' ');
     switch (line.split(' ').first) {
       case 'XCROSS-PAIR-PIN':
-        Log.stopStep();
-        Log.logStatus('');
-        Log.logStatus(
+        pymd.runner.log.stopStep();
+        pymd.runner.log.logStatus('');
+        pymd.runner.log.logStatus(
           '  Enter this code on the iPhone: '
-          '${Log.ansi.bold}${Log.ansi.green}$rest${Log.ansi.none}',
+          '${pymd.runner.log.ansi.bold}${pymd.runner.log.ansi.green}$rest${pymd.runner.log.ansi.none}',
         );
-        Log.logStatus('');
+        pymd.runner.log.logStatus('');
       case 'XCROSS-PAIR-CONNECTED':
-        Log.logStatus('${Glyph.info} the iPhone connected — pairing…');
+        pymd.runner.log.logStatus(
+          '${pymd.runner.log.glyph.info} the iPhone connected — pairing…',
+        );
       case 'XCROSS-PAIR-RETRY':
-        Log.logTrace('[pair-host] attempt failed, still advertising: $rest');
+        pymd.runner.log.logTrace(
+          '[pair-host] attempt failed, still advertising: $rest',
+        );
       case 'XCROSS-PAIR-OK':
-        Log.logDone('Paired with $rest');
+        pymd.runner.log.logDone('Paired with $rest');
       case 'XCROSS-PAIR-FAIL':
-        Log.logTrace('[pair-host] failed: $rest');
+        pymd.runner.log.logTrace('[pair-host] failed: $rest');
       case 'XCROSS-PAIR-ADVERTISING':
-        Log.logTrace('[pair-host] advertising $rest');
+        pymd.runner.log.logTrace('[pair-host] advertising $rest');
       case 'XCROSS-PAIR-WAITING':
-        Log.logTrace('[pair-host] waiting ${rest}s');
+        pymd.runner.log.logTrace('[pair-host] waiting ${rest}s');
       case 'XCROSS-PAIR-RECORD':
-        Log.logTrace('[pair-host] record: $rest');
+        pymd.runner.log.logTrace('[pair-host] record: $rest');
       default:
-        Log.logTrace('[pair-host] $line');
+        pymd.runner.log.logTrace('[pair-host] $line');
     }
   }
 
@@ -347,7 +369,7 @@ final class DevicePrepare {
       );
     }
 
-    await pymd.runner.host.privileges.ensureElevated(
+    await pymd.privileges.ensureElevated(
       manualHint:
           'Start prepare steps manually:\n'
           '    ${pymd.elevatedCommand('mounter auto-mount')}\n'
@@ -372,8 +394,8 @@ final class DevicePrepare {
     final hasRecord = RemotePairing(pymd).pairingRecordIds().isNotEmpty;
     if (pairHost == null && !hasRecord) return null;
 
-    final step = Log.beginStep('Waiting for a wireless device');
-    final diagnostics = _WirelessWaitDiagnostics(
+    final step = pymd.runner.log.beginStep('Waiting for a wireless device');
+    final diagnostics = WirelessWaitDiagnostics(
       pymd: pymd,
       step: step,
       hasRecord: hasRecord,
@@ -393,7 +415,10 @@ final class DevicePrepare {
         );
         final deadline = DateTime.now().add(RemotePairing.pairHostTimeout);
         while (!exited && DateTime.now().isBefore(deadline)) {
-          final tunnel = await TunnelDiscovery.findExistingTunnel();
+          final tunnel = await TunnelDiscovery(
+            pymd.runner.log,
+            localHttp: pymd.localHttp,
+          ).findExistingTunnel();
           if (tunnel != null) {
             step.done();
             return tunnel;
@@ -410,7 +435,10 @@ final class DevicePrepare {
       // discovery cycle to find the phone and build the tunnel.
       final deadline = DateTime.now().add(_wirelessTunnelTimeout);
       while (DateTime.now().isBefore(deadline)) {
-        final tunnel = await TunnelDiscovery.findExistingTunnel();
+        final tunnel = await TunnelDiscovery(
+          pymd.runner.log,
+          localHttp: pymd.localHttp,
+        ).findExistingTunnel();
         if (tunnel != null) {
           step.done();
           return tunnel;
@@ -437,21 +465,28 @@ final class DevicePrepare {
   /// device and breaks IPv6 RSD connectivity (connect → WinError 10013).
   Future<void> _ensureLockdownTunnel() async {
     if (await _tunneldHasTunnel()) {
-      Log.logTrace(
+      pymd.runner.log.logTrace(
         'tunneld already has an RSD tunnel; skipping lockdown start-tunnel',
       );
       return;
     }
     if (await _lockdownTunnelLooksAlive()) {
-      Log.logTrace('lockdown start-tunnel already running');
+      pymd.runner.log.logTrace('lockdown start-tunnel already running');
       return;
     }
-    await Log.logStep('Starting lockdown RSD tunnel', _lockdown.start);
+    await pymd.runner.log.logStep(
+      'Starting lockdown RSD tunnel',
+      _lockdown.start,
+    );
   }
 
   /// True when the local tunneld REST API already lists at least one tunnel.
   Future<bool> _tunneldHasTunnel() async =>
-      await TunnelDiscovery.findExistingTunnel() != null;
+      await TunnelDiscovery(
+        pymd.runner.log,
+        localHttp: pymd.localHttp,
+      ).findExistingTunnel() !=
+      null;
 
   /// Spawn `lockdown start-tunnel` and wait for it to report an RSD tunnel.
   /// Turn the daemon's last output lines into an actionable hint.
@@ -488,8 +523,8 @@ final class DevicePrepare {
 /// browse for `_remotepairing._tcp` every ~20 s tells the first two apart,
 /// and the message updates once per state change — locked phones drop off
 /// mDNS entirely, which is by far the most common reason this wait hangs.
-final class _WirelessWaitDiagnostics {
-  _WirelessWaitDiagnostics({
+final class WirelessWaitDiagnostics {
+  WirelessWaitDiagnostics({
     required this.pymd,
     required this.step,
     required this.hasRecord,

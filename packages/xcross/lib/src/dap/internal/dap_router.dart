@@ -2,53 +2,44 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:dds/dap.dart';
-import 'package:path/path.dart' as p;
 import 'package:xcross/src/dap/dap_router.dart';
 
 /// Stubs the pre-launch DAP handshake, then replays the raw frames into the
 /// chosen adapter (xcross or Flutter's own `debug-adapter`) and drops its
 /// duplicate responses for already-acked seqs.
 final class DapRouter {
-  DapRouter(this._input, this._output, this._startXcross);
+  DapRouter(
+    this._input,
+    this._output,
+    this._startXcross, {
+    required this.runner,
+    this.flutterRoot,
+    this.environmentRoot,
+    this.flutterTool,
+    this.declarative = false,
+  });
 
-  static String? _flutterRootOverride;
-  static String? _flutterEnvironmentRoot;
-  static String? _flutterToolOverride;
-  static bool _declarative = false;
+  final ProcessRunner runner;
+  final String? flutterRoot;
+  final String? environmentRoot;
+  final String? flutterTool;
+  final bool declarative;
 
-  static void configureFlutterResolution({
-    required bool declarative,
-    String? root,
-    String? environmentRoot,
-    String? tool,
-  }) {
-    _flutterRootOverride = root;
-    _flutterEnvironmentRoot = environmentRoot;
-    _flutterToolOverride = tool;
-    _declarative = declarative;
-  }
-
-  static void configureFlutterRootOverride(String? root) {
-    _flutterRootOverride = root;
-  }
-
-  static void resetConfiguration() {
-    _flutterRootOverride = null;
-    _flutterEnvironmentRoot = null;
-    _flutterToolOverride = null;
-    _declarative = false;
-  }
-
-  static String? resolveFlutterExecutable({String? projectRoot}) {
+  String? resolveFlutterExecutable({String? projectRoot}) {
     var flutterRoot =
-        _flutterRootOverride ??
-        _flutterEnvironmentRoot ??
-        (_declarative ? null : Platform.environment['FLUTTER_ROOT']);
+        this.flutterRoot ??
+        environmentRoot ??
+        (declarative
+            ? null
+            : runner.environmentValue(
+                runner.effectiveEnvironment,
+                'FLUTTER_ROOT',
+              ));
     if (flutterRoot == null) {
-      final fvm = p.join(
-        projectRoot ?? Directory.current.path,
+      final fvm = runner.host.paths.context.join(
+        projectRoot ?? runner.host.paths.context.current,
         '.fvm',
         'flutter_sdk',
       );
@@ -57,11 +48,11 @@ final class DapRouter {
       }
     }
     return flutterRoot == null
-        ? _flutterToolOverride
-        : p.join(
+        ? flutterTool
+        : runner.host.paths.context.join(
             flutterRoot,
             'bin',
-            Platform.isWindows ? 'flutter.bat' : 'flutter',
+            runner.host.paths.executableName('flutter', extension: '.bat'),
           );
   }
 
@@ -208,7 +199,7 @@ final class DapRouter {
       await outbound.close();
       return false;
     }
-    final child = await ProcessRunner.start(flutter, const ['debug-adapter']);
+    final child = await runner.start(flutter, const ['debug-adapter']);
     child.stderr.listen(stderr.add, onError: (_) {});
     inbound.listen(
       child.stdin.add,

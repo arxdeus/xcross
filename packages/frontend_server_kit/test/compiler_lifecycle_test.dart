@@ -1,18 +1,21 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:frontend_server_kit/frontend_server_kit.dart';
 import 'package:test/test.dart';
 
+import 'test_log_output.dart';
+
 void main() {
   late Directory directory;
-  late _Factory factory;
+  late Factory factory;
   late FrontendServerSession session;
   late List<String> diagnostics;
 
   setUp(() {
     directory = Directory.systemTemp.createTempSync('compiler_lifecycle_');
-    factory = _Factory();
+    factory = Factory();
     diagnostics = [];
     session = FrontendServerSession(
       FrontendServerOptions(
@@ -75,6 +78,81 @@ void main() {
     },
   );
 
+  test(
+    'native adapter launches an owned child with its immutable environment',
+    () async {
+      final child = File('${directory.path}/child.dart');
+      child.writeAsStringSync(r"""
+import 'dart:convert';
+import 'dart:io';
+Future<void> main() async {
+  stderr.writeln('environment=${Platform.environment['COMPILER_TEST']}');
+  await for (final line in stdin.transform(utf8.decoder).transform(const LineSplitter())) {
+    if (line.startsWith('compile ')) {
+      stdout.writeln('result native');
+      stdout.writeln('native /native.dill 0');
+    }
+    if (line == 'quit') return;
+  }
+}
+""");
+      final runner = ProcessRunner(
+        MacOSHost(environment: Platform.environment),
+        configuration: ProcessConfiguration(
+          normalizedTools: const {},
+          effectiveChildEnvironment: {
+            ...Platform.environment,
+            'COMPILER_TEST': 'session-scope',
+          },
+        ),
+        log: testLog(),
+      );
+      final environmentSeen = Completer<String>();
+      session = FrontendServerSession(
+        FrontendServerOptions(
+          dart: Platform.resolvedExecutable,
+          frontendServer: child.path,
+          sdkRoot: '/sdk',
+          packageConfig: '${directory.path}/missing.json',
+          entrypoint: '${directory.path}/main.dart',
+          outputDill: '${directory.path}/native.dill',
+        ),
+        processFactory: HostCompilerProcessFactory(runner),
+        diagnostics: (line) {
+          if (line.startsWith('environment=')) environmentSeen.complete(line);
+        },
+      );
+      await session.spawn();
+      expect(await session.compile(), '/native.dill');
+      expect(
+        await environmentSeen.future.timeout(const Duration(seconds: 5)),
+        'environment=session-scope',
+      );
+      await session.close();
+    },
+  );
+
+  test(
+    'close during startup reaps the compiler and rejects concurrent spawn',
+    () async {
+      factory.startupGate = Completer<void>();
+      factory.entered = Completer<void>();
+      final starting = session.spawn();
+      await factory.entered!.future;
+      await expectLater(
+        session.spawn(),
+        throwsA(isA<FrontendServerException>()),
+      );
+      final closing = session.close();
+      factory.startupGate!.complete();
+      await Future.wait([starting, closing]);
+      expect(factory.transports, hasLength(1));
+      expect(factory.transports.single.closes, 1);
+      await session.spawn();
+      expect(factory.transports, hasLength(2));
+    },
+  );
+
   test('duplicate spawn does not launch an untracked compiler', () async {
     await session.spawn();
     await expectLater(session.spawn(), throwsA(isA<FrontendServerException>()));
@@ -82,8 +160,10 @@ void main() {
   });
 }
 
-final class _Factory implements CompilerProcessFactory {
-  final List<_Transport> transports = [];
+final class Factory implements CompilerProcessFactory {
+  final List<Transport> transports = [];
+  Completer<void>? startupGate;
+  Completer<void>? entered;
   String? executable;
   List<String>? arguments;
 
@@ -94,13 +174,15 @@ final class _Factory implements CompilerProcessFactory {
   ) async {
     this.executable = executable;
     this.arguments = List.of(arguments);
-    final transport = _Transport();
+    final transport = Transport();
     transports.add(transport);
+    if (entered case final signal? when !signal.isCompleted) signal.complete();
+    await startupGate?.future;
     return transport;
   }
 }
 
-final class _Transport implements CompilerTransport {
+final class Transport implements CompilerTransport {
   final lines = StreamController<String>();
   final errors = StreamController<String>();
   final commands = <String>[];

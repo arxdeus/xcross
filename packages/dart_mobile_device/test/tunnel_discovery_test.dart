@@ -6,6 +6,8 @@ import 'package:dart_mobile_device/src/errors.dart';
 import 'package:dart_mobile_device/src/tunnel/tunnel_discovery.dart';
 import 'package:test/test.dart';
 
+import 'test_log_output.dart';
+
 /// tunneld's fixed REST port (see TunnelConstants.tunneldUrl). The only way
 /// to exercise TunnelDiscovery's JSON parsing without touching production
 /// code is to bind exactly this port ourselves and answer as tunneld would.
@@ -16,7 +18,10 @@ void main() {
     // Nothing listens on the port in this test's own scope; if a real
     // tunneld runs on this machine the map may be non-empty, so only assert
     // the no-throw contract in that case.
-    await TunnelDiscovery.activeTunnels();
+    await TunnelDiscovery(
+      testLog(),
+      localHttp: testLocalHttp(),
+    ).activeTunnels();
   });
 
   group('discoverTunnel parses a real tunneld-shaped response', () {
@@ -67,7 +72,10 @@ void main() {
         }),
       );
 
-      final tunnels = await TunnelDiscovery.activeTunnels();
+      final tunnels = await TunnelDiscovery(
+        testLog(),
+        localHttp: testLocalHttp(),
+      ).activeTunnels();
       expect(tunnels, hasLength(1));
       final tunnel = tunnels['00008030-000664292232802E']!;
       expect(tunnel.address, 'fd7b:e5b:6f53::1');
@@ -84,11 +92,15 @@ void main() {
         }),
       );
 
-      final tunnel = await TunnelDiscovery.discoverTunnel(
-        udid: 'udidA',
-        timeout: const Duration(seconds: 3),
-        pollInterval: const Duration(milliseconds: 50),
-      );
+      final tunnel =
+          await TunnelDiscovery(
+            testLog(),
+            localHttp: testLocalHttp(),
+          ).discoverTunnel(
+            udid: 'udidA',
+            timeout: const Duration(seconds: 3),
+            pollInterval: const Duration(milliseconds: 50),
+          );
 
       expect(tunnel.address, 'fd00::1');
       expect(tunnel.port, 12345);
@@ -104,11 +116,15 @@ void main() {
         }),
       );
 
-      final tunnel = await TunnelDiscovery.discoverTunnel(
-        udid: 'udidB',
-        timeout: const Duration(seconds: 3),
-        pollInterval: const Duration(milliseconds: 50),
-      );
+      final tunnel =
+          await TunnelDiscovery(
+            testLog(),
+            localHttp: testLocalHttp(),
+          ).discoverTunnel(
+            udid: 'udidB',
+            timeout: const Duration(seconds: 3),
+            pollInterval: const Duration(milliseconds: 50),
+          );
 
       expect(tunnel.address, 'fd00::2');
       expect(tunnel.port, 54321);
@@ -135,7 +151,7 @@ void main() {
 
         final startedAt = DateTime.now();
         await expectLater(
-          TunnelDiscovery.discoverTunnel(
+          TunnelDiscovery(testLog(), localHttp: testLocalHttp()).discoverTunnel(
             udid: 'udidC',
             timeout: const Duration(seconds: 30),
             pollInterval: const Duration(milliseconds: 50),
@@ -171,11 +187,15 @@ void main() {
         }),
       );
 
-      final tunnel = await TunnelDiscovery.discoverTunnel(
-        udid: null,
-        timeout: const Duration(seconds: 3),
-        pollInterval: const Duration(milliseconds: 50),
-      );
+      final tunnel =
+          await TunnelDiscovery(
+            testLog(),
+            localHttp: testLocalHttp(),
+          ).discoverTunnel(
+            udid: null,
+            timeout: const Duration(seconds: 3),
+            pollInterval: const Duration(milliseconds: 50),
+          );
 
       expect(tunnel.address, 'fd00::3');
       expect(tunnel.port, 9999);
@@ -193,11 +213,12 @@ void main() {
     Object? caught;
     Object? result;
     try {
-      result = await TunnelDiscovery.discoverTunnel(
-        udid: null,
-        timeout: const Duration(milliseconds: 500),
-        pollInterval: const Duration(milliseconds: 80),
-      );
+      result = await TunnelDiscovery(testLog(), localHttp: testLocalHttp())
+          .discoverTunnel(
+            udid: null,
+            timeout: const Duration(milliseconds: 500),
+            pollInterval: const Duration(milliseconds: 80),
+          );
     } catch (e) {
       caught = e;
     }

@@ -3,17 +3,23 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart' show Pymd;
 import 'package:meta/meta.dart';
 
 @internal
 final class DeviceLog {
-  DeviceLog._(this._process, this._pid);
+  DeviceLog._(this._process, this._pid, this.logger, this._cleanup);
+  final Future<void> Function(Process)? _cleanup;
+  Future<void>? _closing;
+  final Log logger;
 
   /// A log with no attached process, for exercising the crash-reason buffer.
   @visibleForTesting
-  DeviceLog.forTesting() : _process = null, _pid = 0;
+  DeviceLog.forTesting({required this.logger})
+    : _process = null,
+      _pid = 0,
+      _cleanup = null;
 
   static const _cleanupTimeout = Duration(seconds: 2);
 
@@ -107,13 +113,14 @@ final class DeviceLog {
   /// [verbose] only decides whether lines are echoed live; the stream itself
   /// always runs so [crashReason] can explain a fatal stop.
   static Future<DeviceLog?> start({
+    required Pymd pymd,
     required int pid,
     String? udid,
     bool verbose = false,
   }) async {
     try {
-      final invocation = await Pymd.resolve();
-      final process = await ProcessRunner.start(invocation.executable, [
+      final invocation = await pymd.resolve();
+      final process = await pymd.runner.start(invocation.executable, [
         ...invocation.prefixArgs,
         'syslog',
         'live',
@@ -122,24 +129,31 @@ final class DeviceLog {
         '$pid',
         '--format',
         'json',
-      ], environment: processEnvironment(Pymd.usbmuxEnvironment()));
-      final log = DeviceLog._(process, pid).._listen(echo: verbose);
+      ], environment: processEnvironment(pymd.usbmuxEnvironment()));
+      final log = DeviceLog._(
+        process,
+        pid,
+        pymd.runner.log,
+        pymd.runner.killTree,
+      ).._listen(echo: verbose, output: pymd.console.writeln);
       unawaited(
         process.exitCode.then((code) {
           if (code != 0) {
-            Log.logTrace('device log stream exited with code $code');
+            pymd.runner.log.logTrace(
+              'device log stream exited with code $code',
+            );
           }
         }),
       );
-      Log.logTrace('device logs streaming for pid $pid');
+      pymd.runner.log.logTrace('device logs streaming for pid $pid');
       return log;
     } on Object catch (e) {
-      Log.logWarn('could not stream device logs: $e');
+      pymd.runner.log.logWarn('could not stream device logs: $e');
       return null;
     }
   }
 
-  void _listen({required bool echo}) {
+  void _listen({required bool echo, required void Function(String) output}) {
     final process = _process!;
     _stdout = process.stdout
         .transform(const Utf8Decoder(allowMalformed: true))
@@ -148,12 +162,12 @@ final class DeviceLog {
           final message = appLogMessage(line, _pid);
           if (message == null) return;
           _remember(message);
-          if (echo) stdout.writeln('[device] $message');
+          if (echo) output('[device] $message');
         });
     _stderr = process.stderr
         .transform(const Utf8Decoder(allowMalformed: true))
         .transform(const LineSplitter())
-        .listen((line) => Log.logTrace('device log: $line'));
+        .listen((line) => logger.logTrace('device log: $line'));
   }
 
   @visibleForTesting
@@ -166,16 +180,18 @@ final class DeviceLog {
     }
   }
 
-  Future<void> close() async {
+  Future<void> close() => _closing ??= _close();
+
+  Future<void> _close() async {
     final process = _process;
     if (process == null) return;
-    process.kill();
+    await _cleanup!(process);
     await _stdout?.cancel();
     await _stderr?.cancel();
     try {
       await process.exitCode.timeout(_cleanupTimeout);
     } on TimeoutException {
-      Log.logTrace('cleanup device-log timed out');
+      logger.logTrace('cleanup device-log timed out');
     }
   }
 }

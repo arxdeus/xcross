@@ -1,4 +1,4 @@
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:dart_mobile_device/src/shared/host/device_host_policy.dart';
 
 final class WindowsDeviceHost implements DeviceHostPolicy {

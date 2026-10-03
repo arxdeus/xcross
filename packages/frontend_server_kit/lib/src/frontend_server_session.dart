@@ -32,7 +32,19 @@ final class FrontendServerSession {
   // compile rounds; a plain `await for` would cancel it on early return.
   StreamQueue<String>? _queue;
 
-  Future<void> spawn() async {
+  Future<void>? _starting;
+  Future<void>? _closing;
+
+  Future<void> spawn() {
+    if (_process != null || _starting != null || _closing != null) {
+      return Future.error(
+        FrontendServerException('frontend_server already running'),
+      );
+    }
+    return _starting = _spawn().whenComplete(() => _starting = null);
+  }
+
+  Future<void> _spawn() async {
     _packageUris = await PackageUris.load(options.packageConfig);
 
     final args = _spawnArguments();
@@ -167,7 +179,11 @@ final class FrontendServerSession {
     return File(await _readResultBoundary()).readAsBytes();
   });
 
-  Future<void> close() async {
+  Future<void> close() =>
+      _closing ??= _close().whenComplete(() => _closing = null);
+
+  Future<void> _close() async {
+    await _starting;
     final process = _process;
     _process = null;
     await _diagnosticsSubscription?.cancel();

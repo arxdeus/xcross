@@ -1,6 +1,3 @@
-import 'dart:io';
-
-import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/errors.dart';
 import 'package:dart_mobile_device/src/models/device.dart';
 import 'package:dart_mobile_device/src/pymd/pymd.dart';
@@ -53,7 +50,7 @@ class PymdDeviceResolver {
     // Listing is not instant: the tunneld merge resolves device names over
     // the wireless tunnel (bounded, but up to ~15 s against a napping
     // phone), which reads as a dead hang without a spinner.
-    var list = await Log.logStep(
+    var list = await pymd.runner.log.logStep(
       'Finding devices',
       () => PymdDevices(pymd).devices(mode: mode),
     );
@@ -138,14 +135,14 @@ class PymdDeviceResolver {
       return;
     }
     if (!RemotePairing(pymd).shouldOfferPairing(selector)) return;
-    if (!stdout.hasTerminal) {
-      Log.logTrace(
+    if (!pymd.console.outputHasTerminal) {
+      pymd.runner.log.logTrace(
         'wireless bring-up: no pairing record and no terminal to run '
         'device-initiated pairing on — skipping pair-host',
       );
       return;
     }
-    Log.logInfo(
+    pymd.runner.log.logInfo(
       'Wireless',
       'no pairing with this host yet — starting device-initiated pairing',
     );
@@ -169,10 +166,10 @@ class PymdDeviceResolver {
     required String? selector,
     required List<Device> last,
   }) async {
-    if (_offeredPairHost || !stdout.hasTerminal) return last;
+    if (_offeredPairHost || !pymd.console.outputHasTerminal) return last;
     _offeredPairHost = true;
 
-    Log.logInfo(
+    pymd.runner.log.logInfo(
       'Wireless',
       'no device connected — its pairing with this host may have been '
           'removed on the phone. Starting device-initiated pairing.',
@@ -190,21 +187,21 @@ class PymdDeviceResolver {
     while (DateTime.now().isBefore(deadline)) {
       list = await PymdDevices(pymd).devices(mode: mode);
       if (_matches(list, selector).isNotEmpty) {
-        process.kill();
+        await pymd.runner.killTree(process);
         return list;
       }
       if (exited) break;
       await Future<void>.delayed(_pollInterval);
     }
     if (!exited) {
-      process.kill();
+      await pymd.runner.killTree(process);
       return list;
     }
     if (await exitFuture != 0) return list;
 
     // Paired: the record is fresh, so give tunneld one more full search to
     // notice the phone and build its tunnel.
-    final step = Log.beginStep('Searching for wireless devices');
+    final step = pymd.runner.log.beginStep('Searching for wireless devices');
     final searchDeadline = DateTime.now().add(wirelessDiscoveryTimeout);
     while (DateTime.now().isBefore(searchDeadline)) {
       list = await PymdDevices(pymd).devices(mode: mode);
@@ -236,7 +233,7 @@ class PymdDeviceResolver {
   /// USB monitor pairs RemotePairing and builds this session's tunnel, and
   /// the saved records let both wireless monitors reconnect cable-free.
   Future<void> _enableWifiConnectionsOverUsb(Device device) async {
-    Log.logInfo(
+    pymd.runner.log.logInfo(
       'Wireless',
       'phone found on USB — setting Wi-Fi connections up over the cable',
     );
@@ -253,11 +250,11 @@ class PymdDeviceResolver {
       // A trust prompt the user dismissed, a locked phone, a password-set
       // requirement: all leave wireless possibly working anyway (tunneld
       // pairs on its own), so warn and continue rather than abort.
-      Log.logWarn(
+      pymd.runner.log.logWarn(
         'could not enable Wi-Fi connections over USB — unlock the phone '
         'and tap Trust, then re-run if wireless discovery fails.',
       );
-      Log.logTrace(e.message);
+      pymd.runner.log.logTrace(e.message);
     }
   }
 
@@ -283,22 +280,25 @@ class PymdDeviceResolver {
       await daemon.ensureRunning();
     } on TunnelError catch (e) {
       _daemonFailure = e;
-      Log.logTrace('wireless bring-up: tunneld unavailable: $e');
+      pymd.runner.log.logTrace('wireless bring-up: tunneld unavailable: $e');
       return PymdDevices(pymd).devices(mode: mode);
     }
 
-    final activeTunnels = await TunnelDiscovery.activeTunnels();
+    final activeTunnels = await TunnelDiscovery(
+      pymd.runner.log,
+      localHttp: pymd.localHttp,
+    ).activeTunnels();
     if (activeTunnels.isEmpty) {
       final restarted = await daemon.restartStale();
       if (restarted) {
-        Log.logTrace(
+        pymd.runner.log.logTrace(
           'restarted the xcross-managed tunnel daemon after it lost all tunnels',
         );
       }
     }
 
     final tail = TunneldLogTail.start(path: TunnelDaemon(pymd).logPath);
-    var step = Log.beginStep('Searching for wireless devices');
+    var step = pymd.runner.log.beginStep('Searching for wireless devices');
     var list = <Device>[];
     var restartedForQuic = false;
     try {
@@ -316,7 +316,7 @@ class PymdDeviceResolver {
           // restartStale opens its own steps, so close this one first and
           // reopen (with a fresh discovery budget) after.
           step.fail();
-          Log.logWarn(
+          pymd.runner.log.logWarn(
             'tunneld is speaking QUIC to an iOS that removed it — '
             'restarting it with --protocol tcp',
           );
@@ -328,7 +328,7 @@ class PymdDeviceResolver {
               '    ${pymd.elevatedCommand('remote tunneld -p tcp')}',
             );
           }
-          step = Log.beginStep('Searching for wireless devices');
+          step = pymd.runner.log.beginStep('Searching for wireless devices');
           deadline = DateTime.now().add(wirelessDiscoveryTimeout);
         }
         await Future<void>.delayed(_pollInterval);
@@ -336,7 +336,7 @@ class PymdDeviceResolver {
       step.fail();
       final log = tail.seen.trim();
       if (log.isNotEmpty) {
-        Log.logTrace('tunneld output during the search:\n$log');
+        pymd.runner.log.logTrace('tunneld output during the search:\n$log');
       }
       return await _rescueWithPairHost(
         mode: mode,
@@ -412,31 +412,31 @@ class PymdDeviceResolver {
   /// Falls back to an [TunnelError] when stdin is not a TTY (e.g. CI, piped
   /// input) so scripts fail fast instead of hanging on a prompt.
   Device _pickDeviceInteractively(List<Device> list) {
-    if (!stdin.hasTerminal) {
+    if (!pymd.console.inputHasTerminal) {
       final names = list.map((d) => '  $d').join('\n');
       throw TunnelError(
         'Multiple devices connected; pass --udid to choose one:\n$names',
       );
     }
 
-    stdout.writeln('Multiple devices connected. Choose one:');
+    pymd.console.writeln('Multiple devices connected. Choose one:');
     for (var i = 0; i < list.length; i++) {
-      stdout.writeln('  [${i + 1}] ${list[i]}');
+      pymd.console.writeln('  [${i + 1}] ${list[i]}');
     }
 
     // Save stdin terminal modes before touching them. On some platforms
     // (Linux /dev/null, Windows without a conhost) reading echoMode / lineMode
     // throws; _tryGet swallows that and returns null so the finally block
     // skips the restore rather than throwing a second error.
-    final priorEcho = _tryGet(() => stdin.echoMode);
-    final priorLine = _tryGet(() => stdin.lineMode);
+    final priorEcho = _tryGet(() => pymd.console.echoMode);
+    final priorLine = _tryGet(() => pymd.console.lineMode);
     try {
-      _trySet(() => stdin.echoMode = true);
-      _trySet(() => stdin.lineMode = true);
+      _trySet(() => pymd.console.echoMode = true);
+      _trySet(() => pymd.console.lineMode = true);
 
       while (true) {
-        stdout.write('Choice (1-${list.length}): ');
-        final raw = stdin.readLineSync()?.trim();
+        pymd.console.write('Choice (1-${list.length}): ');
+        final raw = pymd.console.readLine()?.trim();
         if (raw == null) {
           throw TunnelError('No selection made (stdin closed).');
         }
@@ -444,13 +444,13 @@ class PymdDeviceResolver {
         if (n != null && n >= 1 && n <= list.length) {
           return list[n - 1];
         }
-        stdout.writeln(
+        pymd.console.writeln(
           'Invalid choice "$raw". Enter a number 1-${list.length}.',
         );
       }
     } finally {
-      if (priorEcho != null) _trySet(() => stdin.echoMode = priorEcho);
-      if (priorLine != null) _trySet(() => stdin.lineMode = priorLine);
+      if (priorEcho != null) _trySet(() => pymd.console.echoMode = priorEcho);
+      if (priorLine != null) _trySet(() => pymd.console.lineMode = priorLine);
     }
   }
 

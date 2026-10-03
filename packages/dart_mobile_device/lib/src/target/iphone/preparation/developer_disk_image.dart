@@ -1,4 +1,3 @@
-import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/errors.dart';
 import 'package:dart_mobile_device/src/models/tunnel.dart';
 import 'package:dart_mobile_device/src/pymd/pymd.dart';
@@ -8,7 +7,7 @@ final class DeveloperDiskImage {
   final Pymd pymd;
   final String Function(List<String>) describeFailure;
 
-  Future<void> mountOverRsd(Tunnel tunnel) => Log.logStep(
+  Future<void> mountOverRsd(Tunnel tunnel) => pymd.runner.log.logStep(
     'Mounting Developer Disk Image',
     () => pymd.run([
       'mounter',
@@ -21,14 +20,16 @@ final class DeveloperDiskImage {
 
   Future<void> mountUsb() async {
     final argv = await pymd.elevatedArgs(['mounter', 'auto-mount']);
-    Log.logTrace('[pymobiledevice3] mounting DDI: ${argv.join(' ')}');
-    await Log.logStep('Mounting Developer Disk Image', () async {
+    pymd.runner.log.logTrace(
+      '[pymobiledevice3] mounting DDI: ${argv.join(' ')}',
+    );
+    await pymd.runner.log.logStep('Mounting Developer Disk Image', () async {
       final result = await pymd.runner.run(
         argv.first,
         argv.sublist(1),
         environment: pymd.usbmuxEnvironment(),
       );
-      Log.logTrace(result.stdout.trim());
+      pymd.runner.log.logTrace(result.stdout.trim());
       final stderr = result.stderr.trim();
       if (result.exitCode != 0 ||
           (stderr.contains('Device is not connected') ||

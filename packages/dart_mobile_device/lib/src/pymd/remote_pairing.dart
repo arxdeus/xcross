@@ -4,7 +4,6 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:math';
 
-import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/pymd/pymd.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
@@ -150,10 +149,12 @@ final class RemotePairing {
         if (onLine != null) _pipeLines(process, onLine);
         return process;
       }
-      Log.logTrace('fresh pair-host runner unavailable; using the plain CLI');
+      pymd.runner.log.logTrace(
+        'fresh pair-host runner unavailable; using the plain CLI',
+      );
     }
     if (!await _supportsPairHost()) {
-      Log.logWarn(
+      pymd.runner.log.logWarn(
         'this pymobiledevice3 has no `remote pair-host` command — update it '
         '(e.g. `pipx upgrade pymobiledevice3`) to pair from the phone, or '
         'pair over USB instead.',
@@ -162,7 +163,7 @@ final class RemotePairing {
     }
 
     if (onLine == null) {
-      Log.logWarn(
+      pymd.runner.log.logWarn(
         'Device-initiated pairing requires iOS 27 or later. On older iOS, '
         'plug the phone in over USB once and re-run with --wifi, or run '
         '`pymobiledevice3 remote pair`.\n'
@@ -171,7 +172,7 @@ final class RemotePairing {
       );
       // The subprocess owns the terminal: it prints the pairing steps, the
       // PIN, and a waiting heartbeat. Any spinner would corrupt that.
-      Log.stopStep();
+      pymd.runner.log.stopStep();
     }
     try {
       final process = await pymd.runner.start(
@@ -198,7 +199,9 @@ final class RemotePairing {
       }
       return process;
     } on Object catch (e) {
-      Log.logWarn('could not start `pymobiledevice3 remote pair-host`: $e');
+      pymd.runner.log.logWarn(
+        'could not start `pymobiledevice3 remote pair-host`: $e',
+      );
       return null;
     }
   }
@@ -237,7 +240,9 @@ final class RemotePairing {
         environment: {...pymd.usbmuxEnvironment(), 'PYTHONUNBUFFERED': '1'},
       );
     } on Object catch (e) {
-      Log.logTrace('could not start the fresh pair-host runner: $e');
+      pymd.runner.log.logTrace(
+        'could not start the fresh pair-host runner: $e',
+      );
       return null;
     }
   }

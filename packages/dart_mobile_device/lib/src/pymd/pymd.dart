@@ -2,8 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:dart_mobile_device/src/errors.dart';
+import 'package:dart_mobile_device/src/shared/console/device_console.dart';
 import 'package:dart_mobile_device/src/shared/host/device_host_policy.dart';
 import 'package:path/path.dart' as p;
 
@@ -34,6 +35,9 @@ final class Pymd {
   Pymd(
     this.runner, {
     required this.hostPolicy,
+    required this.privileges,
+    required this.console,
+    required this.localHttp,
     this.hostname = 'xcross',
     this.executable = '',
     this.pairingHome,
@@ -43,6 +47,9 @@ final class Pymd {
   final String executable;
   final String? pairingHome;
   final DeviceHostPolicy hostPolicy;
+  final HostPrivilegesInterface privileges;
+  final DeviceConsole console;
+  final LocalHttp<PlatformHostInterface> localHttp;
 
   /// Coerce an `int` or parseable `String` port value into `int?`.
   static int? asPort(Object? value) => switch (value) {
@@ -170,17 +177,17 @@ final class Pymd {
   Future<bool> ensureInstalled() async {
     if (await _isInstalled()) return true;
 
-    final step = Log.beginStep('Installing pymobiledevice3 (one-time)');
+    final step = runner.log.beginStep('Installing pymobiledevice3 (one-time)');
 
     final py = await _resolvePython();
     if (py == null) {
       step.fail();
-      Log.logError('no Python 3 found. Install Python 3 first.');
+      runner.log.logError('no Python 3 found. Install Python 3 first.');
       return false;
     }
 
     for (final attempt in await _buildInstallAttempts(py)) {
-      Log.logTrace('[python] running: ${attempt.join(' ')}');
+      runner.log.logTrace('[python] running: ${attempt.join(' ')}');
       final result = await runner.run(attempt[0], attempt.sublist(1));
       if (result.exitCode == 0) {
         _cached = null;
@@ -192,7 +199,7 @@ final class Pymd {
     }
 
     step.fail();
-    Log.logError(
+    runner.log.logError(
       'failed to install pymobiledevice3. Install it manually:\n'
       '    $_installCommand',
     );
@@ -214,7 +221,7 @@ final class Pymd {
   /// `--break-system-packages`, then without, then the `--user` variants
   /// (which need no sudo).
   Future<List<List<String>>> _buildInstallAttempts(String py) async {
-    final sudo = await runner.host.privileges.resolve();
+    final sudo = await privileges.resolve();
     final pipx = await hostPolicy.resolvePipx();
     const pipInstall = ['-m', 'pip', 'install'];
     const upgradeTarget = ['-U', 'pymobiledevice3'];
@@ -375,7 +382,7 @@ final class Pymd {
     final inv = await resolve();
     final executable = inv.executable;
     final arguments = [...inv.prefixArgs, ...args];
-    Log.logTrace(
+    runner.log.logTrace(
       '[pymobiledevice3] running: '
       '${ProcessRunner.commandLine(executable, arguments)}',
     );
@@ -417,13 +424,7 @@ final class Pymd {
     try {
       exitCode = await process.exitCode.timeout(timeout);
     } on TimeoutException {
-      process.kill();
-      // SIGTERM may be ignored mid-handshake; escalate shortly after.
-      unawaited(
-        Future<void>.delayed(const Duration(seconds: 2)).then((_) {
-          process.kill(ProcessSignal.sigkill);
-        }),
-      );
+      await runner.killTree(process);
       throw TunnelError(
         'pymobiledevice3 ${arguments.join(' ')} timed out after '
         '${timeout.inSeconds}s',
@@ -458,7 +459,7 @@ final class Pymd {
     PymdInvocation? invocation,
   }) async {
     final inv = invocation ?? await resolve();
-    final sudo = await runner.host.privileges.resolve();
+    final sudo = await privileges.resolve();
     final usbmux = resolvedUsbmuxAddress();
     return <String>[
       if (sudo != null) ...[sudo, '-n'],

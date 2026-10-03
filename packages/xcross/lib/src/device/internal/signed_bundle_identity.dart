@@ -1,4 +1,4 @@
-import 'package:apple_developer_kit/apple_developer_kit.dart';
+import 'package:apple_developer_kit/apple_developer_kit_shared.dart';
 import 'package:xcross/src/errors.dart';
 
 /// The one bundle identity used from provisioning through device launch.

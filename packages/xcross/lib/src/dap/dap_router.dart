@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:dds/dap.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/dap/internal/dap_router.dart';
@@ -23,10 +24,24 @@ final class DapMessage {
 abstract final class DapSession {
   static Future<void> run({
     required void Function(ByteStreamServerChannel channel) startXcross,
+    required ProcessRunner runner,
+    String? flutterRoot,
+    String? environmentRoot,
+    String? flutterTool,
+    bool declarative = false,
     Stream<List<int>>? input,
     StreamSink<List<int>>? output,
   }) {
-    return DapRouter(input ?? stdin, output ?? stdout, startXcross).run();
+    return DapRouter(
+      input ?? stdin,
+      output ?? stdout,
+      startXcross,
+      runner: runner,
+      flutterRoot: flutterRoot,
+      environmentRoot: environmentRoot,
+      flutterTool: flutterTool,
+      declarative: declarative,
+    ).run();
   }
 }
 

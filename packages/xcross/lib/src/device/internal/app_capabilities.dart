@@ -1,6 +1,5 @@
-import 'dart:io';
-
-import 'package:path/path.dart' as p;
+import 'package:cli_kit/cli_kit_shared.dart'
+    show HostFileSystemInterface, HostPathsInterface;
 
 /// Capability types a Compose build recorded in the app's `Info.plist`.
 ///
@@ -14,14 +13,18 @@ import 'package:path/path.dart' as p;
 /// enabled before it is issued: an entitlement that no profile backs is inert,
 /// and the ceremony that needs it fails at runtime with nothing in the build log
 /// to explain it.
-abstract final class AppCapabilities {
+final class AppCapabilities {
+  const AppCapabilities({required this.fileSystem, required this.paths});
+  final HostFileSystemInterface fileSystem;
+  final HostPathsInterface paths;
+
   /// Private `Info.plist` key the Compose assembler writes the capability types
   /// to. Not a real iOS key; it exists only between assembly and signing.
   static const infoPlistKey = 'XCrossCapabilities';
 
   /// The capability types recorded for the `.app` at [appPath].
-  static List<String> of(String appPath) {
-    final plist = File(p.join(appPath, 'Info.plist'));
+  List<String> of(String appPath) {
+    final plist = fileSystem.file(paths.context.join(appPath, 'Info.plist'));
     if (!plist.existsSync()) return const [];
 
     final array = RegExp(

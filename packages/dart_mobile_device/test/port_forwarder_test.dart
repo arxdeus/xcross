@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:dart_mobile_device/src/tunnel/port_forwarder.dart';
 import 'package:test/test.dart';
 
+import 'test_log_output.dart';
+
 void main() {
   group('PortForwarder', () {
     late ServerSocket device;
@@ -24,6 +26,7 @@ void main() {
 
     test('carries bytes in both directions', () async {
       final forwarder = await PortForwarder.start(
+        log: testLog(),
         deviceHost: device.address.address,
         devicePort: device.port,
       );
@@ -50,6 +53,7 @@ void main() {
 
     test('publishes a loopback port, never the device address', () async {
       final forwarder = await PortForwarder.start(
+        log: testLog(),
         deviceHost: device.address.address,
         devicePort: device.port,
       );
@@ -66,6 +70,7 @@ void main() {
 
     test('close stops accepting so the process can exit', () async {
       final forwarder = await PortForwarder.start(
+        log: testLog(),
         deviceHost: device.address.address,
         devicePort: device.port,
       );
@@ -93,6 +98,7 @@ void main() {
         await dead.close();
 
         final forwarder = await PortForwarder.start(
+          log: testLog(),
           deviceHost: InternetAddress.loopbackIPv4.address,
           devicePort: deadPort,
         );

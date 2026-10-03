@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:dart_mobile_device/src/errors.dart';
 
 /// GDB-remote packet type.
@@ -132,7 +132,8 @@ final class GdbReplyPacket {
 /// Minimal GDB-remote client over raw TCP: attach, resume, drain stdout
 /// (`O` packets), and detect process exit (`W`/`X`).
 final class GdbRemoteClient {
-  GdbRemoteClient({required this.host, required this.port});
+  GdbRemoteClient({required this.log, required this.host, required this.port});
+  final Log log;
 
   final String host;
   final int port;
@@ -183,7 +184,7 @@ final class GdbRemoteClient {
     try {
       await _exchange(payload, timeout: const Duration(seconds: 2));
     } on TunnelError {
-      Log.logTrace('debugproxy: $payload not supported, continuing');
+      log.logTrace('debugproxy: $payload not supported, continuing');
     }
   }
 
@@ -204,7 +205,7 @@ final class GdbRemoteClient {
     try {
       await _sendFramed('k').timeout(const Duration(milliseconds: 500));
     } on Object catch (e) {
-      Log.logTrace('debugproxy: kill send failed: $e');
+      log.logTrace('debugproxy: kill send failed: $e');
     }
   }
 

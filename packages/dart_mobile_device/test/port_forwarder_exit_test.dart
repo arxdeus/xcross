@@ -29,13 +29,14 @@ void main() {
     await script.writeAsString('''
 import 'dart:io';
 import 'package:dart_mobile_device/src/tunnel/port_forwarder.dart';
+import 'package:cli_kit/cli_kit.dart';
 
 Future<void> main() async {
   // Stands in for the VM Service on the phone.
   final device = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
   device.listen((s) => s.listen(s.add, onDone: s.close));
 
-  final forwarder = await PortForwarder.start(
+  final forwarder = await PortForwarder.start(log: Log(output: StreamLogOutput(stdout: stdout, stderr: stderr, supportsAnsi: false, terminalColumns: () => 80)), 
     deviceHost: device.address.address,
     devicePort: device.port,
   );

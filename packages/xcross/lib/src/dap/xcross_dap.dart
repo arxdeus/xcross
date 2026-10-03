@@ -2,15 +2,15 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart' show TunnelDaemon;
 import 'package:dds/dap.dart';
 import 'package:frontend_server_kit/frontend_server_kit.dart';
-import 'package:path/path.dart' as p;
 import 'package:pure/pure.dart';
 import 'package:vm_service/vm_service.dart' as vm;
 import 'package:xcross/src/constants.dart';
 import 'package:xcross/src/package_config_resolver.dart';
+import 'package:xcross/src/shared/dap/dap_child_controller.dart';
 
 /// Spawns `xcross flutter run` and drives it: keypresses on its stdin for
 /// hot reload/restart/quit, plus a Dart VM Service connection (via
@@ -21,17 +21,18 @@ final class XcrossDap
           DartLaunchRequestArguments,
           DartAttachRequestArguments
         > {
-  XcrossDap(ByteStreamServerChannel channel) : super(channel) {
+  XcrossDap(
+    ByteStreamServerChannel channel, {
+    required this.runner,
+    required this.localHttp,
+    required this.launcher,
+  }) : super(channel) {
     channel.closed.then((_) => _quitChild());
   }
 
-  static String? _launcherOverride;
-
-  static void configureLauncherOverride(String? launcher) {
-    _launcherOverride = launcher;
-  }
-
-  static void resetLauncherOverride() => _launcherOverride = null;
+  final ProcessRunner runner;
+  final LocalHttp<PlatformHostInterface> localHttp;
+  final String launcher;
 
   @override
   final parseLaunchArgs = DartLaunchRequestArguments.fromJson;
@@ -44,7 +45,9 @@ final class XcrossDap
   @override
   bool get terminateOnVmServiceClose => false;
 
-  Process? _child;
+  late final DapChildController _childController = DapChildController(
+    cleanup: runner.killTree,
+  );
   String _pendingLine = '';
   bool _vmServiceReported = false;
   PackageUris? _packageUris;
@@ -70,12 +73,12 @@ final class XcrossDap
   @override
   Future<void> launchAndRespond(void Function() sendResponse) async {
     final launchArgs = args as DartLaunchRequestArguments;
-    final cwd = launchArgs.cwd ?? Directory.current.path;
+    final cwd = launchArgs.cwd ?? runner.host.paths.context.current;
     await _prepareUriMappings(cwd);
     await _warnIfTunnelUnreachable();
 
     final child = await _startRun(launchArgs, cwd);
-    _child = child;
+    await _childController.attach(child);
     _pipeChildOutput(child);
     unawaited(
       child.exitCode.then((code) {
@@ -97,10 +100,9 @@ final class XcrossDap
   }
 
   Future<void> _warnIfTunnelUnreachable() async {
-    final reachable = await TunnelDaemon.isReachable().timeout(
-      const Duration(seconds: 5),
-      onTimeout: nullaryFalse,
-    );
+    final reachable = await TunnelDaemon.isReachable(
+      localHttp: localHttp,
+    ).timeout(const Duration(seconds: 5), onTimeout: nullaryFalse);
     if (reachable) return;
     sendOutput(
       'stderr',
@@ -113,11 +115,11 @@ final class XcrossDap
 
   Future<Process> _startRun(DartLaunchRequestArguments launchArgs, String cwd) {
     final program = launchArgs.program;
-    final target = p.isAbsolute(program)
-        ? p.relative(program, from: cwd)
+    final target = runner.host.paths.context.isAbsolute(program)
+        ? runner.host.paths.context.relative(program, from: cwd)
         : program;
-    return ProcessRunner.start(
-      _launcherOverride ?? Platform.resolvedExecutable,
+    return runner.start(
+      launcher,
       ['flutter', 'run', '--target', target, ...?launchArgs.args],
       workingDirectory: cwd,
       environment: const {'XCROSS_DAP': '1'},
@@ -193,10 +195,7 @@ final class XcrossDap
     sendResponse();
   }
 
-  Future<void> _quitChild() async {
-    _writeKey('q');
-    await _reapChild();
-  }
+  Future<void> _quitChild() => _childController.close();
 
   @override
   Future<void> disconnectImpl() => _quitChild();
@@ -204,22 +203,5 @@ final class XcrossDap
   @override
   Future<void> terminateImpl() => _quitChild();
 
-  Future<void> _reapChild() async {
-    final child = _child;
-    if (child == null) return;
-    _child = null;
-    if (await _exited(child, const Duration(seconds: 5))) return;
-    child.kill();
-    if (await _exited(child, const Duration(seconds: 2))) return;
-    child.kill(ProcessSignal.sigkill);
-  }
-
-  Future<bool> _exited(Process child, Duration within) =>
-      child.exitCode.then(unaryTrue).timeout(within, onTimeout: nullaryFalse);
-
-  void _writeKey(String key) {
-    try {
-      _child?.stdin.add(utf8.encode(key));
-    } on Object catch (_) {}
-  }
+  void _writeKey(String key) => _childController.writeKey(key);
 }

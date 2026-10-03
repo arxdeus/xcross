@@ -2,6 +2,8 @@ import 'package:test/test.dart';
 import 'package:xcross/src/device/core_device_launcher.dart';
 import 'package:xcross/src/device/device_log.dart';
 
+import 'test_log_output.dart';
+
 void main() {
   test('background launch failure tells the user to unlock the device', () {
     expect(
@@ -60,6 +62,7 @@ void main() {
 
   String pick(List<String> installed, String requested) =>
       CoreDeviceLauncher.pickInstalledBundleId(
+        log: testLog(),
         installed: installed,
         requested: requested,
       );

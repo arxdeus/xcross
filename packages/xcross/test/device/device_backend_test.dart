@@ -3,12 +3,19 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:apple_developer_kit/apple_developer_kit.dart';
+import 'package:cli_kit/cli_kit.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/device/device_backend.dart';
 import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/target/iphone/device/signing_http_client_factory.dart';
+import 'package:xcross/src/target/iphone/device/signing_session_resolver.dart';
+
+import 'test_log_output.dart';
 
 void main() {
+  final runner = ProcessRunner(MacOSHost(), log: testLog());
   group('saved Apple ID session provider', () {
     final directory = p.join(Directory.systemTemp.absolute.path, 'adi-fixture');
 
@@ -20,9 +27,9 @@ void main() {
       Abi.windowsX64,
     ]) {
       test('uses the saved ADI directory on $abi without IO', () {
-        final provider = _NoIoAnisetteProvider();
+        final provider = NoIoAnisetteProvider();
         final directories = <String>[];
-        final resolved = NativeBackend.anisetteForSession(
+        final resolved = SigningSessionResolver.anisetteForSession(
           _session(directory),
           hostAbi: abi,
           createProvider: (path) {
@@ -36,7 +43,7 @@ void main() {
 
       test('preserves the missing-directory error on $abi', () {
         expect(
-          () => NativeBackend.anisetteForSession(
+          () => SigningSessionResolver.anisetteForSession(
             _session(null),
             hostAbi: abi,
             createProvider: (_) => fail('Must reject before creating provider'),
@@ -61,7 +68,7 @@ void main() {
       for (final path in [directory, null]) {
         test('preflights unsupported $abi with directory $path', () {
           expect(
-            () => NativeBackend.anisetteForSession(
+            () => SigningSessionResolver.anisetteForSession(
               _session(path),
               hostAbi: abi,
               createProvider: (_) =>
@@ -80,13 +87,14 @@ void main() {
       }
     }
 
-    test('uses the running ABI when no override is supplied', () {
-      final provider = _NoIoAnisetteProvider();
-      AnisetteProvider resolve() => NativeBackend.anisetteForSession(
+    test('uses explicitly supplied ABI', () {
+      final provider = NoIoAnisetteProvider();
+      AnisetteProvider resolve() => SigningSessionResolver.anisetteForSession(
         _session(directory),
+        hostAbi: Abi.macosArm64,
         createProvider: (_) => provider,
       );
-      if (AdiLibraryFetcher.supportsAbi(Abi.current())) {
+      if (AdiLibraryFetcher.supportsAbi(Abi.macosArm64)) {
         expect(resolve(), same(provider));
       } else {
         expect(resolve, throwsA(isA<XcrossError>()));
@@ -95,7 +103,27 @@ void main() {
   });
 
   test('always resolves the native backend', () async {
-    expect(await DeviceBackend.resolve(), isA<NativeBackend>());
+    expect(
+      await DeviceBackend.resolve(
+        Pymd(
+          console: TestDeviceConsole(),
+          localHttp: testLocalHttp(),
+          runner,
+          privileges: PosixPrivileges(runner),
+          hostPolicy: MacOSDeviceHost(runner),
+        ),
+        hostServices: createMacOSAppleHostServices(
+          runner.host as MacOSHostInterface,
+          runner: runner,
+          localeName: 'en_US',
+          abi: Abi.macosArm64,
+        ),
+        httpClients: const HttpSigningClientFactory(),
+        createNativeLibraryLoader: () =>
+            throw StateError('no native loading in test'),
+      ),
+      isA<NativeBackend>(),
+    );
   });
 
   test('rejects non-app inputs before provisioning mutates Apple state', () {
@@ -127,7 +155,7 @@ GrandSlamSession _session(String? directory) => GrandSlamSession(
   adiLibraryDirectory: directory,
 );
 
-final class _NoIoAnisetteProvider implements AnisetteProvider {
+final class NoIoAnisetteProvider implements AnisetteProvider {
   @override
   Future<Map<String, String>> fetchAnisetteHeaders() =>
       throw StateError('Provider construction must not fetch headers');

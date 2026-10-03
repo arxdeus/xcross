@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/pymd/pymd.dart';
 
 /// Groups device OS version detection.
@@ -36,7 +35,7 @@ final class OsVersion {
       ], timeout: const Duration(seconds: 30));
       final stdout = result.stdout.trim();
       if (stdout.isEmpty) {
-        Log.logWarn(
+        pymd.runner.log.logWarn(
           'pymobiledevice3 lockdown info returned empty stdout '
           '(exit ${result.exitCode}); trying ideviceinfo…',
         );
@@ -47,7 +46,7 @@ final class OsVersion {
       }
       return null;
     } catch (e) {
-      Log.logWarn(
+      pymd.runner.log.logWarn(
         'Could not determine device OS version via pymobiledevice3: $e',
       );
       return null;
@@ -64,12 +63,14 @@ final class OsVersion {
         final msg = result.stderr.trim().isNotEmpty
             ? result.stderr.trim()
             : result.stdout;
-        Log.logWarn('ideviceinfo ProductVersion failed: $msg');
+        pymd.runner.log.logWarn('ideviceinfo ProductVersion failed: $msg');
         return null;
       }
       return _majorFromVersionString(result.stdout.trim());
     } catch (e) {
-      Log.logWarn('Could not determine device OS version via ideviceinfo: $e');
+      pymd.runner.log.logWarn(
+        'Could not determine device OS version via ideviceinfo: $e',
+      );
       return null;
     }
   }

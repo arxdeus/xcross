@@ -1,4 +1,3 @@
-import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/src/constants.dart';
 import 'package:dart_mobile_device/src/device_prepare.dart';
 import 'package:dart_mobile_device/src/errors.dart';
@@ -50,7 +49,7 @@ final class DeviceTransportResolver {
           // The reason belongs on screen, not behind --verbose: the userspace
           // tunnel cannot always carry hot reload, and a user who never sees
           // why is left with an app that runs and keys that do nothing.
-          Log.logWarn(
+          pymd.runner.log.logWarn(
             error is TunnelPrivilegeError
                 ? 'no Administrator rights for the kernel RSD tunnel — '
                       'continuing over the userspace tunnel '
@@ -61,7 +60,7 @@ final class DeviceTransportResolver {
                       'tunnel (usbmux + loopback):\n'
                       '${_firstLine(error.message)}',
           );
-          Log.logTrace(error.message);
+          pymd.runner.log.logTrace(error.message);
           return UserspaceTunnelTransport(pymd: pymd, udid: udid);
         }
     }
@@ -92,7 +91,9 @@ final class DeviceTransportResolver {
         discoveryTimeout: discoveryTimeout,
         allowTunnelRepair: allowTunnelRepair,
       );
-      Log.logTrace('connecting to RSD at ${tunnel.address}:${tunnel.port}');
+      pymd.runner.log.logTrace(
+        'connecting to RSD at ${tunnel.address}:${tunnel.port}',
+      );
       final debugproxyPort = await _debugproxyPortWithMountRepair(
         tunnel,
         allowTunnelRepair: allowTunnelRepair,
@@ -125,9 +126,11 @@ final class DeviceTransportResolver {
       if (!allowTunnelRepair || !_deviceIsMissingDebugproxy(error.message)) {
         rethrow;
       }
-      Log.logTrace('debugproxy missing — mounting the DDI over the RSD tunnel');
+      pymd.runner.log.logTrace(
+        'debugproxy missing — mounting the DDI over the RSD tunnel',
+      );
       try {
-        await Log.logStep(
+        await pymd.runner.log.logStep(
           'Mounting Developer Disk Image',
           () => pymd.run([
             'mounter',
@@ -138,7 +141,9 @@ final class DeviceTransportResolver {
           ], timeout: const Duration(seconds: 30)),
         );
       } on Object catch (mountFailure) {
-        Log.logTrace('tunnel-routed auto-mount failed: $mountFailure');
+        pymd.runner.log.logTrace(
+          'tunnel-routed auto-mount failed: $mountFailure',
+        );
         throw error;
       }
       return _debugproxyPort(tunnel);
@@ -157,29 +162,29 @@ final class DeviceTransportResolver {
     required bool allowTunnelRepair,
   }) async {
     try {
-      return await TunnelDiscovery.discoverTunnel(
-        udid: udid,
-        timeout: discoveryTimeout,
-      );
+      return await TunnelDiscovery(
+        pymd.runner.log,
+        localHttp: pymd.localHttp,
+      ).discoverTunnel(udid: udid, timeout: discoveryTimeout);
     } on TunnelCreationError catch (error) {
       if (!allowTunnelRepair) rethrow;
-      Log.logWarn(
+      pymd.runner.log.logWarn(
         'tunneld has no RSD tunnel for this device — mounting the Developer '
         'Disk Image and starting one (what `xcross tunnel` does)',
       );
-      Log.logTrace(error.message);
+      pymd.runner.log.logTrace(error.message);
       try {
         await DevicePrepare(pymd).repairRsdTunnel();
       } on Object catch (repairFailure) {
         // Report what tunneld refused to do, not how the repair went: the
         // repair is an extra chance, never the thing the user asked for.
-        Log.logTrace('tunnel repair failed: $repairFailure');
+        pymd.runner.log.logTrace('tunnel repair failed: $repairFailure');
         throw error;
       }
-      return TunnelDiscovery.discoverTunnel(
-        udid: udid,
-        timeout: discoveryTimeout,
-      );
+      return TunnelDiscovery(
+        pymd.runner.log,
+        localHttp: pymd.localHttp,
+      ).discoverTunnel(udid: udid, timeout: discoveryTimeout);
     }
   }
 

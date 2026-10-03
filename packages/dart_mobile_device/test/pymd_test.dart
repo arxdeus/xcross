@@ -4,9 +4,20 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:test/test.dart';
 
+import 'test_log_output.dart';
+
 void main() {
-  final runner = ProcessRunner(MacOSHost(environment: Platform.environment));
-  final pymd = Pymd(runner, hostPolicy: MacOSDeviceHost(runner));
+  final runner = ProcessRunner(
+    MacOSHost(environment: Platform.environment),
+    log: testLog(),
+  );
+  final pymd = Pymd(
+    console: TestDeviceConsole(),
+    localHttp: testLocalHttp(),
+    runner,
+    privileges: PosixPrivileges(runner),
+    hostPolicy: MacOSDeviceHost(runner),
+  );
   group('Pymd.asPort', () {
     test('passes through an int unchanged', () {
       expect(Pymd.asPort(12345), 12345);

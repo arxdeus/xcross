@@ -5,16 +5,33 @@ import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import 'test_log_output.dart';
+
 void main() {
-  final runner = ProcessRunner(MacOSHost());
-  var pairing = RemotePairing(Pymd(runner, hostPolicy: MacOSDeviceHost(runner)));
+  final runner = ProcessRunner(MacOSHost(), log: testLog());
+  var pairing = RemotePairing(
+    Pymd(
+      console: TestDeviceConsole(),
+      localHttp: testLocalHttp(),
+      runner,
+      privileges: PosixPrivileges(runner),
+      hostPolicy: MacOSDeviceHost(runner),
+    ),
+  );
   group('RemotePairing pairing records', () {
     late Directory home;
 
     setUp(() {
       home = Directory.systemTemp.createTempSync('xcross_pairing_test');
       pairing = RemotePairing(
-        Pymd(runner, hostPolicy: MacOSDeviceHost(runner), pairingHome: home.path),
+        Pymd(
+          console: TestDeviceConsole(),
+          localHttp: testLocalHttp(),
+          runner,
+          privileges: PosixPrivileges(runner),
+          hostPolicy: MacOSDeviceHost(runner),
+          pairingHome: home.path,
+        ),
       );
     });
 
@@ -28,8 +45,11 @@ void main() {
     test('no directory → no records, pairing offered', () {
       pairing = RemotePairing(
         Pymd(
+          console: TestDeviceConsole(),
+          localHttp: testLocalHttp(),
           runner,
-        hostPolicy: MacOSDeviceHost(runner),
+          privileges: PosixPrivileges(runner),
+          hostPolicy: MacOSDeviceHost(runner),
           pairingHome: p.join(home.path, 'does-not-exist'),
         ),
       );
