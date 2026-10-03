@@ -16,6 +16,10 @@ final class SwiftPmCheckoutContainment {
       );
     }
     validateTarget(root, p.dirname(destination));
+    if (fileSystem.directory(destination).existsSync() ||
+        fileSystem.file(destination).existsSync()) {
+      validateTarget(root, destination);
+    }
   }
 
   void validateTarget(String root, String target) {

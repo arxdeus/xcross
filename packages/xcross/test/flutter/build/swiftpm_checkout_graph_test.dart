@@ -144,6 +144,32 @@ void main() {
   );
 
   test(
+    'rejects an existing destination alias that leaves the checkout',
+    () async {
+      final outside = Directory.systemTemp.createTempSync(
+        'xcross-checkout-leaf-outside-',
+      );
+      addTearDown(() => outside.deleteSync(recursive: true));
+      final sentinel = File(p.join(outside.path, 'keep'))
+        ..writeAsStringSync('outside sentinel');
+      final payload = File(p.join(root.path, 'payload'))
+        ..writeAsStringSync('inside');
+      final destination = p.join(root.path, 'directory-alias');
+      await Link(destination).create(outside.path);
+      expect(
+        () => context.graph.validateTargets(
+          root.path,
+          {destination: 'payload'},
+          {destination: payload.path},
+          symlinks: false,
+        ),
+        throwsA(isA<FlutterBuildError>()),
+      );
+      expect(sentinel.readAsStringSync(), 'outside sentinel');
+    },
+  );
+
+  test(
     'declared exclusions permit optional links while sources/resources remain required',
     () {
       File(p.join(root.path, 'Package.swift')).writeAsStringSync(
