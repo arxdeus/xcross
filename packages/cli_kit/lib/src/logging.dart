@@ -3,86 +3,102 @@ import 'dart:io';
 
 import 'package:cli_util/cli_logging.dart';
 
-/// Global logging and status-line facilities for the CLI.
-abstract final class Log {
-  static Logger _logger = Logger.standard();
+abstract interface class LogOutput {
+  bool get supportsAnsi;
+  int get terminalColumns;
+  void stdout(String message);
+  void stderr(String message);
+  void write(String message);
+}
 
-  /// Faint (SGR 2): dims the terminal's own foreground color, so it stays
-  /// readable on both dark and light themes. Bright black (SGR 90) and
-  /// cli_util's `ansi.gray` (`1;30`) both map to the background color on
-  /// many dark palettes and made text invisible.
+final class StreamLogOutput implements LogOutput {
+  StreamLogOutput({
+    required IOSink stdout,
+    required IOSink stderr,
+    required this.supportsAnsi,
+    required int Function() terminalColumns,
+  }) : _stdout = stdout,
+       _stderr = stderr,
+       _terminalColumns = terminalColumns;
+
+  final IOSink _stdout;
+  final IOSink _stderr;
+  final int Function() _terminalColumns;
+  @override
+  final bool supportsAnsi;
+  @override
+  int get terminalColumns => _terminalColumns();
+  @override
+  void stdout(String message) => _stdout.writeln(message);
+  @override
+  void stderr(String message) => _stderr.writeln(message);
+  @override
+  void write(String message) => _stdout.write(message);
+}
+
+final class Log {
+  Log({required this.output, bool verbose = false})
+    : _verbose = verbose,
+      ansi = Ansi(output.supportsAnsi);
+
+  final LogOutput output;
+  bool _verbose;
+  final Ansi ansi;
+  late final Glyph glyph = Glyph(ansi);
+
   static const _dim = '\u001B[2m';
   static const _reset = '\u001B[22m';
 
-  /// [message] in a readable grey, or unchanged when ANSI is off (piped
-  /// output, dumb terminal).
-  static String dim(String message) =>
-      ansi.useAnsi ? '$_dim$message$_reset' : message;
+  String dim(String message) => ansi.useAnsi ? '$_dim$message$_reset' : message;
 
-  /// Whether `--verbose` was passed.
-  static bool get isVerbose => _logger.isVerbose;
+  bool get isVerbose => _verbose;
 
-  /// Switches the global logger to verbose mode (trace output, no spinners).
-  static void setVerbose() {
+  void setVerbose() {
     stopStep();
-    _logger = Logger.verbose();
+    _verbose = true;
   }
 
-  /// ANSI helpers; colors are stripped automatically on a non-TTY.
-  static Ansi get ansi => _logger.ansi;
-
-  static bool get _fancy => _logger.ansi.useAnsi && !_logger.isVerbose;
+  bool get _fancy => ansi.useAnsi && !_verbose;
 
   static const _detailColumn = 38;
 
-  static String _withDetail(String message, String detail) {
+  String _withDetail(String message, String detail) {
     final pad = message.length < _detailColumn
         ? ' ' * (_detailColumn - message.length)
         : ' ';
     return '$message$pad${dim(detail)}';
   }
 
-  /// A user-facing fact: `› Device   iPhone 15 Pro`.
-  static void logInfo(String message, [String? value]) => logStatus(
-    '${Glyph.info} '
+  void logInfo(String message, [String? value]) => logStatus(
+    '${glyph.info} '
     '${value == null ? message : '${message.padRight(13)}$value'}',
   );
 
-  /// A one-off completed action that had no [Step].
-  static void logDone(String message, [String? detail]) => logStatus(
-    '${Glyph.ok} ${detail == null ? message : _withDetail(message, detail)}',
+  void logDone(String message, [String? detail]) => logStatus(
+    '${glyph.ok} ${detail == null ? message : _withDetail(message, detail)}',
   );
 
-  /// Prints [message] verbatim, interrupting any running spinner.
-  static void logStatus(String message) {
+  void logStatus(String message) {
     stopStep();
-    _logger.stdout(message);
+    output.stdout(message);
   }
 
-  /// A detail line, shown only with `--verbose`.
-  ///
-  /// Routed through [stdout] rather than `trace`: cli_util colors trace with
-  /// its invisible bold-black, so the whole verbose stream was unreadable.
-  static void logTrace(String message) {
-    if (!_logger.isVerbose) return;
-    _logger.stdout(dim(message));
+  void logTrace(String message) {
+    if (!_verbose) return;
+    output.stdout(dim(message));
   }
 
-  /// A warning on stderr.
-  static void logWarn(String message) {
+  void logWarn(String message) {
     stopStep();
-    _logger.stderr('${Glyph.warn} $message');
+    output.stderr('${glyph.warn} $message');
   }
 
-  /// An error on stderr.
-  static void logError(String message) {
+  void logError(String message) {
     stopStep();
-    _logger.stderr('${Glyph.bad} $message');
+    output.stderr('${glyph.bad} $message');
   }
 
-  /// Runs [body] under a spinner labelled [label], reporting success or
-  /// failure when it settles.
-  static Future<T> logStep<T>(String label, Future<T> Function() body) async {
+  Future<T> logStep<T>(String label, Future<T> Function() body) async {
     final step = beginStep(label);
     try {
       final result = await body();
@@ -94,115 +110,101 @@ abstract final class Log {
     }
   }
 
-  /// Starts a spinner; the caller must call [Step.done] or [Step.fail].
-  static Step beginStep(String label) {
+  Step beginStep(String label) {
     stopStep();
-    return _active = Step._(label);
+    return _active = Step._(this, label);
   }
 
-  /// The phase currently on screen, or null when nothing is running.
-  ///
-  /// Lets a helper deep in a call stack stream its subprocess output into the
-  /// phase its caller already opened, instead of every layer in between having
-  /// to pass a [Step] down purely to keep the tail alive.
-  static Step? get activeStep => _active;
+  Step? get activeStep => _active;
 
-  /// Erases any running spinner so direct stdout writers get a clean line.
-  static void stopStep() {
+  void stopStep() {
     final step = _active;
     _active = null;
     step?._erase();
   }
 
-  static Step? _active;
+  Step? _active;
 }
 
-/// Line markers that keep all CLI output reading as one coherent list.
-abstract final class Glyph {
-  static String _mark(String color, String symbol) =>
-      Log.ansi.useAnsi ? '$color$symbol${Log.ansi.none} ' : '';
+final class Glyph {
+  Glyph(this.ansi);
 
-  /// A fact, or a phase that has just started.
-  static String get info => _mark(Log.ansi.cyan, '›');
+  final Ansi ansi;
+  String _mark(String color, String symbol) =>
+      ansi.useAnsi ? '$color$symbol${ansi.none} ' : '';
 
-  /// A phase that finished.
-  static String get ok => _mark(Log.ansi.green, '✓');
+  String get info => _mark(ansi.cyan, '›');
 
-  /// A phase that failed.
-  static String get bad => _mark(Log.ansi.red, '✗');
+  String get ok => _mark(ansi.green, '✓');
 
-  /// Something worth knowing, but not fatal.
-  static String get warn => _mark(Log.ansi.yellow, '!');
+  String get bad => _mark(ansi.red, '✗');
 
-  /// A transfer in flight.
-  static String get download => _mark(Log.ansi.cyan, '↓');
+  String get warn => _mark(ansi.yellow, '!');
+
+  String get download => _mark(ansi.cyan, '↓');
 }
 
-/// A single in-progress phase rendered as a spinner with a collapsing tail.
 final class Step {
-  Step._(this.label) : _watch = Stopwatch()..start() {
-    if (Log._fancy) {
+  Step._(this._log, this.label) : _watch = Stopwatch()..start() {
+    if (_log._fancy) {
       _draw();
       return;
     }
-    Log._logger.stdout('${Glyph.info}$label…');
+    _log.output.stdout('${_log.glyph.info}$label…');
   }
 
   static const _frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
   static const _tailLines = 3;
   static const _frameInterval = Duration(milliseconds: 80);
 
+  final Log _log;
   final String label;
   final Stopwatch _watch;
   Timer? _timer;
   int _tick = 0;
   bool _closed = false;
+  bool _suspended = false;
 
   final List<String> _tail = [];
   String _partial = '';
   int _drawn = 0;
 
-  /// Feeds subprocess output into the grey tail under the spinner; off a
-  /// fancy TTY the lines go to trace instead.
   void log(String chunk) {
-    if (_closed || chunk.isEmpty) return;
+    if (_closed || _suspended || chunk.isEmpty) return;
     _partial += chunk.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
     final parts = _partial.split('\n');
     _partial = parts.removeLast();
     for (final line in parts) {
-      if (Log._fancy) {
+      if (_log._fancy) {
         _tail.add(line);
         if (_tail.length > _tailLines) _tail.removeAt(0);
       } else {
-        Log.logTrace(line);
+        _log.logTrace(line);
       }
     }
-    if (Log._fancy) _draw();
+    if (_log._fancy) _draw();
   }
 
-  /// Replaces the spinner with a success line, discarding the tail.
   void done([String? message]) =>
-      _close(Glyph.ok, message ?? label, timed: true);
+      _close(_log.glyph.ok, message ?? label, timed: true);
 
-  /// Replaces the spinner with a failure line, discarding the tail.
-  void fail([String? message]) => _close(Glyph.bad, message ?? label);
+  void fail([String? message]) => _close(_log.glyph.bad, message ?? label);
 
   void _draw() {
+    if (_closed || _suspended) return;
     _timer ??= Timer.periodic(_frameInterval, (_) => _draw());
     final tail = _visibleTail();
     final frame = _frames[_tick++ % _frames.length];
-    stdout.write(
+    _log.output.write(
       renderBlock(
-        head: '${Log.ansi.cyan}$frame${Log.ansi.none} $label',
-        tail: [for (final line in tail) Log.dim(_fit(line))],
+        head: '${_log.ansi.cyan}$frame${_log.ansi.none} $label',
+        tail: [for (final line in tail) _log.dim(_fit(line))],
         previousRows: _drawn,
       ),
     );
     _drawn = 1 + tail.length;
   }
 
-  /// The escape sequence that repaints a [head] line plus indented [tail]
-  /// lines over the [previousRows] rows drawn last time.
   static String renderBlock({
     required String head,
     required List<String> tail,
@@ -226,30 +228,32 @@ final class Step {
         : lines;
   }
 
-  static String _fit(String line) {
-    final max = (stdout.hasTerminal ? stdout.terminalColumns : 80) - 6;
+  String _fit(String line) {
+    final max = _log.output.terminalColumns - 6;
     if (max < 8 || line.length <= max) return line;
     return '${line.substring(0, max - 1)}…';
   }
 
   void _erase() {
+    _suspended = true;
     if (_timer == null) return;
     _timer!.cancel();
     _timer = null;
-    if (!Log._fancy) return;
-    stdout.write(_drawn > 0 ? '\r\x1B[${_drawn}A\x1B[J' : '\r\x1B[K');
+    if (!_log._fancy) return;
+    _log.output.write(_drawn > 0 ? '\r\x1B[${_drawn}A\x1B[J' : '\r\x1B[K');
     _drawn = 0;
   }
 
   void _close(String mark, String message, {bool timed = false}) {
     if (_closed) return;
     _closed = true;
-    if (Log._active == this) Log._active = null;
+    if (_log._active == this) _log._active = null;
     _erase();
+    _watch.stop();
     final body = timed
-        ? Log._withDetail(message, _fmtElapsed(_watch.elapsed))
+        ? _log._withDetail(message, _fmtElapsed(_watch.elapsed))
         : message;
-    Log._logger.stdout('$mark$body');
+    _log.output.stdout('$mark$body');
   }
 
   static String _fmtElapsed(Duration d) {

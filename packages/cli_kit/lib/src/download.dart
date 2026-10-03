@@ -1,11 +1,16 @@
 import 'dart:io';
 
 import 'package:cli_kit/src/errors.dart';
+import 'package:cli_kit/src/logging.dart';
 import 'package:cli_kit/src/progress.dart';
 import 'package:path/path.dart' as p;
 
-/// Groups file-download helpers.
-abstract final class Downloader {
+final class Downloader {
+  Downloader({required HttpClient Function() createClient, required this.log})
+    : _createClient = createClient;
+
+  final HttpClient Function() _createClient;
+  final Log log;
   static Future<HttpClientResponse> _openStream(
     HttpClient client,
     String url, {
@@ -38,15 +43,17 @@ abstract final class Downloader {
     );
   }
 
-  /// Streams [url] to [dest] with retries and a live progress line.
-  static Future<void> downloadToFile(
+  Future<void> downloadToFile(
     String url,
     File dest, {
     int maxAttempts = 4,
     Duration retryDelay = const Duration(seconds: 2),
     String? label,
   }) async {
-    final client = HttpClient();
+    if (maxAttempts < 1) {
+      throw ArgumentError.value(maxAttempts, 'maxAttempts', 'must be positive');
+    }
+    final client = _createClient();
     ProgressBar? reporter;
     try {
       final response = await _openStream(
@@ -58,9 +65,11 @@ abstract final class Downloader {
       await dest.parent.create(recursive: true);
       reporter = ProgressBar(
         label ?? _labelFromUrl(url),
+        log: log,
         total: response.contentLength,
       );
       final sink = dest.openWrite();
+      var failed = false;
       try {
         await sink.addStream(
           response.map((chunk) {
@@ -69,8 +78,15 @@ abstract final class Downloader {
           }),
         );
         await sink.flush();
+      } on Object {
+        failed = true;
+        rethrow;
       } finally {
-        await sink.close();
+        try {
+          await sink.close();
+        } on Object {
+          if (!failed) rethrow;
+        }
       }
       reporter.finish();
     } catch (_) {
