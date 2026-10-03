@@ -1,6 +1,6 @@
 import 'dart:ffi';
 import 'dart:io';
-import 'package:cli_kit/cli_kit.dart' show PlatformHostInterface;
+import 'package:cli_kit/cli_kit_shared.dart' show PlatformHostInterface;
 
 abstract interface class MachineIdentityProvider {
   Future<String> read();

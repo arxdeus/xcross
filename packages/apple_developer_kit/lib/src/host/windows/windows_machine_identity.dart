@@ -1,5 +1,5 @@
 import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
-import 'package:cli_kit/cli_kit.dart' show CapturedProcess;
+import 'package:cli_kit/cli_kit_shared.dart' show CapturedProcess;
 
 final class WindowsMachineIdentity implements MachineIdentityProvider {
   WindowsMachineIdentity(this.run, this.locate);

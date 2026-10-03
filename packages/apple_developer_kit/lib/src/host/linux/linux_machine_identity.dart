@@ -1,5 +1,5 @@
 import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
-import 'package:cli_kit/cli_kit.dart' show HostFileSystemInterface;
+import 'package:cli_kit/cli_kit_shared.dart' show HostFileSystemInterface;
 
 final class LinuxMachineIdentity implements MachineIdentityProvider {
   LinuxMachineIdentity(
