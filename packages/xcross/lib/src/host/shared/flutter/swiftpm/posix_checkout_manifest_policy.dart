@@ -21,5 +21,6 @@ final class PosixSwiftPmVendoredManifestPolicy<T extends PlatformHostInterface>
     sourceNormalizer.normalizeHostManifest(manifest),
     packageDir: packageDir,
     consumedProducts: consumedProducts,
+    fallbackSwiftModules: fallbackSwiftModules,
   );
 }
