@@ -91,27 +91,44 @@ final class WindowsSwiftPmArtifactCopyPolicy
     var killed = false;
     const grace = Duration(milliseconds: 100);
     var exitedDuringGrace = false;
+    final failures = <String>[];
     for (var attempt = 0; attempt < 3 && !exitedDuringGrace; attempt++) {
-      killed = process.kill() || killed;
+      try {
+        killed = process.kill() || killed;
+      } on Object catch (failure) {
+        failures.add('kill failed: $failure');
+      }
       try {
         await process.exitCode.timeout(grace);
         exitedDuringGrace = true;
       } on TimeoutException {
         continue;
+      } on Object catch (failure) {
+        failures.add('exit observation failed: $failure');
       }
     }
-    await output.stop();
-    await error.stop();
+    for (final collector in [output, error]) {
+      try {
+        await collector.stop();
+      } on Object catch (failure) {
+        failures.add('diagnostic cleanup failed: $failure');
+      }
+    }
     if (!exitedDuringGrace) {
-      await fileSystem
-          .file(p.join(temporary.path, '.xcross-live-copy-quarantine'))
-          .writeAsString('retained: process ownership cannot be revalidated');
+      try {
+        await fileSystem
+            .file(p.join(temporary.path, '.xcross-live-copy-quarantine'))
+            .writeAsString('retained: process ownership cannot be revalidated');
+      } on Object catch (failure) {
+        failures.add('quarantine marker failed: $failure');
+      }
     }
     final message =
         'SwiftPM binary artifact copy timed out after $timeout; '
         'kill returned $killed; process '
         '${exitedDuringGrace ? 'exited' : 'did not exit'} during $grace grace period: '
-        '${_boundedDiagnostic(error.text, output.text)}';
+        '${_boundedDiagnostic(error.text, output.text)}'
+        '${failures.isEmpty ? '' : '\n${_boundedDiagnostic(failures.join('\n'))}'}';
     if (!exitedDuringGrace) throw SwiftPmLiveCopyException(message, source);
     throw FileSystemException(message, source);
   }

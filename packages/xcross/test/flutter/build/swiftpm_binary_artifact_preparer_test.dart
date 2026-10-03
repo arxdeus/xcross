@@ -19,6 +19,7 @@ import 'package:xcross/src/host/shared/flutter/swiftpm/posix_artifact_copy_polic
 import 'package:xcross/src/host/windows/flutter/swiftpm/artifact_copy_policy.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_offline_publisher.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
@@ -1257,6 +1258,62 @@ void main() {
       },
     );
 
+    for (final throwOnKill in [false, true]) {
+      test(
+        'retains live copy when quarantine marker fails, kill throws $throwOnKill',
+        () async {
+          final artifact = await source('QuarantineFailure$throwOnKill');
+          final destination = p.join(
+            temp.path,
+            'quarantine-failed-$throwOnKill',
+          );
+          final process = FakeBinaryCopyProcess(
+            killResult: false,
+            exitAfterKill: false,
+            throwOnKill: throwOnKill,
+          );
+          String? temporary;
+          final copyPolicy = WindowsSwiftPmArtifactCopyPolicy(
+            fileSystem: FailingQuarantineFileSystem(store.fileSystem),
+            startProcess: (_, arguments) async {
+              temporary = arguments[1];
+              File(p.join(temporary!, 'partial')).writeAsStringSync('live');
+              return process;
+            },
+          );
+          final preparer = SwiftPmBinaryArtifactPreparer(
+            store: store,
+            policy: _swiftPmRuntime.targetPolicy,
+            transport: const HttpSwiftPmArchiveTransport(
+              createClient: HttpClient.new,
+            ),
+            copyPolicy: copyPolicy,
+          );
+          await expectLater(
+            preparer.materializeBinaryArtifact(
+              source: artifact,
+              destination: destination,
+              timeout: const Duration(milliseconds: 1),
+            ),
+            throwsA(
+              isA<SwiftPmLiveCopyException>().having(
+                (error) => error.message,
+                'message',
+                contains('quarantine marker failed'),
+              ),
+            ),
+          );
+          expect(Directory(temporary!).existsSync(), isTrue);
+          expect(
+            File(p.join(temporary!, 'partial')).readAsStringSync(),
+            'live',
+          );
+          expect(Directory(destination).existsSync(), isFalse);
+          process.complete(8);
+        },
+      );
+    }
+
     test('quarantines a live timed-out copy until it exits', () async {
       final artifact = await source('KillRefusal');
       final destination = p.join(temp.path, 'refused-destination');
@@ -1615,10 +1672,15 @@ final class FakeProcess implements BinaryCopyProcess {
 }
 
 final class FakeBinaryCopyProcess implements BinaryCopyProcess {
-  FakeBinaryCopyProcess({this.killResult = true, this.exitAfterKill = true});
+  FakeBinaryCopyProcess({
+    this.killResult = true,
+    this.exitAfterKill = true,
+    this.throwOnKill = false,
+  });
 
   final bool killResult;
   final bool exitAfterKill;
+  final bool throwOnKill;
   final Completer<int> _exit = Completer<int>();
   bool killed = false;
   bool exitObservedAfterKill = false;
@@ -1632,6 +1694,7 @@ final class FakeBinaryCopyProcess implements BinaryCopyProcess {
   @override
   bool kill() {
     killed = true;
+    if (throwOnKill) throw StateError('kill failed');
     if (exitAfterKill && !_exit.isCompleted) _exit.complete(-1);
     return killResult;
   }
@@ -1653,4 +1716,48 @@ final class CallbackSwiftPmArchiveTransport implements SwiftPmArchiveTransport {
   @override
   Future<void> download(Uri url, File destination, int maximumBytes) =>
       callback(url, destination, maximumBytes);
+}
+
+final class FailingQuarantineFileSystem implements SwiftPmArtifactFileSystem {
+  const FailingQuarantineFileSystem(this.delegate);
+  final SwiftPmArtifactFileSystem delegate;
+  @override
+  File file(String path) => path.endsWith('.xcross-live-copy-quarantine')
+      ? FailingQuarantineFile(path)
+      : delegate.file(path);
+  @override
+  Directory directory(String path) => delegate.directory(path);
+  @override
+  Link link(String path) => delegate.link(path);
+  @override
+  FileSystemEntityType typeSync(String path, {bool followLinks = true}) =>
+      delegate.typeSync(path, followLinks: followLinks);
+  @override
+  Future<bool> isLinkOrReparsePoint(String path) =>
+      delegate.isLinkOrReparsePoint(path);
+  @override
+  Future<void> createAlias(String alias, String target) =>
+      delegate.createAlias(alias, target);
+  @override
+  Future<bool> isAliasTo(String alias, String target) =>
+      delegate.isAliasTo(alias, target);
+  @override
+  Future<void> deleteAlias(String alias) => delegate.deleteAlias(alias);
+  @override
+  String processPath(String path) => delegate.processPath(path);
+}
+
+final class FailingQuarantineFile implements File {
+  const FailingQuarantineFile(this.path);
+  @override
+  final String path;
+  @override
+  Future<File> writeAsString(
+    String contents, {
+    FileMode mode = FileMode.write,
+    Encoding encoding = utf8,
+    bool flush = false,
+  }) async => throw FileSystemException('injected marker failure', path);
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
