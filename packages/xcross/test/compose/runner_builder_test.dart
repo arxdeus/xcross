@@ -1,22 +1,26 @@
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/compose/compose.dart';
 import 'package:xcross/src/errors.dart';
 
+import 'support/compose_platforms.dart';
+
 void main() {
   test(
     'ObjC and Swift runners use simulator triples SDK linker and runtime',
     () async {
-      final fixture = _Fixture.create(simulator: true)
+      final fixture = ComposeFixture.create(simulator: true)
         ..createSdk()
         ..createCompilerRt();
       addTearDown(fixture.dispose);
-      final objc = <_Call>[];
+      final objc = <ComposeCall>[];
       await ObjcRunnerBuilder.withSeams(
+        fixture.toolchain.runner,
         runChecked: (executable, arguments, {workingDirectory}) async {
-          objc.add(_Call(executable, arguments, workingDirectory));
+          objc.add(ComposeCall(executable, arguments, workingDirectory));
           fixture.writeMachO(arguments[arguments.indexOf('-o') + 1]);
         },
       ).build(
@@ -47,11 +51,12 @@ void main() {
         objc.last.arguments,
         contains(p.join(fixture.objcBuildDir, 'Runner')),
       );
-      final swift = <_Call>[];
+      final swift = <ComposeCall>[];
       final output =
           await SwiftRunnerBuilder.withSeams(
+            fixture.toolchain.runner,
             runChecked: (executable, arguments, {workingDirectory}) async {
-              swift.add(_Call(executable, arguments, workingDirectory));
+              swift.add(ComposeCall(executable, arguments, workingDirectory));
               fixture.writeMachO(arguments[arguments.indexOf('-o') + 1]);
             },
           ).build(
@@ -88,14 +93,15 @@ void main() {
   test(
     'ObjC runner imports UIKit and framework and links exact iOS runner inputs',
     () async {
-      final fixture = _Fixture.create()..createSdk();
-      final calls = <_Call>[];
+      final fixture = ComposeFixture.create()..createSdk();
+      final calls = <ComposeCall>[];
       addTearDown(fixture.dispose);
 
       final output =
           await ObjcRunnerBuilder.withSeams(
+            fixture.toolchain.runner,
             runChecked: (executable, arguments, {workingDirectory}) async {
-              calls.add(_Call(executable, arguments, workingDirectory));
+              calls.add(ComposeCall(executable, arguments, workingDirectory));
               if (executable == fixture.toolchain.clang) {
                 File(
                   p.join(fixture.objcBuildDir, 'main.o'),
@@ -179,14 +185,15 @@ void main() {
   test(
     'Swift runner compiles all detected sources with resource dir, linker, framework search, and rpath',
     () async {
-      final fixture = _Fixture.create()..createSdk();
-      final calls = <_Call>[];
+      final fixture = ComposeFixture.create()..createSdk();
+      final calls = <ComposeCall>[];
       addTearDown(fixture.dispose);
 
       final output =
           await SwiftRunnerBuilder.withSeams(
+            fixture.toolchain.runner,
             runChecked: (executable, arguments, {workingDirectory}) async {
-              calls.add(_Call(executable, arguments, workingDirectory));
+              calls.add(ComposeCall(executable, arguments, workingDirectory));
               fixture.writeMachO(
                 p.join(fixture.root, 'build', 'xcross-compose', 'Runner'),
               );
@@ -272,15 +279,16 @@ void main() {
     // fails with "undefined symbol: ___isPlatformVersionAtLeast" (a
     // symbol libclang_rt.ios.a provides). Confirm the builder passes it
     // explicitly via -Xlinker when the Darwin SDK bundle has one staged.
-    final fixture = _Fixture.create()
+    final fixture = ComposeFixture.create()
       ..createSdk()
       ..createCompilerRt();
-    final calls = <_Call>[];
+    final calls = <ComposeCall>[];
     addTearDown(fixture.dispose);
 
     await SwiftRunnerBuilder.withSeams(
+      fixture.toolchain.runner,
       runChecked: (executable, arguments, {workingDirectory}) async {
-        calls.add(_Call(executable, arguments, workingDirectory));
+        calls.add(ComposeCall(executable, arguments, workingDirectory));
         fixture.writeMachO(
           p.join(fixture.root, 'build', 'xcross-compose', 'Runner'),
         );
@@ -306,7 +314,7 @@ void main() {
       // must pick "21" over "19" regardless of listing order. Mirrors the
       // matching konan_configuration_test.dart test for
       // _findCompilerRtDarwinDir.
-      final fixture = _Fixture.create()
+      final fixture = ComposeFixture.create()
         ..createSdk()
         ..createCompilerRt();
       final olderDir = p.join(
@@ -325,12 +333,13 @@ void main() {
       File(
         p.join(olderDir, 'libclang_rt.ios.a'),
       ).writeAsStringSync('WRONG-should-not-be-picked');
-      final calls = <_Call>[];
+      final calls = <ComposeCall>[];
       addTearDown(fixture.dispose);
 
       await SwiftRunnerBuilder.withSeams(
+        fixture.toolchain.runner,
         runChecked: (executable, arguments, {workingDirectory}) async {
-          calls.add(_Call(executable, arguments, workingDirectory));
+          calls.add(ComposeCall(executable, arguments, workingDirectory));
           fixture.writeMachO(
             p.join(fixture.root, 'build', 'xcross-compose', 'Runner'),
           );
@@ -351,11 +360,11 @@ void main() {
   test(
     'rejects missing inputs and non Mach-O runner output without invoking file',
     () async {
-      final fixture = _Fixture.create()..createSdk();
+      final fixture = ComposeFixture.create()..createSdk();
       addTearDown(fixture.dispose);
 
       await expectLater(
-        ObjcRunnerBuilder().build(
+        ObjcRunnerBuilder(fixture.toolchain.runner).build(
           project: fixture.objcProject,
           frameworkPath: p.join(fixture.root, 'missing.framework'),
           toolchain: fixture.toolchain,
@@ -365,6 +374,7 @@ void main() {
 
       await expectLater(
         SwiftRunnerBuilder.withSeams(
+          fixture.toolchain.runner,
           runChecked: (executable, arguments, {workingDirectory}) async {
             File(p.join(fixture.root, 'build', 'xcross-compose', 'Runner'))
               ..createSync(recursive: true)
@@ -382,11 +392,12 @@ void main() {
 
   for (final valid in _validMachOOutputs) {
     test('ObjC runner accepts ${valid.name} 64-bit Mach-O magic', () async {
-      final fixture = _Fixture.create()..createSdk();
+      final fixture = ComposeFixture.create()..createSdk();
       addTearDown(fixture.dispose);
 
       final output =
           await ObjcRunnerBuilder.withSeams(
+            fixture.toolchain.runner,
             runChecked: (executable, arguments, {workingDirectory}) async {
               if (executable == fixture.toolchain.clang) {
                 File(p.join(fixture.objcBuildDir, 'main.o'))
@@ -409,11 +420,12 @@ void main() {
     });
 
     test('Swift runner accepts ${valid.name} 64-bit Mach-O magic', () async {
-      final fixture = _Fixture.create()..createSdk();
+      final fixture = ComposeFixture.create()..createSdk();
       addTearDown(fixture.dispose);
 
       final output =
           await SwiftRunnerBuilder.withSeams(
+            fixture.toolchain.runner,
             runChecked: (executable, arguments, {workingDirectory}) async {
               fixture.writeBytes(
                 p.join(fixture.root, 'build', 'xcross-compose', 'Runner'),
@@ -432,11 +444,12 @@ void main() {
 
   for (final invalid in _invalidMachOOutputs) {
     test('ObjC runner rejects ${invalid.name} Mach-O output', () async {
-      final fixture = _Fixture.create()..createSdk();
+      final fixture = ComposeFixture.create()..createSdk();
       addTearDown(fixture.dispose);
 
       await expectLater(
         ObjcRunnerBuilder.withSeams(
+          fixture.toolchain.runner,
           runChecked: (executable, arguments, {workingDirectory}) async {
             if (executable == fixture.toolchain.clang) {
               File(p.join(fixture.objcBuildDir, 'main.o'))
@@ -459,11 +472,12 @@ void main() {
     });
 
     test('Swift runner rejects ${invalid.name} Mach-O output', () async {
-      final fixture = _Fixture.create()..createSdk();
+      final fixture = ComposeFixture.create()..createSdk();
       addTearDown(fixture.dispose);
 
       await expectLater(
         SwiftRunnerBuilder.withSeams(
+          fixture.toolchain.runner,
           runChecked: (executable, arguments, {workingDirectory}) async {
             fixture.writeBytes(
               p.join(fixture.root, 'build', 'xcross-compose', 'Runner'),
@@ -481,15 +495,15 @@ void main() {
   }
 }
 
-final _validMachOOutputs = <_MachOOutput>[
-  _MachOOutput('little-endian', _machoBytes([0xcf, 0xfa, 0xed, 0xfe])),
-  _MachOOutput('big-endian', _machoBytes([0xfe, 0xed, 0xfa, 0xcf])),
+final _validMachOOutputs = <MachOOutput>[
+  MachOOutput('little-endian', _machoBytes([0xcf, 0xfa, 0xed, 0xfe])),
+  MachOOutput('big-endian', _machoBytes([0xfe, 0xed, 0xfa, 0xcf])),
 ];
 
-final _invalidMachOOutputs = <_MachOOutput>[
-  const _MachOOutput('empty', []),
-  const _MachOOutput('4-byte', [0xfe, 0xed, 0xfa, 0xcf]),
-  const _MachOOutput('truncated-header', [
+final _invalidMachOOutputs = <MachOOutput>[
+  const MachOOutput('empty', []),
+  const MachOOutput('4-byte', [0xfe, 0xed, 0xfa, 0xcf]),
+  const MachOOutput('truncated-header', [
     0xfe,
     0xed,
     0xfa,
@@ -507,8 +521,8 @@ final _invalidMachOOutputs = <_MachOOutput>[
     0,
     2,
   ]),
-  _MachOOutput('reversed-32-bit-magic', _machoBytes([0xce, 0xfa, 0xed, 0xfe])),
-  const _MachOOutput('invalid-magic', [
+  MachOOutput('reversed-32-bit-magic', _machoBytes([0xce, 0xfa, 0xed, 0xfe])),
+  const MachOOutput('invalid-magic', [
     0xca,
     0xfe,
     0xba,
@@ -549,19 +563,19 @@ List<int> _machoBytes(List<int> magic) => [
   ...List<int>.filled(28, 0),
 ];
 
-final class _MachOOutput {
-  const _MachOOutput(this.name, this.bytes);
+final class MachOOutput {
+  const MachOOutput(this.name, this.bytes);
 
   final String name;
   final List<int> bytes;
 }
 
-final class _Fixture {
-  _Fixture._(this.temp, this.simulator)
+final class ComposeFixture {
+  ComposeFixture._(this.temp, this.simulator)
     : root = temp.path,
       frameworkPath = p.join(temp.path, 'Shared.framework');
 
-  factory _Fixture.create({bool simulator = false}) => _Fixture._(
+  factory ComposeFixture.create({bool simulator = false}) => ComposeFixture._(
     Directory.systemTemp.createTempSync('xcross_runner_builder_test_'),
     simulator,
   );
@@ -613,8 +627,16 @@ final class _Fixture {
   );
 
   ComposeToolchain get toolchain => ComposeToolchain(
-    host: simulator ? ComposeHost.macosArm64 : ComposeHost.linuxX64,
-    simulator: simulator,
+    log: fixtureLog,
+    target: fixtureTarget(
+      simulator ? ComposeTestHosts.macosArm64 : ComposeTestHosts.linuxX64,
+      simulator: simulator,
+    ),
+    runner: ProcessRunner(
+      log: fixtureLog,
+      (simulator ? ComposeTestHosts.macosArm64 : ComposeTestHosts.linuxX64)
+          .host,
+    ),
     kotlinHome: p.join(root, 'kotlin'),
     konanCache: p.join(root, 'konan-cache'),
     konancExecutable: p.join(root, 'kotlin', 'bin', 'konanc'),
@@ -700,8 +722,8 @@ final class _Fixture {
   }
 }
 
-final class _Call {
-  const _Call(this.executable, this.arguments, this.workingDirectory);
+final class ComposeCall {
+  const ComposeCall(this.executable, this.arguments, this.workingDirectory);
   final String executable;
   final List<String> arguments;
   final String? workingDirectory;

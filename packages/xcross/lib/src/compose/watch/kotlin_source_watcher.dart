@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
 
 /// Content-hash watcher over a KMP module's Kotlin sources.
@@ -15,11 +16,17 @@ import 'package:path/path.dart' as p;
 /// daemon's own writes, and a spurious "changed" here costs a ~2 minute
 /// Kotlin/Native rebuild.
 final class KotlinSourceWatcher {
-  KotlinSourceWatcher(this.projectRoot, {List<String>? searchRoots})
-    : _searchRoots = searchRoots;
+  KotlinSourceWatcher(
+    this.projectRoot, {
+    required this.files,
+    List<String>? searchRoots,
+  }) : _searchRoots = searchRoots == null
+           ? null
+           : List.unmodifiable(searchRoots);
 
   /// KMP project root (the directory holding `settings.gradle.kts`).
   final String projectRoot;
+  final HostFileSystemInterface files;
 
   final List<String>? _searchRoots;
 
@@ -52,9 +59,9 @@ final class KotlinSourceWatcher {
 
   /// Every watched source file under the project, as absolute paths.
   List<String> sourceFiles() {
-    final files = <String>[];
+    final paths = <String>[];
     for (final root in _roots()) {
-      final directory = Directory(root);
+      final directory = files.directory(root);
       if (!directory.existsSync()) continue;
       final pending = <Directory>[directory];
       while (pending.isNotEmpty) {
@@ -73,13 +80,13 @@ final class KotlinSourceWatcher {
             pending.add(entity);
           } else if (entity is File &&
               _watchedExtensions.contains(p.extension(name))) {
-            files.add(entity.absolute.path);
+            paths.add(entity.absolute.path);
           }
         }
       }
     }
-    files.sort();
-    return files;
+    paths.sort();
+    return paths;
   }
 
   /// Record the current content of every watched file as the baseline.
@@ -133,9 +140,9 @@ final class KotlinSourceWatcher {
   List<String> _roots() => _searchRoots ?? [projectRoot];
 
   // Null when the file cannot be read (deleted mid-walk, permissions).
-  static int? _contentHash(String path) {
+  int? _contentHash(String path) {
     try {
-      return _fnv1a(File(path).readAsBytesSync());
+      return _fnv1a(files.file(path).readAsBytesSync());
     } on Object catch (_) {
       return null;
     }
@@ -143,11 +150,10 @@ final class KotlinSourceWatcher {
 
   // 64-bit FNV-1a, matching the Flutter watcher's hash.
   static int _fnv1a(List<int> bytes) {
-    // ignore: avoid_js_rounded_ints
-    var hash = 0xCBF2_9CE4_8422_2325;
+    var hash = int.parse('-340d631b7bdddcdb', radix: 16);
     for (final byte in bytes) {
       hash = (hash ^ byte) * 0x100_0000_01B3;
     }
-    return hash & 0x7FFF_FFFF_FFFF_FFFF;
+    return hash & int.parse('7FFFFFFFFFFFFFFF', radix: 16);
   }
 }

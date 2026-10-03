@@ -1,6 +1,5 @@
-import 'dart:io';
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/compose/build/mach_o_validator.dart';
 import 'package:xcross/src/compose/build/process_invocation.dart';
@@ -8,6 +7,7 @@ import 'package:xcross/src/compose/build/swift_runner_builder.dart';
 import 'package:xcross/src/compose/project/kmp_project.dart';
 import 'package:xcross/src/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/compose/compose_ios_constants.dart';
 
 typedef ComposeRunChecked =
     Future<void> Function(
@@ -16,54 +16,49 @@ typedef ComposeRunChecked =
       String? workingDirectory,
     });
 
-const _iosMinimumVersion = '15.0';
+const _iosMinimumVersion = composeMinimumIosVersion;
 
-final class ObjcRunnerBuilder {
-  ObjcRunnerBuilder() : _runChecked = _defaultRunChecked;
+final class ObjcRunnerBuilder<T extends PlatformHostInterface> {
+  ObjcRunnerBuilder(this.runner) : _runChecked = runner.runTool;
 
-  const ObjcRunnerBuilder.withSeams({required ComposeRunChecked runChecked})
-    : _runChecked = runChecked;
+  const ObjcRunnerBuilder.withSeams(
+    this.runner, {
+    required ComposeRunChecked runChecked,
+  }) : _runChecked = runChecked;
 
+  final ProcessRunner<T> runner;
   final ComposeRunChecked _runChecked;
 
   Future<String> build({
     required KmpProject project,
     required String frameworkPath,
-    required ComposeToolchain toolchain,
+    required ComposeToolchain<T> toolchain,
   }) async {
-    _validateFramework(project, frameworkPath);
+    _validateFramework(project, frameworkPath, runner.host.fileSystem);
     final iphoneSdk = _iphoneSdk(toolchain);
     final frameworkParent = p.dirname(frameworkPath);
-    final buildDir = toolchain.simulator
-        ? p.join(
-            project.root,
-            'build',
-            toolchain.buildOptions.outputDirectory,
-            'runner',
-          )
-        : p.join(project.root, 'iosApp', '.build', 'runner');
-    final runnerBuildDir = Directory(buildDir);
+    final buildDir = toolchain.target.runnerDirectory(project.root, 'objc');
+    final runnerBuildDir = runner.host.fileSystem.directory(buildDir);
     if (runnerBuildDir.existsSync()) {
       await runnerBuildDir.delete(recursive: true);
     }
     await runnerBuildDir.create(recursive: true);
 
-    final generatedDir = p.join(
+    final generatedDir = toolchain.target.generatedRunnerDirectory(
       project.root,
-      'build',
-      toolchain.simulator
-          ? toolchain.buildOptions.outputDirectory
-          : 'xcross-compose',
-      'Runner',
     );
-    await Directory(generatedDir).create(recursive: true);
+    await runner.host.fileSystem
+        .directory(generatedDir)
+        .create(recursive: true);
     final sourcePath = p.join(generatedDir, 'main.m');
-    await File(sourcePath).writeAsString(_source(project));
+    await runner.host.fileSystem
+        .file(sourcePath)
+        .writeAsString(_source(project));
 
     final objectPath = p.join(buildDir, 'main.o');
     final clang = ProcessInvocation.forHost(toolchain.host, toolchain.clang, [
       '-target',
-      toolchain.buildOptions.targetTriple,
+      toolchain.target.targetTriple,
       '-isysroot',
       iphoneSdk,
       '-F',
@@ -75,10 +70,7 @@ final class ObjcRunnerBuilder {
       '-I',
       p.join(frameworkPath, 'Headers'),
       '-fobjc-arc',
-      if (toolchain.simulator)
-        '-mios-simulator-version-min=$_iosMinimumVersion'
-      else
-        '-miphoneos-version-min=$_iosMinimumVersion',
+      toolchain.target.buildPlatform.minimumVersionFlag(_iosMinimumVersion),
       '-c',
       sourcePath,
       '-o',
@@ -89,7 +81,7 @@ final class ObjcRunnerBuilder {
       clang.arguments,
       workingDirectory: project.root,
     );
-    if (!File(objectPath).existsSync()) {
+    if (!runner.host.fileSystem.file(objectPath).existsSync()) {
       throw XcrossError('ObjC runner object was not produced: $objectPath');
     }
 
@@ -98,9 +90,9 @@ final class ObjcRunnerBuilder {
       '-arch',
       'arm64',
       '-platform_version',
-      toolchain.buildOptions.linkerPlatform,
+      toolchain.target.linkerPlatform,
       _iosMinimumVersion,
-      _sdkVersion(iphoneSdk) ?? '26.5',
+      _sdkVersion(iphoneSdk) ?? composeDefaultSdkVersion,
       '-syslibroot',
       iphoneSdk,
       '-o',
@@ -124,7 +116,8 @@ final class ObjcRunnerBuilder {
       // Skia in Compose calls `__isPlatformVersionAtLeast` from it.
       if (compilerRtIos(
             toolchain.darwinSdkBundle,
-            simulator: toolchain.simulator,
+            libraryName: toolchain.target.compilerRtName,
+            files: runner.host.fileSystem,
           )
           case final String rt)
         rt,
@@ -142,20 +135,10 @@ final class ObjcRunnerBuilder {
         workingDirectory: project.root,
       ),
     );
-    MachOValidator.validate64BitExecutable(runnerPath);
-    if (!Platform.isWindows) ProcessRunner.makeExecutable(runnerPath);
+    MachOValidator(runner.host.fileSystem).validate64BitExecutable(runnerPath);
+    runner.makeExecutable(runnerPath);
     return runnerPath;
   }
-
-  static Future<void> _defaultRunChecked(
-    String executable,
-    List<String> arguments, {
-    String? workingDirectory,
-  }) => ProcessRunner.runTool(
-    executable,
-    arguments,
-    workingDirectory: workingDirectory,
-  );
 
   static String _source(KmpProject project) {
     final objcClass =
@@ -185,7 +168,9 @@ final class ObjcRunnerBuilder {
   }
 }
 
-String _iphoneSdk(ComposeToolchain toolchain) {
+String _iphoneSdk<T extends PlatformHostInterface>(
+  ComposeToolchain<T> toolchain,
+) {
   // ComposeToolchainResolver already resolves darwinSdkPath down to the
   // specific "iPhoneOS(.\d+)?.sdk" leaf (DarwinSdk.iPhoneOSSdk()), so use it
   // directly. Previously this re-derived a path by joining darwinSdkPath
@@ -193,11 +178,13 @@ String _iphoneSdk(ComposeToolchain toolchain) {
   // worked by coincidence in tests that pointed darwinSdkPath at a bundle
   // root; against a real resolved toolchain darwinSdkPath is already the
   // leaf SDK, so that join produced a nonexistent nested path.
-  if (Directory(toolchain.darwinSdkPath).existsSync()) {
+  if (toolchain.target.host.fileSystem
+      .directory(toolchain.darwinSdkPath)
+      .existsSync()) {
     return toolchain.darwinSdkPath;
   }
   throw XcrossError(
-    '${toolchain.simulator ? 'iPhoneSimulator' : 'iPhoneOS'} SDK not found at ${toolchain.darwinSdkPath}',
+    '${toolchain.target.buildPlatform.sdkName} SDK not found at ${toolchain.darwinSdkPath}',
   );
 }
 
@@ -211,11 +198,15 @@ String? _sdkVersion(String sdkPath) {
   return version.isEmpty ? null : version;
 }
 
-void _validateFramework(KmpProject project, String frameworkPath) {
-  if (!Directory(frameworkPath).existsSync()) {
+void _validateFramework(
+  KmpProject project,
+  String frameworkPath,
+  HostFileSystemInterface files,
+) {
+  if (!files.directory(frameworkPath).existsSync()) {
     throw XcrossError('Compose framework not found: $frameworkPath');
   }
-  if (!File(p.join(frameworkPath, project.baseName)).existsSync()) {
+  if (!files.file(p.join(frameworkPath, project.baseName)).existsSync()) {
     throw XcrossError(
       'Compose framework binary not found: ${p.join(frameworkPath, project.baseName)}',
     );

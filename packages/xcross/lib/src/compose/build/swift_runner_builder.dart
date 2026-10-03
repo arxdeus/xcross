@@ -1,11 +1,13 @@
 import 'dart:io';
-import 'package:cli_kit/cli_kit.dart';
+
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/compose/build/mach_o_validator.dart';
 import 'package:xcross/src/compose/build/process_invocation.dart';
 import 'package:xcross/src/compose/project/kmp_project.dart';
 import 'package:xcross/src/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/compose/compose_ios_constants.dart';
 
 typedef SwiftRunnerRunChecked =
     Future<void> Function(
@@ -14,41 +16,36 @@ typedef SwiftRunnerRunChecked =
       String? workingDirectory,
     });
 
-const _iosMinimumVersion = '15.0';
+const _iosMinimumVersion = composeMinimumIosVersion;
 
-final class SwiftRunnerBuilder {
-  SwiftRunnerBuilder() : _runChecked = _defaultRunChecked;
+final class SwiftRunnerBuilder<T extends PlatformHostInterface> {
+  SwiftRunnerBuilder(this.runner) : _runChecked = runner.runTool;
 
-  const SwiftRunnerBuilder.withSeams({
+  const SwiftRunnerBuilder.withSeams(
+    this.runner, {
     required SwiftRunnerRunChecked runChecked,
   }) : _runChecked = runChecked;
 
+  final ProcessRunner<T> runner;
   final SwiftRunnerRunChecked _runChecked;
 
   Future<String> build({
     required KmpProject project,
     required String frameworkPath,
-    required ComposeToolchain toolchain,
+    required ComposeToolchain<T> toolchain,
   }) async {
-    _validateFramework(project, frameworkPath);
+    _validateFramework(project, frameworkPath, runner.host.fileSystem);
     if (project.swiftSources.isEmpty) {
       throw XcrossError('No Swift sources detected for ${project.appName}.');
     }
     for (final source in project.swiftSources) {
-      if (!File(source).existsSync()) {
+      if (!runner.host.fileSystem.file(source).existsSync()) {
         throw XcrossError('Swift source not found: $source');
       }
     }
     final iphoneSdk = _iphoneSdk(toolchain);
-    final buildDir = toolchain.simulator
-        ? p.join(
-            project.root,
-            'build',
-            toolchain.buildOptions.outputDirectory,
-            'swift-runner',
-          )
-        : p.join(project.root, 'build', 'xcross-compose');
-    await Directory(buildDir).create(recursive: true);
+    final buildDir = toolchain.target.runnerDirectory(project.root, 'swift');
+    await runner.host.fileSystem.directory(buildDir).create(recursive: true);
     final runnerPath = p.join(buildDir, 'Runner');
     final resourceDir = p.join(
       toolchain.darwinSdkBundle,
@@ -60,18 +57,19 @@ final class SwiftRunnerBuilder {
       'swift',
     );
     final moduleCache = p.join(buildDir, 'swift-module-cache');
-    await Directory(moduleCache).create(recursive: true);
-    final clangBuiltins = _clangBuiltins(resourceDir);
+    await runner.host.fileSystem.directory(moduleCache).create(recursive: true);
+    final clangBuiltins = _clangBuiltins(resourceDir, runner.host.fileSystem);
     final compilerRt = compilerRtIos(
       toolchain.darwinSdkBundle,
-      simulator: toolchain.simulator,
+      libraryName: toolchain.target.compilerRtName,
+      files: runner.host.fileSystem,
     );
 
     final swiftc = ProcessInvocation.forHost(toolchain.host, toolchain.swiftc, [
       '-sdk',
       iphoneSdk,
       '-target',
-      toolchain.buildOptions.targetTriple,
+      toolchain.target.targetTriple,
       '-resource-dir',
       resourceDir,
       '-F',
@@ -112,11 +110,11 @@ final class SwiftRunnerBuilder {
       '-Xlinker',
       '-platform_version',
       '-Xlinker',
-      toolchain.buildOptions.linkerPlatform,
+      toolchain.target.linkerPlatform,
       '-Xlinker',
       _iosMinimumVersion,
       '-Xlinker',
-      _sdkVersion(iphoneSdk) ?? '26.5',
+      _sdkVersion(iphoneSdk) ?? composeDefaultSdkVersion,
       // Same non-Apple-clang gap as above, one layer further in: Apple
       // clang's Darwin driver also auto-links the platform's compiler-rt
       // static archive (libclang_rt.ios.a, which provides
@@ -142,36 +140,30 @@ final class SwiftRunnerBuilder {
       swiftc.arguments,
       workingDirectory: project.root,
     );
-    MachOValidator.validate64BitExecutable(runnerPath);
-    if (!Platform.isWindows) ProcessRunner.makeExecutable(runnerPath);
+    MachOValidator(runner.host.fileSystem).validate64BitExecutable(runnerPath);
+    runner.makeExecutable(runnerPath);
     return runnerPath;
   }
-
-  static Future<void> _defaultRunChecked(
-    String executable,
-    List<String> arguments, {
-    String? workingDirectory,
-  }) => ProcessRunner.runTool(
-    executable,
-    arguments,
-    workingDirectory: workingDirectory,
-  );
 }
 
-String? _clangBuiltins(String resourceDir) {
+String? _clangBuiltins(String resourceDir, HostFileSystemInterface files) {
   final candidate = p.join(resourceDir, 'clang', 'include');
-  if (File(p.join(candidate, 'stdarg.h')).existsSync()) return candidate;
+  if (files.file(p.join(candidate, 'stdarg.h')).existsSync()) return candidate;
   return null;
 }
 
-String _iphoneSdk(ComposeToolchain toolchain) {
+String _iphoneSdk<T extends PlatformHostInterface>(
+  ComposeToolchain<T> toolchain,
+) {
   // See the matching comment in objc_runner_builder.dart: darwinSdkPath is
   // already the resolved "iPhoneOS(.\d+)?.sdk" leaf.
-  if (Directory(toolchain.darwinSdkPath).existsSync()) {
+  if (toolchain.target.host.fileSystem
+      .directory(toolchain.darwinSdkPath)
+      .existsSync()) {
     return toolchain.darwinSdkPath;
   }
   throw XcrossError(
-    '${toolchain.simulator ? 'iPhoneSimulator' : 'iPhoneOS'} SDK not found at ${toolchain.darwinSdkPath}',
+    '${toolchain.target.buildPlatform.sdkName} SDK not found at ${toolchain.darwinSdkPath}',
   );
 }
 
@@ -197,8 +189,12 @@ String? _sdkVersion(String sdkPath) {
 /// the call site's comment. Mirrors konan_configuration.dart's
 /// _findCompilerRtDarwinDir, duplicated rather than shared for the same
 /// reason as _sdkVersion above.
-String? compilerRtIos(String darwinSdkBundle, {bool simulator = false}) {
-  final clang = Directory(
+String? compilerRtIos(
+  String darwinSdkBundle, {
+  required HostFileSystemInterface files,
+  String libraryName = 'libclang_rt.ios.a',
+}) {
+  final clang = files.directory(
     p.join(
       darwinSdkBundle,
       'Developer',
@@ -216,22 +212,21 @@ String? compilerRtIos(String darwinSdkBundle, {bool simulator = false}) {
   final versions = clang.listSync().whereType<Directory>().toList()
     ..sort((a, b) => b.path.compareTo(a.path));
   for (final entry in versions) {
-    final candidate = p.join(
-      entry.path,
-      'lib',
-      'darwin',
-      simulator ? 'libclang_rt.iossim.a' : 'libclang_rt.ios.a',
-    );
-    if (File(candidate).existsSync()) return candidate;
+    final candidate = p.join(entry.path, 'lib', 'darwin', libraryName);
+    if (files.file(candidate).existsSync()) return candidate;
   }
   return null;
 }
 
-void _validateFramework(KmpProject project, String frameworkPath) {
-  if (!Directory(frameworkPath).existsSync()) {
+void _validateFramework(
+  KmpProject project,
+  String frameworkPath,
+  HostFileSystemInterface files,
+) {
+  if (!files.directory(frameworkPath).existsSync()) {
     throw XcrossError('Compose framework not found: $frameworkPath');
   }
-  if (!File(p.join(frameworkPath, project.baseName)).existsSync()) {
+  if (!files.file(p.join(frameworkPath, project.baseName)).existsSync()) {
     throw XcrossError(
       'Compose framework binary not found: ${p.join(frameworkPath, project.baseName)}',
     );

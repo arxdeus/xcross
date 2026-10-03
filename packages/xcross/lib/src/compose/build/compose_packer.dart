@@ -1,4 +1,5 @@
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:xcross/src/compose/build/compose_app_assembler.dart';
 import 'package:xcross/src/compose/build/gradle_klib_builder.dart';
 import 'package:xcross/src/compose/build/kotlin_framework_builder.dart';
@@ -6,73 +7,96 @@ import 'package:xcross/src/compose/build/objc_runner_builder.dart';
 import 'package:xcross/src/compose/build/swift_runner_builder.dart';
 import 'package:xcross/src/compose/models/compose_build_options.dart';
 import 'package:xcross/src/compose/project/kmp_project.dart';
-import 'package:xcross/src/compose/toolchain/compose_host.dart';
 import 'package:xcross/src/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/compose/toolchain/compose_toolchain_resolver.dart';
 import 'package:xcross/src/models/pack_result.dart';
+import 'package:xcross/src/shared/compose/compose_build_context.dart';
+import 'package:xcross/src/target/shared/compose/compose_target.dart';
 
-typedef ComposeCurrentHost = ComposeHost Function();
-typedef ComposeEnvironment = Map<String, String> Function();
-typedef ComposeEnsureToolchain =
-    Future<ComposeToolchain> Function({
-      required ComposeHost host,
+typedef ComposeEnsureToolchain<T extends PlatformHostInterface> =
+    Future<ComposeToolchain<T>> Function({
       required Map<String, String> environment,
       required String projectRoot,
       required bool allowInstall,
       required bool force,
-      required bool simulator,
     });
-typedef ComposeBuildKlib =
+typedef ComposeBuildKlib<T extends PlatformHostInterface> =
     Future<GradleKlibResult> Function({
       required KmpProject project,
-      required ComposeToolchain toolchain,
+      required ComposeToolchain<T> toolchain,
     });
-typedef ComposeBuildFramework =
+typedef ComposeBuildFramework<T extends PlatformHostInterface> =
     Future<String> Function({
       required KmpProject project,
       required ComposeBuildOptions options,
-      required ComposeToolchain toolchain,
+      required ComposeToolchain<T> toolchain,
       required GradleKlibResult klib,
     });
-typedef ComposeBuildObjcRunner =
+typedef ComposeBuildRunner<T extends PlatformHostInterface> =
     Future<String> Function({
       required KmpProject project,
       required String frameworkPath,
-      required ComposeToolchain toolchain,
-    });
-typedef ComposeBuildSwiftRunner =
-    Future<String> Function({
-      required KmpProject project,
-      required String frameworkPath,
-      required ComposeToolchain toolchain,
+      required ComposeToolchain<T> toolchain,
     });
 typedef ComposeAssembleApp =
     Future<String> Function({
       required KmpProject project,
       required String runnerPath,
-      required bool simulator,
       required String frameworkPath,
     });
 
-final class ComposePacker {
+final class ComposePacker<T extends PlatformHostInterface> {
   ComposePacker({
     required KmpProject project,
     required ComposeBuildOptions options,
-  }) : this.withSeams(project: project, options: options);
+    required ComposeTarget<T> target,
+    required ProcessRunner<T> runner,
+    required Log log,
+    required Downloader downloader,
+    required DarwinToolchainResolver<T> tools,
+    required DarwinSdkRepository<T> sdkRepository,
+    String? cacheRoot,
+    int processorCount = 1,
+  }) : this.withSeams(
+         project: project,
+         options: options,
+         target: target,
+         runner: runner,
+         log: log,
+         downloader: downloader,
+         tools: tools,
+         sdkRepository: sdkRepository,
+         cacheRoot: cacheRoot,
+         processorCount: processorCount,
+       );
 
-  const ComposePacker.withSeams({
+  ComposePacker.withSeams({
     required this.project,
     required this.options,
-    ComposeCurrentHost? currentHost,
-    ComposeEnvironment? environment,
-    ComposeEnsureToolchain? ensureToolchain,
-    ComposeBuildKlib? buildKlib,
-    ComposeBuildFramework? buildFramework,
-    ComposeBuildObjcRunner? buildObjcRunner,
-    ComposeBuildSwiftRunner? buildSwiftRunner,
+    required ComposeTarget<T> target,
+    required ProcessRunner<T> runner,
+    required DarwinToolchainResolver<T> tools,
+    required DarwinSdkRepository<T> sdkRepository,
+    required Log log,
+    required Downloader downloader,
+    String? cacheRoot,
+    int processorCount = 1,
+    ComposeEnsureToolchain<T>? ensureToolchain,
+    ComposeBuildKlib<T>? buildKlib,
+    ComposeBuildFramework<T>? buildFramework,
+    ComposeBuildRunner<T>? buildObjcRunner,
+    ComposeBuildRunner<T>? buildSwiftRunner,
     ComposeAssembleApp? assembleApp,
-  }) : _currentHost = currentHost,
-       _environment = environment,
+  }) : context = ComposeBuildContext(
+         target: target,
+         runner: runner,
+         tools: tools,
+         sdkRepository: sdkRepository,
+         log: log,
+         downloader: downloader,
+         cacheRoot: cacheRoot,
+         processorCount: processorCount,
+       ),
        _ensureToolchain = ensureToolchain,
        _buildKlib = buildKlib,
        _buildFramework = buildFramework,
@@ -82,51 +106,69 @@ final class ComposePacker {
 
   final KmpProject project;
   final ComposeBuildOptions options;
-  final ComposeCurrentHost? _currentHost;
-  final ComposeEnvironment? _environment;
-  final ComposeEnsureToolchain? _ensureToolchain;
-  final ComposeBuildKlib? _buildKlib;
-  final ComposeBuildFramework? _buildFramework;
-  final ComposeBuildObjcRunner? _buildObjcRunner;
-  final ComposeBuildSwiftRunner? _buildSwiftRunner;
+  final ComposeBuildContext<T> context;
+  ComposeTarget<T> get target => context.target;
+  ProcessRunner<T> get runner => context.runner;
+  DarwinToolchainResolver<T> get tools => context.tools;
+  DarwinSdkRepository<T> get sdkRepository => context.sdkRepository;
+  Log get log => context.log;
+  int get processorCount => context.processorCount;
+  Downloader get downloader => context.downloader;
+  String? get _cacheRoot => context.cacheRoot;
+  final ComposeEnsureToolchain<T>? _ensureToolchain;
+  final ComposeBuildKlib<T>? _buildKlib;
+  final ComposeBuildFramework<T>? _buildFramework;
+  final ComposeBuildRunner<T>? _buildObjcRunner;
+  final ComposeBuildRunner<T>? _buildSwiftRunner;
   final ComposeAssembleApp? _assembleApp;
 
-  /// Build the project, reporting each stage as its own phase.
-  ///
-  /// Every stage shells out to a build tool that narrates itself at length —
-  /// Gradle alone prints a screenful of task lines per run. Naming the stages
-  /// here is what lets [ProcessRunner.runTool] collapse all of that into one
-  /// spinner per stage, and keeps the raw logs one `--verbose` away.
   Future<PackResult> pack() async {
-    final toolchain = await Log.logStep(
+    target.validateOutput(ipa: options.ipa);
+    final resolver = ComposeToolchainResolver(
+      target,
+      runner: runner,
+      log: log,
+      downloader: downloader,
+      tools: tools,
+      sdkRepository: sdkRepository,
+      cacheRoot: _cacheRoot,
+    );
+    final toolchain = await log.logStep(
       'Resolving toolchain',
-      () => (_ensureToolchain ?? _defaultEnsureToolchain)(
-        host: (_currentHost ?? ComposeHost.current)(),
-        environment:
-            (_environment ?? (() => ProcessRunner.effectiveEnvironment))(),
+      () => (_ensureToolchain ?? resolver.ensure)(
+        environment: runner.effectiveEnvironment,
         projectRoot: project.root,
         allowInstall: true,
         force: false,
-        simulator: options.simulator,
       ),
     );
-    final klib = await Log.logStep(
+    if (!identical(toolchain.target, target)) {
+      throw StateError(
+        'Resolved Compose toolchain must retain its build target.',
+      );
+    }
+    final klib = await log.logStep(
       'Compiling Kotlin sources',
-      () => (_buildKlib ?? _defaultBuildKlib)(
+      () => (_buildKlib ?? GradleKlibBuilder(runner).build)(
         project: project,
         toolchain: toolchain,
       ),
     );
-    final frameworkPath = await Log.logStep(
+    final frameworkPath = await log.logStep(
       'Building ${project.baseName}.framework',
-      () => (_buildFramework ?? _defaultBuildFramework)(
-        project: project,
-        options: options,
-        toolchain: toolchain,
-        klib: klib,
-      ),
+      () =>
+          (_buildFramework ??
+          KotlinFrameworkBuilder(
+            runner,
+            log: log,
+            processorCount: processorCount,
+          ).build)(
+            project: project,
+            options: options,
+            toolchain: toolchain,
+            klib: klib,
+          ),
     );
-
     if (project.entryKind == KmpEntryKind.frameworkOnly) {
       return PackResult(
         outputPath: frameworkPath,
@@ -135,33 +177,30 @@ final class ComposePacker {
         projectRoot: project.root,
       );
     }
-
-    final runnerPath = await Log.logStep(
+    final buildRunner = switch (project.entryKind) {
+      KmpEntryKind.runnableApp =>
+        _buildObjcRunner ?? ObjcRunnerBuilder(runner).build,
+      KmpEntryKind.swiftApp =>
+        _buildSwiftRunner ?? SwiftRunnerBuilder(runner).build,
+      KmpEntryKind.frameworkOnly => throw StateError('unreachable'),
+    };
+    final runnerPath = await log.logStep(
       'Compiling Runner',
-      () => switch (project.entryKind) {
-        KmpEntryKind.runnableApp =>
-          (_buildObjcRunner ?? _defaultBuildObjcRunner)(
-            project: project,
-            frameworkPath: frameworkPath,
-            toolchain: toolchain,
-          ),
-        KmpEntryKind.swiftApp =>
-          (_buildSwiftRunner ?? _defaultBuildSwiftRunner)(
-            project: project,
-            frameworkPath: frameworkPath,
-            toolchain: toolchain,
-          ),
-        KmpEntryKind.frameworkOnly => throw StateError('unreachable'),
-      },
-    );
-    final appPath = await Log.logStep(
-      'Assembling ${project.appName}.app',
-      () => (_assembleApp ?? _defaultAssembleApp)(
+      () => buildRunner(
         project: project,
-        runnerPath: runnerPath,
-        simulator: options.simulator,
         frameworkPath: frameworkPath,
+        toolchain: toolchain,
       ),
+    );
+    final appPath = await log.logStep(
+      'Assembling ${project.appName}.app',
+      () =>
+          (_assembleApp ??
+          ComposeAppAssembler(target, runner, log: log).assemble)(
+            project: project,
+            runnerPath: runnerPath,
+            frameworkPath: frameworkPath,
+          ),
     );
     return PackResult(
       outputPath: appPath,
@@ -169,69 +208,4 @@ final class ComposePacker {
       projectRoot: project.root,
     );
   }
-
-  static Future<ComposeToolchain> _defaultEnsureToolchain({
-    required ComposeHost host,
-    required Map<String, String> environment,
-    required String projectRoot,
-    required bool allowInstall,
-    required bool force,
-    required bool simulator,
-  }) => ComposeToolchainResolver.ensure(
-    host: host,
-    environment: environment,
-    projectRoot: projectRoot,
-    allowInstall: allowInstall,
-    force: force,
-    simulator: simulator,
-  );
-
-  static Future<GradleKlibResult> _defaultBuildKlib({
-    required KmpProject project,
-    required ComposeToolchain toolchain,
-  }) => const GradleKlibBuilder().build(project: project, toolchain: toolchain);
-
-  static Future<String> _defaultBuildFramework({
-    required KmpProject project,
-    required ComposeBuildOptions options,
-    required ComposeToolchain toolchain,
-    required GradleKlibResult klib,
-  }) => const KotlinFrameworkBuilder().build(
-    project: project,
-    options: options,
-    toolchain: toolchain,
-    klib: klib,
-  );
-
-  static Future<String> _defaultBuildObjcRunner({
-    required KmpProject project,
-    required String frameworkPath,
-    required ComposeToolchain toolchain,
-  }) => ObjcRunnerBuilder().build(
-    project: project,
-    frameworkPath: frameworkPath,
-    toolchain: toolchain,
-  );
-
-  static Future<String> _defaultBuildSwiftRunner({
-    required KmpProject project,
-    required String frameworkPath,
-    required ComposeToolchain toolchain,
-  }) => SwiftRunnerBuilder().build(
-    project: project,
-    frameworkPath: frameworkPath,
-    toolchain: toolchain,
-  );
-
-  static Future<String> _defaultAssembleApp({
-    required KmpProject project,
-    required String runnerPath,
-    required bool simulator,
-    required String frameworkPath,
-  }) => ComposeAppAssembler.assemble(
-    project: project,
-    runnerPath: runnerPath,
-    simulator: simulator,
-    frameworkPath: frameworkPath,
-  );
 }

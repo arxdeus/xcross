@@ -1,137 +1,158 @@
-import 'dart:ffi';
 import 'dart:io';
-
+import 'package:cli_kit/cli_kit.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/compose/toolchain/compose_host.dart';
+import 'package:xcross/src/compose/compose.dart';
 import 'package:xcross/src/errors.dart';
+import 'support/compose_platforms.dart';
 
 void main() {
-  group('ComposeHost artifacts', () {
-    test('linux and windows use exact Kotlin Native Maven artifacts', () {
-      expect(
-        ComposeHost.linuxX64.hostArtifact('2.2.20'),
-        'kotlin-native-prebuilt-2.2.20-linux-x86_64.tar.gz',
-      );
-      expect(
-        ComposeHost.windowsX64.hostArtifact('2.2.20'),
-        'kotlin-native-prebuilt-2.2.20-windows-x86_64.zip',
-      );
-      expect(
-        ComposeHost.macosX64OverlayArtifact('2.2.20'),
-        'kotlin-native-prebuilt-2.2.20-macos-x86_64.tar.gz',
-      );
-      expect(
-        ComposeHost.macosArm64.hostArtifact('2.2.20'),
-        'kotlin-native-prebuilt-2.2.20-macos-aarch64.tar.gz',
-      );
-      expect(
-        ComposeHost.macosX64.hostArtifact('2.2.20'),
-        ComposeHost.macosX64OverlayArtifact('2.2.20'),
-      );
-    });
-
-    for (final architecture in ['arm64', 'aarch64', ' ARM64 ']) {
-      test('resolves macOS $architecture with native POSIX tools', () {
-        final host = ComposeHost.current(
-          operatingSystem: 'macos',
-          architecture: architecture,
-        );
-        expect(host, ComposeHost.macosArm64);
-        expect(host.konanTarget, 'macos_arm64');
-        expect(host.isMacOS, isTrue);
-        expect(host.isWindows, isFalse);
-        expect(host.javaExecutable('/jdk'), p.join('/jdk', 'bin', 'java'));
-        expect(host.konancExecutable('/kn'), p.join('/kn', 'bin', 'konanc'));
-        expect(host.invokeExecutable('/gradlew', ['build']), [
-          '/gradlew',
-          'build',
-        ]);
-      });
-      test('rejects Windows $architecture', () {
-        expect(
-          () => ComposeHost.current(
-            operatingSystem: 'windows',
-            architecture: architecture,
-          ),
-          throwsA(isA<XcrossError>()),
-        );
-      });
-    }
-
-    for (final architecture in ['x64', 'x86_64', 'AMD64']) {
-      for (final entry in {
-        'linux': ComposeHost.linuxX64,
-        'macos': ComposeHost.macosX64,
-        'windows': ComposeHost.windowsX64,
-      }.entries) {
-        test('resolves ${entry.key} $architecture', () {
-          expect(
-            ComposeHost.current(
-              operatingSystem: entry.key,
-              architecture: architecture,
-            ),
-            entry.value,
-          );
-        });
-      }
-    }
-
-    test('uses the runtime ABI rather than environment architecture hints', () {
-      final architecture = Abi.current().toString().split('_').last;
-      if (architecture == 'x64' ||
-          (Platform.isMacOS && architecture == 'arm64')) {
-        expect(
-          ComposeHost.current(),
-          ComposeHost.current(
-            operatingSystem: Platform.operatingSystem,
-            architecture: architecture,
-          ),
-        );
-      } else {
-        expect(ComposeHost.current, throwsA(isA<XcrossError>()));
-      }
-    });
-
-    test('does not treat unknown architectures as x64', () {
-      for (final architecture in ['arm', 'ia32', 'riscv64', 'unknown']) {
-        expect(
-          () => ComposeHost.current(
-            operatingSystem: 'linux',
-            architecture: architecture,
-          ),
-          throwsA(isA<XcrossError>()),
-        );
-      }
-    });
-
-    test('resolves host executable paths per target host', () {
-      expect(
-        ComposeHost.linuxX64.konancExecutable('/kn'),
-        p.join('/kn', 'bin', 'konanc'),
-      );
-      expect(
-        ComposeHost.windowsX64.konancExecutable('/kn'),
-        p.join('/kn', 'bin', 'konanc.bat'),
-      );
-    });
-
-    test('rejects linux arm64 early with a precise unsupported-host error', () {
-      expect(
-        () => ComposeHost.current(
-          operatingSystem: 'linux',
-          architecture: 'arm64',
-        ),
-        throwsA(
-          isA<XcrossError>().having(
-            (error) => error.message,
-            'message',
-            contains(
-              'compiler and matching JNI/LLVM dependencies, which upstream does not publish',
-            ),
-          ),
-        ),
-      );
-    });
+  test('named host strategies select exact archives and overlay plans', () {
+    expect(ComposeTestHosts.linuxX64.installationArtifacts('2.2.20'), [
+      'kotlin-native-prebuilt-2.2.20-linux-x86_64.tar.gz',
+      'kotlin-native-prebuilt-2.2.20-macos-x86_64.tar.gz',
+    ]);
+    expect(
+      ComposeTestHosts.windowsX64.hostArtifact('2.2.20'),
+      'kotlin-native-prebuilt-2.2.20-windows-x86_64.zip',
+    );
+    expect(ComposeTestHosts.macosArm64.installationArtifacts('2.2.20'), [
+      'kotlin-native-prebuilt-2.2.20-macos-aarch64.tar.gz',
+    ]);
+    expect(ComposeTestHosts.macosX64.installationArtifacts('2.2.20'), [
+      'kotlin-native-prebuilt-2.2.20-macos-x86_64.tar.gz',
+    ]);
   });
+
+  for (final architecture in ['arm64', 'aarch64', ' ARM64 ']) {
+    test('native macOS $architecture validates matching JVM architecture', () {
+      final host = MacOSComposeHost(MacOSHost(architecture: architecture));
+      expect(host.classifier, 'macos-aarch64');
+      expect(host.konanTarget, 'macos_arm64');
+      expect(host.supportsJavaArchitecture('aarch64'), isTrue);
+      expect(host.supportsJavaArchitecture('amd64'), isFalse);
+    });
+    test(
+      'rejects unsupported Linux and Windows compiler host $architecture',
+      () {
+        expect(
+          () => LinuxComposeHost(LinuxHost(architecture: architecture)),
+          throwsA(
+            isA<XcrossError>().having(
+              (error) => error.message,
+              'reason',
+              contains('linuxArm64 is a compilation target'),
+            ),
+          ),
+        );
+        expect(
+          () => WindowsComposeHost(
+            WindowsHost(architecture: architecture),
+            runningExecutable: '/unused-xcross',
+          ),
+          throwsA(isA<XcrossError>()),
+        );
+      },
+    );
+  }
+
+  test(
+    'unknown architecture is never assumed to be a supported compiler host',
+    () {
+      expect(() => MacOSComposeHost(MacOSHost()), throwsA(isA<XcrossError>()));
+      expect(() => LinuxComposeHost(LinuxHost()), throwsA(isA<XcrossError>()));
+      expect(
+        () => WindowsComposeHost(
+          WindowsHost(),
+          runningExecutable: '/unused-xcross',
+        ),
+        throwsA(isA<XcrossError>()),
+      );
+    },
+  );
+
+  test('execution and filesystem policies own naming and response files', () {
+    final posix = ComposeTestHosts.linuxX64;
+    final windows = ComposeTestHosts.windowsX64;
+    expect(posix.konancExecutable('/kn'), p.join('/kn', 'bin', 'konanc'));
+    expect(windows.konancExecutable('/kn'), p.join('/kn', 'bin', 'konanc.bat'));
+    expect(
+      posix.compilerArguments(
+        ['launcher'],
+        ['-target', 'ios_arm64'],
+        () => fail('POSIX must not emit a response file'),
+      ),
+      ['launcher', '-target', 'ios_arm64'],
+    );
+    expect(
+      windows.compilerArguments(
+        ['launcher'],
+        ['-target', 'ios_arm64'],
+        () => 'args.txt',
+      ),
+      ['launcher', '@args.txt'],
+    );
+    expect(posix.canCacheLibraryNames(['unsafe:name']), isTrue);
+    expect(windows.canCacheLibraryNames(['unsafe:name']), isFalse);
+    expect(windows.canCacheLibraryNames(['safe_name']), isTrue);
+    expect(windows.shimFingerprintFiles('/xcross').single.path, '/xcross');
+    expect(posix.shimFingerprintFiles('/xcross'), isEmpty);
+  });
+
+  test('host-bound target carries one consistent platform descriptor', () {
+    final host = ComposeTestHosts.macosArm64;
+    final iphone = IPhoneComposeTarget(IPhoneTarget(host.host), host);
+    final simulator = SimulatorComposeTarget(
+      SimulatorTarget(host.host),
+      host,
+      signing: FixtureSimulatorSigning(host.host),
+    );
+    expect(iphone.host, same(host.host));
+    expect(simulator.host, same(host.host));
+    expect(iphone.targetTriple, 'arm64-apple-ios15.0');
+    expect(simulator.targetTriple, 'arm64-apple-ios15.0-simulator');
+    expect(iphone.gradleTarget, 'iosArm64');
+    expect(simulator.gradleTarget, 'iosSimulatorArm64');
+    expect(simulator.compilerRtName, 'libclang_rt.iossim.a');
+    expect(simulator.gradleArguments('/kn'), ['-Pkotlin.native.home=/kn']);
+    expect(iphone.gradleArguments('/kn'), isEmpty);
+    expect(
+      () => simulator.validateOutput(ipa: true),
+      throwsA(isA<XcrossError>()),
+    );
+  });
+
+  test('simulator signer must belong to exact same host instance', () {
+    final host = ComposeTestHosts.macosArm64;
+    expect(
+      () => SimulatorComposeTarget(
+        SimulatorTarget(host.host),
+        host,
+        signing: FixtureSimulatorSigning(MacOSHost(architecture: 'arm64')),
+      ),
+      throwsArgumentError,
+    );
+  });
+
+  test(
+    'POSIX shim behavior handles absent dsymutil without command failure',
+    () async {
+      final directory = Directory.systemTemp.createTempSync(
+        'xcross-compose-shim-',
+      );
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final path = p.join(directory.path, 'dsymutil');
+      final executable = <String>[];
+      await ComposeTestHosts.linuxX64.writeShim(
+        path,
+        'dsymutil',
+        'XCROSS_APPLE_TOOL_DSYMUTIL',
+        '/unused',
+        executable.add,
+      );
+      expect(File(path).readAsStringSync(), contains('then exit 0'));
+      expect(executable, [path]);
+    },
+  );
 }

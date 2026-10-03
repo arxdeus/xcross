@@ -4,6 +4,8 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/compose/project/ios_app_config.dart';
 
+import 'support/compose_platforms.dart';
+
 void main() {
   group('IosAppConfig', () {
     test('parses assignments and expands known variables', () {
@@ -72,7 +74,10 @@ PRODUCT_BUNDLE_IDENTIFIER = $(DOMAIN).$(APP_SEGMENT)
       final root = Directory.systemTemp.createTempSync('xcross_ios_config_');
       addTearDown(() => root.deleteSync(recursive: true));
 
-      expect(IosAppConfig.load(root.path), isNull);
+      expect(
+        IosAppConfigLoader(fixtureRunner.host.fileSystem).load(root.path),
+        isNull,
+      );
     });
 
     test('load reads iosApp Configuration Config.xcconfig', () {
@@ -85,7 +90,9 @@ PRODUCT_NAME = FromFile
 PRODUCT_BUNDLE_IDENTIFIER = org.example.file
 ''');
 
-      final config = IosAppConfig.load(root.path);
+      final config = IosAppConfigLoader(
+        fixtureRunner.host.fileSystem,
+      ).load(root.path);
 
       expect(config, isNotNull);
       expect(config!.productName, 'FromFile');

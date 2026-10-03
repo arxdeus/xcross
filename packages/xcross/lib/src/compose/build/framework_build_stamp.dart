@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
@@ -18,18 +19,22 @@ import 'package:path/path.dart' as p;
 /// compiler argument list, since a changed flag (configuration, bundle id)
 /// must invalidate just as surely as a changed source.
 final class FrameworkBuildStamp {
-  const FrameworkBuildStamp({required this.stampPath});
+  const FrameworkBuildStamp({required this.stampPath, required this.files});
 
   /// Where the stamp for this framework output lives.
-  factory FrameworkBuildStamp.forFramework(String frameworkPath) =>
-      FrameworkBuildStamp(
-        stampPath: p.join(
-          p.dirname(frameworkPath),
-          '.${p.basename(frameworkPath)}.xcross-stamp',
-        ),
-      );
+  factory FrameworkBuildStamp.forFramework(
+    String frameworkPath, {
+    required HostFileSystemInterface files,
+  }) => FrameworkBuildStamp(
+    files: files,
+    stampPath: p.join(
+      p.dirname(frameworkPath),
+      '.${p.basename(frameworkPath)}.xcross-stamp',
+    ),
+  );
 
   final String stampPath;
+  final HostFileSystemInterface files;
 
   /// Whether [frameworkPath] already exists and was built from exactly these
   /// inputs. False on any doubt: a wrong "up to date" ships a stale binary to
@@ -39,8 +44,8 @@ final class FrameworkBuildStamp {
     required List<String> inputs,
     required List<String> arguments,
   }) {
-    if (!Directory(frameworkPath).existsSync()) return false;
-    final file = File(stampPath);
+    if (!files.directory(frameworkPath).existsSync()) return false;
+    final file = files.file(stampPath);
     if (!file.existsSync()) return false;
     try {
       return file.readAsStringSync() ==
@@ -53,7 +58,7 @@ final class FrameworkBuildStamp {
   /// Record the current inputs as the built state.
   void write({required List<String> inputs, required List<String> arguments}) {
     try {
-      File(stampPath)
+      files.file(stampPath)
         ..createSync(recursive: true)
         ..writeAsStringSync(compute(inputs: inputs, arguments: arguments));
     } on Object catch (_) {
@@ -65,7 +70,7 @@ final class FrameworkBuildStamp {
   /// so an interrupted or failed run cannot leave a stamp claiming success.
   void invalidate() {
     try {
-      final file = File(stampPath);
+      final file = files.file(stampPath);
       if (file.existsSync()) file.deleteSync();
     } on Object catch (_) {}
   }
@@ -83,21 +88,21 @@ final class FrameworkBuildStamp {
     // of megabytes.
     final parts = <String>[...arguments];
     for (final path in [...inputs]..sort()) {
-      final file = File(path);
+      final file = files.file(path);
       if (file.existsSync()) {
         parts.add('$path:${sha256.convert(file.readAsBytesSync())}');
       } else {
         // A klib can be a directory (unpacked); fold its files in order so a
         // change inside it still invalidates.
-        final directory = Directory(path);
+        final directory = files.directory(path);
         if (directory.existsSync()) {
-          final files =
+          final entries =
               directory
                   .listSync(recursive: true, followLinks: false)
                   .whereType<File>()
                   .toList()
                 ..sort((a, b) => a.path.compareTo(b.path));
-          for (final entry in files) {
+          for (final entry in entries) {
             final relative = p.relative(entry.path, from: path);
             parts.add(
               '$path/$relative:${sha256.convert(entry.readAsBytesSync())}',

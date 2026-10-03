@@ -2,7 +2,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/compose/watch/kotlin_source_watcher.dart';
+
+import 'support/compose_platforms.dart';
 
 void main() {
   late Directory root;
@@ -23,7 +24,7 @@ void main() {
     write('gradle/libs.versions.toml', '[versions]');
     write('README.md', 'not a source');
 
-    final names = KotlinSourceWatcher(
+    final names = fixtureSourceWatcher(
       root.path,
     ).sourceFiles().map(p.basename).toSet();
 
@@ -41,7 +42,7 @@ void main() {
     write('shared/build/tmp/Other.kt', 'generated');
     write('.gradle/cache.properties', 'x=1');
 
-    final files = KotlinSourceWatcher(root.path).sourceFiles();
+    final files = fixtureSourceWatcher(root.path).sourceFiles();
 
     expect(files, hasLength(1));
     expect(p.basename(files.single), 'App.kt');
@@ -49,7 +50,7 @@ void main() {
 
   test('detects edits, additions, and deletions', () {
     final app = write('shared/src/App.kt', 'fun main() {}');
-    final watcher = KotlinSourceWatcher(root.path)..snapshot();
+    final watcher = fixtureSourceWatcher(root.path)..snapshot();
 
     expect(watcher.changedFiles(), isEmpty);
 
@@ -67,7 +68,7 @@ void main() {
 
   test('rewriting identical content is not a change', () {
     final app = write('shared/src/App.kt', 'fun main() {}');
-    final watcher = KotlinSourceWatcher(root.path)..snapshot();
+    final watcher = fixtureSourceWatcher(root.path)..snapshot();
 
     // Editors and formatters rewrite files wholesale, which bumps mtime
     // without changing content; a rebuild here costs ~2 minutes.
@@ -78,7 +79,7 @@ void main() {
 
   test('invalidate forces the next check to report a change again', () {
     final app = write('shared/src/App.kt', 'fun main() {}');
-    final watcher = KotlinSourceWatcher(root.path)..snapshot();
+    final watcher = fixtureSourceWatcher(root.path)..snapshot();
     app.writeAsStringSync('broken');
     final changed = watcher.changedFiles();
     expect(changed, isNotEmpty);
@@ -92,7 +93,7 @@ void main() {
 
   test('hasChanges reports the same signal as changedFiles', () {
     final app = write('shared/src/App.kt', 'fun main() {}');
-    final watcher = KotlinSourceWatcher(root.path)..snapshot();
+    final watcher = fixtureSourceWatcher(root.path)..snapshot();
 
     expect(watcher.hasChanges(), isFalse);
     app.writeAsStringSync('fun main() { }');
@@ -101,7 +102,7 @@ void main() {
   });
 
   test('a missing project root yields no sources instead of throwing', () {
-    final watcher = KotlinSourceWatcher(p.join(root.path, 'nope'))..snapshot();
+    final watcher = fixtureSourceWatcher(p.join(root.path, 'nope'))..snapshot();
     expect(watcher.sourceFiles(), isEmpty);
     expect(watcher.changedFiles(), isEmpty);
   });

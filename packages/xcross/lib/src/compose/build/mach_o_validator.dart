@@ -1,13 +1,14 @@
-import 'dart:io';
-
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/errors.dart';
 
-abstract final class MachOValidator {
+final class MachOValidator {
+  const MachOValidator(this.files);
+  final HostFileSystemInterface files;
   static const _littleEndian64Magic = [0xcf, 0xfa, 0xed, 0xfe];
   static const _bigEndian64Magic = [0xfe, 0xed, 0xfa, 0xcf];
 
-  static void validate64BitExecutable(String path) {
-    final file = File(path);
+  void validate64BitExecutable(String path) {
+    final file = files.file(path);
     if (!file.existsSync() || file.lengthSync() < 32) {
       throw XcrossError('Runner Mach-O output is incomplete or missing: $path');
     }

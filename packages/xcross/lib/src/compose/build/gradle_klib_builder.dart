@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/compose/build/process_invocation.dart';
 import 'package:xcross/src/compose/project/kmp_project.dart';
@@ -25,36 +25,39 @@ final class GradleKlibResult {
   final List<String> dependencies;
 }
 
-final class GradleKlibBuilder {
-  const GradleKlibBuilder() : _runChecked = null;
+final class GradleKlibBuilder<T extends PlatformHostInterface> {
+  const GradleKlibBuilder(this.runner) : _runChecked = null;
 
-  const GradleKlibBuilder.withSeams({GradleRunChecked? runChecked})
+  const GradleKlibBuilder.withSeams(this.runner, {GradleRunChecked? runChecked})
     : _runChecked = runChecked;
 
+  final ProcessRunner<T> runner;
   final GradleRunChecked? _runChecked;
 
   Future<GradleKlibResult> build({
     required KmpProject project,
-    required ComposeToolchain toolchain,
+    required ComposeToolchain<T> toolchain,
   }) async {
     final gradle = _gradleInvocation(project, toolchain);
-    final tmpDir = Directory.systemTemp.createTempSync('xcross_deps_');
+    final tmpDir = runner.host.fileSystem
+        .directory(runner.host.paths.temporaryRoot)
+        .createTempSync('xcross_deps_');
     final depsOutPath = p.join(tmpDir.path, 'iosDeps.txt');
     final initScriptPath = p.join(tmpDir.path, 'dumpDeps.init.gradle.kts');
     final env = <String, String>{
-      ...ProcessRunner.effectiveEnvironment,
+      ...runner.effectiveEnvironment,
       if (toolchain.javaHome.isNotEmpty) 'JAVA_HOME': toolchain.javaHome,
       if (toolchain.konanCache.isNotEmpty)
         'KONAN_DATA_DIR': toolchain.konanCache,
       'XCROSS_DEPS_OUT': depsOutPath,
     };
     if (toolchain.javaHome.isNotEmpty) {
-      final parentPath = ProcessRunner.effectiveEnvironment['PATH'] ?? '';
+      final parentPath = runner.effectiveEnvironment['PATH'] ?? '';
       final javaBin = p.join(toolchain.javaHome, 'bin');
-      final pathSeparator = toolchain.host.isWindows ? ';' : ':';
-      env['PATH'] = parentPath.isEmpty
-          ? javaBin
-          : '$javaBin$pathSeparator$parentPath';
+      env['PATH'] = runner.host.environment.joinPathList([
+        javaBin,
+        ...runner.host.environment.splitPathList(parentPath),
+      ]);
     }
 
     try {
@@ -65,17 +68,18 @@ final class GradleKlibBuilder {
       // and on every `compose run --watch` rebuild). The daemon stays allowed
       // for the same reason; Gradle hands it this client's environment
       // (XCROSS_DEPS_OUT, KONAN_DATA_DIR) on every build.
-      await File(initScriptPath).writeAsString(
-        _dumpIosDepsInitScript(project, toolchain.buildOptions.gradleTarget),
-      );
+      await runner.host.fileSystem
+          .file(initScriptPath)
+          .writeAsString(
+            _dumpIosDepsInitScript(project, toolchain.target.gradleTarget),
+          );
       await _run(
         gradle.executable,
         [
           ...gradle.arguments,
           ':${project.moduleName}:dumpIosDeps',
           '-Pkotlin.native.enableKlibsCrossCompilation=true',
-          if (toolchain.simulator)
-            '-Pkotlin.native.home=${toolchain.kotlinHome}',
+          ...toolchain.target.gradleArguments(toolchain.kotlinHome),
           '-Pxcross.depsOut=$depsOutPath',
           '--init-script',
           initScriptPath,
@@ -91,18 +95,24 @@ final class GradleKlibBuilder {
         'build',
         'classes',
         'kotlin',
-        toolchain.buildOptions.gradleTarget,
+        toolchain.target.gradleTarget,
         'main',
         'klib',
         project.moduleLeaf,
       );
-      if (FileSystemEntity.typeSync(moduleKlibPath) ==
+      if ((runner.host.fileSystem.link(moduleKlibPath).existsSync()
+              ? FileSystemEntityType.link
+              : runner.host.fileSystem.directory(moduleKlibPath).existsSync()
+              ? FileSystemEntityType.directory
+              : runner.host.fileSystem.file(moduleKlibPath).existsSync()
+              ? FileSystemEntityType.file
+              : FileSystemEntityType.notFound) ==
           FileSystemEntityType.notFound) {
         throw XcrossError(
           'Gradle did not produce module KLIB at $moduleKlibPath.',
         );
       }
-      final depsOut = File(depsOutPath);
+      final depsOut = runner.host.fileSystem.file(depsOutPath);
       if (!depsOut.existsSync()) {
         throw XcrossError(
           'Gradle dependency output not found at $depsOutPath.',
@@ -124,11 +134,10 @@ final class GradleKlibBuilder {
 
   ProcessInvocation _gradleInvocation(
     KmpProject project,
-    ComposeToolchain toolchain,
+    ComposeToolchain<T> toolchain,
   ) {
-    final wrapperName = toolchain.host.isWindows ? 'gradlew.bat' : 'gradlew';
-    final wrapper = p.join(project.root, wrapperName);
-    final executable = File(wrapper).existsSync()
+    final wrapper = toolchain.host.gradleWrapper(project.root);
+    final executable = runner.host.fileSystem.file(wrapper).existsSync()
         ? wrapper
         : toolchain.gradleExecutable;
     return ProcessInvocation.forHost(toolchain.host, executable, const []);
@@ -149,7 +158,7 @@ final class GradleKlibBuilder {
         environment: environment,
       );
     }
-    return ProcessRunner.runTool(
+    return runner.runTool(
       executable,
       arguments,
       workingDirectory: workingDirectory,
@@ -247,13 +256,22 @@ allprojects {
   /// point of it: `compileDependencyFiles` also carries things that are not
   /// libraries at all - the compiler jar among them - and excluding those by
   /// name only works until the next one appears.
-  static bool _isKlib(String path) {
+  bool _isKlib(String path) {
     if (p.extension(path) == '.klib') {
-      return FileSystemEntity.typeSync(path) != FileSystemEntityType.notFound;
+      return (runner.host.fileSystem.link(path).existsSync()
+              ? FileSystemEntityType.link
+              : runner.host.fileSystem.directory(path).existsSync()
+              ? FileSystemEntityType.directory
+              : runner.host.fileSystem.file(path).existsSync()
+              ? FileSystemEntityType.file
+              : FileSystemEntityType.notFound) !=
+          FileSystemEntityType.notFound;
     }
-    if (FileSystemEntity.isDirectorySync(path)) {
-      return File(p.join(path, 'default', 'manifest')).existsSync() ||
-          File(p.join(path, 'manifest')).existsSync();
+    if (runner.host.fileSystem.directory(path).existsSync()) {
+      return runner.host.fileSystem
+              .file(p.join(path, 'default', 'manifest'))
+              .existsSync() ||
+          runner.host.fileSystem.file(p.join(path, 'manifest')).existsSync();
     }
     return false;
   }

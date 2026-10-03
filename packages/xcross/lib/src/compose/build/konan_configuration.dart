@@ -2,12 +2,13 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/compose/project/kmp_project.dart';
 import 'package:xcross/src/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/compose/toolchain/host_manager_patcher.dart';
+import 'package:xcross/src/shared/compose/apple_toolchain.dart';
 
 typedef KonanPatchCompilerJar = Future<void> Function(File jar);
 typedef MakeExecutable = void Function(String path);
@@ -30,14 +31,15 @@ final class PreparedKonanConfiguration {
   final Map<String, String> environment;
 }
 
-final class KonanConfiguration {
-  const KonanConfiguration()
+final class KonanConfiguration<T extends PlatformHostInterface> {
+  KonanConfiguration(this.runner)
     : _patchCompilerJar = null,
       _makeExecutable = null,
       _parentEnvironment = null,
       _runningExecutable = null;
 
-  const KonanConfiguration.withSeams({
+  KonanConfiguration.withSeams(
+    this.runner, {
     KonanPatchCompilerJar? patchCompilerJar,
     MakeExecutable? makeExecutable,
     Map<String, String>? parentEnvironment,
@@ -47,8 +49,9 @@ final class KonanConfiguration {
        _parentEnvironment = parentEnvironment,
        _runningExecutable = runningExecutable;
 
-  static int _stagingCounter = 0;
+  int _stagingCounter = 0;
 
+  final ProcessRunner<T> runner;
   final KonanPatchCompilerJar? _patchCompilerJar;
   final MakeExecutable? _makeExecutable;
   final Map<String, String>? _parentEnvironment;
@@ -56,18 +59,18 @@ final class KonanConfiguration {
 
   Future<PreparedKonanConfiguration> prepare({
     required KmpProject project,
-    required ComposeToolchain toolchain,
+    required ComposeToolchain<T> toolchain,
   }) async {
     final baseDir = p.join(
       project.root,
       'build',
-      toolchain.buildOptions.outputDirectory,
+      toolchain.target.outputDirectory,
       'toolchain',
     );
     final fingerprint = await _fingerprint(toolchain);
     final root = p.join(baseDir, fingerprint);
     final markerPath = p.join(root, '.xcross-complete');
-    if (File(markerPath).existsSync()) {
+    if (runner.host.fileSystem.file(markerPath).existsSync()) {
       return _prepared(toolchain: toolchain, root: root);
     }
 
@@ -77,18 +80,18 @@ final class KonanConfiguration {
     );
     try {
       await _prepareStaging(stagingRoot, root, toolchain);
-      File(
-        p.join(stagingRoot, '.xcross-complete'),
-      ).writeAsStringSync('complete\n');
-      await Directory(stagingRoot).rename(root);
+      runner.host.fileSystem
+          .file(p.join(stagingRoot, '.xcross-complete'))
+          .writeAsStringSync('complete\n');
+      await runner.host.fileSystem.directory(stagingRoot).rename(root);
     } on FileSystemException {
-      await _deleteIfExists(Directory(stagingRoot));
-      if (File(markerPath).existsSync()) {
+      await _deleteIfExists(runner.host.fileSystem.directory(stagingRoot));
+      if (runner.host.fileSystem.file(markerPath).existsSync()) {
         return _prepared(toolchain: toolchain, root: root);
       }
       rethrow;
     } catch (_) {
-      await _deleteIfExists(Directory(stagingRoot));
+      await _deleteIfExists(runner.host.fileSystem.directory(stagingRoot));
       rethrow;
     }
     return _prepared(toolchain: toolchain, root: root);
@@ -97,16 +100,24 @@ final class KonanConfiguration {
   Future<void> _prepareStaging(
     String stagingRoot,
     String finalRoot,
-    ComposeToolchain toolchain,
+    ComposeToolchain<T> toolchain,
   ) async {
     final kotlinHome = p.join(stagingRoot, 'kotlin-home');
     final configDir = p.join(stagingRoot, 'konan');
-    Directory(p.join(kotlinHome, 'bin')).createSync(recursive: true);
-    Directory(p.join(kotlinHome, 'konan', 'lib')).createSync(recursive: true);
-    Directory(configDir).createSync(recursive: true);
+    runner.host.fileSystem
+        .directory(p.join(kotlinHome, 'bin'))
+        .createSync(recursive: true);
+    runner.host.fileSystem
+        .directory(p.join(kotlinHome, 'konan', 'lib'))
+        .createSync(recursive: true);
+    runner.host.fileSystem.directory(configDir).createSync(recursive: true);
     await _copyMutableKonanFiles(toolchain.kotlinHome, kotlinHome);
     await _patchJars(kotlinHome);
-    await _writeAppleToolchain(stagingRoot, toolchain);
+    await AppleToolchainStager(
+      runner,
+      runningExecutable: _runningExecutable,
+      makeExecutable: _makeExecutable,
+    ).stage(stagingRoot, toolchain);
     _writeKonanProperties(
       p.join(configDir, 'konan.properties'),
       toolchain,
@@ -115,19 +126,18 @@ final class KonanConfiguration {
   }
 
   PreparedKonanConfiguration _prepared({
-    required ComposeToolchain toolchain,
+    required ComposeToolchain<T> toolchain,
     required String root,
   }) {
     final kotlinHome = p.join(root, 'kotlin-home');
     final configDir = p.join(root, 'konan');
     final appleBin = p.join(root, 'apple-toolchain', 'bin');
-    final pathSeparator = toolchain.host.isWindows ? ';' : ':';
-    final parentEnvironment =
-        _parentEnvironment ?? ProcessRunner.effectiveEnvironment;
+    final parentEnvironment = _parentEnvironment ?? runner.effectiveEnvironment;
     final parentPath = parentEnvironment['PATH'] ?? '';
-    final path = parentPath.isEmpty
-        ? appleBin
-        : '$appleBin$pathSeparator$parentPath';
+    final path = runner.host.environment.joinPathList([
+      appleBin,
+      ...runner.host.environment.splitPathList(parentPath),
+    ]);
     final compilerJar = p.join(
       kotlinHome,
       'konan',
@@ -165,7 +175,7 @@ final class KonanConfiguration {
         'KONAN_CONFIG': configDir,
         'KONAN_USE_INTERNAL_SERVER': '1',
         if (javaOptions.isNotEmpty) 'JDK_JAVA_OPTIONS': javaOptions,
-        ..._appleToolEnvironment(toolchain, parentPath),
+        ...AppleToolEnvironment.resolve(toolchain, parentPath),
         'PATH': path,
       },
     );
@@ -175,7 +185,7 @@ final class KonanConfiguration {
     if (directory.existsSync()) await directory.delete(recursive: true);
   }
 
-  Future<String> _fingerprint(ComposeToolchain toolchain) async {
+  Future<String> _fingerprint(ComposeToolchain<T> toolchain) async {
     final bytes = BytesBuilder();
     void addString(String value) {
       bytes.add(utf8.encode(value));
@@ -183,7 +193,7 @@ final class KonanConfiguration {
     }
 
     addString(toolchain.host.classifier);
-    addString(toolchain.buildOptions.konanTarget);
+    addString(toolchain.target.konanTarget);
     addString(toolchain.kotlinHome);
     addString(toolchain.konanCache);
     addString(toolchain.konancExecutable);
@@ -198,19 +208,21 @@ final class KonanConfiguration {
     // decides whether an already-prepared toolchain root is reused, so a
     // stale root would keep serving the previous shim scripts.
     addString('direct-java-apple-toolchain-v2');
-    if (toolchain.host.isWindows) {
-      await _addFile(
-        bytes,
-        'running-executable',
-        File(_runningExecutable ?? Platform.resolvedExecutable),
-      );
+    for (final file in toolchain.host.shimFingerprintFiles(
+      _runningExecutable ?? toolchain.host.runningExecutable,
+    )) {
+      await _addFile(bytes, 'running-executable', file);
     }
     await _addFile(
       bytes,
       'konan.properties',
-      File(p.join(toolchain.kotlinHome, 'konan', 'konan.properties')),
+      runner.host.fileSystem.file(
+        p.join(toolchain.kotlinHome, 'konan', 'konan.properties'),
+      ),
     );
-    final lib = Directory(p.join(toolchain.kotlinHome, 'konan', 'lib'));
+    final lib = runner.host.fileSystem.directory(
+      p.join(toolchain.kotlinHome, 'konan', 'lib'),
+    );
     if (lib.existsSync()) {
       final jars =
           lib
@@ -239,14 +251,18 @@ final class KonanConfiguration {
     String sourceHome,
     String targetHome,
   ) async {
-    final sourceConfig = File(p.join(sourceHome, 'konan', 'konan.properties'));
+    final sourceConfig = runner.host.fileSystem.file(
+      p.join(sourceHome, 'konan', 'konan.properties'),
+    );
     if (sourceConfig.existsSync()) {
       await _copyFileIfExists(
         sourceConfig.path,
         p.join(targetHome, 'konan', 'konan.properties'),
       );
     }
-    final lib = Directory(p.join(sourceHome, 'konan', 'lib'));
+    final lib = runner.host.fileSystem.directory(
+      p.join(sourceHome, 'konan', 'lib'),
+    );
     if (!lib.existsSync()) return;
     await for (final entity in lib.list(recursive: true, followLinks: false)) {
       if (entity is! File) continue;
@@ -260,14 +276,18 @@ final class KonanConfiguration {
   }
 
   Future<void> _copyFileIfExists(String source, String target) async {
-    final file = File(source);
+    final file = runner.host.fileSystem.file(source);
     if (!file.existsSync()) return;
-    await Directory(p.dirname(target)).create(recursive: true);
+    await runner.host.fileSystem
+        .directory(p.dirname(target))
+        .create(recursive: true);
     await file.copy(target);
   }
 
   Future<void> _patchJars(String kotlinHome) async {
-    final lib = Directory(p.join(kotlinHome, 'konan', 'lib'));
+    final lib = runner.host.fileSystem.directory(
+      p.join(kotlinHome, 'konan', 'lib'),
+    );
     if (!lib.existsSync()) return;
     await for (final entity in lib.list(recursive: true, followLinks: false)) {
       if (entity is File &&
@@ -279,17 +299,19 @@ final class KonanConfiguration {
 
   void _writeKonanProperties(
     String path,
-    ComposeToolchain toolchain,
+    ComposeToolchain<T> toolchain,
     String root,
   ) {
     final properties = _konanProperties(toolchain, root);
-    File(path).writeAsStringSync(
-      '${properties.entries.map((entry) => '${entry.key}=${entry.value}').join('\n')}\n',
-    );
+    runner.host.fileSystem
+        .file(path)
+        .writeAsStringSync(
+          '${properties.entries.map((entry) => '${entry.key}=${entry.value}').join('\n')}\n',
+        );
   }
 
   Map<String, String> _konanProperties(
-    ComposeToolchain toolchain,
+    ComposeToolchain<T> toolchain,
     String root,
   ) {
     final host = toolchain.host.konanTarget;
@@ -311,7 +333,7 @@ final class KonanConfiguration {
       properties['targetSysRoot.$target'] = sdk;
       properties['targetToolchain.$host-$target'] = appleToolchain;
     }
-    properties['linker.$host-${toolchain.buildOptions.konanTarget}'] =
+    properties['linker.$host-${toolchain.target.konanTarget}'] =
         '$appleToolchain/bin/ld';
     // konan.properties lists ios_arm64 as cacheable only from macOS hosts, so
     // on any other host Kotlin/Native refuses (or silently ignores) compiler
@@ -321,121 +343,12 @@ final class KonanConfiguration {
     // the caches is host-specific - they are ios_arm64 objects produced by the
     // same compiler - so declare the target cacheable here. This prepared
     // compiler only ever targets ios_arm64, so it is the whole list.
-    properties['cacheableTargets.$host'] = toolchain.buildOptions.konanTarget;
+    properties['cacheableTargets.$host'] = toolchain.target.konanTarget;
     return properties;
   }
 
-  Future<void> _writeAppleToolchain(
-    String stagingRoot,
-    ComposeToolchain toolchain,
-  ) async {
-    final appleToolchain = p.join(stagingRoot, 'apple-toolchain');
-    final bin = p.join(appleToolchain, 'bin');
-    Directory(bin).createSync(recursive: true);
-    // AppleConfigurablesImpl.getAbsoluteTargetToolchain() resolves to
-    // "$appleToolchain/usr", and MacOSBasedLinker.compilerRtDir does
-    // File("$absoluteTargetToolchain/lib/clang/").getListFiles().firstOrNull()
-    // + "/lib/darwin/" — it picks whatever single subdirectory happens to
-    // exist under lib/clang (there's normally exactly one, the clang version)
-    // and expects Xcode's compiler-rt layout underneath. Kotlin's
-    // getListFiles() throws NoSuchFileException (rather than returning an
-    // empty list) when lib/clang itself doesn't exist at all, so it must
-    // exist; MacOSBasedLinker.provideCompilerRtLibrary then builds an exact
-    // filename from there — "$compilerRtDir/libclang_rt.<platform><sim
-    // suffix>.a" for a static (non-asan/tsan) link, e.g.
-    // ".../lib/clang/<version>/lib/darwin/libclang_rt.ios.a" — and the link
-    // step fails with "undefined symbol: __isPlatformVersionAtLeast" (a
-    // symbol compiler-rt provides) if that file isn't the real one. Stage
-    // the real libclang_rt.*.a files from the local Darwin SDK artifact
-    // bundle's own Xcode toolchain into a same-shaped versioned directory,
-    // for every Family MacOSBasedLinker's provideCompilerRtLibrary switches
-    // on (ios, watchos, tvos, osx — confirmed via its WhenMappings; this
-    // compiler has no xrOS/visionOS case, so libclang_rt.xros*.a is never
-    // requested and is skipped to keep staging small).
-    final clangDir = Directory(p.join(appleToolchain, 'usr', 'lib', 'clang'))
-      ..createSync(recursive: true);
-    final darwinRt = _findCompilerRtDarwinDir(toolchain.darwinSdkBundle);
-    if (darwinRt != null) {
-      final stagedDarwin = Directory(
-        p.join(clangDir.path, 'xcross', 'lib', 'darwin'),
-      )..createSync(recursive: true);
-      for (final name in _compilerRtLibraryNames) {
-        final source = File(p.join(darwinRt, name));
-        if (source.existsSync()) {
-          source.copySync(p.join(stagedDarwin.path, name));
-        }
-      }
-    }
-    // MacOSBasedLinker's constructor also hardcodes linker/libtool/strip/
-    // dsymutil as "$absoluteTargetToolchain/bin/<tool>" (i.e.
-    // "$appleToolchain/usr/bin/<tool>"), bypassing any konan.properties
-    // override. Stage the same shims there too, or the link step fails
-    // with "Cannot run program ".../apple-toolchain/usr/bin/ld"".
-    final usrBin = p.join(appleToolchain, 'usr', 'bin');
-    Directory(usrBin).createSync(recursive: true);
-    const usrBinTools = {'ld', 'strip', 'dsymutil', 'libtool'};
-    for (final entry in _appleToolAliases.entries) {
-      final name = toolchain.host.isWindows ? '${entry.key}.exe' : entry.key;
-      final targets = [bin, if (usrBinTools.contains(entry.key)) usrBin];
-      for (final directory in targets) {
-        final path = p.join(directory, name);
-        if (toolchain.host.isWindows) {
-          await File(
-            _runningExecutable ?? Platform.resolvedExecutable,
-          ).copy(path);
-        } else {
-          final file = File(path)
-            ..writeAsStringSync(_shimScript(entry.key, entry.value));
-          (_makeExecutable ?? ProcessRunner.makeExecutable)(file.path);
-        }
-      }
-    }
-  }
-
-  Map<String, String> _appleToolEnvironment(
-    ComposeToolchain toolchain,
-    String searchPath,
-  ) {
-    final directory = p.dirname(toolchain.ld64Lld);
-    final extension = toolchain.host.isWindows ? '.exe' : '';
-    final separator = toolchain.host.isWindows ? ';' : ':';
-    String llvmTool(String name, {String? macosFallback}) {
-      final resolved = _siblingOrOnPath(
-        directory,
-        '$name$extension',
-        searchPath.split(separator),
-      );
-      if (!toolchain.host.isMacOS ||
-          macosFallback == null ||
-          File(resolved).existsSync()) {
-        return resolved;
-      }
-      final native = _siblingOrOnPath(
-        directory,
-        macosFallback,
-        searchPath.split(separator),
-      );
-      return File(native).existsSync() ? native : resolved;
-    }
-
-    return {
-      'XCROSS_APPLE_TOOL_LD': toolchain.ld64Lld,
-      'XCROSS_APPLE_TOOL_STRIP': llvmTool('llvm-strip', macosFallback: 'strip'),
-      'XCROSS_APPLE_TOOL_DSYMUTIL': llvmTool('dsymutil'),
-      'XCROSS_APPLE_TOOL_LIBTOOL': llvmTool(
-        'llvm-libtool-darwin',
-        macosFallback: 'libtool',
-      ),
-      'XCROSS_APPLE_TOOL_CLANG': toolchain.clang,
-      'XCROSS_APPLE_TOOL_CLANGXX': p.join(
-        p.dirname(toolchain.clang),
-        'clang++$extension',
-      ),
-    };
-  }
-
-  static Future<void> _defaultPatchCompilerJar(File jar) async {
-    patchKotlinNativeJar(jar.path);
+  Future<void> _defaultPatchCompilerJar(File jar) async {
+    KotlinNativeJarPatcher(runner.host.fileSystem).patch(jar.path);
   }
 }
 
@@ -463,107 +376,5 @@ const _appleKonanTargets = [
   'watchos_simulator_arm64',
 ];
 
-/// The POSIX shim body staged into the fake Apple toolchain.
-///
-/// `dsymutil` is not shipped by every LLVM distribution (the swift.org
-/// toolchains xcross downloads on Linux have `ld64.lld` and `llvm-strip`
-/// but no `dsymutil`). Kotlin/Native's `MacOSBasedLinker` runs it
-/// unconditionally after each framework link and fails the build on a
-/// nonzero exit, while nothing downstream reads the `.dSYM` bundle, so a
-/// missing binary must degrade to a silent no-op (matching the same
-/// fallback in the Windows tool-alias dispatcher).
-String _shimScript(String tool, String variable) {
-  if (tool != 'dsymutil') {
-    return '#!/bin/sh\nexec "\$$variable" "\$@"\n';
-  }
-  return '#!/bin/sh\n'
-      'if [ ! -x "\$$variable" ]; then exit 0; fi\n'
-      'exec "\$$variable" "\$@"\n';
-}
-
-const _appleToolAliases = {
-  'ld': 'XCROSS_APPLE_TOOL_LD',
-  'strip': 'XCROSS_APPLE_TOOL_STRIP',
-  'dsymutil': 'XCROSS_APPLE_TOOL_DSYMUTIL',
-  'libtool': 'XCROSS_APPLE_TOOL_LIBTOOL',
-  'clang': 'XCROSS_APPLE_TOOL_CLANG',
-  'clang++': 'XCROSS_APPLE_TOOL_CLANGXX',
-};
-
 String _slash(String value) =>
     p.normalize(value).replaceAll(String.fromCharCode(92), '/');
-
-/// The `libclang_rt.*.a` names `MacOSBasedLinker.provideCompilerRtLibrary`
-/// can request for a non-sanitizer static link, one per `Family` it
-/// switches on: ios/watchos/tvos/osx, each with a `sim` variant for the
-/// simulator triples the patched HostManager also reports as enabled.
-const _compilerRtLibraryNames = [
-  'libclang_rt.ios.a',
-  'libclang_rt.iossim.a',
-  'libclang_rt.watchos.a',
-  'libclang_rt.watchossim.a',
-  'libclang_rt.tvos.a',
-  'libclang_rt.tvossim.a',
-  'libclang_rt.osx.a',
-];
-
-/// Finds `.../XcodeDefault.xctoolchain/usr/lib/clang/<version>/lib/darwin`
-/// under a Darwin SDK artifact bundle root, the directory Xcode's own clang
-/// ships its compiler-rt static libraries in. Returns null when the bundle
-/// doesn't have one (e.g. test fixtures, or a stripped-down bundle), in
-/// which case the staged `apple-toolchain` simply ends up with an empty
-/// compiler-rt directory again, same as before this fix — no compiler-rt
-/// library gets linked in, rather than failing to stage at all.
-String? _findCompilerRtDarwinDir(String darwinSdkBundle) {
-  final clang = Directory(
-    p.join(
-      darwinSdkBundle,
-      'Developer',
-      'Toolchains',
-      'XcodeDefault.xctoolchain',
-      'usr',
-      'lib',
-      'clang',
-    ),
-  );
-  if (!clang.existsSync()) return null;
-  // Sorted for determinism: Directory.listSync()'s order is filesystem-
-  // dependent, and a real Xcode toolchain only ever ships one clang version
-  // subdirectory today (confirmed against a live Darwin SDK bundle), so
-  // this is inert in practice, but matches the sorted-listing convention
-  // DarwinSdk._firstSdk already uses for the analogous iPhoneOS.sdk pick,
-  // for the same reason: an unsorted pick from a directory listing is
-  // nondeterministic the moment there's ever more than one candidate.
-  final versions = clang.listSync().whereType<Directory>().toList()
-    ..sort((a, b) => b.path.compareTo(a.path));
-  for (final entry in versions) {
-    final darwin = p.join(entry.path, 'lib', 'darwin');
-    if (Directory(darwin).existsSync()) return darwin;
-  }
-  return null;
-}
-
-/// The LLVM tool [name] next to `ld64.lld` when it is there, otherwise the
-/// first match on [searchPath], otherwise the sibling path anyway.
-///
-/// The swift.org Linux toolchains xcross resolves `ld64.lld` from ship
-/// `llvm-strip` but not `llvm-libtool-darwin`, which Kotlin/Native runs to
-/// archive every static framework and every compiler cache. Only looking
-/// next to `ld64.lld` failed those links with exit code 127 even when a full
-/// LLVM with `llvm-libtool-darwin` was on PATH. The final fallback keeps the
-/// previous behaviour, so a tool that is missing everywhere still fails with
-/// a path that says where it was expected.
-String _siblingOrOnPath(
-  String directory,
-  String name,
-  Iterable<String> searchPath,
-) {
-  final sibling = p.join(directory, name);
-  if (File(sibling).existsSync()) return sibling;
-  for (final entry in searchPath) {
-    if (entry.isEmpty) continue;
-    final candidate = p.join(entry, name);
-    if (File(candidate).existsSync()) return candidate;
-  }
-  return sibling;
-}

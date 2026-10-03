@@ -7,6 +7,7 @@ import 'package:xcross/src/compose/toolchain/host_manager_patcher.dart';
 
 import 'support/class_file_builder.dart';
 import 'support/class_file_inspector.dart';
+import 'support/compose_platforms.dart';
 import 'support/fake_classes.dart';
 
 // JVM opcode aliases — only where a name clearly aids reading.
@@ -320,7 +321,10 @@ void main() {
           hostManagerClassEntry: buildFakeHostManagerClass().toList(),
         }),
       );
-      expect(patchKotlinNativeJar(jar.path), isFalse);
+      expect(
+        KotlinNativeJarPatcher(fixtureRunner.host.fileSystem).patch(jar.path),
+        isFalse,
+      );
     });
 
     test('returns false when no patchable classes in JAR', () async {
@@ -330,7 +334,10 @@ void main() {
           'some/other/Class.class': [0xCA, 0xFE, 0xBA, 0xBE],
         }),
       );
-      expect(patchKotlinNativeJar(jar.path), isFalse);
+      expect(
+        KotlinNativeJarPatcher(fixtureRunner.host.fileSystem).patch(jar.path),
+        isFalse,
+      );
     });
 
     test('rejects duplicate archive entries before patching', () async {
@@ -355,7 +362,12 @@ void main() {
       }
       await jar.writeAsBytes(bytes);
 
-      expect(() => patchKotlinNativeJar(jar.path), throwsA(isA<StateError>()));
+      expect(
+        () => KotlinNativeJarPatcher(
+          fixtureRunner.host.fileSystem,
+        ).patch(jar.path),
+        throwsA(isA<StateError>()),
+      );
     });
 
     test(
@@ -381,7 +393,10 @@ void main() {
           }),
         );
 
-        expect(patchKotlinNativeJar(jar.path), isTrue);
+        expect(
+          KotlinNativeJarPatcher(fixtureRunner.host.fileSystem).patch(jar.path),
+          isTrue,
+        );
       },
     );
 
@@ -408,7 +423,7 @@ void main() {
         (f) => f.name == 'META-INF/MANIFEST.MF',
       );
 
-      patchKotlinNativeJar(jar.path);
+      KotlinNativeJarPatcher(fixtureRunner.host.fileSystem).patch(jar.path);
 
       final updated = ZipDecoder().decodeBytes(await jar.readAsBytes());
       final updatedManifest = updated.files.firstWhere(
@@ -429,7 +444,10 @@ void main() {
         }),
       );
 
-      expect(patchKotlinNativeJar(jar.path), isTrue);
+      expect(
+        KotlinNativeJarPatcher(fixtureRunner.host.fileSystem).patch(jar.path),
+        isTrue,
+      );
 
       final updated = ZipDecoder().decodeBytes(await jar.readAsBytes());
       expect(updated.files.map((f) => f.name).toSet(), contains(jarMarkerPath));
@@ -441,12 +459,23 @@ void main() {
         buildJar({hostManagerClassEntry: buildFakeHostManagerClass().toList()}),
       );
 
-      expect(patchKotlinNativeJar(jar.path), isTrue);
-      expect(patchKotlinNativeJar(jar.path), isFalse);
+      expect(
+        KotlinNativeJarPatcher(fixtureRunner.host.fileSystem).patch(jar.path),
+        isTrue,
+      );
+      expect(
+        KotlinNativeJarPatcher(fixtureRunner.host.fileSystem).patch(jar.path),
+        isFalse,
+      );
     });
 
     test('returns false for non-existent file', () {
-      expect(patchKotlinNativeJar('${tmpDir.path}/missing.jar'), isFalse);
+      expect(
+        KotlinNativeJarPatcher(
+          fixtureRunner.host.fileSystem,
+        ).patch('${tmpDir.path}/missing.jar'),
+        isFalse,
+      );
     });
 
     test('non-patchable entries are copied unchanged', () async {
@@ -459,7 +488,7 @@ void main() {
         }),
       );
 
-      patchKotlinNativeJar(jar.path);
+      KotlinNativeJarPatcher(fixtureRunner.host.fileSystem).patch(jar.path);
 
       final updated = ZipDecoder().decodeBytes(await jar.readAsBytes());
       final manifest = updated.files.firstWhere(
@@ -480,7 +509,10 @@ void main() {
           }),
         );
 
-        expect(patchKotlinNativeJar(jar.path), isTrue);
+        expect(
+          KotlinNativeJarPatcher(fixtureRunner.host.fileSystem).patch(jar.path),
+          isTrue,
+        );
 
         final updated = ZipDecoder().decodeBytes(await jar.readAsBytes());
         final patchedEntry = updated.files.firstWhere(
@@ -504,7 +536,10 @@ void main() {
           }),
         );
 
-        expect(patchKotlinNativeJar(jar.path), isTrue);
+        expect(
+          KotlinNativeJarPatcher(fixtureRunner.host.fileSystem).patch(jar.path),
+          isTrue,
+        );
       },
     );
   });

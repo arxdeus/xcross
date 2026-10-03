@@ -2,16 +2,19 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
+import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/compose/compose.dart';
 import 'package:xcross/src/errors.dart';
 
+import 'support/compose_platforms.dart';
+
 void main() {
   test(
     'simulator cache plan selects simulator platform and compile target',
     () async {
-      final fixture = _Fixture.create(simulator: true);
+      final fixture = ComposeFixture.create(simulator: true);
       addTearDown(fixture.dispose);
       final plan = fixture.plan();
       expect(plan.konanTarget, 'ios_simulator_arm64');
@@ -28,7 +31,11 @@ void main() {
         isTrue,
       );
       final calls = <List<String>>[];
-      await const KotlinNativeCaches(jobs: 1).build(
+      await KotlinNativeCaches(
+        files: fixtureRunner.host.fileSystem,
+        log: fixtureLog,
+        jobs: 1,
+      ).build(
         plan: plan,
         prepared: fixture.prepared,
         klib: fixture.klib,
@@ -88,7 +95,12 @@ void main() {
 
     test('reads an unpacked klib in the default/ layout', () {
       final klib = _unpackedKlib(temp.path, 'core', 'project:core', const []);
-      expect(readKlibManifest(klib)['unique_name'], 'project:core');
+      expect(
+        KlibManifestReader(
+          fixtureRunner.host.fileSystem,
+        ).read(klib)['unique_name'],
+        'project:core',
+      );
     });
 
     test('reads a packed .klib without needing the rest of it', () {
@@ -106,18 +118,26 @@ void main() {
       final klib = File(p.join(temp.path, 'packed.klib'))
         ..writeAsBytesSync(ZipEncoder().encode(archive));
 
-      expect(readKlibManifest(klib.path)['unique_name'], 'org.example:packed');
+      expect(
+        KlibManifestReader(
+          fixtureRunner.host.fileSystem,
+        ).read(klib.path)['unique_name'],
+        'org.example:packed',
+      );
     });
 
     test('fails loudly for something that is not a klib', () {
       final dir = Directory(p.join(temp.path, 'nothing'))..createSync();
-      expect(() => readKlibManifest(dir.path), throwsA(isA<XcrossError>()));
+      expect(
+        () => KlibManifestReader(fixtureRunner.host.fileSystem).read(dir.path),
+        throwsA(isA<XcrossError>()),
+      );
     });
   });
 
   group('KotlinNativeCaches', () {
-    late _Fixture fixture;
-    setUp(() => fixture = _Fixture.create());
+    late ComposeFixture fixture;
+    setUp(() => fixture = ComposeFixture.create());
     tearDown(() => fixture.dispose());
 
     test('plans every library in dependency order, stdlib first', () {
@@ -193,25 +213,30 @@ void main() {
         final plan = fixture.plan();
         final calls = <List<String>>[];
 
-        Future<void> build() => const KotlinNativeCaches(jobs: 2).build(
-          plan: plan,
-          prepared: fixture.prepared,
-          klib: fixture.klib,
-          workingDirectory: fixture.root,
-          run:
-              (
-                executable,
-                arguments, {
-                required workingDirectory,
-                required environment,
-              }) async {
-                expect(executable, fixture.prepared.javaExecutable);
-                expect(environment, fixture.prepared.environment);
-                expect(workingDirectory, fixture.root);
-                calls.add(arguments);
-                _produceCache(arguments, plan);
-              },
-        );
+        Future<void> build() =>
+            KotlinNativeCaches(
+              files: fixtureRunner.host.fileSystem,
+              log: fixtureLog,
+              jobs: 2,
+            ).build(
+              plan: plan,
+              prepared: fixture.prepared,
+              klib: fixture.klib,
+              workingDirectory: fixture.root,
+              run:
+                  (
+                    executable,
+                    arguments, {
+                    required workingDirectory,
+                    required environment,
+                  }) async {
+                    expect(executable, fixture.prepared.javaExecutable);
+                    expect(environment, fixture.prepared.environment);
+                    expect(workingDirectory, fixture.root);
+                    calls.add(arguments);
+                    _produceCache(arguments, plan);
+                  },
+            );
 
         await build();
         expect(calls, hasLength(6), reason: 'five libraries and the module');
@@ -300,7 +325,11 @@ void main() {
     test('says how to opt out when a cache is not produced', () async {
       final plan = fixture.plan();
       await expectLater(
-        const KotlinNativeCaches(jobs: 1).build(
+        KotlinNativeCaches(
+          files: fixtureRunner.host.fileSystem,
+          log: fixtureLog,
+          jobs: 1,
+        ).build(
           plan: plan,
           prepared: fixture.prepared,
           klib: fixture.klib,
@@ -346,6 +375,8 @@ void main() {
         final calls = <List<String>>[];
         Future<void> link(ComposeConfiguration configuration) =>
             KotlinFrameworkBuilder.withSeams(
+              fixture.toolchain.runner,
+              log: fixtureLog,
               runChecked:
                   (
                     executable,
@@ -378,7 +409,11 @@ void main() {
                   },
               prepareKonan: ({required project, required toolchain}) async =>
                   fixture.prepared,
-              caches: const KotlinNativeCaches(jobs: 1),
+              caches: KotlinNativeCaches(
+                files: fixtureRunner.host.fileSystem,
+                log: fixtureLog,
+                jobs: 1,
+              ),
             ).build(
               project: fixture.project,
               options: ComposeBuildOptions(configuration: configuration),
@@ -447,11 +482,11 @@ String _unpackedKlib(
   return dir;
 }
 
-final class _Fixture {
-  _Fixture._(this.temp, this.simulator);
+final class ComposeFixture {
+  ComposeFixture._(this.temp, this.simulator);
 
-  factory _Fixture.create({bool simulator = false}) {
-    final fixture = _Fixture._(
+  factory ComposeFixture.create({bool simulator = false}) {
+    final fixture = ComposeFixture._(
       Directory.systemTemp.createTempSync('xcross_konan_caches_'),
       simulator,
     );
@@ -547,8 +582,16 @@ final class _Fixture {
   );
 
   ComposeToolchain get toolchain => ComposeToolchain(
-    host: simulator ? ComposeHost.macosArm64 : ComposeHost.linuxX64,
-    simulator: simulator,
+    log: fixtureLog,
+    target: fixtureTarget(
+      simulator ? ComposeTestHosts.macosArm64 : ComposeTestHosts.linuxX64,
+      simulator: simulator,
+    ),
+    runner: ProcessRunner(
+      log: fixtureLog,
+      (simulator ? ComposeTestHosts.macosArm64 : ComposeTestHosts.linuxX64)
+          .host,
+    ),
     kotlinHome: kotlinHome,
     konanCache: p.join(temp.path, 'konan-cache'),
     konancExecutable: p.join(kotlinHome, 'bin', 'konanc'),
@@ -578,12 +621,16 @@ final class _Fixture {
     environment: const {'KONAN_USE_INTERNAL_SERVER': '1'},
   );
 
-  KotlinNativeCachePlan plan() => const KotlinNativeCaches().plan(
-    project: project,
-    toolchain: toolchain,
-    prepared: prepared,
-    klib: klib,
-  )!;
+  KotlinNativeCachePlan plan() =>
+      KotlinNativeCaches(
+        files: fixtureRunner.host.fileSystem,
+        log: fixtureLog,
+      ).plan(
+        project: project,
+        toolchain: toolchain,
+        prepared: prepared,
+        klib: klib,
+      )!;
 
   Map<String, String> cacheRoots() => {
     for (final node in plan().libraries) node.uniqueName: node.cacheRoot,

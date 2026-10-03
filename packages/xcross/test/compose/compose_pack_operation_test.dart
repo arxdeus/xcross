@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/compose/build/compose_pack_operation.dart';
@@ -7,12 +8,59 @@ import 'package:xcross/src/compose/build/compose_packer.dart';
 import 'package:xcross/src/compose/build/gradle_klib_builder.dart';
 import 'package:xcross/src/compose/models/compose_build_options.dart';
 import 'package:xcross/src/compose/project/kmp_project.dart';
-import 'package:xcross/src/compose/toolchain/compose_host.dart';
 import 'package:xcross/src/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/host/linux/compose/linux_compose_host.dart';
 import 'package:xcross/src/models/pack_result.dart';
 
+import 'support/compose_platforms.dart';
+
 void main() {
+  test(
+    'cleanup uses the selected remapped filesystem, not ambient paths',
+    () async {
+      final root = Directory.systemTemp.createTempSync(
+        'compose-remapped-cleanup-',
+      );
+      addTearDown(() => root.deleteSync(recursive: true));
+      final files = RemappedComposeFileSystem(root.path);
+      final host = LinuxHost(architecture: 'x64', fileSystem: files);
+      final target = fixtureTarget(LinuxComposeHost(host));
+      final project = _project('/virtual-compose', KmpEntryKind.swiftApp);
+      final app = files.directory('/virtual-compose/build/xcross-ios/Demo.app')
+        ..createSync(recursive: true);
+      final framework = files.directory(
+        '/virtual-compose/build/xcross-ios/Shared.framework',
+      )..createSync(recursive: true);
+      files.requests.clear();
+      final operation = ComposePackOperation.withSeams(
+        target,
+        runner: ProcessRunner(host, log: fixtureLog),
+        tools: fixtureToolsFor(host),
+        sdkRepository: fixtureSdkRepositoryFor(host),
+        log: fixtureLog,
+        downloader: fixtureDownloader,
+        currentDirectory: () => '/virtual-compose',
+        detectProject: (path, {bundleId, appName, gradleTarget = 'iosArm64'}) =>
+            project,
+        packProject: ({required project, required options}) async => PackResult(
+          outputPath: 'Demo.app',
+          bundleId: project.bundleId,
+        ),
+      );
+      await operation.pack(options: const ComposeBuildOptions());
+      expect(app.existsSync(), isFalse);
+      expect(framework.existsSync(), isFalse);
+      expect(
+        files.requests,
+        containsAll([
+          '/virtual-compose/build/xcross-ios/Demo.app',
+          '/virtual-compose/build/xcross-ios/Shared.framework',
+        ]),
+      );
+    },
+  );
+
   group('ComposePackOperation', () {
     late Directory root;
 
@@ -45,10 +93,22 @@ kotlin {
 ''');
           }
           final operation = ComposePackOperation.withSeams(
+            simulator ? fixtureSimulatorTarget : fixtureIPhoneTarget,
+            log: fixtureLog,
+            runner: ProcessRunner(
+              log: fixtureLog,
+              (simulator ? fixtureSimulatorTarget : fixtureIPhoneTarget).host,
+            ),
+            sdkRepository: fixtureSdkRepositoryFor(
+              (simulator ? fixtureSimulatorTarget : fixtureIPhoneTarget).host,
+            ),
+            tools: fixtureToolsFor(
+              (simulator ? fixtureSimulatorTarget : fixtureIPhoneTarget).host,
+            ),
+            downloader: fixtureDownloader,
             currentDirectory: () => root.path,
             packProject: ({required project, required options}) async {
               expect(project.moduleName, simulator ? 'simulator' : 'device');
-              expect(options.simulator, simulator);
               return PackResult(
                 outputPath: '${project.baseName}.framework',
                 bundleId: project.bundleId,
@@ -57,14 +117,12 @@ kotlin {
             },
           );
 
-          await operation.pack(
-            options: ComposeBuildOptions(simulator: simulator),
-          );
+          await operation.pack(options: const ComposeBuildOptions());
         },
       );
 
       test('missing selected target preserves outputs before pack', () async {
-        final options = ComposeBuildOptions(simulator: simulator);
+        const options = ComposeBuildOptions();
         File(
           p.join(root.path, 'settings.gradle.kts'),
         ).writeAsStringSync('include(":shared")');
@@ -81,7 +139,7 @@ kotlin {
                 p.join(
                   root.path,
                   'build',
-                  options.outputDirectory,
+                  simulator ? 'xcross-ios-simulator' : 'xcross-ios',
                   'Shared.framework',
                   'stale',
                 ),
@@ -89,6 +147,19 @@ kotlin {
               ..createSync(recursive: true)
               ..writeAsStringSync('preserve');
         final operation = ComposePackOperation.withSeams(
+          simulator ? fixtureSimulatorTarget : fixtureIPhoneTarget,
+          log: fixtureLog,
+          runner: ProcessRunner(
+            log: fixtureLog,
+            (simulator ? fixtureSimulatorTarget : fixtureIPhoneTarget).host,
+          ),
+          sdkRepository: fixtureSdkRepositoryFor(
+            (simulator ? fixtureSimulatorTarget : fixtureIPhoneTarget).host,
+          ),
+          tools: fixtureToolsFor(
+            (simulator ? fixtureSimulatorTarget : fixtureIPhoneTarget).host,
+          ),
+          downloader: fixtureDownloader,
           currentDirectory: () => root.path,
           packProject: ({required project, required options}) async =>
               fail('missing selected target must not reach packing'),
@@ -100,7 +171,9 @@ kotlin {
             isA<XcrossError>().having(
               (error) => error.message,
               'message',
-              contains('No KMP module with ${options.gradleTarget}()'),
+              contains(
+                'No KMP module with ${simulator ? 'iosSimulatorArm64' : 'iosArm64'}()',
+              ),
             ),
           ),
         );
@@ -130,14 +203,20 @@ kotlin {
               ..writeAsStringSync('simulator');
         var detections = 0;
         final operation = ComposePackOperation.withSeams(
+          fixtureSimulatorTarget,
+          log: fixtureLog,
+          runner: ProcessRunner(log: fixtureLog, fixtureSimulatorTarget.host),
+          tools: fixtureToolsFor(fixtureSimulatorTarget.host),
+          sdkRepository: fixtureSdkRepositoryFor(fixtureSimulatorTarget.host),
+          downloader: fixtureDownloader,
           currentDirectory: () => root.path,
-          detectProject: (path, {bundleId, appName, simulator = false}) {
-            detections++;
-            expect(simulator, isTrue);
-            return project;
-          },
+          detectProject:
+              (path, {bundleId, appName, gradleTarget = 'iosArm64'}) {
+                detections++;
+                expect(gradleTarget, 'iosSimulatorArm64');
+                return project;
+              },
           packProject: ({required project, required options}) async {
-            expect(options.simulator, isTrue);
             expect(stale.existsSync(), isFalse);
             expect(device.readAsStringSync(), 'device');
             return PackResult(
@@ -147,15 +226,11 @@ kotlin {
           },
         );
         await expectLater(
-          operation.pack(
-            options: const ComposeBuildOptions(simulator: true, ipa: true),
-          ),
+          operation.pack(options: const ComposeBuildOptions(ipa: true)),
           throwsA(isA<XcrossError>()),
         );
         expect(detections, 0);
-        await operation.pack(
-          options: const ComposeBuildOptions(simulator: true),
-        );
+        await operation.pack(options: const ComposeBuildOptions());
         expect(detections, 1);
         expect(device.readAsStringSync(), 'device');
       },
@@ -179,9 +254,15 @@ kotlin {
       File(p.join(staleFramework.path, 'stale')).writeAsStringSync('stale');
 
       final operation = ComposePackOperation.withSeams(
+        fixtureIPhoneTarget,
+        log: fixtureLog,
+        runner: ProcessRunner(log: fixtureLog, fixtureIPhoneTarget.host),
+        tools: fixtureTools,
+        sdkRepository: fixtureSdkRepositoryFor(fixtureIPhoneTarget.host),
+        downloader: fixtureDownloader,
         currentDirectory: () => root.path,
-        detectProject: (path, {bundleId, appName, simulator = false}) {
-          expect(simulator, isFalse);
+        detectProject: (path, {bundleId, appName, gradleTarget = 'iosArm64'}) {
+          expect(gradleTarget, 'iosArm64');
           events.add('detect:$path:$bundleId:$appName');
           return project;
         },
@@ -210,8 +291,14 @@ kotlin {
     test('rejects framework-only run before toolchain work', () async {
       final events = <String>[];
       final operation = ComposePackOperation.withSeams(
+        fixtureIPhoneTarget,
+        log: fixtureLog,
+        runner: ProcessRunner(log: fixtureLog, fixtureIPhoneTarget.host),
+        tools: fixtureTools,
+        sdkRepository: fixtureSdkRepositoryFor(fixtureIPhoneTarget.host),
+        downloader: fixtureDownloader,
         currentDirectory: () => root.path,
-        detectProject: (path, {bundleId, appName, simulator = false}) {
+        detectProject: (path, {bundleId, appName, gradleTarget = 'iosArm64'}) {
           events.add('detect');
           return _project(root.path, KmpEntryKind.frameworkOnly);
         },
@@ -244,8 +331,14 @@ kotlin {
     test('rejects framework-only ipa before toolchain work', () async {
       final events = <String>[];
       final operation = ComposePackOperation.withSeams(
+        fixtureIPhoneTarget,
+        log: fixtureLog,
+        runner: ProcessRunner(log: fixtureLog, fixtureIPhoneTarget.host),
+        tools: fixtureTools,
+        sdkRepository: fixtureSdkRepositoryFor(fixtureIPhoneTarget.host),
+        downloader: fixtureDownloader,
         currentDirectory: () => root.path,
-        detectProject: (path, {bundleId, appName, simulator = false}) {
+        detectProject: (path, {bundleId, appName, gradleTarget = 'iosArm64'}) {
           events.add('detect');
           return _project(root.path, KmpEntryKind.frameworkOnly);
         },
@@ -378,12 +471,10 @@ kotlin {
         events: <String>[],
         ensureToolchain:
             ({
-              required host,
               required environment,
               required projectRoot,
               required allowInstall,
               required force,
-              required simulator,
             }) async {
               ensures++;
               return _toolchain;
@@ -401,22 +492,24 @@ ComposePacker _packer({
   required KmpProject project,
   required List<String> events,
   ComposeEnsureToolchain? ensureToolchain,
-  ComposeBuildObjcRunner? objcRunner,
-  ComposeBuildSwiftRunner? swiftRunner,
+  ComposeBuildRunner? objcRunner,
+  ComposeBuildRunner? swiftRunner,
 }) => ComposePacker.withSeams(
+  log: fixtureLog,
   project: project,
   options: const ComposeBuildOptions(),
-  currentHost: () => ComposeHost.linuxX64,
-  environment: () => const <String, String>{},
+  target: fixtureIPhoneTarget,
+  runner: fixtureRunner,
+  tools: fixtureTools,
+  sdkRepository: fixtureSdkRepositoryFor(fixtureIPhoneTarget.host),
+  downloader: fixtureDownloader,
   ensureToolchain:
       ensureToolchain ??
       ({
-        required host,
         required environment,
         required projectRoot,
         required allowInstall,
         required force,
-        required simulator,
       }) async {
         events.add('toolchain');
         return _toolchain;
@@ -456,12 +549,7 @@ ComposePacker _packer({
         return 'Runner';
       },
   assembleApp:
-      ({
-        required project,
-        required runnerPath,
-        required frameworkPath,
-        required simulator,
-      }) async {
+      ({required project, required runnerPath, required frameworkPath}) async {
         events.add('assemble');
         return p.join(
           project.root,
@@ -485,8 +573,10 @@ KmpProject _project(String root, KmpEntryKind entryKind) => KmpProject(
       : const [],
 );
 
-const _toolchain = ComposeToolchain(
-  host: ComposeHost.linuxX64,
+final _toolchain = ComposeToolchain(
+  log: fixtureLog,
+  target: fixtureIPhoneTarget,
+  runner: fixtureRunner,
   kotlinHome: '/kotlin',
   konanCache: '/konan-cache',
   konancExecutable: '/kotlin/bin/konanc',
@@ -499,3 +589,28 @@ const _toolchain = ComposeToolchain(
   darwinSdkPath: '/sdk',
   darwinSdkBundle: '/sdk-bundle',
 );
+
+final class RemappedComposeFileSystem implements HostFileSystemInterface {
+  RemappedComposeFileSystem(this.root);
+  final String root;
+  final List<String> requests = [];
+  String resolve(String path) {
+    requests.add(path);
+    return p.join(root, p.relative(path, from: '/virtual-compose'));
+  }
+
+  @override
+  File file(String path) => File(resolve(path));
+  @override
+  Directory directory(String path) => Directory(resolve(path));
+  @override
+  Link link(String path) => Link(resolve(path));
+  @override
+  void makeExecutable(String path) => throw UnsupportedError('not expected');
+  @override
+  void setPermissions(String path, int mode) =>
+      throw UnsupportedError('not expected');
+  @override
+  Future<void> createArchiveLink(String destination, String target) =>
+      throw UnsupportedError('not expected');
+}

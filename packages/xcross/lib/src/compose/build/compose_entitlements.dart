@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:xcross/src/compose/project/ios_app_config.dart';
@@ -11,7 +12,10 @@ import 'package:xcross/src/compose/project/ios_app_config.dart';
 /// authenticates through an `ASWebAuthenticationSession` gets a profile that
 /// grants none of it, and the failure shows up at runtime rather than at build
 /// time.
-abstract final class ComposeEntitlements {
+final class ComposeEntitlements {
+  const ComposeEntitlements(this.files);
+  final HostFileSystemInterface files;
+
   /// The parsed entitlements of the app target, or null when it has none.
   ///
   /// A file that cannot be read or parsed is treated as "no entitlements"
@@ -19,16 +23,12 @@ abstract final class ComposeEntitlements {
   /// to the profile, so failing the build over a malformed one would turn a
   /// project that builds today into one that does not, for a file Xcode itself
   /// may never have required.
-  static Map<String, Object?>? read(
-    String root,
-    String appName, {
-    String? appDir,
-  }) {
+  Map<String, Object?>? read(String root, String appName, {String? appDir}) {
     final path = find(root, appName, appDir: appDir);
     if (path == null) return null;
     try {
       final object = PropertyListSerialization.propertyListWithString(
-        File(path).readAsStringSync(),
+        files.file(path).readAsStringSync(),
       );
       if (object is! Map) return null;
       return object.cast<String, Object?>();
@@ -44,22 +44,22 @@ abstract final class ComposeEntitlements {
   /// cheapest and the most accurate place to look. The `iosApp` layouts follow,
   /// matching where the Info.plist is looked for, and only then does it scan -
   /// a Compose project may keep its iOS app anywhere.
-  static String? find(String root, String appName, {String? appDir}) {
-    final iosApp = IosAppConfig.directory(root);
+  String? find(String root, String appName, {String? appDir}) {
+    final iosApp = IosAppConfigLoader(files).directory(root);
     for (final directory in [
-      if (appDir != null) Directory(appDir),
+      if (appDir != null) files.directory(appDir),
       if (iosApp != null) ...[
-        Directory(p.join(iosApp, 'iosApp')),
-        Directory(iosApp),
+        files.directory(p.join(iosApp, 'iosApp')),
+        files.directory(iosApp),
       ],
-      Directory(p.join(root, 'iosApp', 'iosApp')),
-      Directory(p.join(root, 'iosApp')),
+      files.directory(p.join(root, 'iosApp', 'iosApp')),
+      files.directory(p.join(root, 'iosApp')),
     ]) {
       final found = _preferred(_filesIn(directory), appName);
       if (found != null) return found;
     }
     final scanned = <String>[];
-    _scan(Directory(root), scanned, 0);
+    _scan(files.directory(root), scanned, 0);
     scanned.sort();
     return _preferred(scanned, appName);
   }

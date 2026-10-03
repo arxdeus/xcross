@@ -1,17 +1,19 @@
-import 'dart:io';
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:xcross/src/compose/project/ios_app_config.dart';
 import 'package:xcross/src/compose/project/kmp_project.dart';
 import 'package:xcross/src/errors.dart';
-import 'package:xcross/src/flutter/constants.dart';
+import 'package:xcross/src/shared/compose/compose_ios_constants.dart';
 
-abstract final class ComposeInfoPlist {
-  static String build({
+final class ComposeInfoPlist {
+  const ComposeInfoPlist(this.files, this.log);
+  final HostFileSystemInterface files;
+  final Log log;
+  String build({
     required KmpProject project,
-    bool simulator = false,
+    required IosBuildPlatformInterface target,
     Map<String, Object?> extras = const {},
   }) {
     final merged = <String, Object?>{..._composeDefaults};
@@ -22,7 +24,7 @@ abstract final class ComposeInfoPlist {
       );
     }
     merged.addAll(_safeMap(extras, 'extras'));
-    merged.addAll(_required(project, simulator));
+    merged.addAll(_required(project, target));
     return PropertyListSerialization.stringWithPropertyList(merged);
   }
 
@@ -41,8 +43,10 @@ abstract final class ComposeInfoPlist {
     'CADisableMinimumFrameDurationOnPhone': true,
   };
 
-  static Map<String, Object?> _required(KmpProject project, bool simulator) {
-    final target = simulator ? IosTarget.simulator : IosTarget.device;
+  Map<String, Object?> _required(
+    KmpProject project,
+    IosBuildPlatformInterface target,
+  ) {
     final config = project.iosConfig;
     final appName = project.appName;
     final bundleId = project.bundleId;
@@ -55,20 +59,20 @@ abstract final class ComposeInfoPlist {
       'CFBundleVersion': config?.currentProjectVersion ?? '1',
       'CFBundlePackageType': 'APPL',
       'LSRequiresIPhoneOS': true,
-      IosDeploymentConstants.minimumOsVersionKey: '15.0',
+      'MinimumOSVersion': '15.0',
       'CFBundleSupportedPlatforms': [target.platformName],
       'UIRequiredDeviceCapabilities': ['arm64'],
       'UIDeviceFamily': [1],
       'UILaunchScreen': <String, Object?>{},
       'DTPlatformName': target.sdkName,
-      'DTSDKName': '${target.sdkName}${IosDeploymentConstants.sdkVersion}',
-      'DTPlatformVersion': IosDeploymentConstants.sdkVersion,
+      'DTSDKName': '${target.sdkName}$composePlistSdkVersion',
+      'DTPlatformVersion': composePlistSdkVersion,
     };
   }
 
   /// What Xcode would substitute for `$(VAR)` in this app's Info.plist: the
   /// xcconfig's settings plus the identity this build actually uses.
-  static Map<String, String> _buildSettings(KmpProject project) {
+  Map<String, String> _buildSettings(KmpProject project) {
     final config = project.iosConfig;
     return {
       ...?config?.buildSettings,
@@ -87,14 +91,14 @@ abstract final class ComposeInfoPlist {
   /// Copying the file verbatim left an app that reads configuration from its
   /// Info.plist (an API base URL, an OAuth client id) with the literal text
   /// `$(API_BASE_URL)`, which such an app rightly refuses at launch.
-  static Map<String, Object?> _expandMap(
+  Map<String, Object?> _expandMap(
     Map<String, Object?> map,
     Map<String, String> settings,
   ) => {
     for (final entry in map.entries) entry.key: _expand(entry.value, settings),
   };
 
-  static Object? _expand(Object? value, Map<String, String> settings) {
+  Object? _expand(Object? value, Map<String, String> settings) {
     if (value is String) {
       return value.replaceAllMapped(
         RegExp(r'\$\(([A-Za-z0-9_]+)\)|\$\{([A-Za-z0-9_]+)\}'),
@@ -102,7 +106,7 @@ abstract final class ComposeInfoPlist {
           final name = match.group(1) ?? match.group(2)!;
           final expanded = settings[name];
           if (expanded == null) {
-            Log.logWarn(
+            log.logWarn(
               'Info.plist references \$($name), which no build setting '
               'defines. It expands to an empty string.',
             );
@@ -123,8 +127,8 @@ abstract final class ComposeInfoPlist {
     return value;
   }
 
-  static Map<String, Object?>? _readPartial(String root) {
-    final appDir = IosAppConfig.directory(root);
+  Map<String, Object?>? _readPartial(String root) {
+    final appDir = IosAppConfigLoader(files).directory(root);
     final candidates = [
       if (appDir != null) ...[
         p.join(appDir, 'iosApp', 'Info.plist'),
@@ -134,7 +138,7 @@ abstract final class ComposeInfoPlist {
       p.join(root, 'iosApp', 'Info.plist'),
     ];
     for (final path in candidates) {
-      final file = File(path);
+      final file = files.file(path);
       if (!file.existsSync()) continue;
       final object = PropertyListSerialization.propertyListWithString(
         file.readAsStringSync(),
@@ -149,10 +153,7 @@ abstract final class ComposeInfoPlist {
     return null;
   }
 
-  static Map<String, Object?> _safeMap(
-    Map<Object?, Object?> map,
-    String source,
-  ) {
+  Map<String, Object?> _safeMap(Map<Object?, Object?> map, String source) {
     final result = <String, Object?>{};
     for (final entry in map.entries) {
       final key = entry.key;
@@ -164,7 +165,7 @@ abstract final class ComposeInfoPlist {
     return result;
   }
 
-  static Object? _safeValue(Object? value, String path) {
+  Object? _safeValue(Object? value, String path) {
     if (value == null ||
         value is String ||
         value is int ||

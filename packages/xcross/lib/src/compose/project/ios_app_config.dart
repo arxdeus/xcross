@@ -1,7 +1,6 @@
-// ignore_for_file: prefer_constructors_over_static_methods
-
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
 
 final class IosAppConfig {
@@ -23,7 +22,7 @@ final class IosAppConfig {
   /// app that reads configuration from its Info.plist depends on that.
   final Map<String, String> buildSettings;
 
-  static IosAppConfig parse(String content) {
+  factory IosAppConfig.parse(String content) {
     final values = <String, String>{};
     for (final rawLine in content.split(RegExp(r'\r?\n'))) {
       final line = rawLine.trim();
@@ -66,13 +65,17 @@ final class IosAppConfig {
       },
     );
   }
+}
 
-  static IosAppConfig? load(String root) {
+final class IosAppConfigLoader {
+  const IosAppConfigLoader(this.files);
+  final HostFileSystemInterface files;
+  IosAppConfig? load(String root) {
     final appDir = directory(root);
     if (appDir == null) return null;
-    final file = File(p.join(appDir, 'Configuration', 'Config.xcconfig'));
+    final file = files.file(p.join(appDir, 'Configuration', 'Config.xcconfig'));
     if (!file.existsSync()) return null;
-    return parse(file.readAsStringSync());
+    return IosAppConfig.parse(file.readAsStringSync());
   }
 
   /// The iOS app project's directory: `<root>/iosApp`, or when there is none,
@@ -87,29 +90,29 @@ final class IosAppConfig {
   /// `Configuration/Config.xcconfig` or an Info.plist: xcross itself writes
   /// its runner build under `<root>/iosApp/.build`, which must not shadow the
   /// real app. Two nested candidates are ambiguous and resolve to neither.
-  static String? directory(String root) {
-    final direct = Directory(p.join(root, 'iosApp'));
+  String? directory(String root) {
+    final direct = files.directory(p.join(root, 'iosApp'));
     if (_isIosApp(direct)) return direct.path;
-    final rootDir = Directory(root);
+    final rootDir = files.directory(root);
     if (!rootDir.existsSync()) return null;
     final nested = <String>[];
     for (final entry in rootDir.listSync(followLinks: false)) {
       if (entry is! Directory) continue;
       final name = p.basename(entry.path);
       if (name.startsWith('.') || name == 'build') continue;
-      final candidate = Directory(p.join(entry.path, 'iosApp'));
+      final candidate = files.directory(p.join(entry.path, 'iosApp'));
       if (_isIosApp(candidate)) nested.add(candidate.path);
     }
     return nested.length == 1 ? nested.single : null;
   }
 
-  static bool _isIosApp(Directory dir) {
+  bool _isIosApp(Directory dir) {
     if (!dir.existsSync()) return false;
-    if (File(
-          p.join(dir.path, 'Configuration', 'Config.xcconfig'),
-        ).existsSync() ||
-        File(p.join(dir.path, 'Info.plist')).existsSync() ||
-        File(p.join(dir.path, 'iosApp', 'Info.plist')).existsSync()) {
+    if (files
+            .file(p.join(dir.path, 'Configuration', 'Config.xcconfig'))
+            .existsSync() ||
+        files.file(p.join(dir.path, 'Info.plist')).existsSync() ||
+        files.file(p.join(dir.path, 'iosApp', 'Info.plist')).existsSync()) {
       return true;
     }
     return dir

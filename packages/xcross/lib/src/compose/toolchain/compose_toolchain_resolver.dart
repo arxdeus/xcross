@@ -1,268 +1,140 @@
-// ignore_for_file: avoid_dynamic_calls, prefer_constructors_over_static_methods
-
-import 'dart:io';
-
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
-import 'package:path/path.dart' as p;
-import 'package:xcross/src/compose/toolchain/compose_host.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:xcross/src/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/compose/toolchain/compose_toolchain_installer.dart';
 import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/compose/compose_build_context.dart';
+import 'package:xcross/src/shared/compose/compose_host.dart';
+import 'package:xcross/src/shared/compose/compose_java_resolver.dart';
+import 'package:xcross/src/shared/compose/compose_process_contracts.dart';
+import 'package:xcross/src/shared/compose/compose_setup_options.dart';
+import 'package:xcross/src/target/shared/compose/compose_target.dart';
 
-const kotlinNativeMavenBase =
-    'https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/'
-    'kotlin-native-prebuilt';
+export 'package:xcross/src/shared/compose/compose_process_contracts.dart';
+export 'package:xcross/src/shared/compose/compose_setup_options.dart';
 
-final class ComposeSetupOptions {
-  const ComposeSetupOptions({
-    required this.host,
-    required this.version,
-    required this.projectRoot,
-    required this.cacheRoot,
-    required this.kotlinHome,
-    required this.konanCache,
-    required this.hostArchiveUrl,
-    required this.overlayArchiveUrl,
-    required this.hostArchiveSha256,
-    required this.overlayArchiveSha256,
-    this.environment = const {},
-  });
-
-  static const defaultKotlinNativeVersion = '2.2.20';
-  static String? _cacheRootOverride;
-
-  /// Configures the Kotlin/Native data root used when no explicit root is set.
-  static void configureCacheRootOverride(String? root) {
-    _cacheRootOverride = root;
-  }
-
-  /// Removes the configured Kotlin/Native data-root override.
-  static void resetCacheRootOverride() => _cacheRootOverride = null;
-
-  final ComposeHost host;
-  final String version;
-  final String projectRoot;
-  final String cacheRoot;
-  final String kotlinHome;
-  final String konanCache;
-  final String hostArchiveUrl;
-  final String? overlayArchiveUrl;
-  final String? hostArchiveSha256;
-  final String? overlayArchiveSha256;
-  final Map<String, String> environment;
-
-  static ComposeSetupOptions resolve({
-    required Map<String, String> env,
-    required String projectRoot,
-    required ComposeHost host,
+final class ComposeToolchainResolver<T extends PlatformHostInterface> {
+  factory ComposeToolchainResolver(
+    ComposeTarget<T> target, {
+    required ProcessRunner<T> runner,
+    required Log log,
+    required Downloader downloader,
+    required DarwinToolchainResolver<T> tools,
+    required DarwinSdkRepository<T> sdkRepository,
+    String? cacheRoot,
   }) {
-    final version = _version(env, projectRoot);
-    final configuredRoot =
-        _nonEmpty(_cacheRootOverride) ??
-        _nonEmpty(env['KONAN_DATA_DIR']) ??
-        _nonEmpty(env['XCROSS_KONAN_DATA_DIR']);
-    final cacheRoot =
-        configuredRoot ??
-        p.join(
-          _nonEmpty(env['HOME']) ?? _nonEmpty(env['USERPROFILE']) ?? '.',
-          '.konan',
-        );
-    return ComposeSetupOptions(
-      host: host,
-      version: version,
-      environment: Map.unmodifiable(env),
-      projectRoot: projectRoot,
+    final context = ComposeBuildContext(
+      target: target,
+      runner: runner,
+      tools: tools,
+      sdkRepository: sdkRepository,
+      log: log,
+      downloader: downloader,
       cacheRoot: cacheRoot,
-      kotlinHome: p.join(
-        cacheRoot,
-        'kotlin-native-prebuilt-${host.classifier}-$version',
-      ),
-      konanCache: p.join(cacheRoot, 'cache'),
-      hostArchiveUrl:
-          '$kotlinNativeMavenBase/$version/${host.hostArtifact(version)}',
-      overlayArchiveUrl: host.isMacOS
-          ? null
-          : '$kotlinNativeMavenBase/$version/${ComposeHost.macosX64OverlayArtifact(version)}',
-      hostArchiveSha256: _sha256ByArtifact[host.hostArtifact(version)],
-      overlayArchiveSha256: host.isMacOS
-          ? null
-          : _sha256ByArtifact[ComposeHost.macosX64OverlayArtifact(version)],
+    );
+    final selectedRunner = context.runner;
+    return ComposeToolchainResolver.withSeams(
+      target,
+      runner: selectedRunner,
+      log: log,
+      downloader: downloader,
+      cacheRoot: cacheRoot,
+      which: selectedRunner.which,
+      run: (executable, arguments, {workingDirectory, environment}) async {
+        final result = await selectedRunner.run(
+          executable,
+          arguments,
+          workingDirectory: workingDirectory,
+          environment: environment,
+        );
+        return ComposeProcessResult(
+          result.exitCode,
+          result.stdout,
+          result.stderr,
+        );
+      },
+      currentDarwinSdk: (_) {
+        final repository = sdkRepository;
+        final sdk = repository.current();
+        return sdk == null ? null : RepositoryComposeDarwinSdk(sdk, repository);
+      },
+      resolveLd64Lld: (_) => tools.resolveLd64Lld(),
+      installer: ComposeToolchainInstaller(selectedRunner, downloader),
     );
   }
-
-  static const Map<String, String> _sha256ByArtifact = {
-    'kotlin-native-prebuilt-2.2.20-linux-x86_64.tar.gz':
-        '5e2c25c7783f2a7f89aafeb3ccfb0fb5a671e0e32d283c3ab335dc5e29f19e32',
-    'kotlin-native-prebuilt-2.2.20-windows-x86_64.zip':
-        '2bf86caed1b5a67f0cd15c685cb8584a2e61f3221d0985f4fc6a590f51c398df',
-    'kotlin-native-prebuilt-2.2.20-macos-x86_64.tar.gz':
-        'ca9eb2dbb87703176bdbafaad887dc5036c9e5dbfd2eec113b7f4f4a346ca60b',
-    'kotlin-native-prebuilt-2.2.20-macos-aarch64.tar.gz':
-        '2acd3a2e0e5a9782b5cc2cb90c18f2412eda86ab3fb8adf2d18a3e3ca9b80ee6',
-    'kotlin-native-prebuilt-2.4.0-linux-x86_64.tar.gz':
-        '1fdad03264fc398d24df961bf6563e35b82706bb67cf3ba926eb7b768ce7d536',
-    'kotlin-native-prebuilt-2.4.0-windows-x86_64.zip':
-        'cf91af2dbe53767ec89d0eb0f744e588f316a8d115e5faba401ae3f2db7db535',
-    'kotlin-native-prebuilt-2.4.0-macos-x86_64.tar.gz':
-        'da0684965d6f33c55b5e6e85b6de8a5327dbd3ccfedcb1ab6c1131900e8b3e83',
-    'kotlin-native-prebuilt-2.4.0-macos-aarch64.tar.gz':
-        '9ef8c0f9fd90f4082d6e62f14655d23d81651d89d49205e5c49177ff34f552b8',
-  };
-
-  static String? _nonEmpty(String? value) =>
-      value != null && value.trim().isNotEmpty ? value : null;
-
-  static String _version(Map<String, String> env, String projectRoot) {
-    final explicit = env['KN_VERSION'];
-    if (explicit != null && explicit.trim().isNotEmpty) return explicit.trim();
-
-    final catalog = File(p.join(projectRoot, 'gradle', 'libs.versions.toml'));
-    if (catalog.existsSync()) {
-      final match = RegExp(
-        r'''(?:^|\n)\s*(?:kotlin|kotlinNative|kotlin-native)\s*=\s*["']([^"']+)["']''',
-      ).firstMatch(catalog.readAsStringSync());
-      if (match != null) return match.group(1)!;
-    }
-
-    final properties = File(p.join(projectRoot, 'gradle.properties'));
-    if (properties.existsSync()) {
-      for (final line in properties.readAsLinesSync()) {
-        final match = RegExp(
-          r'^\s*(?:kotlin\.version|kotlinNative\.version)\s*=\s*(\S+)',
-        ).firstMatch(line);
-        if (match != null) return match.group(1)!;
-      }
-    }
-
-    return defaultKotlinNativeVersion;
-  }
-}
-
-typedef ComposeWhich =
-    Future<String?> Function(
-      String name, {
-      Map<String, String>? environment,
-      bool? windows,
-      Iterable<String> extraDirectories,
-    });
-
-typedef ComposeRun =
-    Future<ComposeProcessResult> Function(
-      String executable,
-      List<String> arguments, {
-      String? workingDirectory,
-      Map<String, String>? environment,
-    });
-
-final class ComposeProcessResult {
-  const ComposeProcessResult(this.exitCode, this.stdout, this.stderr);
-
-  final int exitCode;
-  final String stdout;
-  final String stderr;
-}
-
-typedef CurrentDarwinSdk = dynamic Function(String? bundle);
-typedef ResolveLd64Lld =
-    Future<String> Function(dynamic sdk, {dynamic runProcess});
-
-abstract final class ComposeToolchainResolver {
-  static final InjectedComposeToolchainResolver _default = withSeams();
-
-  static InjectedComposeToolchainResolver withSeams({
+  factory ComposeToolchainResolver.withSeams(
+    ComposeTarget<T> target, {
+    required Log log,
+    required Downloader downloader,
+    ProcessRunner<T>? runner,
+    DarwinSdkRepository<T>? sdkRepository,
+    String? cacheRoot,
     ComposeWhich? which,
     ComposeRun? run,
     CurrentDarwinSdk? currentDarwinSdk,
     ResolveLd64Lld? resolveLd64Lld,
-    ComposeToolchainInstaller? installer,
-  }) => InjectedComposeToolchainResolver._(
-    which: which ?? _defaultWhich,
-    run: run ?? _defaultRun,
-    currentDarwinSdk:
-        currentDarwinSdk ?? ((bundle) => DarwinSdk.current(bundle: bundle)),
-    resolveLd64Lld:
-        resolveLd64Lld ??
-        ((sdk, {runProcess}) => DarwinSdk.resolveLd64Lld(sdk as DarwinSdk)),
-    installer: installer ?? const ComposeToolchainInstaller(),
-  );
-
-  static Future<ComposeToolchain?> resolve({
-    required ComposeHost host,
-    required Map<String, String> environment,
-    required String projectRoot,
-    bool simulator = false,
-  }) => _default.resolve(
-    host: host,
-    environment: environment,
-    projectRoot: projectRoot,
-    simulator: simulator,
-  );
-
-  static Future<List<String>> problems({
-    required ComposeHost host,
-    required Map<String, String> environment,
-    required String projectRoot,
-    bool simulator = false,
-  }) => _default.problems(
-    host: host,
-    environment: environment,
-    projectRoot: projectRoot,
-    simulator: simulator,
-  );
-
-  static Future<ComposeToolchain> ensure({
-    required ComposeHost host,
-    required Map<String, String> environment,
-    required String projectRoot,
-    bool allowInstall = true,
-    bool force = false,
-    bool simulator = false,
-  }) => _default.ensure(
-    host: host,
-    environment: environment,
-    projectRoot: projectRoot,
-    allowInstall: allowInstall,
-    force: force,
-    simulator: simulator,
-  );
-
-  static Future<String?> _defaultWhich(
-    String name, {
-    Map<String, String>? environment,
-    bool? windows,
-    Iterable<String> extraDirectories = const [],
-  }) => ProcessRunner.which(
-    name,
-    environment: environment,
-    windows: windows,
-    extraDirectories: extraDirectories,
-  );
-
-  static Future<ComposeProcessResult> _defaultRun(
-    String executable,
-    List<String> arguments, {
-    String? workingDirectory,
-    Map<String, String>? environment,
-  }) async {
-    final result = await ProcessRunner.run(
-      executable,
-      arguments,
-      workingDirectory: workingDirectory,
-      environment: environment,
+    ComposeToolchainInstaller<T>? installer,
+  }) {
+    final selectedRunner = runner ?? ProcessRunner(target.host, log: log);
+    if (sdkRepository != null &&
+        (!identical(sdkRepository.host, target.host) ||
+            !identical(sdkRepository.log, log))) {
+      throw ArgumentError(
+        'Compose SDK repository must share the injected host and logger.',
+      );
+    }
+    return ComposeToolchainResolver._(
+      target,
+      runner: selectedRunner,
+      log: log,
+      cacheRoot: cacheRoot,
+      which: which ?? selectedRunner.which,
+      run:
+          run ??
+          ((executable, arguments, {workingDirectory, environment}) async {
+            final result = await selectedRunner.run(
+              executable,
+              arguments,
+              workingDirectory: workingDirectory,
+              environment: environment,
+            );
+            return ComposeProcessResult(
+              result.exitCode,
+              result.stdout,
+              result.stderr,
+            );
+          }),
+      currentDarwinSdk:
+          currentDarwinSdk ??
+          ((_) {
+            if (sdkRepository == null) {
+              throw XcrossError('Missing injected Darwin SDK repository.');
+            }
+            final sdk = sdkRepository.current();
+            return sdk == null
+                ? null
+                : RepositoryComposeDarwinSdk(sdk, sdkRepository);
+          }),
+      resolveLd64Lld:
+          resolveLd64Lld ??
+          ((_) async =>
+              throw XcrossError('Missing injected Darwin tool resolver.')),
+      installer:
+          installer ?? ComposeToolchainInstaller(selectedRunner, downloader),
     );
-    return ComposeProcessResult(result.exitCode, result.stdout, result.stderr);
   }
-}
-
-final class InjectedComposeToolchainResolver {
-  const InjectedComposeToolchainResolver._({
+  ComposeToolchainResolver._(
+    this.target, {
+    required this.log,
     required ComposeWhich which,
     required ComposeRun run,
     required CurrentDarwinSdk currentDarwinSdk,
     required ResolveLd64Lld resolveLd64Lld,
-    required ComposeToolchainInstaller installer,
-  }) : _which = which,
+    required ComposeToolchainInstaller<T> installer,
+    ProcessRunner<T>? runner,
+    this.cacheRoot,
+  }) : runner = runner ?? ProcessRunner(target.host, log: log),
+       _which = which,
        _run = run,
        _currentDarwinSdk = currentDarwinSdk,
        _resolveLd64Lld = resolveLd64Lld,
@@ -272,69 +144,64 @@ final class InjectedComposeToolchainResolver {
   final ComposeRun _run;
   final CurrentDarwinSdk _currentDarwinSdk;
   final ResolveLd64Lld _resolveLd64Lld;
-  final ComposeToolchainInstaller _installer;
+  final ComposeToolchainInstaller<T> _installer;
+  final ComposeTarget<T> target;
+  final ProcessRunner<T> runner;
+  final Log log;
+  final String? cacheRoot;
 
-  Future<ComposeToolchain?> resolve({
-    required ComposeHost host,
+  Future<ComposeToolchain<T>?> resolve({
     required Map<String, String> environment,
     required String projectRoot,
-    bool simulator = false,
   }) async {
     final options = ComposeSetupOptions.resolve(
+      cacheRootOverride: cacheRoot,
       env: environment,
       projectRoot: projectRoot,
-      host: host,
+      host: target.toolchainHost,
     );
     final found = await _resolved(
-      host: host,
       environment: environment,
       projectRoot: projectRoot,
       options: options,
-      simulator: simulator,
     );
     return found.problems.isEmpty ? found.toolchain : null;
   }
 
   Future<List<String>> problems({
-    required ComposeHost host,
     required Map<String, String> environment,
     required String projectRoot,
-    bool simulator = false,
   }) async {
     final options = ComposeSetupOptions.resolve(
+      cacheRootOverride: cacheRoot,
       env: environment,
       projectRoot: projectRoot,
-      host: host,
+      host: target.toolchainHost,
     );
     final found = await _resolved(
-      host: host,
       environment: environment,
       projectRoot: projectRoot,
       options: options,
-      simulator: simulator,
     );
     return found.problems;
   }
 
-  Future<ComposeToolchain> ensure({
-    required ComposeHost host,
+  Future<ComposeToolchain<T>> ensure({
     required Map<String, String> environment,
     required String projectRoot,
     bool allowInstall = true,
     bool force = false,
-    bool simulator = false,
   }) async {
     final options = ComposeSetupOptions.resolve(
+      cacheRootOverride: cacheRoot,
       env: environment,
       projectRoot: projectRoot,
-      host: host,
+      host: target.toolchainHost,
     );
     final found = await _resolved(
-      host: host,
       environment: environment,
       projectRoot: projectRoot,
       options: options,
-      simulator: simulator,
     );
     if (found.toolchain != null && !force) return found.toolchain!;
     final kotlinProblem = found.problems.firstWhere(
@@ -355,40 +222,29 @@ final class InjectedComposeToolchainResolver {
     }
     await _installer.install(
       options: options,
-      force: force || Directory(options.kotlinHome).existsSync(),
+      force:
+          force ||
+          runner.host.fileSystem.directory(options.kotlinHome).existsSync(),
     );
     final installed = await resolve(
-      host: host,
       environment: environment,
       projectRoot: projectRoot,
-      simulator: simulator,
     );
     if (installed != null) return installed;
     throw XcrossError(
       (await problems(
-        host: host,
         environment: environment,
         projectRoot: projectRoot,
-        simulator: simulator,
       )).join('\n'),
     );
   }
 
-  Future<_ResolvedToolchain> _resolved({
-    required ComposeHost host,
+  Future<ResolvedToolchain<T>> _resolved({
     required Map<String, String> environment,
     required String projectRoot,
-    required ComposeSetupOptions options,
-    required bool simulator,
+    required ComposeSetupOptions<T> options,
   }) async {
-    if (simulator && !host.isMacOS) {
-      return _ResolvedToolchain(null, [
-        'Compose iOS simulator builds are supported only on macOS. '
-            '${host.classifier} toolchains include ios_arm64 device libraries '
-            'but not ios_simulator_arm64. Use a macOS host for simulator '
-            'builds or build for an iOS device.',
-      ]);
-    }
+    final host = target.toolchainHost;
     final problems = <String>[];
     final konancExecutable = host.konancExecutable(options.kotlinHome);
     if (!ComposeToolchainInstaller.isComplete(options)) {
@@ -396,26 +252,21 @@ final class InjectedComposeToolchainResolver {
         'Missing complete Kotlin/Native compiler cache at ${options.kotlinHome}. Run `xcross compose setup` or allow toolchain installation.',
       );
     }
-    final java = await _resolveJava(host, environment, problems);
+    final java = await ComposeJavaResolver<T>(
+      _which,
+      _run,
+    ).resolve(host, environment, problems);
     final gradle = await _resolveGradle(
       host,
       environment,
       projectRoot,
       problems,
     );
-    final swiftc = await _which(
-      'swiftc',
-      environment: environment,
-      windows: host.isWindows,
-    );
+    final swiftc = await _which('swiftc', environment: environment);
     if (swiftc == null) {
       problems.add('Missing swiftc. Install Swift and put swiftc on PATH.');
     }
-    final clang = await _which(
-      'clang',
-      environment: environment,
-      windows: host.isWindows,
-    );
+    final clang = await _which('clang', environment: environment);
     if (clang == null) {
       problems.add('Missing clang. Install LLVM clang and put it on PATH.');
     }
@@ -428,13 +279,9 @@ final class InjectedComposeToolchainResolver {
     String? sdkPath;
     if (sdk != null) {
       try {
-        sdkPath = simulator
-            ? sdk.iPhoneSimulatorSdk() as String
-            : sdk.iPhoneOSSdk() as String;
+        sdkPath = sdk.iosSdk(target.buildPlatform);
       } on Object catch (error) {
-        problems.add(
-          'Missing ${simulator ? 'iPhoneSimulator' : 'iPhoneOS'} SDK. $error',
-        );
+        problems.add('Missing ${target.buildPlatform.sdkName} SDK. $error');
       }
     }
     String? ld64;
@@ -456,11 +303,13 @@ final class InjectedComposeToolchainResolver {
         ld64 == null ||
         sdk == null ||
         sdkPath == null) {
-      return _ResolvedToolchain(null, problems);
+      return ResolvedToolchain(null, problems);
     }
-    return _ResolvedToolchain(
+    return ResolvedToolchain(
       ComposeToolchain(
-        host: host,
+        target: target,
+        runner: runner,
+        log: log,
         kotlinHome: options.kotlinHome,
         konanCache: options.konanCache,
         konancExecutable: konancExecutable,
@@ -471,89 +320,23 @@ final class InjectedComposeToolchainResolver {
         clang: clang,
         ld64Lld: ld64,
         darwinSdkPath: sdkPath,
-        simulator: simulator,
-        darwinSdkBundle: sdk.swiftSdkPath as String,
+        darwinSdkBundle: sdk.swiftSdkPath,
       ),
       problems,
     );
   }
 
-  Future<_Java?> _resolveJava(
-    ComposeHost host,
-    Map<String, String> environment,
-    List<String> problems,
-  ) async {
-    final javaHome = environment['JAVA_HOME'];
-    final candidate = javaHome == null
-        ? await _which(
-            'java',
-            environment: environment,
-            windows: host.isWindows,
-          )
-        : host.javaExecutable(javaHome);
-    if (candidate == null) {
-      problems.add(
-        'Missing JDK 21+. Set JAVA_HOME to a JDK 21+ install or put java on PATH.',
-      );
-      return null;
-    }
-    final result = await _run(candidate, const [
-      '-XshowSettings:properties',
-      '-version',
-    ], environment: environment);
-    final output = '${result.stdout}\n${result.stderr}';
-    final version = RegExp(r'version "(\d+)').firstMatch(output)?.group(1);
-    if (result.exitCode != 0 || version == null || int.parse(version) < 21) {
-      problems.add(
-        'Missing JDK 21+. Found java at $candidate but it is not Java 21+.',
-      );
-      return null;
-    }
-    final architecture = RegExp(
-      r'^\s*os\.arch\s*=\s*(\S+)',
-      multiLine: true,
-    ).firstMatch(output)?.group(1);
-    if (architecture == null || !host.supportsJavaArchitecture(architecture)) {
-      problems.add(
-        'JDK architecture ${architecture ?? 'unknown'} does not match '
-        'Kotlin/Native host ${host.classifier}. Set JAVA_HOME to a matching '
-        'JDK 21+ install so its JNI libraries can load.',
-      );
-      return null;
-    }
-    if (javaHome != null) return _Java(javaHome, candidate);
-    final reportedHome = RegExp(
-      r'^[ \t]*java\.home[ \t]*=[ \t]*([^\r\n]*)',
-      multiLine: true,
-    ).firstMatch(output)?.group(1)?.trim();
-    if (reportedHome == null ||
-        !p.isAbsolute(reportedHome) ||
-        !File(host.javaExecutable(reportedHome)).existsSync()) {
-      problems.add(
-        'Cannot determine a valid JDK home from java.home reported by '
-        '$candidate. Set JAVA_HOME to a JDK 21+ install containing bin/'
-        '${host.isWindows ? 'java.exe' : 'java'}.',
-      );
-      return null;
-    }
-    return _Java(reportedHome, candidate);
-  }
-
   Future<String?> _resolveGradle(
-    ComposeHost host,
+    ComposeHost<T> host,
     Map<String, String> environment,
     String projectRoot,
     List<String> problems,
   ) async {
-    final wrapper = File(
-      p.join(projectRoot, host.isWindows ? 'gradlew.bat' : 'gradlew'),
+    final wrapper = runner.host.fileSystem.file(
+      host.gradleWrapper(projectRoot),
     );
     if (wrapper.existsSync()) return wrapper.path;
-    final gradle = await _which(
-      'gradle',
-      environment: environment,
-      windows: host.isWindows,
-    );
+    final gradle = await _which('gradle', environment: environment);
     if (gradle != null) return gradle;
     problems.add(
       'Missing Gradle wrapper or gradle on PATH. Add a Gradle wrapper or install Gradle.',
@@ -562,16 +345,9 @@ final class InjectedComposeToolchainResolver {
   }
 }
 
-final class _ResolvedToolchain {
-  const _ResolvedToolchain(this.toolchain, this.problems);
+final class ResolvedToolchain<T extends PlatformHostInterface> {
+  const ResolvedToolchain(this.toolchain, this.problems);
 
-  final ComposeToolchain? toolchain;
+  final ComposeToolchain<T>? toolchain;
   final List<String> problems;
-}
-
-final class _Java {
-  const _Java(this.home, this.executable);
-
-  final String home;
-  final String executable;
 }

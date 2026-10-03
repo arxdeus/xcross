@@ -1,9 +1,12 @@
-import 'package:xcross/src/compose/models/compose_build_options.dart';
-import 'package:xcross/src/compose/toolchain/compose_host.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:xcross/src/shared/compose/compose_host.dart';
+import 'package:xcross/src/target/shared/compose/compose_target.dart';
 
-final class ComposeToolchain {
+final class ComposeToolchain<T extends PlatformHostInterface> {
   const ComposeToolchain({
-    required this.host,
+    required this.target,
+    required this.runner,
+    required this.log,
     required this.kotlinHome,
     required this.konanCache,
     required this.konancExecutable,
@@ -15,13 +18,12 @@ final class ComposeToolchain {
     required this.ld64Lld,
     required this.darwinSdkPath,
     required this.darwinSdkBundle,
-    this.simulator = false,
   });
 
-  final ComposeHost host;
-  final bool simulator;
-  ComposeBuildOptions get buildOptions =>
-      ComposeBuildOptions(simulator: simulator);
+  final ComposeTarget<T> target;
+  final ProcessRunner<T> runner;
+  final Log log;
+  ComposeHost<T> get host => target.toolchainHost;
   final String kotlinHome;
   final String konanCache;
   final String konancExecutable;
@@ -47,9 +49,10 @@ final class ComposeToolchain {
   /// both live under this root.
   final String darwinSdkBundle;
 
-  List<String> get gradleInvocation =>
-      host.invokeExecutable(gradleExecutable, const []);
+  List<String> get gradleInvocation => [gradleExecutable];
 
-  List<String> konancInvocation(List<String> arguments) =>
-      host.invokeExecutable(konancExecutable, arguments);
+  List<String> konancInvocation(List<String> arguments) => [
+    konancExecutable,
+    ...arguments,
+  ];
 }

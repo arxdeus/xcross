@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/compose/build/framework_build_stamp.dart';
 import 'package:xcross/src/compose/build/gradle_klib_builder.dart';
@@ -10,6 +10,7 @@ import 'package:xcross/src/compose/models/compose_build_options.dart';
 import 'package:xcross/src/compose/project/kmp_project.dart';
 import 'package:xcross/src/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/target/shared/compose/compose_target.dart';
 
 typedef KotlinNativeRunChecked =
     Future<void> Function(
@@ -19,51 +20,64 @@ typedef KotlinNativeRunChecked =
       Map<String, String>? environment,
     });
 
-typedef PrepareKonanConfiguration =
+typedef PrepareKonanConfiguration<T extends PlatformHostInterface> =
     Future<PreparedKonanConfiguration> Function({
       required KmpProject project,
-      required ComposeToolchain toolchain,
+      required ComposeToolchain<T> toolchain,
     });
 
-final class KotlinFrameworkBuilder {
-  const KotlinFrameworkBuilder()
-    : _runChecked = null,
-      _prepareKonan = null,
-      _caches = const KotlinNativeCaches();
+final class KotlinFrameworkBuilder<T extends PlatformHostInterface> {
+  KotlinFrameworkBuilder(
+    this.runner, {
+    required this.log,
+    required int processorCount,
+  }) : _runChecked = null,
+       _prepareKonan = null,
+       _caches = KotlinNativeCaches(
+         files: runner.host.fileSystem,
+         processorCount: processorCount,
+         log: log,
+         environment: runner.effectiveEnvironment,
+       );
 
   /// [caches] is off unless given: a seam-built builder links the way it
   /// always has, in one konanc call.
-  const KotlinFrameworkBuilder.withSeams({
+  const KotlinFrameworkBuilder.withSeams(
+    this.runner, {
+    required this.log,
     KotlinNativeRunChecked? runChecked,
-    PrepareKonanConfiguration? prepareKonan,
+    PrepareKonanConfiguration<T>? prepareKonan,
     KotlinNativeCaches? caches,
   }) : _runChecked = runChecked,
        _prepareKonan = prepareKonan,
        _caches = caches;
 
+  final ProcessRunner<T> runner;
+  final Log log;
   final KotlinNativeRunChecked? _runChecked;
-  final PrepareKonanConfiguration? _prepareKonan;
+  final PrepareKonanConfiguration<T>? _prepareKonan;
   final KotlinNativeCaches? _caches;
 
   Future<String> build({
     required KmpProject project,
     required ComposeBuildOptions options,
-    required ComposeToolchain toolchain,
+    required ComposeToolchain<T> toolchain,
     required GradleKlibResult klib,
   }) async {
     final prepared =
-        await (_prepareKonan ?? const KonanConfiguration().prepare)(
+        await (_prepareKonan ?? KonanConfiguration(runner).prepare)(
           project: project,
           toolchain: toolchain,
         );
     final produced = expectedFramework(
       project,
       options.configuration,
-      simulator: options.simulator,
+      target: toolchain.target,
     );
     final args = buildKonancArguments(
       project: project,
       options: options,
+      target: toolchain.target,
       klib: klib,
       outputFramework: produced,
     );
@@ -71,7 +85,7 @@ final class KotlinFrameworkBuilder {
     final cachePlan =
         caches != null &&
             options.configuration == ComposeConfiguration.debug &&
-            KotlinNativeCaches.enabledIn(ProcessRunner.effectiveEnvironment)
+            KotlinNativeCaches.enabledIn(runner.effectiveEnvironment)
         ? caches.plan(
             project: project,
             toolchain: toolchain,
@@ -86,25 +100,28 @@ final class KotlinFrameworkBuilder {
       // below notice a dependency or compiler change.
       ...?cachePlan?.linkArguments,
     ];
-    final invocationArgs = toolchain.host.isWindows
-        ? [
-            ...prepared.compilerArguments,
-            '@${_writeArgumentFile(project, options, compilerArgs)}',
-          ]
-        : [...prepared.compilerArguments, ...compilerArgs];
+    final invocationArgs = toolchain.host.compilerArguments(
+      prepared.compilerArguments,
+      compilerArgs,
+      () =>
+          _writeArgumentFile(project, options, toolchain.target, compilerArgs),
+    );
 
     // konanc compiles the whole program ahead of time (~133s for the Compose
     // sample), and Gradle's UP-TO-DATE check upstream does not stop us from
     // running it again on identical inputs. Skipping an unchanged compile is
     // what makes `compose run --watch` usable.
     final stampInputs = [klib.moduleKlibPath, ...klib.dependencies];
-    final stamp = FrameworkBuildStamp.forFramework(produced);
+    final stamp = FrameworkBuildStamp.forFramework(
+      produced,
+      files: runner.host.fileSystem,
+    );
     if (stamp.isUpToDate(
       frameworkPath: produced,
       inputs: stampInputs,
       arguments: compilerArgs,
     )) {
-      Log.logTrace('framework is up to date; skipping konanc');
+      log.logTrace('framework is up to date; skipping konanc');
     } else {
       // Drop the stamp first: a crash or Ctrl-C mid-compile must not leave a
       // stamp that claims the half-written framework is current.
@@ -131,27 +148,28 @@ final class KotlinFrameworkBuilder {
     final copied = p.join(
       project.root,
       'build',
-      options.outputDirectory,
+      toolchain.target.outputDirectory,
       '${project.baseName}.framework',
     );
-    final copiedDir = Directory(copied);
+    final copiedDir = runner.host.fileSystem.directory(copied);
     if (copiedDir.existsSync()) copiedDir.deleteSync(recursive: true);
-    await _copyDirectory(Directory(produced), copiedDir);
+    await _copyDirectory(runner.host.fileSystem.directory(produced), copiedDir);
     return copied;
   }
 
   String _writeArgumentFile(
     KmpProject project,
     ComposeBuildOptions options,
+    ComposeTarget<T> target,
     List<String> arguments,
   ) {
     final path = p.join(
       project.root,
       'build',
-      options.outputDirectory,
+      target.outputDirectory,
       'konanc-${options.configuration.name}.args',
     );
-    final file = File(path)..createSync(recursive: true);
+    final file = runner.host.fileSystem.file(path)..createSync(recursive: true);
     file.writeAsStringSync('${arguments.map(_quoteArgument).join('\n')}\n');
     return path;
   }
@@ -162,12 +180,13 @@ final class KotlinFrameworkBuilder {
   List<String> buildKonancArguments({
     required KmpProject project,
     required ComposeBuildOptions options,
+    required ComposeTarget<T> target,
     required GradleKlibResult klib,
     required String outputFramework,
   }) {
     final args = <String>[
       '-target',
-      options.konanTarget,
+      target.konanTarget,
       '-produce',
       'framework',
       '-Xinclude=${klib.moduleKlibPath}',
@@ -197,12 +216,12 @@ final class KotlinFrameworkBuilder {
   String expectedFramework(
     KmpProject project,
     ComposeConfiguration configuration, {
-    bool simulator = false,
+    required ComposeTarget<T> target,
   }) => p.join(
     project.modulePath,
     'build',
     'bin',
-    ComposeBuildOptions(simulator: simulator).gradleTarget,
+    target.gradleTarget,
     configuration == ComposeConfiguration.release
         ? 'releaseFramework'
         : 'debugFramework',
@@ -224,7 +243,7 @@ final class KotlinFrameworkBuilder {
         environment: environment,
       );
     }
-    return ProcessRunner.runTool(
+    return runner.runTool(
       executable,
       arguments,
       workingDirectory: workingDirectory,
@@ -233,10 +252,14 @@ final class KotlinFrameworkBuilder {
   }
 
   void _validateFramework(String framework, String baseName) {
-    if (!File(p.join(framework, baseName)).existsSync()) {
+    if (!runner.host.fileSystem
+        .file(p.join(framework, baseName))
+        .existsSync()) {
       throw XcrossError('Kotlin/Native did not produce $baseName.framework.');
     }
-    if (!File(p.join(framework, 'Headers', '$baseName.h')).existsSync()) {
+    if (!runner.host.fileSystem
+        .file(p.join(framework, 'Headers', '$baseName.h'))
+        .existsSync()) {
       throw XcrossError(
         'Kotlin/Native did not produce $baseName.framework headers.',
       );
@@ -257,9 +280,13 @@ final class KotlinFrameworkBuilder {
       final relative = p.relative(entity.path, from: source.path);
       final destination = p.join(target.path, relative);
       if (entity is Directory) {
-        await Directory(destination).create(recursive: true);
+        await runner.host.fileSystem
+            .directory(destination)
+            .create(recursive: true);
       } else if (entity is File) {
-        await Directory(p.dirname(destination)).create(recursive: true);
+        await runner.host.fileSystem
+            .directory(p.dirname(destination))
+            .create(recursive: true);
         await entity.copy(destination);
       } else {
         throw XcrossError(

@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/compose/watch/kotlin_source_watcher.dart';
 import 'package:xcross/src/models/pack_result.dart';
 
@@ -30,11 +30,13 @@ typedef ComposeRunSession =
 final class ComposeWatchSession {
   ComposeWatchSession({
     required this.watcher,
+    required this.log,
     required this.rebuild,
     required this.runSession,
   });
 
   final KotlinSourceWatcher watcher;
+  final Log log;
   final ComposeRebuild rebuild;
   final ComposeRunSession runSession;
 
@@ -65,18 +67,18 @@ final class ComposeWatchSession {
   Future<PackResult?> _rebuildIfChanged() async {
     final changed = watcher.changedFiles();
     if (changed.isEmpty) {
-      Log.logInfo('No source changes ${Log.dim('— app left running')}');
+      log.logInfo('No source changes ${log.dim('- app left running')}');
       return null;
     }
-    Log.logInfo(
+    log.logInfo(
       'Changed',
       '${changed.length} file${changed.length == 1 ? '' : 's'} '
-          '${Log.dim('— rebuilding')}',
+          '${log.dim('- rebuilding')}',
     );
     try {
       return await rebuild();
     } on Object catch (e) {
-      Log.logError('Rebuild failed: $e');
+      log.logError('Rebuild failed: $e');
       // The snapshot already advanced, so an unchanged retry would report
       // "no source changes" and silently do nothing. Force the next request
       // to rebuild even if the user only fixes the error and saves nothing

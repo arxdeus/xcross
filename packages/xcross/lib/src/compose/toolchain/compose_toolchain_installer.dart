@@ -1,33 +1,20 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:crypto/crypto.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/compose/toolchain/archive_extractor.dart';
-import 'package:xcross/src/compose/toolchain/compose_host.dart';
-import 'package:xcross/src/compose/toolchain/compose_toolchain_resolver.dart';
 import 'package:xcross/src/compose/toolchain/host_manager_patcher.dart';
 import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/compose/compose_directory_publisher.dart';
+import 'package:xcross/src/shared/compose/compose_host.dart';
+import 'package:xcross/src/shared/compose/compose_install_effects.dart';
+import 'package:xcross/src/shared/compose/compose_setup_options.dart';
+import 'package:xcross/src/shared/compose/verified_compose_artifact_acquirer.dart';
 
-typedef DownloadToFile = Future<void> Function(String url, File file);
-typedef DigestFile = Future<String> Function(File file);
-typedef ExtractArchive =
-    Future<void> Function(File archive, Directory destination);
-typedef PatchCompilerJar = Future<void> Function(File jar);
-typedef RunChecked =
-    Future<void> Function(
-      String executable,
-      List<String> arguments, {
-      String? workingDirectory,
-      Map<String, String>? environment,
-    });
-typedef InstallRoot =
-    Future<String> Function(ComposeSetupOptions options, {required bool force});
-typedef RenameDirectory =
-    Future<Directory> Function(Directory source, String newPath);
+export 'package:xcross/src/shared/compose/compose_install_effects.dart';
 
-final class ComposeToolchainInstaller {
-  const ComposeToolchainInstaller()
+final class ComposeToolchainInstaller<T extends PlatformHostInterface> {
+  const ComposeToolchainInstaller(this.runner, this.downloader)
     : _downloadToFile = null,
       _digestFile = null,
       _extractArchive = null,
@@ -36,7 +23,9 @@ final class ComposeToolchainInstaller {
       _installRoot = null,
       _renameDirectory = null;
 
-  const ComposeToolchainInstaller.withSeams({
+  const ComposeToolchainInstaller.withSeams(
+    this.runner, {
+    required this.downloader,
     DownloadToFile? downloadToFile,
     DigestFile? digestFile,
     ExtractArchive? extractArchive,
@@ -52,6 +41,8 @@ final class ComposeToolchainInstaller {
        _installRoot = installRoot,
        _renameDirectory = renameDirectory;
 
+  final ProcessRunner<T> runner;
+  final Downloader downloader;
   final DownloadToFile? _downloadToFile;
   final DigestFile? _digestFile;
   final ExtractArchive? _extractArchive;
@@ -61,54 +52,66 @@ final class ComposeToolchainInstaller {
   final RenameDirectory? _renameDirectory;
 
   Future<String> install({
-    required ComposeSetupOptions options,
+    required ComposeSetupOptions<T> options,
     bool force = false,
   }) async {
     if (!force && _isComplete(options)) return options.kotlinHome;
+    final artifacts = VerifiedComposeArtifactAcquirer(
+      downloadToFile: _downloadToFile ?? downloader.downloadToFile,
+      digestFile: _digestFile ?? digestComposeArtifact,
+      extractArchive:
+          _extractArchive ?? ArchiveExtractor(runner.host).extractArchive,
+    );
     final installRoot = _installRoot;
     if (installRoot != null) return installRoot(options, force: force);
 
-    final cache = Directory(options.cacheRoot);
+    final cache = runner.host.fileSystem.directory(options.cacheRoot);
     await cache.create(recursive: true);
     final downloads = await cache.createTemp('compose-downloads-');
     final hostExtract = await cache.createTemp('compose-host-');
-    final staging = await Directory(
-      p.dirname(options.kotlinHome),
-    ).createTemp('.compose-staging-');
-    final overlayExtract = options.host.isMacOS
+    final staging = await runner.host.fileSystem
+        .directory(p.dirname(options.kotlinHome))
+        .createTemp('.compose-staging-');
+    final overlayExtract = options.overlayArchiveUrl == null
         ? null
         : await cache.createTemp('compose-overlay-');
     try {
-      final hostArchive = File(
+      final hostArchive = runner.host.fileSystem.file(
         p.join(downloads.path, options.host.hostArtifact(options.version)),
       );
-      final overlayArchive = options.host.isMacOS
+      final overlayArchive = options.overlayArchiveUrl == null
           ? null
-          : File(
+          : runner.host.fileSystem.file(
               p.join(
                 downloads.path,
-                ComposeHost.macosX64OverlayArtifact(options.version),
+                options.host
+                    .installationArtifacts(options.version)
+                    .skip(1)
+                    .first,
               ),
             );
-      final hostSha256 = _requireDigest(
+      final hostSha256 = artifacts.requireDigest(
         p.basename(hostArchive.path),
         options.hostArchiveSha256,
       );
       final overlaySha256 = overlayArchive == null
           ? null
-          : _requireDigest(
+          : artifacts.requireDigest(
               p.basename(overlayArchive.path),
               options.overlayArchiveSha256,
             );
-      await _download(options.hostArchiveUrl, hostArchive);
-      await _verifyDigest(hostArchive, hostSha256);
+      await artifacts.downloadToFile(options.hostArchiveUrl, hostArchive);
+      await artifacts.verifyDigest(hostArchive, hostSha256);
       if (overlayArchive != null) {
-        await _download(options.overlayArchiveUrl!, overlayArchive);
-        await _verifyDigest(overlayArchive, overlaySha256!);
+        await artifacts.downloadToFile(
+          options.overlayArchiveUrl!,
+          overlayArchive,
+        );
+        await artifacts.verifyDigest(overlayArchive, overlaySha256!);
       }
-      await _extract(hostArchive, hostExtract);
+      await artifacts.extract(hostArchive, hostExtract);
       if (overlayArchive != null && overlayExtract != null) {
-        await _extract(overlayArchive, overlayExtract);
+        await artifacts.extract(overlayArchive, overlayExtract);
       }
       await _moveRoot(_archiveRoot(hostExtract), staging);
       _restoreExecutables(options.host, staging.path);
@@ -118,9 +121,12 @@ final class ComposeToolchainInstaller {
       }
       await _patchJars(staging);
       await _writeCompletionMarker(options, staging);
-      await _atomicInstall(
+      await ComposeDirectoryPublisher(
+        files: runner.host.fileSystem,
+        renameDirectory: _rename,
+      ).publish(
         staging,
-        Directory(options.kotlinHome),
+        runner.host.fileSystem.directory(options.kotlinHome),
         force: force,
       );
       return options.kotlinHome;
@@ -135,43 +141,19 @@ final class ComposeToolchainInstaller {
   }
 
   static bool isComplete(ComposeSetupOptions options) {
-    if (!File(options.host.konancExecutable(options.kotlinHome)).existsSync()) {
+    if (!options.host.host.fileSystem
+        .file(options.host.konancExecutable(options.kotlinHome))
+        .existsSync()) {
       return false;
     }
-    final marker = File(completionMarkerPath(options.kotlinHome));
+    final marker = options.host.host.fileSystem.file(
+      completionMarkerPath(options.kotlinHome),
+    );
     if (!marker.existsSync()) return false;
     return marker.readAsStringSync() == completionMarkerContent(options);
   }
 
   bool _isComplete(ComposeSetupOptions options) => isComplete(options);
-
-  Future<void> _download(String url, File file) =>
-      (_downloadToFile ?? _defaultDownload)(url, file);
-
-  String _requireDigest(String artifact, String? expectedSha256) {
-    if (expectedSha256 == null) {
-      throw XcrossError(
-        'No pinned SHA-256 digest for Kotlin/Native $artifact.',
-      );
-    }
-    return expectedSha256;
-  }
-
-  Future<void> _verifyDigest(File file, String expectedSha256) async {
-    final artifact = p.basename(file.path);
-    final actualSha256 = await (_digestFile ?? _defaultDigestFile)(file);
-    if (actualSha256.toLowerCase() != expectedSha256.toLowerCase()) {
-      throw XcrossError(
-        'Kotlin/Native archive SHA-256 mismatch for $artifact: expected $expectedSha256, got $actualSha256.',
-      );
-    }
-  }
-
-  Future<void> _extract(File archive, Directory destination) =>
-      (_extractArchive ?? ArchiveExtractor.extractArchive)(
-        archive,
-        destination,
-      );
 
   Future<void> _patch(File jar) =>
       (_patchCompilerJar ?? _defaultPatchCompilerJar)(jar);
@@ -194,22 +176,16 @@ final class ComposeToolchainInstaller {
         newPath,
       );
 
-  static Future<void> _defaultDownload(String url, File file) =>
-      Downloader.downloadToFile(url, file);
-
-  static Future<String> _defaultDigestFile(File file) =>
-      sha256.bind(file.openRead()).first.then((digest) => digest.toString());
-
-  static Future<void> _defaultPatchCompilerJar(File jar) async {
-    patchKotlinNativeJar(jar.path);
+  Future<void> _defaultPatchCompilerJar(File jar) async {
+    KotlinNativeJarPatcher(runner.host.fileSystem).patch(jar.path);
   }
 
-  static Future<void> _defaultRunChecked(
+  Future<void> _defaultRunChecked(
     String executable,
     List<String> arguments, {
     String? workingDirectory,
     Map<String, String>? environment,
-  }) => ProcessRunner.runTool(
+  }) => runner.runTool(
     executable,
     arguments,
     workingDirectory: workingDirectory,
@@ -218,12 +194,20 @@ final class ComposeToolchainInstaller {
 
   Future<void> _copyOverlay(Directory overlay, Directory staging) async {
     await _copyDirectory(
-      Directory(p.join(overlay.path, 'konan', 'targets', 'ios_arm64')),
-      Directory(p.join(staging.path, 'konan', 'targets', 'ios_arm64')),
+      runner.host.fileSystem.directory(
+        p.join(overlay.path, 'konan', 'targets', 'ios_arm64'),
+      ),
+      runner.host.fileSystem.directory(
+        p.join(staging.path, 'konan', 'targets', 'ios_arm64'),
+      ),
     );
     await _copyDirectory(
-      Directory(p.join(overlay.path, 'klib', 'platform', 'ios_arm64')),
-      Directory(p.join(staging.path, 'klib', 'platform', 'ios_arm64')),
+      runner.host.fileSystem.directory(
+        p.join(overlay.path, 'klib', 'platform', 'ios_arm64'),
+      ),
+      runner.host.fileSystem.directory(
+        p.join(staging.path, 'klib', 'platform', 'ios_arm64'),
+      ),
     );
   }
 
@@ -257,9 +241,11 @@ final class ComposeToolchainInstaller {
       final relative = p.relative(entity.path, from: source.path);
       final target = p.join(destination.path, relative);
       if (entity is Directory) {
-        await Directory(target).create(recursive: true);
+        await runner.host.fileSystem.directory(target).create(recursive: true);
       } else if (entity is File) {
-        await Directory(p.dirname(target)).create(recursive: true);
+        await runner.host.fileSystem
+            .directory(p.dirname(target))
+            .create(recursive: true);
         await entity.copy(target);
       } else {
         throw XcrossError(
@@ -269,13 +255,15 @@ final class ComposeToolchainInstaller {
     }
   }
 
-  void _restoreExecutables(ComposeHost host, String kotlinHome) {
-    final konanc = File(host.konancExecutable(kotlinHome));
-    if (konanc.existsSync()) ProcessRunner.makeExecutable(konanc.path);
-    final bin = Directory(p.join(kotlinHome, 'bin'));
+  void _restoreExecutables(ComposeHost<T> host, String kotlinHome) {
+    final konanc = runner.host.fileSystem.file(
+      host.konancExecutable(kotlinHome),
+    );
+    if (konanc.existsSync()) runner.makeExecutable(konanc.path);
+    final bin = runner.host.fileSystem.directory(p.join(kotlinHome, 'bin'));
     if (!bin.existsSync()) return;
     for (final entity in bin.listSync()) {
-      if (entity is File) ProcessRunner.makeExecutable(entity.path);
+      if (entity is File) runner.makeExecutable(entity.path);
     }
   }
 
@@ -289,17 +277,19 @@ final class ComposeToolchainInstaller {
   }
 
   Future<void> _warmDependencies(
-    ComposeSetupOptions options,
+    ComposeSetupOptions<T> options,
     String stagingHome,
   ) async {
     final executable = options.host.konancExecutable(stagingHome);
-    final scratch = await Directory(
-      options.cacheRoot,
-    ).createTemp('compose-konanc-warmup-');
+    final scratch = await runner.host.fileSystem
+        .directory(options.cacheRoot)
+        .createTemp('compose-konanc-warmup-');
     try {
-      final source = File(p.join(scratch.path, 'hello.kt'));
+      final source = runner.host.fileSystem.file(
+        p.join(scratch.path, 'hello.kt'),
+      );
       await source.writeAsString('fun main() { println("hello") }\n');
-      final invocation = options.host.invokeExecutable(executable, [
+      final invocation = options.host.invocation(executable, [
         source.path,
         '-target',
         options.host.konanTarget,
@@ -307,8 +297,8 @@ final class ComposeToolchainInstaller {
         p.join(scratch.path, 'hello'),
       ]);
       await _run(
-        invocation.first,
-        invocation.skip(1).toList(),
+        invocation.executable,
+        invocation.arguments,
         environment: {
           ...options.environment,
           'KONAN_DATA_DIR': options.konanCache,
@@ -323,7 +313,7 @@ final class ComposeToolchainInstaller {
     ComposeSetupOptions options,
     Directory root,
   ) async {
-    final marker = File(completionMarkerPath(root.path));
+    final marker = runner.host.fileSystem.file(completionMarkerPath(root.path));
     await marker.parent.create(recursive: true);
     await marker.writeAsString(completionMarkerContent(options));
   }
@@ -333,69 +323,9 @@ final class ComposeToolchainInstaller {
       'host=${options.host.classifier}\n'
       'hostArchive=${options.host.hostArtifact(options.version)}\n'
       'hostSha256=${options.hostArchiveSha256}\n'
-      'overlayArchive=${options.host.isMacOS ? 'none' : ComposeHost.macosX64OverlayArtifact(options.version)}\n'
+      'overlayArchive=${options.host.installationArtifacts(options.version).skip(1).firstOrNull ?? 'none'}\n'
       'overlaySha256=${options.overlayArchiveSha256}\n';
 
   static String completionMarkerPath(String kotlinHome) =>
       p.join(kotlinHome, '.xcross-compose-toolchain-complete');
-
-  Future<void> _atomicInstall(
-    Directory staging,
-    Directory destination, {
-    required bool force,
-  }) async {
-    await destination.parent.create(recursive: true);
-    Directory? backupContainer;
-    String? backupPath;
-    if (destination.existsSync()) {
-      if (!force) {
-        throw XcrossError(
-          '${destination.path} already exists. Use force to reinstall.',
-        );
-      }
-      backupContainer = await destination.parent.createTemp('.compose-backup-');
-      backupPath = p.join(backupContainer.path, 'toolchain');
-      await _rename(destination, backupPath);
-    }
-    try {
-      await _rename(staging, destination.path);
-    } on FileSystemException catch (error) {
-      await _restoreBackupOrThrow(destination, backupPath, error);
-      await _deleteBackupContainer(backupContainer);
-      throw XcrossError(
-        'Failed to replace Compose Kotlin/Native cache at ${destination.path}: $error',
-      );
-    } catch (error) {
-      await _restoreBackupOrThrow(destination, backupPath, error);
-      await _deleteBackupContainer(backupContainer);
-      rethrow;
-    }
-    await _deleteBackupContainer(backupContainer);
-  }
-
-  Future<void> _restoreBackupOrThrow(
-    Directory destination,
-    String? backupPath,
-    Object installError,
-  ) async {
-    if (backupPath == null) return;
-    try {
-      if (destination.existsSync()) await destination.delete(recursive: true);
-      if (Directory(backupPath).existsSync()) {
-        await _rename(Directory(backupPath), destination.path);
-      }
-    } catch (restoreError) {
-      throw XcrossError(
-        'Failed to replace Compose Kotlin/Native cache at ${destination.path} and failed to restore the previous cache. '
-        'Previous cache backup preserved at $backupPath. '
-        'Install error: $installError. Restore error: $restoreError',
-      );
-    }
-  }
-
-  Future<void> _deleteBackupContainer(Directory? backupContainer) async {
-    if (backupContainer != null && backupContainer.existsSync()) {
-      await backupContainer.delete(recursive: true);
-    }
-  }
 }
