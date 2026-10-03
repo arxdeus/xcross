@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/composition/xcrun_sdk.dart';
 import 'package:xcross/src/host/macos/xcrun/native_xcrun.dart';
+import 'package:xcross/src/host/windows/xcrun/windows_executable.dart';
 import 'package:xcross/src/shared/xcrun/cross_xcrun.dart' as xcrun;
 import 'package:xcross/src/shared/xcrun/xcrun_operation.dart';
 
@@ -548,13 +549,13 @@ void main() {
 
   test('normalizes PATHEXT uppercase .EXE for native_toolchain_c', () {
     expect(
-      xcrun.normalizeWindowsExecutableExtension(
+      normalizeWindowsExecutableExtension(
         r'C:\Temp\xcross-tools\clang.EXE',
       ),
       r'C:\Temp\xcross-tools\clang.exe',
     );
     expect(
-      xcrun.normalizeWindowsExecutableExtension(r'C:\Temp\xcross-tools\ar.EXE'),
+      normalizeWindowsExecutableExtension(r'C:\Temp\xcross-tools\ar.EXE'),
       r'C:\Temp\xcross-tools\ar.exe',
     );
   });

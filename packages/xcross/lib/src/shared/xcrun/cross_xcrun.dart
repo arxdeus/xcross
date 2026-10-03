@@ -6,8 +6,6 @@ import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/xcrun/xcrun_operation.dart';
 
-export 'package:xcross/src/host/windows/xcrun/windows_executable.dart';
-
 final class CrossXcrunOperation implements XcrunOperation {
   const CrossXcrunOperation(this.loader, {required this.executable});
   final XcrunRuntimeLoader loader;
