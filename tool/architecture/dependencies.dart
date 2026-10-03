@@ -12,10 +12,7 @@ class DependencyRules {
     : classification = classify(path);
   void reject(AstNode node, String rule, String detail) =>
       violations.add(Violation(path, rule, node.offset, detail));
-  bool get composesHost =>
-      path == detector ||
-      path == hostComposition ||
-      hostAssemblies.contains(path);
+  bool get composesHost => path == detector || path == hostComposition;
   bool get composesTarget => targetComposition.contains(path);
   void importEdge(AstNode node, String? uri) {
     if (uri == null || uri.startsWith('dart:')) return;
@@ -33,11 +30,16 @@ class DependencyRules {
           'Production URI reaches unclassified or legacy path: $destinationPath',
         );
       }
-      if ({'composition', 'host-composition'}.contains(destination.kind) &&
+      if ({
+            'composition',
+            'host-composition',
+            'generated-composition',
+          }.contains(destination.kind) &&
           !{
             'barrel',
             'composition',
             'host-composition',
+            'generated-composition',
             'entrypoint',
           }.contains(classification.kind) &&
           !(detectorCallers.containsKey(path) && destinationPath == detector)) {
@@ -52,10 +54,14 @@ class DependencyRules {
       if (classification.kind != 'barrel' &&
           ((classification.host != destination.host &&
                   concreteHost &&
-                  !composesHost) ||
+                  !composesHost &&
+                  !(hostAssemblies[path]?.contains(destinationPath) ??
+                      false)) ||
               (classification.target != destination.target &&
                   concreteTarget &&
                   !composesTarget &&
+                  !(targetAssemblies[path]?.contains(destinationPath) ??
+                      false) &&
                   path != detector &&
                   !hostFactories.containsKey(path) &&
                   path !=

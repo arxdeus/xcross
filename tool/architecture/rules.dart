@@ -33,7 +33,8 @@ class Guard extends RecursiveAstVisitor<void> {
       : body is ExpressionStatement && body.expression is ThrowExpression ||
             body is ReturnStatement && body.expression is BooleanLiteral;
   bool pureMetadata(Expression value) =>
-      value is StringLiteral ||
+      value is SimpleStringLiteral ||
+      value is AdjacentStrings && value.strings.every(pureMetadata) ||
       value is IntegerLiteral ||
       value is DoubleLiteral ||
       value is BooleanLiteral ||
@@ -59,8 +60,8 @@ class Guard extends RecursiveAstVisitor<void> {
             {
               'IPhoneBuildPlatform',
               'SimulatorBuildPlatform',
-            }.contains((value.staticType as InterfaceType).element.name) &&
-            (value.staticType as InterfaceType).element.allSupertypes.any(
+            }.contains((value.staticType! as InterfaceType).element.name) &&
+            (value.staticType! as InterfaceType).element.allSupertypes.any(
               (type) => type.element.name == 'IosBuildPlatformInterface',
             ),
       );
@@ -71,8 +72,9 @@ class Guard extends RecursiveAstVisitor<void> {
     if (NativeSafety(path).allocationBranch(node)) return;
     if (supportsArchitecture(kind) &&
         body != null &&
-        (validation(body) || metadataReturn(body)))
+        (validation(body) || metadataReturn(body))) {
       return;
+    }
     if (supportsArchitecture(kind) &&
         node is SwitchExpression &&
         node.cases.every((c) => pureMetadata(c.expression))) {
@@ -110,8 +112,9 @@ class Guard extends RecursiveAstVisitor<void> {
                   false),
         ) &&
         node.thenExpression.staticType?.isDartCoreBool == true &&
-        node.elseExpression.staticType?.isDartCoreBool == true)
+        node.elseExpression.staticType?.isDartCoreBool == true) {
       return;
+    }
     final literalIdentity = astNodes(condition).whereType<StringLiteral>().any(
       (n) => IdentityAnalysis.labels.contains(n.stringValue),
     );
@@ -157,6 +160,19 @@ class Guard extends RecursiveAstVisitor<void> {
   List<Violation> inspect(CompilationUnit unit) {
     if (classification.kind == 'unclassified') {
       reject(unit, 'inventory', 'Production path has no final classification');
+    }
+    if (generatedCompositionParts.containsKey(path)) {
+      final parts = unit.directives.whereType<PartOfDirective>().toList();
+      if (parts.length != 1 ||
+          parts.single.uri?.stringValue == null ||
+          resolveUri(path, parts.single.uri!.stringValue!) !=
+              generatedCompositionParts[path]) {
+        reject(
+          unit,
+          'inventory',
+          'Generated parser part must bind its exact approved composition owner',
+        );
+      }
     }
     if (classification.kind == 'barrel' &&
         (unit.declarations.isNotEmpty ||

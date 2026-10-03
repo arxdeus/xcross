@@ -40,8 +40,9 @@ class NativeSafety {
   bool allocationBranch(AstNode node) {
     if (!scoped(node) ||
         node.thisOrAncestorOfType<MethodDeclaration>()?.name.lexeme !=
-            '_createAllocator')
+            '_createAllocator') {
       return false;
+    }
     if (node is! SwitchExpression || node.cases.length != 2) return false;
     final constants = {
       for (final id in astNodes(
@@ -52,21 +53,22 @@ class NativeSafety {
           id.element?.name,
     };
     final expected = loaders[path]!.$3;
-    if (constants.length != expected.length || !constants.containsAll(expected))
+    if (constants.length != expected.length || !constants.containsAll(expected)) {
       return false;
+    }
     final creation = node.cases.first.expression;
     final expression = node.expression;
     return expression is InstanceCreationExpression &&
         expression.constructorName.name?.name == 'current' &&
         expression.staticType is InterfaceType &&
-        (expression.staticType as InterfaceType).element.library.uri
+        (expression.staticType! as InterfaceType).element.library.uri
                 .toString() ==
             'dart:ffi' &&
         astNodes(expression).whereType<SimpleIdentifier>().any(abiCurrent) &&
         creation is InstanceCreationExpression &&
         creation.argumentList.arguments.isEmpty &&
         (creation.staticType is InterfaceType &&
-            (creation.staticType as InterfaceType).element.name ==
+            (creation.staticType! as InterfaceType).element.name ==
                 loaders[path]!.$2) &&
         node.cases.last.expression is ThrowExpression;
   }

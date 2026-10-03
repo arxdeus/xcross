@@ -9,8 +9,21 @@ Classification classify(String path) {
       parts[2] == 'test') {
     return const Classification('shared', 'shared', 'test');
   }
+  final source = parts.indexOf('src');
+  final primary = source < 0 ? -1 : source + 1;
+  int axisIndex(String label) {
+    if (primary < 0 || primary >= parts.length) return -1;
+    if (parts[primary] == label) return primary;
+    if ({'host', 'target'}.contains(parts[primary]) &&
+        primary + 2 < parts.length &&
+        parts[primary + 2] == label) {
+      return primary + 2;
+    }
+    return -1;
+  }
+
   String axis(String label, Set<String> choices) {
-    final index = parts.indexOf(label);
+    final index = axisIndex(label);
     return index >= 0 &&
             index + 1 < parts.length &&
             choices.contains(parts[index + 1])
@@ -34,6 +47,9 @@ Classification classify(String path) {
   if (hostFactories.containsKey(path)) {
     return Classification(hostFactories[path]!, 'shared', 'host-composition');
   }
+  if (generatedCompositionParts.containsKey(path)) {
+    return const Classification('shared', 'shared', 'generated-composition');
+  }
   if (ciFiles.containsKey(path)) return ciFiles[path]!;
   if (path == 'tool/architecture/check_test.dart') {
     return const Classification('shared', 'shared', 'architecture-test');
@@ -51,8 +67,8 @@ Classification classify(String path) {
   if (lib >= 0 && lib + 2 == parts.length && path.endsWith('.dart')) {
     return const Classification('shared', 'shared', 'barrel');
   }
-  final hostIndex = parts.indexOf('host');
-  final targetIndex = parts.indexOf('target');
+  final hostIndex = axisIndex('host');
+  final targetIndex = axisIndex('target');
   if ((hostIndex >= 0 &&
           (hostIndex + 1 >= parts.length ||
               !{

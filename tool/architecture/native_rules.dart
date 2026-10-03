@@ -2,8 +2,8 @@ import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/element/type.dart';
 
 import 'identity.dart';
-import 'native_safety.dart';
 import 'inventory.dart';
+import 'native_safety.dart';
 
 String? topFunction(AstNode node) {
   final function = node.thisOrAncestorOfType<FunctionDeclaration>();
@@ -23,13 +23,13 @@ class NativeRules {
       final alias = identity.aliases[element];
       final nativeInput =
           node.staticType is InterfaceType &&
-          (node.staticType as InterfaceType).element.library.uri
+          (node.staticType! as InterfaceType).element.library.uri
               .toString()
               .startsWith('package:code_assets/') &&
           {
             'OS',
             'Architecture',
-          }.contains((node.staticType as InterfaceType).element.name);
+          }.contains((node.staticType! as InterfaceType).element.name);
       if (alias != null && alias.isNotEmpty && !nativeInput) return false;
       if (identity.platformOwner(element) ||
           element?.enclosingElement?.name == 'NativeHostSnapshot' ||
@@ -99,8 +99,9 @@ class NativeRules {
     };
     if (function == 'main' &&
         uri == 'dart:io' &&
-        (commandStreams[path]?.contains(name) ?? false))
+        (commandStreams[path]?.contains(name) ?? false)) {
       return true;
+    }
     if ({
           'tool/architecture/check.dart',
           'tool/architecture/check_test.dart',

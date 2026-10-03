@@ -130,6 +130,70 @@ Future<void> main() async {
         )) {
       throw StateError('Exact native build input purpose failed');
     }
+    const assemblyPath =
+        'packages/apple_developer_kit/lib/src/composition/native_library_loader.dart';
+    final assemblySource = dependencyAssets()[assemblyPath]!.$1;
+    final approvedImport = assemblySource.indexOf('import');
+    final deniedImport = assemblySource.indexOf('import', approvedImport + 1);
+    if (violations.any(
+          (v) => v.path == assemblyPath && v.offset == approvedImport,
+        ) ||
+        !violations.any(
+          (v) =>
+              v.path == assemblyPath &&
+              v.offset == deniedImport &&
+              v.rule == 'concrete-edge',
+        )) {
+      throw StateError('Exact assembly destination permission failed');
+    }
+    const physicalPath =
+        'packages/xcross/lib/src/composition/cli/flutter_run_command.dart';
+    final physicalSource = dependencyAssets()[physicalPath]!.$1;
+    final physicalAllowed = physicalSource.indexOf('import');
+    final physicalDenied = physicalSource.indexOf(
+      'import',
+      physicalAllowed + 1,
+    );
+    if (violations.any(
+          (v) => v.path == physicalPath && v.offset == physicalAllowed,
+        ) ||
+        !violations.any(
+          (v) =>
+              v.path == physicalPath &&
+              v.offset == physicalDenied &&
+              v.rule == 'concrete-edge',
+        )) {
+      throw StateError('Exact fixed-physical assembly permission failed');
+    }
+    const metadataPath =
+        'packages/fixture/lib/src/host/windows/release_metadata.dart';
+    final metadataSource = dependencyAssets()[metadataPath]!.$1;
+    final interpolationControls = [
+      metadataSource.indexOf(
+        'if(',
+        metadataSource.indexOf('String interpolated('),
+      ),
+      metadataSource.indexOf(
+        'switch(',
+        metadataSource.indexOf('String switchEffect('),
+      ),
+      metadataSource.indexOf(
+        'host.architecture ==',
+        metadataSource.indexOf('String conditionalEffect('),
+      ),
+    ];
+    if (!interpolationControls.every(
+      (offset) =>
+          offset >= 0 &&
+          violations.any(
+            (v) =>
+                v.path == metadataPath &&
+                v.offset == offset &&
+                v.rule == 'platform-branch',
+          ),
+    )) {
+      throw StateError('Effectful interpolation accepted as metadata');
+    }
     final scopedPairs = {
       'packages/xcross/tool/swiftpm_binary_fixture.dart': 'void other()',
       'packages/xcross/tool/verify_flutter_notices.dart':
@@ -173,6 +237,15 @@ Future<void> main() async {
         !production('packages/cli_kit/src/bridge.c') ||
         production('packages/cli_kit/test/a.dart')) {
       throw StateError('Production inventory failed');
+    }
+    const approvedPart =
+        'packages/xcross/lib/src/composition/cli/flutter_build_command.g.dart';
+    File('${directory.path}/$approvedPart').writeAsStringSync(
+      "part of 'compose_build_command.dart'; class Parser {}",
+    );
+    final wrongPart = await inspectFiles(directory.path, [approvedPart]);
+    if (!wrongPart.any((v) => v.rule == 'inventory')) {
+      throw StateError('Unapproved generated part owner accepted');
     }
     final duplicate = File('${directory.path}/$hostComposition');
     duplicate.writeAsStringSync(

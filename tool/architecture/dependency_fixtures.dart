@@ -14,37 +14,54 @@ Map<String, (String, Set<String>)> dependencyFixtures() => {
 Map<String, (String, Set<String>)> dependencyAssets() {
   final result = <String, (String, Set<String>)>{};
   for (final entry in {
+    'packages/xcross/lib/src/composition/cli/flutter_run_command.dart':
+        "import '../../target/iphone/device/core_device_launch_profile.dart'; import '../../../../../darwin_sdk_kit/lib/src/target/simulator/simulator_build_platform.dart'; CoreDeviceLaunchProfile wire()=>CoreDeviceLaunchProfile();",
+    'packages/xcross/lib/src/target/iphone/device/core_device_launch_profile.dart':
+        'class CoreDeviceLaunchProfile {}',
+    'packages/darwin_sdk_kit/lib/src/target/simulator/simulator_build_platform.dart':
+        'class SimulatorBuildPlatform {}',
+
+    'packages/xcross/lib/src/composition/cli/flutter_build_command.dart':
+        "part 'flutter_build_command.g.dart'; class BuildArgs {}",
+    'packages/xcross/lib/src/composition/cli/flutter_build_command.g.dart':
+        "part of 'flutter_build_command.dart'; class _PrivateParser {}",
+    'packages/xcross/lib/src/composition/cli/rogue.g.dart':
+        'class ExtraParser {}',
+    'packages/fixture/lib/src/shared/host/device_policy.dart':
+        'class DevicePolicy {}',
+
     'packages/xcross/tool/verify_flutter_notices.dart':
         "import 'dart:io'; void main() { stdout.writeln('verified'); stderr.writeln('unapproved'); } void other() { stdout.writeln('hidden'); }",
     'packages/xcross/tool/swiftpm_binary_fixture.dart':
         "import 'dart:io'; void main() { stdout.writeln('archive'); stderr.writeln('usage'); } void other() { stderr.writeln('hidden'); }",
 
     'packages/apple_developer_kit/lib/src/composition/native_library_loader.dart':
-        "import '../host/linux/adi/linux_native_library_loader.dart'; LinuxNativeLibraryLoader createLinuxNativeLibraryLoader()=>LinuxNativeLibraryLoader();",
+        "import '../host/linux/adi/linux_native_library_loader.dart'; import 'package:xcross/src/host/windows/setup/windows_setup_requirements.dart'; LinuxNativeLibraryLoader createLinuxNativeLibraryLoader()=>LinuxNativeLibraryLoader();",
     'packages/apple_developer_kit/lib/src/composition/apple_host.dart':
-        "import '../host/linux/identity.dart'; LinuxMachineIdentity createLinuxAppleHostServices()=>LinuxMachineIdentity();",
-    'packages/apple_developer_kit/lib/src/host/linux/identity.dart':
+        "import '../host/linux/linux_machine_identity.dart'; LinuxMachineIdentity createLinuxAppleHostServices()=>LinuxMachineIdentity();",
+    'packages/apple_developer_kit/lib/src/host/linux/linux_machine_identity.dart':
         'class LinuxMachineIdentity {}',
     'packages/xcross/lib/src/composition/host_operations.dart':
-        "import '../host/windows/setup.dart'; WindowsSetup windowsHostOperations()=>WindowsSetup();",
-    'packages/xcross/lib/src/host/windows/setup.dart': 'class WindowsSetup {}',
+        "import '../host/windows/setup/windows_setup_requirements.dart'; WindowsSetup windowsHostOperations()=>WindowsSetup();",
+    'packages/xcross/lib/src/host/windows/setup/windows_setup_requirements.dart':
+        'class WindowsSetup {}',
     'packages/xcross/lib/src/composition/unapproved_assembly.dart':
-        "import '../host/windows/setup.dart'; WindowsSetup arbitrary()=>WindowsSetup();",
+        "import '../host/windows/setup/windows_setup_requirements.dart'; WindowsSetup arbitrary()=>WindowsSetup();",
     'packages/apple_developer_kit/lib/src/shared/unapproved_assembly.dart':
-        "import '../host/linux/identity.dart'; LinuxMachineIdentity arbitrary()=>LinuxMachineIdentity();",
+        "import '../host/linux/linux_machine_identity.dart'; LinuxMachineIdentity arbitrary()=>LinuxMachineIdentity();",
 
     'packages/fixture/lib/src/host/windows/release_metadata.dart':
-        "abstract class PlatformHostInterface { String get architecture; } String asset(PlatformHostInterface host) { if(host.architecture == 'x64') return 'xcross-windows-x64.zip'; throw UnsupportedError('unsupported'); } String backend(PlatformHostInterface host) { if(host.architecture == 'x64') return buildWindows(); throw UnsupportedError('bad'); } String buildWindows()=>'effect';",
+        r"abstract class PlatformHostInterface { String get architecture; } String asset(PlatformHostInterface host) { if(host.architecture == 'x64') return 'xcross-windows-x64.zip'; throw UnsupportedError('unsupported'); } String adjacent(PlatformHostInterface host) { if(host.architecture == 'x64') return 'xcross-' 'windows-x64.zip'; throw UnsupportedError('unsupported'); } String backend(PlatformHostInterface host) { if(host.architecture == 'x64') return buildWindows(); throw UnsupportedError('bad'); } String interpolated(PlatformHostInterface host) { if(host.architecture == 'x64') return '${buildWindows()}'; throw UnsupportedError('bad'); } String switchEffect(PlatformHostInterface host) => switch(host.architecture) { 'x64' => '${buildWindows()}', _ => 'constant' }; String conditionalEffect(PlatformHostInterface host) => host.architecture == 'x64' ? '${buildWindows()}' : 'constant'; String buildWindows()=>'effect';",
 
     'packages/apple_developer_kit/lib/src/shared/adi/adi_architecture.dart':
         "import 'dart:ffi'; enum AdiArchitecture { x64; int get elfMachine=>62; static AdiArchitecture forAbi(Abi value)=>x64; }",
 
     'packages/apple_developer_kit/lib/src/host/linux/adi/linux_native_library_loader.dart':
-        "import 'dart:ffi'; import '../../../shared/adi/adi_architecture.dart'; class LinuxMemoryAllocator {} class OtherAllocator {} class LinuxNativeLibraryLoader { final int machine; LinuxNativeLibraryLoader():machine=AdiArchitecture.forAbi(Abi.current()).elfMachine; static LinuxMemoryAllocator _createAllocator() => switch(Abi.current()) { Abi.linuxX64 || Abi.linuxArm64 => LinuxMemoryAllocator(), final abi => throw UnsupportedError('unsupported \$abi') }; Object other() => switch(Abi.current()) { Abi.windowsX64 => OtherAllocator(), _ => throw UnsupportedError('bad') }; }",
+        r"import 'dart:ffi'; import '../../../shared/adi/adi_architecture.dart'; class LinuxMemoryAllocator {} class OtherAllocator {} class LinuxNativeLibraryLoader { final int machine; LinuxNativeLibraryLoader():machine=AdiArchitecture.forAbi(Abi.current()).elfMachine; static LinuxMemoryAllocator _createAllocator() => switch(Abi.current()) { Abi.linuxX64 || Abi.linuxArm64 => LinuxMemoryAllocator(), final abi => throw UnsupportedError('unsupported $abi') }; Object other() => switch(Abi.current()) { Abi.windowsX64 => OtherAllocator(), _ => throw UnsupportedError('bad') }; }",
     'packages/apple_developer_kit/lib/src/host/macos/adi/macos_native_library_loader.dart':
-        "import 'dart:ffi'; import '../../../shared/adi/adi_architecture.dart'; class MacOSMemoryAllocator {} class MacOSNativeLibraryLoader { final int machine; MacOSNativeLibraryLoader():machine=AdiArchitecture.forAbi(Abi.current()).elfMachine; static MacOSMemoryAllocator _createAllocator() => switch(Abi.current()) { Abi.macosX64 || Abi.macosArm64 => MacOSMemoryAllocator(), final abi => throw UnsupportedError('unsupported \$abi') }; Object other() => Abi.current(); }",
+        r"import 'dart:ffi'; import '../../../shared/adi/adi_architecture.dart'; class MacOSMemoryAllocator {} class MacOSNativeLibraryLoader { final int machine; MacOSNativeLibraryLoader():machine=AdiArchitecture.forAbi(Abi.current()).elfMachine; static MacOSMemoryAllocator _createAllocator() => switch(Abi.current()) { Abi.macosX64 || Abi.macosArm64 => MacOSMemoryAllocator(), final abi => throw UnsupportedError('unsupported $abi') }; Object other() => Abi.current(); }",
     'packages/apple_developer_kit/lib/src/host/windows/adi/loader/loader_windows.dart':
-        "import 'dart:ffi'; class WindowsMemoryAllocator {} class WindowsNativeLibraryLoader { static WindowsMemoryAllocator _createAllocator() { if(Abi.current() != Abi.windowsX64) { throw UnsupportedError('bad \${Abi.current()}'); } return WindowsMemoryAllocator(); } Object other() => Abi.current(); }",
+        r"import 'dart:ffi'; class WindowsMemoryAllocator {} class WindowsNativeLibraryLoader { static WindowsMemoryAllocator _createAllocator() { if(Abi.current() != Abi.windowsX64) { throw UnsupportedError('bad ${Abi.current()}'); } return WindowsMemoryAllocator(); } Object other() => Abi.current(); }",
     'packages/xcross/lib/src/host/macos/compose/macos_compose_host.dart':
         "import 'package:xcross/src/host/shared/compose/posix_compose_host.dart' show isArm64Architecture, isX64Architecture; abstract class PlatformHostInterface { String get architecture; } abstract class MacOSHostInterface implements PlatformHostInterface {} class MacOSComposeHost { final MacOSHostInterface host; MacOSComposeHost(this.host); bool supportsJavaArchitecture(String architecture) => isArm64Architecture(host.architecture) ? isArm64Architecture(architecture) : isX64Architecture(architecture); bool other(String architecture) => isArm64Architecture(host.architecture) ? isArm64Architecture(architecture) : isX64Architecture(architecture); }",
     'packages/xcross/lib/src/composition/xcrun_sdk.dart':
@@ -120,15 +137,32 @@ Map<String, (String, Set<String>)> dependencyAssets() {
     'packages/fixture/lib/src/host/windows/adapter.dart': 'class Adapter {}',
   }.entries) {
     final explicit = <String, Set<String>>{
+      'packages/xcross/lib/src/composition/cli/flutter_run_command.dart': {
+        'concrete-edge',
+      },
+      'packages/xcross/lib/src/target/iphone/device/core_device_launch_profile.dart':
+          {},
+      'packages/darwin_sdk_kit/lib/src/target/simulator/simulator_build_platform.dart':
+          {},
+
+      'packages/xcross/lib/src/composition/cli/flutter_build_command.dart': {},
+      'packages/xcross/lib/src/composition/cli/flutter_build_command.g.dart': {
+        'private-type',
+      },
+      'packages/xcross/lib/src/composition/cli/rogue.g.dart': {'inventory'},
+      'packages/fixture/lib/src/shared/host/device_policy.dart': {},
+
       'packages/xcross/tool/verify_flutter_notices.dart': {'ambient-detection'},
       'packages/xcross/tool/swiftpm_binary_fixture.dart': {'ambient-detection'},
 
       'packages/apple_developer_kit/lib/src/composition/native_library_loader.dart':
-          {},
+          {'concrete-edge'},
       'packages/apple_developer_kit/lib/src/composition/apple_host.dart': {},
-      'packages/apple_developer_kit/lib/src/host/linux/identity.dart': {},
+      'packages/apple_developer_kit/lib/src/host/linux/linux_machine_identity.dart':
+          {},
       'packages/xcross/lib/src/composition/host_operations.dart': {},
-      'packages/xcross/lib/src/host/windows/setup.dart': {},
+      'packages/xcross/lib/src/host/windows/setup/windows_setup_requirements.dart':
+          {},
       'packages/xcross/lib/src/composition/unapproved_assembly.dart': {
         'inventory',
         'concrete-edge',

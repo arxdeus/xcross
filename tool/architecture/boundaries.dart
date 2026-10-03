@@ -65,11 +65,67 @@ const cliCompositions = {
   'packages/xcross/lib/src/composition/cli/doctor_project_checks.dart',
 };
 const hostAssemblies = {
-  'packages/apple_developer_kit/lib/src/composition/apple_host.dart',
-  'packages/apple_developer_kit/lib/src/composition/native_library_loader.dart',
-  'packages/xcross/lib/src/composition/host_operations.dart',
+  'packages/apple_developer_kit/lib/src/composition/apple_host.dart': {
+    'packages/apple_developer_kit/lib/src/host/linux/linux_machine_identity.dart',
+    'packages/apple_developer_kit/lib/src/host/macos/macos_machine_identity.dart',
+    'packages/apple_developer_kit/lib/src/host/windows/windows_machine_identity.dart',
+    'packages/apple_developer_kit/lib/src/host/windows/windows_file_permissions.dart',
+  },
+  'packages/apple_developer_kit/lib/src/composition/native_library_loader.dart': {
+    'packages/apple_developer_kit/lib/src/host/linux/adi/linux_native_library_loader.dart',
+    'packages/apple_developer_kit/lib/src/host/macos/adi/macos_native_library_loader.dart',
+    'packages/apple_developer_kit/lib/src/host/windows/adi/loader/loader_windows.dart',
+  },
+  'packages/xcross/lib/src/composition/host_operations.dart': {
+    'packages/xcross/lib/src/host/linux/setup/linux_setup_requirements.dart',
+    'packages/xcross/lib/src/host/linux/update/linux_update_policy.dart',
+    'packages/xcross/lib/src/host/macos/setup/macos_setup_requirements.dart',
+    'packages/xcross/lib/src/host/macos/update/macos_update_policy.dart',
+    'packages/xcross/lib/src/host/windows/setup/windows_setup_requirements.dart',
+    'packages/xcross/lib/src/host/windows/setup/windows_setup_script.dart',
+    'packages/xcross/lib/src/host/windows/update/windows_update_policy.dart',
+    'packages/xcross/lib/src/host/windows/xcrun/windows_executable.dart',
+  },
+};
+const targetAssemblies = {
+  'packages/xcross/lib/src/composition/xcross_application.dart': {
+    'packages/dart_mobile_device/lib/src/target/iphone/device/pymd/pymd.dart',
+  },
+  'packages/xcross/lib/src/composition/cli/compose_run_command.dart': {
+    'packages/xcross/lib/src/target/iphone/device/core_device_launch_profile.dart',
+    'packages/xcross/lib/src/target/iphone/device/device_run_operation.dart',
+  },
+  'packages/xcross/lib/src/composition/cli/flutter_run_command.dart': {
+    'packages/xcross/lib/src/target/iphone/device/core_device_launch_profile.dart',
+    'packages/xcross/lib/src/target/iphone/device/device_run_operation.dart',
+  },
+  'packages/xcross/lib/src/composition/cli/runner.dart': {
+    'packages/xcross/lib/src/target/iphone/cli/basic/tunnel_command.dart',
+    'packages/dart_mobile_device/lib/src/target/iphone/device/device_prepare.dart',
+  },
+  'packages/xcross/lib/src/composition/host_operations.dart': {
+    'packages/dart_mobile_device/lib/src/target/iphone/device/pymd/pymd.dart',
+  },
+  'packages/xcross/lib/src/composition/xcrun_sdk.dart': {
+    'packages/darwin_sdk_kit/lib/src/target/iphone/iphone_build_platform.dart',
+    'packages/darwin_sdk_kit/lib/src/target/simulator/simulator_build_platform.dart',
+  },
+};
+const generatedCompositionParts = {
+  'packages/xcross/lib/src/composition/cli/compose_build_command.g.dart':
+      'packages/xcross/lib/src/composition/cli/compose_build_command.dart',
+  'packages/xcross/lib/src/composition/cli/compose_run_command.g.dart':
+      'packages/xcross/lib/src/composition/cli/compose_run_command.dart',
+  'packages/xcross/lib/src/composition/cli/compose_setup_command.g.dart':
+      'packages/xcross/lib/src/composition/cli/compose_setup_command.dart',
+  'packages/xcross/lib/src/composition/cli/flutter_build_command.g.dart':
+      'packages/xcross/lib/src/composition/cli/flutter_build_command.dart',
+  'packages/xcross/lib/src/composition/cli/flutter_run_command.g.dart':
+      'packages/xcross/lib/src/composition/cli/flutter_run_command.dart',
 };
 const compositions = {
+  'packages/xcross/lib/src/composition/xcross_application.dart',
+  'packages/xcross/lib/src/composition/flutter/swiftpm_foundation.dart',
   'packages/xcross/lib/src/composition/flutter/posix_flutter_feature_services.dart',
 
   'packages/apple_developer_kit/lib/src/composition/apple_host.dart',
