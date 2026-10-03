@@ -38,7 +38,7 @@ final class FileSwap {
 
     String? backup;
     try {
-      if (File(target).existsSync()) {
+      if (await operations.exists(target)) {
         backup = _sibling(target, '$backupMarker$pid');
         await _move(target, backup);
       }
@@ -74,7 +74,7 @@ final class FileSwap {
           await _tryDelete(entry.target);
           continue;
         }
-        if (!File(backup).existsSync()) {
+        if (!await operations.exists(backup)) {
           log.logWarn(
             'could not restore ${entry.target}: backup $backup is missing',
           );
@@ -92,7 +92,7 @@ final class FileSwap {
   }
 
   Future<void> _tryMoveAside(String target) async {
-    if (!File(target).existsSync()) return;
+    if (!await operations.exists(target)) return;
     try {
       await _move(target, _sibling(target, '$backupMarker$pid-failed'));
     } on Object {
@@ -128,11 +128,15 @@ final class FileSwap {
   static const _minimumAge = Duration(minutes: 10);
 
   /// Best-effort removal of leftovers a previous update could not delete.
-  static void sweepStaleBackups(Iterable<String> directories) {
+  static void sweepStaleBackups(
+    Iterable<String> directories, {
+    required HostFileSystemInterface fileSystem,
+  }) {
     final now = DateTime.now();
     for (final directory in directories.toSet()) {
       try {
-        for (final file in Directory(directory).listSync().whereType<File>()) {
+        for (final file
+            in fileSystem.directory(directory).listSync().whereType<File>()) {
           if (!_leftover.hasMatch(p.basename(file.path))) continue;
           try {
             if (now.difference(file.lastModifiedSync()) < _minimumAge) continue;

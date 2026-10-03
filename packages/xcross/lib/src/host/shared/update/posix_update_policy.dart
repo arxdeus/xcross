@@ -27,6 +27,9 @@ final class PosixFileSwapOperations implements FileSwapOperations {
   const PosixFileSwapOperations(this.host);
   final PlatformHostInterface host;
   @override
+  Future<bool> exists(String path) =>
+      Future.value(host.fileSystem.file(path).existsSync());
+  @override
   Future<void> copy(String source, String target) async {
     await host.fileSystem.file(source).copy(target);
     host.fileSystem.makeExecutable(target);
@@ -47,6 +50,9 @@ final class ElevatedFileSwapOperations implements FileSwapOperations {
   const ElevatedFileSwapOperations(this.runner, this.sudo);
   final ProcessRunner runner;
   final String sudo;
+  @override
+  Future<bool> exists(String path) async =>
+      (await runner.run(sudo, ['-n', 'test', '-e', path])).exitCode == 0;
   Future<void> _run(List<String> arguments) =>
       runner.runChecked(sudo, ['-n', ...arguments], label: 'update');
   @override

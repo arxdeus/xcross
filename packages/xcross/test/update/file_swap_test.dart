@@ -8,6 +8,7 @@ import 'package:xcross/src/host/windows/update/windows_update_policy.dart';
 import 'package:xcross/src/shared/update/update_host_policy.dart';
 import 'package:xcross/src/update/internal/file_swap.dart';
 import '../host_operations_fixtures.dart';
+import 'file_swap_fixtures.dart';
 
 void main() {
   late Directory root;
@@ -30,11 +31,69 @@ void main() {
   });
 
   test(
+    'remapped existing files and new files rollback in reverse transaction order',
+    () async {
+      final mapped = FixtureRemappedOperations(root);
+      mapped.file('/logical/first').writeAsStringSync('old first');
+      mapped.file('/logical/second').writeAsStringSync('old second');
+      mapped.file('/stage/first').writeAsStringSync('new first');
+      mapped.file('/stage/second').writeAsStringSync('new second');
+      mapped.file('/stage/added').writeAsStringSync('new added');
+      final swap = FileSwap(log: fixtureLog(), operations: mapped);
+      await swap.replace(source: '/stage/first', target: '/logical/first');
+      await swap.replace(source: '/stage/second', target: '/logical/second');
+      await swap.replace(source: '/stage/added', target: '/logical/added');
+      expect(
+        swap.entries.take(2).every((entry) => entry.backup != null),
+        isTrue,
+      );
+      expect(swap.entries.last.backup, isNull);
+      mapped.moves.clear();
+      await swap.rollback();
+      expect(mapped.file('/logical/first').readAsStringSync(), 'old first');
+      expect(mapped.file('/logical/second').readAsStringSync(), 'old second');
+      expect(mapped.file('/logical/added').existsSync(), isFalse);
+      expect(
+        mapped.moves
+            .where(
+              (entry) =>
+                  entry.endsWith('-> /logical/first') ||
+                  entry.endsWith('-> /logical/second'),
+            )
+            .toList(),
+        [contains('-> /logical/second'), contains('-> /logical/first')],
+      );
+    },
+  );
+
+  test(
+    'remapped promotion failure restores backup without recording replacement',
+    () async {
+      final mapped = FixtureRemappedOperations(root, failPromotion: true);
+      mapped.file('/logical/first').writeAsStringSync('old');
+      mapped.file('/stage/first').writeAsStringSync('new');
+      final swap = FileSwap(log: fixtureLog(), operations: mapped);
+      await expectLater(
+        swap.replace(source: '/stage/first', target: '/logical/first'),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(mapped.file('/logical/first').readAsStringSync(), 'old');
+      expect(swap.entries, isEmpty);
+      expect(
+        mapped
+            .file('/logical/.first${FileSwap.incomingMarker}$pid')
+            .existsSync(),
+        isFalse,
+      );
+    },
+  );
+
+  test(
     'mapped Windows backups remain for deferred cleanup after verification',
     () async {
       File(target('xcross.exe')).writeAsStringSync('old');
       stagedFile('xcross.exe', 'new');
-      final operations = _MappedWindowsOperations(LinuxHost());
+      final operations = FixtureMappedWindowsOperations(LinuxHost());
       final swap = FileSwap(log: fixtureLog(), operations: operations);
       await swap.replace(
         source: p.join(staged.path, 'xcross.exe'),
@@ -47,7 +106,9 @@ void main() {
       File(
         backup,
       ).setLastModifiedSync(DateTime.now().subtract(const Duration(hours: 1)));
-      FileSwap.sweepStaleBackups([installed.path]);
+      FileSwap.sweepStaleBackups([
+        installed.path,
+      ], fileSystem: LinuxHost().fileSystem);
       expect(File(backup).existsSync(), isFalse);
     },
   );
@@ -205,7 +266,9 @@ void main() {
     );
     File(target('xcross')).writeAsStringSync('current');
 
-    FileSwap.sweepStaleBackups([installed.path]);
+    FileSwap.sweepStaleBackups([
+      installed.path,
+    ], fileSystem: LinuxHost().fileSystem);
 
     expect(installed.listSync().map((e) => p.basename(e.path)), ['xcross']);
   });
@@ -217,7 +280,9 @@ void main() {
       p.join(installed.path, '.xcross${FileSwap.backupMarker}999'),
     ).writeAsStringSync('in flight');
 
-    FileSwap.sweepStaleBackups([installed.path]);
+    FileSwap.sweepStaleBackups([
+      installed.path,
+    ], fileSystem: LinuxHost().fileSystem);
 
     expect(installed.listSync(), hasLength(1));
   });
@@ -239,7 +304,9 @@ void main() {
       );
     }
 
-    FileSwap.sweepStaleBackups([installed.path]);
+    FileSwap.sweepStaleBackups([
+      installed.path,
+    ], fileSystem: LinuxHost().fileSystem);
 
     expect(
       installed.listSync().map((e) => p.basename(e.path)).toSet(),
@@ -248,14 +315,18 @@ void main() {
   });
 
   test('sweepStaleBackups ignores a directory that does not exist', () {
-    FileSwap.sweepStaleBackups([p.join(root.path, 'missing')]);
+    FileSwap.sweepStaleBackups([
+      p.join(root.path, 'missing'),
+    ], fileSystem: LinuxHost().fileSystem);
   });
 }
 
-final class _MappedWindowsOperations implements FileSwapOperations {
-  _MappedWindowsOperations(PlatformHostInterface host)
+final class FixtureMappedWindowsOperations implements FileSwapOperations {
+  FixtureMappedWindowsOperations(PlatformHostInterface host)
     : delegate = WindowsFileSwapOperations(host);
   final WindowsFileSwapOperations delegate;
+  @override
+  Future<bool> exists(String path) => delegate.exists(path);
   @override
   Future<void> copy(String source, String target) =>
       delegate.copy(source, target);

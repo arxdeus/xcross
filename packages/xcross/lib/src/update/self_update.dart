@@ -173,7 +173,10 @@ final class SelfUpdate {
 
   /// Best-effort removal of backups a previous update could not delete.
   static void sweepStaleBackups(InstallLayout layout) =>
-      FileSwap.sweepStaleBackups([layout.binDir, layout.libDir]);
+      FileSwap.sweepStaleBackups([
+        layout.binDir,
+        layout.libDir,
+      ], fileSystem: layout.host.fileSystem);
 
   // ------------------------------------------------------------ privileges
 

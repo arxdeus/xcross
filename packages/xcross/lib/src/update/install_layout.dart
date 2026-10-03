@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/errors.dart';
@@ -16,12 +17,14 @@ import 'package:xcross/src/version.dart';
 final class InstallLayout {
   const InstallLayout({
     required this.binaryPath,
+    required this.host,
     required this.binDir,
     required this.libDir,
   });
 
   /// Absolute path of the installed executable, with symlinks resolved.
   final String binaryPath;
+  final PlatformHostInterface host;
 
   /// Directory holding [binaryPath].
   final String binDir;
@@ -30,17 +33,23 @@ final class InstallLayout {
   final String libDir;
 
   /// Resolves the layout of the currently running executable.
-  factory InstallLayout.resolve(String executable) =>
-      InstallLayout.forExecutable(executable);
+  factory InstallLayout.resolve(
+    String executable, {
+    required PlatformHostInterface host,
+  }) => InstallLayout.forExecutable(executable, host: host);
 
   /// Resolves the layout for [executable].
   ///
   /// Throws [XcrossError] when the executable is the Dart VM (a `dart run`
   /// checkout) or when the sibling `lib/` directory is missing, because a
   /// layout we do not recognise must not be half-overwritten.
-  factory InstallLayout.forExecutable(String executable) {
-    final resolved = _resolveSymlinks(executable);
-    final name = p.basenameWithoutExtension(resolved).toLowerCase();
+  factory InstallLayout.forExecutable(
+    String executable, {
+    required PlatformHostInterface host,
+  }) {
+    final paths = host.paths.context;
+    final resolved = _resolveSymlinks(executable, host);
+    final name = paths.basenameWithoutExtension(resolved).toLowerCase();
     if (name == 'dart' || name == 'dartaotruntime') {
       throw XcrossError(
         'this xcross was built from a source checkout '
@@ -49,12 +58,12 @@ final class InstallLayout {
       );
     }
 
-    final binDir = p.dirname(resolved);
-    final libDir = p.join(p.dirname(binDir), 'lib');
+    final binDir = paths.dirname(resolved);
+    final libDir = paths.join(paths.dirname(binDir), 'lib');
     // Merely existing is not enough: `dart compile exe -o packages/xcross/bin/`
     // in a source checkout also produces a sibling `lib/`, and that one holds
     // the package's Dart sources.
-    if (!_isNativeLibraryDirectory(libDir)) {
+    if (!_isNativeLibraryDirectory(libDir, host)) {
       throw XcrossError(
         'unrecognised xcross installation: expected a native library directory '
         'at $libDir (next to $binDir).\n'
@@ -62,12 +71,24 @@ final class InstallLayout {
       );
     }
 
-    return InstallLayout(binaryPath: resolved, binDir: binDir, libDir: libDir);
+    return InstallLayout(
+      host: host,
+      binaryPath: resolved,
+      binDir: binDir,
+      libDir: libDir,
+    );
   }
 
-  static bool _isNativeLibraryDirectory(String libDir) {
+  static bool _isNativeLibraryDirectory(
+    String libDir,
+    PlatformHostInterface host,
+  ) {
     try {
-      final files = Directory(libDir).listSync().whereType<File>().toList();
+      final files = host.fileSystem
+          .directory(libDir)
+          .listSync()
+          .whereType<File>()
+          .toList();
       return files.isEmpty || files.any(_isNativeLibrary);
     } on FileSystemException {
       return false;
@@ -80,9 +101,11 @@ final class InstallLayout {
   /// `xcross update` can repair it by downloading the release again.
   bool get hasNativeLibraries {
     try {
-      return Directory(
-        libDir,
-      ).listSync().whereType<File>().any(_isNativeLibrary);
+      return host.fileSystem
+          .directory(libDir)
+          .listSync()
+          .whereType<File>()
+          .any(_isNativeLibrary);
     } on FileSystemException {
       return false;
     }
@@ -94,19 +117,24 @@ final class InstallLayout {
   static final _nativeLibrary = RegExp(r'\.(?:so|dll|dylib)(?:\.[0-9.]+)?$');
 
   /// A symlinked `xcross` on PATH must update the real file, not the link.
-  static String _resolveSymlinks(String executable) {
+  static String _resolveSymlinks(
+    String executable,
+    PlatformHostInterface host,
+  ) {
     try {
-      return File(executable).resolveSymbolicLinksSync();
+      return host.fileSystem.file(executable).resolveSymbolicLinksSync();
     } on FileSystemException {
-      return p.absolute(executable);
+      return host.paths.context.absolute(executable);
     }
   }
 
   /// Whether both target directories can be written without elevation.
   bool get isWritable => _isWritable(binDir) && _isWritable(libDir);
 
-  static bool _isWritable(String directory) {
-    final probe = File(p.join(directory, '.xcross-write-probe-$pid'));
+  bool _isWritable(String directory) {
+    final probe = host.fileSystem.file(
+      host.paths.context.join(directory, '.xcross-write-probe-$pid'),
+    );
     try {
       probe.writeAsStringSync('');
       probe.deleteSync();

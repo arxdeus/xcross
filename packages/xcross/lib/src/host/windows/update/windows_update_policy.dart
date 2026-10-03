@@ -38,6 +38,10 @@ final class WindowsFileSwapOperations implements FileSwapOperations {
   final PlatformHostInterface host;
 
   @override
+  Future<bool> exists(String path) =>
+      Future.value(host.fileSystem.file(path).existsSync());
+
+  @override
   Future<void> copy(String source, String target) async {
     await host.fileSystem.file(source).copy(host.paths.ioPath(target));
   }

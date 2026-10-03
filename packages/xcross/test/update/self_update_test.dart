@@ -1,18 +1,21 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:cli_kit/cli_kit.dart';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/host/linux/update/linux_update_policy.dart';
 import 'package:xcross/src/host/macos/update/macos_update_policy.dart';
 import 'package:xcross/src/host/windows/update/windows_update_policy.dart';
+import 'package:xcross/src/shared/update/update_host_policy.dart';
 import 'package:xcross/src/update/install_layout.dart';
 import 'package:xcross/src/update/self_update.dart';
 import 'package:xcross/src/update/update_check.dart';
 import 'package:xcross/src/update/update_progress.dart';
+
 import '../host_operations_fixtures.dart';
+import 'file_swap_fixtures.dart';
 
 String _exeName() => Platform.isWindows ? 'xcross.exe' : 'xcross';
 
@@ -43,7 +46,7 @@ void main() {
         expect(
           LinuxUpdatePolicy(
             host,
-            ProcessRunner(host, log: fixtureLog()),
+            fixtureRunner(host, log: fixtureLog()),
             FixturePrivileges(),
           ).releaseAsset(),
           'xcross-linux-$architecture.tar.gz',
@@ -67,7 +70,7 @@ void main() {
       expect(
         () => MacOSUpdatePolicy(
           mac,
-          ProcessRunner(mac, log: fixtureLog()),
+          fixtureRunner(mac, log: fixtureLog()),
           FixturePrivileges(),
         ).releaseAsset(),
         throwsA(isA<XcrossError>()),
@@ -76,7 +79,7 @@ void main() {
       expect(
         () => LinuxUpdatePolicy(
           linux,
-          ProcessRunner(linux, log: fixtureLog()),
+          fixtureRunner(linux, log: fixtureLog()),
           FixturePrivileges(),
         ).releaseAsset(),
         throwsA(isA<XcrossError>()),
@@ -114,7 +117,7 @@ void main() {
 
   setUp(() {
     final host = LinuxHost();
-    final runner = ProcessRunner(host, log: fixtureLog());
+    final runner = fixtureRunner(host, log: fixtureLog());
     updater = SelfUpdate(
       host: host,
       runner: runner,
@@ -130,6 +133,7 @@ void main() {
     Directory(p.join(prefix.path, 'lib')).createSync(recursive: true);
     bundle = Directory(p.join(root.path, 'bundle'))..createSync();
     layout = InstallLayout(
+      host: host,
       binaryPath: p.join(prefix.path, 'bin', _exeName()),
       binDir: p.join(prefix.path, 'bin'),
       libDir: p.join(prefix.path, 'lib'),
@@ -154,6 +158,60 @@ void main() {
     ));
     return result;
   }
+
+  test(
+    'verification failure restores remapped installed executable and libraries',
+    () async {
+      final mapped = FixtureRemappedOperations(root);
+      mapped.file('/logical/bin/xcross').writeAsStringSync('old xcross');
+      mapped.file('/logical/bin/xcrun').writeAsStringSync('old xcrun');
+      mapped.file('/logical/lib/fixture.so').writeAsStringSync('old library');
+      bundleBin('new xcross');
+      bundleLib('fixture.so', 'new library');
+      final host = LinuxHost(fileSystem: FixtureMappedFileSystem(root));
+      final runner = fixtureRunner(host, log: fixtureLog());
+      final updater = SelfUpdate(
+        host: host,
+        runner: runner,
+        policy: FixtureMappedUpdatePolicy(mapped),
+        downloader: Downloader(
+          createClient: () => throw StateError('unexpected download'),
+          log: runner.log,
+        ),
+      );
+      final layout = InstallLayout(
+        host: host,
+        binaryPath: '/logical/bin/xcross',
+        binDir: '/logical/bin',
+        libDir: '/logical/lib',
+      );
+      await expectLater(
+        updater.installBundle(
+          bundleRoot: bundle,
+          layout: layout,
+          label: 'fixture',
+          runProcess:
+              ({
+                required executable,
+                required arguments,
+                required environment,
+                required timeout,
+              }) async =>
+                  const CapturedProcess(37, '', 'fixture verification denied'),
+        ),
+        throwsA(isA<XcrossError>()),
+      );
+      expect(
+        mapped.file('/logical/bin/xcross').readAsStringSync(),
+        'old xcross',
+      );
+      expect(mapped.file('/logical/bin/xcrun').readAsStringSync(), 'old xcrun');
+      expect(
+        mapped.file('/logical/lib/fixture.so').readAsStringSync(),
+        'old library',
+      );
+    },
+  );
 
   test('consumes the final source install and verify phases', () async {
     bundleBin('new-bin');
@@ -538,4 +596,14 @@ void main() {
       'old-lib',
     );
   });
+}
+
+final class FixtureMappedUpdatePolicy implements UpdateHostPolicy {
+  const FixtureMappedUpdatePolicy(this.operations);
+  final FileSwapOperations operations;
+  @override
+  String releaseAsset() => 'fixture';
+  @override
+  Future<FileSwapOperations> prepare(InstallLayout layout) =>
+      Future.value(operations);
 }
