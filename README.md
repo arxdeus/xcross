@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> We are currently not accepting pull requests while xcross undergoes a major rework.
+
 <div align="center">
 
 # xcross
