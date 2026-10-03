@@ -55,6 +55,7 @@ final class Downloader {
     }
     final client = _createClient();
     ProgressBar? reporter;
+    var transferFailed = false;
     try {
       final response = await _openStream(
         client,
@@ -89,11 +90,19 @@ final class Downloader {
         }
       }
       reporter.finish();
-    } catch (_) {
-      reporter?.fail();
-      rethrow;
+    } catch (error, stack) {
+      transferFailed = true;
+      try {
+        reporter?.fail();
+      } finally {
+        Error.throwWithStackTrace(error, stack);
+      }
     } finally {
-      client.close(force: true);
+      try {
+        client.close(force: true);
+      } on Object {
+        if (!transferFailed) rethrow;
+      }
     }
   }
 

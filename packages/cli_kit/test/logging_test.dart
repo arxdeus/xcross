@@ -177,6 +177,44 @@ void main() {
     expect(sink.terminalColumns, 90);
   });
 
+  test('failed initial render leaves no unreachable periodic timer', () async {
+    final output = ThrowingLogOutput(supportsAnsi: true, failWriteAt: 1);
+    final log = Log(output: output);
+    expect(() => log.beginStep('Build'), throwsA(same(output.error)));
+    expect(log.activeStep, isNull);
+    log.stopStep();
+    await Future<void>.delayed(const Duration(milliseconds: 180));
+    expect(output.writeAttempts, 1);
+  });
+
+  test('failed periodic render suspends and cancels future ticks', () async {
+    final output = ThrowingLogOutput(supportsAnsi: true, failWriteAt: 2);
+    final log = Log(output: output);
+    final step = log.beginStep('Build');
+    await Future<void>.delayed(const Duration(milliseconds: 260));
+    expect(output.writeAttempts, 2);
+    expect(log.activeStep, isNull);
+    step.log('late\n');
+    step.done();
+    expect(output.writeAttempts, 2);
+  });
+
+  test('failed diagnostics preserve body error and original stack', () async {
+    final output = ThrowingLogOutput(failStdoutAt: 2);
+    final log = Log(output: output);
+    final error = StateError('body failed');
+    final stack = StackTrace.fromString('original body stack');
+    try {
+      await log.logStep<void>('Build', () => Future<void>.error(error, stack));
+      fail('must throw');
+    } catch (actual, actualStack) {
+      expect(actual, same(error));
+      expect(actualStack.toString(), stack.toString());
+    }
+    expect(log.activeStep, isNull);
+    expect(output.stdoutAttempts, 2);
+  });
+
   group('renderBlock', () {
     test('first paint does not move the cursor up', () {
       final out = Step.renderBlock(head: 'x', tail: [], previousRows: 0);

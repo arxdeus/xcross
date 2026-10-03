@@ -10,7 +10,8 @@ import 'package:test/test.dart';
 import 'support/log_output.dart';
 
 final class DownloadTestClient implements HttpClient {
-  DownloadTestClient(this.responses);
+  DownloadTestClient(this.responses, {this.closeError});
+  final Error? closeError;
   final List<DownloadTestResponse> responses;
   int attempts = 0;
   bool closed = false;
@@ -27,6 +28,7 @@ final class DownloadTestClient implements HttpClient {
   void close({bool force = false}) {
     closed = true;
     forced = force;
+    if (closeError != null) throw closeError!;
   }
 
   @override
@@ -48,7 +50,13 @@ final class DownloadTestRequest implements HttpClientRequest {
 
 final class DownloadTestResponse extends Stream<List<int>>
     implements HttpClientResponse {
-  DownloadTestResponse(this.statusCode, this.chunks, {this.error});
+  DownloadTestResponse(
+    this.statusCode,
+    this.chunks, {
+    this.error,
+    this.errorStack,
+  });
+  final StackTrace? errorStack;
   @override
   final int statusCode;
   final List<List<int>> chunks;
@@ -66,7 +74,7 @@ final class DownloadTestResponse extends Stream<List<int>>
   }) =>
       (error == null
               ? Stream<List<int>>.fromIterable(chunks)
-              : Stream<List<int>>.error(error!))
+              : Stream<List<int>>.error(error!, errorStack))
           .listen(
             onData,
             onError: onError,
@@ -202,6 +210,34 @@ void main() {
     expect(output.lines.last, 'file.txt');
     expect(client.closed, isTrue);
   });
+
+  test(
+    'diagnostic and client cleanup failures preserve stream error and stack',
+    () async {
+      final output = ThrowingLogOutput(failStdoutAt: 1);
+      final error = StateError('stream failed');
+      final stack = StackTrace.fromString('original stream stack');
+      final client = DownloadTestClient([
+        DownloadTestResponse(200, [], error: error, errorStack: stack),
+      ], closeError: StateError('client close failed'));
+      try {
+        await Downloader(
+          createClient: () => client,
+          log: Log(output: output),
+        ).downloadToFile(
+          'https://example.invalid/file.txt',
+          File('${temp.path}/file.txt'),
+        );
+        fail('must throw');
+      } catch (actual, actualStack) {
+        expect(actual, same(error));
+        expect(actualStack.toString(), stack.toString());
+      }
+      expect(output.stdoutAttempts, 1);
+      expect(client.closed, isTrue);
+      expect(client.forced, isTrue);
+    },
+  );
 
   test('invalid attempt count rejects before acquiring a client', () async {
     var acquired = false;

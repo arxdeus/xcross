@@ -104,9 +104,12 @@ final class Log {
       final result = await body();
       step.done();
       return result;
-    } on Object {
-      step.fail();
-      rethrow;
+    } catch (error, stack) {
+      try {
+        step.fail();
+      } finally {
+        Error.throwWithStackTrace(error, stack);
+      }
     }
   }
 
@@ -192,17 +195,32 @@ final class Step {
 
   void _draw() {
     if (_closed || _suspended) return;
-    _timer ??= Timer.periodic(_frameInterval, (_) => _draw());
-    final tail = _visibleTail();
-    final frame = _frames[_tick++ % _frames.length];
-    _log.output.write(
-      renderBlock(
-        head: '${_log.ansi.cyan}$frame${_log.ansi.none} $label',
-        tail: [for (final line in tail) _log.dim(_fit(line))],
-        previousRows: _drawn,
-      ),
-    );
-    _drawn = 1 + tail.length;
+    try {
+      final tail = _visibleTail();
+      final frame = _frames[_tick++ % _frames.length];
+      _log.output.write(
+        renderBlock(
+          head: '${_log.ansi.cyan}$frame${_log.ansi.none} $label',
+          tail: [for (final line in tail) _log.dim(_fit(line))],
+          previousRows: _drawn,
+        ),
+      );
+      _drawn = 1 + tail.length;
+      _timer ??= Timer.periodic(_frameInterval, (_) {
+        try {
+          _draw();
+        } on Object {
+          return;
+        }
+      });
+    } on Object {
+      _suspended = true;
+      _timer?.cancel();
+      _timer = null;
+      _watch.stop();
+      if (_log._active == this) _log._active = null;
+      rethrow;
+    }
   }
 
   static String renderBlock({

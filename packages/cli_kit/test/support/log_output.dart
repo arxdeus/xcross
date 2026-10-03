@@ -1,6 +1,6 @@
 import 'package:cli_kit/src/logging.dart';
 
-final class RecordingLogOutput implements LogOutput {
+class RecordingLogOutput implements LogOutput {
   RecordingLogOutput({this.supportsAnsi = false, this.terminalColumns = 80});
   @override
   final bool supportsAnsi;
@@ -15,4 +15,26 @@ final class RecordingLogOutput implements LogOutput {
   void stderr(String message) => errors.add(message);
   @override
   void write(String message) => writes.add(message);
+}
+
+final class ThrowingLogOutput extends RecordingLogOutput {
+  ThrowingLogOutput({super.supportsAnsi, this.failWriteAt, this.failStdoutAt});
+  final int? failWriteAt;
+  final int? failStdoutAt;
+  int writeAttempts = 0;
+  int stdoutAttempts = 0;
+  final error = StateError('output failed');
+  @override
+  void write(String message) {
+    writeAttempts++;
+    if (failWriteAt != null && writeAttempts >= failWriteAt!) throw error;
+    super.write(message);
+  }
+
+  @override
+  void stdout(String message) {
+    stdoutAttempts++;
+    if (failStdoutAt != null && stdoutAttempts >= failStdoutAt!) throw error;
+    super.stdout(message);
+  }
 }
