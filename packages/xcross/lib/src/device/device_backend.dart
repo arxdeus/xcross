@@ -1,8 +1,10 @@
+import 'dart:ffi';
 import 'dart:io';
 
 import 'package:apple_developer_kit/apple_developer_kit.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:xcross/src/device/internal/app_capabilities.dart';
@@ -323,7 +325,7 @@ final class NativeBackend implements DeviceBackend {
     GrandSlamSession session,
     String configDirectory,
   ) async {
-    final anisette = _anisetteForSession(session);
+    final anisette = anisetteForSession(session);
     final client = DeveloperServicesClient.fromSession(
       session,
       anisette.fetchAnisetteHeaders,
@@ -549,19 +551,26 @@ final class NativeBackend implements DeviceBackend {
     if (rewritten != xml) await plist.writeAsString(rewritten);
   }
 
-  static AnisetteProvider _anisetteForSession(GrandSlamSession session) {
-    if (Platform.isWindows || Platform.isLinux) {
-      final adiDir = session.adiLibraryDirectory;
-      if (adiDir == null || adiDir.isEmpty) {
-        throw XcrossError(
-          'Saved Apple ID session is missing adiLibraryDirectory. '
-          'Run xcross auth --apple-id <email> again.',
-        );
-      }
-      return AnisetteDataProvider(adiDir);
+  @visibleForTesting
+  static AnisetteProvider anisetteForSession(
+    GrandSlamSession session, {
+    Abi? hostAbi,
+    AnisetteProvider Function(String directory)? createProvider,
+  }) {
+    final abi = hostAbi ?? Abi.current();
+    if (!AdiLibraryFetcher.supportsAbi(abi)) {
+      throw XcrossError(
+        'Saved native Apple ID sessions support Linux and macOS x64/ARM64 '
+        'and Windows x64 (got $abi).',
+      );
     }
-    throw XcrossError(
-      'Saved native Apple ID sessions are supported on Linux and Windows.',
-    );
+    final adiDir = session.adiLibraryDirectory;
+    if (adiDir == null || adiDir.isEmpty) {
+      throw XcrossError(
+        'Saved Apple ID session is missing adiLibraryDirectory. '
+        'Run xcross auth --apple-id <email> again.',
+      );
+    }
+    return (createProvider ?? AnisetteDataProvider.new)(adiDir);
   }
 }
