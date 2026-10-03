@@ -1,4 +1,7 @@
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart'
+    show IPhoneBuildPlatform, SimulatorBuildPlatform;
+import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart'
+    show IosBuildPlatformInterface;
 
 IosBuildPlatformInterface parseXcrunSdkName(String name) {
   final normalized = name.toLowerCase();
