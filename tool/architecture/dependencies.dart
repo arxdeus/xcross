@@ -37,12 +37,13 @@ class DependencyRules {
             'host-composition',
             'entrypoint',
           }.contains(classification.kind) &&
-          !(detectorCallers.containsKey(path) && destinationPath == detector))
+          !(detectorCallers.containsKey(path) && destinationPath == detector)) {
         reject(
           node,
           'composition-edge',
           'Shared implementation reaches application composition: $destinationPath',
         );
+      }
       final concreteHost = destination.host != 'shared';
       final concreteTarget = destination.target != 'shared';
       if (classification.kind != 'barrel' &&

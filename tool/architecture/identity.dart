@@ -92,14 +92,17 @@ class IdentityAnalysis {
     if (uri?.startsWith('package:code_assets/') == true) {
       if (name == 'targetOS' ||
           element.enclosingElement?.name == 'OS' &&
-              {'windows', 'linux', 'macOS', 'current'}.contains(name))
+              {'windows', 'linux', 'macOS', 'current'}.contains(name)) {
         return {'host'};
+      }
       if (name == 'targetArchitecture' ||
-          element.enclosingElement?.name == 'Architecture' && name == 'current')
+          element.enclosingElement?.name == 'Architecture' && name == 'current') {
         return {'architecture'};
+      }
     }
-    if (element.enclosingElement?.name == 'NativeHostSnapshot' && name == 'abi')
+    if (element.enclosingElement?.name == 'NativeHostSnapshot' && name == 'abi') {
       return {'architecture'};
+    }
     if (platformOwner(element)) {
       if (name == 'architecture') return {'architecture'};
       if (flags.contains(name) ||
@@ -126,8 +129,9 @@ class IdentityAnalysis {
     if (node is SimpleIdentifier) return member(node.element);
     if (node is PrefixedIdentifier) return member(node.identifier.element);
     if (node is PropertyAccess) return member(node.propertyName.element);
-    if (node is MethodInvocation)
+    if (node is MethodInvocation) {
       return {...member(node.methodName.element), ...value(node.target)};
+    }
     if (node is ParenthesizedExpression) return value(node.expression);
     if (node is PrefixExpression) return value(node.operand);
     if (node is IsExpression && platformType(node.type.type)) return {'host'};

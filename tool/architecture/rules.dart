@@ -9,6 +9,7 @@ import 'export_graph.dart';
 import 'identity.dart';
 import 'inventory.dart';
 import 'native_rules.dart';
+import 'native_safety.dart';
 
 class Guard extends RecursiveAstVisitor<void> {
   final String path;
@@ -45,15 +46,46 @@ class Guard extends RecursiveAstVisitor<void> {
     if (sourceInspection) return;
     final kind = identity.control(condition);
     if (kind.isEmpty) return;
+    if (NativeSafety(path).allocationBranch(node)) return;
     if (supportsArchitecture(kind) && body != null && validation(body)) return;
     if (supportsArchitecture(kind) &&
         node is SwitchExpression &&
-        node.cases.every((c) => pureMetadata(c.expression)))
+        node.cases.every((c) => pureMetadata(c.expression))) {
       return;
+    }
     if (supportsArchitecture(kind) &&
         node is ConditionalExpression &&
         pureMetadata(node.thenExpression) &&
-        pureMetadata(node.elseExpression))
+        pureMetadata(node.elseExpression)) {
+      return;
+    }
+    if (path ==
+            'packages/xcross/lib/src/host/macos/compose/macos_compose_host.dart' &&
+        node
+                .thisOrAncestorOfType<ClassDeclaration>()
+                ?.namePart
+                .typeName
+                .lexeme ==
+            'MacOSComposeHost' &&
+        node.thisOrAncestorOfType<MethodDeclaration>()?.name.lexeme ==
+            'supportsJavaArchitecture' &&
+        node.thisOrAncestorOfType<FunctionExpression>() == null &&
+        kind.length == 1 &&
+        kind.contains('architecture') &&
+        node is ConditionalExpression &&
+        astNodes(node).whereType<MethodInvocation>().every(
+          (call) =>
+              {
+                'isArm64Architecture',
+                'isX64Architecture',
+              }.contains(call.methodName.name) &&
+              (call.methodName.element?.library?.uri.toString().endsWith(
+                    '/host/shared/compose/posix_compose_host.dart',
+                  ) ??
+                  false),
+        ) &&
+        node.thenExpression.staticType?.isDartCoreBool == true &&
+        node.elseExpression.staticType?.isDartCoreBool == true)
       return;
     final literalIdentity = astNodes(condition).whereType<StringLiteral>().any(
       (n) => IdentityAnalysis.labels.contains(n.stringValue),
@@ -62,27 +94,30 @@ class Guard extends RecursiveAstVisitor<void> {
         kind.contains('target') &&
         !literalIdentity &&
         body != null &&
-        validation(body))
+        validation(body)) {
       return;
-    final function = node
-        .thisOrAncestorOfType<FunctionDeclaration>()
-        ?.name
-        .lexeme;
+    }
+    final function = topFunction(node);
     final approved =
-        (path == detector &&
-            {
-              'detectPlatformHost',
-              'detectPlatformHostSnapshot',
-            }.contains(function)) ||
+        (path == detector && function == 'detectPlatformHostSnapshot') ||
         (path == hostComposition && function == 'composeXcrossHost') ||
         (targetComposition.contains(path) &&
             function == 'composeBuildFeatures') ||
+        (path == 'packages/xcross/lib/src/composition/xcrun_sdk.dart' &&
+            function == 'parseXcrunSdkName' &&
+            kind.contains('target') &&
+            !astNodes(condition).whereType<SimpleIdentifier>().any(
+              (id) => identity
+                  .member(id.element)
+                  .any({'host', 'architecture'}.contains),
+            )) ||
         nativeHooks.contains(path) &&
             {
               'main',
               '_buildWithSystemCc',
               'systemCompilerFlags',
-            }.contains(function);
+            }.contains(function) &&
+            native.hookControl(condition);
     if (approved) {
       selections.add(node.offset);
     } else {
@@ -282,16 +317,18 @@ class Guard extends RecursiveAstVisitor<void> {
   @override
   void visitIfStatement(IfStatement node) {
     branch(node, node.expression, node.thenStatement);
-    if (node.caseClause != null)
+    if (node.caseClause != null) {
       branch(node, node.caseClause!.guardedPattern, node.thenStatement);
+    }
     super.visitIfStatement(node);
   }
 
   @override
   void visitIfElement(IfElement node) {
     branch(node, node.expression, null);
-    if (node.caseClause != null)
+    if (node.caseClause != null) {
       branch(node, node.caseClause!.guardedPattern, null);
+    }
     super.visitIfElement(node);
   }
 
@@ -308,8 +345,9 @@ class Guard extends RecursiveAstVisitor<void> {
   }
 
   void loop(AstNode node, ForLoopParts parts) {
-    if (parts is ForParts && parts.condition != null)
+    if (parts is ForParts && parts.condition != null) {
       branch(node, parts.condition!, null);
+    }
     if (parts is ForEachParts) branch(node, parts.iterable, null);
   }
 

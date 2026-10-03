@@ -56,8 +56,9 @@ class ExportGraph {
       ...library.setters,
     ]) {
       final name = element.name;
-      if (name != null && !name.startsWith('_'))
+      if (name != null && !name.startsWith('_')) {
         result.putIfAbsent(name, () => {}).add(element);
+      }
     }
     for (final directive in unit.directives.whereType<ExportDirective>()) {
       for (final uri in [
@@ -92,7 +93,7 @@ class ExportGraph {
               resolveUri(source, element.library!.uri.toString()),
       };
     }
-    if (node is ImportDirective && uri == node.uri.stringValue)
+    if (node is ImportDirective && uri == node.uri.stringValue) {
       return {
         for (final element
             in node.libraryImport?.namespace.definedNames2.values ??
@@ -100,6 +101,7 @@ class ExportGraph {
           if (element.library != null)
             resolveUri(source, element.library!.uri.toString()),
       };
+    }
     return {};
   }
 }

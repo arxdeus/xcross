@@ -1,4 +1,5 @@
 const architectureSources = {
+  'tool/architecture/native_safety.dart',
   'tool/architecture/check.dart',
   'tool/architecture/boundaries.dart',
   'tool/architecture/platform_fixtures.dart',
@@ -62,6 +63,11 @@ const cliCompositions = {
   'packages/xcross/lib/src/composition/cli/doctor_project_checks.dart',
 };
 const compositions = {
+  'packages/apple_developer_kit/lib/src/composition/apple_host.dart',
+  'packages/apple_developer_kit/lib/src/composition/native_library_loader.dart',
+  'packages/xcross/lib/src/composition/host_operations.dart',
+  'packages/xcross/lib/src/composition/xcrun_sdk.dart',
+  'packages/xcross/lib/src/composition/xcross_host_context.dart',
   'packages/xcross/lib/src/composition/flutter/swiftpm_checkout.dart',
   ...cliCompositions,
   'packages/xcross/lib/src/composition/native_runtime.dart',

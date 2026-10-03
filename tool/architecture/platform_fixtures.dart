@@ -128,6 +128,22 @@ Map<String, (String, Set<String>)> platformFixtures() => {
     '''import 'dart:io' as native; class Service { final IOSink output; Service({IOSink? output}):output=output??native.stdout; }''',
     {'ambient-detection'},
   ),
+  'callback_object_fields': (
+    '''abstract class PlatformHostInterface {} class Choices { final int Function() first, second; Choices(this.first,this.second); } class Host implements PlatformHostInterface { int route(Choices choices) => choices.first(); }''',
+    {'callback-dispatch'},
+  ),
+  'callback_constructor_storage': (
+    '''abstract class PlatformHostInterface {} class Host implements PlatformHostInterface { final int Function() first, second; Host(this.first,this.second); int route() => first(); }''',
+    {'callback-dispatch'},
+  ),
+  'ordinary_callback_holder': (
+    '''class Choices { final int Function() first, second; Choices(this.first,this.second); int route() => first(); }''',
+    {},
+  ),
+  'single_injected_platform_factory': (
+    '''abstract class PlatformHostInterface {} class Host implements PlatformHostInterface { final int Function() factory; Host(this.factory); int route() => factory(); }''',
+    {},
+  ),
   'process_owned_streams': (
     '''import 'dart:io'; void drain(Process process, ProcessResult result) { process.stdout.listen((_) {}); process.stderr.listen((_) {}); process.stdin.close(); result.stdout.toString(); result.stderr.toString(); }''',
     <String>{},

@@ -1,6 +1,8 @@
 import 'package:analyzer/dart/ast/ast.dart';
+import 'package:analyzer/dart/element/type.dart';
 
 import 'identity.dart';
+import 'native_safety.dart';
 import 'inventory.dart';
 
 String? topFunction(AstNode node) {
@@ -13,7 +15,30 @@ class NativeRules {
   final IdentityAnalysis identity;
   final List<Violation> violations = [];
   NativeRules(this.path, this.identity);
+  bool hookControl(AstNode condition) {
+    var input = false;
+    for (final node in astNodes(condition).whereType<SimpleIdentifier>()) {
+      final element = node.element;
+      final uri = element?.library?.uri.toString() ?? '';
+      if (identity.platformOwner(element) ||
+          element?.enclosingElement?.name == 'NativeHostSnapshot' ||
+          uri == 'dart:io' && element?.enclosingElement?.name == 'Platform') {
+        return false;
+      }
+      if (uri.startsWith('package:code_assets/')) input = true;
+      if (node.staticType is InterfaceType) {
+        final type = (node.staticType! as InterfaceType).element;
+        if (type.library.uri.toString().startsWith('package:code_assets/') &&
+            {'OS', 'Architecture'}.contains(type.name)) {
+          input = true;
+        }
+      }
+    }
+    return input;
+  }
+
   bool approved(SimpleIdentifier node) {
+    if (NativeSafety(path).read(node)) return true;
     final function = topFunction(node);
     final element = node.element;
     final owner = element?.enclosingElement?.name;
@@ -36,46 +61,53 @@ class NativeRules {
     if (nativeHooks.contains(path)) {
       if (function == '_buildWithSystemCc' &&
           {'OS', 'Architecture'}.contains(owner) &&
-          name == 'current')
+          name == 'current') {
         return true;
+      }
       if ({'_resolveSystemCc', 'resolveMacOSCompiler'}.contains(function) &&
           owner == 'Platform' &&
-          name == 'environment')
+          name == 'environment') {
         return true;
+      }
     }
     if (uri == 'dart:io' &&
         {'stdin', 'stdout', 'stderr'}.contains(name) &&
         detectorCallers.containsKey(path) &&
-        detectorCallers[path] == function)
+        detectorCallers[path] == function) {
       return true;
+    }
     if (path == 'packages/xcross/tool/build_xcross.dart' &&
         function == 'main' &&
         owner == 'Directory' &&
-        name == 'current')
+        name == 'current') {
       return true;
+    }
     if ({
           'tool/architecture/check.dart',
           'tool/architecture/check_test.dart',
         }.contains(path) &&
         function == 'main' &&
         uri == 'dart:io' &&
-        {'stdout', 'stderr'}.contains(name))
+        {'stdout', 'stderr'}.contains(name)) {
       return true;
+    }
     if (path == 'tool/architecture/check.dart' &&
         function == 'main' &&
         owner == 'Directory' &&
-        name == 'current')
+        name == 'current') {
       return true;
+    }
     if (path == 'tool/architecture/check_test.dart' &&
         function == 'main' &&
         (owner == 'Platform' && name == 'environment' ||
-            owner == 'Directory' && name == 'systemTemp'))
+            owner == 'Directory' && name == 'systemTemp')) {
       return true;
+    }
     return false;
   }
 
   void inspect(SimpleIdentifier node) {
-    if (identity.runtimeAccess(node.element) && !approved(node))
+    if (identity.runtimeAccess(node.element) && !approved(node)) {
       violations.add(
         Violation(
           path,
@@ -84,12 +116,13 @@ class NativeRules {
           'Ambient native state or standard IO outside exact composition API purpose',
         ),
       );
+    }
     final element = node.element;
     final uri = element?.library?.uri.toString() ?? '';
     if (uri.endsWith('/composition/native_host.dart') &&
         (element?.name?.startsWith('detectPlatformHost') ?? false) &&
         !(detectorCallers.containsKey(path) &&
-            detectorCallers[path] == topFunction(node)))
+            detectorCallers[path] == topFunction(node))) {
       violations.add(
         Violation(
           path,
@@ -98,5 +131,6 @@ class NativeRules {
           'Native detector call or tear-off outside exact startup symbol',
         ),
       );
+    }
   }
 }

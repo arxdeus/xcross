@@ -1,4 +1,24 @@
 Map<String, (String, Set<String>)> declarationFixtures() => {
+  'http_top_level_effect': (
+    '''import 'package:http/http.dart' as network; Future<void> load(Uri uri) async { await network.get(uri); }''',
+    {'ambient-network'},
+  ),
+  'http_top_level_tearoff': (
+    '''import 'package:http/http.dart' as network; final load = network.get;''',
+    {'ambient-network'},
+  ),
+  'http_injected_client': (
+    '''import 'package:http/http.dart' as network; Future<void> load(network.Client client, Uri uri) async { await client.get(uri); }''',
+    {},
+  ),
+  'http_hidden_client': (
+    '''import 'package:http/http.dart' as network; class Service { final network.Client client = network.Client(); }''',
+    {'hidden-di-default'},
+  ),
+  'http_unrelated_get': (
+    '''Future<String> get(Uri uri) async => 'descriptor'; Future<String> load(Uri uri) => get(uri);''',
+    {},
+  ),
   'required_factory_invocation': (
     '''import 'dart:io'; class Service { final HttpClient client; Service({required HttpClient Function() createClient}):client=createClient(); }''',
     {},

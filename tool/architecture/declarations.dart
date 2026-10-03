@@ -1,7 +1,7 @@
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
-import 'package:analyzer/dart/element/type.dart';
 import 'package:analyzer/dart/element/element.dart';
+import 'package:analyzer/dart/element/type.dart';
 
 import 'dispatch_rules.dart';
 import 'identity.dart';
@@ -41,7 +41,14 @@ class DeclarationRules extends RecursiveAstVisitor<void> {
 
   bool service(DartType? type) =>
       type is InterfaceType &&
-      (services.contains(type.element.name) ||
+      ((type.element.library.uri.toString().startsWith('package:http/') &&
+              {'Client', 'BaseClient'}.contains(type.element.name)) ||
+          type.element.allSupertypes.any(
+            (t) =>
+                t.element.library.uri.toString().startsWith('package:http/') &&
+                {'Client', 'BaseClient'}.contains(t.element.name),
+          ) ||
+          services.contains(type.element.name) ||
           type.element.allSupertypes.any(
             (t) => services.contains(t.element.name),
           ) ||
@@ -55,21 +62,27 @@ class DeclarationRules extends RecursiveAstVisitor<void> {
             'MacOSHost',
           }.contains(type.element.name));
   bool creation(Expression expression) {
-    if (expression is InstanceCreationExpression)
+    if (expression is InstanceCreationExpression) {
       return service(expression.staticType);
-    if (expression is MethodInvocation)
+    }
+    if (expression is MethodInvocation) {
       return service(expression.staticType) &&
           expression.methodName.element is ExecutableElement;
+    }
     if (expression.staticType is! FunctionType ||
-        !service((expression.staticType as FunctionType).returnType))
+        !service((expression.staticType! as FunctionType).returnType)) {
       return false;
+    }
     if (expression is ConstructorReference) return true;
-    if (expression is SimpleIdentifier)
+    if (expression is SimpleIdentifier) {
       return expression.element is ExecutableElement;
-    if (expression is PrefixedIdentifier)
+    }
+    if (expression is PrefixedIdentifier) {
       return expression.identifier.element is ExecutableElement;
-    if (expression is PropertyAccess)
+    }
+    if (expression is PropertyAccess) {
       return expression.propertyName.element is ExecutableElement;
+    }
     return false;
   }
 
@@ -83,6 +96,32 @@ class DeclarationRules extends RecursiveAstVisitor<void> {
             type.element.allSupertypes.any(
               (t) => t.element.name == 'PlatformHostInterface',
             ));
+  }
+
+  @override
+  void visitSimpleIdentifier(SimpleIdentifier node) {
+    final element = node.element;
+    if (element?.enclosingElement is LibraryElement &&
+        (element?.library?.uri.toString().startsWith('package:http/') ??
+            false) &&
+        {
+          'get',
+          'post',
+          'put',
+          'patch',
+          'delete',
+          'head',
+          'read',
+          'readBytes',
+          'runWithClient',
+        }.contains(element?.name)) {
+      reject(
+        node,
+        'ambient-network',
+        'Top-level HTTP effect bypasses injected client',
+      );
+    }
+    super.visitSimpleIdentifier(node);
   }
 
   @override
@@ -110,12 +149,13 @@ class DeclarationRules extends RecursiveAstVisitor<void> {
                 if (supertype.element.name == 'PlatformTargetInterface')
                   ...supertype.typeArguments,
             ];
-      if (arguments.isEmpty || arguments.any((t) => !hostBound(t)))
+      if (arguments.isEmpty || arguments.any((t) => !hostBound(t))) {
         reject(
           node,
           'target-bound',
           'Target host type must have a resolved PlatformHostInterface bound',
         );
+      }
     }
     super.visitClassDeclaration(node);
   }
@@ -174,27 +214,25 @@ class DeclarationRules extends RecursiveAstVisitor<void> {
     if (field is FieldDeclaration &&
         !field.isStatic &&
         node.initializer != null &&
-        constructsService(node.initializer!) &&
-        !compositions.contains(path) &&
-        !hostFactories.containsKey(path))
+        constructsService(node.initializer!)) {
       reject(
         node,
         'hidden-di-default',
         'Instance field creates a hidden effectful dependency',
       );
+    }
     super.visitVariableDeclaration(node);
   }
 
   @override
   void visitConstructorFieldInitializer(ConstructorFieldInitializer node) {
-    if (constructsService(node.expression) &&
-        !compositions.contains(path) &&
-        !hostFactories.containsKey(path))
+    if (constructsService(node.expression)) {
       reject(
         node,
         'hidden-di-default',
         'Constructor creates an effectful dependency rather than injecting it',
       );
+    }
     if (astNodes(node.expression).whereType<BinaryExpression>().any(
       (e) => e.operator.lexeme == '??' && constructsService(e.rightOperand),
     )) {

@@ -2,10 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'check.dart';
-import 'workspace_inventory.dart';
-import 'platform_fixtures.dart';
 import 'declaration_fixtures.dart';
 import 'dependency_fixtures.dart';
+import 'platform_fixtures.dart';
+import 'workspace_inventory.dart';
 
 Future<void> main() async {
   final scratch =
@@ -59,6 +59,99 @@ Future<void> main() async {
         failed = true;
       }
     }
+    const nativePath =
+        'packages/xcross/lib/src/composition/native_runtime.dart';
+    final nativeSource = dependencyAssets()[nativePath]!.$1;
+    final approvedCall = nativeSource.indexOf('detectPlatformHostSnapshot()');
+    final deniedCall = nativeSource.indexOf(
+      'detectPlatformHostSnapshot()',
+      approvedCall + 1,
+    );
+    if (violations.any(
+          (v) => v.path == nativePath && v.offset == approvedCall,
+        ) ||
+        !violations.any(
+          (v) =>
+              v.path == nativePath &&
+              v.offset == deniedCall &&
+              v.rule == 'hidden-detection',
+        )) {
+      throw StateError('Exact native caller approval failed');
+    }
+    final hostSource = dependencyAssets()[hostComposition]!.$1;
+    final approvedSwitch = hostSource.indexOf('switch(host)');
+    final deniedSwitch = hostSource.indexOf('switch(inner)');
+    if (violations.any(
+          (v) => v.path == hostComposition && v.offset == approvedSwitch,
+        ) ||
+        !violations.any(
+          (v) =>
+              v.path == hostComposition &&
+              v.offset == deniedSwitch &&
+              v.rule == 'platform-branch',
+        )) {
+      throw StateError('Exact top-level selector approval failed');
+    }
+    final detectorSource = dependencyAssets()[detector]!.$1;
+    final detectorAllowed = detectorSource.indexOf('Platform.operatingSystem');
+    final detectorDenied = detectorSource.indexOf(
+      'Platform.operatingSystem',
+      detectorAllowed + 1,
+    );
+    if (violations.any(
+          (v) =>
+              v.path == detector &&
+              v.offset == detectorAllowed + 'Platform.'.length,
+        ) ||
+        !violations.any(
+          (v) =>
+              v.path == detector &&
+              v.offset == detectorDenied + 'Platform.'.length &&
+              v.rule == 'ambient-detection',
+        )) {
+      throw StateError('Exact native read purpose failed');
+    }
+    const hookPath = 'packages/apple_developer_kit/hook/build.dart';
+    final hookSource = dependencyAssets()[hookPath]!.$1;
+    final hookAllowed = hookSource.indexOf('if(input == OS.windows)');
+    final hookDenied = hookSource.indexOf(
+      "if(host.operatingSystem == 'windows')",
+    );
+    final hookNested = hookSource.indexOf('if(inner == OS.windows)');
+    if (violations.any((v) => v.path == hookPath && v.offset == hookAllowed) ||
+        ![hookDenied, hookNested].every(
+          (offset) => violations.any(
+            (v) =>
+                v.path == hookPath &&
+                v.offset == offset &&
+                v.rule == 'platform-branch',
+          ),
+        )) {
+      throw StateError('Exact native build input purpose failed');
+    }
+    final scopedPairs = {
+      'packages/apple_developer_kit/lib/src/host/linux/adi/linux_native_library_loader.dart':
+          'Object other()',
+      'packages/apple_developer_kit/lib/src/host/macos/adi/macos_native_library_loader.dart':
+          'Object other()',
+      'packages/apple_developer_kit/lib/src/host/windows/adi/loader/loader_windows.dart':
+          'Object other()',
+      'packages/xcross/lib/src/host/macos/compose/macos_compose_host.dart':
+          'bool other(',
+      'packages/xcross/lib/src/composition/xcrun_sdk.dart': 'Object other(',
+    };
+    for (final entry in scopedPairs.entries) {
+      final source = dependencyAssets()[entry.key]!.$1;
+      final boundary = source.indexOf(entry.value);
+      final findings = violations.where((v) => v.path == entry.key).toList();
+      if (boundary < 0 ||
+          findings.isEmpty ||
+          findings.any((v) => v.offset < boundary)) {
+        throw StateError(
+          'Approved purpose incorrectly rejected at ${entry.key}: ${findings.map((v) => v.toJson()).toList()}',
+        );
+      }
+    }
     if (classify(
               'packages/fixture/lib/src/host/windows/target/simulator/a.dart',
             ).host !=
@@ -84,8 +177,9 @@ Future<void> main() async {
     }
     if (classify('.github/scripts/simulator_smoke.py').host != 'macos' ||
         classify('.github/scripts/simulator_smoke.py').target != 'simulator' ||
-        classify('.github/FUNDING.yml').kind != 'ci-metadata')
+        classify('.github/FUNDING.yml').kind != 'ci-metadata') {
       throw StateError('Exact CI axes failed');
+    }
     final manifest =
         'workspace:\n${workspacePackages.map((p) => '  - packages/$p').join('\n')}\n';
     if (workspaceViolations(manifest, []).isNotEmpty ||
@@ -93,8 +187,11 @@ Future<void> main() async {
           '$manifest  - packages/new_package\n',
           [],
         ).isEmpty ||
-        workspaceViolations(manifest, ['packages/unknown/lib/a.dart']).isEmpty)
+        workspaceViolations(manifest, [
+          'packages/unknown/lib/a.dart',
+        ]).isEmpty) {
       throw StateError('Fail-closed workspace inventory failed');
+    }
     if (failed) throw StateError('Architecture fixture tests failed');
     stdout.writeln('${expected.length + 7} architecture checks passed');
   } finally {

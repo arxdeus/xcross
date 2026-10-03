@@ -40,18 +40,26 @@ class DispatchRules {
     return kinds.length >= 2;
   }
 
-  int callbacks(DartType? type) {
+  int callbacks(DartType? type, [Set<InterfaceElement>? seen]) {
+    final visited = seen ?? <InterfaceElement>{};
     if (type is FunctionType) return 1;
-    if (type is RecordType)
+    if (type is RecordType) {
       return [
         ...type.namedFields.map((f) => f.type),
         ...type.positionalFields.map((f) => f.type),
-      ].fold(0, (n, t) => n + callbacks(t));
+      ].fold(0, (n, t) => n + callbacks(t, visited));
+    }
     if (type is InterfaceType &&
         {'List', 'Iterable', 'Map', 'Set'}.contains(type.element.name) &&
-        type.typeArguments.any((t) => callbacks(t) > 0))
+        type.typeArguments.any((t) => callbacks(t, visited) > 0)) {
       return 2;
-    if (type is InterfaceType && protocol(type.element)) return 2;
+    }
+    if (type is InterfaceType && visited.add(type.element)) {
+      if (protocol(type.element)) return 2;
+      return type.element.fields
+          .where((f) => !f.isStatic)
+          .fold(0, (n, f) => n + callbacks(f.type, visited));
+    }
     return 0;
   }
 
@@ -64,7 +72,7 @@ class DispatchRules {
   void inspect(ClassDeclaration node) {
     final type = node.declaredFragment?.element;
     if (type == null) return;
-    if (protocol(type))
+    if (protocol(type)) {
       violations.add(
         Violation(
           path,
@@ -73,13 +81,14 @@ class DispatchRules {
           'Per-platform method object is renamed platform Visitor',
         ),
       );
+    }
     if (!platform(type)) return;
     for (final method in type.methods) {
       if (method.formalParameters.fold<int>(
             0,
             (n, p) => n + callbacks(p.type),
           ) >=
-          2)
+          2) {
         violations.add(
           Violation(
             path,
@@ -88,7 +97,8 @@ class DispatchRules {
             'Platform API takes callback bundle or per-platform method object',
           ),
         );
-      if (method.name == 'get' && method.typeParameters.isNotEmpty)
+      }
+      if (method.name == 'get' && method.typeParameters.isNotEmpty) {
         violations.add(
           Violation(
             path,
@@ -97,6 +107,7 @@ class DispatchRules {
             'Generic platform service locator',
           ),
         );
+      }
     }
     for (final constructor in type.constructors) {
       final kinds = {
@@ -106,7 +117,12 @@ class DispatchRules {
                 in (parameter.type as FunctionType).formalParameters)
               ...axes(argument.type),
       };
-      if (kinds.length >= 2)
+      if (kinds.length >= 2 ||
+          constructor.formalParameters.fold<int>(
+                0,
+                (n, p) => n + callbacks(p.type),
+              ) >=
+              2) {
         violations.add(
           Violation(
             path,
@@ -115,6 +131,7 @@ class DispatchRules {
             'Constructor stores per-platform callbacks',
           ),
         );
+      }
     }
   }
 }

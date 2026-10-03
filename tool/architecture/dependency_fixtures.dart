@@ -14,6 +14,20 @@ Map<String, (String, Set<String>)> dependencyFixtures() => {
 Map<String, (String, Set<String>)> dependencyAssets() {
   final result = <String, (String, Set<String>)>{};
   for (final entry in {
+    'packages/apple_developer_kit/lib/src/shared/adi/adi_architecture.dart':
+        "import 'dart:ffi'; enum AdiArchitecture { x64; int get elfMachine=>62; static AdiArchitecture forAbi(Abi value)=>x64; }",
+
+    'packages/apple_developer_kit/lib/src/host/linux/adi/linux_native_library_loader.dart':
+        "import 'dart:ffi'; import '../../../shared/adi/adi_architecture.dart'; class LinuxMemoryAllocator {} class OtherAllocator {} class LinuxNativeLibraryLoader { final int machine; LinuxNativeLibraryLoader():machine=AdiArchitecture.forAbi(Abi.current()).elfMachine; static LinuxMemoryAllocator _createAllocator() => switch(Abi.current()) { Abi.linuxX64 || Abi.linuxArm64 => LinuxMemoryAllocator(), final abi => throw UnsupportedError('unsupported \$abi') }; Object other() => switch(Abi.current()) { Abi.windowsX64 => OtherAllocator(), _ => throw UnsupportedError('bad') }; }",
+    'packages/apple_developer_kit/lib/src/host/macos/adi/macos_native_library_loader.dart':
+        "import 'dart:ffi'; import '../../../shared/adi/adi_architecture.dart'; class MacOSMemoryAllocator {} class MacOSNativeLibraryLoader { final int machine; MacOSNativeLibraryLoader():machine=AdiArchitecture.forAbi(Abi.current()).elfMachine; static MacOSMemoryAllocator _createAllocator() => switch(Abi.current()) { Abi.macosX64 || Abi.macosArm64 => MacOSMemoryAllocator(), final abi => throw UnsupportedError('unsupported \$abi') }; Object other() => Abi.current(); }",
+    'packages/apple_developer_kit/lib/src/host/windows/adi/loader/loader_windows.dart':
+        "import 'dart:ffi'; class WindowsMemoryAllocator {} class WindowsNativeLibraryLoader { static WindowsMemoryAllocator _createAllocator() { if(Abi.current() != Abi.windowsX64) { throw UnsupportedError('bad \${Abi.current()}'); } return WindowsMemoryAllocator(); } Object other() => Abi.current(); }",
+    'packages/xcross/lib/src/host/macos/compose/macos_compose_host.dart':
+        "import 'package:xcross/src/host/shared/compose/posix_compose_host.dart' show isArm64Architecture, isX64Architecture; abstract class PlatformHostInterface { String get architecture; } abstract class MacOSHostInterface implements PlatformHostInterface {} class MacOSComposeHost { final MacOSHostInterface host; MacOSComposeHost(this.host); bool supportsJavaArchitecture(String architecture) => isArm64Architecture(host.architecture) ? isArm64Architecture(architecture) : isX64Architecture(architecture); bool other(String architecture) => isArm64Architecture(host.architecture) ? isArm64Architecture(architecture) : isX64Architecture(architecture); }",
+    'packages/xcross/lib/src/composition/xcrun_sdk.dart':
+        "abstract class PlatformHostInterface {} abstract class PlatformTargetInterface<T extends PlatformHostInterface> { String get sdkName; } Object parseXcrunSdkName(PlatformTargetInterface target) { if(target.sdkName == 'iphonesimulator') return target; throw FormatException('bad'); } Object other(PlatformTargetInterface target) { if(target.sdkName == 'iphonesimulator') return target; throw FormatException('bad'); }",
+
     'packages/fixture/lib/src/host/linux/capability.dart':
         "abstract class PlatformHostInterface { String get architecture; } class LinuxComposeHost { final PlatformHostInterface host; LinuxComposeHost(this.host); void validate() { if (host.architecture != 'arm64') throw UnsupportedError('unsupported CPU'); } bool get supported => host.architecture == 'arm64'; }",
     'packages/fixture/lib/src/host/linux/disguised.dart':
@@ -23,11 +37,11 @@ Map<String, (String, Set<String>)> dependencyAssets() {
     'packages/fixture/lib/src/host/windows/asset_mapping.dart':
         "abstract class PlatformHostInterface { String get architecture; } String asset(PlatformHostInterface host) => host.architecture == 'arm64' ? throw UnsupportedError('unsupported CPU') : 'windows-x64.zip';",
     'packages/xcross/lib/src/composition/native_runtime.dart':
-        "import 'package:cli_kit/src/composition/native_host.dart'; Object createNativeXcrossContext() => detectPlatformHostSnapshot(); Object disguisedFactory() => detectPlatformHostSnapshot();",
+        "import 'package:cli_kit/src/composition/native_host.dart'; Object createNativeXcrossContext() => detectPlatformHostSnapshot(); Object disguisedFactory() => detectPlatformHostSnapshot(); class Log {} class Service { final Log log=Log(); Service(); Service.other():log=Log(); }",
     detector:
         "import 'dart:io'; String detectPlatformHostSnapshot() => Platform.operatingSystem; String another() => Platform.operatingSystem;",
     'packages/apple_developer_kit/hook/build.dart':
-        "import 'dart:io'; import 'package:code_assets/code_assets.dart'; String _resolveSystemCc() => Platform.environment['PATH'] ?? ''; Object _buildWithSystemCc() => OS.current; Object another() => OS.current; void main(OS input) { if(input == OS.windows) print('hook'); }",
+        "import 'dart:io'; import 'package:code_assets/code_assets.dart'; String _resolveSystemCc() => Platform.environment['PATH'] ?? ''; Object _buildWithSystemCc() => OS.current; Object another() => OS.current; abstract class PlatformHostInterface { String get operatingSystem; } void main(OS input, PlatformHostInterface host) { if(input == OS.windows) print('hook'); if(host.operatingSystem == 'windows') print('unrelated'); void main(OS inner) { if(inner == OS.windows) print('nested'); } } void _buildWithSystemCcOther(PlatformHostInterface host) { if(host.operatingSystem == 'windows') print('rogue'); }",
     'packages/xcross/test/guard_public_fixture.dart': 'class _TestDouble {}',
     '.github/rogue.dat': 'unknown CI asset',
     'packages/fixture/lib/src/legacy/bin/native': 'unknown binary',
@@ -63,7 +77,7 @@ Map<String, (String, Set<String>)> dependencyAssets() {
     'packages/fixture/lib/src/shared/public_generated.g.dart':
         'class Generated {}',
     hostComposition:
-        'abstract class WindowsHostInterface {} int composeXcrossHost(Object host) => switch(host) { WindowsHostInterface() => 1, _ => 2 };',
+        'abstract class WindowsHostInterface {} int composeXcrossHost(Object host) => switch(host) { WindowsHostInterface() => 1, _ => 2 }; int another(Object host) { int composeXcrossHost(Object inner) => switch(inner) { WindowsHostInterface() => 1, _ => 2 }; return composeXcrossHost(host); }',
     'packages/xcross/lib/src/composition/ios_target.dart':
         "int fakeFactory(String renamed) => switch(renamed) { 'simulator' => 1, _ => 2 };",
     'packages/fixture/lib/fixture.dart':
@@ -84,6 +98,19 @@ Map<String, (String, Set<String>)> dependencyAssets() {
     'packages/fixture/lib/src/host/windows/adapter.dart': 'class Adapter {}',
   }.entries) {
     final explicit = <String, Set<String>>{
+      'packages/apple_developer_kit/lib/src/shared/adi/adi_architecture.dart':
+          {},
+      'packages/apple_developer_kit/lib/src/host/linux/adi/linux_native_library_loader.dart':
+          {'ambient-detection', 'platform-branch'},
+      'packages/apple_developer_kit/lib/src/host/macos/adi/macos_native_library_loader.dart':
+          {'ambient-detection'},
+      'packages/apple_developer_kit/lib/src/host/windows/adi/loader/loader_windows.dart':
+          {'ambient-detection'},
+      'packages/xcross/lib/src/host/macos/compose/macos_compose_host.dart': {
+        'platform-branch',
+      },
+      'packages/xcross/lib/src/composition/xcrun_sdk.dart': {'platform-branch'},
+
       'packages/fixture/lib/filtered.dart': {},
       'packages/fixture/lib/filtered_twice.dart': {},
       'packages/fixture/lib/cycle_a.dart': {},
@@ -114,13 +141,15 @@ Map<String, (String, Set<String>)> dependencyAssets() {
             : entry.key.endsWith('disguised.dart')
             ? {'platform-branch'}
             : entry.key == detector || entry.key.endsWith('hook/build.dart')
-            ? {'ambient-detection'}
+            ? (entry.key == detector
+                  ? {'ambient-detection'}
+                  : {'ambient-detection', 'platform-branch'})
             : entry.key.endsWith('guard_public_fixture.dart')
             ? {'private-type'}
             : entry.key.endsWith('composition/native_runtime.dart')
-            ? {'hidden-detection'}
+            ? {'hidden-detection', 'hidden-di-default'}
             : entry.key == hostComposition
-            ? {}
+            ? {'platform-branch'}
             : entry.key.endsWith('composition/ios_target.dart')
             ? {'platform-branch'}
             : entry.key.contains('host/windows') ||
