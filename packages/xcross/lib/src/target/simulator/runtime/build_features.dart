@@ -1,0 +1,46 @@
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit_simulator.dart';
+import 'package:xcross/src/compose/build/compose_pack_operation.dart';
+import 'package:xcross/src/compose/toolchain/compose_toolchain_resolver.dart';
+import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
+import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
+import 'package:xcross/src/target/shared/compose/compose_target.dart';
+import 'package:xcross/src/target/shared/runtime/build_features.dart';
+import 'package:xcross/src/target/simulator/flutter/simulator_flutter_target.dart';
+
+final class SimulatorBuildFeatures<T extends PlatformHostInterface>
+    implements XcrossBuildFeatures<T> {
+  SimulatorBuildFeatures(this.runtime) : target = SimulatorTarget(runtime.host);
+  final XcrossRuntime<T> runtime;
+  @override
+  final SimulatorTarget<T> target;
+  @override
+  late final FlutterBuildRuntime<T> flutterRuntime = runtime.flutter.build(
+    SimulatorFlutterTarget(target),
+  );
+  late final ComposeTarget<T> _composeTarget = runtime.compose.simulator(
+    target,
+  );
+  @override
+  late final ComposePackOperation<T> composeOperation = ComposePackOperation(
+    _composeTarget,
+    runner: runtime.runner,
+    downloader: runtime.downloader,
+    processorCount: runtime.processorCount,
+    log: runtime.log,
+    tools: runtime.darwinToolchain,
+    sdkRepository: runtime.sdkRepository,
+    cacheRoot: runtime.config.roots?.konanData,
+  );
+  @override
+  late final ComposeToolchainResolver<T> composeResolver =
+      ComposeToolchainResolver(
+        _composeTarget,
+        runner: runtime.runner,
+        downloader: runtime.downloader,
+        log: runtime.log,
+        tools: runtime.darwinToolchain,
+        sdkRepository: runtime.sdkRepository,
+        cacheRoot: runtime.config.roots?.konanData,
+      );
+}
