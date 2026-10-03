@@ -49,7 +49,17 @@ class BundleSigner {
     for (final bundle in plan.bundles.where(
       (bundle) => bundle.isAppExtension,
     )) {
-      _assetFor(bundle);
+      final extensionAsset = _assetFor(bundle);
+      BundleInspector.checkApplicationIdentifier(
+        extensionAsset,
+        bundle.identifier,
+        bundle.path,
+      );
+      if (extensionAsset.teamIdentifier != asset.teamIdentifier) {
+        throw AppleError(
+          'App extension "${bundle.relativePath}" has a different signing team from its host app.',
+        );
+      }
     }
     return plan;
   }

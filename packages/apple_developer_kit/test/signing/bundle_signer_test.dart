@@ -434,49 +434,76 @@ void main() {
     expect(rootSeal, contains('PlugIns/Share.appex'));
   });
 
-  test('missing extension material fails before any mutation', () async {
-    final app = _app(temporaryDirectory, 'unprovisioned', 'dev.xcross.Runner');
-    _appExtension(app.path, 'Share', 'dev.xcross.Runner.Share');
-    final extension = p.join(app.path, 'PlugIns', 'Share.appex');
-    for (final bundle in [app.path, extension]) {
-      final signature = Directory(p.join(bundle, '_CodeSignature'))
-        ..createSync();
-      File(
-        p.join(signature.path, 'CodeResources'),
-      ).writeAsStringSync('old seal');
-      File(
-        p.join(bundle, 'embedded.mobileprovision'),
-      ).writeAsStringSync('old profile');
-    }
-    final before = <String, List<int>>{
-      for (final file in app.listSync(recursive: true).whereType<File>())
-        file.path: file.readAsBytesSync(),
-    };
-    final signer = BundleSigner(exactAsset, hostServices: testHostServices);
-    for (final operation in [
-      () => signer.preflight(app.path),
-      () => signer.signApp(app.path, signingTime: signingTime),
-    ]) {
-      await expectLater(
-        operation(),
-        throwsA(
-          isA<AppleError>().having(
-            (error) => error.message,
-            'message',
-            contains('no provisioning profile'),
-          ),
-        ),
-      );
-      final after = <String, List<int>>{
+  for (final scenario in ['missing', 'incompatible', 'team']) {
+    test('$scenario extension material fails before any mutation', () async {
+      final app = _app(temporaryDirectory, scenario, 'dev.xcross.Runner');
+      _appExtension(app.path, 'Share', 'dev.xcross.Runner.Share');
+      final extension = p.join(app.path, 'PlugIns', 'Share.appex');
+      for (final bundle in [app.path, extension]) {
+        final signature = Directory(p.join(bundle, '_CodeSignature'))
+          ..createSync();
+        File(
+          p.join(signature.path, 'CodeResources'),
+        ).writeAsStringSync('old seal');
+        File(
+          p.join(bundle, 'embedded.mobileprovision'),
+        ).writeAsStringSync('old profile');
+      }
+      final before = <String, List<int>>{
         for (final file in app.listSync(recursive: true).whereType<File>())
           file.path: file.readAsBytesSync(),
       };
-      expect(after.keys, unorderedEquals(before.keys));
-      for (final entry in before.entries) {
-        expect(after[entry.key], orderedEquals(entry.value), reason: entry.key);
+      final extensionAssets = switch (scenario) {
+        'missing' => <String, SigningAsset>{},
+        'incompatible' => {'dev.xcross.Runner.Share': exactAsset},
+        _ => {
+          'dev.xcross.Runner.Share': await _signingAsset(
+            temporaryDirectory,
+            'different-team',
+            'OTHERTEAM.dev.xcross.Runner.Share',
+            teamIdentifier: 'OTHERTEAM',
+          ),
+        },
+      };
+      final message = switch (scenario) {
+        'missing' => 'no provisioning profile',
+        'incompatible' => 'is incompatible with',
+        _ => 'different signing team',
+      };
+      final signer = BundleSigner(
+        exactAsset,
+        hostServices: testHostServices,
+        extensionAssets: extensionAssets,
+      );
+      for (final operation in [
+        () => signer.preflight(app.path),
+        () => signer.signApp(app.path, signingTime: signingTime),
+      ]) {
+        await expectLater(
+          operation(),
+          throwsA(
+            isA<AppleError>().having(
+              (error) => error.message,
+              'message',
+              contains(message),
+            ),
+          ),
+        );
+        final after = <String, List<int>>{
+          for (final file in app.listSync(recursive: true).whereType<File>())
+            file.path: file.readAsBytesSync(),
+        };
+        expect(after.keys, unorderedEquals(before.keys));
+        for (final entry in before.entries) {
+          expect(
+            after[entry.key],
+            orderedEquals(entry.value),
+            reason: entry.key,
+          );
+        }
       }
-    }
-  });
+    });
+  }
 
   test('refuses a .appex outside PlugIns', () async {
     final app = _app(temporaryDirectory, 'strayappex', 'dev.xcross.Runner');
@@ -652,8 +679,9 @@ Uint8List _macho({int fileType = _mhExecute}) {
 Future<SigningAsset> _signingAsset(
   Directory directory,
   String name,
-  String applicationIdentifier,
-) {
+  String applicationIdentifier, {
+  String teamIdentifier = 'TESTTEAM123',
+}) {
   final fixture = Directory(p.join(directory.path, name))..createSync();
   final keyPair = CryptoUtils.generateRSAKeyPair(keySize: 1024);
   final privateKey = keyPair.privateKey as RSAPrivateKey;
@@ -673,8 +701,8 @@ Future<SigningAsset> _signingAsset(
   final profile = <String, Object>{
     'CreationDate': DateTime.utc(2029),
     'ExpirationDate': DateTime.utc(2040),
-    'TeamIdentifier': ['TESTTEAM123'],
-    'ApplicationIdentifierPrefix': ['TESTTEAM123'],
+    'TeamIdentifier': [teamIdentifier],
+    'ApplicationIdentifierPrefix': [teamIdentifier],
     'Entitlements': <String, Object>{
       'application-identifier': applicationIdentifier,
       'get-task-allow': true,

@@ -62,7 +62,7 @@ class BundleInspector {
     List<BundleEntry> entries,
   ) {
     final root = _readBundle(normalized, normalized, isRoot: true);
-    _checkApplicationIdentifier(root.identifier, normalized);
+    checkApplicationIdentifier(asset, root.identifier, normalized);
     return <ResolvedBundle>[
       root,
       for (final entry in entries)
@@ -244,7 +244,11 @@ class BundleInspector {
     );
   }
 
-  void _checkApplicationIdentifier(String bundleIdentifier, String root) {
+  static void checkApplicationIdentifier(
+    SigningAsset asset,
+    String bundleIdentifier,
+    String root,
+  ) {
     final applicationIdentifier = asset.entitlements['application-identifier'];
     if (applicationIdentifier is! String || applicationIdentifier.isEmpty) {
       throw AppleError(
