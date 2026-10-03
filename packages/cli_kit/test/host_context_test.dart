@@ -152,4 +152,67 @@ void main() {
     },
     skip: Platform.isWindows ? 'POSIX native process semantics' : false,
   );
+  test(
+    'filesystem and explicit cwd preserve symlink parent traversal',
+    () async {
+      final temp = Directory.systemTemp.createTempSync('host-symlink-parent-');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      for (var index = 0; index < constructors.length; index++) {
+        final root = Directory(p.join(temp.path, '$index-root'))..createSync();
+        final host = constructors[index](root.path);
+        host.fileSystem.directory('other/inner').createSync(recursive: true);
+        host.fileSystem.file('marker').writeAsStringSync('root-marker');
+        host.fileSystem.file('other/marker').writeAsStringSync('other-marker');
+        await host.fileSystem.createArchiveLink('link', 'other/inner');
+        expect(host.fileSystem.link('link').targetSync(), 'other/inner');
+        expect(
+          host.fileSystem.file('link/../marker').readAsStringSync(),
+          'other-marker',
+        );
+        final absolute = '${root.path}/link/../marker';
+        expect(host.paths.ioPath(absolute), absolute);
+        expect(
+          host.fileSystem.file(absolute).readAsStringSync(),
+          'other-marker',
+        );
+        final runner = ProcessRunner(
+          host,
+          log: log,
+          stdinStream: io.input,
+          stdoutSink: io.output,
+          stderrSink: io.error,
+        );
+        final other = host.fileSystem
+            .directory('other')
+            .resolveSymbolicLinksSync();
+        expect(
+          (await runner.run(
+            '/bin/pwd',
+            [],
+            workingDirectory: 'link/..',
+          )).stdout.trim(),
+          other,
+        );
+        expect(
+          (await runner.run(
+            '/bin/pwd',
+            [],
+            workingDirectory: '${root.path}/link/..',
+          )).stdout.trim(),
+          other,
+        );
+        final child = await host.processes.start(
+          '/bin/pwd',
+          [],
+          workingDirectory: 'link/..',
+          includeParentEnvironment: false,
+        );
+        final output = child.stdout.transform(utf8.decoder).join();
+        await child.stderr.drain<void>();
+        expect((await output).trim(), other);
+        expect(await child.exitCode, 0);
+      }
+    },
+    skip: Platform.isWindows ? 'POSIX symlink traversal semantics' : false,
+  );
 }
