@@ -5,10 +5,43 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/host/shared/update/posix_dart_launcher.dart';
+import 'package:xcross/src/host/windows/xcrun/windows_executable.dart';
 import 'package:xcross/src/update/internal/dart_executable_resolver.dart';
 import '../host_operations_fixtures.dart';
 
 void main() {
+  test('Windows adapter owns case-insensitive launcher filename policy', () {
+    const adapter = WindowsExecutable();
+    for (final path in [
+      r'C:\sdk\bin\dart.exe',
+      r'C:\sdk\bin\DART.BAT',
+      r'C:\sdk\bin\dart.CMD',
+      '/fixture/DART.EXE',
+    ]) {
+      expect(adapter.acceptDartLauncher(path), isTrue);
+    }
+    for (final path in [
+      r'C:\sdk\bin\dart',
+      r'C:\sdk\bin\other.exe',
+      r'C:\sdk\bin\dart.exe.old',
+    ]) {
+      expect(adapter.acceptDartLauncher(path), isFalse);
+    }
+    expect(adapter.normalize(r'C:\sdk\bin\clang.EXE'), r'C:\sdk\bin\clang.exe');
+    expect(adapter.normalize(r'C:\sdk\bin\dart.CMD'), r'C:\sdk\bin\dart.CMD');
+  });
+
+  test('POSIX adapter preserves executable path spelling', () {
+    final adapter = PosixDartLauncher();
+    for (final path in [
+      '/fixture/bin/clang.EXE',
+      './dart',
+      '/fixture/bin/space name',
+    ]) {
+      expect(adapter.normalizeExecutable(path), path);
+    }
+  });
+
   group('findDartExecutableOnPath', () {
     test(
       'Windows accepts dart.exe and ignores an extensionless script',
@@ -19,11 +52,7 @@ void main() {
 
         final result = await findDartExecutableOnPath(
           runner: _windowsRunner(),
-          acceptLauncher: (path) => const {
-            'dart.exe',
-            'dart.bat',
-            'dart.cmd',
-          }.contains(p.basename(path).toLowerCase()),
+          acceptLauncher: const WindowsExecutable().acceptDartLauncher,
           environment: _windowsEnvironment(bin),
           useConfiguration: false,
         );
@@ -39,11 +68,7 @@ void main() {
 
       final result = await findDartExecutableOnPath(
         runner: _windowsRunner(),
-        acceptLauncher: (path) => const {
-          'dart.exe',
-          'dart.bat',
-          'dart.cmd',
-        }.contains(p.basename(path).toLowerCase()),
+        acceptLauncher: const WindowsExecutable().acceptDartLauncher,
         environment: _windowsEnvironment(bin),
         useConfiguration: false,
       );
@@ -60,11 +85,7 @@ void main() {
         await expectLater(
           findDartExecutableOnPath(
             runner: _windowsRunner(),
-            acceptLauncher: (path) => const {
-              'dart.exe',
-              'dart.bat',
-              'dart.cmd',
-            }.contains(p.basename(path).toLowerCase()),
+            acceptLauncher: const WindowsExecutable().acceptDartLauncher,
             environment: _windowsEnvironment(bin),
             useConfiguration: false,
           ),

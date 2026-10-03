@@ -8,6 +8,8 @@ final class PosixDartLauncher {
   PosixDartLauncher() : _access = _lookupAccess();
   final int Function(Pointer<Utf8>, int)? _access;
 
+  String normalizeExecutable(String path) => path;
+
   bool accept(String path) {
     if (p.posix.basename(path) != 'dart') return false;
     final stat = FileStat.statSync(path);

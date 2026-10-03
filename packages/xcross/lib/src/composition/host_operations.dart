@@ -39,20 +39,19 @@ HostOperations windowsHostOperations(
   Pymd pymd,
   HostPrivilegesInterface privileges,
   SetupConsole console,
-) => HostOperations(
-  setupScript: WindowsSetupScript(host, runner),
-  setupRequirements: WindowsSetupRequirements(
-    _services(host, runner, toolchain, pymd, privileges, console),
-  ),
-  swiftInstallGuidance: SwiftRequirement.installHint('windows'),
-  update: WindowsUpdatePolicy(host, privileges),
-  normalizeExecutable: normalizeWindowsExecutableExtension,
-  acceptDartLauncher: (path) => const {
-    'dart.exe',
-    'dart.bat',
-    'dart.cmd',
-  }.contains(host.paths.context.basename(path).toLowerCase()),
-);
+) {
+  const executable = WindowsExecutable();
+  return HostOperations(
+    setupScript: WindowsSetupScript(host, runner),
+    setupRequirements: WindowsSetupRequirements(
+      _services(host, runner, toolchain, pymd, privileges, console),
+    ),
+    swiftInstallGuidance: SwiftRequirement.installHint('windows'),
+    update: WindowsUpdatePolicy(host, privileges),
+    normalizeExecutable: executable.normalize,
+    acceptDartLauncher: executable.acceptDartLauncher,
+  );
+}
 
 HostOperations linuxHostOperations(
   LinuxHostInterface host,
@@ -61,16 +60,19 @@ HostOperations linuxHostOperations(
   Pymd pymd,
   HostPrivilegesInterface privileges,
   SetupConsole console,
-) => HostOperations(
-  setupScript: PosixSetupScript(host),
-  setupRequirements: LinuxSetupRequirements(
-    _services(host, runner, toolchain, pymd, privileges, console),
-  ),
-  swiftInstallGuidance: SwiftRequirement.installHint('linux'),
-  update: LinuxUpdatePolicy(host, runner, privileges),
-  normalizeExecutable: (path) => path,
-  acceptDartLauncher: PosixDartLauncher().accept,
-);
+) {
+  final launcher = PosixDartLauncher();
+  return HostOperations(
+    setupScript: PosixSetupScript(host),
+    setupRequirements: LinuxSetupRequirements(
+      _services(host, runner, toolchain, pymd, privileges, console),
+    ),
+    swiftInstallGuidance: SwiftRequirement.installHint('linux'),
+    update: LinuxUpdatePolicy(host, runner, privileges),
+    normalizeExecutable: launcher.normalizeExecutable,
+    acceptDartLauncher: launcher.accept,
+  );
+}
 
 HostOperations macOSHostOperations(
   MacOSHostInterface host,
@@ -79,13 +81,16 @@ HostOperations macOSHostOperations(
   Pymd pymd,
   HostPrivilegesInterface privileges,
   SetupConsole console,
-) => HostOperations(
-  setupScript: PosixSetupScript(host),
-  setupRequirements: MacOSSetupRequirements(
-    _services(host, runner, toolchain, pymd, privileges, console),
-  ),
-  swiftInstallGuidance: SwiftRequirement.installHint('macos'),
-  update: MacOSUpdatePolicy(host, runner, privileges),
-  normalizeExecutable: (path) => path,
-  acceptDartLauncher: PosixDartLauncher().accept,
-);
+) {
+  final launcher = PosixDartLauncher();
+  return HostOperations(
+    setupScript: PosixSetupScript(host),
+    setupRequirements: MacOSSetupRequirements(
+      _services(host, runner, toolchain, pymd, privileges, console),
+    ),
+    swiftInstallGuidance: SwiftRequirement.installHint('macos'),
+    update: MacOSUpdatePolicy(host, runner, privileges),
+    normalizeExecutable: launcher.normalizeExecutable,
+    acceptDartLauncher: launcher.accept,
+  );
+}
