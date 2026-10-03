@@ -7,6 +7,7 @@ import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:http/http.dart' as http;
 import 'package:xcross/src/cli/basic/sdk_install.dart';
+import 'package:xcross/src/composition/flutter/swiftpm_checkout.dart';
 import 'package:xcross/src/composition/host_operations.dart';
 import 'package:xcross/src/composition/xcross_host_context.dart';
 import 'package:xcross/src/config/runtime_config.dart';
@@ -19,6 +20,10 @@ import 'package:xcross/src/host/windows/flutter/native_host_tools.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/artifact_copy_policy.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/build_execution.dart';
+import 'package:xcross/src/host/windows/flutter/swiftpm/checkout_attributes.dart';
+import 'package:xcross/src/host/windows/flutter/swiftpm/checkout_link_creator.dart';
+import 'package:xcross/src/host/windows/flutter/swiftpm/checkout_link_policy.dart';
+import 'package:xcross/src/host/windows/flutter/swiftpm/checkout_manifest_policy.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/dependency_preparation.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/swiftpm_host_policy.dart';
 import 'package:xcross/src/host/windows/flutter/windows_flutter_sdk_policy.dart';
@@ -31,6 +36,7 @@ import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_install_identity.dart';
 import 'package:xcross/src/shared/flutter/vm_service_connector.dart';
 import 'package:xcross/src/shared/runtime/flutter_feature_services.dart';
@@ -186,7 +192,53 @@ final class WindowsXcrossHostContext
       startProcess: (executable, arguments) async =>
           RunnerBinaryCopyProcess(await runner.start(executable, arguments)),
     );
+    final checkoutParts =
+        SwiftPmCheckoutAssemblyParts<WindowsHostInterface>.prepare(
+          runner: runner,
+          fileSystem: artifactFileSystem,
+        );
+    final checkoutAttributes = WindowsSwiftPmCheckoutAttributes(
+      runner,
+      fileSystem: artifactFileSystem,
+    );
+    late final nativeLinks = WindowsSwiftPmNativeLinkApi(
+      DynamicLibrary.open('kernel32.dll'),
+    );
+    final checkout = assembleSwiftPmCheckout<WindowsHostInterface>(
+      parts: checkoutParts,
+      gitPolicy: WindowsSwiftPmCheckoutGitPolicy(
+        symlinks: checkoutParts.symlinks,
+      ),
+      fallback: WindowsSwiftPmCheckoutFallback(
+        runner: runner,
+        fileSystem: artifactFileSystem,
+        filesystem: checkoutParts.filesystem,
+        stamps: checkoutParts.stamps,
+        graph: checkoutParts.graph,
+      ),
+      attributes: checkoutAttributes,
+      linkCreator: WindowsSwiftPmCheckoutLinkCreator(
+        fileSystem: artifactFileSystem,
+        createLink: (link, target, flags) =>
+            nativeLinks.createLink(link, target, flags),
+        lastError: () => nativeLinks.lastError(),
+      ),
+      environment: runner.effectiveEnvironment,
+    );
+    final checkoutManifestNormalizer =
+        SwiftPmCheckoutManifestNormalizer<WindowsHostInterface>(
+          fileSystem: artifactFileSystem,
+          filesystem: checkoutParts.filesystem,
+          attributes: checkoutAttributes,
+          policy: WindowsSwiftPmVendoredManifestPolicy(
+            sourceNormalizer: checkoutParts.sourceNormalizer,
+            sourceFallback: checkoutParts.sourceFallback,
+          ),
+        );
     final flutter = FlutterFeatureServices<WindowsHostInterface>(
+      checkout: checkout,
+      checkoutAttributes: checkoutAttributes,
+      checkoutManifestNormalizer: checkoutManifestNormalizer,
       buildExecution: WindowsSwiftPmBuildExecution(
         runner: runner,
         repair: WindowsSwiftPlanRepair(runner),

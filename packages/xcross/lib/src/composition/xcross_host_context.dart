@@ -134,12 +134,19 @@ abstract class XcrossHostContext<T extends PlatformHostInterface>
             required platformIdentity,
             required toolchainIdentity,
             required sdkIdentity,
-          }) => SwiftPmGateEvidence(root, plugins).verifies(
-            mode: mode,
-            platformIdentity: platformIdentity,
-            toolchainIdentity: toolchainIdentity,
-            sdkIdentity: sdkIdentity,
-          ),
+          }) =>
+              SwiftPmGateEvidence<T>(
+                root,
+                execution: plugins.gateExecution,
+                platform: plugins.hostPolicy.gatePlatform,
+                platformIdentity: plugins.sdkIdentity.platformIdentity,
+                fileSystem: plugins.artifactFileSystem,
+              ).verifies(
+                mode: mode,
+                platformIdentity: platformIdentity,
+                toolchainIdentity: toolchainIdentity,
+                sdkIdentity: sdkIdentity,
+              ),
     );
   }
 

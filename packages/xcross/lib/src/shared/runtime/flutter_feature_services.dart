@@ -11,6 +11,9 @@ import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/build_execution.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_attributes.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
@@ -18,6 +21,9 @@ import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dar
 
 final class FlutterFeatureServices<T extends PlatformHostInterface> {
   const FlutterFeatureServices({
+    required this.checkout,
+    required this.checkoutAttributes,
+    required this.checkoutManifestNormalizer,
     required this.runner,
     required this.buildExecution,
     required this.dependencyPreparation,
@@ -41,6 +47,9 @@ final class FlutterFeatureServices<T extends PlatformHostInterface> {
   final SwiftPmArtifactCopyPolicy copyPolicy;
   final SwiftPmBuildExecution<T> buildExecution;
   final SwiftPmDependencyPreparation<T> dependencyPreparation;
+  final SwiftPmCheckout<T> checkout;
+  final SwiftPmCheckoutAttributes checkoutAttributes;
+  final SwiftPmCheckoutManifestNormalizer<T> checkoutManifestNormalizer;
   final Downloader downloader;
   final ProcessRunner<T> runner;
   final DarwinSdkRepository<T> repository;
@@ -67,6 +76,9 @@ final class FlutterFeatureServices<T extends PlatformHostInterface> {
     );
     final plugins = GeneratedPluginsPackage(
       policy,
+      checkout: checkout,
+      checkoutAttributes: checkoutAttributes,
+      checkoutManifestNormalizer: checkoutManifestNormalizer,
       buildExecution: buildExecution,
       dependencyPreparation: dependencyPreparation,
       runner: runner,

@@ -7,6 +7,7 @@ import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:http/http.dart' as http;
 import 'package:xcross/src/cli/basic/sdk_install.dart';
+import 'package:xcross/src/composition/flutter/swiftpm_checkout.dart';
 import 'package:xcross/src/composition/host_operations.dart';
 import 'package:xcross/src/composition/xcross_host_context.dart';
 import 'package:xcross/src/config/runtime_config.dart';
@@ -22,6 +23,10 @@ import 'package:xcross/src/host/shared/flutter/swiftpm/artifact_publication_lock
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_artifact_copy_policy.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_artifact_filesystem.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_build_execution.dart';
+import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_attributes.dart';
+import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_link_creator.dart';
+import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_link_policy.dart';
+import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_manifest_policy.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_dependency_preparation.dart';
 import 'package:xcross/src/host/shared/sdk/preserved_sdk_archive_links.dart';
 import 'package:xcross/src/host/shared/tools/unsupported_swiftpm_gate.dart';
@@ -30,6 +35,7 @@ import 'package:xcross/src/shared/device/signing_http_client_factory.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_install_identity.dart';
 import 'package:xcross/src/shared/flutter/vm_service_connector.dart';
 import 'package:xcross/src/shared/runtime/flutter_feature_services.dart';
@@ -175,7 +181,38 @@ final class MacOSXcrossHostContext
       createClient: localHttp.client,
     );
     final copyPolicy = PosixSwiftPmArtifactCopyPolicy(artifactFileSystem);
+    final checkoutParts =
+        SwiftPmCheckoutAssemblyParts<MacOSHostInterface>.prepare(
+          runner: runner,
+          fileSystem: artifactFileSystem,
+        );
+    const checkoutAttributes = PosixSwiftPmCheckoutAttributes();
+    final checkout = assembleSwiftPmCheckout<MacOSHostInterface>(
+      parts: checkoutParts,
+      gitPolicy: const PosixSwiftPmCheckoutGitPolicy(),
+      fallback: PosixSwiftPmCheckoutFallback(
+        fileSystem: artifactFileSystem,
+        filesystem: checkoutParts.filesystem,
+        graph: checkoutParts.graph,
+      ),
+      attributes: checkoutAttributes,
+      linkCreator: PosixSwiftPmCheckoutLinkCreator(artifactFileSystem),
+      environment: runner.effectiveEnvironment,
+    );
+    final checkoutManifestNormalizer =
+        SwiftPmCheckoutManifestNormalizer<MacOSHostInterface>(
+          fileSystem: artifactFileSystem,
+          filesystem: checkoutParts.filesystem,
+          attributes: checkoutAttributes,
+          policy: PosixSwiftPmVendoredManifestPolicy(
+            sourceNormalizer: checkoutParts.sourceNormalizer,
+            sourceFallback: checkoutParts.sourceFallback,
+          ),
+        );
     final flutter = FlutterFeatureServices<MacOSHostInterface>(
+      checkout: checkout,
+      checkoutAttributes: checkoutAttributes,
+      checkoutManifestNormalizer: checkoutManifestNormalizer,
       buildExecution: PosixSwiftPmBuildExecution(runner: runner),
       dependencyPreparation:
           const PosixSwiftPmDependencyPreparation<MacOSHostInterface>(),
