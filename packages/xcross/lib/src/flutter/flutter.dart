@@ -3,7 +3,6 @@ library;
 
 export 'package:xcross/src/host/shared/flutter/flutter_sdk_host_policy.dart';
 export 'package:xcross/src/host/shared/flutter/posix_flutter_sdk_policy.dart';
-export 'package:xcross/src/host/windows/flutter/windows_flutter_sdk_policy.dart';
 export 'package:xcross/src/models/pack_result.dart';
 export 'package:xcross/src/shared/flutter/extensions/app_extension_plist.dart';
 export 'package:xcross/src/shared/flutter/extensions/app_extension_resources.dart';
@@ -20,10 +19,8 @@ export 'package:xcross/src/shared/flutter/project/ios_deployment_target_resolver
 export 'package:xcross/src/shared/flutter/project/pbx_project_reader.dart';
 export 'package:xcross/src/shared/flutter/project/pubspec_info_reader.dart';
 export 'package:xcross/src/shared/flutter/vm_service_connector.dart';
-export 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
 
 export 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
-export 'package:xcross/src/target/simulator/flutter/simulator_flutter_target.dart';
 export 'build/flutter_debug_bundler.dart';
 export 'build/flutter_pack_operation.dart';
 export 'build/flutter_packer.dart';
