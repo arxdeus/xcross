@@ -8,6 +8,7 @@ import 'package:dart_mobile_device/src/models/device.dart';
 import 'package:dart_mobile_device/src/pymd/pymd.dart';
 import 'package:dart_mobile_device/src/pymd/pymd_devices.dart';
 import 'package:dart_mobile_device/src/pymd/remote_pairing.dart';
+import 'package:dart_mobile_device/src/shared/preparation/device_preparation.dart';
 import 'package:dart_mobile_device/src/target/iphone/preparation/developer_disk_image.dart';
 import 'package:dart_mobile_device/src/tunnel/tunnel_daemon.dart';
 import 'package:dart_mobile_device/src/tunnel/tunnel_discovery.dart';
@@ -26,7 +27,7 @@ enum WirelessBootstrapPath { usbLockdown, savedPairing, pairHost }
 /// ```
 /// plus ensuring `remote tunneld` is up (the REST discovery path used by
 /// `xcross flutter run`).
-final class DevicePrepare {
+final class DevicePrepare implements DevicePreparation {
   DevicePrepare(this.pymd);
   final Pymd pymd;
   late final LockdownTunnelController _lockdown = LockdownTunnelController(
@@ -56,6 +57,7 @@ final class DevicePrepare {
   /// tunnel-routed DDI mount) lives in [prepareWireless] behind an explicit
   /// `--wifi`, so the cable path stays simple and never blocks waiting for
   /// a phone that is not there.
+  @override
   Future<void> prepare() async {
     await _prepareSteps();
     pymd.runner.log.logDone(
@@ -79,6 +81,7 @@ final class DevicePrepare {
   /// 3. No USB and no saved device: advertise `remote pair-host` immediately.
   ///
   /// Finally, mounts the DDI through the resulting RSD tunnel.
+  @override
   Future<void> prepareWireless() async {
     if (!await pymd.ensureInstalled()) {
       throw TunnelError(

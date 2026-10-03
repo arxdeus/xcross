@@ -1,5 +1,5 @@
 import 'package:args/command_runner.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:dart_mobile_device/dart_mobile_device_shared.dart';
 
 /// `xcross tunnel` — mount the Developer Disk Image and start the iOS 17+
 /// RSD tunnel(s) needed by `xcross flutter run`.
@@ -28,7 +28,7 @@ final class TunnelCommand extends Command<void> {
     );
   }
 
-  final DevicePrepare prepare;
+  final DevicePreparation prepare;
 
   @override
   String get name => 'tunnel';

@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:apple_developer_kit/apple_developer_kit_shared.dart';
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:dart_mobile_device/dart_mobile_device_shared.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:http/http.dart' as http;
 import 'package:xcross/src/cli/basic/doctor_models.dart';
@@ -27,7 +27,7 @@ final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
     required this.runner,
     required this.repository,
     required this.toolchain,
-    required this.pymd,
+    required this.deviceDiagnostics,
     required this.sdkMismatch,
     required this.sdkToolchainIdentity,
     required this.createAppleHttpClient,
@@ -39,7 +39,7 @@ final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
   final ProcessRunner<T> runner;
   final DarwinSdkRepository<T> repository;
   final DarwinToolchainResolver<T> toolchain;
-  final Pymd pymd;
+  final DeviceDiagnostics deviceDiagnostics;
   final Future<String?> Function(String bundle) sdkMismatch;
   final Future<Map<String, String>> Function() sdkToolchainIdentity;
 
@@ -249,8 +249,8 @@ final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
     try {
       checks.addAll(
         await devices(
-          await PymdDevices(pymd).devices(),
-          osMajorVersion: _deviceOsMajorVersion,
+          await deviceDiagnostics.devices(),
+          osMajorVersion: deviceDiagnostics.osMajorVersion,
         ),
       );
     } on Object catch (error) {
@@ -261,12 +261,8 @@ final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
 
   Future<DoctorCheck> _deviceTools() async {
     try {
-      final invocation = await pymd.resolve();
-      return DoctorCheck.success(
-        'Device tools',
-        'Found',
-        path: invocation.executable,
-      );
+      final executable = await deviceDiagnostics.resolveExecutable();
+      return DoctorCheck.success('Device tools', 'Found', path: executable);
     } on Object catch (error) {
       return DoctorCheck.failure('Device tools', '$error');
     }
@@ -288,12 +284,6 @@ final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
     }
     return checks;
   }
-
-  Future<int?> _deviceOsMajorVersion(Device device) =>
-      OsVersion(pymd).deviceOSMajorVersion(
-        device.udid,
-        overTunnel: device.source == DeviceSource.tunneld,
-      );
 
   static DoctorCheck _deviceCheck(Device device, int? osMajor) {
     final label = '${device.name} (${device.udid})';

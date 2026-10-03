@@ -3,7 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart' show TunnelDaemon;
+import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
+    show TunnelAvailability;
 import 'package:dds/dap.dart';
 import 'package:frontend_server_kit/frontend_server_kit.dart';
 import 'package:pure/pure.dart';
@@ -24,14 +25,14 @@ final class XcrossDap
   XcrossDap(
     ByteStreamServerChannel channel, {
     required this.runner,
-    required this.localHttp,
+    required this.tunnelAvailability,
     required this.launcher,
   }) : super(channel) {
     channel.closed.then((_) => _quitChild());
   }
 
   final ProcessRunner runner;
-  final LocalHttp<PlatformHostInterface> localHttp;
+  final TunnelAvailability tunnelAvailability;
   final String launcher;
 
   @override
@@ -100,9 +101,10 @@ final class XcrossDap
   }
 
   Future<void> _warnIfTunnelUnreachable() async {
-    final reachable = await TunnelDaemon.isReachable(
-      localHttp: localHttp,
-    ).timeout(const Duration(seconds: 5), onTimeout: nullaryFalse);
+    final reachable = await tunnelAvailability.isReachable().timeout(
+      const Duration(seconds: 5),
+      onTimeout: nullaryFalse,
+    );
     if (reachable) return;
     sendOutput(
       'stderr',
