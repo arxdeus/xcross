@@ -1,26 +1,11 @@
-# Seeds the private, per-host Darwin SDK caches used by integration.yml.
-# The artifactbundle_url input, or repository secret DARWIN_ARTIFACTBUNDLE_URL
-# when it is empty, must point to an archive with xcross-darwin.artifactbundle
-# at its root, produced by `xcross sdk install`.
-# Never publish the archive: it contains Apple SDK content.
-name: Warm Darwin SDK cache
+# Validates the private Darwin SDK source used by cross-host integration jobs.
+# The repository secret DARWIN_ARTIFACTBUNDLE_URL must point to an archive with
+# xcross-darwin.artifactbundle at its root, produced by `xcross sdk install`.
+# Never cache or publish the archive: it contains Apple SDK content.
+name: Validate Darwin SDK source
 
 on:
   workflow_dispatch:
-    inputs:
-      artifactbundle_url:
-        description: >-
-          Private URL to the SDK .tar.gz. Defaults to the
-          DARWIN_ARTIFACTBUNDLE_URL secret. Dispatch inputs are recorded in
-          plain text in the run metadata, so prefer a short-lived URL.
-        required: false
-        default: ""
-        type: string
-      cache_revision:
-        description: Non-secret revision used to replace an older SDK cache.
-        required: true
-        default: v3
-        type: string
 
 permissions:
   contents: read
@@ -31,8 +16,8 @@ env:
     235626548F249CD516D3D4D90EEE980DCCAD46F3822DAC1F8E3119B0FEDE94B7
 
 jobs:
-  warm-cache:
-    name: Warm ${{ matrix.os }} cache
+  validate-source:
+    name: Validate SDK on ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
@@ -206,20 +191,7 @@ jobs:
             throw "swift sdk list failed with $LASTEXITCODE"
           }
 
-      - name: Mask dispatched artifactbundle URL
-        if: inputs.artifactbundle_url != ''
-        shell: bash
-        env:
-          ARTIFACTBUNDLE_URL: ${{ inputs.artifactbundle_url }}
-        run: |
-          set -euo pipefail
-          echo "::add-mask::$ARTIFACTBUNDLE_URL"
-
-      - name: Restore or download xcross Darwin SDK
+      - name: Download and validate xcross Darwin SDK
         uses: ./.github/actions/setup-darwin-sdk
         with:
-          artifactbundle-url: >-
-            ${{ inputs.artifactbundle_url != ''
-            && inputs.artifactbundle_url
-            || secrets.DARWIN_ARTIFACTBUNDLE_URL }}
-          cache-revision: ${{ inputs.cache_revision }}
+          artifactbundle-url: ${{ secrets.DARWIN_ARTIFACTBUNDLE_URL }}

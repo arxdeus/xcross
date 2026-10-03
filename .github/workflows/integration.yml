@@ -36,7 +36,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      # Fork PR code must never receive the private Apple SDK cache, so those
+      # Fork PR code must never receive the private Apple SDK or its URL, so those
       # runs stop after the toolchain checks instead of being skipped outright.
       - name: Resolve Darwin SDK availability
         id: darwin
@@ -50,7 +50,7 @@ jobs:
           if [[ "$IS_FORK_PR" == "true" ]]; then
             echo "available=false" >> "$GITHUB_OUTPUT"
             notice='Fork pull request: building the xcross CLI and toolchain'
-            notice="$notice only. The private Apple SDK cache and the iOS"
+            notice="$notice only. The private Apple SDK download and the iOS"
             notice="$notice build steps run once a maintainer pushes the"
             notice="$notice branch to this repository."
             echo "::notice::$notice"
@@ -355,9 +355,11 @@ jobs:
           & "$env:RUNNER_TEMP\xcross-bundle\bin\xcross.exe" doctor --help
           if ($LASTEXITCODE -ne 0) { throw 'doctor help failed' }
 
-      - name: Restore cached Darwin SDK
+      - name: Download Darwin SDK
         if: steps.darwin.outputs.available == 'true'
         uses: ./.github/actions/setup-darwin-sdk
+        with:
+          artifactbundle-url: ${{ secrets.DARWIN_ARTIFACTBUNDLE_URL }}
 
       - name: Build Flutter example on Linux
         if: runner.os == 'Linux' && steps.darwin.outputs.available == 'true'
