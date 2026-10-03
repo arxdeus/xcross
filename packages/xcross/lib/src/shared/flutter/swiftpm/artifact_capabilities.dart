@@ -2,22 +2,30 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_gate_evidence.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_workspace.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_identity.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/gate_execution.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/gate_platform.dart';
 
 final class SwiftPmArtifactCapabilities<T extends PlatformHostInterface> {
-  SwiftPmArtifactCapabilities({required this.paths,required this.fileSystem,required this.execution,required this.platform,required this.identities,this.probe,this.runtimeBinding});
-final HostPathsInterface paths;
-final SwiftPmArtifactFileSystem fileSystem;
-final SwiftPmGateExecution<T> execution;
-final SwiftPmGatePlatform platform;
-final SwiftPmArtifactIdentities identities;
-final SwiftPmGateProbe? probe;
-final SwiftPmGateRuntimeBinding? runtimeBinding;
+  SwiftPmArtifactCapabilities({
+    required this.paths,
+    required this.fileSystem,
+    required this.repository,
+    required this.platform,
+    required this.identities,
+    this.probe,
+    this.runtimeBinding,
+  });
+  final HostPathsInterface paths;
+  final SwiftPmArtifactFileSystem fileSystem;
+  final DarwinSdkRepository<T> repository;
+  final SwiftPmGatePlatform platform;
+  final SwiftPmArtifactIdentities identities;
+  final SwiftPmGateProbe? probe;
+  final SwiftPmGateRuntimeBinding? runtimeBinding;
   final _evidence = <String, SwiftPmGateEvidence<T>>{};
   Future<({bool swiftPmArtifact, bool packageLocalArtifact})>
   artifactJunctionCapabilities({
@@ -31,7 +39,13 @@ final SwiftPmGateRuntimeBinding? runtimeBinding;
   }) async {
     final evidence = _evidence.putIfAbsent(
       paths.pathKey(evidenceRoot),
-      () => SwiftPmGateEvidence(evidenceRoot,execution:execution,platform:platform,platformIdentity:platformIdentity,fileSystem:fileSystem),
+      () => SwiftPmGateEvidence(
+        evidenceRoot,
+        repository: repository,
+        platform: platform,
+        platformIdentity: platformIdentity,
+        fileSystem: fileSystem,
+      ),
     );
     return (
       swiftPmArtifact: await evidence.verifies(
@@ -95,11 +109,15 @@ final SwiftPmGateRuntimeBinding? runtimeBinding;
   resolveArtifactJunctionCapabilities({
     required SwiftPmWorkspace workspace,
   }) async {
-    final identity=await identities.resolve();
-    final sdkIdentity=identity.sdk;
-    final toolchainIdentity=identity.toolchain;
-    final platformIdentity=identity.platform;
-    await _cacheBuildIdentities(workspace,toolchain:toolchainIdentity,sdk:sdkIdentity);
+    final identity = await identities.resolve();
+    final sdkIdentity = identity.sdk;
+    final toolchainIdentity = identity.toolchain;
+    final platformIdentity = identity.platform;
+    await _cacheBuildIdentities(
+      workspace,
+      toolchain: toolchainIdentity,
+      sdk: sdkIdentity,
+    );
     final capabilities = await artifactJunctionCapabilities(
       evidenceRoot: workspace.gateEvidence,
       platformIdentity: platformIdentity,

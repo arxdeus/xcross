@@ -1,28 +1,20 @@
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:xcross/src/flutter/build/internal/swiftpm_gate_evidence.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/gate_execution.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/gate_mode.dart';
+import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
 abstract interface class SwiftPmGatePlatform {
-  Future<String?> volumeIdentity<T extends PlatformHostInterface>(
-    SwiftPmGateExecution<T> execution,
-    String path,
+  SwiftPmArtifactFileSystem get fileSystem;
+  bool matchesTarget<P extends PlatformHostInterface>(
+    FlutterTargetBuildPolicy<P> policy,
   );
-  Future<bool> createProofAlias<T extends PlatformHostInterface>(
-    SwiftPmGateExecution<T> execution,
-    String alias,
-    String target,
-  );
-  Future<bool> verifyAlias<T extends PlatformHostInterface>(
-    SwiftPmGateExecution<T> execution,
-    String alias,
-    String target,
-  );
-  Future<bool> probe<T extends PlatformHostInterface>(
-    SwiftPmGateExecution<T> execution, {
+  Future<String?> volumeIdentity(String path);
+  Future<bool> createProofAlias(String alias, String target);
+  Future<bool> verifyAlias(String alias, String target);
+  Future<bool> probe({
     required SwiftPmGateMode mode,
     required String root,
     required String toolchainIdentity,
     required String sdkIdentity,
-    SwiftPmGateRun? run,
   });
 }

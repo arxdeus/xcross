@@ -8,7 +8,6 @@ import 'package:crypto/crypto.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/gate_execution.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/gate_mode.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/gate_platform.dart';
 
@@ -31,23 +30,21 @@ typedef SwiftPmGateRuntimeBinding =
       required String sdkIdentity,
     });
 
-typedef SwiftPmGateRun =
-    Future<ProcessResult> Function(
-      String executable,
-      List<String> arguments, {
-      required Duration timeout,
-      Map<String, String>? environment,
-    });
-
 const _gateImplementationVersion = 3;
 const _extractorBuildVersion = 'xcross-1.3.1-swiftpm-gate-3';
 
 final class SwiftPmGateEvidence<T extends PlatformHostInterface> {
-  SwiftPmGateEvidence(this.root,{required this.execution,required this.platform,required this.platformIdentity,required this.fileSystem});
-final SwiftPmGateExecution<T> execution;
-final SwiftPmGatePlatform platform;
-final String platformIdentity;
-final SwiftPmArtifactFileSystem fileSystem;
+  SwiftPmGateEvidence(
+    this.root, {
+    required this.repository,
+    required this.platform,
+    required this.platformIdentity,
+    required this.fileSystem,
+  });
+  final DarwinSdkRepository<T> repository;
+  final SwiftPmGatePlatform platform;
+  final String platformIdentity;
+  final SwiftPmArtifactFileSystem fileSystem;
   final _probeResults = <String, Future<bool>>{};
 
   final String root;
@@ -63,20 +60,7 @@ final SwiftPmArtifactFileSystem fileSystem;
     if (platformIdentity != this.platformIdentity) return false;
     try {
       final resolveRuntime = runtimeBinding ?? defaultRuntimeBinding;
-      final runProbe =
-          probe ??
-          ({
-            required mode,
-            required root,
-            required toolchainIdentity,
-            required sdkIdentity,
-          }) => platform.probe(
-            execution,
-            mode: mode,
-            root: root,
-            toolchainIdentity: toolchainIdentity,
-            sdkIdentity: sdkIdentity,
-          );
+      final runProbe = probe ?? platform.probe;
       final runtime = await resolveRuntime(
         mode: mode,
         root: root,
@@ -88,13 +72,7 @@ final SwiftPmArtifactFileSystem fileSystem;
       if (await _validEvidence(mode, runtime)) return true;
 
       final cacheKey = sha256
-          .convert(
-            utf8.encode(
-              jsonEncode(
-                runtime,
-              ),
-            ),
-          )
+          .convert(utf8.encode(jsonEncode(runtime)))
           .toString();
       final result = _probeResults.putIfAbsent(cacheKey, () async {
         try {
@@ -112,7 +90,9 @@ final SwiftPmArtifactFileSystem fileSystem;
             toolchainIdentity: toolchainIdentity,
             sdkIdentity: sdkIdentity,
           );
-          if (binding == null || jsonEncode(binding) != jsonEncode(runtime)) return false;
+          if (binding == null || jsonEncode(binding) != jsonEncode(runtime)) {
+            return false;
+          }
           await _record(mode, binding);
           return await _validEvidence(mode, binding);
         } on Object {
@@ -140,15 +120,12 @@ final SwiftPmArtifactFileSystem fileSystem;
       ..createSync(recursive: true);
     final proof = await proofParent.createTemp('${mode.name}-');
     final nonce = List<int>.generate(32, (_) => _secureRandomByte());
-    final target = fileSystem.directory(p.join(proof.path, 'target'))..createSync();
+    final target = fileSystem.directory(p.join(proof.path, 'target'))
+      ..createSync();
     final result = fileSystem.file(p.join(target.path, 'probe-result.bin'))
       ..writeAsBytesSync(nonce, flush: true);
     final alias = p.join(proof.path, 'junction');
-    if (!await platform.createProofAlias(
-      execution,
-      alias,
-      target.path,
-    )) {
+    if (!await platform.createProofAlias(alias, target.path)) {
       await proof.delete(recursive: true);
       throw StateError('Could not create proof junction');
     }
@@ -197,11 +174,7 @@ final SwiftPmArtifactFileSystem fileSystem;
         p.normalize(await target.resolveSymbolicLinks())) {
       return false;
     }
-    return platform.verifyAlias(
-      execution,
-      alias.path,
-      target.path,
-    );
+    return platform.verifyAlias(alias.path, target.path);
   }
 
   Future<Map<String, Object?>?> defaultRuntimeBinding({
@@ -214,18 +187,19 @@ final SwiftPmArtifactFileSystem fileSystem;
     final toolchain = decodedSwiftPmGateMap(toolchainIdentity);
     final sdk = decodedSwiftPmGateMap(sdkIdentity);
     if (toolchain == null || sdk == null) return null;
-    if (!await validSwiftPmGateToolchainIdentity(toolchain,fileSystem:fileSystem) ||
+    if (!await validSwiftPmGateToolchainIdentity(
+          toolchain,
+          fileSystem: fileSystem,
+        ) ||
         !await validSwiftPmGateSdkIdentity(
           sdk,
-          repository: execution.sdkRepository,fileSystem:fileSystem,
+          repository: repository,
+          fileSystem: fileSystem,
         )) {
       return null;
     }
     await fileSystem.directory(root).create(recursive: true);
-    final volume = await platform.volumeIdentity(
-      execution,
-      root,
-    );
+    final volume = await platform.volumeIdentity(root);
     if (volume == null) return null;
     return {
       'formatVersion': 3,
@@ -250,8 +224,9 @@ Map<String, Object?>? decodedSwiftPmGateMap(String encoded) {
 }
 
 Future<bool> validSwiftPmGateToolchainIdentity(
-  Map<String, Object?> identity, {required SwiftPmArtifactFileSystem fileSystem}
-) async {
+  Map<String, Object?> identity, {
+  required SwiftPmArtifactFileSystem fileSystem,
+}) async {
   const versionedTools = {'swift-package', 'swift-build', 'swiftc'};
   const tools = {
     ...versionedTools,

@@ -3,10 +3,12 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
 final class SwiftPmBinaryFixture {
   const SwiftPmBinaryFixture({
@@ -106,11 +108,25 @@ public final class BinaryFixturePlugin: NSObject, FlutterPlugin {
     );
   }
 
-  static Directory generateXcframework({
+  static Directory generateXcframework<T extends PlatformHostInterface>({
     required SwiftPmArtifactFileSystem fileSystem,
     required String root,
     required String name,
+    required FlutterTargetBuildPolicy<T> policy,
   }) {
+    const candidates = <({String identifier, String? variant})>[
+      (identifier: 'ios-arm64', variant: null),
+      (identifier: 'ios-arm64-simulator', variant: 'simulator'),
+    ];
+    final matching = candidates
+        .where((candidate) => policy.matchesLibraryVariant(candidate.variant))
+        .toList();
+    if (matching.length != 1) {
+      throw ArgumentError(
+        'Gate fixture requires exactly one matching target library variant',
+      );
+    }
+    final library = matching.single;
     final framework = fileSystem.directory(p.join(root, '$name.xcframework'));
     fileSystem.file(p.join(framework.path, 'Info.plist'))
       ..createSync(recursive: true)
@@ -118,17 +134,21 @@ public final class BinaryFixturePlugin: NSObject, FlutterPlugin {
         PropertyListSerialization.stringWithPropertyList({
           'AvailableLibraries': [
             {
-              'LibraryIdentifier': 'ios-arm64',
+              'LibraryIdentifier': library.identifier,
               'LibraryPath': '$name.framework',
               'SupportedArchitectures': ['arm64'],
               'SupportedPlatform': 'ios',
+              if (library.variant != null)
+                'SupportedPlatformVariant': library.variant!,
             },
           ],
           'CFBundlePackageType': 'XFWK',
           'XCFrameworkFormatVersion': '1.0',
         }),
       );
-    fileSystem.file(p.join(framework.path, 'ios-arm64', '$name.framework', name))
+    fileSystem.file(
+        p.join(framework.path, library.identifier, '$name.framework', name),
+      )
       ..createSync(recursive: true)
       ..writeAsBytesSync(_emptyMachO());
     return framework;
@@ -171,6 +191,7 @@ public final class BinaryFixturePlugin: NSObject, FlutterPlugin {
       ..writeAsStringSync('public enum GateProbe {}\n');
     fileSystem.file(p.join(root, 'Package.swift')).writeAsStringSync('''
 // swift-tools-version: 6.0
+import PackageDescription
 let package = Package(name: "Gate", products: [.library(name: "Gate", targets: ["GateProbe"])], targets: [$binaryTarget, .target(name: "GateProbe", dependencies: ["$targetName"])])
 ''');
   }

@@ -3,22 +3,24 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/build_plan.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/toolchain.dart';
 
+abstract interface class SwiftPmGateProcess {
+  PlatformHostInterface get host;
+  Future<ProcessResult> runGateProcess(
+    String executable,
+    List<String> arguments, {
+    required Duration timeout,
+    Map<String, String>? environment,
+  });
+}
 
-final class SwiftPmGateExecution<T extends PlatformHostInterface> {
-SwiftPmGateExecution({required this.runner,required this.sdkRepository,required this.toolchain,required this.processPolicy,required this.buildPlan,required this.target,required this.artifactFileSystem});
-final ProcessRunner<T> runner;
-final DarwinSdkRepository<T> sdkRepository;
-final SwiftPmToolchain<T> toolchain;
-final SwiftPmProcessPolicy<T> processPolicy;
-final SwiftPmBuildPlan<T> buildPlan;
-final IosTarget<T> target;
-final SwiftPmArtifactFileSystem artifactFileSystem;
+final class SwiftPmGateExecution<T extends PlatformHostInterface>
+    implements SwiftPmGateProcess {
+  SwiftPmGateExecution({required this.runner});
+  final ProcessRunner<T> runner;
+  @override
+  T get host => runner.host;
+  @override
   Future<ProcessResult> runGateProcess(
     String executable,
     List<String> arguments, {
