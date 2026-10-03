@@ -166,6 +166,37 @@ void main() {
     expect(permissions.hardened, isNotEmpty);
   });
 
+  test('secure temp is hardened empty before writing secret bytes', () async {
+    final directory = Directory.systemTemp.createTempSync(
+      'secure-write-order-',
+    );
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final selected = testHostServices;
+    final events = <String>[];
+    final files = SecureWriteFileSystem(selected.host.fileSystem, (file) {
+      events.add('write');
+      expect(events, ['harden', 'write']);
+      expect(file.readAsBytesSync(), isEmpty);
+      if (selected.abi != Abi.windowsX64) {
+        expect(file.statSync().mode & 0x1ff, 0x180);
+      }
+    });
+    final services = AppleHostServices(
+      host: LinuxHost(fileSystem: files),
+      abi: selected.abi,
+      machineIdentity: Identity(''),
+      permissions: SecureWritePermissions(selected.permissions, (file) {
+        events.add('harden');
+        expect(file.readAsBytesSync(), isEmpty);
+      }),
+    );
+    final path = p.join(directory.path, 'secret');
+    await SecureFile(hostServices: services).writeString(path, 'private-key');
+    expect(events, ['harden', 'write']);
+    expect(File(path).readAsStringSync(), 'private-key');
+    expect(directory.listSync().length, 1);
+  });
+
   test('shared bindings request callable pointers with ABI arity', () {
     final library = RecordingLibrary();
     AdiNativeBindings(library);
@@ -233,4 +264,72 @@ final class RecordingLibrary implements LoadedNativeLibrary {
     rawLookups++;
     return Pointer.fromAddress(1);
   }
+}
+
+final class SecureWritePermissions implements AppleFilePermissions {
+  SecureWritePermissions(this.delegate, this.onHarden);
+  final AppleFilePermissions delegate;
+  final void Function(File) onHarden;
+  @override
+  void harden(String path) {
+    onHarden(File(path));
+    delegate.harden(path);
+  }
+
+  @override
+  void preserve(String path, int mode) => delegate.preserve(path, mode);
+}
+
+final class SecureWriteFileSystem implements HostFileSystemInterface {
+  SecureWriteFileSystem(this.delegate, this.onWrite);
+  final HostFileSystemInterface delegate;
+  final void Function(File) onWrite;
+  @override
+  File file(String path) => path.endsWith('.tmp')
+      ? SecureWriteFile(delegate.file(path), onWrite)
+      : delegate.file(path);
+  @override
+  Directory directory(String path) => delegate.directory(path);
+  @override
+  Link link(String path) => delegate.link(path);
+  @override
+  void makeExecutable(String path) => delegate.makeExecutable(path);
+  @override
+  void setPermissions(String path, int mode) =>
+      delegate.setPermissions(path, mode);
+  @override
+  Future<void> createArchiveLink(String destination, String target) =>
+      delegate.createArchiveLink(destination, target);
+}
+
+final class SecureWriteFile implements File {
+  SecureWriteFile(this.delegate, this.onWrite);
+  final File delegate;
+  final void Function(File) onWrite;
+  @override
+  String get path => delegate.path;
+  @override
+  Directory get parent => delegate.parent;
+  @override
+  Future<File> create({bool recursive = false, bool exclusive = false}) =>
+      delegate.create(recursive: recursive, exclusive: exclusive);
+  @override
+  Future<File> writeAsBytes(
+    List<int> bytes, {
+    FileMode mode = FileMode.write,
+    bool flush = false,
+  }) {
+    onWrite(delegate);
+    return delegate.writeAsBytes(bytes, mode: mode, flush: flush);
+  }
+
+  @override
+  Future<File> rename(String newPath) => delegate.rename(newPath);
+  @override
+  bool existsSync() => delegate.existsSync();
+  @override
+  Future<FileSystemEntity> delete({bool recursive = false}) =>
+      delegate.delete(recursive: recursive);
+  @override
+  dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError();
 }

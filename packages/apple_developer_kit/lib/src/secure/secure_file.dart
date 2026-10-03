@@ -37,12 +37,15 @@ final class SecureFile {
     final temporary = hostServices.host.fileSystem.file(
       '$path.${_temporarySuffix()}.tmp',
     );
+    var created = false;
     try {
-      await temporary.writeAsBytes(bytes, flush: true);
+      await temporary.create(exclusive: true);
+      created = true;
       harden(temporary.path);
+      await temporary.writeAsBytes(bytes, flush: true);
       await temporary.rename(file.path);
     } on Object catch (e) {
-      if (temporary.existsSync()) await temporary.delete();
+      if (created && temporary.existsSync()) await temporary.delete();
       throw AppleError('Could not write $path: $e');
     }
   }
