@@ -1,9 +1,20 @@
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:dart_mobile_device/src/shared/host/device_host_policy.dart';
+import 'package:dart_mobile_device/src/shared/preparation/tunnel_failure_guidance.dart';
 
 final class WindowsDeviceHost implements DeviceHostPolicy {
   const WindowsDeviceHost(this.runner);
   final ProcessRunner runner;
+
+  @override
+  String get preparationDeniedMessage =>
+      'xcross needs Administrator rights to create the Windows RSD tunnel.\n'
+      'Open PowerShell with "Run as administrator", then run:\n'
+      '    xcross tunnel';
+
+  @override
+  String describeTunnelFailure(List<String> recent) =>
+      describeDeviceTunnelFailure(recent);
 
   @override
   String get installCommand => 'py -m pip install -U pymobiledevice3';

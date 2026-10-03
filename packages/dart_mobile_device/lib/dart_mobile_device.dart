@@ -25,6 +25,7 @@ export 'src/shared/network/device_sockets.dart';
 export 'src/shared/preparation/device_preparation.dart';
 export 'src/shared/tunnel/tunnel_availability.dart';
 export 'src/target/iphone/diagnostics/pymd_device_diagnostics.dart';
+export 'src/target/iphone/preparation/wireless_device_preparation.dart';
 export 'src/target/iphone/tunnel/pymd_tunnel_availability.dart';
 export 'src/transport/device_transport.dart';
 export 'src/transport/device_transport_resolver.dart';
