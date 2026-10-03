@@ -1,5 +1,4 @@
 import 'package:xcross/src/flutter/errors.dart';
-import 'package:xcross/src/flutter/models/flutter/dart_defines.dart';
 
 /// Options shared by `xcross flutter build` and `run`, mirroring the semantics
 /// of the official `flutter build ios` / `flutter run` arguments.
@@ -14,30 +13,6 @@ final class FlutterBuildOptions {
     this.flavor,
     this.buildMode = 'debug',
   });
-
-  /// Build options from raw CLI arguments, merging `--dart-define-from-file`
-  /// entries (lower precedence) with explicit `--dart-define` entries.
-  static Future<FlutterBuildOptions> resolve({
-    required String target,
-    required List<String> dartDefine,
-    required List<String> dartDefineFromFile,
-    required bool pub,
-    String? buildName,
-    String? buildNumber,
-    String? flavor,
-    String buildMode = 'debug',
-  }) async => FlutterBuildOptions(
-    target: target,
-    dartDefines: await DartDefines.mergeDartDefines(
-      dartDefineFromFile,
-      dartDefine,
-    ),
-    pub: pub,
-    buildName: buildName,
-    buildNumber: buildNumber,
-    flavor: flavor,
-    buildMode: buildMode,
-  );
 
   /// `-t/--target` entrypoint.
   final String target;

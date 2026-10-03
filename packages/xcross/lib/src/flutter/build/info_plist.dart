@@ -1,10 +1,9 @@
-import 'dart:io';
-
-import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/internal/required_plist_key.dart';
 import 'package:xcross/src/flutter/build/internal/xcconfig_resolver.dart';
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/constants.dart';
+import 'package:xcross/src/shared/artifact/plist_mutations.dart';
+import 'package:xcross/src/shared/artifact/plist_xml.dart';
 import 'package:xml/xml.dart';
 
 /// Plist / xcconfig text manipulation for the generated app bundle.
@@ -14,55 +13,6 @@ import 'package:xml/xml.dart';
 abstract final class InfoPlist {
   /// Overwrite `CFBundleIdentifier` (used when qualifying the App ID at
   /// device-sign time).
-  static String setBundleIdentifier(String plistXml, String bundleId) =>
-      _setPlistKey(plistXml, 'CFBundleIdentifier', bundleId);
-
-  /// Set an arbitrary string key, inserting it when absent.
-  static String setPlistString(String plistXml, String key, String value) =>
-      _setPlistKey(plistXml, key, value);
-
-  /// Read `CFBundleIdentifier`, or null when absent.
-  static String? readBundleIdentifier(String plistXml) {
-    final match = RegExp(
-      r'<key>CFBundleIdentifier</key>\s*<string>([^<]*)</string>',
-    ).firstMatch(plistXml);
-    final value = match?.group(1)?.trim();
-    return (value == null || value.isEmpty) ? null : value;
-  }
-
-  /// Replace [from] with [to] inside `CFBundleURLSchemes` values only.
-  ///
-  /// Schemes are conventionally derived from the bundle id
-  /// (`ShareMedia-<bundle id>`), so qualifying the App ID at sign time also
-  /// has to qualify the scheme, or the extension's redirect back into the
-  /// app resolves to a scheme nothing has registered.
-  ///
-  /// The rewrite is deliberately confined to the scheme arrays: replacing
-  /// [from] across the whole plist would also rewrite unrelated keys that
-  /// legitimately mention the original bundle id.
-  static String rewriteUrlSchemes(
-    String plistXml, {
-    required String from,
-    required String to,
-  }) {
-    if (from == to || from.isEmpty) return plistXml;
-
-    final arrays = RegExp(
-      r'(<key>\s*CFBundleURLSchemes\s*</key>\s*<array>)(.*?)(</array>)',
-      dotAll: true,
-    );
-    return plistXml.replaceAllMapped(arrays, (match) {
-      final body = match
-          .group(2)!
-          .replaceAllMapped(
-            RegExp('<string>([^<]*)</string>'),
-            (scheme) =>
-                '<string>${scheme.group(1)!.replaceAll(from, to)}</string>',
-          );
-      return '${match.group(1)}$body${match.group(3)}';
-    });
-  }
-
   /// Keys Xcode would inject at build time, added only when the template
   /// doesn't already declare them, in this exact order.
   ///
@@ -72,25 +22,12 @@ abstract final class InfoPlist {
   static const _requiredKeys = <RequiredPlistKey>[
     RequiredPlistKey(key: 'LSRequiresIPhoneOS', value: '<true/>'),
     RequiredPlistKey(
-      key: 'CFBundleSupportedPlatforms',
-      value: '<array><string>iPhoneOS</string></array>',
-    ),
-    RequiredPlistKey(
       key: 'UIRequiredDeviceCapabilities',
       value: '<array><string>arm64</string></array>',
     ),
     RequiredPlistKey(
       key: 'UIDeviceFamily',
       value: '<array><integer>1</integer></array>',
-    ),
-    RequiredPlistKey(key: 'DTPlatformName', value: '<string>iphoneos</string>'),
-    RequiredPlistKey(
-      key: 'DTSDKName',
-      value: '<string>${IosDeploymentConstants.sdkTriple}</string>',
-    ),
-    RequiredPlistKey(
-      key: 'DTPlatformVersion',
-      value: '<string>${IosDeploymentConstants.sdkVersion}</string>',
     ),
   ];
 
@@ -104,69 +41,27 @@ abstract final class InfoPlist {
     String plistXml, {
     required String bundleId,
     required IosDeploymentTarget deploymentTarget,
-    String? sdkName,
   }) {
-    var xml = _setPlistKey(
+    var xml = PlistMutations.setPlistString(
       plistXml,
       'CFBundleExecutable',
       PlistDefaults.executable,
     );
-    xml = setBundleIdentifier(xml, bundleId);
-    xml = _setPlistKey(xml, 'CFBundlePackageType', 'APPL');
-    xml = _setPlistKey(
+    xml = PlistMutations.setBundleIdentifier(xml, bundleId);
+    xml = PlistMutations.setPlistString(xml, 'CFBundlePackageType', 'APPL');
+    xml = PlistMutations.setPlistString(
       xml,
       IosDeploymentConstants.minimumOsVersionKey,
       deploymentTarget.version,
     );
     for (final entry in _requiredKeys) {
       if (xml.contains(entry.key)) continue;
-      xml = _insertBeforeEnd(
+      xml = PlistMutations.insertBeforeEnd(
         xml,
         '\t<key>${entry.key}</key>\n\t${entry.value}\n',
       );
     }
-    return applyIosPlatformKeys(
-      xml,
-      deploymentTarget: deploymentTarget,
-      sdkName: sdkName,
-    );
-  }
-
-  static String applyIosPlatformKeys(
-    String plistXml, {
-    required IosDeploymentTarget deploymentTarget,
-    String? sdkName,
-  }) {
-    if (!deploymentTarget.simulator) return plistXml;
-    final document = XmlDocument.parse(plistXml);
-    final root = document.rootElement.getElement('dict');
-    if (root == null) {
-      throw const FormatException('Info.plist has no root dict');
-    }
-    final target = deploymentTarget.target;
-    final selectedSdkName =
-        sdkName ?? '${target.sdkName}${IosDeploymentConstants.sdkVersion}';
-    final sdkVersion =
-        RegExp(r'[0-9].*$').firstMatch(selectedSdkName)?.group(0) ??
-        IosDeploymentConstants.sdkVersion;
-    final platforms = _plistElement('array')
-      ..children.add(_plistElement('string', target.platformName));
-    for (final entry in {
-      'CFBundleSupportedPlatforms': platforms,
-      'DTPlatformName': _plistElement('string', target.sdkName),
-      'DTSDKName': _plistElement('string', selectedSdkName),
-      'DTPlatformVersion': _plistElement('string', sdkVersion),
-    }.entries) {
-      final current = _plistValueFor(root, entry.key);
-      if (current == null) {
-        root.children
-          ..add(_plistElement('key', entry.key))
-          ..add(entry.value);
-      } else {
-        root.children[root.children.indexOf(current)] = entry.value;
-      }
-    }
-    return document.toXmlString();
+    return xml;
   }
 
   /// Add the Debug-only local-network declarations Flutter's Xcode backend
@@ -182,11 +77,11 @@ abstract final class InfoPlist {
       throw const FormatException('Info.plist has no root dict');
     }
 
-    final currentServices = _plistValueFor(root, _bonjourServicesKey);
+    final currentServices = PlistXml.valueFor(root, _bonjourServicesKey);
     if (currentServices != null && currentServices.name.local != 'array') {
       throw const FormatException('NSBonjourServices must be an array');
     }
-    final currentUsage = _plistValueFor(root, _localNetworkUsageKey);
+    final currentUsage = PlistXml.valueFor(root, _localNetworkUsageKey);
     if (currentUsage != null && currentUsage.name.local != 'string') {
       throw const FormatException(
         'NSLocalNetworkUsageDescription must be a string',
@@ -196,19 +91,19 @@ abstract final class InfoPlist {
         currentServices != null && _containsVmService(currentServices);
     if (hasVmService && currentUsage != null) return plistXml;
 
-    final services = currentServices ?? _plistElement('array');
+    final services = currentServices ?? PlistXml.element('array');
     if (currentServices == null) {
       root.children
-        ..add(_plistElement('key', _bonjourServicesKey))
+        ..add(PlistXml.element('key', _bonjourServicesKey))
         ..add(services);
     }
     if (!hasVmService) {
-      services.children.add(_plistElement('string', _dartVmService));
+      services.children.add(PlistXml.element('string', _dartVmService));
     }
     if (currentUsage == null) {
       root.children
-        ..add(_plistElement('key', _localNetworkUsageKey))
-        ..add(_plistElement('string', _debugLocalNetworkUsage));
+        ..add(PlistXml.element('key', _localNetworkUsageKey))
+        ..add(PlistXml.element('string', _debugLocalNetworkUsage));
     }
     return document.toXmlString();
   }
@@ -220,29 +115,11 @@ abstract final class InfoPlist {
       'Allow Flutter tools on your computer to connect and debug '
       'your application. This prompt will not appear on release builds.';
 
-  /// The value element following `<key>[name]</key>` in [dict], or null.
-  static XmlElement? _plistValueFor(XmlElement dict, String name) {
-    final entries = dict.childElements.toList();
-    for (var i = 0; i < entries.length; i++) {
-      if (entries[i].name.local == 'key' &&
-          entries[i].innerText.trim() == name) {
-        if (i + 1 >= entries.length || entries[i + 1].name.local == 'key') {
-          throw FormatException('Info.plist key $name has no value');
-        }
-        return entries[i + 1];
-      }
-    }
-    return null;
-  }
-
   static bool _containsVmService(XmlElement services) =>
       services.childElements.any(
         (entry) =>
             entry.name.local == 'string' && entry.innerText == _dartVmService,
       );
-
-  static XmlElement _plistElement(String name, [String? text]) =>
-      XmlElement(XmlName.parts(name), [], [if (text != null) XmlText(text)]);
 
   /// Expand `$(KEY)` and `${KEY}` in [text] using [subs].
   static String expandVars(String text, Map<String, String> subs) {
@@ -284,145 +161,12 @@ abstract final class InfoPlist {
     arch: arch,
   );
 
-  /// Compatibility entry point for ordered xcconfig file evaluation.
-  static Future<Map<String, String>> readXcconfigFiles(
-    Iterable<String> paths, {
-    String configuration = 'Debug',
-    String sdk = 'iphoneos',
-    String arch = 'arm64',
-  }) => XcconfigResolver.readFiles(
-    paths,
-    configuration: configuration,
-    sdk: sdk,
-    arch: arch,
-  );
-
-  /// Overwrite an existing `<key>K</key><string>…</string>` pair, or insert a
-  /// new one before `</dict>` if the key is absent.
-  static String _setPlistKey(String xml, String key, String value) {
-    final pattern = RegExp(
-      '<key>$key</key>\\s*<string>[^<]*</string>',
-      dotAll: true,
-    );
-    final replacement = '<key>$key</key>\n\t<string>$value</string>';
-    if (xml.contains('<key>$key</key>')) {
-      // Every occurrence, not just the first: a template that declares the
-      // same key twice (hand-edited plists do) would otherwise keep a stale
-      // second copy, and CFBundle resolves duplicates to the *last* one, so
-      // the value actually read back at runtime would be the one left behind.
-      return xml.replaceAll(pattern, replacement);
-    }
-    return _insertBeforeEnd(xml, '\t$replacement\n');
-  }
-
-  /// Remove [key] and its value from the root dict, whatever the value's shape.
-  ///
-  /// Used for the private keys the Compose assembler hands to the signer: they
-  /// hold nested `<array>`/`<dict>` values, so the "key plus one element" regex
-  /// [_setPlistKey] uses would cut the plist open at the first `</array>` and
-  /// leave the rest of the value behind as stray elements. The value is instead
-  /// walked with a depth counter, which is what makes nesting safe.
-  ///
-  /// Every occurrence is removed, for the same reason [_setPlistKey] replaces
-  /// all of them. An absent key leaves [plistXml] untouched.
-  ///
-  /// Best-effort text surgery, not a parser: a value whose tags do not nest
-  /// (already-malformed XML, or a `<dict>` mentioned inside an XML comment) can
-  /// end the cut in the wrong place. Callers that write the result back into a
-  /// bundle must check it still parses - see `NativeBackend._stripPrivateKeys`.
-  static String removePlistKey(String plistXml, String key) {
-    final keyTag = '<key>$key</key>';
-    var xml = plistXml;
-    while (true) {
-      final keyStart = xml.indexOf(keyTag);
-      if (keyStart < 0) return xml;
-      final valueEnd = _endOfValueAfter(xml, keyStart + keyTag.length);
-      if (valueEnd < 0) return xml;
-      // Take the whitespace in front of the key with it, so removing a key from
-      // a pretty-printed plist does not leave a blank indented line behind.
-      var cut = keyStart;
-      while (cut > 0 && (xml[cut - 1] == '\t' || xml[cut - 1] == ' ')) {
-        cut--;
-      }
-      if (cut > 0 && xml[cut - 1] == '\n') cut--;
-      xml = xml.substring(0, cut) + xml.substring(valueEnd);
-    }
-  }
-
-  /// Index just past the single plist element that starts at or after [from].
-  ///
-  /// Returns -1 when the element is malformed or unterminated, which the caller
-  /// treats as "leave the document alone" rather than risking a truncating edit.
-  static int _endOfValueAfter(String xml, int from) {
-    final open = RegExp(r'<(\w+)(\s[^>]*)?(/)?>');
-    final match = open.firstMatch(xml.substring(from));
-    if (match == null) return -1;
-    final tag = match.group(1)!;
-    final absoluteStart = from + match.start;
-    // `<true/>`, `<dict/>` and friends are complete in one tag.
-    if (match.group(3) != null) return absoluteStart + match.group(0)!.length;
-
-    final nested = RegExp('<$tag(?:\\s[^>]*)?>|</$tag>');
-    var depth = 0;
-    for (final token in nested.allMatches(xml, absoluteStart)) {
-      depth += token.group(0)!.startsWith('</') ? -1 : 1;
-      if (depth == 0) return token.end;
-    }
-    return -1;
-  }
-
-  /// Insert [fragment] before the closing `</dict>` of the root plist dict.
-  /// Tries `</dict>\n</plist>` first (canonical), then falls back to the last
-  /// bare `</dict>` to handle compact plist serialisations.
-  static String _insertBeforeEnd(String xml, String fragment) {
-    const sentinel = '</dict>\n</plist>';
-    final idx = xml.lastIndexOf(sentinel);
-    if (idx >= 0) {
-      return xml.substring(0, idx) + fragment + xml.substring(idx);
-    }
-    const dictEnd = '</dict>';
-    final dictIdx = xml.lastIndexOf(dictEnd);
-    if (dictIdx >= 0) {
-      return xml.substring(0, dictIdx) + fragment + xml.substring(dictIdx);
-    }
-    return xml + fragment;
-  }
-
-  /// Remove references to storyboards not present (compiled) in [bundleDir].
-  /// xcross doesn't run `ibtool`, so missing storyboards would crash at launch.
-  static String stripUnsatisfiableStoryboards(String xml, String bundleDir) {
-    bool hasCompiled(String name) =>
-        Directory(p.join(bundleDir, '$name.storyboardc')).existsSync();
-
-    // Named local reused by Main and Scene patterns (identical predicate).
-    String keepIfCompiled(Match m) =>
-        hasCompiled(m.group(1)!) ? m.group(0)! : '';
-
-    var result = xml.replaceAllMapped(_uiMainStoryboardPattern, keepIfCompiled);
-
-    result = result.replaceAllMapped(_uiLaunchStoryboardPattern, (m) {
-      if (hasCompiled(m.group(1)!)) {
-        return m.group(0)!;
-      }
-      // Replace with UILaunchScreen programmatic launch screen if absent.
-      // Reads the pre-launch-strip snapshot of `result` on purpose: hoisting
-      // this check or chaining the replaceAllMapped calls changes which
-      // snapshot is inspected and can emit a duplicate UILaunchScreen.
-      if (!result.contains('UILaunchScreen')) {
-        return '<key>UILaunchScreen</key>\n\t<dict/>';
-      }
-      return '';
-    });
-
-    result = result.replaceAllMapped(_uiSceneStoryboardPattern, keepIfCompiled);
-
-    return result;
-  }
-
   static String applySceneLifecycle(String xml) {
     const manifestKey = '<key>UIApplicationSceneManifest</key>';
     final manifestKeyStart = xml.indexOf(manifestKey);
-    if (manifestKeyStart < 0) return _insertBeforeEnd(xml, _sceneManifest);
+    if (manifestKeyStart < 0) {
+      return PlistMutations.insertBeforeEnd(xml, _sceneManifest);
+    }
 
     final manifest = _containerAfterKey(
       xml,
@@ -550,18 +294,6 @@ abstract final class InfoPlist {
       return '${m.group(1)}$unqualified${m.group(3)}';
     });
   }
-
-  static final _uiMainStoryboardPattern = RegExp(
-    r'<key>UIMainStoryboardFile</key>\s*<string>([^<]*)</string>',
-  );
-
-  static final _uiLaunchStoryboardPattern = RegExp(
-    r'<key>UILaunchStoryboardName</key>\s*<string>([^<]*)</string>',
-  );
-
-  static final _uiSceneStoryboardPattern = RegExp(
-    r'<key>UISceneStoryboardFile</key>\s*<string>([^<]*)</string>',
-  );
 
   static final _objcClassNamePattern = RegExp(
     r'(<key>(?:UISceneDelegateClassName|NSPrincipalClass)</key>\s*<string>)'

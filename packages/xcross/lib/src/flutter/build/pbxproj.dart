@@ -1,7 +1,9 @@
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/shared/flutter/project/pbx_parser.dart';
 
 /// One object in the `objects = { ... }` map of a `project.pbxproj` file.
 ///
@@ -51,51 +53,6 @@ final class PbxObject {
 final class PbxProject {
   const PbxProject(this.objects, this.rootObjectId, this.projectDirectory);
 
-  /// Path to the iOS project's pbxproj, preferring an application project.
-  ///
-  /// `Runner.xcodeproj` wins only when it is parseable and contains an
-  /// application target. Otherwise another valid application project is used.
-  /// Non-application consumers receive the first parseable project in stable
-  /// path order (or the first candidate if every project is malformed).
-  static String? findPbxproj(String projectRoot) {
-    final iosDir = Directory(p.join(projectRoot, 'ios'));
-    if (!iosDir.existsSync()) return null;
-
-    final candidates =
-        iosDir
-            .listSync()
-            .whereType<Directory>()
-            .where((directory) => directory.path.endsWith('.xcodeproj'))
-            .map((directory) => File(p.join(directory.path, 'project.pbxproj')))
-            .where((file) => file.existsSync())
-            .toList()
-          ..sort((a, b) => a.path.compareTo(b.path));
-    if (candidates.isEmpty) return null;
-
-    final parsed = <File, PbxProject?>{
-      for (final candidate in candidates) candidate: parseFile(candidate.path),
-    };
-    final applicationProjects = candidates
-        .where((candidate) => parsed[candidate]?.applicationTarget != null)
-        .toList();
-    if (applicationProjects.isNotEmpty) {
-      return applicationProjects
-          .firstWhere(
-            (candidate) =>
-                p.basename(candidate.parent.path) == 'Runner.xcodeproj',
-            orElse: () => applicationProjects.first,
-          )
-          .path;
-    }
-
-    return candidates
-        .firstWhere(
-          (candidate) => parsed[candidate] != null,
-          orElse: () => candidates.first,
-        )
-        .path;
-  }
-
   /// Whether [path] is a source file compiled by an iOS target.
   static bool isTargetSource(String path) =>
       _sourceExtensions.contains(p.extension(path));
@@ -115,26 +72,12 @@ final class PbxProject {
   /// `PBXFileReference` paths are resolved relative to this (SOURCE_ROOT).
   final String projectDirectory;
 
-  /// Parse the pbxproj at [path]. Returns null when it cannot be read.
-  // ignore: prefer_constructors_over_static_methods
-  static PbxProject? parseFile(String path) {
-    final file = File(path);
-    if (!file.existsSync()) return null;
-    try {
-      return parse(
-        file.readAsStringSync(),
-        // <root>/ios/Runner.xcodeproj/project.pbxproj → <root>/ios
-        projectDirectory: p.dirname(p.dirname(path)),
-      );
-    } on FormatException {
-      return null;
-    }
-  }
-
   /// Parse pbxproj [contents]. Throws [FormatException] on malformed input.
-  // ignore: prefer_constructors_over_static_methods
-  static PbxProject parse(String contents, {required String projectDirectory}) {
-    final root = _PbxParser(contents).parseArchive();
+  factory PbxProject.parse(
+    String contents, {
+    required String projectDirectory,
+  }) {
+    final root = PbxParser(contents).parseArchive();
     final rawObjects = root['objects'];
     final objects = <String, PbxObject>{};
     if (rawObjects is Map<String, Object?>) {
@@ -260,16 +203,19 @@ final class PbxProject {
   ///
   /// Files listed in a `membershipExceptions` set for [target] are excluded,
   /// matching Xcode's own "remove from target" behaviour.
-  List<String> synchronizedFiles(PbxObject target) {
+  List<String> synchronizedFiles(
+    PbxObject target, {
+    required HostFileSystemInterface fileSystem,
+  }) {
     final paths = <String>[];
     for (final groupId in target.stringList('fileSystemSynchronizedGroups')) {
       final group = object(groupId);
       if (group == null) continue;
       final root = resolveFileReference(groupId);
-      if (root == null || !Directory(root).existsSync()) continue;
+      if (root == null || !fileSystem.directory(root).existsSync()) continue;
 
       final excluded = _membershipExceptions(group, target);
-      for (final path in _walkSynchronizedRoot(root)) {
+      for (final path in _walkSynchronizedRoot(root, fileSystem)) {
         final relative = p.relative(path, from: root);
         if (excluded.contains(relative)) continue;
         paths.add(path);
@@ -297,7 +243,10 @@ final class PbxProject {
 
   /// Files under a synchronized root, treating bundle-shaped directories as
   /// single entries so an `.xcassets` is one resource, not its loose contents.
-  static List<String> _walkSynchronizedRoot(String root) {
+  static List<String> _walkSynchronizedRoot(
+    String root,
+    HostFileSystemInterface fileSystem,
+  ) {
     const bundleDirectories = {
       '.xcassets',
       '.storyboardc',
@@ -311,7 +260,7 @@ final class PbxProject {
     final pending = <String>[root];
     // Bounded walk: pbxproj folders are shallow and this never follows links.
     while (pending.isNotEmpty) {
-      final directory = Directory(pending.removeLast());
+      final directory = fileSystem.directory(pending.removeLast());
       final List<FileSystemEntity> entries;
       try {
         entries = directory.listSync(followLinks: false);
@@ -376,147 +325,3 @@ const _nonResourceExtensions = {
   '.md',
   '.swiftinterface',
 };
-
-/// Recursive-descent parser for the OpenStep property list dialect Xcode
-/// writes. Handles quoted strings with escapes, `//` comments, `/* */`
-/// comments, dictionaries, and arrays.
-final class _PbxParser {
-  _PbxParser(this._source);
-
-  final String _source;
-  int _offset = 0;
-
-  /// Parse the whole file: an optional `// !$*UTF8*$!` header then one dict.
-  Map<String, Object?> parseArchive() {
-    _skipTrivia();
-    final value = _parseValue();
-    if (value is! Map<String, Object?>) {
-      throw const FormatException('pbxproj root is not a dictionary');
-    }
-    return value;
-  }
-
-  Object? _parseValue() {
-    _skipTrivia();
-    if (_offset >= _source.length) {
-      throw const FormatException('unexpected end of pbxproj');
-    }
-    return switch (_source[_offset]) {
-      '{' => _parseDictionary(),
-      '(' => _parseArray(),
-      '"' => _parseQuotedString(),
-      _ => _parseBareString(),
-    };
-  }
-
-  Map<String, Object?> _parseDictionary() {
-    _expect('{');
-    final result = <String, Object?>{};
-    while (true) {
-      _skipTrivia();
-      if (_peek() == '}') {
-        _offset++;
-        return result;
-      }
-      final key = _parseValue();
-      if (key is! String) {
-        throw const FormatException('pbxproj dictionary key is not a string');
-      }
-      _skipTrivia();
-      _expect('=');
-      result[key] = _parseValue();
-      _skipTrivia();
-      // Xcode always writes the trailing semicolon; tolerate its absence.
-      if (_peek() == ';') _offset++;
-    }
-  }
-
-  List<Object?> _parseArray() {
-    _expect('(');
-    final result = <Object?>[];
-    while (true) {
-      _skipTrivia();
-      if (_peek() == ')') {
-        _offset++;
-        return result;
-      }
-      result.add(_parseValue());
-      _skipTrivia();
-      if (_peek() == ',') _offset++;
-    }
-  }
-
-  String _parseQuotedString() {
-    _expect('"');
-    final buffer = StringBuffer();
-    while (_offset < _source.length) {
-      final char = _source[_offset++];
-      if (char == '"') return buffer.toString();
-      if (char != r'\') {
-        buffer.write(char);
-        continue;
-      }
-      if (_offset >= _source.length) break;
-      final escaped = _source[_offset++];
-      buffer.write(switch (escaped) {
-        'n' => '\n',
-        't' => '\t',
-        'r' => '\r',
-        _ => escaped,
-      });
-    }
-    throw const FormatException('unterminated string in pbxproj');
-  }
-
-  /// A bare token: everything up to whitespace or a structural character.
-  String _parseBareString() {
-    final start = _offset;
-    while (_offset < _source.length) {
-      final char = _source[_offset];
-      if (char.trim().isEmpty) break;
-      if ('{}()=,;"'.contains(char)) break;
-      // A `/` starts a comment only as `//` or `/*`; otherwise it's a path.
-      if (char == '/' && _offset + 1 < _source.length) {
-        final next = _source[_offset + 1];
-        if (next == '/' || next == '*') break;
-      }
-      _offset++;
-    }
-    if (start == _offset) {
-      throw FormatException('unexpected character in pbxproj at $_offset');
-    }
-    return _source.substring(start, _offset);
-  }
-
-  void _expect(String char) {
-    _skipTrivia();
-    if (_peek() != char) {
-      throw FormatException('expected "$char" in pbxproj at $_offset');
-    }
-    _offset++;
-  }
-
-  String? _peek() => _offset < _source.length ? _source[_offset] : null;
-
-  /// Skip whitespace, `// line` comments, and `/* block */` comments.
-  void _skipTrivia() {
-    while (_offset < _source.length) {
-      final char = _source[_offset];
-      if (char.trim().isEmpty) {
-        _offset++;
-        continue;
-      }
-      if (char != '/' || _offset + 1 >= _source.length) return;
-      final next = _source[_offset + 1];
-      if (next == '/') {
-        final end = _source.indexOf('\n', _offset);
-        _offset = end == -1 ? _source.length : end + 1;
-      } else if (next == '*') {
-        final end = _source.indexOf('*/', _offset + 2);
-        _offset = end == -1 ? _source.length : end + 2;
-      } else {
-        return;
-      }
-    }
-  }
-}

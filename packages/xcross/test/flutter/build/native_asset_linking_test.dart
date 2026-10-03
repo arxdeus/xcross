@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/flutter/build/internal/native_asset_frameworks.dart';
@@ -49,7 +50,10 @@ void main() {
         flutterSlice: '/engine',
         subframeworks: '/subframeworks',
         sdkVersion: '26.0',
-        deploymentTarget: const IosDeploymentTarget('17.0'),
+        deploymentTarget: const IosDeploymentTarget(
+          '17.0',
+          platform: IPhoneBuildPlatform(),
+        ),
         nativeAssetFrameworks: required,
       );
       expect(
@@ -206,7 +210,10 @@ void main() {
       flutterSlice: '/engine',
       subframeworks: '/subframeworks',
       sdkVersion: '26.0',
-      deploymentTarget: const IosDeploymentTarget('17.0'),
+      deploymentTarget: const IosDeploymentTarget(
+        '17.0',
+        platform: IPhoneBuildPlatform(),
+      ),
       nativeAssetFrameworks: frameworks,
     );
     for (final framework in frameworks) {

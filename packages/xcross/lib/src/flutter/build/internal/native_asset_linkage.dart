@@ -69,7 +69,7 @@ Future<MachOFile> _readMachO(String path) async => MachOFile.parse(
       throw FlutterBuildError('Invalid Mach-O $path: $message'),
 );
 
-typedef _SymbolEntry = ({
+typedef NativeSymbolEntry = ({
   int index,
   MachOSymbol symbol,
   MachOSymbolTable table,
@@ -77,14 +77,14 @@ typedef _SymbolEntry = ({
 
 /// Every symbol of every `LC_SYMTAB`, read lazily in load-command order, or
 /// null when the file has no symbol table.
-Iterable<_SymbolEntry>? _symbolTableEntries(MachOFile file) {
+Iterable<NativeSymbolEntry>? _symbolTableEntries(MachOFile file) {
   final hasSymbolTable = file.commands.any(
     (command) => command.type == MachOConstants.lcSymtab,
   );
   return hasSymbolTable ? _lazySymbolTableEntries(file) : null;
 }
 
-Iterable<_SymbolEntry> _lazySymbolTableEntries(MachOFile file) sync* {
+Iterable<NativeSymbolEntry> _lazySymbolTableEntries(MachOFile file) sync* {
   for (final command in file.commands) {
     if (command.type != MachOConstants.lcSymtab) continue;
     final table = file.parseSymbolTable(command);
@@ -174,15 +174,15 @@ bool _isDefinedPublicSymbol(int type) {
 /// Read the export trie whose `(offset, size)` uint32 pair starts at
 /// [fieldOffset] inside a load command.
 Set<String> _readExportTrieAt(MachOFile file, int fieldOffset) =>
-    _ExportTrieReader(
+    ExportTrieReader(
       file,
       file.data.getUint32(fieldOffset, Endian.little),
       file.data.getUint32(fieldOffset + 4, Endian.little),
     ).exports();
 
 /// Walks a dyld export trie, collecting every terminal's symbol name.
-final class _ExportTrieReader {
-  _ExportTrieReader(this._file, this._offset, this._size);
+final class ExportTrieReader {
+  ExportTrieReader(this._file, this._offset, this._size);
 
   final MachOFile _file;
   final int _offset;

@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/internal/recursive_directory_copy.dart';
 import 'package:xcross/src/flutter/build/macho_dylib_rewriter.dart';
@@ -153,11 +153,14 @@ Future<bool> isFatMachO(String path) async {
 /// Runs over every framework because any of them can carry the layout that
 /// triggers it (an odd indirect-symbol count); binaries that are already
 /// aligned are left untouched.
-Future<void> alignNativeAssetLinkedit(Iterable<String> frameworks) async {
+Future<void> alignNativeAssetLinkedit(
+  Iterable<String> frameworks, {
+  required Log log,
+}) async {
   for (final framework in frameworks) {
     final binary = p.join(framework, p.basenameWithoutExtension(framework));
     if (await MachOLinkeditAligner.alignFile(binary)) {
-      Log.logTrace('realigned LINKEDIT string table in $binary');
+      log.logTrace('realigned LINKEDIT string table in $binary');
     }
   }
 }
@@ -187,9 +190,10 @@ Future<void> normalizeNativeAssetInstallNames(
   }
 }
 
-Future<void> thinFrameworksToArm64(
+Future<void> thinFrameworksToArm64<T extends PlatformHostInterface>(
   Iterable<String> frameworks, {
   required String lipo,
+  required ProcessRunner<T> runner,
 }) async {
   for (final framework in frameworks) {
     final binary = p.join(framework, p.basenameWithoutExtension(framework));
@@ -197,7 +201,7 @@ Future<void> thinFrameworksToArm64(
 
     final thin = '$binary.xcross-thin';
     try {
-      await ProcessRunner.runChecked(lipo, [
+      await runner.runChecked(lipo, [
         '-thin',
         'arm64',
         binary,

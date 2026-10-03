@@ -1,13 +1,18 @@
-import 'dart:io';
+import 'package:cli_kit/cli_kit_shared.dart';
 
 import 'package:path/path.dart' as p;
 
 /// Resolves one Xcode build configuration in its textual include order.
-abstract final class XcconfigResolver {
+final class XcconfigResolver {
+  XcconfigResolver(this.fileSystem, this.paths);
+
+  final HostFileSystemInterface fileSystem;
+  final p.Context paths;
+
   /// Flutter's generated settings are a fallback only when there is no
   /// authored Debug configuration. A Debug file that includes Generated must
   /// evaluate that include exactly once, at the point where it appears.
-  static Future<Map<String, String>> readDebugConfiguration({
+  Future<Map<String, String>> readDebugConfiguration({
     required String debugPath,
     required String generatedPath,
     String configuration = 'Debug',
@@ -16,7 +21,7 @@ abstract final class XcconfigResolver {
     Map<String, String> defaults = const {},
     Map<String, String> overrides = const {},
   }) => readFiles(
-    [if (File(debugPath).existsSync()) debugPath else generatedPath],
+    [if (fileSystem.file(debugPath).existsSync()) debugPath else generatedPath],
     configuration: configuration,
     sdk: sdk,
     arch: arch,
@@ -32,7 +37,7 @@ abstract final class XcconfigResolver {
     Map<String, String> defaults = const {},
     Map<String, String> overrides = const {},
   }) {
-    final evaluation = _XcconfigEvaluation(
+    final evaluation = XcconfigEvaluation(
       configuration: configuration,
       sdk: sdk,
       arch: arch,
@@ -46,7 +51,7 @@ abstract final class XcconfigResolver {
   }
 
   /// Process each root and its required or optional includes in text order.
-  static Future<Map<String, String>> readFiles(
+  Future<Map<String, String>> readFiles(
     Iterable<String> paths, {
     String configuration = 'Debug',
     String sdk = 'iphoneos',
@@ -54,14 +59,14 @@ abstract final class XcconfigResolver {
     Map<String, String> defaults = const {},
     Map<String, String> overrides = const {},
   }) async {
-    final evaluation = _XcconfigEvaluation(
+    final evaluation = XcconfigEvaluation(
       configuration: configuration,
       sdk: sdk,
       arch: arch,
       defaults: defaults,
       overrides: overrides,
     );
-    final reader = _XcconfigFileReader(evaluation);
+    final reader = XcconfigFileReader(evaluation, fileSystem, this.paths);
     for (final path in paths) {
       await reader.read(path, optional: true);
     }
@@ -70,7 +75,7 @@ abstract final class XcconfigResolver {
 
   /// Join Xcode's backslash-continued physical lines before parsing settings.
   static Iterable<String> _logicalLines(Iterable<String> lines) sync* {
-    final comments = _XcconfigComments();
+    final comments = XcconfigComments();
     var pending = '';
     for (final raw in lines) {
       final line = comments.strip(raw).trimRight();
@@ -103,23 +108,26 @@ abstract final class XcconfigResolver {
 
 /// Reads xcconfig files depth-first, evaluating each `#include` at the point
 /// where it appears and rejecting include cycles.
-final class _XcconfigFileReader {
-  _XcconfigFileReader(this._evaluation);
+final class XcconfigFileReader {
+  XcconfigFileReader(this._evaluation, this.fileSystem, this.paths);
+
+  final HostFileSystemInterface fileSystem;
+  final p.Context paths;
 
   static final _include = RegExp(
     r'^#include(\?)?\s+(?:"([^"]+)"|<([^>]+)>)\s*$',
   );
 
-  final _XcconfigEvaluation _evaluation;
+  final XcconfigEvaluation _evaluation;
   final _activeFiles = <String>{};
 
   Future<void> read(String path, {required bool optional}) async {
-    final file = File(path);
+    final file = fileSystem.file(path);
     if (!file.existsSync()) {
       if (optional) return;
       throw FormatException('Required xcconfig include not found: $path');
     }
-    final resolved = p.normalize(file.absolute.path);
+    final resolved = paths.normalize(file.absolute.path);
     if (!_activeFiles.add(resolved)) {
       throw FormatException('xcconfig include cycle at $resolved');
     }
@@ -133,7 +141,7 @@ final class _XcconfigFileReader {
         }
         final includedPath = include[2] ?? include[3];
         await read(
-          p.normalize(p.join(p.dirname(resolved), includedPath)),
+          paths.normalize(paths.join(paths.dirname(resolved), includedPath)),
           optional: include[1] == '?',
         );
       }
@@ -144,11 +152,11 @@ final class _XcconfigFileReader {
 }
 
 /// How specifically a conditional assignment matched the current build.
-typedef _Specificity = ({int conditions, int literalCharacters});
+typedef XcconfigSpecificity = ({int conditions, int literalCharacters});
 
 /// Accumulates assignments for one configuration/SDK/architecture triple.
-final class _XcconfigEvaluation {
-  _XcconfigEvaluation({
+final class XcconfigEvaluation {
+  XcconfigEvaluation({
     required this.configuration,
     required this.sdk,
     required this.arch,
@@ -172,7 +180,7 @@ final class _XcconfigEvaluation {
   final Map<String, String> overrides;
 
   final _values = <String, String>{};
-  final _specificities = <String, _Specificity>{};
+  final _specificities = <String, XcconfigSpecificity>{};
 
   void apply(String raw) {
     final line = raw.trim();
@@ -197,7 +205,7 @@ final class _XcconfigEvaluation {
 
   /// Specificity of the `[kind=pattern]` qualifiers in [head], or null when
   /// any qualifier does not match the current build.
-  _Specificity? _matchQualifiers(String head) {
+  XcconfigSpecificity? _matchQualifiers(String head) {
     var conditions = 0;
     var literalCharacters = 0;
     for (final match in _qualifier.allMatches(head)) {
@@ -227,7 +235,7 @@ final class _XcconfigEvaluation {
 
   /// A matching conditional value outranks the unconditional value even if
   /// the latter appears later. Equal conditions retain last-assignment order.
-  bool _isOutranked(String key, _Specificity candidate) {
+  bool _isOutranked(String key, XcconfigSpecificity candidate) {
     final previous = _specificities[key];
     if (previous == null) return false;
     return candidate.conditions < previous.conditions ||
@@ -284,7 +292,7 @@ final class _XcconfigEvaluation {
 
 /// Removes C-style comments without mistaking quoted values for comments.
 /// The state belongs to one xcconfig file so a block may span several lines.
-final class _XcconfigComments {
+final class XcconfigComments {
   bool _inBlock = false;
 
   String strip(String line) {

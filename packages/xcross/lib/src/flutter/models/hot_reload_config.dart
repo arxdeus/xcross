@@ -11,6 +11,7 @@ final class HotReloadConfig {
     required this.outputDill,
     this.dartDefines = const [],
     this.verbose = false,
+    this.warmDill,
   });
 
   /// Path to the `dart` (or `dartaotruntime`) executable.
@@ -39,4 +40,5 @@ final class HotReloadConfig {
 
   /// Whether to emit verbose timing logs.
   final bool verbose;
+  final String? warmDill;
 }

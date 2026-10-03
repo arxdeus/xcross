@@ -2,8 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/flutter/hot_reload/dart_vm_service_client.dart';
+import 'package:xcross/src/shared/flutter/vm_service_connector.dart';
+
+import 'flutter_test_log.dart';
 
 /// End-to-end check against a REAL Dart VM Service.
 ///
@@ -52,7 +56,12 @@ void main() {
     );
     final wsUri = httpUri.replace(scheme: 'ws', path: '${httpUri.path}ws');
 
-    final vm = DartVmServiceClient();
+    final vm = DartVmServiceClient(
+      log: testFlutterLog(),
+      connector: LocalVmServiceConnector(
+        LocalHttp(LinuxHost(), createClient: HttpClient.new),
+      ),
+    );
     await vm.connect(wsUri);
     addTearDown(vm.close);
 

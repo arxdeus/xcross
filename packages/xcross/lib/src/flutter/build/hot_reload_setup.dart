@@ -1,11 +1,7 @@
-import 'dart:io';
-
-import 'package:cli_kit/cli_kit.dart';
-import 'package:path/path.dart' as p;
-import 'package:xcross/src/flutter/build/flutter_packer.dart';
-import 'package:xcross/src/flutter/build/ios_engine_cache.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/flutter/models/hot_reload_config.dart';
 import 'package:xcross/src/package_config_resolver.dart';
+import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 
 /// Groups hot-reload configuration setup.
 abstract final class HotReloadSetup {
@@ -13,21 +9,26 @@ abstract final class HotReloadSetup {
   ///
   /// Returns null (with a warning) if a required artifact is missing —
   /// callers then launch without hot reload.
-  static Future<HotReloadConfig?> buildHotReloadConfig({
+  static Future<HotReloadConfig?>
+  buildHotReloadConfig<T extends PlatformHostInterface>({
+    required FlutterBuildRuntime<T> runtime,
+    required String projectRoot,
     required String target,
     required List<String> dartDefines,
     bool verbose = false,
   }) async {
-    final projectRoot = Directory.current.path;
-    final flutterRoot = await FlutterPacker.resolveFlutterRoot(
+    final paths = runtime.host.paths.context;
+    final flutterRoot = await runtime.resolveFlutterRoot(
       projectRoot: projectRoot,
     );
-    final engineCache = IosEngineCache(flutterRoot: flutterRoot);
+    final engineCache = runtime.engineCache(flutterRoot);
 
     final frontendServer = engineCache.frontendServer;
-    final frontendServerExists = File(frontendServer).existsSync();
+    final frontendServerExists = runtime.host.fileSystem
+        .file(frontendServer)
+        .existsSync();
     if (!frontendServerExists) {
-      Log.logWarn(
+      runtime.runner.log.logWarn(
         'frontend_server snapshot missing at $frontendServer; '
         'hot reload disabled.',
       );
@@ -36,27 +37,33 @@ abstract final class HotReloadSetup {
 
     final sdkRoot = engineCache.patchedSdkRoot;
     final packageConfig = await PackageConfigResolver.require(projectRoot);
-    final entrypoint = p.isAbsolute(target)
+    final entrypoint = paths.isAbsolute(target)
         ? target
-        : p.join(projectRoot, target);
+        : paths.join(projectRoot, target);
 
     // frontend_server is AOT (dartaotruntime) or a kernel snapshot (dart).
-    final dartSdkBin = p.join(flutterRoot, 'bin', 'cache', 'dart-sdk', 'bin');
-    final isAot = p.basename(frontendServer).contains('_aot');
-    final dart = p.join(
+    final dartSdkBin = paths.join(
+      flutterRoot,
+      'bin',
+      'cache',
+      'dart-sdk',
+      'bin',
+    );
+    final isAot = paths.basename(frontendServer).contains('_aot');
+    final dart = paths.join(
       dartSdkBin,
-      ProcessRunner.hostExecutableName(isAot ? 'dartaotruntime' : 'dart'),
+      runtime.runner.hostExecutableName(isAot ? 'dartaotruntime' : 'dart'),
     );
 
     // Persistent dill output for incremental reloads.
-    final outputDill = p.join(
-      projectRoot,
-      'build',
-      'xcross-flutter-debug',
+    final outputDill = paths.join(
+      runtime.policy.buildDirectory(projectRoot, 'xcross-flutter-debug'),
       '.hotreload',
       'app.dill',
     );
-    await Directory(p.dirname(outputDill)).create(recursive: true);
+    await runtime.host.fileSystem
+        .directory(paths.dirname(outputDill))
+        .create(recursive: true);
 
     return HotReloadConfig(
       dart: dart,
@@ -67,6 +74,11 @@ abstract final class HotReloadSetup {
       projectRoot: projectRoot,
       outputDill: outputDill,
       dartDefines: dartDefines,
+      warmDill: paths.join(
+        runtime.policy.buildDirectory(projectRoot, 'xcross-flutter-debug'),
+        '.kernel',
+        'app.dill',
+      ),
       verbose: verbose,
     );
   }

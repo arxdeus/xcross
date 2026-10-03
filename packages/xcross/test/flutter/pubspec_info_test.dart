@@ -4,9 +4,9 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:standard_message_codec/standard_message_codec.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/flutter_debug_bundler.dart';
-import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
-import 'package:xcross/src/flutter/models/pubspec_info.dart';
+import 'package:xcross/src/shared/flutter/flutter_assets_compiler.dart';
+
+import 'flutter_test_runtime.dart';
 
 void main() {
   late Directory tmp;
@@ -30,7 +30,7 @@ flutter:
           weight: 700
 ''');
 
-    final info = PubspecInfo.loadSync(tmp.path);
+    final info = testIPhoneRuntime().pubspecs.loadSync(tmp.path);
 
     expect(info.usesMaterialDesign, isTrue);
     expect(info.assets, ['assets/data.json', 'assets/images/']);
@@ -68,7 +68,7 @@ packages:
     dependency: direct dev
 ''');
 
-    expect(PubspecInfo.loadSync(tmp.path).dependencies, [
+    expect(testIPhoneRuntime().pubspecs.loadSync(tmp.path).dependencies, [
       'direct_package',
       'transitive_package',
     ]);
@@ -77,7 +77,7 @@ packages:
   test('defaults to no assets/fonts when flutter: section is absent', () {
     File(p.join(tmp.path, 'pubspec.yaml')).writeAsStringSync('name: demo\n');
 
-    final info = PubspecInfo.loadSync(tmp.path);
+    final info = testIPhoneRuntime().pubspecs.loadSync(tmp.path);
 
     expect(info.usesMaterialDesign, isFalse);
     expect(info.assets, isEmpty);
@@ -126,16 +126,15 @@ packages:
       }),
     );
     final assetsDir = Directory(p.join(tmp.path, 'output'))..createSync();
-    final bundler = FlutterDebugBundler(
+    final bundler = FlutterAssetsCompiler(
+      fileSystem: testIPhoneRuntime().host.fileSystem,
       projectRoot: tmp.path,
       flutterRoot: p.join(tmp.path, 'flutter'),
-      outputDir: p.join(tmp.path, 'build'),
-      deploymentTarget: const IosDeploymentTarget('15.0'),
     );
 
     final fonts = await bundler.copyFonts(
       assetsDir.path,
-      PubspecInfo.loadSync(tmp.path),
+      testIPhoneRuntime().pubspecs.loadSync(tmp.path),
     );
 
     expect(

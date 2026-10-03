@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'package:cli_kit/cli_kit_shared.dart';
 
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
@@ -62,7 +62,10 @@ final class DartPluginRegistration {
 ///
 /// Mirrors `generateMainDartWithPluginRegistrant` in flutter_tools'
 /// `flutter_plugins.dart`.
-abstract final class DartPluginRegistrant {
+final class DartPluginRegistrant {
+  DartPluginRegistrant(this.fileSystem);
+  final HostFileSystemInterface fileSystem;
+
   /// Path of the generated registrant, matching the location flutter_tools
   /// uses so both tools stay interchangeable on one project.
   static String pathFor(String projectRoot) => p.join(
@@ -79,13 +82,13 @@ abstract final class DartPluginRegistrant {
   /// [entrypointUri] is the app's `main` as the compiler sees it; it is only
   /// recorded in a comment, since the generated file is passed as an extra
   /// `--source` rather than replacing the entrypoint.
-  static Future<String?> generate({
+  Future<String?> generate({
     required String projectRoot,
     required List<IosPlugin> plugins,
     String? entrypointUri,
   }) async {
     final registrations = resolveRegistrations(plugins);
-    final file = File(pathFor(projectRoot));
+    final file = fileSystem.file(pathFor(projectRoot));
 
     if (registrations.isEmpty) {
       if (file.existsSync()) await file.delete();
@@ -102,9 +105,7 @@ abstract final class DartPluginRegistrant {
   /// The plugins in [plugins] that declare an iOS `dartPluginClass`, sorted by
   /// package name so the generated file is stable across builds.
   @visibleForTesting
-  static List<DartPluginRegistration> resolveRegistrations(
-    List<IosPlugin> plugins,
-  ) {
+  List<DartPluginRegistration> resolveRegistrations(List<IosPlugin> plugins) {
     final resolved = <DartPluginRegistration>[];
     for (final plugin in plugins) {
       final registration = _readRegistration(plugin);
@@ -116,8 +117,8 @@ abstract final class DartPluginRegistrant {
 
   /// Reads `flutter.plugin.platforms.ios.dartPluginClass` (and the optional
   /// `dartFileName`) from [plugin]'s own pubspec.
-  static DartPluginRegistration? _readRegistration(IosPlugin plugin) {
-    final file = File(p.join(plugin.packageRoot, 'pubspec.yaml'));
+  DartPluginRegistration? _readRegistration(IosPlugin plugin) {
+    final file = fileSystem.file(p.join(plugin.packageRoot, 'pubspec.yaml'));
     if (!file.existsSync()) return null;
 
     final Object? pubspec;

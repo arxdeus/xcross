@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/ios_bundle_resources.dart';
-import 'package:xcross/src/flutter/build/pbxproj.dart';
+
+import '../flutter_test_runtime.dart';
 
 void main() {
   late Directory tmp;
@@ -118,7 +118,7 @@ void main() {
     ).writeAsStringSync('{ malformed');
 
     expect(
-      PbxProject.findPbxproj(project.path),
+      testIPhoneRuntime().projects.findPbxproj(project.path),
       endsWith(p.join('Custom.xcodeproj', 'project.pbxproj')),
     );
   });
@@ -132,7 +132,7 @@ void main() {
     _writeProject(project, appRefs: [], projectName: 'Custom');
 
     expect(
-      PbxProject.findPbxproj(project.path),
+      testIPhoneRuntime().projects.findPbxproj(project.path),
       endsWith(p.join('Custom.xcodeproj', 'project.pbxproj')),
     );
   });
@@ -152,7 +152,7 @@ void main() {
     );
 
     expect(
-      PbxProject.findPbxproj(project.path),
+      testIPhoneRuntime().projects.findPbxproj(project.path),
       endsWith(p.join('Alpha.xcodeproj', 'project.pbxproj')),
     );
   });
@@ -205,8 +205,9 @@ void main() {
   );
 }
 
-Future<void> _stage(Directory project, Directory bundle) =>
-    stageIosBundleResources(projectRoot: project.path, bundleDir: bundle.path);
+Future<void> _stage(Directory project, Directory bundle) => testIPhoneRuntime()
+    .resources
+    .stage(projectRoot: project.path, bundleDir: bundle.path);
 
 File _bundleFile(Directory bundle, String relative) =>
     File(p.join(bundle.path, relative));

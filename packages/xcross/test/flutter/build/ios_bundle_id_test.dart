@@ -2,8 +2,9 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/ios_bundle_id.dart';
 import 'package:xcross/src/flutter/errors.dart';
+
+import '../flutter_test_runtime.dart';
 
 void main() {
   late Directory tmp;
@@ -51,7 +52,10 @@ void main() {
     await writePlist('com.example.Literal');
     await writePbxproj('com.example.FromPbx');
 
-    expect(IosBundleId.resolve(tmp.path), 'com.example.Literal');
+    expect(
+      testIPhoneRuntime().bundleIds.resolve(tmp.path),
+      'com.example.Literal',
+    );
   });
 
   test(
@@ -60,14 +64,20 @@ void main() {
       await writePlist(r'$(PRODUCT_BUNDLE_IDENTIFIER)');
       await writePbxproj('com.example.FromPbx');
 
-      expect(IosBundleId.resolve(tmp.path), 'com.example.FromPbx');
+      expect(
+        testIPhoneRuntime().bundleIds.resolve(tmp.path),
+        'com.example.FromPbx',
+      );
     },
   );
 
   test('reads PRODUCT_BUNDLE_IDENTIFIER when Info.plist is missing', () async {
     await writePbxproj('com.example.OnlyPbx');
 
-    expect(IosBundleId.resolve(tmp.path), 'com.example.OnlyPbx');
+    expect(
+      testIPhoneRuntime().bundleIds.resolve(tmp.path),
+      'com.example.OnlyPbx',
+    );
   });
 
   test('strips optional quotes around PRODUCT_BUNDLE_IDENTIFIER', () async {
@@ -78,12 +88,15 @@ void main() {
       p.join(dir.path, 'project.pbxproj'),
     ).writeAsString('PRODUCT_BUNDLE_IDENTIFIER = "com.example.Quoted";\n');
 
-    expect(IosBundleId.resolve(tmp.path), 'com.example.Quoted');
+    expect(
+      testIPhoneRuntime().bundleIds.resolve(tmp.path),
+      'com.example.Quoted',
+    );
   });
 
   test('throws when neither plist nor pbxproj yields a bundle id', () {
     expect(
-      () => IosBundleId.resolve(tmp.path),
+      () => testIPhoneRuntime().bundleIds.resolve(tmp.path),
       throwsA(
         isA<FlutterBuildError>().having(
           (e) => e.message,
@@ -147,7 +160,10 @@ void main() {
 }
 ''');
 
-      expect(IosBundleId.resolve(tmp.path), 'com.example.MainApp');
+      expect(
+        testIPhoneRuntime().bundleIds.resolve(tmp.path),
+        'com.example.MainApp',
+      );
     },
   );
 }

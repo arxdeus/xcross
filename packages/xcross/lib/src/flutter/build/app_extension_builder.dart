@@ -1,16 +1,16 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/device/internal/embedded_extension.dart';
-import 'package:xcross/src/flutter/build/info_plist.dart';
 import 'package:xcross/src/flutter/build/ios_app_extensions.dart';
 import 'package:xcross/src/flutter/build/ios_bundle_versions.dart';
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
-import 'package:xcross/src/flutter/build/ios_engine_cache.dart';
 import 'package:xcross/src/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/extensions/app_extension_plist.dart';
+import 'package:xcross/src/shared/flutter/extensions/app_extension_resources.dart';
+import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 
 /// A built `.appex` bundle staged outside the host app.
 @immutable
@@ -34,16 +34,22 @@ final class BuiltAppExtension {
 /// `receive_sharing_intent`'s `RSIShareViewController`), resolving those at
 /// runtime through `@executable_path/../../Frameworks`, which points back into
 /// the host app's `Frameworks` directory.
-abstract final class AppExtensionBuilder {
+final class AppExtensionBuilder<T extends PlatformHostInterface> {
+  AppExtensionBuilder(this.runtime, this.resources);
+  final FlutterBuildRuntime<T> runtime;
+  final AppExtensionResources resources;
+
   /// Extensions xcross cannot build are skipped rather than failing the app
   /// build: an unbuildable extension costs the share-sheet entry, while a
   /// hard failure costs the whole app.
-  static bool _isBuildable(IosAppExtension extension) {
+  bool _isBuildable(IosAppExtension extension) {
     final hasSwift = extension.sources.any(
-      (source) => source.endsWith('.swift') && File(source).existsSync(),
+      (source) =>
+          source.endsWith('.swift') &&
+          runtime.host.fileSystem.file(source).existsSync(),
     );
     if (!hasSwift) {
-      Log.logWarn(
+      runtime.runner.log.logWarn(
         'Skipping app extension "${extension.name}": it has no Swift sources '
         'to compile (xcross builds Swift app extensions only). The app will '
         'install without it.',
@@ -56,7 +62,7 @@ abstract final class AppExtensionBuilder {
   ///
   /// [pluginsLibrary] and [pluginModulesDir] come from the aggregate Flutter
   /// plugins package and may be null for projects without SPM plugins.
-  static Future<List<BuiltAppExtension>> buildAll({
+  Future<List<BuiltAppExtension>> buildAll({
     required String projectRoot,
     required List<IosAppExtension> extensions,
     required IosDeploymentTarget deploymentTarget,
@@ -69,7 +75,7 @@ abstract final class AppExtensionBuilder {
     final buildable = extensions.where(_isBuildable).toList();
     if (buildable.isEmpty) return const [];
 
-    final darwin = DarwinSdk.current();
+    final darwin = runtime.sdkRepository.current();
     if (darwin == null) {
       throw FlutterBuildError(
         'AppExtensionBuilder: Darwin SDK not found. '
@@ -80,7 +86,7 @@ abstract final class AppExtensionBuilder {
     final built = <BuiltAppExtension>[];
     for (final extension in buildable) {
       built.add(
-        await Log.logStep(
+        await runtime.runner.log.logStep(
           'Building ${extension.name}',
           () => _build(
             projectRoot: projectRoot,
@@ -99,7 +105,7 @@ abstract final class AppExtensionBuilder {
     return built;
   }
 
-  static Future<BuiltAppExtension> _build({
+  Future<BuiltAppExtension> _build({
     required String projectRoot,
     required IosAppExtension extension,
     required DarwinSdk sdk,
@@ -113,11 +119,11 @@ abstract final class AppExtensionBuilder {
     // Non-Swift and missing sources are filtered by [_isBuildable].
     final sources = extension.sources
         .where((source) => source.endsWith('.swift'))
-        .where((source) => File(source).existsSync())
+        .where((source) => runtime.host.fileSystem.file(source).existsSync())
         .toList();
 
     final bundleDir = p.join(outputDir, extension.bundleName);
-    final staging = Directory(bundleDir);
+    final staging = runtime.host.fileSystem.directory(bundleDir);
     if (staging.existsSync()) await staging.delete(recursive: true);
     await staging.create(recursive: true);
 
@@ -125,7 +131,7 @@ abstract final class AppExtensionBuilder {
         ? deploymentTarget
         : IosDeploymentTarget(
             extension.deploymentTarget!,
-            simulator: deploymentTarget.simulator,
+            platform: deploymentTarget.platform,
           );
 
     await _compile(
@@ -145,15 +151,19 @@ abstract final class AppExtensionBuilder {
       bundleDir: bundleDir,
       deploymentTarget: target,
       versions: versions,
-      sdkName: p.basenameWithoutExtension(target.sdkPath(sdk)).toLowerCase(),
+      sdkName: p
+          .basenameWithoutExtension(
+            runtime.sdkRepository.iosSdk(sdk, target: target.platform),
+          )
+          .toLowerCase(),
     );
-    await copyResources(extension: extension, bundleDir: bundleDir);
+    await resources.copyResources(extension: extension, bundleDir: bundleDir);
 
     return BuiltAppExtension(extension: extension, bundlePath: bundleDir);
   }
 
   /// Compile and link the extension executable with `swiftc`.
-  static Future<void> _compile({
+  Future<void> _compile({
     required DarwinSdk sdk,
     required List<String> sources,
     required String outputPath,
@@ -165,12 +175,14 @@ abstract final class AppExtensionBuilder {
     String? pluginModulesDir,
   }) async {
     final swiftc = await _resolveSwiftc();
-    final iosSdk = deploymentTarget.sdkPath(sdk);
-    final flutterSlice = IosEngineCache.flutterSlice(
-      flutterXcframework,
-      simulator: deploymentTarget.simulator,
+    final iosSdk = runtime.sdkRepository.iosSdk(
+      sdk,
+      target: deploymentTarget.platform,
     );
-    await Directory(moduleCache).create(recursive: true);
+    final flutterSlice = runtime.policy.selectEngineSlice(flutterXcframework);
+    await runtime.host.fileSystem
+        .directory(moduleCache)
+        .create(recursive: true);
 
     final arguments = compileArguments(
       iosSdk: iosSdk,
@@ -178,7 +190,7 @@ abstract final class AppExtensionBuilder {
       clangBuiltins: _clangBuiltins(_swiftResourceDir(sdk)),
       compilerRtIos: _compilerRtIos(
         sdk.bundle,
-        simulator: deploymentTarget.simulator,
+        runtimeLibrary: runtime.policy.sanitizerRuntimeLibrary,
       ),
       sources: sources,
       outputPath: outputPath,
@@ -186,26 +198,26 @@ abstract final class AppExtensionBuilder {
       flutterSlice: flutterSlice,
       moduleCache: moduleCache,
       moduleName: moduleName,
-      ld64lld: await DarwinSdk.resolveLd64Lld(sdk),
+      ld64lld: await runtime.toolchain.resolveLd64Lld(),
       sdkVersion: _sdkVersion(iosSdk) ?? '26.5',
       pluginsLibrary: pluginsLibrary,
       pluginModulesDir: pluginModulesDir,
     );
 
-    Log.logTrace('[swiftc] build app extension → $outputPath');
-    await ProcessRunner.runChecked(
+    runtime.runner.log.logTrace('[swiftc] build app extension → $outputPath');
+    await runtime.runner.runChecked(
       swiftc,
       arguments,
-      inheritStdio: Log.isVerbose,
+      inheritStdio: runtime.runner.log.isVerbose,
       label: 'swiftc',
     );
 
-    if (!File(outputPath).existsSync()) {
+    if (!runtime.host.fileSystem.file(outputPath).existsSync()) {
       throw FlutterBuildError(
         'AppExtensionBuilder: swiftc did not produce $outputPath',
       );
     }
-    ProcessRunner.makeExecutable(outputPath);
+    runtime.runner.makeExecutable(outputPath);
   }
 
   /// `swiftc` arguments for an app-extension executable.
@@ -309,7 +321,7 @@ abstract final class AppExtensionBuilder {
   /// Write the extension's `Info.plist`, forcing the identity keys iOS checks
   /// when loading a plugin: identifier, executable name, package type and the
   /// minimum OS version.
-  static Future<void> _writeInfoPlist({
+  Future<void> _writeInfoPlist({
     required IosAppExtension extension,
     required String bundleDir,
     required IosDeploymentTarget deploymentTarget,
@@ -317,16 +329,24 @@ abstract final class AppExtensionBuilder {
     String? sdkName,
   }) async {
     final source = extension.infoPlistPath;
-    var xml = source != null && File(source).existsSync()
-        ? await File(source).readAsString()
-        : _fallbackInfoPlist;
+    var xml =
+        source != null && runtime.host.fileSystem.file(source).existsSync()
+        ? await runtime.host.fileSystem.file(source).readAsString()
+        : AppExtensionPlist.fallback;
 
-    xml = expandExtensionVars(xml, extension: extension, versions: versions);
+    xml = AppExtensionPlist.expandExtensionVars(
+      xml,
+      extension: extension,
+      versions: versions,
+    );
     // Storyboards can't be compiled off macOS, so an NSExtensionMainStoryboard
     // entry would point at a file that isn't in the bundle and the extension
     // would fail to launch. Swap it for the principal class the storyboard
     // names, which needs no ibtool.
-    xml = replaceStoryboardWithPrincipalClass(xml, extension: extension);
+    xml = resources.replaceStoryboardWithPrincipalClass(
+      xml,
+      extension: extension,
+    );
     xml = AppExtensionPlist.forceKeys(
       xml,
       bundleId: extension.bundleId,
@@ -337,182 +357,21 @@ abstract final class AppExtensionBuilder {
     );
     // Record the target's App Groups so the sign/install stage can provision
     // them without re-reading the Xcode project.
+    xml = runtime.policy.transformPlist(xml, sdkName: sdkName);
     xml = AppExtensionPlist.setAppGroups(xml, extension.appGroups);
-    xml = InfoPlist.applyIosPlatformKeys(
-      xml,
-      deploymentTarget: deploymentTarget,
-      sdkName: sdkName,
-    );
 
-    await File(p.join(bundleDir, 'Info.plist')).writeAsString(xml);
+    await runtime.host.fileSystem
+        .file(p.join(bundleDir, 'Info.plist'))
+        .writeAsString(xml);
   }
 
   /// Substitute the `$(VAR)` forms Xcode would have expanded for an extension
   /// target. `CUSTOM_GROUP_ID` is the convention `receive_sharing_intent` and
   /// friends use to inject the shared App Group into the extension plist.
-  @visibleForTesting
-  static String expandExtensionVars(
-    String xml, {
-    required IosAppExtension extension,
-    IosBundleVersions versions = IosBundleVersions.fallback,
-  }) {
-    final substitutions = <String, String>{
-      'PRODUCT_BUNDLE_IDENTIFIER': extension.bundleId,
-      'PRODUCT_NAME': extension.name,
-      'EXECUTABLE_NAME': extension.executableName,
-      'DEVELOPMENT_LANGUAGE': 'en',
-      'FLUTTER_BUILD_NAME': versions.shortVersion,
-      'FLUTTER_BUILD_NUMBER': versions.bundleVersion,
-      'MARKETING_VERSION': versions.shortVersion,
-      'CURRENT_PROJECT_VERSION': versions.bundleVersion,
-      if (extension.appGroups.isNotEmpty)
-        'CUSTOM_GROUP_ID': extension.appGroups.first,
-    };
-
-    var result = xml;
-    for (final entry in substitutions.entries) {
-      result = result
-          .replaceAll('\$(${entry.key})', entry.value)
-          .replaceAll('\${${entry.key}}', entry.value);
-    }
-    return result;
-  }
-
-  /// Replace `NSExtensionMainStoryboard` with `NSExtensionPrincipalClass`.
-  ///
-  /// The storyboard's only job in a share/action extension is to instantiate
-  /// the initial view controller, whose class it names via `customClass`.
-  /// Naming that class directly through `NSExtensionPrincipalClass` is an
-  /// equivalent, storyboard-free entry point, and the one Apple documents for
-  /// programmatic extensions. The class is namespaced by the Swift module so
-  /// the ObjC runtime can find it (`Share_Extension.ShareViewController`).
-  @visibleForTesting
-  static String replaceStoryboardWithPrincipalClass(
-    String xml, {
-    required IosAppExtension extension,
-  }) {
-    final storyboard = RegExp(
-      r'\s*<key>\s*NSExtensionMainStoryboard\s*</key>\s*<string>([^<]*)</string>',
-    ).firstMatch(xml);
-    if (storyboard == null) return xml;
-
-    final principalClass = _principalClassFor(
-      extension,
-      storyboardName: storyboard.group(1)!.trim(),
-    );
-    if (principalClass == null) {
-      Log.logWarn(
-        'App extension "${extension.name}" uses a storyboard that could not '
-        'be resolved to a view controller class; it may not launch.',
-      );
-      return xml;
-    }
-
-    Log.logTrace(
-      '${extension.name}: NSExtensionMainStoryboard → '
-      'NSExtensionPrincipalClass $principalClass',
-    );
-    return xml.replaceRange(
-      storyboard.start,
-      storyboard.end,
-      '\n\t\t<key>NSExtensionPrincipalClass</key>'
-      '\n\t\t<string>$principalClass</string>',
-    );
-  }
-
-  /// The `<module>.<class>` principal class for [extension], read from the
-  /// storyboard's initial view controller `customClass`, falling back to the
-  /// only view-controller-shaped Swift source file name.
-  static String? _principalClassFor(
-    IosAppExtension extension, {
-    required String storyboardName,
-  }) {
-    final storyboard = extension.resources.firstWhere(
-      (resource) =>
-          p.basenameWithoutExtension(resource) == storyboardName &&
-          resource.endsWith('.storyboard'),
-      orElse: () => '',
-    );
-
-    String? className;
-    if (storyboard.isNotEmpty && File(storyboard).existsSync()) {
-      className = RegExp(
-        'customClass="([^"]+)"',
-      ).firstMatch(File(storyboard).readAsStringSync())?.group(1);
-    }
-    className ??= extension.sources
-        .map(p.basenameWithoutExtension)
-        .where((name) => name.endsWith('ViewController'))
-        .firstOrNull;
-    if (className == null) return null;
-
-    // An @objc class keeps its bare ObjC name; a plain Swift class is
-    // mangled as <module>.<class>, which is what Xcode writes here.
-    return '${extension.moduleName}.$className';
-  }
-
-  /// Copy the extension's resources into the bundle.
-  ///
-  /// Storyboards and asset catalogs need `ibtool`/`actool`, which are macOS
-  /// only, so uncompiled `.storyboard`/`.xcassets` inputs are skipped with a
-  /// warning rather than shipped in a form iOS cannot read. A precompiled
-  /// `.storyboardc`/`.car` sitting next to the source is used when present.
-  @visibleForTesting
-  static Future<void> copyResources({
-    required IosAppExtension extension,
-    required String bundleDir,
-  }) async {
-    for (final resource in extension.resources) {
-      final name = p.basename(resource);
-      // Localized resources keep their `<lang>.lproj` directory: it is how
-      // iOS selects a language, and flattening it would also make every
-      // language's copy of a file collide on one bundle-root name.
-      final destination = p.joinAll([bundleDir, ?_lprojOf(resource), name]);
-      if (name.endsWith('.storyboard')) {
-        // Handled by replaceStoryboardWithPrincipalClass above.
-        final compiled = '${p.withoutExtension(resource)}.storyboardc';
-        if (Directory(compiled).existsSync()) {
-          await _copyDirectory(
-            compiled,
-            p.join(p.dirname(destination), p.basename(compiled)),
-          );
-        } else {
-          Log.logWarn(
-            'Skipping "${extension.name}" storyboard $name: compiling '
-            'storyboards needs ibtool (macOS only). The extension will use '
-            'its principal class instead.',
-          );
-        }
-        continue;
-      }
-      if (name.endsWith('.xcassets')) {
-        Log.logWarn(
-          'Skipping "${extension.name}" asset catalog $name: compiling asset '
-          'catalogs needs actool (macOS only).',
-        );
-        continue;
-      }
-
-      if (Directory(resource).existsSync()) {
-        await _copyDirectory(resource, destination);
-      } else if (File(resource).existsSync()) {
-        await Directory(p.dirname(destination)).create(recursive: true);
-        await File(resource).copy(destination);
-      }
-    }
-  }
-
-  /// The `<lang>.lproj` directory [resource] sits in, or null when it is not
-  /// a localized resource.
-  static String? _lprojOf(String resource) {
-    final parent = p.basename(p.dirname(resource));
-    return parent.endsWith('.lproj') ? parent : null;
-  }
-
   /// Locate `swiftc`, which the Swift toolchain puts on PATH.
-  static Future<String> _resolveSwiftc() async {
+  Future<String> _resolveSwiftc() async {
     try {
-      return await ProcessRunner.locateTool('swiftc');
+      return await runtime.runner.locateTool('swiftc');
     } on Object {
       throw FlutterBuildError(
         'AppExtensionBuilder: swiftc not found on PATH. Building app '
@@ -532,18 +391,22 @@ abstract final class AppExtensionBuilder {
     'swift',
   );
 
-  static String? _clangBuiltins(String resourceDir) {
+  String? _clangBuiltins(String resourceDir) {
     final candidate = p.join(resourceDir, 'clang', 'include');
-    if (File(p.join(candidate, 'stdarg.h')).existsSync()) return candidate;
+    if (runtime.host.fileSystem
+        .file(p.join(candidate, 'stdarg.h'))
+        .existsSync()) {
+      return candidate;
+    }
     return null;
   }
 
   /// `libclang_rt.ios.a` inside the Darwin SDK bundle's Xcode toolchain.
-  static String? _compilerRtIos(
+  String? _compilerRtIos(
     String darwinSdkBundle, {
-    bool simulator = false,
+    required String runtimeLibrary,
   }) {
-    final clang = Directory(
+    final clang = runtime.host.fileSystem.directory(
       p.join(
         darwinSdkBundle,
         'Developer',
@@ -558,13 +421,10 @@ abstract final class AppExtensionBuilder {
     final versions = clang.listSync().whereType<Directory>().toList()
       ..sort((a, b) => b.path.compareTo(a.path));
     for (final entry in versions) {
-      final candidate = p.join(
-        entry.path,
-        'lib',
-        'darwin',
-        simulator ? 'libclang_rt.iossim.a' : 'libclang_rt.ios.a',
-      );
-      if (File(candidate).existsSync()) return candidate;
+      final candidate = p.join(entry.path, 'lib', 'darwin', runtimeLibrary);
+      if (runtime.host.fileSystem.file(candidate).existsSync()) {
+        return candidate;
+      }
     }
     return null;
   }
@@ -574,102 +434,5 @@ abstract final class AppExtensionBuilder {
     final match = RegExp(r'^iPhone(?:OS|Simulator)([0-9.]+)$').firstMatch(name);
     final version = match?.group(1) ?? '';
     return version.isEmpty ? null : version;
-  }
-
-  static Future<void> _copyDirectory(String src, String dst) async {
-    await Directory(dst).create(recursive: true);
-    await for (final entity in Directory(src).list()) {
-      final destPath = p.join(dst, p.basename(entity.path));
-      if (entity is Directory) {
-        await _copyDirectory(entity.path, destPath);
-      } else if (entity is File) {
-        await entity.copy(destPath);
-      }
-    }
-  }
-
-  static const _fallbackInfoPlist = '''
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-</dict>
-</plist>
-''';
-}
-
-/// Minimal plist key forcing for `.appex` bundles.
-abstract final class AppExtensionPlist {
-  /// Set the keys iOS requires on an app extension, replacing existing ones.
-  static String forceKeys(
-    String xml, {
-    required String bundleId,
-    required String executableName,
-    required String bundleName,
-    required String minimumOsVersion,
-    IosBundleVersions versions = IosBundleVersions.fallback,
-  }) {
-    var result = xml;
-    final keys = <String, String>{
-      'CFBundleIdentifier': bundleId,
-      'CFBundleExecutable': executableName,
-      'CFBundleName': bundleName,
-      // installd rejects an appex without a non-empty CFBundleDisplayName
-      // ("MissingBundleDisplayNameString"), even though apps may omit it.
-      'CFBundleDisplayName': bundleName,
-      'CFBundlePackageType': 'XPC!',
-      'MinimumOSVersion': minimumOsVersion,
-      'CFBundleInfoDictionaryVersion': '6.0',
-      // iOS requires an extension's versions to match its host app's.
-      'CFBundleShortVersionString': versions.shortVersion,
-      'CFBundleVersion': versions.bundleVersion,
-      'CFBundleDevelopmentRegion': 'en',
-    };
-    for (final entry in keys.entries) {
-      result = setKey(result, entry.key, entry.value);
-    }
-    return result;
-  }
-
-  /// Record [appGroups] under [AppExtensionEntitlements.appGroupsInfoKey].
-  static String setAppGroups(String xml, List<String> appGroups) {
-    if (appGroups.isEmpty) return xml;
-    const key = AppExtensionEntitlements.appGroupsInfoKey;
-    final entries = appGroups
-        .map((group) => '\n\t\t<string>$group</string>')
-        .join();
-
-    final existing = RegExp(
-      '<key>\\s*${RegExp.escape(key)}\\s*</key>\\s*<array>.*?</array>',
-      dotAll: true,
-    );
-    final replacement = '<key>$key</key>\n\t<array>$entries\n\t</array>';
-    if (existing.hasMatch(xml)) {
-      return xml.replaceFirst(existing, replacement);
-    }
-
-    final dictIndex = xml.indexOf('<dict>');
-    if (dictIndex == -1) return xml;
-    final insertAt = dictIndex + '<dict>'.length;
-    return '${xml.substring(0, insertAt)}\n\t$replacement'
-        '${xml.substring(insertAt)}';
-  }
-
-  /// Replace `<key>[key]</key><string>…</string>`, inserting when absent.
-  @visibleForTesting
-  static String setKey(String xml, String key, String value) {
-    final pattern = RegExp(
-      '<key>\\s*${RegExp.escape(key)}\\s*</key>\\s*<string>[^<]*</string>',
-    );
-    final replacement = '<key>$key</key>\n\t<string>$value</string>';
-    if (pattern.hasMatch(xml)) {
-      return xml.replaceFirst(pattern, replacement);
-    }
-
-    final dictIndex = xml.indexOf('<dict>');
-    if (dictIndex == -1) return xml;
-    final insertAt = dictIndex + '<dict>'.length;
-    return '${xml.substring(0, insertAt)}\n\t$replacement'
-        '${xml.substring(insertAt)}';
   }
 }

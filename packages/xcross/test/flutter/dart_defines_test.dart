@@ -1,9 +1,10 @@
 import 'dart:io';
-
+import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
+
 import 'package:test/test.dart';
 import 'package:xcross/src/flutter/errors.dart';
-import 'package:xcross/src/flutter/models/flutter/dart_defines.dart';
+import 'package:xcross/src/shared/flutter/project/dart_defines_reader.dart';
 
 void main() {
   group('DartDefines.mergeDartDefines', () {
@@ -22,7 +23,13 @@ void main() {
     }
 
     test('mergeDartDefines([], []) returns an empty list', () async {
-      expect(await DartDefines.mergeDartDefines([], []), isEmpty);
+      expect(
+        await DartDefinesReader(
+          LinuxHost().fileSystem,
+          p.context,
+        ).mergeDartDefines([], []),
+        isEmpty,
+      );
     });
 
     test(
@@ -30,7 +37,13 @@ void main() {
       () async {
         final path = await writeFile('defines.json', '{"A": 1, "B": 2}');
 
-        expect(await DartDefines.mergeDartDefines([path], []), ['A=1', 'B=2']);
+        expect(
+          await DartDefinesReader(
+            LinuxHost().fileSystem,
+            p.context,
+          ).mergeDartDefines([path], []),
+          ['A=1', 'B=2'],
+        );
       },
     );
 
@@ -39,7 +52,13 @@ void main() {
     test('renders JSON boolean values via Dart toString, not JSON', () async {
       final path = await writeFile('defines.json', '{"FLAG": true}');
 
-      expect(await DartDefines.mergeDartDefines([path], []), ['FLAG=true']);
+      expect(
+        await DartDefinesReader(
+          LinuxHost().fileSystem,
+          p.context,
+        ).mergeDartDefines([path], []),
+        ['FLAG=true'],
+      );
     });
 
     test(
@@ -50,17 +69,26 @@ void main() {
           'K1=V1\n# comment\n\nK2=V2=extra=stuff\nNOEQUALS\n',
         );
 
-        expect(await DartDefines.mergeDartDefines([path], []), [
-          'K1=V1',
-          'K2=V2=extra=stuff',
-        ]);
+        expect(
+          await DartDefinesReader(
+            LinuxHost().fileSystem,
+            p.context,
+          ).mergeDartDefines([path], []),
+          ['K1=V1', 'K2=V2=extra=stuff'],
+        );
       },
     );
 
     test('trims surrounding whitespace but keeps the line verbatim', () async {
       final path = await writeFile('defines.env', '   K3=V3   \n');
 
-      expect(await DartDefines.mergeDartDefines([path], []), ['K3=V3']);
+      expect(
+        await DartDefinesReader(
+          LinuxHost().fileSystem,
+          p.context,
+        ).mergeDartDefines([path], []),
+        ['K3=V3'],
+      );
     });
 
     // Extension check only special-cases `.json`; anything else (even a
@@ -71,7 +99,13 @@ void main() {
       () async {
         final path = await writeFile('defines.txt', 'X=1\n');
 
-        expect(await DartDefines.mergeDartDefines([path], []), ['X=1']);
+        expect(
+          await DartDefinesReader(
+            LinuxHost().fileSystem,
+            p.context,
+          ).mergeDartDefines([path], []),
+          ['X=1'],
+        );
       },
     );
 
@@ -82,7 +116,10 @@ void main() {
         final file2 = await writeFile('file2.env', 'K=fromFile2\n');
 
         expect(
-          await DartDefines.mergeDartDefines([file1, file2], ['K=explicit']),
+          await DartDefinesReader(
+            LinuxHost().fileSystem,
+            p.context,
+          ).mergeDartDefines([file1, file2], ['K=explicit']),
           ['K=fromFile1', 'K=fromFile2', 'K=explicit'],
         );
       },
@@ -91,11 +128,13 @@ void main() {
     test(
       'preserves explicit-only entries unsorted and undeduplicated',
       () async {
-        expect(await DartDefines.mergeDartDefines([], ['B=2', 'A=1', 'A=1']), [
-          'B=2',
-          'A=1',
-          'A=1',
-        ]);
+        expect(
+          await DartDefinesReader(
+            LinuxHost().fileSystem,
+            p.context,
+          ).mergeDartDefines([], ['B=2', 'A=1', 'A=1']),
+          ['B=2', 'A=1', 'A=1'],
+        );
       },
     );
 
@@ -103,7 +142,10 @@ void main() {
       final path = p.join(tmp.path, 'does_not_exist.json');
 
       await expectLater(
-        DartDefines.mergeDartDefines([path], []),
+        DartDefinesReader(
+          LinuxHost().fileSystem,
+          p.context,
+        ).mergeDartDefines([path], []),
         throwsA(
           isA<FlutterBuildError>().having(
             (e) => e.message,
@@ -120,7 +162,10 @@ void main() {
         final path = await writeFile('defines.json', '[1, 2, 3]');
 
         await expectLater(
-          DartDefines.mergeDartDefines([path], []),
+          DartDefinesReader(
+            LinuxHost().fileSystem,
+            p.context,
+          ).mergeDartDefines([path], []),
           throwsA(
             isA<FlutterBuildError>().having(
               (e) => e.message,

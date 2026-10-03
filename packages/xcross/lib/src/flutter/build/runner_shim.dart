@@ -1,19 +1,20 @@
-import 'dart:io';
-
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
-import 'package:xcross/src/flutter/build/ios_engine_cache.dart';
 import 'package:xcross/src/flutter/constants.dart';
 import 'package:xcross/src/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 
 /// Embeds the ObjC Runner.m source, compiles it with clang, and links it with
 /// ld64.lld to produce the `Runner` executable for an iOS `.app` bundle.
 ///
 /// This is the cross-platform equivalent of the Xcode-built Runner.
-final class RunnerShim {
+final class RunnerShim<T extends PlatformHostInterface> {
+  RunnerShim(this.runtime);
+  final FlutterBuildRuntime<T> runtime;
+
   /// Compile and link the Runner binary.
   ///
   /// [projectRoot]        — Flutter project root (used for output staging).
@@ -29,7 +30,7 @@ final class RunnerShim {
   ///                        into the Runner binary.
   ///
   /// Returns path to the linked `Runner` executable.
-  static Future<String> buildRunnerBinary({
+  Future<String> buildRunnerBinary({
     required String projectRoot,
     required DarwinSdk sdk,
     required String flutterXcframework,
@@ -38,23 +39,30 @@ final class RunnerShim {
     String? pluginsLibrary,
     List<String> nativeAssetFrameworks = const [],
     bool verbose = false,
-  }) => Log.logStep('Compiling Runner', () async {
-    final clang = await DarwinSdk.resolveDarwinClang(sdk);
-    final iosSdk = deploymentTarget.sdkPath(sdk);
-    final flutterSlice = IosEngineCache.flutterSlice(
-      flutterXcframework,
-      simulator: deploymentTarget.simulator,
+  }) => runtime.runner.log.logStep('Compiling Runner', () async {
+    final clang = await runtime.toolchain.resolveDarwinClang(
+      runtime.sdkRepository.iosSdk(sdk, target: deploymentTarget.platform),
     );
+    final iosSdk = runtime.sdkRepository.iosSdk(
+      sdk,
+      target: deploymentTarget.platform,
+    );
+    final flutterSlice = runtime.policy.selectEngineSlice(flutterXcframework);
     final subframeworks = p.join(iosSdk, 'System', 'Library', 'SubFrameworks');
 
-    await Directory(outputDir).create(recursive: true);
+    await runtime.host.fileSystem.directory(outputDir).create(recursive: true);
     final sourcePath = p.join(outputDir, 'Runner.m');
     final objectPath = p.join(outputDir, 'Runner.o');
     final outputPath = p.join(outputDir, 'Runner');
 
-    await File(sourcePath).writeAsString(
-      runnerObjcSource(hasPlugins: pluginsLibrary != null, verbose: verbose),
-    );
+    await runtime.host.fileSystem
+        .file(sourcePath)
+        .writeAsString(
+          runnerObjcSource(
+            hasPlugins: pluginsLibrary != null,
+            verbose: verbose,
+          ),
+        );
 
     await _compileObject(
       clang: clang,
@@ -71,7 +79,7 @@ final class RunnerShim {
     // reaches ld64.lld's -platform_version and lands in LC_BUILD_VERSION.
     final sdkVersion = _sdkVersion(iosSdk) ?? '26.5';
     await _linkBinary(
-      ld64lld: await DarwinSdk.resolveLd64Lld(sdk),
+      ld64lld: await runtime.toolchain.resolveLd64Lld(),
       objectPath: objectPath,
       outputPath: outputPath,
       iosSdk: iosSdk,
@@ -84,22 +92,24 @@ final class RunnerShim {
       nativeAssetFrameworks: nativeAssetFrameworks,
     );
 
-    if (!File(outputPath).existsSync()) {
+    if (!runtime.host.fileSystem.file(outputPath).existsSync()) {
       throw FlutterBuildError(
         'RunnerShim: clang/ld64.lld did not produce '
         'Runner at $outputPath',
       );
     }
 
-    ProcessRunner.makeExecutable(outputPath);
-    final size = await File(outputPath).length();
-    Log.logTrace('Runner binary produced: $outputPath (${size ~/ 1024} KB)');
+    runtime.runner.makeExecutable(outputPath);
+    final size = await runtime.host.fileSystem.file(outputPath).length();
+    runtime.runner.log.logTrace(
+      'Runner binary produced: $outputPath (${size ~/ 1024} KB)',
+    );
 
     return outputPath;
   });
 
   /// Compile [sourcePath] to [objectPath] via clang.
-  static Future<void> _compileObject({
+  Future<void> _compileObject({
     required String clang,
     required String sourcePath,
     required String objectPath,
@@ -108,8 +118,8 @@ final class RunnerShim {
     required String flutterSlice,
     required IosDeploymentTarget deploymentTarget,
   }) async {
-    Log.logTrace('[clang] compile Runner.m → Runner.o');
-    await ProcessRunner.runChecked(
+    runtime.runner.log.logTrace('[clang] compile Runner.m → Runner.o');
+    await runtime.runner.runChecked(
       clang,
       compileArguments(
         sourcePath: sourcePath,
@@ -119,7 +129,7 @@ final class RunnerShim {
         flutterSlice: flutterSlice,
         deploymentTarget: deploymentTarget,
       ),
-      inheritStdio: Log.isVerbose,
+      inheritStdio: runtime.runner.log.isVerbose,
       label: 'clang',
     );
   }
@@ -156,7 +166,7 @@ final class RunnerShim {
   /// absolute path resolves the symbols directly, regardless of where it's
   /// later embedded for runtime (see [buildRunnerBinary] for the on-device
   /// loading story, handled via the existing `-rpath` below).
-  static Future<void> _linkBinary({
+  Future<void> _linkBinary({
     required String ld64lld,
     required String objectPath,
     required String outputPath,
@@ -169,14 +179,14 @@ final class RunnerShim {
     String? pluginsLibrary,
     List<String> nativeAssetFrameworks = const [],
   }) async {
-    Log.logTrace('[ld64.lld] link Runner.o → Runner');
+    runtime.runner.log.logTrace('[ld64.lld] link Runner.o → Runner');
     // An SDK whose text stubs still declare an architecture this linker
     // cannot parse fails here with a diagnostic that names a framework,
     // not the cause.
     await TbdLinkerDiagnostic.explainFailures(
       bundle: sdkBundle,
       wrap: FlutterBuildError.new,
-      () => ProcessRunner.runChecked(
+      () => runtime.runner.runChecked(
         ld64lld,
         linkArguments(
           objectPath: objectPath,
@@ -189,7 +199,7 @@ final class RunnerShim {
           pluginsLibrary: pluginsLibrary,
           nativeAssetFrameworks: nativeAssetFrameworks,
         ),
-        inheritStdio: Log.isVerbose,
+        inheritStdio: runtime.runner.log.isVerbose,
         label: 'ld64.lld',
       ),
     );

@@ -1,19 +1,24 @@
+@TestOn('windows')
+library;
+
 import 'dart:io';
+
+import 'package:cli_kit/cli_kit.dart';
 
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/flutter/build/ios_plugins.dart';
+import '../flutter_test_log.dart';
+
+import '../flutter_test_runtime.dart';
 
 void main() {
   test('binary iOS 17 plugin registrant compiles at iOS 15', () {
-    if (!Platform.isWindows) {
-      markTestSkipped('Windows Swift cross-compiler integration test');
-      return;
-    }
-    final bundle = DarwinSdk.nativeInstallDir();
-    if (!DarwinSdk.isValidBundle(bundle)) {
+    final host = WindowsHost();
+    final repository = DarwinSdkRepository(host, log: testFlutterLog());
+    final installed = repository.current();
+    if (installed == null) {
       markTestSkipped('xcross Darwin SDK is not installed');
       return;
     }
@@ -23,7 +28,10 @@ void main() {
       return;
     }
     final compiler = (swiftc.stdout as String).split(RegExp(r'\r?\n')).first;
-    final sdk = DarwinSdk(bundle).iPhoneOSSdk();
+    final sdk = repository.iosSdk(
+      installed,
+      target: const IPhoneBuildPlatform(),
+    );
     final temp = Directory.systemTemp.createTempSync('xcross-availability-');
     addTearDown(() => temp.deleteSync(recursive: true));
 
@@ -81,7 +89,6 @@ public class NewPlugin: NSObject, FlutterPlugin {}
 </dict></array></dict></plist>
 ''');
     File(p.join(temp.path, 'Flutter.swift')).writeAsStringSync('''
-import Foundation
 @objc public protocol FlutterPluginRegistrar {}
 @objc public protocol FlutterPluginRegistry {
     func registrar(forPlugin key: String) -> FlutterPluginRegistrar?
@@ -90,10 +97,19 @@ import Foundation
     static func register(with registrar: FlutterPluginRegistrar)
 }
 ''');
-    final plugin = IosPlugin(name: 'new_plugin', packageRoot: pluginRoot.path);
-    expect(plugin.pluginClassIosAvailability, '17.0');
+    final plugin = IosPlugin(
+      fileSystem: LinuxHost().fileSystem,
+      name: 'new_plugin',
+      packageRoot: pluginRoot.path,
+    );
+    expect(
+      plugin.pluginClassIosAvailabilityIn(policy: testIPhoneRuntime().policy),
+      '17.0',
+    );
     final registrant = File(p.join(temp.path, 'Registrant.swift'))
-      ..writeAsStringSync(GeneratedPluginsPackage.registrantSource([plugin]));
+      ..writeAsStringSync(
+        testIPhoneRuntime().plugins.runtime.manifest.registrantSource([plugin]),
+      );
 
     ProcessResult compile(List<String> arguments) => Process.runSync(compiler, [
       '-target',

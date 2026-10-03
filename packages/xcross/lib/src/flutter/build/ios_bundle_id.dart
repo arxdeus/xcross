@@ -1,8 +1,9 @@
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/flutter/build/pbxproj.dart';
 import 'package:xcross/src/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/project/pbx_project_reader.dart';
 
 /// Resolves the iOS product bundle identifier the way Flutter tooling does on
 /// non-macOS hosts (no `xcodebuild -showBuildSettings`).
@@ -12,7 +13,13 @@ import 'package:xcross/src/flutter/errors.dart';
 ///   2. `PRODUCT_BUNDLE_IDENTIFIER` of the *application* target in
 ///      `ios/*.xcodeproj/project.pbxproj` (never an app extension target).
 ///   3. First `PRODUCT_BUNDLE_IDENTIFIER` in the pbxproj (legacy fallback).
-abstract final class IosBundleId {
+final class IosBundleId {
+  IosBundleId(this.fileSystem, this.paths, this.projects);
+
+  final HostFileSystemInterface fileSystem;
+  final p.Context paths;
+  final PbxProjectReader projects;
+
   /// Flutter's `_productBundleIdPattern` from `xcode_project.dart`.
   static final _productBundleIdPattern = RegExp(
     r'''^\s*PRODUCT_BUNDLE_IDENTIFIER\s*=\s*(["']?)(.*?)\1;\s*$''',
@@ -29,7 +36,7 @@ abstract final class IosBundleId {
   ///
   /// Throws [FlutterBuildError] when neither a literal plist value nor a
   /// pbxproj `PRODUCT_BUNDLE_IDENTIFIER` can be found.
-  static String resolve(String projectRoot) {
+  String resolve(String projectRoot) {
     final fromPlist = _cfBundleIdentifierFromPlist(projectRoot);
     if (fromPlist != null && !fromPlist.contains(r'$')) {
       return fromPlist;
@@ -47,8 +54,10 @@ abstract final class IosBundleId {
     );
   }
 
-  static String? _cfBundleIdentifierFromPlist(String projectRoot) {
-    final file = File(p.join(projectRoot, 'ios', 'Runner', 'Info.plist'));
+  String? _cfBundleIdentifierFromPlist(String projectRoot) {
+    final file = fileSystem.file(
+      paths.join(projectRoot, 'ios', 'Runner', 'Info.plist'),
+    );
     if (!file.existsSync()) return null;
     final match = _cfBundleIdentifierPattern.firstMatch(
       file.readAsStringSync(),
@@ -58,7 +67,7 @@ abstract final class IosBundleId {
     return value;
   }
 
-  static String? _productBundleIdFromPbxproj(String projectRoot) {
+  String? _productBundleIdFromPbxproj(String projectRoot) {
     final pbxproj = _findPbxproj(projectRoot);
     if (pbxproj == null) return null;
 
@@ -77,8 +86,8 @@ abstract final class IosBundleId {
 
   /// Bundle id of the `com.apple.product-type.application` target, preferring
   /// a target literally named `Runner`.
-  static String? _appTargetBundleId(String pbxprojPath) {
-    final project = PbxProject.parseFile(pbxprojPath);
+  String? _appTargetBundleId(String pbxprojPath) {
+    final project = projects.parseFile(pbxprojPath);
     if (project == null) return null;
 
     String? fallback;
@@ -101,19 +110,21 @@ abstract final class IosBundleId {
   }
 
   /// Prefer `Runner.xcodeproj`, otherwise the first `*.xcodeproj` under `ios/`.
-  static File? _findPbxproj(String projectRoot) {
-    final iosDir = Directory(p.join(projectRoot, 'ios'));
+  File? _findPbxproj(String projectRoot) {
+    final iosDir = fileSystem.directory(paths.join(projectRoot, 'ios'));
     if (!iosDir.existsSync()) return null;
 
-    final runner = File(
-      p.join(iosDir.path, 'Runner.xcodeproj', 'project.pbxproj'),
+    final runner = fileSystem.file(
+      paths.join(iosDir.path, 'Runner.xcodeproj', 'project.pbxproj'),
     );
     if (runner.existsSync()) return runner;
 
     for (final entity in iosDir.listSync()) {
       if (entity is! Directory) continue;
       if (!entity.path.endsWith('.xcodeproj')) continue;
-      final candidate = File(p.join(entity.path, 'project.pbxproj'));
+      final candidate = fileSystem.file(
+        paths.join(entity.path, 'project.pbxproj'),
+      );
       if (candidate.existsSync()) return candidate;
     }
     return null;

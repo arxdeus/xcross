@@ -29,7 +29,7 @@ final class IPhoneFlutterTarget<T extends PlatformHostInterface>
   bool matchesLibraryVariant(String? variant) => variant == null;
   @override
   String transformPlist(String xml, {String? sdkName}) =>
-      IosPlistMetadata.fillMissing(
+      IosPlistMetadata.overwrite(
         xml,
         platform: target.buildPlatform,
         sdkName: sdkName,

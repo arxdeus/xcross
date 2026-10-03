@@ -1,19 +1,30 @@
 import 'dart:io';
 
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 
+import '../flutter_test_runtime.dart';
+
 void main() {
   late Directory tmp;
   test('resolves simulator triples while preserving device default', () {
-    final target = IosDeploymentTarget.resolve(tmp.path, simulator: true);
-    expect(target.simulator, isTrue);
+    final target = testIPhoneRuntime().deployments.resolve(
+      tmp.path,
+      platform: const SimulatorBuildPlatform(),
+    );
+    expect(target.platform, isA<SimulatorBuildPlatform>());
     expect(target.buildTriple, 'arm64-apple-ios13.0-simulator');
     expect(target.swiftSdkTriple, 'arm64-apple-ios-simulator');
     expect(target.linkerPlatform, 'ios-simulator');
     expect(target.minimumVersionFlag, '-mios-simulator-version-min=13.0');
-    expect(IosDeploymentTarget.resolve(tmp.path).simulator, isFalse);
+    expect(
+      testIPhoneRuntime().deployments
+          .resolve(tmp.path, platform: const IPhoneBuildPlatform())
+          .platform,
+      isA<IPhoneBuildPlatform>(),
+    );
   });
 
   setUp(() async {
@@ -54,9 +65,16 @@ void main() {
     () async {
       await writePbxproj('IPHONEOS_DEPLOYMENT_TARGET = 15.6;\n');
 
-      expect(IosDeploymentTarget.resolve(tmp.path).version, '15.6');
       expect(
-        IosDeploymentTarget.resolve(tmp.path).buildTriple,
+        testIPhoneRuntime().deployments
+            .resolve(tmp.path, platform: const IPhoneBuildPlatform())
+            .version,
+        '15.6',
+      );
+      expect(
+        testIPhoneRuntime().deployments
+            .resolve(tmp.path, platform: const IPhoneBuildPlatform())
+            .buildTriple,
         'arm64-apple-ios15.6',
       );
     },
@@ -67,7 +85,12 @@ void main() {
     () async {
       await writePbxproj('IPHONEOS_DEPLOYMENT_TARGET = "14.2";\n');
 
-      expect(IosDeploymentTarget.resolve(tmp.path).version, '14.2');
+      expect(
+        testIPhoneRuntime().deployments
+            .resolve(tmp.path, platform: const IPhoneBuildPlatform())
+            .version,
+        '14.2',
+      );
     },
   );
 
@@ -80,7 +103,12 @@ IPHONEOS_DEPLOYMENT_TARGET = 15.10;
 IPHONEOS_DEPLOYMENT_TARGET = 14.9;
 ''');
 
-      expect(IosDeploymentTarget.resolve(tmp.path).version, '15.10');
+      expect(
+        testIPhoneRuntime().deployments
+            .resolve(tmp.path, platform: const IPhoneBuildPlatform())
+            .version,
+        '15.10',
+      );
     },
   );
 
@@ -93,7 +121,12 @@ IPHONEOS_DEPLOYMENT_TARGET = ios15;
 IPHONEOS_DEPLOYMENT_TARGET = 16.1;
 ''');
 
-      expect(IosDeploymentTarget.resolve(tmp.path).version, '16.1');
+      expect(
+        testIPhoneRuntime().deployments
+            .resolve(tmp.path, platform: const IPhoneBuildPlatform())
+            .version,
+        '16.1',
+      );
     },
   );
 
@@ -101,7 +134,12 @@ IPHONEOS_DEPLOYMENT_TARGET = 16.1;
     await writePbxproj('IPHONEOS_DEPLOYMENT_TARGET = ios15;\n');
     await writeAppFrameworkInfoPlist('12.4');
 
-    expect(IosDeploymentTarget.resolve(tmp.path).version, '12.4');
+    expect(
+      testIPhoneRuntime().deployments
+          .resolve(tmp.path, platform: const IPhoneBuildPlatform())
+          .version,
+      '12.4',
+    );
   });
 
   test('uses alternate xcodeproj when Runner.xcodeproj is absent', () async {
@@ -110,7 +148,12 @@ IPHONEOS_DEPLOYMENT_TARGET = 16.1;
       xcodeproj: 'App.xcodeproj',
     );
 
-    expect(IosDeploymentTarget.resolve(tmp.path).version, '17.0');
+    expect(
+      testIPhoneRuntime().deployments
+          .resolve(tmp.path, platform: const IPhoneBuildPlatform())
+          .version,
+      '17.0',
+    );
   });
 
   test(
@@ -122,7 +165,12 @@ IPHONEOS_DEPLOYMENT_TARGET = 16.1;
       );
       await writePbxproj('IPHONEOS_DEPLOYMENT_TARGET = 16.0;\n');
 
-      expect(IosDeploymentTarget.resolve(tmp.path).version, '16.0');
+      expect(
+        testIPhoneRuntime().deployments
+            .resolve(tmp.path, platform: const IPhoneBuildPlatform())
+            .version,
+        '16.0',
+      );
     },
   );
 
@@ -138,7 +186,12 @@ IPHONEOS_DEPLOYMENT_TARGET = 16.1;
         xcodeproj: 'App.xcodeproj',
       );
 
-      expect(IosDeploymentTarget.resolve(tmp.path).version, '17.0');
+      expect(
+        testIPhoneRuntime().deployments
+            .resolve(tmp.path, platform: const IPhoneBuildPlatform())
+            .version,
+        '17.0',
+      );
     },
   );
 
@@ -148,8 +201,13 @@ IPHONEOS_DEPLOYMENT_TARGET = 16.1;
       await writePbxproj('IPHONEOS_DEPLOYMENT_TARGET = ios15;\n');
       await writeAppFrameworkInfoPlist(r'$(MINIMUM_OS_VERSION)');
 
-      expect(IosDeploymentTarget.resolve(tmp.path).version, '13.0');
-      expect(IosDeploymentTarget.fallback.version, '13.0');
+      expect(
+        testIPhoneRuntime().deployments
+            .resolve(tmp.path, platform: const IPhoneBuildPlatform())
+            .version,
+        '13.0',
+      );
+      expect(IosDeploymentTarget.fallbackVersion, '13.0');
     },
   );
 }

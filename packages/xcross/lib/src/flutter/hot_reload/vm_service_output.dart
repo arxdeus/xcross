@@ -1,19 +1,24 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:xcross/src/flutter/hot_reload/dart_vm_service_client.dart';
 
 /// Forwards the app's `print` / `stderr` / `dart:developer log()` output from
 /// the Dart VM Service to this process's stdout and stderr.
-abstract final class VmServiceOutput {
+final class VmServiceOutput {
+  VmServiceOutput({required this.output, required this.errors});
+  final StringSink output;
+  final StringSink errors;
+
   /// The debugger only *attaches* after launch, so debugserver never owns
   /// the inferior's stdio; the VM Service `Stdout`/`Stderr`/`Logging`
   /// streams are the only channel that carries app output.
-  static Future<void> forwardVmServiceOutput(DartVmServiceClient vm) async {
+  Future<void> forwardVmServiceOutput(
+    DartVmServiceClient vm, {
+    required bool ownsLogging,
+  }) async {
     // Under `xcross dap` the debug adapter subscribes to Logging itself
     // (unconditionally, unlike Stdout/Stderr) and renders records with full
     // untruncated strings — forwarding here too would print every line twice.
-    final ownsLogging = Platform.environment['XCROSS_DAP'] != '1';
 
     // Subscribe before listening: the VM only publishes a stream that has a
     // subscriber, so anything printed before this point is genuinely lost.
@@ -24,11 +29,11 @@ abstract final class VmServiceOutput {
     vm.events.listen((event) {
       switch (event['streamId']) {
         case 'Stdout':
-          if (decodeStreamWrite(event) case final text?) stdout.write(text);
+          if (decodeStreamWrite(event) case final text?) output.write(text);
         case 'Stderr':
-          if (decodeStreamWrite(event) case final text?) stderr.write(text);
+          if (decodeStreamWrite(event) case final text?) errors.write(text);
         case 'Logging' when ownsLogging:
-          if (formatLogRecord(event) case final text?) stdout.write(text);
+          if (formatLogRecord(event) case final text?) output.write(text);
       }
     });
   }

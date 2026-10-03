@@ -1,8 +1,11 @@
 import 'dart:io';
-
+import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+
 import 'package:xcross/src/flutter/models/flutter/flutter_build_options.dart';
+import 'package:xcross/src/shared/flutter/flutter_build_options_resolver.dart';
+import 'package:xcross/src/shared/flutter/project/dart_defines_reader.dart';
 
 void main() {
   test('defaults to debug and rejects unsupported build modes', () {
@@ -36,15 +39,18 @@ void main() {
         'passes through the other fields', () async {
       final fromFilePath = await writeJsonDefine('{"FROM_FILE": 1}');
 
-      final options = await FlutterBuildOptions.resolve(
-        target: 'lib/other.dart',
-        dartDefine: ['EXPLICIT=2'],
-        dartDefineFromFile: [fromFilePath],
-        pub: false,
-        buildName: '2.0.0',
-        buildNumber: '42',
-        flavor: 'dev',
-      );
+      final options =
+          await FlutterBuildOptionsResolver(
+            DartDefinesReader(LinuxHost().fileSystem, p.context),
+          ).resolve(
+            target: 'lib/other.dart',
+            dartDefine: ['EXPLICIT=2'],
+            dartDefineFromFile: [fromFilePath],
+            pub: false,
+            buildName: '2.0.0',
+            buildNumber: '42',
+            flavor: 'dev',
+          );
 
       expect(options.target, 'lib/other.dart');
       expect(options.dartDefines, ['FROM_FILE=1', 'EXPLICIT=2']);
@@ -56,12 +62,15 @@ void main() {
 
     test('defaults buildName/buildNumber/flavor to null and dartDefines to '
         'empty when omitted', () async {
-      final options = await FlutterBuildOptions.resolve(
-        target: 'lib/main.dart',
-        dartDefine: [],
-        dartDefineFromFile: [],
-        pub: true,
-      );
+      final options =
+          await FlutterBuildOptionsResolver(
+            DartDefinesReader(LinuxHost().fileSystem, p.context),
+          ).resolve(
+            target: 'lib/main.dart',
+            dartDefine: [],
+            dartDefineFromFile: [],
+            pub: true,
+          );
 
       expect(options.target, 'lib/main.dart');
       expect(options.pub, isTrue);
@@ -74,12 +83,15 @@ void main() {
     test(
       'carries an explicit-only dartDefine list through untouched',
       () async {
-        final options = await FlutterBuildOptions.resolve(
-          target: 'lib/main.dart',
-          dartDefine: ['A=1'],
-          dartDefineFromFile: [],
-          pub: true,
-        );
+        final options =
+            await FlutterBuildOptionsResolver(
+              DartDefinesReader(LinuxHost().fileSystem, p.context),
+            ).resolve(
+              target: 'lib/main.dart',
+              dartDefine: ['A=1'],
+              dartDefineFromFile: [],
+              pub: true,
+            );
 
         expect(options.dartDefines, ['A=1']);
       },
@@ -88,12 +100,15 @@ void main() {
     test('carries a dartDefineFromFile-only list through merged', () async {
       final fromFilePath = await writeJsonDefine('{"A": 1, "B": 2}');
 
-      final options = await FlutterBuildOptions.resolve(
-        target: 'lib/main.dart',
-        dartDefine: [],
-        dartDefineFromFile: [fromFilePath],
-        pub: true,
-      );
+      final options =
+          await FlutterBuildOptionsResolver(
+            DartDefinesReader(LinuxHost().fileSystem, p.context),
+          ).resolve(
+            target: 'lib/main.dart',
+            dartDefine: [],
+            dartDefineFromFile: [fromFilePath],
+            pub: true,
+          );
 
       expect(options.dartDefines, ['A=1', 'B=2']);
     });

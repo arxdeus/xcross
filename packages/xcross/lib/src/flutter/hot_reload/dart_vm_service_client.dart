@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:web_socket_channel/io.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/flutter/hot_reload/internal/pending_call.dart';
+import 'package:xcross/src/shared/flutter/vm_service_connector.dart';
 
 /// A service the VM can call back into; returns the reply body.
 typedef VmServiceHandler =
@@ -13,7 +13,9 @@ typedef VmServiceHandler =
 
 /// JSON-RPC 2.0 client for the Dart VM Service over WebSocket.
 final class DartVmServiceClient {
-  DartVmServiceClient();
+  DartVmServiceClient({required this.log, required this.connector});
+  final Log log;
+  final VmServiceConnector connector;
 
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _subscription;
@@ -43,13 +45,7 @@ final class DartVmServiceClient {
       // no_proxy parsing does not understand the usual 127.0.0.0/8 entry,
       // so a system-wide proxy would swallow the forwarded VM Service on
       // loopback. Route local sockets around the proxy explicitly.
-      _channel = LocalHttp.isLoopback(url.host)
-          ? IOWebSocketChannel.connect(
-              url,
-              customClient: LocalHttp.client(),
-              connectTimeout: timeout,
-            )
-          : WebSocketChannel.connect(url);
+      _channel = connector.open(url, timeout: timeout);
       await _channel!.ready.timeout(timeout);
     } catch (e) {
       throw FlutterBuildError('VM Service connect failed: $e');
@@ -66,7 +62,7 @@ final class DartVmServiceClient {
     try {
       await _channel?.sink.close().timeout(const Duration(milliseconds: 500));
     } on Object catch (e) {
-      Log.logTrace('VM Service: close ignored: $e');
+      log.logTrace('VM Service: close ignored: $e');
     }
     _handleClose();
   }
@@ -126,7 +122,7 @@ final class DartVmServiceClient {
     try {
       await call('streamListen', params: {'streamId': streamId});
     } on FlutterBuildError catch (e) {
-      Log.logTrace('streamListen($streamId): $e');
+      log.logTrace('streamListen($streamId): $e');
     }
   }
 

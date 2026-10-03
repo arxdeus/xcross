@@ -82,7 +82,7 @@ abstract final class ObjCFastStubRewriter {
     }
 
     final symbolTable = file.parseSymbolTable(symtabs.single);
-    final fastStubs = <_FastObjCStub>[];
+    final fastStubs = <FastObjCStub>[];
     for (var index = 0; index < symbolTable.symbolCount; index++) {
       final symbol = symbolTable.symbolAt(index);
       if ((symbol.type & 0xe0) != 0 ||
@@ -121,7 +121,7 @@ abstract final class ObjCFastStubRewriter {
         fileInvalid(file, 'fast stub "$selector" does not target a selref');
       }
       fastStubs.add(
-        _FastObjCStub(
+        FastObjCStub(
           selector: selector,
           address: symbol.value,
           fileOffset: fileOffset,
@@ -130,10 +130,10 @@ abstract final class ObjCFastStubRewriter {
       );
     }
 
-    final readersByRef = <int, List<_FastObjCStub>>{};
+    final readersByRef = <int, List<FastObjCStub>>{};
     for (final stub in fastStubs) {
       readersByRef
-          .putIfAbsent(stub.refAddress, () => <_FastObjCStub>[])
+          .putIfAbsent(stub.refAddress, () => <FastObjCStub>[])
           .add(stub);
     }
     String? pointee(int refAddress) =>
@@ -169,7 +169,7 @@ abstract final class ObjCFastStubRewriter {
     }
 
     final pointerRepairs = <(int, int)>[];
-    final instructionRepairs = <(_FastObjCStub, int)>[];
+    final instructionRepairs = <(FastObjCStub, int)>[];
     for (final MapEntry(key: refAddress, value: readers)
         in readersByRef.entries) {
       final current = pointee(refAddress);
@@ -186,7 +186,7 @@ abstract final class ObjCFastStubRewriter {
         continue;
       }
 
-      final staying = <_FastObjCStub>[];
+      final staying = <FastObjCStub>[];
       for (final stub in readers) {
         if (current == stub.selector) {
           staying.add(stub);
@@ -271,8 +271,8 @@ abstract final class ObjCFastStubRewriter {
       file.invalid(message);
 }
 
-final class _FastObjCStub {
-  const _FastObjCStub({
+final class FastObjCStub {
+  const FastObjCStub({
     required this.selector,
     required this.address,
     required this.fileOffset,

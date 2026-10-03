@@ -1,20 +1,28 @@
 import 'dart:convert';
 
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/build/ios_native_assets.dart';
+
+import '../flutter_test_runtime.dart';
 
 void main() {
   test(
     'native-hook simulator assembly selects simulator SDK in debug mode',
     () {
+      final runtime = testSimulatorRuntime();
       final args =
           IosNativeAssetsBuilder(
+            engineCache: runtime.engineCache('/flutter'),
+            runner: runtime.runner,
+            tools: runtime.nativeTools,
+            renderer: runtime.toolShimRenderer,
             projectRoot: '/project',
             flutterRoot: '/flutter',
             deploymentTarget: const IosDeploymentTarget(
               '15.0',
-              simulator: true,
+              platform: SimulatorBuildPlatform(),
             ),
           ).assembleArguments(
             output: '/output',
@@ -29,11 +37,19 @@ void main() {
 
   for (final withHooks in [false, true]) {
     group(withHooks ? 'native-hook assembly' : 'bundle assembly', () {
+      final runtime = testIPhoneRuntime();
       List<String> arguments(List<String> defines, {String? flavor}) =>
           IosNativeAssetsBuilder(
+            engineCache: runtime.engineCache('/flutter'),
+            runner: runtime.runner,
+            tools: runtime.nativeTools,
+            renderer: runtime.toolShimRenderer,
             projectRoot: '/project with spaces',
             flutterRoot: '/flutter',
-            deploymentTarget: const IosDeploymentTarget('15.0'),
+            deploymentTarget: const IosDeploymentTarget(
+              '15.0',
+              platform: IPhoneBuildPlatform(),
+            ),
             entrypoint: 'lib/entry point.dart',
             dartDefines: defines,
             flavor: flavor,

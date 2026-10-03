@@ -103,5 +103,8 @@ void main() {
     expect(simulatorXml, contains('<string>iphonesimulator</string>'));
     expect(simulatorXml, isNot(contains('<string>iPhoneOS</string>')));
     expect(simulatorXml, isNot(contains('<string>iphoneos</string>')));
+    final restored = iphone.transformPlist(simulatorXml);
+    expect(restored, contains('<string>iPhoneOS</string>'));
+    expect(restored, isNot(contains('<string>iPhoneSimulator</string>')));
   });
 }

@@ -1,3 +1,4 @@
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/flutter/build/flutter_debug_bundler.dart';
 import 'package:xcross/src/flutter/build/internal/toolchain.dart';
@@ -6,7 +7,10 @@ import 'package:xcross/src/flutter/build/runner_shim.dart';
 
 void main() {
   test('propagates ARM64 simulator platform through App and Runner', () {
-    const target = IosDeploymentTarget('15.6', simulator: true);
+    const target = IosDeploymentTarget(
+      '15.6',
+      platform: SimulatorBuildPlatform(),
+    );
     const toolchain = Toolchain(
       clang: '/clang',
       iosSdk: '/simulator-sdk',
@@ -54,7 +58,10 @@ void main() {
   test(
     'propagates deployment target to compiler linker and plist metadata',
     () {
-      const target = IosDeploymentTarget('15.6');
+      const target = IosDeploymentTarget(
+        '15.6',
+        platform: IPhoneBuildPlatform(),
+      );
       const toolchain = Toolchain(
         clang: '/toolchain/clang',
         iosSdk: '/sdk',

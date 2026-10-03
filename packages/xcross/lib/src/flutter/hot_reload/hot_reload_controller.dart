@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
+    show DeviceEndpoint;
 import 'package:frontend_server_kit/frontend_server_kit.dart';
 import 'package:xcross/src/flutter/constants.dart';
 import 'package:xcross/src/flutter/errors.dart';
@@ -17,15 +18,27 @@ import 'package:xcross/src/flutter/models/hot_reload_config.dart';
 final class HotReloadController {
   HotReloadController({
     required HotReloadConfig config,
+    required this.log,
+    required this.localHttp,
     required DartVmServiceClient vm,
     required DeviceEndpoint vmService,
+    required CompilerProcessFactory processFactory,
+    required void Function(String) diagnostics,
   }) : _vm = vm,
        _verbose = config.verbose,
        _httpBase =
            'http://${ProcessRunner.bracketHost(vmService.host)}:'
            '${vmService.port}/',
-       _frontend = FrontendServerSession(_frontendOptions(config)),
-       _sources = SourceWatcher(config.projectRoot);
+       _frontend = FrontendServerSession(
+         _frontendOptions(config, log),
+         processFactory: processFactory,
+         diagnostics: diagnostics,
+       ),
+       _sources = SourceWatcher(
+         config.projectRoot,
+         fileSystem: localHttp.host.fileSystem,
+         paths: localHttp.host.paths.context,
+       );
 
   // Fallback devFS base URI used when `_createDevFS` does not return one.
   static const _devFsFallbackUri =
@@ -35,6 +48,8 @@ final class HotReloadController {
   // isolate, so hot restart gets its own budget.
   static const _restartTimeout = Duration(minutes: 2);
 
+  final Log log;
+  final LocalHttp<PlatformHostInterface> localHttp;
   final DartVmServiceClient _vm;
   final bool _verbose;
   final String _httpBase;
@@ -49,9 +64,11 @@ final class HotReloadController {
 
   // Resolves the xcross build dill path here so the kit stays free of
   // project layout knowledge.
-  static FrontendServerOptions _frontendOptions(HotReloadConfig config) {
-    final warm =
-        '${config.projectRoot}/build/xcross-flutter-debug/.kernel/app.dill';
+  static FrontendServerOptions _frontendOptions(
+    HotReloadConfig config,
+    Log log,
+  ) {
+    final warm = config.warmDill;
     return FrontendServerOptions(
       dart: config.dart,
       frontendServer: config.frontendServer,
@@ -60,8 +77,8 @@ final class HotReloadController {
       entrypoint: config.entrypoint,
       outputDill: config.outputDill,
       dartDefines: config.dartDefines,
-      initializeFromDill: File(warm).existsSync() ? warm : null,
-      onTrace: Log.logTrace,
+      initializeFromDill: warm != null && File(warm).existsSync() ? warm : null,
+      onTrace: log.logTrace,
     );
   }
 
@@ -104,7 +121,7 @@ final class HotReloadController {
         };
       });
     } on Object catch (e) {
-      Log.logWarn('expression evaluation unavailable: $e');
+      log.logWarn('expression evaluation unavailable: $e');
     }
   }
 
@@ -129,7 +146,7 @@ final class HotReloadController {
     final changed = _sources.changedFileUris();
     if (changed.isEmpty) {
       // The step's own `✓ Reloaded 0.0s` already tells the story.
-      Log.logTrace('no source changes');
+      log.logTrace('no source changes');
       return true;
     }
 
@@ -213,7 +230,7 @@ final class HotReloadController {
         params: {'isolateId': isolateId},
       );
     } catch (e) {
-      Log.logTrace('reassemble ignored: $e');
+      log.logTrace('reassemble ignored: $e');
     }
   }
 
@@ -285,7 +302,7 @@ final class HotReloadController {
           params: {'fsName': FlutterDeviceConstants.devFsName},
         );
       } catch (e) {
-        Log.logTrace('_deleteDevFS ignored: $e');
+        log.logTrace('_deleteDevFS ignored: $e');
       }
       response = await create();
     }
@@ -300,9 +317,9 @@ final class HotReloadController {
     final targetUri = '${_devFsBaseUri ?? _devFsFallbackUri}$fileName';
     final raw = await File(dillPath).readAsBytes();
     final gz = GZipCodec().encode(raw);
-    Log.logTrace('[timing] devfs-bytes raw=${raw.length} gz=${gz.length}');
+    log.logTrace('[timing] devfs-bytes raw=${raw.length} gz=${gz.length}');
 
-    final client = LocalHttp.client(
+    final client = localHttp.client(
       connectionTimeout: const Duration(seconds: 10),
     );
     try {
@@ -352,7 +369,7 @@ final class HotReloadController {
     try {
       return await body();
     } finally {
-      Log.logTrace('[timing] $label ${sw.elapsedMilliseconds}ms');
+      log.logTrace('[timing] $label ${sw.elapsedMilliseconds}ms');
     }
   }
 }
