@@ -85,6 +85,8 @@ void main() {
     expect(snapshot.resolvedExecutable, Platform.resolvedExecutable);
     expect(snapshot.localHostname, isNotEmpty);
     expect(snapshot.localeName, isNotEmpty);
+    expect(snapshot.processorCount, Platform.numberOfProcessors);
+    expect(snapshot.processorCount, greaterThan(0));
     expect(WindowsHost(architecture: 'x64').architecture, 'x64');
   });
 

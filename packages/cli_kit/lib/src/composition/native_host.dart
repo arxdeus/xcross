@@ -13,12 +13,14 @@ final class NativeHostSnapshot {
     required this.resolvedExecutable,
     required this.localHostname,
     required this.localeName,
+    required this.processorCount,
   });
   final PlatformHostInterface host;
   final Abi abi;
   final String resolvedExecutable;
   final String localHostname;
   final String localeName;
+  final int processorCount;
 }
 
 PlatformHostInterface detectPlatformHost() => detectPlatformHostSnapshot().host;
@@ -31,6 +33,7 @@ NativeHostSnapshot detectPlatformHostSnapshot() {
   final resolvedExecutable = Platform.resolvedExecutable;
   final localHostname = Platform.localHostname;
   final localeName = Platform.localeName;
+  final processorCount = Platform.numberOfProcessors;
   final architecture = switch (abi) {
     Abi.windowsArm64 || Abi.linuxArm64 || Abi.macosArm64 => 'arm64',
     Abi.windowsX64 || Abi.linuxX64 || Abi.macosX64 => 'x64',
@@ -50,6 +53,7 @@ NativeHostSnapshot detectPlatformHostSnapshot() {
       resolvedExecutable: resolvedExecutable,
       localHostname: localHostname,
       localeName: localeName,
+      processorCount: processorCount,
     );
   }
   if (Platform.isLinux) {
@@ -64,6 +68,7 @@ NativeHostSnapshot detectPlatformHostSnapshot() {
       resolvedExecutable: resolvedExecutable,
       localHostname: localHostname,
       localeName: localeName,
+      processorCount: processorCount,
     );
   }
   if (Platform.isMacOS) {
@@ -78,6 +83,7 @@ NativeHostSnapshot detectPlatformHostSnapshot() {
       resolvedExecutable: resolvedExecutable,
       localHostname: localHostname,
       localeName: localeName,
+      processorCount: processorCount,
     );
   }
   throw UnsupportedError('Unsupported host: ${Platform.operatingSystem}');
