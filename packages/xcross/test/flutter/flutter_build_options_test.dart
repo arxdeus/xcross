@@ -5,15 +5,13 @@ import 'package:test/test.dart';
 import 'package:xcross/src/flutter/models/flutter/flutter_build_options.dart';
 
 void main() {
-  test('defaults to device debug and validates simulator debug only', () {
+  test('defaults to debug and rejects unsupported build modes', () {
     const device = FlutterBuildOptions();
-    const simulator = FlutterBuildOptions(simulator: true);
-    expect(device.simulator, isFalse);
     expect(device.buildMode, 'debug');
-    expect(simulator.validate, returnsNormally);
+    expect(device.validate, returnsNormally);
     for (final mode in ['profile', 'release']) {
       expect(
-        FlutterBuildOptions(simulator: true, buildMode: mode).validate,
+        FlutterBuildOptions(buildMode: mode).validate,
         throwsA(isA<Exception>()),
       );
     }

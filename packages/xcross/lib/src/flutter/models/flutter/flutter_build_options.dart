@@ -12,7 +12,6 @@ final class FlutterBuildOptions {
     this.buildName,
     this.buildNumber,
     this.flavor,
-    this.simulator = false,
     this.buildMode = 'debug',
   });
 
@@ -26,7 +25,6 @@ final class FlutterBuildOptions {
     String? buildName,
     String? buildNumber,
     String? flavor,
-    bool simulator = false,
     String buildMode = 'debug',
   }) async => FlutterBuildOptions(
     target: target,
@@ -38,19 +36,17 @@ final class FlutterBuildOptions {
     buildName: buildName,
     buildNumber: buildNumber,
     flavor: flavor,
-    simulator: simulator,
     buildMode: buildMode,
   );
 
   /// `-t/--target` entrypoint.
   final String target;
-  final bool simulator;
   final String buildMode;
 
   void validate() {
     if (buildMode != 'debug') {
       throw FlutterBuildError(
-        'xcross Flutter ${simulator ? "iOS Simulator" : "iOS"} builds support debug mode only. Use --debug.',
+        'xcross Flutter iOS builds support debug mode only. Use --debug.',
       );
     }
   }
