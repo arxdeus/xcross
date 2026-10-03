@@ -2,6 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:cli_kit/cli_kit.dart';
+import 'package:xcross/src/shared/config/config_host.dart';
+import 'package:xcross/src/composition/config_host.dart';
 import 'package:yaml/yaml.dart';
 
 const _notProvided = _NotProvided();
@@ -148,13 +151,16 @@ final class XcrossConfig {
   ///
   /// Roots must be absolute, but are not required to exist. Tool overrides must
   /// point to existing regular executable files.
-  void validate({bool? windows}) {
-    final isWindows = windows ?? Platform.isWindows;
-    final pathContext = isWindows ? p.windows : p.posix;
+  void validate({
+    required PlatformHostInterface host,
+    ConfigHostInterface? policy,
+  }) {
+    final configHost = policy ?? configHostPolicy(host);
+    final pathContext = host.paths.context;
 
     _validateRoots(pathContext);
     _validateToolchains(pathContext);
-    _validateTools(pathContext, isWindows);
+    _validateTools(pathContext, configHost);
     if (setup case final value?) _validateSetupScript(value, pathContext);
     _validateExcludedCommands();
     _validateEnvironment(pathContext);
@@ -186,7 +192,7 @@ final class XcrossConfig {
     }
   }
 
-  void _validateTools(p.Context pathContext, bool windows) {
+  void _validateTools(p.Context pathContext, ConfigHostInterface policy) {
     for (final entry in tools.entries) {
       _rejectUnsafeString(entry.key, 'Tool name');
       _rejectUnsafeString(entry.value, 'Tool ${entry.key} path');
@@ -201,11 +207,7 @@ final class XcrossConfig {
           'Tool ${entry.key} must be a regular file: ${entry.value}',
         );
       }
-      final executable = windows
-          ? _windowsExecutableExtensions.contains(
-              p.windows.extension(entry.value).toLowerCase(),
-            )
-          : stat.mode & 0x49 != 0;
+      final executable = policy.isExecutable(entry.value, stat);
       if (!executable) {
         throw XcrossConfigException(
           'Tool ${entry.key} is not executable: ${entry.value}',
@@ -277,9 +279,10 @@ final class XcrossConfig {
   // ignore: prefer_constructors_over_static_methods
   static XcrossConfig parse(
     String source, {
+    required PlatformHostInterface host,
     String? sourcePath,
     Map<String, String>? environment,
-    bool? windows,
+    ConfigHostInterface? policy,
   }) {
     Object? document;
     try {
@@ -293,22 +296,25 @@ final class XcrossConfig {
     return _ConfigDecoder(
       document: document,
       sourcePath: sourcePath,
-      environment: environment ?? Platform.environment,
-      windows: windows ?? Platform.isWindows,
+      environment: environment ?? host.environment.values,
+      host: host,
+      policy: policy ?? configHostPolicy(host),
     ).decode();
   }
 
   /// Alias suitable for callers that treat parsing as deserialization.
   static XcrossConfig fromYaml(
     String source, {
+    required PlatformHostInterface host,
     String? sourcePath,
     Map<String, String>? environment,
-    bool? windows,
+    ConfigHostInterface? policy,
   }) => parse(
     source,
     sourcePath: sourcePath,
     environment: environment,
-    windows: windows,
+    host: host,
+    policy: policy,
   );
 
   /// Stable YAML with fixed section order and sorted arbitrary maps.
@@ -422,7 +428,8 @@ final class _ConfigDecoder {
     required this.document,
     required this.sourcePath,
     required this.environment,
-    required this.windows,
+    required this.host,
+    required this.policy,
   });
 
   static const _rootKeys = {
@@ -445,7 +452,8 @@ final class _ConfigDecoder {
   final Object? document;
   final String? sourcePath;
   final Map<String, String> environment;
-  final bool windows;
+  final PlatformHostInterface host;
+  final ConfigHostInterface policy;
 
   XcrossConfig decode() {
     final root = _stringMap(document, r'$', sourcePath);
@@ -462,7 +470,7 @@ final class _ConfigDecoder {
         r'$.excluded_commands',
       ),
     );
-    config.validate(windows: windows);
+    config.validate(host: host, policy: policy);
     return config;
   }
 
@@ -542,41 +550,50 @@ final class _ConfigDecoder {
       value == null ? null : _requiredString(value, field);
 
   String _requiredString(Object? value, String field) =>
-      _expandedString(value, field, environment, windows, sourcePath);
+      _expandedString(value, field, environment, host, policy, sourcePath);
 
   List<String> _optionalStringList(Object? value, String field) =>
       value == null ? const [] : _requiredStringList(value, field);
 
   List<String> _requiredStringList(Object? value, String field) =>
-      _expandedStringList(value, field, environment, windows, sourcePath);
+      _expandedStringList(value, field, environment, host, policy, sourcePath);
 }
 
 /// Discovers, loads, and atomically stores xcross configuration files.
-final class XcrossConfigStore {
-  const XcrossConfigStore({this.directory, this.environment, this.windows});
+final class XcrossConfigStore<T extends PlatformHostInterface> {
+  XcrossConfigStore(
+    this.host, {
+    this.directory,
+    Map<String, String>? environment,
+    ConfigHostInterface? policy,
+  }) : environment = Map.unmodifiable(environment ?? host.environment.values),
+       policy = policy ?? configHostPolicy(host);
 
   static const selectorVariable = 'XCROSS_CONFIG';
   static const preferredName = 'config.yaml';
   static const fallbackName = 'config.yml';
 
+  final T host;
   final String? directory;
-  final Map<String, String>? environment;
-  final bool? windows;
+  final Map<String, String> environment;
+  final ConfigHostInterface policy;
 
   String get defaultDirectory =>
-      directory ??
-      _platformConfigDirectory(
-        environment ?? Platform.environment,
-        windows ?? Platform.isWindows,
-      );
+      directory ?? host.paths.context.join(host.paths.configRoot, 'xcross');
 
   File? selectedFile() {
-    final env = environment ?? Platform.environment;
-    final selector = env[selectorVariable]?.trim();
-    if (selector != null && selector.isNotEmpty) return File(selector);
-    final yaml = File(p.join(defaultDirectory, preferredName));
+    final selector = host.environment
+        .lookup(environment, selectorVariable)
+        ?.trim();
+    if (selector != null && selector.isNotEmpty)
+      return host.fileSystem.file(selector);
+    final yaml = host.fileSystem.file(
+      host.paths.context.join(defaultDirectory, preferredName),
+    );
     if (yaml.existsSync()) return yaml;
-    final yml = File(p.join(defaultDirectory, fallbackName));
+    final yml = host.fileSystem.file(
+      host.paths.context.join(defaultDirectory, fallbackName),
+    );
     return yml.existsSync() ? yml : null;
   }
 
@@ -594,7 +611,8 @@ final class XcrossConfigStore {
         await file.readAsString(),
         sourcePath: file.path,
         environment: environment,
-        windows: windows,
+        host: host,
+        policy: policy,
       );
     } on FileSystemException catch (error) {
       throw XcrossConfigException(error.message, path: file.path);
@@ -602,69 +620,28 @@ final class XcrossConfigStore {
   }
 
   Future<File> save(XcrossConfig config, {String? path}) async {
-    final env = environment ?? Platform.environment;
-    final selected = env[selectorVariable]?.trim();
-    final target = File(
+    final selected = host.environment
+        .lookup(environment, selectorVariable)
+        ?.trim();
+    final target = host.fileSystem.file(
       path ??
           (selected != null && selected.isNotEmpty
               ? selected
               : selectedFile()?.path ??
-                    p.join(defaultDirectory, preferredName)),
+                    host.paths.context.join(defaultDirectory, preferredName)),
     );
     await target.parent.create(recursive: true);
-    final temporary = File(
+    final temporary = host.fileSystem.file(
       '${target.path}.tmp-$pid-${DateTime.now().microsecondsSinceEpoch}',
     );
-    File? backup;
     try {
       await temporary.writeAsString(config.toYaml(), flush: true);
-      if ((windows ?? Platform.isWindows) && target.existsSync()) {
-        backup = File(
-          '${target.path}.bak-$pid-${DateTime.now().microsecondsSinceEpoch}',
-        );
-        await target.rename(backup.path);
-        try {
-          await temporary.rename(target.path);
-        } on FileSystemException {
-          if (target.existsSync()) await target.delete();
-          await backup.rename(target.path);
-          backup = null;
-          rethrow;
-        }
-        await backup.delete();
-        backup = null;
-      } else {
-        await temporary.rename(target.path);
-      }
+      await policy.replace(temporary, target);
     } finally {
       if (temporary.existsSync()) await temporary.delete();
-      if (backup != null && backup.existsSync() && !target.existsSync()) {
-        await backup.rename(target.path);
-      }
     }
     return target;
   }
-}
-
-String _platformConfigDirectory(Map<String, String> env, bool windows) {
-  if (windows) {
-    final base = env['APPDATA'] ?? env['LOCALAPPDATA'] ?? env['USERPROFILE'];
-    if (base == null || base.isEmpty) {
-      throw const XcrossConfigException(
-        'APPDATA, LOCALAPPDATA, or USERPROFILE is required to locate configuration',
-      );
-    }
-    return p.windows.join(base, 'xcross');
-  }
-  final base = env['XDG_CONFIG_HOME'];
-  if (base != null && base.isNotEmpty) return p.posix.join(base, 'xcross');
-  final home = env['HOME'];
-  if (home == null || home.isEmpty) {
-    throw const XcrossConfigException(
-      'HOME is required to locate configuration',
-    );
-  }
-  return p.posix.join(home, '.config', 'xcross');
 }
 
 Map<String, Object?> _stringMap(
@@ -705,7 +682,8 @@ String _expandedString(
   Object? value,
   String field,
   Map<String, String> environment,
-  bool windows,
+  PlatformHostInterface host,
+  ConfigHostInterface policy,
   String? sourcePath,
 ) {
   if (value is! String || value.trim().isEmpty) {
@@ -717,7 +695,8 @@ String _expandedString(
   return expandNativeEnvironment(
     value,
     environment: environment,
-    windows: windows,
+    host: host,
+    policy: policy,
     sourcePath: sourcePath,
   );
 }
@@ -726,7 +705,8 @@ List<String> _expandedStringList(
   Object? value,
   String field,
   Map<String, String> environment,
-  bool windows,
+  PlatformHostInterface host,
+  ConfigHostInterface policy,
   String? sourcePath,
 ) {
   if (value is! List) {
@@ -738,7 +718,8 @@ List<String> _expandedStringList(
         value[index],
         '$field[$index]',
         environment,
-        windows,
+        host,
+        policy,
         sourcePath,
       ),
   ]);
@@ -748,16 +729,14 @@ List<String> _expandedStringList(
 String expandNativeEnvironment(
   String value, {
   required Map<String, String> environment,
-  required bool windows,
+  required PlatformHostInterface host,
+  ConfigHostInterface? policy,
   String? sourcePath,
 }) {
   _rejectUnsafeString(value, 'Configuration value', sourcePath: sourcePath);
-  final pattern = windows
-      ? RegExp('%([A-Za-z_][A-Za-z0-9_]*)%')
-      : RegExp(r'\$([A-Za-z_][A-Za-z0-9_]*)|\$\{([A-Za-z_][A-Za-z0-9_]*)\}');
-
+  final configHost = policy ?? configHostPolicy(host);
   String variable(String name) {
-    final replacement = environment[name];
+    final replacement = host.environment.lookup(environment, name);
     if (replacement == null) {
       throw XcrossConfigException(
         'Environment variable $name is not defined',
@@ -772,10 +751,7 @@ String expandNativeEnvironment(
     return replacement;
   }
 
-  var result = value;
-  if (!windows && (result == '~' || result.startsWith('~/'))) {
-    result = '${variable('HOME')}${result.substring(1)}';
-  }
+  var result = configHost.expandHome(value, variable);
   final seen = <String>{};
   for (var depth = 0; depth < _maximumEnvironmentExpansionDepth; depth++) {
     if (!seen.add(result)) {
@@ -784,9 +760,9 @@ String expandNativeEnvironment(
         path: sourcePath,
       );
     }
-    if (!pattern.hasMatch(result)) return result;
+    if (!configHost.variables.hasMatch(result)) return result;
     result = result.replaceAllMapped(
-      pattern,
+      configHost.variables,
       (match) => variable(match.group(1) ?? match.group(2)!),
     );
   }
