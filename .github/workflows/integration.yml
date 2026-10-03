@@ -515,7 +515,7 @@ jobs:
         working-directory: ${{ runner.temp }}/flutter-simulator
         run: |
           set -euo pipefail
-          xcross --verbose flutter build --simulator --debug 2>&1 | \
+          xcross --verbose flutter build --target-platform simulator --debug 2>&1 | \
             tee "$RUNNER_TEMP/ios-simulator-smoke/build.log"
 
       - name: Boot install launch and observe Flutter app headlessly

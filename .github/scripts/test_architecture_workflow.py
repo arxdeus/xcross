@@ -1,0 +1,132 @@
+import pathlib
+import unittest
+
+
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+
+
+def workflow_jobs(text):
+    jobs = {}
+    current = None
+    collecting = False
+    for line in text.splitlines():
+        if line == 'jobs:':
+            collecting = True
+            continue
+        if not collecting:
+            continue
+        if line and not line.startswith(' '):
+            break
+        if line.startswith('  ') and not line.startswith('    ') and line.endswith(':'):
+            current = line.strip()[:-1]
+            jobs[current] = []
+        elif current is not None:
+            jobs[current].append(line)
+    return jobs
+
+
+def workflow_steps(lines):
+    steps = []
+    current = None
+    for line in lines:
+        if line.startswith('      - '):
+            current = {'script': []}
+            steps.append(current)
+            value = line[8:]
+        elif line.startswith('        ') and not line.startswith('          '):
+            value = line[8:]
+        elif current is not None and line.startswith('          '):
+            command = line.strip()
+            if current.get('run') in ('|', '>-') and not command.startswith('#'):
+                current['script'].append(command)
+            continue
+        else:
+            continue
+        if current is not None and ':' in value:
+            key, value = value.split(':', 1)
+            current[key] = value.strip()
+            if key == 'run' and value.strip() not in ('|', '>-'):
+                current['script'] = [value.strip()]
+    return {step.get('name'): step for step in steps}
+
+
+class ArchitectureWorkflowTests(unittest.TestCase):
+    def required_step(self, steps, name):
+        self.assertIn(name, steps)
+        step = steps[name]
+        self.assertNotIn('if', step)
+        self.assertIn(step.get('continue-on-error', 'false'), ('false', False))
+        return step['script']
+
+    def check_simulator_job(self, workflow, feature, marker):
+        jobs = workflow_jobs(workflow)
+        self.assertIn(f'{feature}-simulator', jobs)
+        lines = jobs[f'{feature}-simulator']
+        self.assertFalse(any(line.startswith('    if:') for line in lines))
+        self.assertFalse(any(line.startswith('    continue-on-error:') for line in lines))
+        steps = workflow_steps(lines)
+        bundle = self.required_step(steps, 'Build native production xcross CLI')
+        self.assertIn('(cd packages/xcross && dart run tool/build_xcross.dart)', bundle)
+        self.assertIn('bundles=(packages/xcross/build/cli/*/bundle)', bundle)
+        self.assertIn('cp -R "${bundles[0]}" "$RUNNER_TEMP/xcross-bundle"', bundle)
+        self.assertIn('/usr/bin/xcrun lipo "$RUNNER_TEMP/xcross-bundle/bin/xcross" -verify_arch arm64', bundle)
+        self.assertIn('echo "$RUNNER_TEMP/xcross-bundle/bin" >> "$GITHUB_PATH"', bundle)
+        sdk = self.required_step(steps, 'Install selected native Xcode SDK through xcross')
+        self.assertTrue(any(line.startswith('xcross sdk install "$XCODE_APP"') for line in sdk))
+        build = self.required_step(steps, 'Build ARM64 simulator app through production xcross')
+        command = f'xcross --verbose {feature} build --target-platform simulator'
+        self.assertTrue(any(line.startswith(command) for line in build))
+        if feature == 'flutter':
+            self.assertTrue(any(line.startswith(command) and '--debug' in line for line in build))
+        smoke = self.required_step(steps, f'Boot install launch and observe {feature.title()} app headlessly')
+        self.assertIn(f'apps=("$RUNNER_TEMP/{feature}-simulator/build/xcross-ios-simulator/"*.app)', smoke)
+        self.assertIn('test "${#apps[@]}" -eq 1', smoke)
+        self.assertTrue(any(line.startswith('python3 .github/scripts/simulator_smoke.py "${apps[0]}"') for line in smoke))
+        self.assertIn(f'--ready-marker {marker}', smoke)
+        self.assertNotIn('--simulator', workflow)
+        self.assertIn('if: always()', workflow)
+
+    def test_strict_guard_is_an_independent_unprivileged_job(self):
+        workflow = (ROOT / '.github/workflows/architecture.yml').read_text()
+        self.assertIn('contents: read', workflow)
+        self.assertIn('persist-credentials: false', workflow)
+        self.assertIn('sdk: 3.13.0', workflow)
+        steps = workflow_steps(workflow_jobs(workflow)['architecture'])
+        self.assertIn('dart pub get --enforce-lockfile', self.required_step(steps, 'Resolve locked dependencies'))
+        self.assertIn('dart --packages=.dart_tool/package_config.json tool/architecture/check_test.dart', self.required_step(steps, 'Test architecture guard'))
+        self.assertIn('dart --packages=.dart_tool/package_config.json tool/architecture/check.dart > architecture-report.json', self.required_step(steps, 'Enforce production architecture'))
+        self.assertNotIn('--report', workflow)
+        self.assertNotIn('continue-on-error', workflow)
+        self.assertNotIn('secrets.', workflow)
+        self.assertNotIn('setup-darwin-sdk', workflow)
+
+    def test_simulator_jobs_use_target_platform_and_preserve_smoke(self):
+        for name, feature, marker in (
+            ('integration.yml', 'flutter', 'XCROSS_SIMULATOR_NATIVE_FIRST_FRAME_READY'),
+            ('compose-integration.yml', 'compose', 'XCROSS_COMPOSE_READY'),
+        ):
+            with self.subTest(workflow=name):
+                self.check_simulator_job((ROOT / '.github/workflows' / name).read_text(), feature, marker)
+
+    def test_disabled_or_optional_real_smoke_is_rejected(self):
+        original = (ROOT / '.github/workflows/integration.yml').read_text()
+        name = '      - name: Boot install launch and observe Flutter app headlessly\n'
+        for replacement in (name + '        if: false\n', name + '        continue-on-error: true\n'):
+            with self.subTest(replacement=replacement):
+                with self.assertRaises(AssertionError):
+                    self.check_simulator_job(original.replace(name, replacement), 'flutter', 'XCROSS_SIMULATOR_NATIVE_FIRST_FRAME_READY')
+
+    def test_comments_and_mock_commands_cannot_replace_real_build_or_smoke(self):
+        original = (ROOT / '.github/workflows/integration.yml').read_text()
+        for old, new in (
+            ('          xcross --verbose flutter build --target-platform simulator --debug', '          # xcross --verbose flutter build --target-platform simulator --debug'),
+            ('          python3 .github/scripts/simulator_smoke.py "${apps[0]}"', '          echo mocked-smoke "${apps[0]}"'),
+            ('          (cd packages/xcross && dart run tool/build_xcross.dart)', '          echo "dart run tool/build_xcross.dart"'),
+        ):
+            with self.subTest(command=old):
+                with self.assertRaises(AssertionError):
+                    self.check_simulator_job(original.replace(old, new), 'flutter', 'XCROSS_SIMULATOR_NATIVE_FIRST_FRAME_READY')
+
+
+if __name__ == '__main__':
+    unittest.main()
