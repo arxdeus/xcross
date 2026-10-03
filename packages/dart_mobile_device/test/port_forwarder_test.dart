@@ -1,12 +1,65 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:dart_mobile_device/src/tunnel/port_forwarder.dart';
 import 'package:test/test.dart';
 
+import 'test_device_sockets.dart';
 import 'test_log_output.dart';
 
 void main() {
+  test('forwarder bind failure uses only supplied port', () async {
+    final error = StateError('fake bind denied');
+    final sockets = TestDeviceSockets(bindFailure: error);
+    await expectLater(
+      PortForwarder.start(
+        sockets: sockets,
+        log: testLog(),
+        deviceHost: 'not-a-native-host',
+        devicePort: 4567,
+      ),
+      throwsA(same(error)),
+    );
+    expect(sockets.bindings, [0]);
+    expect(sockets.connections, isEmpty);
+  });
+
+  test('close releases a device socket arriving after pending dial', () async {
+    final ready = Completer<void>();
+    final disconnected = Completer<void>();
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(server.close);
+    server.listen((socket) {
+      addTearDown(socket.destroy);
+      socket.listen((_) {}, onDone: disconnected.complete);
+    });
+    final sockets = TestDeviceSockets(
+      destination: (host: server.address.address, port: server.port),
+      connectReady: ready.future,
+    );
+    final forwarder = await PortForwarder.start(
+      sockets: sockets,
+      log: testLog(),
+      deviceHost: '[fe80::5678%en0]',
+      devicePort: 4567,
+    );
+    addTearDown(forwarder.close);
+    final client = await Socket.connect(
+      InternetAddress.loopbackIPv4,
+      forwarder.localPort,
+    );
+    addTearDown(client.destroy);
+    await sockets.connectionRequested.future.timeout(
+      const Duration(seconds: 2),
+    );
+    await forwarder.close();
+    ready.complete();
+    await disconnected.future.timeout(const Duration(seconds: 2));
+    expect(sockets.bindings, [0]);
+    expect(sockets.connections.single.host, 'fe80::5678%en0');
+  });
+
   group('PortForwarder', () {
     late ServerSocket device;
 
@@ -25,10 +78,14 @@ void main() {
     });
 
     test('carries bytes in both directions', () async {
+      final sockets = TestDeviceSockets(
+        destination: (host: device.address.address, port: device.port),
+      );
       final forwarder = await PortForwarder.start(
+        sockets: sockets,
         log: testLog(),
-        deviceHost: device.address.address,
-        devicePort: device.port,
+        deviceHost: '[fe80::1234%en0]',
+        devicePort: 4567,
       );
       addTearDown(forwarder.close);
 
@@ -48,11 +105,16 @@ void main() {
           .first
           .timeout(const Duration(seconds: 5));
       expect(reply, 'getVersion');
+      expect(sockets.bindings, [0]);
+      expect(sockets.connections, [
+        (host: 'fe80::1234%en0', port: 4567, timeout: null),
+      ]);
       await client.close();
     });
 
     test('publishes a loopback port, never the device address', () async {
       final forwarder = await PortForwarder.start(
+        sockets: TestDeviceSockets(),
         log: testLog(),
         deviceHost: device.address.address,
         devicePort: device.port,
@@ -70,6 +132,7 @@ void main() {
 
     test('close stops accepting so the process can exit', () async {
       final forwarder = await PortForwarder.start(
+        sockets: TestDeviceSockets(),
         log: testLog(),
         deviceHost: device.address.address,
         devicePort: device.port,
@@ -98,6 +161,7 @@ void main() {
         await dead.close();
 
         final forwarder = await PortForwarder.start(
+          sockets: TestDeviceSockets(),
           log: testLog(),
           deviceHost: InternetAddress.loopbackIPv4.address,
           devicePort: deadPort,

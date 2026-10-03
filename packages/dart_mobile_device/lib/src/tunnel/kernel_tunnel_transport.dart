@@ -37,6 +37,9 @@ class KernelTunnelTransport implements DeviceTransport {
   String get description => 'kernel RSD tunnel (${_tunnel.address})';
 
   @override
+  String get vmServiceBindAddress => '::0';
+
+  @override
   Future<DeviceEndpoint> debugproxyEndpoint() async =>
       DeviceEndpoint(host: _tunnel.address, port: _debugproxyPort);
 

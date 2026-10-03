@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:dart_mobile_device/src/errors.dart';
+import 'package:dart_mobile_device/src/shared/network/device_sockets.dart';
 
 /// GDB-remote packet type.
 enum GdbReply {
@@ -132,8 +133,14 @@ final class GdbReplyPacket {
 /// Minimal GDB-remote client over raw TCP: attach, resume, drain stdout
 /// (`O` packets), and detect process exit (`W`/`X`).
 final class GdbRemoteClient {
-  GdbRemoteClient({required this.log, required this.host, required this.port});
+  GdbRemoteClient({
+    required this.log,
+    required this.sockets,
+    required this.host,
+    required this.port,
+  });
   final Log log;
+  final DeviceSockets sockets;
 
   final String host;
   final int port;
@@ -155,7 +162,7 @@ final class GdbRemoteClient {
   Future<void> connect() async {
     final rawHost = ProcessRunner.unbracketHost(host);
     try {
-      _socket = await Socket.connect(rawHost, port);
+      _socket = await sockets.connect(rawHost, port);
     } catch (e) {
       throw TunnelError('debugproxy connect failed: $e');
     }

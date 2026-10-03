@@ -2,6 +2,8 @@ import 'package:apple_developer_kit/apple_developer_kit_shared.dart';
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart'
     show Device, DeviceSearchMode, DeviceSource, OsVersion, Pymd;
+import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
+    show DeviceSockets;
 import 'package:xcross/src/device/core_device_launch_profile.dart';
 import 'package:xcross/src/device/core_device_launcher.dart';
 import 'package:xcross/src/device/device_backend.dart';
@@ -39,11 +41,13 @@ final class DeviceRunOperation {
     required NativeLibraryLoader Function() createNativeLibraryLoader,
     required SigningHttpClientFactory httpClients,
     required VmServiceConnector connector,
+    required DeviceSockets sockets,
     required VmServiceOutput vmOutput,
   }) async {
     final launcher = CoreDeviceLauncher(
       pymd,
       connector: connector,
+      sockets: sockets,
       vmOutput: vmOutput,
     );
     return DeviceRunOperation(

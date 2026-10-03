@@ -9,6 +9,31 @@ import 'package:test/test.dart';
 import 'test_log_output.dart';
 
 void main() {
+  test('actual transports supply device-side VM bind addresses', () {
+    final runner = ProcessRunner(
+      MacOSHost(processes: Processes()),
+      stdinStream: const Stream.empty(),
+      stdoutSink: testSink(),
+      stderrSink: testSink(),
+      log: testLog(),
+    );
+    final pymd = Pymd(
+      runner,
+      console: TestDeviceConsole(),
+      localHttp: testLocalHttp(),
+      privileges: PosixPrivileges(runner),
+      hostPolicy: MacOSDeviceHost(runner),
+    );
+    final kernel = KernelTunnelTransport(
+      tunnel: const Tunnel(address: 'fe80::1234%en0', port: 123),
+      debugproxyPort: 456,
+      daemon: TunnelDaemon(pymd),
+    );
+    final userspace = UserspaceTunnelTransport(pymd: pymd, udid: 'test-device');
+    expect(kernel.vmServiceBindAddress, '::0');
+    expect(userspace.vmServiceBindAddress, '0.0.0.0');
+  });
+
   test('PID files never authorize stale daemon termination', () async {
     final directory = Directory.systemTemp.createTempSync('tunnel_ownership_');
     addTearDown(() => directory.deleteSync(recursive: true));

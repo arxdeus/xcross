@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:dart_mobile_device/src/shared/network/device_sockets.dart';
 
 /// Publishes a device TCP port on `127.0.0.1` so tools that cannot use the RSD
 /// tunnel address directly can still reach it.
@@ -13,8 +14,9 @@ import 'package:cli_kit/cli_kit_shared.dart';
 /// survives none of that reliably. A loopback IPv4 port is what `flutter run`
 /// hands out, so it is the shape every downstream consumer already handles.
 class PortForwarder {
-  PortForwarder._(this._server, this._sockets, this.log);
+  PortForwarder._(this._server, this._sockets, this.log, this.sockets);
   final Log log;
+  final DeviceSockets sockets;
 
   final ServerSocket _server;
   final Set<Socket> _sockets;
@@ -26,12 +28,13 @@ class PortForwarder {
   /// Start forwarding `127.0.0.1:<localPort>` to [deviceHost]:[devicePort].
   static Future<PortForwarder> start({
     required Log log,
+    required DeviceSockets sockets,
     required String deviceHost,
     required int devicePort,
   }) async {
     // Port 0: let the OS pick, so two concurrent sessions never collide.
-    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-    final forwarder = PortForwarder._(server, <Socket>{}, log);
+    final server = await sockets.bindLoopback();
+    final forwarder = PortForwarder._(server, <Socket>{}, log, sockets);
 
     server.listen(
       (client) => unawaited(
@@ -65,7 +68,7 @@ class PortForwarder {
     try {
       // Socket.connect wants a bare address; a bracketed literal never
       // resolves. Callers pass tunnel.address raw today, so this is defensive.
-      device = await Socket.connect(
+      device = await sockets.connect(
         ProcessRunner.unbracketHost(deviceHost),
         devicePort,
       );

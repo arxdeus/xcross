@@ -18,10 +18,10 @@ final class CoreDeviceLaunchProfile {
 
   List<String> argumentsForLaunch({
     required bool isDap,
-    bool ipv6VmService = false,
+    required String vmServiceBindAddress,
   }) => [
     if (_flutterRuntime && hotReload != null) ...[
-      '--vm-service-host=${ipv6VmService ? '::0' : '0.0.0.0'}',
+      '--vm-service-host=$vmServiceBindAddress',
       '--vm-service-port=${TunnelConstants.vmServicePort}',
       '--disable-service-auth-codes',
       if (isDap) '--start-paused',

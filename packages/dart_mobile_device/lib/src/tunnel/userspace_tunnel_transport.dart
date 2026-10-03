@@ -56,6 +56,9 @@ class UserspaceTunnelTransport implements DeviceTransport {
   String get description => 'userspace tunnel over usbmux (loopback relays)';
 
   @override
+  String get vmServiceBindAddress => '0.0.0.0';
+
+  @override
   Future<DeviceEndpoint> debugproxyEndpoint() async =>
       _debugproxy ??= await _startRelay(
         label: 'debugproxy',

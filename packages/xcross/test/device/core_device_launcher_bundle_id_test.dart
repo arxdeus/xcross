@@ -1,10 +1,45 @@
 import 'package:test/test.dart';
 import 'package:xcross/src/device/core_device_launcher.dart';
 import 'package:xcross/src/device/device_log.dart';
+import 'package:xcross/src/errors.dart';
 
 import 'test_log_output.dart';
 
 void main() {
+  test('VM connection failures preserve Error and Exception identity', () {
+    final error = StateError('socket failed');
+    final exception = Exception('connection refused');
+    for (final failure in [error, exception]) {
+      expect(
+        () => CoreDeviceLauncher.throwVmServiceConnectionFailure(failure),
+        throwsA(same(failure)),
+      );
+    }
+  });
+
+  test('arbitrary VM failure retains useful connection context', () {
+    expect(
+      () => CoreDeviceLauncher.throwVmServiceConnectionFailure('bad channel'),
+      throwsA(
+        isA<XcrossError>().having(
+          (error) => error.toString(),
+          'message',
+          contains('VM Service connection failed: bad channel'),
+        ),
+      ),
+    );
+    expect(
+      () => CoreDeviceLauncher.throwVmServiceConnectionFailure(null),
+      throwsA(
+        isA<XcrossError>().having(
+          (error) => error.toString(),
+          'message',
+          contains('VM Service did not become available'),
+        ),
+      ),
+    );
+  });
+
   test('background launch failure tells the user to unlock the device', () {
     expect(
       CoreDeviceLauncher.launchFailureMessage(

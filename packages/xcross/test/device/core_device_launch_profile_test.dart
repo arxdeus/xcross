@@ -5,7 +5,10 @@ import 'package:xcross/src/flutter/models/hot_reload_config.dart';
 void main() {
   test('native profile forwards only application arguments', () {
     const profile = CoreDeviceLaunchProfile.native(arguments: ['--demo']);
-    expect(profile.argumentsForLaunch(isDap: false), ['--demo']);
+    expect(
+      profile.argumentsForLaunch(isDap: false, vmServiceBindAddress: '0.0.0.0'),
+      ['--demo'],
+    );
     expect(profile.hotReload, isNull);
   });
 
@@ -24,7 +27,7 @@ void main() {
       hotReload: hotReload,
     );
     expect(
-      profile.argumentsForLaunch(isDap: true),
+      profile.argumentsForLaunch(isDap: true, vmServiceBindAddress: '0.0.0.0'),
       containsAll([
         '--vm-service-host=0.0.0.0',
         '--disable-service-auth-codes',
@@ -35,7 +38,7 @@ void main() {
       ]),
     );
     expect(
-      profile.argumentsForLaunch(isDap: true),
+      profile.argumentsForLaunch(isDap: true, vmServiceBindAddress: '0.0.0.0'),
       isNot(contains('--enable-dart-profiling')),
     );
   });
@@ -53,7 +56,7 @@ void main() {
     const profile = CoreDeviceLaunchProfile.flutter(hotReload: hotReload);
 
     expect(
-      profile.argumentsForLaunch(isDap: false, ipv6VmService: true),
+      profile.argumentsForLaunch(isDap: false, vmServiceBindAddress: '::0'),
       contains('--vm-service-host=::0'),
     );
   });

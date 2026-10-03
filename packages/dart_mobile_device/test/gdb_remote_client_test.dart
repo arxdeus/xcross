@@ -5,6 +5,7 @@ import 'package:dart_mobile_device/src/errors.dart';
 import 'package:dart_mobile_device/src/gdb_remote_client.dart';
 import 'package:test/test.dart';
 
+import 'test_device_sockets.dart';
 import 'test_log_output.dart';
 
 /// ASCII `$` — start-of-packet sentinel (mirrors the production wire format).
@@ -61,6 +62,57 @@ Stream<String> _incomingFrames(Socket socket, {List<int>? rawBytes}) {
 }
 
 void main() {
+  test(
+    'GDB connect uses injected failure without acquiring native socket',
+    () async {
+      final sockets = TestDeviceSockets(
+        connectFailure: StateError('fake denied'),
+      );
+      final client = GdbRemoteClient(
+        sockets: sockets,
+        log: testLog(),
+        host: '[fe80::1234%en0]',
+        port: 4567,
+      );
+      addTearDown(client.close);
+      await expectLater(
+        client.connect(),
+        throwsA(
+          isA<TunnelError>().having(
+            (error) => error.toString(),
+            'message',
+            contains('fake denied'),
+          ),
+        ),
+      );
+      expect(sockets.connections.single.host, 'fe80::1234%en0');
+    },
+  );
+
+  test('injected sockets receive unbracketed scoped IPv6 endpoint', () async {
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(server.close);
+    server.listen((socket) {
+      addTearDown(socket.destroy);
+      socket.listen((_) {});
+    });
+    final sockets = TestDeviceSockets(
+      destination: (host: server.address.address, port: server.port),
+    );
+    final client = GdbRemoteClient(
+      sockets: sockets,
+      log: testLog(),
+      host: '[fe80::1234%en0]',
+      port: 4567,
+    );
+    addTearDown(client.close);
+    await client.connect();
+    expect(sockets.connections, [
+      (host: 'fe80::1234%en0', port: 4567, timeout: null),
+    ]);
+    expect(sockets.bindings, isEmpty);
+  });
+
   _stopSignalTests();
   // Pins the checksum format against a hand-computed value, independent of
   // the _frame() helper above — a shared bug in both would otherwise pass.
@@ -110,6 +162,7 @@ void main() {
     /// alongside the server-side socket for the accepted connection.
     Future<(GdbRemoteClient, Socket)> connectClient() async {
       final client = GdbRemoteClient(
+        sockets: TestDeviceSockets(),
         log: testLog(),
         host: device.address.address,
         port: device.port,

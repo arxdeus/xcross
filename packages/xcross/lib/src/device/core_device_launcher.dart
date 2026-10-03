@@ -8,10 +8,11 @@ import 'package:dart_mobile_device/dart_mobile_device.dart'
         DeviceTransport,
         DeviceTransportResolver,
         GdbRemoteClient,
-        KernelTunnelTransport,
         PortForwarder,
         Pymd,
         TunnelConstants;
+import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
+    show DeviceSockets;
 import 'package:frontend_server_kit/frontend_server_kit.dart';
 import 'package:meta/meta.dart';
 import 'package:pure/pure.dart';
@@ -44,9 +45,11 @@ final class CoreDeviceLauncher {
   CoreDeviceLauncher(
     this.pymd, {
     required this.connector,
+    required this.sockets,
     required this.vmOutput,
   });
   final VmServiceConnector connector;
+  final DeviceSockets sockets;
   final VmServiceOutput vmOutput;
   final Pymd pymd;
   bool get _isDap => pymd.runner.effectiveEnvironment['XCROSS_DAP'] == '1';
@@ -75,7 +78,7 @@ final class CoreDeviceLauncher {
         bundleId: bundleId,
         arguments: profile.argumentsForLaunch(
           isDap: _isDap,
-          ipv6VmService: transport is KernelTunnelTransport,
+          vmServiceBindAddress: transport.vmServiceBindAddress,
         ),
         hotReload: profile.hotReload,
         onRestartRequested: onRestartRequested,
@@ -291,6 +294,7 @@ final class CoreDeviceLauncher {
     required int pid,
   }) async {
     final gdb = GdbRemoteClient(
+      sockets: sockets,
       log: pymd.runner.log,
       host: endpoint.host,
       port: endpoint.port,
@@ -327,6 +331,7 @@ final class CoreDeviceLauncher {
         TunnelConstants.vmServicePort,
       );
       final forwarder = await PortForwarder.start(
+        sockets: sockets,
         log: pymd.runner.log,
         deviceHost: endpoint.host,
         devicePort: endpoint.port,
@@ -530,8 +535,16 @@ final class CoreDeviceLauncher {
     );
     if (connected != null) return connected;
     await vm.close();
-    // ignore: only_throw_errors
-    if (lastError case final Object error?) throw error;
+    throwVmServiceConnectionFailure(lastError);
+  }
+
+  @visibleForTesting
+  static Never throwVmServiceConnectionFailure(Object? lastError) {
+    if (lastError case final Error error) throw error;
+    if (lastError case final Exception error) throw error;
+    if (lastError != null) {
+      throw XcrossError('VM Service connection failed: $lastError');
+    }
     throw XcrossError('VM Service did not become available');
   }
 }

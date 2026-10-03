@@ -15,7 +15,12 @@ void main() {
     console: TestDeviceConsole(),
     log: testLog(),
     keyboardInput: const Stream<List<int>>.empty(),
-    gdb: GdbRemoteClient(log: testLog(), host: '127.0.0.1', port: 0),
+    gdb: GdbRemoteClient(
+      sockets: const NativeDeviceSockets(),
+      log: testLog(),
+      host: '127.0.0.1',
+      port: 0,
+    ),
     hotReload: null,
     onRestartRequested: () async {
       events.add('restart');
@@ -52,7 +57,12 @@ void main() {
       console: TestDeviceConsole(),
       log: testLog(),
       keyboardInput: const Stream<List<int>>.empty(),
-      gdb: GdbRemoteClient(log: testLog(), host: '127.0.0.1', port: 0),
+      gdb: GdbRemoteClient(
+        sockets: const NativeDeviceSockets(),
+        log: testLog(),
+        host: '127.0.0.1',
+        port: 0,
+      ),
       hotReload: null,
       hotReloadUnavailable: 'no reload here',
     );

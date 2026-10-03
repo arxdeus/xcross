@@ -21,6 +21,8 @@ abstract interface class DeviceTransport {
   /// Short transport name for logs and error messages.
   String get description;
 
+  String get vmServiceBindAddress;
+
   /// Endpoint speaking Apple's debugproxy (GDB-remote) protocol.
   Future<DeviceEndpoint> debugproxyEndpoint();
 

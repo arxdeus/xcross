@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:test/test.dart';
 
@@ -29,6 +30,7 @@ void main() {
     await script.writeAsString('''
 import 'dart:io';
 import 'package:dart_mobile_device/src/tunnel/port_forwarder.dart';
+import 'package:dart_mobile_device/src/host/shared/network/native_device_sockets.dart';
 import 'package:cli_kit/cli_kit.dart';
 
 Future<void> main() async {
@@ -36,7 +38,7 @@ Future<void> main() async {
   final device = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
   device.listen((s) => s.listen(s.add, onDone: s.close));
 
-  final forwarder = await PortForwarder.start(log: Log(output: StreamLogOutput(stdout: stdout, stderr: stderr, supportsAnsi: false, terminalColumns: () => 80)), 
+  final forwarder = await PortForwarder.start(sockets: const NativeDeviceSockets(), log: Log(output: StreamLogOutput(stdout: stdout, stderr: stderr, supportsAnsi: false, terminalColumns: () => 80)),
     deviceHost: device.address.address,
     devicePort: device.port,
   );
@@ -47,8 +49,9 @@ $body
   // No exit() here on purpose: main returning must be enough.
 }
 ''');
+    final config = await Isolate.packageConfig;
     return Process.start(Platform.resolvedExecutable, [
-      'run',
+      '--packages=${config!.toFilePath()}',
       script.path,
     ], workingDirectory: Directory.current.path);
   }

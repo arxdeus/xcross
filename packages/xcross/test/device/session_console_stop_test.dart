@@ -10,7 +10,12 @@ import 'test_log_output.dart';
 
 void main() {
   test('failed initial resume stops and awaits the console', () async {
-    final gdb = GdbRemoteClient(log: testLog(), host: '127.0.0.1', port: 1);
+    final gdb = GdbRemoteClient(
+      sockets: const NativeDeviceSockets(),
+      log: testLog(),
+      host: '127.0.0.1',
+      port: 1,
+    );
     addTearDown(gdb.close);
     final console = SessionConsole(
       console: TestDeviceConsole(),
@@ -42,6 +47,7 @@ void main() {
     server.listen(connected.complete);
 
     final gdb = GdbRemoteClient(
+      sockets: const NativeDeviceSockets(),
       log: testLog(),
       host: '127.0.0.1',
       port: server.port,
@@ -88,6 +94,7 @@ void main() {
     addTearDown(server.close);
     final accepted = server.first;
     final gdb = GdbRemoteClient(
+      sockets: const NativeDeviceSockets(),
       log: testLog(),
       host: '127.0.0.1',
       port: server.port,
@@ -130,6 +137,7 @@ void main() {
       final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
       final accepted = server.first;
       final gdb = GdbRemoteClient(
+        sockets: const NativeDeviceSockets(),
         log: testLog(),
         host: '127.0.0.1',
         port: server.port,
@@ -165,6 +173,7 @@ void main() {
       addTearDown(server.close);
       final accepted = server.first;
       final gdb = GdbRemoteClient(
+        sockets: const NativeDeviceSockets(),
         log: testLog(),
         host: '127.0.0.1',
         port: server.port,
@@ -207,6 +216,7 @@ void main() {
     addTearDown(server.close);
     final accepted = server.first;
     final gdb = GdbRemoteClient(
+      sockets: const NativeDeviceSockets(),
       log: testLog(),
       host: '127.0.0.1',
       port: server.port,
