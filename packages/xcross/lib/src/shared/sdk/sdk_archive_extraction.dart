@@ -69,7 +69,7 @@ final class SdkArchiveExtraction<T extends PlatformHostInterface> {
           entity.path,
           followLinks: false,
         );
-        final name = p
+        final name = _paths
             .relative(entity.path, from: contents)
             .replaceAll(r'\', '/');
         yield await _xcodeAppEntry(entity.path, name, entityType);
