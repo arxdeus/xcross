@@ -31,6 +31,10 @@ const toolBoundaries = {
   'packages/xcross/tool/verify_flutter_notices.dart',
 };
 const hostFactories = {
+  'packages/xcross/lib/src/composition/flutter/linux_flutter_feature_services.dart':
+      'linux',
+  'packages/xcross/lib/src/composition/flutter/macos_flutter_feature_services.dart':
+      'macos',
   'packages/xcross/lib/src/composition/flutter/windows_flutter_feature_services.dart':
       'windows',
   'packages/xcross/lib/src/composition/host/windows_xcross_context.dart':

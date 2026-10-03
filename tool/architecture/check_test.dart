@@ -238,6 +238,16 @@ Future<void> main() async {
         production('packages/cli_kit/test/a.dart')) {
       throw StateError('Production inventory failed');
     }
+    for (final host in ['linux', 'macos']) {
+      final classified = classify(
+        'packages/xcross/lib/src/composition/flutter/${host}_flutter_feature_services.dart',
+      );
+      if (classified.host != host || classified.kind != 'host-composition') {
+        throw StateError(
+          'Exact selected host composition classification failed',
+        );
+      }
+    }
     const approvedPart =
         'packages/xcross/lib/src/composition/cli/flutter_build_command.g.dart';
     File('${directory.path}/$approvedPart').writeAsStringSync(
