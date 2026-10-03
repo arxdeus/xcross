@@ -9,11 +9,17 @@ import 'package:xcross/src/compose/compose.dart';
 import 'support/compose_platforms.dart';
 
 void main() {
+  late ComposeTestSession session;
+  setUp(() {
+    session = ComposeTestSession();
+  });
+  tearDown(() => session.dispose());
   test(
     'simulator Konan configuration isolates sysroot linker and caches',
     () async {
       final fixture = ComposeFixture.create(
-        ComposeTestHosts.macosArm64,
+        session,
+        session.hosts.macosArm64,
         simulator: true,
       )..createKotlinHome();
       addTearDown(fixture.dispose);
@@ -46,9 +52,12 @@ void main() {
     },
   );
 
-  for (final host in [ComposeTestHosts.macosArm64, ComposeTestHosts.linuxX64]) {
-    test('selects native Apple tools only on ${host.classifier}', () async {
-      final fixture = ComposeFixture.create(host)..createKotlinHome();
+  for (final classifier in ['macos-aarch64', 'linux-x86_64']) {
+    test('selects native Apple tools only on $classifier', () async {
+      final host = classifier == 'macos-aarch64'
+          ? session.hosts.macosArm64
+          : session.hosts.linuxX64;
+      final fixture = ComposeFixture.create(session, host)..createKotlinHome();
       addTearDown(fixture.dispose);
       final nativeBin = Directory(p.join(fixture.root, 'native-tools'))
         ..createSync();
@@ -67,13 +76,13 @@ void main() {
       );
       expect(
         prepared.environment['XCROSS_APPLE_TOOL_STRIP'],
-        identical(host, ComposeTestHosts.macosArm64)
+        identical(host, session.hosts.macosArm64)
             ? p.join(nativeBin.path, 'strip')
             : p.join(p.dirname(fixture.ld64), 'llvm-strip'),
       );
       expect(
         prepared.environment['XCROSS_APPLE_TOOL_LIBTOOL'],
-        identical(host, ComposeTestHosts.macosArm64)
+        identical(host, session.hosts.macosArm64)
             ? p.join(nativeBin.path, 'libtool')
             : p.join(p.dirname(fixture.ld64), 'llvm-libtool-darwin'),
       );
@@ -88,7 +97,7 @@ void main() {
   }
 
   test('uses macOS ARM64 LLVM and Apple target configuration', () async {
-    final fixture = ComposeFixture.create(ComposeTestHosts.macosArm64)
+    final fixture = ComposeFixture.create(session, session.hosts.macosArm64)
       ..createKotlinHome();
     addTearDown(fixture.dispose);
     final properties =
@@ -124,7 +133,7 @@ void main() {
   test(
     'prepares isolated konan configuration with resolved Apple tool paths',
     () async {
-      final fixture = ComposeFixture.create(ComposeTestHosts.linuxX64)
+      final fixture = ComposeFixture.create(session, session.hosts.linuxX64)
         ..createKotlinHome();
       final patched = <String>[];
       addTearDown(fixture.dispose);
@@ -328,7 +337,7 @@ void main() {
       // Xcode ships. Confirm KonanConfiguration copies it from the local
       // Darwin SDK artifact bundle's own Xcode toolchain rather than
       // leaving the staged directory empty.
-      final fixture = ComposeFixture.create(ComposeTestHosts.linuxX64)
+      final fixture = ComposeFixture.create(session, session.hosts.linuxX64)
         ..createKotlinHome()
         ..createCompilerRt();
       addTearDown(fixture.dispose);
@@ -377,7 +386,7 @@ void main() {
       // find an XcodeDefault.xctoolchain/usr/lib/clang/<version>/lib/darwin
       // under it. Confirm KonanConfiguration degrades to the pre-fix
       // behavior (an existing but empty clang dir) rather than throwing.
-      final fixture = ComposeFixture.create(ComposeTestHosts.linuxX64)
+      final fixture = ComposeFixture.create(session, session.hosts.linuxX64)
         ..createKotlinHome();
       addTearDown(fixture.dispose);
 
@@ -408,7 +417,7 @@ void main() {
     // this must pick "21" over "19" regardless of listing order. A real
     // Xcode toolchain only ever ships one, so this only matters if that
     // ever changes, but a deterministic pick beats a flaky one either way.
-    final fixture = ComposeFixture.create(ComposeTestHosts.linuxX64)
+    final fixture = ComposeFixture.create(session, session.hosts.linuxX64)
       ..createKotlinHome()
       ..createCompilerRt();
     final olderDir = p.join(
@@ -460,7 +469,7 @@ void main() {
   test(
     'reuses completed fingerprint root without deleting or rebuilding it',
     () async {
-      final fixture = ComposeFixture.create(ComposeTestHosts.linuxX64)
+      final fixture = ComposeFixture.create(session, session.hosts.linuxX64)
         ..createKotlinHome();
       final patched = <String>[];
       addTearDown(fixture.dispose);
@@ -496,7 +505,7 @@ void main() {
   test(
     'overlapping prepares converge on one completed fingerprint root',
     () async {
-      final fixture = ComposeFixture.create(ComposeTestHosts.linuxX64)
+      final fixture = ComposeFixture.create(session, session.hosts.linuxX64)
         ..createKotlinHome();
       final entered = Completer<void>();
       final release = Completer<void>();
@@ -551,7 +560,7 @@ void main() {
     () async {
       // swift.org's Linux toolchain ships ld64.lld and llvm-strip, but not
       // llvm-libtool-darwin, which every static framework and cache needs.
-      final fixture = ComposeFixture.create(ComposeTestHosts.linuxX64)
+      final fixture = ComposeFixture.create(session, session.hosts.linuxX64)
         ..createKotlinHome();
       addTearDown(fixture.dispose);
       File(
@@ -588,7 +597,7 @@ void main() {
   );
 
   test('declares ios_arm64 cacheable for the non-Apple host', () async {
-    final fixture = ComposeFixture.create(ComposeTestHosts.linuxX64)
+    final fixture = ComposeFixture.create(session, session.hosts.linuxX64)
       ..createKotlinHome();
     addTearDown(fixture.dispose);
 
@@ -606,7 +615,7 @@ void main() {
   });
 
   test('creates safe executable Linux Apple tool aliases', () async {
-    final fixture = ComposeFixture.create(ComposeTestHosts.linuxX64)
+    final fixture = ComposeFixture.create(session, session.hosts.linuxX64)
       ..createKotlinHome();
     final executable = <String>{};
     addTearDown(fixture.dispose);
@@ -675,7 +684,7 @@ void main() {
   });
 
   test('creates Windows native Apple tool aliases without cmd shims', () async {
-    final fixture = ComposeFixture.create(ComposeTestHosts.windowsX64)
+    final fixture = ComposeFixture.create(session, session.hosts.windowsX64)
       ..createKotlinHome();
     final forwarder = File(p.join(fixture.root, 'xcross forwarder.exe'))
       ..writeAsStringSync('forwarder');
@@ -757,7 +766,8 @@ String _slash(String value) =>
     p.normalize(value).replaceAll(String.fromCharCode(92), '/');
 
 final class ComposeFixture {
-  ComposeFixture._(this.temp, this.host, this.simulator)
+  final ComposeTestSession session;
+  ComposeFixture._(this.session, this.temp, this.host, this.simulator)
     : root = temp.path,
       modulePath = p.join(temp.path, 'shared'),
       kotlinHome = p.join(temp.path, 'global-kotlin'),
@@ -773,11 +783,15 @@ final class ComposeFixture {
       clang = p.join(temp.path, 'swift', 'bin', 'clang'),
       swiftc = p.join(temp.path, 'swift', 'bin', 'swiftc');
 
-  factory ComposeFixture.create(ComposeHost host, {bool simulator = false}) {
+  factory ComposeFixture.create(
+    ComposeTestSession session,
+    ComposeHost host, {
+    bool simulator = false,
+  }) {
     final temp = Directory.systemTemp.createTempSync(
       'xcross_konan_config_test_',
     );
-    return ComposeFixture._(temp, host, simulator);
+    return ComposeFixture._(session, temp, host, simulator);
   }
 
   final Directory temp;
@@ -805,14 +819,14 @@ final class ComposeFixture {
   );
 
   ComposeToolchain get toolchain => ComposeToolchain(
-    log: fixtureLog,
+    log: session.fixtureLog,
     target: fixtureTarget(host, simulator: simulator),
     runner: ProcessRunner(
-      log: fixtureLog,
+      log: session.fixtureLog,
       host.host,
       stdinStream: const Stream<List<int>>.empty(),
-      stdoutSink: stdout,
-      stderrSink: stderr,
+      stdoutSink: session.stdoutSink,
+      stderrSink: session.stderrSink,
     ),
     kotlinHome: kotlinHome,
     konanCache: konanCache,

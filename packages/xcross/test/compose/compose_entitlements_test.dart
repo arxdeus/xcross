@@ -7,6 +7,11 @@ import 'package:xcross/src/compose/build/compose_entitlements.dart';
 import 'support/compose_platforms.dart';
 
 void main() {
+  late ComposeTestSession session;
+  setUp(() {
+    session = ComposeTestSession();
+  });
+  tearDown(() => session.dispose());
   late Directory root;
 
   setUp(() {
@@ -46,7 +51,7 @@ void main() {
       write(p.join('iosApp', 'Other.entitlements'), entitlements({}));
 
       expect(
-        ComposeEntitlements(fixtureRunner.host.fileSystem).find(
+        ComposeEntitlements(session.fixtureRunner.host.fileSystem).find(
           root.path,
           'Example',
           appDir: p.join(root.path, 'app', 'iosApp'),
@@ -63,7 +68,7 @@ void main() {
 
       expect(
         ComposeEntitlements(
-          fixtureRunner.host.fileSystem,
+          session.fixtureRunner.host.fileSystem,
         ).find(root.path, 'Example'),
         wanted,
       );
@@ -77,7 +82,7 @@ void main() {
 
       expect(
         ComposeEntitlements(
-          fixtureRunner.host.fileSystem,
+          session.fixtureRunner.host.fileSystem,
         ).find(root.path, 'Example'),
         wanted,
       );
@@ -91,7 +96,7 @@ void main() {
 
       expect(
         ComposeEntitlements(
-          fixtureRunner.host.fileSystem,
+          session.fixtureRunner.host.fileSystem,
         ).find(root.path, 'Example'),
         wanted,
       );
@@ -106,7 +111,7 @@ void main() {
 
       expect(
         ComposeEntitlements(
-          fixtureRunner.host.fileSystem,
+          session.fixtureRunner.host.fileSystem,
         ).find(root.path, 'Example'),
         wanted,
       );
@@ -120,7 +125,7 @@ void main() {
 
       expect(
         ComposeEntitlements(
-          fixtureRunner.host.fileSystem,
+          session.fixtureRunner.host.fileSystem,
         ).find(root.path, 'Example'),
         isNull,
       );
@@ -132,7 +137,7 @@ void main() {
 
       expect(
         ComposeEntitlements(
-          fixtureRunner.host.fileSystem,
+          session.fixtureRunner.host.fileSystem,
         ).find(root.path, 'Example'),
         isNull,
       );
@@ -141,7 +146,7 @@ void main() {
     test('returns null when the project has none', () {
       expect(
         ComposeEntitlements(
-          fixtureRunner.host.fileSystem,
+          session.fixtureRunner.host.fileSystem,
         ).find(root.path, 'Example'),
         isNull,
       );
@@ -162,7 +167,7 @@ void main() {
 
       expect(
         ComposeEntitlements(
-          fixtureRunner.host.fileSystem,
+          session.fixtureRunner.host.fileSystem,
         ).read(root.path, 'Example'),
         {
           'com.apple.developer.applesignin': ['Default'],
@@ -179,7 +184,7 @@ void main() {
 
       expect(
         ComposeEntitlements(
-          fixtureRunner.host.fileSystem,
+          session.fixtureRunner.host.fileSystem,
         ).read(root.path, 'Example'),
         isNull,
       );
@@ -198,7 +203,7 @@ void main() {
 
       expect(
         ComposeEntitlements(
-          fixtureRunner.host.fileSystem,
+          session.fixtureRunner.host.fileSystem,
         ).read(root.path, 'Example'),
         isNull,
       );
@@ -207,7 +212,7 @@ void main() {
     test('returns null when there is nothing to read', () {
       expect(
         ComposeEntitlements(
-          fixtureRunner.host.fileSystem,
+          session.fixtureRunner.host.fileSystem,
         ).read(root.path, 'Example'),
         isNull,
       );

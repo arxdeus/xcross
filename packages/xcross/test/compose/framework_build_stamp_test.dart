@@ -6,6 +6,11 @@ import 'package:test/test.dart';
 import 'support/compose_platforms.dart';
 
 void main() {
+  late ComposeTestSession session;
+  setUp(() {
+    session = ComposeTestSession();
+  });
+  tearDown(() => session.dispose());
   late Directory root;
 
   setUp(() => root = Directory.systemTemp.createTempSync('xcross_stamp'));
@@ -23,7 +28,7 @@ void main() {
 
   test('is not up to date before anything is built', () {
     final klib = input('module.klib', 'a');
-    final stamp = fixtureFrameworkStamp(framework());
+    final stamp = session.fixtureFrameworkStamp(framework());
 
     expect(
       stamp.isUpToDate(
@@ -38,7 +43,7 @@ void main() {
   test('is up to date after writing the same inputs', () {
     final klib = input('module.klib', 'a');
     final path = framework();
-    final stamp = fixtureFrameworkStamp(path);
+    final stamp = session.fixtureFrameworkStamp(path);
     const args = ['-target', 'ios_arm64'];
 
     stamp.write(inputs: [klib.path], arguments: args);
@@ -56,7 +61,7 @@ void main() {
   test('changed input content invalidates the stamp', () {
     final klib = input('module.klib', 'a');
     final path = framework();
-    final stamp = fixtureFrameworkStamp(path);
+    final stamp = session.fixtureFrameworkStamp(path);
     const args = ['-target', 'ios_arm64'];
     stamp.write(inputs: [klib.path], arguments: args);
 
@@ -75,7 +80,7 @@ void main() {
   test('changed compiler arguments invalidate the stamp', () {
     final klib = input('module.klib', 'a');
     final path = framework();
-    final stamp = fixtureFrameworkStamp(path);
+    final stamp = session.fixtureFrameworkStamp(path);
     stamp.write(inputs: [klib.path], arguments: const ['-target', 'ios_arm64']);
 
     // A configuration or bundle-id switch changes the output without
@@ -93,7 +98,7 @@ void main() {
   test('a deleted framework is never up to date', () {
     final klib = input('module.klib', 'a');
     final path = framework();
-    final stamp = fixtureFrameworkStamp(path);
+    final stamp = session.fixtureFrameworkStamp(path);
     const args = ['-target', 'ios_arm64'];
     stamp.write(inputs: [klib.path], arguments: args);
 
@@ -112,7 +117,7 @@ void main() {
   test('a missing input is never up to date', () {
     final klib = input('module.klib', 'a');
     final path = framework();
-    final stamp = fixtureFrameworkStamp(path);
+    final stamp = session.fixtureFrameworkStamp(path);
     const args = ['-target', 'ios_arm64'];
     stamp.write(inputs: [klib.path], arguments: args);
 
@@ -131,7 +136,7 @@ void main() {
   test('invalidate forces the next build', () {
     final klib = input('module.klib', 'a');
     final path = framework();
-    final stamp = fixtureFrameworkStamp(path);
+    final stamp = session.fixtureFrameworkStamp(path);
     const args = ['-target', 'ios_arm64'];
     stamp.write(inputs: [klib.path], arguments: args);
 
@@ -156,7 +161,7 @@ void main() {
       ..createSync(recursive: true)
       ..writeAsStringSync('one');
     final path = framework();
-    final stamp = fixtureFrameworkStamp(path);
+    final stamp = session.fixtureFrameworkStamp(path);
     const args = ['-target', 'ios_arm64'];
     stamp.write(inputs: [dir.path], arguments: args);
     expect(
@@ -184,7 +189,7 @@ void main() {
     final a = input('a.klib', 'a');
     final b = input('b.klib', 'b');
     final path = framework();
-    final stamp = fixtureFrameworkStamp(path);
+    final stamp = session.fixtureFrameworkStamp(path);
     const args = ['-target', 'ios_arm64'];
     stamp.write(inputs: [a.path, b.path], arguments: args);
 

@@ -10,6 +10,11 @@ import 'package:xcross/src/errors.dart';
 import 'support/compose_platforms.dart';
 
 void main() {
+  late ComposeTestSession session;
+  setUp(() {
+    session = ComposeTestSession();
+  });
+  tearDown(() => session.dispose());
   test(
     'simulator bundle isolates resources plist output and ad-hoc signing',
     () async {
@@ -27,15 +32,15 @@ void main() {
       final signed = <String>[];
       final app =
           await ComposeAppAssembler.withSeams(
-            fixtureSimulatorTarget,
+            session.fixtureSimulatorTarget,
             ProcessRunner(
-              log: fixtureLog,
-              fixtureSimulatorTarget.host,
+              log: session.fixtureLog,
+              session.fixtureSimulatorTarget.host,
               stdinStream: const Stream<List<int>>.empty(),
-              stdoutSink: stdout,
-              stderrSink: stderr,
+              stdoutSink: session.stdoutSink,
+              stderrSink: session.stderrSink,
             ),
-            log: fixtureLog,
+            log: session.fixtureLog,
             finishBundle: (path) async {
               expect(File(p.join(path, 'Runner')).existsSync(), isTrue);
               expect(
@@ -112,15 +117,15 @@ void main() {
             ..writeAsStringSync('old');
       await expectLater(
         ComposeAppAssembler.withSeams(
-          fixtureSimulatorTarget,
+          session.fixtureSimulatorTarget,
           ProcessRunner(
-            log: fixtureLog,
-            fixtureSimulatorTarget.host,
+            log: session.fixtureLog,
+            session.fixtureSimulatorTarget.host,
             stdinStream: const Stream<List<int>>.empty(),
-            stdoutSink: stdout,
-            stderrSink: stderr,
+            stdoutSink: session.stdoutSink,
+            stderrSink: session.stderrSink,
           ),
-          log: fixtureLog,
+          log: session.fixtureLog,
           finishBundle: (_) async => throw StateError('signing failed'),
         ).assemble(
           project: fixture.project,
@@ -145,9 +150,9 @@ void main() {
 
       final appPath =
           await ComposeAppAssembler(
-            fixtureIPhoneTarget,
-            fixtureRunner,
-            log: fixtureLog,
+            session.fixtureIPhoneTarget,
+            session.fixtureRunner,
+            log: session.fixtureLog,
           ).assemble(
             project: fixture.project,
             runnerPath: fixture.runnerPath,
@@ -212,9 +217,9 @@ void main() {
 
     final appPath =
         await ComposeAppAssembler.withSeams(
-          fixtureIPhoneTarget,
-          fixtureRunner,
-          log: fixtureLog,
+          session.fixtureIPhoneTarget,
+          session.fixtureRunner,
+          log: session.fixtureLog,
         ).assemble(
           project: fixture.staticProject,
           runnerPath: fixture.runnerPath,
@@ -234,9 +239,9 @@ void main() {
 
     await expectLater(
       ComposeAppAssembler(
-        fixtureIPhoneTarget,
-        fixtureRunner,
-        log: fixtureLog,
+        session.fixtureIPhoneTarget,
+        session.fixtureRunner,
+        log: session.fixtureLog,
       ).assemble(
         project: fixture.project,
         runnerPath: p.join(fixture.root, 'missing-runner'),
@@ -246,9 +251,9 @@ void main() {
     );
     await expectLater(
       ComposeAppAssembler(
-        fixtureIPhoneTarget,
-        fixtureRunner,
-        log: fixtureLog,
+        session.fixtureIPhoneTarget,
+        session.fixtureRunner,
+        log: session.fixtureLog,
       ).assemble(
         project: fixture.project,
         runnerPath: fixture.runnerPath,
@@ -267,9 +272,9 @@ void main() {
 
       await expectLater(
         ComposeAppAssembler.withSeams(
-          fixtureIPhoneTarget,
-          fixtureRunner,
-          log: fixtureLog,
+          session.fixtureIPhoneTarget,
+          session.fixtureRunner,
+          log: session.fixtureLog,
           copyDirectory: (source, destination) {
             throw const FileSystemException('copy failed');
           },
@@ -305,9 +310,9 @@ void main() {
 
     final appPath =
         await ComposeAppAssembler.withSeams(
-          fixtureIPhoneTarget,
-          fixtureRunner,
-          log: fixtureLog,
+          session.fixtureIPhoneTarget,
+          session.fixtureRunner,
+          log: session.fixtureLog,
         ).assemble(
           project: fixture.project,
           runnerPath: fixture.runnerPath,
@@ -339,9 +344,9 @@ void main() {
 
       await expectLater(
         ComposeAppAssembler.withSeams(
-          fixtureIPhoneTarget,
-          fixtureRunner,
-          log: fixtureLog,
+          session.fixtureIPhoneTarget,
+          session.fixtureRunner,
+          log: session.fixtureLog,
           renameDirectory: (source, newPath) {
             if (!failedInstall &&
                 newPath == previousApp &&
@@ -385,9 +390,9 @@ void main() {
 
       await expectLater(
         ComposeAppAssembler.withSeams(
-          fixtureIPhoneTarget,
-          fixtureRunner,
-          log: fixtureLog,
+          session.fixtureIPhoneTarget,
+          session.fixtureRunner,
+          log: session.fixtureLog,
           renameDirectory: (source, newPath) {
             if (newPath == previousApp && source.path != previousApp) {
               if (!installFailed) {
@@ -450,9 +455,9 @@ void main() {
 
     final appPath =
         await ComposeAppAssembler.withSeams(
-          fixtureIPhoneTarget,
-          fixtureRunner,
-          log: fixtureLog,
+          session.fixtureIPhoneTarget,
+          session.fixtureRunner,
+          log: session.fixtureLog,
         ).assemble(
           project: fixture.project,
           runnerPath: fixture.runnerPath,
@@ -500,9 +505,9 @@ void main() {
 
       final appPath =
           await ComposeAppAssembler.withSeams(
-            fixtureIPhoneTarget,
-            fixtureRunner,
-            log: fixtureLog,
+            session.fixtureIPhoneTarget,
+            session.fixtureRunner,
+            log: session.fixtureLog,
           ).assemble(
             project: fixture.project,
             runnerPath: fixture.runnerPath,
@@ -545,9 +550,9 @@ void main() {
 
       final appPath =
           await ComposeAppAssembler.withSeams(
-            fixtureIPhoneTarget,
-            fixtureRunner,
-            log: fixtureLog,
+            session.fixtureIPhoneTarget,
+            session.fixtureRunner,
+            log: session.fixtureLog,
           ).assemble(
             project: fixture.project,
             runnerPath: fixture.runnerPath,

@@ -12,14 +12,22 @@ import 'package:xcross/src/flutter/constants.dart';
 import 'support/compose_platforms.dart';
 
 void main() {
+  late ComposeTestSession session;
+  setUp(() {
+    session = ComposeTestSession();
+  });
+  tearDown(() => session.dispose());
   test(
     'builds complete plist by preserving safe partials and forcing install keys',
     () {
       final fixture = ComposeFixture.create()..writePartialPlist();
       addTearDown(fixture.dispose);
 
-      final xml = ComposeInfoPlist(fixtureRunner.host.fileSystem, fixtureLog)
-          .build(
+      final xml =
+          ComposeInfoPlist(
+            session.fixtureRunner.host.fileSystem,
+            session.fixtureLog,
+          ).build(
             project: fixture.project,
             extras: {
               'CADisableMinimumFrameDurationOnPhone': true,
@@ -62,7 +70,10 @@ void main() {
 
     final plist =
         PropertyListSerialization.propertyListWithString(
-              ComposeInfoPlist(fixtureRunner.host.fileSystem, fixtureLog).build(
+              ComposeInfoPlist(
+                session.fixtureRunner.host.fileSystem,
+                session.fixtureLog,
+              ).build(
                 project: fixture.project,
                 target: const IPhoneBuildPlatform(),
               ),
@@ -78,7 +89,10 @@ void main() {
 
     final plist =
         PropertyListSerialization.propertyListWithString(
-              ComposeInfoPlist(fixtureRunner.host.fileSystem, fixtureLog).build(
+              ComposeInfoPlist(
+                session.fixtureRunner.host.fileSystem,
+                session.fixtureLog,
+              ).build(
                 target: const IPhoneBuildPlatform(),
                 project: fixture.project,
                 extras: {'CADisableMinimumFrameDurationOnPhone': false},
@@ -109,8 +123,8 @@ void main() {
     );
 
     final xml = ComposeInfoPlist(
-      fixtureRunner.host.fileSystem,
-      fixtureLog,
+      session.fixtureRunner.host.fileSystem,
+      session.fixtureLog,
     ).build(project: project, target: const IPhoneBuildPlatform());
     final plist = PropertyListSerialization.propertyListWithString(xml) as Map;
 
@@ -124,13 +138,13 @@ void main() {
   test(
     'real Swift host example preserves safe partial plist keys and overrides required keys',
     () {
-      final project = detectKmpProject(
+      final project = session.detectKmpProject(
         p.join(_repoRoot, 'examples', 'kmp_swift_app'),
       );
 
       final xml = ComposeInfoPlist(
-        fixtureRunner.host.fileSystem,
-        fixtureLog,
+        session.fixtureRunner.host.fileSystem,
+        session.fixtureLog,
       ).build(project: project, target: const IPhoneBuildPlatform());
       final plist =
           PropertyListSerialization.propertyListWithString(xml) as Map;
@@ -150,11 +164,15 @@ void main() {
     addTearDown(fixture.dispose);
 
     expect(
-      () => ComposeInfoPlist(fixtureRunner.host.fileSystem, fixtureLog).build(
-        project: fixture.project,
-        extras: {'UnsafeDate': DateTime(2026)},
-        target: const IPhoneBuildPlatform(),
-      ),
+      () =>
+          ComposeInfoPlist(
+            session.fixtureRunner.host.fileSystem,
+            session.fixtureLog,
+          ).build(
+            project: fixture.project,
+            extras: {'UnsafeDate': DateTime(2026)},
+            target: const IPhoneBuildPlatform(),
+          ),
       throwsA(isA<XcrossError>()),
     );
 
@@ -167,8 +185,8 @@ void main() {
 ''');
     expect(
       () => ComposeInfoPlist(
-        fixtureRunner.host.fileSystem,
-        fixtureLog,
+        session.fixtureRunner.host.fileSystem,
+        session.fixtureLog,
       ).build(project: fixture.project, target: const IPhoneBuildPlatform()),
       throwsA(isA<XcrossError>()),
     );

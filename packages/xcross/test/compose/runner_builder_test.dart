@@ -9,10 +9,15 @@ import 'package:xcross/src/errors.dart';
 import 'support/compose_platforms.dart';
 
 void main() {
+  late ComposeTestSession session;
+  setUp(() {
+    session = ComposeTestSession();
+  });
+  tearDown(() => session.dispose());
   test(
     'ObjC and Swift runners use simulator triples SDK linker and runtime',
     () async {
-      final fixture = ComposeFixture.create(simulator: true)
+      final fixture = ComposeFixture.create(session, simulator: true)
         ..createSdk()
         ..createCompilerRt();
       addTearDown(fixture.dispose);
@@ -93,7 +98,7 @@ void main() {
   test(
     'ObjC runner imports UIKit and framework and links exact iOS runner inputs',
     () async {
-      final fixture = ComposeFixture.create()..createSdk();
+      final fixture = ComposeFixture.create(session)..createSdk();
       final calls = <ComposeCall>[];
       addTearDown(fixture.dispose);
 
@@ -185,7 +190,7 @@ void main() {
   test(
     'Swift runner compiles all detected sources with resource dir, linker, framework search, and rpath',
     () async {
-      final fixture = ComposeFixture.create()..createSdk();
+      final fixture = ComposeFixture.create(session)..createSdk();
       final calls = <ComposeCall>[];
       addTearDown(fixture.dispose);
 
@@ -279,7 +284,7 @@ void main() {
     // fails with "undefined symbol: ___isPlatformVersionAtLeast" (a
     // symbol libclang_rt.ios.a provides). Confirm the builder passes it
     // explicitly via -Xlinker when the Darwin SDK bundle has one staged.
-    final fixture = ComposeFixture.create()
+    final fixture = ComposeFixture.create(session)
       ..createSdk()
       ..createCompilerRt();
     final calls = <ComposeCall>[];
@@ -314,7 +319,7 @@ void main() {
       // must pick "21" over "19" regardless of listing order. Mirrors the
       // matching konan_configuration_test.dart test for
       // _findCompilerRtDarwinDir.
-      final fixture = ComposeFixture.create()
+      final fixture = ComposeFixture.create(session)
         ..createSdk()
         ..createCompilerRt();
       final olderDir = p.join(
@@ -360,7 +365,7 @@ void main() {
   test(
     'rejects missing inputs and non Mach-O runner output without invoking file',
     () async {
-      final fixture = ComposeFixture.create()..createSdk();
+      final fixture = ComposeFixture.create(session)..createSdk();
       addTearDown(fixture.dispose);
 
       await expectLater(
@@ -392,7 +397,7 @@ void main() {
 
   for (final valid in _validMachOOutputs) {
     test('ObjC runner accepts ${valid.name} 64-bit Mach-O magic', () async {
-      final fixture = ComposeFixture.create()..createSdk();
+      final fixture = ComposeFixture.create(session)..createSdk();
       addTearDown(fixture.dispose);
 
       final output =
@@ -420,7 +425,7 @@ void main() {
     });
 
     test('Swift runner accepts ${valid.name} 64-bit Mach-O magic', () async {
-      final fixture = ComposeFixture.create()..createSdk();
+      final fixture = ComposeFixture.create(session)..createSdk();
       addTearDown(fixture.dispose);
 
       final output =
@@ -444,7 +449,7 @@ void main() {
 
   for (final invalid in _invalidMachOOutputs) {
     test('ObjC runner rejects ${invalid.name} Mach-O output', () async {
-      final fixture = ComposeFixture.create()..createSdk();
+      final fixture = ComposeFixture.create(session)..createSdk();
       addTearDown(fixture.dispose);
 
       await expectLater(
@@ -472,7 +477,7 @@ void main() {
     });
 
     test('Swift runner rejects ${invalid.name} Mach-O output', () async {
-      final fixture = ComposeFixture.create()..createSdk();
+      final fixture = ComposeFixture.create(session)..createSdk();
       addTearDown(fixture.dispose);
 
       await expectLater(
@@ -571,11 +576,16 @@ final class MachOOutput {
 }
 
 final class ComposeFixture {
-  ComposeFixture._(this.temp, this.simulator)
+  final ComposeTestSession session;
+  ComposeFixture._(this.session, this.temp, this.simulator)
     : root = temp.path,
       frameworkPath = p.join(temp.path, 'Shared.framework');
 
-  factory ComposeFixture.create({bool simulator = false}) => ComposeFixture._(
+  factory ComposeFixture.create(
+    ComposeTestSession session, {
+    bool simulator = false,
+  }) => ComposeFixture._(
+    session,
     Directory.systemTemp.createTempSync('xcross_runner_builder_test_'),
     simulator,
   );
@@ -627,18 +637,17 @@ final class ComposeFixture {
   );
 
   ComposeToolchain get toolchain => ComposeToolchain(
-    log: fixtureLog,
+    log: session.fixtureLog,
     target: fixtureTarget(
-      simulator ? ComposeTestHosts.macosArm64 : ComposeTestHosts.linuxX64,
+      simulator ? session.hosts.macosArm64 : session.hosts.linuxX64,
       simulator: simulator,
     ),
     runner: ProcessRunner(
-      log: fixtureLog,
-      (simulator ? ComposeTestHosts.macosArm64 : ComposeTestHosts.linuxX64)
-          .host,
+      log: session.fixtureLog,
+      (simulator ? session.hosts.macosArm64 : session.hosts.linuxX64).host,
       stdinStream: const Stream<List<int>>.empty(),
-      stdoutSink: stdout,
-      stderrSink: stderr,
+      stdoutSink: session.stdoutSink,
+      stderrSink: session.stderrSink,
     ),
     kotlinHome: p.join(root, 'kotlin'),
     konanCache: p.join(root, 'konan-cache'),

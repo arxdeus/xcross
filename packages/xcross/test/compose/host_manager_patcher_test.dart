@@ -20,6 +20,11 @@ const int vreturn = 0xB1; // RETURN (void)
 const int invokeSpecial = 0xB7; // INVOKESPECIAL
 
 void main() {
+  late ComposeTestSession session;
+  setUp(() {
+    session = ComposeTestSession();
+  });
+  tearDown(() => session.dispose());
   test(
     'jar patch streams and publishes through selected remapped file paths',
     () {
@@ -352,7 +357,9 @@ void main() {
         }),
       );
       expect(
-        KotlinNativeJarPatcher(fixtureRunner.host.fileSystem).patch(jar.path),
+        KotlinNativeJarPatcher(
+          session.fixtureRunner.host.fileSystem,
+        ).patch(jar.path),
         isFalse,
       );
     });
@@ -365,7 +372,9 @@ void main() {
         }),
       );
       expect(
-        KotlinNativeJarPatcher(fixtureRunner.host.fileSystem).patch(jar.path),
+        KotlinNativeJarPatcher(
+          session.fixtureRunner.host.fileSystem,
+        ).patch(jar.path),
         isFalse,
       );
     });
@@ -394,7 +403,7 @@ void main() {
 
       expect(
         () => KotlinNativeJarPatcher(
-          fixtureRunner.host.fileSystem,
+          session.fixtureRunner.host.fileSystem,
         ).patch(jar.path),
         throwsA(isA<StateError>()),
       );
@@ -424,7 +433,9 @@ void main() {
         );
 
         expect(
-          KotlinNativeJarPatcher(fixtureRunner.host.fileSystem).patch(jar.path),
+          KotlinNativeJarPatcher(
+            session.fixtureRunner.host.fileSystem,
+          ).patch(jar.path),
           isTrue,
         );
       },
@@ -453,7 +464,9 @@ void main() {
         (f) => f.name == 'META-INF/MANIFEST.MF',
       );
 
-      KotlinNativeJarPatcher(fixtureRunner.host.fileSystem).patch(jar.path);
+      KotlinNativeJarPatcher(
+        session.fixtureRunner.host.fileSystem,
+      ).patch(jar.path);
 
       final updated = ZipDecoder().decodeBytes(await jar.readAsBytes());
       final updatedManifest = updated.files.firstWhere(
@@ -475,7 +488,9 @@ void main() {
       );
 
       expect(
-        KotlinNativeJarPatcher(fixtureRunner.host.fileSystem).patch(jar.path),
+        KotlinNativeJarPatcher(
+          session.fixtureRunner.host.fileSystem,
+        ).patch(jar.path),
         isTrue,
       );
 
@@ -490,11 +505,15 @@ void main() {
       );
 
       expect(
-        KotlinNativeJarPatcher(fixtureRunner.host.fileSystem).patch(jar.path),
+        KotlinNativeJarPatcher(
+          session.fixtureRunner.host.fileSystem,
+        ).patch(jar.path),
         isTrue,
       );
       expect(
-        KotlinNativeJarPatcher(fixtureRunner.host.fileSystem).patch(jar.path),
+        KotlinNativeJarPatcher(
+          session.fixtureRunner.host.fileSystem,
+        ).patch(jar.path),
         isFalse,
       );
     });
@@ -502,7 +521,7 @@ void main() {
     test('returns false for non-existent file', () {
       expect(
         KotlinNativeJarPatcher(
-          fixtureRunner.host.fileSystem,
+          session.fixtureRunner.host.fileSystem,
         ).patch('${tmpDir.path}/missing.jar'),
         isFalse,
       );
@@ -518,7 +537,9 @@ void main() {
         }),
       );
 
-      KotlinNativeJarPatcher(fixtureRunner.host.fileSystem).patch(jar.path);
+      KotlinNativeJarPatcher(
+        session.fixtureRunner.host.fileSystem,
+      ).patch(jar.path);
 
       final updated = ZipDecoder().decodeBytes(await jar.readAsBytes());
       final manifest = updated.files.firstWhere(
@@ -540,7 +561,9 @@ void main() {
         );
 
         expect(
-          KotlinNativeJarPatcher(fixtureRunner.host.fileSystem).patch(jar.path),
+          KotlinNativeJarPatcher(
+            session.fixtureRunner.host.fileSystem,
+          ).patch(jar.path),
           isTrue,
         );
 
@@ -567,7 +590,9 @@ void main() {
         );
 
         expect(
-          KotlinNativeJarPatcher(fixtureRunner.host.fileSystem).patch(jar.path),
+          KotlinNativeJarPatcher(
+            session.fixtureRunner.host.fileSystem,
+          ).patch(jar.path),
           isTrue,
         );
       },

@@ -8,19 +8,51 @@ import 'package:xcross/src/errors.dart';
 import 'support/compose_platforms.dart';
 
 void main() {
+  late ComposeTestSession session;
+  setUp(() {
+    session = ComposeTestSession();
+  });
+  tearDown(() => session.dispose());
+  test(
+    'explicit fixture sessions isolate effects and dispose owned resources',
+    () async {
+      final first = ComposeTestSession();
+      final second = ComposeTestSession();
+      try {
+        expect(identical(first.fixtureRunner, second.fixtureRunner), isFalse);
+        expect(identical(first.fixtureTools, second.fixtureTools), isFalse);
+        expect(identical(first.fixtureLog, second.fixtureLog), isFalse);
+        expect(
+          identical(first.fixtureDownloader, second.fixtureDownloader),
+          isFalse,
+        );
+        expect(identical(first.hosts.linuxX64, second.hosts.linuxX64), isFalse);
+        expect(first.temporaryRoot.path, isNot(second.temporaryRoot.path));
+        first.stdoutSink.write('first');
+        await first.stdoutSink.flush();
+        expect(first.stdoutConsumer.bytes, [102, 105, 114, 115, 116]);
+        expect(second.stdoutConsumer.bytes, isEmpty);
+      } finally {
+        await Future.wait([first.dispose(), second.dispose()]);
+      }
+      expect(first.temporaryRoot.existsSync(), isFalse);
+      expect(second.temporaryRoot.existsSync(), isFalse);
+    },
+  );
+
   test('named host strategies select exact archives and overlay plans', () {
-    expect(ComposeTestHosts.linuxX64.installationArtifacts('2.2.20'), [
+    expect(session.hosts.linuxX64.installationArtifacts('2.2.20'), [
       'kotlin-native-prebuilt-2.2.20-linux-x86_64.tar.gz',
       'kotlin-native-prebuilt-2.2.20-macos-x86_64.tar.gz',
     ]);
     expect(
-      ComposeTestHosts.windowsX64.hostArtifact('2.2.20'),
+      session.hosts.windowsX64.hostArtifact('2.2.20'),
       'kotlin-native-prebuilt-2.2.20-windows-x86_64.zip',
     );
-    expect(ComposeTestHosts.macosArm64.installationArtifacts('2.2.20'), [
+    expect(session.hosts.macosArm64.installationArtifacts('2.2.20'), [
       'kotlin-native-prebuilt-2.2.20-macos-aarch64.tar.gz',
     ]);
-    expect(ComposeTestHosts.macosX64.installationArtifacts('2.2.20'), [
+    expect(session.hosts.macosX64.installationArtifacts('2.2.20'), [
       'kotlin-native-prebuilt-2.2.20-macos-x86_64.tar.gz',
     ]);
   });
@@ -73,8 +105,8 @@ void main() {
   );
 
   test('execution and filesystem policies own naming and response files', () {
-    final posix = ComposeTestHosts.linuxX64;
-    final windows = ComposeTestHosts.windowsX64;
+    final posix = session.hosts.linuxX64;
+    final windows = session.hosts.windowsX64;
     expect(posix.konancExecutable('/kn'), p.join('/kn', 'bin', 'konanc'));
     expect(windows.konancExecutable('/kn'), p.join('/kn', 'bin', 'konanc.bat'));
     expect(
@@ -101,7 +133,7 @@ void main() {
   });
 
   test('host-bound target carries one consistent platform descriptor', () {
-    final host = ComposeTestHosts.macosArm64;
+    final host = session.hosts.macosArm64;
     final iphone = IPhoneComposeTarget(IPhoneTarget(host.host), host);
     final simulator = SimulatorComposeTarget(
       SimulatorTarget(host.host),
@@ -124,7 +156,7 @@ void main() {
   });
 
   test('simulator signer must belong to exact same host instance', () {
-    final host = ComposeTestHosts.macosArm64;
+    final host = session.hosts.macosArm64;
     expect(
       () => SimulatorComposeTarget(
         SimulatorTarget(host.host),
@@ -144,7 +176,7 @@ void main() {
       addTearDown(() => directory.deleteSync(recursive: true));
       final path = p.join(directory.path, 'dsymutil');
       final executable = <String>[];
-      await ComposeTestHosts.linuxX64.writeShim(
+      await session.hosts.linuxX64.writeShim(
         path,
         'dsymutil',
         'XCROSS_APPLE_TOOL_DSYMUTIL',

@@ -19,6 +19,11 @@ import 'package:xcross/src/target/shared/compose/compose_target.dart';
 import 'support/compose_platforms.dart';
 
 void main() {
+  late ComposeTestSession session;
+  setUp(() {
+    session = ComposeTestSession();
+  });
+  tearDown(() => session.dispose());
   test(
     'configured SDK repositories stay independent from the absent default',
     () async {
@@ -82,14 +87,14 @@ void main() {
         repositories.add(
           DarwinSdkRepository(
             selectedHost,
-            log: fixtureLog,
+            log: session.fixtureLog,
             installBundle: bundle,
           ),
         );
       }
       final defaultRepository = DarwinSdkRepository(
         selectedHost,
-        log: fixtureLog,
+        log: session.fixtureLog,
       );
       expect(defaultRepository.current(), isNull);
       for (final repository in repositories) {
@@ -97,13 +102,13 @@ void main() {
           selectedTarget,
           runner: ProcessRunner(
             selectedHost,
-            log: fixtureLog,
+            log: session.fixtureLog,
             stdinStream: const Stream<List<int>>.empty(),
-            stdoutSink: stdout,
-            stderrSink: stderr,
+            stdoutSink: session.stdoutSink,
+            stderrSink: session.stderrSink,
           ),
-          log: fixtureLog,
-          downloader: fixtureDownloader,
+          log: session.fixtureLog,
+          downloader: session.fixtureDownloader,
           sdkRepository: repository,
           cacheRoot: p.join(root.path, 'konan'),
           which: (name, {environment, extraDirectories = const []}) async =>
@@ -160,7 +165,7 @@ void main() {
       final options = ComposeSetupOptions.resolve(
         env: {'HOME': home.path, 'KN_VERSION': '2.2.20'},
         projectRoot: project.path,
-        host: ComposeTestHosts.windowsX64,
+        host: session.hosts.windowsX64,
       );
 
       expect(options.version, '2.2.20');
@@ -192,7 +197,7 @@ void main() {
         final options = ComposeSetupOptions.resolve(
           env: {'HOME': home.path, 'KN_VERSION': entry.key},
           projectRoot: project.path,
-          host: ComposeTestHosts.macosArm64,
+          host: session.hosts.macosArm64,
         );
         expect(options.hostArchiveSha256, entry.value);
         expect(
@@ -216,7 +221,7 @@ void main() {
           cacheRootOverride: '/configured/konan',
           env: {'HOME': home.path, 'KONAN_DATA_DIR': '/explicit/konan'},
           projectRoot: project.path,
-          host: ComposeTestHosts.linuxX64,
+          host: session.hosts.linuxX64,
         ).cacheRoot,
         '/configured/konan',
       );
@@ -225,7 +230,7 @@ void main() {
           cacheRootOverride: '/configured/konan',
           env: {'HOME': home.path},
           projectRoot: project.path,
-          host: ComposeTestHosts.linuxX64,
+          host: session.hosts.linuxX64,
         ).cacheRoot,
         '/configured/konan',
       );
@@ -235,12 +240,12 @@ void main() {
       final linux = ComposeSetupOptions.resolve(
         env: {'HOME': home.path, 'KN_VERSION': '2.4.0'},
         projectRoot: project.path,
-        host: ComposeTestHosts.linuxX64,
+        host: session.hosts.linuxX64,
       );
       final windows = ComposeSetupOptions.resolve(
         env: {'HOME': home.path, 'KN_VERSION': '2.4.0'},
         projectRoot: project.path,
-        host: ComposeTestHosts.windowsX64,
+        host: session.hosts.windowsX64,
       );
 
       expect(
@@ -268,7 +273,7 @@ void main() {
           ComposeSetupOptions.resolve(
             env: {'HOME': home.path},
             projectRoot: project.path,
-            host: ComposeTestHosts.linuxX64,
+            host: session.hosts.linuxX64,
           ).version,
           '2.2.10',
         );
@@ -281,7 +286,7 @@ void main() {
           ComposeSetupOptions.resolve(
             env: {'HOME': home.path},
             projectRoot: project.path,
-            host: ComposeTestHosts.linuxX64,
+            host: session.hosts.linuxX64,
           ).version,
           '2.1.21',
         );
@@ -291,7 +296,7 @@ void main() {
           ComposeSetupOptions.resolve(
             env: {'HOME': home.path},
             projectRoot: project.path,
-            host: ComposeTestHosts.linuxX64,
+            host: session.hosts.linuxX64,
           ).version,
           ComposeSetupOptions.defaultKotlinNativeVersion,
         );
@@ -309,14 +314,14 @@ void main() {
         home = Directory.systemTemp.createTempSync('xcross-compose-java-');
         environment = {'HOME': home.path};
         javaHome = p.join(home.path, 'JDK with spaces', 'Contents', 'Home');
-        File(ComposeTestHosts.macosArm64.javaExecutable(javaHome))
+        File(session.hosts.macosArm64.javaExecutable(javaHome))
           ..createSync(recursive: true)
           ..writeAsStringSync('java');
         File(p.join(home.path, 'gradlew')).writeAsStringSync('#!/bin/sh');
         final options = ComposeSetupOptions.resolve(
           env: environment,
           projectRoot: home.path,
-          host: ComposeTestHosts.macosArm64,
+          host: session.hosts.macosArm64,
         );
         _writeValidCache(options, binary: 'konanc', marker: 'complete');
       });
@@ -330,7 +335,8 @@ void main() {
       ]) {
         test('uses reported JVM home with spaces for $candidate', () async {
           final resolver = _resolverWithPreflight(
-            host: ComposeTestHosts.macosArm64,
+            session,
+            host: session.hosts.macosArm64,
             javaHome: javaHome,
             javaExecutable: candidate,
             javaSettings: '    java.home = $javaHome\r\n',
@@ -356,9 +362,10 @@ void main() {
         Directory(p.dirname(candidate)).createSync(recursive: true);
         Link(
           candidate,
-        ).createSync(ComposeTestHosts.macosArm64.javaExecutable(javaHome));
+        ).createSync(session.hosts.macosArm64.javaExecutable(javaHome));
         final resolver = _resolverWithPreflight(
-          host: ComposeTestHosts.macosArm64,
+          session,
+          host: session.hosts.macosArm64,
           javaHome: javaHome,
           javaExecutable: candidate,
           javaSettings: '    java.home = $javaHome\n',
@@ -384,9 +391,9 @@ void main() {
           environment['JAVA_HOME'] = explicitHome;
           final probed = <String>[];
           final resolver = ComposeToolchainResolver.withSeams(
-            fixtureTarget(ComposeTestHosts.macosArm64),
-            log: fixtureLog,
-            downloader: fixtureDownloader,
+            fixtureTarget(session.hosts.macosArm64),
+            log: session.fixtureLog,
+            downloader: session.fixtureDownloader,
             which: (name, {environment, extraDirectories = const []}) async {
               expect(name, isNot('java'));
               return p.join(home.path, name);
@@ -403,8 +410,8 @@ void main() {
                 },
             currentDarwinSdk: (_) => FakeDarwinSdk('/sdk'),
             resolveLd64Lld: (_) async => '/tools/ld64.lld',
-            runner: fixtureProcessRunner(
-              fixtureTarget(ComposeTestHosts.macosArm64).host,
+            runner: session.fixtureProcessRunner(
+              fixtureTarget(session.hosts.macosArm64).host,
             ),
           );
 
@@ -417,7 +424,7 @@ void main() {
           expect(toolchain!.javaHome, explicitHome);
           expect(
             toolchain.javaExecutable,
-            ComposeTestHosts.macosArm64.javaExecutable(explicitHome),
+            session.hosts.macosArm64.javaExecutable(explicitHome),
           );
           expect(probed, [toolchain.javaExecutable]);
         },
@@ -432,7 +439,8 @@ void main() {
       }.entries) {
         test('reports actionable ${settings.key} JVM home', () async {
           final resolver = _resolverWithPreflight(
-            host: ComposeTestHosts.macosArm64,
+            session,
+            host: session.hosts.macosArm64,
             javaHome: javaHome,
             javaExecutable: '/usr/bin/java',
             javaSettings: settings.value,
@@ -471,7 +479,8 @@ void main() {
 
       test('rejects reported home without bin/java', () async {
         final resolver = _resolverWithPreflight(
-          host: ComposeTestHosts.macosArm64,
+          session,
+          host: session.hosts.macosArm64,
           javaHome: javaHome,
           javaExecutable: '/usr/bin/java',
           javaSettings: '    java.home = ${home.path}\n',
@@ -491,7 +500,8 @@ void main() {
 
       test('rejects incompatible PATH JVM architecture before home', () async {
         final resolver = _resolverWithPreflight(
-          host: ComposeTestHosts.macosArm64,
+          session,
+          host: session.hosts.macosArm64,
           javaHome: javaHome,
           javaExecutable: '/usr/bin/java',
           sdk: FakeDarwinSdk('/sdk'),
@@ -513,11 +523,11 @@ void main() {
       expect(
         () => LinuxComposeHost(host).simulatorSigning(
           ProcessRunner(
-            log: fixtureLog,
+            log: session.fixtureLog,
             host,
             stdinStream: const Stream<List<int>>.empty(),
-            stdoutSink: stdout,
-            stderrSink: stderr,
+            stdoutSink: session.stdoutSink,
+            stderrSink: session.stderrSink,
           ),
         ),
         throwsA(
@@ -537,11 +547,11 @@ void main() {
           () => WindowsComposeHost(host, runningExecutable: '/unused-xcross')
               .simulatorSigning(
                 ProcessRunner(
-                  log: fixtureLog,
+                  log: session.fixtureLog,
                   host,
                   stdinStream: const Stream<List<int>>.empty(),
-                  stdoutSink: stdout,
-                  stderrSink: stderr,
+                  stdoutSink: session.stdoutSink,
+                  stderrSink: session.stderrSink,
                 ),
               ),
           throwsA(
@@ -569,14 +579,15 @@ void main() {
         final options = ComposeSetupOptions.resolve(
           env: environment,
           projectRoot: home.path,
-          host: ComposeTestHosts.macosArm64,
+          host: session.hosts.macosArm64,
         );
         File(options.host.konancExecutable(options.kotlinHome))
           ..createSync(recursive: true)
           ..writeAsStringSync('konanc');
         _writeCompleteMarker(options);
         final resolver = _resolverWithPreflight(
-          host: ComposeTestHosts.macosArm64,
+          session,
+          host: session.hosts.macosArm64,
           javaHome: environment['JAVA_HOME']!,
           sdk: FakeDarwinSdk('/sdk'),
           home: home.path,
@@ -594,8 +605,9 @@ void main() {
           );
           expect(toolchain!.gradleInvocation, [p.join(home.path, 'gradlew')]);
           final simulatorResolver = _resolverWithPreflight(
-            host: ComposeTestHosts.macosArm64,
-            target: fixtureSimulatorTarget,
+            session,
+            host: session.hosts.macosArm64,
+            target: session.fixtureSimulatorTarget,
             javaHome: environment['JAVA_HOME']!,
             sdk: FakeDarwinSdk('/sdk'),
             home: home.path,
@@ -633,7 +645,8 @@ void main() {
         final javaHome = p.join(home.path, 'jdk-21');
         final sdk = FakeDarwinSdk('/sdk');
         final resolver = _resolverWithPreflight(
-          host: ComposeTestHosts.linuxX64,
+          session,
+          host: session.hosts.linuxX64,
           javaHome: javaHome,
           sdk: sdk,
           home: home.path,
@@ -667,16 +680,16 @@ void main() {
         );
         try {
           final resolver = ComposeToolchainResolver.withSeams(
-            fixtureTarget(ComposeTestHosts.linuxX64),
-            log: fixtureLog,
-            downloader: fixtureDownloader,
+            fixtureTarget(session.hosts.linuxX64),
+            log: session.fixtureLog,
+            downloader: session.fixtureDownloader,
             which: (_, {environment, extraDirectories = const []}) async =>
                 null,
             currentDarwinSdk: (_) => null,
             resolveLd64Lld: (_) async =>
                 throw XcrossError('No ld64.lld that can link for iOS.'),
-            runner: fixtureProcessRunner(
-              fixtureTarget(ComposeTestHosts.linuxX64).host,
+            runner: session.fixtureProcessRunner(
+              fixtureTarget(session.hosts.linuxX64).host,
             ),
           );
 
@@ -715,7 +728,7 @@ void main() {
           final options = ComposeSetupOptions.resolve(
             env: {'HOME': home.path, 'JAVA_HOME': javaHome},
             projectRoot: project.path,
-            host: ComposeTestHosts.windowsX64,
+            host: session.hosts.windowsX64,
           );
           Directory(
             p.join(options.kotlinHome, 'bin'),
@@ -725,7 +738,8 @@ void main() {
           ).writeAsStringSync('konanc');
           _writeCompleteMarker(options);
           final resolver = _resolverWithPreflight(
-            host: ComposeTestHosts.windowsX64,
+            session,
+            host: session.hosts.windowsX64,
             javaHome: javaHome,
             sdk: sdk,
             home: home.path,
@@ -763,8 +777,8 @@ void main() {
         final javaHome = p.join(home.path, 'jdk-21');
         final sdk = FakeDarwinSdk('/sdk');
         final installer = ComposeToolchainInstaller.withSeams(
-          fixtureRunner,
-          downloader: fixtureDownloader,
+          session.fixtureRunner,
+          downloader: session.fixtureDownloader,
           downloadToFile: (_, _) async {},
           extractArchive: (_, _) async {},
           patchCompilerJar: (_) async {},
@@ -782,7 +796,8 @@ void main() {
           },
         );
         final resolver = _resolverWithPreflight(
-          host: ComposeTestHosts.linuxX64,
+          session,
+          host: session.hosts.linuxX64,
           javaHome: javaHome,
           sdk: sdk,
           home: home.path,
@@ -816,14 +831,14 @@ void main() {
         final options = ComposeSetupOptions.resolve(
           env: {'HOME': home.path, 'JAVA_HOME': javaHome},
           projectRoot: project.path,
-          host: ComposeTestHosts.linuxX64,
+          host: session.hosts.linuxX64,
         );
         File(options.host.konancExecutable(options.kotlinHome))
           ..createSync(recursive: true)
           ..writeAsStringSync('markerless-konanc');
         final installer = ComposeToolchainInstaller.withSeams(
-          fixtureRunner,
-          downloader: fixtureDownloader,
+          session.fixtureRunner,
+          downloader: session.fixtureDownloader,
           installRoot: (options, {required force}) async {
             expect(force, isTrue);
             installs++;
@@ -835,7 +850,8 @@ void main() {
           },
         );
         final resolver = _resolverWithPreflight(
-          host: ComposeTestHosts.linuxX64,
+          session,
+          host: session.hosts.linuxX64,
           javaHome: javaHome,
           sdk: sdk,
           home: home.path,
@@ -866,8 +882,8 @@ void main() {
       var installs = 0;
       try {
         final installer = ComposeToolchainInstaller.withSeams(
-          fixtureRunner,
-          downloader: fixtureDownloader,
+          session.fixtureRunner,
+          downloader: session.fixtureDownloader,
           installRoot: (options, {required force}) async {
             installs++;
             Directory(
@@ -880,16 +896,16 @@ void main() {
           },
         );
         final resolver = ComposeToolchainResolver.withSeams(
-          fixtureTarget(ComposeTestHosts.linuxX64),
-          log: fixtureLog,
-          downloader: fixtureDownloader,
+          fixtureTarget(session.hosts.linuxX64),
+          log: session.fixtureLog,
+          downloader: session.fixtureDownloader,
           which: (_, {environment, extraDirectories = const []}) async => null,
           currentDarwinSdk: (_) => null,
           resolveLd64Lld: (_) async =>
               throw XcrossError('No ld64.lld that can link for iOS.'),
           installer: installer,
-          runner: fixtureProcessRunner(
-            fixtureTarget(ComposeTestHosts.linuxX64).host,
+          runner: session.fixtureProcessRunner(
+            fixtureTarget(session.hosts.linuxX64).host,
           ),
         );
 
@@ -931,7 +947,9 @@ void main() {
       final dest = Directory.systemTemp.createTempSync('xcross-extract-');
       try {
         await expectLater(
-          ArchiveExtractor(fixtureRunner.host).extractArchive(zip, dest),
+          ArchiveExtractor(
+            session.fixtureRunner.host,
+          ).extractArchive(zip, dest),
           throwsA(
             isA<XcrossError>().having(
               (e) => e.message,
@@ -948,11 +966,11 @@ void main() {
   });
 
   group('ComposeToolchainInstaller', () {
-    for (final host in [
-      ComposeTestHosts.macosArm64,
-      ComposeTestHosts.macosX64,
-    ]) {
-      test('installs ${host.classifier} from one native archive', () async {
+    for (final classifier in ['macos-aarch64', 'macos-x86_64']) {
+      test('installs $classifier from one native archive', () async {
+        final host = classifier == 'macos-aarch64'
+            ? session.hosts.macosArm64
+            : session.hosts.macosX64;
         final root = Directory.systemTemp.createTempSync(
           'xcross-compose-native-',
         );
@@ -969,8 +987,8 @@ void main() {
         final downloads = <String>[];
         final patches = <String>[];
         final installer = ComposeToolchainInstaller.withSeams(
-          fixtureRunner,
-          downloader: fixtureDownloader,
+          session.fixtureRunner,
+          downloader: session.fixtureDownloader,
           downloadToFile: (url, file) async {
             downloads.add(url);
             await file.writeAsString('archive');
@@ -1033,7 +1051,7 @@ void main() {
           final options = ComposeSetupOptions.resolve(
             env: {'HOME': home.path, 'KN_VERSION': '2.2.20'},
             projectRoot: project.path,
-            host: ComposeTestHosts.linuxX64,
+            host: session.hosts.linuxX64,
           );
           Directory(
             p.join(options.kotlinHome, 'bin'),
@@ -1044,8 +1062,8 @@ void main() {
           _writeCompleteMarker(options);
 
           final installer = ComposeToolchainInstaller.withSeams(
-            fixtureRunner,
-            downloader: fixtureDownloader,
+            session.fixtureRunner,
+            downloader: session.fixtureDownloader,
             downloadToFile: (_, _) =>
                 fail('download should not run on cached path'),
             extractArchive: (_, _) =>
@@ -1080,14 +1098,14 @@ void main() {
           final options = ComposeSetupOptions.resolve(
             env: {'HOME': home.path, 'KN_VERSION': '2.2.20'},
             projectRoot: project.path,
-            host: ComposeTestHosts.linuxX64,
+            host: session.hosts.linuxX64,
           );
           File(options.host.konancExecutable(options.kotlinHome))
             ..createSync(recursive: true)
             ..writeAsStringSync('partial-konanc');
           final installer = ComposeToolchainInstaller.withSeams(
-            fixtureRunner,
-            downloader: fixtureDownloader,
+            session.fixtureRunner,
+            downloader: session.fixtureDownloader,
             installRoot: (options, {required force}) async {
               installs++;
               return options.kotlinHome;
@@ -1123,18 +1141,18 @@ void main() {
           final options = ComposeSetupOptions.resolve(
             env: {'HOME': home.path, 'KN_VERSION': '2.2.20'},
             projectRoot: project.path,
-            host: ComposeTestHosts.windowsX64,
+            host: session.hosts.windowsX64,
           );
 
           final installer = ComposeToolchainInstaller.withSeams(
-            fixtureRunner,
-            downloader: fixtureDownloader,
+            session.fixtureRunner,
+            downloader: session.fixtureDownloader,
             downloadToFile: (url, file) async {
               downloads.add(url);
               file.createSync(recursive: true);
               file.writeAsStringSync(p.basename(file.path));
             },
-            digestFile: (file) async => _matchingSha256(file, options),
+            digestFile: (file) async => _matchingSha256(session, file, options),
             extractArchive: (archive, dest) async {
               extracted.add(p.basename(archive.path));
               extractionRoots.add(dest.path);
@@ -1211,7 +1229,7 @@ void main() {
           );
           expect(
             extracted,
-            contains(ComposeTestHosts.macosX64.hostArtifact(options.version)),
+            contains(session.hosts.macosX64.hostArtifact(options.version)),
           );
           expect(
             extractionRoots,
@@ -1277,11 +1295,11 @@ void main() {
         final options = ComposeSetupOptions.resolve(
           env: {'HOME': home.path, 'KN_VERSION': '2.2.20'},
           projectRoot: project.path,
-          host: ComposeTestHosts.linuxX64,
+          host: session.hosts.linuxX64,
         );
         final installer = ComposeToolchainInstaller.withSeams(
-          fixtureRunner,
-          downloader: fixtureDownloader,
+          session.fixtureRunner,
+          downloader: session.fixtureDownloader,
           downloadToFile: (_, file) async => file.writeAsStringSync('tampered'),
           extractArchive: (_, _) async =>
               fail('extract must wait for digest verification'),
@@ -1323,11 +1341,11 @@ void main() {
         final options = ComposeSetupOptions.resolve(
           env: {'HOME': home.path, 'KN_VERSION': '9.9.9'},
           projectRoot: project.path,
-          host: ComposeTestHosts.linuxX64,
+          host: session.hosts.linuxX64,
         );
         final installer = ComposeToolchainInstaller.withSeams(
-          fixtureRunner,
-          downloader: fixtureDownloader,
+          session.fixtureRunner,
+          downloader: session.fixtureDownloader,
           downloadToFile: (_, __) async => downloads++,
         );
 
@@ -1357,15 +1375,15 @@ void main() {
         final options = ComposeSetupOptions.resolve(
           env: {'HOME': home.path, 'KN_VERSION': '2.2.20'},
           projectRoot: project.path,
-          host: ComposeTestHosts.windowsX64,
+          host: session.hosts.windowsX64,
         );
         final installer = ComposeToolchainInstaller.withSeams(
-          fixtureRunner,
-          downloader: fixtureDownloader,
+          session.fixtureRunner,
+          downloader: session.fixtureDownloader,
           downloadToFile: (_, file) async => file.writeAsStringSync('archive'),
           digestFile: (file) async => p.basename(file.path).contains('macos')
               ? '0' * 64
-              : _matchingSha256(file, options),
+              : _matchingSha256(session, file, options),
           extractArchive: (_, _) async =>
               fail('extract must wait for overlay digest verification'),
           patchCompilerJar: (_) async =>
@@ -1387,7 +1405,7 @@ void main() {
                   (error) => error.message,
                   'message',
                   contains(
-                    ComposeTestHosts.macosX64.hostArtifact(options.version),
+                    session.hosts.macosX64.hostArtifact(options.version),
                   ),
                 ),
           ),
@@ -1413,14 +1431,14 @@ void main() {
           final options = ComposeSetupOptions.resolve(
             env: {'HOME': home.path, 'KN_VERSION': '2.2.20'},
             projectRoot: project.path,
-            host: ComposeTestHosts.linuxX64,
+            host: session.hosts.linuxX64,
           );
           final installer = ComposeToolchainInstaller.withSeams(
-            fixtureRunner,
-            downloader: fixtureDownloader,
+            session.fixtureRunner,
+            downloader: session.fixtureDownloader,
             downloadToFile: (_, file) async =>
                 file.writeAsStringSync('archive'),
-            digestFile: (file) async => _matchingSha256(file, options),
+            digestFile: (file) async => _matchingSha256(session, file, options),
             extractArchive: (archive, dest) async {
               final root = Directory(
                 p.join(
@@ -1487,18 +1505,18 @@ void main() {
           final options = ComposeSetupOptions.resolve(
             env: {'HOME': home.path, 'KN_VERSION': '2.2.20'},
             projectRoot: project.path,
-            host: ComposeTestHosts.linuxX64,
+            host: session.hosts.linuxX64,
           );
           final oldKonanc =
               File(options.host.konancExecutable(options.kotlinHome))
                 ..createSync(recursive: true)
                 ..writeAsStringSync('old');
           final installer = ComposeToolchainInstaller.withSeams(
-            fixtureRunner,
-            downloader: fixtureDownloader,
+            session.fixtureRunner,
+            downloader: session.fixtureDownloader,
             downloadToFile: (_, file) async =>
                 file.writeAsStringSync('archive'),
-            digestFile: (file) async => _matchingSha256(file, options),
+            digestFile: (file) async => _matchingSha256(session, file, options),
             extractArchive: (archive, dest) async {
               final root = Directory(
                 p.join(
@@ -1561,9 +1579,10 @@ void main() {
           final options = ComposeSetupOptions.resolve(
             env: {'HOME': home.path, 'KN_VERSION': '2.2.20'},
             projectRoot: project.path,
-            host: ComposeTestHosts.linuxX64,
+            host: session.hosts.linuxX64,
           );
           final installer = _installerThatBuildsNewCache(
+            session,
             options,
             renameDirectory: (source, newPath) {
               if (source.path.contains('.compose-staging-')) {
@@ -1606,13 +1625,14 @@ void main() {
           final options = ComposeSetupOptions.resolve(
             env: {'HOME': home.path, 'KN_VERSION': '2.2.20'},
             projectRoot: project.path,
-            host: ComposeTestHosts.linuxX64,
+            host: session.hosts.linuxX64,
           );
           _writeValidCache(options, binary: 'old-binary', marker: 'old-marker');
           final originalBytes = _snapshotDirectory(
             Directory(options.kotlinHome),
           );
           final installer = _installerThatBuildsNewCache(
+            session,
             options,
             renameDirectory: (source, newPath) {
               if (source.path == options.kotlinHome) {
@@ -1668,10 +1688,11 @@ void main() {
           final options = ComposeSetupOptions.resolve(
             env: {'HOME': home.path, 'KN_VERSION': '2.2.20'},
             projectRoot: project.path,
-            host: ComposeTestHosts.linuxX64,
+            host: session.hosts.linuxX64,
           );
           _writeValidCache(options, binary: 'old-binary', marker: 'old-marker');
           final installer = _installerThatBuildsNewCache(
+            session,
             options,
             renameDirectory: (source, newPath) {
               if (source.path == options.kotlinHome) {
@@ -1734,7 +1755,7 @@ void main() {
 
   test('compose.dart exports Task 4 public APIs', () {
     expect(
-      ComposeTestHosts.linuxX64.hostArtifact('2.2.20'),
+      session.hosts.linuxX64.hostArtifact('2.2.20'),
       contains('linux-x86_64'),
     );
     expect(compose.ComposeToolchain, isNotNull);
@@ -1746,13 +1767,14 @@ void main() {
 }
 
 ComposeToolchainInstaller _installerThatBuildsNewCache(
+  ComposeTestSession session,
   ComposeSetupOptions options, {
   RenameDirectory? renameDirectory,
 }) => ComposeToolchainInstaller.withSeams(
-  fixtureRunner,
-  downloader: fixtureDownloader,
+  session.fixtureRunner,
+  downloader: session.fixtureDownloader,
   downloadToFile: (_, file) async => file.writeAsStringSync('archive'),
-  digestFile: (file) async => _matchingSha256(file, options),
+  digestFile: (file) async => _matchingSha256(session, file, options),
   extractArchive: (archive, dest) async {
     final root = Directory(
       p.join(
@@ -1817,18 +1839,23 @@ Map<String, String> _snapshotDirectory(Directory directory) => {
         .readAsStringSync(),
 };
 
-String _matchingSha256(File file, ComposeSetupOptions options) {
+String _matchingSha256(
+  ComposeTestSession session,
+  File file,
+  ComposeSetupOptions options,
+) {
   final artifact = p.basename(file.path);
   if (artifact == options.host.hostArtifact(options.version)) {
     return options.hostArchiveSha256!;
   }
-  if (artifact == ComposeTestHosts.macosX64.hostArtifact(options.version)) {
+  if (artifact == session.hosts.macosX64.hostArtifact(options.version)) {
     return options.overlayArchiveSha256!;
   }
   fail('unexpected archive $artifact');
 }
 
-ComposeToolchainResolver _resolverWithPreflight({
+ComposeToolchainResolver _resolverWithPreflight(
+  ComposeTestSession session, {
   required String javaHome,
   required FakeDarwinSdk sdk,
   required String home,
@@ -1839,24 +1866,20 @@ ComposeToolchainResolver _resolverWithPreflight({
   String? javaExecutable,
   String javaSettings = '',
 }) => ComposeToolchainResolver.withSeams(
-  target ?? fixtureTarget(host ?? ComposeTestHosts.linuxX64),
-  log: fixtureLog,
+  target ?? fixtureTarget(host ?? session.hosts.linuxX64),
+  log: session.fixtureLog,
   which: (name, {environment, extraDirectories = const []}) async =>
       switch (name) {
         'java' =>
           javaExecutable ??
-              (host ?? ComposeTestHosts.linuxX64).javaExecutable(javaHome),
+              (host ?? session.hosts.linuxX64).javaExecutable(javaHome),
         'swiftc' => p.join(
           home,
-          (host ?? ComposeTestHosts.linuxX64).host.paths.executableName(
-            'swiftc',
-          ),
+          (host ?? session.hosts.linuxX64).host.paths.executableName('swiftc'),
         ),
         'clang' => p.join(
           home,
-          (host ?? ComposeTestHosts.linuxX64).host.paths.executableName(
-            'clang',
-          ),
+          (host ?? session.hosts.linuxX64).host.paths.executableName('clang'),
         ),
         _ => null,
       },
@@ -1871,9 +1894,9 @@ ComposeToolchainResolver _resolverWithPreflight({
   currentDarwinSdk: (_) => sdk,
   resolveLd64Lld: (_) async => p.join(home, 'ld64.lld'),
   installer: installer,
-  downloader: fixtureDownloader,
-  runner: fixtureProcessRunner(
-    (target ?? fixtureTarget(host ?? ComposeTestHosts.linuxX64)).host,
+  downloader: session.fixtureDownloader,
+  runner: session.fixtureProcessRunner(
+    (target ?? fixtureTarget(host ?? session.hosts.linuxX64)).host,
   ),
 );
 

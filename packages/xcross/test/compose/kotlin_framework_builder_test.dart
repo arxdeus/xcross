@@ -9,11 +9,17 @@ import 'package:xcross/src/errors.dart';
 import 'support/compose_platforms.dart';
 
 void main() {
+  late ComposeTestSession session;
+  setUp(() {
+    session = ComposeTestSession();
+  });
+  tearDown(() => session.dispose());
   test(
     'simulator framework uses Kotlin simulator target and isolated output',
     () async {
       final fixture = ComposeFixture.create(
-        ComposeTestHosts.macosArm64,
+        session,
+        session.hosts.macosArm64,
         simulator: true,
       )..createInputs();
       addTearDown(fixture.dispose);
@@ -21,7 +27,7 @@ void main() {
       final output =
           await KotlinFrameworkBuilder.withSeams(
             fixture.toolchain.runner,
-            log: fixtureLog,
+            log: session.fixtureLog,
             runChecked:
                 (executable, arguments, {workingDirectory, environment}) async {
                   calls.add(arguments);
@@ -65,7 +71,7 @@ void main() {
   test(
     'builds debug framework with module klib, dependency libraries, and bundle id',
     () async {
-      final fixture = ComposeFixture.create(ComposeTestHosts.linuxX64)
+      final fixture = ComposeFixture.create(session, session.hosts.linuxX64)
         ..createInputs();
       final calls = <ComposeCall>[];
       addTearDown(fixture.dispose);
@@ -73,7 +79,7 @@ void main() {
       final output =
           await KotlinFrameworkBuilder.withSeams(
             fixture.toolchain.runner,
-            log: fixtureLog,
+            log: session.fixtureLog,
             runChecked:
                 (executable, arguments, {workingDirectory, environment}) async {
                   calls.add(
@@ -164,7 +170,7 @@ void main() {
   );
 
   test('passes -Xstatic-framework only for static frameworks', () async {
-    final fixture = ComposeFixture.create(ComposeTestHosts.linuxX64)
+    final fixture = ComposeFixture.create(session, session.hosts.linuxX64)
       ..createInputs();
     final calls = <ComposeCall>[];
     addTearDown(fixture.dispose);
@@ -172,7 +178,7 @@ void main() {
     Future<void> link(KmpProject project) =>
         KotlinFrameworkBuilder.withSeams(
           fixture.toolchain.runner,
-          log: fixtureLog,
+          log: session.fixtureLog,
           runChecked:
               (executable, arguments, {workingDirectory, environment}) async {
                 calls.add(
@@ -203,14 +209,14 @@ void main() {
   });
 
   test('builds release framework with opt and project bundle id', () async {
-    final fixture = ComposeFixture.create(ComposeTestHosts.linuxX64)
+    final fixture = ComposeFixture.create(session, session.hosts.linuxX64)
       ..createInputs();
     ComposeCall? call;
     addTearDown(fixture.dispose);
 
     await KotlinFrameworkBuilder.withSeams(
       fixture.toolchain.runner,
-      log: fixtureLog,
+      log: session.fixtureLog,
       runChecked:
           (executable, arguments, {workingDirectory, environment}) async {
             call = ComposeCall(
@@ -255,14 +261,14 @@ void main() {
   });
 
   test('invokes Java directly with a Kotlin argfile on Windows', () async {
-    final fixture = ComposeFixture.create(ComposeTestHosts.windowsX64)
+    final fixture = ComposeFixture.create(session, session.hosts.windowsX64)
       ..createInputs();
     ComposeCall? call;
     addTearDown(fixture.dispose);
 
     await KotlinFrameworkBuilder.withSeams(
       fixture.toolchain.runner,
-      log: fixtureLog,
+      log: session.fixtureLog,
       runChecked:
           (executable, arguments, {workingDirectory, environment}) async {
             call = ComposeCall(
@@ -298,14 +304,14 @@ void main() {
   });
 
   test('throws when Kotlin Native omits the framework binary', () async {
-    final fixture = ComposeFixture.create(ComposeTestHosts.linuxX64)
+    final fixture = ComposeFixture.create(session, session.hosts.linuxX64)
       ..createInputs();
     addTearDown(fixture.dispose);
 
     await expectLater(
       KotlinFrameworkBuilder.withSeams(
         fixture.toolchain.runner,
-        log: fixtureLog,
+        log: session.fixtureLog,
         runChecked:
             (executable, arguments, {workingDirectory, environment}) async {
               Directory(
@@ -331,14 +337,14 @@ void main() {
     );
   });
   test('throws when Kotlin Native omits the framework header', () async {
-    final fixture = ComposeFixture.create(ComposeTestHosts.linuxX64)
+    final fixture = ComposeFixture.create(session, session.hosts.linuxX64)
       ..createInputs();
     addTearDown(fixture.dispose);
 
     await expectLater(
       KotlinFrameworkBuilder.withSeams(
         fixture.toolchain.runner,
-        log: fixtureLog,
+        log: session.fixtureLog,
         runChecked:
             (executable, arguments, {workingDirectory, environment}) async {
               final framework = fixture.producedFramework('debugFramework');
@@ -358,7 +364,7 @@ void main() {
   });
 
   test('replaces stale framework-only destination contents', () async {
-    final fixture = ComposeFixture.create(ComposeTestHosts.linuxX64)
+    final fixture = ComposeFixture.create(session, session.hosts.linuxX64)
       ..createInputs();
     final destination = Directory(
       p.join(fixture.root, 'build', 'xcross-ios', 'Shared.framework'),
@@ -369,7 +375,7 @@ void main() {
     final output =
         await KotlinFrameworkBuilder.withSeams(
           fixture.toolchain.runner,
-          log: fixtureLog,
+          log: session.fixtureLog,
           runChecked:
               (executable, arguments, {workingDirectory, environment}) async {
                 fixture.createProducedFramework(
@@ -392,7 +398,8 @@ void main() {
 }
 
 final class ComposeFixture {
-  ComposeFixture._(this.temp, this.host, this.simulator)
+  final ComposeTestSession session;
+  ComposeFixture._(this.session, this.temp, this.host, this.simulator)
     : root = temp.path,
       modulePath = p.join(temp.path, 'shared'),
       kotlinHome = p.join(temp.path, 'kotlin-home'),
@@ -411,11 +418,15 @@ final class ComposeFixture {
       depOne = p.join(temp.path, 'deps', 'compose.klib'),
       depTwo = p.join(temp.path, 'deps', 'coroutines.klib');
 
-  factory ComposeFixture.create(ComposeHost host, {bool simulator = false}) {
+  factory ComposeFixture.create(
+    ComposeTestSession session,
+    ComposeHost host, {
+    bool simulator = false,
+  }) {
     final temp = Directory.systemTemp.createTempSync(
       'xcross_framework_builder_test_',
     );
-    return ComposeFixture._(temp, host, simulator);
+    return ComposeFixture._(session, temp, host, simulator);
   }
 
   final Directory temp;
@@ -476,14 +487,14 @@ final class ComposeFixture {
   );
 
   ComposeToolchain get toolchain => ComposeToolchain(
-    log: fixtureLog,
+    log: session.fixtureLog,
     target: fixtureTarget(host, simulator: simulator),
     runner: ProcessRunner(
-      log: fixtureLog,
+      log: session.fixtureLog,
       host.host,
       stdinStream: const Stream<List<int>>.empty(),
-      stdoutSink: stdout,
-      stderrSink: stderr,
+      stdoutSink: session.stdoutSink,
+      stderrSink: session.stderrSink,
     ),
     kotlinHome: kotlinHome,
     konanCache: p.join(root, 'konan-cache'),

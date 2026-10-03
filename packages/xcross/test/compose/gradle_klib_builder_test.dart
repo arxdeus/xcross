@@ -11,11 +11,17 @@ import 'package:xcross/src/shared/compose/compose_host.dart';
 import 'support/compose_platforms.dart';
 
 void main() {
+  late ComposeTestSession session;
+  setUp(() {
+    session = ComposeTestSession();
+  });
+  tearDown(() => session.dispose());
   test('compiles simulator Gradle klib and only simulator resources', () async {
     final fixture =
         ComposeFixture.create(
+            session,
             moduleName: 'app:shared',
-            host: ComposeTestHosts.macosArm64,
+            host: session.hosts.macosArm64,
             simulator: true,
           )
           ..createWrapper()
@@ -47,8 +53,9 @@ void main() {
     () async {
       final fixture =
           ComposeFixture.create(
+              session,
               moduleName: 'shared',
-              host: ComposeTestHosts.macosArm64,
+              host: session.hosts.macosArm64,
             )
             ..createWrapper()
             ..createModuleKlib();
@@ -82,8 +89,9 @@ void main() {
     () async {
       final fixture =
           ComposeFixture.create(
+              session,
               moduleName: 'a:b',
-              host: ComposeTestHosts.linuxX64,
+              host: session.hosts.linuxX64,
             )
             ..createWrapper()
             ..createModuleKlib();
@@ -196,8 +204,9 @@ void main() {
       // EnumClassLowering, then "no function X in package Y" from ObjC export).
       final fixture =
           ComposeFixture.create(
+              session,
               moduleName: 'app:shared',
-              host: ComposeTestHosts.linuxX64,
+              host: session.hosts.linuxX64,
             )
             ..createWrapper()
             ..createModuleKlib();
@@ -268,8 +277,9 @@ void main() {
   test('handles the shape a real dependency dump has', () async {
     final fixture =
         ComposeFixture.create(
+            session,
             moduleName: 'shared',
-            host: ComposeTestHosts.linuxX64,
+            host: session.hosts.linuxX64,
           )
           ..createWrapper()
           ..createModuleKlib();
@@ -323,8 +333,9 @@ void main() {
 
   test('uses system Gradle when no wrapper exists', () async {
     final fixture = ComposeFixture.create(
+      session,
       moduleName: 'shared',
-      host: ComposeTestHosts.linuxX64,
+      host: session.hosts.linuxX64,
     )..createModuleKlib();
     final calls = <ComposeCall>[];
     addTearDown(fixture.dispose);
@@ -350,8 +361,9 @@ void main() {
     () async {
       final fixture =
           ComposeFixture.create(
+              session,
               moduleName: 'shared',
-              host: ComposeTestHosts.windowsX64,
+              host: session.hosts.windowsX64,
             )
             ..createWrapper()
             ..createModuleKlib();
@@ -386,8 +398,9 @@ void main() {
   test('uses POSIX PATH separator for Linux hosts', () async {
     final fixture =
         ComposeFixture.create(
+            session,
             moduleName: 'shared',
-            host: ComposeTestHosts.linuxX64,
+            host: session.hosts.linuxX64,
           )
           ..createWrapper()
           ..createModuleKlib();
@@ -422,8 +435,9 @@ void main() {
     'throws when module KLIB is missing and cleans temporary files',
     () async {
       final fixture = ComposeFixture.create(
+        session,
         moduleName: 'shared',
-        host: ComposeTestHosts.linuxX64,
+        host: session.hosts.linuxX64,
       )..createWrapper();
       ComposeCall? depsCall;
       addTearDown(fixture.dispose);
@@ -457,8 +471,9 @@ void main() {
     () async {
       final fixture =
           ComposeFixture.create(
+              session,
               moduleName: 'shared',
-              host: ComposeTestHosts.linuxX64,
+              host: session.hosts.linuxX64,
             )
             ..createWrapper()
             ..createModuleKlib();
@@ -492,8 +507,9 @@ void main() {
     'cleans temporary files when compile Gradle invocation throws',
     () async {
       final fixture = ComposeFixture.create(
+        session,
         moduleName: 'shared',
-        host: ComposeTestHosts.linuxX64,
+        host: session.hosts.linuxX64,
       )..createWrapper();
       String? depsOutPath;
       addTearDown(fixture.dispose);
@@ -517,8 +533,9 @@ void main() {
     'cleans temporary files when dependency Gradle invocation throws',
     () async {
       final fixture = ComposeFixture.create(
+        session,
         moduleName: 'shared',
-        host: ComposeTestHosts.linuxX64,
+        host: session.hosts.linuxX64,
       )..createWrapper();
       ComposeCall? depsCall;
       addTearDown(fixture.dispose);
@@ -549,7 +566,9 @@ void main() {
 }
 
 final class ComposeFixture {
+  final ComposeTestSession session;
   ComposeFixture._(
+    this.session,
     this.temp,
     this.root,
     this.moduleName,
@@ -559,7 +578,8 @@ final class ComposeFixture {
       kotlinHome = p.join(root, 'kotlinc'),
       javaHome = p.join(root, 'jdk');
 
-  static ComposeFixture create({
+  static ComposeFixture create(
+    ComposeTestSession session, {
     required String moduleName,
     required ComposeHost host,
     bool simulator = false,
@@ -568,6 +588,7 @@ final class ComposeFixture {
       'xcross_gradle_builder_test_',
     );
     final fixture = ComposeFixture._(
+      session,
       temp,
       temp.path,
       moduleName,
@@ -610,14 +631,14 @@ final class ComposeFixture {
   );
 
   ComposeToolchain get toolchain => ComposeToolchain(
-    log: fixtureLog,
+    log: session.fixtureLog,
     target: fixtureTarget(host, simulator: simulator),
     runner: ProcessRunner(
-      log: fixtureLog,
+      log: session.fixtureLog,
       host.host,
       stdinStream: const Stream<List<int>>.empty(),
-      stdoutSink: stdout,
-      stderrSink: stderr,
+      stdoutSink: session.stdoutSink,
+      stderrSink: session.stderrSink,
     ),
     kotlinHome: kotlinHome,
     konanCache: p.join(root, 'konan-cache'),

@@ -12,6 +12,11 @@ import 'support/compose_platforms.dart';
 /// A Compose project that keeps its iOS app next to the shared module
 /// (`app/iosApp` beside `app/shared`) instead of at the root.
 void main() {
+  late ComposeTestSession session;
+  setUp(() {
+    session = ComposeTestSession();
+  });
+  tearDown(() => session.dispose());
   late Directory temp;
   late String root;
 
@@ -58,7 +63,9 @@ CLIENT_ID=12345
       write('iosApp/Configuration/Config.xcconfig', 'PRODUCT_NAME=Root\n');
       nestedApp();
       expect(
-        IosAppConfigLoader(fixtureRunner.host.fileSystem).directory(root),
+        IosAppConfigLoader(
+          session.fixtureRunner.host.fileSystem,
+        ).directory(root),
         p.join(root, 'iosApp'),
       );
     });
@@ -66,12 +73,14 @@ CLIENT_ID=12345
     test('finds a single app one level down', () {
       nestedApp();
       expect(
-        IosAppConfigLoader(fixtureRunner.host.fileSystem).directory(root),
+        IosAppConfigLoader(
+          session.fixtureRunner.host.fileSystem,
+        ).directory(root),
         p.join(root, 'app', 'iosApp'),
       );
       expect(
         IosAppConfigLoader(
-          fixtureRunner.host.fileSystem,
+          session.fixtureRunner.host.fileSystem,
         ).load(root)?.productName,
         'Nested',
       );
@@ -83,7 +92,9 @@ CLIENT_ID=12345
         p.join(root, 'iosApp', '.build', 'runner'),
       ).createSync(recursive: true);
       expect(
-        IosAppConfigLoader(fixtureRunner.host.fileSystem).directory(root),
+        IosAppConfigLoader(
+          session.fixtureRunner.host.fileSystem,
+        ).directory(root),
         p.join(root, 'app', 'iosApp'),
       );
     });
@@ -93,7 +104,9 @@ CLIENT_ID=12345
         p.join(root, 'mobile', 'iosApp', 'iosApp.xcodeproj'),
       ).createSync(recursive: true);
       expect(
-        IosAppConfigLoader(fixtureRunner.host.fileSystem).directory(root),
+        IosAppConfigLoader(
+          session.fixtureRunner.host.fileSystem,
+        ).directory(root),
         p.join(root, 'mobile', 'iosApp'),
       );
     });
@@ -102,7 +115,9 @@ CLIENT_ID=12345
       nestedApp();
       write('other/iosApp/Info.plist', '<plist><dict/></plist>');
       expect(
-        IosAppConfigLoader(fixtureRunner.host.fileSystem).directory(root),
+        IosAppConfigLoader(
+          session.fixtureRunner.host.fileSystem,
+        ).directory(root),
         isNull,
       );
     });
@@ -110,7 +125,7 @@ CLIENT_ID=12345
     test('keeps every xcconfig setting, expanded', () {
       nestedApp();
       final settings = IosAppConfigLoader(
-        fixtureRunner.host.fileSystem,
+        session.fixtureRunner.host.fileSystem,
       ).load(root)!.buildSettings;
       expect(settings['API_BASE_URL'], 'https://api.example.com');
       expect(settings['CLIENT_ID'], '12345');
@@ -129,14 +144,16 @@ CLIENT_ID=12345
         entryKind: KmpEntryKind.runnableApp,
         bundleId: 'sg.example.nested',
         appName: 'Nested',
-        iosConfig: IosAppConfigLoader(fixtureRunner.host.fileSystem).load(root),
+        iosConfig: IosAppConfigLoader(
+          session.fixtureRunner.host.fileSystem,
+        ).load(root),
       );
 
       final plist =
           PropertyListSerialization.propertyListWithString(
                 ComposeInfoPlist(
-                  fixtureRunner.host.fileSystem,
-                  fixtureLog,
+                  session.fixtureRunner.host.fileSystem,
+                  session.fixtureLog,
                 ).build(project: project, target: const IPhoneBuildPlatform()),
               )
               as Map;
@@ -154,7 +171,9 @@ CLIENT_ID=12345
   test('entitlements are found in the nested app', () {
     nestedApp();
     expect(
-      ComposeEntitlements(fixtureRunner.host.fileSystem).find(root, 'Nested'),
+      ComposeEntitlements(
+        session.fixtureRunner.host.fileSystem,
+      ).find(root, 'Nested'),
       p.join(root, 'app', 'iosApp', 'iosApp', 'Nested.entitlements'),
     );
   });

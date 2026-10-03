@@ -16,6 +16,11 @@ import 'package:xcross/src/models/pack_result.dart';
 import 'support/compose_platforms.dart';
 
 void main() {
+  late ComposeTestSession session;
+  setUp(() {
+    session = ComposeTestSession();
+  });
+  tearDown(() => session.dispose());
   test(
     'cleanup uses the selected remapped filesystem, not ambient paths',
     () async {
@@ -37,15 +42,15 @@ void main() {
         target,
         runner: ProcessRunner(
           host,
-          log: fixtureLog,
+          log: session.fixtureLog,
           stdinStream: const Stream<List<int>>.empty(),
-          stdoutSink: stdout,
-          stderrSink: stderr,
+          stdoutSink: session.stdoutSink,
+          stderrSink: session.stderrSink,
         ),
-        tools: fixtureToolsFor(host),
-        sdkRepository: fixtureSdkRepositoryFor(host),
-        log: fixtureLog,
-        downloader: fixtureDownloader,
+        tools: session.fixtureToolsFor(host),
+        sdkRepository: session.fixtureSdkRepositoryFor(host),
+        log: session.fixtureLog,
+        downloader: session.fixtureDownloader,
         currentDirectory: () => '/virtual-compose',
         detectProject: (path, {bundleId, appName, gradleTarget = 'iosArm64'}) =>
             project,
@@ -97,22 +102,33 @@ kotlin {
 ''');
           }
           final operation = ComposePackOperation.withSeams(
-            simulator ? fixtureSimulatorTarget : fixtureIPhoneTarget,
-            log: fixtureLog,
+            simulator
+                ? session.fixtureSimulatorTarget
+                : session.fixtureIPhoneTarget,
+            log: session.fixtureLog,
             runner: ProcessRunner(
-              log: fixtureLog,
-              (simulator ? fixtureSimulatorTarget : fixtureIPhoneTarget).host,
+              log: session.fixtureLog,
+              (simulator
+                      ? session.fixtureSimulatorTarget
+                      : session.fixtureIPhoneTarget)
+                  .host,
               stdinStream: const Stream<List<int>>.empty(),
-              stdoutSink: stdout,
-              stderrSink: stderr,
+              stdoutSink: session.stdoutSink,
+              stderrSink: session.stderrSink,
             ),
-            sdkRepository: fixtureSdkRepositoryFor(
-              (simulator ? fixtureSimulatorTarget : fixtureIPhoneTarget).host,
+            sdkRepository: session.fixtureSdkRepositoryFor(
+              (simulator
+                      ? session.fixtureSimulatorTarget
+                      : session.fixtureIPhoneTarget)
+                  .host,
             ),
-            tools: fixtureToolsFor(
-              (simulator ? fixtureSimulatorTarget : fixtureIPhoneTarget).host,
+            tools: session.fixtureToolsFor(
+              (simulator
+                      ? session.fixtureSimulatorTarget
+                      : session.fixtureIPhoneTarget)
+                  .host,
             ),
-            downloader: fixtureDownloader,
+            downloader: session.fixtureDownloader,
             currentDirectory: () => root.path,
             packProject: ({required project, required options}) async {
               expect(project.moduleName, simulator ? 'simulator' : 'device');
@@ -154,22 +170,33 @@ kotlin {
               ..createSync(recursive: true)
               ..writeAsStringSync('preserve');
         final operation = ComposePackOperation.withSeams(
-          simulator ? fixtureSimulatorTarget : fixtureIPhoneTarget,
-          log: fixtureLog,
+          simulator
+              ? session.fixtureSimulatorTarget
+              : session.fixtureIPhoneTarget,
+          log: session.fixtureLog,
           runner: ProcessRunner(
-            log: fixtureLog,
-            (simulator ? fixtureSimulatorTarget : fixtureIPhoneTarget).host,
+            log: session.fixtureLog,
+            (simulator
+                    ? session.fixtureSimulatorTarget
+                    : session.fixtureIPhoneTarget)
+                .host,
             stdinStream: const Stream<List<int>>.empty(),
-            stdoutSink: stdout,
-            stderrSink: stderr,
+            stdoutSink: session.stdoutSink,
+            stderrSink: session.stderrSink,
           ),
-          sdkRepository: fixtureSdkRepositoryFor(
-            (simulator ? fixtureSimulatorTarget : fixtureIPhoneTarget).host,
+          sdkRepository: session.fixtureSdkRepositoryFor(
+            (simulator
+                    ? session.fixtureSimulatorTarget
+                    : session.fixtureIPhoneTarget)
+                .host,
           ),
-          tools: fixtureToolsFor(
-            (simulator ? fixtureSimulatorTarget : fixtureIPhoneTarget).host,
+          tools: session.fixtureToolsFor(
+            (simulator
+                    ? session.fixtureSimulatorTarget
+                    : session.fixtureIPhoneTarget)
+                .host,
           ),
-          downloader: fixtureDownloader,
+          downloader: session.fixtureDownloader,
           currentDirectory: () => root.path,
           packProject: ({required project, required options}) async =>
               fail('missing selected target must not reach packing'),
@@ -213,18 +240,20 @@ kotlin {
               ..writeAsStringSync('simulator');
         var detections = 0;
         final operation = ComposePackOperation.withSeams(
-          fixtureSimulatorTarget,
-          log: fixtureLog,
+          session.fixtureSimulatorTarget,
+          log: session.fixtureLog,
           runner: ProcessRunner(
-            log: fixtureLog,
-            fixtureSimulatorTarget.host,
+            log: session.fixtureLog,
+            session.fixtureSimulatorTarget.host,
             stdinStream: const Stream<List<int>>.empty(),
-            stdoutSink: stdout,
-            stderrSink: stderr,
+            stdoutSink: session.stdoutSink,
+            stderrSink: session.stderrSink,
           ),
-          tools: fixtureToolsFor(fixtureSimulatorTarget.host),
-          sdkRepository: fixtureSdkRepositoryFor(fixtureSimulatorTarget.host),
-          downloader: fixtureDownloader,
+          tools: session.fixtureToolsFor(session.fixtureSimulatorTarget.host),
+          sdkRepository: session.fixtureSdkRepositoryFor(
+            session.fixtureSimulatorTarget.host,
+          ),
+          downloader: session.fixtureDownloader,
           currentDirectory: () => root.path,
           detectProject:
               (path, {bundleId, appName, gradleTarget = 'iosArm64'}) {
@@ -270,18 +299,20 @@ kotlin {
       File(p.join(staleFramework.path, 'stale')).writeAsStringSync('stale');
 
       final operation = ComposePackOperation.withSeams(
-        fixtureIPhoneTarget,
-        log: fixtureLog,
+        session.fixtureIPhoneTarget,
+        log: session.fixtureLog,
         runner: ProcessRunner(
-          log: fixtureLog,
-          fixtureIPhoneTarget.host,
+          log: session.fixtureLog,
+          session.fixtureIPhoneTarget.host,
           stdinStream: const Stream<List<int>>.empty(),
-          stdoutSink: stdout,
-          stderrSink: stderr,
+          stdoutSink: session.stdoutSink,
+          stderrSink: session.stderrSink,
         ),
-        tools: fixtureTools,
-        sdkRepository: fixtureSdkRepositoryFor(fixtureIPhoneTarget.host),
-        downloader: fixtureDownloader,
+        tools: session.fixtureTools,
+        sdkRepository: session.fixtureSdkRepositoryFor(
+          session.fixtureIPhoneTarget.host,
+        ),
+        downloader: session.fixtureDownloader,
         currentDirectory: () => root.path,
         detectProject: (path, {bundleId, appName, gradleTarget = 'iosArm64'}) {
           expect(gradleTarget, 'iosArm64');
@@ -313,18 +344,20 @@ kotlin {
     test('rejects framework-only run before toolchain work', () async {
       final events = <String>[];
       final operation = ComposePackOperation.withSeams(
-        fixtureIPhoneTarget,
-        log: fixtureLog,
+        session.fixtureIPhoneTarget,
+        log: session.fixtureLog,
         runner: ProcessRunner(
-          log: fixtureLog,
-          fixtureIPhoneTarget.host,
+          log: session.fixtureLog,
+          session.fixtureIPhoneTarget.host,
           stdinStream: const Stream<List<int>>.empty(),
-          stdoutSink: stdout,
-          stderrSink: stderr,
+          stdoutSink: session.stdoutSink,
+          stderrSink: session.stderrSink,
         ),
-        tools: fixtureTools,
-        sdkRepository: fixtureSdkRepositoryFor(fixtureIPhoneTarget.host),
-        downloader: fixtureDownloader,
+        tools: session.fixtureTools,
+        sdkRepository: session.fixtureSdkRepositoryFor(
+          session.fixtureIPhoneTarget.host,
+        ),
+        downloader: session.fixtureDownloader,
         currentDirectory: () => root.path,
         detectProject: (path, {bundleId, appName, gradleTarget = 'iosArm64'}) {
           events.add('detect');
@@ -359,18 +392,20 @@ kotlin {
     test('rejects framework-only ipa before toolchain work', () async {
       final events = <String>[];
       final operation = ComposePackOperation.withSeams(
-        fixtureIPhoneTarget,
-        log: fixtureLog,
+        session.fixtureIPhoneTarget,
+        log: session.fixtureLog,
         runner: ProcessRunner(
-          log: fixtureLog,
-          fixtureIPhoneTarget.host,
+          log: session.fixtureLog,
+          session.fixtureIPhoneTarget.host,
           stdinStream: const Stream<List<int>>.empty(),
-          stdoutSink: stdout,
-          stderrSink: stderr,
+          stdoutSink: session.stdoutSink,
+          stderrSink: session.stderrSink,
         ),
-        tools: fixtureTools,
-        sdkRepository: fixtureSdkRepositoryFor(fixtureIPhoneTarget.host),
-        downloader: fixtureDownloader,
+        tools: session.fixtureTools,
+        sdkRepository: session.fixtureSdkRepositoryFor(
+          session.fixtureIPhoneTarget.host,
+        ),
+        downloader: session.fixtureDownloader,
         currentDirectory: () => root.path,
         detectProject: (path, {bundleId, appName, gradleTarget = 'iosArm64'}) {
           events.add('detect');
@@ -407,6 +442,7 @@ kotlin {
         final events = <String>[];
         final project = _project(root.path, KmpEntryKind.runnableApp);
         final packer = _packer(
+          session,
           project: project,
           events: events,
           objcRunner:
@@ -446,6 +482,7 @@ kotlin {
       final events = <String>[];
       final project = _project(root.path, KmpEntryKind.swiftApp);
       final packer = _packer(
+        session,
         project: project,
         events: events,
         swiftRunner:
@@ -481,7 +518,7 @@ kotlin {
         });
         final events = <String>[];
         final project = _project(root.path, KmpEntryKind.frameworkOnly);
-        final packer = _packer(project: project, events: events);
+        final packer = _packer(session, project: project, events: events);
 
         final result = await packer.pack();
 
@@ -501,6 +538,7 @@ kotlin {
       });
       var ensures = 0;
       final packer = _packer(
+        session,
         project: _project(root.path, KmpEntryKind.frameworkOnly),
         events: <String>[],
         ensureToolchain:
@@ -511,7 +549,7 @@ kotlin {
               required force,
             }) async {
               ensures++;
-              return _toolchain;
+              return _toolchain(session);
             },
       );
 
@@ -522,21 +560,24 @@ kotlin {
   });
 }
 
-ComposePacker _packer({
+ComposePacker _packer(
+  ComposeTestSession session, {
   required KmpProject project,
   required List<String> events,
   ComposeEnsureToolchain? ensureToolchain,
   ComposeBuildRunner? objcRunner,
   ComposeBuildRunner? swiftRunner,
 }) => ComposePacker.withSeams(
-  log: fixtureLog,
+  log: session.fixtureLog,
   project: project,
   options: const ComposeBuildOptions(),
-  target: fixtureIPhoneTarget,
-  runner: fixtureRunner,
-  tools: fixtureTools,
-  sdkRepository: fixtureSdkRepositoryFor(fixtureIPhoneTarget.host),
-  downloader: fixtureDownloader,
+  target: session.fixtureIPhoneTarget,
+  runner: session.fixtureRunner,
+  tools: session.fixtureTools,
+  sdkRepository: session.fixtureSdkRepositoryFor(
+    session.fixtureIPhoneTarget.host,
+  ),
+  downloader: session.fixtureDownloader,
   ensureToolchain:
       ensureToolchain ??
       ({
@@ -546,7 +587,7 @@ ComposePacker _packer({
         required force,
       }) async {
         events.add('toolchain');
-        return _toolchain;
+        return _toolchain(session);
       },
   buildKlib: ({required project, required toolchain}) async {
     events.add('gradle-klib');
@@ -607,10 +648,10 @@ KmpProject _project(String root, KmpEntryKind entryKind) => KmpProject(
       : const [],
 );
 
-final _toolchain = ComposeToolchain(
-  log: fixtureLog,
-  target: fixtureIPhoneTarget,
-  runner: fixtureRunner,
+ComposeToolchain _toolchain(ComposeTestSession session) => ComposeToolchain(
+  log: session.fixtureLog,
+  target: session.fixtureIPhoneTarget,
+  runner: session.fixtureRunner,
   kotlinHome: '/kotlin',
   konanCache: '/konan-cache',
   konancExecutable: '/kotlin/bin/konanc',

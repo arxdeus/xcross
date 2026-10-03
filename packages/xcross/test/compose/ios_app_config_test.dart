@@ -7,6 +7,11 @@ import 'package:xcross/src/compose/project/ios_app_config.dart';
 import 'support/compose_platforms.dart';
 
 void main() {
+  late ComposeTestSession session;
+  setUp(() {
+    session = ComposeTestSession();
+  });
+  tearDown(() => session.dispose());
   group('IosAppConfig', () {
     test('parses assignments and expands known variables', () {
       final config = IosAppConfig.parse(r'''
@@ -75,7 +80,9 @@ PRODUCT_BUNDLE_IDENTIFIER = $(DOMAIN).$(APP_SEGMENT)
       addTearDown(() => root.deleteSync(recursive: true));
 
       expect(
-        IosAppConfigLoader(fixtureRunner.host.fileSystem).load(root.path),
+        IosAppConfigLoader(
+          session.fixtureRunner.host.fileSystem,
+        ).load(root.path),
         isNull,
       );
     });
@@ -91,7 +98,7 @@ PRODUCT_BUNDLE_IDENTIFIER = org.example.file
 ''');
 
       final config = IosAppConfigLoader(
-        fixtureRunner.host.fileSystem,
+        session.fixtureRunner.host.fileSystem,
       ).load(root.path);
 
       expect(config, isNotNull);

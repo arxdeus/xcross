@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
@@ -5,30 +6,6 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/compose/build/framework_build_stamp.dart';
 import 'package:xcross/src/compose/compose.dart';
 import 'package:xcross/src/compose/watch/kotlin_source_watcher.dart';
-
-abstract final class ComposeTestHosts {
-  static final ComposeHost<PlatformHostInterface> linuxX64 = LinuxComposeHost(
-    LinuxHost(
-      architecture: 'x64',
-      temporaryDirectory: Directory.systemTemp.path,
-    ),
-  );
-  static final ComposeHost<PlatformHostInterface> windowsX64 =
-      WindowsComposeHost(
-        WindowsHost(
-          architecture: 'x64',
-          temporaryDirectory: Directory.systemTemp.path,
-          fileSystem: ComposeTestHosts.linuxX64.host.fileSystem,
-        ),
-        runningExecutable: '/unused-xcross',
-      );
-  static final ComposeHost<PlatformHostInterface> macosX64 = MacOSComposeHost(
-    MacOSHost(architecture: 'x64'),
-  );
-  static final ComposeHost<PlatformHostInterface> macosArm64 = MacOSComposeHost(
-    MacOSHost(architecture: 'arm64'),
-  );
-}
 
 ComposeTarget<PlatformHostInterface> fixtureTarget(
   ComposeHost<PlatformHostInterface> host, {
@@ -49,32 +26,6 @@ final class FixtureSimulatorSigning
   @override
   Future<void> signBundle(String appPath) async {}
 }
-
-final fixtureIPhoneTarget = fixtureTarget(ComposeTestHosts.linuxX64);
-final fixtureSimulatorTarget = fixtureTarget(
-  ComposeTestHosts.macosArm64,
-  simulator: true,
-);
-final fixtureRunner = ProcessRunner(
-  log: fixtureLog,
-  fixtureIPhoneTarget.host,
-  stdinStream: const Stream<List<int>>.empty(),
-  stdoutSink: stdout,
-  stderrSink: stderr,
-);
-final fixtureTools = fixtureToolsFor(fixtureIPhoneTarget.host);
-DarwinToolchainResolver<PlatformHostInterface> fixtureToolsFor(
-  PlatformHostInterface host,
-) => DarwinToolchainResolver(
-  ProcessRunner(
-    host,
-    log: fixtureLog,
-    stdinStream: const Stream<List<int>>.empty(),
-    stdoutSink: stdout,
-    stderrSink: stderr,
-  ),
-  const ComposeFixtureDarwinToolchainLocations(),
-);
 
 final class ComposeFixtureDarwinToolchainLocations
     implements DarwinToolchainLocationsInterface {
@@ -99,44 +50,6 @@ final class ComposeFixtureLogOutput implements LogOutput {
   @override
   void write(String message) {}
 }
-
-final fixtureLog = Log(output: ComposeFixtureLogOutput());
-
-KmpProject detectKmpProject(
-  String root, {
-  String? bundleId,
-  String? appName,
-  String gradleTarget = 'iosArm64',
-}) => KmpProjectDetector(
-  files: fixtureRunner.host.fileSystem,
-  log: fixtureLog,
-  root: root,
-  bundleIdOverride: bundleId,
-  appNameOverride: appName,
-  gradleTarget: gradleTarget,
-).detect();
-FrameworkBuildStamp fixtureFrameworkStamp(String path) =>
-    FrameworkBuildStamp.forFramework(
-      path,
-      files: fixtureRunner.host.fileSystem,
-    );
-KotlinSourceWatcher fixtureSourceWatcher(
-  String root, {
-  List<String>? searchRoots,
-}) => KotlinSourceWatcher(
-  root,
-  files: fixtureRunner.host.fileSystem,
-  searchRoots: searchRoots,
-);
-
-final fixtureDownloader = Downloader(
-  createClient: () => throw StateError('Tests must not download toolchains.'),
-  log: fixtureLog,
-);
-
-DarwinSdkRepository<PlatformHostInterface> fixtureSdkRepositoryFor(
-  PlatformHostInterface host,
-) => DarwinSdkRepository(host, log: fixtureLog);
 
 final class RemappedComposeFileSystem implements HostFileSystemInterface {
   RemappedComposeFileSystem(this.root);
@@ -164,12 +77,131 @@ final class RemappedComposeFileSystem implements HostFileSystemInterface {
       throw UnsupportedError('not expected');
 }
 
-ProcessRunner<T> fixtureProcessRunner<T extends PlatformHostInterface>(
-  T host,
-) => ProcessRunner(
-  host,
-  log: fixtureLog,
-  stdinStream: const Stream<List<int>>.empty(),
-  stdoutSink: stdout,
-  stderrSink: stderr,
-);
+final class ComposeTestSession {
+  ComposeTestSession()
+    : temporaryRoot = Directory.systemTemp.createTempSync('compose-session-') {
+    stdoutSink = IOSink(stdoutConsumer);
+    stderrSink = IOSink(stderrConsumer);
+    hosts = ComposeFixtureHosts(temporaryRoot.path);
+    fixtureLog = Log(output: logOutput);
+    fixtureDownloader = Downloader(
+      createClient: () =>
+          throw StateError('Tests must not download toolchains.'),
+      log: fixtureLog,
+    );
+    fixtureIPhoneTarget = fixtureTarget(hosts.linuxX64);
+    fixtureSimulatorTarget = fixtureTarget(hosts.macosArm64, simulator: true);
+    fixtureRunner = fixtureProcessRunner(fixtureIPhoneTarget.host);
+    fixtureTools = fixtureToolsFor(fixtureIPhoneTarget.host);
+  }
+  final Directory temporaryRoot;
+  final ComposeFixtureByteConsumer stdoutConsumer =
+      ComposeFixtureByteConsumer();
+  final ComposeFixtureByteConsumer stderrConsumer =
+      ComposeFixtureByteConsumer();
+  final ComposeFixtureLogOutput logOutput = ComposeFixtureLogOutput();
+  late final IOSink stdoutSink;
+  late final IOSink stderrSink;
+  late final ComposeFixtureHosts hosts;
+  late final Log fixtureLog;
+  late final Downloader fixtureDownloader;
+  late final ComposeTarget<PlatformHostInterface> fixtureIPhoneTarget;
+  late final ComposeTarget<PlatformHostInterface> fixtureSimulatorTarget;
+  late final ProcessRunner<PlatformHostInterface> fixtureRunner;
+  late final DarwinToolchainResolver<PlatformHostInterface> fixtureTools;
+  ProcessRunner<T> fixtureProcessRunner<T extends PlatformHostInterface>(
+    T host,
+  ) => ProcessRunner(
+    host,
+    log: fixtureLog,
+    stdinStream: const Stream<List<int>>.empty(),
+    stdoutSink: stdoutSink,
+    stderrSink: stderrSink,
+  );
+  DarwinToolchainResolver<PlatformHostInterface> fixtureToolsFor(
+    PlatformHostInterface host,
+  ) => DarwinToolchainResolver(
+    fixtureProcessRunner(host),
+    const ComposeFixtureDarwinToolchainLocations(),
+  );
+  DarwinSdkRepository<PlatformHostInterface> fixtureSdkRepositoryFor(
+    PlatformHostInterface host,
+  ) => DarwinSdkRepository(host, log: fixtureLog);
+  KmpProject detectKmpProject(
+    String root, {
+    String? bundleId,
+    String? appName,
+    String gradleTarget = 'iosArm64',
+  }) => KmpProjectDetector(
+    files: fixtureRunner.host.fileSystem,
+    log: fixtureLog,
+    root: root,
+    bundleIdOverride: bundleId,
+    appNameOverride: appName,
+    gradleTarget: gradleTarget,
+  ).detect();
+  FrameworkBuildStamp fixtureFrameworkStamp(String path) =>
+      FrameworkBuildStamp.forFramework(
+        path,
+        files: fixtureRunner.host.fileSystem,
+      );
+  KotlinSourceWatcher fixtureSourceWatcher(
+    String root, {
+    List<String>? searchRoots,
+  }) => KotlinSourceWatcher(
+    root,
+    files: fixtureRunner.host.fileSystem,
+    searchRoots: searchRoots,
+  );
+  Future<void> dispose() async {
+    await Future.wait([stdoutSink.close(), stderrSink.close()]);
+    temporaryRoot.deleteSync(recursive: true);
+  }
+}
+
+final class ComposeFixtureHosts {
+  ComposeFixtureHosts(String temporaryRoot) {
+    linuxX64 = LinuxComposeHost(
+      LinuxHost(architecture: 'x64', temporaryDirectory: temporaryRoot),
+    );
+    windowsX64 = WindowsComposeHost(
+      WindowsHost(
+        architecture: 'x64',
+        temporaryDirectory: temporaryRoot,
+        fileSystem: linuxX64.host.fileSystem,
+      ),
+      runningExecutable: '/unused-xcross',
+    );
+    macosX64 = MacOSComposeHost(
+      MacOSHost(
+        architecture: 'x64',
+        temporaryDirectory: temporaryRoot,
+        fileSystem: linuxX64.host.fileSystem,
+      ),
+    );
+    macosArm64 = MacOSComposeHost(
+      MacOSHost(
+        architecture: 'arm64',
+        temporaryDirectory: temporaryRoot,
+        fileSystem: linuxX64.host.fileSystem,
+      ),
+    );
+  }
+  late final ComposeHost<PlatformHostInterface> linuxX64;
+  late final ComposeHost<PlatformHostInterface> windowsX64;
+  late final ComposeHost<PlatformHostInterface> macosX64;
+  late final ComposeHost<PlatformHostInterface> macosArm64;
+}
+
+final class ComposeFixtureByteConsumer implements StreamConsumer<List<int>> {
+  final List<int> bytes = [];
+  @override
+  Future<void> addStream(Stream<List<int>> stream) async {
+    await for (final chunk in stream) {
+      bytes.addAll(chunk);
+    }
+  }
+
+  @override
+  Future<void> close() async {}
+}

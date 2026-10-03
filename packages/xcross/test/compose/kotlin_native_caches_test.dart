@@ -11,6 +11,11 @@ import 'package:xcross/src/errors.dart';
 import 'support/compose_platforms.dart';
 
 void main() {
+  late ComposeTestSession session;
+  setUp(() {
+    session = ComposeTestSession();
+  });
+  tearDown(() => session.dispose());
   test('packed klib manifest uses selected remapped file path', () {
     final root = Directory.systemTemp.createTempSync('compose-remapped-klib-');
     addTearDown(() => root.deleteSync(recursive: true));
@@ -28,7 +33,7 @@ void main() {
   });
 
   test('packed klib symlinks retain file content stamps in cache planning', () {
-    final fixture = ComposeFixture.create();
+    final fixture = ComposeFixture.create(session);
     addTearDown(fixture.dispose);
     final bytes = utf8.encode(
       'unique_name=org.example:lib-a\ndepends=stdlib org.jetbrains.kotlin.native.platform.Foundation\n',
@@ -53,7 +58,7 @@ void main() {
   test(
     'simulator cache plan selects simulator platform and compile target',
     () async {
-      final fixture = ComposeFixture.create(simulator: true);
+      final fixture = ComposeFixture.create(session, simulator: true);
       addTearDown(fixture.dispose);
       final plan = fixture.plan();
       expect(plan.konanTarget, 'ios_simulator_arm64');
@@ -71,8 +76,8 @@ void main() {
       );
       final calls = <List<String>>[];
       await KotlinNativeCaches(
-        files: fixtureRunner.host.fileSystem,
-        log: fixtureLog,
+        files: session.fixtureRunner.host.fileSystem,
+        log: session.fixtureLog,
         jobs: 1,
       ).build(
         plan: plan,
@@ -136,7 +141,7 @@ void main() {
       final klib = _unpackedKlib(temp.path, 'core', 'project:core', const []);
       expect(
         KlibManifestReader(
-          fixtureRunner.host.fileSystem,
+          session.fixtureRunner.host.fileSystem,
         ).read(klib)['unique_name'],
         'project:core',
       );
@@ -159,7 +164,7 @@ void main() {
 
       expect(
         KlibManifestReader(
-          fixtureRunner.host.fileSystem,
+          session.fixtureRunner.host.fileSystem,
         ).read(klib.path)['unique_name'],
         'org.example:packed',
       );
@@ -168,7 +173,9 @@ void main() {
     test('fails loudly for something that is not a klib', () {
       final dir = Directory(p.join(temp.path, 'nothing'))..createSync();
       expect(
-        () => KlibManifestReader(fixtureRunner.host.fileSystem).read(dir.path),
+        () => KlibManifestReader(
+          session.fixtureRunner.host.fileSystem,
+        ).read(dir.path),
         throwsA(isA<XcrossError>()),
       );
     });
@@ -176,7 +183,7 @@ void main() {
 
   group('KotlinNativeCaches', () {
     late ComposeFixture fixture;
-    setUp(() => fixture = ComposeFixture.create());
+    setUp(() => fixture = ComposeFixture.create(session));
     tearDown(() => fixture.dispose());
 
     test('plans every library in dependency order, stdlib first', () {
@@ -254,8 +261,8 @@ void main() {
 
         Future<void> build() =>
             KotlinNativeCaches(
-              files: fixtureRunner.host.fileSystem,
-              log: fixtureLog,
+              files: session.fixtureRunner.host.fileSystem,
+              log: session.fixtureLog,
               jobs: 2,
             ).build(
               plan: plan,
@@ -365,8 +372,8 @@ void main() {
       final plan = fixture.plan();
       await expectLater(
         KotlinNativeCaches(
-          files: fixtureRunner.host.fileSystem,
-          log: fixtureLog,
+          files: session.fixtureRunner.host.fileSystem,
+          log: session.fixtureLog,
           jobs: 1,
         ).build(
           plan: plan,
@@ -415,7 +422,7 @@ void main() {
         Future<void> link(ComposeConfiguration configuration) =>
             KotlinFrameworkBuilder.withSeams(
               fixture.toolchain.runner,
-              log: fixtureLog,
+              log: session.fixtureLog,
               runChecked:
                   (
                     executable,
@@ -449,8 +456,8 @@ void main() {
               prepareKonan: ({required project, required toolchain}) async =>
                   fixture.prepared,
               caches: KotlinNativeCaches(
-                files: fixtureRunner.host.fileSystem,
-                log: fixtureLog,
+                files: session.fixtureRunner.host.fileSystem,
+                log: session.fixtureLog,
                 jobs: 1,
               ),
             ).build(
@@ -522,10 +529,15 @@ String _unpackedKlib(
 }
 
 final class ComposeFixture {
-  ComposeFixture._(this.temp, this.simulator);
+  final ComposeTestSession session;
+  ComposeFixture._(this.session, this.temp, this.simulator);
 
-  factory ComposeFixture.create({bool simulator = false}) {
+  factory ComposeFixture.create(
+    ComposeTestSession session, {
+    bool simulator = false,
+  }) {
     final fixture = ComposeFixture._(
+      session,
       Directory.systemTemp.createTempSync('xcross_konan_caches_'),
       simulator,
     );
@@ -621,18 +633,17 @@ final class ComposeFixture {
   );
 
   ComposeToolchain get toolchain => ComposeToolchain(
-    log: fixtureLog,
+    log: session.fixtureLog,
     target: fixtureTarget(
-      simulator ? ComposeTestHosts.macosArm64 : ComposeTestHosts.linuxX64,
+      simulator ? session.hosts.macosArm64 : session.hosts.linuxX64,
       simulator: simulator,
     ),
     runner: ProcessRunner(
-      log: fixtureLog,
-      (simulator ? ComposeTestHosts.macosArm64 : ComposeTestHosts.linuxX64)
-          .host,
+      log: session.fixtureLog,
+      (simulator ? session.hosts.macosArm64 : session.hosts.linuxX64).host,
       stdinStream: const Stream<List<int>>.empty(),
-      stdoutSink: stdout,
-      stderrSink: stderr,
+      stdoutSink: session.stdoutSink,
+      stderrSink: session.stderrSink,
     ),
     kotlinHome: kotlinHome,
     konanCache: p.join(temp.path, 'konan-cache'),
@@ -665,8 +676,8 @@ final class ComposeFixture {
 
   KotlinNativeCachePlan plan() =>
       KotlinNativeCaches(
-        files: fixtureRunner.host.fileSystem,
-        log: fixtureLog,
+        files: session.fixtureRunner.host.fileSystem,
+        log: session.fixtureLog,
       ).plan(
         project: project,
         toolchain: toolchain,

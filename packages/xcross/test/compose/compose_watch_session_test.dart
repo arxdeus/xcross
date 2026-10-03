@@ -8,6 +8,11 @@ import 'package:xcross/src/models/pack_result.dart';
 import 'support/compose_platforms.dart';
 
 void main() {
+  late ComposeTestSession session;
+  setUp(() {
+    session = ComposeTestSession();
+  });
+  tearDown(() => session.dispose());
   late Directory root;
 
   setUp(() => root = Directory.systemTemp.createTempSync('xcross_watch'));
@@ -29,8 +34,8 @@ void main() {
     var sessions = 0;
 
     await ComposeWatchSession(
-      log: fixtureLog,
-      watcher: fixtureSourceWatcher(root.path),
+      log: session.fixtureLog,
+      watcher: session.fixtureSourceWatcher(root.path),
       rebuild: () async {
         builds++;
         return packAt('/build/App.app');
@@ -52,8 +57,8 @@ void main() {
     var builds = 0;
 
     await ComposeWatchSession(
-      log: fixtureLog,
-      watcher: fixtureSourceWatcher(root.path),
+      log: session.fixtureLog,
+      watcher: session.fixtureSourceWatcher(root.path),
       rebuild: () async {
         builds++;
         return packAt('/build/App-$builds.app');
@@ -81,8 +86,8 @@ void main() {
     var sessions = 0;
 
     await ComposeWatchSession(
-      log: fixtureLog,
-      watcher: fixtureSourceWatcher(root.path),
+      log: session.fixtureLog,
+      watcher: session.fixtureSourceWatcher(root.path),
       rebuild: () async {
         builds++;
         return packAt('/build/App.app');
@@ -109,8 +114,8 @@ void main() {
       final accepted = <bool>[];
 
       await ComposeWatchSession(
-        log: fixtureLog,
-        watcher: fixtureSourceWatcher(root.path),
+        log: session.fixtureLog,
+        watcher: session.fixtureSourceWatcher(root.path),
         rebuild: () async {
           attempts++;
           if (attempts == 1) throw const FormatException('compile error');
