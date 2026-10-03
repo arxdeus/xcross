@@ -1,10 +1,9 @@
 import 'dart:convert';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:path/path.dart' as p;
-import 'package:xcross/src/flutter/build/internal/apple_tool_shim_templates.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer.dart';
+import 'package:xcross/src/host/windows/flutter/apple_tool_shim_templates.dart';
 
 final class WindowsAppleToolShimRenderer<T extends WindowsHostInterface>
     implements AppleToolShimRenderer<T> {
@@ -18,7 +17,7 @@ final class WindowsAppleToolShimRenderer<T extends WindowsHostInterface>
 
     String? toolForwarderExecutable,
   }) async {
-    final otoolShim = p.join(directory, 'otool.bat');
+    final otoolShim = host.paths.context.join(directory, 'otool.bat');
     final auxiliaryTools = <String, String>{
       'lipo': config.lipo,
       if (config.otool != null) 'otool': otoolShim,
@@ -35,8 +34,10 @@ final class WindowsAppleToolShimRenderer<T extends WindowsHostInterface>
       'ar': config.archiver,
       'ld': config.linker,
     }.entries) {
-      final executable = p.join(directory, '${entry.key}.exe');
-      await host.fileSystem.file(toolForwarderExecutable).copy(executable);
+      final executable = host.paths.context.join(directory, '${entry.key}.exe');
+      await host.fileSystem
+          .file(toolForwarderExecutable)
+          .copy(host.paths.ioPath(executable));
       await host.fileSystem.file('$executable.path').writeAsString(entry.value);
       if (entry.key == 'clang' || entry.key == 'cc') {
         await host.fileSystem
@@ -55,16 +56,18 @@ final class WindowsAppleToolShimRenderer<T extends WindowsHostInterface>
             );
       }
     }
-    final xcrunShim = p.join(directory, 'xcrun.exe');
-    await host.fileSystem.file(config.xcrun).copy(xcrunShim);
+    final xcrunShim = host.paths.context.join(directory, 'xcrun.exe');
+    await host.fileSystem.file(config.xcrun).copy(host.paths.ioPath(xcrunShim));
     await host.fileSystem.file('$xcrunShim.sdk').writeAsString(config.iosSdk);
     await host.fileSystem
         .file(toolForwarderExecutable)
-        .copy(p.join(directory, 'plutil.exe'));
+        .copy(
+          host.paths.ioPath(host.paths.context.join(directory, 'plutil.exe')),
+        );
 
     if (config.otool case final otool?) {
       await host.fileSystem
-          .file(p.join(directory, 'otool.ps1'))
+          .file(host.paths.context.join(directory, 'otool.ps1'))
           .writeAsString(
             renderPowerShellOtoolShim(
               tool: otool.executable,
@@ -95,16 +98,16 @@ final class WindowsAppleToolShimRenderer<T extends WindowsHostInterface>
       );
     }
     await _writeWindowsShim(directory, 'codesign', batchCodesignShim);
-    await host.fileSystem.file(p.join(directory, 'rsync.ps1')).writeAsString(
-      r'''
+    await host.fileSystem
+        .file(host.paths.context.join(directory, 'rsync.ps1'))
+        .writeAsString(r'''
 $items = @($args | Where-Object { -not $_.StartsWith('-') -and $_ -ne '.DS_Store/' })
 if ($items.Count -lt 2) { exit 1 }
 $source = $items[$items.Count - 2]
 $destination = $items[$items.Count - 1]
 Copy-Item -LiteralPath $source -Destination $destination -Recurse -Force
 exit 0
-''',
-    );
+''');
     await _writeWindowsShim(
       directory,
       'rsync',
@@ -117,6 +120,6 @@ exit 0
     String name,
     String contents,
   ) => host.fileSystem
-      .file(p.join(directory, '$name.bat'))
+      .file(host.paths.context.join(directory, '$name.bat'))
       .writeAsString(contents);
 }

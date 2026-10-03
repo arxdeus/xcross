@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
@@ -41,7 +41,17 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
     this.entrypoint = 'lib/main.dart',
     this.dartDefines = const [],
     this.flavor,
-  });
+  }) {
+    if (flutterRoot != engineCache.flutterRoot ||
+        !identical(target, tools.target) ||
+        !identical(host, runner.host) ||
+        !identical(host, renderer.host) ||
+        !identical(host, tools.host)) {
+      throw ArgumentError(
+        'Native assets collaborators must share one target and host',
+      );
+    }
+  }
 
   final IosEngineCache<T> engineCache;
   final AppleToolShimRenderer<T> renderer;
@@ -124,7 +134,7 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
     );
     final frameworks = await stageNativeAssetFrameworks(sources, output);
     await thinFrameworksToArm64(frameworks, lipo: config.lipo, runner: runner);
-    await alignNativeAssetLinkedit(frameworks);
+    await alignNativeAssetLinkedit(frameworks, log: runner.log);
     await normalizeNativeAssetInstallNames(frameworks);
 
     return IosNativeAssetsBuildResult(
@@ -148,7 +158,7 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
         [workspace.flutterToolsSnapshot, ...assembleArguments(output: assets)],
         workingDirectory: projectRoot,
         environment: {'FLUTTER_ROOT': workspace.flutterRoot},
-        inheritStdio: Log.isVerbose,
+        inheritStdio: runner.log.isVerbose,
         label: 'Flutter asset bundle',
       );
     } finally {
@@ -209,7 +219,7 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
           runner.environmentValue(runner.effectiveEnvironment, 'PATH'),
         ),
       },
-      inheritStdio: Log.isVerbose,
+      inheritStdio: runner.log.isVerbose,
       label: 'Flutter native assets',
     );
   }

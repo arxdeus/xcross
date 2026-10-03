@@ -1,8 +1,7 @@
-import 'package:cli_kit/cli_kit.dart';
-import 'package:path/path.dart' as p;
-import 'package:xcross/src/flutter/build/internal/apple_tool_shim_templates.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer.dart';
+import 'package:xcross/src/host/shared/flutter/apple_tool_shim_templates_posix.dart';
 
 final class PosixAppleToolShimRenderer<T extends PlatformHostInterface>
     implements AppleToolShimRenderer<T> {
@@ -16,7 +15,7 @@ final class PosixAppleToolShimRenderer<T extends PlatformHostInterface>
 
     String? toolForwarderExecutable,
   }) async {
-    final otoolShim = p.join(directory, 'otool');
+    final otoolShim = host.paths.context.join(directory, 'otool');
     final auxiliaryTools = <String, String>{
       'lipo': config.lipo,
       if (config.otool != null) 'otool': otoolShim,
@@ -72,7 +71,7 @@ final class PosixAppleToolShimRenderer<T extends PlatformHostInterface>
     String name,
     String contents,
   ) async {
-    final file = host.fileSystem.file(p.join(directory, name));
+    final file = host.fileSystem.file(host.paths.context.join(directory, name));
     await file.writeAsString(contents);
     host.fileSystem.makeExecutable(file.path);
   }

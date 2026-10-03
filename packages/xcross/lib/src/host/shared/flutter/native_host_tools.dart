@@ -1,4 +1,4 @@
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 
 typedef HostCompiler = ({String executable, List<String> arguments});
 

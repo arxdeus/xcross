@@ -1,9 +1,8 @@
-import 'package:archive/archive_io.dart';
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
-import 'package:path/path.dart' as p;
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:xcross/src/flutter/constants.dart';
 import 'package:xcross/src/flutter/errors.dart';
+import 'package:xcross/src/host/shared/flutter/engine_archive_writer.dart';
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
@@ -15,21 +14,28 @@ import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dar
 /// are stored outside the Flutter SDK so read-only installations work.
 final class IosEngineCache<T extends PlatformHostInterface> {
   IosEngineCache({
+    required this.log,
+    required this.downloader,
     required this.targetPolicy,
     required this.hostTools,
     required this.flutterRoot,
     String? cacheRoot,
   }) : cacheRoot =
            cacheRoot ??
-           p.join(
+           targetPolicy.target.host.paths.context.join(
              targetPolicy.target.host.paths.cacheRoot,
              'xcross',
              'flutter-engine',
            ) {
+    if (!identical(target.host, hostTools.host)) {
+      throw ArgumentError('Engine cache requires one coherent host instance');
+    }
     hostTools.artifactPlatform;
   }
   IosTarget<T> get target => targetPolicy.target;
   T get host => target.host;
+  final Log log;
+  final Downloader downloader;
   final String flutterRoot;
   final String cacheRoot;
   final NativeHostTools<T> hostTools;
@@ -40,34 +46,49 @@ final class IosEngineCache<T extends PlatformHostInterface> {
   String get hostArtifactsUrl =>
       '$flutterArtifactBaseUrl/$engineHash/$hostArtifactPlatform/artifacts.zip';
 
-  String get _flutterSdkEngineRoot =>
-      p.join(flutterRoot, 'bin', 'cache', 'artifacts', 'engine');
+  String get _flutterSdkEngineRoot => host.paths.context.join(
+    flutterRoot,
+    'bin',
+    'cache',
+    'artifacts',
+    'engine',
+  );
 
   String get engineHash => _readEngineHash();
 
   String get _userEngineRoot =>
-      p.join(cacheRoot, engineHash, 'artifacts', 'engine');
+      host.paths.context.join(cacheRoot, engineHash, 'artifacts', 'engine');
 
   /// Directory containing the debug/JIT iOS engine artifacts.
   String get _engineDir {
-    final flutterSdkDirectory = p.join(_flutterSdkEngineRoot, 'ios');
-    final flutterFramework = p.join(flutterSdkDirectory, 'Flutter.xcframework');
+    final flutterSdkDirectory = host.paths.context.join(
+      _flutterSdkEngineRoot,
+      targetPolicy.engineArtifact,
+    );
+    final flutterFramework = host.paths.context.join(
+      flutterSdkDirectory,
+      'Flutter.xcframework',
+    );
     if (host.fileSystem.directory(flutterFramework).existsSync()) {
       return flutterSdkDirectory;
     }
 
-    return p.join(_userEngineRoot, 'ios');
+    return host.paths.context.join(
+      _userEngineRoot,
+      targetPolicy.engineArtifact,
+    );
   }
 
   /// Flutter.xcframework inside [_engineDir].
-  String get flutterXcframework => p.join(_engineDir, 'Flutter.xcframework');
+  String get flutterXcframework =>
+      host.paths.context.join(_engineDir, 'Flutter.xcframework');
 
   String flutterSlice(String xcframework) {
     final identifiers = targetPolicy.engineSliceIdentifiers;
     for (final identifier in identifiers) {
-      final slice = p.join(xcframework, identifier);
+      final slice = host.paths.context.join(xcframework, identifier);
       if (host.fileSystem
-          .directory(p.join(slice, 'Flutter.framework'))
+          .directory(host.paths.context.join(slice, 'Flutter.framework'))
           .existsSync()) {
         return slice;
       }
@@ -79,35 +100,45 @@ final class IosEngineCache<T extends PlatformHostInterface> {
 
   /// `vm_isolate_snapshot.bin` from the host engine cache.
   String get vmSnapshotData =>
-      p.join(_hostEngineDir, 'vm_isolate_snapshot.bin');
+      host.paths.context.join(_hostEngineDir, 'vm_isolate_snapshot.bin');
 
   /// `isolate_snapshot.bin` from the host engine cache.
   String get isolateSnapshotData =>
-      p.join(_hostEngineDir, 'isolate_snapshot.bin');
+      host.paths.context.join(_hostEngineDir, 'isolate_snapshot.bin');
 
   /// Directory containing snapshot data for the host Dart engine.
   String get _hostEngineDir {
-    final flutterSdkDirectory = p.join(
+    final flutterSdkDirectory = host.paths.context.join(
       _flutterSdkEngineRoot,
       hostEngineCacheDirectory,
     );
     final hasSnapshotData =
         host.fileSystem
-            .file(p.join(flutterSdkDirectory, 'vm_isolate_snapshot.bin'))
+            .file(
+              host.paths.context.join(
+                flutterSdkDirectory,
+                'vm_isolate_snapshot.bin',
+              ),
+            )
             .existsSync() &&
         host.fileSystem
-            .file(p.join(flutterSdkDirectory, 'isolate_snapshot.bin'))
+            .file(
+              host.paths.context.join(
+                flutterSdkDirectory,
+                'isolate_snapshot.bin',
+              ),
+            )
             .existsSync();
     if (hasSnapshotData) return flutterSdkDirectory;
 
-    return p.join(_userEngineRoot, hostArtifactPlatform);
+    return host.paths.context.join(_userEngineRoot, hostArtifactPlatform);
   }
 
   /// Path to the Dart frontend_server snapshot. Prefers the AOT variant
   /// (`frontend_server_aot.dart.snapshot`) for speed; falls back to the JIT
   /// variant.
   String get frontendServer {
-    final snapshotsDir = p.join(
+    final snapshotsDir = host.paths.context.join(
       flutterRoot,
       'bin',
       'cache',
@@ -117,16 +148,16 @@ final class IosEngineCache<T extends PlatformHostInterface> {
     );
     const jitSnapshot = 'frontend_server.dart.snapshot';
     for (final name in ['frontend_server_aot.dart.snapshot', jitSnapshot]) {
-      final candidate = p.join(snapshotsDir, name);
+      final candidate = host.paths.context.join(snapshotsDir, name);
       if (host.fileSystem.file(candidate).existsSync()) return candidate;
     }
     // Canonical fallback — used in error messages even if the file is missing.
-    return p.join(snapshotsDir, jitSnapshot);
+    return host.paths.context.join(snapshotsDir, jitSnapshot);
   }
 
   /// Patched SDK platform .dill — debug uses `flutter_patched_sdk/`.
   String get patchedSdkRoot {
-    final flutterSdkDirectory = p.join(
+    final flutterSdkDirectory = host.paths.context.join(
       _flutterSdkEngineRoot,
       'common',
       'flutter_patched_sdk',
@@ -135,16 +166,22 @@ final class IosEngineCache<T extends PlatformHostInterface> {
       return flutterSdkDirectory;
     }
 
-    return p.join(_userEngineRoot, 'common', 'flutter_patched_sdk');
+    return host.paths.context.join(
+      _userEngineRoot,
+      'common',
+      'flutter_patched_sdk',
+    );
   }
 
   /// Reads the engine hash that pins the artifact set.
   String _readEngineHash() {
     for (final rel in [
-      p.join('bin', 'internal', 'engine.version'),
-      p.join('bin', 'cache', 'engine.stamp'),
+      host.paths.context.join('bin', 'internal', 'engine.version'),
+      host.paths.context.join('bin', 'cache', 'engine.stamp'),
     ]) {
-      final file = host.fileSystem.file(p.join(flutterRoot, rel));
+      final file = host.fileSystem.file(
+        host.paths.context.join(flutterRoot, rel),
+      );
       if (file.existsSync()) {
         final text = file.readAsStringSync().trim();
         if (text.isNotEmpty) return text;
@@ -176,7 +213,7 @@ final class IosEngineCache<T extends PlatformHostInterface> {
 
   Future<void> _downloadHostArtifacts() async {
     final url = hostArtifactsUrl;
-    Log.logTrace('downloading Flutter host engine artifacts from $url');
+    log.logTrace('downloading Flutter host engine artifacts from $url');
     await _fetchAndExtract(
       url,
       _hostEngineDir,
@@ -187,8 +224,9 @@ final class IosEngineCache<T extends PlatformHostInterface> {
 
   Future<void> _downloadIosArtifacts() async {
     final hash = _readEngineHash();
-    final url = '$flutterArtifactBaseUrl/$hash/ios/artifacts.zip';
-    Log.logTrace('downloading Flutter iOS engine artifacts from $url');
+    final url =
+        '$flutterArtifactBaseUrl/$hash/${targetPolicy.engineArtifact}/artifacts.zip';
+    log.logTrace('downloading Flutter iOS engine artifacts from $url');
     await _fetchAndExtract(
       url,
       _engineDir,
@@ -199,12 +237,12 @@ final class IosEngineCache<T extends PlatformHostInterface> {
 
   Future<void> _downloadPatchedSdk() async {
     final hash = _readEngineHash();
-    final leaf = p.basename(patchedSdkRoot);
+    final leaf = host.paths.context.basename(patchedSdkRoot);
     final url = '$flutterArtifactBaseUrl/$hash/$leaf.zip';
-    Log.logTrace('downloading Flutter patched SDK from $url');
+    log.logTrace('downloading Flutter patched SDK from $url');
     await _fetchAndExtract(
       url,
-      p.dirname(patchedSdkRoot),
+      host.paths.context.dirname(patchedSdkRoot),
       'patched-sdk-',
       label: 'Flutter patched SDK',
     );
@@ -214,8 +252,6 @@ final class IosEngineCache<T extends PlatformHostInterface> {
   /// delete the temp directory.
   ///
   /// Pure Dart — no `curl`/`unzip` subprocess. The download follows redirects
-  /// and retries transient failures; the archive package's posix-aware
-  /// extractor restores unix permissions (exec bits) and symlinks.
   Future<void> _fetchAndExtract(
     String url,
     String destDir,
@@ -226,18 +262,20 @@ final class IosEngineCache<T extends PlatformHostInterface> {
     final tmp = await host.fileSystem
         .directory(host.paths.temporaryRoot)
         .createTemp(tmpPrefix);
-    final zipPath = p.join(tmp.path, 'artifacts.zip');
-    await Downloader.downloadToFile(
-      url,
-      host.fileSystem.file(zipPath),
-      maxAttempts: 5,
-      label: label,
-    );
-    // Unzipping hundreds of MB is slow enough to look like a hang on its own.
-    await Log.logStep(
-      'Extracting $label',
-      () => extractFileToDisk(zipPath, destDir),
-    );
-    await tmp.delete(recursive: true);
+    final zipPath = host.paths.context.join(tmp.path, 'artifacts.zip');
+    try {
+      await downloader.downloadToFile(
+        url,
+        host.fileSystem.file(zipPath),
+        maxAttempts: 5,
+        label: label,
+      );
+      await log.logStep(
+        'Extracting $label',
+        () => FlutterEngineArchiveWriter(host).extractZip(zipPath, destDir),
+      );
+    } finally {
+      await tmp.delete(recursive: true);
+    }
   }
 }

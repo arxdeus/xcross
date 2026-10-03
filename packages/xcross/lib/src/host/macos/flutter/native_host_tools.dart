@@ -1,10 +1,14 @@
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
 
 final class MacOSNativeHostTools<T extends MacOSHostInterface>
     implements NativeHostTools<T> {
-  MacOSNativeHostTools(this.host, this.runner);
+  MacOSNativeHostTools(this.host, this.runner) {
+    if (!identical(host, runner.host)) {
+      throw ArgumentError('Native host tools and runner must share one host');
+    }
+  }
   @override
   final T host;
   final ProcessRunner<T> runner;

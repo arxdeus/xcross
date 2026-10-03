@@ -1,5 +1,5 @@
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer.dart';
@@ -55,7 +55,16 @@ final class AppleToolShimResolver<T extends PlatformHostInterface> {
     this.launcher,
     this.xcrun,
     this.declarative = false,
-  });
+  }) {
+    if (!identical(host, runner.host) ||
+        !identical(host, repository.host) ||
+        !identical(host, toolchain.host) ||
+        !identical(host, hostTools.host)) {
+      throw ArgumentError(
+        'Apple tool resolution requires one coherent host instance',
+      );
+    }
+  }
   final IosTarget<T> target;
   T get host => target.host;
   final ProcessRunner<T> runner;
@@ -158,7 +167,13 @@ Future<OtoolConfig?> resolveOtool({
 }) => resolveOtoolWith(find: find);
 
 FlutterBuildError missingNativeAssetToolForwarderError() => FlutterBuildError(
-  "Windows native assets need the native xcross.exe binary: Flutter's native_toolchain_c only accepts a C compiler named clang.exe. Install the xcross release binary, add its directory to PATH, or set the xcross launcher path in `xcross config`.",
+  "Windows native assets need the native xcross.exe binary: Flutter's "
+  'native_toolchain_c only accepts a C compiler named clang.exe, so xcross '
+  'installs copies of xcross.exe as clang.exe/cc.exe/ar.exe/ld.exe tool '
+  'aliases. No xcross.exe was found (this happens when xcross runs through '
+  '`dart run` or a `dart pub global` .bat launcher). Install the xcross '
+  'release binary, add its directory to PATH, or set the xcross launcher path '
+  'in `xcross config`.',
 );
 
 Future<void> installAppleToolShims<T extends PlatformHostInterface>(

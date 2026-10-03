@@ -1,8 +1,6 @@
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 
 String shellQuote(String value) => "'${value.replaceAll("'", "'\"'\"'")}'";
-
-String powerShellQuote(String value) => "'${value.replaceAll("'", "''")}'";
 
 String renderUnixCompilerShim({
   required String iosSdk,
@@ -65,41 +63,6 @@ esac
 '''
     : renderUnixToolShim(tool);
 
-String renderPowerShellOtoolShim({
-  required String tool,
-  required bool usesObjdump,
-}) => usesObjdump
-    ? '''
-\$ToolArguments = \$args
-if (\$ToolArguments.Count -eq 0) { Write-Error 'otool: missing option'; exit 64 }
-\$option = \$ToolArguments[0]
-\$tail = if (\$ToolArguments.Count -gt 1) { \$ToolArguments[1..(\$ToolArguments.Count - 1)] } else { @() }
-\$translated = switch (\$option) {
-  '-L' { @('--macho', '--dylibs-used') }
-  '-D' { @('--macho', '--dylib-id') }
-  '-l' { @('--macho', '--private-headers') }
-  '--version' { @('--version') }
-  default { Write-Error "otool: unsupported option \$option"; exit 64 }
-}
-& ${powerShellQuote(tool)} @(\$translated + \$tail)
-exit \$LASTEXITCODE
-'''
-    : '''
-param([Parameter(ValueFromRemainingArguments = \$true)][string[]]\$Arguments)
-& ${powerShellQuote(tool)} @Arguments
-exit \$LASTEXITCODE
-''';
-
-String renderBatchPowerShellShim(String script) =>
-    '''
-@echo off
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0$script" %*
-exit /b %errorlevel%
-''';
-
-String renderBatchToolShim(String tool) =>
-    '@echo off\n"$tool" %*\nexit /b %errorlevel%\n';
-
 /// xcrun shim. native_toolchain_c probes `xcrun --version` and requires a
 /// zero exit plus a parseable version before it asks for SDK paths, so the
 /// shim answers that probe itself regardless of which xcrun it forwards to.
@@ -116,4 +79,3 @@ String renderUnixToolShim(String tool) =>
     '#!/bin/sh\nexec ${shellQuote(tool)} "\$@"\n';
 
 const unixCodesignShim = '#!/bin/sh\nexit 0\n';
-const batchCodesignShim = '@echo off\nexit /b 0\n';
