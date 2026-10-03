@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit_shared.dart';
+
 import 'package:meta/meta.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/update/internal/update_process.dart';
@@ -32,12 +34,23 @@ typedef DeleteDirectory = Future<void> Function(Directory directory);
 
 final class GitUpdateRefResolver {
   GitUpdateRefResolver({
+    required ProcessRunner runner,
     RunGitProcess? run,
     CreateTempDirectory? createTempDirectory,
     DeleteDirectory? deleteDirectory,
-  }) : _run = run ?? runUpdateProcess,
+  }) : _run =
+           run ??
+           ((executable, arguments, {workingDirectory}) => runUpdateProcess(
+             runner,
+             executable,
+             arguments,
+             workingDirectory: workingDirectory,
+           )),
        _createTempDirectory =
-           createTempDirectory ?? _defaultCreateTempDirectory,
+           createTempDirectory ??
+           ((prefix) => runner.host.fileSystem
+               .directory(runner.host.paths.temporaryRoot)
+               .createTemp(prefix)),
        _deleteDirectory = deleteDirectory ?? _defaultDeleteDirectory;
 
   static const repoUrl = 'https://github.com/arxdeus/xcross.git';
@@ -220,9 +233,6 @@ final class GitUpdateRefResolver {
     }
     return peeled ?? direct;
   }
-
-  static Future<Directory> _defaultCreateTempDirectory(String prefix) =>
-      Directory.systemTemp.createTemp(prefix);
 
   static Future<void> _defaultDeleteDirectory(Directory directory) =>
       directory.delete(recursive: true);

@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit_shared.dart';
+
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/update/git_update_ref_resolver.dart';
@@ -12,24 +14,43 @@ typedef DartExecutableLocator = Future<String> Function();
 
 final class GitRefSourceBundleBuilder {
   GitRefSourceBundleBuilder({
+    required this.runner,
+    required bool Function(String) acceptDartLauncher,
     RunGitProcess? run,
     CreateTempDirectory? createTempDirectory,
     DeleteDirectory? deleteDirectory,
     Directory? systemTempDirectory,
     TempDirectoryModifiedAt? tempDirectoryModifiedAt,
     DartExecutableLocator? resolveDartExecutable,
-  }) : _run = run ?? runUpdateProcess,
+  }) : _run =
+           run ??
+           ((executable, arguments, {workingDirectory}) => runUpdateProcess(
+             runner,
+             executable,
+             arguments,
+             workingDirectory: workingDirectory,
+           )),
        _createTempDirectory =
-           createTempDirectory ?? _defaultCreateTempDirectory,
+           createTempDirectory ??
+           ((prefix) => runner.host.fileSystem
+               .directory(runner.host.paths.temporaryRoot)
+               .createTemp(prefix)),
        _deleteDirectory = deleteDirectory ?? _defaultDeleteDirectory,
-       _systemTempDirectory = systemTempDirectory ?? Directory.systemTemp,
+       _systemTempDirectory =
+           systemTempDirectory ??
+           runner.host.fileSystem.directory(runner.host.paths.temporaryRoot),
        _tempDirectoryModifiedAt =
            tempDirectoryModifiedAt ?? _defaultTempDirectoryModifiedAt,
        _resolveDartExecutable =
-           resolveDartExecutable ?? findDartExecutableOnPath;
+           resolveDartExecutable ??
+           (() => findDartExecutableOnPath(
+             runner: runner,
+             acceptLauncher: acceptDartLauncher,
+           ));
 
   static const repoUrl = GitUpdateRefResolver.repoUrl;
 
+  final ProcessRunner runner;
   final RunGitProcess _run;
   final CreateTempDirectory _createTempDirectory;
   final DeleteDirectory _deleteDirectory;
@@ -54,7 +75,11 @@ final class GitRefSourceBundleBuilder {
     final dartExecutable = await _resolveDartExecutable();
     await _deleteStaleTempDirectories();
     final tempDirectory = await _createTempDirectory(_tempDirectoryPrefix);
-    final progress = UpdateProgress('Source', UpdatePhases.source.length);
+    final progress = UpdateProgress(
+      'Source',
+      UpdatePhases.source.length,
+      log: runner.log,
+    );
     try {
       final repoDirectory = Directory(p.join(tempDirectory.path, 'xcross'));
       await progress.run(
@@ -184,9 +209,6 @@ final class GitRefSourceBundleBuilder {
 
   static DateTime _defaultTempDirectoryModifiedAt(Directory directory) =>
       directory.statSync().modified;
-
-  static Future<Directory> _defaultCreateTempDirectory(String prefix) =>
-      Directory.systemTemp.createTemp(prefix);
 
   static Future<void> _defaultDeleteDirectory(Directory directory) =>
       directory.delete(recursive: true);

@@ -1,8 +1,13 @@
 import 'dart:io';
+import 'package:cli_kit/cli_kit.dart';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/host/shared/update/posix_update_policy.dart';
+import 'package:xcross/src/host/windows/update/windows_update_policy.dart';
+import 'package:xcross/src/shared/update/update_host_policy.dart';
 import 'package:xcross/src/update/internal/file_swap.dart';
+import '../host_operations_fixtures.dart';
 
 void main() {
   late Directory root;
@@ -24,11 +29,37 @@ void main() {
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
+  test(
+    'mapped Windows backups remain for deferred cleanup after verification',
+    () async {
+      File(target('xcross.exe')).writeAsStringSync('old');
+      stagedFile('xcross.exe', 'new');
+      final operations = _MappedWindowsOperations(LinuxHost());
+      final swap = FileSwap(log: fixtureLog(), operations: operations);
+      await swap.replace(
+        source: p.join(staged.path, 'xcross.exe'),
+        target: target('xcross.exe'),
+      );
+      final backup = swap.entries.single.backup!;
+      await swap.discardBackups();
+      expect(File(backup).readAsStringSync(), 'old');
+      expect(File(target('xcross.exe')).readAsStringSync(), 'new');
+      File(
+        backup,
+      ).setLastModifiedSync(DateTime.now().subtract(const Duration(hours: 1)));
+      FileSwap.sweepStaleBackups([installed.path]);
+      expect(File(backup).existsSync(), isFalse);
+    },
+  );
+
   test('replaces an existing file and parks the previous one', () async {
     File(target('xcross')).writeAsStringSync('old');
     stagedFile('xcross', 'new');
 
-    final swap = FileSwap(useSudo: false);
+    final swap = FileSwap(
+      log: fixtureLog(),
+      operations: PosixFileSwapOperations(LinuxHost()),
+    );
     await swap.replace(
       source: p.join(staged.path, 'xcross'),
       target: target('xcross'),
@@ -43,7 +74,10 @@ void main() {
   test('installs a file that was not there before', () async {
     stagedFile('libnew.so', 'fresh');
 
-    final swap = FileSwap(useSudo: false);
+    final swap = FileSwap(
+      log: fixtureLog(),
+      operations: PosixFileSwapOperations(LinuxHost()),
+    );
     await swap.replace(
       source: p.join(staged.path, 'libnew.so'),
       target: target('libnew.so'),
@@ -59,7 +93,10 @@ void main() {
     stagedFile('xcross', 'new-bin');
     stagedFile('libx.so', 'new-lib');
 
-    final swap = FileSwap(useSudo: false);
+    final swap = FileSwap(
+      log: fixtureLog(),
+      operations: PosixFileSwapOperations(LinuxHost()),
+    );
     await swap.replace(
       source: p.join(staged.path, 'xcross'),
       target: target('xcross'),
@@ -81,7 +118,10 @@ void main() {
     File(target('xcross')).writeAsStringSync('old');
     stagedFile('xcross', 'new');
 
-    final swap = FileSwap(useSudo: false);
+    final swap = FileSwap(
+      log: fixtureLog(),
+      operations: PosixFileSwapOperations(LinuxHost()),
+    );
     await swap.replace(
       source: p.join(staged.path, 'xcross'),
       target: target('xcross'),
@@ -97,7 +137,10 @@ void main() {
     File(target('xcross')).writeAsStringSync('old');
     stagedFile('xcross', 'new');
 
-    final swap = FileSwap(useSudo: false);
+    final swap = FileSwap(
+      log: fixtureLog(),
+      operations: PosixFileSwapOperations(LinuxHost()),
+    );
     await swap.replace(
       source: p.join(staged.path, 'xcross'),
       target: target('xcross'),
@@ -112,7 +155,10 @@ void main() {
   test('rollback removes a file the update newly added', () async {
     stagedFile('libnew.so', 'fresh');
 
-    final swap = FileSwap(useSudo: false);
+    final swap = FileSwap(
+      log: fixtureLog(),
+      operations: PosixFileSwapOperations(LinuxHost()),
+    );
     await swap.replace(
       source: p.join(staged.path, 'libnew.so'),
       target: target('libnew.so'),
@@ -129,7 +175,10 @@ void main() {
     stagedFile('xcross', 'new');
     Directory(target('xcross')).createSync();
 
-    final swap = FileSwap(useSudo: false);
+    final swap = FileSwap(
+      log: fixtureLog(),
+      operations: PosixFileSwapOperations(LinuxHost()),
+    );
     await expectLater(
       swap.replace(
         source: p.join(staged.path, 'xcross'),
@@ -201,4 +250,23 @@ void main() {
   test('sweepStaleBackups ignores a directory that does not exist', () {
     FileSwap.sweepStaleBackups([p.join(root.path, 'missing')]);
   });
+}
+
+final class _MappedWindowsOperations implements FileSwapOperations {
+  _MappedWindowsOperations(PlatformHostInterface host)
+    : delegate = WindowsFileSwapOperations(host);
+  final WindowsFileSwapOperations delegate;
+  @override
+  Future<void> copy(String source, String target) =>
+      delegate.copy(source, target);
+  @override
+  Future<void> move(String source, String target) =>
+      delegate.move(source, target);
+  @override
+  Future<void> delete(String path) async {
+    if (path.contains(FileSwap.backupMarker)) {
+      throw FileSystemException('mapped fixture', path);
+    }
+    await delegate.delete(path);
+  }
 }

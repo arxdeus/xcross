@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:cli_kit/cli_kit.dart';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/update/git_ref_source_bundle_builder.dart';
 import 'package:xcross/src/update/git_update_ref_resolver.dart';
+import '../host_operations_fixtures.dart';
 
 Future<List<String>> _captureAsync(Future<void> Function() body) async {
   final lines = <String>[];
@@ -812,6 +814,8 @@ GitRefSourceBundleBuilder _createTestBuilder({
   TempDirectoryModifiedAt? tempDirectoryModifiedAt,
   DartExecutableLocator? resolveDartExecutable,
 }) => GitRefSourceBundleBuilder(
+  runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+  acceptDartLauncher: (path) => path.endsWith('/dart'),
   run: run,
   createTempDirectory: createTempDirectory,
   deleteDirectory: deleteDirectory,

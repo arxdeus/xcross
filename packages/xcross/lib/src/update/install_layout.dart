@@ -30,8 +30,8 @@ final class InstallLayout {
   final String libDir;
 
   /// Resolves the layout of the currently running executable.
-  factory InstallLayout.resolve() =>
-      InstallLayout.forExecutable(Platform.resolvedExecutable);
+  factory InstallLayout.resolve(String executable) =>
+      InstallLayout.forExecutable(executable);
 
   /// Resolves the layout for [executable].
   ///

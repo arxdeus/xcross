@@ -1,7 +1,8 @@
 import 'dart:async';
-
 import 'package:test/test.dart';
+
 import 'package:xcross/src/update/update_progress.dart';
+import '../host_operations_fixtures.dart';
 
 Future<List<String>> _captureAsync(Future<void> Function() body) async {
   final lines = <String>[];
@@ -36,7 +37,7 @@ void main() {
   });
 
   test('numbers phases in order', () {
-    final progress = UpdateProgress('Source', 3);
+    final progress = UpdateProgress('Source', 3, log: fixtureLog());
 
     expect(
       progress.nextLabel('Clone repository'),
@@ -49,7 +50,7 @@ void main() {
 
   test('run reports one start and one completion line', () async {
     final lines = await _captureAsync(() async {
-      final progress = UpdateProgress('Release', 1);
+      final progress = UpdateProgress('Release', 1, log: fixtureLog());
       await progress.run('Verify archive', () async {});
     });
 

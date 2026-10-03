@@ -1,9 +1,9 @@
-import 'dart:ffi';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/update/update_host_policy.dart';
 import 'package:xcross/src/update/checksums.dart';
 import 'package:xcross/src/update/install_layout.dart';
 import 'package:xcross/src/update/internal/file_swap.dart';
@@ -14,34 +14,19 @@ import 'package:xcross/src/update/update_check.dart';
 import 'package:xcross/src/update/update_progress.dart';
 
 /// Downloads a release archive and swaps it over the running installation.
-abstract final class SelfUpdate {
-  /// Name of the release asset for the host platform.
-  ///
-  /// Throws [XcrossError] on platforms that have no prebuilt release.
-  static String assetName() {
-    final arch = _hostArchitecture();
-    if (Platform.isLinux) {
-      return switch (arch) {
-        'x64' => 'xcross-linux-x64.tar.gz',
-        'arm64' => 'xcross-linux-arm64.tar.gz',
-        _ => throw XcrossError(_unsupported(arch)),
-      };
-    }
-    if (Platform.isWindows && arch == 'x64') return 'xcross-windows-x64.zip';
-    throw XcrossError(_unsupported(arch));
-  }
+final class SelfUpdate {
+  SelfUpdate({
+    required this.host,
+    required this.runner,
+    required this.policy,
+    required this.downloader,
+  });
+  final PlatformHostInterface host;
+  final ProcessRunner runner;
+  final UpdateHostPolicy policy;
+  final Downloader downloader;
 
-  static String _unsupported(String arch) =>
-      'no prebuilt xcross release for ${Platform.operatingSystem}/$arch; '
-      'build from source instead';
-
-  /// The ABI name is `<os>_<arch>`, which is the only architecture answer
-  /// that reflects the running binary rather than the host kernel.
-  static String _hostArchitecture() {
-    final abi = Abi.current().toString();
-    final separator = abi.indexOf('_');
-    return separator < 0 ? abi : abi.substring(separator + 1);
-  }
+  String assetName() => policy.releaseAsset();
 
   /// Name of the checksum manifest published alongside every release asset.
   static const checksumAsset = 'SHA256SUMS.txt';
@@ -49,15 +34,15 @@ abstract final class SelfUpdate {
   /// Marks the child process used to verify a newly installed binary.
   static const verificationEnvVar = 'XCROSS_SELF_UPDATE_VERIFY';
 
-  static bool isVerificationProcess([Map<String, String>? environment]) =>
-      (environment ?? Platform.environment).containsKey(verificationEnvVar);
+  static bool isVerificationProcess(Map<String, String> environment) =>
+      environment.containsKey(verificationEnvVar);
 
   /// Replaces [layout] with release [tag].
   ///
   /// Downloads the asset and its checksum manifest, refuses to continue unless
   /// they agree, extracts into a scratch directory, then swaps every file into
   /// place. Any failure after the first swap rolls the whole set back.
-  static Future<void> apply({
+  Future<void> apply({
     required InstallLayout layout,
     required String tag,
   }) async {
@@ -70,18 +55,24 @@ abstract final class SelfUpdate {
       throw XcrossError('refusing to install from a non-release tag: "$tag"');
     }
     final asset = assetName();
-    final progress = UpdateProgress('Release', UpdatePhases.release.length);
-    final staging = await Directory.systemTemp.createTemp('xcross-update-');
+    final progress = UpdateProgress(
+      'Release',
+      UpdatePhases.release.length,
+      log: runner.log,
+    );
+    final staging = await host.fileSystem
+        .directory(host.paths.temporaryRoot)
+        .createTemp('xcross-update-');
     try {
       final archiveFile = File(p.join(staging.path, asset));
-      await Downloader.downloadToFile(
+      await downloader.downloadToFile(
         '${xcrossAssetBaseUrl(tag)}/$asset',
         archiveFile,
         label: progress.nextLabel('Download release archive'),
       );
 
       final sums = File(p.join(staging.path, checksumAsset));
-      await Downloader.downloadToFile(
+      await downloader.downloadToFile(
         '${xcrossAssetBaseUrl(tag)}/$checksumAsset',
         sums,
         label: progress.nextLabel('Download checksum manifest'),
@@ -119,14 +110,12 @@ abstract final class SelfUpdate {
     }
   }
 
-  static String get _executableName =>
-      Platform.isWindows ? 'xcross.exe' : 'xcross';
-
-  static String get _xcrunName => Platform.isWindows ? 'xcrun.exe' : 'xcrun';
+  String get _executableName => host.paths.executableName('xcross');
+  String get _xcrunName => host.paths.executableName('xcrun');
 
   // ------------------------------------------------------------------ swap
 
-  static Future<void> installBundle({
+  Future<void> installBundle({
     required Directory bundleRoot,
     required InstallLayout layout,
     required String label,
@@ -141,17 +130,14 @@ abstract final class SelfUpdate {
     })?
     runProcess,
   }) async {
-    // Windows has no sudo to fall back on: elevation there means the user
-    // relaunching in an Administrator terminal, which _requestElevation asks
-    // for and this process cannot do for them.
-    final useSudo = !Platform.isWindows && !layout.isWritable;
-    if (!layout.isWritable) await _requestElevation(layout);
-
-    final swap = FileSwap(useSudo: useSudo);
+    final swap = FileSwap(
+      operations: await policy.prepare(layout),
+      log: runner.log,
+    );
     try {
       final installLabel =
           progress?.nextLabel('Install $label') ?? 'Installing $label';
-      await Log.logStep(installLabel, () async {
+      await runner.log.logStep(installLabel, () async {
         await swap.replace(
           source: p.join(bundleRoot.path, 'bin', _executableName),
           target: p.join(layout.binDir, p.basename(layout.binaryPath)),
@@ -191,20 +177,7 @@ abstract final class SelfUpdate {
 
   // ------------------------------------------------------------ privileges
 
-  static Future<void> _requestElevation(InstallLayout layout) async {
-    if (Platform.isWindows) {
-      await HostPrivileges.ensureDeviceToolAccess(
-        windowsDeniedMessage:
-            'Updating xcross in ${layout.binDir} requires Administrator.\n'
-            'Open PowerShell with "Run as administrator" and retry.',
-      );
-      return;
-    }
-    Log.logInfo('${layout.binDir} is not writable; elevating');
-    await Sudo.cacheCredentials(manualHint: 'Retry with: sudo xcross update');
-  }
-
-  static Future<void> _bestEffortDelete(Directory directory) async {
+  Future<void> _bestEffortDelete(Directory directory) async {
     try {
       await directory.delete(recursive: true);
     } on FileSystemException {
@@ -219,7 +192,7 @@ abstract final class SelfUpdate {
   ///
   /// The child must not run the update check: it would sweep the very backups
   /// this run still needs for a rollback, and reach the network for nothing.
-  static Future<CapturedProcess> verifyInstalledBinary({
+  Future<CapturedProcess> verifyInstalledBinary({
     required InstallLayout layout,
     required String label,
     String? expectedIdentity,
@@ -235,7 +208,7 @@ abstract final class SelfUpdate {
   }) async {
     final verifyLabel =
         progress?.nextLabel('Verify $label') ?? 'Verifying $label';
-    final result = await Log.logStep(
+    final result = await runner.log.logStep(
       verifyLabel,
       () => _runVersionCheck(layout, runProcess: runProcess),
     );
@@ -276,7 +249,7 @@ abstract final class SelfUpdate {
     return result;
   }
 
-  static Future<CapturedProcess> _runVersionCheck(
+  Future<CapturedProcess> _runVersionCheck(
     InstallLayout layout, {
     Future<CapturedProcess> Function({
       required String executable,
@@ -292,14 +265,12 @@ abstract final class SelfUpdate {
     timeout: const Duration(seconds: 30),
   );
 
-  static Future<CapturedProcess> _defaultRunProcess({
+  Future<CapturedProcess> _defaultRunProcess({
     required String executable,
     required List<String> arguments,
     required Map<String, String> environment,
     required Duration timeout,
-  }) => ProcessRunner.run(
-    executable,
-    arguments,
-    environment: environment,
-  ).timeout(timeout);
+  }) => runner
+      .run(executable, arguments, environment: environment)
+      .timeout(timeout);
 }

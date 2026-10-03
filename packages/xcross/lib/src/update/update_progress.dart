@@ -1,4 +1,4 @@
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 
 abstract final class UpdatePhases {
   static const release = [
@@ -22,10 +22,11 @@ abstract final class UpdatePhases {
 }
 
 final class UpdateProgress {
-  UpdateProgress(this.group, this.total);
+  UpdateProgress(this.group, this.total, {required this.log});
 
   final String group;
   final int total;
+  final Log log;
 
   int _completed = 0;
 
@@ -38,5 +39,5 @@ final class UpdateProgress {
   }
 
   Future<T> run<T>(String action, Future<T> Function() body) =>
-      Log.logStep(nextLabel(action), body);
+      log.logStep(nextLabel(action), body);
 }

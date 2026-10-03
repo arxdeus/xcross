@@ -1,9 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:meta/meta.dart';
-import 'package:path/path.dart' as p;
 import 'package:xcross/src/update/release_lookup.dart';
 import 'package:xcross/src/update/semver.dart';
 import 'package:xcross/src/version.dart';
@@ -13,7 +12,11 @@ import 'package:xcross/src/version.dart';
 /// The hint is printed from the cache, never from a live request, so no
 /// command pays for the network. The refresh runs after the command finished
 /// and its result is what the *next* invocation reports.
-abstract final class UpdateCheck {
+final class UpdateCheck {
+  const UpdateCheck(this.host, {required this.log});
+  final PlatformHostInterface host;
+  final Log log;
+
   /// How long a cached answer is trusted.
   static const interval = Duration(hours: 24);
 
@@ -28,9 +31,9 @@ abstract final class UpdateCheck {
   ///
   /// Off for unreleased builds (nothing to compare against), for machine
   /// consumers of stdout, for CI, and whenever the user opted out.
-  static bool isEnabled({required bool ownsStdout}) {
+  bool isEnabled({required bool ownsStdout}) {
     if (ownsStdout || XcrossVersion.isDev) return false;
-    final env = Platform.environment;
+    final env = host.environment.values;
     if (env.containsKey(disableEnvVar) || env.containsKey('CI')) return false;
     // Under `sudo xcross ...` the cache path still resolves through the
     // invoking user's HOME, so writing it as root would follow whatever that
@@ -40,11 +43,11 @@ abstract final class UpdateCheck {
   }
 
   /// Prints a one-line hint when the cache knows of a newer release.
-  static void printHintFromCache() {
+  void printHintFromCache() {
     final latest = _read()?.latest;
     if (latest == null) return;
     if (!isNewerThanCurrent(latest)) return;
-    Log.logStatus(Log.dim("update available: $latest (run 'xcross update')"));
+    log.logStatus(log.dim("update available: $latest (run 'xcross update')"));
   }
 
   /// True when [tag] is a release newer than the running build.
@@ -57,11 +60,12 @@ abstract final class UpdateCheck {
 
   /// Refreshes the cache when it is stale. Never throws and never blocks for
   /// longer than [refreshTimeout].
-  static Future<void> refreshIfStale() async {
+  Future<void> refreshIfStale() async {
     final cached = _read();
     if (cached != null && !cached.isStale) return;
     try {
       final tag = await ReleaseLookup.latestTag(
+        environment: host.environment.values,
         timeout: refreshTimeout,
       ).timeout(refreshTimeout);
       _write(tag);
@@ -75,24 +79,13 @@ abstract final class UpdateCheck {
   /// `%APPDATA%/xcross/update_check.json` on Windows,
   /// `$XDG_CONFIG_HOME/xcross/update_check.json` (falling back to
   /// `~/.config/...`) elsewhere.
-  static String cachePath() =>
-      p.join(_configDir(), 'xcross', 'update_check.json');
+  String cachePath() => host.paths.context.join(
+    host.paths.configRoot,
+    'xcross',
+    'update_check.json',
+  );
 
-  static String _configDir() {
-    if (Platform.isWindows) {
-      final appData = Platform.environment['APPDATA'];
-      if (appData != null && appData.isNotEmpty) return appData;
-    }
-    final xdg = Platform.environment['XDG_CONFIG_HOME'];
-    if (xdg != null && xdg.isNotEmpty) return xdg;
-    final home =
-        Platform.environment['HOME'] ??
-        Platform.environment['USERPROFILE'] ??
-        '.';
-    return p.join(home, '.config');
-  }
-
-  static UpdateCheckCache? _read() {
+  UpdateCheckCache? _read() {
     try {
       final file = File(cachePath());
       if (!file.existsSync()) return null;
@@ -104,7 +97,7 @@ abstract final class UpdateCheck {
     }
   }
 
-  static void _write(String? latest) {
+  void _write(String? latest) {
     try {
       final file = File(cachePath());
       file.parent.createSync(recursive: true);

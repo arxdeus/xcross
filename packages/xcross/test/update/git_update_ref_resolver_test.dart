@@ -1,8 +1,10 @@
 import 'dart:io';
+import 'package:cli_kit/cli_kit.dart';
 
 import 'package:test/test.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/update/git_update_ref_resolver.dart';
+import '../host_operations_fixtures.dart';
 
 void main() {
   group('GitUpdateRefResolver.resolve', () {
@@ -16,7 +18,10 @@ void main() {
     ]) {
       test('rejects wildcard ref $ref before remote lookup', () async {
         final runner = _FakeGitRunner([]);
-        final resolver = GitUpdateRefResolver(run: runner.run);
+        final resolver = GitUpdateRefResolver(
+          runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+          run: runner.run,
+        );
 
         await expectLater(
           () => resolver.resolve(ref),
@@ -49,7 +54,10 @@ void main() {
             ),
           ),
         ]);
-        final resolver = GitUpdateRefResolver(run: runner.run);
+        final resolver = GitUpdateRefResolver(
+          runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+          run: runner.run,
+        );
 
         final resolved = await resolver.resolve('release');
 
@@ -77,7 +85,10 @@ void main() {
           ),
         ),
       ]);
-      final resolver = GitUpdateRefResolver(run: runner.run);
+      final resolver = GitUpdateRefResolver(
+        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+        run: runner.run,
+      );
 
       final resolved = await resolver.resolve('refs/tags/v1.2.3');
 
@@ -103,7 +114,10 @@ void main() {
           ),
         ),
       ]);
-      final resolver = GitUpdateRefResolver(run: runner.run);
+      final resolver = GitUpdateRefResolver(
+        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+        run: runner.run,
+      );
 
       final resolved = await resolver.resolve('refs/tags/v1.2.3');
 
@@ -133,7 +147,10 @@ void main() {
           ),
         ),
       ]);
-      final resolver = GitUpdateRefResolver(run: runner.run);
+      final resolver = GitUpdateRefResolver(
+        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+        run: runner.run,
+      );
 
       final resolved = await resolver.resolve('main');
 
@@ -173,7 +190,10 @@ void main() {
           ),
         ),
       ]);
-      final resolver = GitUpdateRefResolver(run: runner.run);
+      final resolver = GitUpdateRefResolver(
+        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+        run: runner.run,
+      );
 
       final resolved = await resolver.resolve('refs/heads/stable');
 
@@ -198,7 +218,10 @@ void main() {
           ),
         ),
       ]);
-      final resolver = GitUpdateRefResolver(run: runner.run);
+      final resolver = GitUpdateRefResolver(
+        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+        run: runner.run,
+      );
 
       await expectLater(
         () => resolver.resolve('refs/heads/stable'),
@@ -217,7 +240,10 @@ void main() {
           result: _result(stdout: 'not-a-full-sha\trefs/heads/stable\n'),
         ),
       ]);
-      final resolver = GitUpdateRefResolver(run: runner.run);
+      final resolver = GitUpdateRefResolver(
+        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+        run: runner.run,
+      );
 
       await expectLater(
         () => resolver.resolve('refs/heads/stable'),
@@ -249,7 +275,10 @@ void main() {
           ),
         ),
       ]);
-      final resolver = GitUpdateRefResolver(run: runner.run);
+      final resolver = GitUpdateRefResolver(
+        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
+        run: runner.run,
+      );
 
       final resolved = await resolver.resolve(shortHex);
 
@@ -281,6 +310,7 @@ void main() {
       ]);
       var tempDirectoryRequests = 0;
       final resolver = GitUpdateRefResolver(
+        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
         run: runner.run,
         createTempDirectory: (_) async {
           tempDirectoryRequests++;
@@ -351,6 +381,7 @@ void main() {
         ]);
         final deleted = <String>[];
         final resolver = GitUpdateRefResolver(
+          runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
           run: runner.run,
           createTempDirectory: tempDirs.create,
           deleteDirectory: (directory) async => deleted.add(directory.path),
@@ -409,6 +440,7 @@ void main() {
         ),
       ]);
       final resolver = GitUpdateRefResolver(
+        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
         run: runner.run,
         createTempDirectory: (_) async =>
             Directory('/tmp/fake-xcross-update-invalid-sha'),
@@ -469,6 +501,7 @@ void main() {
         ),
       ]);
       final resolver = GitUpdateRefResolver(
+        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
         run: runner.run,
         createTempDirectory: (_) async =>
             Directory('/tmp/fake-xcross-update-cleanup-success'),
@@ -525,6 +558,7 @@ void main() {
       ]);
       final deleted = <String>[];
       final resolver = GitUpdateRefResolver(
+        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
         run: runner.run,
         createTempDirectory: tempDirs.create,
         deleteDirectory: (directory) async => deleted.add(directory.path),
@@ -582,6 +616,7 @@ void main() {
       ]);
       final deleted = <String>[];
       final resolver = GitUpdateRefResolver(
+        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
         run: runner.run,
         createTempDirectory: tempDirs.create,
         deleteDirectory: (directory) async => deleted.add(directory.path),
@@ -636,6 +671,7 @@ void main() {
         ),
       ]);
       final resolver = GitUpdateRefResolver(
+        runner: ProcessRunner(LinuxHost(), log: fixtureLog()),
         run: runner.run,
         createTempDirectory: (_) async =>
             Directory('/tmp/fake-xcross-update-cleanup-error'),

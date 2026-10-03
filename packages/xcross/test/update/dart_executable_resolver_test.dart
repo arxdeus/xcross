@@ -1,9 +1,12 @@
 import 'dart:io';
+import 'package:cli_kit/cli_kit.dart';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/host/shared/update/posix_dart_launcher.dart';
 import 'package:xcross/src/update/internal/dart_executable_resolver.dart';
+import '../host_operations_fixtures.dart';
 
 void main() {
   group('findDartExecutableOnPath', () {
@@ -15,7 +18,12 @@ void main() {
         File(p.join(bin.path, 'dart.EXE')).createSync();
 
         final result = await findDartExecutableOnPath(
-          windows: true,
+          runner: _windowsRunner(),
+          acceptLauncher: (path) => const {
+            'dart.exe',
+            'dart.bat',
+            'dart.cmd',
+          }.contains(p.basename(path).toLowerCase()),
           environment: _windowsEnvironment(bin),
           useConfiguration: false,
         );
@@ -30,7 +38,12 @@ void main() {
       File(p.join(bin.path, 'dart.BAT')).createSync();
 
       final result = await findDartExecutableOnPath(
-        windows: true,
+        runner: _windowsRunner(),
+        acceptLauncher: (path) => const {
+          'dart.exe',
+          'dart.bat',
+          'dart.cmd',
+        }.contains(p.basename(path).toLowerCase()),
         environment: _windowsEnvironment(bin),
         useConfiguration: false,
       );
@@ -46,7 +59,12 @@ void main() {
 
         await expectLater(
           findDartExecutableOnPath(
-            windows: true,
+            runner: _windowsRunner(),
+            acceptLauncher: (path) => const {
+              'dart.exe',
+              'dart.bat',
+              'dart.cmd',
+            }.contains(p.basename(path).toLowerCase()),
             environment: _windowsEnvironment(bin),
             useConfiguration: false,
           ),
@@ -69,7 +87,11 @@ void main() {
       File(p.join(bin.path, 'dart.bat')).createSync();
 
       final result = await findDartExecutableOnPath(
-        windows: false,
+        runner: ProcessRunner(
+          LinuxHost(currentDirectory: Directory.current.path),
+          log: fixtureLog(),
+        ),
+        acceptLauncher: PosixDartLauncher().accept,
         environment: _linuxEnvironment(bin),
         useConfiguration: false,
       );
@@ -86,7 +108,11 @@ void main() {
       expect(Process.runSync('chmod', ['755', usable.path]).exitCode, 0);
 
       final result = await findDartExecutableOnPath(
-        windows: false,
+        runner: ProcessRunner(
+          LinuxHost(currentDirectory: Directory.current.path),
+          log: fixtureLog(),
+        ),
+        acceptLauncher: PosixDartLauncher().accept,
         environment: {'PATH': '${firstBin.path}:${secondBin.path}'},
         useConfiguration: false,
       );
@@ -105,7 +131,11 @@ void main() {
         expect(Process.runSync('chmod', ['755', usable.path]).exitCode, 0);
 
         final result = await findDartExecutableOnPath(
-          windows: false,
+          runner: ProcessRunner(
+            LinuxHost(currentDirectory: Directory.current.path),
+            log: fixtureLog(),
+          ),
+          acceptLauncher: PosixDartLauncher().accept,
           environment: {'PATH': '${firstBin.path}:${secondBin.path}'},
           useConfiguration: false,
         );
@@ -126,7 +156,11 @@ void main() {
         final relativeBin = p.relative(bin.path, from: Directory.current.path);
 
         final result = await findDartExecutableOnPath(
-          windows: false,
+          runner: ProcessRunner(
+            LinuxHost(currentDirectory: Directory.current.path),
+            log: fixtureLog(),
+          ),
+          acceptLauncher: PosixDartLauncher().accept,
           environment: {'PATH': relativeBin},
           useConfiguration: false,
         );
@@ -148,7 +182,11 @@ void main() {
       final entry = p.join(root.path, 'link', '..', 'bin');
 
       final result = await findDartExecutableOnPath(
-        windows: false,
+        runner: ProcessRunner(
+          LinuxHost(currentDirectory: Directory.current.path),
+          log: fixtureLog(),
+        ),
+        acceptLauncher: PosixDartLauncher().accept,
         environment: {'PATH': entry},
         useConfiguration: false,
       );
@@ -168,7 +206,11 @@ void main() {
 
       await expectLater(
         findDartExecutableOnPath(
-          windows: false,
+          runner: ProcessRunner(
+            LinuxHost(currentDirectory: Directory.current.path),
+            log: fixtureLog(),
+          ),
+          acceptLauncher: PosixDartLauncher().accept,
           environment: _linuxEnvironment(bin),
           useConfiguration: false,
         ),
@@ -197,3 +239,11 @@ Map<String, String> _linuxEnvironment(Directory bin) => {'PATH': bin.path};
 
 bool _isRoot() =>
     (Process.runSync('id', ['-u']).stdout as String).trim() == '0';
+
+ProcessRunner _windowsRunner() {
+  final fixtureHost = LinuxHost(currentDirectory: Directory.current.path);
+  return ProcessRunner(
+    WindowsHost(paths: fixtureHost.paths, fileSystem: fixtureHost.fileSystem),
+    log: fixtureLog(),
+  );
+}
