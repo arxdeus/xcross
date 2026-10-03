@@ -35,8 +35,8 @@ final class FlutterToolWorkspace {
         )) {
       return FlutterToolWorkspace._(
         flutterRoot: root,
-        dart: _dartPath(flutterRoot),
-        flutterToolsSnapshot: _snapshotPath(flutterRoot),
+        dart: _dartPath(sourceRoot),
+        flutterToolsSnapshot: _snapshotPath(sourceRoot),
       );
     }
     await _deleteFailedWorkspace(root);
@@ -55,8 +55,8 @@ final class FlutterToolWorkspace {
       await marker.writeAsString('ready\n');
       return FlutterToolWorkspace._(
         flutterRoot: root,
-        dart: _dartPath(flutterRoot),
-        flutterToolsSnapshot: _snapshotPath(flutterRoot),
+        dart: _dartPath(sourceRoot),
+        flutterToolsSnapshot: _snapshotPath(sourceRoot),
       );
     } on Object {
       await _deleteFailedWorkspace(root);
@@ -280,16 +280,22 @@ final class FlutterToolWorkspace {
       return;
     }
     await Directory(p.dirname(path)).create(recursive: true);
+    final absoluteTarget = p.normalize(p.absolute(target));
+    final resolvedTarget =
+        FileSystemEntity.typeSync(absoluteTarget) ==
+            FileSystemEntityType.notFound
+        ? absoluteTarget
+        : await File(absoluteTarget).resolveSymbolicLinks();
     if (!Platform.isWindows) {
-      await Link(path).create(p.normalize(p.absolute(target)));
+      await Link(path).create(resolvedTarget);
       return;
     }
     final arguments = [
       '/c',
       'mklink',
-      if (Directory(target).existsSync()) '/J' else '/H',
+      if (Directory(resolvedTarget).existsSync()) '/J' else '/H',
       path,
-      p.normalize(p.absolute(target)),
+      resolvedTarget,
     ];
     final result = await ProcessRunner.run(
       await ProcessRunner.locateTool('cmd'),
