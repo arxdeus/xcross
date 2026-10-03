@@ -12,7 +12,6 @@ import 'package:darwin_sdk_kit/src/errors.dart';
 import 'package:darwin_sdk_kit/src/pbzx_reader.dart';
 import 'package:darwin_sdk_kit/src/xar_reader.dart';
 
-
 /// Streams the decoded `Content` entry of an Xcode `.xip` as [CpioEntry]s.
 final class XcodeXipExtractor<T extends PlatformHostInterface> {
   const XcodeXipExtractor(this.host);

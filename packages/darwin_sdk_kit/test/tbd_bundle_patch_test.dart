@@ -9,6 +9,8 @@ import 'package:darwin_sdk_kit/src/tbd_linker_diagnostic.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import 'sdk_log_test_support.dart';
+
 void main() {
   late Directory tmp;
 
@@ -168,7 +170,10 @@ void main() {
       final notAStub = File(p.join(tmp.path, 'C.txt'))
         ..writeAsStringSync(stub('arm64e.x1-ios'));
 
-      final result = TbdBundlePatch(MacOSHost()).apply(tmp.path);
+      final result = TbdBundlePatch(
+        MacOSHost(),
+        log: sdkTestLog(),
+      ).apply(tmp.path);
 
       expect(result.patched, 1);
       expect(result.complete, isTrue);
@@ -180,6 +185,7 @@ void main() {
     test('is a no-op on a bundle that does not exist', () {
       final result = TbdBundlePatch(
         MacOSHost(),
+        log: sdkTestLog(),
       ).apply(p.join(tmp.path, 'missing'));
       expect(result.patched, 0);
       expect(result.complete, isTrue);
@@ -196,7 +202,13 @@ void main() {
           return; // Unprivileged Windows has no symlinks; nothing to assert.
         }
 
-        expect(TbdBundlePatch(MacOSHost()).apply(tmp.path).patched, 1);
+        expect(
+          TbdBundlePatch(
+            MacOSHost(),
+            log: sdkTestLog(),
+          ).apply(tmp.path).patched,
+          1,
+        );
         expect(File(real).readAsStringSync(), stub('arm64e-ios'));
       },
     );
@@ -209,7 +221,10 @@ void main() {
         await Process.run('chmod', ['444', path]);
         addTearDown(() => Process.run('chmod', ['644', path]));
 
-        final result = TbdBundlePatch(MacOSHost()).apply(tmp.path);
+        final result = TbdBundlePatch(
+          MacOSHost(),
+          log: sdkTestLog(),
+        ).apply(tmp.path);
 
         expect(result.patched, 0);
         expect(result.failed, 1);
@@ -229,7 +244,7 @@ void main() {
     await Link(
       p.join(bundle.path, TbdBundlePatch.stampName),
     ).create(outside.path);
-    final patch = TbdBundlePatch(MacOSHost());
+    final patch = TbdBundlePatch(MacOSHost(), log: sdkTestLog());
     expect(patch.isStamped(bundle.path), isFalse);
     final before = outside.readAsStringSync();
     patch.stamp(bundle.path, files: 99);
@@ -241,9 +256,15 @@ void main() {
       final file = File(p.join(tmp.path, 'libExample.tbd'));
       await file.writeAsString(stub('arm64e-ios, arm64e.x1-ios'));
 
-      expect(TbdBundlePatch(MacOSHost()).ensureApplied(tmp.path), 1);
+      expect(
+        TbdBundlePatch(MacOSHost(), log: sdkTestLog()).ensureApplied(tmp.path),
+        1,
+      );
       expect(file.readAsStringSync(), stub('arm64e-ios, arm64e-ios'));
-      expect(TbdBundlePatch(MacOSHost()).isStamped(tmp.path), isTrue);
+      expect(
+        TbdBundlePatch(MacOSHost(), log: sdkTestLog()).isStamped(tmp.path),
+        isTrue,
+      );
 
       final stamp = jsonDecode(
         File(p.join(tmp.path, TbdBundlePatch.stampName)).readAsStringSync(),
@@ -253,11 +274,14 @@ void main() {
     });
 
     test('skips a stamped bundle instead of rescanning it', () async {
-      TbdBundlePatch(MacOSHost()).stamp(tmp.path, files: 0);
+      TbdBundlePatch(MacOSHost(), log: sdkTestLog()).stamp(tmp.path, files: 0);
       final file = File(p.join(tmp.path, 'libLater.tbd'));
       await file.writeAsString(stub('arm64e.x1-ios'));
 
-      expect(TbdBundlePatch(MacOSHost()).ensureApplied(tmp.path), 0);
+      expect(
+        TbdBundlePatch(MacOSHost(), log: sdkTestLog()).ensureApplied(tmp.path),
+        0,
+      );
       expect(file.readAsStringSync(), contains('arm64e.x1'));
     });
 
@@ -268,7 +292,10 @@ void main() {
       final file = File(p.join(tmp.path, 'libExample.tbd'));
       await file.writeAsString(stub('arm64e.x1-ios'));
 
-      expect(TbdBundlePatch(MacOSHost()).ensureApplied(tmp.path), 1);
+      expect(
+        TbdBundlePatch(MacOSHost(), log: sdkTestLog()).ensureApplied(tmp.path),
+        1,
+      );
       expect(file.readAsStringSync(), stub('arm64e-ios'));
     });
 
@@ -279,8 +306,14 @@ void main() {
       final file = File(p.join(tmp.path, 'libExample.tbd'));
       await file.writeAsString(stub('arm64e.x1-ios'));
 
-      expect(TbdBundlePatch(MacOSHost()).ensureApplied(tmp.path), 1);
-      expect(TbdBundlePatch(MacOSHost()).isStamped(tmp.path), isTrue);
+      expect(
+        TbdBundlePatch(MacOSHost(), log: sdkTestLog()).ensureApplied(tmp.path),
+        1,
+      );
+      expect(
+        TbdBundlePatch(MacOSHost(), log: sdkTestLog()).isStamped(tmp.path),
+        isTrue,
+      );
     });
 
     test('stamps a bundle that needed no rewrite', () async {
@@ -288,8 +321,14 @@ void main() {
         p.join(tmp.path, 'libExample.tbd'),
       ).writeAsString(stub('arm64-ios, arm64e-ios'));
 
-      expect(TbdBundlePatch(MacOSHost()).ensureApplied(tmp.path), 0);
-      expect(TbdBundlePatch(MacOSHost()).isStamped(tmp.path), isTrue);
+      expect(
+        TbdBundlePatch(MacOSHost(), log: sdkTestLog()).ensureApplied(tmp.path),
+        0,
+      );
+      expect(
+        TbdBundlePatch(MacOSHost(), log: sdkTestLog()).isStamped(tmp.path),
+        isTrue,
+      );
     });
 
     test('leaves a bundle it could not fully rewrite unstamped', () async {
@@ -299,10 +338,16 @@ void main() {
       await Process.run('chmod', ['444', path]);
       addTearDown(() => Process.run('chmod', ['644', path]));
 
-      expect(TbdBundlePatch(MacOSHost()).ensureApplied(tmp.path), 0);
+      expect(
+        TbdBundlePatch(MacOSHost(), log: sdkTestLog()).ensureApplied(tmp.path),
+        0,
+      );
       // Unstamped, so a later run with the right permissions retries rather
       // than trusting a repair that never happened.
-      expect(TbdBundlePatch(MacOSHost()).isStamped(tmp.path), isFalse);
+      expect(
+        TbdBundlePatch(MacOSHost(), log: sdkTestLog()).isStamped(tmp.path),
+        isFalse,
+      );
     });
   });
 
@@ -362,10 +407,10 @@ void main() {
               'malformed file\nUIKit.tbd:3:32: error: unknown architecture',
             ),
             bundle: '/sdk/bundle',
-            wrap: _TestLinkError.new,
+            wrap: TestLinkError.new,
           ),
           throwsA(
-            isA<_TestLinkError>()
+            isA<TestLinkError>()
                 .having((e) => e.message, 'message', contains('arm64e.x1'))
                 // The original diagnostic is kept: the guidance explains it,
                 // it does not hide what the linker actually said.
@@ -383,7 +428,7 @@ void main() {
           TbdLinkerDiagnostic.explainFailures<void>(
             () async => throw const FormatException('undefined symbol: _main'),
             bundle: '/sdk/bundle',
-            wrap: _TestLinkError.new,
+            wrap: TestLinkError.new,
           ),
           throwsA(isA<FormatException>()),
         );
@@ -394,8 +439,8 @@ void main() {
 
 /// Stands in for the build-specific error types the real call sites pass
 /// (`FlutterBuildError`, `XcrossError`), which live in another package.
-final class _TestLinkError implements Exception {
-  const _TestLinkError(this.message);
+final class TestLinkError implements Exception {
+  const TestLinkError(this.message);
 
   final String message;
 }

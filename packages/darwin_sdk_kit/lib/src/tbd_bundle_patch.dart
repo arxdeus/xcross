@@ -30,8 +30,9 @@ final class TbdPatchResult {
 /// passes through [ensureApplied], and a stamped bundle costs one small file
 /// read instead of a walk over tens of megabytes of text stubs.
 final class TbdBundlePatch<T extends PlatformHostInterface> {
-  const TbdBundlePatch(this.host);
+  const TbdBundlePatch(this.host, {required this.log});
   final T host;
+  final Log log;
 
   /// Records that a bundle's stubs were rewritten, so the scan runs once.
   static const stampName = 'xcross-tbd-targets.json';
@@ -70,13 +71,13 @@ final class TbdBundlePatch<T extends PlatformHostInterface> {
     if (result.complete) {
       stamp(bundle, files: result.patched);
     } else {
-      Log.logWarn(
+      log.logWarn(
         'Could not rewrite ${result.failed} Darwin SDK text stub(s) under '
         '$bundle. Linking may fail with "$unknownArchitectureMarker".',
       );
     }
     if (result.patched > 0) {
-      Log.logTrace(
+      log.logTrace(
         'TbdBundlePatch: renamed ${tbdArchitectureAliases.keys.join(', ')} in '
         '${result.patched} .tbd files under $bundle',
       );
@@ -94,29 +95,29 @@ final class TbdBundlePatch<T extends PlatformHostInterface> {
     for (final entity in root.listSync(recursive: true, followLinks: false)) {
       if (entity is! File || !isTbdName(entity.path)) continue;
       switch (_rewriteFile(entity)) {
-        case _FileOutcome.rewritten:
+        case TbdFileOutcome.rewritten:
           patched++;
-        case _FileOutcome.failed:
+        case TbdFileOutcome.failed:
           failed++;
-        case _FileOutcome.unchanged:
+        case TbdFileOutcome.unchanged:
           break;
       }
     }
     return TbdPatchResult(patched: patched, failed: failed);
   }
 
-  _FileOutcome _rewriteFile(File stub) {
+  TbdFileOutcome _rewriteFile(File stub) {
     try {
       final rewritten = rewriteBytes(stub.readAsBytesSync());
-      if (rewritten == null) return _FileOutcome.unchanged;
+      if (rewritten == null) return TbdFileOutcome.unchanged;
       stub.writeAsBytesSync(rewritten, flush: true);
-      return _FileOutcome.rewritten;
+      return TbdFileOutcome.rewritten;
     } on FileSystemException catch (error) {
       // A stub that cannot be rewritten is the one that will fail the link,
       // so it is counted rather than ignored: the bundle must not be stamped
       // as done while it still carries an unreadable target.
-      Log.logTrace('TbdBundlePatch: could not rewrite ${stub.path}: $error');
-      return _FileOutcome.failed;
+      log.logTrace('TbdBundlePatch: could not rewrite ${stub.path}: $error');
+      return TbdFileOutcome.failed;
     }
   }
 
@@ -139,7 +140,7 @@ final class TbdBundlePatch<T extends PlatformHostInterface> {
     } on Object catch (error) {
       // An unreadable stamp is treated as absent: rewriting again is cheap
       // and idempotent, while trusting it is not.
-      Log.logTrace('TbdBundlePatch: unreadable stamp at ${stamp.path}: $error');
+      log.logTrace('TbdBundlePatch: unreadable stamp at ${stamp.path}: $error');
       return false;
     }
   }
@@ -165,9 +166,9 @@ final class TbdBundlePatch<T extends PlatformHostInterface> {
     } on FileSystemException catch (error) {
       // Only costs a rescan next time, so it is not worth failing an install
       // or a build over.
-      Log.logTrace('TbdBundlePatch: could not stamp $bundle: $error');
+      log.logTrace('TbdBundlePatch: could not stamp $bundle: $error');
     }
   }
 }
 
-enum _FileOutcome { rewritten, unchanged, failed }
+enum TbdFileOutcome { rewritten, unchanged, failed }

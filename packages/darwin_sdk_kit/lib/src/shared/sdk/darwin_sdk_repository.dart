@@ -7,7 +7,7 @@ import 'package:darwin_sdk_kit/src/target/shared/ios_build_platform.dart';
 import 'package:darwin_sdk_kit/src/tbd_bundle_patch.dart';
 
 final class DarwinSdkRepository<T extends PlatformHostInterface> {
-  DarwinSdkRepository(this.host, {String? installBundle})
+  DarwinSdkRepository(this.host, {required this.log, String? installBundle})
     : installBundle =
           installBundle ??
           host.paths.context.join(
@@ -16,8 +16,9 @@ final class DarwinSdkRepository<T extends PlatformHostInterface> {
             'swift-sdks',
             'xcross-darwin.artifactbundle',
           ),
-      patch = TbdBundlePatch(host);
+      patch = TbdBundlePatch(host, log: log);
   final T host;
+  final Log log;
   final String installBundle;
   final TbdBundlePatch<T> patch;
 
@@ -33,7 +34,7 @@ final class DarwinSdkRepository<T extends PlatformHostInterface> {
         source.copySync(destination.path);
       }
     } on FileSystemException catch (e) {
-      Log.logTrace('DarwinSdk: could not stage runtime layout: $e');
+      log.logTrace('DarwinSdk: could not stage runtime layout: $e');
     }
     if (!isValidBundle(candidate)) return null;
     // Bundles installed before xcross rewrote text stubs carry architectures
@@ -56,9 +57,9 @@ final class DarwinSdkRepository<T extends PlatformHostInterface> {
     if (!backup.existsSync() || !isValidBundle(backup.path)) return;
     try {
       backup.renameSync(bundle);
-      Log.logWarn('Restored the previous Darwin Swift SDK at $bundle');
+      log.logWarn('Restored the previous Darwin Swift SDK at $bundle');
     } on FileSystemException catch (error) {
-      Log.logWarn(
+      log.logWarn(
         'Could not restore the previous Darwin Swift SDK from '
         '${backup.path}: $error',
       );

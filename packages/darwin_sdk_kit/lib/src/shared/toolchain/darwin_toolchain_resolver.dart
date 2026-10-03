@@ -6,6 +6,7 @@ import 'package:darwin_sdk_kit/src/host/shared/darwin_toolchain_locations.dart';
 final class DarwinToolchainResolver<T extends PlatformHostInterface> {
   DarwinToolchainResolver(this.runner, this.locations);
   T get host => runner.host;
+  Log get log => runner.log;
   final ProcessRunner<T> runner;
   final DarwinToolchainLocationsInterface locations;
   Future<String> resolveLd64Lld({
@@ -27,7 +28,7 @@ final class DarwinToolchainResolver<T extends PlatformHostInterface> {
     for (final candidate in ordered) {
       final failure = await probeIosSupport(candidate, runProcess: runProcess);
       if (failure != null) {
-        Log.logTrace('ld64.lld: skipping $candidate — $failure');
+        log.logTrace('ld64.lld: skipping $candidate — $failure');
         rejected.add('  $candidate\n    $failure');
         continue;
       }
@@ -36,12 +37,12 @@ final class DarwinToolchainResolver<T extends PlatformHostInterface> {
         runProcess: runProcess,
       );
       if (defect == null) return candidate;
-      Log.logTrace('ld64.lld: $candidate — $defect');
+      log.logTrace('ld64.lld: $candidate — $defect');
       defective ??= candidate;
     }
     if (defective != null) {
       if (_warnedDefective.add(defective)) {
-        Log.logWarn(
+        log.logWarn(
           'Using $defective: '
           '${await selectorStubDefect(defective, runProcess: runProcess)}',
         );
@@ -113,7 +114,7 @@ final class DarwinToolchainResolver<T extends PlatformHostInterface> {
         version = (int.parse(match.group(1)!), int.parse(match.group(2)!));
       }
     } on Object catch (error) {
-      Log.logTrace('ld64.lld: $linker --version failed: $error');
+      log.logTrace('ld64.lld: $linker --version failed: $error');
     }
     return _versions[linker] = version;
   }
@@ -242,7 +243,7 @@ final class DarwinToolchainResolver<T extends PlatformHostInterface> {
         runProcess: runProcess,
       );
       if (failure != null) {
-        Log.logTrace('$name: skipping $candidate — $failure');
+        log.logTrace('$name: skipping $candidate — $failure');
         rejected.add('  $candidate\n    $failure');
         continue;
       }
@@ -252,14 +253,14 @@ final class DarwinToolchainResolver<T extends PlatformHostInterface> {
         runProcess: runProcess,
       );
       if (age == null) return candidate;
-      Log.logTrace('$name: deprioritizing $candidate — $age');
+      log.logTrace('$name: deprioritizing $candidate — $age');
       tooOld ??= candidate;
     }
     // A compiler older than the SDK's libc++ still builds plain C and
     // Objective-C, so keep using it rather than failing outright.
     if (tooOld != null) {
       if (_warnedOldClang.add(tooOld)) {
-        Log.logWarn(
+        log.logWarn(
           'Using $tooOld: '
           '${await clangTooOldForSdk(tooOld, minimum: minimum, runProcess: runProcess)}',
         );
@@ -340,7 +341,7 @@ final class DarwinToolchainResolver<T extends PlatformHostInterface> {
         if (match != null) major = int.parse(match.group(1)!);
       }
     } on Object catch (error) {
-      Log.logTrace('clang: $clang --version failed: $error');
+      log.logTrace('clang: $clang --version failed: $error');
     }
     return _clangVersions[clang] = major;
   }
