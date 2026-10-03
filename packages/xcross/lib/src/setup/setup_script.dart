@@ -5,10 +5,9 @@ import 'dart:io';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
-import 'package:path/path.dart' as p;
 import 'package:xcross/src/config/config.dart';
-import 'package:xcross/src/config/runtime_config.dart';
 import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/setup/setup_script_policy.dart';
 
 typedef SetupScriptDownload = Future<List<int>> Function(Uri uri);
 typedef SetupScriptExecute =
@@ -19,20 +18,22 @@ final class SetupScriptManager {
   static final _contentHashPattern = RegExp(r'^[0-9a-f]{64}$');
 
   SetupScriptManager({
-    String? source,
-    Map<String, String>? environment,
-    bool? windows,
+    required this.host,
+    required ProcessRunner runner,
+    this.source,
+    required SetupScriptPolicy policy,
     SetupScriptDownload? download,
     SetupScriptExecute? execute,
-  }) : source = source ?? _configuredSource(),
-       environment = environment ?? Platform.environment,
-       windows = windows ?? Platform.isWindows,
+  }) : _policy = policy,
        _download = download ?? _downloadBytes,
-       _execute = execute ?? _executeScript;
+       _execute =
+           execute ??
+           ((executable, arguments) =>
+               runner.runChecked(executable, arguments, label: 'setup script'));
 
+  final PlatformHostInterface host;
   final String? source;
-  final Map<String, String> environment;
-  final bool windows;
+  final SetupScriptPolicy _policy;
   final SetupScriptDownload _download;
   final SetupScriptExecute _execute;
 
@@ -80,28 +81,8 @@ final class SetupScriptManager {
       );
     }
 
-    final invocation = await _invocation(script.path);
+    final invocation = await _policy.invocation(script.path);
     await _execute(invocation.executable, invocation.arguments);
-  }
-
-  String get _cacheDirectory {
-    if (windows) {
-      final base = environment['LOCALAPPDATA'] ?? environment['APPDATA'];
-      if (base == null) {
-        throw XcrossError('LOCALAPPDATA is required to cache setup scripts.');
-      }
-      return p.windows.join(base, 'xcross', 'cache', 'setup-scripts');
-    }
-
-    final xdgCache = environment['XDG_CACHE_HOME'];
-    if (xdgCache != null) {
-      return p.posix.join(xdgCache, 'xcross', 'setup-scripts');
-    }
-    final home = environment['HOME'];
-    if (home == null) {
-      throw XcrossError('HOME is required to cache setup scripts.');
-    }
-    return p.posix.join(home, '.cache', 'xcross', 'setup-scripts');
   }
 
   File? _cachedScript(Uri uri) {
@@ -119,8 +100,7 @@ final class SetupScriptManager {
     }
   }
 
-  File _cachedFile(String contentHash) =>
-      File(p.join(_cacheDirectory, '$contentHash${windows ? '.ps1' : '.sh'}'));
+  File _cachedFile(String contentHash) => _policy.cachedFile(contentHash);
 
   bool _hasDigest(File file, String expected) {
     if (!file.existsSync()) return false;
@@ -135,7 +115,7 @@ final class SetupScriptManager {
     final temporary = _temporaryFile(destination);
     try {
       temporary.writeAsBytesSync(contents, flush: true);
-      _replaceAtomically(temporary, destination);
+      _policy.replace(temporary, destination);
     } finally {
       _deleteTemporaryFile(temporary);
     }
@@ -145,7 +125,7 @@ final class SetupScriptManager {
     final temporary = _temporaryFile(destination);
     try {
       temporary.writeAsStringSync(contents, flush: true);
-      _replaceAtomically(temporary, destination);
+      _policy.replace(temporary, destination);
     } finally {
       _deleteTemporaryFile(temporary);
     }
@@ -163,47 +143,9 @@ final class SetupScriptManager {
     '${destination.path}.$pid.${DateTime.now().microsecondsSinceEpoch}.tmp',
   );
 
-  void _replaceAtomically(File temporary, File destination) {
-    try {
-      temporary.renameSync(destination.path);
-      return;
-    } on FileSystemException {
-      if (!windows || !destination.existsSync()) rethrow;
-    }
-
-    final backup = _temporaryFile(destination);
-    destination.renameSync(backup.path);
-    try {
-      temporary.renameSync(destination.path);
-      backup.deleteSync();
-    } on FileSystemException {
-      if (!destination.existsSync() && backup.existsSync()) {
-        backup.renameSync(destination.path);
-      }
-      rethrow;
-    }
-  }
-
-  File _cachePointer(Uri uri) {
-    final urlHash = sha256.convert(utf8.encode(uri.toString()));
-    return File(p.join(_cacheDirectory, '$urlHash.current'));
-  }
-
-  Future<({String executable, List<String> arguments})> _invocation(
-    String scriptPath,
-  ) async {
-    if (!windows) {
-      return (executable: '/bin/sh', arguments: [scriptPath]);
-    }
-    return (
-      executable: await ProcessRunner.locateTool('powershell'),
-      arguments: ['-NoProfile', '-File', scriptPath],
-    );
-  }
-
-  static String? _configuredSource() => XcrossRuntimeConfig.isInitialized
-      ? XcrossRuntimeConfig.current.config?.setup
-      : null;
+  File _cachePointer(Uri uri) => _policy.cachePointer(
+    sha256.convert(utf8.encode(uri.toString())).toString(),
+  );
 
   static Uri? _remoteUri(String value) =>
       XcrossConfig.remoteSetupScriptUri(value);
@@ -243,9 +185,4 @@ final class SetupScriptManager {
     );
     return sanitized.toString();
   }
-
-  static Future<void> _executeScript(
-    String executable,
-    List<String> arguments,
-  ) => ProcessRunner.runChecked(executable, arguments, label: 'setup script');
 }

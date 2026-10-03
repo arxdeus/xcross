@@ -1,17 +1,25 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/setup/setup_script.dart';
+import 'package:xcross/src/host/shared/setup/posix_setup_script.dart';
 
 void main() {
   late Directory temporary;
+  late LinuxHost host;
+  late ProcessRunner runner;
 
   setUp(() {
     temporary = Directory.systemTemp.createTempSync('xcross-setup-script-');
+    host = LinuxHost(
+      environment: {'XDG_CACHE_HOME': temporary.path, 'HOME': temporary.path},
+    );
+    runner = ProcessRunner(host);
   });
   tearDown(() => temporary.deleteSync(recursive: true));
 
@@ -22,8 +30,9 @@ void main() {
     List<String>? arguments;
     final manager = SetupScriptManager(
       source: script.path,
-      environment: {'HOME': temporary.path},
-      windows: false,
+      host: host,
+      runner: runner,
+      policy: PosixSetupScript(host),
       execute: (value, args) async {
         executable = value;
         arguments = args;
@@ -43,8 +52,9 @@ void main() {
       var downloads = 0;
       final manager = SetupScriptManager(
         source: 'https://example.com/setup.sh',
-        environment: {'XDG_CACHE_HOME': temporary.path},
-        windows: false,
+        host: host,
+        runner: runner,
+      policy: PosixSetupScript(host),
         download: (_) async {
           downloads++;
           return bytes;
@@ -66,8 +76,9 @@ void main() {
     var downloads = 0;
     final manager = SetupScriptManager(
       source: 'https://example.com/setup.sh',
-      environment: {'XDG_CACHE_HOME': temporary.path},
-      windows: false,
+      host: host,
+      runner: runner,
+      policy: PosixSetupScript(host),
       download: (_) async {
         downloads++;
         return bytes;
@@ -93,8 +104,9 @@ void main() {
     var downloads = 0;
     final manager = SetupScriptManager(
       source: 'https://example.com/setup.sh',
-      environment: {'XDG_CACHE_HOME': temporary.path},
-      windows: false,
+      host: host,
+      runner: runner,
+      policy: PosixSetupScript(host),
       download: (_) async {
         downloads++;
         return bytes;
@@ -117,8 +129,9 @@ void main() {
     await server.close(force: true);
     final manager = SetupScriptManager(
       source: 'http://localhost:$port/setup.sh',
-      environment: {'XDG_CACHE_HOME': temporary.path},
-      windows: false,
+      host: host,
+      runner: runner,
+      policy: PosixSetupScript(host),
     );
 
     await expectLater(
@@ -140,8 +153,9 @@ void main() {
     var payload = utf8.encode('one');
     final manager = SetupScriptManager(
       source: 'https://example.com/setup.sh',
-      environment: {'XDG_CACHE_HOME': temporary.path},
-      windows: false,
+      host: host,
+      runner: runner,
+      policy: PosixSetupScript(host),
       download: (_) async => payload,
     );
 
