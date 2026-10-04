@@ -6,6 +6,7 @@ import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:dart_mobile_device/src/errors.dart';
 import 'package:dart_mobile_device/src/models/device_endpoint.dart';
 import 'package:dart_mobile_device/src/pymd/pymd.dart';
+import 'package:dart_mobile_device/src/shared/network/device_sockets.dart';
 import 'package:dart_mobile_device/src/transport/device_transport.dart';
 
 /// RSD over pymobiledevice3's in-process (`--userspace`) tunnel, with every
@@ -24,9 +25,14 @@ import 'package:dart_mobile_device/src/transport/device_transport.dart';
 ///   (the tunnel's IPv6 connect then fails with `WinError 10013`), and
 /// * hosts without Administrator/root rights, since no TUN device is created.
 class UserspaceTunnelTransport implements DeviceTransport {
-  UserspaceTunnelTransport({required this.pymd, required this.udid});
+  UserspaceTunnelTransport({
+    required this.pymd,
+    required this.udid,
+    required this.sockets,
+  });
 
   final Pymd pymd;
+  final DeviceSockets sockets;
 
   final String udid;
 
@@ -189,8 +195,8 @@ class UserspaceTunnelTransport implements DeviceTransport {
   ///
   /// Racy in principle; in practice the relay claims it within milliseconds and
   /// [_isPortTaken] confirms the claim.
-  static Future<int> _reserveLocalPort() async {
-    final probe = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+  Future<int> _reserveLocalPort() async {
+    final probe = await sockets.bindLoopback();
     final port = probe.port;
     await probe.close();
     return port;
@@ -201,9 +207,9 @@ class UserspaceTunnelTransport implements DeviceTransport {
   /// Probing by *binding* rather than connecting matters: a connect would open
   /// a real debugserver session and could consume the relay's connection slot
   /// before the debugger gets there.
-  static Future<bool> _isPortTaken(int port) async {
+  Future<bool> _isPortTaken(int port) async {
     try {
-      final probe = await ServerSocket.bind(InternetAddress.loopbackIPv4, port);
+      final probe = await sockets.bindLoopback(port: port);
       await probe.close();
       return false;
     } on SocketException {

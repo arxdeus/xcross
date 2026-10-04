@@ -2,6 +2,7 @@ import 'package:dart_mobile_device/src/constants.dart';
 import 'package:dart_mobile_device/src/device_prepare.dart';
 import 'package:dart_mobile_device/src/errors.dart';
 import 'package:dart_mobile_device/src/pymd/pymd.dart';
+import 'package:dart_mobile_device/src/shared/network/device_sockets.dart';
 import 'package:dart_mobile_device/src/transport/device_transport.dart';
 import 'package:dart_mobile_device/src/transport/internal/device_transport_mode.dart';
 import 'package:dart_mobile_device/src/tunnel/kernel_tunnel_transport.dart';
@@ -12,7 +13,8 @@ import 'package:dart_mobile_device/src/tunnel/userspace_tunnel_transport.dart';
 /// Builds the [DeviceTransport] for a session, preferring the kernel tunnel
 /// and falling back to the userspace tunnel when it is unusable.
 final class DeviceTransportResolver {
-  DeviceTransportResolver(this.pymd);
+  DeviceTransportResolver(this.pymd, {required this.sockets});
+  final DeviceSockets sockets;
   final Pymd pymd;
 
   /// `auto` (default), `kernel`, or `userspace`.
@@ -30,7 +32,11 @@ final class DeviceTransportResolver {
     final mode = _modeFromEnvironment();
     switch (mode) {
       case DeviceTransportMode.userspace:
-        return UserspaceTunnelTransport(pymd: pymd, udid: udid);
+        return UserspaceTunnelTransport(
+          pymd: pymd,
+          udid: udid,
+          sockets: sockets,
+        );
       case DeviceTransportMode.kernel:
         return _kernelTransport(
           udid: udid,
@@ -61,7 +67,11 @@ final class DeviceTransportResolver {
                       '${_firstLine(error.message)}',
           );
           pymd.runner.log.logTrace(error.message);
-          return UserspaceTunnelTransport(pymd: pymd, udid: udid);
+          return UserspaceTunnelTransport(
+            pymd: pymd,
+            udid: udid,
+            sockets: sockets,
+          );
         }
     }
   }

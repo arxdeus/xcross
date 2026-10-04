@@ -178,8 +178,11 @@ final class TunneldLogTail {
 
   /// Start tailing at the file's current end, so only output produced from
   /// now on is reported (the log persists across runs).
-  factory TunneldLogTail.start({required String path}) {
-    final file = File(path);
+  factory TunneldLogTail.start({
+    required String path,
+    required HostFileSystemInterface fileSystem,
+  }) {
+    final file = fileSystem.file(path);
     var offset = 0;
     try {
       if (file.existsSync()) offset = file.lengthSync();

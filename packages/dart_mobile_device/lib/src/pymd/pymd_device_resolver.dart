@@ -297,7 +297,10 @@ class PymdDeviceResolver {
       }
     }
 
-    final tail = TunneldLogTail.start(path: TunnelDaemon(pymd).logPath);
+    final tail = TunneldLogTail.start(
+      path: TunnelDaemon(pymd).logPath,
+      fileSystem: pymd.runner.host.fileSystem,
+    );
     var step = pymd.runner.log.beginStep('Searching for wireless devices');
     var list = <Device>[];
     var restartedForQuic = false;

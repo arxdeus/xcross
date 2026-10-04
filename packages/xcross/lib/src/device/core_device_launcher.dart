@@ -69,7 +69,10 @@ final class CoreDeviceLauncher {
       );
     }
 
-    final transport = await DeviceTransportResolver(pymd).resolve(udid: udid);
+    final transport = await DeviceTransportResolver(
+      pymd,
+      sockets: sockets,
+    ).resolve(udid: udid);
     pymd.runner.log.logTrace('device transport: ${transport.description}');
     try {
       await _runSession(
@@ -103,13 +106,14 @@ final class CoreDeviceLauncher {
   }) async {
     try {
       if (!await pymd.ensureInstalled()) return;
-      final transport = await DeviceTransportResolver(pymd).resolve(
-        udid: udid,
-        discoveryTimeout: _terminateDiscoveryTimeout,
-        // Best-effort cleanup: never mount a DDI or start a tunnel for it.
-        // The launch that follows does that, with the budget for it.
-        allowTunnelRepair: false,
-      );
+      final transport = await DeviceTransportResolver(pymd, sockets: sockets)
+          .resolve(
+            udid: udid,
+            discoveryTimeout: _terminateDiscoveryTimeout,
+            // Best-effort cleanup: never mount a DDI or start a tunnel for it.
+            // The launch that follows does that, with the budget for it.
+            allowTunnelRepair: false,
+          );
       try {
         final pid = await pymd.processIdForBundleId(
           deviceArgs: transport.pymdDeviceArgs,
