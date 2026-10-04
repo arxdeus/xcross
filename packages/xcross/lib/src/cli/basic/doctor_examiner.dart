@@ -1,4 +1,3 @@
-import 'package:dart_mobile_device/dart_mobile_device_shared.dart' show Device;
 import 'package:xcross/src/cli/basic/doctor_environment_checks.dart';
 import 'package:xcross/src/cli/basic/doctor_models.dart';
 import 'package:xcross/src/shared/diagnostics/doctor_project_inspector.dart';
@@ -51,10 +50,4 @@ final class DoctorExaminer {
     checks.addAll(await _runChecks());
     return checks;
   }
-
-  static Future<List<DoctorCheck>> deviceChecks(
-    List<Device> devices, {
-    required Future<int?> Function(Device device) osMajorVersion,
-  }) =>
-      DoctorEnvironmentChecks.devices(devices, osMajorVersion: osMajorVersion);
 }

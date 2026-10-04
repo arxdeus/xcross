@@ -1,11 +1,9 @@
-import 'dart:io';
-
+import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/basic/doctor_environment_checks.dart';
 import 'package:xcross/src/cli/basic/internal/xcode_swift_requirement.dart';
 
-import '../host_operations_fixtures.dart';
+import 'doctor_environment_checks_test.dart' show DoctorServiceFixture;
 
 void main() {
   group('XcodeSwiftRequirement.xcodeMajorFromXipPath', () {
@@ -80,42 +78,25 @@ void main() {
   });
 
   group('DoctorEnvironmentChecks.swiftTooOldForSdk', () {
-    late Directory bundle;
+    late DoctorServiceFixture fixture;
 
-    setUp(() => bundle = Directory.systemTemp.createTempSync('xcross_xcsdk_'));
-    tearDown(() => bundle.deleteSync(recursive: true));
-
-    void sdkNamed(String name) => Directory(
-      p.join(
-        bundle.path,
-        'Developer',
-        'Platforms',
-        'iPhoneOS.platform',
-        'Developer',
-        'SDKs',
-        name,
+    setUp(
+      () => fixture = DoctorServiceFixture(
+        baseHost: LinuxHost(
+          currentDirectory: '/fixture',
+          environment: const {'HOME': '/fixture'},
+        ),
+        sdkInstalled: false,
       ),
-    ).createSync(recursive: true);
+    );
+    tearDown(() => fixture.dispose());
 
-    Future<String?> run(String version) =>
-        DoctorEnvironmentChecks.swiftTooOldForSdk(
-          bundle.path,
-          log: fixtureLog(),
-          sdkPath: (root) => Directory(
-            p.join(
-              root,
-              'Developer',
-              'Platforms',
-              'iPhoneOS.platform',
-              'Developer',
-              'SDKs',
-            ),
-          ).listSync().whereType<Directory>().single.path,
-          toolchainIdentity: () async => {
-            'swift': '/usr/bin/swift',
-            'version': version,
-          },
-        );
+    void sdkNamed(String name) => fixture.sdkNamed(name);
+
+    Future<String?> run(String version) {
+      fixture.swiftVersion = version;
+      return fixture.checks.swiftTooOldForSdk(fixture.bundle);
+    }
 
     test('fails an Xcode 27 SDK paired with Swift 6.3', () async {
       sdkNamed('iPhoneOS27.0.sdk');

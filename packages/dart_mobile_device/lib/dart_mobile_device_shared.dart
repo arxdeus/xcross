@@ -1,4 +1,3 @@
-export 'src/constants.dart';
 export 'src/errors.dart';
 export 'src/models/device.dart';
 export 'src/models/device_endpoint.dart';

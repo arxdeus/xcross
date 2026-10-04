@@ -6,17 +6,6 @@ import 'package:http/http.dart' as http;
 import 'package:xcross/src/cli/basic/doctor_models.dart';
 import 'package:xcross/src/cli/basic/internal/xcode_swift_requirement.dart';
 
-typedef DoctorLocateTool =
-    Future<String?> Function(
-      String name, {
-      bool Function(String path)? accept,
-      Iterable<String> extraDirectories,
-    });
-typedef DoctorSingleCheck = Future<DoctorCheck> Function();
-typedef DoctorResolveTool = Future<String> Function();
-typedef DoctorToolDefect = Future<String?> Function(String path);
-typedef DoctorToolDetail = Future<String?> Function(String path);
-
 final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
   DoctorEnvironmentChecks({
     required this.hostPlatform,
@@ -43,58 +32,24 @@ final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
 
   static const _requiredTools = ['swift', 'clang++', 'llvm-ar'];
 
-  Future<List<DoctorCheck>> host() => hostWithSeams(
-    hostName: hostPlatform.name,
-    llvmDirectories: toolchain.llvmToolDirs(),
-    locateTool: runner.which,
-    iosClang: _resolveIosClang,
-    iosLinker: _resolveIosLinker,
-    iosLinkerDefect: toolchain.selectorStubDefect,
-    iosLinkerDetail: _ld64LldDetail,
-    darwinSdk: _darwinSdk,
-  );
-
-  static Future<List<DoctorCheck>> hostWithSeams({
-    required String hostName,
-    required DoctorLocateTool locateTool,
-    required DoctorResolveTool iosClang,
-    required DoctorResolveTool iosLinker,
-    required DoctorSingleCheck darwinSdk,
-    Iterable<String> llvmDirectories = const [],
-    DoctorToolDefect? iosLinkerDefect,
-    DoctorToolDetail? iosLinkerDetail,
-  }) async {
+  Future<List<DoctorCheck>> host() async {
     final checks = <DoctorCheck>[
-      DoctorCheck.success('Host', '$hostName is supported.'),
+      DoctorCheck.success('Host', '${hostPlatform.name} is supported.'),
     ];
     for (final tool in _requiredTools) {
-      checks.add(
-        await _tool(
-          tool,
-          llvmDirectories: llvmDirectories,
-          locateTool: locateTool,
-        ),
-      );
+      checks.add(await _tool(tool));
     }
-    checks.add(await _buildTool('iOS clang', iosClang));
-    checks.add(
-      await _buildTool(
-        'iOS linker',
-        iosLinker,
-        defect: iosLinkerDefect,
-        detail: iosLinkerDetail,
-      ),
-    );
-    checks.add(await darwinSdk());
+    checks.add(await _iosClang());
+    checks.add(await _iosLinker());
+    checks.add(await _darwinSdk());
     return checks;
   }
 
-  static Future<DoctorCheck> _tool(
-    String name, {
-    required Iterable<String> llvmDirectories,
-    required DoctorLocateTool locateTool,
-  }) async {
-    final path = await locateTool(name, extraDirectories: llvmDirectories);
+  Future<DoctorCheck> _tool(String name) async {
+    final path = await runner.which(
+      name,
+      extraDirectories: toolchain.llvmToolDirs(),
+    );
     return path == null
         ? DoctorCheck.failure(
             name,
@@ -103,25 +58,32 @@ final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
         : DoctorCheck.success(name, 'Found', path: path);
   }
 
-  /// A tool that resolves but carries a known [defect] still builds, so it
-  /// is a warning rather than a failure.
-  static Future<DoctorCheck> _buildTool(
-    String name,
-    DoctorResolveTool resolve, {
-    DoctorToolDefect? defect,
-    DoctorToolDetail? detail,
-  }) async {
+  Future<DoctorCheck> _iosClang() async {
+    try {
+      return DoctorCheck.success(
+        'iOS clang',
+        'Ready',
+        path: await _resolveIosClang(),
+      );
+    } on Object catch (error) {
+      return DoctorCheck.failure('iOS clang', error.toString());
+    }
+  }
+
+  Future<DoctorCheck> _iosLinker() async {
     final String path;
     try {
-      path = await resolve();
+      path = await _resolveIosLinker();
     } on Object catch (error) {
-      return DoctorCheck.failure(name, error.toString());
+      return DoctorCheck.failure('iOS linker', error.toString());
     }
-    final problem = defect == null ? null : await defect(path);
-    if (problem != null) return DoctorCheck.warning(name, problem, path: path);
-    final extra = detail == null ? null : await detail(path);
+    final problem = await toolchain.selectorStubDefect(path);
+    if (problem != null) {
+      return DoctorCheck.warning('iOS linker', problem, path: path);
+    }
+    final extra = await _ld64LldDetail(path);
     return DoctorCheck.success(
-      name,
+      'iOS linker',
       extra == null ? 'Ready' : 'Ready ($extra)',
       path: path,
     );
@@ -149,13 +111,8 @@ final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
     return toolchain.resolveLd64Lld();
   }
 
-  Future<DoctorCheck> flutterTool() =>
-      flutterToolWithSeams(locateTool: runner.which);
-
-  static Future<DoctorCheck> flutterToolWithSeams({
-    required DoctorLocateTool locateTool,
-  }) async {
-    final path = await locateTool('flutter', extraDirectories: const []);
+  Future<DoctorCheck> flutterTool() async {
+    final path = await runner.which('flutter');
     return path == null
         ? const DoctorCheck.failure(
             'Flutter SDK',
@@ -179,7 +136,7 @@ final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
         '$mismatch Reinstall it with `xcross sdk install <Xcode.xip>`.',
       );
     }
-    final tooOld = await _swiftTooOldForSdk(path);
+    final tooOld = await swiftTooOldForSdk(path);
     if (tooOld != null) return DoctorCheck.failure('Darwin SDK', tooOld);
     // Repairs a bundle installed before xcross rewrote text stubs, so
     // `doctor` reports the SDK the build will actually get rather than the
@@ -202,26 +159,27 @@ final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
   /// the Swift now on PATH is new enough for this SDK at all. A host that
   /// downgraded Swift, or installed an Xcode 27 SDK with an older `xcross`
   /// that did not yet check, only hears about it here.
-  static Future<String?> swiftTooOldForSdk(
-    String bundle, {
-    required Future<Map<String, String>> Function() toolchainIdentity,
-    required String Function(String bundle) sdkPath,
-    required Log log,
-  }) async {
+  Future<String?> swiftTooOldForSdk(String bundle) async {
     final int? xcodeMajor;
     try {
-      xcodeMajor = XcodeSwiftRequirement.xcodeMajorFromSdkPath(sdkPath(bundle));
+      xcodeMajor = XcodeSwiftRequirement.xcodeMajorFromSdkPath(
+        repository.iosSdk(DarwinSdk(bundle), target: buildPlatform),
+      );
     } on Object catch (error) {
-      log.logTrace('Could not read the installed iPhoneOS SDK version: $error');
+      runner.log.logTrace(
+        'Could not read the installed iPhoneOS SDK version: $error',
+      );
       return null;
     }
     if (xcodeMajor == null) return null;
     if (XcodeSwiftRequirement.minimumSwift(xcodeMajor) == null) return null;
     final Map<String, String> identity;
     try {
-      identity = await toolchainIdentity();
+      identity = await sdkToolchainIdentity();
     } on Object catch (error) {
-      log.logTrace('Could not identify the host Swift toolchain: $error');
+      runner.log.logTrace(
+        'Could not identify the host Swift toolchain: $error',
+      );
       return null;
     }
     return XcodeSwiftRequirement.mismatchWithHint(
@@ -231,26 +189,13 @@ final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
     );
   }
 
-  Future<String?> _swiftTooOldForSdk(String bundle) => swiftTooOldForSdk(
-    bundle,
-    toolchainIdentity: sdkToolchainIdentity,
-    log: runner.log,
-    sdkPath: (bundle) =>
-        repository.iosSdk(DarwinSdk(bundle), target: buildPlatform),
-  );
-
   Future<List<DoctorCheck>> run() async {
     final deviceTools = await _deviceTools();
     if (deviceTools.status == DoctorStatus.failure) return [deviceTools];
 
     final checks = <DoctorCheck>[deviceTools, await _authentication()];
     try {
-      checks.addAll(
-        await devices(
-          await deviceDiagnostics.devices(),
-          osMajorVersion: deviceDiagnostics.osMajorVersion,
-        ),
-      );
+      checks.addAll(await devices(await deviceDiagnostics.devices()));
     } on Object catch (error) {
       checks.add(DoctorCheck.warning('Device', 'Discovery failed: $error'));
     }
@@ -266,19 +211,17 @@ final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
     }
   }
 
-  static Future<List<DoctorCheck>> devices(
-    List<Device> found, {
-    required Future<int?> Function(Device device) osMajorVersion,
-  }) async {
+  Future<List<DoctorCheck>> devices(List<Device> found) async {
     if (found.isEmpty) {
       return const [
         DoctorCheck.warning('Device', 'No connected iOS device found.'),
       ];
     }
-    final resolveVersion = osMajorVersion;
     final checks = <DoctorCheck>[];
     for (final device in found) {
-      checks.add(_deviceCheck(device, await resolveVersion(device)));
+      checks.add(
+        _deviceCheck(device, await deviceDiagnostics.osMajorVersion(device)),
+      );
     }
     return checks;
   }

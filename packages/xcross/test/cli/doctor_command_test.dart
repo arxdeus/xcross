@@ -1,8 +1,10 @@
+import 'dart:ffi';
 import 'dart:io';
 
 import 'package:apple_developer_kit/apple_developer_kit_shared.dart'
     show AscCredentials;
 import 'package:args/command_runner.dart';
+import 'package:cli_kit/cli_kit.dart';
 import 'package:cli_util/cli_logging.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart' show IPhoneBuildPlatform;
@@ -16,6 +18,7 @@ import 'package:xcross/src/config/config.dart';
 import 'package:xcross/src/errors.dart';
 
 import 'auth_fixture.dart';
+import 'doctor_environment_checks_test.dart' show DoctorServiceFixture;
 import 'runtime_fixture.dart';
 
 void main() {
@@ -218,21 +221,25 @@ void main() {
   });
 
   test('Windows host checks resolve PATHEXT executable names', () async {
-    final requested = <String>[];
-    final checks = await DoctorEnvironmentChecks.hostWithSeams(
-      hostName: 'windows',
-      locateTool: (name, {windows, accept, extraDirectories = const []}) async {
-        requested.add(name);
-        return 'C:\\Tools\\$name.exe';
-      },
-      iosClang: () async => r'C:\Program Files\LLVM\bin\clang.exe',
-      iosLinker: () async => r'C:\Program Files\LLVM\bin\ld64.lld.exe',
-      darwinSdk: () async => const DoctorCheck.success(
-        'Darwin SDK',
-        'Installed',
-        path: r'C:\xcross\sdk',
+    final fixture = DoctorServiceFixture(
+      baseHost: WindowsHost(
+        currentDirectory: r'C:\',
+        environment: const {'USERPROFILE': r'C:\Users\Fixture'},
       ),
+      abi: Abi.windowsX64,
     );
+    addTearDown(fixture.dispose);
+    fixture.lookup.tools.addAll({
+      'swift': r'C:\Tools\swift.exe',
+      'clang++': r'C:\Tools\clang++.exe',
+      'llvm-ar': r'C:\Tools\llvm-ar.exe',
+      'clang': r'C:\Program Files\LLVM\bin\clang.exe',
+      'ld64.lld': r'C:\Program Files\LLVM\bin\ld64.lld.exe',
+    });
+    final checks = await fixture.checks.host();
+    final requested = fixture.lookup.requests
+        .take(3)
+        .map((request) => request.$1);
 
     expect(requested, ['swift', 'clang++', 'llvm-ar']);
     expect(checks.first.status, DoctorStatus.success);
@@ -248,16 +255,16 @@ void main() {
   });
 
   test('host checks report an unusable iOS compiler clearly', () async {
-    final checks = await DoctorEnvironmentChecks.hostWithSeams(
-      hostName: 'windows',
-      locateTool:
-          (name, {windows, accept, extraDirectories = const []}) async =>
-              'C:\\Tools\\$name.exe',
-      iosClang: () async => throw StateError('No clang that can target iOS.'),
-      iosLinker: () async => r'C:\LLVM\bin\ld64.lld.exe',
-      darwinSdk: () async =>
-          const DoctorCheck.success('Darwin SDK', 'Installed'),
+    final fixture = DoctorServiceFixture(
+      baseHost: WindowsHost(
+        currentDirectory: r'C:\',
+        environment: const {'USERPROFILE': r'C:\Users\Fixture'},
+      ),
+      abi: Abi.windowsX64,
     );
+    addTearDown(fixture.dispose);
+    fixture.processes.clangFailure = 'No clang that can target iOS.';
+    final checks = await fixture.checks.host();
 
     expect(
       checks.firstWhere((check) => check.name == 'iOS clang'),
@@ -274,42 +281,36 @@ void main() {
   test(
     'host checks warn about a linker with the selector-stub defect',
     () async {
-      final checks = await DoctorEnvironmentChecks.hostWithSeams(
-        hostName: 'linux',
-        locateTool:
-            (name, {windows, accept, extraDirectories = const []}) async =>
-                '/usr/bin/$name',
-        iosClang: () async => '/usr/bin/clang',
-        iosLinker: () async => '/usr/bin/ld64.lld',
-        iosLinkerDefect: (path) async =>
-            'ld64.lld 18.1 miswires selector stubs',
-        darwinSdk: () async =>
-            const DoctorCheck.success('Darwin SDK', 'Installed'),
+      final fixture = DoctorServiceFixture(
+        baseHost: LinuxHost(
+          currentDirectory: '/fixture',
+          environment: const {'HOME': '/fixture'},
+        ),
       );
+      addTearDown(fixture.dispose);
+      fixture.lookup.tools['ld64.lld'] = '/fixture/ld64.lld';
+      fixture.processes.linkerVersion = 'LLD 18.1';
+      final checks = await fixture.checks.host();
 
       expect(
         checks.firstWhere((check) => check.name == 'iOS linker'),
         isA<DoctorCheck>()
             .having((check) => check.status, 'status', DoctorStatus.warning)
-            .having((check) => check.path, 'path', '/usr/bin/ld64.lld')
+            .having((check) => check.path, 'path', '/fixture/ld64.lld')
             .having((check) => check.message, 'message', contains('18.1')),
       );
     },
   );
 
   test('host checks report the linker version when it is healthy', () async {
-    final checks = await DoctorEnvironmentChecks.hostWithSeams(
-      hostName: 'linux',
-      locateTool:
-          (name, {windows, accept, extraDirectories = const []}) async =>
-              '/usr/bin/$name',
-      iosClang: () async => '/usr/bin/clang',
-      iosLinker: () async => '/usr/bin/ld64.lld',
-      iosLinkerDefect: (path) async => null,
-      iosLinkerDetail: (path) async => 'LLD 19.1',
-      darwinSdk: () async =>
-          const DoctorCheck.success('Darwin SDK', 'Installed'),
+    final fixture = DoctorServiceFixture(
+      baseHost: LinuxHost(
+        currentDirectory: '/fixture',
+        environment: const {'HOME': '/fixture'},
+      ),
     );
+    addTearDown(fixture.dispose);
+    final checks = await fixture.checks.host();
 
     expect(
       checks.firstWhere((check) => check.name == 'iOS linker'),
@@ -373,12 +374,17 @@ void main() {
   );
 
   test('Windows Flutter checks require the Flutter launcher', () async {
-    final checks = await DoctorEnvironmentChecks.flutterToolWithSeams(
-      locateTool: (name, {windows, accept, extraDirectories = const []}) async {
-        expect(name, 'flutter');
-        return r'C:\flutter\bin\flutter.bat';
-      },
+    final fixture = DoctorServiceFixture(
+      baseHost: WindowsHost(
+        currentDirectory: r'C:\',
+        environment: const {'USERPROFILE': r'C:\Users\Fixture'},
+      ),
+      abi: Abi.windowsX64,
     );
+    addTearDown(fixture.dispose);
+    fixture.lookup.tools['flutter'] = r'C:\flutter\bin\flutter.bat';
+    final checks = await fixture.checks.flutterTool();
+    expect(fixture.lookup.requests.last.$1, 'flutter');
 
     expect(checks, isA<DoctorCheck>());
     expect(checks.status, DoctorStatus.success);
@@ -386,10 +392,18 @@ void main() {
   });
 
   test('device checks reject connected devices older than iOS 17', () async {
-    final checks = await DoctorExaminer.deviceChecks(const [
+    final fixture = DoctorServiceFixture(
+      baseHost: LinuxHost(
+        currentDirectory: '/fixture',
+        environment: const {'HOME': '/fixture'},
+      ),
+    );
+    addTearDown(fixture.dispose);
+    fixture.devices.versions.addAll({'old': 16, 'new': 17});
+    final checks = await fixture.checks.devices(const [
       Device(name: 'Old iPhone', udid: 'old', type: ConnectionType.usb),
       Device(name: 'New iPhone', udid: 'new', type: ConnectionType.usb),
-    ], osMajorVersion: (device) async => device.udid == 'old' ? 16 : 17);
+    ]);
 
     expect(checks.map((check) => check.status), [
       DoctorStatus.failure,
