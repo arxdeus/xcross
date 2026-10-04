@@ -13,7 +13,10 @@ void main() {
       final connections = CountingConnections();
       await HttpOverrides.runWithHttpOverrides(() async {
         // Same client factory and request sender used by xcross auth.
-        final client = AppleHttp.createAppleHttpClient();
+        final client = AppleHttpClientFactory(
+          createSecurityContext: () => SecurityContext(withTrustedRoots: true),
+          createHttpClient: (context) => HttpClient(context: context),
+        ).createClient();
         addTearDown(client.close);
         for (var i = 0; i < 2; i++) {
           final endpoints = await GrandSlamEndpoints.fetchGrandSlamEndpoints(

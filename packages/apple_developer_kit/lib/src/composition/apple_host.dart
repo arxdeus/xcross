@@ -5,7 +5,7 @@ import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
 import 'package:apple_developer_kit/src/host/shared/file_system_file_permissions.dart';
 import 'package:apple_developer_kit/src/host/windows/windows_file_permissions.dart';
 import 'package:apple_developer_kit/src/host/windows/windows_machine_identity.dart';
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 
 AppleHostServices createLinuxAppleHostServices(
   LinuxHostInterface host, {

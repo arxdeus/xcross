@@ -53,7 +53,10 @@ XcrossApplication<LinuxHostInterface> testApplication({
     deviceConsole: TestDeviceConsole(),
     deviceSockets: const TestDeviceSockets(),
     downloader: Downloader(createClient: HttpClient.new, log: log),
-    createAppleHttpClient: AppleHttp.createAppleHttpClient,
+    createAppleHttpClient: AppleHttpClientFactory(
+      createSecurityContext: () => SecurityContext(withTrustedRoots: true),
+      createHttpClient: (context) => HttpClient(context: context),
+    ).createClient,
     signingHttpClients: const HttpSigningClientFactory(),
     createLocalHttpClient: HttpClient.new,
     vmOutput: VmServiceOutput(output: StringBuffer(), errors: StringBuffer()),

@@ -76,17 +76,26 @@ abstract final class AppleHttp {
     }
     throw AppleRateLimitError(operation: operation, retryAfter: retryAfter);
   }
+}
+
+final class AppleHttpClientFactory {
+  AppleHttpClientFactory({
+    required SecurityContext Function() createSecurityContext,
+    required HttpClient Function(SecurityContext) createHttpClient,
+  }) : _createSecurityContext = createSecurityContext,
+       _createHttpClient = createHttpClient;
+
+  final SecurityContext Function() _createSecurityContext;
+  final HttpClient Function(SecurityContext) _createHttpClient;
 
   @useResult
-  static SecurityContext createAppleSecurityContext() {
-    final context = SecurityContext(withTrustedRoots: true);
+  SecurityContext createSecurityContext() {
+    final context = _createSecurityContext();
     context.setTrustedCertificatesBytes(utf8.encode(_appleIncRootPem));
     return context;
   }
 
-  /// HTTP client with normal Mozilla roots plus Apple's published private
-  /// root. Hostname and chain verification remain fully enabled.
   @useResult
-  static http.Client createAppleHttpClient() =>
-      IOClient(HttpClient(context: createAppleSecurityContext()));
+  http.Client createClient() =>
+      IOClient(_createHttpClient(createSecurityContext()));
 }

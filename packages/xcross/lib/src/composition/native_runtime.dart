@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:apple_developer_kit/apple_developer_kit_shared.dart'
-    show AppleHttp;
+    show AppleHttpClientFactory;
 import 'package:cli_kit/cli_kit.dart' show detectPlatformHostSnapshot;
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart'
@@ -46,7 +46,10 @@ XcrossHostContext<PlatformHostInterface> createNativeXcrossContext() {
     deviceSockets: const NativeDeviceSockets(),
     downloader: Downloader(createClient: HttpClient.new, log: log),
     signingHttpClients: const HttpSigningClientFactory(),
-    createAppleHttpClient: AppleHttp.createAppleHttpClient,
+    createAppleHttpClient: AppleHttpClientFactory(
+      createSecurityContext: () => SecurityContext(withTrustedRoots: true),
+      createHttpClient: (context) => HttpClient(context: context),
+    ).createClient,
     createLocalHttpClient: HttpClient.new,
     vmOutput: VmServiceOutput(output: stdout, errors: stderr),
     executable: snapshot.resolvedExecutable,
