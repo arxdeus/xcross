@@ -384,6 +384,20 @@ ${entries.join('\n')}
       expect(source, contains('package:app/main.dart'));
     });
 
+    test('returns the logical path, not the filesystem I/O path', () async {
+      final fileSystem = FixtureMappedFileSystem(tmp);
+      final path = await DartPluginRegistrant(fileSystem).generate(
+        projectRoot: '/logical-project',
+        plugins: [writePlugin('plugin_b', dartPluginClass: 'PluginB')],
+      );
+
+      expect(path, DartPluginRegistrant.pathFor('/logical-project'));
+      expect(
+        File(fileSystem.physical(path!)).readAsStringSync(),
+        contains('plugin_b.PluginB.registerWith();'),
+      );
+    });
+
     test('returns null and writes nothing with no Dart plugins', () async {
       final path = await DartPluginRegistrant(LinuxHost().fileSystem).generate(
         projectRoot: tmp.path,

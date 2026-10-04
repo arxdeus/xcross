@@ -90,7 +90,8 @@ final class DartPluginRegistrant {
     String? entrypointUri,
   }) async {
     final registrations = resolveRegistrations(plugins);
-    final file = fileSystem.file(pathFor(projectRoot));
+    final path = pathFor(projectRoot);
+    final file = fileSystem.file(path);
 
     if (registrations.isEmpty) {
       if (file.existsSync()) await file.delete();
@@ -101,7 +102,7 @@ final class DartPluginRegistrant {
     await file.writeAsString(
       render(registrations, entrypointUri: entrypointUri),
     );
-    return file.path;
+    return path;
   }
 
   /// The plugins in [plugins] that declare an iOS `dartPluginClass`, sorted by
