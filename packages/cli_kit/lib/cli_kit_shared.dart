@@ -4,6 +4,7 @@ export 'src/local_http.dart';
 export 'src/logging.dart';
 export 'src/process.dart';
 export 'src/progress.dart';
+export 'src/shared/platform/file_system_inspection.dart';
 export 'src/shared/platform/platform_host.dart';
 export 'src/shared/process/process_executor.dart';
 export 'src/shared/process/process_helpers.dart';

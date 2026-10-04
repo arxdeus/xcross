@@ -309,7 +309,7 @@ final class SdkSwiftToolchain<T extends PlatformHostInterface> {
   }
 
   Future<void> _deleteAnyEntity(String path) async {
-    final type = FileSystemEntity.typeSync(path, followLinks: false);
+    final type = host.fileSystem.typeSync(path, followLinks: false);
     switch (type) {
       case FileSystemEntityType.directory:
         await host.fileSystem.directory(path).delete(recursive: true);

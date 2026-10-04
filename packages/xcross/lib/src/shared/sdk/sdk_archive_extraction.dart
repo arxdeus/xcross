@@ -44,10 +44,7 @@ final class SdkArchiveExtraction<T extends PlatformHostInterface> {
     }
     for (final relative in [...sdkIncludedRoots, ...sdkIncludedFiles]) {
       final source = _paths.joinAll([contents, ...relative.split('/')]);
-      final type = FileSystemEntity.typeSync(
-        ioPath(source),
-        followLinks: false,
-      );
+      final type = host.fileSystem.typeSync(source, followLinks: false);
       if (type == FileSystemEntityType.notFound) continue;
       final resolved = switch (type) {
         FileSystemEntityType.directory =>
@@ -65,7 +62,7 @@ final class SdkArchiveExtraction<T extends PlatformHostInterface> {
           in host.fileSystem
               .directory(source)
               .list(recursive: true, followLinks: false)) {
-        final entityType = FileSystemEntity.typeSync(
+        final entityType = host.fileSystem.typeSync(
           entity.path,
           followLinks: false,
         );
