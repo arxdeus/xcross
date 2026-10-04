@@ -169,7 +169,7 @@ final class SwiftPmBinaryRecovery<T extends PlatformHostInterface> {
       for (final targetDirectory in package.listSync(followLinks: false)) {
         if (targetDirectory is! Directory) continue;
         final match = binaryProvenance.matchBinaryArtifactProvenance(
-          artifactPath: targetDirectory.path,
+          artifactPath: artifactFileSystem.processPath(targetDirectory.path),
           artifactsRoot: artifactsRoot,
           provenance: provenance,
         );

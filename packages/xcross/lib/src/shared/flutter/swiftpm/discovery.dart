@@ -97,7 +97,7 @@ final class SwiftPmDiscovery<T extends PlatformHostInterface> {
       }
       files.sort((a, b) => a.path.compareTo(b.path));
       for (final file in files) {
-        add(p.relative(file.path, from: root).replaceAll(r'\', '/'));
+        add(p.relative(file.path, from: directory.path).replaceAll(r'\', '/'));
         input.add(await file.readAsBytes());
         input.add(const [0]);
       }
@@ -110,17 +110,15 @@ final class SwiftPmDiscovery<T extends PlatformHostInterface> {
       await addTree(plugin.swiftPackageDir);
     }
     final frameworkFiles = <File>[];
-    await for (final entity
-        in sdkRepository.host.fileSystem
-            .directory(flutterXcframework)
-            .list(recursive: true)) {
+    final framework = sdkRepository.host.fileSystem.directory(
+      flutterXcframework,
+    );
+    await for (final entity in framework.list(recursive: true)) {
       if (entity is File) frameworkFiles.add(entity);
     }
     frameworkFiles.sort((a, b) => a.path.compareTo(b.path));
     for (final file in frameworkFiles) {
-      add(
-        p.relative(file.path, from: flutterXcframework).replaceAll(r'\', '/'),
-      );
+      add(p.relative(file.path, from: framework.path).replaceAll(r'\', '/'));
       add((await sha256.bind(file.openRead()).first).toString());
     }
     input.close();

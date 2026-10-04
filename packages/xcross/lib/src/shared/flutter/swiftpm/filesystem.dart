@@ -96,7 +96,7 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
     );
     try {
       await temporary.writeAsBytes(bytes, flush: true);
-      await temporary.rename(path);
+      await temporary.rename(artifactFileSystem.file(path).path);
     } finally {
       if (temporary.existsSync()) await temporary.delete();
     }
@@ -187,8 +187,8 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
     final ioSource = ioPath(source);
     final ioDestination = ioPath(destination);
     final root = artifactRoot == null
-        ? p.normalize(p.absolute(ioSource))
-        : ioPath(artifactRoot);
+        ? artifactFileSystem.processPath(p.normalize(p.absolute(source)))
+        : artifactFileSystem.processPath(artifactRoot);
     await artifactFileSystem.directory(ioDestination).create(recursive: true);
     await for (final entity
         in artifactFileSystem.directory(ioSource).list(followLinks: false)) {
@@ -200,9 +200,11 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
       }
       final target = p.join(destination, name);
 
-      final resolved = p.normalize(
-        p.absolute(
-          entity is Link ? entity.resolveSymbolicLinksSync() : entity.path,
+      final resolved = artifactFileSystem.processPath(
+        p.normalize(
+          p.absolute(
+            entity is Link ? entity.resolveSymbolicLinksSync() : entity.path,
+          ),
         ),
       );
       if (!p.equals(root, resolved) && !p.isWithin(root, resolved)) {
@@ -256,17 +258,18 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
     final expected = <String>{...preserve};
     await for (final entity
         in artifactFileSystem.directory(source).list(followLinks: false)) {
+      final entityPath = artifactFileSystem.processPath(entity.path);
       if (excluded != null &&
-          p.equals(p.normalize(p.absolute(entity.path)), excluded)) {
+          p.equals(p.normalize(p.absolute(entityPath)), excluded)) {
         continue;
       }
-      final name = p.basename(entity.path);
+      final name = p.basename(entityPath);
       if (preserve.contains(name)) continue;
       expected.add(name);
       final destinationPath = p.join(destination, name);
       final resolved = entity is Link
-          ? entity.resolveSymbolicLinksSync()
-          : entity.path;
+          ? artifactFileSystem.processPath(entity.resolveSymbolicLinksSync())
+          : entityPath;
       if (artifactFileSystem.directory(resolved).existsSync()) {
         final existingType = artifactFileSystem.typeSync(
           destinationPath,

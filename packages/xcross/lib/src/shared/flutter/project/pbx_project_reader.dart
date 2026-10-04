@@ -19,46 +19,40 @@ final class PbxProjectReader {
   /// Non-application consumers receive the first parseable project in stable
   /// path order (or the first candidate if every project is malformed).
   String? findPbxproj(String projectRoot) {
-    final iosDir = fileSystem.directory(paths.join(projectRoot, 'ios'));
+    final iosPath = paths.join(projectRoot, 'ios');
+    final iosDir = fileSystem.directory(iosPath);
     if (!iosDir.existsSync()) return null;
 
     final candidates =
         iosDir
             .listSync()
             .whereType<Directory>()
-            .where((directory) => directory.path.endsWith('.xcodeproj'))
-            .map(
-              (directory) => fileSystem.file(
-                paths.join(directory.path, 'project.pbxproj'),
-              ),
-            )
-            .where((file) => file.existsSync())
+            .map((directory) => paths.basename(directory.path))
+            .where((name) => name.endsWith('.xcodeproj'))
+            .map((name) => paths.join(iosPath, name, 'project.pbxproj'))
+            .where((path) => fileSystem.file(path).existsSync())
             .toList()
-          ..sort((a, b) => a.path.compareTo(b.path));
+          ..sort();
     if (candidates.isEmpty) return null;
 
-    final parsed = <File, PbxProject?>{
-      for (final candidate in candidates) candidate: parseFile(candidate.path),
+    final parsed = <String, PbxProject?>{
+      for (final candidate in candidates) candidate: parseFile(candidate),
     };
     final applicationProjects = candidates
         .where((candidate) => parsed[candidate]?.applicationTarget != null)
         .toList();
     if (applicationProjects.isNotEmpty) {
-      return applicationProjects
-          .firstWhere(
-            (candidate) =>
-                paths.basename(candidate.parent.path) == 'Runner.xcodeproj',
-            orElse: () => applicationProjects.first,
-          )
-          .path;
+      return applicationProjects.firstWhere(
+        (candidate) =>
+            paths.basename(paths.dirname(candidate)) == 'Runner.xcodeproj',
+        orElse: () => applicationProjects.first,
+      );
     }
 
-    return candidates
-        .firstWhere(
-          (candidate) => parsed[candidate] != null,
-          orElse: () => candidates.first,
-        )
-        .path;
+    return candidates.firstWhere(
+      (candidate) => parsed[candidate] != null,
+      orElse: () => candidates.first,
+    );
   }
 
   /// Parse the pbxproj at [path]. Returns null when it cannot be read.

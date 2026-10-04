@@ -28,7 +28,7 @@ final class SwiftPmAssembly<T extends PlatformHostInterface> {
     final dylibPaths = <String>[];
     await for (final entity in fileSystem.directory(targetDebugDir).list()) {
       if (entity is File && p.extension(entity.path) == '.dylib') {
-        dylibPaths.add(p.absolute(entity.path));
+        dylibPaths.add(p.absolute(fileSystem.processPath(entity.path)));
       }
     }
     dylibPaths.sort();
@@ -50,11 +50,13 @@ final class SwiftPmAssembly<T extends PlatformHostInterface> {
     }
     // SwiftPM emits .swiftmodule files into a sibling `Modules` directory;
     // app-extension targets importing a plugin need it on their include path.
-    final modules = fileSystem.directory(p.join(targetDebugDir, 'Modules'));
+    final modulesPath = p.join(targetDebugDir, 'Modules');
     return GeneratedPluginsBuildResult(
       libraryPath: aggregatePath,
       dylibPaths: List.unmodifiable(dylibPaths),
-      modulesDir: modules.existsSync() ? p.absolute(modules.path) : null,
+      modulesDir: fileSystem.directory(modulesPath).existsSync()
+          ? p.absolute(modulesPath)
+          : null,
     );
   }
 }

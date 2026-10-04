@@ -41,6 +41,7 @@ import 'package:xcross/src/host/windows/flutter/swiftpm/swiftpm_host_policy.dart
 import 'package:xcross/src/host/windows/flutter/swiftpm/windows_swift_plan_repair.dart';
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/shared/flutter/build/internal/swiftpm_binary_fixture.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/build_execution.dart';
@@ -188,6 +189,7 @@ SwiftPmRuntime<WindowsHost> testWindowsSwiftPmRuntime({
   Map<String, String>? environment,
   SwiftPmSdkIdentity? sdkIdentity,
   FlutterTargetBuildPolicy<WindowsHost> Function(WindowsHost)? targetPolicy,
+  String architecture = 'x64',
 }) {
   final native = MacOSHost(
     environment: Platform.environment,
@@ -196,7 +198,7 @@ SwiftPmRuntime<WindowsHost> testWindowsSwiftPmRuntime({
   );
   final host = WindowsHost(
     environment: environment ?? Platform.environment,
-    architecture: 'x64',
+    architecture: architecture,
     paths: WindowsTestPaths(native.paths, environment ?? Platform.environment),
     fileSystem: native.fileSystem,
     processes: native.processes,
@@ -385,6 +387,52 @@ final class WindowsTestPaths implements HostPathsInterface {
 SwiftPmRuntime<MacOSHost> testSimulatorSwiftPmRuntime() => testSwiftPmRuntime(
   targetPolicy: (host) => SimulatorFlutterTarget(SimulatorTarget(host)),
 );
+
+@internal
+final class AliasedSwiftPmArtifactFileSystem
+    implements SwiftPmArtifactFileSystem {
+  AliasedSwiftPmArtifactFileSystem({
+    required this.logicalRoot,
+    required this.physicalRoot,
+  });
+  final String logicalRoot;
+  final String physicalRoot;
+  String physical(String path) => p.equals(path, logicalRoot)
+      ? physicalRoot
+      : p.isWithin(logicalRoot, path)
+      ? p.join(physicalRoot, p.relative(path, from: logicalRoot))
+      : path;
+  @override
+  File file(String path) => File(physical(path));
+  @override
+  Directory directory(String path) => Directory(physical(path));
+  @override
+  Link link(String path) => Link(physical(path));
+  @override
+  FileSystemEntityType typeSync(String path, {bool followLinks = true}) =>
+      FileSystemEntity.typeSync(physical(path), followLinks: followLinks);
+  @override
+  Future<bool> isLinkOrReparsePoint(String path) async =>
+      typeSync(path, followLinks: false) == FileSystemEntityType.link;
+  @override
+  Future<void> createAlias(String alias, String target) =>
+      link(alias).create(physical(target));
+  @override
+  Future<bool> isAliasTo(String alias, String target) async =>
+      typeSync(alias, followLinks: false) == FileSystemEntityType.link &&
+      p.equals(
+        await link(alias).resolveSymbolicLinks(),
+        await directory(target).resolveSymbolicLinks(),
+      );
+  @override
+  Future<void> deleteAlias(String alias) => link(alias).delete();
+  @override
+  String processPath(String path) => p.equals(path, physicalRoot)
+      ? logicalRoot
+      : p.isWithin(physicalRoot, path)
+      ? p.join(logicalRoot, p.relative(path, from: physicalRoot))
+      : path;
+}
 
 @internal
 final class TestSwiftPmSdkIdentity implements SwiftPmSdkIdentity {

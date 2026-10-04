@@ -241,7 +241,7 @@ final class SwiftPmPlanReader {
       if (entity is! Directory) continue;
       final name = p.basename(entity.path);
       if (!name.endsWith('.build')) continue;
-      final include = p.join(entity.path, 'include');
+      final include = p.join(fileSystem.processPath(entity.path), 'include');
       final module = name.substring(0, name.length - '.build'.length);
       if (fileSystem.file(p.join(include, '$module-Swift.h')).existsSync()) {
         includes.add(include);

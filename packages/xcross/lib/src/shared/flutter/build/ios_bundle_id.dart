@@ -70,14 +70,15 @@ final class IosBundleId {
   }
 
   String? _productBundleIdFromPbxproj(String projectRoot) {
-    final pbxproj = _findPbxproj(projectRoot);
-    if (pbxproj == null) return null;
+    final pbxprojPath = _findPbxproj(projectRoot);
+    if (pbxprojPath == null) return null;
+    final pbxproj = fileSystem.file(pbxprojPath);
 
     // Projects with app extensions (share extensions, widgets, ...) declare
     // several PRODUCT_BUNDLE_IDENTIFIERs, and the extension's often comes
     // first in the file. Resolve through the application target when the
     // project graph parses, and only then fall back to a first-match scan.
-    final fromAppTarget = _appTargetBundleId(pbxproj.path);
+    final fromAppTarget = _appTargetBundleId(pbxprojPath);
     if (fromAppTarget != null) return fromAppTarget;
 
     final match = _productBundleIdPattern.firstMatch(
@@ -112,22 +113,20 @@ final class IosBundleId {
   }
 
   /// Prefer `Runner.xcodeproj`, otherwise the first `*.xcodeproj` under `ios/`.
-  File? _findPbxproj(String projectRoot) {
-    final iosDir = fileSystem.directory(paths.join(projectRoot, 'ios'));
+  String? _findPbxproj(String projectRoot) {
+    final iosPath = paths.join(projectRoot, 'ios');
+    final iosDir = fileSystem.directory(iosPath);
     if (!iosDir.existsSync()) return null;
 
-    final runner = fileSystem.file(
-      paths.join(iosDir.path, 'Runner.xcodeproj', 'project.pbxproj'),
-    );
-    if (runner.existsSync()) return runner;
+    final runner = paths.join(iosPath, 'Runner.xcodeproj', 'project.pbxproj');
+    if (fileSystem.file(runner).existsSync()) return runner;
 
     for (final entity in iosDir.listSync()) {
       if (entity is! Directory) continue;
-      if (!entity.path.endsWith('.xcodeproj')) continue;
-      final candidate = fileSystem.file(
-        paths.join(entity.path, 'project.pbxproj'),
-      );
-      if (candidate.existsSync()) return candidate;
+      final name = paths.basename(entity.path);
+      if (!name.endsWith('.xcodeproj')) continue;
+      final candidate = paths.join(iosPath, name, 'project.pbxproj');
+      if (fileSystem.file(candidate).existsSync()) return candidate;
     }
     return null;
   }

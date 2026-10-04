@@ -191,9 +191,8 @@ final class SwiftPmBinaryProvenance<T extends PlatformHostInterface> {
     List<SwiftPmPackageDependency> dependencies,
   ) async {
     final result = <SwiftPmBinaryArtifactProvenance>[];
-    final packageRoot = artifactFileSystem.directory(packageDirectory);
     final checkoutRoot = p.join(scratchPath, 'checkouts');
-    final roots = <String, String?>{packageRoot.path: null};
+    final roots = <String, String?>{packageDirectory: null};
     for (final dependency in dependencies) {
       roots[p.join(checkoutRoot, dependency.identity)] = dependency.identity;
       roots[p.join(
@@ -217,7 +216,7 @@ final class SwiftPmBinaryProvenance<T extends PlatformHostInterface> {
         result.addAll(
           SwiftPmBinaryProvenance.scanBinaryArtifactProvenance(
             packageIdentity: identity,
-            manifestPath: entity.path,
+            manifestPath: artifactFileSystem.processPath(entity.path),
             manifest: manifest,
           ),
         );

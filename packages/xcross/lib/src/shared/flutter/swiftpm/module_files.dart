@@ -29,18 +29,16 @@ final class SwiftPmModuleFiles {
         in fileSystem
             .directory(packageDir)
             .listSync(recursive: true, followLinks: false)) {
-      if (SwiftPmModuleFiles.ignoredPackageEvidencePath(
-        packageDir,
-        entity.path,
-      )) {
+      final path = fileSystem.processPath(entity.path);
+      if (SwiftPmModuleFiles.ignoredPackageEvidencePath(packageDir, path)) {
         continue;
       }
       if (directory ? entity is! Directory : entity is! File) continue;
-      final relative = p.normalize(p.relative(entity.path, from: packageDir));
+      final relative = p.normalize(p.relative(path, from: packageDir));
       if (relative == normalized ||
           relative.endsWith('${p.separator}$normalized') ||
           p.basename(relative) == p.basename(normalized)) {
-        matches.add(entity.path);
+        matches.add(path);
       }
     }
     if (matches.length != 1) {

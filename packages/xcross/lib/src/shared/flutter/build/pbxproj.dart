@@ -262,7 +262,8 @@ final class PbxProject {
     final pending = <String>[root];
     // Bounded walk: pbxproj folders are shallow and this never follows links.
     while (pending.isNotEmpty) {
-      final directory = fileSystem.directory(pending.removeLast());
+      final logical = pending.removeLast();
+      final directory = fileSystem.directory(logical);
       final List<FileSystemEntity> entries;
       try {
         entries = directory.listSync(followLinks: false);
@@ -273,15 +274,16 @@ final class PbxProject {
         final name = p.basename(entry.path);
         // Xcode ignores dotfiles in synchronized folders.
         if (name.startsWith('.')) continue;
+        final path = p.join(logical, name);
         if (entry is Directory) {
           if (bundleDirectories.contains(p.extension(name))) {
-            found.add(entry.path);
+            found.add(path);
           } else {
-            pending.add(entry.path);
+            pending.add(path);
           }
           continue;
         }
-        if (entry is File) found.add(entry.path);
+        if (entry is File) found.add(path);
       }
     }
     return found;

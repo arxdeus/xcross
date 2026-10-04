@@ -293,6 +293,7 @@ const xcrossFlutterTestsRoles = <String, Map<String, String>>{
         'FUNCTION:main': 'entrypoint',
       },
   'workspace:packages/xcross/test/flutter/build/swiftpm_test_context.dart': {
+    'CLASS:AliasedSwiftPmArtifactFileSystem': 'internal',
     'CLASS:FixtureSwiftPmArchiveTransport': 'internal',
     'CLASS:FixtureSwiftPmLlvmToolLookup': 'internal',
     'CLASS:RecordingPosixSwiftPmExecution': 'internal',

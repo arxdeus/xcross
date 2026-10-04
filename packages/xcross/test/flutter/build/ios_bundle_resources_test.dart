@@ -269,6 +269,63 @@ void main() {
       expect(File('$destination/Settings.plist').existsSync(), isFalse);
     },
   );
+
+  test(
+    'project discovery and synchronized walks return logical mapped paths',
+    () async {
+      final fileSystem = FixtureMappedFileSystem(tmp);
+      final paths = p.Context(style: p.Style.posix);
+      const root = '/mapped-project';
+      void write(String path, String contents) => fileSystem.file(path)
+        ..createSync(recursive: true)
+        ..writeAsStringSync(contents);
+      write('$root/ios/Runner/Payload/value.txt', 'synchronized');
+      write('$root/ios/Runner/Excluded.txt', 'excluded');
+      write('$root/ios/Runner/Moved/Relocated.plist', 'relocated');
+      write('$root/ios/App.xcodeproj/project.pbxproj', '''
+{
+ rootObject = PROJECT;
+ objects = {
+ PROJECT = { isa = PBXProject; };
+ APP = { isa = PBXNativeTarget; productType = com.apple.product-type.application; buildPhases = (RESOURCES); fileSystemSynchronizedGroups = (SYNC); };
+ RESOURCES = { isa = PBXResourcesBuildPhase; files = (RELOCATED_BUILD); };
+ RELOCATED_BUILD = { isa = PBXBuildFile; fileRef = RELOCATED; };
+ RELOCATED = { isa = PBXFileReference; path = Runner/Relocated.plist; sourceTree = SOURCE_ROOT; };
+ SYNC = { isa = PBXFileSystemSynchronizedRootGroup; path = Runner; sourceTree = SOURCE_ROOT; exceptions = (EXCEPTIONS); };
+ EXCEPTIONS = { isa = PBXFileSystemSynchronizedBuildFileExceptionSet; target = APP; membershipExceptions = (Excluded.txt, Moved/Relocated.plist); };
+ }
+}
+''');
+      final reader = PbxProjectReader(fileSystem, paths);
+      final pbxproj = reader.findPbxproj(root);
+      expect(pbxproj, '$root/ios/App.xcodeproj/project.pbxproj');
+      final project = reader.parseFile(pbxproj!)!;
+      expect(
+        project.synchronizedFiles(
+          project.applicationTarget!,
+          fileSystem: fileSystem,
+        ),
+        ['$root/ios/Runner/Payload/value.txt'],
+      );
+
+      const bundle = '/mapped-bundle.app';
+      await IosBundleResources(
+        fileSystem,
+        paths,
+        reader,
+        copier: RecursiveDirectoryCopier(fileSystem: fileSystem, paths: paths),
+      ).stage(projectRoot: root, bundleDir: bundle);
+      expect(
+        fileSystem.file('$bundle/value.txt').readAsStringSync(),
+        'synchronized',
+      );
+      expect(
+        fileSystem.file('$bundle/Relocated.plist').readAsStringSync(),
+        'relocated',
+      );
+      expect(fileSystem.file('$bundle/Excluded.txt').existsSync(), isFalse);
+    },
+  );
 }
 
 Future<void> _stage(Directory project, Directory bundle) => testIPhoneRuntime()

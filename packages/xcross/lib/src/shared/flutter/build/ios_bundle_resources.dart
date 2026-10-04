@@ -100,7 +100,13 @@ final class IosBundleResources {
     final matches = ios
         .listSync(recursive: true, followLinks: false)
         .where((entity) => paths.basename(entity.path) == name)
-        .map((entity) => entity.path)
+        .map(
+          (entity) => paths.join(
+            projectRoot,
+            'ios',
+            paths.relative(entity.path, from: ios.path),
+          ),
+        )
         .toList();
     return matches.length == 1 ? matches.single : null;
   }

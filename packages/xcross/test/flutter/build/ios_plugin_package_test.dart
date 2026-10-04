@@ -5,6 +5,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:cli_kit/host/macos/macos_host.dart';
 import 'package:cli_kit/shared/errors/errors.dart';
 import 'package:cli_kit/shared/process/process_models.dart';
 import 'package:crypto/crypto.dart';
@@ -29,11 +30,14 @@ import 'package:xcross/src/shared/flutter/swiftpm/binary_provenance.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/dependency_evaluator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/discovery.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_source_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_dependencies.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/module_files.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/source_fallback.dart';
 import 'package:xcross/src/shared/sdk/sdk_install_constants.dart';
 
 import 'swiftpm_test_context.dart';
@@ -1024,6 +1028,172 @@ framework module PublicSDK {
             contains('fallback product is ambiguous'),
           ),
         ),
+      );
+    });
+  });
+
+  group('binary fallback through a mapped artifact filesystem', () {
+    const manifest = '''
+var products: [Product] = [
+    .library(name: "FallbackKit", targets: ["FallbackKitBinary"]),
+]
+var targets: [Target] = [
+    .binaryTarget(name: "FallbackKitBinary", url: "FallbackKit.zip", checksum: "abc"),
+]
+if getenv("CROSS_HOST_SOURCE") != nil {
+    products.removeAll()
+    targets.removeAll()
+    products.append(.library(name: "FallbackKit", targets: ["FallbackKitSwift"]))
+    targets.append(contentsOf: [
+        .target(name: "FallbackKitObjC", path: "Sources", sources: ["FallbackKitObjC"], publicHeadersPath: "FallbackKitObjC/Public"),
+        .target(name: "FallbackKitSwift", dependencies: ["FallbackKitObjC"], path: "Sources/FallbackKitSwift", exclude: ["Skipped"]),
+    ])
+}
+''';
+
+    late String logical;
+    late String physical;
+    late AliasedSwiftPmArtifactFileSystem fileSystem;
+
+    setUp(() {
+      logical = p.join(tmp.path, 'logical', 'FallbackKit');
+      physical = p.join(tmp.path, 'physical', 'FallbackKit');
+      fileSystem = AliasedSwiftPmArtifactFileSystem(
+        logicalRoot: logical,
+        physicalRoot: physical,
+      );
+      void write(String relative, String contents) {
+        File(p.join(physical, relative))
+          ..createSync(recursive: true)
+          ..writeAsStringSync(contents);
+      }
+
+      write('Sources/FallbackKitObjC/Public/FallbackKitObjC.h', '// public\n');
+      write(
+        'Sources/FallbackKitObjC/Hybrid/FallbackKitPrivate.h',
+        '// hybrid\n',
+      );
+      write('Sources/FallbackKitSwift/Kit.swift', 'public struct Kit {}\n');
+      write('Sources/FallbackKitSwift/Skipped/Old.swift', 'struct Old {}\n');
+      write('Sources/Resources/FallbackKit.modulemap', '''
+framework module FallbackKit {
+  umbrella header "FallbackKitObjC.h"
+  export *
+  explicit module _Hybrid {
+    header "FallbackKitPrivate.h"
+    export *
+  }
+}
+''');
+    });
+
+    test('resolves module references to logical paths', () {
+      final moduleFiles = SwiftPmModuleFiles(fileSystem: fileSystem);
+      expect(
+        moduleFiles.resolveModuleReference(
+          logical,
+          'FallbackKitObjC.h',
+          directory: false,
+        ),
+        p.join(logical, 'Sources/FallbackKitObjC/Public/FallbackKitObjC.h'),
+      );
+      expect(
+        moduleFiles.absoluteNestedModuleHeaders(
+          logical,
+          'module _Hybrid { header "FallbackKitPrivate.h" }',
+        ),
+        contains(
+          swiftPath(
+            p.join(
+              logical,
+              'Sources/FallbackKitObjC/Hybrid/FallbackKitPrivate.h',
+            ),
+          ),
+        ),
+      );
+    });
+
+    test(
+      'synthesizes a nested public header module from logical paths',
+      () async {
+        final runtime = _swiftPmRuntime;
+        final fallback = SwiftPmSourceFallback<MacOSHost>(
+          filesystem: SwiftPmFilesystem(
+            host: runtime.host,
+            runner: runtime.runner,
+            artifactFileSystem: fileSystem,
+          ),
+          moduleFiles: SwiftPmModuleFiles(fileSystem: fileSystem),
+        );
+        final fallbackSwiftModules = <String, List<String>>{};
+
+        final output = await fallback.synthesizeBinaryFallbackCompatibility(
+          manifest,
+          packageDir: logical,
+          consumedProducts: {'FallbackKit'},
+          fallbackSwiftModules: fallbackSwiftModules,
+        );
+
+        expect(fallbackSwiftModules, {
+          'FallbackKit': ['FallbackKitSwift'],
+        });
+        expect(output, contains('.target(name: "_xcross_FallbackKit"'));
+        final include = p.join(
+          physical,
+          '.xcross',
+          '_xcross_FallbackKit',
+          'include',
+        );
+        expect(
+          File(p.join(include, 'FallbackKit.h')).readAsStringSync(),
+          startsWith('@import FallbackKitObjC;\n'),
+        );
+        final moduleMap = File(
+          p.join(include, 'module.modulemap'),
+        ).readAsStringSync();
+        expect(
+          moduleMap,
+          contains(
+            swiftPath(
+              p.join(
+                logical,
+                'Sources/FallbackKitObjC/Hybrid/FallbackKitPrivate.h',
+              ),
+            ),
+          ),
+        );
+        expect(moduleMap, isNot(contains(swiftPath(physical))));
+        expect(Directory(p.join(logical, '.xcross')).existsSync(), isFalse);
+      },
+    );
+
+    test('tree copies contain and exclude by logical paths', () async {
+      final filesystem = SwiftPmFilesystem(
+        host: _swiftPmRuntime.host,
+        runner: _swiftPmRuntime.runner,
+        artifactFileSystem: fileSystem,
+      );
+      final staged = p.join(logical, 'Staged');
+      await filesystem.syncDirectory(logical, staged);
+      expect(
+        File(
+          p.join(physical, 'Staged', 'Sources/FallbackKitSwift/Kit.swift'),
+        ).existsSync(),
+        isTrue,
+      );
+      expect(
+        Directory(p.join(physical, 'Staged', 'Staged')).existsSync(),
+        isFalse,
+      );
+
+      final copied = p.join(tmp.path, 'logical', 'Copied');
+      await filesystem.copyResolvedArtifactTree(
+        p.join(logical, 'Sources'),
+        copied,
+      );
+      expect(
+        File(p.join(copied, 'FallbackKitSwift', 'Kit.swift')).existsSync(),
+        isTrue,
       );
     });
   });

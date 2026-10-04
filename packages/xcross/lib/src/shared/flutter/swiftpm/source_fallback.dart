@@ -197,7 +197,7 @@ final class SwiftPmSourceFallback<T extends PlatformHostInterface> {
       if (entity is! File ||
           SwiftPmModuleFiles.ignoredPackageEvidencePath(
             packageDir,
-            entity.path,
+            filesystem.artifactFileSystem.processPath(entity.path),
           ) ||
           !(p.basename(entity.path) == 'module.modulemap' ||
               p.basename(entity.path).endsWith('.modulemap'))) {
@@ -246,13 +246,13 @@ final class SwiftPmSourceFallback<T extends PlatformHostInterface> {
     final swiftModules = <String>[];
     for (final name in closure) {
       final target = targets[name]!;
-      final root = filesystem.artifactFileSystem.directory(
-        p.join(packageDir, target.path),
-      );
-      if (!root.existsSync()) continue;
+      final rootPath = p.join(packageDir, target.path);
+      if (!filesystem.artifactFileSystem.directory(rootPath).existsSync()) {
+        continue;
+      }
       final sourceRoots = target.sources.isEmpty
-          ? [root.path]
-          : [for (final source in target.sources) p.join(root.path, source)];
+          ? [rootPath]
+          : [for (final source in target.sources) p.join(rootPath, source)];
       final hasSwift = sourceRoots.any((sourceRoot) {
         final directory = filesystem.artifactFileSystem.directory(sourceRoot);
         if (directory.existsSync()) {
@@ -262,7 +262,10 @@ final class SwiftPmSourceFallback<T extends PlatformHostInterface> {
             if (entity is! File || !entity.path.endsWith('.swift')) {
               return false;
             }
-            final relative = p.relative(entity.path, from: root.path);
+            final relative = p.relative(
+              filesystem.artifactFileSystem.processPath(entity.path),
+              from: rootPath,
+            );
             return !target.excludes.any(
               (excluded) =>
                   p.equals(relative, excluded) ||
@@ -270,10 +273,7 @@ final class SwiftPmSourceFallback<T extends PlatformHostInterface> {
             );
           });
         }
-        return filesystem.artifactFileSystem
-                .file(sourceRoot)
-                .path
-                .endsWith('.swift') &&
+        return sourceRoot.endsWith('.swift') &&
             filesystem.artifactFileSystem.file(sourceRoot).existsSync();
       });
       if (hasSwift) swiftModules.add(name);

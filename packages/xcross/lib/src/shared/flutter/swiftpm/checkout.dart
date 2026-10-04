@@ -48,7 +48,7 @@ final class SwiftPmCheckout<T extends PlatformHostInterface> {
       if (repo is! Directory) continue;
       changed =
           await materializeGitCheckoutSymlinks(
-            repo.path,
+            fileSystem.processPath(repo.path),
             git: gitExecutable,
             stampDir: p.join(scratchPath, '.xcross-symlinks'),
             symlinks: symlinks,

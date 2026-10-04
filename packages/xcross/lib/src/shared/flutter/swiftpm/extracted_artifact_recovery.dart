@@ -103,13 +103,15 @@ final class SwiftPmExtractedArtifactRecovery<T extends PlatformHostInterface> {
     for (final packageRoot in packageRoots) {
       await for (final package in packageRoot.list(followLinks: false)) {
         if (package is! Directory) continue;
+        final packagePath = artifactFileSystem.processPath(package.path);
         final packageIdentity =
-            packageIdentities[p.normalize(package.path)] ??
-            p.basename(package.path).toLowerCase();
+            packageIdentities[p.normalize(packagePath)] ??
+            p.basename(packagePath).toLowerCase();
 
         await for (final entity in package.list(followLinks: false)) {
           if (entity is! File) continue;
-          final fileName = p.basename(entity.path);
+          final manifestPath = artifactFileSystem.processPath(entity.path);
+          final fileName = p.basename(manifestPath);
           if (fileName != 'Package.swift' &&
               !(fileName.startsWith('Package@') &&
                   fileName.endsWith('.swift'))) {
@@ -125,7 +127,7 @@ final class SwiftPmExtractedArtifactRecovery<T extends PlatformHostInterface> {
           final provenance =
               SwiftPmBinaryProvenance.scanBinaryArtifactProvenance(
                 packageIdentity: packageIdentity,
-                manifestPath: entity.path,
+                manifestPath: manifestPath,
                 manifest: manifest,
               );
           for (final candidate in provenance.reversed) {
@@ -186,14 +188,19 @@ final class SwiftPmExtractedArtifactRecovery<T extends PlatformHostInterface> {
                 await store.create(recursive: true);
                 final staging = await store.createTemp('.extracted-');
                 try {
-                  final artifactName = p.basename(extracted.single.path);
+                  final artifactName = p.basename(
+                    artifactFileSystem.processPath(extracted.single.path),
+                  );
                   final retainedNames = binaryLayout.libraryIdentifiers(
                     extracted.single,
                   );
                   if (retainedNames.isEmpty) continue;
                   await filesystem.copyResolvedArtifactTree(
-                    extracted.single.path,
-                    p.join(staging.path, artifactName),
+                    artifactFileSystem.processPath(extracted.single.path),
+                    p.join(
+                      artifactFileSystem.processPath(staging.path),
+                      artifactName,
+                    ),
                     includeTopLevel: (name) =>
                         name == 'Info.plist' || retainedNames.contains(name),
                   );
@@ -232,7 +239,7 @@ final class SwiftPmExtractedArtifactRecovery<T extends PlatformHostInterface> {
               p.basename(verified.single.artifactPath),
             );
 
-            final destination = p.join(package.path, relative);
+            final destination = p.join(packagePath, relative);
             final fallbackDestination = destination;
 
             final existed =
@@ -295,15 +302,15 @@ final class SwiftPmExtractedArtifactRecovery<T extends PlatformHostInterface> {
             utf8.encode(manifest),
           )) {
             try {
-              await checkoutAttributes.clear(entity.path);
-              await write(entity.path, utf8.encode(manifest));
+              await checkoutAttributes.clear(manifestPath);
+              await write(manifestPath, utf8.encode(manifest));
             } on Object {
               for (final created
                   in createdDestinations.entries.toList().reversed) {
                 if (removeDestination != null) {
                   await remove(created.key);
                 } else if (packageLocalArtifactJunctionCapability &&
-                    p.isWithin(package.path, created.key)) {
+                    p.isWithin(packagePath, created.key)) {
                   await preparer.removeBinaryArtifactAlias(created.key);
                 } else {
                   await preparer.removeMaterializedBinaryArtifact(

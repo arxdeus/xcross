@@ -5,6 +5,8 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/flutter/hot_reload/source_watcher.dart';
 
+import '../host_operations_fixtures.dart';
+
 void main() {
   late Directory tmp;
 
@@ -59,6 +61,24 @@ void main() {
       );
       final basenames = watcher.dartFiles().map(p.basename).toSet();
       expect(basenames, {'other.dart'});
+    });
+
+    test('returns logical paths through a mapped filesystem', () {
+      final fileSystem = FixtureMappedFileSystem(tmp);
+      fileSystem.file('/mapped-app/lib/sub/a.dart')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('// a\n');
+      final watcher = SourceWatcher(
+        '/mapped-app',
+        fileSystem: fileSystem,
+        paths: p.Context(style: p.Style.posix),
+      );
+      expect(watcher.dartFiles(), ['/mapped-app/lib/sub/a.dart']);
+      watcher.snapshot();
+      fileSystem
+          .file('/mapped-app/lib/sub/a.dart')
+          .writeAsStringSync('// changed\n');
+      expect(watcher.changedFileUris(), ['file:///mapped-app/lib/sub/a.dart']);
     });
 
     test('returns an empty list when projectRoot does not exist', () {

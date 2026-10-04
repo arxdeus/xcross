@@ -82,6 +82,7 @@ final class SwiftPmBinaryPreparation<T extends PlatformHostInterface> {
               (name.startsWith('Package@') && name.endsWith('.swift'));
         });
     for (final manifestFile in manifests) {
+      final manifestPath = artifactFileSystem.processPath(manifestFile.path);
       final original = await manifestFile.readAsString();
       final targets = SwiftPmBinaryTargetManifest.discover(original);
       if (targets.isEmpty) continue;
@@ -129,7 +130,7 @@ final class SwiftPmBinaryPreparation<T extends PlatformHostInterface> {
 
             var aliased = false;
             if (packageLocalArtifactJunctionCapability) {
-              final alias = p.join(manifestFile.parent.path, relative);
+              final alias = p.join(p.dirname(manifestPath), relative);
 
               await artifactFileSystem
                   .directory(p.dirname(alias))
@@ -168,7 +169,7 @@ final class SwiftPmBinaryPreparation<T extends PlatformHostInterface> {
               }
             }
             if (!aliased) {
-              final destination = p.join(manifestFile.parent.path, relative);
+              final destination = p.join(p.dirname(manifestPath), relative);
               final publication = await copy(
                 source: artifact,
                 destination: destination,
@@ -206,7 +207,7 @@ final class SwiftPmBinaryPreparation<T extends PlatformHostInterface> {
             localPaths,
           );
           if (rewritten != original) {
-            await write(manifestFile.path, utf8.encode(rewritten));
+            await write(manifestPath, utf8.encode(rewritten));
           }
           // SwiftPM invalidates on timestamps, and a manifest's timestamp
           // invalidates every target in its package. Vendoring restores the
@@ -222,7 +223,7 @@ final class SwiftPmBinaryPreparation<T extends PlatformHostInterface> {
           // bytes does: identical patched manifests always carry an
           // identical timestamp, and a genuinely new patch still gets a new
           // one.
-          await filesystem.stampByContent(manifestFile.path, rewritten);
+          await filesystem.stampByContent(manifestPath, rewritten);
         }
       } on Object {
         for (final created in createdDestinations.entries.toList().reversed) {

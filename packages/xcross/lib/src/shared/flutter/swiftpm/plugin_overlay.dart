@@ -342,8 +342,10 @@ final class SwiftPmPluginOverlay<T extends PlatformHostInterface> {
     String? excludedSourcePath,
   }) async {
     final resolved = entity is Link
-        ? entity.resolveSymbolicLinksSync()
-        : entity.path;
+        ? filesystem.artifactFileSystem.processPath(
+            entity.resolveSymbolicLinksSync(),
+          )
+        : filesystem.artifactFileSystem.processPath(entity.path);
     if (!filesystem.artifactFileSystem.directory(resolved).existsSync()) {
       await filesystem.syncFile(
         filesystem.artifactFileSystem.file(resolved),

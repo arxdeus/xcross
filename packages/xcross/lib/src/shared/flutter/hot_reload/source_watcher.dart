@@ -32,20 +32,22 @@ final class SourceWatcher {
     if (root == null) return const [];
 
     final files = <String>[];
-    final pending = <Directory>[root];
+    final pending = <String>[root];
     while (pending.isNotEmpty) {
+      final directory = pending.removeLast();
       final List<FileSystemEntity> entries;
       try {
-        entries = pending.removeLast().listSync(followLinks: false);
+        entries = fileSystem.directory(directory).listSync(followLinks: false);
       } on FileSystemException {
         continue;
       }
       for (final entity in entries) {
         final name = _basename(entity);
+        final path = paths.join(directory, name);
         if (entity is Directory) {
-          if (!name.startsWith('.') && name != 'build') pending.add(entity);
+          if (!name.startsWith('.') && name != 'build') pending.add(path);
         } else if (entity is File && name.endsWith('.dart')) {
-          files.add(entity.absolute.path);
+          files.add(path);
         }
       }
     }
@@ -77,10 +79,11 @@ final class SourceWatcher {
 
   // `<projectRoot>/lib`, falling back to the project root, or null if
   // neither exists.
-  Directory? _searchRoot() {
+  String? _searchRoot() {
     for (final path in [paths.join(projectRoot, 'lib'), projectRoot]) {
-      final dir = fileSystem.directory(path);
-      if (dir.existsSync()) return dir;
+      if (fileSystem.directory(path).existsSync()) {
+        return paths.normalize(paths.absolute(path));
+      }
     }
     return null;
   }
