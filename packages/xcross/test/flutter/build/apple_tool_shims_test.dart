@@ -8,6 +8,7 @@ import 'package:test/test.dart';
 import 'package:xcross/src/host/linux/flutter/native_host_tools.dart';
 import 'package:xcross/src/host/macos/flutter/native_host_tools.dart';
 import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer_posix.dart';
+import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
 import 'package:xcross/src/host/windows/flutter/apple_tool_shim_renderer.dart';
 import 'package:xcross/src/host/windows/flutter/native_host_tools.dart';
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
@@ -16,6 +17,37 @@ import 'package:xcross/src/shared/flutter/errors.dart';
 import 'support/native_flutter_fixtures.dart';
 
 void main() {
+  final macOSPaths = PosixPaths();
+  declarativeXcrunTests<MacOSHost>(
+    'macOS',
+    '/selected bundle',
+    macOSPaths,
+    (files, processes, environment) => MacOSHost(
+      architecture: 'arm64',
+      paths: macOSPaths,
+      fileSystem: files,
+      processes: processes,
+      environment: environment,
+    ),
+    MacOSDarwinToolchainLocations.new,
+    MacOSNativeHostTools.new,
+  );
+  final windowsPaths = WindowsPaths(currentDirectory: r'C:\');
+  declarativeXcrunTests<WindowsHost>(
+    'Windows',
+    r'C:\selected bundle',
+    windowsPaths,
+    (files, processes, environment) => WindowsHost(
+      architecture: 'arm64',
+      paths: windowsPaths,
+      fileSystem: files,
+      processes: processes,
+      environment: environment,
+    ),
+    WindowsDarwinToolchainLocations.new,
+    WindowsNativeHostTools.new,
+  );
+
   test(
     'Windows simulator sidecars preserve SDK and explicit linker platform',
     () async {
@@ -286,7 +318,7 @@ void main() {
     },
   );
 
-  test('declarative xcrun only checks a configured launcher sibling', () async {
+  test('declarative xcrun rejects missing trusted siblings', () async {
     final resolver = appleToolResolver(declarative: true);
     await expectLater(
       resolver.resolveXcrun(),
@@ -451,4 +483,258 @@ void main() {
       await tmp.delete(recursive: true);
     }
   }, skip: Platform.isWindows);
+}
+
+void declarativeXcrunTests<T extends PlatformHostInterface>(
+  String label,
+  String root,
+  HostPathsInterface paths,
+  T Function(HostFileSystemInterface, HostProcessInterface, Map<String, String>)
+  createHost,
+  DarwinToolchainLocationsInterface Function(T) createLocations,
+  NativeHostTools<T> Function(T, ProcessRunner<T>) createHostTools,
+) {
+  group('$label declarative packaged xcrun', () {
+    late MappedXcrunFileSystem files;
+    late XcrunTestProcesses processes;
+    late T host;
+    late ProcessRunner<T> runner;
+    final executable = paths.context.join(
+      root,
+      'current',
+      paths.executableName('xcross'),
+    );
+    final constructorLauncher = paths.context.join(
+      root,
+      'configured',
+      paths.executableName('xcross'),
+    );
+    final callLauncher = paths.context.join(
+      root,
+      'per-call',
+      paths.executableName('xcross'),
+    );
+    String sibling(String launcher) => paths.context.join(
+      paths.context.dirname(launcher),
+      paths.executableName('xcrun'),
+    );
+    final currentSibling = sibling(executable);
+    final constructorSibling = sibling(constructorLauncher);
+    final callSibling = sibling(callLauncher);
+    final ambientSibling = paths.context.join(
+      root,
+      'ambient',
+      paths.executableName('xcrun'),
+    );
+
+    setUp(() async {
+      final backing = await Directory.systemTemp.createTemp('selected-xcrun-');
+      addTearDown(() => backing.delete(recursive: true));
+      files = MappedXcrunFileSystem(backing.path, root, paths.context);
+      processes = XcrunTestProcesses(ambientSibling);
+      host = createHost(files, processes, {
+        'PATH': paths.context.dirname(ambientSibling),
+        'PATHEXT': '.EXE',
+      });
+      runner = ProcessRunner(
+        host,
+        log: nativeTestLog(),
+        stdinStream: const Stream<List<int>>.empty(),
+        stdoutSink: nativeTestSink(),
+        stderrSink: nativeTestSink(),
+      );
+      files.write(ambientSibling);
+    });
+
+    AppleToolShimResolver<T> resolver({String? launcher, String? xcrun}) =>
+        AppleToolShimResolver(
+          SimulatorTarget(host),
+          runner,
+          DarwinSdkRepository(host, log: nativeTestLog()),
+          DarwinToolchainResolver(runner, createLocations(host)),
+          hostTools: createHostTools(host, runner),
+          executable: executable,
+          launcher: launcher,
+          xcrun: xcrun,
+          declarative: true,
+        );
+
+    tearDown(() {
+      expect(processes.shellLookups, isEmpty);
+      expect(processes.starts, isEmpty);
+    });
+
+    test('uses injected executable sibling without a launcher', () async {
+      files.write(currentSibling);
+      expect(await resolver().resolveXcrun(), currentSibling);
+      expect(files.lookups, [currentSibling]);
+    });
+
+    test(
+      'rejects absent helper even when ambient xcrun is available',
+      () async {
+        await expectLater(
+          resolver().resolveXcrun(),
+          throwsA(
+            isA<FlutterBuildError>().having(
+              (error) => error.toString(),
+              'message',
+              contains('xcrun not configured'),
+            ),
+          ),
+        );
+        expect(files.lookups, [currentSibling]);
+      },
+    );
+
+    test('rejects a directory named like the helper', () async {
+      Directory(files.map(currentSibling)).createSync(recursive: true);
+      await expectLater(
+        resolver().resolveXcrun(),
+        throwsA(isA<FlutterBuildError>()),
+      );
+      expect(files.lookups, [currentSibling]);
+    });
+
+    test('explicit tool overrides every bundled sibling', () async {
+      for (final path in [currentSibling, constructorSibling, callSibling]) {
+        files.write(path);
+      }
+      final configured = paths.context.join(
+        root,
+        'override',
+        paths.executableName('xcrun'),
+      );
+      expect(
+        await resolver(
+          launcher: constructorLauncher,
+          xcrun: configured,
+        ).resolveXcrun(launcher: callLauncher),
+        configured,
+      );
+      expect(files.lookups, isEmpty);
+    });
+
+    test('constructor launcher wins over per-call and executable', () async {
+      for (final path in [currentSibling, constructorSibling, callSibling]) {
+        files.write(path);
+      }
+      expect(
+        await resolver(
+          launcher: constructorLauncher,
+        ).resolveXcrun(launcher: callLauncher),
+        constructorSibling,
+      );
+      expect(files.lookups, [constructorSibling]);
+    });
+
+    test('per-call launcher wins over injected executable', () async {
+      files.write(currentSibling);
+      files.write(callSibling);
+      expect(
+        await resolver().resolveXcrun(launcher: callLauncher),
+        callSibling,
+      );
+      expect(files.lookups, [callSibling]);
+    });
+
+    test('missing launcher helper still checks injected executable', () async {
+      files.write(currentSibling);
+      files.write(callSibling);
+      expect(
+        await resolver(
+          launcher: constructorLauncher,
+        ).resolveXcrun(launcher: callLauncher),
+        currentSibling,
+      );
+      expect(files.lookups, [constructorSibling, currentSibling]);
+    });
+
+    test('empty explicit tool still checks injected executable', () async {
+      files.write(currentSibling);
+      expect(await resolver(xcrun: '').resolveXcrun(), currentSibling);
+      expect(files.lookups, [currentSibling]);
+    });
+  });
+}
+
+final class MappedXcrunFileSystem implements HostFileSystemInterface {
+  MappedXcrunFileSystem(this.backingRoot, this.root, this.paths);
+
+  final String backingRoot;
+  final String root;
+  final p.Context paths;
+  final List<String> lookups = [];
+
+  String map(String path) {
+    if (!paths.isWithin(root, path)) {
+      throw StateError('outside selected filesystem: $path');
+    }
+    return p.joinAll([
+      backingRoot,
+      ...paths.split(paths.relative(path, from: root)),
+    ]);
+  }
+
+  void write(String path) => File(map(path))
+    ..createSync(recursive: true)
+    ..writeAsStringSync('bundled xcrun');
+
+  @override
+  File file(String path) {
+    lookups.add(path);
+    return File(map(path));
+  }
+
+  @override
+  Directory directory(String path) => throw UnsupportedError('unused');
+  @override
+  Link link(String path) => throw UnsupportedError('unused');
+  @override
+  void makeExecutable(String path) => throw UnsupportedError('unused');
+  @override
+  void setPermissions(String path, int mode) =>
+      throw UnsupportedError('unused');
+  @override
+  Future<void> createArchiveLink(String destination, String target) =>
+      throw UnsupportedError('unused');
+}
+
+final class XcrunTestProcesses implements HostProcessInterface {
+  XcrunTestProcesses(this.ambientXcrun);
+
+  final String ambientXcrun;
+  final List<String> shellLookups = [];
+  final List<String> starts = [];
+
+  @override
+  Future<String?> findOnShellPath(
+    String name, {
+    Map<String, String>? environment,
+    bool includeParentEnvironment = true,
+  }) async {
+    shellLookups.add(name);
+    return ambientXcrun;
+  }
+
+  @override
+  Future<Process> start(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+    Map<String, String>? environment,
+    bool includeParentEnvironment = true,
+    bool runInShell = false,
+    ProcessStartMode mode = ProcessStartMode.normal,
+  }) {
+    starts.add(executable);
+    throw StateError('unexpected process: $executable');
+  }
+
+  @override
+  Future<void> killTree(
+    Process process, {
+    Map<String, String>? environment,
+    Map<String, String> executableOverrides = const {},
+  }) => throw UnsupportedError('unused');
 }

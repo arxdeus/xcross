@@ -114,16 +114,16 @@ final class AppleToolShimResolver<T extends PlatformHostInterface> {
       );
       if (host.fileSystem.file(sibling).existsSync()) return sibling;
     }
-    if (declarative) {
-      throw FlutterBuildError(
-        'xcrun not configured. Set tools.xcrun or configure an xcross launcher with a bundled xcrun sibling.',
-      );
-    }
     final sibling = host.paths.context.join(
       host.paths.context.dirname(executable),
       host.paths.executableName('xcrun'),
     );
     if (host.fileSystem.file(sibling).existsSync()) return sibling;
+    if (declarative) {
+      throw FlutterBuildError(
+        'xcrun not configured. Set tools.xcrun or configure an xcross launcher with a bundled xcrun sibling.',
+      );
+    }
     return runner.locateTool('xcrun');
   }
 
