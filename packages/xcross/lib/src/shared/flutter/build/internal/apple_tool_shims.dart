@@ -150,21 +150,13 @@ final class AppleToolShimResolver<T extends PlatformHostInterface> {
     throw FlutterBuildError("Could not find '$name'. Install LLVM and retry.");
   }
 
-  Future<OtoolConfig?> resolveOtool() => resolveOtoolWith(find: findLlvmTool);
+  Future<OtoolConfig?> resolveOtool() async {
+    final otool = await findLlvmTool('llvm-otool');
+    if (otool != null) return OtoolConfig(otool, usesObjdump: false);
+    final objdump = await findLlvmTool('llvm-objdump');
+    return objdump == null ? null : OtoolConfig(objdump, usesObjdump: true);
+  }
 }
-
-Future<OtoolConfig?> resolveOtoolWith({
-  required Future<String?> Function(String name) find,
-}) async {
-  final otool = await find('llvm-otool');
-  if (otool != null) return OtoolConfig(otool, usesObjdump: false);
-  final objdump = await find('llvm-objdump');
-  return objdump == null ? null : OtoolConfig(objdump, usesObjdump: true);
-}
-
-Future<OtoolConfig?> resolveOtool({
-  required Future<String?> Function(String name) find,
-}) => resolveOtoolWith(find: find);
 
 FlutterBuildError missingNativeAssetToolForwarderError() => FlutterBuildError(
   "Windows native assets need the native xcross.exe binary: Flutter's "

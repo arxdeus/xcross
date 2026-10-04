@@ -47,6 +47,7 @@ void main() {
     WindowsDarwinToolchainLocations.new,
     WindowsNativeHostTools.new,
   );
+  constructorOwnedOtoolTests();
 
   test(
     'Windows simulator sidecars preserve SDK and explicit linker platform',
@@ -138,20 +139,6 @@ void main() {
       ]);
     },
   );
-
-  test('falls back from llvm-otool to llvm-objdump', () async {
-    final requested = <String>[];
-    final result = await resolveOtool(
-      find: (name) async {
-        requested.add(name);
-        return name == 'llvm-objdump' ? '/llvm/llvm-objdump' : null;
-      },
-    );
-
-    expect(requested, ['llvm-otool', 'llvm-objdump']);
-    expect(result?.executable, '/llvm/llvm-objdump');
-    expect(result?.usesObjdump, isTrue);
-  });
 
   test('Windows uses the resolved clang as its host C compiler', () async {
     final host = windowsFixtureHost();
@@ -656,6 +643,87 @@ void declarativeXcrunTests<T extends PlatformHostInterface>(
       expect(files.lookups, [currentSibling]);
     });
   });
+}
+
+void constructorOwnedOtoolTests() {
+  group('constructor-owned otool resolution', () {
+    const root = '/selected llvm';
+    const otool = '$root/llvm-otool';
+    const objdump = '$root/llvm-objdump';
+    late MappedXcrunFileSystem files;
+    late XcrunTestProcesses processes;
+    late AppleToolShimResolver<MacOSHost> resolver;
+
+    setUp(() async {
+      final backing = await Directory.systemTemp.createTemp('selected-otool-');
+      addTearDown(() => backing.delete(recursive: true));
+      final paths = PosixPaths();
+      files = MappedXcrunFileSystem(backing.path, root, paths.context);
+      processes = XcrunTestProcesses('$root/ambient-xcrun');
+      final host = MacOSHost(
+        architecture: 'arm64',
+        paths: paths,
+        fileSystem: files,
+        processes: processes,
+        environment: const {'PATH': root},
+      );
+      final runner = ProcessRunner(
+        host,
+        log: nativeTestLog(),
+        stdinStream: const Stream<List<int>>.empty(),
+        stdoutSink: nativeTestSink(),
+        stderrSink: nativeTestSink(),
+      );
+      resolver = AppleToolShimResolver(
+        SimulatorTarget(host),
+        runner,
+        DarwinSdkRepository(host, log: nativeTestLog()),
+        DarwinToolchainResolver(runner, const SelectedOtoolLocations()),
+        hostTools: MacOSNativeHostTools(host, runner),
+        executable: '$root/xcross',
+        declarative: true,
+      );
+    });
+
+    tearDown(() {
+      expect(processes.shellLookups, isEmpty);
+      expect(processes.starts, isEmpty);
+    });
+
+    test('prefers llvm-otool without probing llvm-objdump', () async {
+      files.write(otool);
+      files.write(objdump);
+      final result = await resolver.resolveOtool();
+      expect(result?.executable, otool);
+      expect(result?.usesObjdump, isFalse);
+      expect(files.lookups, [otool]);
+    });
+
+    test('falls back from llvm-otool to llvm-objdump', () async {
+      files.write(objdump);
+      final result = await resolver.resolveOtool();
+      expect(result?.executable, objdump);
+      expect(result?.usesObjdump, isTrue);
+      expect(files.lookups, [otool, objdump]);
+    });
+
+    test('returns null when neither tool exists', () async {
+      expect(await resolver.resolveOtool(), isNull);
+      expect(files.lookups, [otool, objdump]);
+    });
+  });
+}
+
+final class SelectedOtoolLocations
+    implements DarwinToolchainLocationsInterface {
+  const SelectedOtoolLocations();
+
+  @override
+  List<String> llvmToolDirectories() => const [];
+  @override
+  String get linkerInstallationHint => 'unused';
+  @override
+  String get clangInstallationHint => 'unused';
 }
 
 final class MappedXcrunFileSystem implements HostFileSystemInterface {
