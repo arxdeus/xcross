@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -12,6 +13,7 @@ import 'sdk_test_support.dart';
 
 void main() {
   final sdkContext = SdkTestContext();
+  tearDownAll(sdkContext.close);
   final installer = sdkContext.installer();
 
   for (final root in [
@@ -26,7 +28,15 @@ void main() {
       final paths = WindowsHost(currentDirectory: r'C:\fixture').paths;
       final fileSystem = WindowsSdkMetadataFileSystemFixture(paths, root, temp);
       final host = WindowsHost(paths: paths, fileSystem: fileSystem);
-      final runner = ProcessRunner(host, log: sdkContext.log);
+      final io = SdkMetadataTestIo();
+      addTearDown(io.close);
+      final runner = ProcessRunner(
+        host,
+        log: sdkContext.log,
+        stdinStream: io.input,
+        stdoutSink: io.output,
+        stderrSink: io.error,
+      );
       final repository = DarwinSdkRepository(host, log: sdkContext.log);
       final sdkRoot = paths.context.join(
         root,
@@ -466,4 +476,25 @@ final class WindowsSdkMetadataFileSystemFixture
   @override
   Future<void> createArchiveLink(String destination, String target) =>
       throw UnsupportedError(destination);
+}
+
+final class SdkMetadataTestIo {
+  SdkMetadataTestIo() {
+    outputController.stream.listen((_) {});
+    errorController.stream.listen((_) {});
+    output = IOSink(outputController.sink);
+    error = IOSink(errorController.sink);
+  }
+
+  final Stream<List<int>> input = const Stream<List<int>>.empty();
+  final StreamController<List<int>> outputController =
+      StreamController<List<int>>();
+  final StreamController<List<int>> errorController =
+      StreamController<List<int>>();
+  late final IOSink output;
+  late final IOSink error;
+
+  Future<void> close() async {
+    await Future.wait([output.close(), error.close()]);
+  }
 }
