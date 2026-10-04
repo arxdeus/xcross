@@ -2,27 +2,11 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/internal/windows_swift_plan_repair.dart';
-import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/flutter/build/swift_package_host_patches.dart';
 
 import 'swiftpm_test_context.dart';
 
 final _swiftPmRuntime = testSwiftPmRuntime();
-final _windowsRuntime = testWindowsSwiftPmRuntime();
-final _simulatorRuntime = testSimulatorSwiftPmRuntime();
-final _windowsSimulatorRuntime = testWindowsSimulatorSwiftPmRuntime();
-final _windowsRepairs = WindowsSwiftPlanRepair(_windowsRuntime.runner);
-final _plugins = GeneratedPluginsPackage(
-  _swiftPmRuntime.targetPolicy,
-  runner: _swiftPmRuntime.runner,
-  sdkRepository: _swiftPmRuntime.sdkRepository,
-  toolchain: _swiftPmRuntime.toolchainResolver,
-  tools: _swiftPmRuntime.tools,
-  hostPolicy: _swiftPmRuntime.hostPolicy,
-  artifactFileSystem: _swiftPmRuntime.artifactFileSystem,
-  sdkIdentity: _swiftPmRuntime.sdkIdentity,
-);
 
 String diagnostic(String path) =>
     "$path:12:7: error: external macro implementation type 'SwiftUIMacros.StateMacro' could not be found for macro 'State()'; plugin for module 'SwiftUIMacros' not found";

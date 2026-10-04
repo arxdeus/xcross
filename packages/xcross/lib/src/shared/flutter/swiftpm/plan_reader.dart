@@ -6,11 +6,13 @@ import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/response_arguments.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/response_file_reader.dart';
-const String pluginsProductName='FlutterPluginsGenerated';
+
+const String pluginsProductName = 'FlutterPluginsGenerated';
+
 final class SwiftPmPlanReader {
-SwiftPmPlanReader({required this.fileSystem,required this.responseFiles});
-final SwiftPmArtifactFileSystem fileSystem;
-final SwiftPmResponseFileReader responseFiles;
+  SwiftPmPlanReader({required this.fileSystem, required this.responseFiles});
+  final SwiftPmArtifactFileSystem fileSystem;
+  final SwiftPmResponseFileReader responseFiles;
   String resolveTargetBuildDir(
     String scratchPath, {
     String triple = 'arm64-apple-ios',
@@ -31,8 +33,10 @@ final SwiftPmResponseFileReader responseFiles;
     return p.join(scratchPath, triple, configuration);
   }
 
-List<String> plannedSwiftInteropSearchPaths(String targetBuildDir) {
-    final description = fileSystem.file(p.join(targetBuildDir, 'description.json'));
+  List<String> plannedSwiftInteropSearchPaths(String targetBuildDir) {
+    final description = fileSystem.file(
+      p.join(targetBuildDir, 'description.json'),
+    );
     try {
       final decoded = jsonDecode(description.readAsStringSync());
       if (decoded is! Map<String, dynamic> ||
@@ -86,10 +90,7 @@ List<String> plannedSwiftInteropSearchPaths(String targetBuildDir) {
     } on Object {
       return const [];
     }
-    final reachable = plannedTargetClosure(
-      targetBuildDir,
-      pluginsProductName,
-    );
+    final reachable = plannedTargetClosure(targetBuildDir, pluginsProductName);
     final targets = <String>{};
     for (final argument in planned) {
       final directory = p.basename(argument);
@@ -101,22 +102,39 @@ List<String> plannedSwiftInteropSearchPaths(String targetBuildDir) {
         continue;
       }
       if (reachable != null && !reachable.contains(target)) continue;
-      if (fileSystem.file(p.join(argument, '$target-Swift.h')).existsSync()) continue;
+      if (fileSystem.file(p.join(argument, '$target-Swift.h')).existsSync()) {
+        continue;
+      }
       targets.add(target);
     }
     final sorted = targets.toList()..sort();
     return sorted;
   }
 
-  List<String> orderedInteropTargets(String targetBuildDir,List<String> planned)=>orderTargetsByDependencies(targetDependencies(targetBuildDir),planned);
-  Map<String,dynamic>? targetDependencies(String targetBuildDir) {
+  List<String> orderedInteropTargets(
+    String targetBuildDir,
+    List<String> planned,
+  ) => orderTargetsByDependencies(targetDependencies(targetBuildDir), planned);
+  Map<String, dynamic>? targetDependencies(String targetBuildDir) {
     try {
-      final decoded=jsonDecode(fileSystem.file(p.join(targetBuildDir,'description.json')).readAsStringSync());
-      return decoded is Map<String,dynamic> ? decoded['targetDependencyMap'] as Map<String,dynamic>? : null;
-    } on Object {return null;}
+      final decoded = jsonDecode(
+        fileSystem
+            .file(p.join(targetBuildDir, 'description.json'))
+            .readAsStringSync(),
+      );
+      return decoded is Map<String, dynamic>
+          ? decoded['targetDependencyMap'] as Map<String, dynamic>?
+          : null;
+    } on Object {
+      return null;
+    }
   }
-  static List<String> orderTargetsByDependencies(Map<String,dynamic>? dependencies,List<String> planned) {
-    final eligible=planned.toSet()..remove(pluginsProductName);
+
+  static List<String> orderTargetsByDependencies(
+    Map<String, dynamic>? dependencies,
+    List<String> planned,
+  ) {
+    final eligible = planned.toSet()..remove(pluginsProductName);
     final ordered = <String>[];
     final visited = <String>{};
     final visiting = <String>{};
@@ -146,7 +164,9 @@ List<String> plannedSwiftInteropSearchPaths(String targetBuildDir) {
   }
 
   Set<String>? plannedTargetClosure(String targetBuildDir, String root) {
-    final description = fileSystem.file(p.join(targetBuildDir, 'description.json'));
+    final description = fileSystem.file(
+      p.join(targetBuildDir, 'description.json'),
+    );
     final Map<String, List<String>> edges;
     try {
       final decoded = jsonDecode(description.readAsStringSync());
@@ -187,8 +207,10 @@ List<String> plannedSwiftInteropSearchPaths(String targetBuildDir) {
       return false;
     }
     if (text.isEmpty) return false;
-    final responseArguments =
-        responseFiles.referencedResponseArguments(text, scratchPath);
+    final responseArguments = responseFiles.referencedResponseArguments(
+      text,
+      scratchPath,
+    );
     if (responseArguments == null) return false;
     bool recorded(String path) =>
         text.contains(jsonEncode(path)) ||

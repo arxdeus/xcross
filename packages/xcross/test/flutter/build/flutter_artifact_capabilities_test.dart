@@ -1,18 +1,38 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_gate_evidence.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_workspace.dart';
 import 'package:xcross/src/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_capabilities.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_identity.dart';
 import 'package:xcross/src/shared/sdk/sdk_build_identity.dart';
+
 import 'swiftpm_test_context.dart';
 
 final _runtime = testSwiftPmRuntime();
 final _windowsRuntime = testWindowsSwiftPmRuntime();
 Future<void> _deleteTemp(Directory directory) async {
   if (directory.existsSync()) await directory.delete(recursive: true);
+}
+
+final class MutableSwiftPmArtifactIdentities
+    implements SwiftPmArtifactIdentities {
+  String sdk = '{"revision":"sdk-a"}';
+  String toolchain = '{"revision":"tool-a"}';
+  int calls = 0;
+  @override
+  Future<SwiftPmArtifactIdentity> resolve() async {
+    calls++;
+    return SwiftPmArtifactIdentity(
+      platform: 'test-platform',
+      toolchain: toolchain,
+      sdk: sdk,
+    );
+  }
 }
 
 void main() {
@@ -121,7 +141,13 @@ void main() {
     try {
       const platform = 'test-platform';
       var calls = 0;
-      final evidence = SwiftPmGateEvidence(temp.path, _runtime);
+      final evidence = SwiftPmGateEvidence(
+        temp.path,
+        repository: _runtime.sdkRepository,
+        platform: _runtime.gatePlatform,
+        platformIdentity: _runtime.sdkIdentity.platformIdentity,
+        fileSystem: _runtime.artifactFileSystem,
+      );
       for (var invocation = 0; invocation < 2; invocation++) {
         expect(
           await evidence.verifies(
@@ -157,7 +183,13 @@ void main() {
   test('executable identities produce independent evidence bindings', () async {
     final temp = await Directory.systemTemp.createTemp('xcross-gate-tools-');
     try {
-      final evidence = SwiftPmGateEvidence(temp.path, _runtime);
+      final evidence = SwiftPmGateEvidence(
+        temp.path,
+        repository: _runtime.sdkRepository,
+        platform: _runtime.gatePlatform,
+        platformIdentity: _runtime.sdkIdentity.platformIdentity,
+        fileSystem: _runtime.artifactFileSystem,
+      );
       const platform = 'test-platform';
       var calls = 0;
       Future<bool> probe({
@@ -274,10 +306,19 @@ void main() {
         'librarian',
       ]) {
         final recorded = await identity();
-        expect(await validSwiftPmGateToolchainIdentity(recorded), isTrue);
+        expect(
+          await validSwiftPmGateToolchainIdentity(
+            recorded,
+            fileSystem: _runtime.artifactFileSystem,
+          ),
+          isTrue,
+        );
         tools[name]!.writeAsStringSync('replacement-$name-with-different-size');
         expect(
-          await validSwiftPmGateToolchainIdentity(recorded),
+          await validSwiftPmGateToolchainIdentity(
+            recorded,
+            fileSystem: _runtime.artifactFileSystem,
+          ),
           isFalse,
           reason: name,
         );
@@ -305,7 +346,13 @@ void main() {
 
       for (var process = 0; process < 2; process++) {
         expect(
-          await SwiftPmGateEvidence(temp.path, _runtime).verifies(
+          await SwiftPmGateEvidence(
+            temp.path,
+            repository: _runtime.sdkRepository,
+            platform: _runtime.gatePlatform,
+            platformIdentity: _runtime.sdkIdentity.platformIdentity,
+            fileSystem: _runtime.artifactFileSystem,
+          ).verifies(
             mode: SwiftPmGateMode.packageLocalArtifact,
             platformIdentity: platform,
             toolchainIdentity: 'toolchain',
@@ -337,7 +384,13 @@ void main() {
         return true;
       }
 
-      final evidence = SwiftPmGateEvidence(temp.path, _runtime);
+      final evidence = SwiftPmGateEvidence(
+        temp.path,
+        repository: _runtime.sdkRepository,
+        platform: _runtime.gatePlatform,
+        platformIdentity: _runtime.sdkIdentity.platformIdentity,
+        fileSystem: _runtime.artifactFileSystem,
+      );
       expect(
         await evidence.verifies(
           mode: SwiftPmGateMode.swiftPmArtifact,
@@ -385,4 +438,115 @@ void main() {
       await _deleteTemp(temp);
     }
   });
+  test(
+    'public resolver refreshes SDK and tool identities and validates live volume despite cached success',
+    () async {
+      final root = Directory.systemTemp.createTempSync(
+        'xcross-public-capabilities-',
+      );
+      final identities = MutableSwiftPmArtifactIdentities();
+      var volume = 'first-volume';
+      var allowProbe = true;
+      var probes = 0;
+      final capabilities = SwiftPmArtifactCapabilities(
+        paths: _runtime.host.paths,
+        fileSystem: _runtime.artifactFileSystem,
+        repository: _runtime.sdkRepository,
+        platform: _runtime.gatePlatform,
+        identities: identities,
+        probe:
+            ({
+              required mode,
+              required root,
+              required toolchainIdentity,
+              required sdkIdentity,
+            }) async {
+              probes++;
+              return allowProbe;
+            },
+        runtimeBinding:
+            ({
+              required mode,
+              required root,
+              required platformIdentity,
+              required toolchainIdentity,
+              required sdkIdentity,
+            }) async {
+              if (sdkIdentity == '{}') return null;
+              return {
+                ...?await testBinding(
+                  mode: mode,
+                  root: root,
+                  platformIdentity: platformIdentity,
+                  toolchainIdentity: toolchainIdentity,
+                  sdkIdentity: sdkIdentity,
+                ),
+                'volume': volume,
+              };
+            },
+      );
+      final workspace = SwiftPmWorkspace.forProject(
+        root.path,
+        policy: _runtime.targetPolicy,
+        environment: {'XCROSS_CACHE_DIR': root.path},
+      );
+      try {
+        expect(
+          await capabilities.resolveArtifactJunctionCapabilities(
+            workspace: workspace,
+          ),
+          (swiftPmArtifact: true, packageLocalArtifact: true),
+        );
+        expect(
+          await capabilities.resolveArtifactJunctionCapabilities(
+            workspace: workspace,
+          ),
+          (swiftPmArtifact: true, packageLocalArtifact: true),
+        );
+        expect(probes, 2);
+        identities.sdk = '{"revision":"sdk-b"}';
+        expect(
+          await capabilities.resolveArtifactJunctionCapabilities(
+            workspace: workspace,
+          ),
+          (swiftPmArtifact: true, packageLocalArtifact: true),
+        );
+        expect(probes, 4);
+        identities.toolchain = '{"revision":"tool-b"}';
+        expect(
+          await capabilities.resolveArtifactJunctionCapabilities(
+            workspace: workspace,
+          ),
+          (swiftPmArtifact: true, packageLocalArtifact: true),
+        );
+        expect(probes, 6);
+        identities.sdk = '{}';
+        expect(
+          await capabilities.resolveArtifactJunctionCapabilities(
+            workspace: workspace,
+          ),
+          (swiftPmArtifact: false, packageLocalArtifact: false),
+        );
+        expect(probes, 6);
+        identities.sdk = '{"revision":"sdk-b"}';
+        volume = 'replacement-volume';
+        allowProbe = false;
+        expect(
+          await capabilities.resolveArtifactJunctionCapabilities(
+            workspace: workspace,
+          ),
+          (swiftPmArtifact: false, packageLocalArtifact: false),
+        );
+        expect(probes, 8);
+        expect(identities.calls, 6);
+        expect(
+          (jsonDecode(File(workspace.gateCapabilityCache).readAsStringSync())
+              as Map<String, dynamic>)['swiftPmArtifact'],
+          isFalse,
+        );
+      } finally {
+        root.deleteSync(recursive: true);
+      }
+    },
+  );
 }

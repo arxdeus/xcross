@@ -1,11 +1,17 @@
 import 'dart:convert';
 
 final class SwiftPmResponseArguments {
-static List<dynamic>? decodeLlbuildArguments(String line) {
-const prefix = '    args: ';
-if (!line.startsWith('$prefix[')) return null;
-try { final decoded=jsonDecode(line.substring(prefix.length));return decoded is List ? decoded : null; } on FormatException { return null; }
-}
+  static List<dynamic>? decodeLlbuildArguments(String line) {
+    const prefix = '    args: ';
+    if (!line.startsWith('$prefix[')) return null;
+    try {
+      final decoded = jsonDecode(line.substring(prefix.length));
+      return decoded is List ? decoded : null;
+    } on FormatException {
+      return null;
+    }
+  }
+
   /// Conservative CreateProcess length in UTF-16 units, including the NUL.
   static int windowsCommandLineLength(List<String> arguments) =>
       arguments.map(quoteWindowsArgument).join(' ').length + 1;
@@ -26,5 +32,4 @@ try { final decoded=jsonDecode(line.substring(prefix.length));return decoded is 
   /// Quotes [argument] for a GNU-style response file, as Clang parses it.
   static String quoteGnuArgument(String argument) =>
       '"${argument.replaceAll(r'\', r'\\').replaceAll('"', r'\"')}"';
-
 }

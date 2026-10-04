@@ -5,9 +5,9 @@ import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
 
 final class SwiftPmPackageMetadata {
-SwiftPmPackageMetadata({required this.fileSystem});
-final SwiftPmArtifactFileSystem fileSystem;
-Future<Map<String, String>> packageIdentitiesByDirectory(String root) async {
+  SwiftPmPackageMetadata({required this.fileSystem});
+  final SwiftPmArtifactFileSystem fileSystem;
+  Future<Map<String, String>> packageIdentitiesByDirectory(String root) async {
     final identities = <String, String>{};
     final pending = <String>[root];
     final visited = <String>{};
@@ -17,7 +17,10 @@ Future<Map<String, String>> packageIdentitiesByDirectory(String root) async {
       final manifestFile = fileSystem.file(p.join(directory, 'Package.swift'));
       if (!manifestFile.existsSync()) continue;
       final manifest = await manifestFile.readAsString();
-      for (final call in SwiftPmManifestLexer.swiftCalls(manifest, '.package')) {
+      for (final call in SwiftPmManifestLexer.swiftCalls(
+        manifest,
+        '.package',
+      )) {
         final path = SwiftPmManifestLexer.namedString(call.text, 'path');
         if (path == null) continue;
         final dependencyDirectory = p.normalize(

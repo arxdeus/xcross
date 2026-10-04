@@ -15,19 +15,28 @@ import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinat
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
+
 const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmBinaryPreparation<T extends PlatformHostInterface> {
-SwiftPmBinaryPreparation({required this.artifactFileSystem,required this.copyPolicy,required this.filesystem,required this.host,required this.publicationCoordinator,required this.targetPolicy,required this.transport});
-final SwiftPmArtifactFileSystem artifactFileSystem;
-final SwiftPmArtifactCopyPolicy copyPolicy;
-final SwiftPmFilesystem<T> filesystem;
-final T host;
-final SwiftPmPublicationCoordinator publicationCoordinator;
-final FlutterTargetBuildPolicy<T> targetPolicy;
-final SwiftPmArchiveTransport transport;
-Future<void> prepareSupportedBinaryArtifacts({
+  SwiftPmBinaryPreparation({
+    required this.artifactFileSystem,
+    required this.copyPolicy,
+    required this.filesystem,
+    required this.host,
+    required this.publicationCoordinator,
+    required this.targetPolicy,
+    required this.transport,
+  });
+  final SwiftPmArtifactFileSystem artifactFileSystem;
+  final SwiftPmArtifactCopyPolicy copyPolicy;
+  final SwiftPmFilesystem<T> filesystem;
+  final T host;
+  final SwiftPmPublicationCoordinator publicationCoordinator;
+  final FlutterTargetBuildPolicy<T> targetPolicy;
+  final SwiftPmArchiveTransport transport;
+  Future<void> prepareSupportedBinaryArtifacts({
     required String packageRoot,
     required String binaryArtifactStore,
     required String binaryArtifactFallback,
@@ -86,9 +95,9 @@ Future<void> prepareSupportedBinaryArtifacts({
               target.checksum,
               target.name,
             );
-            final hadArchive = artifactFileSystem.file(
-              store.archivePath(target.checksum),
-            ).existsSync();
+            final hadArchive = artifactFileSystem
+                .file(store.archivePath(target.checksum))
+                .existsSync();
             final result = await runPrepare(target);
             filesystem.traceBinaryOperation(
               target: target.name,
@@ -117,7 +126,9 @@ Future<void> prepareSupportedBinaryArtifacts({
             if (packageLocalArtifactJunctionCapability) {
               final alias = p.join(manifestFile.parent.path, relative);
 
-              await artifactFileSystem.directory(p.dirname(alias)).create(recursive: true);
+              await artifactFileSystem
+                  .directory(p.dirname(alias))
+                  .create(recursive: true);
               try {
                 final existed =
                     artifactFileSystem.typeSync(alias, followLinks: false) !=

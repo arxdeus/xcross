@@ -1,27 +1,12 @@
 import 'package:cli_kit/cli_kit.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/internal/windows_swift_plan_repair.dart';
-import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/binary_recovery.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/network_retry.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/source_repair.dart';
 
 import 'swiftpm_test_context.dart';
 
 final _swiftPmRuntime = testSwiftPmRuntime();
-final _windowsRuntime = testWindowsSwiftPmRuntime();
-final _simulatorRuntime = testSimulatorSwiftPmRuntime();
-final _windowsSimulatorRuntime = testWindowsSimulatorSwiftPmRuntime();
-final _windowsRepairs = WindowsSwiftPlanRepair(_windowsRuntime.runner);
-final _plugins = GeneratedPluginsPackage(
-  _swiftPmRuntime.targetPolicy,
-  runner: _swiftPmRuntime.runner,
-  sdkRepository: _swiftPmRuntime.sdkRepository,
-  toolchain: _swiftPmRuntime.toolchainResolver,
-  tools: _swiftPmRuntime.tools,
-  hostPolicy: _swiftPmRuntime.hostPolicy,
-  artifactFileSystem: _swiftPmRuntime.artifactFileSystem,
-  sdkIdentity: _swiftPmRuntime.sdkIdentity,
-);
 
 /// Resolving the plugin graph pulls from a dozen GitHub repositories. A reset
 /// or refused connection on any one of them used to fail the whole Windows
@@ -46,7 +31,7 @@ void main() {
       ];
       for (final error in observed) {
         expect(
-          SwiftPmBinaryRecovery.isTransientNetworkFailure(error),
+          SwiftPmNetworkRetry.isTransientNetworkFailure(error),
           isTrue,
           reason: error,
         );
@@ -62,7 +47,7 @@ void main() {
       ];
       for (final error in real) {
         expect(
-          SwiftPmBinaryRecovery.isTransientNetworkFailure(error),
+          SwiftPmNetworkRetry.isTransientNetworkFailure(error),
           isFalse,
           reason: error,
         );
@@ -73,7 +58,7 @@ void main() {
       // Retrying would multiply the very stall the timeout exists to cut
       // short, turning a bounded failure back into an unbounded one.
       expect(
-        SwiftPmBinaryRecovery.isTransientNetworkFailure(
+        SwiftPmNetworkRetry.isTransientNetworkFailure(
           'command timed out after 1800s and was killed: swift package resolve',
         ),
         isFalse,
@@ -85,7 +70,7 @@ void main() {
     test('retries a transient failure and then succeeds', () async {
       var attempts = 0;
       final waits = <Duration>[];
-      await _swiftPmRuntime.binaryRecovery.retryingTransientNetworkFailure(
+      await _swiftPmRuntime.networkRetry.retryingTransientNetworkFailure(
         () async {
           attempts++;
           if (attempts < 3) {
@@ -104,7 +89,7 @@ void main() {
     test('gives up after the configured number of attempts', () async {
       var attempts = 0;
       await expectLater(
-        _swiftPmRuntime.binaryRecovery.retryingTransientNetworkFailure(
+        _swiftPmRuntime.networkRetry.retryingTransientNetworkFailure(
           () {
             attempts++;
             throw Exception('Could not connect to server');
@@ -120,7 +105,7 @@ void main() {
     test('fails fast on a real error instead of retrying it', () async {
       var attempts = 0;
       await expectLater(
-        _swiftPmRuntime.binaryRecovery.retryingTransientNetworkFailure(
+        _swiftPmRuntime.networkRetry.retryingTransientNetworkFailure(
           () {
             attempts++;
             throw Exception("no such module 'Flutter'");
@@ -135,7 +120,7 @@ void main() {
 
     test('does not delay when the first attempt works', () async {
       var called = false;
-      await _swiftPmRuntime.binaryRecovery.retryingTransientNetworkFailure(
+      await _swiftPmRuntime.networkRetry.retryingTransientNetworkFailure(
         () async {},
         label: 'resolve',
         delay: (_) async => called = true,
@@ -169,7 +154,7 @@ void main() {
           '',
         ),
       );
-      expect(SwiftPmBinaryRecovery.isTransientNetworkFailure(text), isTrue);
+      expect(SwiftPmNetworkRetry.isTransientNetworkFailure(text), isTrue);
     });
 
     test('omits an empty stream instead of leaving a blank line', () {

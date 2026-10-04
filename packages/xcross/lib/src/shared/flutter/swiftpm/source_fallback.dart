@@ -13,10 +13,9 @@ const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmSourceFallback<T extends PlatformHostInterface> {
-  SwiftPmSourceFallback({required this.filesystem,required this.moduleFiles});
+  SwiftPmSourceFallback({required this.filesystem, required this.moduleFiles});
   final SwiftPmFilesystem<T> filesystem;
-final SwiftPmModuleFiles moduleFiles;
-
+  final SwiftPmModuleFiles moduleFiles;
 
   /// Adds a dependency-scoped Clang module when a source fallback preserves
   /// its implementation modules but no longer emits a consumed binary module.
@@ -63,8 +62,8 @@ final SwiftPmModuleFiles moduleFiles;
             case final String name)
           name,
     };
-    final binaryBacked = SwiftPmManifestLexer.swiftCalls(normalManifest, '.library')
-        .any(
+    final binaryBacked =
+        SwiftPmManifestLexer.swiftCalls(normalManifest, '.library').any(
           (call) =>
               SwiftPmManifestLexer.namedString(call.text, 'name') == product &&
               SwiftPmManifestLexer.namedStringList(
@@ -133,7 +132,10 @@ final SwiftPmModuleFiles moduleFiles;
         path:
             SwiftPmManifestLexer.namedString(call.text, 'path') ??
             p.join('Sources', name),
-        headers: SwiftPmManifestLexer.namedString(call.text, 'publicHeadersPath'),
+        headers: SwiftPmManifestLexer.namedString(
+          call.text,
+          'publicHeadersPath',
+        ),
         sources: SwiftPmManifestLexer.namedStringList(call.text, 'sources'),
         excludes: SwiftPmManifestLexer.namedStringList(call.text, 'exclude'),
       );
@@ -169,9 +171,13 @@ final SwiftPmModuleFiles moduleFiles;
       final target = targets[name]!;
       if (target.headers == null) continue;
       final root = p.normalize(p.join(packageDir, target.path, target.headers));
-      final moduleMap = filesystem.artifactFileSystem.file(p.join(root, 'module.modulemap'));
+      final moduleMap = filesystem.artifactFileSystem.file(
+        p.join(root, 'module.modulemap'),
+      );
       final modules = moduleMap.existsSync()
-          ? SwiftPmClangModules.topLevelModuleNames(moduleMap.readAsStringSync())
+          ? SwiftPmClangModules.topLevelModuleNames(
+              moduleMap.readAsStringSync(),
+            )
           : [name];
       if (modules.contains(product)) return manifest;
       if (modules.isNotEmpty) {
@@ -180,11 +186,15 @@ final SwiftPmModuleFiles moduleFiles;
     }
 
     final canonicalMaps = <({File file, String text})>[];
-    for (final entity in filesystem.artifactFileSystem.directory(
-      packageDir,
-    ).listSync(recursive: true, followLinks: false)) {
+    for (final entity
+        in filesystem.artifactFileSystem
+            .directory(packageDir)
+            .listSync(recursive: true, followLinks: false)) {
       if (entity is! File ||
-          SwiftPmModuleFiles.ignoredPackageEvidencePath(packageDir, entity.path) ||
+          SwiftPmModuleFiles.ignoredPackageEvidencePath(
+            packageDir,
+            entity.path,
+          ) ||
           !(p.basename(entity.path) == 'module.modulemap' ||
               p.basename(entity.path).endsWith('.modulemap'))) {
         continue;
@@ -232,7 +242,9 @@ final SwiftPmModuleFiles moduleFiles;
     final swiftModules = <String>[];
     for (final name in closure) {
       final target = targets[name]!;
-      final root = filesystem.artifactFileSystem.directory(p.join(packageDir, target.path));
+      final root = filesystem.artifactFileSystem.directory(
+        p.join(packageDir, target.path),
+      );
       if (!root.existsSync()) continue;
       final sourceRoots = target.sources.isEmpty
           ? [root.path]
@@ -254,7 +266,10 @@ final SwiftPmModuleFiles moduleFiles;
             );
           });
         }
-        return filesystem.artifactFileSystem.file(sourceRoot).path.endsWith('.swift') &&
+        return filesystem.artifactFileSystem
+                .file(sourceRoot)
+                .path
+                .endsWith('.swift') &&
             filesystem.artifactFileSystem.file(sourceRoot).existsSync();
       });
       if (hasSwift) swiftModules.add(name);
@@ -295,7 +310,9 @@ final SwiftPmModuleFiles moduleFiles;
     if (indentedNested.isNotEmpty) moduleMap.writeln(indentedNested);
     moduleMap.writeln('}');
 
-    await filesystem.artifactFileSystem.directory(includeDir).create(recursive: true);
+    await filesystem.artifactFileSystem
+        .directory(includeDir)
+        .create(recursive: true);
     final shim = StringBuffer()
       ..writeln('@import ${publicModules.single.modules.single};');
     // The fallback's Swift half completes the Objective-C surface: the

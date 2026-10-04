@@ -12,12 +12,16 @@ const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmBuildPlan<T extends PlatformHostInterface> {
-  SwiftPmBuildPlan({required this.filesystem,required this.hostPolicy,required this.runner,required this.previewCompiler});
+  SwiftPmBuildPlan({
+    required this.filesystem,
+    required this.hostPolicy,
+    required this.runner,
+    required this.previewCompiler,
+  });
   final SwiftPmFilesystem<T> filesystem;
   final SwiftPmHostPolicy hostPolicy;
   final ProcessRunner<T> runner;
   final SwiftPmPreviewMacroCompiler<T> previewCompiler;
-
 
   /// Disables Clang's implicit-module lock files, whose POSIX lock
   /// protocol deadlocks competing frontends on Windows.
@@ -58,31 +62,27 @@ final class SwiftPmBuildPlan<T extends PlatformHostInterface> {
   ///
   /// Its C source lives at `assets/preview_macro_stub.c` and is embedded
   /// as [previewMacroStubSource] — see that constant's doc comment.
-  Future<String> writePreviewMacroStub({required String outputDir,required String cCompilerPath,List<String> cCompilerArguments=const []}) => previewCompiler.write(outputDir:outputDir,cCompilerPath:cCompilerPath,cCompilerArguments:cCompilerArguments);
+  Future<String> writePreviewMacroStub({
+    required String outputDir,
+    required String cCompilerPath,
+    List<String> cCompilerArguments = const [],
+  }) => previewCompiler.write(
+    outputDir: outputDir,
+    cCompilerPath: cCompilerPath,
+    cCompilerArguments: cCompilerArguments,
+  );
 
   Future<String> writeObjectiveCCompatibilityHeader(String outputDir) async {
     final path = p.join(outputDir, '.xcross', 'objective-c-compatibility.h');
-    await filesystem.artifactFileSystem.directory(p.dirname(path)).create(recursive: true);
+    await filesystem.artifactFileSystem
+        .directory(p.dirname(path))
+        .create(recursive: true);
     await filesystem.writeStable(
       path,
       '#ifdef __OBJC__\n#import <Foundation/Foundation.h>\n#endif\n',
     );
     return path;
   }
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
 
   /// Arguments shared by Linux and Windows SwiftPM builds. SDK-owned compiler
   /// flags stay in SDK metadata; only package-specific flags belong here.
@@ -182,7 +182,6 @@ final class SwiftPmBuildPlan<T extends PlatformHostInterface> {
     // `-use-ld=lld` to the `ld64.lld` sitting next to itself — swiftly's, the
     // one that refuses iOS (see [resolveLd64Lld]). `--ld-path` overrides that
     // choice with the stock LLVM linker.
-    if (linkerPath != null)
-      ...hostPolicy.linkerPathArguments(linkerPath),
+    if (linkerPath != null) ...hostPolicy.linkerPathArguments(linkerPath),
   ];
 }

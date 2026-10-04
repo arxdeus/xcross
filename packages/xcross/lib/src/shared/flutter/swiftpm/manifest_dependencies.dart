@@ -2,7 +2,7 @@ import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
 
 final class SwiftPmManifestDependencies {
-/// Parses remote `.package(url:)` entries out of a Swift manifest.
+  /// Parses remote `.package(url:)` entries out of a Swift manifest.
   ///
   /// Uses parenthesis balancing so nested forms like
   /// `.upToNextMajor(from: "1.0.0")` are not truncated at the inner `)`.
@@ -37,7 +37,8 @@ final class SwiftPmManifestDependencies {
         SwiftPmPackageDependency(
           name: name,
           url: url,
-          identity: name ?? SwiftPmManifestDependencies.packageIdentityFromUrl(url),
+          identity:
+              name ?? SwiftPmManifestDependencies.packageIdentityFromUrl(url),
           match: manifest.substring(start, close + 1),
         ),
       );
@@ -46,7 +47,7 @@ final class SwiftPmManifestDependencies {
     return deps;
   }
 
-/// Folder name for a vendored checkout of [url] at [ref].
+  /// Folder name for a vendored checkout of [url] at [ref].
   static String vendorPackageDirName(String url, String ref) {
     final safeRef = ref.replaceAll(RegExp(r'[^\w.\-]+'), '_');
     final identity = SwiftPmManifestDependencies.packageIdentityFromUrl(url);
@@ -56,7 +57,7 @@ final class SwiftPmManifestDependencies {
     return '$identity@$safeRef';
   }
 
-/// Swift tools version declared by [manifest], or `null` when absent.
+  /// Swift tools version declared by [manifest], or `null` when absent.
   ///
   /// `.package(name:path:)` only exists from PackageDescription 5.2, so a
   /// vendored manifest older than that (SDWebImageWebPCoder pins 5.0) must
@@ -75,13 +76,13 @@ final class SwiftPmManifestDependencies {
     );
   }
 
-static bool supportsNamedPathDeps(String manifest) {
+  static bool supportsNamedPathDeps(String manifest) {
     final version = SwiftPmManifestDependencies.manifestToolsVersion(manifest);
     if (version == null) return true;
     return version.major > 5 || (version.major == 5 && version.minor >= 2);
   }
 
-/// SwiftPM package identity implied by a git URL (last path segment, no
+  /// SwiftPM package identity implied by a git URL (last path segment, no
   /// `.git`). Used as `.package(name:)` so target `package:` references keep
   /// matching after we vendor into a `name@version` directory.
   static String packageIdentityFromUrl(String url) {
@@ -95,7 +96,7 @@ static bool supportsNamedPathDeps(String manifest) {
     return identity;
   }
 
-static Set<String> consumedProducts(String manifest, String package) {
+  static Set<String> consumedProducts(String manifest, String package) {
     final products = <String>{};
     for (final call in SwiftPmManifestLexer.swiftCalls(manifest, '.product')) {
       if (SwiftPmManifestLexer.namedString(call.text, 'package') == package) {
@@ -105,9 +106,11 @@ static Set<String> consumedProducts(String manifest, String package) {
     }
     return products;
   }
-static Set<String> dependencyProductNames(String manifest) => {
+
+  static Set<String> dependencyProductNames(String manifest) => {
     for (final call in SwiftPmManifestLexer.swiftCalls(manifest, '.product'))
-      if (SwiftPmManifestLexer.namedString(call.text, 'name') case final String name)
+      if (SwiftPmManifestLexer.namedString(call.text, 'name')
+          case final String name)
         name,
   };
 }

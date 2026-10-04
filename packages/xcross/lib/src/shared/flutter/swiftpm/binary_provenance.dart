@@ -11,16 +11,22 @@ import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_dependencies.dart';
+
 const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmBinaryProvenance<T extends PlatformHostInterface> {
-SwiftPmBinaryProvenance({required this.artifactFileSystem,required this.host,required this.hostPolicy,required this.runner});
-final SwiftPmArtifactFileSystem artifactFileSystem;
-final T host;
-final SwiftPmHostPolicy hostPolicy;
-final ProcessRunner<T> runner;
-static Map<String, String> dependencyRefsFromPackageResolved(String output) {
+  SwiftPmBinaryProvenance({
+    required this.artifactFileSystem,
+    required this.host,
+    required this.hostPolicy,
+    required this.runner,
+  });
+  final SwiftPmArtifactFileSystem artifactFileSystem;
+  final T host;
+  final SwiftPmHostPolicy hostPolicy;
+  final ProcessRunner<T> runner;
+  static Map<String, String> dependencyRefsFromPackageResolved(String output) {
     final resolved = jsonDecode(output) as Map<String, dynamic>;
     return {
       for (final pinValue in resolved['pins'] as List<dynamic>? ?? const [])
@@ -32,7 +38,7 @@ static Map<String, String> dependencyRefsFromPackageResolved(String output) {
     };
   }
 
-static String canonicalGitUrl(String url) {
+  static String canonicalGitUrl(String url) {
     var canonical = url.replaceFirst(RegExp(r'/+$'), '');
     if (canonical.toLowerCase().endsWith('.git')) {
       canonical = canonical.substring(0, canonical.length - 4);
@@ -47,7 +53,7 @@ static String canonicalGitUrl(String url) {
         .toString();
   }
 
-Future<String> dependencyEvaluationKey(
+  Future<String> dependencyEvaluationKey(
     String manifest,
     String packageDirectory,
   ) async {
@@ -76,7 +82,7 @@ Future<String> dependencyEvaluationKey(
         .toString();
   }
 
-static List<SwiftPmBinaryArtifactProvenance> scanBinaryArtifactProvenance({
+  static List<SwiftPmBinaryArtifactProvenance> scanBinaryArtifactProvenance({
     required String packageIdentity,
     required String manifestPath,
     required String manifest,
@@ -89,7 +95,7 @@ static List<SwiftPmBinaryArtifactProvenance> scanBinaryArtifactProvenance({
       ),
   ];
 
-SwiftPmBinaryArtifactProvenance? matchBinaryArtifactProvenance({
+  SwiftPmBinaryArtifactProvenance? matchBinaryArtifactProvenance({
     required String artifactPath,
     required String artifactsRoot,
     required Iterable<SwiftPmBinaryArtifactProvenance> provenance,
@@ -110,16 +116,16 @@ SwiftPmBinaryArtifactProvenance? matchBinaryArtifactProvenance({
     return matches.length == 1 ? matches.single : null;
   }
 
-String swiftPmComponent(String value) => hostPolicy.artifactIdentity(value);
+  String swiftPmComponent(String value) => hostPolicy.artifactIdentity(value);
 
-String binaryArtifactAttemptKey(SwiftPmBinaryArtifactProvenance provenance) =>
+  String binaryArtifactAttemptKey(SwiftPmBinaryArtifactProvenance provenance) =>
       [
         swiftPmComponent(provenance.packageIdentity),
         swiftPmComponent(provenance.target.name),
         provenance.target.checksum.toLowerCase(),
       ].join('\u0000');
 
-/// Manifest files tracked anywhere in a SwiftPM checkout, without walking
+  /// Manifest files tracked anywhere in a SwiftPM checkout, without walking
   /// its working tree. Git for Windows handles its index with
   /// `core.longpaths=true`, so irrelevant deep assets cannot make discovery
   /// fail with MAX_PATH.
@@ -150,13 +156,17 @@ String binaryArtifactAttemptKey(SwiftPmBinaryArtifactProvenance provenance) =>
         result.stdout
             .split('\u0000')
             .where((path) => path.isNotEmpty)
-            .map((path) => artifactFileSystem.file(p.join(packageDirectory, p.fromUri(path))))
+            .map(
+              (path) => artifactFileSystem.file(
+                p.join(packageDirectory, p.fromUri(path)),
+              ),
+            )
             .toList()
           ..sort((a, b) => a.path.compareTo(b.path));
     return paths;
   }
 
-List<File> rootPackageManifestFiles(String packageDirectory) {
+  List<File> rootPackageManifestFiles(String packageDirectory) {
     final root = artifactFileSystem.directory(packageDirectory);
     if (!root.existsSync()) return const [];
     final files = root.listSync(followLinks: false).whereType<File>().where((
@@ -169,7 +179,7 @@ List<File> rootPackageManifestFiles(String packageDirectory) {
     return files;
   }
 
-Future<List<SwiftPmBinaryArtifactProvenance>> binaryArtifactProvenance(
+  Future<List<SwiftPmBinaryArtifactProvenance>> binaryArtifactProvenance(
     String packageDirectory,
     String scratchPath,
     List<SwiftPmPackageDependency> dependencies,

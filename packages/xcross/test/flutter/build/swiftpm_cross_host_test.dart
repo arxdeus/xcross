@@ -4,27 +4,12 @@ import 'dart:io';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/internal/windows_swift_plan_repair.dart';
-import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
 
 import 'swiftpm_test_context.dart';
 
 final _swiftPmRuntime = testSwiftPmRuntime();
 final _windowsRuntime = testWindowsSwiftPmRuntime();
-final _simulatorRuntime = testSimulatorSwiftPmRuntime();
-final _windowsSimulatorRuntime = testWindowsSimulatorSwiftPmRuntime();
-final _windowsRepairs = WindowsSwiftPlanRepair(_windowsRuntime.runner);
-final _plugins = GeneratedPluginsPackage(
-  _swiftPmRuntime.targetPolicy,
-  runner: _swiftPmRuntime.runner,
-  sdkRepository: _swiftPmRuntime.sdkRepository,
-  toolchain: _swiftPmRuntime.toolchainResolver,
-  tools: _swiftPmRuntime.tools,
-  hostPolicy: _swiftPmRuntime.hostPolicy,
-  artifactFileSystem: _swiftPmRuntime.artifactFileSystem,
-  sdkIdentity: _swiftPmRuntime.sdkIdentity,
-);
 
 void main() {
   late Directory root;
@@ -44,12 +29,21 @@ void main() {
       '${root.path};other;tools',
     );
     expect(environment('', _windowsRuntime)['PATH'], root.path);
-    expect(environment('other:tools', _swiftPmRuntime), isNot(contains('PATH')));
+    expect(
+      environment('other:tools', _swiftPmRuntime),
+      isNot(contains('PATH')),
+    );
     File(p.join(root.path, 'xcrun.exe')).deleteSync();
-    expect(environment('other;tools', _windowsRuntime), isNot(contains('PATH')));
+    expect(
+      environment('other;tools', _windowsRuntime),
+      isNot(contains('PATH')),
+    );
   });
 
-  for (final runtime in <SwiftPmRuntime<PlatformHostInterface>>[_swiftPmRuntime, _windowsRuntime]) {
+  for (final runtime in <SwiftPmRuntime<PlatformHostInterface>>[
+    _swiftPmRuntime,
+    _windowsRuntime,
+  ]) {
     test(
       'recovers reachable internal headers after a failed aggregate (${runtime.host.name})',
       () async {
@@ -76,22 +70,25 @@ void main() {
         );
         final events = <String>[];
         var attempts = 0;
-        await runtime.interopRepair.buildWithInteropRecovery(
+        await testGenericInteropRecovery(
+          runtime,
+          RecordingSwiftPmInteropBuild(
+            build: () async {
+              events.add('build');
+              if (++attempts == 1) {
+                throw StateError("'Internal-Swift.h' file not found");
+              }
+            },
+            buildTarget: (target) async {
+              events.add(target);
+              File(
+                p.join(include, '$target-Swift.h'),
+              ).writeAsStringSync('// header');
+            },
+          ),
+        ).build(
           targetBuildDir: root.path,
           interopTargetCandidates: const {'Public'},
-
-          build: () async {
-            events.add('build');
-            if (++attempts == 1) {
-              throw StateError("'Internal-Swift.h' file not found");
-            }
-          },
-          buildTarget: (target) async {
-            events.add(target);
-            File(
-              p.join(include, '$target-Swift.h'),
-            ).writeAsStringSync('// header');
-          },
         );
         expect(events, ['build', 'Internal', 'build']);
       },
@@ -116,16 +113,16 @@ void main() {
     final originalError = StateError("'Internal-Swift.h' file not found");
     var builds = 0;
     await expectLater(
-      _windowsRuntime.interopRepair.buildWithInteropRecovery(
-        targetBuildDir: root.path,
-        interopTargetCandidates: const {},
-
-        build: () {
-          builds++;
-          return Future<void>.error(originalError);
-        },
-        buildTarget: (_) async => throw targetError,
-      ),
+      testWindowsInteropRecovery(
+        _windowsRuntime,
+        RecordingSwiftPmInteropBuild(
+          build: () {
+            builds++;
+            return Future<void>.error(originalError);
+          },
+          buildTarget: (_) async => throw targetError,
+        ),
+      ).build(targetBuildDir: root.path, interopTargetCandidates: const {}),
       throwsA(same(originalError)),
     );
     expect(builds, 1);

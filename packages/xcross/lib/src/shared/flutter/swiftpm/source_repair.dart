@@ -14,13 +14,18 @@ const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmSourceRepair<T extends PlatformHostInterface> {
-  SwiftPmSourceRepair({required this.filesystem,required this.hostPolicy,required this.processPolicy,required this.runner,required this.sdkIdentity});
+  SwiftPmSourceRepair({
+    required this.filesystem,
+    required this.hostPolicy,
+    required this.processPolicy,
+    required this.runner,
+    required this.sdkIdentity,
+  });
   final SwiftPmFilesystem<T> filesystem;
   final SwiftPmHostPolicy hostPolicy;
   final SwiftPmProcessPolicy<T> processPolicy;
   final ProcessRunner<T> runner;
   final SwiftPmSdkIdentity sdkIdentity;
-
 
   /// Fragments that mark a dependency fetch as a transient network failure
   /// rather than a real, reproducible error.
@@ -92,7 +97,9 @@ final class SwiftPmSourceRepair<T extends PlatformHostInterface> {
         if (filesystem.artifactFileSystem.directory(root).existsSync())
           (
             p.normalize(p.absolute(root)),
-            filesystem.artifactFileSystem.directory(root).resolveSymbolicLinksSync(),
+            filesystem.artifactFileSystem
+                .directory(root)
+                .resolveSymbolicLinksSync(),
           ),
     ];
     var changed = false;

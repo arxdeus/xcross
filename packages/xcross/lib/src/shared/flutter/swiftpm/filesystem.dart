@@ -12,13 +12,21 @@ const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmFilesystem<T extends PlatformHostInterface> {
-  SwiftPmFilesystem({required this.host,required this.runner,required this.artifactFileSystem});
+  SwiftPmFilesystem({
+    required this.host,
+    required this.runner,
+    required this.artifactFileSystem,
+  });
   final T host;
   final ProcessRunner<T> runner;
   final SwiftPmArtifactFileSystem artifactFileSystem;
 
-  Future<void> stageFlutterFramework(String source, String destination, {required bool copy}) async {
-    if(copy) {
+  Future<void> stageFlutterFramework(
+    String source,
+    String destination, {
+    required bool copy,
+  }) async {
+    if (copy) {
       await deleteUnless(destination, FileSystemEntityType.directory);
       await syncDirectory(source, destination);
     } else {
@@ -26,7 +34,6 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
       await artifactFileSystem.link(destination).create(source);
     }
   }
-
 
   /// Writes [content] to [path] only when it differs.
   ///
@@ -70,9 +77,9 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
           ((digest[0] << 24) | (digest[1] << 16) | (digest[2] << 8) | digest[3])
               .toUnsigned(32) %
           const Duration(days: 3650).inSeconds;
-      await artifactFileSystem.file(
-        path,
-      ).setLastModified(DateTime.utc(2010).add(Duration(seconds: offset)));
+      await artifactFileSystem
+          .file(path)
+          .setLastModified(DateTime.utc(2010).add(Duration(seconds: offset)));
     } on Object {
       // Deliberately ignored: see above.
     }
@@ -178,7 +185,8 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
         ? p.normalize(p.absolute(ioSource))
         : ioPath(artifactRoot);
     await artifactFileSystem.directory(ioDestination).create(recursive: true);
-    await for (final entity in artifactFileSystem.directory(ioSource).list(followLinks: false)) {
+    await for (final entity
+        in artifactFileSystem.directory(ioSource).list(followLinks: false)) {
       final name = p.basename(entity.path);
       if (artifactRoot == null &&
           includeTopLevel != null &&
@@ -241,7 +249,8 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
     await artifactFileSystem.directory(destination).create(recursive: true);
 
     final expected = <String>{...preserve};
-    await for (final entity in artifactFileSystem.directory(source).list(followLinks: false)) {
+    await for (final entity
+        in artifactFileSystem.directory(source).list(followLinks: false)) {
       if (excluded != null &&
           p.equals(p.normalize(p.absolute(entity.path)), excluded)) {
         continue;
@@ -285,9 +294,8 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
       }
     }
 
-    await for (final entity in artifactFileSystem.directory(
-      destination,
-    ).list(followLinks: false)) {
+    await for (final entity
+        in artifactFileSystem.directory(destination).list(followLinks: false)) {
       if (!expected.contains(p.basename(entity.path))) {
         await deleteEntity(entity.path);
         changed = true;

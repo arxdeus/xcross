@@ -1,5 +1,3 @@
-// ignore_for_file: inference_failure_on_collection_literal
-
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
@@ -8,13 +6,14 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:cli_kit/cli_kit.dart';
+import 'package:crypto/crypto.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/cli/basic/sdk_install.dart';
+import 'package:xcross/src/flutter/build/internal/swiftpm_binary_fixture.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_workspace.dart';
-import 'package:xcross/src/flutter/build/internal/windows_swift_plan_repair.dart';
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/flutter/build/ios_plugins.dart';
@@ -23,12 +22,15 @@ import 'package:xcross/src/flutter/build/swiftpm_binary_artifact_preparer.dart';
 import 'package:xcross/src/flutter/build/swiftpm_binary_artifact_store.dart';
 import 'package:xcross/src/flutter/build/swiftpm_binary_target.dart';
 import 'package:xcross/src/flutter/errors.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/binary_recovery.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/build_plan.dart';
+import 'package:xcross/src/host/windows/flutter/swiftpm/dependency_preparation.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/binary_provenance.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/dependency_evaluator.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/discovery.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/interop_repair.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/host_source_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/manifest_dependencies.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
 
@@ -36,9 +38,7 @@ import 'swiftpm_test_context.dart';
 
 final _swiftPmRuntime = testSwiftPmRuntime();
 final _windowsRuntime = testWindowsSwiftPmRuntime();
-final _simulatorRuntime = testSimulatorSwiftPmRuntime();
-final _windowsSimulatorRuntime = testWindowsSimulatorSwiftPmRuntime();
-final _windowsRepairs = WindowsSwiftPlanRepair(_windowsRuntime.runner);
+
 final _plugins = GeneratedPluginsPackage(
   _swiftPmRuntime.targetPolicy,
   runner: _swiftPmRuntime.runner,
@@ -48,6 +48,16 @@ final _plugins = GeneratedPluginsPackage(
   hostPolicy: _swiftPmRuntime.hostPolicy,
   artifactFileSystem: _swiftPmRuntime.artifactFileSystem,
   sdkIdentity: _swiftPmRuntime.sdkIdentity,
+  publicationCoordinator: _swiftPmRuntime.publicationCoordinator,
+  transport: _swiftPmRuntime.transport,
+  copyPolicy: _swiftPmRuntime.copyPolicy,
+  foundation: _swiftPmRuntime.foundation,
+  gatePlatform: _swiftPmRuntime.gatePlatform,
+  buildExecution: _swiftPmRuntime.buildExecution,
+  dependencyPreparation: _swiftPmRuntime.dependencyPreparation,
+  checkout: _swiftPmRuntime.checkout,
+  checkoutAttributes: _swiftPmRuntime.checkoutAttributes,
+  checkoutManifestNormalizer: _swiftPmRuntime.checkoutManifestNormalizer,
 );
 
 String swiftPath(String path) => p.absolute(path).replaceAll(r'\', '/');
@@ -60,7 +70,7 @@ SwiftPmBinaryArtifactProvenance binaryProvenance(
 ) {
   final manifest =
       '.binaryTarget(name: "$target", url: "https://example.invalid/archive.zip", checksum: "$checksum")';
-  return SwiftPmBinaryRecovery.scanBinaryArtifactProvenance(
+  return SwiftPmBinaryProvenance.scanBinaryArtifactProvenance(
     packageIdentity: identity,
     manifestPath: manifestPath,
     manifest: manifest,
@@ -349,14 +359,14 @@ let package = Package(
   group('normalizeLinkerFlags', () {
     test('normalizes SwiftPM Wl linker flags', () {
       expect(
-        SwiftPmManifest.normalizeLinkerFlags(
+        SwiftPmHostSourceNormalizer.normalizeLinkerFlags(
           '.unsafeFlags(["-Wl,-undefined,dynamic_lookup"])',
         ),
         '.unsafeFlags(["-Xlinker", "-undefined", "-Xlinker", '
         '"dynamic_lookup"])',
       );
       expect(
-        SwiftPmManifest.normalizeLinkerFlags(
+        SwiftPmHostSourceNormalizer.normalizeLinkerFlags(
           '.unsafeFlags(["-O3", "-Wl,-rpath,@loader_path"])',
         ),
         '.unsafeFlags(["-O3", "-Xlinker", "-rpath", "-Xlinker", '
@@ -364,14 +374,17 @@ let package = Package(
       );
 
       const escaped = r'.unsafeFlags(["-Wl,-rpath,\"quoted\""])';
-      expect(SwiftPmManifest.normalizeLinkerFlags(escaped), escaped);
+      expect(
+        SwiftPmHostSourceNormalizer.normalizeLinkerFlags(escaped),
+        escaped,
+      );
     });
   });
 
   group('dependency resolver workspace', () {
     test('uses the package-local SwiftPM build directory by default', () {
       expect(
-        SwiftPmBinaryRecovery.dependencyResolverScratchPath(
+        SwiftPmDependencyEvaluator.dependencyResolverScratchPath(
           packageDirectory: r'C:\xcross\plugins\Resolve',
           scratchPath: r'C:\xcross\scratch',
           usesDefaultResolver: true,
@@ -382,7 +395,7 @@ let package = Package(
 
     test('preserves injected resolver scratch paths', () {
       expect(
-        SwiftPmBinaryRecovery.dependencyResolverScratchPath(
+        SwiftPmDependencyEvaluator.dependencyResolverScratchPath(
           packageDirectory: 'Resolve',
           scratchPath: 'injected-scratch',
           usesDefaultResolver: false,
@@ -398,7 +411,7 @@ let package = Package(
         ..createSync(recursive: true);
       late List<String> arguments;
 
-      final files = await _swiftPmRuntime.binaryRecovery
+      final files = await _swiftPmRuntime.binaryProvenance
           .trackedPackageManifestFiles(
             package.path,
             runProcess: (executable, args) async {
@@ -431,7 +444,7 @@ let package = Package(
 
     test('reports Git index failures for existing checkout roots', () async {
       await expectLater(
-        _swiftPmRuntime.binaryRecovery.trackedPackageManifestFiles(
+        _swiftPmRuntime.binaryProvenance.trackedPackageManifestFiles(
           tmp.path,
           runProcess: (executable, arguments) async =>
               const CapturedProcess(128, '', 'not a repository'),
@@ -450,7 +463,7 @@ let package = Package(
   group('normalizeHostManifest', () {
     test('finds dependency products that may emit Swift headers', () {
       expect(
-        SwiftPmInteropRepair.dependencyProductNames('''
+        SwiftPmManifestDependencies.dependencyProductNames('''
 .product(name: "FirebaseFirestore", package: "firebase-ios-sdk"),
 .product(name: "firebase-core", package: "firebase_core"),
 '''),
@@ -468,7 +481,7 @@ import Glibc
 import MSVCRT
 #endif
 ''';
-      final out = _swiftPmRuntime.manifest.normalizeHostManifest(input);
+      final out = _swiftPmRuntime.sourceNormalizer.normalizeHostManifest(input);
       expect(
         out,
         contains(
@@ -488,7 +501,7 @@ import MSVCRT
           '#elseif canImport(MSVCRT)\r\n'
           'import MSVCRT';
       expect(
-        _swiftPmRuntime.manifest.normalizeHostManifest(input),
+        _swiftPmRuntime.sourceNormalizer.normalizeHostManifest(input),
         contains('import CRT\n'),
       );
     });
@@ -504,7 +517,9 @@ func packageDependencies() -> [Package.Dependency] {
   #endif
 }
 ''';
-      final normalized = _swiftPmRuntime.manifest.normalizeHostManifest(input);
+      final normalized = _swiftPmRuntime.sourceNormalizer.normalizeHostManifest(
+        input,
+      );
       expect(normalized, startsWith('#if os(macOS)\nlet unrelated'));
       expect(
         normalized,
@@ -517,7 +532,7 @@ func packageDependencies() -> [Package.Dependency] {
       const input =
           'if let env = env, String(cString: env, encoding: .utf8) == "1"';
       expect(
-        _swiftPmRuntime.manifest.normalizeHostManifest(input),
+        _swiftPmRuntime.sourceNormalizer.normalizeHostManifest(input),
         'if let env = env, String(cString: env) == "1"',
       );
     });
@@ -527,9 +542,11 @@ func packageDependencies() -> [Package.Dependency] {
 #elseif canImport(MSVCRT)
 import MSVCRT
 ''';
-      final normalized = _swiftPmRuntime.manifest.normalizeHostManifest(input);
+      final normalized = _swiftPmRuntime.sourceNormalizer.normalizeHostManifest(
+        input,
+      );
       expect(
-        _swiftPmRuntime.manifest.normalizeHostManifest(normalized),
+        _swiftPmRuntime.sourceNormalizer.normalizeHostManifest(normalized),
         normalized,
       );
       expect('import CRT'.allMatches(normalized), hasLength(1));
@@ -544,7 +561,9 @@ if getenv("EXPERIMENTAL_SPM_BUILDS") != nil {
     products.append(.library(name: "SourceProduct", type: .dynamic, targets: ["SourceSDK"]))
 }
 ''';
-      final normalized = _swiftPmRuntime.manifest.normalizeHostManifest(input);
+      final normalized = _swiftPmRuntime.sourceNormalizer.normalizeHostManifest(
+        input,
+      );
       expect(
         normalized,
         contains(
@@ -565,7 +584,7 @@ if getenv("EXPERIMENTAL_SPM_BUILDS") != nil {
         ),
       );
       expect(
-        _swiftPmRuntime.manifest.normalizeHostManifest(normalized),
+        _swiftPmRuntime.sourceNormalizer.normalizeHostManifest(normalized),
         normalized,
       );
     });
@@ -584,7 +603,9 @@ let package = Package(
   ]
 )
 ''';
-      final normalized = _swiftPmRuntime.manifest.normalizeHostManifest(input);
+      final normalized = _swiftPmRuntime.sourceNormalizer.normalizeHostManifest(
+        input,
+      );
       expect(normalized, contains('defaultLocalization: "en"'));
       expect(
         normalized,
@@ -596,7 +617,7 @@ let package = Package(
 
     test('still normalizes linker flags', () {
       expect(
-        _swiftPmRuntime.manifest.normalizeHostManifest(
+        _swiftPmRuntime.sourceNormalizer.normalizeHostManifest(
           '.unsafeFlags(["-Wl,-rpath,@loader_path"])',
         ),
         '.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@loader_path"])',
@@ -624,7 +645,10 @@ let before = true
 let after = true
 ''';
 
-      expect(SwiftPmManifest.normalizeHostSwiftSource(input), input);
+      expect(
+        SwiftPmHostSourceNormalizer.normalizeHostSwiftSource(input),
+        input,
+      );
     });
 
     test('imports fallback Swift modules before the compatibility parent', () {
@@ -633,7 +657,7 @@ let after = true
 import PublicSDK._Hybrid
 let value = PublicAPI()
 ''';
-      final output = SwiftPmManifest.normalizeHostSwiftSource(
+      final output = SwiftPmHostSourceNormalizer.normalizeHostSwiftSource(
         input,
         fallbackSwiftModules: const {
           'PublicSDK': ['SwiftImpl'],
@@ -647,7 +671,7 @@ import PublicSDK._Hybrid
 let value = PublicAPI()
 ''');
       expect(
-        SwiftPmManifest.normalizeHostSwiftSource(
+        SwiftPmHostSourceNormalizer.normalizeHostSwiftSource(
           output,
           fallbackSwiftModules: const {
             'PublicSDK': ['SwiftImpl'],
@@ -676,7 +700,7 @@ let value = PublicAPI()
         final versionedManifest = File(p.join(root, 'Package@swift-6.0.swift'))
           ..writeAsStringSync('import PublicSDK\n');
 
-        await _swiftPmRuntime.manifest.normalizeHostSwiftTree(
+        await _swiftPmRuntime.sourceNormalizer.normalizeHostSwiftTree(
           p.join(tmp.path, 'scratch', 'checkouts'),
           fallbackSwiftModules: const {
             'PublicSDK': ['SwiftImpl'],
@@ -703,7 +727,7 @@ let value = PublicAPI()
         ..writeAsStringSync('let value = 1\n');
       final before = source.readAsBytesSync();
 
-      await _swiftPmRuntime.manifest.normalizeHostSwiftTree(root);
+      await _swiftPmRuntime.sourceNormalizer.normalizeHostSwiftTree(root);
 
       expect(source.readAsBytesSync(), before);
     });
@@ -926,10 +950,24 @@ framework module PublicSDK {
     for (final sourceFallback in [true, false]) {
       test('records fallback Swift modules only when the source lane is '
           'active (sourceFallback: $sourceFallback)', () async {
-        addTearDown(() => _swiftPmRuntime.sourceFallbackOverride = null);
-        _swiftPmRuntime.sourceFallbackOverride = sourceFallback;
+        final environment = Map<String, String>.from(Platform.environment)
+          ..remove('EXPERIMENTAL_SPM_BUILDS');
+        if (sourceFallback) environment['EXPERIMENTAL_SPM_BUILDS'] = '1';
+        final runtime = testSwiftPmRuntime(environment: environment);
+        expect(runtime.processPolicy.sourceFallbackActive, sourceFallback);
+        expect(
+          runtime.host.environment.lookup(
+                runtime.host.environment.overlay(
+                  runtime.runner.effectiveEnvironment,
+                  runtime.processPolicy.swiftProcessEnvironment(),
+                ),
+                'EXPERIMENTAL_SPM_BUILDS',
+              ) !=
+              null,
+          sourceFallback,
+        );
         final fallbackSwiftModules = <String, List<String>>{};
-        await _swiftPmRuntime.dependencyVendor.vendorUrlPackagesAsPathDeps(
+        await runtime.dependencyVendor.vendorUrlPackagesAsPathDeps(
           '''
 import PackageDescription
 let package = Package(
@@ -1568,7 +1606,7 @@ let package = Package(
     });
 
     test('uses resolved revisions for every SwiftPM requirement variant', () {
-      final refs = SwiftPmBinaryRecovery.dependencyRefsFromPackageResolved(
+      final refs = SwiftPmBinaryProvenance.dependencyRefsFromPackageResolved(
         jsonEncode({
           'pins': [
             for (final entry in const [
@@ -1666,25 +1704,22 @@ let package = Package(dependencies: [
 ''');
       final original = manifest.readAsStringSync();
       var clones = 0;
-      final result = await _windowsRuntime.workspaceStager
-          .bootstrapWindowsPinnedDependencyResolve(
-            [plugin.path],
-            p.join(tmp.path, 'vendor'),
-
-            clonePackage: (_, url, ref, destination) async {
-              clones++;
-              expect(url, 'https://example.com/vendor/cold-package');
-              expect(ref, '1.2.3');
-              await Directory(destination).create(recursive: true);
-              await File(
-                p.join(destination, 'Package@swift-6.1.swift'),
-              ).writeAsString('''
+      final result = await testWindowsPinnedResolver(
+        _windowsRuntime,
+        RecordingSwiftPmGitPackageCloner((_, url, ref, destination) async {
+          clones++;
+          expect(url, 'https://example.com/vendor/cold-package');
+          expect(ref, '1.2.3');
+          await Directory(destination).create(recursive: true);
+          await File(
+            p.join(destination, 'Package@swift-6.1.swift'),
+          ).writeAsString('''
 #elseif canImport(MSVCRT)
 import MSVCRT
 let env = getenv("EXPERIMENTAL_SPM_BUILDS")
 ''');
-            },
-          );
+        }),
+      ).resolve([plugin.path], p.join(tmp.path, 'vendor'));
       expect(clones, 1);
       expect(result.originals[manifest.path], original);
       expect(result.pins['https://example.com/vendor/cold-package'], '1.2.3');
@@ -1713,19 +1748,16 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
 .package(url: "https://example.com/vendor/second-package", revision: "abcdef123456")
 ''');
       final cloned = <String, String>{};
-      final result = await _windowsRuntime.workspaceStager
-          .bootstrapWindowsPinnedDependencyResolve(
-            [plugin.path],
-            p.join(tmp.path, 'vendor'),
-
-            clonePackage: (_, url, ref, destination) async {
-              cloned[url] = ref;
-              await Directory(destination).create(recursive: true);
-              await File(
-                p.join(destination, 'Package.swift'),
-              ).writeAsString('import PackageDescription');
-            },
-          );
+      final result = await testWindowsPinnedResolver(
+        _windowsRuntime,
+        RecordingSwiftPmGitPackageCloner((_, url, ref, destination) async {
+          cloned[url] = ref;
+          await Directory(destination).create(recursive: true);
+          await File(
+            p.join(destination, 'Package.swift'),
+          ).writeAsString('import PackageDescription');
+        }),
+      ).resolve([plugin.path], p.join(tmp.path, 'vendor'));
       expect(cloned, {
         'https://example.com/vendor/first-package.git': '1.2.3',
         'https://example.com/vendor/second-package': 'abcdef123456',
@@ -1744,13 +1776,12 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
 .package(url: "https://example.com/vendor/second-package", from: "2.0.0")
 ''');
       final original = manifest.readAsStringSync();
-      final result = await _windowsRuntime.workspaceStager
-          .bootstrapWindowsPinnedDependencyResolve(
-            [plugin.path],
-            p.join(tmp.path, 'vendor'),
-
-            clonePackage: (_, _, _, _) async => fail('must not clone ranges'),
-          );
+      final result = await testWindowsPinnedResolver(
+        _windowsRuntime,
+        RecordingSwiftPmGitPackageCloner(
+          (_, _, _, _) async => fail('must not clone ranges'),
+        ),
+      ).resolve([plugin.path], p.join(tmp.path, 'vendor'));
       expect(result.pins, isEmpty);
       expect(result.originals, isEmpty);
       expect(manifest.readAsStringSync(), original);
@@ -1764,12 +1795,12 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
           'exact: "1.2.3")',
         );
       final original = manifest.readAsStringSync();
-      final result = await _swiftPmRuntime.hostPolicy.bootstrapPinnedDependencies(
-            _swiftPmRuntime,
-            [plugin.path],
-            p.join(tmp.path, 'vendor'),
-
-            (_, _, _, _) async => fail('must not clone'),
+      final result = await _swiftPmRuntime.dependencyPreparation
+          .bootstrapPinned(
+            SwiftPmPinnedDependencyCommand(
+              packageDirectories: [plugin.path],
+              vendorDir: p.join(tmp.path, 'vendor'),
+            ),
           );
       expect(result.pins, isEmpty);
       expect(result.originals, isEmpty);
@@ -1792,17 +1823,15 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
         );
       final original = firstManifest.readAsStringSync();
       await expectLater(
-        _windowsRuntime.workspaceStager.bootstrapWindowsPinnedDependencyResolve(
-          [first.path, second.path],
-          p.join(tmp.path, 'vendor'),
-
-          clonePackage: (_, _, _, destination) async {
+        testWindowsPinnedResolver(
+          _windowsRuntime,
+          RecordingSwiftPmGitPackageCloner((_, _, _, destination) async {
             await Directory(destination).create(recursive: true);
             await File(
               p.join(destination, 'Package.swift'),
             ).writeAsString('import PackageDescription');
-          },
-        ),
+          }),
+        ).resolve([first.path, second.path], p.join(tmp.path, 'vendor')),
         throwsA(isA<FlutterBuildError>()),
       );
       expect(firstManifest.readAsStringSync(), original);
@@ -1824,18 +1853,16 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
       final original = firstFile.readAsStringSync();
       var clones = 0;
       await expectLater(
-        _windowsRuntime.workspaceStager.bootstrapWindowsPinnedDependencyResolve(
-          [first.path, second.path],
-          p.join(tmp.path, 'vendor'),
-
-          clonePackage: (_, _, _, destination) async {
+        testWindowsPinnedResolver(
+          _windowsRuntime,
+          RecordingSwiftPmGitPackageCloner((_, _, _, destination) async {
             if (++clones == 2) throw StateError('clone failed');
             await Directory(destination).create(recursive: true);
             await File(
               p.join(destination, 'Package.swift'),
             ).writeAsString('import PackageDescription');
-          },
-        ),
+          }),
+        ).resolve([first.path, second.path], p.join(tmp.path, 'vendor')),
         throwsStateError,
       );
       expect(firstFile.readAsStringSync(), original);
@@ -1848,7 +1875,7 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
       var recoveries = 0;
       final state = SwiftPmBinaryAttemptState();
 
-      final refs = await _swiftPmRuntime.binaryRecovery
+      final refs = await _swiftPmRuntime.dependencyEvaluator
           .evaluateDependencyRefsWithRecovery(
             package.path,
             resolve: (_) async {
@@ -1905,21 +1932,24 @@ import PackageDescription
 let env = getenv("EXPERIMENTAL_SPM_BUILDS")
 ''');
         var attempts = 0;
-        await _swiftPmRuntime.binaryRecovery.evaluateDependencyRefsWithRecovery(
-          root.path,
-          resolve: (_) async {
-            attempts++;
-            if (!manifest.readAsStringSync().contains('import CRT')) {
-              throw StateError("cannot find 'getenv' in scope");
-            }
-            File(
-              p.join(root.path, 'Package.resolved'),
-            ).writeAsStringSync('{"pins":[]}');
-          },
-          recover: (_, _) => _swiftPmRuntime.interopRepair
-              .normalizeResolvedPackageManifests(scratch),
-          attemptState: SwiftPmBinaryAttemptState(),
-        );
+        await _swiftPmRuntime.dependencyEvaluator
+            .evaluateDependencyRefsWithRecovery(
+              root.path,
+              resolve: (_) async {
+                attempts++;
+                if (!manifest.readAsStringSync().contains('import CRT')) {
+                  throw StateError("cannot find 'getenv' in scope");
+                }
+                File(
+                  p.join(root.path, 'Package.resolved'),
+                ).writeAsStringSync('{"pins":[]}');
+              },
+              recover: (_, _) =>
+                  (_windowsRuntime.dependencyPreparation
+                          as WindowsSwiftPmDependencyPreparation)
+                      .normalizeResolvedPackageManifests(scratch),
+              attemptState: SwiftPmBinaryAttemptState(),
+            );
         expect(attempts, 2);
         expect(manifest.readAsStringSync(), contains('import CRT'));
       },
@@ -1928,7 +1958,7 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
     test('rethrows original failure when recovery has no evidence', () async {
       final original = StateError('original');
       await expectLater(
-        _swiftPmRuntime.binaryRecovery.evaluateDependencyRefsWithRecovery(
+        _swiftPmRuntime.dependencyEvaluator.evaluateDependencyRefsWithRecovery(
           tmp.path,
           resolve: (_) async => throw original,
           recover: (_, _) async => false,
@@ -1942,7 +1972,7 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
       var resolves = 0;
       final second = StateError('second');
       await expectLater(
-        _swiftPmRuntime.binaryRecovery.evaluateDependencyRefsWithRecovery(
+        _swiftPmRuntime.dependencyEvaluator.evaluateDependencyRefsWithRecovery(
           tmp.path,
           resolve: (_) {
             resolves++;
@@ -1960,7 +1990,7 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
 
   group('binary artifact provenance', () {
     test('keeps package and target identity when matching artifacts', () {
-      final first = _swiftPmRuntime.binaryRecovery
+      final first = _swiftPmRuntime.binaryProvenance
           .matchBinaryArtifactProvenance(
             artifactPath: p.join('scratch', 'artifacts', 'one', 'SharedBinary'),
             artifactsRoot: p.join('scratch', 'artifacts'),
@@ -1979,7 +2009,7 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
               ),
             ],
           );
-      final second = _swiftPmRuntime.binaryRecovery
+      final second = _swiftPmRuntime.binaryProvenance
           .matchBinaryArtifactProvenance(
             artifactPath: p.join('scratch', 'artifacts', 'two', 'SharedBinary'),
             artifactsRoot: p.join('scratch', 'artifacts'),
@@ -2004,7 +2034,7 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
     });
 
     test('matches SwiftPM layout case-insensitively on Windows', () {
-      final match = _windowsRuntime.binaryRecovery
+      final match = _windowsRuntime.binaryProvenance
           .matchBinaryArtifactProvenance(
             artifactPath: p.join('artifacts', 'PACKAGE', 'target'),
             artifactsRoot: 'artifacts',
@@ -2024,7 +2054,7 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
         'Package.swift',
       );
       expect(
-        _swiftPmRuntime.binaryRecovery.matchBinaryArtifactProvenance(
+        _swiftPmRuntime.binaryProvenance.matchBinaryArtifactProvenance(
           artifactPath: p.join('artifacts', 'package', 'Target'),
           artifactsRoot: 'artifacts',
           provenance: [duplicate, duplicate],
@@ -2032,7 +2062,7 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
         isNull,
       );
       expect(
-        SwiftPmBinaryRecovery.scanBinaryArtifactProvenance(
+        SwiftPmBinaryProvenance.scanBinaryArtifactProvenance(
           packageIdentity: 'package',
           manifestPath: 'Package.swift',
           manifest:
@@ -2091,7 +2121,7 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
         File(p.join(artifact.path, '.complete')).writeAsStringSync('');
 
         expect(
-          await _swiftPmRuntime.binaryRecovery.hasCompleteSwiftPmArtifact(
+          await _swiftPmRuntime.binaryLayout.hasCompleteSwiftPmArtifact(
             artifact,
           ),
           isFalse,
@@ -2101,7 +2131,7 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
           p.join(artifact.path, 'ios-arm64', 'Final.framework'),
         ).createSync(recursive: true);
         expect(
-          await _swiftPmRuntime.binaryRecovery.hasCompleteSwiftPmArtifact(
+          await _swiftPmRuntime.binaryLayout.hasCompleteSwiftPmArtifact(
             artifact,
           ),
           isTrue,
@@ -2117,7 +2147,7 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
         'Package.swift',
       );
       expect(
-        _windowsRuntime.binaryRecovery.binaryArtifactAttemptKey(upper),
+        _windowsRuntime.binaryProvenance.binaryArtifactAttemptKey(upper),
         'package\u0000target\u0000${'a' * 64}',
       );
     });
@@ -2202,7 +2232,7 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
           final prepared = <String>[];
           String? copiedFrom;
 
-          final changed = await _windowsRuntime.binaryRecovery
+          final changed = await _windowsRuntime.extractedArtifacts
               .stageExtractedBinaryArtifacts(
                 scratchPath: layout.scratch,
                 vendorDir: layout.vendor,
@@ -2248,7 +2278,7 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
           final layout = extractedLayout('offline');
           final store = p.join(tmp.path, 'offline', 'store');
 
-          final changed = await _windowsRuntime.binaryRecovery
+          final changed = await _windowsRuntime.extractedArtifacts
               .stageExtractedBinaryArtifacts(
                 scratchPath: layout.scratch,
                 vendorDir: layout.vendor,
@@ -2265,13 +2295,126 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
               );
 
           expect(changed, isTrue);
+          expect(Directory(p.join(store, 'targets')).existsSync(), isFalse);
           final metadata = File(
-            p.join(store, 'targets', firstChecksum, 'First', 'metadata.json'),
+            p.join(
+              tmp.path,
+              'offline',
+              'fb',
+              'extracted-artifacts',
+              firstChecksum,
+              'First',
+              '.xcross-offline.json',
+            ),
           );
           expect(
             metadata.readAsStringSync(),
-            contains('swiftpm-extracted-artifact'),
+            contains('unverified-extracted-tree'),
           );
+        },
+      );
+
+      test(
+        'manifest failure cannot admit offline trees into later verified preparation',
+        () async {
+          final layout = extractedLayout('offline-manifest-failure');
+          final root = p.join(tmp.path, 'offline-manifest-failure');
+          final fixture = SwiftPmBinaryFixture.generateXcframework(
+            policy: _windowsRuntime.targetPolicy,
+            fileSystem: _windowsRuntime.artifactFileSystem,
+            root: p.join(root, 'verified-fixture'),
+            name: 'First',
+          );
+          final archive = SwiftPmBinaryFixture.archiveXcframework(
+            fileSystem: _windowsRuntime.artifactFileSystem,
+            framework: fixture,
+            output: p.join(root, 'verified-fixture.zip'),
+          );
+          final bytes = archive.readAsBytesSync();
+          final checksum = sha256.convert(bytes).toString();
+          final original = layout.manifest.readAsStringSync().replaceFirst(
+            firstChecksum,
+            checksum,
+          );
+          layout.manifest.writeAsStringSync(original);
+          final storeRoot = p.join(root, 'store');
+          final fallback = p.join(root, 'fallback');
+          final failure = StateError('original manifest write failed');
+          await expectLater(
+            _windowsRuntime.extractedArtifacts.stageExtractedBinaryArtifacts(
+              scratchPath: layout.scratch,
+              vendorDir: layout.vendor,
+              binaryArtifactStore: storeRoot,
+              binaryArtifactFallback: fallback,
+              attemptState: SwiftPmBinaryAttemptState(),
+              prepare: (_) => Future.error(
+                FlutterBuildError('offline archive unavailable'),
+              ),
+              materialize: ({required source, required destination}) async {
+                await Directory(destination).create(recursive: true);
+                return SwiftPmBinaryArtifactPublication.published();
+              },
+              removeDestination: (destination) =>
+                  Directory(destination).delete(recursive: true),
+              writeManifest: (_, _) => Future.error(failure),
+            ),
+            throwsA(same(failure)),
+          );
+          expect(layout.manifest.readAsStringSync(), original);
+          expect(
+            Directory(
+              p.join(
+                layout.manifest.parent.path,
+                '.xa',
+                checksum.substring(0, 16),
+                'First.xcframework',
+              ),
+            ).existsSync(),
+            isFalse,
+          );
+          final offlineRoot = p.join(
+            fallback,
+            'extracted-artifacts',
+            checksum,
+            'First',
+          );
+          expect(
+            File(
+              p.join(offlineRoot, '.xcross-offline.json'),
+            ).readAsStringSync(),
+            contains('unverified-extracted-tree'),
+          );
+          expect(
+            File(p.join(offlineRoot, 'metadata.json')).existsSync(),
+            isFalse,
+          );
+          expect(File(p.join(offlineRoot, '.complete')).existsSync(), isFalse);
+          final store = SwiftPmBinaryArtifactStore(
+            storeRoot,
+            host: _windowsRuntime.host,
+            fileSystem: _windowsRuntime.artifactFileSystem,
+            publicationCoordinator: _windowsRuntime.publicationCoordinator,
+          );
+          expect(await store.findCompleteTarget(checksum, 'First'), isNull);
+          final transport = FixtureSwiftPmArchiveTransport(bytes);
+          final preparer = SwiftPmBinaryArtifactPreparer(
+            store: store,
+            policy: _windowsRuntime.targetPolicy,
+            copyPolicy: _windowsRuntime.copyPolicy,
+            transport: transport,
+          );
+          final target = SwiftPmBinaryTargetManifest.discover(original).single;
+          final prepared = await preparer.prepare(target);
+          expect(transport.calls, 1);
+          expect(p.isWithin(storeRoot, prepared.entry.artifactPath), isTrue);
+          expect(p.isWithin(fallback, prepared.entry.artifactPath), isFalse);
+          expect(
+            (await store.findCompleteTarget(checksum, 'First'))?.artifactPath,
+            prepared.entry.artifactPath,
+          );
+          final cached = await preparer.prepare(target);
+          expect(cached.entry.artifactPath, prepared.entry.artifactPath);
+          expect(transport.calls, 1);
         },
       );
 
@@ -2279,7 +2422,7 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
         final layout = extractedLayout('tampered');
 
         await expectLater(
-          _windowsRuntime.binaryRecovery.stageExtractedBinaryArtifacts(
+          _windowsRuntime.extractedArtifacts.stageExtractedBinaryArtifacts(
             scratchPath: layout.scratch,
             vendorDir: layout.vendor,
             binaryArtifactStore: p.join(tmp.path, 'tampered', 'store'),
@@ -2309,7 +2452,7 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
         ..writeAsStringSync(manifest());
       final originalSecond = manifest().split('\n')[2];
 
-      await _windowsRuntime.binaryRecovery.prepareSupportedBinaryArtifacts(
+      await _windowsRuntime.binaryPreparation.prepareSupportedBinaryArtifacts(
         packageRoot: packageRoot,
         binaryArtifactStore: p.join(tmp.path, 'store'),
         binaryArtifactFallback: p.join(tmp.path, 'fallback'),
@@ -2355,15 +2498,16 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
           final manifestFile = File(p.join(packageRoot, 'Package.swift'))
             ..createSync(recursive: true)
             ..writeAsStringSync(manifest().split('\n')[1]);
-          await _windowsRuntime.binaryRecovery.prepareSupportedBinaryArtifacts(
-            packageRoot: packageRoot,
-            binaryArtifactStore: store,
-            binaryArtifactFallback: fallback,
-            packageLocalArtifactJunctionCapability: false,
+          await _windowsRuntime.binaryPreparation
+              .prepareSupportedBinaryArtifacts(
+                packageRoot: packageRoot,
+                binaryArtifactStore: store,
+                binaryArtifactFallback: fallback,
+                packageLocalArtifactJunctionCapability: false,
 
-            prepare: (target) => preparedArtifact(tmp.path, target),
-            materialize: materialize,
-          );
+                prepare: (target) => preparedArtifact(tmp.path, target),
+                materialize: materialize,
+              );
 
           final stable = p.join(
             packageRoot,
@@ -2435,7 +2579,7 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
           ..writeAsStringSync(manifest().split('\n')[1]);
         String? copiedTo;
 
-        await _windowsRuntime.binaryRecovery.prepareSupportedBinaryArtifacts(
+        await _windowsRuntime.binaryPreparation.prepareSupportedBinaryArtifacts(
           packageRoot: packageRoot,
           binaryArtifactStore: p.join(tmp.path, 'store'),
           binaryArtifactFallback: p.join(tmp.path, 'fallback'),
@@ -2488,7 +2632,7 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
         ..writeAsStringSync('$original\n');
       var writes = 0;
 
-      await _windowsRuntime.binaryRecovery.prepareSupportedBinaryArtifacts(
+      await _windowsRuntime.binaryPreparation.prepareSupportedBinaryArtifacts(
         packageRoot: packageRoot,
         binaryArtifactStore: p.join(tmp.path, 'store'),
         binaryArtifactFallback: p.join(tmp.path, 'fallback'),
@@ -2514,7 +2658,7 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
         var writes = 0;
 
         await expectLater(
-          _windowsRuntime.binaryRecovery.prepareSupportedBinaryArtifacts(
+          _windowsRuntime.binaryPreparation.prepareSupportedBinaryArtifacts(
             packageRoot: packageRoot,
             binaryArtifactStore: p.join(tmp.path, 'store'),
             binaryArtifactFallback: p.join(tmp.path, 'fallback'),
@@ -2925,10 +3069,8 @@ resources: [
 ]
 ''';
 
-      final normalized = SwiftPmManifest.removeMissingResources(
-        manifest,
-        package.path,
-      );
+      final normalized = _swiftPmRuntime.sourceNormalizer
+          .removeMissingResources(manifest, package.path);
       expect(normalized, contains('.process("PrivacyInfo.xcprivacy")'));
       expect(normalized, isNot(contains('Missing.bundle')));
     });
@@ -2960,10 +3102,8 @@ let package = Package(targets: [
 ])
 ''';
 
-      final normalized = SwiftPmManifest.removeMissingResources(
-        manifest,
-        package.path,
-      );
+      final normalized = _swiftPmRuntime.sourceNormalizer
+          .removeMissingResources(manifest, package.path);
       expect(normalized, contains('.process("Resources/WebView.storyboard")'));
       expect(normalized, isNot(contains('Missing.xcprivacy')));
     });
@@ -2979,7 +3119,10 @@ let package = Package(targets: [
 ''';
 
       expect(
-        SwiftPmManifest.removeMissingResources(manifest, package.path),
+        _swiftPmRuntime.sourceNormalizer.removeMissingResources(
+          manifest,
+          package.path,
+        ),
         manifest,
       );
     });
@@ -4430,15 +4573,14 @@ let package = Package(
         final requested = <String>[];
         final outputDir = p.join(tmp.path, 'generated output');
 
-        final toolsetPath = await _windowsRuntime.toolchain.writeToolset(
-          outputDir: outputDir,
-          linkerPath: toolPaths['ld64.lld.exe']!,
-
-          locateTool: (name) async {
-            requested.add(name);
-            return toolPaths[name];
-          },
-        );
+        final toolsetPath =
+            await testWindowsToolchainLookup(_windowsRuntime, (name) async {
+              requested.add(name);
+              return toolPaths[name];
+            }).writeToolset(
+              outputDir: outputDir,
+              linkerPath: toolPaths['ld64.lld.exe']!,
+            );
 
         expect(requested, [
           'llvm-libtool-darwin.exe',
@@ -4479,15 +4621,12 @@ let package = Package(
       final requested = <String>[];
       final outputDir = p.join(tmp.path, 'linux output');
 
-      final toolsetPath = await _swiftPmRuntime.toolchain.writeToolset(
-        outputDir: outputDir,
-        linkerPath: toolPaths['llvm-ar']!,
-
-        locateTool: (name) async {
-          requested.add(name);
-          return toolPaths[name];
-        },
-      );
+      final toolsetPath = await testPosixToolchainLookup(_swiftPmRuntime, (
+        name,
+      ) async {
+        requested.add(name);
+        return toolPaths[name];
+      }).writeToolset(outputDir: outputDir, linkerPath: toolPaths['llvm-ar']!);
 
       expect(requested, ['llvm-libtool-darwin', 'llvm-ar']);
       final toolset =
@@ -4506,13 +4645,14 @@ let package = Package(
       final toolPaths = <String, String>{};
       createTools(['llvm-ar', 'llvm-libtool-darwin'], toolPaths);
 
-      final toolsetPath = await _swiftPmRuntime.toolchain.writeToolset(
-        outputDir: p.join(tmp.path, 'sibling output'),
-        linkerPath: toolPaths['llvm-ar']!,
-
-        // Only the unversioned archiver is symlinked onto PATH.
-        locateTool: (name) async => name == 'llvm-ar' ? toolPaths[name] : null,
-      );
+      final toolsetPath =
+          await testPosixToolchainLookup(
+            _swiftPmRuntime,
+            (name) async => name == 'llvm-ar' ? toolPaths[name] : null,
+          ).writeToolset(
+            outputDir: p.join(tmp.path, 'sibling output'),
+            linkerPath: toolPaths['llvm-ar']!,
+          );
 
       final toolset =
           jsonDecode(File(toolsetPath).readAsStringSync())
@@ -4530,11 +4670,12 @@ let package = Package(
 
     test('fails when no Darwin-capable archiver exists', () {
       expect(
-        _swiftPmRuntime.toolchain.writeToolset(
+        testPosixToolchainLookup(
+          _swiftPmRuntime,
+          (name) async => null,
+        ).writeToolset(
           outputDir: p.join(tmp.path, 'empty output'),
           linkerPath: 'ld64.lld',
-
-          locateTool: (name) async => null,
         ),
         throwsA(isA<FlutterBuildError>()),
       );
@@ -4548,7 +4689,7 @@ let package = Package(
 
       // Nothing built yet: the per-triple path the native engine uses.
       expect(
-        SwiftPmBuildPlan.resolveTargetBuildDir(scratch.path),
+        _swiftPmRuntime.planReader.resolveTargetBuildDir(scratch.path),
         p.join(scratch.path, 'arm64-apple-ios', 'debug'),
       );
 
@@ -4557,14 +4698,20 @@ let package = Package(
       final out = Directory(p.join(scratch.path, 'out', 'debug'))
         ..createSync(recursive: true);
       File(p.join(out.path, 'description.json')).writeAsStringSync('{}');
-      expect(SwiftPmBuildPlan.resolveTargetBuildDir(scratch.path), out.path);
+      expect(
+        _swiftPmRuntime.planReader.resolveTargetBuildDir(scratch.path),
+        out.path,
+      );
 
       // Once the pinned native engine has produced its own description, the
       // per-triple layout wins over the stale `out/debug`.
       final triple = Directory(p.join(scratch.path, 'arm64-apple-ios', 'debug'))
         ..createSync(recursive: true);
       File(p.join(triple.path, 'description.json')).writeAsStringSync('{}');
-      expect(SwiftPmBuildPlan.resolveTargetBuildDir(scratch.path), triple.path);
+      expect(
+        _swiftPmRuntime.planReader.resolveTargetBuildDir(scratch.path),
+        triple.path,
+      );
     });
 
     test('keeps the iOS SDK, package flags, and Windows toolset', () {
@@ -4721,10 +4868,14 @@ let package = Package(
           },
         }),
       );
-      final before = SwiftPmBuildPlan.plannedSwiftInteropSearchPaths(buildDir);
+      final before = _swiftPmRuntime.planReader.plannedSwiftInteropSearchPaths(
+        buildDir,
+      );
       final includes = headers.map(p.dirname).toSet().toList()..sort();
       expect(
-        SwiftPmBuildPlan.plannedSwiftInteropSearchPaths(p.relative(buildDir)),
+        _swiftPmRuntime.planReader.plannedSwiftInteropSearchPaths(
+          p.relative(buildDir),
+        ),
         before,
       );
       expect(before, [
@@ -4734,7 +4885,10 @@ let package = Package(
         File(header).parent.createSync(recursive: true);
         File(header).writeAsStringSync('generated');
       }
-      expect(SwiftPmBuildPlan.plannedSwiftInteropSearchPaths(buildDir), before);
+      expect(
+        _swiftPmRuntime.planReader.plannedSwiftInteropSearchPaths(buildDir),
+        before,
+      );
     });
 
     test(
@@ -4767,7 +4921,7 @@ let package = Package(
         );
 
         expect(
-          SwiftPmInteropRepair.missingSwiftInteropTargets(
+          _swiftPmRuntime.consumerRepair.missingSwiftInteropTargets(
             buildDir,
             candidates: const {'PluginStore', 'PluginAuth'},
           ),
@@ -4775,20 +4929,14 @@ let package = Package(
           reason: 'no module map has been written yet',
         );
         expect(
-          _windowsRuntime.buildPlan.plannedSwiftInteropTargets(
-            buildDir,
-            candidates: const {'PluginStore', 'PluginAuth'},
-          ),
+          _windowsRuntime.planReader.plannedSwiftInteropTargets(buildDir),
           ['PluginAuth', 'PluginStore', 'Unrelated'],
         );
 
         File(headers[1]).parent.createSync(recursive: true);
         File(headers[1]).writeAsStringSync('// generated');
         expect(
-          _windowsRuntime.buildPlan.plannedSwiftInteropTargets(
-            buildDir,
-            candidates: const {'PluginStore', 'PluginAuth'},
-          ),
+          _windowsRuntime.planReader.plannedSwiftInteropTargets(buildDir),
           ['PluginStore', 'Unrelated'],
           reason: 'a header already on disk needs no prebuild',
         );
@@ -4801,7 +4949,7 @@ let package = Package(
       final buildDir = p.join(tmp.path, 'no-plan');
       Directory(buildDir).createSync(recursive: true);
       expect(
-        _swiftPmRuntime.buildPlan.plannedSwiftInteropTargets(
+        _swiftPmRuntime.planReader.plannedSwiftInteropTargets(
           buildDir,
           candidates: const {'PluginStore'},
         ),
@@ -4843,7 +4991,7 @@ let package = Package(
       );
 
       expect(
-        _swiftPmRuntime.buildPlan.plannedSwiftInteropTargets(
+        _swiftPmRuntime.planReader.plannedSwiftInteropTargets(
           buildDir,
           candidates: const {'Reachable', 'Orphan'},
         ),
@@ -4874,15 +5022,11 @@ let package = Package(
           },
         }),
       );
+      expect(_windowsRuntime.planReader.plannedSwiftInteropTargets(buildDir), [
+        'InternalSwiftTarget',
+      ]);
       expect(
-        _windowsRuntime.buildPlan.plannedSwiftInteropTargets(
-          buildDir,
-          candidates: const {'example_plugin'},
-        ),
-        ['InternalSwiftTarget'],
-      );
-      expect(
-        _swiftPmRuntime.buildPlan.plannedSwiftInteropTargets(
+        _swiftPmRuntime.planReader.plannedSwiftInteropTargets(
           buildDir,
           candidates: const {'example_plugin'},
         ),
@@ -4914,7 +5058,7 @@ let package = Package(
       );
 
       expect(
-        _swiftPmRuntime.buildPlan.plannedSwiftInteropTargets(
+        _swiftPmRuntime.planReader.plannedSwiftInteropTargets(
           buildDir,
           candidates: const {'Reachable'},
         ),
@@ -4941,15 +5085,11 @@ let package = Package(
         }),
       );
 
+      expect(_windowsRuntime.planReader.plannedSwiftInteropTargets(buildDir), [
+        'InternalSwiftTarget',
+      ]);
       expect(
-        _windowsRuntime.buildPlan.plannedSwiftInteropTargets(
-          buildDir,
-          candidates: const {'example_plugin'},
-        ),
-        ['InternalSwiftTarget'],
-      );
-      expect(
-        _swiftPmRuntime.buildPlan.plannedSwiftInteropTargets(
+        _swiftPmRuntime.planReader.plannedSwiftInteropTargets(
           buildDir,
           candidates: const {'example_plugin'},
         ),
@@ -4957,7 +5097,7 @@ let package = Package(
         reason: 'keep the legacy POSIX candidate filter',
       );
       expect(
-        SwiftPmBuildPlan.orderedWindowsSwiftInteropTargets(buildDir, [
+        _swiftPmRuntime.planReader.orderedInteropTargets(buildDir, [
           'InternalSwiftTarget',
         ]),
         ['InternalSwiftTarget'],
@@ -4975,7 +5115,10 @@ let package = Package(
       final arguments = ['-Xcc', '-I', '-Xcc', include];
 
       expect(
-        SwiftPmBuildPlan.manifestCarriesInteropSearchPaths(scratch, arguments),
+        _swiftPmRuntime.planReader.manifestCarriesInteropSearchPaths(
+          scratch,
+          arguments,
+        ),
         isFalse,
         reason: 'no manifest has been written yet',
       );
@@ -4983,14 +5126,20 @@ let package = Package(
       final manifest = File(p.join(scratch, 'debug.yaml'));
       manifest.writeAsStringSync('"-I","/somewhere/else"');
       expect(
-        SwiftPmBuildPlan.manifestCarriesInteropSearchPaths(scratch, arguments),
+        _swiftPmRuntime.planReader.manifestCarriesInteropSearchPaths(
+          scratch,
+          arguments,
+        ),
         isFalse,
       );
 
       // The manifest is JSON-quoted, so a Windows path appears escaped.
       manifest.writeAsStringSync('"-I",${jsonEncode(include)}');
       expect(
-        SwiftPmBuildPlan.manifestCarriesInteropSearchPaths(scratch, arguments),
+        _swiftPmRuntime.planReader.manifestCarriesInteropSearchPaths(
+          scratch,
+          arguments,
+        ),
         isTrue,
       );
     });
@@ -5017,18 +5166,21 @@ let package = Package(
         );
 
         final events = <String>[];
-        await _swiftPmRuntime.interopRepair.buildWithInteropRecovery(
+        await testPosixInteropRecovery(
+          _swiftPmRuntime,
+          RecordingSwiftPmInteropBuild(
+            build: () async => events.add('build'),
+            buildTarget: (target) async {
+              events.add('target:$target');
+              File(header).parent.createSync(recursive: true);
+              File(header).writeAsStringSync('// generated');
+            },
+            repairConsumers: () async => events.add('repair'),
+          ),
+        ).build(
           targetBuildDir: buildDir,
           interopTargetCandidates: const {'FirebaseFirestore'},
-
           skipInitialRecovery: true,
-          build: () async => events.add('build'),
-          buildTarget: (target) async {
-            events.add('target:$target');
-            File(header).parent.createSync(recursive: true);
-            File(header).writeAsStringSync('// generated');
-          },
-          repairConsumers: () async => events.add('repair'),
         );
 
         expect(
@@ -5073,7 +5225,7 @@ let package = Package(
           },
         }),
       );
-      final planned = _swiftPmRuntime.buildPlan.plannedSwiftInteropTargets(
+      final planned = _swiftPmRuntime.planReader.plannedSwiftInteropTargets(
         buildDir,
         candidates: headers.keys.toSet(),
       );
@@ -5084,25 +5236,28 @@ let package = Package(
         'example_plugin',
       ]);
       expect(
-        SwiftPmBuildPlan.orderedWindowsSwiftInteropTargets(buildDir, planned),
+        _swiftPmRuntime.planReader.orderedInteropTargets(buildDir, planned),
         ['Auxiliary', 'InternalSwiftTarget', 'example_plugin'],
       );
       final events = <String>[];
-      await _windowsRuntime.interopRepair.buildWithInteropRecovery(
+      await testWindowsInteropRecovery(
+        _windowsRuntime,
+        RecordingSwiftPmInteropBuild(
+          build: () async {
+            expect(File(headers['InternalSwiftTarget']!).existsSync(), isTrue);
+            events.add('build');
+          },
+          buildTarget: (target) async {
+            events.add('target:$target');
+            final header = File(headers[target]!);
+            await header.parent.create(recursive: true);
+            await header.writeAsString('generated');
+          },
+        ),
+      ).build(
         targetBuildDir: buildDir,
         interopTargetCandidates: headers.keys.toSet(),
-
         skipInitialRecovery: true,
-        buildTarget: (target) async {
-          events.add('target:$target');
-          final header = File(headers[target]!);
-          await header.parent.create(recursive: true);
-          await header.writeAsString('generated');
-        },
-        build: () async {
-          expect(File(headers['InternalSwiftTarget']!).existsSync(), isTrue);
-          events.add('build');
-        },
       );
       expect(events, [
         'target:Auxiliary',
@@ -5117,14 +5272,15 @@ let package = Package(
       Directory(buildDir).createSync(recursive: true);
       final description = File(p.join(buildDir, 'description.json'));
       void check() => expect(
-        () => SwiftPmBuildPlan.plannedSwiftInteropSearchPaths(buildDir),
+        () =>
+            _swiftPmRuntime.planReader.plannedSwiftInteropSearchPaths(buildDir),
         throwsA(isA<FlutterBuildError>()),
       );
       check();
       for (final value in [
         'not json',
         '{}',
-        jsonEncode({'swiftCommands': []}),
+        jsonEncode({'swiftCommands': <Object?>[]}),
         jsonEncode({
           'swiftCommands': {
             'bad': {
@@ -5160,9 +5316,11 @@ let package = Package(
         description.writeAsStringSync(value);
         check();
       }
-      description.writeAsStringSync(jsonEncode({'swiftCommands': {}}));
+      description.writeAsStringSync(
+        jsonEncode({'swiftCommands': <String, Object?>{}}),
+      );
       expect(
-        SwiftPmBuildPlan.plannedSwiftInteropSearchPaths(buildDir),
+        _swiftPmRuntime.planReader.plannedSwiftInteropSearchPaths(buildDir),
         isEmpty,
       );
     });
@@ -5182,24 +5340,27 @@ let package = Package(
         }
         var attempts = 0;
         final events = <String>[];
-        await _windowsRuntime.interopRepair.buildWithInteropRecovery(
+        await testWindowsInteropRecovery(
+          _windowsRuntime,
+          RecordingSwiftPmInteropBuild(
+            build: () async {
+              events.add('build${++attempts}');
+              if (attempts == 1) {
+                throw StateError("'PluginAuth-Swift.h' file not found");
+              }
+            },
+            buildTarget: (target) async {
+              events.add(target);
+              File(
+                p.join(buildDir, '$target.build', 'include', '$target-Swift.h'),
+              ).writeAsStringSync('generated');
+            },
+            repairConsumers: () async => events.add('repair'),
+          ),
+        ).build(
           targetBuildDir: buildDir,
           interopTargetCandidates: const {'PluginStore', 'PluginAuth'},
           skipInitialRecovery: true,
-
-          build: () async {
-            events.add('build${++attempts}');
-            if (attempts == 1) {
-              throw StateError("'PluginAuth-Swift.h' file not found");
-            }
-          },
-          buildTarget: (target) async {
-            events.add(target);
-            File(
-              p.join(buildDir, '$target.build', 'include', '$target-Swift.h'),
-            ).writeAsStringSync('generated');
-          },
-          repairConsumers: () async => events.add('repair'),
         );
         expect(events, [
           'repair',
@@ -5223,16 +5384,20 @@ let package = Package(
         ).writeAsStringSync('module Plugin { header "Plugin-Swift.h" }');
         var attempts = 0;
         await expectLater(
-          _windowsRuntime.interopRepair.buildWithInteropRecovery(
+          testWindowsInteropRecovery(
+            _windowsRuntime,
+            RecordingSwiftPmInteropBuild(
+              build: () {
+                attempts++;
+                return Future.error(StateError('syntax error in user source'));
+              },
+              buildTarget: (_) async =>
+                  fail('unrelated errors must not recover'),
+            ),
+          ).build(
             targetBuildDir: buildDir,
             interopTargetCandidates: const {'Plugin'},
             skipInitialRecovery: true,
-
-            build: () {
-              attempts++;
-              return Future.error(StateError('syntax error in user source'));
-            },
-            buildTarget: (_) async => fail('unrelated errors must not recover'),
           ),
           throwsA(isA<StateError>()),
         );
@@ -5264,28 +5429,35 @@ let package = Package(
             },
           }),
         );
-        final flags = SwiftPmBuildPlan.plannedSwiftInteropSearchPaths(buildDir);
+        final flags = _swiftPmRuntime.planReader.plannedSwiftInteropSearchPaths(
+          buildDir,
+        );
         var attempts = 0;
         final events = <String>[];
-        await _windowsRuntime.interopRepair.buildWithInteropRecovery(
+        await testWindowsInteropRecovery(
+          _windowsRuntime,
+          RecordingSwiftPmInteropBuild(
+            build: () async {
+              events.add('build${++attempts}');
+              expect(
+                _swiftPmRuntime.planReader.plannedSwiftInteropSearchPaths(
+                  buildDir,
+                ),
+                flags,
+              );
+              if (attempts != 1) return;
+              File(
+                p.join(include.path, 'OtherSwift-Swift.h'),
+              ).writeAsStringSync('generated');
+              throw StateError("'OtherSwift-Swift.h' file not found");
+            },
+            buildTarget: (_) async => fail('no target should be prebuilt'),
+            repairConsumers: () async => events.add('repair'),
+          ),
+        ).build(
           targetBuildDir: buildDir,
           interopTargetCandidates: const {},
           skipInitialRecovery: true,
-
-          build: () async {
-            events.add('build${++attempts}');
-            expect(
-              SwiftPmBuildPlan.plannedSwiftInteropSearchPaths(buildDir),
-              flags,
-            );
-            if (attempts != 1) return;
-            File(
-              p.join(include.path, 'OtherSwift-Swift.h'),
-            ).writeAsStringSync('generated');
-            throw StateError("'OtherSwift-Swift.h' file not found");
-          },
-          buildTarget: (_) async => fail('no target should be prebuilt'),
-          repairConsumers: () async => events.add('repair'),
         );
         expect(events, ['repair', 'build1', 'repair', 'build2']);
       },
@@ -5302,7 +5474,7 @@ let package = Package(
         p.join(buildDir, 'PlainObjC.build', 'include'),
       ).createSync(recursive: true);
 
-      expect(SwiftPmBuildPlan.swiftInteropSearchPaths(buildDir), [
+      expect(_swiftPmRuntime.planReader.swiftInteropSearchPaths(buildDir), [
         '-Xcc',
         '-I',
         '-Xcc',
@@ -5310,7 +5482,9 @@ let package = Package(
       ]);
       // Nothing is built yet on a clean build.
       expect(
-        SwiftPmBuildPlan.swiftInteropSearchPaths(p.join(tmp.path, 'absent')),
+        _swiftPmRuntime.planReader.swiftInteropSearchPaths(
+          p.join(tmp.path, 'absent'),
+        ),
         isEmpty,
       );
 
@@ -5347,13 +5521,13 @@ void registerPlugin(void) {}
         final unrelated = File(p.join(consumer, 'Sources', 'Other.m'))
           ..writeAsStringSync('@import FirebaseCore;\n');
 
-        await _swiftPmRuntime.interopRepair.repairSwiftInteropConsumers(
+        await _swiftPmRuntime.consumerRepair.repairSwiftInteropConsumers(
           targetBuildDir: buildDir,
           consumerProducts: {
             consumer: const {'FirebaseFirestore'},
           },
         );
-        await _swiftPmRuntime.interopRepair.repairSwiftInteropConsumers(
+        await _swiftPmRuntime.consumerRepair.repairSwiftInteropConsumers(
           targetBuildDir: buildDir,
           consumerProducts: {
             consumer: const {'FirebaseFirestore'},
@@ -5391,22 +5565,25 @@ module FirebaseAI {
         final prebuilt = <String>[];
         final events = <String>[];
 
-        await _swiftPmRuntime.interopRepair.buildWithInteropRecovery(
+        await testPosixInteropRecovery(
+          _swiftPmRuntime,
+          RecordingSwiftPmInteropBuild(
+            build: () async {
+              events.add('build');
+              attempts++;
+            },
+            buildTarget: (target) async {
+              events.add('target');
+              prebuilt.add(target);
+              File(
+                p.join(include, 'FirebaseFirestore-Swift.h'),
+              ).writeAsStringSync('// generated');
+            },
+            repairConsumers: () async => events.add('repair'),
+          ),
+        ).build(
           targetBuildDir: buildDir,
           interopTargetCandidates: const {'FirebaseFirestore'},
-
-          build: () async {
-            events.add('build');
-            attempts++;
-          },
-          buildTarget: (target) async {
-            events.add('target');
-            prebuilt.add(target);
-            File(
-              p.join(include, 'FirebaseFirestore-Swift.h'),
-            ).writeAsStringSync('// generated');
-          },
-          repairConsumers: () async => events.add('repair'),
         );
 
         expect(prebuilt, ['FirebaseFirestore']);
@@ -5423,32 +5600,35 @@ module FirebaseAI {
         var attempts = 0;
         final events = <String>[];
 
-        await _swiftPmRuntime.interopRepair.buildWithInteropRecovery(
-          targetBuildDir: buildDir,
-          interopTargetCandidates: const {'FirebaseFirestore'},
-
-          build: () async {
-            attempts++;
-            events.add('build$attempts');
-            if (attempts != 1) return;
-            Directory(include).createSync(recursive: true);
-            File(p.join(include, 'module.modulemap')).writeAsStringSync('''
+        await testPosixInteropRecovery(
+          _swiftPmRuntime,
+          RecordingSwiftPmInteropBuild(
+            build: () async {
+              attempts++;
+              events.add('build$attempts');
+              if (attempts != 1) return;
+              Directory(include).createSync(recursive: true);
+              File(p.join(include, 'module.modulemap')).writeAsStringSync('''
 module FirebaseFirestore {
   header "$include/FirebaseFirestore-Swift.h"
 }
 ''');
-            throw StateError(
-              "header '$include/FirebaseFirestore-Swift.h' not found",
-            );
-          },
-          buildTarget: (target) async {
-            events.add('target');
-            expect(target, 'FirebaseFirestore');
-            File(
-              p.join(include, 'FirebaseFirestore-Swift.h'),
-            ).writeAsStringSync('// generated');
-          },
-          repairConsumers: () async => events.add('repair'),
+              throw StateError(
+                "header '$include/FirebaseFirestore-Swift.h' not found",
+              );
+            },
+            buildTarget: (target) async {
+              events.add('target');
+              expect(target, 'FirebaseFirestore');
+              File(
+                p.join(include, 'FirebaseFirestore-Swift.h'),
+              ).writeAsStringSync('// generated');
+            },
+            repairConsumers: () async => events.add('repair'),
+          ),
+        ).build(
+          targetBuildDir: buildDir,
+          interopTargetCandidates: const {'FirebaseFirestore'},
         );
 
         expect(attempts, 2);
@@ -5460,15 +5640,18 @@ module FirebaseFirestore {
       var attempts = 0;
 
       await expectLater(
-        _swiftPmRuntime.interopRepair.buildWithInteropRecovery(
+        testPosixInteropRecovery(
+          _swiftPmRuntime,
+          RecordingSwiftPmInteropBuild(
+            build: () {
+              attempts++;
+              return Future<void>.error(StateError('real compile failure'));
+            },
+            buildTarget: (_) async => fail('no target should be prebuilt'),
+          ),
+        ).build(
           targetBuildDir: p.join(tmp.path, 'arm64-apple-ios', 'debug'),
           interopTargetCandidates: const {'FirebaseFirestore'},
-
-          build: () {
-            attempts++;
-            return Future<void>.error(StateError('real compile failure'));
-          },
-          buildTarget: (_) async => fail('no target should be prebuilt'),
         ),
         throwsStateError,
       );
@@ -5483,27 +5666,30 @@ module FirebaseFirestore {
         final include = p.join(buildDir, 'FirebaseFirestore.build', 'include');
         var attempts = 0;
 
-        await _swiftPmRuntime.interopRepair.buildWithInteropRecovery(
-          targetBuildDir: buildDir,
-          interopTargetCandidates: const {'FirebaseFirestore'},
-
-          build: () async {
-            attempts++;
-            if (attempts != 1) return;
-            Directory(include).createSync(recursive: true);
-            File(p.join(include, 'module.modulemap')).writeAsStringSync('''
+        await testPosixInteropRecovery(
+          _swiftPmRuntime,
+          RecordingSwiftPmInteropBuild(
+            build: () async {
+              attempts++;
+              if (attempts != 1) return;
+              Directory(include).createSync(recursive: true);
+              File(p.join(include, 'module.modulemap')).writeAsStringSync('''
 module FirebaseFirestore {
   header "FirebaseFirestore-Swift.h"
 }
 ''');
-            throw StateError('command failed without compiler output');
-          },
-          buildTarget: (target) async {
-            expect(target, 'FirebaseFirestore');
-            File(
-              p.join(include, 'FirebaseFirestore-Swift.h'),
-            ).writeAsStringSync('// generated');
-          },
+              throw StateError('command failed without compiler output');
+            },
+            buildTarget: (target) async {
+              expect(target, 'FirebaseFirestore');
+              File(
+                p.join(include, 'FirebaseFirestore-Swift.h'),
+              ).writeAsStringSync('// generated');
+            },
+          ),
+        ).build(
+          targetBuildDir: buildDir,
+          interopTargetCandidates: const {'FirebaseFirestore'},
         );
 
         expect(attempts, 2);
@@ -5517,22 +5703,25 @@ module FirebaseFirestore {
         var attempts = 0;
 
         await expectLater(
-          _swiftPmRuntime.interopRepair.buildWithInteropRecovery(
+          testPosixInteropRecovery(
+            _swiftPmRuntime,
+            RecordingSwiftPmInteropBuild(
+              build: () {
+                attempts++;
+                final include = p.join(buildDir, 'OtherSwift.build', 'include');
+                Directory(include).createSync(recursive: true);
+                File(
+                  p.join(include, 'OtherSwift-Swift.h'),
+                ).writeAsStringSync('// generated');
+                return Future<void>.error(
+                  StateError('unrelated compile failure'),
+                );
+              },
+              buildTarget: (_) async => fail('no target should be prebuilt'),
+            ),
+          ).build(
             targetBuildDir: buildDir,
             interopTargetCandidates: const {'FirebaseFirestore'},
-
-            build: () {
-              attempts++;
-              final include = p.join(buildDir, 'OtherSwift.build', 'include');
-              Directory(include).createSync(recursive: true);
-              File(
-                p.join(include, 'OtherSwift-Swift.h'),
-              ).writeAsStringSync('// generated');
-              return Future<void>.error(
-                StateError('unrelated compile failure'),
-              );
-            },
-            buildTarget: (_) async => fail('no target should be prebuilt'),
           ),
           throwsStateError,
         );

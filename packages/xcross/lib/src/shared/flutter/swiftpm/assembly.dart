@@ -6,16 +6,16 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/host_build_services.dart';
 
 const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmAssembly<T extends PlatformHostInterface> {
-  SwiftPmAssembly({required this.hostPolicy,required this.fileSystem});
-  final SwiftPmHostPolicy hostPolicy;
-  final SwiftPmArtifactFileSystem fileSystem;
+  SwiftPmAssembly({required this.hostBuildServices, required this.fileSystem});
 
+  final SwiftPmHostBuildServices<T> hostBuildServices;
+  final SwiftPmArtifactFileSystem fileSystem;
 
   /// Finds and fixes every dylib emitted into SwiftPM's target debug output.
   Future<GeneratedPluginsBuildResult> discoverAndRewriteDylibs(
@@ -42,7 +42,7 @@ final class SwiftPmAssembly<T extends PlatformHostInterface> {
 
     final dylibNames = dylibPaths.map(p.basename).toSet();
     for (final path in dylibPaths) {
-      await hostPolicy.rewriteDylib(path, dylibNames);
+      await hostBuildServices.rewriteDylib(path, dylibNames);
     }
     // SwiftPM emits .swiftmodule files into a sibling `Modules` directory;
     // app-extension targets importing a plugin need it on their include path.

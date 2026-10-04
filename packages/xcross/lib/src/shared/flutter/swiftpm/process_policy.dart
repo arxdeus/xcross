@@ -6,12 +6,16 @@ const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
-  SwiftPmProcessPolicy({required this.host,required this.hostPolicy,required this.runner,required this.tools});
+  SwiftPmProcessPolicy({
+    required this.host,
+    required this.hostPolicy,
+    required this.runner,
+    required this.tools,
+  });
   final T host;
   final SwiftPmHostPolicy hostPolicy;
   final ProcessRunner<T> runner;
   final AppleToolShimResolver<T> tools;
-
 
   /// Environment that makes Git — and anything spawning it, including
   /// SwiftPM's own dependency resolution — fail instead of waiting on a
@@ -71,17 +75,21 @@ final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
     (key: 'credential.interactive', value: 'false'),
     (key: 'http.lowSpeedLimit', value: '1024'),
     (key: 'http.lowSpeedTime', value: '60'),
-    for (
-      var index = 0;
-      index < hostPolicy.gitConfiguration.length;
-      index += 2
-    )
+    for (var index = 0; index < hostPolicy.gitConfiguration.length; index += 2)
       (
         key: hostPolicy.gitConfiguration[index],
         value: hostPolicy.gitConfiguration[index + 1],
       ),
   ];
-  bool get sourceFallbackActive => host.environment.lookup(host.environment.overlay(runner.effectiveEnvironment,swiftProcessEnvironment()), 'EXPERIMENTAL_SPM_BUILDS') != null;
+  bool get sourceFallbackActive =>
+      host.environment.lookup(
+        host.environment.overlay(
+          runner.effectiveEnvironment,
+          swiftProcessEnvironment(),
+        ),
+        'EXPERIMENTAL_SPM_BUILDS',
+      ) !=
+      null;
   Map<String, String> swiftProcessEnvironment({
     String? executable,
     Map<String, String>? environment,
@@ -96,7 +104,6 @@ final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
       },
       ...hostPolicy.sourceEnvironment,
       ...hostPolicy.bundledToolEnvironment(
-        host,
         executable ?? tools.executable,
         environment ?? runner.effectiveEnvironment,
       ),

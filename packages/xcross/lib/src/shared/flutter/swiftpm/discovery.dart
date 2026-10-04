@@ -18,12 +18,16 @@ const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmDiscovery<T extends PlatformHostInterface> {
-  SwiftPmDiscovery({required this.hostPolicy,required this.sdkIdentity,required this.sdkRepository,required this.toolchain});
+  SwiftPmDiscovery({
+    required this.hostPolicy,
+    required this.sdkIdentity,
+    required this.sdkRepository,
+    required this.toolchain,
+  });
   final SwiftPmHostPolicy hostPolicy;
   final SwiftPmSdkIdentity sdkIdentity;
   final DarwinSdkRepository<T> sdkRepository;
   final SwiftPmToolchain<T> toolchain;
-
 
   Future<String> incrementalBuildFingerprint({
     required List<IosPlugin> plugins,
@@ -62,7 +66,7 @@ final class SwiftPmDiscovery<T extends PlatformHostInterface> {
         toolchainIdentity ??
         jsonEncode(
           SwiftPmDiscovery.contentBuildIdentity(
-            await toolchain.resolveBuildToolchainIdentity(sdk!),
+            await toolchain.resolveBuildToolchainIdentity(sdk),
           ),
         );
     add(resolvedToolchainIdentity);
@@ -102,9 +106,10 @@ final class SwiftPmDiscovery<T extends PlatformHostInterface> {
       await addTree(plugin.swiftPackageDir);
     }
     final frameworkFiles = <File>[];
-    await for (final entity in sdkRepository.host.fileSystem.directory(
-      flutterXcframework,
-    ).list(recursive: true)) {
+    await for (final entity
+        in sdkRepository.host.fileSystem
+            .directory(flutterXcframework)
+            .list(recursive: true)) {
       if (entity is File) frameworkFiles.add(entity);
     }
     frameworkFiles.sort((a, b) => a.path.compareTo(b.path));

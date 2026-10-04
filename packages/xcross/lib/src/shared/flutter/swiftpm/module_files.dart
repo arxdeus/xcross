@@ -6,9 +6,9 @@ import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 
 final class SwiftPmModuleFiles {
-SwiftPmModuleFiles({required this.fileSystem});
-final SwiftPmArtifactFileSystem fileSystem;
-static bool ignoredPackageEvidencePath(String packageDir, String path) {
+  SwiftPmModuleFiles({required this.fileSystem});
+  final SwiftPmArtifactFileSystem fileSystem;
+  static bool ignoredPackageEvidencePath(String packageDir, String path) {
     final relative = p.relative(path, from: packageDir);
     final parts = p.split(relative);
     return parts.any(
@@ -16,17 +16,21 @@ static bool ignoredPackageEvidencePath(String packageDir, String path) {
     );
   }
 
-String resolveModuleReference(
+  String resolveModuleReference(
     String packageDir,
     String reference, {
     required bool directory,
   }) {
     final normalized = p.normalize(reference);
     final matches = <String>[];
-    for (final entity in fileSystem.directory(
-      packageDir,
-    ).listSync(recursive: true, followLinks: false)) {
-      if (SwiftPmModuleFiles.ignoredPackageEvidencePath(packageDir, entity.path)) {
+    for (final entity
+        in fileSystem
+            .directory(packageDir)
+            .listSync(recursive: true, followLinks: false)) {
+      if (SwiftPmModuleFiles.ignoredPackageEvidencePath(
+        packageDir,
+        entity.path,
+      )) {
         continue;
       }
       if (directory ? entity is! Directory : entity is! File) continue;
@@ -46,7 +50,7 @@ String resolveModuleReference(
     return p.normalize(p.absolute(matches.single));
   }
 
-String absoluteNestedModuleHeaders(String packageDir, String nested) {
+  String absoluteNestedModuleHeaders(String packageDir, String nested) {
     final result = nested.replaceAllMapped(
       RegExp(r'((?:umbrella\s+)?header\s+)"([^"]+)"'),
       (match) {

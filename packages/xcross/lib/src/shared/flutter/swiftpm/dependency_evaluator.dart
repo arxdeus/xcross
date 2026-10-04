@@ -6,23 +6,28 @@ import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/binary_provenance.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/binary_recovery.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/extracted_artifact_recovery.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/network_retry.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/source_repair.dart';
+
 const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmDependencyEvaluator<T extends PlatformHostInterface> {
-SwiftPmDependencyEvaluator({required this.artifactFileSystem,required this.dependencyPreparation,required this.hostPolicy,required this.networkRetry,required this.sourceRepair});
-final SwiftPmArtifactFileSystem artifactFileSystem;
-final SwiftPmDependencyPreparation<T> dependencyPreparation;
-final SwiftPmHostPolicy hostPolicy;
-final SwiftPmNetworkRetry<T> networkRetry;
-final SwiftPmSourceRepair<T> sourceRepair;
-Future<Map<String, String>> evaluateDependencyRefsWithRecovery(
+  SwiftPmDependencyEvaluator({
+    required this.artifactFileSystem,
+    required this.dependencyPreparation,
+    required this.hostPolicy,
+    required this.networkRetry,
+    required this.sourceRepair,
+  });
+  final SwiftPmArtifactFileSystem artifactFileSystem;
+  final SwiftPmDependencyPreparation<T> dependencyPreparation;
+  final SwiftPmHostPolicy hostPolicy;
+  final SwiftPmNetworkRetry<T> networkRetry;
+  final SwiftPmSourceRepair<T> sourceRepair;
+  Future<Map<String, String>> evaluateDependencyRefsWithRecovery(
     String packageDirectory, {
     required Future<void> Function(String packageDirectory) resolve,
     required Future<bool> Function(
@@ -32,7 +37,9 @@ Future<Map<String, String>> evaluateDependencyRefsWithRecovery(
     recover,
     required SwiftPmBinaryAttemptState attemptState,
   }) async {
-    final resolvedFile = artifactFileSystem.file(p.join(packageDirectory, 'Package.resolved'));
+    final resolvedFile = artifactFileSystem.file(
+      p.join(packageDirectory, 'Package.resolved'),
+    );
     if (resolvedFile.existsSync()) await resolvedFile.delete();
     try {
       await resolve(packageDirectory);
@@ -49,13 +56,13 @@ Future<Map<String, String>> evaluateDependencyRefsWithRecovery(
     }
   }
 
-static String? dependencyResolverScratchPath({
+  static String? dependencyResolverScratchPath({
     required String packageDirectory,
     required String? scratchPath,
     required bool usesDefaultResolver,
   }) => usesDefaultResolver ? p.join(packageDirectory, '.build') : scratchPath;
 
-Future<Map<String, String>> evaluatedDependencyRefs(
+  Future<Map<String, String>> evaluatedDependencyRefs(
     String packageDirectory,
     Future<String> Function(String name) locateTool, {
     Future<void> Function(String packageDirectory)? resolve,
@@ -100,7 +107,17 @@ Future<Map<String, String>> evaluatedDependencyRefs(
           recover ??
           (_, state) async {
             if (!canRecover) return false;
-            return dependencyPreparation.recoverArtifacts(SwiftPmDependencyArtifactCommand(packageRoot:packageDirectory,scratchPath:resolverScratchPath,store:binaryArtifactStore,fallback:binaryArtifactFallback,dependencies:dependencies,state:state,capability:swiftPmArtifactJunctionCapability));
+            return dependencyPreparation.recoverArtifacts(
+              SwiftPmDependencyArtifactCommand(
+                packageRoot: packageDirectory,
+                scratchPath: resolverScratchPath,
+                store: binaryArtifactStore,
+                fallback: binaryArtifactFallback,
+                dependencies: dependencies,
+                state: state,
+                capability: swiftPmArtifactJunctionCapability,
+              ),
+            );
           },
       attemptState: attemptState ?? SwiftPmBinaryAttemptState(),
     );

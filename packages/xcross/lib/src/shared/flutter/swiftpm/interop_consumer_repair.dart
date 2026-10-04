@@ -3,14 +3,20 @@ import 'dart:io';
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart' show SwiftPmFilesystem;
+import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart'
+    show SwiftPmFilesystem;
 import 'package:xcross/src/shared/flutter/swiftpm/plan_reader.dart';
+
 final class SwiftPmInteropConsumerRepair<T extends PlatformHostInterface> {
-SwiftPmInteropConsumerRepair({required this.filesystem,required this.fileSystem,required this.planReader});
-final SwiftPmFilesystem<T> filesystem;
-final SwiftPmArtifactFileSystem fileSystem;
-final SwiftPmPlanReader planReader;
-List<String> missingSwiftInteropTargets(
+  SwiftPmInteropConsumerRepair({
+    required this.filesystem,
+    required this.fileSystem,
+    required this.planReader,
+  });
+  final SwiftPmFilesystem<T> filesystem;
+  final SwiftPmArtifactFileSystem fileSystem;
+  final SwiftPmPlanReader planReader;
+  List<String> missingSwiftInteropTargets(
     String targetBuildDir, {
     required Set<String> candidates,
   }) {
@@ -52,7 +58,7 @@ List<String> missingSwiftInteropTargets(
     return sorted;
   }
 
-Future<void> repairSwiftInteropConsumers({
+  Future<void> repairSwiftInteropConsumers({
     required String targetBuildDir,
     required Map<String, Set<String>> consumerProducts,
   }) async {

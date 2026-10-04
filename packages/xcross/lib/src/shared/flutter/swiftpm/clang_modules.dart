@@ -1,7 +1,7 @@
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
 
 final class SwiftPmClangModules {
-static List<String> topLevelModuleNames(String moduleMap) {
+  static List<String> topLevelModuleNames(String moduleMap) {
     final code = SwiftPmManifestLexer.swiftCodeMask(moduleMap);
     final names = <String>[];
     var depth = 0;
@@ -27,7 +27,7 @@ static List<String> topLevelModuleNames(String moduleMap) {
     return names;
   }
 
-static ({int start, int open, int close})? moduleBlock(
+  static ({int start, int open, int close})? moduleBlock(
     String moduleMap,
     String name,
   ) {
@@ -38,13 +38,16 @@ static ({int start, int open, int close})? moduleBlock(
     ).firstMatch(moduleMap);
     if (declaration == null) return null;
     final open = moduleMap.indexOf('{', declaration.start);
-    final close = SwiftPmManifestLexer.indexOfMatchingDelimiter(moduleMap, open);
+    final close = SwiftPmManifestLexer.indexOfMatchingDelimiter(
+      moduleMap,
+      open,
+    );
     return close < 0
         ? null
         : (start: declaration.start, open: open, close: close);
   }
 
-static List<({String path, bool directory})> directModuleHeaders(
+  static List<({String path, bool directory})> directModuleHeaders(
     String moduleMap,
     ({int start, int open, int close}) block,
   ) {
@@ -76,7 +79,7 @@ static List<({String path, bool directory})> directModuleHeaders(
     return headers;
   }
 
-static int braceDepthAt(String source, int offset) {
+  static int braceDepthAt(String source, int offset) {
     final code = SwiftPmManifestLexer.swiftCodeMask(source);
     var depth = 0;
     for (var i = 0; i < offset; i++) {
@@ -87,7 +90,7 @@ static int braceDepthAt(String source, int offset) {
     return depth;
   }
 
-static List<String> directNestedModules(
+  static List<String> directNestedModules(
     String moduleMap,
     ({int start, int open, int close}) parent,
   ) {
@@ -99,9 +102,14 @@ static List<String> directNestedModules(
     );
     for (final match in declaration.allMatches(moduleMap, parent.open + 1)) {
       if (match.start >= parent.close) break;
-      if (SwiftPmClangModules.braceDepthAt(moduleMap, match.start) != 1) continue;
+      if (SwiftPmClangModules.braceDepthAt(moduleMap, match.start) != 1) {
+        continue;
+      }
       final open = moduleMap.indexOf('{', match.start);
-      final close = SwiftPmManifestLexer.indexOfMatchingDelimiter(moduleMap, open);
+      final close = SwiftPmManifestLexer.indexOfMatchingDelimiter(
+        moduleMap,
+        open,
+      );
       if (close < 0 || close > parent.close) continue;
       nested.add(moduleMap.substring(match.start, close + 1).trim());
     }

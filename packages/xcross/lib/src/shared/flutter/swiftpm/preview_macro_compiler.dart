@@ -25,57 +25,89 @@ final class ProcessSwiftPmNativeCompiler<T extends PlatformHostInterface>
       'digest': (await sha256.bind(file.openRead()).first).toString(),
     };
   }
+
   @override
-  Future<void> compile(String executable, List<String> arguments) =>
-      runner.runChecked(executable, arguments, label: 'compile preview macro stub');
+  Future<void> compile(String executable, List<String> arguments) => runner
+      .runChecked(executable, arguments, label: 'compile preview macro stub');
 }
 
 final class SwiftPmPreviewMacroCompiler<T extends PlatformHostInterface> {
-  SwiftPmPreviewMacroCompiler({required this.host, required this.filesystem,
-    required this.compiler});
+  SwiftPmPreviewMacroCompiler({
+    required this.host,
+    required this.filesystem,
+    required this.compiler,
+  });
   final T host;
   final SwiftPmFilesystem<T> filesystem;
   final SwiftPmNativeCompiler compiler;
 
-  Future<String> write({required String outputDir,
-    required String cCompilerPath, List<String> cCompilerArguments = const [],
-    String source = previewMacroStubSource}) async {
+  Future<String> write({
+    required String outputDir,
+    required String cCompilerPath,
+    List<String> cCompilerArguments = const [],
+    String source = previewMacroStubSource,
+  }) async {
     final paths = host.paths.context;
-    final root = host.fileSystem.directory(paths.join(outputDir, '.xcross', 'preview-macro-stub'));
+    final root = host.fileSystem.directory(
+      paths.join(outputDir, '.xcross', 'preview-macro-stub'),
+    );
     await root.create(recursive: true);
     final sourcePath = paths.join(root.path, 'stub.c');
     await filesystem.writeStable(sourcePath, source);
-    final executable = host.fileSystem.file(paths.join(root.path, host.paths.executableName('stub')));
+    final executable = host.fileSystem.file(
+      paths.join(root.path, host.paths.executableName('stub')),
+    );
     final stamp = host.fileSystem.file(paths.join(root.path, 'identity.json'));
-    final identity = sha256.convert(utf8.encode(jsonEncode({
-      'source': source,
-      'compiler': await compiler.identity(cCompilerPath),
-      'arguments': cCompilerArguments,
-      'host': host.name,
-      'architecture': host.architecture,
-    }))).toString();
+    final identity = sha256
+        .convert(
+          utf8.encode(
+            jsonEncode({
+              'source': source,
+              'compiler': await compiler.identity(cCompilerPath),
+              'arguments': cCompilerArguments,
+              'host': host.name,
+              'architecture': host.architecture,
+            }),
+          ),
+        )
+        .toString();
     if (executable.existsSync() && stamp.existsSync()) {
       try {
         final recorded = jsonDecode(await stamp.readAsString());
-        if (recorded is Map && recorded['identity'] == identity &&
-            recorded['digest'] == (await sha256.bind(executable.openRead()).first).toString()) {
+        if (recorded is Map &&
+            recorded['identity'] == identity &&
+            recorded['digest'] ==
+                (await sha256.bind(executable.openRead()).first).toString()) {
           return executable.path;
         }
       } on Object {
-        if(stamp.existsSync()) await stamp.delete();
+        if (stamp.existsSync()) await stamp.delete();
       }
     }
     final staging = await root.createTemp('compile-');
     try {
-      final output = host.fileSystem.file(paths.join(staging.path, host.paths.executableName('stub')));
-      await compiler.compile(cCompilerPath, [...cCompilerArguments, '-O2', '-o', output.path, sourcePath]);
+      final output = host.fileSystem.file(
+        paths.join(staging.path, host.paths.executableName('stub')),
+      );
+      await compiler.compile(cCompilerPath, [
+        ...cCompilerArguments,
+        '-O2',
+        '-o',
+        output.path,
+        sourcePath,
+      ]);
       if (!output.existsSync() || await output.length() == 0) {
-        throw StateError('Native preview compiler did not produce an executable');
+        throw StateError(
+          'Native preview compiler did not produce an executable',
+        );
       }
       final digest = (await sha256.bind(output.openRead()).first).toString();
       if (executable.existsSync()) await executable.delete();
       await output.rename(executable.path);
-      await filesystem.writeStable(stamp.path, jsonEncode({'identity': identity, 'digest': digest}));
+      await filesystem.writeStable(
+        stamp.path,
+        jsonEncode({'identity': identity, 'digest': digest}),
+      );
       return executable.path;
     } finally {
       if (staging.existsSync()) await staging.delete(recursive: true);

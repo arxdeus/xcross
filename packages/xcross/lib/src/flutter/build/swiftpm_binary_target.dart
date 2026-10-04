@@ -21,7 +21,7 @@ abstract final class SwiftPmBinaryTargetManifest {
 
   static List<SwiftPmRemoteBinaryTarget> discover(String source) {
     final targets = <SwiftPmRemoteBinaryTarget>[];
-    final parser = _SwiftManifestParser(source);
+    final parser = SwiftManifestParser(source);
 
     for (final declaration in parser.binaryTargetDeclarations()) {
       final name = declaration.name;
@@ -95,8 +95,8 @@ abstract final class SwiftPmBinaryTargetManifest {
   }
 }
 
-final class _BinaryTargetDeclaration {
-  const _BinaryTargetDeclaration({
+final class BinaryTargetDeclaration {
+  const BinaryTargetDeclaration({
     required this.name,
     required this.url,
     required this.checksum,
@@ -111,8 +111,8 @@ final class _BinaryTargetDeclaration {
   final int end;
 }
 
-final class _SwiftManifestParser {
-  _SwiftManifestParser(this.source) : _code = _buildCodeMask(source);
+final class SwiftManifestParser {
+  SwiftManifestParser(this.source) : _code = _buildCodeMask(source);
 
   static const _binaryTargetCall = '.binaryTarget';
   static const _recognizedArguments = {'name', 'url', 'checksum'};
@@ -120,8 +120,8 @@ final class _SwiftManifestParser {
   final String source;
   final List<bool> _code;
 
-  List<_BinaryTargetDeclaration> binaryTargetDeclarations() {
-    final declarations = <_BinaryTargetDeclaration>[];
+  List<BinaryTargetDeclaration> binaryTargetDeclarations() {
+    final declarations = <BinaryTargetDeclaration>[];
 
     for (var callStart = 0; callStart < source.length; callStart++) {
       final openingParenthesis = _binaryTargetOpeningAt(callStart);
@@ -135,7 +135,7 @@ final class _SwiftManifestParser {
         closingParenthesis,
       );
       declarations.add(
-        _BinaryTargetDeclaration(
+        BinaryTargetDeclaration(
           name: arguments['name'],
           url: arguments['url'],
           checksum: arguments['checksum'],

@@ -6,21 +6,33 @@ import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
+
 const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmBinaryLayout<T extends PlatformHostInterface> {
-SwiftPmBinaryLayout({required this.artifactFileSystem,required this.targetPolicy});
-final SwiftPmArtifactFileSystem artifactFileSystem;
-final FlutterTargetBuildPolicy<T> targetPolicy;
-Set<String> libraryIdentifiers(Directory artifact) {
-    final fallback = {for(final id in targetPolicy.engineSliceIdentifiers) if(artifactFileSystem.directory(p.join(artifact.path,id)).existsSync()) id};
+  SwiftPmBinaryLayout({
+    required this.artifactFileSystem,
+    required this.targetPolicy,
+  });
+  final SwiftPmArtifactFileSystem artifactFileSystem;
+  final FlutterTargetBuildPolicy<T> targetPolicy;
+  Set<String> libraryIdentifiers(Directory artifact) {
+    final fallback = {
+      for (final id in targetPolicy.engineSliceIdentifiers)
+        if (artifactFileSystem
+            .directory(p.join(artifact.path, id))
+            .existsSync())
+          id,
+    };
     final info = artifactFileSystem.file(p.join(artifact.path, 'Info.plist'));
     try {
       final plist = PropertyListSerialization.propertyListWithString(
         info.readAsStringSync(),
       );
-      if (plist is! Map || plist['AvailableLibraries'] is! List) return fallback;
+      if (plist is! Map || plist['AvailableLibraries'] is! List) {
+        return fallback;
+      }
       return {
         for (final library in plist['AvailableLibraries'] as List)
           if (library is Map &&
@@ -38,7 +50,7 @@ Set<String> libraryIdentifiers(Directory artifact) {
     }
   }
 
-Future<bool> hasCompleteSwiftPmArtifact(Directory artifact) async {
+  Future<bool> hasCompleteSwiftPmArtifact(Directory artifact) async {
     final info = artifactFileSystem.file(p.join(artifact.path, 'Info.plist'));
     if (!info.existsSync()) return false;
     try {

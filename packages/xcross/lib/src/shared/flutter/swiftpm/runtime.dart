@@ -27,9 +27,12 @@ import 'package:xcross/src/shared/flutter/swiftpm/extracted_artifact_recovery.da
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/foundation.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/gate_execution.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/gate_platform.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/host_build_services.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_source_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/interop_consumer_repair.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/librarian_resolver.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/module_files.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/network_retry.dart';
@@ -64,42 +67,149 @@ final class SwiftPmRuntime<T extends PlatformHostInterface> {
     this.checkoutAttributes,
     this.checkoutManifestNormalizer,
     this.foundation,
+    this.gatePlatform,
   ) {
-if (!identical(foundation.targetPolicy,targetPolicy) || !identical(foundation.runner,runner) || !identical(foundation.sdkRepository,sdkRepository) || !identical(foundation.toolchainResolver,toolchainResolver) || !identical(foundation.tools,tools) || !identical(foundation.hostPolicy,hostPolicy) || !identical(foundation.artifactFileSystem,artifactFileSystem) || !identical(foundation.sdkIdentity,sdkIdentity) || !identical(foundation.publicationCoordinator,publicationCoordinator) || !identical(foundation.transport,transport) || !identical(foundation.copyPolicy,copyPolicy) || !identical(foundation.checkoutAttributes,checkoutAttributes) || !identical(checkout.runner,runner) || !identical(checkout.fileSystem,artifactFileSystem) || !identical(checkoutManifestNormalizer.fileSystem,artifactFileSystem) || !identical(checkoutManifestNormalizer.filesystem,foundation.filesystem)) throw ArgumentError('SwiftPM composition ports must share the configured foundation');
-processPolicy=foundation.processPolicy;
-sourceRepair=foundation.sourceRepair;
-toolchain=foundation.toolchain;
-previewCompiler=foundation.previewCompiler;
-planReader=foundation.planReader;
-buildPlan=foundation.buildPlan;
-consumerRepair=foundation.consumerRepair;
-networkRetry=foundation.networkRetry;
-binaryLayout=foundation.binaryLayout;
-binaryProvenance=foundation.binaryProvenance;
-binaryPreparation=foundation.binaryPreparation;
-binaryRecovery=foundation.binaryRecovery;
-extractedArtifacts=foundation.extractedArtifacts;
-packageMetadata=foundation.packageMetadata;
-filesystem=foundation.filesystem;
-symlinks=HostSymlinkCapability(host);
-sourceNormalizer=SwiftPmHostSourceNormalizer(fileSystem: artifactFileSystem);
-moduleFiles=SwiftPmModuleFiles(fileSystem: artifactFileSystem);
-manifest=SwiftPmManifest<T>(targetPolicy: targetPolicy);
-sourceFallback=SwiftPmSourceFallback<T>(filesystem: filesystem,moduleFiles: moduleFiles);
-dependencyEvaluator=SwiftPmDependencyEvaluator<T>(artifactFileSystem:artifactFileSystem,dependencyPreparation:dependencyPreparation,hostPolicy:hostPolicy,networkRetry:networkRetry,sourceRepair:sourceRepair);
-dependencyVendor=SwiftPmDependencyVendor<T>(checkout:checkout,checkoutManifestNormalizer:checkoutManifestNormalizer,dependencyPreparation:dependencyPreparation,runner:runner,dependencyEvaluator:dependencyEvaluator,binaryProvenance:binaryProvenance,processPolicy:processPolicy);
-pluginOverlay=SwiftPmPluginOverlay<T>(dependencyVendor:dependencyVendor,filesystem:filesystem,sourceNormalizer:sourceNormalizer,binaryPreparation:binaryPreparation);
-workspaceStager=SwiftPmWorkspaceStager<T>(artifactFileSystem:artifactFileSystem,checkout:checkout,dependencyPreparation:dependencyPreparation,filesystem:filesystem,hostPolicy:hostPolicy,manifest:manifest,pluginOverlay:pluginOverlay,runner:runner,sourceNormalizer:sourceNormalizer,dependencyEvaluator:dependencyEvaluator);
-buildDriver=SwiftPmBuildDriver<T>(buildPlan:buildPlan,hostPolicy:hostPolicy,consumerRepair:consumerRepair,planReader:planReader,processPolicy:processPolicy,runner:runner,sdkIdentity:sdkIdentity,sdkRepository:sdkRepository,sourceRepair:sourceRepair,target:target,targetPolicy:targetPolicy,toolchain:toolchain,toolchainResolver:toolchainResolver,tools:tools,buildExecution:buildExecution,dependencyPreparation:dependencyPreparation,checkout:checkout);
-discovery=SwiftPmDiscovery<T>(hostPolicy: hostPolicy,sdkIdentity: sdkIdentity,sdkRepository: sdkRepository,toolchain: toolchain);
-assembly=SwiftPmAssembly<T>(hostPolicy: hostPolicy,fileSystem:artifactFileSystem);
-gateExecution=SwiftPmGateExecution<T>(runner:runner,sdkRepository:sdkRepository,toolchain:toolchain,processPolicy:processPolicy,buildPlan:buildPlan,target:target,artifactFileSystem:artifactFileSystem);
-artifactCapabilities=SwiftPmArtifactCapabilities<T>(paths:host.paths,fileSystem:artifactFileSystem,execution:gateExecution,platform:hostPolicy.gatePlatform,identities:SwiftPmArtifactIdentityResolver<T>(repository:sdkRepository,sdkIdentity:sdkIdentity,hostPolicy:hostPolicy,toolchain:toolchain));
-}
+    if (!identical(foundation.targetPolicy, targetPolicy) ||
+        !identical(foundation.runner, runner) ||
+        !identical(foundation.sdkRepository, sdkRepository) ||
+        !identical(foundation.toolchainResolver, toolchainResolver) ||
+        !identical(foundation.tools, tools) ||
+        !identical(foundation.hostPolicy, hostPolicy) ||
+        !identical(foundation.artifactFileSystem, artifactFileSystem) ||
+        !identical(foundation.sdkIdentity, sdkIdentity) ||
+        !identical(foundation.publicationCoordinator, publicationCoordinator) ||
+        !identical(foundation.transport, transport) ||
+        !identical(foundation.copyPolicy, copyPolicy) ||
+        !identical(foundation.checkoutAttributes, checkoutAttributes) ||
+        !identical(checkout.runner, runner) ||
+        !identical(checkout.fileSystem, artifactFileSystem) ||
+        !identical(checkoutManifestNormalizer.fileSystem, artifactFileSystem) ||
+        !identical(
+          checkoutManifestNormalizer.filesystem,
+          foundation.filesystem,
+        )) {
+      throw ArgumentError(
+        'SwiftPM composition ports must share the configured foundation',
+      );
+    }
+    if (!identical(gatePlatform.fileSystem, artifactFileSystem) ||
+        !gatePlatform.matchesTarget(targetPolicy)) {
+      throw ArgumentError(
+        'SwiftPM gate must share the configured filesystem and target policy',
+      );
+    }
+    hostBuildServices = foundation.hostBuildServices;
+    librarianResolver = foundation.librarianResolver;
+    processPolicy = foundation.processPolicy;
+    sourceRepair = foundation.sourceRepair;
+    toolchain = foundation.toolchain;
+    previewCompiler = foundation.previewCompiler;
+    planReader = foundation.planReader;
+    buildPlan = foundation.buildPlan;
+    consumerRepair = foundation.consumerRepair;
+    networkRetry = foundation.networkRetry;
+    binaryLayout = foundation.binaryLayout;
+    binaryProvenance = foundation.binaryProvenance;
+    binaryPreparation = foundation.binaryPreparation;
+    binaryRecovery = foundation.binaryRecovery;
+    extractedArtifacts = foundation.extractedArtifacts;
+    packageMetadata = foundation.packageMetadata;
+    filesystem = foundation.filesystem;
+    symlinks = HostSymlinkCapability(host);
+    sourceNormalizer = SwiftPmHostSourceNormalizer(
+      fileSystem: artifactFileSystem,
+    );
+    moduleFiles = SwiftPmModuleFiles(fileSystem: artifactFileSystem);
+    manifest = SwiftPmManifest<T>(targetPolicy: targetPolicy);
+    sourceFallback = SwiftPmSourceFallback<T>(
+      filesystem: filesystem,
+      moduleFiles: moduleFiles,
+    );
+    dependencyEvaluator = SwiftPmDependencyEvaluator<T>(
+      artifactFileSystem: artifactFileSystem,
+      dependencyPreparation: dependencyPreparation,
+      hostPolicy: hostPolicy,
+      networkRetry: networkRetry,
+      sourceRepair: sourceRepair,
+    );
+    dependencyVendor = SwiftPmDependencyVendor<T>(
+      checkout: checkout,
+      checkoutManifestNormalizer: checkoutManifestNormalizer,
+      dependencyPreparation: dependencyPreparation,
+      runner: runner,
+      dependencyEvaluator: dependencyEvaluator,
+      binaryProvenance: binaryProvenance,
+      processPolicy: processPolicy,
+    );
+    pluginOverlay = SwiftPmPluginOverlay<T>(
+      dependencyVendor: dependencyVendor,
+      filesystem: filesystem,
+      sourceNormalizer: sourceNormalizer,
+      binaryPreparation: binaryPreparation,
+    );
+    workspaceStager = SwiftPmWorkspaceStager<T>(
+      hostBuildServices: hostBuildServices,
+      artifactFileSystem: artifactFileSystem,
+      checkout: checkout,
+      dependencyPreparation: dependencyPreparation,
+      filesystem: filesystem,
+      hostPolicy: hostPolicy,
+      manifest: manifest,
+      pluginOverlay: pluginOverlay,
+      runner: runner,
+      sourceNormalizer: sourceNormalizer,
+      dependencyEvaluator: dependencyEvaluator,
+    );
+    buildDriver = SwiftPmBuildDriver<T>(
+      hostBuildServices: hostBuildServices,
+      buildPlan: buildPlan,
+      hostPolicy: hostPolicy,
+      consumerRepair: consumerRepair,
+      planReader: planReader,
+      processPolicy: processPolicy,
+      runner: runner,
+      sdkIdentity: sdkIdentity,
+      sdkRepository: sdkRepository,
+      sourceRepair: sourceRepair,
+      target: target,
+      targetPolicy: targetPolicy,
+      toolchain: toolchain,
+      toolchainResolver: toolchainResolver,
+      tools: tools,
+      buildExecution: buildExecution,
+      dependencyPreparation: dependencyPreparation,
+      checkout: checkout,
+    );
+    discovery = SwiftPmDiscovery<T>(
+      hostPolicy: hostPolicy,
+      sdkIdentity: sdkIdentity,
+      sdkRepository: sdkRepository,
+      toolchain: toolchain,
+    );
+    assembly = SwiftPmAssembly<T>(
+      hostBuildServices: hostBuildServices,
+      fileSystem: artifactFileSystem,
+    );
+    gateExecution = foundation.gateExecution;
+    artifactCapabilities = SwiftPmArtifactCapabilities<T>(
+      paths: host.paths,
+      fileSystem: artifactFileSystem,
+      repository: sdkRepository,
+      platform: gatePlatform,
+      identities: SwiftPmArtifactIdentityResolver<T>(
+        repository: sdkRepository,
+        sdkIdentity: sdkIdentity,
+        toolchain: toolchain,
+      ),
+    );
+  }
 
   late final SwiftPmPlanReader planReader;
   late final SwiftPmInteropConsumerRepair<T> consumerRepair;
   final SwiftPmFoundation<T> foundation;
+  final SwiftPmGatePlatform gatePlatform;
+  late final SwiftPmHostBuildServices<T> hostBuildServices;
+  late final SwiftPmLibrarianResolver<T> librarianResolver;
   IosTarget<T> get target => targetPolicy.target;
   final FlutterTargetBuildPolicy<T> targetPolicy;
   T get host => target.host;
@@ -115,8 +225,8 @@ artifactCapabilities=SwiftPmArtifactCapabilities<T>(paths:host.paths,fileSystem:
   final SwiftPmPublicationCoordinator publicationCoordinator;
   final SwiftPmArchiveTransport transport;
   final SwiftPmArtifactCopyPolicy copyPolicy;
-final SwiftPmBuildExecution<T> buildExecution;
-final SwiftPmDependencyPreparation<T> dependencyPreparation;
+  final SwiftPmBuildExecution<T> buildExecution;
+  final SwiftPmDependencyPreparation<T> dependencyPreparation;
   late final SwiftPmGateExecution<T> gateExecution;
   late final SwiftPmArtifactCapabilities<T> artifactCapabilities;
   late final SwiftPmPluginOverlay<T> pluginOverlay;
@@ -126,8 +236,8 @@ final SwiftPmDependencyPreparation<T> dependencyPreparation;
   late final SwiftPmDiscovery<T> discovery;
   late final SwiftPmAssembly<T> assembly;
   final SwiftPmCheckout<T> checkout;
-final SwiftPmCheckoutAttributes checkoutAttributes;
-final SwiftPmCheckoutManifestNormalizer<T> checkoutManifestNormalizer;
+  final SwiftPmCheckoutAttributes checkoutAttributes;
+  final SwiftPmCheckoutManifestNormalizer<T> checkoutManifestNormalizer;
   late final SwiftPmHostSourceNormalizer sourceNormalizer;
   late final SwiftPmModuleFiles moduleFiles;
   late final SwiftPmPackageMetadata packageMetadata;
@@ -147,5 +257,4 @@ final SwiftPmCheckoutManifestNormalizer<T> checkoutManifestNormalizer;
   late final SwiftPmPreviewMacroCompiler<T> previewCompiler;
   late final SwiftPmBuildPlan<T> buildPlan;
   late final SwiftPmProcessPolicy<T> processPolicy;
-
 }

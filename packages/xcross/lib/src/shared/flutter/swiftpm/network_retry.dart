@@ -2,13 +2,14 @@ import 'dart:async';
 
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/source_repair.dart';
+
 const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmNetworkRetry<T extends PlatformHostInterface> {
-SwiftPmNetworkRetry({required this.runner});
-final ProcessRunner<T> runner;
-static bool isTransientNetworkFailure(Object error) {
+  SwiftPmNetworkRetry({required this.runner});
+  final ProcessRunner<T> runner;
+  static bool isTransientNetworkFailure(Object error) {
     final text = error.toString().toLowerCase();
     // Our own timeout already waited the full budget; retrying it would
     // multiply the very stall the timeout exists to cut short.
@@ -18,7 +19,7 @@ static bool isTransientNetworkFailure(Object error) {
     );
   }
 
-/// Runs [action], retrying while it fails for an apparently transient
+  /// Runs [action], retrying while it fails for an apparently transient
   /// network reason.
   ///
   /// Anything else propagates on the first attempt, so a genuine build error

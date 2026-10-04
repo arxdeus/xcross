@@ -7,13 +7,12 @@ import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/flutter/build/ios_plugins.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/binary_preparation.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/binary_provenance.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/dependency_evaluator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/host_build_services.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_source_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest.dart';
@@ -25,18 +24,31 @@ const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
-  SwiftPmWorkspaceStager({required this.artifactFileSystem,required this.checkout,required this.dependencyPreparation,required this.filesystem,required this.hostPolicy,required this.manifest,required this.pluginOverlay,required this.runner,required this.sourceNormalizer,required this.dependencyEvaluator});
-final SwiftPmDependencyEvaluator<T> dependencyEvaluator;
-final SwiftPmArtifactFileSystem artifactFileSystem;
+  SwiftPmWorkspaceStager({
+    required this.artifactFileSystem,
+    required this.checkout,
+    required this.dependencyPreparation,
+    required this.filesystem,
+    required this.hostPolicy,
+    required this.hostBuildServices,
+    required this.manifest,
+    required this.pluginOverlay,
+    required this.runner,
+    required this.sourceNormalizer,
+    required this.dependencyEvaluator,
+  });
+  final SwiftPmDependencyEvaluator<T> dependencyEvaluator;
+  final SwiftPmArtifactFileSystem artifactFileSystem;
 
-final SwiftPmCheckout<T> checkout;
-final SwiftPmDependencyPreparation<T> dependencyPreparation;
-final SwiftPmFilesystem<T> filesystem;
-final SwiftPmHostPolicy hostPolicy;
-final SwiftPmManifest<T> manifest;
-final SwiftPmPluginOverlay<T> pluginOverlay;
-final ProcessRunner<T> runner;
-final SwiftPmHostSourceNormalizer sourceNormalizer;
+  final SwiftPmCheckout<T> checkout;
+  final SwiftPmDependencyPreparation<T> dependencyPreparation;
+  final SwiftPmFilesystem<T> filesystem;
+  final SwiftPmHostPolicy hostPolicy;
+  final SwiftPmHostBuildServices<T> hostBuildServices;
+  final SwiftPmManifest<T> manifest;
+  final SwiftPmPluginOverlay<T> pluginOverlay;
+  final ProcessRunner<T> runner;
+  final SwiftPmHostSourceNormalizer sourceNormalizer;
 
   /// Package-root entries a plugin's iOS SwiftPM build can never reach:
   /// Dart code, other platforms, development trees, and pub metadata.
@@ -46,7 +58,6 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
   /// to arbitrary sibling directories from their iOS package (`../../src`
   /// sources, `../../include` header search paths, shared `darwin/`
   /// trees), so only the provably unreachable entries are skipped.
-
 
   /// Identifiers a `.package(url:)` requirement may use as values without a
   /// declaration; argument labels (`from:`, `branch:`) are skipped separately.
@@ -134,7 +145,12 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
         );
       }
       final scoped = evaluateDependencyRefs;
-      final bootstrap = await dependencyPreparation.bootstrapPinned(SwiftPmPinnedDependencyCommand(packageDirectories:prestaged,vendorDir:resolvedVendorDir));
+      final bootstrap = await dependencyPreparation.bootstrapPinned(
+        SwiftPmPinnedDependencyCommand(
+          packageDirectories: prestaged,
+          vendorDir: resolvedVendorDir,
+        ),
+      );
       Map<String, String>? unified;
       try {
         unified = await resolveUnifiedDependencyRefs(
@@ -210,7 +226,12 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
     if (shouldVendor &&
         binaryArtifactStore != null &&
         binaryArtifactFallback != null) {
-      await dependencyPreparation.prepareArtifacts(resolvedVendorDir,binaryArtifactStore,binaryArtifactFallback,capability:packageLocalArtifactJunctionCapability);
+      await dependencyPreparation.prepareArtifacts(
+        resolvedVendorDir,
+        binaryArtifactStore,
+        binaryArtifactFallback,
+        capability: packageLocalArtifactJunctionCapability,
+      );
     }
     final packagesByDirectoryName = {
       for (final package in pluginPackageDirs.values)
@@ -219,14 +240,19 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
     for (final plugin in plugins) {
       if (!shouldVendor && !copyPluginPackages.contains(plugin.name)) continue;
       final stagedPackage = pluginPackageDirs[plugin.name]!;
-      final manifestFile = artifactFileSystem.file(p.join(stagedPackage, 'Package.swift'));
+      final manifestFile = artifactFileSystem.file(
+        p.join(stagedPackage, 'Package.swift'),
+      );
       var manifest = await manifestFile.readAsString();
       final original = manifest;
       for (final call in SwiftPmManifestLexer.swiftCalls(
         manifest,
         '.package',
       ).reversed) {
-        final dependencyPath = SwiftPmManifestLexer.namedString(call.text, 'path');
+        final dependencyPath = SwiftPmManifestLexer.namedString(
+          call.text,
+          'path',
+        );
         if (dependencyPath == null) continue;
         final dependencyName =
             SwiftPmManifestLexer.namedString(call.text, 'name') ??
@@ -267,7 +293,9 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
   }) async {
     final dependencies = <String, SwiftPmPackageDependency>{};
     for (final directory in packageDirectories) {
-      final manifest = artifactFileSystem.file(p.join(directory, 'Package.swift'));
+      final manifest = artifactFileSystem.file(
+        p.join(directory, 'Package.swift'),
+      );
       if (!manifest.existsSync()) continue;
       for (final dep in SwiftPmManifestDependencies.parseUrlPackageDeps(
         await manifest.readAsString(),
@@ -352,7 +380,9 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
           !pinned.contains(p.basename(checkout.path).toLowerCase())) {
         continue;
       }
-      final manifestFile = artifactFileSystem.file(p.join(checkout.path, 'Package.swift'));
+      final manifestFile = artifactFileSystem.file(
+        p.join(checkout.path, 'Package.swift'),
+      );
       if (!manifestFile.existsSync()) continue;
       final manifest = sourceNormalizer.normalizeHostManifest(
         await manifestFile.readAsString(),
@@ -434,20 +464,6 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
     return '.package(${inner.replaceAll(RegExp(r'\s+'), ' ').trim()})';
   }
 
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
   /// Writes `FlutterFramework/Package.swift` and links or copies the real
   /// [flutterXcframework]. Windows copies because creating symlinks commonly
   /// requires Developer Mode or elevation.
@@ -463,7 +479,11 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
     );
 
     final frameworkPath = p.join(frameworkDir, 'Flutter.xcframework');
-    await hostPolicy.stageFlutterFramework(filesystem,flutterXcframework,frameworkPath,copy: copyFlutterXcframework);
+    await hostBuildServices.stageFlutterFramework(
+      flutterXcframework,
+      frameworkPath,
+      copy: copyFlutterXcframework,
+    );
   }
 
   /// Writes `Plugins/Package.swift` and the generated registrant source.

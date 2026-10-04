@@ -4,26 +4,14 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/flutter/build/internal/windows_swift_plan_repair.dart';
-import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/build_plan.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/response_arguments.dart';
 
 import 'swiftpm_test_context.dart';
 
 final _swiftPmRuntime = testSwiftPmRuntime();
 final _windowsRuntime = testWindowsSwiftPmRuntime();
-final _simulatorRuntime = testSimulatorSwiftPmRuntime();
-final _windowsSimulatorRuntime = testWindowsSimulatorSwiftPmRuntime();
+
 final _windowsRepairs = WindowsSwiftPlanRepair(_windowsRuntime.runner);
-final _plugins = GeneratedPluginsPackage(
-  _swiftPmRuntime.targetPolicy,
-  runner: _swiftPmRuntime.runner,
-  sdkRepository: _swiftPmRuntime.sdkRepository,
-  toolchain: _swiftPmRuntime.toolchainResolver,
-  tools: _swiftPmRuntime.tools,
-  hostPolicy: _swiftPmRuntime.hostPolicy,
-  artifactFileSystem: _swiftPmRuntime.artifactFileSystem,
-  sdkIdentity: _swiftPmRuntime.sdkIdentity,
-);
 
 void main() {
   test('reads only generated response files inside the scratch cache', () {
@@ -45,7 +33,7 @@ void main() {
       '    args: [not json',
     ].join('\n');
     expect(
-      WindowsSwiftPlanRepair.referencedResponseArguments(
+      _swiftPmRuntime.planReader.responseFiles.referencedResponseArguments(
         manifest,
         scratch.path,
       ),
@@ -53,7 +41,7 @@ void main() {
     );
     final missing = p.join(cache.path, '${'d' * 64}.rsp');
     expect(
-      WindowsSwiftPlanRepair.referencedResponseArguments(
+      _swiftPmRuntime.planReader.responseFiles.referencedResponseArguments(
         '$manifest\n${line(missing)}',
         scratch.path,
       ),
@@ -80,7 +68,7 @@ void main() {
         p.join(scratch.path, 'debug.yaml'),
       ).writeAsStringSync('    args: ${jsonEncode(arguments)}\n');
       expect(
-        SwiftPmBuildPlan.manifestCarriesInteropSearchPaths(
+        _swiftPmRuntime.planReader.manifestCarriesInteropSearchPaths(
           scratch.path,
           interop,
         ),
@@ -91,7 +79,7 @@ void main() {
         isTrue,
       );
       expect(
-        SwiftPmBuildPlan.manifestCarriesInteropSearchPaths(
+        _swiftPmRuntime.planReader.manifestCarriesInteropSearchPaths(
           scratch.path,
           interop,
         ),
@@ -105,16 +93,15 @@ void main() {
     () async {
       final root = await Directory.systemTemp.createTemp('xcross-rsp-prune-');
       addTearDown(() => root.delete(recursive: true));
-      final previous = Directory.current;
-      Directory.current = root;
-      addTearDown(() => Directory.current = previous);
+      final runtime = testWindowsSwiftPmRuntime(currentDirectory: root.path);
+      final repairs = WindowsSwiftPlanRepair(runtime.runner);
       const scratch = 'scratch';
-      Directory(scratch).createSync();
-      final plan = File(p.join(scratch, 'debug.yaml'))
+      Directory(p.join(root.path, scratch)).createSync();
+      final plan = File(p.join(root.path, scratch, 'debug.yaml'))
         ..writeAsStringSync(
           '    args: ${jsonEncode(['swiftc.exe', '-D', 'A' * 29000])}\n',
         );
-      await _windowsRepairs.repairWindowsSwiftResponseFiles(scratch);
+      await repairs.repairWindowsSwiftResponseFiles(scratch);
       final reference =
           (jsonDecode(plan.readAsLinesSync().single.substring(10)) as List)
               .cast<String>()
@@ -126,7 +113,7 @@ void main() {
       response.setLastModifiedSync(
         DateTime.now().subtract(const Duration(days: 30)),
       );
-      await _windowsRepairs.repairWindowsSwiftResponseFiles(scratch);
+      await repairs.repairWindowsSwiftResponseFiles(scratch);
       expect(response.existsSync(), isTrue);
     },
   );
@@ -138,7 +125,9 @@ void main() {
       r'ends\',
       '😀',
     ];
-    final measured = WindowsSwiftPlanRepair.windowsCommandLineLength(arguments);
+    final measured = SwiftPmResponseArguments.windowsCommandLineLength(
+      arguments,
+    );
     expect(measured, greaterThan(arguments.join(' ').length));
     expect(measured, greaterThan(0));
   });

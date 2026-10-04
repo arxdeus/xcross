@@ -1,4 +1,3 @@
-
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/build/ios_plugins.dart';
@@ -12,7 +11,6 @@ const String pluginsProductName = 'FlutterPluginsGenerated';
 final class SwiftPmManifest<T extends PlatformHostInterface> {
   SwiftPmManifest({required this.targetPolicy});
   final FlutterTargetBuildPolicy<T> targetPolicy;
-
 
   /// `FlutterFramework/Package.swift` contents — wraps `Flutter.xcframework`
   /// as a SwiftPM binary target.
@@ -31,62 +29,6 @@ let package = Package(
     ]
 )
 ''';
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
 
   /// `Plugins/Package.swift` contents — aggregates every plugin's SPM package
   /// into one dynamic library product depending on [frameworkDir]'s

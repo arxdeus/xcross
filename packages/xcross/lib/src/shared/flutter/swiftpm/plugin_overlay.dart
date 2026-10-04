@@ -10,7 +10,6 @@ import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_source_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
 
-
 const String flutterFrameworkPackageName = 'FlutterFramework';
 
 final class SwiftPmPluginOverlay<T extends PlatformHostInterface> {
@@ -40,13 +39,19 @@ final class SwiftPmPluginOverlay<T extends PlatformHostInterface> {
     // development time, never referenced by the generated iOS build
     'pigeons',
   };
-SwiftPmPluginOverlay({required this.dependencyVendor,required this.filesystem,required this.sourceNormalizer,required this.binaryPreparation});
-final SwiftPmBinaryPreparation<T> binaryPreparation;
+  SwiftPmPluginOverlay({
+    required this.dependencyVendor,
+    required this.filesystem,
+    required this.sourceNormalizer,
+    required this.binaryPreparation,
+  });
+  final SwiftPmBinaryPreparation<T> binaryPreparation;
 
-final SwiftPmDependencyVendor<T> dependencyVendor;
-final SwiftPmFilesystem<T> filesystem;
-final SwiftPmHostSourceNormalizer sourceNormalizer;
-/// Stages [target] at [alias], using a shallow overlay when the Swift
+  final SwiftPmDependencyVendor<T> dependencyVendor;
+  final SwiftPmFilesystem<T> filesystem;
+  final SwiftPmHostSourceNormalizer sourceNormalizer;
+
+  /// Stages [target] at [alias], using a shallow overlay when the Swift
   /// manifest needs host fixes (linker flags, Windows CRT imports) or when
   /// remote URL dependencies are vendored to path deps.
   ///
@@ -83,10 +88,7 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
     var stagedPackage = alias;
     final shouldCopySources = vendorDir != null || copySources;
     if (shouldCopySources) {
-      await filesystem.deleteUnless(
-        alias,
-        FileSystemEntityType.directory,
-      );
+      await filesystem.deleteUnless(alias, FileSystemEntityType.directory);
       final packageRoot = p.dirname(p.dirname(target));
       await stageAncestorOverlay(
         sourceRoot: packageRoot,
@@ -101,7 +103,9 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
       stagedPackage = p.join(alias, platformDir, p.basename(target));
     }
 
-    final manifest = await filesystem.artifactFileSystem.file(p.join(target, 'Package.swift')).readAsString();
+    final manifest = await filesystem.artifactFileSystem
+        .file(p.join(target, 'Package.swift'))
+        .readAsString();
     var normalizedManifest = sourceNormalizer.removeMissingResources(
       sourceNormalizer.normalizeHostManifest(manifest),
       target,
@@ -130,27 +134,25 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
     final fallbackSwiftModules = <String, List<String>>{};
     if (vendorDir != null) {
       await mirrorPluginPackage(target, stagedPackage, normalizedManifest);
-      normalizedManifest = await dependencyVendor
-          .vendorUrlPackagesAsPathDeps(
-            normalizedManifest,
+      normalizedManifest = await dependencyVendor.vendorUrlPackagesAsPathDeps(
+        normalizedManifest,
 
-            vendorDir: vendorDir,
-            packageDirectory: stagedPackage,
-            fallbackSwiftModules: fallbackSwiftModules,
-            normalizationCache: vendorNormalizationCache,
-            evaluationCache: dependencyEvaluationCache,
-            checkoutCache: vendorCheckoutCache,
-            scratchPath: scratchPath,
+        vendorDir: vendorDir,
+        packageDirectory: stagedPackage,
+        fallbackSwiftModules: fallbackSwiftModules,
+        normalizationCache: vendorNormalizationCache,
+        evaluationCache: dependencyEvaluationCache,
+        checkoutCache: vendorCheckoutCache,
+        scratchPath: scratchPath,
 
-            binaryArtifactStore: binaryArtifactStore,
-            binaryArtifactFallback: binaryArtifactFallback,
-            swiftPmArtifactJunctionCapability:
-                swiftPmArtifactJunctionCapability,
-            packageLocalArtifactJunctionCapability:
-                packageLocalArtifactJunctionCapability,
-            scopedDependencyRefEvaluator: evaluateDependencyRefs,
-            clonePackage: clonePackage,
-          );
+        binaryArtifactStore: binaryArtifactStore,
+        binaryArtifactFallback: binaryArtifactFallback,
+        swiftPmArtifactJunctionCapability: swiftPmArtifactJunctionCapability,
+        packageLocalArtifactJunctionCapability:
+            packageLocalArtifactJunctionCapability,
+        scopedDependencyRefEvaluator: evaluateDependencyRefs,
+        clonePackage: clonePackage,
+      );
     }
 
     if (shouldCopySources) {
@@ -189,7 +191,7 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
     return stagedPackage;
   }
 
-/// Mirrors [target] at [staged] with [manifest] as its `Package.swift`.
+  /// Mirrors [target] at [staged] with [manifest] as its `Package.swift`.
   ///
   /// Only differing files are rewritten, so a rebuild presents SwiftPM with
   /// the timestamps it already compiled and its incremental state stays
@@ -200,33 +202,24 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
     String manifest, {
     SwiftPmSourceTransform? transform,
   }) async {
-    await filesystem.deleteUnless(
-      staged,
-      FileSystemEntityType.directory,
-    );
+    await filesystem.deleteUnless(staged, FileSystemEntityType.directory);
     await filesystem.syncDirectory(
       target,
       staged,
       preserve: const {'Package.swift'},
       transform: transform,
     );
-    await filesystem.writeStable(
-      p.join(staged, 'Package.swift'),
-      manifest,
-    );
+    await filesystem.writeStable(p.join(staged, 'Package.swift'), manifest);
     // The manifest is regenerated from the plugin's own each build and can
     // legitimately differ between the staging write and a later pass, so
     // "write only when changed" cannot keep its timestamp fixed on its own.
     // SwiftPM invalidates a package's whole target set on its manifest
     // timestamp, so stamp by content: identical output keeps the timestamp
     // SwiftPM already compiled against.
-    await filesystem.stampByContent(
-      p.join(staged, 'Package.swift'),
-      manifest,
-    );
+    await filesystem.stampByContent(p.join(staged, 'Package.swift'), manifest);
   }
 
-/// The host-compatibility source rewrite as a sync transform, electing
+  /// The host-compatibility source rewrite as a sync transform, electing
   /// Swift sources but never package manifests or binary files.
   SwiftPmSourceTransform hostSwiftTransform(
     Map<String, List<String>> fallbackSwiftModules,
@@ -242,7 +235,7 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
     );
   };
 
-/// Stages [target] at [staged] as per-entry aliases beneath a rewritten
+  /// Stages [target] at [staged] as per-entry aliases beneath a rewritten
   /// `Package.swift`, for hosts where symbolic links are first-class.
   Future<void> overlayPluginManifest(
     String target,
@@ -250,12 +243,14 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
     String manifest,
   ) async {
     await filesystem.deleteEntity(staged);
-    await filesystem.artifactFileSystem.directory(staged).create(recursive: true);
-    await filesystem.writeStable(
-      p.join(staged, 'Package.swift'),
-      manifest,
-    );
-    await for (final entity in filesystem.artifactFileSystem.directory(target).list(followLinks: false)) {
+    await filesystem.artifactFileSystem
+        .directory(staged)
+        .create(recursive: true);
+    await filesystem.writeStable(p.join(staged, 'Package.swift'), manifest);
+    await for (final entity
+        in filesystem.artifactFileSystem
+            .directory(target)
+            .list(followLinks: false)) {
       if (p.basename(entity.path) == 'Package.swift') continue;
       await stageEntity(
         entity,
@@ -265,17 +260,20 @@ final SwiftPmHostSourceNormalizer sourceNormalizer;
     }
   }
 
-Future<void> stageAncestorOverlay({
+  Future<void> stageAncestorOverlay({
     required String sourceRoot,
     required String destinationRoot,
     required String packageName,
     String platformDir = 'ios',
   }) async {
-    await filesystem.artifactFileSystem.directory(
-      p.join(destinationRoot, platformDir),
-    ).create(recursive: true);
+    await filesystem.artifactFileSystem
+        .directory(p.join(destinationRoot, platformDir))
+        .create(recursive: true);
     final staged = <String>{platformDir};
-    await for (final entity in filesystem.artifactFileSystem.directory(sourceRoot).list(followLinks: false)) {
+    await for (final entity
+        in filesystem.artifactFileSystem
+            .directory(sourceRoot)
+            .list(followLinks: false)) {
       final name = p.basename(entity.path);
       if (name == platformDir ||
           iosUnreachableEntries.contains(name.toLowerCase())) {
@@ -292,9 +290,10 @@ Future<void> stageAncestorOverlay({
     await pruneUnexpected(destinationRoot, staged);
 
     final stagedIos = <String>{packageName, flutterFrameworkPackageName};
-    await for (final entity in filesystem.artifactFileSystem.directory(
-      p.join(sourceRoot, platformDir),
-    ).list(followLinks: false)) {
+    await for (final entity
+        in filesystem.artifactFileSystem
+            .directory(p.join(sourceRoot, platformDir))
+            .list(followLinks: false)) {
       final name = p.basename(entity.path);
       if (name == packageName || name == flutterFrameworkPackageName) continue;
       stagedIos.add(name);
@@ -308,17 +307,20 @@ Future<void> stageAncestorOverlay({
     await pruneUnexpected(p.join(destinationRoot, platformDir), stagedIos);
   }
 
-/// Deletes entries of [directory] not named in [expected], so previously
+  /// Deletes entries of [directory] not named in [expected], so previously
   /// staged files that no longer qualify do not linger in the build tree.
   Future<void> pruneUnexpected(String directory, Set<String> expected) async {
-    await for (final entity in filesystem.artifactFileSystem.directory(directory).list(followLinks: false)) {
+    await for (final entity
+        in filesystem.artifactFileSystem
+            .directory(directory)
+            .list(followLinks: false)) {
       if (!expected.contains(p.basename(entity.path))) {
         await filesystem.deleteEntity(entity.path);
       }
     }
   }
 
-Future<void> stageEntity(
+  Future<void> stageEntity(
     FileSystemEntity entity,
     String destination, {
     required bool copyDirectories,
@@ -328,7 +330,10 @@ Future<void> stageEntity(
         ? entity.resolveSymbolicLinksSync()
         : entity.path;
     if (!filesystem.artifactFileSystem.directory(resolved).existsSync()) {
-      await filesystem.syncFile(filesystem.artifactFileSystem.file(resolved), destination);
+      await filesystem.syncFile(
+        filesystem.artifactFileSystem.file(resolved),
+        destination,
+      );
     } else if (copyDirectories) {
       await filesystem.syncDirectory(
         resolved,

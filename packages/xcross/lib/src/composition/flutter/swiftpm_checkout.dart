@@ -15,11 +15,39 @@ import 'package:xcross/src/shared/flutter/swiftpm/module_files.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/source_fallback.dart';
 
 final class SwiftPmCheckoutAssemblyParts<T extends PlatformHostInterface> {
-  factory SwiftPmCheckoutAssemblyParts.prepare({required ProcessRunner<T> runner, required SwiftPmArtifactFileSystem fileSystem}) {
-    final filesystem = SwiftPmFilesystem<T>(host: runner.host, runner: runner, artifactFileSystem: fileSystem);
-    return SwiftPmCheckoutAssemblyParts._(runner: runner, fileSystem: fileSystem, filesystem: filesystem, symlinks: HostSymlinkCapability(runner.host), stamps: SwiftPmCheckoutStampValidator(fileSystem: fileSystem), graph: SwiftPmCheckoutGraph(fileSystem: fileSystem), sourceNormalizer: SwiftPmHostSourceNormalizer(fileSystem: fileSystem), sourceFallback: SwiftPmSourceFallback<T>(filesystem: filesystem, moduleFiles: SwiftPmModuleFiles(fileSystem: fileSystem)));
+  factory SwiftPmCheckoutAssemblyParts.prepare({
+    required ProcessRunner<T> runner,
+    required SwiftPmArtifactFileSystem fileSystem,
+  }) {
+    final filesystem = SwiftPmFilesystem<T>(
+      host: runner.host,
+      runner: runner,
+      artifactFileSystem: fileSystem,
+    );
+    return SwiftPmCheckoutAssemblyParts._(
+      runner: runner,
+      fileSystem: fileSystem,
+      filesystem: filesystem,
+      symlinks: HostSymlinkCapability(runner.host),
+      stamps: SwiftPmCheckoutStampValidator(fileSystem: fileSystem),
+      graph: SwiftPmCheckoutGraph(fileSystem: fileSystem),
+      sourceNormalizer: SwiftPmHostSourceNormalizer(fileSystem: fileSystem),
+      sourceFallback: SwiftPmSourceFallback<T>(
+        filesystem: filesystem,
+        moduleFiles: SwiftPmModuleFiles(fileSystem: fileSystem),
+      ),
+    );
   }
-  const SwiftPmCheckoutAssemblyParts._({required this.runner, required this.fileSystem, required this.filesystem, required this.symlinks, required this.stamps, required this.graph, required this.sourceNormalizer, required this.sourceFallback});
+  const SwiftPmCheckoutAssemblyParts._({
+    required this.runner,
+    required this.fileSystem,
+    required this.filesystem,
+    required this.symlinks,
+    required this.stamps,
+    required this.graph,
+    required this.sourceNormalizer,
+    required this.sourceFallback,
+  });
   final ProcessRunner<T> runner;
   final SwiftPmArtifactFileSystem fileSystem;
   final SwiftPmFilesystem<T> filesystem;
@@ -30,8 +58,37 @@ final class SwiftPmCheckoutAssemblyParts<T extends PlatformHostInterface> {
   final SwiftPmSourceFallback<T> sourceFallback;
 }
 
-SwiftPmCheckout<T> assembleSwiftPmCheckout<T extends PlatformHostInterface>({required SwiftPmCheckoutAssemblyParts<T> parts, required SwiftPmCheckoutGitPolicy gitPolicy, required SwiftPmCheckoutFallback fallback, required SwiftPmCheckoutAttributes attributes, required SwiftPmCheckoutLinkCreator linkCreator, required Map<String, String> environment}) {
-  final repository = SwiftPmGitRepository<T>(runner: parts.runner, fileSystem: parts.fileSystem, filesystem: parts.filesystem, policy: gitPolicy, environment: environment);
-  final links = SwiftPmCheckoutLinks<T>(runner: parts.runner, fileSystem: parts.fileSystem, stamps: parts.stamps, attributes: attributes, linkCreator: linkCreator, policy: gitPolicy);
-  return SwiftPmCheckout<T>(runner: parts.runner, fileSystem: parts.fileSystem, symlinks: parts.symlinks, stamps: parts.stamps, graph: parts.graph, repository: repository, links: links, fallback: fallback);
+SwiftPmCheckout<T> assembleSwiftPmCheckout<T extends PlatformHostInterface>({
+  required SwiftPmCheckoutAssemblyParts<T> parts,
+  required SwiftPmCheckoutGitPolicy gitPolicy,
+  required SwiftPmCheckoutFallback fallback,
+  required SwiftPmCheckoutAttributes attributes,
+  required SwiftPmCheckoutLinkCreator linkCreator,
+  required Map<String, String> environment,
+}) {
+  final repository = SwiftPmGitRepository<T>(
+    runner: parts.runner,
+    fileSystem: parts.fileSystem,
+    filesystem: parts.filesystem,
+    policy: gitPolicy,
+    environment: environment,
+  );
+  final links = SwiftPmCheckoutLinks<T>(
+    runner: parts.runner,
+    fileSystem: parts.fileSystem,
+    stamps: parts.stamps,
+    attributes: attributes,
+    linkCreator: linkCreator,
+    policy: gitPolicy,
+  );
+  return SwiftPmCheckout<T>(
+    runner: parts.runner,
+    fileSystem: parts.fileSystem,
+    symlinks: parts.symlinks,
+    stamps: parts.stamps,
+    graph: parts.graph,
+    repository: repository,
+    links: links,
+    fallback: fallback,
+  );
 }

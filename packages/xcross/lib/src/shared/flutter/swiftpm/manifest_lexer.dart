@@ -1,7 +1,5 @@
-
-
 final class SwiftPmManifestLexer {
-static List<bool> swiftCodeMask(String source) {
+  static List<bool> swiftCodeMask(String source) {
     final code = List<bool>.filled(source.length, true);
     var i = 0;
     while (i < source.length) {
@@ -66,7 +64,7 @@ static List<bool> swiftCodeMask(String source) {
     return code;
   }
 
-/// `let name = "..."` string constants, so `.package(url: name, ...)`
+  /// `let name = "..."` string constants, so `.package(url: name, ...)`
   /// (firebase-ios-sdk's `appMeasurementURL`) can be vendored like literals.
   static Map<String, String> manifestStringConstants(String manifest) {
     final pattern = RegExp(
@@ -78,7 +76,7 @@ static List<bool> swiftCodeMask(String source) {
     };
   }
 
-/// Index of the `)` that closes the `(` at [openIndex], or -1.
+  /// Index of the `)` that closes the `(` at [openIndex], or -1.
   static int indexOfMatchingParen(String source, int openIndex) {
     var depth = 0;
     var inString = false;
@@ -106,14 +104,17 @@ static List<bool> swiftCodeMask(String source) {
     return -1;
   }
 
-static List<({int start, int end, String text})> swiftCalls(
+  static List<({int start, int end, String text})> swiftCalls(
     String source,
     String name,
   ) {
     final calls = <({int start, int end, String text})>[];
     final pattern = RegExp('${RegExp.escape(name)}\\s*\\(');
     for (final match in pattern.allMatches(source)) {
-      final close = SwiftPmManifestLexer.indexOfMatchingParen(source, match.end - 1);
+      final close = SwiftPmManifestLexer.indexOfMatchingParen(
+        source,
+        match.end - 1,
+      );
       if (close >= 0) {
         calls.add((
           start: match.start,
@@ -125,10 +126,10 @@ static List<({int start, int end, String text})> swiftCalls(
     return calls;
   }
 
-static String? namedString(String call, String name) =>
+  static String? namedString(String call, String name) =>
       RegExp('${RegExp.escape(name)}\\s*:\\s*"([^"]+)"').firstMatch(call)?[1];
 
-static List<String> namedStringList(String call, String name) {
+  static List<String> namedStringList(String call, String name) {
     final argument = RegExp('${RegExp.escape(name)}\\s*:').firstMatch(call);
     if (argument == null) return const [];
     final open = call.indexOf('[', argument.end);
@@ -143,7 +144,7 @@ static List<String> namedStringList(String call, String name) {
     ];
   }
 
-static int indexOfMatchingDelimiter(String source, int openIndex) {
+  static int indexOfMatchingDelimiter(String source, int openIndex) {
     final open = source[openIndex];
     final close = switch (open) {
       '(' => ')',
@@ -165,7 +166,7 @@ static int indexOfMatchingDelimiter(String source, int openIndex) {
     return -1;
   }
 
-static ({int open, int close})? fallbackBlock(String manifest) {
+  static ({int open, int close})? fallbackBlock(String manifest) {
     final marker = manifest.indexOf('products.removeAll()');
     if (marker < 0) return null;
     final open = manifest.lastIndexOf('{', marker);

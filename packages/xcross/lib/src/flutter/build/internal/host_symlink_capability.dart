@@ -27,5 +27,4 @@ final class HostSymlinkCapability {
       if (root.existsSync()) root.deleteSync(recursive: true);
     }
   }
-
 }

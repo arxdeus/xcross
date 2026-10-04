@@ -7,9 +7,10 @@ import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
 
 final class SwiftPmHostSourceNormalizer {
-SwiftPmHostSourceNormalizer({required this.fileSystem});
-final SwiftPmArtifactFileSystem fileSystem;
-/// Rewrites Clang-style `-Wl,<argument>...` manifest tokens into the
+  SwiftPmHostSourceNormalizer({required this.fileSystem});
+  final SwiftPmArtifactFileSystem fileSystem;
+
+  /// Rewrites Clang-style `-Wl,<argument>...` manifest tokens into the
   /// equivalent arguments accepted by the Swift compiler driver.
   static String normalizeLinkerFlags(String manifest) =>
       manifest.replaceAllMapped(RegExp(r'"-Wl,([^"\\]+)"'), (match) {
@@ -22,7 +23,7 @@ final SwiftPmArtifactFileSystem fileSystem;
         ].join(', ');
       });
 
-String removeMissingResources(String manifest, String packageDir) {
+  String removeMissingResources(String manifest, String packageDir) {
     final targets = SwiftPmManifestLexer.swiftCalls(manifest, '.target');
     final resourcePattern = RegExp(
       r'\.((?:process|copy))\(\s*"([^"]+)"\s*\)\s*,?',
@@ -33,7 +34,10 @@ String removeMissingResources(String manifest, String packageDir) {
       var root = packageDir;
       for (final target in targets) {
         if (target.start > match.start || target.end < match.end) continue;
-        final explicitPath = SwiftPmManifestLexer.namedString(target.text, 'path');
+        final explicitPath = SwiftPmManifestLexer.namedString(
+          target.text,
+          'path',
+        );
         final name = SwiftPmManifestLexer.namedString(target.text, 'name');
         if (explicitPath != null) {
           root = p.joinAll([packageDir, ...explicitPath.split('/')]);
@@ -43,15 +47,14 @@ String removeMissingResources(String manifest, String packageDir) {
         break;
       }
       final resource = p.joinAll([root, ...match.group(2)!.split('/')]);
-      if (fileSystem.typeSync(resource) ==
-          FileSystemEntityType.notFound) {
+      if (fileSystem.typeSync(resource) == FileSystemEntityType.notFound) {
         result = result.replaceRange(match.start, match.end, '');
       }
     }
     return result;
   }
 
-/// Host-side Package.swift fixes for cross builds.
+  /// Host-side Package.swift fixes for cross builds.
   ///
   /// Includes [normalizeLinkerFlags], plus Windows Swift 6+ CRT imports so
   /// manifests that call `getenv` via removed `MSVCRT` (notably sentry-cocoa)
@@ -120,7 +123,7 @@ String removeMissingResources(String manifest, String packageDir) {
     return result;
   }
 
-/// Injects `import <fallback>` lines ahead of imports of a package whose
+  /// Injects `import <fallback>` lines ahead of imports of a package whose
   /// Windows build fell back to source and needs its Swift half imported
   /// alongside its Objective-C compatibility module (see
   /// [synthesizeBinaryFallbackCompatibility]).
@@ -164,7 +167,7 @@ String removeMissingResources(String manifest, String packageDir) {
     });
   }
 
-/// Normalizes regular Swift source files below [root] without following
+  /// Normalizes regular Swift source files below [root] without following
   /// links. Every source is analyzed before any file is changed.
   Future<void> normalizeHostSwiftTree(
     String root, {
@@ -177,9 +180,8 @@ String removeMissingResources(String manifest, String packageDir) {
     final files = <File>[];
 
     Future<void> collect(String directory) async {
-      await for (final entity in fileSystem.directory(
-        directory,
-      ).list(followLinks: false)) {
+      await for (final entity
+          in fileSystem.directory(directory).list(followLinks: false)) {
         final type = fileSystem.typeSync(entity.path, followLinks: false);
         if (type == FileSystemEntityType.directory) {
           await collect(entity.path);

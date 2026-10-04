@@ -3,26 +3,12 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_workspace.dart';
-import 'package:xcross/src/flutter/build/internal/windows_swift_plan_repair.dart';
-import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 
 import 'swiftpm_test_context.dart';
 
 final _swiftPmRuntime = testSwiftPmRuntime();
-final _windowsRuntime = testWindowsSwiftPmRuntime();
+
 final _simulatorRuntime = testSimulatorSwiftPmRuntime();
-final _windowsSimulatorRuntime = testWindowsSimulatorSwiftPmRuntime();
-final _windowsRepairs = WindowsSwiftPlanRepair(_windowsRuntime.runner);
-final _plugins = GeneratedPluginsPackage(
-  _swiftPmRuntime.targetPolicy,
-  runner: _swiftPmRuntime.runner,
-  sdkRepository: _swiftPmRuntime.sdkRepository,
-  toolchain: _swiftPmRuntime.toolchainResolver,
-  tools: _swiftPmRuntime.tools,
-  hostPolicy: _swiftPmRuntime.hostPolicy,
-  artifactFileSystem: _swiftPmRuntime.artifactFileSystem,
-  sdkIdentity: _swiftPmRuntime.sdkIdentity,
-);
 
 void main() {
   late Directory temp;
@@ -127,7 +113,9 @@ void main() {
       temp.path,
       environment: {'LOCALAPPDATA': localAppData},
 
-      policy: testWindowsSwiftPmRuntime(environment: {'LOCALAPPDATA': localAppData}).targetPolicy,
+      policy: testWindowsSwiftPmRuntime(
+        environment: {'LOCALAPPDATA': localAppData},
+      ).targetPolicy,
     );
 
     expect(p.isWithin(p.join(localAppData, 'xcross'), workspace.root), isTrue);
@@ -139,7 +127,9 @@ void main() {
       temp.path,
       environment: {'XDG_CACHE_HOME': xdg},
 
-      policy: testSwiftPmRuntime(environment: {'XDG_CACHE_HOME': xdg}).targetPolicy,
+      policy: testSwiftPmRuntime(
+        environment: {'XDG_CACHE_HOME': xdg},
+      ).targetPolicy,
     );
 
     expect(p.isWithin(p.join(xdg, 'xcross'), workspace.root), isTrue);

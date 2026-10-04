@@ -3,14 +3,22 @@ import 'package:xcross/src/shared/flutter/swiftpm/build_execution.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/interop_consumer_repair.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/plan_reader.dart';
-const String pluginsProductName='FlutterPluginsGenerated';
+
+const String pluginsProductName = 'FlutterPluginsGenerated';
+
 final class SwiftPmInteropBuildRecovery<T extends PlatformHostInterface> {
-SwiftPmInteropBuildRecovery({required this.session,required this.planReader,required this.consumerRepair,required this.hostPolicy,required this.execution});
-final SwiftPmInteropBuild session;
-final SwiftPmPlanReader planReader;
-final SwiftPmInteropConsumerRepair<T> consumerRepair;
-final SwiftPmHostPolicy hostPolicy;
-final SwiftPmBuildExecution<T> execution;
+  SwiftPmInteropBuildRecovery({
+    required this.session,
+    required this.planReader,
+    required this.consumerRepair,
+    required this.hostPolicy,
+    required this.execution,
+  });
+  final SwiftPmInteropBuild session;
+  final SwiftPmPlanReader planReader;
+  final SwiftPmInteropConsumerRepair<T> consumerRepair;
+  final SwiftPmHostPolicy hostPolicy;
+  final SwiftPmBuildExecution<T> execution;
   static final RegExp _missingSwiftHeaderDiagnostic = RegExp(
     r'[A-Za-z_0-9-]+-Swift\.h[^\n]*(?:file not found|not found|No such file)',
     caseSensitive: false,
@@ -21,8 +29,8 @@ final SwiftPmBuildExecution<T> execution;
     bool skipInitialRecovery = false,
   }) async {
     final repair = session.repairConsumers;
-final build=session.build;
-final buildTarget=session.buildTarget;
+    final build = session.build;
+    final buildTarget = session.buildTarget;
 
     Future<bool> recoverMissingTargets({Set<String>? candidates}) async {
       final targets = consumerRepair.missingSwiftInteropTargets(
@@ -36,10 +44,11 @@ final buildTarget=session.buildTarget;
       return targets.isNotEmpty;
     }
 
-    final planned = planReader.plannedSwiftInteropTargets(
-      targetBuildDir,
+    final planned = planReader.plannedSwiftInteropTargets(targetBuildDir);
+    final selected = hostPolicy.selectInteropTargets(
+      planned,
+      interopTargetCandidates,
     );
-    final selected=hostPolicy.selectInteropTargets(planned,interopTargetCandidates);
     final prebuild = hostPolicy.orderInteropTargets(
       planReader.targetDependencies(targetBuildDir),
       selected,
@@ -53,23 +62,26 @@ final buildTarget=session.buildTarget;
       return;
     }
 
-    final before = planReader.swiftInteropSearchPaths(
-      targetBuildDir,
-    ).toSet();
-    final missingBefore = consumerRepair.missingSwiftInteropTargets(
-      targetBuildDir,
-      candidates: interopTargetCandidates,
-    ).toSet();
+    final before = planReader.swiftInteropSearchPaths(targetBuildDir).toSet();
+    final missingBefore = consumerRepair
+        .missingSwiftInteropTargets(
+          targetBuildDir,
+          candidates: interopTargetCandidates,
+        )
+        .toSet();
     try {
       await build();
     } on Object catch (error, stack) {
       final missingHeader = _missingSwiftHeaderDiagnostic.hasMatch(
         error.toString(),
       );
-      final newlyExposed = consumerRepair.missingSwiftInteropTargets(
-        targetBuildDir,
-        candidates: interopTargetCandidates,
-      ).toSet().difference(missingBefore);
+      final newlyExposed = consumerRepair
+          .missingSwiftInteropTargets(
+            targetBuildDir,
+            candidates: interopTargetCandidates,
+          )
+          .toSet()
+          .difference(missingBefore);
       if (!missingHeader && newlyExposed.isEmpty) rethrow;
 
       final candidates = reachableInteropCandidates(
@@ -85,10 +97,16 @@ final buildTarget=session.buildTarget;
       });
       if (recovered) return;
 
-      final emitted = planReader.swiftInteropSearchPaths(
-        targetBuildDir,
-      ).toSet().difference(before);
-      await execution.recoverInterop(emitted:emitted,command:session.command,error:error,stack:stack);
+      final emitted = planReader
+          .swiftInteropSearchPaths(targetBuildDir)
+          .toSet()
+          .difference(before);
+      await execution.recoverInterop(
+        emitted: emitted,
+        command: session.command,
+        error: error,
+        stack: stack,
+      );
     }
   }
 

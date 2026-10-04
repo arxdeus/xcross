@@ -19,6 +19,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/checkout_attributes.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/foundation.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/gate_platform.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_dependencies.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
@@ -109,12 +110,13 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
     required SwiftPmPublicationCoordinator publicationCoordinator,
     required SwiftPmArchiveTransport transport,
     required SwiftPmArtifactCopyPolicy copyPolicy,
-required SwiftPmBuildExecution<T> buildExecution,
-required SwiftPmDependencyPreparation<T> dependencyPreparation,
-required SwiftPmCheckout<T> checkout,
-required SwiftPmCheckoutAttributes checkoutAttributes,
-required SwiftPmCheckoutManifestNormalizer<T> checkoutManifestNormalizer,
-required SwiftPmFoundation<T> foundation,
+    required SwiftPmBuildExecution<T> buildExecution,
+    required SwiftPmDependencyPreparation<T> dependencyPreparation,
+    required SwiftPmCheckout<T> checkout,
+    required SwiftPmCheckoutAttributes checkoutAttributes,
+    required SwiftPmCheckoutManifestNormalizer<T> checkoutManifestNormalizer,
+    required SwiftPmFoundation<T> foundation,
+    required SwiftPmGatePlatform gatePlatform,
   }) : runtime = SwiftPmRuntime(
          policy,
          runner,
@@ -127,12 +129,13 @@ required SwiftPmFoundation<T> foundation,
          publicationCoordinator,
          transport,
          copyPolicy,
-      buildExecution,
-      dependencyPreparation,
-      checkout,
-      checkoutAttributes,
-      checkoutManifestNormalizer,
-      foundation,
+         buildExecution,
+         dependencyPreparation,
+         checkout,
+         checkoutAttributes,
+         checkoutManifestNormalizer,
+         foundation,
+         gatePlatform,
        );
   final SwiftPmRuntime<T> runtime;
 
@@ -208,13 +211,15 @@ required SwiftPmFoundation<T> foundation,
       );
       if (fingerprintFile.existsSync() &&
           await fingerprintFile.readAsString() == fingerprint &&
-          runtime.artifactFileSystem.file(
-            p.join(targetDebugDir, 'lib$pluginsProductName.dylib'),
-          ).existsSync()) {
+          runtime.artifactFileSystem
+              .file(p.join(targetDebugDir, 'lib$pluginsProductName.dylib'))
+              .existsSync()) {
         runtime.runner.log.logTrace('reusing unchanged SwiftPM plugin build');
         return runtime.assembly.discoverAndRewriteDylibs(targetDebugDir);
       }
-      final targetDirectory = runtime.artifactFileSystem.directory(targetDebugDir);
+      final targetDirectory = runtime.artifactFileSystem.directory(
+        targetDebugDir,
+      );
       if (targetDirectory.existsSync()) {
         await targetDirectory.delete(recursive: true);
       }
@@ -222,10 +227,12 @@ required SwiftPmFoundation<T> foundation,
       final interopProductsByPlugin = <String, Set<String>>{};
 
       for (final plugin in spmPlugins) {
-        final manifest = await runtime.artifactFileSystem.file(
-          p.join(plugin.swiftPackageDir, 'Package.swift'),
-        ).readAsString();
-        final products = SwiftPmManifestDependencies.dependencyProductNames(manifest);
+        final manifest = await runtime.artifactFileSystem
+            .file(p.join(plugin.swiftPackageDir, 'Package.swift'))
+            .readAsString();
+        final products = SwiftPmManifestDependencies.dependencyProductNames(
+          manifest,
+        );
         if (products.isNotEmpty) {
           interopProductsByPlugin[plugin.name] = products;
         }

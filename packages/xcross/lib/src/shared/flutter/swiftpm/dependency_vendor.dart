@@ -17,11 +17,19 @@ const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmDependencyVendor<T extends PlatformHostInterface> {
-  SwiftPmDependencyVendor({required this.checkout,required this.checkoutManifestNormalizer,required this.dependencyPreparation,required this.runner,required this.dependencyEvaluator,required this.binaryProvenance,required this.processPolicy});
-final SwiftPmBinaryProvenance<T> binaryProvenance;
-final SwiftPmProcessPolicy<T> processPolicy;
-final SwiftPmDependencyEvaluator<T> dependencyEvaluator;
-  
+  SwiftPmDependencyVendor({
+    required this.checkout,
+    required this.checkoutManifestNormalizer,
+    required this.dependencyPreparation,
+    required this.runner,
+    required this.dependencyEvaluator,
+    required this.binaryProvenance,
+    required this.processPolicy,
+  });
+  final SwiftPmBinaryProvenance<T> binaryProvenance;
+  final SwiftPmProcessPolicy<T> processPolicy;
+  final SwiftPmDependencyEvaluator<T> dependencyEvaluator;
+
   final SwiftPmCheckout<T> checkout;
   final SwiftPmCheckoutManifestNormalizer<T> checkoutManifestNormalizer;
   final SwiftPmDependencyPreparation<T> dependencyPreparation;
@@ -99,7 +107,10 @@ final SwiftPmDependencyEvaluator<T> dependencyEvaluator;
         dependencies: dependencies,
       );
       if (evaluationCache == null) return run();
-      final evaluationKey = await binaryProvenance.dependencyEvaluationKey(manifest, directory);
+      final evaluationKey = await binaryProvenance.dependencyEvaluationKey(
+        manifest,
+        directory,
+      );
       final pending = evaluationCache.putIfAbsent(evaluationKey, run);
       try {
         return await pending;
@@ -135,11 +146,19 @@ final SwiftPmDependencyEvaluator<T> dependencyEvaluator;
     ) async {
       await clone(git, url, ref, destination);
       if (clonePackage == null) {
-        await dependencyPreparation.materializeClone(destination,git,vendorDir);
+        await dependencyPreparation.materializeClone(
+          destination,
+          git,
+          vendorDir,
+        );
       }
     }
 
-    Future<void> checkoutDependency(String url, String ref, String destination) async {
+    Future<void> checkoutDependency(
+      String url,
+      String ref,
+      String destination,
+    ) async {
       if (checkoutCache == null) {
         await cloneAndMaterialize(url, ref, destination);
         return;
@@ -167,7 +186,9 @@ final SwiftPmDependencyEvaluator<T> dependencyEvaluator;
       vendored: <String>{},
       requireResolvedRefs: true,
       evaluateNested: evaluateCached,
-      fallbackSwiftModules: processPolicy.sourceFallbackActive ? fallbackSwiftModules : null,
+      fallbackSwiftModules: processPolicy.sourceFallbackActive
+          ? fallbackSwiftModules
+          : null,
       normalizationCache: normalizationCache,
     );
   }
@@ -202,9 +223,12 @@ final SwiftPmDependencyEvaluator<T> dependencyEvaluator;
     if (deps.isEmpty) return manifest;
 
     var result = manifest;
-    final namedPathDeps = SwiftPmManifestDependencies.supportsNamedPathDeps(manifest);
+    final namedPathDeps = SwiftPmManifestDependencies.supportsNamedPathDeps(
+      manifest,
+    );
     for (final dep in deps) {
-      final ref = evaluatedRefs[SwiftPmBinaryProvenance.canonicalGitUrl(dep.url)];
+      final ref =
+          evaluatedRefs[SwiftPmBinaryProvenance.canonicalGitUrl(dep.url)];
       if (ref == null) {
         // The root resolution pins the whole transitive graph, so a missing
         // pin only happens for manifest variants SwiftPM itself ignores.
@@ -215,7 +239,10 @@ final SwiftPmDependencyEvaluator<T> dependencyEvaluator;
           'contains no matching source-control revision.',
         );
       }
-      final dirName = SwiftPmManifestDependencies.vendorPackageDirName(dep.url, ref);
+      final dirName = SwiftPmManifestDependencies.vendorPackageDirName(
+        dep.url,
+        ref,
+      );
       // Always set name: — without it SwiftPM uses the directory basename
       // (`pkg@1.2.3`), which breaks `.product(..., package: "pkg")`.
       final identity = dep.identity;
@@ -238,7 +265,9 @@ final SwiftPmDependencyEvaluator<T> dependencyEvaluator;
           await checkoutManifestNormalizer.normalizeVendoredPackageManifests(
             destination,
             consumedProducts: consumedProducts,
-            fallbackSwiftModules: processPolicy.sourceFallbackActive ? fallbackSwiftModules : null,
+            fallbackSwiftModules: processPolicy.sourceFallbackActive
+                ? fallbackSwiftModules
+                : null,
             rewriteDependencies: (nested) async {
               // A vendored package's manifest may declare deps the parent's
               // resolution never saw (firebase-ios-sdk hides them behind
@@ -247,7 +276,8 @@ final SwiftPmDependencyEvaluator<T> dependencyEvaluator;
               // gets `<name>@<ref>` while the URL dep pulls `<name>` — so
               // resolve the checkout itself and vendor them too.
               var refs = evaluatedRefs;
-              final nestedDeps = SwiftPmManifestDependencies.parseUrlPackageDeps(nested);
+              final nestedDeps =
+                  SwiftPmManifestDependencies.parseUrlPackageDeps(nested);
               if (evaluateNested != null &&
                   nestedDeps.any(
                     (dep) => !refs.containsKey(
@@ -267,7 +297,9 @@ final SwiftPmDependencyEvaluator<T> dependencyEvaluator;
                 vendored: vendored,
                 requireResolvedRefs: false,
                 evaluateNested: evaluateNested,
-                fallbackSwiftModules: processPolicy.sourceFallbackActive ? fallbackSwiftModules : null,
+                fallbackSwiftModules: processPolicy.sourceFallbackActive
+                    ? fallbackSwiftModules
+                    : null,
                 normalizationCache: normalizationCache,
               );
             },

@@ -15,21 +15,32 @@ import 'package:xcross/src/shared/flutter/swiftpm/binary_layout.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/binary_provenance.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
+
 const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmBinaryRecovery<T extends PlatformHostInterface> {
-SwiftPmBinaryRecovery({required this.artifactFileSystem,required this.binaryLayout,required this.binaryProvenance,required this.copyPolicy,required this.filesystem,required this.host,required this.publicationCoordinator,required this.targetPolicy,required this.transport});
-final SwiftPmArtifactFileSystem artifactFileSystem;
-final SwiftPmBinaryLayout<T> binaryLayout;
-final SwiftPmBinaryProvenance<T> binaryProvenance;
-final SwiftPmArtifactCopyPolicy copyPolicy;
-final SwiftPmFilesystem<T> filesystem;
-final T host;
-final SwiftPmPublicationCoordinator publicationCoordinator;
-final FlutterTargetBuildPolicy<T> targetPolicy;
-final SwiftPmArchiveTransport transport;
-Future<void> resolveWithFinalBinaryRecovery({
+  SwiftPmBinaryRecovery({
+    required this.artifactFileSystem,
+    required this.binaryLayout,
+    required this.binaryProvenance,
+    required this.copyPolicy,
+    required this.filesystem,
+    required this.host,
+    required this.publicationCoordinator,
+    required this.targetPolicy,
+    required this.transport,
+  });
+  final SwiftPmArtifactFileSystem artifactFileSystem;
+  final SwiftPmBinaryLayout<T> binaryLayout;
+  final SwiftPmBinaryProvenance<T> binaryProvenance;
+  final SwiftPmArtifactCopyPolicy copyPolicy;
+  final SwiftPmFilesystem<T> filesystem;
+  final T host;
+  final SwiftPmPublicationCoordinator publicationCoordinator;
+  final FlutterTargetBuildPolicy<T> targetPolicy;
+  final SwiftPmArchiveTransport transport;
+  Future<void> resolveWithFinalBinaryRecovery({
     required Future<void> Function() resolve,
     required Future<bool> Function() recover,
   }) async {
@@ -46,7 +57,7 @@ Future<void> resolveWithFinalBinaryRecovery({
     }
   }
 
-/// Whether [error] is a resolve this tool killed for exceeding its timeout.
+  /// Whether [error] is a resolve this tool killed for exceeding its timeout.
   ///
   /// Distinguishes our own deliberate kill from a failure of the work, so
   /// recovery and retry paths can decline to run the same stall again.
@@ -54,7 +65,7 @@ Future<void> resolveWithFinalBinaryRecovery({
       error.toString().contains('and was killed') ||
       error.toString().contains('took longer than');
 
-Future<SwiftPmBinaryArtifactPublication?> recoverFinalBinaryArtifact({
+  Future<SwiftPmBinaryArtifactPublication?> recoverFinalBinaryArtifact({
     required SwiftPmBinaryArtifactProvenance provenance,
     required String preparedArtifactPath,
     required String binaryArtifactStore,
@@ -65,7 +76,6 @@ Future<SwiftPmBinaryArtifactPublication?> recoverFinalBinaryArtifact({
     String? materializedDestination,
     CreateSwiftPmBinaryAlias? createAlias,
     MaterializeSwiftPmBinaryArtifact? materialize,
-    SwiftPmArtifactCopyPolicy? materializeCopyPolicy,
   }) async {
     final key = binaryProvenance.binaryArtifactAttemptKey(provenance);
     if (attemptState.finalRecovered.contains(key)) return null;
@@ -82,9 +92,7 @@ Future<SwiftPmBinaryArtifactPublication?> recoverFinalBinaryArtifact({
       ),
     );
     final create = createAlias ?? preparer.createBinaryArtifactJunction;
-    final copy =
-        materialize ??
-        preparer.materializeBinaryArtifact;
+    final copy = materialize ?? preparer.materializeBinaryArtifact;
     if (packageLocalArtifactJunctionCapability) {
       try {
         final started = Stopwatch()..start();
@@ -92,9 +100,7 @@ Future<SwiftPmBinaryArtifactPublication?> recoverFinalBinaryArtifact({
         filesystem.traceBinaryOperation(
           target: provenance.target.name,
           operation: 'recover',
-          extractedBytes: filesystem.directoryBytes(
-            preparedArtifactPath,
-          ),
+          extractedBytes: filesystem.directoryBytes(preparedArtifactPath),
           elapsedMilliseconds: started.elapsedMilliseconds,
           attempt: 1,
         );
@@ -120,7 +126,7 @@ Future<SwiftPmBinaryArtifactPublication?> recoverFinalBinaryArtifact({
     return publication;
   }
 
-Future<bool> recoverBootstrapBinaryArtifacts({
+  Future<bool> recoverBootstrapBinaryArtifacts({
     required String scratchPath,
     required String binaryArtifactStore,
     required Iterable<SwiftPmBinaryArtifactProvenance> provenance,
@@ -151,7 +157,8 @@ Future<bool> recoverBootstrapBinaryArtifacts({
         >{};
     for (final package in artifacts.listSync(followLinks: false)) {
       if (package is! Directory ||
-          binaryProvenance.swiftPmComponent(p.basename(package.path)) == 'extract') {
+          binaryProvenance.swiftPmComponent(p.basename(package.path)) ==
+              'extract') {
         continue;
       }
       for (final targetDirectory in package.listSync(followLinks: false)) {
@@ -174,7 +181,9 @@ Future<bool> recoverBootstrapBinaryArtifacts({
     for (final candidateList in candidates.values) {
       if (candidateList.length != 1) continue;
       final candidate = candidateList.single;
-      final key = binaryProvenance.binaryArtifactAttemptKey(candidate.provenance);
+      final key = binaryProvenance.binaryArtifactAttemptKey(
+        candidate.provenance,
+      );
       if (attemptState.bootstrapRecovered.contains(key)) continue;
       final completeArtifacts = candidate.directory
           .listSync(followLinks: false)

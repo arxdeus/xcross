@@ -20,22 +20,34 @@ import 'package:xcross/src/shared/flutter/swiftpm/binary_recovery.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_attributes.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
+
 const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 final class SwiftPmExtractedArtifactRecovery<T extends PlatformHostInterface> {
-SwiftPmExtractedArtifactRecovery({required this.artifactFileSystem,required this.binaryLayout,required this.binaryRecovery,required this.checkoutAttributes,required this.copyPolicy,required this.filesystem,required this.host,required this.publicationCoordinator,required this.targetPolicy,required this.transport});
-final SwiftPmArtifactFileSystem artifactFileSystem;
-final SwiftPmBinaryLayout<T> binaryLayout;
-final SwiftPmBinaryRecovery<T> binaryRecovery;
-final SwiftPmCheckoutAttributes checkoutAttributes;
-final SwiftPmArtifactCopyPolicy copyPolicy;
-final SwiftPmFilesystem<T> filesystem;
-final T host;
-final SwiftPmPublicationCoordinator publicationCoordinator;
-final FlutterTargetBuildPolicy<T> targetPolicy;
-final SwiftPmArchiveTransport transport;
-Future<bool> stageExtractedBinaryArtifacts({
+  SwiftPmExtractedArtifactRecovery({
+    required this.artifactFileSystem,
+    required this.binaryLayout,
+    required this.binaryRecovery,
+    required this.checkoutAttributes,
+    required this.copyPolicy,
+    required this.filesystem,
+    required this.host,
+    required this.publicationCoordinator,
+    required this.targetPolicy,
+    required this.transport,
+  });
+  final SwiftPmArtifactFileSystem artifactFileSystem;
+  final SwiftPmBinaryLayout<T> binaryLayout;
+  final SwiftPmBinaryRecovery<T> binaryRecovery;
+  final SwiftPmCheckoutAttributes checkoutAttributes;
+  final SwiftPmArtifactCopyPolicy copyPolicy;
+  final SwiftPmFilesystem<T> filesystem;
+  final T host;
+  final SwiftPmPublicationCoordinator publicationCoordinator;
+  final FlutterTargetBuildPolicy<T> targetPolicy;
+  final SwiftPmArchiveTransport transport;
+  Future<bool> stageExtractedBinaryArtifacts({
     required String scratchPath,
     required String vendorDir,
     Map<String, String> packageIdentities = const {},
@@ -58,7 +70,9 @@ Future<bool> stageExtractedBinaryArtifacts({
     final artifactsRoot = p.join(scratchPath, 'artifacts');
     final artifacts = artifactFileSystem.directory(artifactsRoot);
     final vendor = artifactFileSystem.directory(vendorDir);
-    final checkouts = artifactFileSystem.directory(p.join(scratchPath, 'checkouts'));
+    final checkouts = artifactFileSystem.directory(
+      p.join(scratchPath, 'checkouts'),
+    );
     if (!artifacts.existsSync() ||
         (!vendor.existsSync() && !checkouts.existsSync())) {
       return false;
@@ -103,11 +117,12 @@ Future<bool> stageExtractedBinaryArtifacts({
                 String,
                 ({String source, SwiftPmBinaryArtifactPublication publication})
               >{};
-          final provenance = SwiftPmBinaryProvenance.scanBinaryArtifactProvenance(
-            packageIdentity: packageIdentity,
-            manifestPath: entity.path,
-            manifest: manifest,
-          );
+          final provenance =
+              SwiftPmBinaryProvenance.scanBinaryArtifactProvenance(
+                packageIdentity: packageIdentity,
+                manifestPath: entity.path,
+                manifest: manifest,
+              );
           for (final candidate in provenance.reversed) {
             final targetDirectory = artifactFileSystem.directory(
               p.join(artifactsRoot, packageIdentity, candidate.target.name),
@@ -158,13 +173,18 @@ Future<bool> stageExtractedBinaryArtifacts({
                   )
                   .toList();
               if (extracted.length == 1) {
-                final extractedStore = p.join(binaryArtifactFallback, 'extracted-artifacts');
+                final extractedStore = p.join(
+                  binaryArtifactFallback,
+                  'extracted-artifacts',
+                );
                 final store = artifactFileSystem.directory(extractedStore);
                 await store.create(recursive: true);
                 final staging = await store.createTemp('.extracted-');
                 try {
                   final artifactName = p.basename(extracted.single.path);
-                  final retainedNames = binaryLayout.libraryIdentifiers(extracted.single);
+                  final retainedNames = binaryLayout.libraryIdentifiers(
+                    extracted.single,
+                  );
                   if (retainedNames.isEmpty) continue;
                   await filesystem.copyResolvedArtifactTree(
                     extracted.single.path,
@@ -173,19 +193,26 @@ Future<bool> stageExtractedBinaryArtifacts({
                         name == 'Info.plist' || retainedNames.contains(name),
                   );
 
-                  final artifactPath = await SwiftPmOfflineArtifactPublisher(
-                    fileSystem: artifactFileSystem,
-                    publicationCoordinator: publicationCoordinator,
-                  ).publish(
-                    stagingRoot: staging,
-                    destination: p.join(extractedStore, candidate.target.checksum, candidate.target.name),
-                    artifactDirectoryName: artifactName,
+                  final artifactPath =
+                      await SwiftPmOfflineArtifactPublisher(
+                        fileSystem: artifactFileSystem,
+                        publicationCoordinator: publicationCoordinator,
+                      ).publish(
+                        stagingRoot: staging,
+                        destination: p.join(
+                          extractedStore,
+                          candidate.target.checksum,
+                          candidate.target.name,
+                        ),
+                        artifactDirectoryName: artifactName,
+                      );
+                  verified.add(
+                    SwiftPmBinaryArtifactEntry(
+                      archiveChecksum: candidate.target.checksum,
+                      targetName: candidate.target.name,
+                      artifactPath: artifactPath,
+                    ),
                   );
-                  verified.add(SwiftPmBinaryArtifactEntry(
-                    archiveChecksum: candidate.target.checksum,
-                    targetName: candidate.target.name,
-                    artifactPath: artifactPath,
-                  ));
                 } finally {
                   if (staging.existsSync()) {
                     await staging.delete(recursive: true);

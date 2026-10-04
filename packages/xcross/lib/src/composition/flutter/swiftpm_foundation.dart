@@ -14,8 +14,11 @@ import 'package:xcross/src/shared/flutter/swiftpm/checkout_attributes.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/extracted_artifact_recovery.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/foundation.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/gate_execution.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/host_build_services.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/interop_consumer_repair.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/librarian_resolver.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/network_retry.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/package_metadata.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/plan_reader.dart';
@@ -26,22 +29,154 @@ import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/source_repair.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/toolchain.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
-SwiftPmFoundation<T> prepareSwiftPmFoundation<T extends PlatformHostInterface>({required FlutterTargetBuildPolicy<T> policy,required ProcessRunner<T> runner,required DarwinSdkRepository<T> sdkRepository,required DarwinToolchainResolver<T> toolchainResolver,required AppleToolShimResolver<T> tools,required SwiftPmHostPolicy hostPolicy,required SwiftPmArtifactFileSystem artifactFileSystem,required SwiftPmSdkIdentity sdkIdentity,required SwiftPmPublicationCoordinator publicationCoordinator,required SwiftPmArchiveTransport transport,required SwiftPmArtifactCopyPolicy copyPolicy,required SwiftPmCheckoutAttributes checkoutAttributes,required SwiftPmFilesystem<T> filesystem}) {
-if(!identical(policy.target.host,runner.host)) throw ArgumentError('SwiftPM policy and runner must share the configured host');
-final host=runner.host;
-final processPolicy=SwiftPmProcessPolicy<T>(host: host,hostPolicy: hostPolicy,runner: runner,tools: tools);
-final sourceRepair=SwiftPmSourceRepair<T>(filesystem: filesystem,hostPolicy: hostPolicy,processPolicy: processPolicy,runner: runner,sdkIdentity: sdkIdentity);
-final toolchain=SwiftPmToolchain<T>(filesystem: filesystem,hostPolicy: hostPolicy,runner: runner,sdkIdentity: sdkIdentity,sdkRepository: sdkRepository,target: policy.target,toolchainResolver: toolchainResolver);
-final previewCompiler=SwiftPmPreviewMacroCompiler<T>(host:host,filesystem:filesystem,compiler:ProcessSwiftPmNativeCompiler<T>(runner));
-final planReader=SwiftPmPlanReader(fileSystem:artifactFileSystem,responseFiles:SwiftPmResponseFileReader(fileSystem:artifactFileSystem));
-final buildPlan=SwiftPmBuildPlan<T>(filesystem: filesystem,hostPolicy: hostPolicy,runner: runner,previewCompiler:previewCompiler);
-final consumerRepair=SwiftPmInteropConsumerRepair<T>(filesystem:filesystem,fileSystem:artifactFileSystem,planReader:planReader);
-final networkRetry=SwiftPmNetworkRetry<T>(runner:runner);
-final binaryLayout=SwiftPmBinaryLayout<T>(artifactFileSystem:artifactFileSystem,targetPolicy:policy);
-final binaryProvenance=SwiftPmBinaryProvenance<T>(artifactFileSystem:artifactFileSystem,host:host,hostPolicy:hostPolicy,runner:runner);
-final binaryPreparation=SwiftPmBinaryPreparation<T>(artifactFileSystem:artifactFileSystem,copyPolicy:copyPolicy,filesystem:filesystem,host:host,publicationCoordinator:publicationCoordinator,targetPolicy:policy,transport:transport);
-final binaryRecovery=SwiftPmBinaryRecovery<T>(artifactFileSystem:artifactFileSystem,binaryLayout:binaryLayout,binaryProvenance:binaryProvenance,copyPolicy:copyPolicy,filesystem:filesystem,host:host,publicationCoordinator:publicationCoordinator,targetPolicy:policy,transport:transport);
-final extractedArtifacts=SwiftPmExtractedArtifactRecovery<T>(artifactFileSystem:artifactFileSystem,binaryLayout:binaryLayout,binaryRecovery:binaryRecovery,checkoutAttributes:checkoutAttributes,copyPolicy:copyPolicy,filesystem:filesystem,host:host,publicationCoordinator:publicationCoordinator,targetPolicy:policy,transport:transport);
-final packageMetadata=SwiftPmPackageMetadata(fileSystem: artifactFileSystem);
-return SwiftPmFoundation<T>(targetPolicy:policy,runner:runner,sdkRepository:sdkRepository,toolchainResolver:toolchainResolver,tools:tools,hostPolicy:hostPolicy,artifactFileSystem:artifactFileSystem,sdkIdentity:sdkIdentity,publicationCoordinator:publicationCoordinator,transport:transport,copyPolicy:copyPolicy,checkoutAttributes:checkoutAttributes,filesystem:filesystem,processPolicy:processPolicy,sourceRepair:sourceRepair,toolchain:toolchain,previewCompiler:previewCompiler,planReader:planReader,buildPlan:buildPlan,consumerRepair:consumerRepair,networkRetry:networkRetry,binaryLayout:binaryLayout,binaryProvenance:binaryProvenance,binaryPreparation:binaryPreparation,binaryRecovery:binaryRecovery,extractedArtifacts:extractedArtifacts,packageMetadata:packageMetadata);
+
+SwiftPmFoundation<T> prepareSwiftPmFoundation<T extends PlatformHostInterface>({
+  required SwiftPmHostBuildServices<T> hostBuildServices,
+  required SwiftPmLibrarianResolver<T> librarianResolver,
+  required FlutterTargetBuildPolicy<T> policy,
+  required ProcessRunner<T> runner,
+  required DarwinSdkRepository<T> sdkRepository,
+  required DarwinToolchainResolver<T> toolchainResolver,
+  required AppleToolShimResolver<T> tools,
+  required SwiftPmHostPolicy hostPolicy,
+  required SwiftPmArtifactFileSystem artifactFileSystem,
+  required SwiftPmSdkIdentity sdkIdentity,
+  required SwiftPmPublicationCoordinator publicationCoordinator,
+  required SwiftPmArchiveTransport transport,
+  required SwiftPmArtifactCopyPolicy copyPolicy,
+  required SwiftPmCheckoutAttributes checkoutAttributes,
+  required SwiftPmFilesystem<T> filesystem,
+}) {
+  if (!identical(policy.target.host, runner.host)) {
+    throw ArgumentError(
+      'SwiftPM policy and runner must share the configured host',
+    );
+  }
+  if (!identical(hostBuildServices.target, policy.target) ||
+      !identical(hostBuildServices.filesystem, filesystem) ||
+      !identical(hostBuildServices.sdkIdentity, sdkIdentity) ||
+      !identical(librarianResolver.runner, runner) ||
+      !identical(librarianResolver.filesystem, filesystem)) {
+    throw ArgumentError(
+      'SwiftPM foundation children must share the configured target, runner, filesystem and SDK identity',
+    );
+  }
+  final host = runner.host;
+  final gateExecution = SwiftPmGateExecution<T>(runner: runner);
+  final processPolicy = SwiftPmProcessPolicy<T>(
+    host: host,
+    hostPolicy: hostPolicy,
+    runner: runner,
+    tools: tools,
+  );
+  final sourceRepair = SwiftPmSourceRepair<T>(
+    filesystem: filesystem,
+    hostPolicy: hostPolicy,
+    processPolicy: processPolicy,
+    runner: runner,
+    sdkIdentity: sdkIdentity,
+  );
+  final toolchain = SwiftPmToolchain<T>(
+    filesystem: filesystem,
+    hostBuildServices: hostBuildServices,
+    librarianResolver: librarianResolver,
+  );
+  final previewCompiler = SwiftPmPreviewMacroCompiler<T>(
+    host: host,
+    filesystem: filesystem,
+    compiler: ProcessSwiftPmNativeCompiler<T>(runner),
+  );
+  final planReader = SwiftPmPlanReader(
+    fileSystem: artifactFileSystem,
+    responseFiles: SwiftPmResponseFileReader(fileSystem: artifactFileSystem),
+  );
+  final buildPlan = SwiftPmBuildPlan<T>(
+    filesystem: filesystem,
+    hostPolicy: hostPolicy,
+    runner: runner,
+    previewCompiler: previewCompiler,
+  );
+  final consumerRepair = SwiftPmInteropConsumerRepair<T>(
+    filesystem: filesystem,
+    fileSystem: artifactFileSystem,
+    planReader: planReader,
+  );
+  final networkRetry = SwiftPmNetworkRetry<T>(runner: runner);
+  final binaryLayout = SwiftPmBinaryLayout<T>(
+    artifactFileSystem: artifactFileSystem,
+    targetPolicy: policy,
+  );
+  final binaryProvenance = SwiftPmBinaryProvenance<T>(
+    artifactFileSystem: artifactFileSystem,
+    host: host,
+    hostPolicy: hostPolicy,
+    runner: runner,
+  );
+  final binaryPreparation = SwiftPmBinaryPreparation<T>(
+    artifactFileSystem: artifactFileSystem,
+    copyPolicy: copyPolicy,
+    filesystem: filesystem,
+    host: host,
+    publicationCoordinator: publicationCoordinator,
+    targetPolicy: policy,
+    transport: transport,
+  );
+  final binaryRecovery = SwiftPmBinaryRecovery<T>(
+    artifactFileSystem: artifactFileSystem,
+    binaryLayout: binaryLayout,
+    binaryProvenance: binaryProvenance,
+    copyPolicy: copyPolicy,
+    filesystem: filesystem,
+    host: host,
+    publicationCoordinator: publicationCoordinator,
+    targetPolicy: policy,
+    transport: transport,
+  );
+  final extractedArtifacts = SwiftPmExtractedArtifactRecovery<T>(
+    artifactFileSystem: artifactFileSystem,
+    binaryLayout: binaryLayout,
+    binaryRecovery: binaryRecovery,
+    checkoutAttributes: checkoutAttributes,
+    copyPolicy: copyPolicy,
+    filesystem: filesystem,
+    host: host,
+    publicationCoordinator: publicationCoordinator,
+    targetPolicy: policy,
+    transport: transport,
+  );
+  final packageMetadata = SwiftPmPackageMetadata(
+    fileSystem: artifactFileSystem,
+  );
+  return SwiftPmFoundation<T>(
+    hostBuildServices: hostBuildServices,
+    librarianResolver: librarianResolver,
+    gateExecution: gateExecution,
+    targetPolicy: policy,
+    runner: runner,
+    sdkRepository: sdkRepository,
+    toolchainResolver: toolchainResolver,
+    tools: tools,
+    hostPolicy: hostPolicy,
+    artifactFileSystem: artifactFileSystem,
+    sdkIdentity: sdkIdentity,
+    publicationCoordinator: publicationCoordinator,
+    transport: transport,
+    copyPolicy: copyPolicy,
+    checkoutAttributes: checkoutAttributes,
+    filesystem: filesystem,
+    processPolicy: processPolicy,
+    sourceRepair: sourceRepair,
+    toolchain: toolchain,
+    previewCompiler: previewCompiler,
+    planReader: planReader,
+    buildPlan: buildPlan,
+    consumerRepair: consumerRepair,
+    networkRetry: networkRetry,
+    binaryLayout: binaryLayout,
+    binaryProvenance: binaryProvenance,
+    binaryPreparation: binaryPreparation,
+    binaryRecovery: binaryRecovery,
+    extractedArtifacts: extractedArtifacts,
+    packageMetadata: packageMetadata,
+  );
 }
