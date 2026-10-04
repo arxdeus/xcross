@@ -166,7 +166,7 @@ final class SigningSessionResolver implements SigningSessionProvider {
     if (!AdiLibraryFetcher.supportsAbi(abi)) {
       throw XcrossError(
         'Saved native Apple ID sessions support Linux and macOS x64/ARM64 '
-        'and Windows x64 (got $abi).',
+        'and Windows x64/ARM64 (got $abi).',
       );
     }
     final adiDir = session.adiLibraryDirectory;

@@ -22,21 +22,26 @@ void main() {
       Abi.macosX64,
       Abi.macosArm64,
       Abi.windowsX64,
+      Abi.windowsArm64,
     ]) {
       test('accepts $abi', () {
         expect(() => AuthCommand.requireAppleIdHost(abi), returnsNormally);
       });
     }
 
-    for (final abi in const [
-      Abi.windowsArm64,
-      Abi.linuxArm,
-      Abi.androidArm64,
-    ]) {
+    for (final abi in const [Abi.windowsIA32, Abi.linuxArm, Abi.androidArm64]) {
       test('rejects $abi before prompting for credentials', () {
         expect(
           () => AuthCommand.requireAppleIdHost(abi),
-          throwsA(isA<XcrossError>()),
+          throwsA(
+            isA<XcrossError>().having(
+              (error) => error.message,
+              'message',
+              'Built-in Apple ID/password login supports Linux and macOS x64/ARM64 '
+                  'and Windows x64/ARM64 (got $abi). '
+                  'On this platform use App Store Connect API key flags.',
+            ),
+          ),
         );
       });
     }
@@ -143,7 +148,11 @@ void main() {
       );
     }
 
-    for (final abi in const [Abi.linuxArm64, Abi.macosArm64]) {
+    for (final abi in const [
+      Abi.linuxArm64,
+      Abi.macosArm64,
+      Abi.windowsArm64,
+    ]) {
       test('uses scoped ARM64 cache on $abi', () async {
         final libraries = Directory(p.join(root.path, 'arm64-v8a'));
         _writeLibraries(libraries, 183);
@@ -234,24 +243,31 @@ void main() {
       );
     });
 
-    test('fetches into the host architecture directory', () async {
-      final result = await authFixture(
-        abi: Abi.windowsX64,
-        createAdiHttpClient: () => MockClient(
-          (_) async => http.Response.bytes(_apkBytes(62, 'x86_64'), 200),
-        ),
-      ).resolveAdiLibraryDirectory(cacheDirectory: root.path);
-      expect(result, root.absolute.path);
-      expect(
-        File(p.join(root.path, 'x86_64', 'libCoreADI.so')).existsSync(),
-        isTrue,
-      );
-    });
+    for (final (abi, machine, architecture) in const [
+      (Abi.windowsX64, 62, 'x86_64'),
+      (Abi.windowsArm64, 183, 'arm64-v8a'),
+    ]) {
+      test('fetches into the host architecture directory on $abi', () async {
+        final client = ClosingAuthApkClient(_apkBytes(machine, architecture));
+        final result = await authFixture(
+          abi: abi,
+          createAdiHttpClient: () => client,
+        ).resolveAdiLibraryDirectory(cacheDirectory: root.path);
+        expect(result, root.absolute.path);
+        expect(client.closed, isTrue);
+        for (final name in ['libCoreADI.so', 'libstoreservicescore.so']) {
+          expect(
+            File(p.join(root.path, architecture, name)).readAsBytesSync(),
+            _libraryBytes(machine),
+          );
+        }
+      });
+    }
 
     test('rejects unsupported hosts without changing the cache', () async {
       await expectLater(
         authFixture(
-          abi: Abi.windowsArm64,
+          abi: Abi.windowsIA32,
         ).resolveAdiLibraryDirectory(cacheDirectory: root.path),
         throwsA(isA<XcrossError>()),
       );

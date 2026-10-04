@@ -41,6 +41,7 @@ void main() {
       Abi.macosX64,
       Abi.macosArm64,
       Abi.windowsX64,
+      Abi.windowsArm64,
     ]) {
       test('uses the saved ADI directory on $abi without IO', () {
         final provider = NoIoAnisetteProvider();
@@ -76,11 +77,7 @@ void main() {
       });
     }
 
-    for (final abi in const [
-      Abi.windowsArm64,
-      Abi.linuxArm,
-      Abi.androidArm64,
-    ]) {
+    for (final abi in const [Abi.windowsIA32, Abi.linuxArm, Abi.androidArm64]) {
       for (final path in [directory, null]) {
         test('preflights unsupported $abi with directory $path', () {
           expect(
@@ -95,7 +92,7 @@ void main() {
                 (error) => error.message,
                 'message',
                 'Saved native Apple ID sessions support Linux and macOS x64/ARM64 '
-                    'and Windows x64 (got $abi).',
+                    'and Windows x64/ARM64 (got $abi).',
               ),
             ),
           );

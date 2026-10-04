@@ -408,7 +408,7 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
     if (!AdiLibraryFetcher.supportsAbi(abi)) {
       throw XcrossError(
         'Built-in Apple ID/password login supports Linux and macOS x64/ARM64 '
-        'and Windows x64 (got $abi). '
+        'and Windows x64/ARM64 (got $abi). '
         'On this platform use App Store Connect API key flags.',
       );
     }
