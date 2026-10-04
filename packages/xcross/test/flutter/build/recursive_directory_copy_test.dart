@@ -144,6 +144,70 @@ void main() {
       );
     },
   );
+
+  test(
+    'rejects mapped destination link collisions without modifying targets',
+    () async {
+      final temp = await Directory.systemTemp.createTemp(
+        'mapped-copy-collision-',
+      );
+      addTearDown(() => temp.delete(recursive: true));
+      final paths = p.Context(style: p.Style.posix);
+      final logicalRoot = '/virtual-${paths.basename(temp.path)}';
+      final files = MappedCopyFileSystem(
+        logicalRoot: logicalRoot,
+        backingRoot: temp.path,
+        paths: paths,
+      );
+      final source = paths.join(logicalRoot, 'source');
+      final destination = paths.join(logicalRoot, 'destination');
+      await files
+          .directory(paths.join(source, 'nested'))
+          .create(recursive: true);
+      await files
+          .file(paths.join(source, 'nested', 'value'))
+          .writeAsString('replacement');
+      await files.directory(destination).create();
+      final outside = Directory(paths.join(temp.path, 'outside'));
+      await outside.create();
+      final outsideFile = File(paths.join(outside.path, 'value'));
+      await outsideFile.writeAsString('untouched');
+      final nested = paths.join(destination, 'nested');
+      await files.link(nested).create(outside.path);
+      final copier = RecursiveDirectoryCopier(fileSystem: files, paths: paths);
+
+      await expectLater(
+        copier.copy(source, destination),
+        throwsA(
+          isA<FileSystemException>().having(
+            (error) => error.path,
+            'path',
+            nested,
+          ),
+        ),
+      );
+      expect(await outsideFile.readAsString(), 'untouched');
+      expect(await files.link(nested).target(), outside.path);
+
+      await files.link(nested).delete();
+      await files.directory(nested).create();
+      final copiedFile = paths.join(nested, 'value');
+      await files.link(copiedFile).create(outsideFile.path);
+      await expectLater(
+        copier.copy(source, destination),
+        throwsA(
+          isA<FileSystemException>().having(
+            (error) => error.path,
+            'path',
+            copiedFile,
+          ),
+        ),
+      );
+      expect(await outsideFile.readAsString(), 'untouched');
+      expect(await files.link(copiedFile).target(), outsideFile.path);
+      expect(Directory(logicalRoot).existsSync(), isFalse);
+    },
+  );
 }
 
 final class MappedCopyFileSystem implements HostFileSystemInterface {

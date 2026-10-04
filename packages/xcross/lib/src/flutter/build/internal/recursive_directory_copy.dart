@@ -23,6 +23,7 @@ final class RecursiveDirectoryCopier {
     String destination,
     List<(String, String)> pendingLinks,
   ) async {
+    _requireRegularDestination(destination);
     await fileSystem.directory(destination).create(recursive: true);
     await for (final entity
         in fileSystem.directory(source).list(followLinks: false)) {
@@ -30,6 +31,7 @@ final class RecursiveDirectoryCopier {
       if (entity is Directory) {
         await _copyRegularEntries(entity.path, destPath, pendingLinks);
       } else if (entity is File) {
+        _requireRegularDestination(destPath);
         await fileSystem.file(entity.path).copy(fileSystem.file(destPath).path);
       } else if (entity is Link) {
         pendingLinks.add((
@@ -37,6 +39,15 @@ final class RecursiveDirectoryCopier {
           await fileSystem.link(entity.path).target(),
         ));
       }
+    }
+  }
+
+  void _requireRegularDestination(String path) {
+    if (fileSystem.link(path).existsSync()) {
+      throw FileSystemException(
+        'Cannot copy regular entries over a symbolic link',
+        path,
+      );
     }
   }
 
