@@ -294,6 +294,79 @@ let package = Package(
   });
 
   group('pluginsManifest', () {
+    for (final version in ['13.0', '17.2']) {
+      for (final pluginNames in [
+        <String>[],
+        ['plugin_a', 'plugin_b'],
+      ]) {
+        test('imports PackageDescription before Package for '
+            '${pluginNames.length} plugins on iOS $version', () {
+          final plugins = pluginNames.map(makePlugin).toList();
+          final frameworkDir = p.join(tmp.path, 'FlutterFramework');
+          final manifest = SwiftPmManifest.pluginsManifest(
+            plugins,
+            frameworkDir,
+            deploymentTarget: IosDeploymentTarget(
+              version,
+              platform: const IPhoneBuildPlatform(),
+            ),
+          );
+
+          expect(
+            manifest,
+            startsWith(
+              '// swift-tools-version: 5.9\n'
+              'import PackageDescription\n\n'
+              'let package = Package(',
+            ),
+          );
+          expect(
+            'import PackageDescription'.allMatches(manifest),
+            hasLength(1),
+          );
+          expect(manifest, contains('.iOS("$version")'));
+          expect(
+            '.package('.allMatches(manifest),
+            hasLength(plugins.length + 1),
+          );
+          expect(
+            '.product('.allMatches(manifest),
+            hasLength(plugins.length + 1),
+          );
+          expect(
+            manifest,
+            contains(
+              '.package(name: "FlutterFramework", '
+              'path: "${swiftPath(frameworkDir)}")',
+            ),
+          );
+          expect(
+            manifest,
+            contains(
+              '.product(name: "FlutterFramework", '
+              'package: "FlutterFramework")',
+            ),
+          );
+          for (final plugin in plugins) {
+            expect(
+              manifest,
+              contains(
+                '.package(name: "${plugin.name}", '
+                'path: "${swiftPath(plugin.swiftPackageDir)}")',
+              ),
+            );
+            expect(
+              manifest,
+              contains(
+                '.product(name: "${plugin.name.replaceAll('_', '-')}", '
+                'package: "${plugin.name}")',
+              ),
+            );
+          }
+        });
+      }
+    }
+
     test('includes every plugin package dependency and hyphenated product', () {
       final pluginA = makePlugin('plugin_a', pluginClass: 'PluginA');
       final pluginB = makePlugin('plugin_b');
