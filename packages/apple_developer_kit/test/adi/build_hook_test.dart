@@ -6,6 +6,23 @@ import 'package:test/test.dart';
 import '../../hook/build.dart' as hook;
 
 void main() {
+  test('Windows builds the target-specific bridge for x64 and ARM64', () {
+    for (final architecture in [Architecture.x64, Architecture.arm64]) {
+      expect(hook.windowsBridgeSources(architecture), [
+        'src/host/shared/adi/sysv_abi_bridge.c',
+      ]);
+    }
+  });
+
+  test('Windows rejects architectures without a native ABI bridge', () {
+    for (final architecture in [Architecture.ia32, Architecture.arm]) {
+      expect(
+        () => hook.windowsBridgeSources(architecture),
+        throwsUnsupportedError,
+      );
+    }
+  });
+
   for (final sdkRoot in [null, '/bogus-sdk', '/Xcode/iPhoneOS.sdk']) {
     test(
       'macOS resolves native compiler and SDK with SDKROOT=$sdkRoot',

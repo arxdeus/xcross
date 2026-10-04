@@ -12,6 +12,10 @@
 #include <stdint.h>
 #include <string.h>
 
+#if defined(_M_ARM64EC) || defined(__arm64ec__)
+#error ARM64EC is not a supported Android AAPCS64 host
+#endif
+
 #if defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
 
 #include <windows.h>
@@ -405,6 +409,14 @@ __declspec(dllexport) void* provision_sysv_wrap_import(void* sysv_fn, int argc) 
   FlushInstructionCache(GetCurrentProcess(), slot->code, sizeof(slot->code));
   return slot->code;
 }
+
+#elif defined(_WIN32) && (defined(_M_ARM64) || defined(__aarch64__))
+
+#include "../../windows/adi/windows_arm64_abi_bridge.h"
+
+#elif defined(_WIN32)
+
+#error Windows ADI requires native x64 or ARM64
 
 #else
 

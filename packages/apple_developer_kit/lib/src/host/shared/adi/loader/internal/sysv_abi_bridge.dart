@@ -2,8 +2,8 @@
 library;
 
 // @Native bindings to the sysv_abi_bridge code asset built by
-// hook/build.dart. On Windows x64 these rearrange SysV <-> MS ABI; on
-// other hosts the C side is an identity stub (host ABI is already SysV).
+// hook/build.dart. On Windows x64 these rearrange SysV <-> MS ABI, and on
+// Windows ARM64 they switch platform state. Other hosts use an identity stub.
 
 import 'dart:ffi';
 
@@ -24,6 +24,15 @@ external Pointer<Void> provisionSysvWrapExport(Pointer<Void> msAbiFn, int argc);
   isLeaf: true,
 )
 external Pointer<Void> provisionSysvWrapImport(Pointer<Void> sysvFn, int argc);
+
+@internal
+@Native<Int32 Function(Pointer<Void>, Size)>(
+  symbol: 'provision_windows_arm64_prepare_code',
+)
+external int provisionWindowsArm64PrepareCode(
+  Pointer<Void> code,
+  int byteLength,
+);
 
 /// Dart wrappers around the @Native externals.
 @internal

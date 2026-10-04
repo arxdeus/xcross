@@ -25,20 +25,30 @@ void main(List<String> args) async {
     // dart build then fails with "file does not exist". Compile with a real
     // system cc ourselves on non-Windows hosts.
     if (input.config.code.targetOS == OS.windows) {
-      if (input.config.code.targetArchitecture != Architecture.x64) {
-        throw UnsupportedError('Windows ADI requires x64.');
-      }
       final cBuilder = CBuilder.library(
         name: 'sysv_abi_bridge',
         assetName: _assetName,
-        sources: const ['src/host/shared/adi/sysv_abi_bridge.c'],
+        sources: windowsBridgeSources(input.config.code.targetArchitecture),
       );
       await cBuilder.run(input: input, output: output, logger: logger);
+      output.dependencies.add(
+        input.packageRoot.resolve(
+          'src/host/windows/adi/windows_arm64_abi_bridge.h',
+        ),
+      );
       return;
     }
 
     await _buildWithSystemCc(input: input, output: output, logger: logger);
   });
+}
+
+@internal
+List<String> windowsBridgeSources(Architecture architecture) {
+  if (architecture != Architecture.x64 && architecture != Architecture.arm64) {
+    throw UnsupportedError('Windows ADI requires x64 or ARM64.');
+  }
+  return const ['src/host/shared/adi/sysv_abi_bridge.c'];
 }
 
 Future<void> _buildWithSystemCc({
