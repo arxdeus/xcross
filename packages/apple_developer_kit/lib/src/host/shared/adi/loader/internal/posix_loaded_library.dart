@@ -11,6 +11,9 @@ final class PosixLoadedLibrary implements LoadedNativeLibrary {
   final ElfLoadedLibrary _lib;
 
   @override
+  String normalizePath(String path) => path;
+
+  @override
   Pointer<NativeFunction<T>> lookup<T extends Function>(String symbolName) =>
       _lib.lookup(symbolName).cast();
 

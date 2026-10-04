@@ -44,7 +44,7 @@ class AdiSynchronizationResult {
 /// native side is expected to fill would be a behaviour change.
 @internal
 class AdiClient {
-  AdiClient._(this._bindings);
+  AdiClient._(this._library) : _bindings = AdiNativeBindings(_library);
 
   /// Loads `libstoreservicescore.so` from [nativeLibraryDir] and
   /// constructs an [AdiClient] bound to it.
@@ -60,16 +60,18 @@ class AdiClient {
   factory AdiClient.fromDirectory(
     String nativeLibraryDir, {
     required NativeLibraryLoader loader,
+    required p.Context paths,
   }) {
     final libraryDir = nativeLibraryDir;
-    final storeServicesPath = p.join(libraryDir, 'libstoreservicescore.so');
+    final storeServicesPath = paths.join(libraryDir, 'libstoreservicescore.so');
     final storeServicesCore = loader.load(storeServicesPath);
 
-    final client = AdiClient._(AdiNativeBindings(storeServicesCore));
+    final client = AdiClient._(storeServicesCore);
     client._loadLibrary(libraryDir);
     return client;
   }
 
+  final LoadedNativeLibrary _library;
   final AdiNativeBindings _bindings;
 
   String? _provisioningPath;
@@ -83,7 +85,9 @@ class AdiClient {
     if (path == null) return;
     using((arena) {
       _check(
-        _bindings.adiSetProvisioningPath(path.toNativeUtf8(allocator: arena)),
+        _bindings.adiSetProvisioningPath(
+          _library.normalizePath(path).toNativeUtf8(allocator: arena),
+        ),
       );
       _provisioningPath = path;
     }, malloc);
@@ -240,7 +244,9 @@ class AdiClient {
     using((arena) {
       _check(
         _bindings.adiLoadLibraryWithPath(
-          nativeLibraryDir.toNativeUtf8(allocator: arena),
+          _library
+              .normalizePath(nativeLibraryDir)
+              .toNativeUtf8(allocator: arena),
         ),
       );
     }, malloc);

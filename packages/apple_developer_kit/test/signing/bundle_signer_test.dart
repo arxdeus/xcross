@@ -5,7 +5,10 @@ import 'dart:typed_data';
 import 'package:apple_developer_kit/shared/errors/errors.dart';
 import 'package:apple_developer_kit/shared/signing/bundle_signer.dart';
 import 'package:apple_developer_kit/shared/signing/signing_asset.dart';
+import 'package:apple_developer_kit/src/shared/signing/bundle_paths.dart';
 import 'package:basic_utils/basic_utils.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
@@ -15,6 +18,54 @@ import '../support/host_services.dart';
 import '../support/mapped_apple_fixture.dart';
 
 void main() {
+  test(
+    'bundle paths serialize selected host components without corruption',
+    () {
+      final windows = WindowsHost(currentDirectory: r'C:\workspace').paths;
+      final posix = LinuxHost(currentDirectory: '/workspace').paths;
+      expect(
+        bundleRelativePath(
+          r'C:\workspace\App.app',
+          r'C:\workspace\App.app\Assets\image.png',
+          paths: windows,
+        ),
+        'Assets/image.png',
+      );
+      expect(
+        bundleRelativePath(
+          r'\\server\share\App.app',
+          r'\\server\share\App.app\Assets\image.png',
+          paths: windows,
+        ),
+        'Assets/image.png',
+      );
+      expect(
+        bundleRelativePath(
+          '/workspace/App.app',
+          r'/workspace/App.app/Assets/image\literal.png',
+          paths: posix,
+        ),
+        r'Assets/image\literal.png',
+      );
+      expect(bundleRelativePath('App.app', 'App.app', paths: windows), '.');
+      expect(
+        () => bundleFail(
+          r'C:\workspace\App.app',
+          r'C:\workspace\App.app\Assets\image.png',
+          'invalid resource',
+          paths: windows,
+        ),
+        throwsA(
+          isA<AppleError>().having(
+            (error) => error.message,
+            'message',
+            'Bundle "Assets/image.png" is invalid: invalid resource.',
+          ),
+        ),
+      );
+    },
+  );
+
   final signingTime = DateTime.utc(2030, 2, 3, 4, 5, 6);
   late Directory temporaryDirectory;
   late SigningAsset exactAsset;
@@ -39,6 +90,36 @@ void main() {
   tearDownAll(() {
     temporaryDirectory.deleteSync(recursive: true);
   });
+
+  test(
+    'mapped POSIX resources preserve literal backslashes in both seals',
+    () async {
+      final fixture = MappedAppleFixture();
+      addTearDown(fixture.dispose);
+      final app = _app(
+        Directory(fixture.backingRoot),
+        'literal-path',
+        'dev.xcross.Runner',
+      );
+      const name = r'resource\literal.txt';
+      File(p.join(app.path, name)).writeAsStringSync('literal resource');
+      await BundleSigner(
+        exactAsset,
+        hostServices: fixture.services,
+      ).signApp(fixture.logicalPath(app.path), signingTime: signingTime);
+      final resources = _plist(
+        File(
+          p.join(app.path, '_CodeSignature', 'CodeResources'),
+        ).readAsBytesSync(),
+      );
+      for (final key in ['files', 'files2']) {
+        final files = resources[key]! as Map;
+        expect(files, contains(name));
+        expect(files, isNot(contains('resource/literal.txt')));
+      }
+    },
+    skip: Platform.isWindows,
+  );
 
   test(
     'mapped filesystem signs bundle and preserves containment and modes',

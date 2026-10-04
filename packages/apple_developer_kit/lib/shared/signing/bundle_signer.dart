@@ -189,6 +189,7 @@ class BundleSigner {
       executableRelativePath: bundleRelativePath(
         bundle.path,
         bundle.executablePath,
+        paths: hostServices.host.paths,
       ),
       bundleRelativePath: bundle.relativePath,
       rootPath: plan.root.path,
@@ -206,7 +207,12 @@ class BundleSigner {
     try {
       await directory.create(recursive: true);
     } on Object catch (error) {
-      bundleFail(plan.root.path, directory.path, 'could not create: $error');
+      bundleFail(
+        plan.root.path,
+        directory.path,
+        'could not create: $error',
+        paths: hostServices.host.paths,
+      );
     }
     await _atomicWrite(
       hostServices.host.paths.context.join(
@@ -252,7 +258,12 @@ class BundleSigner {
       await temporary.rename(hostServices.host.fileSystem.file(path).path);
     } on Object catch (error) {
       if (temporary.existsSync()) await temporary.delete();
-      bundleFail(root, path, 'could not atomically write file: $error');
+      bundleFail(
+        root,
+        path,
+        'could not atomically write file: $error',
+        paths: hostServices.host.paths,
+      );
     }
   }
 }

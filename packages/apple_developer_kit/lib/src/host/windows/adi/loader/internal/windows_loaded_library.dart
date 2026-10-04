@@ -12,6 +12,9 @@ final class WindowsLoadedLibrary implements LoadedNativeLibrary {
   final ElfLoadedLibrary _lib;
 
   @override
+  String normalizePath(String path) => path.replaceAll(r'\', '/');
+
+  @override
   Pointer<NativeFunction<T>> lookup<T extends Function>(String symbolName) =>
       _lib.lookup(symbolName).cast();
 

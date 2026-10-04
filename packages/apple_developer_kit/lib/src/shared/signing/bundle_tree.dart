@@ -73,7 +73,12 @@ class BundleTree {
                 ),
               );
       } on Object catch (error) {
-        bundleFail(root, directory, 'could not list directory: $error');
+        bundleFail(
+          root,
+          directory,
+          'could not list directory: $error',
+          paths: hostServices.host.paths,
+        );
       }
       for (final child in children) {
         final childPath = hostServices.host.paths.context.join(
@@ -85,7 +90,11 @@ class BundleTree {
           followLinks: false,
         );
         result.add(
-          BundleEntry(childPath, bundleRelativePath(root, childPath), type),
+          BundleEntry(
+            childPath,
+            bundleRelativePath(root, childPath, paths: hostServices.host.paths),
+            type,
+          ),
         );
         switch (type) {
           case FileSystemEntityType.link:
@@ -99,6 +108,7 @@ class BundleTree {
                 root,
                 childPath,
                 'symlink target escapes the app bundle',
+                paths: hostServices.host.paths,
               );
             }
           case FileSystemEntityType.directory:
@@ -107,10 +117,20 @@ class BundleTree {
             try {
               hostServices.host.fileSystem.file(childPath).readAsBytesSync();
             } on Object catch (error) {
-              bundleFail(root, childPath, 'could not read file: $error');
+              bundleFail(
+                root,
+                childPath,
+                'could not read file: $error',
+                paths: hostServices.host.paths,
+              );
             }
           default:
-            bundleFail(root, childPath, 'unsupported filesystem entry');
+            bundleFail(
+              root,
+              childPath,
+              'unsupported filesystem entry',
+              paths: hostServices.host.paths,
+            );
         }
       }
     }
@@ -131,6 +151,7 @@ class BundleTree {
           root,
           entry.path,
           'unsupported nested code directory "$name"',
+          paths: hostServices.host.paths,
         );
       }
       if (name.endsWith(_appExtensionSuffix)) {
@@ -140,6 +161,7 @@ class BundleTree {
             root,
             entry.path,
             'app extension "$name" must live directly in $_plugInsDirectory/',
+            paths: hostServices.host.paths,
           );
         }
         continue;
@@ -147,7 +169,12 @@ class BundleTree {
       if (!name.endsWith(frameworkSuffix) &&
           (_unsupportedBundleSuffixes.any(name.endsWith) ||
               _declaresBundleExecutable(entry.path))) {
-        bundleFail(root, entry.path, 'unsupported nested code bundle "$name"');
+        bundleFail(
+          root,
+          entry.path,
+          'unsupported nested code bundle "$name"',
+          paths: hostServices.host.paths,
+        );
       }
     }
   }
@@ -179,7 +206,12 @@ class BundleTree {
           .directory(path)
           .resolveSymbolicLinksSync();
     } on Object catch (error) {
-      bundleFail(root, path, 'could not resolve directory: $error');
+      bundleFail(
+        root,
+        path,
+        'could not resolve directory: $error',
+        paths: hostServices.host.paths,
+      );
     }
   }
 
@@ -187,7 +219,12 @@ class BundleTree {
     try {
       return hostServices.host.fileSystem.link(path).resolveSymbolicLinksSync();
     } on Object catch (error) {
-      bundleFail(root, path, 'unsafe or dangling symlink: $error');
+      bundleFail(
+        root,
+        path,
+        'unsafe or dangling symlink: $error',
+        paths: hostServices.host.paths,
+      );
     }
   }
 

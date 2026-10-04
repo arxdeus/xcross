@@ -191,22 +191,21 @@ final class AnisetteDataProvider implements AnisetteProvider {
     required String provisioningPath,
     required String identifier,
   }) {
-    // ADI on Windows is happier with forward-slash provisioning paths
-    // (bionic open() stubs translate them); the trailing slash matches
-    // Provision's usage.
-    final path = hostServices.host.fileSystem
-        .directory(provisioningPath)
-        .path
-        .replaceAll(r'\', '/');
+    final path = hostServices.host.fileSystem.directory(provisioningPath).path;
     final directory = AdiLibraryResolver(
       hostServices: hostServices,
     ).resolve(adiLibraryDirectory, abi: hostServices.abi);
     if (directory == null) {
       throw StateError('ADI libraries are missing from $adiLibraryDirectory.');
     }
-    final client = AdiClient.fromDirectory(directory.path, loader: _loader)
-      ..provisioningPath = path.endsWith('/') ? path : '$path/'
-      ..identifier = identifier;
+    final paths = hostServices.host.paths.context;
+    final client =
+        AdiClient.fromDirectory(directory.path, loader: _loader, paths: paths)
+          ..provisioningPath =
+              path.endsWith('/') || path.endsWith(paths.separator)
+              ? path
+              : '$path/'
+          ..identifier = identifier;
     return RealAdiProvisioning(client);
   }
 

@@ -144,14 +144,14 @@ void main() {
       final client = AdiClient.fromDirectory(
         fetcher.libraryDirectory.path,
         loader: testNativeLoader(),
+        paths: testHostServices.host.paths.context,
       );
       expect(client, isNotNull);
       // First real ADI calls (hits SysV import trampolines). A bad bridge
       // used to kill the process here with no Dart exception.
       final provisioningDirectory = Directory('${directory.path}/provisioning')
         ..createSync();
-      client.provisioningPath =
-          '${provisioningDirectory.path.replaceAll(r'\', '/')}/';
+      client.provisioningPath = '${provisioningDirectory.path}/';
       client.identifier = '0123456789abcdef';
       // -2 is the conventional "DSID unknown / not provisioned" probe.
       final provisioned = await client.isMachineProvisioned(-2);

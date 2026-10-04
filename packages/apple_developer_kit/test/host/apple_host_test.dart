@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 
@@ -8,9 +9,12 @@ import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
 import 'package:apple_developer_kit/shared/secure/local_cipher.dart';
 import 'package:apple_developer_kit/src/host/linux/linux_machine_identity.dart';
 import 'package:apple_developer_kit/src/host/macos/macos_machine_identity.dart';
+import 'package:apple_developer_kit/src/host/shared/adi/loader/internal/posix_loaded_library.dart';
 import 'package:apple_developer_kit/src/host/shared/file_system_file_permissions.dart';
+import 'package:apple_developer_kit/src/host/windows/adi/loader/internal/windows_loaded_library.dart';
 import 'package:apple_developer_kit/src/host/windows/windows_machine_identity.dart';
 import 'package:apple_developer_kit/src/shared/adi/adi_bindings.dart';
+import 'package:apple_developer_kit/src/shared/adi/adi_client.dart';
 import 'package:apple_developer_kit/src/shared/config/config_dir.dart';
 import 'package:apple_developer_kit/src/shared/grandslam/anisette/anisette_headers.dart';
 import 'package:apple_developer_kit/src/shared/secure/secure_file.dart';
@@ -26,6 +30,56 @@ import 'package:test/test.dart';
 import '../support/host_services.dart';
 
 void main() {
+  test('ADI preserves POSIX path bytes and the caller-facing state path', () {
+    final library = RecordingPathLibrary(PosixLoadedLibrary(InertElfLibrary()));
+    addTearDown(library.close);
+    final client = AdiClient.fromDirectory(
+      r'/tmp/ADI\literal/日本語',
+      loader: library,
+      paths: p.Context(style: p.Style.posix),
+    );
+    const state = r'/tmp/state\literal/日本語/';
+    client.provisioningPath = state;
+    expect(library.loadedPaths, [
+      r'/tmp/ADI\literal/日本語/libstoreservicescore.so',
+    ]);
+    expect(library.pathBytes, [
+      utf8.encode(r'/tmp/ADI\literal/日本語'),
+      utf8.encode(state),
+    ]);
+    expect(client.provisioningPath, state);
+    client.provisioningPath = null;
+    expect(client.provisioningPath, state);
+    expect(library.pathBytes, hasLength(2));
+  });
+
+  for (final (directory, expected) in [
+    (r'C:\ADI\日本語', 'C:/ADI/日本語'),
+    (r'\\server\share\ADI', '//server/share/ADI'),
+    (r'\\?\C:\ADI', '//?/C:/ADI'),
+    (r'\\?\UNC\server\share\ADI', '//?/UNC/server/share/ADI'),
+  ]) {
+    test('ADI uses Windows adapter bytes for $directory', () {
+      final library = RecordingPathLibrary(
+        WindowsLoadedLibrary(InertElfLibrary()),
+      );
+      addTearDown(library.close);
+      final client = AdiClient.fromDirectory(
+        directory,
+        loader: library,
+        paths: p.Context(style: p.Style.windows),
+      );
+      final state = '$directory\\state\\';
+      client.provisioningPath = state;
+      expect(library.loadedPaths, ['$directory\\libstoreservicescore.so']);
+      expect(library.pathBytes, [
+        utf8.encode(expected),
+        utf8.encode('$expected/state/'),
+      ]);
+      expect(client.provisioningPath, state);
+    });
+  }
+
   test('native loader refuses a mismatched ABI before creating memory', () {
     switch (Abi.current()) {
       case Abi.macosX64 || Abi.macosArm64:
@@ -278,6 +332,9 @@ final class Identity implements MachineIdentityProvider {
 final class RecordingLibrary implements LoadedNativeLibrary {
   final Map<String, int> arities = {};
   int rawLookups = 0;
+
+  @override
+  String normalizePath(String path) => path;
 
   @override
   Pointer<NativeFunction<T>> callable<T extends Function>(

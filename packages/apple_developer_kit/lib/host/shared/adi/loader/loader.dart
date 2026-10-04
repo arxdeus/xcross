@@ -19,6 +19,8 @@ abstract interface class NativeLibraryLoader {
 /// A loaded native library, capable of resolving exported symbols to
 /// callable native function pointers.
 abstract interface class LoadedNativeLibrary {
+  String normalizePath(String path);
+
   /// Resolves [symbolName] to a callable native function pointer of type
   /// [T].
   @useResult

@@ -111,7 +111,12 @@ final class CodeResourcesBuilder {
             .bytes,
       );
     } on Object catch (error) {
-      bundleFail(root, path, 'could not hash file with SHA-1: $error');
+      bundleFail(
+        root,
+        path,
+        'could not hash file with SHA-1: $error',
+        paths: hostServices.host.paths,
+      );
     }
   }
 
@@ -123,7 +128,12 @@ final class CodeResourcesBuilder {
             .bytes,
       );
     } on Object catch (error) {
-      bundleFail(root, path, 'could not hash file with SHA-256: $error');
+      bundleFail(
+        root,
+        path,
+        'could not hash file with SHA-256: $error',
+        paths: hostServices.host.paths,
+      );
     }
   }
 
@@ -133,7 +143,12 @@ final class CodeResourcesBuilder {
     try {
       target = hostServices.host.fileSystem.link(path).targetSync();
     } on Object catch (error) {
-      bundleFail(root, path, 'could not read symlink target: $error');
+      bundleFail(
+        root,
+        path,
+        'could not read symlink target: $error',
+        paths: hostServices.host.paths,
+      );
     }
     return sortedPlistMap()..['symlink'] = target;
   }

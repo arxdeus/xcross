@@ -33,6 +33,7 @@ void main() {
       final client = AdiClient.fromDirectory(
         fetcher.libraryDirectory.path,
         loader: testNativeLoader(),
+        paths: testHostServices.host.paths.context,
       );
       final state = Directory('${directory.path}/state')..createSync();
       client.provisioningPath = state.path;

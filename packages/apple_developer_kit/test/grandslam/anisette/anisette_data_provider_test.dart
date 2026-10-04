@@ -14,6 +14,7 @@ import 'package:apple_developer_kit/shared/adi/adi_client.dart';
 import 'package:apple_developer_kit/shared/grandslam/anisette/adi_provisioning.dart';
 import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_data_provider.dart';
 import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_state.dart';
+import 'package:apple_developer_kit/src/host/shared/adi/loader/internal/posix_loaded_library.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -140,6 +141,61 @@ class RefusingAdiProvisioning implements AdiProvisioning {
 }
 
 void main() {
+  test(
+    'mapped default ADI preserves POSIX literal-backslash path bytes',
+    () async {
+      final fixture = MappedAppleFixture();
+      addTearDown(fixture.dispose);
+      final store = AnisetteStateStore(
+        hostServices: fixture.services,
+        path: fixture.path(r'state\literal/anisette-state.json'),
+      );
+      await store.save(
+        const AnisetteState(
+          localUserUid: '12345678-1234-4234-8234-123456789abc',
+          provisioned: true,
+          routingInfo: 123,
+        ),
+      );
+      final library = fixture.path(r'libraries\literal/arm64-v8a');
+      fixture.fileSystem.directory(library).createSync(recursive: true);
+      for (final name in ['libCoreADI.so', 'libstoreservicescore.so']) {
+        fixture.fileSystem
+            .file('$library/$name')
+            .writeAsBytesSync(elfFixture(183));
+      }
+      final loader = RecordingPathLibrary(
+        PosixLoadedLibrary(InertElfLibrary()),
+      );
+      addTearDown(loader.close);
+      final provider = AnisetteDataProvider(
+        fixture.path(r'libraries\literal'),
+        hostServices: fixture.services,
+        loader: loader,
+        httpClient: MockClient(
+          (_) async => throw StateError('Unexpected network'),
+        ),
+        stateStore: store,
+      );
+      addTearDown(provider.close);
+      await expectLater(
+        provider.fetchAnisetteHeaders(),
+        throwsA(isA<AdiException>()),
+      );
+      expect(loader.pathBytes, [
+        utf8.encode(fixture.fileSystem.directory(library).path),
+        utf8.encode(
+          '${fixture.fileSystem.directory(store.provisioningDirectory).path}/',
+        ),
+      ]);
+      expect(
+        loader.loadedPaths.single,
+        '${fixture.fileSystem.directory(library).path}/libstoreservicescore.so',
+      );
+    },
+    skip: Platform.isWindows,
+  );
+
   test(
     'mapped filesystem resolves default ADI boundary without native effects',
     () async {

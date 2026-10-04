@@ -95,6 +95,7 @@ class BundleInspector {
           normalized,
           bundle.executablePath,
           'executable is also owned by "${previous.relativePath}"',
+          paths: hostServices.host.paths,
         );
       }
       owners[key] = bundle;
@@ -124,8 +125,8 @@ class BundleInspector {
     }
     return candidates..sort(
       (left, right) => compareUtf8(
-        bundleRelativePath(normalized, left),
-        bundleRelativePath(normalized, right),
+        bundleRelativePath(normalized, left, paths: hostServices.host.paths),
+        bundleRelativePath(normalized, right, paths: hostServices.host.paths),
       ),
     );
   }
@@ -141,11 +142,20 @@ class BundleInspector {
     for (final path in candidates) {
       final key = pathKey(path, hostServices: hostServices);
       if (!owned.add(key)) {
-        bundleFail(normalized, path, 'binary has duplicate signing ownership');
+        bundleFail(
+          normalized,
+          path,
+          'binary has duplicate signing ownership',
+          paths: hostServices.host.paths,
+        );
       }
       if (executableOwners.containsKey(key)) continue;
 
-      final relative = bundleRelativePath(normalized, path);
+      final relative = bundleRelativePath(
+        normalized,
+        path,
+        paths: hostServices.host.paths,
+      );
       final insideNestedBundle = bundles
           .skip(1)
           .any(
@@ -161,7 +171,12 @@ class BundleInspector {
           ),
         );
       } else {
-        bundleFail(normalized, path, 'unknown nested Mach-O code');
+        bundleFail(
+          normalized,
+          path,
+          'unknown nested Mach-O code',
+          paths: hostServices.host.paths,
+        );
       }
     }
     return looseBinaries..sort(
@@ -180,8 +195,16 @@ class BundleInspector {
           for (final dylib in looseBinaries) dylib.path,
         ]..sort(
           (left, right) => compareUtf8(
-            bundleRelativePath(normalized, left),
-            bundleRelativePath(normalized, right),
+            bundleRelativePath(
+              normalized,
+              left,
+              paths: hostServices.host.paths,
+            ),
+            bundleRelativePath(
+              normalized,
+              right,
+              paths: hostServices.host.paths,
+            ),
           ),
         );
     for (final path in allBinaries) {
@@ -189,7 +212,7 @@ class BundleInspector {
         await MachOSigner(asset, hostServices: hostServices).preflight(path);
       } on AppleError catch (error) {
         throw AppleError(
-          'Bundle "${bundleRelativePath(normalized, path)}" failed Mach-O '
+          'Bundle "${bundleRelativePath(normalized, path, paths: hostServices.host.paths)}" failed Mach-O '
           'preflight: ${error.message}',
         );
       }
@@ -205,7 +228,12 @@ class BundleInspector {
     final infoPath = hostServices.host.paths.context.join(path, 'Info.plist');
     if (hostServices.host.fileSystem.typeSync(infoPath, followLinks: false) !=
         FileSystemEntityType.file) {
-      bundleFail(root, infoPath, 'required Info.plist is missing');
+      bundleFail(
+        root,
+        infoPath,
+        'required Info.plist is missing',
+        paths: hostServices.host.paths,
+      );
     }
     final Uint8List bytes;
     final Object plist;
@@ -213,10 +241,20 @@ class BundleInspector {
       bytes = hostServices.host.fileSystem.file(infoPath).readAsBytesSync();
       plist = decodePropertyList(bytes);
     } on Object catch (error) {
-      bundleFail(root, infoPath, 'malformed Info.plist: $error');
+      bundleFail(
+        root,
+        infoPath,
+        'malformed Info.plist: $error',
+        paths: hostServices.host.paths,
+      );
     }
     if (plist is! Map<Object?, Object?>) {
-      bundleFail(root, infoPath, 'Info.plist root is not a dictionary');
+      bundleFail(
+        root,
+        infoPath,
+        'Info.plist root is not a dictionary',
+        paths: hostServices.host.paths,
+      );
     }
     final executable = plist['CFBundleExecutable'];
     final identifier = plist['CFBundleIdentifier'];
@@ -229,12 +267,22 @@ class BundleInspector {
         hostServices.host.paths.context.basename(executable) != executable ||
         executable.contains('/') ||
         executable.contains(r'\')) {
-      bundleFail(root, infoPath, 'CFBundleExecutable must be a file name');
+      bundleFail(
+        root,
+        infoPath,
+        'CFBundleExecutable must be a file name',
+        paths: hostServices.host.paths,
+      );
     }
     if (identifier is! String ||
         identifier.isEmpty ||
         identifier.contains('\u0000')) {
-      bundleFail(root, infoPath, 'CFBundleIdentifier is missing or invalid');
+      bundleFail(
+        root,
+        infoPath,
+        'CFBundleIdentifier is missing or invalid',
+        paths: hostServices.host.paths,
+      );
     }
     final executablePath = hostServices.host.paths.context.join(
       path,
@@ -249,11 +297,14 @@ class BundleInspector {
         root,
         executablePath,
         'bundle executable is missing or not a file',
+        paths: hostServices.host.paths,
       );
     }
     return ResolvedBundle(
       path,
-      isRoot ? '.' : bundleRelativePath(root, path),
+      isRoot
+          ? '.'
+          : bundleRelativePath(root, path, paths: hostServices.host.paths),
       identifier,
       executablePath,
       bytes,
