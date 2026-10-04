@@ -21,7 +21,7 @@ final class WindowsNativeHostTools<T extends WindowsHostInterface>
   final ProcessRunner<T> runner;
   @override
   String get artifactPlatform {
-    if (!const ['x64'].contains(host.architecture)) {
+    if (!const ['arm64', 'x64'].contains(host.architecture)) {
       throw FlutterBuildError(
         'Unsupported Flutter host architecture: ${host.architecture}',
       );

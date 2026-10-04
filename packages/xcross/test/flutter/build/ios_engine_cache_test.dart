@@ -227,6 +227,7 @@ void main() {
   final macX64 = MacOSHost(architecture: 'x64');
   final linuxX64 = LinuxHost(architecture: 'x64');
   final windows = WindowsHost(architecture: 'x64', paths: PosixPaths());
+  final windowsArm = WindowsHost(architecture: 'arm64', paths: PosixPaths());
   for (final (tools, targetPolicy, artifact, canonical)
       in <(NativeHostTools, FlutterTargetBuildPolicy, String, String)>[
         (hostTools, policy, 'linux-arm64', 'linux-arm64'),
@@ -290,6 +291,21 @@ void main() {
           'windows-x64',
           'windows-x64',
         ),
+        (
+          WindowsNativeHostTools(
+            windowsArm,
+            ProcessRunner(
+              windowsArm,
+              log: _log(),
+              stdinStream: const Stream<List<int>>.empty(),
+              stdoutSink: sink(),
+              stderrSink: sink(),
+            ),
+          ),
+          IPhoneFlutterTarget(IPhoneTarget(windowsArm)),
+          'windows-arm64',
+          'windows-arm64',
+        ),
       ]) {
     test(
       '$artifact preserves separate download and canonical SDK cache names',
@@ -336,7 +352,7 @@ void main() {
     );
   }
   test('rejects unsupported host architectures early', () {
-    final unsupported = WindowsHost(architecture: 'arm64');
+    final unsupported = WindowsHost(architecture: 'ia32');
     expect(
       () => IosEngineCache(
         targetPolicy: IPhoneFlutterTarget(IPhoneTarget(unsupported)),
