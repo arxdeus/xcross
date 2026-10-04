@@ -119,20 +119,14 @@ final class FlutterWorkspaceOverlay<T extends PlatformHostInterface> {
   }
 
   Future<void> _link(String path, String target) async {
-    if (FileSystemEntity.typeSync(
-          engineCache.host.paths.ioPath(path),
-          followLinks: false,
-        ) !=
+    if (fileSystem.typeSync(path, followLinks: false) !=
         FileSystemEntityType.notFound) {
       return;
     }
     await fileSystem.directory(paths.dirname(path)).create(recursive: true);
     final absoluteTarget = paths.normalize(paths.absolute(target));
     final resolvedTarget =
-        FileSystemEntity.typeSync(
-              engineCache.host.paths.ioPath(absoluteTarget),
-            ) ==
-            FileSystemEntityType.notFound
+        fileSystem.typeSync(absoluteTarget) == FileSystemEntityType.notFound
         ? absoluteTarget
         : await fileSystem.file(absoluteTarget).resolveSymbolicLinks();
     await engineCache.hostTools.link(path, resolvedTarget);
