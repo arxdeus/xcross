@@ -96,7 +96,7 @@ final class XcrossConfigDecoder {
     final node = _optionalMap(value, r'$.tools');
     final tools = <String, String>{};
     for (final entry in node.entries) {
-      final name = XcrossConfig.normalizeToolName(entry.key);
+      final name = host.paths.toolNameKey(entry.key);
       if (name.isEmpty) {
         throw XcrossConfigException(
           'Tool names must not be empty',
@@ -105,7 +105,7 @@ final class XcrossConfigDecoder {
       }
       if (tools.containsKey(name)) {
         throw XcrossConfigException(
-          'Duplicate tool after executable-extension normalization: ${entry.key}',
+          'Duplicate tool after host normalization: ${entry.key}',
           path: sourcePath,
         );
       }

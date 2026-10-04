@@ -61,6 +61,7 @@ final class ConfigCommand extends Command<void> {
     }
     final controller = ConfigTuiController(
       await _store.load() ?? XcrossConfig(),
+      paths: _store.host.paths,
     );
     final tui = AnsiTui(terminal: _terminal, environment: _terminalEnvironment);
     await tui.run(

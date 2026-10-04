@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/tui/tui.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/config/config.dart';
@@ -43,8 +44,11 @@ extension on ConfigAction {
 
 @internal
 final class ConfigTuiController {
-  ConfigTuiController(XcrossConfig config) : config = config, _saved = config;
+  ConfigTuiController(XcrossConfig config, {required this.paths})
+    : config = config,
+      _saved = config;
 
+  final HostPathsInterface paths;
   XcrossConfig config;
   XcrossConfig _saved;
   ConfigTab tab = ConfigTab.roots;
@@ -270,7 +274,7 @@ final class ConfigTuiController {
   void _setTool(String name, String? value) {
     if (value == null) return;
     final tools = Map<String, String>.from(config.tools);
-    final key = XcrossConfig.normalizeToolName(name);
+    final key = paths.toolNameKey(name);
     value.isEmpty ? tools.remove(key) : tools[key] = value;
     config = config.copyWith(tools: tools);
   }

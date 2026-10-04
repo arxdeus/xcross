@@ -13,6 +13,7 @@ import 'package:xcross/src/shared/config/config.dart';
 import 'package:xcross/src/shared/config/config_store.dart';
 import 'package:xcross/src/shared/config/runtime_config.dart';
 
+import '../cli/auth_fixture.dart';
 import '../log_fixture.dart';
 
 void main() {
@@ -128,6 +129,54 @@ environment:
       expect(runtime.childEnvironment['JAVA_HOME'], r'C:\java');
     },
   );
+
+  test('POSIX runtime retains distinct case and suffix tool keys', () async {
+    final host = LinuxHost();
+    final tool = File(p.join(temporary.path, 'tool'))
+      ..writeAsStringSync('tool');
+    host.fileSystem.makeExecutable(tool.path);
+    final store = XcrossConfigStore(
+      host,
+      directory: temporary.path,
+      policy: const PosixConfigHost(),
+    );
+    final tools = {'clang': tool.path, 'CLANG.EXE': tool.path};
+    await store.save(XcrossConfig(tools: tools).copyWith());
+    final runtime = await XcrossRuntimeConfig.load(
+      host,
+      store: store,
+      policy: const PosixConfigHost(),
+    );
+    expect(runtime.tools, tools);
+    expect(runtime.tool('clang'), tool.path);
+    expect(runtime.tool('CLANG.EXE'), tool.path);
+    expect(runtime.tool('clang.exe'), isNull);
+    expect(runtime.processConfiguration!.normalizedTools, tools);
+  });
+
+  test('Windows runtime exposes decoded canonical tool aliases', () async {
+    final fixture = AuthNamespaceFixture(style: p.Style.windows);
+    addTearDown(fixture.dispose);
+    final tool = fixture.path('flutter.exe');
+    fixture.fileSystem.file(tool).writeAsStringSync('tool');
+    final host = WindowsHost(fileSystem: fixture.fileSystem);
+    final store = XcrossConfigStore(
+      host,
+      directory: fixture.logicalRoot,
+      policy: const WindowsConfigHost(),
+    );
+    fixture.fileSystem
+        .file(fixture.path('config.yaml'))
+        .writeAsStringSync(XcrossConfig(tools: {'FlUtTeR.CMD': tool}).toYaml());
+    final runtime = await XcrossRuntimeConfig.load(
+      host,
+      store: store,
+      policy: const WindowsConfigHost(),
+    );
+    expect(runtime.tools, {'flutter': tool});
+    expect(runtime.tool('flutter'), tool);
+    expect(runtime.processConfiguration!.normalizedTools, {'flutter': tool});
+  });
 
   test('independent and concurrent loads do not share runtime state', () async {
     final first = LinuxHost(

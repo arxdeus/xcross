@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
 import 'package:cli_kit/shared/tui/tui.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
@@ -66,7 +67,10 @@ void main() {
   test(
     'controller switches tabs in both directions and clamps selection',
     () async {
-      final controller = ConfigTuiController(XcrossConfig());
+      final controller = ConfigTuiController(
+        XcrossConfig(),
+        paths: store.host.paths,
+      );
       await handle(controller, TuiKey.backTab);
       expect(controller.tab, ConfigTab.commands);
       await handle(controller, TuiKey.tab);
@@ -82,7 +86,10 @@ void main() {
   );
 
   test('controller edits fixed rows and adds and edits map entries', () async {
-    final controller = ConfigTuiController(XcrossConfig());
+    final controller = ConfigTuiController(
+      XcrossConfig(),
+      paths: store.host.paths,
+    );
     await handle(controller, TuiKey.enter, answers: ['/opt/darwin']);
     expect(controller.config.roots.darwinSdk, '/opt/darwin');
 
@@ -98,10 +105,10 @@ void main() {
       TuiKey.enter,
       answers: ['Clang.EXE', '/bin/clang'],
     );
-    expect(controller.config.tools, {'clang': '/bin/clang'});
+    expect(controller.config.tools, {'Clang.EXE': '/bin/clang'});
     controller.selection = 0;
     await handle(controller, TuiKey.enter, answers: ['/usr/bin/clang']);
-    expect(controller.config.tools['clang'], '/usr/bin/clang');
+    expect(controller.config.tools['Clang.EXE'], '/usr/bin/clang');
 
     controller.tab = ConfigTab.environment;
     controller.selection = 0;
@@ -114,9 +121,49 @@ void main() {
     expect(controller.config.excludedCommands, {'setup'});
   });
 
+  test('controller preserves distinct POSIX tool names', () async {
+    final controller = ConfigTuiController(
+      XcrossConfig(tools: const {'clang': '/bin/clang'}),
+      paths: LinuxHost().paths,
+    )..tab = ConfigTab.tools;
+    controller.selection = 1;
+    await handle(
+      controller,
+      TuiKey.enter,
+      answers: [' CLANG.EXE ', '/bin/other'],
+    );
+    expect(controller.config.tools, {
+      'clang': '/bin/clang',
+      'CLANG.EXE': '/bin/other',
+    });
+  });
+
+  test(
+    'controller uses selected Windows tool normalization on POSIX',
+    () async {
+      final controller = ConfigTuiController(
+        XcrossConfig(),
+        paths: WindowsHost().paths,
+      )..tab = ConfigTab.tools;
+      for (final suffix in ['.EXE', '.CMD', '.BAT', '.COM']) {
+        controller.selection = controller.config.tools.length;
+        await handle(
+          controller,
+          TuiKey.enter,
+          answers: [' ClAnG$suffix ', r'C:\tools\clang.exe'],
+        );
+        expect(controller.config.tools, {'clang': r'C:\tools\clang.exe'});
+      }
+      controller.selection = 0;
+      await handle(controller, TuiKey.enter, answers: ['']);
+      expect(controller.config.tools, isEmpty);
+    },
+  );
+
   test('delete requires confirmation and ignores Add row', () async {
     final controller = ConfigTuiController(
       XcrossConfig(tools: const {'clang': '/bin/clang'}),
+      paths: store.host.paths,
     )..tab = ConfigTab.tools;
     await handle(controller, TuiKey.delete, confirmations: [false]);
     expect(controller.config.tools, contains('clang'));
@@ -128,7 +175,10 @@ void main() {
   });
 
   test('save resets dirty state and discard restores saved state', () async {
-    final controller = ConfigTuiController(XcrossConfig());
+    final controller = ConfigTuiController(
+      XcrossConfig(),
+      paths: store.host.paths,
+    );
     XcrossConfig? saved;
     await handle(controller, TuiKey.enter, answers: ['/first']);
     expect(controller.dirty, isTrue);
@@ -153,7 +203,7 @@ void main() {
   });
 
   test('quit confirms only when dirty and validate reports status', () async {
-    final clean = ConfigTuiController(XcrossConfig());
+    final clean = ConfigTuiController(XcrossConfig(), paths: store.host.paths);
     expect(await handle(clean, TuiKey.quit), isTrue);
     await handle(clean, TuiKey.validate);
     expect(clean.status, 'Configuration is valid.');
@@ -164,7 +214,10 @@ void main() {
   });
 
   test('controller reports expected config and file failures', () async {
-    final controller = ConfigTuiController(XcrossConfig());
+    final controller = ConfigTuiController(
+      XcrossConfig(),
+      paths: store.host.paths,
+    );
     await handle(
       controller,
       TuiKey.validate,
@@ -181,7 +234,10 @@ void main() {
   });
 
   test('controller does not hide unexpected programming errors', () async {
-    final controller = ConfigTuiController(XcrossConfig());
+    final controller = ConfigTuiController(
+      XcrossConfig(),
+      paths: store.host.paths,
+    );
     await expectLater(
       handle(
         controller,
@@ -201,6 +257,7 @@ void main() {
                 'PATH': ['/one', '/two'],
               },
             ),
+            paths: store.host.paths,
           )
           ..tab = ConfigTab.tools
           ..selection = 1;
@@ -223,7 +280,10 @@ void main() {
   });
 
   test('plain rendering emits one frame and incremental updates', () {
-    final controller = ConfigTuiController(XcrossConfig());
+    final controller = ConfigTuiController(
+      XcrossConfig(),
+      paths: store.host.paths,
+    );
     final frame = controller.render(ansi: false);
     final update = controller.renderPlainUpdate();
 

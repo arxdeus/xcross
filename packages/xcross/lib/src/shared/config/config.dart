@@ -7,7 +7,6 @@ import 'package:xcross/src/shared/config/config_host.dart';
 import 'package:yaml/yaml.dart';
 
 const _notProvided = ConfigNotProvided();
-const _windowsExecutableExtensions = {'.exe', '.com', '.bat', '.cmd'};
 
 @internal
 final class ConfigNotProvided {
@@ -99,7 +98,7 @@ final class XcrossConfig {
          swift: toolchains.swift,
          llvm: List.unmodifiable(toolchains.llvm),
        ),
-       tools = Map.unmodifiable(_normalizeTools(tools)),
+       tools = Map.unmodifiable(_validateTools(tools)),
        environment = Map.unmodifiable(_normalizeEnvironment(environment)),
        excludedCommands = Set.unmodifiable(
          excludedCommands.map(_normalizeCommandName).toSet(),
@@ -148,7 +147,7 @@ final class XcrossConfig {
     excludedCommands: excludedCommands ?? this.excludedCommands,
   );
 
-  String? tool(String name) => tools[normalizeToolName(name)];
+  String? tool(String name) => tools[name];
 
   static Uri? remoteSetupScriptUri(String value) {
     final uri = Uri.tryParse(value);
@@ -157,20 +156,6 @@ final class XcrossConfig {
   }
 
   static String _normalizeCommandName(String name) => name.trim().toLowerCase();
-
-  static String normalizeToolName(String name) {
-    var normalized = name.trim().toLowerCase();
-    for (final extension in _windowsExecutableExtensions) {
-      if (normalized.endsWith(extension)) {
-        normalized = normalized.substring(
-          0,
-          normalized.length - extension.length,
-        );
-        break;
-      }
-    }
-    return normalized;
-  }
 
   factory XcrossConfig.parse(
     String source, {
@@ -296,15 +281,12 @@ final class XcrossConfig {
     return result;
   }
 
-  static Map<String, String> _normalizeTools(Map<String, String> source) {
+  static Map<String, String> _validateTools(Map<String, String> source) {
     final result = <String, String>{};
     for (final entry in source.entries) {
-      final key = normalizeToolName(entry.key);
       rejectUnsafeConfigString(entry.key, 'Tool name');
-      if (key.isEmpty || result.containsKey(key)) {
-        throw XcrossConfigException(
-          'Invalid or duplicate tool name: ${entry.key}',
-        );
+      if (entry.key.trim().isEmpty) {
+        throw const XcrossConfigException('Tool names must not be empty');
       }
       rejectUnsafeConfigString(entry.value, 'Tool path for ${entry.key}');
       if (entry.value.trim().isEmpty) {
@@ -312,7 +294,7 @@ final class XcrossConfig {
           'Tool path for ${entry.key} must not be empty',
         );
       }
-      result[key] = entry.value;
+      result[entry.key] = entry.value;
     }
     return result;
   }

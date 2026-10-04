@@ -353,30 +353,104 @@ environment:
     );
   });
 
-  test('normalizes tool names and rejects collisions', () {
-    final tool = File(
-      p.join(temporary.path, Platform.isWindows ? 'clang.exe' : 'clang'),
-    )..writeAsStringSync('tool');
-    if (!Platform.isWindows) Process.runSync('chmod', ['755', tool.path]);
-    final source = 'tools:\n  CLANG.EXE: ${tool.path}\n';
+  test('model preserves literal tool keys and immutable copies', () {
+    final tools = {'clang': '/one', 'CLANG.EXE': '/two'};
+    final config = XcrossConfig(tools: tools);
+    tools.clear();
+    expect(config.tool('clang'), '/one');
+    expect(config.tool('CLANG.EXE'), '/two');
+    expect(config.tool('clang.exe'), isNull);
+    expect(config.copyWith().tools, config.tools);
+    expect(config.copyWith().toYaml(), config.toYaml());
+    expect(() => config.tools['clang'] = '/other', throwsUnsupportedError);
+    for (final name in ['', '  ', 'bad\nname', 'bad\u0000name']) {
+      expect(
+        () => XcrossConfig(tools: {name: '/tool'}),
+        throwsA(isA<XcrossConfigException>()),
+      );
+    }
+  });
+
+  test('POSIX decoding preserves case and suffixes through YAML roundtrip', () {
+    final host = LinuxHost();
+    final tool = File(p.join(temporary.path, 'tool'))
+      ..writeAsStringSync('tool');
+    host.fileSystem.makeExecutable(tool.path);
     final config = XcrossConfig.parse(
-      source,
+      'tools:\n  clang: ${tool.path}\n  " CLANG.EXE ": ${tool.path}\n',
       environment: const {},
-      host: detectPlatformHost(),
+      host: host,
       policy: const PosixConfigHost(),
     );
-    expect(config.tool('clang'), tool.path);
-    expect(config.tool('CLANG.EXE'), tool.path);
+    expect(config.tools, {'clang': tool.path, 'CLANG.EXE': tool.path});
+    expect(config.tool('clang.exe'), isNull);
+    expect(
+      XcrossConfig.parse(
+        config.copyWith().toYaml(),
+        environment: const {},
+        host: host,
+        policy: const PosixConfigHost(),
+      ).tools,
+      config.tools,
+    );
     expect(
       () => XcrossConfig.parse(
-        'tools:\n  clang: /one\n  clang.exe: /two\n',
+        'tools:\n  clang: ${tool.path}\n  " clang ": ${tool.path}\n',
         environment: const {},
-        host: LinuxHost(),
+        host: host,
         policy: const PosixConfigHost(),
       ),
-      throwsA(isA<XcrossConfigException>()),
+      throwsA(
+        isA<XcrossConfigException>().having(
+          (error) => error.message,
+          'message',
+          contains('Duplicate tool after host normalization'),
+        ),
+      ),
     );
   });
+
+  for (final suffix in ['.EXE', '.CMD', '.BAT', '.COM']) {
+    test('Windows decoding normalizes mixed case and $suffix on POSIX', () {
+      final fixture = AuthNamespaceFixture(style: p.Style.windows);
+      addTearDown(fixture.dispose);
+      final tool = fixture.path('clang.exe');
+      fixture.fileSystem.file(tool).writeAsStringSync('tool');
+      final host = WindowsHost(fileSystem: fixture.fileSystem);
+      final config = XcrossConfig.parse(
+        'tools:\n  " ClAnG$suffix ": $tool\n',
+        environment: const {},
+        host: host,
+        policy: const WindowsConfigHost(),
+      );
+      expect(config.tools, {'clang': tool});
+      expect(config.tool('clang'), tool);
+      expect(
+        XcrossConfig.parse(
+          config.copyWith().toYaml(),
+          environment: const {},
+          host: host,
+          policy: const WindowsConfigHost(),
+        ).tools,
+        config.tools,
+      );
+      expect(
+        () => XcrossConfig.parse(
+          'tools:\n  clang: $tool\n  ClAnG$suffix: $tool\n',
+          environment: const {},
+          host: host,
+          policy: const WindowsConfigHost(),
+        ),
+        throwsA(
+          isA<XcrossConfigException>().having(
+            (error) => error.message,
+            'message',
+            contains('Duplicate tool after host normalization'),
+          ),
+        ),
+      );
+    });
+  }
 
   test('serializes canonical YAML and round trips PATH as a list', () {
     final config = XcrossConfig.parse(
