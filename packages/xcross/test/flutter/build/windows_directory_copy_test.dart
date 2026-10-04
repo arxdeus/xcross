@@ -169,4 +169,38 @@ void main() {
       isFalse,
     );
   });
+
+  for (final (architecture, triple, other) in [
+    ('arm64', 'aarch64-unknown-windows-msvc', 'x86_64-unknown-windows-msvc'),
+    ('x64', 'x86_64-unknown-windows-msvc', 'aarch64-unknown-windows-msvc'),
+  ]) {
+    test('repairs the $architecture host plugin tools description', () async {
+      final scratch = await Directory.systemTemp.createTemp(
+        'xcross-plugin-tools-',
+      );
+      addTearDown(() => scratch.delete(recursive: true));
+      final target = await Directory(
+        p.join(scratch.path, 'arm64-apple-ios', 'debug'),
+      ).create(recursive: true);
+      const broken = r'{"path":"\\\\?\\C:\\?\\C:\\tools\\plugin.exe"}';
+      File description(String triple) => File(
+        p.join(scratch.path, triple, 'debug', 'plugin-tools-description.json'),
+      )..createSync(recursive: true);
+      final host = description(triple)..writeAsStringSync(broken);
+      final foreign = description(other)..writeAsStringSync(broken);
+      final repairs = WindowsSwiftPlanRepair(
+        testWindowsSwiftPmRuntime(architecture: architecture).runner,
+      );
+
+      expect(
+        await repairs.repairWindowsGeneratedBuildFiles(
+          scratch.path,
+          target.path,
+        ),
+        isTrue,
+      );
+      expect(host.readAsStringSync(), r'{"path":"C:\\tools\\plugin.exe"}');
+      expect(foreign.readAsStringSync(), broken);
+    });
+  }
 }

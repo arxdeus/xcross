@@ -82,16 +82,22 @@ final class WindowsSwiftPlanRepair {
 
   Future<bool> _repairJsonPlans(Directory root, String scratchPath) async {
     var changed = false;
+    final hostTriple = switch (runner.host.architecture) {
+      'arm64' => 'aarch64-unknown-windows-msvc',
+      'x64' => 'x86_64-unknown-windows-msvc',
+      _ => null,
+    };
     for (final json in [
       ..._filesUnder(root).where((file) => p.extension(file.path) == '.json'),
-      runner.host.fileSystem.file(
-        p.join(
-          scratchPath,
-          'x86_64-unknown-windows-msvc',
-          'debug',
-          'plugin-tools-description.json',
+      if (hostTriple != null)
+        runner.host.fileSystem.file(
+          p.join(
+            scratchPath,
+            hostTriple,
+            'debug',
+            'plugin-tools-description.json',
+          ),
         ),
-      ),
     ]) {
       if (!json.existsSync()) continue;
       final original = await json.readAsString();
