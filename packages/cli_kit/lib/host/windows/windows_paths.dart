@@ -39,8 +39,9 @@ final class WindowsPaths implements HostPathsInterface {
       context.join(_home, '.cache');
   @override
   String ioPath(String path) {
-    if (path.startsWith(_prefix)) return path;
-    final absolute = context.normalize(context.absolute(path));
+    final native = path.replaceAll('/', r'\');
+    if (native.startsWith(_prefix)) return native;
+    final absolute = context.normalize(context.absolute(native));
     if (absolute.startsWith(r'\\')) {
       return '$_uncPrefix${absolute.substring(2)}';
     }

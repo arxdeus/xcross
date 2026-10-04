@@ -203,6 +203,18 @@ void main() {
     expect(host.paths.cacheRoot, r'C:\cache');
     expect(host.paths.temporaryRoot, r'C:\temp');
     expect(host.paths.ioPath(r'relative\file'), r'\\?\C:\work\relative\file');
+    for (final extended in [
+      r'\\?\C:\tools\llvm-ar.exe',
+      '//?/C:/tools/llvm-ar.exe',
+      r'C:\tools\llvm-ar.exe',
+      'C:/tools/llvm-ar.exe',
+    ]) {
+      expect(host.paths.ioPath(extended), r'\\?\C:\tools\llvm-ar.exe');
+    }
+    expect(
+      host.paths.ioPath('//?/UNC/server/share/x'),
+      r'\\?\UNC\server\share\x',
+    );
     expect(host.paths.pathKey(r'C:\WORK\x'), host.paths.pathKey(r'c:\work\x'));
     expect(
       host.paths.executableName('flutter', extension: '.bat'),
