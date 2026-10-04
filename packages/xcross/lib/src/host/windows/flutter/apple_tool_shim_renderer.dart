@@ -108,7 +108,13 @@ $items = @($args | Where-Object { -not $_.StartsWith('-') -and $_ -ne '.DS_Store
 if ($items.Count -lt 2) { exit 1 }
 $source = $items[$items.Count - 2]
 $destination = $items[$items.Count - 1]
-Copy-Item -LiteralPath $source -Destination $destination -Recurse -Force
+if (-not ($source.EndsWith('/') -or $source.EndsWith('\'))) {
+  $destination = Join-Path $destination (Split-Path $source.TrimEnd('/', '\') -Leaf)
+}
+$source = $source.TrimEnd('/', '\')
+$mode = if ($args -contains '--delete') { '/MIR' } else { '/E' }
+& robocopy.exe $source $destination $mode /XD .DS_Store /XF .DS_Store /NFL /NDL /NJH /NJS /NP /R:0 /W:0 | Out-Host
+if ($LASTEXITCODE -ge 8) { exit $LASTEXITCODE }
 exit 0
 ''');
     await _writeWindowsShim(

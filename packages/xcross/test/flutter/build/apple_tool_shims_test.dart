@@ -335,6 +335,79 @@ void main() {
     );
   });
 
+  test(
+    'Windows rsync shim copies frameworks the way flutter assemble asks',
+    () async {
+      final tmp = await Directory.systemTemp.createTemp('apple_shims_rsync-');
+      try {
+        final forwarder = File(p.join(tmp.path, 'xcross.exe'))
+          ..writeAsStringSync('forwarder');
+        final xcrun = File(p.join(tmp.path, 'source-xcrun.exe'))
+          ..writeAsStringSync('xcrun');
+        final shims = Directory(p.join(tmp.path, 'shims'));
+        await installAppleToolShims(
+          shims.path,
+          AppleToolShimConfig(
+            target: const IPhoneBuildPlatform(),
+            iosSdk: r'C:\SDK\iPhoneOS.sdk',
+            clang: r'C:\LLVM\clang.exe',
+            hostCompiler: r'C:\LLVM\clang.exe',
+            archiver: r'C:\LLVM\llvm-ar.exe',
+            linker: r'C:\LLVM\ld64.lld.exe',
+            deploymentTarget: '13.0',
+            lipo: r'C:\LLVM\llvm-lipo.exe',
+            otool: null,
+            installNameTool: null,
+            xcrun: xcrun.path,
+          ),
+          toolForwarderExecutable: forwarder.path,
+          renderer: WindowsAppleToolShimRenderer(windowsFixtureHost()),
+        );
+        final deep = p.joinAll([tmp.path, ...List.filled(12, 'nested-dir')]);
+        final framework = Directory(p.join(deep, 'Flutter.framework'));
+        File(p.join(framework.path, 'Headers', 'Flutter.h'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('header');
+        File(p.join(framework.path, 'Flutter')).writeAsStringSync('binary');
+        File(p.join(framework.path, '.DS_Store')).writeAsStringSync('junk');
+        final output = Directory(p.join(tmp.path, 'out'))..createSync();
+        File(
+          p.join(output.path, 'Flutter.framework', 'stale'),
+        ).createSync(recursive: true);
+
+        final result = await Process.run(
+          'rsync',
+          [
+            '-av',
+            '--delete',
+            '--filter',
+            '- .DS_Store/',
+            '--chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r',
+            framework.path,
+            output.path,
+          ],
+          environment: {
+            'PATH': '${shims.path};${Platform.environment['PATH']}',
+          },
+          runInShell: true,
+        );
+
+        expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+        final copied = p.join(output.path, 'Flutter.framework');
+        expect(File(p.join(copied, 'Flutter')).readAsStringSync(), 'binary');
+        expect(
+          File(p.join(copied, 'Headers', 'Flutter.h')).existsSync(),
+          isTrue,
+        );
+        expect(File(p.join(copied, '.DS_Store')).existsSync(), isFalse);
+        expect(File(p.join(copied, 'stale')).existsSync(), isFalse);
+      } finally {
+        await tmp.delete(recursive: true);
+      }
+    },
+    skip: !Platform.isWindows,
+  );
+
   test('Windows exposes a recognizable clang executable forwarder', () async {
     final tmp = await Directory.systemTemp.createTemp('apple_shims_test-');
     try {
