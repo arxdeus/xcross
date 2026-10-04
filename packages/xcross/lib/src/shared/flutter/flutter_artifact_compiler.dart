@@ -1,8 +1,6 @@
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/dart_plugin_registrant.dart';
 import 'package:xcross/src/flutter/build/flutter_debug_bundler.dart';
-import 'package:xcross/src/flutter/build/flutter_notice_artifact.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_workspace.dart';
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/build/ios_native_assets.dart';
@@ -55,14 +53,27 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
         flavor: options.flavor,
       ).build(),
     );
-    copyFlutterNoticeArtifact(
-      sourceFlutterAssetsDirectory: p.dirname(nativeAssets.manifestPath),
-      destinationFlutterAssetsDirectory: p.join(appFramework, 'flutter_assets'),
+    runtime.notices.copy(
+      sourceFlutterAssetsDirectory: runtime.host.paths.context.dirname(
+        nativeAssets.manifestPath,
+      ),
+      destinationFlutterAssetsDirectory: runtime.host.paths.context.join(
+        appFramework,
+        'flutter_assets',
+      ),
     );
     await runtime.host.fileSystem
         .file(nativeAssets.manifestPath)
         .copy(
-          p.join(appFramework, 'flutter_assets', 'NativeAssetsManifest.json'),
+          runtime.host.fileSystem
+              .file(
+                runtime.host.paths.context.join(
+                  appFramework,
+                  'flutter_assets',
+                  'NativeAssetsManifest.json',
+                ),
+              )
+              .path,
         );
     final pluginsBuild = await _buildPlugins(
       flutterRoot,

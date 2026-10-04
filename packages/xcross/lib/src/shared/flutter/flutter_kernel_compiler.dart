@@ -20,7 +20,11 @@ final class FlutterKernelCompiler<T extends PlatformHostInterface> {
     this.entrypoint = 'lib/main.dart',
     this.dartDefines = const [],
     this.flavor,
-  });
+  }) : packageUriLoader = PackageUriLoader(
+         fileSystem: runtime.host.fileSystem,
+         paths: runtime.host.paths.context,
+       );
+  final PackageUriLoader packageUriLoader;
   final FlutterBuildRuntime<T> runtime;
   final DartPluginRegistrant registrant;
   final PluginDiscovery plugins;
@@ -36,7 +40,7 @@ final class FlutterKernelCompiler<T extends PlatformHostInterface> {
     final outputDill = await _prepareKernelScratch();
     final packageConfig = await runtime.packageConfigs.require(projectRoot);
 
-    final entrypointArg = await _resolveEntrypointArg(packageConfig);
+    final entrypointArg = await resolveEntrypointArg(packageConfig);
 
     // Federated plugins install their Dart-side implementation from here.
     // Without it the app boots but the first plugin call throws
@@ -47,10 +51,14 @@ final class FlutterKernelCompiler<T extends PlatformHostInterface> {
       plugins: await plugins.discover(projectRoot),
       entrypointUri: entrypointArg,
     );
-    final packageUris = await PackageUris.load(packageConfig);
+    final packageUris = await packageUriLoader.load(packageConfig);
     final registrantUri = registrationPath == null
         ? null
-        : dartPluginRegistrantUri(registrationPath, packageUris);
+        : dartPluginRegistrantUri(
+            registrationPath,
+            packageUris,
+            paths: runtime.host.paths.context,
+          );
     if (registrantUri != null) {
       runtime.runner.log.logTrace('dart plugin registrant: $registrantUri');
     }
@@ -155,11 +163,13 @@ final class FlutterKernelCompiler<T extends PlatformHostInterface> {
   /// Compile under the entrypoint's `package:` URI when it has one, as
   /// flutter_tools does: this is what sets the kernel's `Library.importUri`,
   /// and that is what a `package:` breakpoint matches. See [PackageUris].
-  Future<String> _resolveEntrypointArg(String packageConfig) async {
-    final resolved = p.isAbsolute(entrypoint)
+  @visibleForTesting
+  Future<String> resolveEntrypointArg(String packageConfig) async {
+    final paths = runtime.host.paths.context;
+    final resolved = paths.isAbsolute(entrypoint)
         ? entrypoint
-        : p.join(projectRoot, entrypoint);
-    final packageUris = await PackageUris.load(packageConfig);
+        : paths.join(projectRoot, entrypoint);
+    final packageUris = await packageUriLoader.load(packageConfig);
     return packageUris?.toCompilerUri(resolved) ?? resolved;
   }
 
@@ -180,8 +190,12 @@ final class FlutterKernelCompiler<T extends PlatformHostInterface> {
   /// any package `lib/`, so this is the `file://` form in practice; the
   /// `package:` branch covers a project that relocates it inside a package.
   @visibleForTesting
-  static String dartPluginRegistrantUri(String path, PackageUris? packageUris) {
-    final fileUri = Uri.file(path);
+  static String dartPluginRegistrantUri(
+    String path,
+    PackageUris? packageUris, {
+    required p.Context paths,
+  }) {
+    final fileUri = paths.toUri(paths.absolute(path));
     return packageUris?.toPackageUri(fileUri)?.toString() ?? fileUri.toString();
   }
 

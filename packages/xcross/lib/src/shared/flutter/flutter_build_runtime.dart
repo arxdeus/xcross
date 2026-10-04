@@ -1,5 +1,6 @@
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:xcross/src/flutter/build/flutter_notice_artifact.dart';
 import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/flutter/build/internal/native_asset_frameworks.dart';
 import 'package:xcross/src/flutter/build/internal/native_assets_hook_discovery.dart';
@@ -84,6 +85,10 @@ final class FlutterBuildRuntime<T extends PlatformHostInterface> {
   );
   late final FlutterBuildOptionsResolver options = FlutterBuildOptionsResolver(
     defines,
+  );
+  late final FlutterNoticeArtifact notices = FlutterNoticeArtifact(
+    fileSystem: host.fileSystem,
+    paths: host.paths.context,
   );
   late final RecursiveDirectoryCopier directoryCopier =
       RecursiveDirectoryCopier(

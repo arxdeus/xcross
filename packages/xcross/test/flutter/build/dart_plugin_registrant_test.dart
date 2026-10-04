@@ -1,13 +1,16 @@
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/flutter/build/dart_plugin_registrant.dart';
 import 'package:xcross/src/flutter/build/internal/kernel_compiler.dart';
 import 'package:xcross/src/flutter/build/ios_plugins.dart';
 import 'package:xcross/src/shared/flutter/flutter_kernel_compiler.dart';
+import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
 
+import '../../host_operations_fixtures.dart';
 import '../flutter_test_runtime.dart';
 
 void main() {
@@ -20,6 +23,123 @@ void main() {
   });
 
   tearDown(() => tmp.delete(recursive: true));
+
+  test(
+    'kernel package URI loader retains selected filesystem and namespace',
+    () async {
+      final fileSystem = FixtureMappedFileSystem(tmp);
+      final host = LinuxHost(
+        fileSystem: fileSystem,
+        currentDirectory: '/selected-kernel-project',
+        temporaryDirectory: '/selected-kernel-temp',
+      );
+      final runtime = testFlutterRuntime(
+        IPhoneFlutterTarget(IPhoneTarget(host)),
+      );
+      const configPath =
+          '/selected-kernel-project/.dart_tool/package_config.json';
+      fileSystem.file(configPath)
+        ..createSync(recursive: true)
+        ..writeAsStringSync(
+          '{"configVersion":2,"packages":[{"name":"mapped","rootUri":"../","packageUri":"lib/"}]}',
+        );
+      final compiler = FlutterKernelCompiler(
+        runtime: runtime,
+        registrant: DartPluginRegistrant(fileSystem),
+        plugins: PluginDiscovery(fileSystem),
+        projectRoot: '/selected-kernel-project',
+        flutterRoot: '/unused',
+      );
+      expect(compiler.packageUriLoader.fileSystem, same(fileSystem));
+      expect(compiler.packageUriLoader.paths, same(host.paths.context));
+      fileSystem.touched.clear();
+      final packageUris = await compiler.packageUriLoader.load(configPath);
+      expect(
+        packageUris?.toCompilerUri('/selected-kernel-project/lib/main.dart'),
+        'package:mapped/main.dart',
+      );
+      expect(fileSystem.touched, contains(configPath));
+    },
+  );
+
+  for (final projectRoot in [
+    r'C:\selected project',
+    r'\\server\share\selected project',
+  ]) {
+    test(
+      'kernel entrypoint and registrant preserve selected namespace $projectRoot',
+      () async {
+        final paths = p.Context(style: p.Style.windows, current: projectRoot);
+        final fileSystem = KernelNamespaceFileSystem(tmp);
+        final host = LinuxHost(
+          fileSystem: fileSystem,
+          paths: PosixPaths(
+            context: paths,
+            currentDirectory: projectRoot,
+            temporaryDirectory: paths.join(projectRoot, 'tmp'),
+          ),
+        );
+        final runtime = testFlutterRuntime(
+          IPhoneFlutterTarget(IPhoneTarget(host)),
+        );
+        final configPath = paths.join(
+          projectRoot,
+          '.dart_tool',
+          'package_config.json',
+        );
+        fileSystem.file(configPath)
+          ..createSync(recursive: true)
+          ..writeAsStringSync(
+            '{"configVersion":2,"packages":[{"name":"mapped","rootUri":"../","packageUri":"lib/"}]}',
+          );
+        FlutterKernelCompiler<LinuxHost> compiler(String entrypoint) =>
+            FlutterKernelCompiler(
+              runtime: runtime,
+              registrant: DartPluginRegistrant(fileSystem),
+              plugins: PluginDiscovery(fileSystem),
+              projectRoot: projectRoot,
+              flutterRoot: paths.join(projectRoot, 'flutter'),
+              entrypoint: entrypoint,
+            );
+        expect(
+          await compiler(
+            paths.join(projectRoot, 'lib', 'main.dart'),
+          ).resolveEntrypointArg(configPath),
+          'package:mapped/main.dart',
+        );
+        expect(
+          await compiler(r'lib\main.dart').resolveEntrypointArg(configPath),
+          'package:mapped/main.dart',
+        );
+        final packageUris = await compiler(
+          'unused',
+        ).packageUriLoader.load(configPath);
+        final registrant = paths.join(
+          projectRoot,
+          '.dart_tool',
+          'flutter_build',
+          'registrant.dart',
+        );
+        expect(
+          FlutterKernelCompiler.dartPluginRegistrantUri(
+            registrant,
+            packageUris,
+            paths: paths,
+          ),
+          paths.toUri(registrant).toString(),
+        );
+        expect(
+          FlutterKernelCompiler.dartPluginRegistrantUri(
+            paths.join(projectRoot, 'lib', 'registrant.dart'),
+            packageUris,
+            paths: paths,
+          ),
+          'package:mapped/registrant.dart',
+        );
+        expect(fileSystem.touched, contains(configPath));
+      },
+    );
+  }
 
   /// Writes a plugin package whose pubspec declares the given iOS keys.
   IosPlugin writePlugin(
@@ -320,9 +440,44 @@ void _frontendServerFlags() {
         FlutterKernelCompiler.dartPluginRegistrantUri(
           p.join(p.separator, 'proj', '.dart_tool', 'flutter_build', 'r.dart'),
           null,
+          paths: p.Context(style: p.Style.posix),
         ),
         startsWith('file:///'),
       );
     });
   });
+}
+
+final class KernelNamespaceFileSystem implements HostFileSystemInterface {
+  KernelNamespaceFileSystem(this.root);
+  final Directory root;
+  final List<String> touched = [];
+  String physical(String path) {
+    if (path == root.path || p.isWithin(root.path, path)) return path;
+    return p.join(
+      root.path,
+      path
+          .replaceAll(r'\', '/')
+          .replaceAll(':', '')
+          .replaceFirst(RegExp('^/+'), ''),
+    );
+  }
+
+  @override
+  File file(String path) {
+    touched.add(path);
+    return File(physical(path));
+  }
+
+  @override
+  Directory directory(String path) => Directory(physical(path));
+  @override
+  Link link(String path) => Link(physical(path));
+  @override
+  void makeExecutable(String path) {}
+  @override
+  void setPermissions(String path, int mode) {}
+  @override
+  Future<void> createArchiveLink(String destination, String target) =>
+      link(destination).create(target);
 }

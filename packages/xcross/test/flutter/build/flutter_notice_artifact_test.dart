@@ -1,10 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/flutter/build/flutter_notice_artifact.dart';
 import 'package:xcross/src/flutter/errors.dart';
+
+import '../../host_operations_fixtures.dart';
 
 void main() {
   test(
@@ -32,7 +35,13 @@ void main() {
           p.join(sourceAssets.path, 'NOTICES.Z'),
         ).writeAsBytesSync(noticeBytes);
 
-        copyFlutterNoticeArtifact(
+        FlutterNoticeArtifact(
+          fileSystem: LinuxHost(
+            currentDirectory: root.path,
+            temporaryDirectory: root.path,
+          ).fileSystem,
+          paths: p.Context(style: p.Style.posix),
+        ).copy(
           sourceFlutterAssetsDirectory: sourceAssets.path,
           destinationFlutterAssetsDirectory: destinationAssets.path,
         );
@@ -64,10 +73,17 @@ void main() {
           ..createSync();
 
         expect(
-          () => copyFlutterNoticeArtifact(
-            sourceFlutterAssetsDirectory: p.join(root.path, 'missing'),
-            destinationFlutterAssetsDirectory: destinationAssets.path,
-          ),
+          () =>
+              FlutterNoticeArtifact(
+                fileSystem: LinuxHost(
+                  currentDirectory: root.path,
+                  temporaryDirectory: root.path,
+                ).fileSystem,
+                paths: p.Context(style: p.Style.posix),
+              ).copy(
+                sourceFlutterAssetsDirectory: p.join(root.path, 'missing'),
+                destinationFlutterAssetsDirectory: destinationAssets.path,
+              ),
           throwsA(isA<FlutterBuildError>()),
         );
         expect(
@@ -79,4 +95,37 @@ void main() {
       }
     },
   );
+  test('notice source and copy destination use selected mapped filesystem', () {
+    final root = Directory.systemTemp.createTempSync('mapped-notice-artifact-');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final fileSystem = FixtureMappedFileSystem(root);
+    const input = '/selected-notices-source';
+    const output = '/selected-notices-destination';
+    final notices = FlutterNoticeArtifact(
+      fileSystem: fileSystem,
+      paths: p.Context(style: p.Style.posix),
+    );
+    final bytes = gzip.encode(utf8.encode('selected license'));
+    fileSystem.file('$input/NOTICES.Z')
+      ..createSync(recursive: true)
+      ..writeAsBytesSync(bytes);
+    fileSystem.directory(output).createSync();
+    fileSystem.touched.clear();
+    notices.copy(
+      sourceFlutterAssetsDirectory: input,
+      destinationFlutterAssetsDirectory: output,
+    );
+    expect(fileSystem.file('$output/NOTICES.Z').readAsBytesSync(), bytes);
+    expect(fileSystem.touched, contains('$input/NOTICES.Z'));
+    expect(fileSystem.touched, contains('$output/NOTICES.Z'));
+    expect(File('$output/NOTICES.Z').existsSync(), isFalse);
+    expect(
+      () => notices.copy(
+        sourceFlutterAssetsDirectory: '/selected-notices-missing',
+        destinationFlutterAssetsDirectory: output,
+      ),
+      throwsA(isA<FlutterBuildError>()),
+    );
+    expect(fileSystem.file('$output/NOTICES.Z').readAsBytesSync(), bytes);
+  });
 }

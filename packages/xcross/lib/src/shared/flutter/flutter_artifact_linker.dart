@@ -1,7 +1,6 @@
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/app_extension_builder.dart';
-import 'package:xcross/src/flutter/build/internal/native_asset_linkage.dart';
 import 'package:xcross/src/flutter/build/internal/runner_binary.dart';
 import 'package:xcross/src/flutter/build/ios_app_extensions.dart';
 import 'package:xcross/src/flutter/build/ios_bundle_versions.dart';
@@ -29,10 +28,11 @@ final class FlutterArtifactLinker<T extends PlatformHostInterface>
   Future<FlutterLinkedArtifacts> link(FlutterCompiledArtifacts compiled) async {
     final flutterRoot = context.flutterRoot;
     final deploymentTarget = context.deploymentTarget;
-    final requiredNativeFrameworks = await nativeFrameworksRequiredByPlugins(
-      compiled.nativeAssets.frameworks,
-      compiled.plugins?.dylibPaths ?? const [],
-    );
+    final requiredNativeFrameworks = await runtime.nativeAssetFrameworks
+        .requiredByPlugins(
+          compiled.nativeAssets.frameworks,
+          compiled.plugins?.dylibPaths ?? const [],
+        );
     final runnerResult = await _buildRunnerBinary(
       flutterRoot,
       deploymentTarget: deploymentTarget,
