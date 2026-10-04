@@ -8,7 +8,6 @@ import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
 import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
 import 'package:darwin_sdk_kit/target/shared/ios_build_platform.dart';
 import 'package:meta/meta.dart';
-import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/xcrun/xcrun_operation.dart';
 
 @internal
@@ -58,7 +57,7 @@ final class CrossXcrunOperation implements XcrunOperation {
 @internal
 const xcrunCompatVersion = '72';
 
-/// Tools that an installed compiler shim directory provides as `<tool>.exe`.
+/// Tools that an installed compiler shim directory provides.
 const _shimTools = {'clang', 'cc', 'ar', 'ld'};
 
 /// The SDK path recorded in the `<xcrun>.sdk` sidecar next to a compiler shim.
@@ -121,7 +120,7 @@ final class CrossXcrunProbe {
 
     final candidate = host.paths.context.join(
       host.paths.context.dirname(xcrunExecutable),
-      '$tool.exe',
+      host.paths.executableName(tool),
     );
     return host.fileSystem.file(candidate).existsSync() ? candidate : null;
   }
@@ -141,10 +140,7 @@ final class CrossXcrunProbe {
   }
 
   String _sdkName(String sdkPath) =>
-      (sdkPath.contains(r'\')
-              ? p.windows.basenameWithoutExtension(sdkPath)
-              : host.paths.context.basenameWithoutExtension(sdkPath))
-          .toLowerCase();
+      host.paths.context.basenameWithoutExtension(sdkPath).toLowerCase();
 
   String _sdkVersion(String sdkPath) {
     final name = _sdkName(sdkPath);
@@ -165,8 +161,8 @@ final class CrossXcrunProbe {
   }
 
   String _sdkPlatformPath(String sdkPath) {
-    final paths = sdkPath.contains(r'\') ? p.windows : host.paths.context;
-    return paths.dirname(paths.dirname(paths.dirname(sdkPath)));
+    final context = host.paths.context;
+    return context.dirname(context.dirname(context.dirname(sdkPath)));
   }
 }
 

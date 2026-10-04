@@ -233,7 +233,7 @@ void main() {
     'mapped xcrun sidecar settings and shim retain logical responses',
     () async {
       await write('tools/xcrun.sdk', path('iPhoneOS.sdk'));
-      await write('tools/clang.exe', 'compiler');
+      await write('tools/clang', 'compiler');
       await write('iPhoneOS.sdk/SDKSettings.json', '{"Version":"26.5"}');
       files.lookups.clear();
       final probe = CrossXcrunProbe(host);
@@ -247,11 +247,11 @@ void main() {
       );
       expect(
         probe.findTool(['--find', 'clang'], executable: path('tools/xcrun')),
-        path('tools/clang.exe'),
+        path('tools/clang'),
       );
       expect(files.lookups, contains(path('tools/xcrun.sdk')));
       expect(files.lookups, contains(path('iPhoneOS.sdk/SDKSettings.json')));
-      expect(files.lookups, contains(path('tools/clang.exe')));
+      expect(files.lookups, contains(path('tools/clang')));
     },
   );
 

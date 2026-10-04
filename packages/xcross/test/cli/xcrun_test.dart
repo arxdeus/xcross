@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:cli_kit/host/linux/linux_host.dart';
 import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
+import 'package:cli_kit/host/windows/windows_paths.dart';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:darwin_sdk_kit/host/linux/linux_darwin_toolchain_locations.dart';
 import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk.dart';
@@ -98,7 +100,7 @@ void main() {
         'iPhoneSimulator26.5.sdk',
       );
       File('$executable.sdk').writeAsStringSync(sdk);
-      final clang = File(p.join(directory.path, 'clang.exe'))
+      final clang = File(p.join(directory.path, 'clang'))
         ..writeAsStringSync('');
       for (final selection in <List<String>>[
         [],
@@ -176,37 +178,45 @@ void main() {
   );
 
   test(
-    'Windows simulator sidecar path selects simulator even on another test host',
+    'Windows-selected sidecar decodes Windows paths on a POSIX machine',
     () {
       final directory = Directory.systemTemp.createTempSync(
         'xcross-xcrun-windows-',
       );
       addTearDown(() => directory.deleteSync(recursive: true));
-      final executable = p.join(directory.path, 'xcrun.exe');
+      final files = FixtureWindowsFileSystem(directory.path);
+      final host = WindowsHost(
+        paths: WindowsPaths(currentDirectory: r'C:\'),
+        fileSystem: files,
+      );
+      const executable = r'C:\tools\xcrun.exe';
       const sdk =
           r'C:\SDK\iPhoneSimulator.platform\Developer\SDKs\iPhoneSimulator26.5.sdk';
-      File('$executable.sdk').writeAsStringSync(sdk);
+      files.directory(r'C:\tools').createSync(recursive: true);
+      files.file('$executable.sdk').writeAsStringSync(sdk);
+      files.file(r'C:\tools\clang.exe').writeAsStringSync('');
+      final probe = xcrun.CrossXcrunProbe(host);
       expect(
-        xcrun.CrossXcrunProbe(LinuxHost()).response([
+        probe.response([
           '--sdk=iphonesimulator',
           '--show-sdk-path',
         ], executable: executable),
         sdk,
       );
       expect(
-        xcrun.CrossXcrunProbe(
-          LinuxHost(),
-        ).response(['--show-sdk-version'], executable: executable),
+        probe.response(['--show-sdk-version'], executable: executable),
         '26.5',
       );
       expect(
-        xcrun.CrossXcrunProbe(
-          LinuxHost(),
-        ).response(['--show-sdk-platform-path'], executable: executable),
+        probe.response(['--show-sdk-platform-path'], executable: executable),
         r'C:\SDK\iPhoneSimulator.platform',
       );
       expect(
-        () => xcrun.CrossXcrunProbe(LinuxHost()).response([
+        probe.response(['--find', 'clang'], executable: executable),
+        r'C:\tools\clang.exe',
+      );
+      expect(
+        () => probe.response([
           '--sdk=iphoneos',
           '--show-sdk-path',
         ], executable: executable),
@@ -214,6 +224,51 @@ void main() {
       );
     },
   );
+
+  test('POSIX-selected sidecar decodes POSIX paths and bare tool names', () {
+    final directory = Directory.systemTemp.createTempSync(
+      'xcross-xcrun-posix-',
+    );
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final executable = p.join(directory.path, 'xcrun');
+    final platform = p.join(directory.path, 'iPhoneSimulator.platform');
+    final sdk = p.join(
+      platform,
+      'Developer',
+      'SDKs',
+      'iPhoneSimulator26.5.sdk',
+    );
+    File('$executable.sdk').writeAsStringSync(sdk);
+    final clang = File(p.join(directory.path, 'clang'))..writeAsStringSync('');
+    File(p.join(directory.path, 'clang.exe')).writeAsStringSync('');
+    final probe = xcrun.CrossXcrunProbe(LinuxHost());
+    expect(
+      probe.response([
+        '--sdk=iphonesimulator',
+        '--show-sdk-path',
+      ], executable: executable),
+      sdk,
+    );
+    expect(
+      probe.response(['--show-sdk-version'], executable: executable),
+      '26.5',
+    );
+    expect(
+      probe.response(['--show-sdk-platform-path'], executable: executable),
+      platform,
+    );
+    expect(
+      probe.response(['--find', 'clang'], executable: executable),
+      clang.path,
+    );
+    expect(
+      () => probe.response([
+        '--sdk=iphoneos',
+        '--show-sdk-path',
+      ], executable: executable),
+      throwsFormatException,
+    );
+  });
 
   test(
     'fallback honors simulator sidecar and rejects mismatched tool selection',
@@ -640,65 +695,63 @@ void main() {
   test('preserves lowercase Windows compiler shim filenames', () async {
     final directory = await Directory.systemTemp.createTemp('xcross-xcrun-');
     try {
-      final executable = File(
-        '${directory.path}${Platform.pathSeparator}xcrun.exe',
-      )..writeAsStringSync('');
-      final platform = p.join(directory.path, 'iPhoneOS.platform');
-      final sdk = p.join(platform, 'Developer', 'SDKs', 'iPhoneOS26.5.sdk');
-      File('${executable.path}.sdk').writeAsStringSync(sdk);
+      final files = FixtureWindowsFileSystem(directory.path);
+      final host = WindowsHost(
+        paths: WindowsPaths(currentDirectory: r'C:\'),
+        fileSystem: files,
+      );
+      const executable = r'C:\tools\xcrun.exe';
+      const platform = r'C:\SDK\iPhoneOS.platform';
+      const sdk = r'C:\SDK\iPhoneOS.platform\Developer\SDKs\iPhoneOS26.5.sdk';
+      files.directory(r'C:\tools').createSync(recursive: true);
+      files.file(executable).writeAsStringSync('');
+      files.file('$executable.sdk').writeAsStringSync(sdk);
+      final probe = xcrun.CrossXcrunProbe(host);
       expect(
-        xcrun.CrossXcrunProbe(
-          LinuxHost(),
-        ).response(const ['--show-sdk-path'], executable: executable.path),
+        probe.response(const ['--show-sdk-path'], executable: executable),
         sdk,
       );
-      final clang = File('${directory.path}${Platform.pathSeparator}clang.exe')
-        ..writeAsStringSync('');
-
+      files.file(r'C:\tools\clang.exe').writeAsStringSync('');
       expect(
-        xcrun.CrossXcrunProbe(
-          LinuxHost(),
-        ).response(const ['--find', 'clang'], executable: executable.path),
-        clang.path,
+        probe.response(const ['--find', 'clang'], executable: executable),
+        r'C:\tools\clang.exe',
       );
       expect(
-        xcrun.CrossXcrunProbe(
-          LinuxHost(),
-        ).response(const ['--version'], executable: executable.path),
+        probe.response(const ['--version'], executable: executable),
         'xcrun version ${xcrun.xcrunCompatVersion}.',
       );
       expect(
-        xcrun.CrossXcrunProbe(LinuxHost()).response(const [
+        probe.response(const [
           '--sdk',
           'iphoneos',
           'clang',
           '--version',
-        ], executable: executable.path),
+        ], executable: executable),
         isNull,
         reason: 'clang --version must reach the selected compiler',
       );
-      for (final probe in [
+      for (final selection in [
         '--show-sdk-path',
         '--show-sdk-version',
         '--show-sdk-platform-path',
       ]) {
         expect(
-          xcrun.CrossXcrunProbe(LinuxHost()).response([
+          probe.response([
             '--sdk',
             'iphoneos',
             'clang',
-            probe,
-          ], executable: executable.path),
+            selection,
+          ], executable: executable),
           isNull,
-          reason: '$probe belongs to clang after tool selection',
+          reason: '$selection belongs to clang after tool selection',
         );
       }
       expect(
-        xcrun.CrossXcrunProbe(LinuxHost()).response(const [
+        probe.response(const [
           '--sdk',
           'iphoneos',
           '--show-sdk-platform-path',
-        ], executable: executable.path),
+        ], executable: executable),
         platform,
       );
       for (final arguments in [
@@ -706,17 +759,15 @@ void main() {
         ['--sdk=iphonesimulator', '--show-sdk-platform-path'],
       ]) {
         expect(
-          () => xcrun.CrossXcrunProbe(
-            LinuxHost(),
-          ).response(arguments, executable: executable.path),
+          () => probe.response(arguments, executable: executable),
           throwsFormatException,
         );
       }
       expect(
-        xcrun.CrossXcrunProbe(LinuxHost()).response(const [
+        probe.response(const [
           '--sdk=iphoneos',
           '--show-sdk-path',
-        ], executable: executable.path),
+        ], executable: executable),
         sdk,
       );
     } finally {
@@ -811,6 +862,30 @@ final class FixtureProbeOutput implements Stdout {
   void writeln([Object? value = '']) => buffer.writeln(value);
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+@internal
+final class FixtureWindowsFileSystem implements HostFileSystemInterface {
+  FixtureWindowsFileSystem(this.backing);
+  final String backing;
+  final windows = p.Context(style: p.Style.windows, current: r'C:\');
+  String physical(String path) => p.joinAll([
+    backing,
+    ...windows.split(windows.normalize(windows.absolute(path))).skip(1),
+  ]);
+  @override
+  File file(String path) => File(physical(path));
+  @override
+  Directory directory(String path) => Directory(physical(path));
+  @override
+  Link link(String path) => Link(physical(path));
+  @override
+  void makeExecutable(String path) {}
+  @override
+  void setPermissions(String path, int mode) {}
+  @override
+  Future<void> createArchiveLink(String destination, String target) =>
+      link(destination).create(target);
 }
 
 @internal
