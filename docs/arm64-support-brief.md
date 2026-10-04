@@ -4,7 +4,7 @@ Reviewed implementation: `2362e4f` (2026-10-03 UTC).
 
 ## Changes
 
-- Added ARM64 host handling, Dart native build hooks, and architecture-specific ADI library loading and caches. Windows remains x64-only.
+- Added ARM64 host handling, Dart native build hooks, and architecture-specific ADI library loading and caches. Windows was x64-only at this revision; native `xcross-windows-arm64.zip` releases and `windows-11-arm` CI were added afterwards.
 - Added Flutter and Compose ARM64 simulator builds: `xcross flutter build --target-platform simulator --debug` and `xcross compose build --target-platform simulator`.
 - Added native Xcode.app SDK import, separate device/simulator outputs and caches, and headless macOS ARM64 CI with readiness markers, screenshots, crash checks and scoped cleanup.
 - Fixed packaged xcrun delegation, native compiler SDK selection, Java shim discovery, Flutter workspace identity/migration, incomplete SDK publication and ADI POSIX compatibility.

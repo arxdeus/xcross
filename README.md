@@ -64,7 +64,7 @@ Both installers download the latest release, install it, **add xcross to your `P
 
 ### Windows (native)
 
-1. One-line install (PowerShell):
+1. One-line install (PowerShell). It picks the native x64 or ARM64 build, even when run from an emulated x64 PowerShell on Windows on ARM:
 
    ```powershell
    irm https://raw.githubusercontent.com/arxdeus/xcross/main/install.ps1 | iex
@@ -186,7 +186,7 @@ The command prompts for your password and 2FA code, then stores **only** the res
 
 Machine attestation uses Android ADI libraries (`libCoreADI.so`, `libstoreservicescore.so`):
 
-- **Windows x64 / Linux x86_64** - downloaded automatically from the Apple Music APK into `%APPDATA%\xcross\adi-libs` (Windows) or `~/.config/xcross/adi-libs` (Linux) on first use.
+- **Windows / Linux, x64 or ARM64** - the matching `x86_64` or `arm64-v8a` slice is downloaded automatically from the Apple Music APK into `%APPDATA%\xcross\adi-libs` (Windows) or `~/.config/xcross/adi-libs` (Linux) on first use.
 - **Other architectures** - extract the matching APK slice yourself and pass `--adi-library-dir`.
 
 ### App Store Connect API key
