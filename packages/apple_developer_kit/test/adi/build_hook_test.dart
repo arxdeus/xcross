@@ -1,9 +1,15 @@
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:code_assets/code_assets.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../../hook/build.dart' as hook;
+
+final String _packageRoot = Directory.fromUri(
+  Isolate.resolvePackageUriSync(Uri.parse('package:apple_developer_kit/'))!,
+).parent.path;
 
 void main() {
   test('Windows builds the target-specific bridge for x64 and ARM64', () {
@@ -20,6 +26,33 @@ void main() {
         () => hook.windowsBridgeSources(architecture),
         throwsUnsupportedError,
       );
+    }
+  });
+
+  test('POSIX bridge compiles the mapping owned by the target host', () {
+    final headers = {
+      OS.macOS: 'src/host/macos/adi/adi_posix_host_mapping.h',
+      OS.linux: 'src/host/linux/adi/adi_posix_host_mapping.h',
+    };
+    for (final entry in headers.entries) {
+      expect(hook.posixHostMappingHeader(entry.key), entry.value);
+      expect(
+        File(p.join(_packageRoot, entry.value)).existsSync(),
+        isTrue,
+        reason: entry.value,
+      );
+    }
+    final shared = File(
+      p.join(_packageRoot, 'src/host/shared/adi/posix_bridge.c'),
+    ).readAsStringSync();
+    expect(shared, contains('#include "adi_posix_host_mapping.h"'));
+    expect(shared, isNot(contains('__APPLE__')));
+    expect(shared, isNot(contains('__linux__')));
+  });
+
+  test('POSIX bridge has no mapping for non-POSIX targets', () {
+    for (final os in [OS.windows, OS.iOS, OS.android]) {
+      expect(() => hook.posixHostMappingHeader(os), throwsUnsupportedError);
     }
   });
 

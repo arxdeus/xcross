@@ -48,6 +48,15 @@ List<String> windowsBridgeSources(Architecture architecture) {
   return const ['src/host/windows/adi/windows_abi_bridge.c'];
 }
 
+/// The host-specific errno, open-flag and stat timestamp mapping compiled into
+/// the shared POSIX bridge.
+@internal
+String posixHostMappingHeader(OS targetOS) => switch (targetOS) {
+  OS.macOS => 'src/host/macos/adi/adi_posix_host_mapping.h',
+  OS.linux => 'src/host/linux/adi/adi_posix_host_mapping.h',
+  _ => throw UnsupportedError('No POSIX ADI host mapping for $targetOS.'),
+};
+
 Future<void> _buildWithSystemCc({
   required BuildInput input,
   required BuildOutputBuilder output,
@@ -60,6 +69,7 @@ Future<void> _buildWithSystemCc({
   final posixSource = input.packageRoot.resolve(
     'src/host/shared/adi/posix_bridge.c',
   );
+  final hostMapping = input.packageRoot.resolve(posixHostMappingHeader(os));
   final targetFlags = systemCompilerFlags(
     targetOS: os,
     targetArchitecture: input.config.code.targetArchitecture,
@@ -72,6 +82,8 @@ Future<void> _buildWithSystemCc({
   final args = <String>[
     ...targetFlags,
     if (macOSCompiler != null) ...macOSCompiler.flags,
+    '-I',
+    hostMapping.resolve('.').toFilePath(),
     '-shared',
     '-fPIC',
     '-O2',
@@ -105,6 +117,7 @@ Future<void> _buildWithSystemCc({
     ),
   );
   output.dependencies.add(posixSource);
+  output.dependencies.add(hostMapping);
 }
 
 @internal
