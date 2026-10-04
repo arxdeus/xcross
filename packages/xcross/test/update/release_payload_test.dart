@@ -52,38 +52,40 @@ void main() {
     expect(read(p.join('lib', 'libsysv.so')), 'library');
   });
 
-  test('unpacks a zip bundle', () async {
-    await ReleasePayload(LinuxHost()).extract(
-      bytes: _zip(_bundle(binary: 'bin/xcross.exe')),
-      asset: 'xcross-windows-x64.zip',
-      destination: destination.path,
-      executableName: 'xcross.exe',
-    );
+  for (final asset in ['xcross-windows-x64.zip', 'xcross-windows-arm64.zip']) {
+    test('unpacks a zip bundle from $asset', () async {
+      await ReleasePayload(LinuxHost()).extract(
+        bytes: _zip(_bundle(binary: 'bin/xcross.exe')),
+        asset: asset,
+        destination: destination.path,
+        executableName: 'xcross.exe',
+      );
 
-    expect(read(p.join('bin', 'xcross.exe')), 'binary');
-  });
-
-  test('ignores the licence files the Windows zip also ships', () async {
-    await ReleasePayload(LinuxHost()).extract(
-      bytes: _zip(
-        _bundle(
-          binary: 'bin/xcross.exe',
-          extra: {
-            'LICENSE': 'mit',
-            'THIRD_PARTY_LICENSES/provision-dart.txt': 'notice',
-          },
-        ),
-      ),
-      asset: 'xcross-windows-x64.zip',
-      destination: destination.path,
-      executableName: 'xcross.exe',
-    );
-
-    expect(destination.listSync().map((e) => p.basename(e.path)).toSet(), {
-      'bin',
-      'lib',
+      expect(read(p.join('bin', 'xcross.exe')), 'binary');
     });
-  });
+
+    test('ignores the licence files $asset also ships', () async {
+      await ReleasePayload(LinuxHost()).extract(
+        bytes: _zip(
+          _bundle(
+            binary: 'bin/xcross.exe',
+            extra: {
+              'LICENSE': 'mit',
+              'THIRD_PARTY_LICENSES/provision-dart.txt': 'notice',
+            },
+          ),
+        ),
+        asset: asset,
+        destination: destination.path,
+        executableName: 'xcross.exe',
+      );
+
+      expect(destination.listSync().map((e) => p.basename(e.path)).toSet(), {
+        'bin',
+        'lib',
+      });
+    });
+  }
 
   test('refuses an entry that escapes the destination', () async {
     final archive = _bundle()..add(_entry('../../etc/passwd', 'pwned'));

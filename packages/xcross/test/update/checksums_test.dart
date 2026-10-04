@@ -24,6 +24,26 @@ void main() {
       expect(digests['xcross-linux-x64.tar.gz'], _payloadDigest);
     });
 
+    test('keys every published release archive separately', () {
+      const assets = [
+        'xcross-linux-x64.tar.gz',
+        'xcross-linux-arm64.tar.gz',
+        'xcross-windows-x64.zip',
+        'xcross-windows-arm64.zip',
+      ];
+      String digestFor(int index) =>
+          _payloadDigest.substring(0, 63) + index.toRadixString(16);
+      final digests = Checksums.parse(
+        [
+          for (final (index, asset) in assets.indexed)
+            '${digestFor(index)}  $asset\n',
+        ].join(),
+      );
+      expect(digests, {
+        for (final (index, asset) in assets.indexed) asset: digestFor(index),
+      });
+    });
+
     test('accepts the binary-mode star and lowercases the digest', () {
       final digests = Checksums.parse(
         '${_payloadDigest.toUpperCase()} *xcross-linux-arm64.tar.gz\n',

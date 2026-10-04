@@ -42,7 +42,7 @@ typedef _RunRequest = ({
 
 void main() {
   test(
-    'release matrix preserves Linux x64 and arm64 plus Windows x64 only',
+    'release matrix preserves Linux and Windows x64 and arm64',
     () {
       for (final architecture in ['x64', 'arm64']) {
         final host = LinuxHost(architecture: architecture);
@@ -54,21 +54,29 @@ void main() {
           ).releaseAsset(),
           'xcross-linux-$architecture.tar.gz',
         );
+        expect(
+          WindowsUpdatePolicy(
+            WindowsHost(architecture: architecture),
+            FixturePrivileges(),
+          ).releaseAsset(),
+          'xcross-windows-$architecture.zip',
+        );
       }
-      expect(
-        WindowsUpdatePolicy(
-          WindowsHost(architecture: 'x64'),
-          FixturePrivileges(),
-        ).releaseAsset(),
-        'xcross-windows-x64.zip',
-      );
-      expect(
-        () => WindowsUpdatePolicy(
-          WindowsHost(architecture: 'arm64'),
-          FixturePrivileges(),
-        ).releaseAsset(),
-        throwsA(isA<XcrossError>()),
-      );
+      for (final architecture in ['ia32', 'arm', 'unknown']) {
+        expect(
+          () => WindowsUpdatePolicy(
+            WindowsHost(architecture: architecture),
+            FixturePrivileges(),
+          ).releaseAsset(),
+          throwsA(
+            isA<XcrossError>().having(
+              (error) => error.toString(),
+              'message',
+              contains('windows/$architecture'),
+            ),
+          ),
+        );
+      }
       final mac = MacOSHost(architecture: 'arm64');
       expect(
         () => MacOSUpdatePolicy(

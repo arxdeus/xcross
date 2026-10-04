@@ -11,12 +11,13 @@ final class WindowsUpdatePolicy implements UpdateHostPolicy {
   final HostPrivilegesInterface privileges;
 
   @override
-  String releaseAsset() {
-    if (host.architecture == 'x64') return 'xcross-windows-x64.zip';
-    throw XcrossError(
+  String releaseAsset() => switch (host.architecture) {
+    'x64' => 'xcross-windows-x64.zip',
+    'arm64' => 'xcross-windows-arm64.zip',
+    _ => throw XcrossError(
       'no prebuilt xcross release for windows/${host.architecture}; build from source instead',
-    );
-  }
+    ),
+  };
 
   @override
   Future<FileSwapOperations> prepare(InstallLayout layout) async {
