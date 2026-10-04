@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:apple_developer_kit/apple_developer_kit_shared.dart';
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:dart_mobile_device/dart_mobile_device_shared.dart';
@@ -330,17 +328,16 @@ final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
     final path = AscCredentials.defaultConfigPath(
       hostServices: appleHostServices,
     );
-    if (!File(path).existsSync()) {
+    if (!appleHostServices.host.fileSystem.file(path).existsSync()) {
       return const DoctorCheck.failure(
         'Authentication',
         'No credentials found. Run `xcross auth`.',
       );
     }
     try {
-      final credentials = await AscCredentials.fromFile(
-        path: path,
+      final credentials = await AscCredentialsLoader(
         hostServices: appleHostServices,
-      );
+      ).load(path: path);
       final client = AscClient(
         credentials,
         httpClient: createAppleHttpClient(),

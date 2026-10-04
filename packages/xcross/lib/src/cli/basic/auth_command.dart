@@ -6,9 +6,7 @@ import 'package:build_cli_annotations/build_cli_annotations.dart';
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:http/http.dart' as http;
 import 'package:meta/meta.dart';
-import 'package:path/path.dart' as p;
 import 'package:xcross/src/cli/internal/parsed_command.dart';
-import 'package:xcross/src/device/internal/signing_session.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/shared/cli/command_prompt.dart';
 
@@ -137,15 +135,16 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
   /// unrelated state (the update-check cache) and the architecture-specific
   /// ADI libraries live there too, and neither identifies an account.
   @visibleForTesting
-  static List<FileSystemEntity> authArtifacts(String configDirectory) {
-    final dir = configDirectory;
+  List<FileSystemEntity> authArtifacts(String configDirectory) {
+    final files = hostServices.host.fileSystem;
+    final paths = hostServices.host.paths.context;
     return [
-      File(p.join(dir, 'appstoreconnect.json')),
-      File(p.join(dir, 'grandslam-session.json')),
-      File(p.join(dir, 'anisette-state.json')),
-      File(p.join(dir, 'local.key')),
-      Directory(p.join(dir, 'adi')),
-      Directory(SigningSession.signingRoot(dir)),
+      files.file(paths.join(configDirectory, 'appstoreconnect.json')),
+      files.file(paths.join(configDirectory, 'grandslam-session.json')),
+      files.file(paths.join(configDirectory, 'anisette-state.json')),
+      files.file(paths.join(configDirectory, 'local.key')),
+      files.directory(paths.join(configDirectory, 'adi')),
+      files.directory(paths.join(configDirectory, 'signing')),
     ];
   }
 
@@ -176,16 +175,23 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
   /// Deletes every [authArtifacts] entry that exists under [configDirectory],
   /// returning the names removed, relative to it.
   @visibleForTesting
-  static Future<List<String>> deleteAuthArtifacts(
-    String configDirectory,
-  ) async {
+  Future<List<String>> deleteAuthArtifacts(String configDirectory) async {
     final removed = <String>[];
-    for (final artifact in authArtifacts(configDirectory)) {
+    for (final (index, artifact) in authArtifacts(configDirectory).indexed) {
       if (!artifact.existsSync()) continue;
       // Directories hold minted certificates and their private keys, so the
       // delete has to be recursive to leave nothing behind.
       await artifact.delete(recursive: true);
-      removed.add(p.relative(artifact.path, from: configDirectory));
+      removed.add(
+        const [
+          'appstoreconnect.json',
+          'grandslam-session.json',
+          'anisette-state.json',
+          'local.key',
+          'adi',
+          'signing',
+        ][index],
+      );
     }
     return removed;
   }
@@ -211,7 +217,10 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
       throw XcrossError('--adi-library-dir only applies to Apple ID login.');
     }
 
-    final keyFile = File(privateKeyPath!);
+    final logicalKeyPath = hostServices.host.paths.context.absolute(
+      privateKeyPath!,
+    );
+    final keyFile = hostServices.host.fileSystem.file(logicalKeyPath);
     if (!keyFile.existsSync()) {
       throw XcrossError('No file found at "$privateKeyPath".');
     }
@@ -222,8 +231,9 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
     await AscCredentials(
       issuerId: issuerId!,
       keyId: keyId!,
-      privateKeyPath: keyFile.absolute.path,
-    ).save(path: configPath, hostServices: hostServices);
+      privateKeyPath: logicalKeyPath,
+      hostServices: hostServices,
+    ).save(path: configPath);
     // Authentication mode is explicit: a newly saved ASC key should not be
     // silently shadowed by an older still-unexpired Apple ID session.
     await GrandSlamSessionStore(hostServices: hostServices).clear();
@@ -389,47 +399,51 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
     }
   }
 
-  Future<String> _resolveAdiLibraryDirectory() => resolveAdiLibraryDirectory(
-    configuredDirectory: options.adiLibraryDir,
-    cacheDirectory: hostServices.adiCacheDirectory.path,
-    createClient: createAdiHttpClient,
-    abi: hostServices.abi,
-    log: log,
-  );
+  Future<String> _resolveAdiLibraryDirectory() {
+    final host = hostServices.host;
+    final environment = host.environment.values;
+    final home = environment['HOME'] ?? environment['USERPROFILE'];
+    if (home == null) {
+      throw StateError('Cannot determine a home directory (HOME is not set).');
+    }
+    return resolveAdiLibraryDirectory(
+      configuredDirectory: options.adiLibraryDir,
+      cacheDirectory: host.paths.context.join(home, '.cache', 'provision_dart'),
+    );
+  }
 
   @visibleForTesting
-  static Future<String> resolveAdiLibraryDirectory({
+  Future<String> resolveAdiLibraryDirectory({
     required String cacheDirectory,
-    required http.Client Function() createClient,
-    required Abi abi,
-    required Log log,
     String? configuredDirectory,
     Future<AdiLibraryPaths> Function(AdiLibraryFetcher fetcher)? fetchLibraries,
   }) async {
-    final hostAbi = abi;
+    final hostAbi = hostServices.abi;
     requireAppleIdHost(hostAbi);
-    final directory = Directory(configuredDirectory ?? cacheDirectory);
+    final logicalDirectory = hostServices.host.paths.context.absolute(
+      configuredDirectory ?? cacheDirectory,
+    );
     try {
-      final existing = AdiLibraryFetcher.resolveLibraryDirectory(
-        directory,
-        abi: hostAbi,
-      );
+      final existing = AdiLibraryResolver(
+        hostServices: hostServices,
+      ).resolve(logicalDirectory, abi: hostAbi);
       if (existing != null) return existing.absolute.path;
     } on FormatException catch (error) {
       if (configuredDirectory != null) {
         throw XcrossError(
-          'Invalid ADI libraries at "${directory.path}": ${error.message}',
+          'Invalid ADI libraries at "$logicalDirectory": ${error.message}',
         );
       }
     }
     if (configuredDirectory != null) {
-      _throwMissingAdiLibs(directory.path);
+      _throwMissingAdiLibs(logicalDirectory);
     }
 
     final fetcher = AdiLibraryFetcher(
-      cacheDir: directory,
+      cacheDir: logicalDirectory,
+      hostServices: hostServices,
       abi: hostAbi,
-      createClient: createClient,
+      createClient: createAdiHttpClient,
     );
     await log.logStep(
       'Fetching Apple ADI libraries',
@@ -437,10 +451,9 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
           ? fetcher.ensureLibraries()
           : fetchLibraries(fetcher),
     );
-    final resolved = AdiLibraryFetcher.resolveLibraryDirectory(
-      fetcher.libraryDirectory,
-      abi: hostAbi,
-    );
+    final resolved = AdiLibraryResolver(
+      hostServices: hostServices,
+    ).resolve(logicalDirectory, abi: hostAbi);
     if (resolved == null) _throwMissingAdiLibs(fetcher.libraryDirectory.path);
     return resolved.absolute.path;
   }

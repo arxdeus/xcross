@@ -126,7 +126,7 @@ final class FlutterBuildCommand<T extends PlatformHostInterface>
     );
 
     final finalPath = options.ipa
-        ? await IpaPackager.package(result.appPath)
+        ? await IpaPackager(host: runtime.host).package(result.appPath)
         : result.appPath;
     runtime.log.logDone('Wrote $finalPath');
   }

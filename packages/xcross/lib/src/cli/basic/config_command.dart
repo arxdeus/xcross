@@ -2,6 +2,7 @@ import 'package:args/command_runner.dart';
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/cli/basic/config_tui_controller.dart';
 import 'package:xcross/src/config/config.dart';
+import 'package:xcross/src/config/config_decoder.dart';
 import 'package:xcross/src/errors.dart';
 
 export 'package:xcross/src/cli/basic/config_tui_controller.dart';
@@ -14,12 +15,18 @@ final class ConfigCommand extends Command<void> {
     required TuiTerminal terminal,
     required ConfigWriteLine writeLine,
     Map<String, String>? terminalEnvironment,
-  }) : _store = store,
+  }) : _validator = XcrossConfigValidator(
+         fileSystem: store.host.fileSystem,
+         pathContext: store.host.paths.context,
+         policy: store.policy,
+       ),
+       _store = store,
        _terminal = terminal,
        _writeLine = writeLine,
        _terminalEnvironment =
            terminalEnvironment ?? store.host.environment.values;
 
+  final XcrossConfigValidator _validator;
   final XcrossConfigStore _store;
   final TuiTerminal _terminal;
   final ConfigWriteLine _writeLine;
@@ -62,8 +69,7 @@ final class ConfigCommand extends Command<void> {
         prompt: tui.prompt,
         confirm: tui.confirm,
         save: (config) async => (await _store.save(config)).path,
-        validate: (config) =>
-            config.validate(host: _store.host, policy: _store.policy),
+        validate: _validator.validate,
       ),
     );
   }
@@ -101,9 +107,15 @@ final class ConfigValidateCommand extends Command<void> {
   ConfigValidateCommand({
     required XcrossConfigStore store,
     required ConfigWriteLine writeLine,
-  }) : _store = store,
+  }) : _validator = XcrossConfigValidator(
+         fileSystem: store.host.fileSystem,
+         pathContext: store.host.paths.context,
+         policy: store.policy,
+       ),
+       _store = store,
        _writeLine = writeLine;
 
+  final XcrossConfigValidator _validator;
   final XcrossConfigStore _store;
   final ConfigWriteLine _writeLine;
 
@@ -117,7 +129,7 @@ final class ConfigValidateCommand extends Command<void> {
   Future<void> run() async {
     final config = await _store.load();
     if (config == null) throw XcrossError('No xcross configuration found.');
-    config.validate(host: _store.host, policy: _store.policy);
+    _validator.validate(config);
     _writeLine('Configuration is valid.');
   }
 }

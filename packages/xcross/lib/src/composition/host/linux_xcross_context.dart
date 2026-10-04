@@ -136,6 +136,7 @@ final class LinuxXcrossHostContext
   @override
   XcrunOperation get xcrun => CrossXcrunOperation(
     this,
+    host: host,
     executable: executable,
     output: stdoutSink,
     errors: stderrSink,

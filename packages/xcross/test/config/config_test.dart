@@ -4,8 +4,11 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/config/config.dart';
+import 'package:xcross/src/config/config_decoder.dart';
 import 'package:xcross/src/host/shared/config/posix_config_host.dart';
 import 'package:xcross/src/host/windows/config/windows_config_host.dart';
+
+import '../cli/auth_fixture.dart';
 
 void main() {
   late Directory temporary;
@@ -233,14 +236,27 @@ environment:
   test(
     'validate requires absolute roots but permits absent root directories',
     () {
-      XcrossConfig(
-        roots: const XcrossConfigRoots(flutterSdk: '/missing/flutter'),
-      ).validate(host: LinuxHost(), policy: const PosixConfigHost());
+      XcrossConfigValidator(
+        fileSystem: LinuxHost().fileSystem,
+        pathContext: LinuxHost().paths.context,
+        policy: const PosixConfigHost(),
+      ).validate(
+        XcrossConfig(
+          roots: const XcrossConfigRoots(flutterSdk: '/missing/flutter'),
+        ),
+      );
 
       expect(
-        () => XcrossConfig(
-          roots: const XcrossConfigRoots(flutterSdk: 'relative/flutter'),
-        ).validate(host: LinuxHost(), policy: const PosixConfigHost()),
+        () =>
+            XcrossConfigValidator(
+              fileSystem: LinuxHost().fileSystem,
+              pathContext: LinuxHost().paths.context,
+              policy: const PosixConfigHost(),
+            ).validate(
+              XcrossConfig(
+                roots: const XcrossConfigRoots(flutterSdk: 'relative/flutter'),
+              ),
+            ),
         throwsA(isA<XcrossConfigException>()),
       );
     },
@@ -273,6 +289,31 @@ environment:
     }
   });
 
+  for (final style in [p.Style.posix, p.Style.windows]) {
+    test('tool validation acquires selected file stat on $style', () {
+      final fixture = AuthNamespaceFixture(style: style);
+      addTearDown(fixture.dispose);
+      final tool = fixture.path('tool.exe');
+      fixture.fileSystem.file(tool).writeAsStringSync('fixture');
+      final decoder = XcrossConfigDecoder(
+        document: {
+          'tools': {'tool': tool},
+        },
+        sourcePath: null,
+        environment: const {},
+        host: fixture.host,
+        policy: const WindowsConfigHost(),
+      );
+      fixture.fileSystem.acquisitions.clear();
+      expect(decoder.decode().tool('tool'), tool);
+      expect(fixture.fileSystem.acquisitions, [tool]);
+      fixture.fileSystem.file(tool).deleteSync();
+      expect(decoder.decode, throwsA(isA<XcrossConfigException>()));
+      fixture.fileSystem.directory(tool).createSync();
+      expect(decoder.decode, throwsA(isA<XcrossConfigException>()));
+    });
+  }
+
   test('validate requires tools to be regular executable files', () {
     final executable = File(
       p.join(temporary.path, Platform.isWindows ? 'tool.exe' : 'tool'),
@@ -280,22 +321,31 @@ environment:
     if (!Platform.isWindows) {
       Process.runSync('chmod', ['755', executable.path]);
     }
-    XcrossConfig(
-      tools: {'tool': executable.path},
-    ).validate(host: detectPlatformHost(), policy: const PosixConfigHost());
+    XcrossConfigValidator(
+      fileSystem: detectPlatformHost().fileSystem,
+      pathContext: detectPlatformHost().paths.context,
+      policy: const PosixConfigHost(),
+    ).validate(XcrossConfig(tools: {'tool': executable.path}));
 
     final plain = File(p.join(temporary.path, 'plain'))
       ..writeAsStringSync('plain');
     expect(
-      () => XcrossConfig(
-        tools: {'plain': plain.path},
-      ).validate(host: LinuxHost(), policy: const PosixConfigHost()),
+      () => XcrossConfigValidator(
+        fileSystem: LinuxHost().fileSystem,
+        pathContext: LinuxHost().paths.context,
+        policy: const PosixConfigHost(),
+      ).validate(XcrossConfig(tools: {'plain': plain.path})),
       throwsA(isA<XcrossConfigException>()),
     );
     expect(
-      () => XcrossConfig(
-        tools: {'missing': p.join(temporary.path, 'missing')},
-      ).validate(host: detectPlatformHost(), policy: const PosixConfigHost()),
+      () =>
+          XcrossConfigValidator(
+            fileSystem: detectPlatformHost().fileSystem,
+            pathContext: detectPlatformHost().paths.context,
+            policy: const PosixConfigHost(),
+          ).validate(
+            XcrossConfig(tools: {'missing': p.join(temporary.path, 'missing')}),
+          ),
       throwsA(isA<XcrossConfigException>()),
     );
   });

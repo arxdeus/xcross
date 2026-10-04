@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:path/path.dart' as p;
 import 'package:xcross/src/config/config.dart';
 import 'package:xcross/src/shared/config/config_host.dart';
 
@@ -51,7 +54,11 @@ final class XcrossConfigDecoder {
         r'$.excluded_commands',
       ),
     );
-    config.validate(host: host, policy: policy);
+    XcrossConfigValidator(
+      fileSystem: host.fileSystem,
+      pathContext: host.paths.context,
+      policy: policy,
+    ).validate(config);
     return config;
   }
 
@@ -284,5 +291,116 @@ void rejectUnsafeConfigString(
       '$field must not contain NUL or newline characters',
       path: sourcePath,
     );
+  }
+}
+
+final class XcrossConfigValidator {
+  const XcrossConfigValidator({
+    required this.fileSystem,
+    required this.pathContext,
+    required this.policy,
+  });
+  final HostFileSystemInterface fileSystem;
+  final p.Context pathContext;
+  final ConfigHostInterface policy;
+
+  void validate(XcrossConfig config) {
+    _validateRoots(config.roots);
+    _validateToolchains(config.toolchains);
+    _validateTools(config.tools);
+    if (config.setup case final value?) _validateSetupScript(value);
+    _validateExcludedCommands(config.excludedCommands);
+    _validateEnvironment(config.environment);
+  }
+
+  void _validateRoots(XcrossConfigRoots roots) {
+    for (final entry in roots.toMap().entries) {
+      rejectUnsafeConfigString(entry.value, 'Root ${entry.key}');
+      if (!pathContext.isAbsolute(entry.value)) {
+        throw XcrossConfigException(
+          'Root ${entry.key} must be an absolute path: ${entry.value}',
+        );
+      }
+    }
+  }
+
+  void _validateToolchains(XcrossConfigToolchains toolchains) {
+    final directories = <MapEntry<String, String>>[
+      if (toolchains.swift case final swift?) MapEntry('swift', swift),
+      for (final llvm in toolchains.llvm) MapEntry('llvm', llvm),
+    ];
+    for (final entry in directories) {
+      rejectUnsafeConfigString(entry.value, 'Toolchain ${entry.key} directory');
+      if (!pathContext.isAbsolute(entry.value)) {
+        throw XcrossConfigException(
+          'Toolchain ${entry.key} must use an absolute bin directory: ${entry.value}',
+        );
+      }
+    }
+  }
+
+  void _validateTools(Map<String, String> tools) {
+    for (final entry in tools.entries) {
+      rejectUnsafeConfigString(entry.key, 'Tool name');
+      rejectUnsafeConfigString(entry.value, 'Tool ${entry.key} path');
+      if (!pathContext.isAbsolute(entry.value)) {
+        throw XcrossConfigException(
+          'Tool ${entry.key} must use an absolute path: ${entry.value}',
+        );
+      }
+      final stat = fileSystem.file(entry.value).statSync();
+      if (stat.type != FileSystemEntityType.file) {
+        throw XcrossConfigException(
+          'Tool ${entry.key} must be a regular file: ${entry.value}',
+        );
+      }
+      final executable = policy.isExecutable(entry.value, stat);
+      if (!executable) {
+        throw XcrossConfigException(
+          'Tool ${entry.key} is not executable: ${entry.value}',
+        );
+      }
+    }
+  }
+
+  void _validateExcludedCommands(Set<String> excludedCommands) {
+    for (final command in excludedCommands) {
+      rejectUnsafeConfigString(command, 'Excluded command');
+      if (command.isEmpty || command.contains(RegExp(r'\s'))) {
+        throw XcrossConfigException(
+          'Excluded commands must be non-empty top-level command names: $command',
+        );
+      }
+    }
+  }
+
+  void _validateEnvironment(Map<String, Object> environment) {
+    for (final entry in environment.entries) {
+      if (entry.value case final List<String> paths) {
+        for (final value in paths) {
+          rejectUnsafeConfigString(value, 'Environment ${entry.key} entry');
+          if (!pathContext.isAbsolute(value)) {
+            throw XcrossConfigException(
+              'Environment ${entry.key} entries must be absolute paths: $value',
+            );
+          }
+        }
+      } else {
+        rejectUnsafeConfigString(
+          entry.value as String,
+          'Environment ${entry.key}',
+        );
+      }
+    }
+  }
+
+  void _validateSetupScript(String value) {
+    rejectUnsafeConfigString(value, 'Setup script');
+    if (XcrossConfig.remoteSetupScriptUri(value) == null &&
+        !pathContext.isAbsolute(value)) {
+      throw XcrossConfigException(
+        'Setup script must be an absolute local path or HTTP(S) URL: $value',
+      );
+    }
   }
 }

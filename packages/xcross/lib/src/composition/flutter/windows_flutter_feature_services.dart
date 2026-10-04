@@ -2,6 +2,7 @@ import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:xcross/src/composition/flutter/swiftpm_foundation.dart';
 import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
+import 'package:xcross/src/flutter/build/internal/swiftpm_binary_fixture.dart';
 import 'package:xcross/src/flutter/build/internal/windows_swift_plan_repair.dart';
 import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer.dart';
@@ -153,6 +154,10 @@ final class WindowsFlutterFeatureServices<T extends WindowsHostInterface>
       pinnedResolver: pinnedResolver,
     );
     final gatePlatform = WindowsSwiftPmGatePlatform<T>(
+      fixtureGenerator: SwiftPmBinaryFixtureGenerator(
+        fileSystem: runner.host.fileSystem,
+        paths: runner.host.paths.context,
+      ),
       execution: foundation.gateExecution,
       fileSystem: artifactFileSystem,
       sdkRepository: repository,

@@ -1,8 +1,12 @@
 import 'dart:io';
 
+import 'package:apple_developer_kit/apple_developer_kit_shared.dart'
+    show AscCredentials;
 import 'package:args/command_runner.dart';
 import 'package:cli_util/cli_logging.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart' show IPhoneBuildPlatform;
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/cli/basic/doctor_command.dart';
 import 'package:xcross/src/cli/basic/doctor_environment_checks.dart';
@@ -11,9 +15,50 @@ import 'package:xcross/src/cli/runner.dart';
 import 'package:xcross/src/config/config.dart';
 import 'package:xcross/src/errors.dart';
 
+import 'auth_fixture.dart';
 import 'runtime_fixture.dart';
 
 void main() {
+  for (final style in [p.Style.posix, p.Style.windows]) {
+    test(
+      'doctor credential detection uses selected namespace on $style',
+      () async {
+        final fixture = AuthNamespaceFixture(style: style);
+        addTearDown(fixture.dispose);
+        final runtime = testRuntime();
+        final diagnostics = DoctorNamespaceDiagnostics();
+        final checks = DoctorEnvironmentChecks(
+          hostPlatform: runtime.host,
+          buildPlatform: const IPhoneBuildPlatform(),
+          appleHostServices: fixture.services,
+          runner: runtime.runner,
+          repository: runtime.sdkRepository,
+          toolchain: runtime.darwinToolchain,
+          deviceDiagnostics: diagnostics,
+          sdkMismatch: (_) async => null,
+          sdkToolchainIdentity: () async => {},
+          createAppleHttpClient: () =>
+              throw StateError('Unexpected authentication HTTP'),
+        );
+        final results = await checks.run();
+        expect(results.first.status, DoctorStatus.success);
+        expect(
+          results
+              .firstWhere((result) => result.name == 'Authentication')
+              .message,
+          contains('No credentials found'),
+        );
+        expect(
+          fixture.fileSystem.acquisitions,
+          contains(
+            AscCredentials.defaultConfigPath(hostServices: fixture.services),
+          ),
+        );
+        expect(diagnostics.discovered, isTrue);
+      },
+    );
+  }
+
   test('doctor is registered by the top-level runner', () {
     expect(
       XcrossCli.buildRunner(
@@ -382,4 +427,18 @@ void main() {
       ]);
     },
   );
+}
+
+final class DoctorNamespaceDiagnostics implements DeviceDiagnostics {
+  bool discovered = false;
+  @override
+  Future<String> resolveExecutable() async => '/selected/pymd';
+  @override
+  Future<List<Device>> devices() async {
+    discovered = true;
+    return [];
+  }
+
+  @override
+  Future<int?> osMajorVersion(Device device) async => 17;
 }

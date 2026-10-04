@@ -1,8 +1,6 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:path/path.dart' as p;
 import 'package:xcross/src/config/config_decoder.dart';
 import 'package:xcross/src/shared/config/config_host.dart';
 import 'package:yaml/yaml.dart';
@@ -150,119 +148,10 @@ final class XcrossConfig {
 
   String? tool(String name) => tools[normalizeToolName(name)];
 
-  /// Validates paths needed by the configured operations.
-  ///
-  /// Roots must be absolute, but are not required to exist. Tool overrides must
-  /// point to existing regular executable files.
-  void validate({
-    required PlatformHostInterface host,
-    required ConfigHostInterface policy,
-  }) {
-    final configHost = policy;
-    final pathContext = host.paths.context;
-
-    _validateRoots(pathContext);
-    _validateToolchains(pathContext);
-    _validateTools(pathContext, configHost);
-    if (setup case final value?) _validateSetupScript(value, pathContext);
-    _validateExcludedCommands();
-    _validateEnvironment(pathContext);
-  }
-
-  void _validateRoots(p.Context pathContext) {
-    for (final entry in roots.toMap().entries) {
-      rejectUnsafeConfigString(entry.value, 'Root ${entry.key}');
-      if (!pathContext.isAbsolute(entry.value)) {
-        throw XcrossConfigException(
-          'Root ${entry.key} must be an absolute path: ${entry.value}',
-        );
-      }
-    }
-  }
-
-  void _validateToolchains(p.Context pathContext) {
-    final directories = <MapEntry<String, String>>[
-      if (toolchains.swift case final swift?) MapEntry('swift', swift),
-      for (final llvm in toolchains.llvm) MapEntry('llvm', llvm),
-    ];
-    for (final entry in directories) {
-      rejectUnsafeConfigString(entry.value, 'Toolchain ${entry.key} directory');
-      if (!pathContext.isAbsolute(entry.value)) {
-        throw XcrossConfigException(
-          'Toolchain ${entry.key} must use an absolute bin directory: ${entry.value}',
-        );
-      }
-    }
-  }
-
-  void _validateTools(p.Context pathContext, ConfigHostInterface policy) {
-    for (final entry in tools.entries) {
-      rejectUnsafeConfigString(entry.key, 'Tool name');
-      rejectUnsafeConfigString(entry.value, 'Tool ${entry.key} path');
-      if (!pathContext.isAbsolute(entry.value)) {
-        throw XcrossConfigException(
-          'Tool ${entry.key} must use an absolute path: ${entry.value}',
-        );
-      }
-      final stat = FileStat.statSync(entry.value);
-      if (stat.type != FileSystemEntityType.file) {
-        throw XcrossConfigException(
-          'Tool ${entry.key} must be a regular file: ${entry.value}',
-        );
-      }
-      final executable = policy.isExecutable(entry.value, stat);
-      if (!executable) {
-        throw XcrossConfigException(
-          'Tool ${entry.key} is not executable: ${entry.value}',
-        );
-      }
-    }
-  }
-
-  void _validateExcludedCommands() {
-    for (final command in excludedCommands) {
-      rejectUnsafeConfigString(command, 'Excluded command');
-      if (command.isEmpty || command.contains(RegExp(r'\s'))) {
-        throw XcrossConfigException(
-          'Excluded commands must be non-empty top-level command names: $command',
-        );
-      }
-    }
-  }
-
-  void _validateEnvironment(p.Context pathContext) {
-    for (final entry in environment.entries) {
-      if (entry.value case final List<String> paths) {
-        for (final value in paths) {
-          rejectUnsafeConfigString(value, 'Environment ${entry.key} entry');
-          if (!pathContext.isAbsolute(value)) {
-            throw XcrossConfigException(
-              'Environment ${entry.key} entries must be absolute paths: $value',
-            );
-          }
-        }
-      } else {
-        rejectUnsafeConfigString(
-          entry.value as String,
-          'Environment ${entry.key}',
-        );
-      }
-    }
-  }
-
   static Uri? remoteSetupScriptUri(String value) {
     final uri = Uri.tryParse(value);
     if (uri == null || uri.host.isEmpty) return null;
     return uri.scheme == 'https' || uri.scheme == 'http' ? uri : null;
-  }
-
-  static void _validateSetupScript(String value, p.Context pathContext) {
-    rejectUnsafeConfigString(value, 'Setup script');
-    if (remoteSetupScriptUri(value) == null && !pathContext.isAbsolute(value)) {
-      throw XcrossConfigException(
-        'Setup script must be an absolute local path or HTTP(S) URL: $value',
-      );
-    }
   }
 
   static String _normalizeCommandName(String name) => name.trim().toLowerCase();

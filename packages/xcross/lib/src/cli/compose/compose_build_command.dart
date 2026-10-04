@@ -78,7 +78,7 @@ final class ComposeBuildCommand<T extends PlatformHostInterface>
                   options: options,
                   requireRunnableApp: requireRunnableApp,
                 ),
-        packageIpa: IpaPackager.package,
+        packageIpa: IpaPackager(host: runtime.host).package,
         logDone: runtime.log.logDone,
         log: runtime.log,
       );

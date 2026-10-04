@@ -8,7 +8,7 @@ import 'package:test/test.dart';
 import 'package:xcross/src/cli/basic/auth_command.dart';
 import 'package:xcross/src/errors.dart';
 
-import 'runtime_fixture.dart';
+import 'auth_fixture.dart';
 
 void main() {
   group('Apple ID host support', () {
@@ -53,6 +53,50 @@ void main() {
       fail('Unexpected ADI download for ${fetcher.libraryDirectory.path}');
     }
 
+    for (final style in [p.Style.posix, p.Style.windows]) {
+      test(
+        'ADI lookup uses only selected logical acquisitions on $style',
+        () async {
+          final fixture = AuthNamespaceFixture(style: style);
+          addTearDown(fixture.dispose);
+          final cache = fixture.path('adi-cache');
+          final physical = fixture.fileSystem.directory(
+            fixture.paths.context.join(cache, 'x86_64'),
+          );
+          _writeLibraries(physical, 62);
+          fixture.fileSystem.acquisitions.clear();
+          final command = authFixture(services: fixture.services);
+          expect(
+            await command.resolveAdiLibraryDirectory(
+              cacheDirectory: cache,
+              fetchLibraries: noFetch,
+            ),
+            physical.absolute.path,
+          );
+          expect(fixture.fileSystem.acquisitions, isNotEmpty);
+          expect(
+            fixture.fileSystem.acquisitions.every(
+              (path) => fixture.paths.context.isWithin(cache, path),
+            ),
+            isTrue,
+          );
+          fixture.fileSystem
+              .file(
+                fixture.paths.context.join(cache, 'x86_64', 'libCoreADI.so'),
+              )
+              .deleteSync();
+          await expectLater(
+            command.resolveAdiLibraryDirectory(
+              cacheDirectory: cache,
+              configuredDirectory: fixture.paths.context.join(cache, 'x86_64'),
+              fetchLibraries: noFetch,
+            ),
+            throwsA(isA<XcrossError>()),
+          );
+        },
+      );
+    }
+
     for (final abi in const [Abi.linuxArm64, Abi.macosArm64]) {
       test('uses scoped ARM64 cache on $abi', () async {
         final libraries = Directory(p.join(root.path, 'arm64-v8a'));
@@ -60,12 +104,8 @@ void main() {
         _writeLibraries(root, 62);
 
         expect(
-          await AuthCommand.resolveAdiLibraryDirectory(
-            createClient: () =>
-                throw StateError('No HTTP client expected in fixture'),
-            log: testLog(),
+          await authFixture(abi: abi).resolveAdiLibraryDirectory(
             cacheDirectory: root.path,
-            abi: abi,
             fetchLibraries: noFetch,
           ),
           libraries.absolute.path,
@@ -77,12 +117,8 @@ void main() {
       _writeLibraries(root, 62);
 
       expect(
-        await AuthCommand.resolveAdiLibraryDirectory(
-          createClient: () =>
-              throw StateError('No HTTP client expected in fixture'),
-          log: testLog(),
+        await authFixture().resolveAdiLibraryDirectory(
           cacheDirectory: root.path,
-          abi: Abi.linuxX64,
           fetchLibraries: noFetch,
         ),
         root.absolute.path,
@@ -96,18 +132,18 @@ void main() {
       ).readAsBytesSync();
       var fetches = 0;
 
-      final result = await AuthCommand.resolveAdiLibraryDirectory(
-        createClient: () =>
-            throw StateError('No HTTP client expected in fixture'),
-        log: testLog(),
-        cacheDirectory: root.path,
-        abi: Abi.linuxArm64,
-        fetchLibraries: (fetcher) async {
-          fetches++;
-          expect(fetcher.libraryDirectory.path, p.join(root.path, 'arm64-v8a'));
-          return _writeLibraries(fetcher.libraryDirectory, 183);
-        },
-      );
+      final result = await authFixture(abi: Abi.linuxArm64)
+          .resolveAdiLibraryDirectory(
+            cacheDirectory: root.path,
+            fetchLibraries: (fetcher) async {
+              fetches++;
+              expect(
+                fetcher.libraryDirectory.path,
+                p.join(root.path, 'arm64-v8a'),
+              );
+              return _writeLibraries(fetcher.libraryDirectory, 183);
+            },
+          );
 
       expect(fetches, 1);
       expect(result, p.join(root.absolute.path, 'arm64-v8a'));
@@ -122,13 +158,9 @@ void main() {
       _writeLibraries(libraries, 183);
 
       expect(
-        await AuthCommand.resolveAdiLibraryDirectory(
-          createClient: () =>
-              throw StateError('No HTTP client expected in fixture'),
-          log: testLog(),
+        await authFixture(abi: Abi.macosArm64).resolveAdiLibraryDirectory(
           cacheDirectory: Directory.systemTemp.path,
           configuredDirectory: libraries.path,
-          abi: Abi.macosArm64,
           fetchLibraries: noFetch,
         ),
         libraries.absolute.path,
@@ -139,13 +171,9 @@ void main() {
       _writeLibraries(root, 62);
 
       await expectLater(
-        AuthCommand.resolveAdiLibraryDirectory(
-          createClient: () =>
-              throw StateError('No HTTP client expected in fixture'),
-          log: testLog(),
+        authFixture(abi: Abi.linuxArm64).resolveAdiLibraryDirectory(
           cacheDirectory: Directory.systemTemp.path,
           configuredDirectory: root.path,
-          abi: Abi.linuxArm64,
           fetchLibraries: noFetch,
         ),
         throwsA(isA<XcrossError>()),
@@ -158,13 +186,9 @@ void main() {
       File(p.join(root.path, 'libstoreservicescore.so')).deleteSync();
 
       await expectLater(
-        AuthCommand.resolveAdiLibraryDirectory(
-          createClient: () =>
-              throw StateError('No HTTP client expected in fixture'),
-          log: testLog(),
+        authFixture(abi: Abi.macosArm64).resolveAdiLibraryDirectory(
           cacheDirectory: Directory.systemTemp.path,
           configuredDirectory: root.path,
-          abi: Abi.macosArm64,
           fetchLibraries: noFetch,
         ),
         throwsA(isA<XcrossError>()),
@@ -172,29 +196,25 @@ void main() {
     });
 
     test('fetches into the host architecture directory', () async {
-      final result = await AuthCommand.resolveAdiLibraryDirectory(
-        createClient: () =>
-            throw StateError('No HTTP client expected in fixture'),
-        log: testLog(),
-        cacheDirectory: root.path,
-        abi: Abi.windowsX64,
-        fetchLibraries: (fetcher) async {
-          expect(fetcher.libraryDirectory.path, p.join(root.path, 'x86_64'));
-          return _writeLibraries(fetcher.libraryDirectory, 62);
-        },
-      );
+      final result = await authFixture(abi: Abi.windowsX64)
+          .resolveAdiLibraryDirectory(
+            cacheDirectory: root.path,
+            fetchLibraries: (fetcher) async {
+              expect(
+                fetcher.libraryDirectory.path,
+                p.join(root.path, 'x86_64'),
+              );
+              return _writeLibraries(fetcher.libraryDirectory, 62);
+            },
+          );
 
       expect(result, p.join(root.absolute.path, 'x86_64'));
     });
 
     test('rejects unsupported hosts without changing the cache', () async {
       await expectLater(
-        AuthCommand.resolveAdiLibraryDirectory(
-          createClient: () =>
-              throw StateError('No HTTP client expected in fixture'),
-          log: testLog(),
+        authFixture(abi: Abi.windowsArm64).resolveAdiLibraryDirectory(
           cacheDirectory: root.path,
-          abi: Abi.windowsArm64,
           fetchLibraries: noFetch,
         ),
         throwsA(isA<XcrossError>()),
@@ -204,12 +224,8 @@ void main() {
 
     test('checks that a download actually produced libraries', () async {
       await expectLater(
-        AuthCommand.resolveAdiLibraryDirectory(
-          createClient: () =>
-              throw StateError('No HTTP client expected in fixture'),
-          log: testLog(),
+        authFixture(abi: Abi.linuxArm64).resolveAdiLibraryDirectory(
           cacheDirectory: root.path,
-          abi: Abi.linuxArm64,
           fetchLibraries: (fetcher) async => AdiLibraryPaths(
             coreAdiPath: fetcher.coreAdiFile.path,
             storeServicesPath: fetcher.storeServicesFile.path,

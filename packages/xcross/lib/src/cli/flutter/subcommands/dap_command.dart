@@ -1,6 +1,8 @@
 import 'package:args/command_runner.dart';
 import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
     show TunnelAvailability;
+import 'package:frontend_server_kit/frontend_server_kit.dart'
+    show PackageUriLoader;
 import 'package:xcross/src/dap/dap.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 
@@ -43,6 +45,10 @@ final class DapCommand extends Command<void> {
     declarative: runtime.config.isConfigured,
     startXcross: (channel) => XcrossDap(
       channel,
+      packageUriLoader: PackageUriLoader(
+        fileSystem: runtime.runner.host.fileSystem,
+        paths: runtime.runner.host.paths.context,
+      ),
       tunnelAvailability: tunnelAvailability,
       runner: runtime.runner,
       launcher: runtime.executable,
