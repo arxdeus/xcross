@@ -2319,14 +2319,16 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
         () async {
           final layout = extractedLayout('offline-manifest-failure');
           final root = p.join(tmp.path, 'offline-manifest-failure');
-          final fixture = SwiftPmBinaryFixture.generateXcframework(
-            policy: _windowsRuntime.targetPolicy,
+          final generator = SwiftPmBinaryFixtureGenerator(
             fileSystem: _windowsRuntime.artifactFileSystem,
+            paths: _windowsRuntime.runner.host.paths.context,
+          );
+          final fixture = generator.generateXcframework(
+            library: const SwiftPmBinaryFixtureLibrary(identifier: 'ios-arm64'),
             root: p.join(root, 'verified-fixture'),
             name: 'First',
           );
-          final archive = SwiftPmBinaryFixture.archiveXcframework(
-            fileSystem: _windowsRuntime.artifactFileSystem,
+          final archive = generator.archiveXcframework(
             framework: fixture,
             output: p.join(root, 'verified-fixture.zip'),
           );

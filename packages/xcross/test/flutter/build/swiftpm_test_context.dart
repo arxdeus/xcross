@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/composition/flutter/swiftpm_checkout.dart';
 import 'package:xcross/src/composition/flutter/swiftpm_foundation.dart';
 import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
+import 'package:xcross/src/flutter/build/internal/swiftpm_binary_fixture.dart';
 import 'package:xcross/src/flutter/build/internal/windows_swift_plan_repair.dart';
 import 'package:xcross/src/host/linux/flutter/swiftpm/host_build_services.dart';
 import 'package:xcross/src/host/linux/flutter/swiftpm/swiftpm_host_policy.dart';
@@ -327,6 +328,10 @@ SwiftPmRuntime<WindowsHost> testWindowsSwiftPmRuntime({
     WindowsSwiftPmGatePlatform(
       execution: foundation.gateExecution,
       fileSystem: artifactFileSystem,
+      fixtureGenerator: SwiftPmBinaryFixtureGenerator(
+        fileSystem: artifactFileSystem,
+        paths: runner.host.paths.context,
+      ),
       sdkRepository: repository,
       toolchain: foundation.toolchain,
       processPolicy: foundation.processPolicy,
