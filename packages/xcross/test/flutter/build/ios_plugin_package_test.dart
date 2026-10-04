@@ -6131,7 +6131,13 @@ module FirebaseFirestore {
       // would need `dart run build_runner build` to fix.
       final tracked = File(
         packageSrcPath(
-          p.join('flutter', 'build', 'assets', 'preview_macro_stub.c'),
+          p.join(
+            'shared',
+            'flutter',
+            'build',
+            'assets',
+            'preview_macro_stub.c',
+          ),
         ),
       ).readAsStringSync();
       // Git may check the tracked .c file out with CRLF on Windows while the
