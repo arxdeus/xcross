@@ -427,7 +427,7 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
       final existing = AdiLibraryResolver(
         hostServices: hostServices,
       ).resolve(logicalDirectory, abi: hostAbi);
-      if (existing != null) return existing.absolute.path;
+      if (existing != null) return logicalDirectory;
     } on FormatException catch (error) {
       if (configuredDirectory != null) {
         throw XcrossError(
@@ -455,7 +455,7 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
       hostServices: hostServices,
     ).resolve(logicalDirectory, abi: hostAbi);
     if (resolved == null) _throwMissingAdiLibs(fetcher.libraryDirectory.path);
-    return resolved.absolute.path;
+    return logicalDirectory;
   }
 
   static Never _throwMissingAdiLibs(String dir) {

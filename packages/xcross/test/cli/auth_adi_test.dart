@@ -71,7 +71,23 @@ void main() {
               cacheDirectory: cache,
               fetchLibraries: noFetch,
             ),
-            physical.absolute.path,
+            cache,
+          );
+          final logicalResult = await command.resolveAdiLibraryDirectory(
+            cacheDirectory: cache,
+            fetchLibraries: noFetch,
+          );
+          expect(
+            AdiLibraryResolver(
+              hostServices: fixture.services,
+            ).resolve(logicalResult, abi: Abi.linuxX64)?.path,
+            physical.path,
+          );
+          expect(
+            () => AdiLibraryResolver(
+              hostServices: fixture.services,
+            ).resolve(physical.path, abi: Abi.linuxX64),
+            throwsStateError,
           );
           expect(fixture.fileSystem.acquisitions, isNotEmpty);
           expect(
@@ -108,7 +124,7 @@ void main() {
             cacheDirectory: root.path,
             fetchLibraries: noFetch,
           ),
-          libraries.absolute.path,
+          root.absolute.path,
         );
       });
     }
@@ -146,7 +162,7 @@ void main() {
           );
 
       expect(fetches, 1);
-      expect(result, p.join(root.absolute.path, 'arm64-v8a'));
+      expect(result, root.absolute.path);
       expect(
         File(p.join(root.path, 'libCoreADI.so')).readAsBytesSync(),
         original,
@@ -208,7 +224,7 @@ void main() {
             },
           );
 
-      expect(result, p.join(root.absolute.path, 'x86_64'));
+      expect(result, root.absolute.path);
     });
 
     test('rejects unsupported hosts without changing the cache', () async {

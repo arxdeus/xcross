@@ -170,7 +170,12 @@ abstract final class XcrossCli {
         if (!SelfUpdate.isVerificationProcess(
           runtime.runner.effectiveEnvironment,
         )) {
-          SelfUpdate.sweepStaleBackups(
+          SelfUpdate(
+            host: runtime.host,
+            runner: runtime.runner,
+            policy: runtime.operations.update,
+            downloader: runtime.downloader,
+          ).sweepStaleBackups(
             InstallLayout.resolve(runtime.executable, host: runtime.host),
           );
         }
