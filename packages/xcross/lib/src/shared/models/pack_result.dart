@@ -1,5 +1,9 @@
+import 'package:meta/meta.dart';
+
+@internal
 enum PackOutputKind { app, framework }
 
+@internal
 final class PackResult {
   const PackResult({
     required this.outputPath,

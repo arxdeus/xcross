@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart'
-    show HostFileSystemInterface, HostPathsInterface;
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
 
 /// The entitlements a Compose build recorded in the app's `Info.plist`.
@@ -12,6 +12,7 @@ import 'package:propertylistserialization/propertylistserialization.dart';
 /// an `ASWebAuthenticationSession` callback for one of those domains is refused.
 /// The assembler writes the app target's own entitlements here so the signer can
 /// prefer them, without needing the Xcode project at signing time.
+@internal
 final class AppEntitlements {
   const AppEntitlements({required this.fileSystem, required this.paths});
   final HostFileSystemInterface fileSystem;

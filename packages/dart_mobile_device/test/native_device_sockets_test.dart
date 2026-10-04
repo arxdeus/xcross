@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dart_mobile_device/src/host/shared/network/native_device_sockets.dart';
+import 'package:dart_mobile_device/host/shared/network/native_device_sockets.dart';
 import 'package:test/test.dart';
 
 void main() {

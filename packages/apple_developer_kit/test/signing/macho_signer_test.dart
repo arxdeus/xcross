@@ -2,12 +2,13 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
-import 'package:apple_developer_kit/src/shared/errors/errors.dart';
+import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
+import 'package:apple_developer_kit/shared/errors/errors.dart';
+import 'package:apple_developer_kit/shared/signing/signing_asset.dart';
 import 'package:apple_developer_kit/src/shared/signing/macho_signer.dart';
-import 'package:apple_developer_kit/src/shared/signing/signing_asset.dart';
 import 'package:basic_utils/basic_utils.dart';
 import 'package:crypto/crypto.dart';
+import 'package:meta/meta.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
 
@@ -654,6 +655,7 @@ void _setU32le(Uint8List bytes, int offset, int value) =>
 void _setU64le(Uint8List bytes, int offset, int value) =>
     ByteData.sublistView(bytes).setUint64(offset, value, Endian.little);
 
+@internal
 final class RejectingPreservePermissions implements AppleFilePermissions {
   int? mode;
   String? path;

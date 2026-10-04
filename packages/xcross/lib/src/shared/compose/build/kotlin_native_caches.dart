@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/compose/build/gradle_klib_builder.dart';
 import 'package:xcross/src/shared/compose/build/konan_configuration.dart';
@@ -11,9 +13,7 @@ import 'package:xcross/src/shared/compose/project/kmp_project.dart';
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
-export 'package:xcross/src/shared/compose/klib_manifest.dart';
-export 'package:xcross/src/shared/compose/kotlin_native_cache_plan.dart';
-
+@internal
 typedef KotlinNativeCacheRun =
     Future<void> Function(
       String executable,
@@ -43,6 +43,7 @@ typedef KotlinNativeCacheRun =
 /// ~2.3 minutes with a 3.6 GB peak.
 ///
 /// Release builds never use caches: Kotlin/Native ignores them with `-opt`.
+@internal
 final class KotlinNativeCaches {
   KotlinNativeCaches({
     required this.files,

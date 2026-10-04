@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart'
-    show HostFileSystemInterface, HostPathsInterface;
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:xcross/src/shared/artifact/app_capabilities.dart';
 import 'package:xcross/src/shared/artifact/app_entitlements.dart';
@@ -9,6 +9,7 @@ import 'package:xcross/src/shared/artifact/embedded_extension.dart';
 import 'package:xcross/src/shared/artifact/plist_mutations.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
+@internal
 final class SignedBundlePreparer {
   const SignedBundlePreparer({required this.fileSystem, required this.paths});
   final HostFileSystemInterface fileSystem;

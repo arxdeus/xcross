@@ -1,7 +1,11 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:darwin_sdk_kit/host/macos/macos_darwin_toolchain_locations.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:darwin_sdk_kit/target/iphone/iphone_target.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
@@ -28,6 +32,7 @@ import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
 
 import 'checkout_test_context.dart';
 
+@internal
 WindowsSwiftPmDependencyPreparation<MacOSHost> dependencyTestPreparation(
   CheckoutTestContext context,
   Directory root, {
@@ -133,6 +138,7 @@ WindowsSwiftPmDependencyPreparation<MacOSHost> dependencyTestPreparation(
   );
 }
 
+@internal
 final class RecordingDependencyManifestPolicy
     implements SwiftPmVendoredManifestPolicy {
   RecordingDependencyManifestPolicy({this.failNormalization = false});
@@ -151,6 +157,7 @@ final class RecordingDependencyManifestPolicy
   }
 }
 
+@internal
 final class RecordingDependencyCloner implements SwiftPmGitPackageCloner {
   final List<({String git, String url, String ref, String destination})> calls =
       [];
@@ -167,6 +174,7 @@ final class RecordingDependencyCloner implements SwiftPmGitPackageCloner {
   }
 }
 
+@internal
 final class RejectingDependencyArchiveTransport
     implements SwiftPmArchiveTransport {
   const RejectingDependencyArchiveTransport();
@@ -176,6 +184,7 @@ final class RejectingDependencyArchiveTransport
   }
 }
 
+@internal
 final class RejectingDependencyNativeTools
     implements NativeHostTools<MacOSHost> {
   const RejectingDependencyNativeTools(this.host);

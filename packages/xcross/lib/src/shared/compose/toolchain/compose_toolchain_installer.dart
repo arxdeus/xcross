@@ -1,6 +1,9 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/download/download.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/compose/compose_directory_publisher.dart';
 import 'package:xcross/src/shared/compose/compose_host.dart';
@@ -11,8 +14,7 @@ import 'package:xcross/src/shared/compose/toolchain/host_manager_patcher.dart';
 import 'package:xcross/src/shared/compose/verified_compose_artifact_acquirer.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
-export 'package:xcross/src/shared/compose/compose_install_effects.dart';
-
+@internal
 final class ComposeToolchainInstaller<T extends PlatformHostInterface> {
   const ComposeToolchainInstaller(this.runner, this.downloader)
     : _downloadToFile = null,

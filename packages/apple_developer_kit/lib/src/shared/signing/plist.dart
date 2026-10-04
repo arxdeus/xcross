@@ -5,6 +5,7 @@ import 'package:meta/meta.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
 
 /// Binary property lists open with this 8-byte magic; anything else is XML.
+@internal
 const String binaryPlistMagic = 'bplist00';
 
 /// Decodes either property-list flavour.

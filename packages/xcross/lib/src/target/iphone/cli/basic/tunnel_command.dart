@@ -1,5 +1,6 @@
 import 'package:args/command_runner.dart';
-import 'package:dart_mobile_device/dart_mobile_device_shared.dart';
+import 'package:dart_mobile_device/shared/preparation/device_preparation.dart';
+import 'package:meta/meta.dart';
 
 /// `xcross tunnel` — mount the Developer Disk Image and start the iOS 17+
 /// RSD tunnel(s) needed by `xcross flutter run`.
@@ -17,6 +18,7 @@ import 'package:dart_mobile_device/dart_mobile_device_shared.dart';
 /// USB lockdown connection. Without USB, saved devices are reconnected first;
 /// if that fails, device-initiated pairing is advertised with a fresh identity
 /// (iOS 27+, the 6-digit code prints here).
+@internal
 final class TunnelCommand extends Command<void> {
   TunnelCommand(this.prepare) {
     argParser.addFlag(

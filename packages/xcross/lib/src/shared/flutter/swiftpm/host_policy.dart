@@ -1,3 +1,6 @@
+import 'package:meta/meta.dart';
+
+@internal
 abstract interface class SwiftPmHostPolicy {
   String artifactIdentity(String value);
   List<String> get packagePrefix;

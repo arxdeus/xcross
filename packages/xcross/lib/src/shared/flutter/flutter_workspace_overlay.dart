@@ -1,9 +1,12 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/file_system_inspection.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/ios_engine_cache.dart';
 
+@internal
 final class FlutterWorkspaceOverlay<T extends PlatformHostInterface> {
   const FlutterWorkspaceOverlay(this.engineCache);
   final IosEngineCache<T> engineCache;

@@ -1,8 +1,10 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/xcrun/xcrun_operation.dart';
 
+@internal
 typedef NativeXcrunStart =
     Future<Process> Function(
       String executable,
@@ -10,6 +12,7 @@ typedef NativeXcrunStart =
       required ProcessStartMode mode,
     });
 
+@internal
 final class NativeMacXcrun implements XcrunOperation {
   const NativeMacXcrun(this.host, {NativeXcrunStart? start}) : _start = start;
   final MacOSHostInterface host;

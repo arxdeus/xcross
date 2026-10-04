@@ -1,5 +1,7 @@
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:darwin_sdk_kit/target/shared/ios_build_platform.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:xcross/src/shared/compose/compose_ios_constants.dart';
@@ -7,6 +9,7 @@ import 'package:xcross/src/shared/compose/project/ios_app_config.dart';
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
+@internal
 final class ComposeInfoPlist {
   const ComposeInfoPlist(this.files, this.log);
   final HostFileSystemInterface files;

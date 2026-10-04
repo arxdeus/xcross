@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:meta/meta.dart';
 
+@internal
 final class TestProcessIo {
   TestProcessIo() {
     _output.stream.listen((_) {});

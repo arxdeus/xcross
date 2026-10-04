@@ -1,11 +1,21 @@
-import 'package:apple_developer_kit/apple_developer_kit_shared.dart';
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:dart_mobile_device/dart_mobile_device_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/asc_client.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/asc_config.dart';
+import 'package:apple_developer_kit/shared/grandslam/grandslam_session_store.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:dart_mobile_device/shared/device/models/device.dart';
+import 'package:dart_mobile_device/shared/diagnostics/device_probe.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:darwin_sdk_kit/target/shared/ios_build_platform.dart';
 import 'package:http/http.dart' as http;
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_models.dart';
 import 'package:xcross/src/shared/sdk/xcode_swift_requirement.dart';
 
+@internal
 final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
   DoctorEnvironmentChecks({
     required this.hostPlatform,

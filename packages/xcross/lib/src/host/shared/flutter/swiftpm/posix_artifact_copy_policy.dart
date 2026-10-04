@@ -1,9 +1,11 @@
 import 'dart:io';
 
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 
+@internal
 final class PosixSwiftPmArtifactCopyPolicy
     implements SwiftPmArtifactCopyPolicy {
   const PosixSwiftPmArtifactCopyPolicy(this.fileSystem);

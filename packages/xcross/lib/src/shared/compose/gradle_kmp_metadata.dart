@@ -1,7 +1,9 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/errors/errors.dart';
 
+@internal
 final class ComposeModuleSpec {
   const ComposeModuleSpec(this.gradleId, this.diskPath);
   final String gradleId;
@@ -9,6 +11,7 @@ final class ComposeModuleSpec {
   String get leaf => gradleId.split(':').last;
 }
 
+@internal
 final class GradleKmpMetadataParser {
   const GradleKmpMetadataParser(this.log);
   final Log log;

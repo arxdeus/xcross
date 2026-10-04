@@ -1,20 +1,23 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:dart_mobile_device/src/shared/device/models/device.dart';
-import 'package:dart_mobile_device/src/shared/errors/errors.dart';
-import 'package:dart_mobile_device/src/target/iphone/device/pymd/pymd.dart';
-import 'package:dart_mobile_device/src/target/iphone/device/pymd/pymd_devices.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:dart_mobile_device/shared/device/models/device.dart';
+import 'package:dart_mobile_device/shared/errors/errors.dart';
+import 'package:dart_mobile_device/src/shared/device/models/tunnel.dart';
 import 'package:dart_mobile_device/src/target/iphone/device/pymd/remote_pairing.dart';
 import 'package:dart_mobile_device/src/target/iphone/device/tunnel/tunnel_daemon.dart';
 import 'package:dart_mobile_device/src/target/iphone/device/tunnel/tunnel_discovery.dart';
 import 'package:dart_mobile_device/src/target/iphone/preparation/developer_disk_image.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd_devices.dart';
 import 'package:meta/meta.dart';
 
 /// Bootstrap route selected by `xcross tunnel --wifi`.
+@internal
 enum WirelessBootstrapPath { usbLockdown, savedPairing, pairHost }
 
+@internal
 final class WirelessDevicePreparation {
   WirelessDevicePreparation(this.pymd, {required this.diskImage});
 
@@ -386,6 +389,7 @@ final class WirelessDevicePreparation {
 /// browse for `_remotepairing._tcp` every ~20 s tells the first two apart,
 /// and the message updates once per state change — locked phones drop off
 /// mDNS entirely, which is by far the most common reason this wait hangs.
+@internal
 final class WirelessWaitDiagnostics {
   WirelessWaitDiagnostics({
     required this.pymd,

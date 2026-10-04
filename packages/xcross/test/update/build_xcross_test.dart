@@ -1,11 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:cli_kit/cli_kit.dart';
 
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import '../../tool/build_xcross.dart';
 
+import '../../tool/build_xcross.dart';
 import '../host_operations_fixtures.dart';
 
 void main() {
@@ -330,6 +333,7 @@ void main() {
   );
 }
 
+@internal
 final class FixtureBuildProcesses implements HostProcessInterface {
   @override
   Future<Process> start(
@@ -355,6 +359,7 @@ final class FixtureBuildProcesses implements HostProcessInterface {
   }) async => null;
 }
 
+@internal
 final class FixtureBuildChild implements Process {
   @override
   Future<int> get exitCode => Future.value(39);

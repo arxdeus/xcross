@@ -1,9 +1,10 @@
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart' show Pymd;
-import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
-    show DeviceSockets;
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:dart_mobile_device/shared/network/device_sockets.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 
+@internal
 final class XcrossApplication<T extends PlatformHostInterface> {
   XcrossApplication({
     required this.runtime,

@@ -1,5 +1,10 @@
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
+import 'package:darwin_sdk_kit/shared/archive/cpio_reader.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/sdk/sdk_archive_extraction.dart';
 import 'package:xcross/src/shared/sdk/sdk_archive_links.dart';
 import 'package:xcross/src/shared/sdk/sdk_archive_paths.dart';
@@ -8,15 +13,7 @@ import 'package:xcross/src/shared/sdk/sdk_bundle_metadata_writer.dart';
 import 'package:xcross/src/shared/sdk/sdk_metadata_platform.dart';
 import 'package:xcross/src/shared/sdk/sdk_swift_toolchain.dart';
 
-export 'package:xcross/src/shared/sdk/sdk_archive_links.dart';
-export 'package:xcross/src/shared/sdk/sdk_install_constants.dart'
-    show
-        hostToolchainStampName,
-        sdkIncludedFiles,
-        sdkIncludedRoots,
-        swiftSdkMismatchMarker;
-export 'package:xcross/src/shared/sdk/sdk_metadata_platform.dart';
-
+@internal
 final class SdkInstall<T extends PlatformHostInterface> {
   SdkInstall(
     this.runner,

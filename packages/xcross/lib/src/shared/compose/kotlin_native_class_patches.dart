@@ -1,4 +1,6 @@
 import 'dart:typed_data';
+
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/compose/kotlin_class_file.dart';
 
 const int _iconst1 = 0x04;
@@ -9,6 +11,7 @@ const int _ireturn = 0xac;
 const int _areturn = 0xb0;
 const int _return = 0xb1;
 
+@internal
 Uint8List patchHostManagerClassBytes(Uint8List classBytes) {
   final cf = KotlinClassFile.parse(classBytes);
   final gtvIdx = cf.findMethodrefIdx(
@@ -46,6 +49,7 @@ Uint8List patchHostManagerClassBytes(Uint8List classBytes) {
 ///
 /// Returns `null` when no matching method is found (non-fatal: the class may
 /// not be present in older Kotlin/Native distributions).
+@internal
 Uint8List? patchObjCExportClassBytes(Uint8List classBytes) {
   final cf = KotlinClassFile.parse(classBytes);
   var patched = false;
@@ -101,6 +105,7 @@ Uint8List? patchObjCExportClassBytes(Uint8List classBytes) {
 ///
 /// Returns `null` when the method is not found (non-fatal: the class may not
 /// be present, or its shape may differ, in other Kotlin/Native versions).
+@internal
 Uint8List? patchAppleConfigurablesImplClassBytes(Uint8List classBytes) {
   final cf = KotlinClassFile.parse(classBytes);
   const name = 'getDependencies';

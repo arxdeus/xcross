@@ -1,7 +1,11 @@
 import 'dart:async';
 
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:darwin_sdk_kit/target/shared/ios_target.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/shared/flutter/build/internal/swiftpm_workspace.dart';
@@ -23,9 +27,12 @@ import 'package:xcross/src/shared/flutter/swiftpm/source_repair.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/toolchain.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
+@internal
 const String flutterFrameworkPackageName = 'FlutterFramework';
+@internal
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
+@internal
 final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
   SwiftPmBuildDriver({
     required this.buildPlan,

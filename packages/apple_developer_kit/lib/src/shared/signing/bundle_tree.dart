@@ -1,12 +1,13 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
+import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
 import 'package:apple_developer_kit/src/shared/signing/bundle_paths.dart';
 import 'package:apple_developer_kit/src/shared/signing/bytes.dart';
 import 'package:apple_developer_kit/src/shared/signing/internal/bundle_entry.dart';
 import 'package:apple_developer_kit/src/shared/signing/plist.dart';
-import 'package:cli_kit/cli_kit_shared.dart' show HostFileSystemInspection;
+import 'package:cli_kit/shared/platform/file_system_inspection.dart';
+import 'package:meta/meta.dart';
 
 /// Directory names that always imply nested code this signer cannot handle.
 ///
@@ -32,6 +33,7 @@ const _unsupportedBundleSuffixes = {
 };
 
 /// Nested bundle suffixes this signer handles itself.
+@internal
 const frameworkSuffix = '.framework';
 const _appExtensionSuffix = '.appex';
 
@@ -49,6 +51,7 @@ const _machoMagics = {
   0xCFFA_EDFE,
 };
 
+@internal
 class BundleTree {
   BundleTree({required this.hostServices});
   final AppleHostServices hostServices;

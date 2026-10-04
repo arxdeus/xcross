@@ -1,5 +1,7 @@
 import 'dart:io';
+import 'package:meta/meta.dart';
 
+@internal
 abstract interface class ConfigHostInterface {
   RegExp get variables;
   String expandHome(String value, String Function(String name) variable);

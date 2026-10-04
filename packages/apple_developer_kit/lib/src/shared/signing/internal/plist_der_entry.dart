@@ -4,6 +4,7 @@ import 'package:meta/meta.dart';
 
 /// A plist dictionary entry staged for DER encoding, keyed by its UTF-8
 /// encoded name so entries can be sorted bytewise.
+@internal
 @immutable
 final class PlistDerEntry {
   const PlistDerEntry({required this.key, required this.value});

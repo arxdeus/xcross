@@ -1,8 +1,10 @@
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 
 /// Options shared by `xcross flutter build` and `run`, mirroring the semantics
 /// of the official `flutter build ios` / `flutter run` arguments.
 ///
+@internal
 final class FlutterBuildOptions {
   const FlutterBuildOptions({
     this.target = 'lib/main.dart',

@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:async/async.dart';
-import 'package:darwin_sdk_kit/src/shared/errors/errors.dart';
+import 'package:darwin_sdk_kit/shared/errors/errors.dart';
+import 'package:meta/meta.dart';
 
 /// Pulls exactly-sized byte runs out of an arbitrarily chunked stream,
 /// holding at most one source chunk at a time.
+@internal
 final class ByteCursor {
   ByteCursor(Stream<List<int>> input) : _chunks = StreamQueue(input);
 

@@ -1,7 +1,10 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:meta/meta.dart';
 
+@internal
 Log sdkTestLog() => Log(output: SdkTestLogOutput());
 
+@internal
 final class SdkTestLogOutput implements LogOutput {
   final List<String> messages = [];
   @override

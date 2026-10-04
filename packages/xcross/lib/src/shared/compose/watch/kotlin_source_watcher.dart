@@ -1,6 +1,7 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
 /// Content-hash watcher over a KMP module's Kotlin sources.
@@ -15,6 +16,7 @@ import 'package:path/path.dart' as p;
 /// watcher: mtime is unreliable on virtiofs/WSL mounts and across the Gradle
 /// daemon's own writes, and a spurious "changed" here costs a ~2 minute
 /// Kotlin/Native rebuild.
+@internal
 final class KotlinSourceWatcher {
   KotlinSourceWatcher(
     this.projectRoot, {

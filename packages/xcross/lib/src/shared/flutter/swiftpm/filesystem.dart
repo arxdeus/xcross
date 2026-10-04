@@ -2,15 +2,20 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
 import 'package:crypto/crypto.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 
+@internal
 const String flutterFrameworkPackageName = 'FlutterFramework';
+@internal
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
+@internal
 final class SwiftPmFilesystem<T extends PlatformHostInterface> {
   SwiftPmFilesystem({
     required this.host,
@@ -360,5 +365,6 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
   static String hyphenate(String name) => name.replaceAll('_', '-');
 }
 
+@internal
 typedef SwiftPmSourceTransform =
     String Function(String content)? Function(String path);

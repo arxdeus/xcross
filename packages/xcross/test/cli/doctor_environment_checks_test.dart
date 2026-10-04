@@ -3,17 +3,26 @@ import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 
-import 'package:apple_developer_kit/apple_developer_kit_shared.dart';
-import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/dart_mobile_device_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
+import 'package:cli_kit/shared/process/tool_lookup.dart';
+import 'package:dart_mobile_device/shared/device/models/device.dart';
+import 'package:dart_mobile_device/shared/diagnostics/device_probe.dart';
+import 'package:darwin_sdk_kit/host/shared/darwin_toolchain_locations.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:darwin_sdk_kit/target/iphone/iphone_build_platform.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_environment_checks.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_models.dart';
 
-import 'auth_fixture.dart' show AuthNamespaceIdentity, AuthNamespacePermissions;
-import 'runtime_fixture.dart';
+import '../log_fixture.dart';
+import 'auth_fixture.dart';
 
 void main() {
   test(
@@ -178,6 +187,7 @@ void main() {
   });
 }
 
+@internal
 final class DoctorServiceFixture {
   DoctorServiceFixture({
     required PlatformHostInterface baseHost,
@@ -340,6 +350,7 @@ final class DoctorServiceFixture {
   void dispose() => root.deleteSync(recursive: true);
 }
 
+@internal
 final class DoctorServiceHost implements PlatformHostInterface {
   const DoctorServiceHost(this.base, this.fileSystem, this.processes);
   final PlatformHostInterface base;
@@ -357,6 +368,7 @@ final class DoctorServiceHost implements PlatformHostInterface {
   HostEnvironmentInterface get environment => base.environment;
 }
 
+@internal
 final class DoctorServiceFileSystem implements HostFileSystemInterface {
   DoctorServiceFileSystem(this.paths, this.logicalRoot, this.backingRoot);
   final p.Context paths;
@@ -393,6 +405,7 @@ final class DoctorServiceFileSystem implements HostFileSystemInterface {
       throw StateError('Unexpected diagnostic install');
 }
 
+@internal
 final class DoctorServiceLocations
     implements DarwinToolchainLocationsInterface {
   const DoctorServiceLocations(this.directory);
@@ -405,6 +418,7 @@ final class DoctorServiceLocations
   String get linkerInstallationHint => 'fixture linker installation';
 }
 
+@internal
 final class DoctorServiceLookup
     implements ProcessToolLookupInterface<DoctorServiceHost> {
   DoctorServiceLookup(this.host, Map<String, String> tools)
@@ -463,6 +477,7 @@ final class DoctorServiceLookup
       (throw StateError('Fixture tool missing: $name'));
 }
 
+@internal
 final class DoctorServiceProcesses implements HostProcessInterface {
   String linkerVersion = 'LLD 19.1';
   String? clangFailure;
@@ -501,6 +516,7 @@ final class DoctorServiceProcesses implements HostProcessInterface {
   }) async => null;
 }
 
+@internal
 final class DoctorServiceProcess implements Process {
   DoctorServiceProcess(this.output, this.errors);
   final String output;
@@ -520,6 +536,7 @@ final class DoctorServiceProcess implements Process {
       throw StateError('Unexpected diagnostic kill');
 }
 
+@internal
 final class DoctorServiceDevices implements DeviceDiagnostics {
   Error? resolveFailure;
   Error? versionFailure;

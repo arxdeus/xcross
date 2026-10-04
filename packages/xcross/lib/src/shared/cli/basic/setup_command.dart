@@ -1,6 +1,8 @@
 import 'package:args/command_runner.dart';
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
 import 'package:http/http.dart' as http;
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/cli/basic/internal/swift_requirement.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
 import 'package:xcross/src/shared/setup/setup_script.dart';
@@ -9,6 +11,7 @@ import 'package:xcross/src/shared/setup/setup_script_policy.dart';
 /// `xcross setup` — install host requirements through apt/dnf/pacman (Linux)
 /// or Homebrew (macOS), then pipx and pymobiledevice3. On Windows, verifies
 /// tools already on PATH and installs pymobiledevice3.
+@internal
 final class SetupCommand extends Command<void> {
   SetupCommand({
     required this.host,

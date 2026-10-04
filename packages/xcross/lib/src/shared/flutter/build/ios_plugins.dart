@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
@@ -13,6 +13,7 @@ import 'package:yaml/yaml.dart';
 
 /// One Flutter plugin's iOS native-code location, as recorded in
 /// `.flutter-plugins-dependencies`.
+@internal
 @immutable
 final class IosPlugin {
   const IosPlugin({
@@ -262,6 +263,7 @@ final class IosPlugin {
 
 /// Discovers a Flutter project's iOS native plugin dependencies from
 /// `.flutter-plugins-dependencies` (written by `flutter pub get`).
+@internal
 final class PluginDiscovery {
   PluginDiscovery(this.fileSystem);
   final HostFileSystemInterface fileSystem;

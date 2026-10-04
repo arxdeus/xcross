@@ -1,8 +1,10 @@
 import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/shared/signing/macho_format.dart';
+import 'package:meta/meta.dart';
 
 /// `mach_header_64` after magic, CPU, and command-table validation.
+@internal
 final class MachOHeader {
   const MachOHeader({
     required this.fileType,

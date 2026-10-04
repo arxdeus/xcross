@@ -1,11 +1,15 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/target/shared/ios_build_platform.dart';
+import 'package:darwin_sdk_kit/target/shared/ios_target.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/compose/compose_host.dart';
 import 'package:xcross/src/shared/compose/compose_ios_constants.dart';
 
+@internal
 abstract interface class ComposeTarget<T extends PlatformHostInterface> {
   IosTarget<T> get target;
   T get host;
@@ -26,6 +30,7 @@ abstract interface class ComposeTarget<T extends PlatformHostInterface> {
   Future<void> finishBundle(String appPath, ProcessRunner<T> runner);
 }
 
+@internal
 abstract class BaseComposeTarget<T extends PlatformHostInterface>
     implements ComposeTarget<T> {
   BaseComposeTarget(this.target, this.toolchainHost) {
@@ -58,6 +63,7 @@ abstract class BaseComposeTarget<T extends PlatformHostInterface>
   }
 }
 
+@internal
 Iterable<String> primaryResourceCandidates(
   String modulePath,
   String gradleTarget,
@@ -72,6 +78,7 @@ Iterable<String> primaryResourceCandidates(
   p.join(modulePath, 'build', 'processedResources', gradleTarget, 'main'),
 ];
 
+@internal
 Iterable<String> deviceResourceFallbacks(
   String parent,
   String leaf,
@@ -90,6 +97,7 @@ Iterable<String> deviceResourceFallbacks(
   return names.map((name) => p.join(parent, name, leaf));
 }
 
+@internal
 bool isDeviceResourceTarget(String name) {
   final lower = name.toLowerCase();
   return lower.startsWith('ios') &&

@@ -2,11 +2,22 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/shared/compose/compose.dart';
+import 'package:xcross/src/shared/compose/build/gradle_klib_builder.dart';
+import 'package:xcross/src/shared/compose/build/konan_configuration.dart';
+import 'package:xcross/src/shared/compose/build/kotlin_framework_builder.dart';
+import 'package:xcross/src/shared/compose/build/kotlin_native_caches.dart';
+import 'package:xcross/src/shared/compose/klib_manifest.dart';
+import 'package:xcross/src/shared/compose/kotlin_native_cache_plan.dart';
+import 'package:xcross/src/shared/compose/models/compose_build_options.dart';
+import 'package:xcross/src/shared/compose/project/kmp_project.dart';
+import 'package:xcross/src/shared/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/target/shared/compose/compose_target.dart';
 
 import 'support/compose_platforms.dart';
 
@@ -534,6 +545,7 @@ String _unpackedKlib(
   return dir;
 }
 
+@internal
 final class ComposeFixture {
   final ComposeTestSession session;
   ComposeFixture._(this.session, this.temp, this.target);

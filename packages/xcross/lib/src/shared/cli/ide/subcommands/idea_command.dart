@@ -1,11 +1,13 @@
 import 'dart:convert';
 
 import 'package:args/command_runner.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/cli/ide/subcommands/vscode_json_merge.dart';
 import 'package:xcross/src/shared/cli/ide/xcross_executable.dart';
 
 /// `xcross ide idea` — write a shared LSP4IJ DAP run configuration that
 /// drives `xcross flutter dap` (stdio).
+@internal
 final class IdeaCommand extends Command<void> {
   IdeaCommand(this.launcher);
 

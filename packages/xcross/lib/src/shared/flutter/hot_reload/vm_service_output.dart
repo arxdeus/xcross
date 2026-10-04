@@ -1,9 +1,11 @@
 import 'dart:convert';
 
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/hot_reload/dart_vm_service_client.dart';
 
 /// Forwards the app's `print` / `stderr` / `dart:developer log()` output from
 /// the Dart VM Service to this process's stdout and stderr.
+@internal
 final class VmServiceOutput {
   VmServiceOutput({required this.output, required this.errors});
   final StringSink output;

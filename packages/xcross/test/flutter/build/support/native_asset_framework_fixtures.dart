@@ -1,11 +1,14 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/build/internal/native_asset_frameworks.dart';
 import 'package:xcross/src/shared/flutter/build/internal/recursive_directory_copy.dart';
 
 import '../../../host_operations_fixtures.dart';
 
+@internal
 NativeAssetFrameworks<T> nativeFrameworkService<
   T extends PlatformHostInterface
 >(ProcessRunner<T> runner) => NativeAssetFrameworks(
@@ -18,6 +21,7 @@ NativeAssetFrameworks<T> nativeFrameworkService<
   ),
 );
 
+@internal
 final class FrameworkLipoProcesses implements HostProcessInterface {
   FrameworkLipoProcesses({required this.fileSystem});
 
@@ -62,6 +66,7 @@ final class FrameworkLipoProcesses implements HostProcessInterface {
   }) async => null;
 }
 
+@internal
 final class FrameworkLipoChild implements Process {
   FrameworkLipoChild(this.code);
   final int code;

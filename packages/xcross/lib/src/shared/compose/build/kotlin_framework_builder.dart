@@ -1,6 +1,9 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/compose/build/framework_build_stamp.dart';
 import 'package:xcross/src/shared/compose/build/gradle_klib_builder.dart';
@@ -12,6 +15,7 @@ import 'package:xcross/src/shared/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/target/shared/compose/compose_target.dart';
 
+@internal
 typedef KotlinNativeRunChecked =
     Future<void> Function(
       String executable,
@@ -20,12 +24,14 @@ typedef KotlinNativeRunChecked =
       Map<String, String>? environment,
     });
 
+@internal
 typedef PrepareKonanConfiguration<T extends PlatformHostInterface> =
     Future<PreparedKonanConfiguration> Function({
       required KmpProject project,
       required ComposeToolchain<T> toolchain,
     });
 
+@internal
 final class KotlinFrameworkBuilder<T extends PlatformHostInterface> {
   KotlinFrameworkBuilder(
     this.runner, {

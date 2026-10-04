@@ -1,15 +1,20 @@
+@internal
+library;
+
 import 'package:build_cli_annotations/build_cli_annotations.dart';
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/composition/ios_target.dart';
 import 'package:xcross/src/shared/cli/internal/parsed_command.dart';
 import 'package:xcross/src/shared/cli/shared/ipa_packager.dart';
-import 'package:xcross/src/shared/flutter/flutter.dart';
+import 'package:xcross/src/shared/flutter/build/flutter_pack_operation.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 
 part 'flutter_build_command.g.dart';
 
 /// Shared `flutter build`/`flutter run` options: entry-point target, flavor,
 /// dart-defines, and `--pub`.
+@internal
 class CommonFlutterArgs {
   @CliOption(
     abbr: 't',
@@ -32,6 +37,7 @@ class CommonFlutterArgs {
 }
 
 /// Options for `xcross flutter build`.
+@internal
 @CliOptions()
 final class FlutterBuildArgs extends CommonFlutterArgs {
   @CliOption(
@@ -70,6 +76,7 @@ final class FlutterBuildArgs extends CommonFlutterArgs {
 ///
 /// xcross is debug-only; `build` produces an unsigned bundle and signing
 /// happens when `xcross flutter run` installs it.
+@internal
 final class FlutterBuildCommand<T extends PlatformHostInterface>
     extends ParsedCommand<FlutterBuildArgs, void> {
   @override

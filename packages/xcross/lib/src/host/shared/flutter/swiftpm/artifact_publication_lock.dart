@@ -1,8 +1,10 @@
 import 'dart:io';
 
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
 
+@internal
 final class FileSwiftPmPublicationLockProvider
     implements SwiftPmPublicationLockProvider {
   const FileSwiftPmPublicationLockProvider(this.fileSystem);
@@ -15,6 +17,7 @@ final class FileSwiftPmPublicationLockProvider
   }
 }
 
+@internal
 final class FileSwiftPmPublicationLock implements SwiftPmPublicationLock {
   const FileSwiftPmPublicationLock(this.file);
   final RandomAccessFile file;

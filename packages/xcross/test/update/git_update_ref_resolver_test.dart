@@ -1,9 +1,11 @@
 import 'dart:io';
-import 'package:cli_kit/cli_kit.dart';
 
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:meta/meta.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/update/git_update_ref_resolver.dart';
+
 import '../host_operations_fixtures.dart';
 
 void main() {
@@ -698,6 +700,7 @@ ProcessResult _result({
   String stderr = '',
 }) => ProcessResult(1, exitCode, stdout, stderr);
 
+@internal
 final class FixtureFakeGitRunner {
   FixtureFakeGitRunner(this._calls);
 
@@ -722,6 +725,7 @@ final class FixtureFakeGitRunner {
   }
 }
 
+@internal
 final class FixtureGitCall {
   const FixtureGitCall({
     required this.arguments,
@@ -734,6 +738,7 @@ final class FixtureGitCall {
   final String? workingDirectory;
 }
 
+@internal
 final class FixtureFakeTempDirectories {
   FixtureFakeTempDirectories(this._directories);
 

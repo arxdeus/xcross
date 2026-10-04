@@ -1,11 +1,16 @@
+@internal
+library;
+
 import 'package:args/command_runner.dart';
 import 'package:build_cli_annotations/build_cli_annotations.dart';
-import 'package:cli_kit/cli_kit_shared.dart' show Log;
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/runtime/version.dart';
 
 part 'xcross_runner.g.dart';
 
 /// Global options for the xcross CommandRunner (not a subcommand).
+@internal
 @CliOptions()
 final class XcrossGlobalArgs {
   @CliOption(
@@ -21,6 +26,7 @@ final class XcrossGlobalArgs {
 
 /// Adds a global `-v` so every command can surface its trace output, not just
 /// `flutter run` (which keeps its own `-v` for `xcross flutter run -v`).
+@internal
 final class XcrossRunner extends CommandRunner<void> {
   XcrossRunner(this.log, super.executableName, super.description) {
     _$populateXcrossGlobalArgsParser(argParser);

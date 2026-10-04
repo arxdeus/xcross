@@ -1,5 +1,7 @@
 import 'dart:io';
+import 'package:meta/meta.dart';
 
+@internal
 abstract interface class SetupScriptPolicy {
   File cachedFile(String digest);
   File cachePointer(String digest);

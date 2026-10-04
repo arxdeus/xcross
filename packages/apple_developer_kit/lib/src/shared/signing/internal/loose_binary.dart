@@ -1,6 +1,7 @@
 import 'package:meta/meta.dart';
 
 /// A standalone Mach-O (e.g. a `Frameworks/` dylib) not owned by any bundle.
+@internal
 @immutable
 final class LooseBinary {
   const LooseBinary(this.path, this.relativePath, this.identifier);

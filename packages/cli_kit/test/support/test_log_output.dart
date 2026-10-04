@@ -1,5 +1,7 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:meta/meta.dart';
 
+@internal
 final class TestLogOutput implements LogOutput {
   TestLogOutput({required this.emit});
   final void Function(String) emit;

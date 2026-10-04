@@ -1,8 +1,12 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
 import 'package:dds/dap.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/dap/dap_router.dart';
@@ -266,6 +270,7 @@ void main() {
   });
 }
 
+@internal
 final class TestAdapterProcesses implements HostProcessInterface {
   final child = TestAdapterChild();
   final started = Completer<void>();
@@ -292,6 +297,7 @@ final class TestAdapterProcesses implements HostProcessInterface {
       throw StateError('unexpected process operation');
 }
 
+@internal
 final class TestAdapterChild implements Process {
   TestAdapterChild() {
     sink = IOSink(inbound.sink);

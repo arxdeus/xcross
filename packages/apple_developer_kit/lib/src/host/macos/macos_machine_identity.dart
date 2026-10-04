@@ -1,6 +1,8 @@
-import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
-import 'package:cli_kit/cli_kit_shared.dart' show CapturedProcess;
+import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
+import 'package:meta/meta.dart';
 
+@internal
 final class MacOSMachineIdentity implements MachineIdentityProvider {
   MacOSMachineIdentity(this.run);
 

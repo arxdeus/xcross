@@ -1,10 +1,12 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/shared/compose/compose.dart';
+import 'package:xcross/src/shared/compose/build/compose_app_assembler.dart';
+import 'package:xcross/src/shared/compose/project/kmp_project.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
 import 'support/compose_platforms.dart';
@@ -640,6 +642,7 @@ String _packageConfig() {
   }
 }
 
+@internal
 final class ComposeFixture {
   ComposeFixture._(this.temp)
     : root = temp.path,

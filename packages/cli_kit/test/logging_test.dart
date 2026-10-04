@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/src/shared/logging/logging.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
 import 'package:test/test.dart';
 
 import 'support/log_output.dart';

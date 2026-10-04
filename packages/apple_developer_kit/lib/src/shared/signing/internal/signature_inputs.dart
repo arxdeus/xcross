@@ -5,6 +5,7 @@ import 'package:meta/meta.dart';
 /// Everything the embedded signature is built from, other than the code image
 /// itself. Signing runs two passes over these same inputs, so grouping them
 /// makes it obvious that nothing changes between the passes.
+@internal
 @immutable
 final class SignatureInputs {
   const SignatureInputs({

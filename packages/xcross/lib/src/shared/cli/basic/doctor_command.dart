@@ -1,16 +1,17 @@
 import 'package:args/command_runner.dart';
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
 import 'package:cli_util/cli_logging.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_examiner.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_models.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
-export 'package:xcross/src/shared/cli/basic/doctor_examiner.dart';
-export 'package:xcross/src/shared/cli/basic/doctor_models.dart';
-
+@internal
 typedef DoctorExamine = Future<List<DoctorCheck>> Function();
+@internal
 typedef DoctorWriteLine = void Function(String line);
 
+@internal
 final class DoctorCommand extends Command<void> {
   DoctorCommand(DoctorExaminer examiner, {required Log log})
     : this.withSeams(

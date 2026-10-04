@@ -1,12 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/packages/package_config_resolver.dart';
 
 /// Whether any package in the resolved package graph has a build hook.
+@internal
 final class NativeAssetsHookDiscovery {
   const NativeAssetsHookDiscovery({
     required this.fileSystem,

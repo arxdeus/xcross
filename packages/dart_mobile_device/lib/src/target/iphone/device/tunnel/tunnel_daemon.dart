@@ -2,12 +2,17 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/errors/errors.dart';
+import 'package:cli_kit/shared/http/local_http.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:dart_mobile_device/shared/errors/errors.dart';
 import 'package:dart_mobile_device/src/host/shared/tunnel/tunnel_process_controller.dart';
-import 'package:dart_mobile_device/src/shared/errors/errors.dart';
-import 'package:dart_mobile_device/src/target/iphone/device/constants.dart';
-import 'package:dart_mobile_device/src/target/iphone/device/pymd/pymd.dart';
+import 'package:dart_mobile_device/target/iphone/device/constants.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd.dart';
+import 'package:meta/meta.dart';
 
+@internal
 class TunnelDaemon {
   TunnelDaemon(this.pymd) : controller = TunnelProcessController(pymd.runner);
 
@@ -173,6 +178,7 @@ class TunnelDaemon {
 /// invisible in the terminal by default. Tailing the file into the running
 /// step is what turns "stuck on Searching for wireless devices" into a
 /// visible reason.
+@internal
 final class TunneldLogTail {
   TunneldLogTail._(this._file, this._offset);
 

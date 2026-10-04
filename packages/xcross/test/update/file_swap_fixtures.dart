@@ -1,9 +1,11 @@
 import 'dart:io';
 
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/update/internal/file_swap.dart';
 import 'package:xcross/src/shared/update/update_host_policy.dart';
 
+@internal
 final class FixtureRemappedOperations implements FileSwapOperations {
   FixtureRemappedOperations(this.root, {this.failPromotion = false});
   final Directory root;

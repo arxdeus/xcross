@@ -1,7 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/host_symlink_capability.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_artifact_filesystem.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_attributes.dart';
@@ -14,6 +18,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/checkout_links.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_stamp.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 
+@internal
 final class CheckoutTestContext {
   CheckoutTestContext(
     Directory root,
@@ -86,6 +91,7 @@ final class CheckoutTestContext {
   late final IOSink output;
 }
 
+@internal
 final class CheckoutCommand {
   const CheckoutCommand(this.executable, this.arguments, this.environment);
   final String executable;
@@ -93,6 +99,7 @@ final class CheckoutCommand {
   final Map<String, String>? environment;
 }
 
+@internal
 final class RecordingCheckoutProcesses implements HostProcessInterface {
   RecordingCheckoutProcesses(this.execute);
   final Process Function(CheckoutCommand) execute;
@@ -133,6 +140,7 @@ final class RecordingCheckoutProcesses implements HostProcessInterface {
   }) async => '/fixture/$name';
 }
 
+@internal
 final class CheckoutTestProcess implements Process {
   CheckoutTestProcess({
     this.code = 0,
@@ -159,6 +167,7 @@ final class CheckoutTestProcess implements Process {
   bool kill([ProcessSignal signal = ProcessSignal.sigterm]) => true;
 }
 
+@internal
 final class CheckoutInputConsumer implements StreamConsumer<List<int>> {
   final List<int> bytes = [];
   @override
@@ -172,6 +181,7 @@ final class CheckoutInputConsumer implements StreamConsumer<List<int>> {
   Future<void> close() async {}
 }
 
+@internal
 final class CheckoutLogOutput implements LogOutput {
   const CheckoutLogOutput();
   @override

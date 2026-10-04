@@ -1,12 +1,18 @@
 import 'dart:io';
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
+@internal
 abstract interface class SetupRequirements {
   Future<void> run();
 }
 
+@internal
 final class SetupRequirementServices {
   SetupRequirementServices({
     required this.host,
@@ -100,6 +106,7 @@ final class SetupRequirementServices {
   );
 }
 
+@internal
 final class SetupConsole {
   const SetupConsole({
     required this.hasTerminal,

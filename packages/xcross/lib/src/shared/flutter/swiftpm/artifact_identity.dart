@@ -1,10 +1,12 @@
 import 'dart:convert';
 
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/toolchain.dart';
 
+@internal
 final class SwiftPmArtifactIdentity {
   const SwiftPmArtifactIdentity({
     required this.platform,
@@ -16,10 +18,12 @@ final class SwiftPmArtifactIdentity {
   final String sdk;
 }
 
+@internal
 abstract interface class SwiftPmArtifactIdentities {
   Future<SwiftPmArtifactIdentity> resolve();
 }
 
+@internal
 final class SwiftPmArtifactIdentityResolver<T extends PlatformHostInterface>
     implements SwiftPmArtifactIdentities {
   SwiftPmArtifactIdentityResolver({

@@ -1,11 +1,17 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:darwin_sdk_kit/target/shared/ios_build_platform.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/xcrun/xcrun_operation.dart';
 
+@internal
 final class CrossXcrunOperation implements XcrunOperation {
   const CrossXcrunOperation(
     this.loader, {
@@ -49,12 +55,14 @@ final class CrossXcrunOperation implements XcrunOperation {
 }
 
 /// Version reported by `xcrun --version`, matching a recent Xcode's xcrun.
+@internal
 const xcrunCompatVersion = '72';
 
 /// Tools that an installed compiler shim directory provides as `<tool>.exe`.
 const _shimTools = {'clang', 'cc', 'ar', 'ld'};
 
 /// The SDK path recorded in the `<xcrun>.sdk` sidecar next to a compiler shim.
+@internal
 final class CrossXcrunProbe {
   const CrossXcrunProbe(this.host);
 
@@ -162,6 +170,7 @@ final class CrossXcrunProbe {
   }
 }
 
+@internal
 final class XcrunSdkCommand {
   const XcrunSdkCommand({
     required this.runner,

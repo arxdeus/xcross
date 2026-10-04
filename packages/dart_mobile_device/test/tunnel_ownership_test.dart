@@ -1,9 +1,21 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/host/shared/posix_privileges.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
+import 'package:dart_mobile_device/host/macos/macos_device_host.dart';
+import 'package:dart_mobile_device/shared/errors/errors.dart';
+import 'package:dart_mobile_device/shared/network/device_sockets.dart';
 import 'package:dart_mobile_device/src/host/shared/tunnel/tunnel_process_controller.dart';
+import 'package:dart_mobile_device/src/shared/device/models/tunnel.dart';
+import 'package:dart_mobile_device/src/target/iphone/device/tunnel/kernel_tunnel_transport.dart';
+import 'package:dart_mobile_device/src/target/iphone/device/tunnel/tunnel_daemon.dart';
+import 'package:dart_mobile_device/src/target/iphone/device/tunnel/userspace_tunnel_transport.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd.dart';
+import 'package:meta/meta.dart';
 import 'package:test/test.dart';
 
 import 'test_log_output.dart';
@@ -202,6 +214,7 @@ void main() {
   );
 }
 
+@internal
 final class Processes implements HostProcessInterface {
   Processes({this.startFailure, this.exitImmediately = false});
 
@@ -245,6 +258,7 @@ final class Processes implements HostProcessInterface {
       throw StateError('unexpected host operation');
 }
 
+@internal
 final class Child implements Process {
   final exited = Completer<int>();
   final input = StreamController<List<int>>();
@@ -269,6 +283,7 @@ final class Child implements Process {
       throw StateError('no unverified signal');
 }
 
+@internal
 UserspaceTunnelTransport relayTransport(
   Processes processes,
   RelaySockets sockets,
@@ -298,6 +313,7 @@ UserspaceTunnelTransport relayTransport(
   );
 }
 
+@internal
 final class RelaySockets implements DeviceSockets {
   RelaySockets({this.failure, this.failAt = 1});
 
@@ -324,6 +340,7 @@ final class RelaySockets implements DeviceSockets {
   }
 }
 
+@internal
 final class RelayProbe implements ServerSocket {
   int closes = 0;
 

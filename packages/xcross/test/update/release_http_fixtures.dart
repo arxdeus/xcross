@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:meta/meta.dart';
 
+@internal
 final class FixtureReleaseHttpClient implements HttpClient {
   FixtureReleaseHttpClient(this.response);
   final Future<HttpClientResponse> Function() response;
@@ -25,6 +27,7 @@ final class FixtureReleaseHttpClient implements HttpClient {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+@internal
 final class FixtureReleaseHttpRequest implements HttpClientRequest {
   FixtureReleaseHttpRequest(this.uri, this.response);
   @override
@@ -40,6 +43,7 @@ final class FixtureReleaseHttpRequest implements HttpClientRequest {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+@internal
 final class FixtureReleaseHttpHeaders implements HttpHeaders {
   final values = <String, String>{};
   @override
@@ -53,6 +57,7 @@ final class FixtureReleaseHttpHeaders implements HttpHeaders {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+@internal
 final class FixtureReleaseHttpResponse extends Stream<List<int>>
     implements HttpClientResponse {
   FixtureReleaseHttpResponse({

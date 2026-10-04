@@ -1,12 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:crypto/crypto.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/build/ios_engine_cache.dart';
 import 'package:xcross/src/shared/flutter/flutter_workspace_overlay.dart';
 import 'package:xcross/src/shared/flutter/flutter_workspace_readiness.dart';
 
+@internal
 final class FlutterToolWorkspace {
   static const _readyMarkerContents = 'ready-v2\n';
 

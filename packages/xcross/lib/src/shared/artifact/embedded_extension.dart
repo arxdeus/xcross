@@ -1,5 +1,4 @@
-import 'package:cli_kit/cli_kit_shared.dart'
-    show HostFileSystemInterface, HostPathsInterface;
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 
 /// An app extension already embedded in a built `.app`, as seen at
@@ -8,6 +7,7 @@ import 'package:meta/meta.dart';
 /// The build-time [IosAppExtension] describes a *target*; this describes the
 /// `PlugIns/<Name>.appex` that came out of it, after its identifier has been
 /// qualified for the signing team.
+@internal
 @immutable
 final class EmbeddedExtension {
   const EmbeddedExtension({
@@ -27,6 +27,7 @@ final class EmbeddedExtension {
 }
 
 /// Reads entitlement facts back off a built `.appex`.
+@internal
 final class AppExtensionEntitlements {
   const AppExtensionEntitlements({
     required this.fileSystem,

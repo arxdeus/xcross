@@ -3,16 +3,16 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:crypto/crypto.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/gate_mode.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/gate_platform.dart';
 
-export 'package:xcross/src/shared/flutter/swiftpm/gate_mode.dart';
-
+@internal
 typedef SwiftPmGateProbe =
     Future<bool> Function({
       required SwiftPmGateMode mode,
@@ -21,6 +21,7 @@ typedef SwiftPmGateProbe =
       required String sdkIdentity,
     });
 
+@internal
 typedef SwiftPmGateRuntimeBinding =
     Future<Map<String, Object?>?> Function({
       required SwiftPmGateMode mode,
@@ -33,6 +34,7 @@ typedef SwiftPmGateRuntimeBinding =
 const _gateImplementationVersion = 3;
 const _extractorBuildVersion = 'xcross-1.3.1-swiftpm-gate-3';
 
+@internal
 final class SwiftPmGateEvidence<T extends PlatformHostInterface> {
   SwiftPmGateEvidence(
     this.root, {
@@ -214,6 +216,7 @@ final class SwiftPmGateEvidence<T extends PlatformHostInterface> {
   }
 }
 
+@internal
 Map<String, Object?>? decodedSwiftPmGateMap(String encoded) {
   try {
     final value = jsonDecode(encoded);
@@ -223,6 +226,7 @@ Map<String, Object?>? decodedSwiftPmGateMap(String encoded) {
   }
 }
 
+@internal
 Future<bool> validSwiftPmGateToolchainIdentity(
   Map<String, Object?> identity, {
   required SwiftPmArtifactFileSystem fileSystem,
@@ -264,6 +268,7 @@ Future<bool> validSwiftPmGateToolchainIdentity(
   return true;
 }
 
+@internal
 Future<bool> validSwiftPmGateSdkIdentity(
   Map<String, Object?> identity, {
   required DarwinSdkRepository repository,
@@ -295,6 +300,7 @@ Future<bool> validSwiftPmGateSdkIdentity(
   return true;
 }
 
+@internal
 final class DeepCollectionEquality {
   const DeepCollectionEquality();
 

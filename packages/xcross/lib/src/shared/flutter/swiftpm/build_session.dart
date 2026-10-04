@@ -1,7 +1,9 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/build_execution.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/interop_consumer_repair.dart';
 
+@internal
 final class SwiftPmBuildSession<T extends PlatformHostInterface>
     implements SwiftPmInteropBuild {
   SwiftPmBuildSession({

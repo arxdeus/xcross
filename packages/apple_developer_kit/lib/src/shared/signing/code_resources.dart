@@ -2,8 +2,8 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
-import 'package:apple_developer_kit/src/shared/errors/errors.dart';
+import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
+import 'package:apple_developer_kit/shared/errors/errors.dart';
 import 'package:apple_developer_kit/src/shared/signing/bundle_paths.dart';
 import 'package:apple_developer_kit/src/shared/signing/bytes.dart';
 import 'package:crypto/crypto.dart' as crypto;
@@ -27,6 +27,7 @@ final class SealCandidate {
 }
 
 /// The seal file never seals itself.
+@internal
 const String codeResourcesPath = '_CodeSignature/CodeResources';
 
 /// Builds the `_CodeSignature/CodeResources` property list for one bundle.

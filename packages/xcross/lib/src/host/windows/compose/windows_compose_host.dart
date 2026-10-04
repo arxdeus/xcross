@@ -1,12 +1,14 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/host/shared/compose/posix_compose_host.dart';
 import 'package:xcross/src/shared/compose/build/process_invocation.dart';
 import 'package:xcross/src/shared/compose/compose_host.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
+@internal
 final class WindowsComposeHost<T extends WindowsHostInterface>
     implements ComposeHost<T> {
   WindowsComposeHost(this.host, {required this.runningExecutable}) {

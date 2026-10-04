@@ -1,3 +1,6 @@
+import 'package:meta/meta.dart';
+
+@internal
 abstract final class PlistMutations {
   static String setBundleIdentifier(String plistXml, String bundleId) =>
       _setPlistKey(plistXml, 'CFBundleIdentifier', bundleId);

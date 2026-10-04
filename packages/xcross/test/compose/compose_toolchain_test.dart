@@ -2,16 +2,34 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/target/shared/ios_build_platform.dart';
+import 'package:darwin_sdk_kit/target/simulator/simulator_build_platform.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/host/linux/compose/linux_compose_host.dart';
 import 'package:xcross/src/host/shared/runtime/unsupported_compose_simulator_capability.dart';
-import 'package:xcross/src/shared/compose/compose.dart' as compose;
 import 'package:xcross/src/shared/compose/compose_host.dart';
+import 'package:xcross/src/shared/compose/compose_install_effects.dart';
+import 'package:xcross/src/shared/compose/compose_process_contracts.dart';
+import 'package:xcross/src/shared/compose/compose_setup_options.dart'
+    as compose;
+import 'package:xcross/src/shared/compose/compose_setup_options.dart';
+import 'package:xcross/src/shared/compose/toolchain/archive_extractor.dart'
+    as compose;
 import 'package:xcross/src/shared/compose/toolchain/archive_extractor.dart';
+import 'package:xcross/src/shared/compose/toolchain/compose_toolchain.dart'
+    as compose;
+import 'package:xcross/src/shared/compose/toolchain/compose_toolchain_installer.dart'
+    as compose;
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain_installer.dart';
+import 'package:xcross/src/shared/compose/toolchain/compose_toolchain_resolver.dart'
+    as compose;
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain_resolver.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/target/shared/compose/compose_target.dart';
@@ -1885,6 +1903,7 @@ ComposeToolchainResolver _resolverWithPreflight(
   ),
 );
 
+@internal
 final class FakeDarwinSdk implements ComposeDarwinSdk {
   FakeDarwinSdk(this.swiftSdkPath, [String? iphoneSdk])
     : _iphoneSdk = iphoneSdk ?? swiftSdkPath;

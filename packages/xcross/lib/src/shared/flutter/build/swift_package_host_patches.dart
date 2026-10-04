@@ -1,8 +1,11 @@
+import 'package:meta/meta.dart';
+
 /// Removes host-only guards from Swift package graph builder functions.
 ///
 /// Only function bodies returning SwiftPM graph arrays are considered. The
 /// contents of matching macOS conditionals are retained, including nested
 /// conditional-compilation directives.
+@internal
 String exposeMacOSPackageGraphEntries(String manifest) {
   final code = _swiftCodeMask(manifest);
   final removals = <(int, int)>[];
@@ -130,6 +133,7 @@ List<(int, int)> _macOSDirectiveRemovals(
 
 /// Disambiguates SDK State macros from the genuine SwiftUI property wrapper.
 /// Called only after a missing StateMacro diagnostic for an owned staged file.
+@internal
 String restoreSwiftUIStatePropertyWrapper(String source) {
   final code = _swiftCodeMask(source);
   final attributes = RegExp(

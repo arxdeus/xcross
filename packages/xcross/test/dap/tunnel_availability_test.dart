@@ -1,10 +1,14 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/dart_mobile_device_shared.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/host/shared/posix_paths.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:dart_mobile_device/shared/tunnel/tunnel_availability.dart';
 import 'package:dds/dap.dart';
-import 'package:frontend_server_kit/frontend_server_kit.dart';
+import 'package:frontend_server_kit/shared/compiler/package_uris.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/dap/dap_router.dart';
@@ -114,6 +118,7 @@ void main() {
   }
 }
 
+@internal
 final class FakeTunnelAvailability implements TunnelAvailability {
   FakeTunnelAvailability(this.outcome);
   final String outcome;
@@ -128,6 +133,7 @@ final class FakeTunnelAvailability implements TunnelAvailability {
   }
 }
 
+@internal
 final class AvailabilityProcesses implements HostProcessInterface {
   final child = AvailabilityChild();
   String? executable;
@@ -168,6 +174,7 @@ final class AvailabilityProcesses implements HostProcessInterface {
       throw StateError('unexpected host operation');
 }
 
+@internal
 final class AvailabilityChild implements Process {
   AvailabilityChild() {
     input.stream.listen((_) {});
@@ -190,6 +197,7 @@ final class AvailabilityChild implements Process {
       throw StateError('no native signals');
 }
 
+@internal
 final class DapFixtureFileSystem implements HostFileSystemInterface {
   DapFixtureFileSystem(this.logicalRoot, this.backingRoot, this.paths);
   final String logicalRoot;

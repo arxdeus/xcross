@@ -1,8 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:darwin_sdk_kit/shared/errors/errors.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/target/iphone/iphone_build_platform.dart';
+import 'package:darwin_sdk_kit/target/shared/ios_build_platform.dart';
+import 'package:darwin_sdk_kit/target/simulator/simulator_build_platform.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 

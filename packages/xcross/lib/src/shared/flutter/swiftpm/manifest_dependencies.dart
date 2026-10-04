@@ -1,6 +1,8 @@
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
 
+@internal
 final class SwiftPmManifestDependencies {
   /// Parses remote `.package(url:)` entries out of a Swift manifest.
   ///

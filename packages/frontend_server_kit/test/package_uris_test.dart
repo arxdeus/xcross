@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:frontend_server_kit/frontend_server_kit.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:frontend_server_kit/shared/compiler/package_uris.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 

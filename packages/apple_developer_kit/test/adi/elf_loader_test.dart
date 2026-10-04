@@ -5,10 +5,12 @@ import 'package:apple_developer_kit/src/host/shared/adi/elf/elf_loaded_library.d
 import 'package:apple_developer_kit/src/host/shared/adi/loader/internal/memory_allocator.dart';
 import 'package:apple_developer_kit/src/shared/adi/adi_architecture.dart';
 import 'package:ffi/ffi.dart';
+import 'package:meta/meta.dart';
 import 'package:test/test.dart';
 
 import 'support/elf_fixture.dart';
 
+@internal
 final class RecordingAllocator implements NativeMemoryAllocator {
   RecordingAllocator(this.pageSize);
 

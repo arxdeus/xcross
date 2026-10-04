@@ -10,6 +10,7 @@ import 'package:xcross/src/composition/cli/runner.dart';
 import 'package:xcross/src/shared/cli/basic/auth_command.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
+import '../log_fixture.dart';
 import 'runtime_fixture.dart';
 
 void main() {

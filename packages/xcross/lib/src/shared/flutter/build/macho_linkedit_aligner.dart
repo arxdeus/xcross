@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/apple/mach_o.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 
@@ -23,6 +24,7 @@ import 'package:xcross/src/shared/flutter/errors.dart';
 /// table moves, and nothing else has to be rewritten.
 ///
 /// Must run before code signing, so the signature covers the repaired bytes.
+@internal
 abstract final class MachOLinkeditAligner {
   /// `LC_DYSYMTAB` — locates the indirect symbol table.
   static const _dysymtab = 0x0b;

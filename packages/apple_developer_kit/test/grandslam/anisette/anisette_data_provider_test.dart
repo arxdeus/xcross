@@ -9,14 +9,15 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/host/shared/adi/loader/loader.dart';
-import 'package:apple_developer_kit/src/shared/adi/adi_client.dart';
-import 'package:apple_developer_kit/src/shared/grandslam/anisette/anisette_data_provider.dart';
-import 'package:apple_developer_kit/src/shared/grandslam/anisette/anisette_state.dart';
-import 'package:apple_developer_kit/src/shared/grandslam/anisette/internal/adi_provisioning.dart';
+import 'package:apple_developer_kit/host/shared/adi/loader/loader.dart';
+import 'package:apple_developer_kit/shared/adi/adi_client.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/adi_provisioning.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_data_provider.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_state.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
@@ -52,6 +53,7 @@ Uint8List _bytes(String s) => Uint8List.fromList(utf8.encode(s));
 
 /// A fake [AdiProvisioning] driving canned provisioning-handshake data,
 /// matching the shapes `AdiClient` (`package:provision_dart`) returns.
+@internal
 class FakeAdiProvisioning implements AdiProvisioning {
   FakeAdiProvisioning({this.alreadyProvisioned = false});
 
@@ -108,6 +110,7 @@ class FakeAdiProvisioning implements AdiProvisioning {
   }
 }
 
+@internal
 class RefusingAdiProvisioning implements AdiProvisioning {
   @override
   Future<bool> isMachineProvisioned(int dsId) =>
@@ -424,6 +427,7 @@ void main() {
   );
 }
 
+@internal
 final class RejectingBoundaryLoader implements NativeLibraryLoader {
   final List<String> paths = [];
   @override

@@ -1,7 +1,12 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:analyzer/dart/analysis/utilities.dart';
+import 'package:analyzer/dart/ast/ast.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/host/shared/posix_paths.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:darwin_sdk_kit/target/iphone/iphone_target.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/flutter/build/dart_plugin_registrant.dart';
@@ -263,6 +268,55 @@ ${entries.join('\n')}
   });
 
   group('render', () {
+    List<(String, int)> directivePolicy(String source) {
+      final unit = parseString(content: source, throwIfDiagnostics: false).unit;
+      return [
+        for (final directive in unit.directives) ...[
+          if (directive is ExportDirective)
+            ('export-directive', directive.offset),
+          if (directive is NamespaceDirective)
+            for (final combinator in directive.combinators)
+              if (combinator is ShowCombinator)
+                ('show-combinator', combinator.offset)
+              else if (combinator is HideCombinator)
+                ('hide-combinator', combinator.offset),
+        ],
+      ];
+    }
+
+    test('AST directive policy preserves exact external VM protocol', () {
+      final source = DartPluginRegistrant.render(const []);
+      expect(directivePolicy(source), isEmpty);
+      final unit = parseString(content: source).unit;
+      expect(
+        unit.declarations
+            .whereType<ClassDeclaration>()
+            .single
+            .namePart
+            .typeName
+            .lexeme,
+        '_PluginRegistrant',
+      );
+      expect(source, contains("@pragma('vm:entry-point')"));
+      expect(
+        directivePolicy(
+          '$source\n// export ignored;\nconst text = "import show hide export";',
+        ),
+        isEmpty,
+      );
+      final exported = "export 'missing.dart';\n$source";
+      expect(directivePolicy(exported), [('export-directive', 0)]);
+      for (final combinator in ['show', 'hide']) {
+        final filtered = source.replaceFirst(
+          "import 'dart:io';",
+          "import 'dart:io' $combinator Platform;",
+        );
+        expect(directivePolicy(filtered), [
+          ('$combinator-combinator', filtered.indexOf(combinator)),
+        ]);
+      }
+    });
+
     test('emits the vm:entry-point shape the engine looks for', () {
       final source = DartPluginRegistrant.render(const [
         DartPluginRegistration(
@@ -448,6 +502,7 @@ void _frontendServerFlags() {
   });
 }
 
+@internal
 final class KernelNamespaceFileSystem implements HostFileSystemInterface {
   KernelNamespaceFileSystem(this.root);
   final Directory root;

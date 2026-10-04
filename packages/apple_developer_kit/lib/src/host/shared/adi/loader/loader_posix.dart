@@ -13,12 +13,14 @@
 
 import 'dart:io';
 
+import 'package:apple_developer_kit/host/shared/adi/loader/loader.dart';
 import 'package:apple_developer_kit/src/host/shared/adi/elf/elf_loaded_library.dart';
 import 'package:apple_developer_kit/src/host/shared/adi/loader/internal/memory_allocator.dart';
 import 'package:apple_developer_kit/src/host/shared/adi/loader/internal/native_symbol_stubs.dart';
 import 'package:apple_developer_kit/src/host/shared/adi/loader/internal/posix_loaded_library.dart';
-import 'package:apple_developer_kit/src/host/shared/adi/loader/loader.dart';
+import 'package:meta/meta.dart';
 
+@internal
 abstract class PosixNativeLibraryLoader implements NativeLibraryLoader {
   PosixNativeLibraryLoader(this._allocator, {required int machine})
     : _machine = machine {

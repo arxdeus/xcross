@@ -1,5 +1,5 @@
-import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
-import 'package:apple_developer_kit/src/shared/errors/errors.dart';
+import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
+import 'package:apple_developer_kit/shared/errors/errors.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 

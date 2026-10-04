@@ -1,14 +1,18 @@
 import 'dart:ffi';
 import 'dart:io';
 
-import 'package:apple_developer_kit/apple_developer_kit_shared.dart';
-import 'package:cli_kit/cli_kit.dart';
+import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:http/http.dart' as http;
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/cli/basic/auth_command.dart';
 
+import '../log_fixture.dart';
 import 'runtime_fixture.dart';
 
+@internal
 AuthCommand authFixture({
   AppleHostServices? services,
   Abi abi = Abi.linuxX64,
@@ -32,6 +36,7 @@ AuthCommand authFixture({
   );
 }
 
+@internal
 final class AuthNamespaceFixture {
   AuthNamespaceFixture({required p.Style style}) {
     backing = Directory.systemTemp.createTempSync('xcross-auth-mapped-');
@@ -66,6 +71,7 @@ final class AuthNamespaceFixture {
   void dispose() => backing.deleteSync(recursive: true);
 }
 
+@internal
 final class AuthNamespaceFileSystem implements HostFileSystemInterface {
   AuthNamespaceFileSystem(this.paths, this.logicalRoot, this.backingRoot);
   final p.Context paths;
@@ -102,6 +108,7 @@ final class AuthNamespaceFileSystem implements HostFileSystemInterface {
       throw StateError('Unexpected link');
 }
 
+@internal
 final class AuthNamespacePaths implements HostPathsInterface {
   const AuthNamespacePaths(this.context);
   @override
@@ -120,6 +127,7 @@ final class AuthNamespacePaths implements HostPathsInterface {
   String executableName(String name, {String extension = '.exe'}) => name;
 }
 
+@internal
 final class AuthNamespaceHost implements PlatformHostInterface {
   AuthNamespaceHost(this.base, this.paths, this.fileSystem);
   final PlatformHostInterface base;
@@ -137,12 +145,14 @@ final class AuthNamespaceHost implements PlatformHostInterface {
   HostProcessInterface get processes => base.processes;
 }
 
+@internal
 final class AuthNamespaceIdentity implements MachineIdentityProvider {
   const AuthNamespaceIdentity();
   @override
   Future<String> read() async => 'auth-fixture-machine';
 }
 
+@internal
 final class AuthNamespacePermissions implements AppleFilePermissions {
   final List<String> hardened = [];
   @override

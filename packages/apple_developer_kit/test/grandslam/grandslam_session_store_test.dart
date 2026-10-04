@@ -1,10 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:apple_developer_kit/src/shared/errors/errors.dart';
-import 'package:apple_developer_kit/src/shared/grandslam/app_token_exchange.dart';
-import 'package:apple_developer_kit/src/shared/grandslam/grandslam_session_store.dart';
-import 'package:apple_developer_kit/src/shared/secure/local_cipher.dart';
+import 'package:apple_developer_kit/shared/errors/errors.dart';
+import 'package:apple_developer_kit/shared/grandslam/app_token_exchange.dart';
+import 'package:apple_developer_kit/shared/grandslam/grandslam_session_store.dart';
+import 'package:apple_developer_kit/shared/secure/local_cipher.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 

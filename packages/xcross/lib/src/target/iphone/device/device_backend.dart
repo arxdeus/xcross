@@ -1,12 +1,14 @@
-import 'package:apple_developer_kit/apple_developer_kit_shared.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart'
-    show
-        Device,
-        DeviceSearchMode,
-        DeviceSource,
-        Pymd,
-        PymdDeviceResolver,
-        PymdDevices;
+import 'package:apple_developer_kit/host/shared/adi/loader/loader.dart';
+import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/appstoreconnect.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/provisioning_identifiers.dart';
+import 'package:apple_developer_kit/shared/signing/bundle_signer.dart';
+import 'package:apple_developer_kit/shared/signing/signing_asset.dart';
+import 'package:dart_mobile_device/shared/device/models/device.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd_device_resolver.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd_devices.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/artifact/app_capabilities.dart';
 import 'package:xcross/src/shared/artifact/app_entitlements.dart';
 import 'package:xcross/src/shared/artifact/embedded_extension.dart';
@@ -19,6 +21,7 @@ import 'package:xcross/src/target/iphone/device/signed_bundle_preparer.dart';
 import 'package:xcross/src/target/iphone/device/signing_session_resolver.dart';
 
 /// Resolves, signs, and installs to a device using the native pipeline.
+@internal
 abstract interface class DeviceBackend {
   Future<Device> resolveDevice({
     required DeviceSearchMode mode,
@@ -51,6 +54,7 @@ abstract interface class DeviceBackend {
 
 /// pymobiledevice3 for device discovery/install, with Apple provisioning and
 /// in-process signing.
+@internal
 final class NativeBackend implements DeviceBackend {
   NativeBackend(
     this.pymd, {

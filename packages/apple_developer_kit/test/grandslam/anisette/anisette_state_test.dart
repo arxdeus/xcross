@@ -3,8 +3,8 @@
 // network/native-ADI involved - this is pure persisted-state logic.
 import 'dart:io';
 
-import 'package:apple_developer_kit/src/shared/errors/errors.dart';
-import 'package:apple_developer_kit/src/shared/grandslam/anisette/anisette_state.dart';
+import 'package:apple_developer_kit/shared/errors/errors.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_state.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 

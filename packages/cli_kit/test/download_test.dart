@@ -2,13 +2,15 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/src/shared/download/download.dart';
-import 'package:cli_kit/src/shared/errors/errors.dart';
-import 'package:cli_kit/src/shared/logging/logging.dart';
+import 'package:cli_kit/shared/download/download.dart';
+import 'package:cli_kit/shared/errors/errors.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:meta/meta.dart';
 import 'package:test/test.dart';
 
 import 'support/log_output.dart';
 
+@internal
 final class DownloadTestClient implements HttpClient {
   DownloadTestClient(this.responses, {this.closeError});
   final Error? closeError;
@@ -35,6 +37,7 @@ final class DownloadTestClient implements HttpClient {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+@internal
 final class DownloadTestRequest implements HttpClientRequest {
   DownloadTestRequest(this.response);
   final DownloadTestResponse response;
@@ -48,6 +51,7 @@ final class DownloadTestRequest implements HttpClientRequest {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+@internal
 final class DownloadTestResponse extends Stream<List<int>>
     implements HttpClientResponse {
   DownloadTestResponse(

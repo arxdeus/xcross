@@ -2,9 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:crypto/crypto.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/build/ios_linker_compatibility.dart';
@@ -14,9 +15,12 @@ import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/toolchain.dart';
 
+@internal
 const String flutterFrameworkPackageName = 'FlutterFramework';
+@internal
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
+@internal
 final class SwiftPmDiscovery<T extends PlatformHostInterface> {
   SwiftPmDiscovery({
     required this.hostPolicy,

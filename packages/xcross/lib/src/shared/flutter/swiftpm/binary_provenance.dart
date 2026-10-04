@@ -2,8 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
 import 'package:crypto/crypto.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_target.dart';
@@ -12,9 +15,12 @@ import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_dependencies.dart';
 
+@internal
 const String flutterFrameworkPackageName = 'FlutterFramework';
+@internal
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
+@internal
 final class SwiftPmBinaryProvenance<T extends PlatformHostInterface> {
   SwiftPmBinaryProvenance({
     required this.artifactFileSystem,

@@ -1,4 +1,4 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/artifact/plist_mutations.dart';
 import 'package:xcross/src/shared/flutter/build/app_extension_builder.dart';
@@ -11,6 +11,7 @@ import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
 
+@internal
 final class FlutterBundleAssembler<T extends PlatformHostInterface>
     implements FlutterAssembleStep<T> {
   FlutterBundleAssembler(this.context);

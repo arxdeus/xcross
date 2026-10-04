@@ -1,8 +1,10 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
+@internal
 Future<ProcessResult> runUpdateProcess(
   ProcessRunner runner,
   String executable,

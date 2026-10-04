@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dart_mobile_device/src/shared/device/gdb_remote_client.dart';
-import 'package:dart_mobile_device/src/shared/errors/errors.dart';
+import 'package:dart_mobile_device/shared/device/gdb_remote_client.dart';
+import 'package:dart_mobile_device/shared/errors/errors.dart';
 import 'package:test/test.dart';
 
 import 'test_device_sockets.dart';

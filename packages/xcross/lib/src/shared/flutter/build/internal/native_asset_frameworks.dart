@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/internal/native_asset_linkage.dart';
 import 'package:xcross/src/shared/flutter/build/internal/recursive_directory_copy.dart';
@@ -17,6 +19,7 @@ const _fatMachOMagics = <int>{
   0xbfbafeca, // FAT_CIGAM_64
 };
 
+@internal
 final class NativeAssetFrameworks<T extends PlatformHostInterface> {
   NativeAssetFrameworks({
     required this.fileSystem,

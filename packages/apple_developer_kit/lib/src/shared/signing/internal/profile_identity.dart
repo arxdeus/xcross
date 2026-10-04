@@ -1,6 +1,7 @@
 import 'package:meta/meta.dart';
 
 /// The identifiers a provisioning profile contributes to a signature.
+@internal
 @immutable
 final class ProfileIdentity {
   const ProfileIdentity({

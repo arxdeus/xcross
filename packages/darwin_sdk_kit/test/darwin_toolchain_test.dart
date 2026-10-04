@@ -1,8 +1,18 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
+import 'package:darwin_sdk_kit/host/linux/linux_darwin_toolchain_locations.dart';
+import 'package:darwin_sdk_kit/host/macos/macos_darwin_toolchain_locations.dart';
+import 'package:darwin_sdk_kit/host/windows/windows_darwin_toolchain_locations.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -426,6 +436,7 @@ void main() {
   });
 }
 
+@internal
 final class FixtureFileSystem implements HostFileSystemInterface {
   const FixtureFileSystem(this.root);
   final String root;
@@ -445,6 +456,7 @@ final class FixtureFileSystem implements HostFileSystemInterface {
       link(destination).create(target);
 }
 
+@internal
 final class DarwinToolchainTestIo {
   DarwinToolchainTestIo() {
     outputController.stream.listen((_) {});

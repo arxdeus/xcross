@@ -2,11 +2,19 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
-    show Device, DeviceDiagnostics, DevicePreparation, TunnelAvailability;
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
+import 'package:cli_kit/shared/download/download.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:dart_mobile_device/shared/device/models/device.dart';
+import 'package:dart_mobile_device/shared/diagnostics/device_probe.dart';
+import 'package:dart_mobile_device/shared/preparation/device_preparation.dart';
+import 'package:dart_mobile_device/shared/tunnel/tunnel_availability.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
 import 'package:http/http.dart' as http;
+import 'package:meta/meta.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/composition/cli/runner.dart';
 import 'package:xcross/src/composition/ios_target.dart';
@@ -30,6 +38,7 @@ import 'package:xcross/src/shared/update/release_lookup.dart';
 import 'package:xcross/src/target/iphone/cli/basic/tunnel_command.dart';
 import 'package:xcross/src/target/iphone/device/signing_http_client_factory.dart';
 
+import '../log_fixture.dart';
 import 'runtime_fixture.dart';
 
 void main() {
@@ -522,6 +531,7 @@ void main() {
   );
 }
 
+@internal
 XcrossRuntime<LinuxHostInterface> copyRuntime(
   XcrossRuntime<LinuxHostInterface> runtime, {
   ProcessRunner<LinuxHostInterface>? runner,
@@ -557,6 +567,7 @@ XcrossRuntime<LinuxHostInterface> copyRuntime(
   signingHttpClients: runtime.signingHttpClients,
 );
 
+@internal
 final class RecordingGuardPrompt implements CommandPrompt {
   RecordingGuardPrompt({
     required this.interactive,
@@ -585,6 +596,7 @@ final class RecordingGuardPrompt implements CommandPrompt {
   }
 }
 
+@internal
 final class RecordingSimulatorSigning
     implements ComposeSimulatorSigning<MacOSHostInterface> {
   RecordingSimulatorSigning(this.host);
@@ -597,6 +609,7 @@ final class RecordingSimulatorSigning
   }
 }
 
+@internal
 final class FailingDeviceDiagnostics implements DeviceDiagnostics {
   int resolveCalls = 0;
   int discoveryCalls = 0;
@@ -617,6 +630,7 @@ final class FailingDeviceDiagnostics implements DeviceDiagnostics {
       throw StateError('Version probe must not run');
 }
 
+@internal
 final class RecordingDevicePreparation implements DevicePreparation {
   final List<String> calls = [];
   @override
@@ -630,6 +644,7 @@ final class RecordingDevicePreparation implements DevicePreparation {
   }
 }
 
+@internal
 final class RecordingTunnelAvailability implements TunnelAvailability {
   int calls = 0;
   @override

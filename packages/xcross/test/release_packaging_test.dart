@@ -3,9 +3,9 @@ import 'dart:isolate';
 
 import 'package:test/test.dart';
 
-final String _repoRoot = File.fromUri(
-  Isolate.resolvePackageUriSync(Uri.parse('package:xcross/xcross.dart'))!,
-).parent.parent.parent.parent.path;
+final String _repoRoot = Directory.fromUri(
+  Isolate.resolvePackageUriSync(Uri.parse('package:xcross/'))!,
+).parent.parent.parent.path;
 
 void main() {
   test('installer installs xcross plus its required license notice', () {

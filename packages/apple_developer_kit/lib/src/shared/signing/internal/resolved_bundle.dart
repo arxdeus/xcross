@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:meta/meta.dart';
 
 /// A validated `.app` or nested `.framework` bundle awaiting signing.
+@internal
 @immutable
 final class ResolvedBundle {
   const ResolvedBundle(

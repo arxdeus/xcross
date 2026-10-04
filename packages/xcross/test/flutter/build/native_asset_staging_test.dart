@@ -1,6 +1,7 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/flutter/build/internal/native_asset_frameworks.dart';
@@ -8,8 +9,7 @@ import 'package:xcross/src/shared/flutter/build/internal/recursive_directory_cop
 import 'package:xcross/src/shared/flutter/errors.dart';
 
 import '../../host_operations_fixtures.dart';
-import 'macho_linkedit_aligner_test.dart'
-    show buildMachO, readSymtab, stringTable;
+import 'macho_linkedit_aligner_test.dart';
 import 'support/native_asset_framework_fixtures.dart';
 
 void main() {

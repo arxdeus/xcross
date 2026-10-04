@@ -1,13 +1,16 @@
 import 'dart:async';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/compose/watch/kotlin_source_watcher.dart';
 import 'package:xcross/src/shared/models/pack_result.dart';
 
 /// Rebuild + reinstall + relaunch a Compose app, returning the new bundle.
+@internal
 typedef ComposeRebuild = Future<PackResult> Function();
 
 /// Run one launch-and-supervise session; returns when the session ends.
+@internal
 typedef ComposeRunSession =
     Future<void> Function({
       required PackResult pack,
@@ -27,6 +30,7 @@ typedef ComposeRunSession =
 /// ~147s no-op edit cycle on a Compose sample), so the loop's one real
 /// optimisation is refusing to rebuild when no watched source actually
 /// changed.
+@internal
 final class ComposeWatchSession {
   ComposeWatchSession({
     required this.watcher,

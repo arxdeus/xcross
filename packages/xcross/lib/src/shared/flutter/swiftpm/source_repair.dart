@@ -1,6 +1,9 @@
 import 'dart:async';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/swift_package_host_patches.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
@@ -10,9 +13,12 @@ import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
 import 'package:xcross/src/shared/sdk/sdk_install_constants.dart';
 
+@internal
 const String flutterFrameworkPackageName = 'FlutterFramework';
+@internal
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
+@internal
 final class SwiftPmSourceRepair<T extends PlatformHostInterface> {
   SwiftPmSourceRepair({
     required this.filesystem,

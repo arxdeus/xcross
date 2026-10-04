@@ -1,10 +1,16 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
-    show DeviceEndpoint;
-import 'package:frontend_server_kit/frontend_server_kit.dart';
+import 'package:cli_kit/shared/http/local_http.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:dart_mobile_device/shared/device/models/device_endpoint.dart';
+import 'package:frontend_server_kit/shared/compiler/frontend_server_options.dart';
+import 'package:frontend_server_kit/shared/compiler/frontend_server_session.dart';
+import 'package:frontend_server_kit/shared/compiler/package_uris.dart';
+import 'package:frontend_server_kit/shared/process/compiler_transport.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/constants.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/hot_reload/dart_vm_service_client.dart';
@@ -15,6 +21,7 @@ import 'package:xcross/src/shared/flutter/models/hot_reload_config.dart';
 ///   1. Spawning a persistent `frontend_server` for incremental kernel diffs.
 ///   2. Uploading those diffs into the app's devFS over HTTP.
 ///   3. Calling `reloadSources` / `_flutter.runInView` on the Dart VM Service.
+@internal
 final class HotReloadController {
   HotReloadController({
     required HotReloadConfig config,

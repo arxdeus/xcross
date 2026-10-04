@@ -1,5 +1,9 @@
+import 'package:meta/meta.dart';
+
+@internal
 String powerShellQuote(String value) => "'${value.replaceAll("'", "''")}'";
 
+@internal
 String renderPowerShellOtoolShim({
   required String tool,
   required bool usesObjdump,
@@ -25,6 +29,7 @@ param([Parameter(ValueFromRemainingArguments = \$true)][string[]]\$Arguments)
 exit \$LASTEXITCODE
 ''';
 
+@internal
 String renderBatchPowerShellShim(String script) =>
     '''
 @echo off
@@ -32,7 +37,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0$script" %*
 exit /b %errorlevel%
 ''';
 
+@internal
 String renderBatchToolShim(String tool) =>
     '@echo off\n"$tool" %*\nexit /b %errorlevel%\n';
 
+@internal
 const batchCodesignShim = '@echo off\nexit /b 0\n';

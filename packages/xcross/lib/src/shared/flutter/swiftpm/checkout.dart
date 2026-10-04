@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
 import 'package:crypto/crypto.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/host/shared/flutter/swiftpm/host_symlink_capability.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
@@ -13,6 +15,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/checkout_link_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_links.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_stamp.dart';
 
+@internal
 final class SwiftPmCheckout<T extends PlatformHostInterface> {
   const SwiftPmCheckout({
     required this.runner,

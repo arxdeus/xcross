@@ -3,9 +3,13 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
 import 'package:crypto/crypto.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart' show SimulatorTarget;
+import 'package:darwin_sdk_kit/target/simulator/simulator_target.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/gate_platform.dart';
@@ -515,6 +519,7 @@ void main() {
   });
 }
 
+@internal
 String createGateTestSdk(Directory root) {
   final sdk = p.join(root.path, 'sdk');
   for (final name in ['info.json', 'swift-sdk.json', 'toolset.json']) {
@@ -553,6 +558,7 @@ String createGateTestSdk(Directory root) {
   return sdk;
 }
 
+@internal
 String createGateTestToolchain(Directory root) {
   final identity = <String, Object>{};
   for (final name in [
@@ -580,6 +586,7 @@ String createGateTestToolchain(Directory root) {
   return jsonEncode(identity);
 }
 
+@internal
 final class RecordingGateTestProcess implements SwiftPmGateProcess {
   RecordingGateTestProcess(this.host, {this.uncertain = false});
   @override
@@ -649,6 +656,7 @@ final class RecordingGateTestProcess implements SwiftPmGateProcess {
   }
 }
 
+@internal
 final class ControlledGateTestProcess implements Process {
   ControlledGateTestProcess(this.behavior)
     : output = StreamController<List<int>>(
@@ -711,6 +719,7 @@ final class ControlledGateTestProcess implements Process {
   }
 }
 
+@internal
 final class GateTestLogOutput implements LogOutput {
   GateTestLogOutput({required this.fail});
   final bool fail;
@@ -729,6 +738,7 @@ final class GateTestLogOutput implements LogOutput {
   void write(String message) {}
 }
 
+@internal
 final class GateThrowingCancelStream extends Stream<List<int>> {
   GateThrowingCancelStream(this.source);
   final Stream<List<int>> source;
@@ -748,6 +758,7 @@ final class GateThrowingCancelStream extends Stream<List<int>> {
   );
 }
 
+@internal
 final class GateThrowingCancelSubscription
     implements StreamSubscription<List<int>> {
   GateThrowingCancelSubscription(this.source);
@@ -775,6 +786,7 @@ final class GateThrowingCancelSubscription
   Future<E> asFuture<E>([E? futureValue]) => source.asFuture<E>(futureValue);
 }
 
+@internal
 final class MappedGateFixtureFileSystem implements HostFileSystemInterface {
   MappedGateFixtureFileSystem({
     required this.logicalRoot,

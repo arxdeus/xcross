@@ -2,10 +2,16 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/host/shared/posix_paths.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/host/shared/sdk/preserved_sdk_archive_links.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/sdk/sdk_archive_extraction.dart';
 import 'package:xcross/src/shared/sdk/sdk_install_constants.dart';
@@ -187,6 +193,7 @@ void main() {
   );
 }
 
+@internal
 final class MappedSdkInspectionFileSystem implements HostFileSystemInterface {
   const MappedSdkInspectionFileSystem({
     required this.logicalRoot,
@@ -225,6 +232,7 @@ final class MappedSdkInspectionFileSystem implements HostFileSystemInterface {
       throw UnsupportedError('fixture does not install archives');
 }
 
+@internal
 final class MappedSdkInspectionDirectory implements Directory {
   const MappedSdkInspectionDirectory(this.path, this.backing, this.files);
   @override
@@ -264,6 +272,7 @@ final class MappedSdkInspectionDirectory implements Directory {
       throw UnsupportedError(invocation.memberName.toString());
 }
 
+@internal
 final class MappedSdkInspectionFile implements File {
   const MappedSdkInspectionFile(this.path, this.backing, this.files);
   @override

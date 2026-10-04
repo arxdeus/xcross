@@ -2,8 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 
+@internal
 abstract interface class SwiftPmGateProcess {
   PlatformHostInterface get host;
   Future<ProcessResult> runGateProcess(
@@ -14,6 +17,7 @@ abstract interface class SwiftPmGateProcess {
   });
 }
 
+@internal
 final class SwiftPmGateLiveProcessException implements Exception {
   SwiftPmGateLiveProcessException({
     required this.executable,
@@ -31,6 +35,7 @@ final class SwiftPmGateLiveProcessException implements Exception {
       '$cause; cleanup: $cleanupError';
 }
 
+@internal
 final class SwiftPmGateExecution<T extends PlatformHostInterface>
     implements SwiftPmGateProcess {
   SwiftPmGateExecution({required this.runner});

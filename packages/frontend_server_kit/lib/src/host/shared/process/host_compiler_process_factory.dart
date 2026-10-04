@@ -1,22 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:frontend_server_kit/shared/process/compiler_transport.dart';
+import 'package:meta/meta.dart';
 
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:frontend_server_kit/src/shared/process/compiler_transport.dart';
-
-final class HostCompilerProcessFactory implements CompilerProcessFactory {
-  const HostCompilerProcessFactory(this.runner);
-
-  final ProcessRunner runner;
-
-  @override
-  Future<CompilerTransport> start(
-    String executable,
-    List<String> arguments,
-  ) async =>
-      HostCompilerTransport(await runner.start(executable, arguments), runner);
-}
-
+@internal
 final class HostCompilerTransport implements CompilerTransport {
   HostCompilerTransport(this.process, this.runner);
 

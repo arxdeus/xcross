@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:package_config/package_config.dart';
 import 'package:path/path.dart' as p;
@@ -12,6 +12,7 @@ import 'package:xcross/src/shared/flutter/models/pubspec_info.dart';
 import 'package:xcross/src/shared/flutter/project/pubspec_info_reader.dart';
 import 'package:xcross/src/shared/packages/package_config_resolver.dart';
 
+@internal
 final class FlutterAssetsCompiler {
   FlutterAssetsCompiler({
     required this.fileSystem,

@@ -1,15 +1,26 @@
 import 'dart:ffi';
 
-import 'package:apple_developer_kit/apple_developer_kit_shared.dart';
+import 'package:apple_developer_kit/host/shared/adi/loader/loader.dart';
+import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
+import 'package:apple_developer_kit/shared/adi/apk_fetch.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/asc_client.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/asc_config.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/developer_services_client.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_data_provider.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_provider.dart';
+import 'package:apple_developer_kit/shared/grandslam/grandslam_session_store.dart';
+import 'package:apple_developer_kit/shared/secure/local_cipher.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/auth/signing_session.dart';
 import 'package:xcross/src/shared/device/signing_http_client_factory.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
+@internal
 abstract interface class SigningSessionProvider {
   Future<SigningSession> resolve();
 }
 
+@internal
 final class SigningSessionResolver implements SigningSessionProvider {
   const SigningSessionResolver({
     required this.hostServices,

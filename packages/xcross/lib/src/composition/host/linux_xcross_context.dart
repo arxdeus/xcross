@@ -1,18 +1,24 @@
 import 'dart:ffi';
 import 'dart:io';
 
-import 'package:apple_developer_kit/apple_developer_kit.dart'
-    show createLinuxAppleHostServices, createLinuxNativeLibraryLoader;
-import 'package:cli_kit/cli_kit.dart' show PosixPrivileges;
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart'
-    show LinuxDeviceHost, Pymd;
-import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
-    show DeviceConsole, DeviceSockets;
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart'
-    show LinuxDarwinToolchainLocations;
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:apple_developer_kit/composition/apple_host.dart';
+import 'package:apple_developer_kit/composition/native_library_loader.dart';
+import 'package:cli_kit/host/shared/posix_privileges.dart';
+import 'package:cli_kit/shared/download/download.dart';
+import 'package:cli_kit/shared/http/local_http.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:dart_mobile_device/host/linux/linux_device_host.dart';
+import 'package:dart_mobile_device/shared/console/device_console.dart';
+import 'package:dart_mobile_device/shared/network/device_sockets.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd.dart';
+import 'package:darwin_sdk_kit/host/linux/linux_darwin_toolchain_locations.dart';
+import 'package:darwin_sdk_kit/host/shared/darwin_toolchain_locations.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
 import 'package:http/http.dart' as http;
+import 'package:meta/meta.dart';
 import 'package:xcross/src/composition/flutter/linux_flutter_feature_services.dart';
 import 'package:xcross/src/composition/flutter/swiftpm_checkout.dart';
 import 'package:xcross/src/composition/host_operations.dart';
@@ -55,6 +61,7 @@ import 'package:xcross/src/shared/xcrun/xcrun_operation.dart';
 import 'package:xcross/src/target/iphone/sdk/iphone_sdk_metadata_platform.dart';
 import 'package:xcross/src/target/simulator/sdk/simulator_sdk_metadata_platform.dart';
 
+@internal
 final class LinuxXcrossHostContext
     extends XcrossHostContext<LinuxHostInterface> {
   LinuxXcrossHostContext(

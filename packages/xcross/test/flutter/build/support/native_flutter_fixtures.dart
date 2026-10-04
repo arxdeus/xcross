@@ -1,8 +1,19 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/host/shared/posix_paths.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
+import 'package:cli_kit/shared/download/download.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/host/linux/linux_darwin_toolchain_locations.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:darwin_sdk_kit/target/iphone/iphone_target.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/host/linux/flutter/native_host_tools.dart';
@@ -15,6 +26,7 @@ import 'package:xcross/src/shared/flutter/build/ios_engine_cache.dart';
 import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
+@internal
 IosEngineCache workspaceSdk(
   String root,
   String cacheRoot,
@@ -84,6 +96,7 @@ IosEngineCache workspaceSdk(
   return cache;
 }
 
+@internal
 void expectWorkspaceSdk(FlutterToolWorkspace workspace, String label) {
   for (final path in [
     p.join('packages', 'source'),
@@ -96,6 +109,7 @@ void expectWorkspaceSdk(FlutterToolWorkspace workspace, String label) {
   }
 }
 
+@internal
 Future<List<String>> nativeAssetTree(String root) async {
   final entries = await Directory(root)
       .list(recursive: true, followLinks: false)
@@ -105,6 +119,7 @@ Future<List<String>> nativeAssetTree(String root) async {
   return entries;
 }
 
+@internal
 AppleToolShimResolver<LinuxHost> appleToolResolver({
   String? launcher,
   String? xcrun,
@@ -131,6 +146,7 @@ AppleToolShimResolver<LinuxHost> appleToolResolver({
   );
 }
 
+@internal
 WindowsHost windowsFixtureHost() => WindowsHost(
   architecture: 'x64',
   paths: PosixPaths(),
@@ -138,6 +154,7 @@ WindowsHost windowsFixtureHost() => WindowsHost(
   environment: const {'PATH': '', 'PATHEXT': '.EXE'},
 );
 
+@internal
 final class WindowsFixtureProcesses implements HostProcessInterface {
   @override
   Future<Process> start(
@@ -183,6 +200,7 @@ final class WindowsFixtureProcesses implements HostProcessInterface {
   }
 }
 
+@internal
 List<(String, NativeHostTools, FlutterTargetBuildPolicy)> nativeHostCases() {
   final linuxArm = LinuxHost(architecture: 'arm64');
   final linuxX64 = LinuxHost(architecture: 'x64');
@@ -263,8 +281,10 @@ List<(String, NativeHostTools, FlutterTargetBuildPolicy)> nativeHostCases() {
   ];
 }
 
+@internal
 Log nativeTestLog() => Log(output: NativeTestLogOutput());
 
+@internal
 final class NativeTestLogOutput implements LogOutput {
   @override
   bool get supportsAnsi => false;
@@ -278,6 +298,7 @@ final class NativeTestLogOutput implements LogOutput {
   void write(String message) {}
 }
 
+@internal
 Downloader nativeTestDownloader() => Downloader(
   createClient: () => throw StateError(
     'Unexpected engine artifact download during isolated tests',
@@ -285,6 +306,7 @@ Downloader nativeTestDownloader() => Downloader(
   log: nativeTestLog(),
 );
 
+@internal
 IosEngineCache<LinuxHost> nativeLinuxEngineCache({
   required String flutterRoot,
   String? cacheRoot,
@@ -308,6 +330,7 @@ IosEngineCache<LinuxHost> nativeLinuxEngineCache({
   );
 }
 
+@internal
 IOSink nativeTestSink() {
   final controller = StreamController<List<int>>();
   final subscription = controller.stream.listen((_) {});

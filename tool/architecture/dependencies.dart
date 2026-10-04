@@ -1,8 +1,11 @@
 import 'package:analyzer/dart/ast/ast.dart';
+import 'package:meta/meta.dart';
 
+import 'boundaries.dart';
 import 'export_graph.dart';
 import 'inventory.dart';
 
+@internal
 class DependencyRules {
   final String path;
   final Classification classification;
@@ -16,7 +19,7 @@ class DependencyRules {
   bool get composesTarget => targetComposition.contains(path);
   void importEdge(AstNode node, String? uri) {
     if (uri == null || uri.startsWith('dart:')) return;
-    final resolved = resolveUri(path, uri);
+    final resolved = exportGraph.resolve(path, uri);
     final pending = {resolved, ...exportGraph.destinations(path, uri, node)};
     for (final destinationPath in pending) {
       final destination = classify(destinationPath);
@@ -36,7 +39,6 @@ class DependencyRules {
             'generated-composition',
           }.contains(destination.kind) &&
           !{
-            'barrel',
             'composition',
             'host-composition',
             'generated-composition',
@@ -52,21 +54,18 @@ class DependencyRules {
       }
       final concreteHost = destination.host != 'shared';
       final concreteTarget = destination.target != 'shared';
-      if (classification.kind != 'barrel' &&
-          ((classification.host != destination.host &&
-                  concreteHost &&
-                  !composesHost &&
-                  !(hostAssemblies[path]?.contains(destinationPath) ??
-                      false)) ||
-              (classification.target != destination.target &&
-                  concreteTarget &&
-                  !composesTarget &&
-                  !(targetAssemblies[path]?.contains(destinationPath) ??
-                      false) &&
-                  path != detector &&
-                  !hostFactories.containsKey(path) &&
-                  path !=
-                      'packages/xcross/lib/src/composition/native_runtime.dart'))) {
+      if ((classification.host != destination.host &&
+              concreteHost &&
+              !composesHost &&
+              !(hostAssemblies[path]?.contains(destinationPath) ?? false)) ||
+          (classification.target != destination.target &&
+              concreteTarget &&
+              !composesTarget &&
+              !(targetAssemblies[path]?.contains(destinationPath) ?? false) &&
+              path != detector &&
+              !hostFactories.containsKey(path) &&
+              path !=
+                  'packages/xcross/lib/src/composition/native_runtime.dart')) {
         reject(
           node,
           'concrete-edge',

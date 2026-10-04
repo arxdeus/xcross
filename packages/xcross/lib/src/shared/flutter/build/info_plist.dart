@@ -1,3 +1,4 @@
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/artifact/plist_mutations.dart';
 import 'package:xcross/src/shared/artifact/plist_xml.dart';
 import 'package:xcross/src/shared/flutter/build/internal/required_plist_key.dart';
@@ -10,6 +11,7 @@ import 'package:xml/xml.dart';
 ///
 /// Pure string transforms (plus one filesystem probe for compiled
 /// storyboards); no state, no I/O beyond that probe.
+@internal
 abstract final class InfoPlist {
   /// Overwrite `CFBundleIdentifier` (used when qualifying the App ID at
   /// device-sign time).

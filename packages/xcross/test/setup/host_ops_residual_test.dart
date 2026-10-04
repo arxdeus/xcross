@@ -3,9 +3,16 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/shared/download/download.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:crypto/crypto.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:darwin_sdk_kit/host/shared/darwin_toolchain_locations.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:darwin_sdk_kit/target/iphone/iphone_build_platform.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/host/linux/update/linux_update_policy.dart';
@@ -656,6 +663,7 @@ void main() {
   );
 }
 
+@internal
 final class ResidualMappedPaths implements HostPathsInterface {
   ResidualMappedPaths(String root, this.files) : base = ResidualPaths(root);
   final ResidualPaths base;
@@ -680,6 +688,7 @@ final class ResidualMappedPaths implements HostPathsInterface {
   String pathKey(String path) => base.pathKey(path);
 }
 
+@internal
 final class ResidualHttpClient implements HttpClient {
   ResidualHttpClient(this.archive, this.manifest);
   final List<int> archive;
@@ -694,6 +703,7 @@ final class ResidualHttpClient implements HttpClient {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+@internal
 final class ResidualHttpRequest implements HttpClientRequest {
   ResidualHttpRequest(this.bytes);
   final List<int> bytes;
@@ -707,6 +717,7 @@ final class ResidualHttpRequest implements HttpClientRequest {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+@internal
 final class ResidualHttpResponse extends Stream<List<int>>
     implements HttpClientResponse {
   ResidualHttpResponse(this.bytes);
@@ -731,6 +742,7 @@ final class ResidualHttpResponse extends Stream<List<int>>
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+@internal
 final class ResidualToolchainLocations
     implements DarwinToolchainLocationsInterface {
   ResidualToolchainLocations(this.directory);
@@ -743,6 +755,7 @@ final class ResidualToolchainLocations
   String get clangInstallationHint => 'fixture compiler';
 }
 
+@internal
 final class ResidualFailingSetupPolicy implements SetupScriptPolicy {
   ResidualFailingSetupPolicy(this.base);
   final SetupScriptPolicy base;

@@ -1,5 +1,7 @@
-import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
+import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
+import 'package:meta/meta.dart';
 
+@internal
 final class WindowsAppleFilePermissions implements AppleFilePermissions {
   const WindowsAppleFilePermissions();
 

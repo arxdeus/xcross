@@ -1,7 +1,10 @@
 import 'dart:io';
 
-import 'package:apple_developer_kit/apple_developer_kit_shared.dart';
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/asc_capabilities.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/artifact/app_capabilities.dart';
 import 'package:xcross/src/shared/artifact/app_entitlements.dart';
@@ -11,13 +14,17 @@ import 'package:xcross/src/shared/compose/project/kmp_project.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/target/shared/compose/compose_target.dart';
 
+@internal
 typedef ComposeCopyDirectory =
     Future<void> Function(Directory source, Directory destination);
 
+@internal
 typedef ComposeMakeExecutable = void Function(String path);
 
+@internal
 typedef ComposeSignSimulator = Future<void> Function(String appPath);
 
+@internal
 typedef ComposeRenameDirectory =
     Future<Directory> Function(Directory source, String newPath);
 
@@ -39,6 +46,7 @@ Future<void> _copyDirectoryNoSymlinks(
   }
 }
 
+@internal
 final class ComposeAppAssembler<T extends PlatformHostInterface> {
   ComposeAppAssembler(this.target, this.runner, {required this.log})
     : _copyDirectory = ((source, destination) => _copyDirectoryNoSymlinks(

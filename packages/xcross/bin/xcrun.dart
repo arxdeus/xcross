@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:xcross/src/composition/xcross_runtime.dart';
+import 'package:xcross/src/composition/native_runtime.dart';
 
 Future<void> main(List<String> arguments) async {
   try {

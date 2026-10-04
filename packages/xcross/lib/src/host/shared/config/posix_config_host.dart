@@ -1,7 +1,9 @@
 import 'dart:io';
 
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/config/config_host.dart';
 
+@internal
 final class PosixConfigHost implements ConfigHostInterface {
   const PosixConfigHost();
 

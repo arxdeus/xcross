@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
@@ -20,9 +22,12 @@ import 'package:xcross/src/shared/flutter/swiftpm/manifest_dependencies.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/plugin_overlay.dart';
 
+@internal
 const String flutterFrameworkPackageName = 'FlutterFramework';
+@internal
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
+@internal
 final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
   SwiftPmWorkspaceStager({
     required this.artifactFileSystem,
@@ -519,5 +524,6 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
   }
 }
 
+@internal
 typedef SwiftPmSourceTransform =
     String Function(String content)? Function(String path);

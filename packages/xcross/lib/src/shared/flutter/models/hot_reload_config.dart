@@ -1,5 +1,8 @@
+import 'package:meta/meta.dart';
+
 /// Paths needed to drive Flutter hot reload, shared by the device launcher and
 /// the hot reload controller.
+@internal
 final class HotReloadConfig {
   const HotReloadConfig({
     required this.dart,

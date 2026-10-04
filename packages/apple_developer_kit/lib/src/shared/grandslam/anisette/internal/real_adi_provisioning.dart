@@ -1,9 +1,12 @@
 import 'dart:typed_data';
 
+import 'package:apple_developer_kit/shared/adi/adi_client.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/adi_provisioning.dart';
 import 'package:apple_developer_kit/src/shared/adi/adi_client.dart';
-import 'package:apple_developer_kit/src/shared/grandslam/anisette/internal/adi_provisioning.dart';
+import 'package:meta/meta.dart';
 
 /// [AdiProvisioning] backed by a real [AdiClient].
+@internal
 final class RealAdiProvisioning implements AdiProvisioning {
   RealAdiProvisioning(this._client);
 

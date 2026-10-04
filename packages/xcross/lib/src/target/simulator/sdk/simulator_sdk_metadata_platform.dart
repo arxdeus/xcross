@@ -1,9 +1,12 @@
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_simulator.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/target/simulator/simulator_build_platform.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/sdk/sdk_metadata_platform.dart';
 
+@internal
 final class SimulatorSdkMetadataPlatform<T extends PlatformHostInterface>
     implements SdkMetadataPlatformInterface<T> {
   const SimulatorSdkMetadataPlatform();

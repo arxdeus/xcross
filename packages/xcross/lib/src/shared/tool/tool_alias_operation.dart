@@ -2,12 +2,16 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/errors/errors.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/tool/mach_o_slices.dart';
 
+@internal
 typedef ToolAliasRun =
     Future<int> Function(String executable, List<String> arguments);
 
+@internal
 final class ToolAliasOperation {
   const ToolAliasOperation(this.runner);
   final ProcessRunner runner;

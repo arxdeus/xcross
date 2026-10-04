@@ -2,12 +2,10 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:archive/archive_io.dart';
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/compose/kotlin_native_class_patches.dart';
 import 'package:xcross/src/shared/compose/kotlin_native_entries.dart';
-
-export 'package:xcross/src/shared/compose/kotlin_native_class_patches.dart';
-export 'package:xcross/src/shared/compose/kotlin_native_entries.dart';
 
 int _le2(Uint8List buf, int off) => buf[off] | (buf[off + 1] << 8);
 
@@ -70,6 +68,7 @@ void _addUnmodifiedEntry(ZipEncoder encoder, ArchiveFile entry) {
   encoder.add(entry);
 }
 
+@internal
 final class KotlinNativeJarPatcher {
   const KotlinNativeJarPatcher(this.files);
   final HostFileSystemInterface files;

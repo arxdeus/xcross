@@ -1,9 +1,12 @@
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 import 'package:analyzer/dart/element/element.dart';
+import 'package:meta/meta.dart';
 
+import 'boundaries.dart';
 import 'inventory.dart';
 
+@internal
 class NativeAcquisitionRules extends RecursiveAstVisitor<void> {
   final String path;
   final List<Violation> violations = [];
@@ -16,11 +19,10 @@ class NativeAcquisitionRules extends RecursiveAstVisitor<void> {
   };
   bool get enabled {
     final parts = path.split('/');
-    return parts.length > 5 &&
-        parts[0] == 'packages' &&
-        parts[2] == 'lib' &&
-        parts[3] == 'src' &&
-        {'shared', 'target'}.contains(parts[4]);
+    final primary = structuralPrimary(path);
+    return primary >= 0 &&
+        primary < parts.length - 1 &&
+        {'shared', 'target'}.contains(parts[primary]);
   }
 
   void reject(AstNode node, Element element) {

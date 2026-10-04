@@ -1,9 +1,13 @@
+import 'package:meta/meta.dart';
+
+@internal
 abstract interface class SwiftPmCheckoutGitPolicy {
   String linkText(String text);
   List<String> get checkoutArguments;
   Future<List<String>> cloneConfiguration();
 }
 
+@internal
 abstract interface class SwiftPmCheckoutFallback {
   Future<bool> materialize(
     String root,

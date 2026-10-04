@@ -1,8 +1,11 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/update/install_layout.dart';
 import 'package:xcross/src/shared/update/update_host_policy.dart';
 
+@internal
 Future<FileSwapOperations> preparePosixUpdate(
   PlatformHostInterface host,
   ProcessRunner runner,
@@ -23,6 +26,7 @@ Future<FileSwapOperations> preparePosixUpdate(
   return ElevatedFileSwapOperations(runner, sudo);
 }
 
+@internal
 final class PosixFileSwapOperations implements FileSwapOperations {
   const PosixFileSwapOperations(this.host);
   final PlatformHostInterface host;
@@ -48,6 +52,7 @@ final class PosixFileSwapOperations implements FileSwapOperations {
   }
 }
 
+@internal
 final class ElevatedFileSwapOperations implements FileSwapOperations {
   const ElevatedFileSwapOperations(this.runner, this.sudo);
   final ProcessRunner runner;

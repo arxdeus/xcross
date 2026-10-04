@@ -1,3 +1,6 @@
+import 'package:meta/meta.dart';
+
+@internal
 Map<String, (String, Set<String>)> declarationFixtures() => {
   'http_top_level_effect': (
     '''import 'package:http/http.dart' as network; Future<void> load(Uri uri) async { await network.get(uri); }''',

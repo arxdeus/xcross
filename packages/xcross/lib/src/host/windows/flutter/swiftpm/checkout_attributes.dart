@@ -1,9 +1,11 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_attributes.dart';
 
+@internal
 final class WindowsSwiftPmCheckoutAttributes
     implements SwiftPmCheckoutAttributes {
   WindowsSwiftPmCheckoutAttributes(this.runner, {required this.fileSystem});

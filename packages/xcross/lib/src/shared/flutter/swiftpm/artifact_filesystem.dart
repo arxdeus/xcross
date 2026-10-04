@@ -1,5 +1,7 @@
 import 'dart:io';
+import 'package:meta/meta.dart';
 
+@internal
 abstract interface class SwiftPmArtifactFileSystem {
   File file(String path);
   Directory directory(String path);

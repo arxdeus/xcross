@@ -10,6 +10,7 @@ import 'dart:ffi';
 import 'package:meta/meta.dart';
 
 /// Wraps an MS-ABI function so Android/SysV callers can invoke it.
+@internal
 @Native<Pointer<Void> Function(Pointer<Void>, Int32)>(
   symbol: 'provision_sysv_wrap_export',
   isLeaf: true,
@@ -17,6 +18,7 @@ import 'package:meta/meta.dart';
 external Pointer<Void> provisionSysvWrapExport(Pointer<Void> msAbiFn, int argc);
 
 /// Wraps a SysV function so Dart/MS-ABI callers can invoke it.
+@internal
 @Native<Pointer<Void> Function(Pointer<Void>, Int32)>(
   symbol: 'provision_sysv_wrap_import',
   isLeaf: true,
@@ -50,12 +52,14 @@ abstract final class SysvAbiBridge {
   }
 }
 
+@internal
 @Native<Void Function(Pointer<Void>, IntPtr)>(
   symbol: 'provision_clear_cache',
   isLeaf: true,
 )
 external void provisionClearCache(Pointer<Void> address, int size);
 
+@internal
 @Native<Pointer<Void> Function(Pointer<Char>)>(
   symbol: 'provision_posix_symbol',
   isLeaf: true,

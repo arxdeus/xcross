@@ -1,18 +1,18 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/host/shared/sdk/preserved_sdk_archive_links.dart';
 import 'package:xcross/src/shared/cli/basic/sdk_install.dart';
+import 'package:xcross/src/shared/sdk/sdk_archive_links.dart';
 import 'package:xcross/src/target/iphone/sdk/iphone_sdk_metadata_platform.dart';
 import 'package:xcross/src/target/simulator/sdk/simulator_sdk_metadata_platform.dart';
 
-export 'package:xcross/src/host/shared/sdk/preserved_sdk_archive_links.dart';
-export 'package:xcross/src/host/windows/sdk/materialized_sdk_archive_links.dart';
-export 'package:xcross/src/target/iphone/sdk/iphone_sdk_metadata_platform.dart';
-export 'package:xcross/src/target/simulator/sdk/simulator_sdk_metadata_platform.dart';
-
+@internal
 final class SdkTestContext {
   SdkTestContext() {
     host = MacOSHost();
@@ -61,6 +61,7 @@ final class SdkTestContext {
       );
 }
 
+@internal
 final class SdkFixtureLogOutput implements LogOutput {
   final List<String> messages = [];
   @override

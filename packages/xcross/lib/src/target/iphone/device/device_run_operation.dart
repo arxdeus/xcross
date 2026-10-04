@@ -1,9 +1,11 @@
-import 'package:apple_developer_kit/apple_developer_kit_shared.dart';
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart'
-    show Device, DeviceSearchMode, DeviceSource, OsVersion, Pymd;
-import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
-    show DeviceSockets;
+import 'package:apple_developer_kit/host/shared/adi/loader/loader.dart';
+import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:dart_mobile_device/shared/device/models/device.dart';
+import 'package:dart_mobile_device/shared/network/device_sockets.dart';
+import 'package:dart_mobile_device/target/iphone/device/os_version.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/device/signing_http_client_factory.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/flutter/hot_reload/vm_service_output.dart';
@@ -13,9 +15,12 @@ import 'package:xcross/src/target/iphone/device/core_device_launch_profile.dart'
 import 'package:xcross/src/target/iphone/device/core_device_launcher.dart';
 import 'package:xcross/src/target/iphone/device/device_backend.dart';
 
+@internal
 typedef OsMajorVersion = Future<int?> Function(Device device);
+@internal
 typedef TerminateInstalledApp =
     Future<void> Function({required String udid, required String bundleId});
+@internal
 typedef LaunchInstalledApp =
     Future<void> Function({
       required String udid,
@@ -24,6 +29,7 @@ typedef LaunchInstalledApp =
       Future<bool> Function()? onRestartRequested,
     });
 
+@internal
 final class DeviceRunOperation {
   DeviceRunOperation({
     required this.log,

@@ -1,11 +1,14 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/build_execution.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/interop_consumer_repair.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/plan_reader.dart';
 
+@internal
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
+@internal
 final class SwiftPmInteropBuildRecovery<T extends PlatformHostInterface> {
   SwiftPmInteropBuildRecovery({
     required this.session,

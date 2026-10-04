@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:crypto/crypto.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
 /// Records the inputs of a Kotlin/Native framework build so an unchanged
@@ -18,6 +19,7 @@ import 'package:path/path.dart' as p;
 /// The stamp covers the module klib, every dependency klib, and the exact
 /// compiler argument list, since a changed flag (configuration, bundle id)
 /// must invalidate just as surely as a changed source.
+@internal
 final class FrameworkBuildStamp {
   const FrameworkBuildStamp({required this.stampPath, required this.files});
 

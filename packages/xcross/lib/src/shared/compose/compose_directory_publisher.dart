@@ -1,10 +1,12 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/compose/compose_install_effects.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
+@internal
 final class ComposeDirectoryPublisher {
   const ComposeDirectoryPublisher({
     required this.files,

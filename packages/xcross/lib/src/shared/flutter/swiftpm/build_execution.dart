@@ -1,5 +1,7 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 
+@internal
 final class SwiftPmBuildCommand {
   SwiftPmBuildCommand({
     required this.executable,
@@ -26,6 +28,7 @@ final class SwiftPmBuildCommand {
   final Map<String, Set<String>> consumerProducts;
 }
 
+@internal
 abstract interface class SwiftPmBuildExecution<
   T extends PlatformHostInterface
 > {
@@ -38,6 +41,7 @@ abstract interface class SwiftPmBuildExecution<
   });
 }
 
+@internal
 abstract interface class SwiftPmInteropBuild {
   SwiftPmBuildCommand get command;
   Future<void> build();

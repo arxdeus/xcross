@@ -3,7 +3,8 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 
-import 'package:darwin_sdk_kit/src/shared/errors/errors.dart';
+import 'package:darwin_sdk_kit/shared/errors/errors.dart';
+import 'package:meta/meta.dart';
 
 /// Apple's fixed nominal pbzx chunk size (16 MiB). A `compressedSize` field
 /// equal to exactly this value marks a chunk stored **raw** (uncompressed).
@@ -25,6 +26,7 @@ const int _lzma2UncompressedNoReset = 0x02;
 /// Decodes the pbzx-framed byte range `[offset, offset + length)` of [file],
 /// yielding the fully decompressed payload — a raw cpio stream — as it
 /// becomes available.
+@internal
 abstract final class PbzxReader {
   /// Decodes chunks one at a time via `package:archive`'s pure-Dart
   /// [XZDecoder]. A raw chunk (`compressedSize == [_pbzxChunkSize]`, or one

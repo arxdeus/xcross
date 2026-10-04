@@ -3,18 +3,27 @@ import 'dart:io';
 
 import 'package:analyzer/dart/analysis/analysis_context_collection.dart';
 import 'package:analyzer/dart/analysis/results.dart';
+import 'package:analyzer/dart/analysis/utilities.dart';
 import 'package:analyzer/dart/ast/ast.dart';
+import 'package:meta/meta.dart';
 
+import 'boundaries.dart';
 import 'declarations.dart';
 import 'export_graph.dart';
 import 'identity.dart';
+import 'internal_policy.dart';
+import 'internal_roles.dart';
 import 'inventory.dart';
 import 'rules.dart';
 import 'workspace_inventory.dart';
 
-export 'inventory.dart';
-
-Future<List<Violation>> inspectFiles(String root, List<String> paths) async {
+@internal
+Future<List<Violation>> inspectFiles(
+  String root,
+  List<String> paths, {
+  Map<String, Map<String, String>> declarationRoles = reviewedDeclarationRoles,
+  Set<String> internalLibraries = reviewedInternalLibraries,
+}) async {
   final collection = AnalysisContextCollection(includedPaths: [root]);
   final violations = <Violation>[];
   final units = <String, CompilationUnit>{};
@@ -28,6 +37,22 @@ Future<List<Violation>> inspectFiles(String root, List<String> paths) async {
           );
         }
         continue;
+      }
+      final parsed = parseString(
+        content: File(absolute).readAsStringSync(),
+        path: absolute,
+        throwIfDiagnostics: false,
+      );
+      violations.addAll(sourcePolicyViolations(path, parsed.unit, root: root));
+      if (parsed.errors.isNotEmpty) {
+        violations.add(
+          Violation(
+            path,
+            'source-parse',
+            parsed.errors.first.offset,
+            'Cannot parse owned Dart source',
+          ),
+        );
       }
       final contexts =
           collection.contexts
@@ -53,7 +78,7 @@ Future<List<Violation>> inspectFiles(String root, List<String> paths) async {
       }
       units[path] = result.unit;
     }
-    final exports = ExportGraph(units);
+    final exports = ExportGraph(units, root: root);
     final identity = IdentityAnalysis();
     for (;;) {
       final count = identity.aliases.values.fold<int>(
@@ -72,6 +97,15 @@ Future<List<Violation>> inspectFiles(String root, List<String> paths) async {
       }
     }
     for (final entry in units.entries) {
+      violations.addAll(
+        internalPolicyViolations(
+          entry.key,
+          entry.value,
+          root: root,
+          roles: declarationRoles,
+          internalLibraries: internalLibraries,
+        ),
+      );
       if (classify(entry.key).kind == 'test') {
         final rules = DeclarationRules(entry.key);
         entry.value.accept(rules);
@@ -88,6 +122,7 @@ Future<List<Violation>> inspectFiles(String root, List<String> paths) async {
   return violations;
 }
 
+@internal
 bool production(String path) {
   final parts = path.split('/');
   if (path.startsWith('.github/')) return true;
@@ -105,6 +140,16 @@ Future<void> main(List<String> args) async {
     throw ArgumentError('Supported option: --report');
   }
   final root = Directory.current.absolute.path;
+  final repository = await Process.run('git', [
+    'rev-parse',
+    '--show-toplevel',
+  ], workingDirectory: root);
+  if (repository.exitCode != 0 ||
+      (repository.stdout as String).trim() != root) {
+    throw StateError(
+      'Architecture CLI requires the exact repository root; use inspectFiles for projections',
+    );
+  }
   final files = await Process.run('git', [
     'ls-files',
     '-z',
@@ -121,11 +166,7 @@ Future<void> main(List<String> args) async {
           .where(
             (p) =>
                 production(p) ||
-                p.startsWith('packages/') &&
-                    p.split('/').length > 2 &&
-                    workspacePackages.contains(p.split('/')[1]) &&
-                    p.split('/')[2] == 'test' &&
-                    p.endsWith('.dart'),
+                p.endsWith('.dart') && !p.startsWith('examples/'),
           )
           .where((p) => File('$root/$p').existsSync())
           .toSet()

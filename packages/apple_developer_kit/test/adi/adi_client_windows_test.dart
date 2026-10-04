@@ -4,7 +4,8 @@ library;
 import 'dart:ffi';
 import 'dart:io';
 
-import 'package:apple_developer_kit/apple_developer_kit.dart';
+import 'package:apple_developer_kit/shared/adi/apk_fetch.dart';
+import 'package:apple_developer_kit/src/shared/adi/adi_client.dart';
 import 'package:http/http.dart' as http;
 import 'package:test/test.dart';
 

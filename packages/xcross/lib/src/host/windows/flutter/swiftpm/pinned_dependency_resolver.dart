@@ -1,4 +1,6 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
@@ -8,6 +10,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.d
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_dependencies.dart';
 
+@internal
 final class WindowsSwiftPmPinnedDependencyResolver<
   T extends PlatformHostInterface
 > {

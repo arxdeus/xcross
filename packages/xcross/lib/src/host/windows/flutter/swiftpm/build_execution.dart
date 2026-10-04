@@ -1,9 +1,12 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/windows_swift_plan_repair.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/build_execution.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/interop_consumer_repair.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/source_repair.dart';
 
+@internal
 final class WindowsSwiftPmBuildExecution<T extends PlatformHostInterface>
     implements SwiftPmBuildExecution<T> {
   WindowsSwiftPmBuildExecution({

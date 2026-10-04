@@ -1,10 +1,12 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 
 /// Locate a usable clang pair, including versioned binaries that are not the
 /// default `clang` on PATH. Do not mistake an old unversioned clang for a new
 /// versioned one.
+@internal
 final class ClangRequirement {
   const ClangRequirement(this.runner);
 

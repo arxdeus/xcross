@@ -1,8 +1,10 @@
 import 'dart:io';
 
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/config/config_host.dart';
 
+@internal
 final class WindowsConfigHost implements ConfigHostInterface {
   const WindowsConfigHost();
 

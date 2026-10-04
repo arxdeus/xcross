@@ -1,5 +1,7 @@
+import 'package:meta/meta.dart';
 import 'package:xml/xml.dart';
 
+@internal
 abstract final class PlistXml {
   /// The value element following `<key>[name]</key>` in [dict], or null.
   static XmlElement? valueFor(XmlElement dict, String name) {

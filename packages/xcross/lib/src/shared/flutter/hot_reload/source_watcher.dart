@@ -1,10 +1,12 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
 /// Tracks which `lib/` `.dart` files changed between compiles, so a hot reload
 /// only recompiles what the user actually edited.
+@internal
 final class SourceWatcher {
   SourceWatcher(
     this.projectRoot, {

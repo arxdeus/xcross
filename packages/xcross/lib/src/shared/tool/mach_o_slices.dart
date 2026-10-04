@@ -1,5 +1,7 @@
 import 'dart:typed_data';
+import 'package:meta/meta.dart';
 
+@internal
 (int, int)? arm64SliceRange(Uint8List bytes, {int? fileLength}) {
   if (bytes.length < 8) return null;
   final data = ByteData.sublistView(bytes);

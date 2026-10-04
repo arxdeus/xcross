@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
@@ -18,11 +19,12 @@ import 'package:xcross/src/shared/flutter/build/swiftpm_binary_artifact_store.da
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_target.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_destination_publisher.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_offline_publisher.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/gate_evidence.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/gate_mode.dart';
 
 import 'swiftpm_test_context.dart';
 
@@ -1375,6 +1377,7 @@ void main() {
   });
 }
 
+@internal
 Future<List<File>> stagingFiles(SwiftPmBinaryArtifactStore store) async {
   final staging = Directory(p.join(store.root, '.staging'));
   if (!staging.existsSync()) return const [];
@@ -1384,6 +1387,7 @@ Future<List<File>> stagingFiles(SwiftPmBinaryArtifactStore store) async {
   ];
 }
 
+@internal
 void copyDirectorySync(String source, String destination) {
   for (final entity in Directory(source).listSync(recursive: true)) {
     final relative = p.relative(entity.path, from: source);
@@ -1397,6 +1401,7 @@ void copyDirectorySync(String source, String destination) {
   }
 }
 
+@internal
 void expectMaterializationAbsent(String destination) {
   expect(
     FileSystemEntity.typeSync(destination, followLinks: false),
@@ -1412,6 +1417,7 @@ void expectMaterializationAbsent(String destination) {
   );
 }
 
+@internal
 void writeAliasMarker(String alias, String target, {String suffix = ''}) {
   File('$alias.xcross-alias.json$suffix').writeAsStringSync(
     jsonEncode({
@@ -1421,12 +1427,14 @@ void writeAliasMarker(String alias, String target, {String suffix = ''}) {
   );
 }
 
+@internal
 final windowsGateSkip = !Platform.isWindows
     ? 'Windows-only SwiftPM junction feasibility gate'
     : (Platform.environment['XCROSS_SWIFT_SDKS_PATH'] == null
           ? 'XCROSS_SWIFT_SDKS_PATH is unavailable'
           : false);
 
+@internal
 Directory createRawXcframework(Directory temp, String name) {
   final framework = Directory(p.join(temp.path, '$name.xcframework'));
   File(p.join(framework.path, 'Info.plist'))
@@ -1449,12 +1457,14 @@ Directory createRawXcframework(Directory temp, String name) {
   return framework;
 }
 
+@internal
 Uint8List emptyMachO() {
   final bytes = Uint8List(32);
   ByteData.sublistView(bytes).setUint32(0, 0xfeedfacf, Endian.little);
   return bytes;
 }
 
+@internal
 File writeRawXcframeworkZip(Directory temp, Directory fixture, String name) {
   final archive = Archive();
   for (final entity in fixture.listSync(recursive: true)) {
@@ -1467,6 +1477,7 @@ File writeRawXcframeworkZip(Directory temp, Directory fixture, String name) {
   return writeArchive(temp, name, archive);
 }
 
+@internal
 const defaultLibraries = <Map<String, Object?>>[
   {
     'LibraryIdentifier': 'ios-arm64_armv7',
@@ -1483,12 +1494,14 @@ const defaultLibraries = <Map<String, Object?>>[
   },
 ];
 
+@internal
 Map<String, Object?> xcframeworkPlist(List<Map<String, Object?>> libraries) => {
   'AvailableLibraries': libraries,
   'CFBundlePackageType': 'XFWK',
   'XCFrameworkFormatVersion': '1.0',
 };
 
+@internal
 List<ArchiveFile> xcframeworkEntries(
   String name,
   List<Map<String, Object?>> libraries, {
@@ -1516,6 +1529,7 @@ List<ArchiveFile> xcframeworkEntries(
   return files;
 }
 
+@internal
 ArchiveFixture createFixture(
   Directory temp,
   String name,
@@ -1534,6 +1548,7 @@ ArchiveFixture createFixture(
   return ArchiveFixture(file, target(name, checksum));
 }
 
+@internal
 void markZipEntryAsUnix(File file, String name) {
   final bytes = file.readAsBytesSync();
   final encodedName = utf8.encode(name);
@@ -1562,6 +1577,7 @@ bool _bytesEqual(List<int> left, List<int> right) {
   return true;
 }
 
+@internal
 void corruptZipEntry(File file, String name) {
   final bytes = file.readAsBytesSync();
   final encodedName = utf8.encode(name);
@@ -1582,6 +1598,7 @@ void corruptZipEntry(File file, String name) {
   fail('ZIP entry not found: $name');
 }
 
+@internal
 void replaceAscii(File file, String from, String to) {
   final bytes = file.readAsBytesSync();
   final source = ascii.encode(from);
@@ -1601,18 +1618,21 @@ void replaceAscii(File file, String from, String to) {
   file.writeAsBytesSync(bytes);
 }
 
+@internal
 void addEntries(Archive archive, Iterable<ArchiveFile> entries) {
   for (final entry in entries) {
     archive.addFile(entry);
   }
 }
 
+@internal
 File writeArchive(Directory temp, String name, Archive archive) {
   final file = File(p.join(temp.path, name));
   file.writeAsBytesSync(ZipEncoder().encode(archive));
   return file;
 }
 
+@internal
 SwiftPmRemoteBinaryTarget target(String name, String checksum) =>
     SwiftPmRemoteBinaryTarget(
       name: name,
@@ -1624,12 +1644,14 @@ SwiftPmRemoteBinaryTarget target(String name, String checksum) =>
       end: 1,
     );
 
+@internal
 Map<Object?, Object?> readPlist(String path) =>
     PropertyListSerialization.propertyListWithString(
           File(path).readAsStringSync(),
         )
         as Map<Object?, Object?>;
 
+@internal
 Matcher throwsBuildErrorContaining(String text) => throwsA(
   isA<FlutterBuildError>().having(
     (error) => error.toString().toLowerCase(),
@@ -1638,6 +1660,7 @@ Matcher throwsBuildErrorContaining(String text) => throwsA(
   ),
 );
 
+@internal
 final class ArchiveFixture {
   const ArchiveFixture(this.file, this.target);
 
@@ -1645,6 +1668,7 @@ final class ArchiveFixture {
   final SwiftPmRemoteBinaryTarget target;
 }
 
+@internal
 final class FakeProcess implements BinaryCopyProcess {
   FakeProcess({this.exitValue, this.stdoutText = '', this.stderrText = ''});
 
@@ -1674,6 +1698,7 @@ final class FakeProcess implements BinaryCopyProcess {
   Stream<List<int>> get stderr => Stream.value(utf8.encode(stderrText));
 }
 
+@internal
 final class FakeBinaryCopyProcess implements BinaryCopyProcess {
   FakeBinaryCopyProcess({
     this.killResult = true,
@@ -1713,6 +1738,7 @@ final class FakeBinaryCopyProcess implements BinaryCopyProcess {
   Stream<List<int>> get stderr => const Stream.empty();
 }
 
+@internal
 final class CallbackSwiftPmArchiveTransport implements SwiftPmArchiveTransport {
   const CallbackSwiftPmArchiveTransport(this.callback);
   final Future<void> Function(Uri, File, int) callback;
@@ -1721,6 +1747,7 @@ final class CallbackSwiftPmArchiveTransport implements SwiftPmArchiveTransport {
       callback(url, destination, maximumBytes);
 }
 
+@internal
 final class FailingQuarantineFileSystem implements SwiftPmArtifactFileSystem {
   const FailingQuarantineFileSystem(this.delegate);
   final SwiftPmArtifactFileSystem delegate;
@@ -1750,6 +1777,7 @@ final class FailingQuarantineFileSystem implements SwiftPmArtifactFileSystem {
   String processPath(String path) => delegate.processPath(path);
 }
 
+@internal
 final class FailingQuarantineFile implements File {
   const FailingQuarantineFile(this.path);
   @override

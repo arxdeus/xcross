@@ -1,8 +1,9 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
-import 'package:apple_developer_kit/src/shared/errors/errors.dart';
+import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
+import 'package:apple_developer_kit/shared/errors/errors.dart';
+import 'package:apple_developer_kit/shared/signing/signing_asset.dart';
 import 'package:apple_developer_kit/src/shared/signing/bundle_paths.dart';
 import 'package:apple_developer_kit/src/shared/signing/bundle_tree.dart';
 import 'package:apple_developer_kit/src/shared/signing/bytes.dart';
@@ -12,9 +13,10 @@ import 'package:apple_developer_kit/src/shared/signing/internal/loose_binary.dar
 import 'package:apple_developer_kit/src/shared/signing/internal/resolved_bundle.dart';
 import 'package:apple_developer_kit/src/shared/signing/macho_signer.dart';
 import 'package:apple_developer_kit/src/shared/signing/plist.dart';
-import 'package:apple_developer_kit/src/shared/signing/signing_asset.dart';
-import 'package:cli_kit/cli_kit_shared.dart' show HostFileSystemInspection;
+import 'package:cli_kit/shared/platform/file_system_inspection.dart';
+import 'package:meta/meta.dart';
 
+@internal
 class BundleInspector {
   BundleInspector({
     required this.asset,

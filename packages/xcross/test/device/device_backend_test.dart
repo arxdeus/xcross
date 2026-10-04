@@ -2,9 +2,19 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 
-import 'package:apple_developer_kit/apple_developer_kit.dart';
-import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:apple_developer_kit/composition/apple_host.dart';
+import 'package:apple_developer_kit/shared/adi/apk_fetch.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_provider.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/grandslam_endpoints.dart';
+import 'package:apple_developer_kit/shared/grandslam/app_token_exchange.dart';
+import 'package:apple_developer_kit/shared/grandslam/grandslam_session_store.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/host/shared/posix_privileges.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:dart_mobile_device/host/macos/macos_device_host.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
@@ -159,6 +169,7 @@ GrandSlamSession _session(String? directory) => GrandSlamSession(
   adiLibraryDirectory: directory,
 );
 
+@internal
 final class NoIoAnisetteProvider implements AnisetteProvider {
   @override
   Future<Map<String, String>> fetchAnisetteHeaders() =>

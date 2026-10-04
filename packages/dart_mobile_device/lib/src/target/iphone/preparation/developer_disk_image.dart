@@ -1,7 +1,9 @@
+import 'package:dart_mobile_device/shared/errors/errors.dart';
 import 'package:dart_mobile_device/src/shared/device/models/tunnel.dart';
-import 'package:dart_mobile_device/src/shared/errors/errors.dart';
-import 'package:dart_mobile_device/src/target/iphone/device/pymd/pymd.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd.dart';
+import 'package:meta/meta.dart';
 
+@internal
 final class DeveloperDiskImage {
   const DeveloperDiskImage(this.pymd, {required this.describeFailure});
   final Pymd pymd;

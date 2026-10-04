@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:meta/meta.dart';
 
 /// What `o=init` hands back: everything needed to answer the challenge.
+@internal
 @immutable
 final class SrpChallenge {
   const SrpChallenge({

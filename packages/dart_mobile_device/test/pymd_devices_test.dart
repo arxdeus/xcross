@@ -1,6 +1,6 @@
-import 'package:dart_mobile_device/src/shared/device/models/device.dart';
-import 'package:dart_mobile_device/src/shared/errors/errors.dart';
-import 'package:dart_mobile_device/src/target/iphone/device/pymd/pymd_devices.dart';
+import 'package:dart_mobile_device/shared/device/models/device.dart';
+import 'package:dart_mobile_device/shared/errors/errors.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd_devices.dart';
 import 'package:test/test.dart';
 
 void main() {

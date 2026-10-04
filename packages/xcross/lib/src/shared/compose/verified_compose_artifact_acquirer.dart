@@ -1,10 +1,12 @@
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/compose/compose_install_effects.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
+@internal
 final class VerifiedComposeArtifactAcquirer {
   const VerifiedComposeArtifactAcquirer({
     required this.downloadToFile,
@@ -37,5 +39,6 @@ final class VerifiedComposeArtifactAcquirer {
       extractArchive(archive, destination);
 }
 
+@internal
 Future<String> digestComposeArtifact(File file) =>
     sha256.bind(file.openRead()).first.then((digest) => digest.toString());

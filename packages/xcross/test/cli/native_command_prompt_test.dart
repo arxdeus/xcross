@@ -1,11 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:meta/meta.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/host/shared/cli/native_command_prompt.dart';
 import 'package:xcross/src/shared/cli/command_prompt.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
+@internal
 final class PromptTestInput implements Stdin {
   PromptTestInput({
     required this.events,
@@ -73,6 +75,7 @@ final class PromptTestInput implements Stdin {
   Object? noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+@internal
 final class PromptTestSink implements StringSink {
   PromptTestSink({required this.events, this.failures = const {}});
 
@@ -105,6 +108,7 @@ final class PromptTestSink implements StringSink {
   void writeCharCode(int charCode) => buffer.writeCharCode(charCode);
 }
 
+@internal
 Matcher promptError(String message) =>
     isA<XcrossError>().having((error) => error.message, 'message', message);
 

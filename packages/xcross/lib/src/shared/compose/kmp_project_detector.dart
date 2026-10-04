@@ -1,6 +1,8 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/compose/gradle_kmp_metadata.dart';
 import 'package:xcross/src/shared/compose/kmp_entry_discovery.dart';
@@ -8,6 +10,7 @@ import 'package:xcross/src/shared/compose/project/ios_app_config.dart';
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
+@internal
 final class KmpProjectDetector {
   KmpProjectDetector({
     required this.files,
@@ -129,6 +132,7 @@ final class KmpProjectDetector {
 String _capitalize(String value) =>
     value.isEmpty ? value : value[0].toUpperCase() + value.substring(1);
 
+@internal
 final class ComposeIdentity {
   const ComposeIdentity(this.bundleId, this.appName);
   final String bundleId;

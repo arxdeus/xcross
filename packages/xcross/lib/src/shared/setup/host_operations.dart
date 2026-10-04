@@ -1,7 +1,9 @@
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
 import 'package:xcross/src/shared/setup/setup_script_policy.dart';
 import 'package:xcross/src/shared/update/update_host_policy.dart';
 
+@internal
 final class HostOperations {
   const HostOperations({
     required this.setupScript,

@@ -1,8 +1,10 @@
-import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
-    show DeviceSearchMode;
+import 'package:dart_mobile_device/shared/device/models/device.dart';
+import 'package:meta/meta.dart';
 
+@internal
 enum DeviceConnection { attached, wireless, both }
 
+@internal
 DeviceSearchMode deviceSearchMode({
   required bool usb,
   required bool wifi,

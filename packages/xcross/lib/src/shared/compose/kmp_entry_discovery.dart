@@ -1,10 +1,12 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
+@internal
 final class ComposeCandidate {
   const ComposeCandidate(
     this.moduleName,
@@ -18,6 +20,7 @@ final class ComposeCandidate {
   final bool isStaticFramework;
 }
 
+@internal
 final class ComposeEntryResult {
   const ComposeEntryResult(
     this.kind, {
@@ -35,6 +38,7 @@ final class ComposeEntryResult {
   final Set<String> swiftImports;
 }
 
+@internal
 final class KmpEntryDiscovery {
   const KmpEntryDiscovery(this.files);
   final HostFileSystemInterface files;

@@ -1,14 +1,19 @@
+@internal
+library;
+
 import 'package:build_cli_annotations/build_cli_annotations.dart';
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart' show Pymd;
-import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
-    show DeviceSearchMode, DeviceSockets;
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:dart_mobile_device/shared/device/models/device.dart';
+import 'package:dart_mobile_device/shared/network/device_sockets.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/composition/cli/flutter_build_command.dart';
 import 'package:xcross/src/composition/ios_target.dart';
 import 'package:xcross/src/shared/cli/device_selection.dart';
 import 'package:xcross/src/shared/cli/internal/parsed_command.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
-import 'package:xcross/src/shared/flutter/flutter.dart';
+import 'package:xcross/src/shared/flutter/build/flutter_pack_operation.dart';
+import 'package:xcross/src/shared/flutter/build/hot_reload_setup.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 import 'package:xcross/src/target/iphone/device/core_device_launch_profile.dart';
 import 'package:xcross/src/target/iphone/device/device_run_operation.dart';
@@ -17,6 +22,7 @@ import 'package:xcross/src/target/shared/runtime/build_features.dart';
 part 'flutter_run_command.g.dart';
 
 /// Options for `xcross flutter run`.
+@internal
 @CliOptions()
 final class FlutterRunArgs extends CommonFlutterArgs {
   @CliOption(abbr: 'd', help: 'Target device id or name (flutter-style).')
@@ -52,6 +58,7 @@ final class FlutterRunArgs extends CommonFlutterArgs {
 ///
 /// Always builds a debug (JIT) app and always launches with hot reload (the
 /// flutter default).
+@internal
 final class FlutterRunCommand<T extends PlatformHostInterface>
     extends ParsedCommand<FlutterRunArgs, void> {
   @override

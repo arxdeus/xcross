@@ -1,5 +1,9 @@
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:darwin_sdk_kit/target/shared/ios_target.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/host_symlink_capability.dart';
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_capabilities.dart';
@@ -48,6 +52,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/toolchain.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/workspace_stager.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
+@internal
 final class SwiftPmRuntime<T extends PlatformHostInterface> {
   SwiftPmRuntime(
     this.targetPolicy,

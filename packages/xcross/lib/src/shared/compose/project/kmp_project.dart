@@ -1,7 +1,10 @@
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/compose/project/ios_app_config.dart';
 
+@internal
 enum KmpEntryKind { runnableApp, swiftApp, frameworkOnly }
 
+@internal
 final class KmpProject {
   const KmpProject({
     required this.root,

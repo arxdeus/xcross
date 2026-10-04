@@ -1,4 +1,4 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
 
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
@@ -6,6 +6,7 @@ import 'package:xcross/src/shared/flutter/build/ios_plugins.dart';
 import 'package:yaml/yaml.dart';
 
 /// One plugin that registers itself from Dart rather than from native code.
+@internal
 @immutable
 final class DartPluginRegistration {
   const DartPluginRegistration({
@@ -62,6 +63,7 @@ final class DartPluginRegistration {
 ///
 /// Mirrors `generateMainDartWithPluginRegistrant` in flutter_tools'
 /// `flutter_plugins.dart`.
+@internal
 final class DartPluginRegistrant {
   DartPluginRegistrant(this.fileSystem);
   final HostFileSystemInterface fileSystem;

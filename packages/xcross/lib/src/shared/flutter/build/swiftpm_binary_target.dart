@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'package:meta/meta.dart';
 
+@internal
 final class SwiftPmRemoteBinaryTarget {
   const SwiftPmRemoteBinaryTarget({
     required this.name,
@@ -16,6 +18,7 @@ final class SwiftPmRemoteBinaryTarget {
   final int end;
 }
 
+@internal
 abstract final class SwiftPmBinaryTargetManifest {
   static final _checksumPattern = RegExp(r'^[0-9a-fA-F]{64}$');
 
@@ -95,6 +98,7 @@ abstract final class SwiftPmBinaryTargetManifest {
   }
 }
 
+@internal
 final class BinaryTargetDeclaration {
   const BinaryTargetDeclaration({
     required this.name,
@@ -111,6 +115,7 @@ final class BinaryTargetDeclaration {
   final int end;
 }
 
+@internal
 final class SwiftManifestParser {
   SwiftManifestParser(this.source) : _code = _buildCodeMask(source);
 

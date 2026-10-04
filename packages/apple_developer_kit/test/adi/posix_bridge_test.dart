@@ -9,11 +9,13 @@ import 'package:apple_developer_kit/src/host/shared/adi/elf/elf_loaded_library.d
 import 'package:apple_developer_kit/src/host/shared/adi/loader/internal/sysv_abi_bridge.dart';
 import 'package:apple_developer_kit/src/shared/adi/adi_architecture.dart';
 import 'package:ffi/ffi.dart';
+import 'package:meta/meta.dart';
 import 'package:test/test.dart';
 
 import '../support/host_services.dart';
 import 'support/elf_fixture.dart';
 
+@internal
 Pointer<Void> symbol(String name) => using(
   (arena) => provisionPosixSymbol(name.toNativeUtf8(allocator: arena).cast()),
 );

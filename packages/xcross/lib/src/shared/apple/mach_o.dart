@@ -1,8 +1,11 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:meta/meta.dart';
 
+@internal
 typedef InvalidMachO = Never Function(String message);
 
+@internal
 abstract final class MachOConstants {
   static const magic64 = 0xFEED_FACF;
   static const cpuTypeArm64 = 0x0100_000c;
@@ -12,6 +15,7 @@ abstract final class MachOConstants {
   static const headerSize64 = 32;
 }
 
+@internal
 final class MachOFile {
   MachOFile._({
     required this.bytes,
@@ -165,6 +169,7 @@ final class MachOFile {
       start >= 0 && size >= 0 && start <= end && size <= end - start;
 }
 
+@internal
 final class MachOLoadCommand {
   const MachOLoadCommand({
     required this.index,
@@ -179,6 +184,7 @@ final class MachOLoadCommand {
   final int size;
 }
 
+@internal
 final class MachOSection {
   const MachOSection({
     required this.segment,
@@ -195,6 +201,7 @@ final class MachOSection {
   final int fileOffset;
 }
 
+@internal
 final class MachOSymbolTable {
   const MachOSymbolTable({
     required this.file,
@@ -232,6 +239,7 @@ final class MachOSymbolTable {
   }
 }
 
+@internal
 final class MachOSymbol {
   const MachOSymbol({
     required this.stringIndex,

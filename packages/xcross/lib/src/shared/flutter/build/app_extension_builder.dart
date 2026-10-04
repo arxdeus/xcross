@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/ios_app_extensions.dart';
@@ -13,6 +13,7 @@ import 'package:xcross/src/shared/flutter/extensions/app_extension_resources.dar
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 
 /// A built `.appex` bundle staged outside the host app.
+@internal
 @immutable
 final class BuiltAppExtension {
   const BuiltAppExtension({required this.extension, required this.bundlePath});
@@ -34,6 +35,7 @@ final class BuiltAppExtension {
 /// `receive_sharing_intent`'s `RSIShareViewController`), resolving those at
 /// runtime through `@executable_path/../../Frameworks`, which points back into
 /// the host app's `Frameworks` directory.
+@internal
 final class AppExtensionBuilder<T extends PlatformHostInterface> {
   AppExtensionBuilder(this.runtime, this.resources);
   final FlutterBuildRuntime<T> runtime;

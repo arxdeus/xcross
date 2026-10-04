@@ -1,6 +1,10 @@
 import 'dart:convert';
-import 'inventory.dart';
 
+import 'package:meta/meta.dart';
+
+import 'boundaries.dart';
+
+@internal
 List<Violation> workspaceViolations(String manifest, Iterable<String> files) {
   final violations = <Violation>[];
   final declared = <String>{};

@@ -1,5 +1,6 @@
 import 'package:archive/archive.dart';
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/update/internal/archive_entry_path.dart';
 
@@ -8,6 +9,7 @@ import 'package:xcross/src/shared/update/internal/archive_entry_path.dart';
 /// A downloaded archive is untrusted input, so every entry is validated before
 /// it becomes a path and anything outside the two payload directories is
 /// ignored rather than written.
+@internal
 final class ReleasePayload {
   const ReleasePayload(this.host);
 

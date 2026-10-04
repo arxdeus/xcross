@@ -2,8 +2,17 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
+import 'package:darwin_sdk_kit/host/linux/linux_darwin_toolchain_locations.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:darwin_sdk_kit/target/iphone/iphone_target.dart';
+import 'package:darwin_sdk_kit/target/shared/ios_target.dart';
+import 'package:darwin_sdk_kit/target/simulator/simulator_build_platform.dart';
+import 'package:darwin_sdk_kit/target/simulator/simulator_target.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/host/linux/flutter/native_host_tools.dart';
@@ -19,8 +28,7 @@ import 'package:xcross/src/shared/packages/package_config_resolver.dart';
 import 'package:xcross/src/target/simulator/flutter/simulator_flutter_target.dart';
 
 import '../../host_operations_fixtures.dart';
-import 'macho_linkedit_aligner_test.dart'
-    show buildMachO, readSymtab, stringTable;
+import 'macho_linkedit_aligner_test.dart';
 import 'support/native_asset_framework_fixtures.dart';
 import 'support/native_flutter_fixtures.dart';
 
@@ -593,6 +601,7 @@ List<String> _dylibNames(Uint8List bytes) {
   return names;
 }
 
+@internal
 NativeAssetsHookDiscovery nativeHookDiscovery() {
   final host = LinuxHost(
     currentDirectory: Directory.current.path,

@@ -1,13 +1,30 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/composition/native_host.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/host/shared/posix_privileges.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
+import 'package:cli_kit/host/windows/windows_privileges.dart';
+import 'package:cli_kit/shared/errors/errors.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_executor.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
+import 'package:cli_kit/shared/process/tool_lookup.dart';
+import 'package:cli_kit/src/host/shared/posix_processes.dart';
+import 'package:cli_kit/src/host/windows/windows_file_system.dart';
+import 'package:cli_kit/src/host/windows/windows_processes.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import 'support/test_log_output.dart';
 import 'support/test_process_io.dart';
 
+@internal
 final class RecordingProcesses implements HostProcessInterface {
   RecordingProcesses(this.delegate);
   final HostProcessInterface delegate;
@@ -60,6 +77,7 @@ final class RecordingProcesses implements HostProcessInterface {
   );
 }
 
+@internal
 final class UnownedTestProcess implements Process {
   bool killed = false;
   @override

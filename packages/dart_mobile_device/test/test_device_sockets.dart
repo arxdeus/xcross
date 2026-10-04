@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dart_mobile_device/src/shared/network/device_sockets.dart';
+import 'package:dart_mobile_device/shared/network/device_sockets.dart';
+import 'package:meta/meta.dart';
 
+@internal
 final class TestDeviceSockets implements DeviceSockets {
   TestDeviceSockets({
     this.destination,

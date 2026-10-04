@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:meta/meta.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
 
@@ -50,6 +51,7 @@ void main() {
   );
 }
 
+@internal
 final class FailingPublicationLockProvider
     implements SwiftPmPublicationLockProvider {
   FailingPublicationLockProvider(this.phase);
@@ -65,6 +67,7 @@ final class FailingPublicationLockProvider
   }
 }
 
+@internal
 final class FailingPublicationLock implements SwiftPmPublicationLock {
   const FailingPublicationLock(this.provider, {required this.fail});
   final FailingPublicationLockProvider provider;

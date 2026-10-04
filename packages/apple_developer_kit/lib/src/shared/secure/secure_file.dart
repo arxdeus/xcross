@@ -6,8 +6,8 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
-import 'package:apple_developer_kit/src/shared/errors/errors.dart';
+import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
+import 'package:apple_developer_kit/shared/errors/errors.dart';
 import 'package:meta/meta.dart';
 
 /// Filesystem helpers that keep secret files out of other users' reach.
@@ -20,6 +20,7 @@ import 'package:meta/meta.dart';
 ///
 /// Windows has no POSIX mode bits and `dart:io` exposes no ACL API, so
 /// hardening is a no-op there; `%APPDATA%` is already per-user.
+@internal
 final class SecureFile {
   SecureFile({required this.hostServices});
   final AppleHostServices hostServices;

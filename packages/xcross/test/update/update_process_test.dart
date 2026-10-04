@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:cli_kit/cli_kit.dart';
 
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/update/internal/update_process.dart';
+
 import '../host_operations_fixtures.dart';
 
 Future<List<String>> _captureAsync(Future<void> Function() body) async {
@@ -24,6 +26,7 @@ Future<List<String>> _captureAsync(Future<void> Function() body) async {
   return sink.lines;
 }
 
+@internal
 final class FixtureLineCaptureStdout implements Stdout {
   final _lines = <String>[];
   final _buffer = StringBuffer();

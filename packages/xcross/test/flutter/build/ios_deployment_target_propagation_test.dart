@@ -1,4 +1,5 @@
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:darwin_sdk_kit/target/iphone/iphone_build_platform.dart';
+import 'package:darwin_sdk_kit/target/simulator/simulator_build_platform.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/flutter/build/flutter_debug_bundler.dart';
 import 'package:xcross/src/shared/flutter/build/internal/toolchain.dart';

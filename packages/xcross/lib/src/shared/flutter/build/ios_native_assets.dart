@@ -1,7 +1,8 @@
 import 'dart:convert';
 
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/target/shared/ios_target.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer.dart';
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
@@ -15,6 +16,7 @@ import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/dart_defines.dart';
 
 /// Native code assets produced by Flutter's Dart build-hook pipeline.
+@internal
 @immutable
 final class IosNativeAssetsBuildResult {
   const IosNativeAssetsBuildResult({
@@ -28,6 +30,7 @@ final class IosNativeAssetsBuildResult {
 
 /// Runs Flutter's iOS asset assembly to collect native assets and notices
 /// without replacing xcross's custom kernel/App.framework build.
+@internal
 final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
   IosNativeAssetsBuilder({
     required this.engineCache,

@@ -1,13 +1,15 @@
-import 'package:apple_developer_kit/apple_developer_kit_shared.dart'
-    show AppleError;
+import 'package:apple_developer_kit/shared/errors/errors.dart';
 import 'package:args/command_runner.dart';
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/errors/errors.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/tui/tui.dart';
 import 'package:completion/completion.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart'
-    show DevicePrepare, PymdDeviceDiagnostics;
-import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
-    show TunnelError;
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:dart_mobile_device/shared/errors/errors.dart';
+import 'package:dart_mobile_device/target/iphone/device/device_prepare.dart';
+import 'package:dart_mobile_device/target/iphone/diagnostics/pymd_device_diagnostics.dart';
+import 'package:darwin_sdk_kit/shared/errors/errors.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/composition/cli/compose_command.dart';
 import 'package:xcross/src/composition/cli/doctor_project_checks.dart';
 import 'package:xcross/src/composition/cli/flutter_command.dart';
@@ -19,6 +21,7 @@ import 'package:xcross/src/shared/cli/basic/completion_command.dart';
 import 'package:xcross/src/shared/cli/basic/config_command.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_command.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_environment_checks.dart';
+import 'package:xcross/src/shared/cli/basic/doctor_examiner.dart';
 import 'package:xcross/src/shared/cli/basic/sdk_command.dart';
 import 'package:xcross/src/shared/cli/basic/setup_command.dart';
 import 'package:xcross/src/shared/cli/basic/update_command.dart';
@@ -26,14 +29,16 @@ import 'package:xcross/src/shared/cli/ide/ide_command.dart';
 import 'package:xcross/src/shared/cli/ide/xcross_executable.dart';
 import 'package:xcross/src/shared/cli/internal/xcross_runner.dart';
 import 'package:xcross/src/shared/config/config.dart';
+import 'package:xcross/src/shared/config/config_store.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
-import 'package:xcross/src/shared/flutter/flutter.dart' show FlutterBuildError;
+import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/update/install_layout.dart';
 import 'package:xcross/src/shared/update/self_update.dart';
 import 'package:xcross/src/shared/update/update_check.dart';
 import 'package:xcross/src/target/iphone/cli/basic/tunnel_command.dart';
 
 /// Namespace for building and running the xcross CLI.
+@internal
 abstract final class XcrossCli {
   static CommandRunner<void> buildRunner<T extends PlatformHostInterface>(
     XcrossApplication<T> application, {

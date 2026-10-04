@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/src/host/shared/owned_processes.dart';
-import 'package:cli_kit/src/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 
+@internal
 final class PosixProcesses implements HostProcessInterface {
   PosixProcesses({required this.paths});
   final HostPathsInterface paths;

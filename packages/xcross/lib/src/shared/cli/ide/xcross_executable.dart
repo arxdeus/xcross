@@ -1,5 +1,8 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 
+@internal
 final class XcrossIdeLauncher {
   XcrossIdeLauncher({
     required this.log,

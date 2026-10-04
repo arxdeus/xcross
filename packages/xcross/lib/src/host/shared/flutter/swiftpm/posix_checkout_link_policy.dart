@@ -1,11 +1,13 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_graph.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_link_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 
+@internal
 final class PosixSwiftPmCheckoutGitPolicy implements SwiftPmCheckoutGitPolicy {
   const PosixSwiftPmCheckoutGitPolicy();
   @override
@@ -16,6 +18,7 @@ final class PosixSwiftPmCheckoutGitPolicy implements SwiftPmCheckoutGitPolicy {
   Future<List<String>> cloneConfiguration() async => const [];
 }
 
+@internal
 final class PosixSwiftPmCheckoutFallback<T extends PlatformHostInterface>
     implements SwiftPmCheckoutFallback {
   const PosixSwiftPmCheckoutFallback({

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:code_assets/code_assets.dart';
 import 'package:hooks/hooks.dart';
 import 'package:logging/logging.dart';
+import 'package:meta/meta.dart';
 import 'package:native_toolchain_c/native_toolchain_c.dart';
 
 /// Asset id of the code asset, which must stay equal to the path of the
@@ -104,6 +105,7 @@ Future<void> _buildWithSystemCc({
   output.dependencies.add(posixSource);
 }
 
+@internal
 Future<({String executable, List<String> flags})> resolveMacOSCompiler({
   Map<String, String>? environment,
   Future<ProcessResult> Function(
@@ -172,6 +174,7 @@ String _resolveSystemCc() {
   );
 }
 
+@internal
 List<String> systemCompilerFlags({
   required OS targetOS,
   required Architecture targetArchitecture,

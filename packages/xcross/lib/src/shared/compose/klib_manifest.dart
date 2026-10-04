@@ -1,10 +1,12 @@
 import 'dart:convert';
 
 import 'package:archive/archive_io.dart';
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/errors/errors.dart';
 
+@internal
 final class KlibManifestReader {
   const KlibManifestReader(this.files);
   final HostFileSystemInterface files;
@@ -46,6 +48,7 @@ final class KlibManifestReader {
   /// lines.
 }
 
+@internal
 Map<String, String> parseJavaProperties(String text) {
   final result = <String, String>{};
   final lines = const LineSplitter().convert(text);

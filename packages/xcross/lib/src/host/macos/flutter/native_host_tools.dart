@@ -1,7 +1,10 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 
+@internal
 final class MacOSNativeHostTools<T extends MacOSHostInterface>
     implements NativeHostTools<T> {
   MacOSNativeHostTools(this.host, this.runner) {

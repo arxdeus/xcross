@@ -1,12 +1,14 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/config/config.dart';
 import 'package:xcross/src/shared/config/config_host.dart';
 
 const _maximumEnvironmentExpansionDepth = 32;
 
+@internal
 final class XcrossConfigDecoder {
   const XcrossConfigDecoder({
     required this.document,
@@ -229,6 +231,7 @@ List<String> _expandedStringList(
 }
 
 /// Expands native host syntax recursively, with bounded cycle detection.
+@internal
 String expandNativeEnvironment(
   String value, {
   required Map<String, String> environment,
@@ -279,6 +282,7 @@ String expandNativeEnvironment(
   );
 }
 
+@internal
 void rejectUnsafeConfigString(
   String value,
   String field, {
@@ -294,6 +298,7 @@ void rejectUnsafeConfigString(
   }
 }
 
+@internal
 final class XcrossConfigValidator {
   const XcrossConfigValidator({
     required this.fileSystem,

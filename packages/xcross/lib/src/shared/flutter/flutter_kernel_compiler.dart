@@ -1,5 +1,5 @@
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:frontend_server_kit/frontend_server_kit.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:frontend_server_kit/shared/compiler/package_uris.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/dart_plugin_registrant.dart';
@@ -10,6 +10,7 @@ import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/dart_defines.dart';
 
+@internal
 final class FlutterKernelCompiler<T extends PlatformHostInterface> {
   FlutterKernelCompiler({
     required this.runtime,

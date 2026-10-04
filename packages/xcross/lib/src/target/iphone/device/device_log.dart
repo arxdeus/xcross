@@ -3,8 +3,8 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart' show Pymd;
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd.dart';
 import 'package:meta/meta.dart';
 
 @internal

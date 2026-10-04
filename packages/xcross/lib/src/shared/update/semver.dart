@@ -1,6 +1,7 @@
 import 'package:meta/meta.dart';
 
 /// A release version, parsed from a git tag or from the stamped build version.
+@internal
 @immutable
 final class XcrossSemver implements Comparable<XcrossSemver> {
   const XcrossSemver({

@@ -1,10 +1,12 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/models/internal/pubspec_font.dart';
 import 'package:xcross/src/shared/flutter/models/pubspec_info.dart';
 import 'package:yaml/yaml.dart';
 
+@internal
 final class PubspecInfoReader {
   PubspecInfoReader(this.fileSystem, this.paths);
 

@@ -28,21 +28,23 @@
 /// so it costs a single pass instead of list surgery.
 library;
 
-/// Architecture tokens no released `ld64.lld` can parse, mapped to the
-/// ABI-compatible one it does know.
-const tbdArchitectureAliases = {'arm64e.x1': 'arm64e'};
+import 'package:darwin_sdk_kit/shared/tbd/tbd_architecture_rewrite.dart';
+import 'package:meta/meta.dart';
 
 /// First `ld64.lld` release that parses `arm64e.x1` in a `.tbd`.
 ///
 /// llvm/llvm-project#222721 landed on `main` after the 23.x branch, and its
 /// backport (llvm/llvm-project#224185) has not been merged, so no released
 /// linker has it yet and 24 is the first that will.
+@internal
 const firstLd64LldWithArm64eX1 = 24;
 
 /// What `ld64.lld` prints when it meets an architecture it does not know.
+@internal
 const unknownArchitectureMarker = 'unknown architecture';
 
 /// What `ld64.lld` prints around [unknownArchitectureMarker].
+@internal
 const unreadableTapiMarker = 'could not load TAPI file';
 
 /// Rewrites the architecture names inside one `.tbd` document.
@@ -51,6 +53,7 @@ const unreadableTapiMarker = 'could not load TAPI file';
 /// `reexported-libraries`, `allowable-clients`, `parent-umbrella` or `uuids`,
 /// and an unknown name is fatal in every one of them, so the rewrite matches
 /// the bare token wherever it occurs instead of keying off any one field.
+@internal
 abstract final class TbdArchitectureRewrite {
   /// [text] with every unparsable architecture renamed, or null when there is
   /// nothing to rewrite.

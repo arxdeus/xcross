@@ -3,12 +3,13 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/process/process.dart';
 import 'package:dds/dap.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/dap/internal/dap_router.dart';
 
 /// One parsed DAP frame: the exact bytes as received, plus its decoded body.
+@internal
 @immutable
 final class DapMessage {
   const DapMessage({required this.raw, required this.json});
@@ -21,6 +22,7 @@ final class DapMessage {
 /// [startXcross] (when the launch config sets `env: {XCROSS: true}`) or
 /// proxies to
 /// Flutter's own `debug-adapter`.
+@internal
 abstract final class DapSession {
   static Future<void> run({
     required void Function(ByteStreamServerChannel channel) startXcross,
@@ -52,6 +54,7 @@ abstract final class DapSession {
 }
 
 /// Encodes one DAP message with Content-Length framing.
+@internal
 abstract final class DapFrame {
   static Uint8List encode(Map<String, Object?> message) {
     final body = utf8.encode(jsonEncode(message));
@@ -65,6 +68,7 @@ abstract final class DapFrame {
 
 /// Incremental DAP frame parser. [push] yields complete frames; [takeBuffered]
 /// returns any trailing unparsed bytes (for handoff to a child process).
+@internal
 final class DapFrameParser {
   static const _cr = 13;
   static const _lf = 10;
@@ -139,6 +143,7 @@ final class DapFrameParser {
 
 /// Forwards adapter→client DAP frames, dropping responses for [answered]
 /// request seqs and a duplicate `initialized` event from the real adapter.
+@internal
 final class DapResponseFilter implements StreamSink<List<int>> {
   DapResponseFilter(this._out, this._answered);
 

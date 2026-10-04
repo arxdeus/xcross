@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart'
-    show DeviceConsole, GdbRemoteClient, GdbReply, GdbReplyPacket;
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:dart_mobile_device/shared/console/device_console.dart';
+import 'package:dart_mobile_device/shared/device/gdb_remote_client.dart';
 import 'package:meta/meta.dart';
 import 'package:pure/pure.dart';
 import 'package:xcross/src/shared/flutter/hot_reload/hot_reload_controller.dart';
@@ -12,6 +12,7 @@ import 'package:xcross/src/shared/runtime/constants.dart';
 /// Interactive terminal session for an attached app: streams the app's stdout,
 /// dispatches `r`/`R`/`q` keypresses to hot reload, and stops on SIGINT or when
 /// the app exits.
+@internal
 final class SessionConsole {
   SessionConsole({
     required this.log,

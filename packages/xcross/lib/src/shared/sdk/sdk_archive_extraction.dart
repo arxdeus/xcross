@@ -1,8 +1,16 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/file_system_inspection.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/shared/archive/cpio_reader.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/shared/tbd/tbd_architecture_rewrite.dart';
+import 'package:darwin_sdk_kit/shared/tbd/tbd_bundle_patch.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/cli/basic/internal/hard_link_payloads.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
@@ -10,6 +18,7 @@ import 'package:xcross/src/shared/sdk/sdk_archive_links.dart';
 import 'package:xcross/src/shared/sdk/sdk_archive_paths.dart';
 import 'package:xcross/src/shared/sdk/sdk_install_constants.dart';
 
+@internal
 final class SdkArchiveExtraction<T extends PlatformHostInterface> {
   SdkArchiveExtraction(this.runner, this.repository, this.links)
     : pathPolicy = SdkArchivePaths(runner.host.paths.context) {

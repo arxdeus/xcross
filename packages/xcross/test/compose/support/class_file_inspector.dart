@@ -4,16 +4,20 @@
 // patcher's private `_ClassFile` so tests are not testing the parser
 // through itself.
 import 'dart:typed_data';
+import 'package:meta/meta.dart';
 
 // ── Primitive readers ─────────────────────────────────────────────────────────
 
+@internal
 int read16(Uint8List b, int off) => (b[off] << 8) | b[off + 1];
+@internal
 int read32(Uint8List b, int off) =>
     (b[off] << 24) | (b[off + 1] << 16) | (b[off + 2] << 8) | b[off + 3];
 
 // ── Inspection result ─────────────────────────────────────────────────────────
 
 /// Snapshot of the Code bodies we care about in a patched HostManager class.
+@internal
 class InspectedClass {
   const InspectedClass({
     required this.isEnabledCodeBody,
@@ -34,6 +38,7 @@ class InspectedClass {
 
 /// Skips a member table (fields or methods) starting at [off] and returns the
 /// offset immediately after the last member.
+@internal
 int skipMembers(Uint8List raw, int off) {
   final count = read16(raw, off);
   var o = off + 2;
@@ -100,6 +105,7 @@ int skipMembers(Uint8List raw, int off) {
 
 /// Walks the raw bytes of a patched HostManager class and extracts the Code
 /// bodies of `isEnabled` and `getEnabled` for assertion.
+@internal
 InspectedClass parseForInspection(Uint8List raw) {
   // Skip magic(4) + minor(2) + major(2)
   var off = 8;
@@ -192,6 +198,7 @@ InspectedClass parseForInspection(Uint8List raw) {
 
 /// Returns the Code body (max_stack..end of code array) of the first
 /// method's Code attribute in [classBytes].
+@internal
 Uint8List lastMethodCodeBody(Uint8List raw) {
   var off = 8; // past magic + version
 
@@ -227,4 +234,5 @@ Uint8List lastMethodCodeBody(Uint8List raw) {
 ///
 /// Used to verify that `return` (0xB1) lands at the end after NOP-padding in
 /// the patched ObjCExportKt class.
+@internal
 int findLastCodeByte(Uint8List raw) => lastMethodCodeBody(raw).last;

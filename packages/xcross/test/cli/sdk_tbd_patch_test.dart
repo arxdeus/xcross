@@ -5,9 +5,11 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:darwin_sdk_kit/shared/archive/cpio_reader.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/host/windows/sdk/materialized_sdk_archive_links.dart';
 
 import '../../../darwin_sdk_kit/test/test_fixtures.dart';
 import 'sdk_test_support.dart';

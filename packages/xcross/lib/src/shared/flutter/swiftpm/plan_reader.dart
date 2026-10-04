@@ -1,14 +1,17 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/response_arguments.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/response_file_reader.dart';
 
+@internal
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
+@internal
 final class SwiftPmPlanReader {
   SwiftPmPlanReader({required this.fileSystem, required this.responseFiles});
   final SwiftPmArtifactFileSystem fileSystem;

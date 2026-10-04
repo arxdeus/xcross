@@ -1,10 +1,12 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 import 'package:xcross/src/target/iphone/runtime/build_features.dart';
 import 'package:xcross/src/target/shared/runtime/build_features.dart';
 import 'package:xcross/src/target/simulator/runtime/build_features.dart';
 
+@internal
 XcrossBuildFeatures<T> composeBuildFeatures<T extends PlatformHostInterface>(
   String targetPlatform,
   XcrossRuntime<T> runtime, {
@@ -20,6 +22,7 @@ XcrossBuildFeatures<T> composeBuildFeatures<T extends PlatformHostInterface>(
   ),
 };
 
+@internal
 XcrossBuildFeatures<T> composePhysicalFeatures<T extends PlatformHostInterface>(
   XcrossRuntime<T> runtime,
 ) => IPhoneBuildFeatures(runtime);

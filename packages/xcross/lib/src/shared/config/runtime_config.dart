@@ -1,7 +1,11 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/config/config.dart';
 import 'package:xcross/src/shared/config/config_host.dart';
+import 'package:xcross/src/shared/config/config_store.dart';
 
+@internal
 final class XcrossRuntimeConfig {
   XcrossRuntimeConfig({
     required this.config,

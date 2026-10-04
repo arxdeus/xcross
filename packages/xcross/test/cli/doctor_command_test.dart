@@ -1,24 +1,29 @@
 import 'dart:ffi';
 import 'dart:io';
 
-import 'package:apple_developer_kit/apple_developer_kit_shared.dart'
-    show AscCredentials;
+import 'package:apple_developer_kit/shared/appstoreconnect/asc_config.dart';
 import 'package:args/command_runner.dart';
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
 import 'package:cli_util/cli_logging.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart' show IPhoneBuildPlatform;
+import 'package:dart_mobile_device/shared/device/models/device.dart';
+import 'package:dart_mobile_device/shared/diagnostics/device_probe.dart';
+import 'package:darwin_sdk_kit/target/iphone/iphone_build_platform.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/composition/cli/doctor_project_checks.dart';
 import 'package:xcross/src/composition/cli/runner.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_command.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_environment_checks.dart';
+import 'package:xcross/src/shared/cli/basic/doctor_examiner.dart';
+import 'package:xcross/src/shared/cli/basic/doctor_models.dart';
 import 'package:xcross/src/shared/config/config.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
+import '../log_fixture.dart';
 import 'auth_fixture.dart';
-import 'doctor_environment_checks_test.dart' show DoctorServiceFixture;
+import 'doctor_environment_checks_test.dart';
 import 'runtime_fixture.dart';
 
 void main() {
@@ -443,6 +448,7 @@ void main() {
   );
 }
 
+@internal
 final class DoctorNamespaceDiagnostics implements DeviceDiagnostics {
   bool discovered = false;
   @override

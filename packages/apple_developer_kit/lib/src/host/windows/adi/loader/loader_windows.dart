@@ -4,13 +4,15 @@
 import 'dart:ffi';
 import 'dart:io';
 
+import 'package:apple_developer_kit/host/shared/adi/loader/loader.dart';
 import 'package:apple_developer_kit/src/host/shared/adi/elf/elf_loaded_library.dart';
-import 'package:apple_developer_kit/src/host/shared/adi/loader/loader.dart';
 import 'package:apple_developer_kit/src/host/windows/adi/loader/internal/memory_allocator_windows.dart';
 import 'package:apple_developer_kit/src/host/windows/adi/loader/internal/native_symbol_stubs_windows.dart';
 import 'package:apple_developer_kit/src/host/windows/adi/loader/internal/windows_loaded_library.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
+@internal
 final class WindowsNativeLibraryLoader implements NativeLibraryLoader {
   WindowsNativeLibraryLoader() : _allocator = _createAllocator() {
     _stubs = WindowsNativeSymbolStubs(loadLibraryForDlopen: _loadByPath);

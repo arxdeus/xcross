@@ -1,7 +1,10 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:darwin_sdk_kit/target/iphone/iphone_build_platform.dart';
+import 'package:darwin_sdk_kit/target/iphone/iphone_target.dart';
+import 'package:darwin_sdk_kit/target/simulator/simulator_build_platform.dart';
+import 'package:darwin_sdk_kit/target/simulator/simulator_target.dart';
 import 'package:test/test.dart';
 
 void main() {

@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/flutter/build/internal/native_assets_hook_discovery.dart';
@@ -18,10 +20,10 @@ void _writePackageConfig(String directory) {
 }
 
 String _readXcrossSource(String relativePath) {
-  final library = File.fromUri(
-    Isolate.resolvePackageUriSync(Uri.parse('package:xcross/xcross.dart'))!,
+  final library = Directory.fromUri(
+    Isolate.resolvePackageUriSync(Uri.parse('package:xcross/'))!,
   );
-  final packageRoot = library.parent.parent.path;
+  final packageRoot = library.parent.path;
   return File(p.join(packageRoot, relativePath)).readAsStringSync();
 }
 
@@ -269,7 +271,10 @@ void main() {
         'lib/src/shared/flutter/build/internal/native_assets_hook_discovery.dart',
       ),
     ]) {
-      expect(source, contains('package:cli_kit/cli_kit_shared.dart'));
+      expect(
+        source,
+        contains('package:cli_kit/shared/platform/platform_host.dart'),
+      );
       expect(source, isNot(contains('package:cli_kit/cli_kit.dart')));
       expect(source, isNot(contains('Platform.')));
       expect(source, isNot(contains('File.fromUri(')));
@@ -277,6 +282,7 @@ void main() {
   });
 }
 
+@internal
 final class PackageConfigMappedFileSystem implements HostFileSystemInterface {
   PackageConfigMappedFileSystem(this.root);
   final Directory root;

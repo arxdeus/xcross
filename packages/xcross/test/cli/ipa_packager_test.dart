@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:archive/archive_io.dart';
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/cli/shared/ipa_packager.dart';

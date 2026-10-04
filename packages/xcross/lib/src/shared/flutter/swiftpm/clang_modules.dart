@@ -1,5 +1,7 @@
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
 
+@internal
 final class SwiftPmClangModules {
   static List<String> topLevelModuleNames(String moduleMap) {
     final code = SwiftPmManifestLexer.swiftCodeMask(moduleMap);

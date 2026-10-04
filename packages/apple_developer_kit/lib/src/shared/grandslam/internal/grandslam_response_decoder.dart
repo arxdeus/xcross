@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/shared/errors/errors.dart';
-import 'package:apple_developer_kit/src/shared/grandslam/grandslam_response.dart';
+import 'package:apple_developer_kit/shared/errors/errors.dart';
+import 'package:apple_developer_kit/shared/grandslam/grandslam_response.dart';
 import 'package:meta/meta.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
 
@@ -10,6 +10,7 @@ import 'package:propertylistserialization/propertylistserialization.dart';
 /// envelope plus the typed field accessors GrandSlam responses are made
 /// of, so the provisioning, SRP login, and app-token layers decode
 /// identically.
+@internal
 abstract final class GrandSlamResponse {
   /// Decodes an `o=...` operation response body and unwraps `Response`.
   ///

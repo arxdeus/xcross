@@ -1,15 +1,19 @@
 import 'dart:convert';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
 import 'package:crypto/crypto.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/build/preview_macro_stub_source.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 
+@internal
 abstract interface class SwiftPmNativeCompiler {
   Future<Map<String, Object>> identity(String executable);
   Future<void> compile(String executable, List<String> arguments);
 }
 
+@internal
 final class ProcessSwiftPmNativeCompiler<T extends PlatformHostInterface>
     implements SwiftPmNativeCompiler {
   ProcessSwiftPmNativeCompiler(this.runner);
@@ -31,6 +35,7 @@ final class ProcessSwiftPmNativeCompiler<T extends PlatformHostInterface>
       .runChecked(executable, arguments, label: 'compile preview macro stub');
 }
 
+@internal
 final class SwiftPmPreviewMacroCompiler<T extends PlatformHostInterface> {
   SwiftPmPreviewMacroCompiler({
     required this.host,

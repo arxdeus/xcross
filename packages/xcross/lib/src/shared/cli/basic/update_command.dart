@@ -1,5 +1,9 @@
+@internal
+library;
+
 import 'package:build_cli_annotations/build_cli_annotations.dart';
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/cli/command_prompt.dart';
 import 'package:xcross/src/shared/cli/internal/parsed_command.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
@@ -15,6 +19,7 @@ import 'package:xcross/src/shared/update/semver.dart';
 part 'update_command.g.dart';
 
 /// Options for `xcross update`.
+@internal
 @CliOptions()
 final class UpdateArgs {
   @CliOption(
@@ -45,6 +50,7 @@ final class UpdateArgs {
 ///
 /// Release archives are verified against `SHA256SUMS.txt` before any file is
 /// touched. Non-tag refs are built from source and then installed atomically.
+@internal
 final class UpdateCommand extends ParsedCommand<UpdateArgs, void> {
   @override
   ArgParser populateOptions(ArgParser parser) =>

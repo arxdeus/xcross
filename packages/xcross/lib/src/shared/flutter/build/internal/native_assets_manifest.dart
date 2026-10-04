@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'package:meta/meta.dart';
 
 /// Framework paths describe the iOS target, not the host that ran the hook.
 /// Preserve asset identifiers and non-path lookup modes when normalizing
 /// Windows separators, and preserve unchanged manifests byte-for-byte.
+@internal
 String normalizeIosNativeAssetsManifest(String source) {
   final Object? decoded;
   try {

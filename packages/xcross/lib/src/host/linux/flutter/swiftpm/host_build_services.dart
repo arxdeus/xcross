@@ -1,6 +1,8 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_host_build_services.dart';
 
+@internal
 final class LinuxSwiftPmHostBuildServices<T extends PlatformHostInterface>
     extends PosixSwiftPmHostBuildServices<T> {
   LinuxSwiftPmHostBuildServices({

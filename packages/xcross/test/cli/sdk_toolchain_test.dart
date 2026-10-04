@@ -1,9 +1,9 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/shared/cli/basic/sdk_command.dart';
+import 'package:xcross/src/shared/cli/basic/sdk_install.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
 import 'sdk_test_support.dart';

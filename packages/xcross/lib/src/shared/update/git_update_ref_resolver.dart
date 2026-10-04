@@ -1,13 +1,15 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/process/process.dart';
 
 import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/update/internal/update_process.dart';
 
+@internal
 enum GitUpdateRefKind { tag, branch, commit }
 
+@internal
 @immutable
 final class GitUpdateRef {
   const GitUpdateRef({
@@ -23,15 +25,19 @@ final class GitUpdateRef {
   final String commitSha;
 }
 
+@internal
 typedef RunGitProcess =
     Future<ProcessResult> Function(
       String executable,
       List<String> arguments, {
       String? workingDirectory,
     });
+@internal
 typedef CreateTempDirectory = Future<Directory> Function(String prefix);
+@internal
 typedef DeleteDirectory = Future<void> Function(Directory directory);
 
+@internal
 final class GitUpdateRefResolver {
   GitUpdateRefResolver({
     required ProcessRunner runner,

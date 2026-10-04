@@ -1,11 +1,16 @@
 import 'dart:async';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/source_repair.dart';
 
+@internal
 const String flutterFrameworkPackageName = 'FlutterFramework';
+@internal
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
+@internal
 final class SwiftPmNetworkRetry<T extends PlatformHostInterface> {
   SwiftPmNetworkRetry({required this.runner});
   final ProcessRunner<T> runner;

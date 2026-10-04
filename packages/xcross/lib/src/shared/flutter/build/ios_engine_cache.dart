@@ -1,5 +1,8 @@
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:cli_kit/shared/download/download.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:darwin_sdk_kit/target/shared/ios_target.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/host/shared/flutter/engine_archive_writer.dart';
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
 import 'package:xcross/src/shared/flutter/constants.dart';
@@ -12,6 +15,7 @@ import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dar
 /// `bin/cache/artifacts/engine/ios/`. On Linux, Flutter skips iOS artifacts,
 /// so we fetch them ourselves from `storage.googleapis.com`. Missing artifacts
 /// are stored outside the Flutter SDK so read-only installations work.
+@internal
 final class IosEngineCache<T extends PlatformHostInterface> {
   IosEngineCache({
     required this.log,

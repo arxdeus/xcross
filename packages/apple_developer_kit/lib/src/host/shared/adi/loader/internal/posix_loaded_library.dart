@@ -1,8 +1,10 @@
 import 'dart:ffi';
 
+import 'package:apple_developer_kit/host/shared/adi/loader/loader.dart';
 import 'package:apple_developer_kit/src/host/shared/adi/elf/elf_loaded_library.dart';
-import 'package:apple_developer_kit/src/host/shared/adi/loader/loader.dart';
+import 'package:meta/meta.dart';
 
+@internal
 final class PosixLoadedLibrary implements LoadedNativeLibrary {
   PosixLoadedLibrary(this._lib);
 

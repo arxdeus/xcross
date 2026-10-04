@@ -1,6 +1,8 @@
 import 'dart:io';
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 
+@internal
 final class SdkDirectoryCopy<T extends PlatformHostInterface> {
   const SdkDirectoryCopy(this.host);
   final T host;

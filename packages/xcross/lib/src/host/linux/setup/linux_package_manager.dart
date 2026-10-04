@@ -1,6 +1,8 @@
 import 'dart:convert';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 
 /// Requirements from the README table, plus the Swift toolchain's own build
 /// dependencies, named the way each distro family spells them. Swift and
@@ -88,6 +90,7 @@ const _pacmanPackages = [
 
 /// A supported Linux package manager, with the package names and command
 /// shapes `xcross setup` needs from it.
+@internal
 enum LinuxPackageManager {
   apt(
     executable: 'apt-get',

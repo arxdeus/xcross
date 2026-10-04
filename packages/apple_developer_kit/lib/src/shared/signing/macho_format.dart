@@ -1,40 +1,59 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/shared/errors/errors.dart';
+import 'package:apple_developer_kit/shared/errors/errors.dart';
 import 'package:apple_developer_kit/src/shared/signing/internal/macho_command_scan.dart';
 import 'package:apple_developer_kit/src/shared/signing/internal/macho_header.dart';
 import 'package:meta/meta.dart';
 
 /// Largest value any 32-bit Mach-O field can hold.
+@internal
 const int uint32Max = 0xFFFF_FFFF;
 
 /// Mach-O page-hash and segment alignment granularity on arm64.
+@internal
 const int machoPageSize = 4096;
 
 /// `LC_CODE_SIGNATURE.dataoff` and `datasize` are both 16-byte aligned.
+@internal
 const int signatureAlignment = 16;
 
+@internal
 const int fatMagic = 0xCAFE_BABE;
+@internal
 const int fatCigam = 0xBEBA_FECA;
+@internal
 const int mhMagic = 0xFEED_FACE;
+@internal
 const int mhCigam = 0xCEFA_EDFE;
+@internal
 const int mhMagic64 = 0xFEED_FACF;
+@internal
 const int mhCigam64 = 0xCFFA_EDFE;
 
+@internal
 const int cpuTypeArm64 = 0x0100_000C;
 
 /// `MH_EXECUTE`: only main executables carry entitlements and exec-seg flags.
+@internal
 const int mhExecute = 2;
 
+@internal
 const int lcSegment = 0x1;
+@internal
 const int lcSegment64 = 0x19;
+@internal
 const int lcCodeSignature = 0x1d;
+@internal
 const int lcEncryptionInfo = 0x21;
+@internal
 const int lcEncryptionInfo64 = 0x2c;
 
+@internal
 const String textSegmentName = '__TEXT';
+@internal
 const String linkeditSegmentName = '__LINKEDIT';
+@internal
 const String textSectionName = '__text';
 
 /// `mach_header_64` field offsets from `<mach-o/loader.h>`.
@@ -93,24 +112,32 @@ abstract final class CodeSignatureCommand {
 
 /// Section types whose contents are not file-backed, so their `offset` must
 /// not be treated as a file range (`<mach-o/loader.h>` section flags).
+@internal
 const int sZerofill = 0x1;
+@internal
 const int sGbZerofill = 0x0c;
+@internal
 const int sThreadLocalZerofill = 0x12;
 
 /// Length of a fixed 16-byte `char[16]` name field.
+@internal
 const int nameFieldLength = 16;
 
 /// Byte lengths of `encryption_info_command` and its 64-bit variant.
+@internal
 const int encryptionInfoSize = 20;
+@internal
 const int encryptionInfo64Size = 24;
 
 /// Offset of `cryptid` within either encryption command.
+@internal
 const int encryptionCryptIdOffset = 16;
 
 @internal
 Never machoFail(String path, String field, String reason) =>
     throw AppleError('Mach-O "$path" has invalid $field: $reason.');
 
+@internal
 void requireRange(
   Uint8List bytes,
   int offset,
@@ -133,6 +160,7 @@ int readU32le(Uint8List bytes, int offset) =>
 int readU64le(Uint8List bytes, int offset) =>
     ByteData.sublistView(bytes).getUint64(offset, Endian.little);
 
+@internal
 void writeU32le(
   Uint8List bytes,
   int offset,
@@ -145,6 +173,7 @@ void writeU32le(
   ByteData.sublistView(bytes).setUint32(offset, value, Endian.little);
 }
 
+@internal
 void writeU64le(
   Uint8List bytes,
   int offset,

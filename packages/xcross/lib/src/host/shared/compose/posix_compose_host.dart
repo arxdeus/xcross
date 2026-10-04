@@ -1,10 +1,12 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/compose/build/process_invocation.dart';
 import 'package:xcross/src/shared/compose/compose_host.dart';
 
+@internal
 abstract class PosixComposeHost<T extends PlatformHostInterface>
     implements ComposeHost<T> {
   const PosixComposeHost(this.host);
@@ -63,6 +65,7 @@ abstract class PosixComposeHost<T extends PlatformHostInterface>
   }) => siblingOrOnPath(directory, name, searchPath, host.fileSystem);
 }
 
+@internal
 String siblingOrOnPath(
   String directory,
   String name,
@@ -79,10 +82,12 @@ String siblingOrOnPath(
   return sibling;
 }
 
+@internal
 bool isX64Architecture(String architecture) => const [
   'x64',
   'x86_64',
   'amd64',
 ].contains(architecture.trim().toLowerCase());
+@internal
 bool isArm64Architecture(String architecture) =>
     const ['arm64', 'aarch64'].contains(architecture.trim().toLowerCase());

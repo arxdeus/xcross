@@ -1,5 +1,10 @@
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:cli_kit/shared/download/download.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/compose/build/compose_app_assembler.dart';
 import 'package:xcross/src/shared/compose/build/gradle_klib_builder.dart';
 import 'package:xcross/src/shared/compose/build/kotlin_framework_builder.dart';
@@ -13,6 +18,7 @@ import 'package:xcross/src/shared/compose/toolchain/compose_toolchain_resolver.d
 import 'package:xcross/src/shared/models/pack_result.dart';
 import 'package:xcross/src/target/shared/compose/compose_target.dart';
 
+@internal
 typedef ComposeEnsureToolchain<T extends PlatformHostInterface> =
     Future<ComposeToolchain<T>> Function({
       required Map<String, String> environment,
@@ -20,11 +26,13 @@ typedef ComposeEnsureToolchain<T extends PlatformHostInterface> =
       required bool allowInstall,
       required bool force,
     });
+@internal
 typedef ComposeBuildKlib<T extends PlatformHostInterface> =
     Future<GradleKlibResult> Function({
       required KmpProject project,
       required ComposeToolchain<T> toolchain,
     });
+@internal
 typedef ComposeBuildFramework<T extends PlatformHostInterface> =
     Future<String> Function({
       required KmpProject project,
@@ -32,12 +40,14 @@ typedef ComposeBuildFramework<T extends PlatformHostInterface> =
       required ComposeToolchain<T> toolchain,
       required GradleKlibResult klib,
     });
+@internal
 typedef ComposeBuildRunner<T extends PlatformHostInterface> =
     Future<String> Function({
       required KmpProject project,
       required String frameworkPath,
       required ComposeToolchain<T> toolchain,
     });
+@internal
 typedef ComposeAssembleApp =
     Future<String> Function({
       required KmpProject project,
@@ -45,6 +55,7 @@ typedef ComposeAssembleApp =
       required String frameworkPath,
     });
 
+@internal
 final class ComposePacker<T extends PlatformHostInterface> {
   ComposePacker({
     required KmpProject project,

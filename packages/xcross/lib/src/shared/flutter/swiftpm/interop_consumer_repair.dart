@@ -1,12 +1,14 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart'
-    show SwiftPmFilesystem;
-import 'package:xcross/src/shared/flutter/swiftpm/plan_reader.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/plan_reader.dart'
+    as swiftpm_plan_reader;
 
+@internal
 final class SwiftPmInteropConsumerRepair<T extends PlatformHostInterface> {
   SwiftPmInteropConsumerRepair({
     required this.filesystem,
@@ -15,7 +17,7 @@ final class SwiftPmInteropConsumerRepair<T extends PlatformHostInterface> {
   });
   final SwiftPmFilesystem<T> filesystem;
   final SwiftPmArtifactFileSystem fileSystem;
-  final SwiftPmPlanReader planReader;
+  final swiftpm_plan_reader.SwiftPmPlanReader planReader;
   List<String> missingSwiftInteropTargets(
     String targetBuildDir, {
     required Set<String> candidates,
@@ -24,7 +26,7 @@ final class SwiftPmInteropConsumerRepair<T extends PlatformHostInterface> {
     if (!directory.existsSync()) return const [];
     final reachable = planReader.plannedTargetClosure(
       targetBuildDir,
-      pluginsProductName,
+      swiftpm_plan_reader.pluginsProductName,
     );
     final targets = <String>{};
     final headerPattern = RegExp(r'\bheader\s+"([^"]+-Swift\.h)"');

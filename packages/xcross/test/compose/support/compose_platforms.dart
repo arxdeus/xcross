@@ -1,21 +1,38 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
+import 'package:cli_kit/shared/download/download.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/host/shared/darwin_toolchain_locations.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:darwin_sdk_kit/target/iphone/iphone_target.dart';
+import 'package:darwin_sdk_kit/target/simulator/simulator_target.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/host/linux/compose/linux_compose_host.dart';
 import 'package:xcross/src/host/macos/compose/macos_compose_host.dart';
 import 'package:xcross/src/host/windows/compose/windows_compose_host.dart';
 import 'package:xcross/src/shared/compose/build/framework_build_stamp.dart';
-import 'package:xcross/src/shared/compose/compose.dart';
+import 'package:xcross/src/shared/compose/compose_host.dart';
+import 'package:xcross/src/shared/compose/compose_simulator_signing.dart';
+import 'package:xcross/src/shared/compose/kmp_project_detector.dart';
+import 'package:xcross/src/shared/compose/project/kmp_project.dart';
 import 'package:xcross/src/shared/compose/watch/kotlin_source_watcher.dart';
 import 'package:xcross/src/target/iphone/compose/iphone_compose_target.dart';
+import 'package:xcross/src/target/shared/compose/compose_target.dart';
 import 'package:xcross/src/target/simulator/compose/simulator_compose_target.dart';
 
+@internal
 ComposeTarget<PlatformHostInterface> fixtureIPhoneTargetFor(
   ComposeHost<PlatformHostInterface> host,
 ) => IPhoneComposeTarget(IPhoneTarget(host.host), host);
+@internal
 ComposeTarget<PlatformHostInterface> fixtureSimulatorTargetFor(
   ComposeHost<PlatformHostInterface> host,
 ) => SimulatorComposeTarget(
@@ -24,6 +41,7 @@ ComposeTarget<PlatformHostInterface> fixtureSimulatorTargetFor(
   signing: FixtureSimulatorSigning(host.host),
 );
 
+@internal
 final class FixtureSimulatorSigning
     implements ComposeSimulatorSigning<PlatformHostInterface> {
   const FixtureSimulatorSigning(this.host);
@@ -33,6 +51,7 @@ final class FixtureSimulatorSigning
   Future<void> signBundle(String appPath) async {}
 }
 
+@internal
 final class ComposeFixtureDarwinToolchainLocations
     implements DarwinToolchainLocationsInterface {
   const ComposeFixtureDarwinToolchainLocations();
@@ -44,6 +63,7 @@ final class ComposeFixtureDarwinToolchainLocations
   String get clangInstallationHint => 'fixture clang';
 }
 
+@internal
 final class ComposeFixtureLogOutput implements LogOutput {
   @override
   bool get supportsAnsi => false;
@@ -57,6 +77,7 @@ final class ComposeFixtureLogOutput implements LogOutput {
   void write(String message) {}
 }
 
+@internal
 final class RemappedComposeFileSystem implements HostFileSystemInterface {
   RemappedComposeFileSystem(this.root);
   final String root;
@@ -83,6 +104,7 @@ final class RemappedComposeFileSystem implements HostFileSystemInterface {
       throw UnsupportedError('not expected');
 }
 
+@internal
 final class ComposeTestSession {
   ComposeTestSession({
     required this.logOutput,
@@ -167,6 +189,7 @@ final class ComposeTestSession {
   }
 }
 
+@internal
 final class ComposeFixtureHosts {
   ComposeFixtureHosts(String temporaryRoot) {
     linuxX64 = LinuxComposeHost(
@@ -201,6 +224,7 @@ final class ComposeFixtureHosts {
   late final ComposeHost<PlatformHostInterface> macosArm64;
 }
 
+@internal
 final class ComposeFixtureByteConsumer implements StreamConsumer<List<int>> {
   final List<int> bytes = [];
   @override
@@ -214,6 +238,7 @@ final class ComposeFixtureByteConsumer implements StreamConsumer<List<int>> {
   Future<void> close() async {}
 }
 
+@internal
 ComposeTestSession createComposeTestSession() => ComposeTestSession(
   logOutput: ComposeFixtureLogOutput(),
   stdoutConsumer: ComposeFixtureByteConsumer(),

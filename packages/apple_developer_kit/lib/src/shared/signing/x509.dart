@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/shared/errors/errors.dart';
+import 'package:apple_developer_kit/shared/errors/errors.dart';
 import 'package:apple_developer_kit/src/shared/signing/der.dart';
 import 'package:apple_developer_kit/src/shared/signing/internal/pem_block.dart';
 import 'package:basic_utils/basic_utils.dart';

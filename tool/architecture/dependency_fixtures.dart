@@ -1,9 +1,13 @@
-import 'inventory.dart';
+import 'package:analyzer/dart/analysis/utilities.dart';
+import 'package:meta/meta.dart';
 
+import 'boundaries.dart';
+
+@internal
 Map<String, (String, Set<String>)> dependencyFixtures() => {
   'composition_import': (
-    '''import 'package:xcross/src/composition/ios_target.dart' show composeBuildFeatures; Object build()=>composeBuildFeatures('iphone',throw StateError('host'));''',
-    {'composition-edge'},
+    '''import 'package:xcross/src/composition/ios_target.dart'; Object build()=>composeBuildFeatures('iphone',throw StateError('host'));''',
+    {'composition-edge', 'cross-package-src', 'internal-use'},
   ),
   'concrete_import': (
     '''import '../host/windows/adapter.dart'; void build() {}''',
@@ -11,6 +15,7 @@ Map<String, (String, Set<String>)> dependencyFixtures() => {
   ),
 };
 
+@internal
 Map<String, (String, Set<String>)> dependencyAssets() {
   final result = <String, (String, Set<String>)>{};
   for (final entry in {
@@ -22,10 +27,10 @@ Map<String, (String, Set<String>)> dependencyAssets() {
         "import 'dart:io'; class NativeFileSystem { File file(String path)=>File(path); Directory directory(String path)=>Directory(path); Link link(String path)=>Link(path); }",
 
     'packages/xcross/lib/src/composition/cli/flutter_run_command.dart':
-        "import '../../target/iphone/device/core_device_launch_profile.dart'; import '../../../../../darwin_sdk_kit/lib/src/target/simulator/simulator_build_platform.dart'; CoreDeviceLaunchProfile wire()=>CoreDeviceLaunchProfile();",
+        "import '../../target/iphone/device/core_device_launch_profile.dart'; import '../../../../../darwin_sdk_kit/lib/target/simulator/simulator_build_platform.dart'; CoreDeviceLaunchProfile wire()=>CoreDeviceLaunchProfile();",
     'packages/xcross/lib/src/target/iphone/device/core_device_launch_profile.dart':
         'class CoreDeviceLaunchProfile {}',
-    'packages/darwin_sdk_kit/lib/src/target/simulator/simulator_build_platform.dart':
+    'packages/darwin_sdk_kit/lib/target/simulator/simulator_build_platform.dart':
         'class SimulatorBuildPlatform {}',
 
     'packages/xcross/lib/src/composition/cli/flutter_build_command.dart':
@@ -42,10 +47,10 @@ Map<String, (String, Set<String>)> dependencyAssets() {
     'packages/xcross/tool/swiftpm_binary_fixture.dart':
         "import 'dart:io'; void main() { stdout.writeln('archive'); stderr.writeln('usage'); } void other() { stderr.writeln('hidden'); }",
 
-    'packages/apple_developer_kit/lib/src/composition/native_library_loader.dart':
-        "import '../host/linux/adi/linux_native_library_loader.dart'; import 'package:xcross/src/host/windows/setup/windows_setup_requirements.dart'; LinuxNativeLibraryLoader createLinuxNativeLibraryLoader()=>LinuxNativeLibraryLoader();",
-    'packages/apple_developer_kit/lib/src/composition/apple_host.dart':
-        "import '../host/linux/linux_machine_identity.dart'; LinuxMachineIdentity createLinuxAppleHostServices()=>LinuxMachineIdentity();",
+    'packages/apple_developer_kit/lib/composition/native_library_loader.dart':
+        "import '../src/host/linux/adi/linux_native_library_loader.dart'; import 'package:xcross/src/host/windows/setup/windows_setup_requirements.dart'; LinuxNativeLibraryLoader createLinuxNativeLibraryLoader()=>LinuxNativeLibraryLoader();",
+    'packages/apple_developer_kit/lib/composition/apple_host.dart':
+        "import '../src/host/linux/linux_machine_identity.dart'; LinuxMachineIdentity createLinuxAppleHostServices()=>LinuxMachineIdentity();",
     'packages/apple_developer_kit/lib/src/host/linux/linux_machine_identity.dart':
         'class LinuxMachineIdentity {}',
     'packages/xcross/lib/src/composition/host_operations.dart':
@@ -70,7 +75,7 @@ Map<String, (String, Set<String>)> dependencyAssets() {
     'packages/apple_developer_kit/lib/src/host/windows/adi/loader/loader_windows.dart':
         r"import 'dart:ffi'; class WindowsMemoryAllocator {} class WindowsNativeLibraryLoader { static WindowsMemoryAllocator _createAllocator() { if(Abi.current() != Abi.windowsX64) { throw UnsupportedError('bad ${Abi.current()}'); } return WindowsMemoryAllocator(); } Object other() => Abi.current(); }",
     'packages/xcross/lib/src/host/macos/compose/macos_compose_host.dart':
-        "import 'package:xcross/src/host/shared/compose/posix_compose_host.dart' show isArm64Architecture, isX64Architecture; abstract class PlatformHostInterface { String get architecture; } abstract class MacOSHostInterface implements PlatformHostInterface {} class MacOSComposeHost { final MacOSHostInterface host; MacOSComposeHost(this.host); bool supportsJavaArchitecture(String architecture) => isArm64Architecture(host.architecture) ? isArm64Architecture(architecture) : isX64Architecture(architecture); bool other(String architecture) => isArm64Architecture(host.architecture) ? isArm64Architecture(architecture) : isX64Architecture(architecture); }",
+        "import 'package:xcross/src/host/shared/compose/posix_compose_host.dart'; abstract class PlatformHostInterface { String get architecture; } abstract class MacOSHostInterface implements PlatformHostInterface {} class MacOSComposeHost { final MacOSHostInterface host; MacOSComposeHost(this.host); bool supportsJavaArchitecture(String architecture) => isArm64Architecture(host.architecture) ? isArm64Architecture(architecture) : isX64Architecture(architecture); bool other(String architecture) => isArm64Architecture(host.architecture) ? isArm64Architecture(architecture) : isX64Architecture(architecture); }",
     'packages/xcross/lib/src/composition/xcrun_sdk.dart':
         "abstract class PlatformHostInterface {} abstract class PlatformTargetInterface<T extends PlatformHostInterface> { String get sdkName; } abstract class IosBuildPlatformInterface {} class IPhoneBuildPlatform implements IosBuildPlatformInterface { const IPhoneBuildPlatform(); } class SimulatorBuildPlatform implements IosBuildPlatformInterface { const SimulatorBuildPlatform(); } Object parseXcrunSdkName(PlatformTargetInterface target) { for(final descriptor in const <IosBuildPlatformInterface>[IPhoneBuildPlatform(),SimulatorBuildPlatform()]) { descriptor.toString(); } if(target.sdkName == 'iphonesimulator') return target; throw FormatException('bad'); } Object other(PlatformTargetInterface target) { if(target.sdkName == 'iphonesimulator') return target; throw FormatException('bad'); }",
 
@@ -83,7 +88,7 @@ Map<String, (String, Set<String>)> dependencyAssets() {
     'packages/fixture/lib/src/host/windows/asset_mapping.dart':
         "abstract class PlatformHostInterface { String get architecture; } String asset(PlatformHostInterface host) => host.architecture == 'arm64' ? throw UnsupportedError('unsupported CPU') : 'windows-x64.zip';",
     'packages/xcross/lib/src/composition/native_runtime.dart':
-        "import 'package:cli_kit/src/composition/native_host.dart' show detectPlatformHostSnapshot; Object createNativeXcrossContext() => detectPlatformHostSnapshot(); Object disguisedFactory() => detectPlatformHostSnapshot(); Object nested() { Object createNativeXcrossContext() => detectPlatformHostSnapshot(); return createNativeXcrossContext(); } class Log {} class Service { final Log log=Log(); Service(); Service.other():log=Log(); }",
+        "import 'package:cli_kit/composition/native_host.dart'; Object createNativeXcrossContext() => detectPlatformHostSnapshot(); Object disguisedFactory() => detectPlatformHostSnapshot(); Object nested() { Object createNativeXcrossContext() => detectPlatformHostSnapshot(); return createNativeXcrossContext(); } class Log {} class Service { final Log log=Log(); Service(); Service.other():log=Log(); }",
     detector:
         "import 'dart:io'; String detectPlatformHostSnapshot() => Platform.operatingSystem; String another() => Platform.operatingSystem;",
     'packages/apple_developer_kit/hook/build.dart':
@@ -157,7 +162,7 @@ Map<String, (String, Set<String>)> dependencyAssets() {
       },
       'packages/xcross/lib/src/target/iphone/device/core_device_launch_profile.dart':
           {},
-      'packages/darwin_sdk_kit/lib/src/target/simulator/simulator_build_platform.dart':
+      'packages/darwin_sdk_kit/lib/target/simulator/simulator_build_platform.dart':
           {},
 
       'packages/xcross/lib/src/composition/cli/flutter_build_command.dart': {},
@@ -170,9 +175,9 @@ Map<String, (String, Set<String>)> dependencyAssets() {
       'packages/xcross/tool/verify_flutter_notices.dart': {'ambient-detection'},
       'packages/xcross/tool/swiftpm_binary_fixture.dart': {'ambient-detection'},
 
-      'packages/apple_developer_kit/lib/src/composition/native_library_loader.dart':
+      'packages/apple_developer_kit/lib/composition/native_library_loader.dart':
           {'concrete-edge'},
-      'packages/apple_developer_kit/lib/src/composition/apple_host.dart': {},
+      'packages/apple_developer_kit/lib/composition/apple_host.dart': {},
       'packages/apple_developer_kit/lib/src/host/linux/linux_machine_identity.dart':
           {},
       'packages/xcross/lib/src/composition/host_operations.dart': {},
@@ -255,24 +260,69 @@ Map<String, (String, Set<String>)> dependencyAssets() {
                   entry.key.endsWith('narrow_import.dart')
             ? {}
             : {'inventory'});
-    result[entry.key] = (entry.value, expected);
+    final policyExpected = <String, Set<String>>{
+      'packages/apple_developer_kit/lib/composition/native_library_loader.dart':
+          {'cross-package-src'},
+      'packages/fixture/lib/filtered.dart': {
+        'export-directive',
+        'show-combinator',
+        'inventory',
+      },
+      'packages/fixture/lib/filtered_twice.dart': {
+        'export-directive',
+        'inventory',
+      },
+      'packages/fixture/lib/cycle_a.dart': {'export-directive', 'inventory'},
+      'packages/fixture/lib/cycle_b.dart': {'export-directive', 'inventory'},
+      'packages/fixture/lib/conditional_filtered.dart': {
+        'export-directive',
+        'inventory',
+      },
+      'packages/fixture/lib/conditional_leak.dart': {
+        'export-directive',
+        'inventory',
+        'concrete-edge',
+      },
+      'packages/fixture/lib/fixture.dart': {
+        'export-directive',
+        'inventory',
+        'concrete-edge',
+      },
+      'packages/fixture/lib/src/shared/conditional_show_import.dart': {
+        'show-combinator',
+      },
+      'packages/fixture/lib/src/shared/hide_import.dart': {'hide-combinator'},
+      'packages/fixture/lib/src/shared/repeated_combinators.dart': {
+        'show-combinator',
+        'hide-combinator',
+      },
+      'packages/fixture/lib/src/shared/narrow_import.dart': {'show-combinator'},
+      'packages/fixture/lib/src/shared/concrete_show.dart': {'show-combinator'},
+      'packages/xcross/lib/src/composition/xcross_runtime.dart': {
+        'export-directive',
+      },
+    };
+    result[entry.key] = (
+      entry.value,
+      {...expected, ...?policyExpected[entry.key]},
+    );
   }
   final exactPairs = {
     'packages/xcross/lib/src/composition/cli/compose_command.dart': {
-      'packages/dart_mobile_device/lib/src/target/iphone/device/pymd/pymd.dart',
+      'packages/dart_mobile_device/lib/target/iphone/device/pymd/pymd.dart',
     },
     'packages/xcross/lib/src/composition/cli/compose_run_command.dart': {
-      'packages/dart_mobile_device/lib/src/target/iphone/device/pymd/pymd.dart',
+      'packages/dart_mobile_device/lib/target/iphone/device/pymd/pymd.dart',
     },
     'packages/xcross/lib/src/composition/cli/flutter_run_command.dart': {
-      'packages/dart_mobile_device/lib/src/target/iphone/device/pymd/pymd.dart',
+      'packages/dart_mobile_device/lib/target/iphone/device/pymd/pymd.dart',
     },
     'packages/xcross/lib/src/composition/cli/flutter_command.dart': {
-      'packages/dart_mobile_device/lib/src/target/iphone/device/pymd/pymd.dart',
-      'packages/dart_mobile_device/lib/src/target/iphone/tunnel/pymd_tunnel_availability.dart',
+      'packages/dart_mobile_device/lib/target/iphone/device/pymd/pymd.dart',
+      'packages/dart_mobile_device/lib/target/iphone/tunnel/pymd_tunnel_availability.dart',
     },
     'packages/xcross/lib/src/composition/cli/runner.dart': {
-      'packages/dart_mobile_device/lib/src/target/iphone/diagnostics/pymd_device_diagnostics.dart',
+      'packages/dart_mobile_device/lib/target/iphone/diagnostics/pymd_device_diagnostics.dart',
     },
     'packages/xcross/tool/swiftpm_binary_fixture.dart': {
       'packages/xcross/lib/src/composition/native_runtime.dart',
@@ -289,9 +339,22 @@ Map<String, (String, Set<String>)> dependencyAssets() {
         .join(' ');
     final denied = standaloneAssemblies.containsKey(entry.key)
         ? "import 'package:xcross/src/composition/ios_target.dart';"
-        : "import 'package:darwin_sdk_kit/src/target/simulator/simulator_build_platform.dart';";
+        : "import 'package:darwin_sdk_kit/target/simulator/simulator_build_platform.dart';";
+    final part = generatedCompositionParts.entries
+        .where((p) => p.value == entry.key)
+        .firstOrNull;
+    final partDirective = part == null
+        ? ''
+        : "part '${part.key.split('/').last}';";
+    if (part != null) {
+      result[part.key] = ("part of '${entry.key.split('/').last}';", {});
+    }
+    var source = old?.$1 ?? '';
+    final parsed = parseString(content: source, throwIfDiagnostics: false).unit;
+    final offset = parsed.declarations.firstOrNull?.offset ?? source.length;
+    source = source.replaceRange(offset, offset, '$partDirective ');
     result[entry.key] = (
-      '$approved $denied ${old?.$1 ?? ''}',
+      '$approved $denied $source',
       {
         ...?old?.$2,
         if (standaloneAssemblies.containsKey(entry.key))
@@ -304,6 +367,7 @@ Map<String, (String, Set<String>)> dependencyAssets() {
   return result;
 }
 
+@internal
 String fixturePackageUri(String path) {
   final parts = path.split('/');
   return 'package:${parts[1]}/${parts.skip(3).join('/')}';

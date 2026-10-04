@@ -2,10 +2,12 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:ffi/ffi.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_link_creator.dart';
 
+@internal
 final class WindowsSwiftPmCheckoutLinkCreator
     implements SwiftPmCheckoutLinkCreator {
   const WindowsSwiftPmCheckoutLinkCreator({
@@ -32,6 +34,7 @@ final class WindowsSwiftPmCheckoutLinkCreator
   }
 }
 
+@internal
 final class WindowsSwiftPmNativeLinkApi {
   WindowsSwiftPmNativeLinkApi(DynamicLibrary library)
     : _createLink = library

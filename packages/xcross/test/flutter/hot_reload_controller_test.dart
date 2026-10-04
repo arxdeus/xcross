@@ -2,9 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/dart_mobile_device_shared.dart';
-import 'package:frontend_server_kit/frontend_server_kit.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/host/shared/posix_paths.dart';
+import 'package:cli_kit/shared/http/local_http.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:dart_mobile_device/shared/device/models/device_endpoint.dart';
+import 'package:frontend_server_kit/shared/process/compiler_transport.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -105,6 +109,7 @@ void main() {
   );
 }
 
+@internal
 final class ReloadMappedFileSystem implements HostFileSystemInterface {
   ReloadMappedFileSystem(this.root, this.backing, this.paths);
   final String root;
@@ -138,6 +143,7 @@ final class ReloadMappedFileSystem implements HostFileSystemInterface {
       throw UnsupportedError('unused');
 }
 
+@internal
 final class ReloadCompilerFactory implements CompilerProcessFactory {
   ReloadCompilerFactory(String result)
     : transport = ReloadCompilerTransport(result);
@@ -153,6 +159,7 @@ final class ReloadCompilerFactory implements CompilerProcessFactory {
   }
 }
 
+@internal
 final class ReloadCompilerTransport implements CompilerTransport {
   ReloadCompilerTransport(this.result);
   final String result;
@@ -181,6 +188,7 @@ final class ReloadCompilerTransport implements CompilerTransport {
   }
 }
 
+@internal
 final class ReloadConnector implements VmServiceConnector {
   ReloadConnector(this.channel);
   final ReloadRpcChannel channel;
@@ -188,6 +196,7 @@ final class ReloadConnector implements VmServiceConnector {
   WebSocketChannel open(Uri url, {required Duration timeout}) => channel;
 }
 
+@internal
 final class ReloadRpcChannel implements WebSocketChannel {
   final incoming = StreamController<Object?>();
   final methods = <String>[];
@@ -224,6 +233,7 @@ final class ReloadRpcChannel implements WebSocketChannel {
       throw StateError('unexpected channel operation: $invocation');
 }
 
+@internal
 final class ReloadRpcSink implements WebSocketSink {
   ReloadRpcSink(this.channel);
   final ReloadRpcChannel channel;
@@ -237,6 +247,7 @@ final class ReloadRpcSink implements WebSocketSink {
       throw StateError('unexpected socket operation: $invocation');
 }
 
+@internal
 final class ReloadHttpClient implements HttpClient {
   final request = ReloadHttpRequest();
   bool closed = false;
@@ -253,6 +264,7 @@ final class ReloadHttpClient implements HttpClient {
       throw StateError('unexpected HTTP operation: $invocation');
 }
 
+@internal
 final class ReloadHttpRequest implements HttpClientRequest {
   final bytes = <int>[];
   @override
@@ -268,6 +280,7 @@ final class ReloadHttpRequest implements HttpClientRequest {
       throw StateError('unexpected request operation: $invocation');
 }
 
+@internal
 final class ReloadHttpHeaders implements HttpHeaders {
   final values = <String, Object>{};
   @override
@@ -280,6 +293,7 @@ final class ReloadHttpHeaders implements HttpHeaders {
       throw StateError('unexpected header operation: $invocation');
 }
 
+@internal
 final class ReloadHttpResponse implements HttpClientResponse {
   @override
   int get statusCode => 200;

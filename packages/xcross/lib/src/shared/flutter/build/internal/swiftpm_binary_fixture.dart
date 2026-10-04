@@ -3,11 +3,13 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:crypto/crypto.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 
+@internal
 final class SwiftPmBinaryFixture {
   const SwiftPmBinaryFixture({
     required this.pluginRoot,
@@ -20,12 +22,14 @@ final class SwiftPmBinaryFixture {
   final String checksum;
 }
 
+@internal
 final class SwiftPmBinaryFixtureLibrary {
   const SwiftPmBinaryFixtureLibrary({required this.identifier, this.variant});
   final String identifier;
   final String? variant;
 }
 
+@internal
 final class SwiftPmBinaryFixtureGenerator {
   const SwiftPmBinaryFixtureGenerator({
     required this.fileSystem,

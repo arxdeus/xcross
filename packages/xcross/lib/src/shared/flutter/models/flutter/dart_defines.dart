@@ -1,3 +1,6 @@
+import 'package:meta/meta.dart';
+
+@internal
 abstract final class DartDefines {
   /// Adds the selected flavor while preserving explicit app-flavor overrides.
   static List<String> withFlavor(List<String> defines, String? flavor) => [

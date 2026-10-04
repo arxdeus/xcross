@@ -1,10 +1,17 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:analyzer/dart/analysis/utilities.dart';
+import 'package:analyzer/dart/ast/ast.dart';
+
 import 'acquisition_fixtures.dart';
+import 'boundaries.dart';
 import 'check.dart';
 import 'declaration_fixtures.dart';
 import 'dependency_fixtures.dart';
+import 'export_graph.dart';
+import 'internal_policy.dart';
+import 'inventory.dart';
 import 'platform_fixtures.dart';
 import 'workspace_inventory.dart';
 
@@ -45,11 +52,30 @@ Future<void> main() async {
     expected[entry.key] = entry.value.$2;
   }
 
+  final fixtureRoles = <String, Map<String, String>>{};
+  for (final path in expected.keys) {
+    if (!path.endsWith('.dart')) continue;
+    final unit = parseString(
+      content: File('${directory.path}/$path').readAsStringSync(),
+      throwIfDiagnostics: false,
+    ).unit;
+    final part = unit.directives.whereType<PartOfDirective>().firstOrNull;
+    final owner = part?.uri?.stringValue == null
+        ? path
+        : resolveUri(path, part!.uri!.stringValue!, root: directory.path);
+    fixtureRoles
+        .putIfAbsent(canonicalLibraryUri(owner, root: directory.path), () => {})
+        .addAll({
+          for (final id in declarationIdentities(unit).keys) id: 'fixture',
+        });
+  }
   var failed = false;
   try {
     final violations = await inspectFiles(
       directory.path,
       expected.keys.toList(),
+      declarationRoles: fixtureRoles,
+      internalLibraries: {},
     );
     for (final entry in expected.entries) {
       final actual = violations
@@ -81,18 +107,16 @@ Future<void> main() async {
         )) {
       throw StateError('Exact native caller approval failed');
     }
-    final showOffset = nativeSource.indexOf('detectPlatformHostSnapshot;');
     final nestedCall = nativeSource.indexOf(
       'detectPlatformHostSnapshot()',
       deniedCall + 1,
     );
-    if (violations.any((v) => v.path == nativePath && v.offset == showOffset) ||
-        !violations.any(
-          (v) =>
-              v.path == nativePath &&
-              v.offset == nestedCall &&
-              v.rule == 'hidden-detection',
-        )) {
+    if (!violations.any(
+      (v) =>
+          v.path == nativePath &&
+          v.offset == nestedCall &&
+          v.rule == 'hidden-detection',
+    )) {
       throw StateError('Detector combinator or nested caller approval failed');
     }
     for (final path in {
@@ -107,7 +131,7 @@ Future<void> main() async {
       final source = dependencyAssets()[path]!.$1;
       final deniedUri = path.contains('/tool/')
           ? "import 'package:xcross/src/composition/ios_target.dart';"
-          : "import 'package:darwin_sdk_kit/src/target/simulator/simulator_build_platform.dart';";
+          : "import 'package:darwin_sdk_kit/target/simulator/simulator_build_platform.dart';";
       final denied = source.indexOf(deniedUri);
       if (violations.any(
             (v) =>
@@ -180,7 +204,7 @@ Future<void> main() async {
       throw StateError('Exact native build input purpose failed');
     }
     const assemblyPath =
-        'packages/apple_developer_kit/lib/src/composition/native_library_loader.dart';
+        'packages/apple_developer_kit/lib/composition/native_library_loader.dart';
     final assemblySource = dependencyAssets()[assemblyPath]!.$1;
     final approvedImport = assemblySource.indexOf('import');
     final deniedImport = assemblySource.indexOf('import', approvedImport + 1);
@@ -310,7 +334,12 @@ Future<void> main() async {
     File('${directory.path}/$approvedPart').writeAsStringSync(
       "part of 'compose_build_command.dart'; class Parser {}",
     );
-    final wrongPart = await inspectFiles(directory.path, [approvedPart]);
+    final wrongPart = await inspectFiles(
+      directory.path,
+      [approvedPart],
+      declarationRoles: fixtureRoles,
+      internalLibraries: {},
+    );
     if (!wrongPart.any((v) => v.rule == 'inventory')) {
       throw StateError('Unapproved generated part owner accepted');
     }
@@ -318,7 +347,12 @@ Future<void> main() async {
     duplicate.writeAsStringSync(
       'abstract class WindowsHostInterface {} int composeXcrossHost(Object host) { final first = switch(host) { WindowsHostInterface() => 1, _ => 2 }; return first + switch(host) { WindowsHostInterface() => 1, _ => 2 }; }',
     );
-    final multiple = await inspectFiles(directory.path, [hostComposition]);
+    final multiple = await inspectFiles(
+      directory.path,
+      [hostComposition],
+      declarationRoles: fixtureRoles,
+      internalLibraries: {},
+    );
     if (!multiple.any((v) => v.rule == 'selector-count')) {
       throw StateError('Repeated composition selection accepted');
     }

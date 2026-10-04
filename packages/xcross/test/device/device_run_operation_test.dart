@@ -1,4 +1,5 @@
-import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:dart_mobile_device/shared/device/models/device.dart';
+import 'package:meta/meta.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/models/pack_result.dart';
@@ -145,6 +146,7 @@ void main() {
   });
 }
 
+@internal
 final class FakeDeviceBackend implements DeviceBackend {
   FakeDeviceBackend({required this.device, required this.events});
 

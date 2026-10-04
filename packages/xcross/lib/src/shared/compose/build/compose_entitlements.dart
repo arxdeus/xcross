@@ -1,6 +1,7 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:xcross/src/shared/compose/project/ios_app_config.dart';
@@ -12,6 +13,7 @@ import 'package:xcross/src/shared/compose/project/ios_app_config.dart';
 /// authenticates through an `ASWebAuthenticationSession` gets a profile that
 /// grants none of it, and the failure shows up at runtime rather than at build
 /// time.
+@internal
 final class ComposeEntitlements {
   const ComposeEntitlements(this.files);
   final HostFileSystemInterface files;

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_artifact_store.dart';
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_target.dart';
@@ -11,9 +12,8 @@ import 'package:xcross/src/shared/flutter/swiftpm/artifact_destination_publisher
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
-export 'package:xcross/src/shared/flutter/swiftpm/artifact_destination_publisher.dart'
-    show SwiftPmBinaryArtifactPublication;
 
+@internal
 final class SwiftPmPreparedBinaryArtifact {
   const SwiftPmPreparedBinaryArtifact({
     required this.target,
@@ -24,6 +24,7 @@ final class SwiftPmPreparedBinaryArtifact {
   final SwiftPmBinaryArtifactEntry entry;
 }
 
+@internal
 final class SwiftPmBinaryArtifactPreparer {
   SwiftPmBinaryArtifactPreparer({
     required SwiftPmBinaryArtifactStore store,

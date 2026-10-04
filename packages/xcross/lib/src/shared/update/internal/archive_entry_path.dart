@@ -1,6 +1,8 @@
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
 /// Validates archive entry names before they are turned into real paths.
+@internal
 abstract final class ArchiveEntryPath {
   /// The destination-relative path for [name], or null when the entry must be
   /// refused.

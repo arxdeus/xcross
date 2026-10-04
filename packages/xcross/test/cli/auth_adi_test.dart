@@ -2,10 +2,11 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/apple_developer_kit.dart';
+import 'package:apple_developer_kit/shared/adi/apk_fetch.dart';
 import 'package:archive/archive.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/cli/basic/auth_command.dart';
@@ -327,6 +328,7 @@ List<int> _apkBytes(int machine, String architecture, {bool complete = true}) {
   return ZipEncoder().encode(archive);
 }
 
+@internal
 final class ClosingAuthApkClient extends MockClient {
   ClosingAuthApkClient(List<int> bytes)
     : super((_) async => http.Response.bytes(bytes, 200));

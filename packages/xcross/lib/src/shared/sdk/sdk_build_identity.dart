@@ -1,10 +1,17 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
 import 'package:crypto/crypto.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:darwin_sdk_kit/shared/errors/errors.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/sdk/sdk_install_constants.dart';
 import 'package:xcross/src/shared/sdk/sdk_metadata_platform.dart';
 
+@internal
 final class SdkBuildIdentity<T extends PlatformHostInterface> {
   SdkBuildIdentity(
     this.runner,

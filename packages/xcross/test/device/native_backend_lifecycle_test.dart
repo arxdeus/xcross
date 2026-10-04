@@ -1,9 +1,17 @@
 import 'dart:ffi';
 import 'dart:io';
 
-import 'package:apple_developer_kit/apple_developer_kit.dart';
-import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:apple_developer_kit/composition/apple_host.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/asc_client.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/asc_models.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_provider.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/host/shared/posix_privileges.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:dart_mobile_device/host/macos/macos_device_host.dart';
+import 'package:dart_mobile_device/shared/device/models/device.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/auth/signing_session.dart';
@@ -140,6 +148,7 @@ void main() {
   );
 }
 
+@internal
 final class FixedSigningSessionProvider implements SigningSessionProvider {
   FixedSigningSessionProvider(this.session);
   final SigningSession session;
@@ -147,6 +156,7 @@ final class FixedSigningSessionProvider implements SigningSessionProvider {
   Future<SigningSession> resolve() async => session;
 }
 
+@internal
 final class FailingProvisioningClient implements DevelopmentProvisioningClient {
   final lookups = <String>[];
   final unexpectedCalls = <Symbol>[];
@@ -166,6 +176,7 @@ final class FailingProvisioningClient implements DevelopmentProvisioningClient {
   }
 }
 
+@internal
 final class CountingAnisetteProvider implements AnisetteProvider {
   int closes = 0;
   @override

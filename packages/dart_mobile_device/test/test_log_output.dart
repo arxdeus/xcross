@@ -1,11 +1,17 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart' show DeviceConsole;
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/shared/http/local_http.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:dart_mobile_device/shared/console/device_console.dart';
+import 'package:meta/meta.dart';
 
+@internal
 Log testLog() => Log(output: TestLogOutput());
 
+@internal
 final class TestLogOutput implements LogOutput {
   final messages = <String>[];
   @override
@@ -20,6 +26,7 @@ final class TestLogOutput implements LogOutput {
   void write(String message) => messages.add(message);
 }
 
+@internal
 final class TestDeviceConsole implements DeviceConsole {
   @override
   Stream<void> get interrupts => const Stream.empty();
@@ -41,7 +48,9 @@ final class TestDeviceConsole implements DeviceConsole {
   void add(List<int> bytes) {}
 }
 
+@internal
 LocalHttp<PlatformHostInterface> testLocalHttp() =>
     LocalHttp(MacOSHost(), createClient: HttpClient.new);
 
+@internal
 IOSink testSink() => IOSink(StreamController<List<int>>.broadcast().sink);

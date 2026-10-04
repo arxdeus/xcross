@@ -5,6 +5,7 @@ import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/update/git_update_ref_resolver.dart';
 import 'package:xcross/src/shared/update/install_layout.dart';
 
+import '../log_fixture.dart';
 import 'runtime_fixture.dart';
 
 void main() {

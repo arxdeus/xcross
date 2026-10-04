@@ -1,9 +1,22 @@
+@internal
+library;
+
 import 'dart:ffi';
 import 'dart:io';
 
-import 'package:apple_developer_kit/apple_developer_kit_shared.dart';
+import 'package:apple_developer_kit/host/shared/adi/loader/loader.dart';
+import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
+import 'package:apple_developer_kit/shared/adi/apk_fetch.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/asc_config.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/developer_services_team_discovery_client.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_data_provider.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_provider.dart';
+import 'package:apple_developer_kit/shared/grandslam/app_token_exchange.dart';
+import 'package:apple_developer_kit/shared/grandslam/grandslam_login.dart';
+import 'package:apple_developer_kit/shared/grandslam/grandslam_session_store.dart';
+import 'package:apple_developer_kit/shared/grandslam/grandslam_two_factor.dart';
 import 'package:build_cli_annotations/build_cli_annotations.dart';
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
 import 'package:http/http.dart' as http;
 import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/cli/command_prompt.dart';
@@ -13,6 +26,7 @@ import 'package:xcross/src/shared/errors/errors.dart';
 part 'auth_command.g.dart';
 
 /// Options for `xcross auth`.
+@internal
 @CliOptions()
 final class AuthArgs {
   @CliOption(help: 'App Store Connect API "Issuer ID" (one per team).')
@@ -68,6 +82,7 @@ const _authOptionNames = [
 /// `xcross auth` — save credentials for the native (no-Swift) signing
 /// pipeline. Supports both App Store Connect API keys and Apple ID/password
 /// GrandSlam login.
+@internal
 final class AuthCommand extends ParsedCommand<AuthArgs, void> {
   @override
   ArgParser populateOptions(ArgParser parser) =>

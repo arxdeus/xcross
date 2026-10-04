@@ -1,11 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_artifact_store.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 
+@internal
 final class SwiftPmBinaryArtifactPublication {
   SwiftPmBinaryArtifactPublication._(this.nonce);
 
@@ -27,6 +29,7 @@ final class SwiftPmBinaryArtifactPublication {
   int get hashCode => nonce == null ? 0 : 1;
 }
 
+@internal
 final class SwiftPmArtifactDestinationPublisher {
   const SwiftPmArtifactDestinationPublisher({
     required SwiftPmBinaryArtifactStore store,

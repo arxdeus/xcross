@@ -2,12 +2,18 @@ import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
 
-import 'package:apple_developer_kit/apple_developer_kit.dart';
-import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
-    show DeviceConsole, DeviceSockets;
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:apple_developer_kit/shared/http/apple_http_client.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/shared/download/download.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/tui/tui.dart';
+import 'package:dart_mobile_device/shared/console/device_console.dart';
+import 'package:dart_mobile_device/shared/network/device_sockets.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
 import 'package:http/http.dart' as http;
+import 'package:meta/meta.dart';
 import 'package:xcross/src/composition/host/linux_xcross_context.dart';
 import 'package:xcross/src/composition/xcross_application.dart';
 import 'package:xcross/src/shared/cli/command_prompt.dart';
@@ -21,8 +27,7 @@ import 'package:xcross/src/target/iphone/device/signing_http_client_factory.dart
 
 import '../log_fixture.dart';
 
-export '../log_fixture.dart';
-
+@internal
 XcrossApplication<LinuxHostInterface> testApplication({
   XcrossConfig? configuration,
   CommandPrompt? commandPrompt,
@@ -84,6 +89,7 @@ XcrossApplication<LinuxHostInterface> testApplication({
   );
 }
 
+@internal
 XcrossRuntime<LinuxHostInterface> testRuntime({
   XcrossConfig? configuration,
   CommandPrompt? commandPrompt,
@@ -98,6 +104,7 @@ XcrossRuntime<LinuxHostInterface> testRuntime({
   architecture: architecture,
 ).runtime;
 
+@internal
 final class TestTerminal implements TuiTerminal {
   @override
   bool get isInteractive => false;
@@ -113,6 +120,7 @@ final class TestTerminal implements TuiTerminal {
   void write(String value) {}
 }
 
+@internal
 final class TestDeviceConsole implements DeviceConsole {
   @override
   Stream<void> get interrupts => const Stream.empty();
@@ -134,6 +142,7 @@ final class TestDeviceConsole implements DeviceConsole {
   void add(List<int> value) {}
 }
 
+@internal
 final class TestCommandPrompt implements CommandPrompt {
   @override
   bool get isInteractive => false;
@@ -146,6 +155,7 @@ final class TestCommandPrompt implements CommandPrompt {
       throw StateError('Fixture secret input must not be requested');
 }
 
+@internal
 final class TestDeviceSockets implements DeviceSockets {
   const TestDeviceSockets();
   @override

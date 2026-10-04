@@ -1,8 +1,12 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:frontend_server_kit/frontend_server_kit.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:frontend_server_kit/shared/compiler/frontend_server_options.dart';
+import 'package:frontend_server_kit/shared/compiler/frontend_server_session.dart';
+import 'package:frontend_server_kit/shared/compiler/package_uris.dart';
+import 'package:frontend_server_kit/shared/process/compiler_transport.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -134,6 +138,7 @@ void main() {
   });
 }
 
+@internal
 final class MappedCompilerFactory implements CompilerProcessFactory {
   MappedCompilerFactory(String result)
     : transport = MappedCompilerTransport(result);
@@ -149,6 +154,7 @@ final class MappedCompilerFactory implements CompilerProcessFactory {
   }
 }
 
+@internal
 final class MappedCompilerTransport implements CompilerTransport {
   MappedCompilerTransport(this.result);
   final String result;

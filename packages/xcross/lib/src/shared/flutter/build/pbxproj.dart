@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/project/pbx_parser.dart';
@@ -10,6 +10,7 @@ import 'package:xcross/src/shared/flutter/project/pbx_parser.dart';
 /// Values are kept in the loosely-typed shape the OpenStep-ish plist uses:
 /// a bare/quoted string, a `List<Object?>` for `( ... )`, or a nested
 /// [PbxObject]-style `Map<String, Object?>` for `{ ... }`.
+@internal
 @immutable
 final class PbxObject {
   const PbxObject(this.id, this.fields);
@@ -49,6 +50,7 @@ final class PbxObject {
 /// `PBXNativeTarget` → `XCConfigurationList` → `XCBuildConfiguration` and
 /// `PBXNativeTarget` → `PBXSourcesBuildPhase` → `PBXBuildFile` → `PBXFileReference`
 /// → `PBXGroup` parents (for the on-disk path).
+@internal
 @immutable
 final class PbxProject {
   const PbxProject(this.objects, this.rootObjectId, this.projectDirectory);

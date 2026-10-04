@@ -1,5 +1,9 @@
+import 'package:meta/meta.dart';
+
+@internal
 enum ComposeConfiguration { debug, release }
 
+@internal
 final class ComposeBuildOptions {
   const ComposeBuildOptions({
     this.configuration = ComposeConfiguration.debug,

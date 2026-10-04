@@ -1,7 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/apple/mach_o.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
@@ -41,6 +42,7 @@ const _ulebPayloadMask = 0x7f;
 const _ulebContinuation = 0x80;
 const _ulebMaximumShift = 63;
 
+@internal
 final class NativeAssetLinkage {
   const NativeAssetLinkage({required this.fileSystem, required this.paths});
 
@@ -141,6 +143,7 @@ final class NativeAssetLinkage {
   }
 }
 
+@internal
 typedef NativeSymbolEntry = ({
   int index,
   MachOSymbol symbol,
@@ -194,6 +197,7 @@ Set<String> _readExportTrieAt(MachOFile file, int fieldOffset) =>
     ).exports();
 
 /// Walks a dyld export trie, collecting every terminal's symbol name.
+@internal
 final class ExportTrieReader {
   ExportTrieReader(this._file, this._offset, this._size);
 

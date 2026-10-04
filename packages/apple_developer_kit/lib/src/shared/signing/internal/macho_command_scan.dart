@@ -2,8 +2,10 @@ import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/shared/signing/internal/macho_header.dart';
 import 'package:apple_developer_kit/src/shared/signing/macho_format.dart';
+import 'package:meta/meta.dart';
 
 /// Everything the load-command walk accumulates before the terminal checks.
+@internal
 final class MachOCommandScan {
   MachOCommandScan(this._bytes, this._path, this._header);
 

@@ -1,5 +1,8 @@
+import 'package:meta/meta.dart';
+
 /// One `flutter: fonts:` asset entry, e.g. `{asset: fonts/Foo.ttf, weight:
 /// 700}`.
+@internal
 final class PubspecFontAsset {
   const PubspecFontAsset({required this.asset, this.weight, this.style});
 
@@ -17,6 +20,7 @@ final class PubspecFontAsset {
 }
 
 /// One `flutter: fonts:` family entry, e.g. `{family: Foo, fonts: [...]}`.
+@internal
 final class PubspecFontFamily {
   const PubspecFontFamily({required this.family, required this.fonts});
 

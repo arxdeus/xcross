@@ -1,9 +1,12 @@
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/element/type.dart';
-import 'identity.dart';
-import 'inventory.dart';
+import 'package:meta/meta.dart';
 
+import 'boundaries.dart';
+import 'identity.dart';
+
+@internal
 class DispatchRules {
   final String path;
   final List<Violation> violations = [];

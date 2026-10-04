@@ -52,6 +52,7 @@ dependencies:
   embed_annotation: ^1.2.3
 
 dev_dependencies:
+  analyzer: 13.3.0
   build_cli: ^2.2.13
   build_runner: ^2.16.1
   embed: ^1.6.6

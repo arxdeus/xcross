@@ -1,4 +1,7 @@
+import 'package:meta/meta.dart';
+
 /// Constants for interactive session keypress handling and DAP markers.
+@internal
 abstract final class DeviceConstants {
   /// Marker printed when the on-device VM Service is live; the DAP scans child
   /// stdout for it (by substring, so a line glyph may precede it) to emit

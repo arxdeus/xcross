@@ -2,13 +2,15 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/process/process.dart';
 import 'package:dds/dap.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/dap/dap_router.dart';
 
 /// Stubs the pre-launch DAP handshake, then replays the raw frames into the
 /// chosen adapter (xcross or Flutter's own `debug-adapter`) and drops its
 /// duplicate responses for already-acked seqs.
+@internal
 final class DapRouter {
   DapRouter(
     this._input,

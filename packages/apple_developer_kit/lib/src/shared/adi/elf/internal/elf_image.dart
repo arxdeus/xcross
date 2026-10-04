@@ -3,6 +3,7 @@ import 'package:meta/meta.dart';
 
 /// The reserved image a library's `PT_LOAD` segments are mapped into,
 /// plus the page-aligned lowest `p_vaddr` every offset is relative to.
+@internal
 @immutable
 final class ElfImage {
   const ElfImage({required this.allocation, required this.baseVaddr});

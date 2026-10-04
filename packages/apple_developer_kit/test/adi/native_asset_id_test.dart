@@ -4,11 +4,9 @@ import 'dart:isolate';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
-final String _packageRoot = File.fromUri(
-  Isolate.resolvePackageUriSync(
-    Uri.parse('package:apple_developer_kit/apple_developer_kit.dart'),
-  )!,
-).parent.parent.path;
+final String _packageRoot = Directory.fromUri(
+  Isolate.resolvePackageUriSync(Uri.parse('package:apple_developer_kit/'))!,
+).parent.path;
 
 /// A bare `@Native` external resolves against an asset id equal to the URI of
 /// the library that declares it, so moving such a library without moving the

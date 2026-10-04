@@ -1,5 +1,7 @@
-import 'package:cli_kit/src/shared/logging/logging.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:meta/meta.dart';
 
+@internal
 class RecordingLogOutput implements LogOutput {
   RecordingLogOutput({this.supportsAnsi = false, this.terminalColumns = 80});
   @override
@@ -17,6 +19,7 @@ class RecordingLogOutput implements LogOutput {
   void write(String message) => writes.add(message);
 }
 
+@internal
 final class ThrowingLogOutput extends RecordingLogOutput {
   ThrowingLogOutput({super.supportsAnsi, this.failWriteAt, this.failStdoutAt});
   final int? failWriteAt;

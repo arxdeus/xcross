@@ -1,25 +1,45 @@
 import 'dart:convert';
 import 'dart:typed_data';
+
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/compose/jvm_binary.dart';
 
+@internal
 const int jvmcpUtf8 = 1;
+@internal
 const int jvmcpInteger = 3;
+@internal
 const int jvmcpFloat = 4;
+@internal
 const int jvmcpLong = 5;
+@internal
 const int jvmcpDouble = 6;
+@internal
 const int jvmcpClass = 7;
+@internal
 const int jvmcpString = 8;
+@internal
 const int jvmcpFieldref = 9;
+@internal
 const int jvmcpMethodref = 10;
+@internal
 const int jvmcpIfMethodref = 11; // JVM CONSTANT_InterfaceMethodref, tag 11
+@internal
 const int jvmcpNameAndType = 12;
+@internal
 const int jvmcpMethodHandle = 15;
+@internal
 const int jvmcpMethodType = 16;
+@internal
 const int jvmcpDynamic = 17;
+@internal
 const int jvmcpInvokeDynamic = 18;
+@internal
 const int jvmcpModule = 19;
+@internal
 const int jvmcpPackage = 20;
 
+@internal
 class KotlinConstantPoolEntry {
   const KotlinConstantPoolEntry({
     required this.tag,
@@ -38,6 +58,7 @@ class KotlinConstantPoolEntry {
 
 // ── Attribute ─────────────────────────────────────────────────────────────────
 
+@internal
 final class KotlinConstantPoolData {
   const KotlinConstantPoolData(this.entries, this.raw, this.nextOffset);
   final List<KotlinConstantPoolEntry?> entries;
@@ -45,6 +66,7 @@ final class KotlinConstantPoolData {
   final int nextOffset;
 }
 
+@internal
 KotlinConstantPoolData readKotlinConstantPool(Uint8List raw, int offset) {
   var off = offset;
   final cpStart = off;

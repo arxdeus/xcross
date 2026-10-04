@@ -3,7 +3,9 @@ import 'dart:ffi';
 import 'package:apple_developer_kit/src/host/linux/adi/linux_memory_allocator.dart';
 import 'package:apple_developer_kit/src/host/shared/adi/loader/loader_posix.dart';
 import 'package:apple_developer_kit/src/shared/adi/adi_architecture.dart';
+import 'package:meta/meta.dart';
 
+@internal
 final class LinuxNativeLibraryLoader extends PosixNativeLibraryLoader {
   LinuxNativeLibraryLoader()
     : super(

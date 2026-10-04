@@ -1,4 +1,4 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/internal/toolchain.dart';
@@ -22,6 +22,7 @@ import 'package:xcross/src/shared/flutter/flutter_kernel_compiler.dart';
 ///   4. Build App stub Mach-O dylib via clang + ld64.lld from PATH.
 ///   5. Write `App.framework/Info.plist`.
 ///
+@internal
 final class FlutterDebugBundler<T extends PlatformHostInterface> {
   final FlutterBuildRuntime<T> runtime;
   final FlutterKernelCompiler<T> kernel;

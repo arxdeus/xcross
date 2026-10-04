@@ -1,3 +1,4 @@
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/host/shared/tools/unsupported_swiftpm_gate.dart';
@@ -59,6 +60,7 @@ void main() {
   }
 }
 
+@internal
 final class FixtureLoader implements SwiftPmGateRuntimeLoader {
   int loads = 0;
   bool passed = true;

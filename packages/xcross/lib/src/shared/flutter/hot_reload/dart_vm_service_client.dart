@@ -1,17 +1,20 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:meta/meta.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/hot_reload/internal/pending_call.dart';
 import 'package:xcross/src/shared/flutter/vm_service_connector.dart';
 
 /// A service the VM can call back into; returns the reply body.
+@internal
 typedef VmServiceHandler =
     Future<Map<String, Object?>> Function(Map<String, Object?> params);
 
 /// JSON-RPC 2.0 client for the Dart VM Service over WebSocket.
+@internal
 final class DartVmServiceClient {
   DartVmServiceClient({required this.log, required this.connector});
   final Log log;

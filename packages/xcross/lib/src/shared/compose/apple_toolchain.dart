@@ -1,9 +1,12 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain.dart';
 
+@internal
 final class AppleToolchainStager<T extends PlatformHostInterface> {
   const AppleToolchainStager(
     this.runner, {
@@ -82,6 +85,7 @@ final class AppleToolchainStager<T extends PlatformHostInterface> {
   }
 }
 
+@internal
 abstract final class AppleToolEnvironment {
   static Map<String, String> resolve<T extends PlatformHostInterface>(
     ComposeToolchain<T> toolchain,

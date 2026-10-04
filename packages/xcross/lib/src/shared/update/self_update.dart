@@ -1,6 +1,10 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/download/download.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/update/checksums.dart';
 import 'package:xcross/src/shared/update/install_layout.dart';
@@ -12,6 +16,7 @@ import 'package:xcross/src/shared/update/update_check.dart';
 import 'package:xcross/src/shared/update/update_host_policy.dart';
 import 'package:xcross/src/shared/update/update_progress.dart';
 
+@internal
 typedef UpdateVerificationProcess =
     Future<CapturedProcess> Function({
       required String executable,
@@ -21,6 +26,7 @@ typedef UpdateVerificationProcess =
     });
 
 /// Downloads a release archive and swaps it over the running installation.
+@internal
 final class SelfUpdate {
   SelfUpdate({
     required this.host,

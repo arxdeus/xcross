@@ -1,12 +1,15 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/composition/native_host.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/host/shared/config/posix_config_host.dart';
 import 'package:xcross/src/host/windows/config/windows_config_host.dart';
 import 'package:xcross/src/shared/config/config.dart';
 import 'package:xcross/src/shared/config/config_decoder.dart';
+import 'package:xcross/src/shared/config/config_store.dart';
 
 import '../cli/auth_fixture.dart';
 

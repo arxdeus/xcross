@@ -2,12 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:dart_mobile_device/src/shared/device/models/device_endpoint.dart';
-import 'package:dart_mobile_device/src/shared/device/transport/device_transport.dart';
-import 'package:dart_mobile_device/src/shared/errors/errors.dart';
-import 'package:dart_mobile_device/src/shared/network/device_sockets.dart';
-import 'package:dart_mobile_device/src/target/iphone/device/pymd/pymd.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:dart_mobile_device/shared/device/models/device_endpoint.dart';
+import 'package:dart_mobile_device/shared/device/transport/device_transport.dart';
+import 'package:dart_mobile_device/shared/errors/errors.dart';
+import 'package:dart_mobile_device/shared/network/device_sockets.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd.dart';
+import 'package:meta/meta.dart';
 
 /// RSD over pymobiledevice3's in-process (`--userspace`) tunnel, with every
 /// device service republished on loopback.
@@ -24,6 +25,7 @@ import 'package:dart_mobile_device/src/target/iphone/device/pymd/pymd.dart';
 /// * a VPN kill-switch or firewall that blocks traffic on non-VPN interfaces
 ///   (the tunnel's IPv6 connect then fails with `WinError 10013`), and
 /// * hosts without Administrator/root rights, since no TUN device is created.
+@internal
 class UserspaceTunnelTransport implements DeviceTransport {
   UserspaceTunnelTransport({
     required this.pymd,

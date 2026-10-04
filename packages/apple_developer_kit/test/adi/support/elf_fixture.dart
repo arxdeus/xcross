@@ -1,5 +1,7 @@
 import 'dart:typed_data';
+import 'package:meta/meta.dart';
 
+@internal
 Uint8List elfFixture(int machine, {int base = 0x1000}) {
   final bytes = Uint8List(0x3000);
   final data = ByteData.sublistView(bytes);

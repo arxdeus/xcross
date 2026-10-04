@@ -1,7 +1,9 @@
 import 'dart:io';
 
-import 'package:cli_kit/src/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 
+@internal
 final class NativeFileSystem implements HostFileSystemInterface {
   const NativeFileSystem(this.paths, {required this.permissions});
   final HostPathsInterface paths;

@@ -2,11 +2,139 @@ import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/element/type.dart';
+import 'package:meta/meta.dart';
 
+import 'boundaries.dart';
 import 'dispatch_rules.dart';
+import 'export_graph.dart';
 import 'identity.dart';
-import 'inventory.dart';
 
+@internal
+List<Violation> sourcePolicyViolations(
+  String path,
+  CompilationUnit unit, {
+  String? root,
+}) {
+  final result = <Violation>[];
+  void reject(AstNode node, String rule, String detail) =>
+      result.add(Violation(path, rule, node.offset, detail));
+  String? owner(String candidate) {
+    final parts = candidate.split('/');
+    return parts.length > 2 &&
+            parts[0] == 'packages' &&
+            workspacePackages.contains(parts[1])
+        ? parts[1]
+        : null;
+  }
+
+  for (final declaration in unit.declarations) {
+    final name = switch (declaration) {
+      ClassDeclaration() => declaration.namePart.typeName.lexeme,
+      ClassTypeAlias() => declaration.name.lexeme,
+      MixinDeclaration() => declaration.name.lexeme,
+      EnumDeclaration() => declaration.namePart.typeName.lexeme,
+      ExtensionTypeDeclaration() => declaration.namePart.typeName.lexeme,
+      _ => null,
+    };
+    if (name?.startsWith('_') ?? false) {
+      reject(
+        declaration,
+        'private-type',
+        'Class-like declarations must have public names',
+      );
+    }
+  }
+  for (final directive in unit.directives) {
+    if (directive is ExportDirective) {
+      reject(
+        directive,
+        'export-directive',
+        'Owned Dart source must import actual declaration libraries',
+      );
+    }
+    if (directive is NamespaceDirective) {
+      for (final combinator in directive.combinators) {
+        if (combinator is ShowCombinator) {
+          reject(
+            combinator,
+            'show-combinator',
+            'Import actual declarations without show filters',
+          );
+        }
+        if (combinator is HideCombinator) {
+          reject(
+            combinator,
+            'hide-combinator',
+            'Resolve genuine collisions with import prefixes',
+          );
+        }
+      }
+    }
+    final uris = <StringLiteral>[];
+    if (directive is UriBasedDirective) uris.add(directive.uri);
+    if (directive is NamespaceDirective) {
+      uris.addAll(directive.configurations.map((c) => c.uri));
+    }
+    if (directive is PartOfDirective && directive.uri != null) {
+      uris.add(directive.uri!);
+    }
+    for (final literal in uris) {
+      final uri = literal.stringValue;
+      if (uri == null) {
+        reject(directive, 'source-uri', 'Source URI must be a valid literal');
+        continue;
+      }
+      final destination = resolveUri(path, uri, root: root);
+      if (destination.startsWith('invalid:')) {
+        reject(
+          directive,
+          'source-uri',
+          'Source URI escapes or has invalid ownership: $uri',
+        );
+      }
+      final destinationOwner = owner(destination);
+      if (destinationOwner != null &&
+          destinationOwner != owner(path) &&
+          destination.startsWith('packages/$destinationOwner/lib/src/')) {
+        reject(
+          directive,
+          'cross-package-src',
+          'Import the public declaration library, not another package implementation: $destination',
+        );
+      }
+    }
+  }
+  final declaredOwners = unit.directives.whereType<PartOfDirective>().toList();
+  if (partOwners.containsKey(path)) {
+    if (declaredOwners.length != 1 ||
+        declaredOwners.single.uri?.stringValue == null ||
+        resolveUri(path, declaredOwners.single.uri!.stringValue!, root: root) !=
+            partOwners[path]) {
+      reject(unit, 'inventory', 'Part must bind its exact approved owner');
+    }
+  }
+  final expectedParts = partOwners.entries
+      .where((e) => e.value == path)
+      .map((e) => e.key)
+      .toSet();
+  if (expectedParts.isNotEmpty) {
+    final actualParts = unit.directives
+        .whereType<PartDirective>()
+        .map((d) => resolveUri(path, d.uri.stringValue ?? '', root: root))
+        .toList();
+    if (actualParts.length != expectedParts.length ||
+        !actualParts.toSet().containsAll(expectedParts)) {
+      reject(
+        unit,
+        'inventory',
+        'Owner must declare all and only exact approved parts',
+      );
+    }
+  }
+  return result;
+}
+
+@internal
 class DeclarationRules extends RecursiveAstVisitor<void> {
   final String path;
   final List<Violation> violations = [];

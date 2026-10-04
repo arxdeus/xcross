@@ -1,7 +1,16 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:darwin_sdk_kit/host/linux/linux_darwin_toolchain_locations.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:darwin_sdk_kit/target/iphone/iphone_build_platform.dart';
+import 'package:darwin_sdk_kit/target/shared/ios_build_platform.dart';
+import 'package:darwin_sdk_kit/target/simulator/simulator_build_platform.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/composition/xcrun_sdk.dart';
@@ -795,6 +804,7 @@ Future<int> _runXcrun(
   ).run(arguments, sdk: sdk);
 }
 
+@internal
 final class FixtureProbeOutput implements Stdout {
   final buffer = StringBuffer();
   @override
@@ -803,6 +813,7 @@ final class FixtureProbeOutput implements Stdout {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+@internal
 final class FixtureNativeProcesses implements HostProcessInterface {
   String? executable;
   List<String>? arguments;
@@ -831,6 +842,7 @@ final class FixtureNativeProcesses implements HostProcessInterface {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+@internal
 final class FixtureNativeChild implements Process {
   @override
   Future<int> get exitCode async => 37;
@@ -859,6 +871,7 @@ IosBuildPlatformInterface _fixtureTarget(List<String> arguments) {
   }
 }
 
+@internal
 final class FixtureUnusedLoader implements XcrunRuntimeLoader {
   int calls = 0;
   @override

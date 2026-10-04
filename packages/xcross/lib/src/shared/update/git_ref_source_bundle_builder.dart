@@ -1,16 +1,19 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
-
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/update/git_update_ref_resolver.dart';
 import 'package:xcross/src/shared/update/internal/dart_executable_resolver.dart';
 import 'package:xcross/src/shared/update/internal/update_process.dart';
 import 'package:xcross/src/shared/update/update_progress.dart';
 
+@internal
 typedef TempDirectoryModifiedAt = DateTime Function(Directory directory);
+@internal
 typedef DartExecutableLocator = Future<String> Function();
 
+@internal
 final class GitRefSourceBundleBuilder {
   GitRefSourceBundleBuilder({
     required this.runner,

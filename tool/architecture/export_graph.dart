@@ -1,23 +1,59 @@
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/element/element.dart';
+import 'package:meta/meta.dart';
 
-String resolveUri(String path, String uri) => uri.startsWith('file:')
-    ? sourceFilePath(Uri.parse(uri).toFilePath())
-    : uri.startsWith('package:')
-    ? 'packages/${uri.substring(8).split('/').first}/lib/${uri.substring(8).split('/').skip(1).join('/')}'
-    : Uri.parse(path).resolve(uri).normalizePath().path;
-
-String sourceFilePath(String absolute) {
-  for (final marker in ['/packages/', '/tool/']) {
-    final index = absolute.lastIndexOf(marker);
-    if (index >= 0) return absolute.substring(index + 1);
+@internal
+String resolveUri(String path, String uri, {String? root}) {
+  final parsed = Uri.tryParse(uri);
+  if (parsed == null || parsed.hasQuery || parsed.hasFragment) {
+    return 'invalid:$uri';
   }
-  return absolute;
+  if (parsed.scheme == 'file') {
+    if (parsed.host.isNotEmpty && parsed.host != 'localhost') {
+      return 'invalid:$uri';
+    }
+    try {
+      return sourceFilePath(parsed.normalizePath().toFilePath(), root: root);
+    } on Object catch (error) {
+      if (error is! ArgumentError) rethrow;
+      return 'invalid:$uri';
+    }
+  }
+  if (parsed.scheme == 'package') {
+    final pieces = parsed.path.split('/');
+    if (pieces.length < 2 || pieces.first.isEmpty) return 'invalid:$uri';
+    final destination = Uri.parse(
+      'packages/${pieces.first}/lib/',
+    ).resolve(pieces.skip(1).join('/')).normalizePath().path;
+    if (!destination.startsWith('packages/${pieces.first}/lib/')) {
+      return 'invalid:$uri';
+    }
+    return destination;
+  }
+  if (parsed.hasScheme || parsed.hasAuthority || parsed.path.startsWith('/')) {
+    return 'external:$uri';
+  }
+  final destination = Uri.parse(path).resolveUri(parsed).normalizePath().path;
+  if (destination.startsWith('../')) return 'invalid:$uri';
+  return destination;
 }
 
+@internal
+String sourceFilePath(String absolute, {String? root}) {
+  if (root == null) return absolute;
+  final owner = Uri.directory(root).normalizePath();
+  final source = Uri.file(absolute).normalizePath();
+  return source.path.startsWith(owner.path)
+      ? source.path.substring(owner.path.length)
+      : absolute;
+}
+
+@internal
 class ExportGraph {
   final Map<String, CompilationUnit> units;
-  ExportGraph(this.units);
+  final String? root;
+  ExportGraph(this.units, {this.root});
+  String resolve(String path, String uri) => resolveUri(path, uri, root: root);
   Map<String, Set<Element>> filter(
     Map<String, Set<Element>> source,
     Iterable<Combinator> combinators,
@@ -66,7 +102,7 @@ class ExportGraph {
         ...directive.configurations.map((c) => c.uri.stringValue),
       ]) {
         if (uri == null) continue;
-        final destination = resolveUri(path, uri);
+        final destination = resolve(path, uri);
         final exported = filter(
           names(destination, seen),
           directive.combinators,
@@ -80,7 +116,7 @@ class ExportGraph {
   }
 
   Set<String> destinations(String source, String uri, AstNode node) {
-    final path = resolveUri(source, uri);
+    final path = resolve(source, uri);
     final combinators = node is NamespaceDirective
         ? node.combinators
         : <Combinator>[];
@@ -90,7 +126,7 @@ class ExportGraph {
         for (final values in visible.values)
           for (final element in values)
             if (element.library != null)
-              resolveUri(source, element.library!.uri.toString()),
+              resolve(source, element.library!.uri.toString()),
       };
     }
     if (node is ImportDirective && uri == node.uri.stringValue) {
@@ -99,7 +135,7 @@ class ExportGraph {
             in node.libraryImport?.namespace.definedNames2.values ??
                 <Element>[])
           if (element.library != null)
-            resolveUri(source, element.library!.uri.toString()),
+            resolve(source, element.library!.uri.toString()),
       };
     }
     return {};

@@ -1,8 +1,9 @@
-import 'package:cli_kit/cli_kit_shared.dart';
-
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
 /// Resolves one Xcode build configuration in its textual include order.
+@internal
 final class XcconfigResolver {
   XcconfigResolver(this.fileSystem, this.paths);
 
@@ -108,6 +109,7 @@ final class XcconfigResolver {
 
 /// Reads xcconfig files depth-first, evaluating each `#include` at the point
 /// where it appears and rejecting include cycles.
+@internal
 final class XcconfigFileReader {
   XcconfigFileReader(this._evaluation, this.fileSystem, this.paths);
 
@@ -152,9 +154,11 @@ final class XcconfigFileReader {
 }
 
 /// How specifically a conditional assignment matched the current build.
+@internal
 typedef XcconfigSpecificity = ({int conditions, int literalCharacters});
 
 /// Accumulates assignments for one configuration/SDK/architecture triple.
+@internal
 final class XcconfigEvaluation {
   XcconfigEvaluation({
     required this.configuration,
@@ -292,6 +296,7 @@ final class XcconfigEvaluation {
 
 /// Removes C-style comments without mistaking quoted values for comments.
 /// The state belongs to one xcconfig file so a block may span several lines.
+@internal
 final class XcconfigComments {
   bool _inBlock = false;
 

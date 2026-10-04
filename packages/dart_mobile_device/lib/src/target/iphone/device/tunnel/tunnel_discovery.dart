@@ -1,16 +1,18 @@
 import 'dart:convert';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/http/local_http.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:dart_mobile_device/shared/errors/errors.dart';
 import 'package:dart_mobile_device/src/shared/device/models/tunnel.dart';
-import 'package:dart_mobile_device/src/shared/errors/errors.dart';
-import 'package:dart_mobile_device/src/target/iphone/device/constants.dart';
-import 'package:dart_mobile_device/src/target/iphone/device/pymd/pymd.dart';
-
-export 'package:dart_mobile_device/src/shared/device/models/tunnel.dart';
+import 'package:dart_mobile_device/target/iphone/device/constants.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd.dart';
+import 'package:meta/meta.dart';
 
 /// Stateless REST client for the locally-running tunneld HTTP API. Polls until
 /// a tunnel is available; when the list is empty, asks tunneld to create one
 /// via `GET /start-tunnel?udid=…`.
+@internal
 final class TunnelDiscovery {
   TunnelDiscovery(this.log, {required this.localHttp});
   final LocalHttp<PlatformHostInterface> localHttp;

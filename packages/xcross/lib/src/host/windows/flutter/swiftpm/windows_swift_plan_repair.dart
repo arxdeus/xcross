@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/process/process.dart';
 import 'package:crypto/crypto.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/response_arguments.dart';
@@ -54,6 +55,7 @@ const Set<String> _clangCompilers = {
 };
 
 /// Windows-only normalization of SwiftPM's generated build plans.
+@internal
 final class WindowsSwiftPlanRepair {
   WindowsSwiftPlanRepair(this.runner);
   final ProcessRunner runner;

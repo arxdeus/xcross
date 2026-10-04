@@ -1,4 +1,7 @@
+import 'package:meta/meta.dart';
+
 /// Which device transport to build.
+@internal
 enum DeviceTransportMode {
   /// Prefer the kernel tunnel, fall back to the userspace tunnel.
   auto,

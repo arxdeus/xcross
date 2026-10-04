@@ -17,3 +17,4 @@ workspace:
 
 dev_dependencies:
   analyzer: 13.3.0
+  meta: ^1.19.0

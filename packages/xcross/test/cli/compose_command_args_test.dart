@@ -1,5 +1,5 @@
 import 'package:args/command_runner.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:dart_mobile_device/shared/device/models/device.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/composition/cli/compose_build_command.dart';
 import 'package:xcross/src/composition/cli/compose_command.dart';
@@ -11,6 +11,7 @@ import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/models/pack_result.dart';
 import 'package:xcross/src/target/iphone/device/core_device_launch_profile.dart';
 
+import '../log_fixture.dart';
 import 'runtime_fixture.dart';
 
 void main() {

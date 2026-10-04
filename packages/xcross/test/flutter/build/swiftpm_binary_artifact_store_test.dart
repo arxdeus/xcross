@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/artifact_publication_lock.dart';
@@ -411,6 +412,7 @@ void main() {
   });
 }
 
+@internal
 Future<SwiftPmBinaryArtifactEntry> publishFixture(
   SwiftPmBinaryArtifactStore store,
   Directory temp, {
@@ -432,6 +434,7 @@ Future<SwiftPmBinaryArtifactEntry> publishFixture(
   );
 }
 
+@internal
 Directory fixture(
   Directory temp,
   String name,

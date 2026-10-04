@@ -1,3 +1,6 @@
+import 'package:meta/meta.dart';
+
+@internal
 final class SwiftPmManifestLexer {
   static List<bool> swiftCodeMask(String source) {
     final code = List<bool>.filled(source.length, true);

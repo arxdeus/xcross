@@ -1,18 +1,22 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/runtime/version.dart';
 import 'package:xcross/src/shared/update/internal/http_result.dart';
 
 /// GitHub repository publishing the xcross releases.
+@internal
 const xcrossRepo = 'arxdeus/xcross';
 
 /// Base URL for a release's downloadable assets.
+@internal
 String xcrossAssetBaseUrl(String tag) =>
     'https://github.com/$xcrossRepo/releases/download/$tag';
 
 /// Discovers the newest published release tag.
+@internal
 final class ReleaseLookup {
   const ReleaseLookup({required this.createClient});
   final HttpClient Function() createClient;

@@ -1,4 +1,6 @@
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/src/host/linux/linux_permissions.dart';
+import 'package:cli_kit/src/host/macos/macos_permissions.dart';
 import 'package:test/test.dart';
 
 void main() {

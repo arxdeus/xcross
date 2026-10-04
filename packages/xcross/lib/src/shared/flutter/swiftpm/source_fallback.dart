@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/clang_modules.dart';
@@ -9,9 +10,12 @@ import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/module_files.dart';
 
+@internal
 const String flutterFrameworkPackageName = 'FlutterFramework';
+@internal
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
+@internal
 final class SwiftPmSourceFallback<T extends PlatformHostInterface> {
   SwiftPmSourceFallback({required this.filesystem, required this.moduleFiles});
   final SwiftPmFilesystem<T> filesystem;

@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/flutter/build/swift_package_host_patches.dart';
@@ -8,6 +9,7 @@ import 'swiftpm_test_context.dart';
 
 final _swiftPmRuntime = testSwiftPmRuntime();
 
+@internal
 String diagnostic(String path) =>
     "$path:12:7: error: external macro implementation type 'SwiftUIMacros.StateMacro' could not be found for macro 'State()'; plugin for module 'SwiftUIMacros' not found";
 

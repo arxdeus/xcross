@@ -3,6 +3,7 @@ import 'package:xcross/src/shared/artifact/embedded_extension.dart';
 import 'package:xcross/src/shared/flutter/build/ios_app_extensions.dart';
 import 'package:xcross/src/shared/flutter/build/ios_bundle_versions.dart';
 
+@internal
 abstract final class AppExtensionPlist {
   static const fallback = '''
 <?xml version="1.0" encoding="UTF-8"?>

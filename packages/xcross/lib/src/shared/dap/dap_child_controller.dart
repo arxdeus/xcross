@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:meta/meta.dart';
 
+@internal
 final class DapChildController {
   DapChildController({
     required this.cleanup,

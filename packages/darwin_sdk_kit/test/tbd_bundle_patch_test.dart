@@ -2,10 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:darwin_sdk_kit/shared/tbd/tbd_bundle_patch.dart';
+import 'package:darwin_sdk_kit/shared/tbd/tbd_linker_diagnostic.dart';
 import 'package:darwin_sdk_kit/src/shared/tbd/tbd_architecture_rewrite.dart';
-import 'package:darwin_sdk_kit/src/shared/tbd/tbd_bundle_patch.dart';
-import 'package:darwin_sdk_kit/src/shared/tbd/tbd_linker_diagnostic.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -439,6 +440,7 @@ void main() {
 
 /// Stands in for the build-specific error types the real call sites pass
 /// (`FlutterBuildError`, `XcrossError`), which live in another package.
+@internal
 final class TestLinkError implements Exception {
   const TestLinkError(this.message);
 

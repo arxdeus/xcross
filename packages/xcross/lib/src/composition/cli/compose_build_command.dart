@@ -1,5 +1,10 @@
+@internal
+library;
+
 import 'package:build_cli_annotations/build_cli_annotations.dart';
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/composition/ios_target.dart';
 import 'package:xcross/src/shared/cli/internal/parsed_command.dart';
 import 'package:xcross/src/shared/cli/shared/ipa_packager.dart';
@@ -9,15 +14,19 @@ import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 
 part 'compose_build_command.g.dart';
 
+@internal
 typedef ComposeCliPackOperation =
     Future<PackResult> Function({
       required ComposeBuildOptions options,
       required bool requireRunnableApp,
       required String targetPlatform,
     });
+@internal
 typedef ComposeIpaPackage = Future<String> Function(String appPath);
+@internal
 typedef ComposeLogDone = void Function(String message);
 
+@internal
 @CliOptions()
 final class ComposeBuildArgs {
   @CliOption(
@@ -53,6 +62,7 @@ final class ComposeBuildArgs {
   late bool verbose;
 }
 
+@internal
 final class ComposeBuildCommand<T extends PlatformHostInterface>
     extends ParsedCommand<ComposeBuildArgs, void> {
   @override

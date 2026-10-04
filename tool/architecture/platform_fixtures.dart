@@ -1,3 +1,6 @@
+import 'package:meta/meta.dart';
+
+@internal
 Map<String, (String, Set<String>)> platformFixtures() => {
   'inferred_getter': (
     '''abstract class PlatformHostInterface { String get operatingSystem; } class Service { final PlatformHostInterface host; Service(this.host); get compatible => host.operatingSystem == 'windows'; }''',
@@ -73,11 +76,11 @@ Map<String, (String, Set<String>)> platformFixtures() => {
     {'platform-branch'},
   ),
   'hidden_detector_method': (
-    '''import 'package:cli_kit/src/composition/native_host.dart'; class Service { Object build() => detectPlatformHostSnapshot(); }''',
+    '''import 'package:cli_kit/composition/native_host.dart'; class Service { Object build() => detectPlatformHostSnapshot(); }''',
     {'hidden-detection', 'composition-edge'},
   ),
   'detector_tearoff': (
-    '''import 'package:cli_kit/src/composition/native_host.dart'; final hidden = detectPlatformHostSnapshot;''',
+    '''import 'package:cli_kit/composition/native_host.dart'; final hidden = detectPlatformHostSnapshot;''',
     {'hidden-detection', 'composition-edge'},
   ),
   'collection_control': (

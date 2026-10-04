@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/shared/errors/errors.dart';
+import 'package:apple_developer_kit/shared/errors/errors.dart';
 import 'package:apple_developer_kit/src/shared/signing/der.dart';
 import 'package:apple_developer_kit/src/shared/signing/plist.dart';
 import 'package:apple_developer_kit/src/shared/signing/x509.dart';

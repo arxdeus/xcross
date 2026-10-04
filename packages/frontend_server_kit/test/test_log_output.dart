@@ -1,10 +1,13 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:meta/meta.dart';
 
+@internal
 Log testLog() => Log(output: TestLogOutput());
 
+@internal
 final class TestLogOutput implements LogOutput {
   final messages = <String>[];
   @override
@@ -19,4 +22,5 @@ final class TestLogOutput implements LogOutput {
   void write(String message) => messages.add(message);
 }
 
+@internal
 IOSink testSink() => IOSink(StreamController<List<int>>.broadcast().sink);

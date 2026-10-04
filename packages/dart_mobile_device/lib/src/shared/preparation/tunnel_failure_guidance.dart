@@ -1,3 +1,6 @@
+import 'package:meta/meta.dart';
+
+@internal
 String describeDeviceTunnelFailure(List<String> recent) {
   final detail = recent.join('\n');
   final buffer = StringBuffer();

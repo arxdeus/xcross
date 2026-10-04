@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/errors/errors.dart';
@@ -13,6 +13,7 @@ import 'package:xcross/src/shared/runtime/version.dart';
 /// `/usr/local/bin` and `/usr/local/lib` while `install.ps1` keeps one
 /// self-contained directory. The binary itself resolves its libraries as
 /// `../lib`, so that relationship is the only rule needed here.
+@internal
 @immutable
 final class InstallLayout {
   const InstallLayout({

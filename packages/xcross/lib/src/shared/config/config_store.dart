@@ -1,10 +1,12 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/config/config.dart';
 import 'package:xcross/src/shared/config/config_host.dart';
 
 /// Discovers, loads, and atomically stores xcross configuration files.
+@internal
 final class XcrossConfigStore<T extends PlatformHostInterface> {
   XcrossConfigStore(
     this.host, {

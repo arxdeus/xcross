@@ -1,6 +1,8 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
 
+@internal
 final class PosixSwiftPmDependencyPreparation<T extends PlatformHostInterface>
     implements SwiftPmDependencyPreparation<T> {
   const PosixSwiftPmDependencyPreparation();

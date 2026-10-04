@@ -1,8 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/host/shared/darwin_toolchain_locations.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/host/linux/setup/linux_package_manager.dart';
@@ -10,6 +14,7 @@ import 'package:xcross/src/host/linux/setup/linux_setup_requirements.dart';
 import 'package:xcross/src/host/macos/setup/macos_setup_requirements.dart';
 import 'package:xcross/src/host/windows/setup/windows_setup_requirements.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
+
 import '../host_operations_fixtures.dart';
 
 void main() {
@@ -190,6 +195,7 @@ void main() {
   });
 }
 
+@internal
 final class FixtureLocations implements DarwinToolchainLocationsInterface {
   const FixtureLocations(this.directory);
   final String directory;
@@ -201,6 +207,7 @@ final class FixtureLocations implements DarwinToolchainLocationsInterface {
   String get linkerInstallationHint => 'fixture linker';
 }
 
+@internal
 final class FixtureProcesses implements HostProcessInterface {
   final commands = <String>[];
   @override
@@ -241,6 +248,7 @@ final class FixtureProcesses implements HostProcessInterface {
   }) async {}
 }
 
+@internal
 final class FixtureChild implements Process {
   FixtureChild(this.output);
   final String output;
@@ -258,6 +266,7 @@ final class FixtureChild implements Process {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+@internal
 final class FixtureInput implements IOSink {
   @override
   Future<void> get done async {}
@@ -267,6 +276,7 @@ final class FixtureInput implements IOSink {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+@internal
 final class FixturePrivileges implements HostPrivilegesInterface {
   int cached = 0;
   @override

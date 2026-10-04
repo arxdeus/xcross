@@ -572,9 +572,9 @@ kotlin {
   });
 }
 
-final String _repoRoot = File.fromUri(
-  Isolate.resolvePackageUriSync(Uri.parse('package:xcross/xcross.dart'))!,
-).parent.parent.parent.parent.path;
+final String _repoRoot = Directory.fromUri(
+  Isolate.resolvePackageUriSync(Uri.parse('package:xcross/'))!,
+).parent.parent.parent.path;
 
 Directory _fixture({String name = 'kmp_project'}) {
   final parent = Directory.systemTemp.createTempSync('xcross_fixture_');

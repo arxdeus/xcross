@@ -1,8 +1,24 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/host/shared/posix_paths.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
+import 'package:cli_kit/host/windows/windows_paths.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
+import 'package:darwin_sdk_kit/host/macos/macos_darwin_toolchain_locations.dart';
+import 'package:darwin_sdk_kit/host/shared/darwin_toolchain_locations.dart';
+import 'package:darwin_sdk_kit/host/windows/windows_darwin_toolchain_locations.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:darwin_sdk_kit/target/iphone/iphone_build_platform.dart';
+import 'package:darwin_sdk_kit/target/iphone/iphone_target.dart';
+import 'package:darwin_sdk_kit/target/simulator/simulator_build_platform.dart';
+import 'package:darwin_sdk_kit/target/simulator/simulator_target.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/host/linux/flutter/native_host_tools.dart';
@@ -472,6 +488,7 @@ void main() {
   }, skip: Platform.isWindows);
 }
 
+@internal
 void declarativeXcrunTests<T extends PlatformHostInterface>(
   String label,
   String root,
@@ -645,6 +662,7 @@ void declarativeXcrunTests<T extends PlatformHostInterface>(
   });
 }
 
+@internal
 void constructorOwnedOtoolTests() {
   group('constructor-owned otool resolution', () {
     const root = '/selected llvm';
@@ -714,6 +732,7 @@ void constructorOwnedOtoolTests() {
   });
 }
 
+@internal
 final class SelectedOtoolLocations
     implements DarwinToolchainLocationsInterface {
   const SelectedOtoolLocations();
@@ -726,6 +745,7 @@ final class SelectedOtoolLocations
   String get clangInstallationHint => 'unused';
 }
 
+@internal
 final class MappedXcrunFileSystem implements HostFileSystemInterface {
   MappedXcrunFileSystem(this.backingRoot, this.root, this.paths);
 
@@ -768,6 +788,7 @@ final class MappedXcrunFileSystem implements HostFileSystemInterface {
       throw UnsupportedError('unused');
 }
 
+@internal
 final class XcrunTestProcesses implements HostProcessInterface {
   XcrunTestProcesses(this.ambientXcrun);
 

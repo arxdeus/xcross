@@ -1,10 +1,16 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/shared/compose/compose.dart';
+import 'package:xcross/src/shared/compose/build/konan_configuration.dart';
+import 'package:xcross/src/shared/compose/compose_host.dart';
+import 'package:xcross/src/shared/compose/project/kmp_project.dart';
+import 'package:xcross/src/shared/compose/toolchain/compose_toolchain.dart';
+import 'package:xcross/src/target/shared/compose/compose_target.dart';
 
 import 'support/compose_platforms.dart';
 
@@ -793,6 +799,7 @@ void main() {
 String _slash(String value) =>
     p.normalize(value).replaceAll(String.fromCharCode(92), '/');
 
+@internal
 final class ComposeFixture {
   final ComposeTestSession session;
   ComposeFixture._(this.session, this.temp, this.target)

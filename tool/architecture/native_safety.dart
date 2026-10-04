@@ -1,11 +1,15 @@
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/element/type.dart';
+import 'package:meta/meta.dart';
 
+import 'export_graph.dart';
 import 'identity.dart';
 
+@internal
 class NativeSafety {
   final String path;
-  NativeSafety(this.path);
+  final String? root;
+  NativeSafety(this.path, {this.root});
   static const loaders = {
     'packages/apple_developer_kit/lib/src/host/linux/adi/linux_native_library_loader.dart':
         (
@@ -116,9 +120,11 @@ class NativeSafety {
         outer is MethodInvocation &&
         outer.methodName.element?.enclosingElement?.name == 'AdiArchitecture' &&
         outer.methodName.name == 'forAbi' &&
-        (outer.methodName.element?.library?.uri.toString().endsWith(
-              '/src/shared/adi/adi_architecture.dart',
-            ) ??
-            false);
+        resolveUri(
+              path,
+              outer.methodName.element?.library?.uri.toString() ?? '',
+              root: root,
+            ) ==
+            'packages/apple_developer_kit/lib/src/shared/adi/adi_architecture.dart';
   }
 }

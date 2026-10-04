@@ -1,11 +1,14 @@
 import 'dart:ffi';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
 import 'package:ffi/ffi.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 
+@internal
 final class WindowsSwiftPmArtifactFileSystem
     implements SwiftPmArtifactFileSystem {
   WindowsSwiftPmArtifactFileSystem(this.host, this.runner);
@@ -122,5 +125,6 @@ final class WindowsSwiftPmArtifactFileSystem
   }
 }
 
+@internal
 bool isWindowsMountPointReparseOutput(String output) =>
     RegExp(r'0x0*a0000003\b', caseSensitive: false).hasMatch(output);

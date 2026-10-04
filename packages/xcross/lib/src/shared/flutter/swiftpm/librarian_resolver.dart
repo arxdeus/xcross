@@ -1,9 +1,12 @@
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 
+@internal
 abstract interface class SwiftPmLlvmToolLookup<
   T extends PlatformHostInterface
 > {
@@ -11,6 +14,7 @@ abstract interface class SwiftPmLlvmToolLookup<
   Future<String?> locate(String name);
 }
 
+@internal
 final class DarwinSwiftPmLlvmToolLookup<T extends PlatformHostInterface>
     implements SwiftPmLlvmToolLookup<T> {
   DarwinSwiftPmLlvmToolLookup(this.resolver);
@@ -21,6 +25,7 @@ final class DarwinSwiftPmLlvmToolLookup<T extends PlatformHostInterface>
   Future<String?> locate(String name) => resolver.locateLlvmTool(name);
 }
 
+@internal
 final class SwiftPmLibrarianResolver<T extends PlatformHostInterface> {
   SwiftPmLibrarianResolver({
     required this.runner,

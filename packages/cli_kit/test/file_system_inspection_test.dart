@@ -1,6 +1,8 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/file_system_inspection.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -65,6 +67,7 @@ void main() {
   });
 }
 
+@internal
 final class InspectionFileSystem implements HostFileSystemInterface {
   InspectionFileSystem(this.root);
   final String root;
@@ -85,6 +88,7 @@ final class InspectionFileSystem implements HostFileSystemInterface {
       throw UnsupportedError('inspection only');
 }
 
+@internal
 final class FailingInspectionFileSystem implements HostFileSystemInterface {
   FailingInspectionFileSystem(this.failure);
   final FileSystemException failure;
@@ -99,6 +103,7 @@ final class FailingInspectionFileSystem implements HostFileSystemInterface {
       throw UnsupportedError(invocation.memberName.toString());
 }
 
+@internal
 final class FailingInspectionFile implements File {
   FailingInspectionFile(this.path, this.failure, this.statCalls);
   @override
@@ -117,6 +122,7 @@ final class FailingInspectionFile implements File {
       throw UnsupportedError(invocation.memberName.toString());
 }
 
+@internal
 final class InspectionLink implements Link {
   InspectionLink(this.path);
   @override

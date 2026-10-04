@@ -1,9 +1,11 @@
 import 'dart:io';
 
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 
+@internal
 final class SwiftPmCheckoutContainment {
   const SwiftPmCheckoutContainment(this.fileSystem);
   final SwiftPmArtifactFileSystem fileSystem;

@@ -2,8 +2,22 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/shared/http/local_http.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
+import 'package:dart_mobile_device/shared/device/models/device.dart';
+import 'package:dart_mobile_device/shared/diagnostics/device_probe.dart';
+import 'package:dart_mobile_device/shared/errors/errors.dart';
+import 'package:dart_mobile_device/shared/host/device_host_policy.dart';
+import 'package:dart_mobile_device/shared/preparation/device_preparation.dart';
+import 'package:dart_mobile_device/target/iphone/device/constants.dart';
+import 'package:dart_mobile_device/target/iphone/device/device_prepare.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd.dart';
+import 'package:dart_mobile_device/target/iphone/diagnostics/pymd_device_diagnostics.dart';
+import 'package:dart_mobile_device/target/iphone/tunnel/pymd_tunnel_availability.dart';
+import 'package:meta/meta.dart';
 import 'package:test/test.dart';
 
 import 'test_log_output.dart';
@@ -153,6 +167,7 @@ void main() {
   );
 }
 
+@internal
 final class ProbeHttpClient implements HttpClient {
   ProbeHttpClient({int status = 200, String body = '', this.failure})
     : response = ProbeHttpResponse(status, body, failure: failure);
@@ -183,6 +198,7 @@ final class ProbeHttpClient implements HttpClient {
       throw StateError('unexpected HTTP operation: ${invocation.memberName}');
 }
 
+@internal
 final class ProbeHttpRequest implements HttpClientRequest {
   ProbeHttpRequest(this.response, {this.failure});
   final ProbeHttpResponse response;
@@ -199,6 +215,7 @@ final class ProbeHttpRequest implements HttpClientRequest {
       throw StateError('unexpected request operation');
 }
 
+@internal
 final class ProbeHttpResponse extends Stream<List<int>>
     implements HttpClientResponse {
   ProbeHttpResponse(this.statusCode, this.body, {this.failure});
@@ -233,6 +250,7 @@ final class ProbeHttpResponse extends Stream<List<int>>
       throw StateError('unexpected response operation');
 }
 
+@internal
 final class DiagnosticsProcesses implements HostProcessInterface {
   final arguments = <List<String>>[];
   final executables = <String>[];
@@ -261,6 +279,7 @@ final class DiagnosticsProcesses implements HostProcessInterface {
       throw StateError('unexpected physical process operation');
 }
 
+@internal
 final class DiagnosticsChild implements Process {
   DiagnosticsChild(this.body) {
     input.stream.listen((_) {});
@@ -283,12 +302,14 @@ final class DiagnosticsChild implements Process {
       throw StateError('no physical signals');
 }
 
+@internal
 final class ForbiddenPrivileges implements HostPrivilegesInterface {
   @override
   dynamic noSuchMethod(Invocation invocation) =>
       throw StateError('no diagnostic elevation');
 }
 
+@internal
 final class DiagnosticsHostPolicy implements DeviceHostPolicy {
   @override
   String get installCommand => 'manual install';

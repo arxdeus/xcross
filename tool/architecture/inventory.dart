@@ -1,6 +1,17 @@
-import 'boundaries.dart';
-export 'boundaries.dart';
+import 'package:meta/meta.dart';
 
+import 'boundaries.dart';
+
+@internal
+int structuralPrimary(String path) {
+  final parts = path.split('/');
+  if (parts.length < 5 || parts[0] != 'packages' || parts[2] != 'lib') {
+    return -1;
+  }
+  return parts[3] == 'src' ? 4 : 3;
+}
+
+@internal
 Classification classify(String path) {
   final parts = path.split('/');
   if (parts.length > 2 &&
@@ -9,8 +20,7 @@ Classification classify(String path) {
       parts[2] == 'test') {
     return const Classification('shared', 'shared', 'test');
   }
-  final source = parts.indexOf('src');
-  final primary = source < 0 ? -1 : source + 1;
+  final primary = structuralPrimary(path);
   int axisIndex(String label) {
     if (primary < 0 || primary >= parts.length) return -1;
     if (parts[primary] == label) return primary;
@@ -51,7 +61,8 @@ Classification classify(String path) {
     return const Classification('shared', 'shared', 'generated-composition');
   }
   if (ciFiles.containsKey(path)) return ciFiles[path]!;
-  if (path == 'tool/architecture/check_test.dart') {
+  if (path == 'tool/architecture/check_test.dart' ||
+      path == 'tool/architecture/source_policy_test.dart') {
     return const Classification('shared', 'shared', 'architecture-test');
   }
   if (architectureSources.contains(path)) {
@@ -63,38 +74,29 @@ Classification classify(String path) {
   if (entrypoints.contains(path)) {
     return const Classification('shared', 'shared', 'entrypoint');
   }
-  final lib = parts.indexOf('lib');
-  if (lib >= 0 && lib + 2 == parts.length && path.endsWith('.dart')) {
-    return const Classification('shared', 'shared', 'barrel');
+  for (final (label, choices) in [
+    ('host', {'windows', 'linux', 'macos', 'shared'}),
+    ('target', {'iphone', 'simulator', 'shared'}),
+  ]) {
+    final index = axisIndex(label);
+    if (index >= 0 &&
+        (index + 1 >= parts.length - 1 ||
+            !choices.contains(parts[index + 1]))) {
+      return Classification(host, target, 'unclassified');
+    }
   }
-  final hostIndex = axisIndex('host');
-  final targetIndex = axisIndex('target');
-  if ((hostIndex >= 0 &&
-          (hostIndex + 1 >= parts.length ||
-              !{
-                'windows',
-                'linux',
-                'macos',
-                'shared',
-              }.contains(parts[hostIndex + 1]))) ||
-      (targetIndex >= 0 &&
-          (targetIndex + 1 >= parts.length ||
-              !{
-                'iphone',
-                'simulator',
-                'shared',
-              }.contains(parts[targetIndex + 1])))) {
-    return Classification(host, target, 'unclassified');
-  }
-  if (path.contains('/lib/src/shared/') ||
-      path.contains('/lib/src/host/') ||
-      path.contains('/lib/src/target/')) {
-    final kind = path.endsWith('.g.dart')
-        ? 'generated'
-        : path.endsWith('.dart')
-        ? 'dart'
-        : 'unclassified';
-    return Classification(host, target, kind);
+  if (primary >= 0 &&
+      primary < parts.length - 1 &&
+      {'shared', 'host', 'target'}.contains(parts[primary])) {
+    return Classification(
+      host,
+      target,
+      path.endsWith('.g.dart')
+          ? 'generated'
+          : path.endsWith('.dart')
+          ? 'dart'
+          : 'unclassified',
+    );
   }
   return Classification(host, target, 'unclassified');
 }

@@ -1,6 +1,8 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/host/shared/update/posix_update_policy.dart';
@@ -347,6 +349,7 @@ void main() {
   });
 }
 
+@internal
 final class FixtureMappedWindowsOperations implements FileSwapOperations {
   FixtureMappedWindowsOperations(PlatformHostInterface host)
     : delegate = WindowsFileSwapOperations(host);

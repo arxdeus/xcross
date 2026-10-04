@@ -1,6 +1,7 @@
 import 'dart:collection';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/shared/tui/tui.dart';
+import 'package:meta/meta.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -202,9 +203,11 @@ void main() {
   });
 }
 
+@internal
 String stripAnsi(String value) =>
     value.replaceAll(RegExp(r'\x1b\[[0-9;]*[A-Za-z]'), '');
 
+@internal
 final class FakeTerminal implements TuiTerminal {
   FakeTerminal({List<int> bytes = const [], List<String> lines = const []})
     : _bytes = Queue<int>.of(bytes),

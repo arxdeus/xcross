@@ -1,5 +1,10 @@
+@internal
+library;
+
 import 'package:build_cli_annotations/build_cli_annotations.dart';
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/composition/ios_target.dart';
 import 'package:xcross/src/shared/cli/internal/parsed_command.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
@@ -8,10 +13,14 @@ import 'package:xcross/src/target/shared/runtime/build_features.dart';
 
 part 'compose_setup_command.g.dart';
 
+@internal
 typedef ComposeSetupProblems = Future<List<String>> Function();
+@internal
 typedef ComposeSetupEnsure = Future<void> Function({required bool force});
+@internal
 typedef ComposeSetupLogDone = void Function(String message);
 
+@internal
 @CliOptions()
 final class ComposeSetupArgs {
   @CliOption(
@@ -34,6 +43,7 @@ final class ComposeSetupArgs {
   late bool verbose;
 }
 
+@internal
 final class ComposeSetupCommand<T extends PlatformHostInterface>
     extends ParsedCommand<ComposeSetupArgs, void> {
   @override

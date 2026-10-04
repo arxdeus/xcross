@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/src/shared/archive/xcode_xip_extractor.dart';
-import 'package:darwin_sdk_kit/src/shared/errors/errors.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:darwin_sdk_kit/shared/archive/xcode_xip_extractor.dart';
+import 'package:darwin_sdk_kit/shared/errors/errors.dart';
 import 'package:test/test.dart';
 
 import 'test_fixtures.dart';

@@ -1,3 +1,4 @@
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
 /// The Swift release each Xcode generation's Darwin SDK needs.
@@ -24,6 +25,7 @@ final _versionedNamePattern = RegExp(r'(\d+)(?:\.(\d+))?');
 /// the hours-long extraction, and once from the extracted SDK, which is the
 /// authoritative answer. `doctor` checks an already-installed bundle, so a
 /// host that downgraded Swift after installing still hears about it.
+@internal
 abstract final class XcodeSwiftRequirement {
   /// The lowest Swift version usable with an Xcode [major] generation's SDK,
   /// or null when that generation carries no requirement.

@@ -1,5 +1,10 @@
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:cli_kit/shared/download/download.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:darwin_sdk_kit/target/shared/ios_target.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer.dart';
 import 'package:xcross/src/host/shared/flutter/flutter_sdk_host_policy.dart';
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
@@ -26,6 +31,7 @@ import 'package:xcross/src/shared/flutter/project/pubspec_info_reader.dart';
 import 'package:xcross/src/shared/packages/package_config_resolver.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
+@internal
 final class FlutterResolutionConfiguration {
   const FlutterResolutionConfiguration({
     required this.executable,
@@ -45,6 +51,7 @@ final class FlutterResolutionConfiguration {
   final String? xcrun;
 }
 
+@internal
 final class FlutterBuildRuntime<T extends PlatformHostInterface> {
   FlutterBuildRuntime({
     required this.policy,

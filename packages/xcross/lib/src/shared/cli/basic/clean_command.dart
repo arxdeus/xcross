@@ -1,8 +1,10 @@
 import 'package:args/command_runner.dart';
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/build/internal/swiftpm_workspace.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
+@internal
 final class CleanCommand extends Command<void> {
   CleanCommand({
     required this.log,

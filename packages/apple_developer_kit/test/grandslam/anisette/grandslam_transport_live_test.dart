@@ -2,8 +2,11 @@
 // Never loads account credentials, ADI libraries or persisted Anisette state.
 import 'dart:io';
 
-import 'package:apple_developer_kit/apple_developer_kit.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_state.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/grandslam_endpoints.dart';
+import 'package:apple_developer_kit/shared/http/apple_http_client.dart';
 import 'package:apple_developer_kit/src/shared/grandslam/anisette/anisette_headers.dart';
+import 'package:meta/meta.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -45,6 +48,7 @@ void main() {
   );
 }
 
+@internal
 final class CountingConnections extends HttpOverrides {
   int opened = 0;
 

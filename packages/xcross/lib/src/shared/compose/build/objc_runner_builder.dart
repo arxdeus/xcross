@@ -1,5 +1,7 @@
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/shared/tbd/tbd_linker_diagnostic.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/compose/build/mach_o_validator.dart';
 import 'package:xcross/src/shared/compose/build/process_invocation.dart';
@@ -9,6 +11,7 @@ import 'package:xcross/src/shared/compose/project/kmp_project.dart';
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
+@internal
 typedef ComposeRunChecked =
     Future<void> Function(
       String executable,
@@ -18,6 +21,7 @@ typedef ComposeRunChecked =
 
 const _iosMinimumVersion = composeMinimumIosVersion;
 
+@internal
 final class ObjcRunnerBuilder<T extends PlatformHostInterface> {
   ObjcRunnerBuilder(this.runner) : _runChecked = runner.runTool;
 

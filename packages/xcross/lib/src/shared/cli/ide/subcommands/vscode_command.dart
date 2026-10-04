@@ -2,13 +2,16 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/cli/ide/subcommands/vscode_json_merge.dart';
 import 'package:xcross/src/shared/cli/ide/xcross_executable.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
 /// `xcross ide vscode` — write / upsert `.vscode/` so Run & Debug / Restart /
 /// Hot Reload drive `xcross flutter run`.
+@internal
 final class VscodeCommand extends Command<void> {
   VscodeCommand(this.launcher);
 

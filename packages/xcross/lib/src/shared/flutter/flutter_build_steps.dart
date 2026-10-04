@@ -1,4 +1,5 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/build/app_extension_builder.dart';
 import 'package:xcross/src/shared/flutter/build/internal/runner_binary.dart';
 import 'package:xcross/src/shared/flutter/build/ios_bundle_versions.dart';
@@ -8,6 +9,7 @@ import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
 
+@internal
 final class FlutterBuildRequest<T extends PlatformHostInterface> {
   FlutterBuildRequest({
     required this.runtime,
@@ -34,6 +36,7 @@ final class FlutterBuildRequest<T extends PlatformHostInterface> {
   final ArtifactJunctionCapabilityResolver? artifactJunctionCapabilityResolver;
 }
 
+@internal
 final class FlutterBuildContext<T extends PlatformHostInterface> {
   FlutterBuildContext({required this.request, required this.flutterRoot})
     : deploymentTarget = request.runtime.deployments.resolve(
@@ -53,6 +56,7 @@ final class FlutterBuildContext<T extends PlatformHostInterface> {
   FlutterBuildOptions get options => request.options;
 }
 
+@internal
 final class FlutterCompiledArtifacts {
   const FlutterCompiledArtifacts({
     required this.appFramework,
@@ -64,6 +68,7 @@ final class FlutterCompiledArtifacts {
   final GeneratedPluginsBuildResult? plugins;
 }
 
+@internal
 final class FlutterLinkedArtifacts {
   const FlutterLinkedArtifacts({
     required this.compiled,
@@ -75,18 +80,22 @@ final class FlutterLinkedArtifacts {
   final List<BuiltAppExtension> extensions;
 }
 
+@internal
 abstract interface class FlutterResolveStep<T extends PlatformHostInterface> {
   Future<FlutterBuildContext<T>> resolve(FlutterBuildRequest<T> request);
 }
 
+@internal
 abstract interface class FlutterCompileStep<T extends PlatformHostInterface> {
   Future<FlutterCompiledArtifacts> compile();
 }
 
+@internal
 abstract interface class FlutterLinkStep<T extends PlatformHostInterface> {
   Future<FlutterLinkedArtifacts> link(FlutterCompiledArtifacts compiled);
 }
 
+@internal
 abstract interface class FlutterAssembleStep<T extends PlatformHostInterface> {
   Future<String> assemble(FlutterLinkedArtifacts linked);
 }

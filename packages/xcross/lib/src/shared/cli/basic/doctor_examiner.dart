@@ -1,12 +1,17 @@
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_environment_checks.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_models.dart';
 import 'package:xcross/src/shared/diagnostics/doctor_project_inspector.dart';
 
+@internal
 typedef DoctorChecks = Future<List<DoctorCheck>> Function();
+@internal
 typedef DoctorDetectProject = Future<DoctorProject?> Function();
+@internal
 typedef DoctorProjectCheckRunner =
     Future<List<DoctorCheck>> Function(DoctorProject project);
 
+@internal
 final class DoctorExaminer {
   DoctorExaminer({
     required String projectRoot,

@@ -1,10 +1,12 @@
 import 'dart:io';
 
+import 'package:meta/meta.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/preview_macro_compiler.dart';
 
 import 'swiftpm_test_context.dart';
 
+@internal
 final class RecordingSwiftPmNativeCompiler implements SwiftPmNativeCompiler {
   int calls = 0;
   String revision = 'first';

@@ -1,7 +1,18 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
+import 'package:cli_kit/host/windows/windows_paths.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/host/macos/macos_darwin_toolchain_locations.dart';
+import 'package:darwin_sdk_kit/host/windows/windows_darwin_toolchain_locations.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:darwin_sdk_kit/target/iphone/iphone_target.dart';
+import 'package:darwin_sdk_kit/target/simulator/simulator_target.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/composition/flutter/swiftpm_checkout.dart';
 import 'package:xcross/src/composition/flutter/swiftpm_foundation.dart';
@@ -45,6 +56,7 @@ import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 import 'package:xcross/src/target/simulator/flutter/simulator_flutter_target.dart';
 
+@internal
 SwiftPmRuntime<MacOSHost> testSwiftPmRuntime({
   SwiftPmHostPolicy? hostPolicy,
   FlutterTargetBuildPolicy<MacOSHost> Function(MacOSHost)? targetPolicy,
@@ -170,6 +182,7 @@ SwiftPmRuntime<MacOSHost> testSwiftPmRuntime({
   );
 }
 
+@internal
 SwiftPmRuntime<WindowsHost> testWindowsSwiftPmRuntime({
   String? currentDirectory,
   Map<String, String>? environment,
@@ -342,6 +355,7 @@ SwiftPmRuntime<WindowsHost> testWindowsSwiftPmRuntime({
   );
 }
 
+@internal
 final class WindowsTestPaths implements HostPathsInterface {
   WindowsTestPaths(this.native, Map<String, String> environment)
     : windows = WindowsPaths(environment: environment, context: native.context);
@@ -364,10 +378,12 @@ final class WindowsTestPaths implements HostPathsInterface {
       name.endsWith(extension) ? name : '$name$extension';
 }
 
+@internal
 SwiftPmRuntime<MacOSHost> testSimulatorSwiftPmRuntime() => testSwiftPmRuntime(
   targetPolicy: (host) => SimulatorFlutterTarget(SimulatorTarget(host)),
 );
 
+@internal
 final class TestSwiftPmSdkIdentity implements SwiftPmSdkIdentity {
   const TestSwiftPmSdkIdentity({this.platformIdentity = 'test-platform'});
   @override
@@ -390,13 +406,16 @@ final class TestSwiftPmSdkIdentity implements SwiftPmSdkIdentity {
       'After switching Swift, run xcross sdk install. ${detail ?? ''}';
 }
 
+@internal
 SwiftPmRuntime<WindowsHost> testWindowsSimulatorSwiftPmRuntime() =>
     testWindowsSwiftPmRuntime(
       targetPolicy: (host) => SimulatorFlutterTarget(SimulatorTarget(host)),
     );
 
+@internal
 Log testSwiftPmLog() => Log(output: const TestLogOutput());
 
+@internal
 final class TestLogOutput implements LogOutput {
   const TestLogOutput();
   @override
@@ -411,6 +430,7 @@ final class TestLogOutput implements LogOutput {
   void write(String message) {}
 }
 
+@internal
 final class RecordingSwiftPmInteropBuild implements SwiftPmInteropBuild {
   RecordingSwiftPmInteropBuild({
     required Future<void> Function() build,
@@ -442,6 +462,7 @@ final class RecordingSwiftPmInteropBuild implements SwiftPmInteropBuild {
   }
 }
 
+@internal
 SwiftPmInteropBuildRecovery<MacOSHost> testPosixInteropRecovery(
   SwiftPmRuntime<MacOSHost> runtime,
   RecordingSwiftPmInteropBuild session,
@@ -452,6 +473,7 @@ SwiftPmInteropBuildRecovery<MacOSHost> testPosixInteropRecovery(
   hostPolicy: runtime.hostPolicy,
   execution: RecordingPosixSwiftPmExecution(session),
 );
+@internal
 SwiftPmInteropBuildRecovery<WindowsHost> testWindowsInteropRecovery(
   SwiftPmRuntime<WindowsHost> runtime,
   RecordingSwiftPmInteropBuild session,
@@ -463,6 +485,7 @@ SwiftPmInteropBuildRecovery<WindowsHost> testWindowsInteropRecovery(
   execution: RecordingWindowsSwiftPmExecution(session),
 );
 
+@internal
 final class RecordingPosixSwiftPmExecution
     implements SwiftPmBuildExecution<MacOSHost> {
   RecordingPosixSwiftPmExecution(this.session);
@@ -478,6 +501,7 @@ final class RecordingPosixSwiftPmExecution
   }) => Future<void>.error(error, stack);
 }
 
+@internal
 final class RecordingWindowsSwiftPmExecution
     implements SwiftPmBuildExecution<WindowsHost> {
   RecordingWindowsSwiftPmExecution(this.session);
@@ -501,6 +525,7 @@ final class RecordingWindowsSwiftPmExecution
   }
 }
 
+@internal
 WindowsSwiftPmPinnedDependencyResolver<WindowsHost> testWindowsPinnedResolver(
   SwiftPmRuntime<WindowsHost> runtime,
   SwiftPmGitPackageCloner repository,
@@ -512,6 +537,7 @@ WindowsSwiftPmPinnedDependencyResolver<WindowsHost> testWindowsPinnedResolver(
   manifestNormalizer: runtime.checkoutManifestNormalizer,
 );
 
+@internal
 final class RecordingSwiftPmGitPackageCloner
     implements SwiftPmGitPackageCloner {
   RecordingSwiftPmGitPackageCloner(this.clone);
@@ -525,6 +551,7 @@ final class RecordingSwiftPmGitPackageCloner
   ) => clone(git, url, ref, destination);
 }
 
+@internal
 SwiftPmInteropBuildRecovery<T>
 testGenericInteropRecovery<T extends PlatformHostInterface>(
   SwiftPmRuntime<T> runtime,
@@ -537,6 +564,7 @@ testGenericInteropRecovery<T extends PlatformHostInterface>(
   execution: runtime.buildExecution,
 );
 
+@internal
 final class FixtureSwiftPmArchiveTransport implements SwiftPmArchiveTransport {
   FixtureSwiftPmArchiveTransport(List<int> bytes)
     : bytes = List.unmodifiable(bytes);
@@ -553,6 +581,7 @@ final class FixtureSwiftPmArchiveTransport implements SwiftPmArchiveTransport {
   }
 }
 
+@internal
 final class FixtureSwiftPmLlvmToolLookup<T extends PlatformHostInterface>
     implements SwiftPmLlvmToolLookup<T> {
   FixtureSwiftPmLlvmToolLookup({required this.runner, required this.find});
@@ -563,6 +592,7 @@ final class FixtureSwiftPmLlvmToolLookup<T extends PlatformHostInterface>
   Future<String?> locate(String name) => find(name);
 }
 
+@internal
 SwiftPmToolchain<MacOSHost> testPosixToolchainLookup(
   SwiftPmRuntime<MacOSHost> runtime,
   Future<String?> Function(String) find,
@@ -579,6 +609,7 @@ SwiftPmToolchain<MacOSHost> testPosixToolchainLookup(
   );
 }
 
+@internal
 SwiftPmToolchain<WindowsHost> testWindowsToolchainLookup(
   SwiftPmRuntime<WindowsHost> runtime,
   Future<String?> Function(String) find,

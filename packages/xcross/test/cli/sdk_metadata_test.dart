@@ -2,12 +2,22 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/shared/errors/errors.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/target/iphone/iphone_build_platform.dart';
+import 'package:darwin_sdk_kit/target/shared/ios_build_platform.dart';
+import 'package:darwin_sdk_kit/target/simulator/simulator_build_platform.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/host/windows/sdk/materialized_sdk_archive_links.dart';
 import 'package:xcross/src/shared/cli/basic/sdk_install.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/shared/sdk/sdk_metadata_platform.dart';
 
 import 'sdk_test_support.dart';
 
@@ -436,6 +446,7 @@ void main() {
   });
 }
 
+@internal
 final class WindowsSdkMetadataPlatformFixture
     implements SdkMetadataPlatformInterface<WindowsHost> {
   const WindowsSdkMetadataPlatformFixture(this.sdkRoot);
@@ -449,6 +460,7 @@ final class WindowsSdkMetadataPlatformFixture
   ) => sdkRoot;
 }
 
+@internal
 final class WindowsSdkMetadataFileSystemFixture
     implements HostFileSystemInterface {
   const WindowsSdkMetadataFileSystemFixture(
@@ -478,6 +490,7 @@ final class WindowsSdkMetadataFileSystemFixture
       throw UnsupportedError(destination);
 }
 
+@internal
 final class SdkMetadataTestIo {
   SdkMetadataTestIo() {
     outputController.stream.listen((_) {});

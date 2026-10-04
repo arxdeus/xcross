@@ -1,8 +1,16 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:frontend_server_kit/frontend_server_kit.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
+import 'package:frontend_server_kit/host/shared/process/host_compiler_process_factory.dart';
+import 'package:frontend_server_kit/shared/compiler/frontend_server_options.dart';
+import 'package:frontend_server_kit/shared/compiler/frontend_server_session.dart';
+import 'package:frontend_server_kit/shared/compiler/package_uris.dart';
+import 'package:frontend_server_kit/shared/errors/errors.dart';
+import 'package:frontend_server_kit/shared/process/compiler_transport.dart';
+import 'package:meta/meta.dart';
 import 'package:test/test.dart';
 
 import 'test_log_output.dart';
@@ -176,6 +184,7 @@ Future<void> main() async {
   });
 }
 
+@internal
 final class Factory implements CompilerProcessFactory {
   final List<Transport> transports = [];
   Completer<void>? startupGate;
@@ -198,6 +207,7 @@ final class Factory implements CompilerProcessFactory {
   }
 }
 
+@internal
 final class Transport implements CompilerTransport {
   final lines = StreamController<String>();
   final errors = StreamController<String>();

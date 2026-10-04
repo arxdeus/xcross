@@ -1,8 +1,10 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/setup/setup_script_policy.dart';
 
+@internal
 final class PosixSetupScript implements SetupScriptPolicy {
   PosixSetupScript(this.host);
 

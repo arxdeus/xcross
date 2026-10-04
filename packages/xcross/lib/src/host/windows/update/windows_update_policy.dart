@@ -1,8 +1,10 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/update/install_layout.dart';
 import 'package:xcross/src/shared/update/update_host_policy.dart';
 
+@internal
 final class WindowsUpdatePolicy implements UpdateHostPolicy {
   const WindowsUpdatePolicy(this.host, this.privileges);
   final WindowsHostInterface host;
@@ -33,6 +35,7 @@ final class WindowsUpdatePolicy implements UpdateHostPolicy {
   }
 }
 
+@internal
 final class WindowsFileSwapOperations implements FileSwapOperations {
   const WindowsFileSwapOperations(this.host);
   final PlatformHostInterface host;

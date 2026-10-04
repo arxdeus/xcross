@@ -2,7 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
+import 'package:meta/meta.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/dap/dap_child_controller.dart';
 
@@ -85,6 +89,7 @@ void main() {
   });
 }
 
+@internal
 final class RecordingDapProcesses implements HostProcessInterface {
   final cleaned = <Process>[];
   Map<String, String>? environment;
@@ -106,6 +111,7 @@ final class RecordingDapProcesses implements HostProcessInterface {
       throw StateError('unexpected process creation');
 }
 
+@internal
 final class FakeDapChild implements Process {
   FakeDapChild() {
     sink = IOSink(inputController.sink);

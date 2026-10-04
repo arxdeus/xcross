@@ -1,6 +1,7 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/project/pbx_project_reader.dart';
@@ -13,6 +14,7 @@ import 'package:xcross/src/shared/flutter/project/pbx_project_reader.dart';
 ///   2. `PRODUCT_BUNDLE_IDENTIFIER` of the *application* target in
 ///      `ios/*.xcodeproj/project.pbxproj` (never an app extension target).
 ///   3. First `PRODUCT_BUNDLE_IDENTIFIER` in the pbxproj (legacy fallback).
+@internal
 final class IosBundleId {
   IosBundleId(this.fileSystem, this.paths, this.projects);
 

@@ -1,0 +1,450 @@
+import 'dart:convert';
+
+import 'package:apple_developer_kit/shared/appstoreconnect/asc_client.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/asc_models.dart';
+import 'package:apple_developer_kit/shared/errors/errors.dart';
+import 'package:apple_developer_kit/shared/grandslam/app_token_exchange.dart';
+import 'package:apple_developer_kit/shared/grandslam/grandslam_session_store.dart';
+import 'package:apple_developer_kit/src/shared/appstoreconnect/asc_payloads.dart';
+import 'package:apple_developer_kit/src/shared/appstoreconnect/legacy_app_groups.dart';
+import 'package:apple_developer_kit/src/shared/grandslam/anisette/anisette_headers.dart';
+import 'package:apple_developer_kit/src/shared/http/apple_http_client.dart';
+import 'package:http/http.dart' as http;
+
+/// Provisioning against Apple's legacy `developerservices2` endpoints, which
+/// an Apple ID (GrandSlam) session can reach without an App Store Connect
+/// API key.
+///
+/// The resource schema matches App Store Connect, but the transport does
+/// not: every call is a POST, `teamId` must be threaded in by hand, and the
+/// team listing still speaks XML plist. See [_withMethodOverride].
+final class DeveloperServicesClient implements DevelopmentProvisioningClient {
+  DeveloperServicesClient({
+    required this.token,
+    required this.teamId,
+    required Future<Map<String, String>> Function() fetchAnisetteHeaders,
+    required http.Client httpClient,
+  }) : _fetchAnisetteHeaders = fetchAnisetteHeaders,
+       _http = httpClient;
+
+  factory DeveloperServicesClient.fromSession(
+    GrandSlamSession session,
+    Future<Map<String, String>> Function() fetchAnisetteHeaders, {
+    required http.Client httpClient,
+  }) => DeveloperServicesClient(
+    token: session.token,
+    teamId: session.teamId,
+    fetchAnisetteHeaders: fetchAnisetteHeaders,
+    httpClient: httpClient,
+  );
+
+  static const _baseUrl = 'https://developerservices2.apple.com/services';
+  static const _appIdentifier = 'com.apple.gs.xcode.auth';
+  static const _xcodeVersion = '16.2 (16C5031c)';
+
+  final DeveloperServicesLoginToken token;
+  final String teamId;
+  final Future<Map<String, String>> Function() _fetchAnisetteHeaders;
+  final http.Client _http;
+
+  @override
+  Future<AscCertificate> createDevelopmentCertificate({
+    required String csrPem,
+  }) async => AscCertificate.fromJson(
+    _data(
+      // developerservices2 names the type `DEVELOPMENT`, not App Store
+      // Connect's `IOS_DEVELOPMENT`.
+      await _post(
+        '/v1/certificates',
+        AscPayloads.certificate(certificateType: 'DEVELOPMENT', csrPem: csrPem),
+      ),
+    ),
+  );
+
+  @override
+  Future<List<String>> listCertificateIds() async =>
+      _ids(await _getCollection('/v1/certificates'));
+
+  @override
+  Future<List<String>> findCertificateIdsBySerial(String serialNumber) async =>
+      _ids(
+        await _getCollection(
+          '/v1/certificates?filter[serialNumber]='
+          '${Uri.encodeQueryComponent(serialNumber)}',
+        ),
+      );
+
+  @override
+  Future<void> revokeCertificate(String certificateId) async {
+    await _withMethodOverride('/v1/certificates/$certificateId', 'DELETE');
+  }
+
+  @override
+  Future<List<AscDevice>> listDevices() async => [
+    for (final entry in await _getCollection('/v1/devices'))
+      AscDevice.fromJson((entry! as Map).cast<String, dynamic>()),
+  ];
+
+  @override
+  Future<AscDevice> registerDevice({
+    required String udid,
+    required String name,
+  }) async {
+    try {
+      return AscDevice.fromJson(
+        _data(
+          await _post(
+            '/v1/devices',
+            AscPayloads.device(udid: udid, name: name),
+          ),
+        ),
+      );
+    } on AppleApiError catch (error) {
+      // 409 means the UDID is already on the team; re-registering is not
+      // possible, so adopt the existing resource instead of failing.
+      if (error.statusCode != 409) rethrow;
+      final existing = await findDeviceByUdid(udid);
+      if (existing != null) return existing;
+      rethrow;
+    }
+  }
+
+  /// developerservices2 ignores `filter[udid]`, so the match happens here.
+  @override
+  Future<AscDevice?> findDeviceByUdid(String udid) async {
+    for (final device in await listDevices()) {
+      if (device.udid == udid) return device;
+    }
+    return null;
+  }
+
+  /// developerservices2 treats `filter[identifier]` as a prefix match, so the
+  /// exact identifier has to be picked out of the page.
+  @override
+  Future<AscBundleId?> findBundleId(String identifier) async {
+    final page = await _getCollection(
+      '/v1/bundleIds?filter[identifier]='
+      '${Uri.encodeQueryComponent(identifier)}',
+    );
+    for (final entry in page) {
+      final bundleId = AscBundleId.fromJson(
+        (entry! as Map).cast<String, dynamic>(),
+      );
+      if (bundleId.identifier == identifier) return bundleId;
+    }
+    return null;
+  }
+
+  @override
+  Future<AscBundleId> registerBundleId({
+    required String identifier,
+    required String name,
+  }) async => AscBundleId.fromJson(
+    _data(
+      await _post(
+        '/v1/bundleIds',
+        AscPayloads.bundleId(identifier: identifier, name: name),
+      ),
+    ),
+  );
+
+  /// App Groups live only on the pre-JSON `QH65B2` plist protocol, which
+  /// this session authenticates with its GrandSlam token plus Anisette
+  /// headers. See [LegacyAppGroups] for why no modern surface can do it.
+  @override
+  Future<AscAppGroup?> findAppGroup(String identifier) =>
+      _appGroups.find(identifier);
+
+  @override
+  Future<AscAppGroup> registerAppGroup({
+    required String identifier,
+    required String name,
+  }) => _appGroups.register(identifier: identifier, name: name);
+
+  @override
+  Future<void> assignAppGroups({
+    required String bundleIdResourceId,
+    required List<String> appGroupResourceIds,
+  }) => _appGroups.assign(
+    appIdResourceId: bundleIdResourceId,
+    appGroupResourceIds: appGroupResourceIds,
+  );
+
+  late final LegacyAppGroups _appGroups = LegacyAppGroups(
+    httpClient: _http,
+    authHeaders: () async => {
+      ..._legacyHeaders(token),
+      ...await _fetchAnisetteHeaders(),
+    },
+    teamId: () => Future.value(teamId),
+  );
+
+  @override
+  Future<List<AscProfileRef>> listProfilesForBundle(
+    String bundleIdResourceId,
+  ) async => [
+    for (final entry in await _getCollection(
+      '/v1/bundleIds/$bundleIdResourceId/profiles',
+    ))
+      AscProfileRef.fromJson((entry! as Map).cast<String, dynamic>()),
+  ];
+
+  /// developerservices2 exposes the same `/v1/bundleIdCapabilities` resources
+  /// as App Store Connect. A team or endpoint that refuses them is reported as
+  /// [CapabilitiesUnsupported], so provisioning warns instead of failing.
+  @override
+  Future<Set<String>> listEnabledCapabilities(String bundleIdResourceId) async {
+    final List<Object?> entries;
+    try {
+      entries = await _getCollection(
+        '/v1/bundleIds/$bundleIdResourceId/bundleIdCapabilities',
+      );
+    } on AppleApiError catch (error) {
+      if (_unsupported(error)) throw const CapabilitiesUnsupported();
+      rethrow;
+    }
+    return {
+      for (final entry in entries)
+        if (entry case {'attributes': {'capabilityType': final String type}})
+          type,
+    };
+  }
+
+  @override
+  Future<void> enableCapability({
+    required String bundleIdResourceId,
+    required String capabilityType,
+  }) async {
+    try {
+      await _post(
+        '/v1/bundleIdCapabilities',
+        AscPayloads.capability(
+          bundleIdResourceId: bundleIdResourceId,
+          capabilityType: capabilityType,
+        ),
+      );
+    } on AppleApiError catch (error) {
+      if (error.statusCode == 409) return;
+      if (_unsupported(error)) throw const CapabilitiesUnsupported();
+      rethrow;
+    }
+  }
+
+  static bool _unsupported(AppleApiError error) =>
+      error.statusCode == 403 || error.statusCode == 404;
+
+  @override
+  Future<void> deleteProfile(String profileId) async {
+    await _withMethodOverride('/v1/profiles/$profileId', 'DELETE');
+  }
+
+  @override
+  Future<AscProfile> createProfile({
+    required String name,
+    required String bundleIdResourceId,
+    required List<String> certificateResourceIds,
+    required List<String> deviceResourceIds,
+  }) async => AscProfile.fromJson(
+    _data(
+      await _post(
+        '/v1/profiles',
+        AscPayloads.profile(
+          name: name,
+          bundleIdResourceId: bundleIdResourceId,
+          certificateResourceIds: certificateResourceIds,
+          deviceResourceIds: deviceResourceIds,
+        ),
+      ),
+    ),
+  );
+
+  /// Performs a non-mutating, one-item request so callers can validate the
+  /// saved token/team/Anisette state before choosing this provider.
+  Future<void> verifyAccess() async {
+    await _get('/v1/devices?limit=1');
+  }
+
+  @override
+  void close() => _http.close();
+
+  Future<Map<String, dynamic>> _get(String path) =>
+      _withMethodOverride(path, 'GET');
+
+  /// developerservices2 only accepts POST; other verbs ride along in
+  /// `X-HTTP-Method-Override`, with the query string moved into the body.
+  Future<Map<String, dynamic>> _withMethodOverride(
+    String path,
+    String method,
+  ) async {
+    _rejectExpired(token);
+    final logicalUrl = '$_baseUrl$path';
+    final response = await _http.post(
+      Uri.parse(logicalUrl.split('?').first),
+      headers: {
+        ..._headers(token),
+        ...await _fetchAnisetteHeaders(),
+        'X-HTTP-Method-Override': method,
+      },
+      body: jsonEncode({
+        'urlEncodedQueryParams': Uri(
+          queryParameters: {
+            ...Uri.parse(logicalUrl).queryParameters,
+            'teamId': teamId,
+          },
+        ).query,
+      }),
+    );
+    return _decode(response);
+  }
+
+  Future<Map<String, dynamic>> _post(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    _rejectExpired(token);
+    final response = await _http.post(
+      Uri.parse('$_baseUrl$path'),
+      headers: {..._headers(token), ...await _fetchAnisetteHeaders()},
+      body: jsonEncode(_withTeamId(body)),
+    );
+    return _decode(response);
+  }
+
+  /// developerservices2 requires `teamId` inside `data.attributes`; App Store
+  /// Connect infers it from the API key.
+  Map<String, dynamic> _withTeamId(Map<String, dynamic> body) {
+    final data = (body['data'] as Map).cast<String, dynamic>();
+    // A relationship-only payload (e.g. attaching capabilities to a bundle
+    // id) carries no attributes of its own; teamId still has to go somewhere.
+    final rawAttributes = data['attributes'];
+    final attributes = rawAttributes is Map
+        ? rawAttributes.cast<String, dynamic>()
+        : <String, dynamic>{};
+    return {
+      ...body,
+      'data': {
+        ...data,
+        'attributes': {...attributes, 'teamId': teamId},
+      },
+    };
+  }
+
+  /// Reads every page of a `data` collection, following `links.next`.
+  Future<List<Object?>> _getCollection(String path) async {
+    final values = <Object?>[];
+    final seenNextLinks = <String>{};
+    var nextPath = path;
+    while (true) {
+      final json = await _get(nextPath);
+      final data = json['data'];
+      if (data is! List) {
+        throw const AppleError(
+          'Developer Services collection response has no data',
+        );
+      }
+      values.addAll(data);
+
+      final links = json['links'];
+      final next = links is Map ? links['next'] : null;
+      if (next is! String || next.isEmpty) return values;
+      // A next link that repeats one we already followed would loop forever.
+      if (!seenNextLinks.add(next)) {
+        throw const AppleError(
+          'Developer Services returned a repeated next link',
+        );
+      }
+      nextPath = _nextPagePath(path, next);
+    }
+  }
+
+  /// Rebuilds [originalPath] with the cursor from [nextLink]: the returned
+  /// link points at the bare endpoint and would otherwise drop the filters.
+  static String _nextPagePath(String originalPath, String nextLink) {
+    final next = Uri.parse(nextLink);
+    final cursor = next.queryParameters['cursor'];
+    final limit = next.queryParameters['limit'];
+    if (cursor == null || limit == null) {
+      throw const AppleError(
+        'Developer Services returned an invalid next link',
+      );
+    }
+    final original = Uri.parse(originalPath);
+    return Uri(
+      path: original.path,
+      queryParameters: {
+        ...original.queryParameters,
+        'cursor': cursor,
+        'limit': limit,
+      },
+    ).toString();
+  }
+
+  static Map<String, String> _headers(DeveloperServicesLoginToken token) => {
+    'Accept': 'application/vnd.api+json',
+    'Content-Type': 'application/vnd.api+json',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'gzip, deflate',
+    'User-Agent': 'Xcode',
+    'X-Xcode-Version': _xcodeVersion,
+    'X-MMe-Client-Info': anisetteClientInfo,
+    'X-Apple-App-Info': _appIdentifier,
+    'X-Apple-I-Identity-Id': token.adsid,
+    'X-Apple-GS-Token': token.token,
+  };
+
+  /// Header set for the legacy `listTeams.action` protocol, which still pins
+  /// an older Xcode version and negotiates XML plist rather than JSON:API.
+  static Map<String, String> _legacyHeaders(
+    DeveloperServicesLoginToken token,
+  ) => {
+    'Accept': 'text/x-xml-plist',
+    'Content-Type': 'text/x-xml-plist',
+    'User-Agent': 'Xcode',
+    'X-Xcode-Version': '14.2 (14C18)',
+    'X-Apple-App-Info': _appIdentifier,
+    'X-Apple-I-Identity-Id': token.adsid,
+    'X-Apple-GS-Token': token.token,
+  };
+
+  static void _rejectExpired(DeveloperServicesLoginToken token) {
+    if (token.isExpired) {
+      throw const AppleError(
+        'Developer Services session has expired. Run xcross auth again.',
+      );
+    }
+  }
+
+  static Map<String, dynamic> _decode(http.Response response) {
+    AppleHttp.checkRateLimit(response, operation: 'Developer Services API');
+    final Object? decoded = response.body.isEmpty
+        ? null
+        : jsonDecode(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw AppleApiError(
+        response.statusCode,
+        'Developer Services API error (HTTP ${response.statusCode}): '
+        '${_errorDetails(decoded) ?? response.body}',
+      );
+    }
+    // A successful revoke answers with no body.
+    if (decoded == null) return const {};
+    return (decoded as Map).cast<String, dynamic>();
+  }
+
+  static String? _errorDetails(Object? decoded) {
+    if (decoded is! Map || decoded['errors'] is! List) return null;
+    final details = <String>[
+      for (final error in decoded['errors'] as List)
+        if (error is Map && (error['detail'] ?? error['title']) != null)
+          (error['detail'] ?? error['title']).toString(),
+    ];
+    return details.isEmpty ? null : details.join('; ');
+  }
+
+  static Map<String, dynamic> _data(Map<String, dynamic> json) =>
+      (json['data'] as Map).cast<String, dynamic>();
+
+  static List<String> _ids(List<Object?> collection) => [
+    for (final entry in collection) (entry! as Map)['id'] as String,
+  ];
+}

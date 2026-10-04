@@ -2,13 +2,17 @@ import 'dart:collection';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/shared/tui/tui.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/composition/cli/runner.dart';
 import 'package:xcross/src/host/shared/config/posix_config_host.dart';
 import 'package:xcross/src/shared/cli/basic/config_command.dart';
+import 'package:xcross/src/shared/cli/basic/config_tui_controller.dart';
 import 'package:xcross/src/shared/config/config.dart';
+import 'package:xcross/src/shared/config/config_store.dart';
 
 import 'runtime_fixture.dart';
 
@@ -329,6 +333,7 @@ void main() {
   });
 }
 
+@internal
 Future<bool> handle(
   ConfigTuiController controller,
   TuiKey key, {
@@ -349,6 +354,7 @@ Future<bool> handle(
   );
 }
 
+@internal
 final class FakeTerminal implements TuiTerminal {
   FakeTerminal({
     this.interactive = true,

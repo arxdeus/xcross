@@ -2,7 +2,7 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/shared/errors/errors.dart';
+import 'package:apple_developer_kit/shared/errors/errors.dart';
 import 'package:apple_developer_kit/src/shared/signing/bytes.dart';
 import 'package:apple_developer_kit/src/shared/signing/der.dart';
 import 'package:apple_developer_kit/src/shared/signing/internal/plist_der_entry.dart';
@@ -13,46 +13,67 @@ import 'package:propertylistserialization/propertylistserialization.dart';
 
 /// Every `CS_` blob is big-endian, unlike the little-endian Mach-O container
 /// that carries it.
+@internal
 const int csMagicRequirement = 0xFADE_0C00;
+@internal
 const int csMagicRequirements = 0xFADE_0C01;
+@internal
 const int csMagicCodeDirectory = 0xFADE_0C02;
+@internal
 const int csMagicEmbeddedSignature = 0xFADE_0CC0;
+@internal
 const int csMagicBlobWrapper = 0xFADE_0B01;
+@internal
 const int csMagicEmbeddedEntitlements = 0xFADE_7171;
+@internal
 const int csMagicEmbeddedDerEntitlements = 0xFADE_7172;
 
+@internal
 const int csslotCodeDirectory = 0;
+@internal
 const int csslotRequirements = 2;
+@internal
 const int csslotEntitlements = 5;
+@internal
 const int csslotDerEntitlements = 7;
+@internal
 const int csslotSignature = 0x10000;
 
 /// `CS_EXECSEG_MAIN_BINARY`: set only on `MH_EXECUTE`.
+@internal
 const int csExecsegMainBinary = 0x1;
 
 /// `CS_EXECSEG_ALLOW_UNSIGNED`: mirrors a `get-task-allow` entitlement.
+@internal
 const int csExecsegAllowUnsigned = 0x10;
 
 /// Every `CS_` blob starts with a big-endian magic and total length.
+@internal
 const int csBlobHeaderLength = 8;
 
 /// `CS_SuperBlob` header: magic, total length, and blob count.
+@internal
 const int csSuperBlobHeaderLength = 12;
 
 /// One `CS_BlobIndex`: slot type and offset from the superblob start.
+@internal
 const int csBlobIndexLength = 8;
 
 /// SHA-256 digest length, and therefore the size of every code directory slot.
+@internal
 const int csSha256Length = 32;
 
 /// `CS_HASHTYPE_SHA256`.
+@internal
 const int csHashTypeSha256 = 2;
 
 /// The `pageSize` field stores log2 of the hashed page size, not the size.
+@internal
 const int csPageSizeLog2 = 12;
 
 /// `CS_SUPPORTSEXECSEG`: the lowest version that carries the exec-segment
 /// fields this signer always writes.
+@internal
 const int codeDirectoryVersion = 0x20400;
 
 /// `CS_CodeDirectory` field offsets, in the `0x20400` layout.
@@ -81,13 +102,16 @@ abstract final class CodeDirectoryField {
 }
 
 /// `kSecDesignatedRequirementType`, the only requirement this signer emits.
+@internal
 const int designatedRequirementType = 3;
 
 /// A requirement blob body starts with `kind`; 1 selects the expression form.
+@internal
 const int requirementExprForm = 1;
 
 /// DER of OID 1.2.840.113635.100.6.2.1, Apple's "Worldwide Developer
 /// Relations" intermediate-certificate marker extension.
+@internal
 const List<int> appleWwdrMarkerOid = [
   0x2a,
   0x86,

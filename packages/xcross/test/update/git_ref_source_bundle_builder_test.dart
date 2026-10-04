@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:cli_kit/cli_kit.dart';
 
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/update/git_ref_source_bundle_builder.dart';
 import 'package:xcross/src/shared/update/git_update_ref_resolver.dart';
+
 import '../host_operations_fixtures.dart';
 
 Future<List<String>> _captureAsync(Future<void> Function() body) async {
@@ -848,6 +850,7 @@ ProcessResult _result({
   String stderr = '',
 }) => ProcessResult(1, exitCode, stdout, stderr);
 
+@internal
 final class FixtureFakeProcessRunner {
   FixtureFakeProcessRunner({required this.onRun});
 
@@ -869,6 +872,7 @@ final class FixtureFakeProcessRunner {
   }
 }
 
+@internal
 final class FixtureProcessCall {
   const FixtureProcessCall(
     this.executable,

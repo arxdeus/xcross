@@ -1,4 +1,6 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/host_symlink_capability.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
@@ -14,6 +16,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/host_source_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/module_files.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/source_fallback.dart';
 
+@internal
 final class SwiftPmCheckoutAssemblyParts<T extends PlatformHostInterface> {
   factory SwiftPmCheckoutAssemblyParts.prepare({
     required ProcessRunner<T> runner,
@@ -58,6 +61,7 @@ final class SwiftPmCheckoutAssemblyParts<T extends PlatformHostInterface> {
   final SwiftPmSourceFallback<T> sourceFallback;
 }
 
+@internal
 SwiftPmCheckout<T> assembleSwiftPmCheckout<T extends PlatformHostInterface>({
   required SwiftPmCheckoutAssemblyParts<T> parts,
   required SwiftPmCheckoutGitPolicy gitPolicy,

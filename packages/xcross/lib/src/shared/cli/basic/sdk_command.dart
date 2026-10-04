@@ -1,17 +1,21 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/progress/progress.dart';
+import 'package:darwin_sdk_kit/shared/archive/xcode_xip_extractor.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/cli/basic/internal/swift_requirement.dart';
 import 'package:xcross/src/shared/cli/basic/sdk_install.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/sdk/xcode_swift_requirement.dart';
 
-export 'package:xcross/src/shared/cli/basic/sdk_install.dart';
-
 /// `xcross sdk` — manage xcross's host-neutral Darwin Swift SDK.
+@internal
 final class SdkCommand<T extends PlatformHostInterface> extends Command<void> {
   SdkCommand(SdkInstall<T> installer) {
     addSubcommand(SdkInstallCommand(installer));
@@ -25,6 +29,7 @@ final class SdkCommand<T extends PlatformHostInterface> extends Command<void> {
 }
 
 /// `xcross sdk install <Xcode.xip>` — build xcross's Darwin Swift SDK bundle.
+@internal
 final class SdkInstallCommand<T extends PlatformHostInterface>
     extends Command<void> {
   SdkInstallCommand(this.installer);

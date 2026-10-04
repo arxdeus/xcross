@@ -2,17 +2,19 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/shared/adi/apk_fetch.dart';
+import 'package:apple_developer_kit/shared/adi/apk_fetch.dart';
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:meta/meta.dart';
 import 'package:test/test.dart';
 
 import '../support/host_services.dart';
 import '../support/mapped_apple_fixture.dart';
 import 'support/elf_fixture.dart';
 
+@internal
 class RecordingApkClient extends MockClient {
   RecordingApkClient(super.handler, {this.closeError});
 

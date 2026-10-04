@@ -1,5 +1,7 @@
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:darwin_sdk_kit/target/shared/ios_build_platform.dart';
+import 'package:meta/meta.dart';
 
+@internal
 final class IosDeploymentTarget {
   const IosDeploymentTarget(this.version, {required this.platform});
 

@@ -1,6 +1,7 @@
 import 'package:meta/meta.dart';
 
 /// RSD tunnel endpoint for a device.
+@internal
 @immutable
 final class Tunnel {
   const Tunnel({required this.address, required this.port});

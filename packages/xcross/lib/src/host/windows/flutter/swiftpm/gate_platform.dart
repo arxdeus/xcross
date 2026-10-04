@@ -2,19 +2,24 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/internal/swiftpm_binary_fixture.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/build_plan.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/gate_evidence.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/gate_execution.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/gate_mode.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/gate_platform.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/toolchain.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
+@internal
 final class WindowsSwiftPmGatePlatform<T extends PlatformHostInterface>
     implements SwiftPmGatePlatform {
   WindowsSwiftPmGatePlatform({

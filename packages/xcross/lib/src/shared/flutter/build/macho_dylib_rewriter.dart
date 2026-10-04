@@ -1,11 +1,13 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/apple/mach_o.dart';
 import 'package:xcross/src/shared/flutter/build/objc_fast_stub_rewriter.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 
 /// Rewrites install names in 64-bit little-endian Mach-O dynamic libraries.
+@internal
 abstract final class MachODylibRewriter {
   /// `LC_ID_DYLIB` — this library's own install name.
   static const _idDylib = 0x0d;

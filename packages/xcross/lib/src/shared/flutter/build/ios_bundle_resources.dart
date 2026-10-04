@@ -1,12 +1,14 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/internal/recursive_directory_copy.dart';
 import 'package:xcross/src/shared/flutter/build/pbxproj.dart';
 import 'package:xcross/src/shared/flutter/project/pbx_project_reader.dart';
 
 /// Stages the application target's Xcode resources into an app bundle.
+@internal
 final class IosBundleResources {
   IosBundleResources(
     this.fileSystem,

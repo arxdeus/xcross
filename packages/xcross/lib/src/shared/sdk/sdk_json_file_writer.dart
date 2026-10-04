@@ -1,6 +1,8 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/sdk/sdk_install_constants.dart';
 
+@internal
 final class SdkJsonFileWriter<T extends PlatformHostInterface> {
   const SdkJsonFileWriter(this.host);
   final T host;

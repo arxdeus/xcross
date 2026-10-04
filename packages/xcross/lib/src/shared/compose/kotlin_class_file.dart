@@ -1,7 +1,10 @@
 import 'dart:typed_data';
+
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/compose/jvm_binary.dart';
 import 'package:xcross/src/shared/compose/kotlin_constant_pool.dart';
 
+@internal
 class KotlinClassAttribute {
   const KotlinClassAttribute({required this.nameIdx, required this.body});
 
@@ -11,6 +14,7 @@ class KotlinClassAttribute {
 
 // ── Member (field or method) ──────────────────────────────────────────────────
 
+@internal
 class KotlinClassMember {
   KotlinClassMember({
     required this.accessFlags,
@@ -27,6 +31,7 @@ class KotlinClassMember {
   final List<KotlinClassAttribute> attrs;
 }
 
+@internal
 class KotlinClassFile {
   KotlinClassFile._({
     required this.minor,

@@ -4,7 +4,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:math';
 
-import 'package:dart_mobile_device/src/target/iphone/device/pymd/pymd.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd.dart';
 import 'package:meta/meta.dart';
 
 /// Device-initiated wireless pairing (`pymobiledevice3 remote pair-host`)
@@ -13,6 +13,7 @@ import 'package:meta/meta.dart';
 /// tunneld's Wi-Fi monitor can only connect to phones it has a record for
 /// (`~/.pymobiledevice3/remote_<UDID>.plist`), so "no record" is the signal
 /// that pairing has to happen before any wireless discovery can succeed.
+@internal
 final class RemotePairing {
   RemotePairing(this.pymd);
   final Pymd pymd;

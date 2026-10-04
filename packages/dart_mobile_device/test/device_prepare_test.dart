@@ -1,6 +1,10 @@
-import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:dart_mobile_device/host/linux/linux_device_host.dart';
+import 'package:dart_mobile_device/host/macos/macos_device_host.dart';
+import 'package:dart_mobile_device/host/windows/windows_device_host.dart';
 import 'package:dart_mobile_device/src/shared/preparation/tunnel_failure_guidance.dart';
+import 'package:dart_mobile_device/src/target/iphone/preparation/wireless_device_preparation.dart';
 import 'package:test/test.dart';
 
 import 'test_log_output.dart';

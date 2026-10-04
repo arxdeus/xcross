@@ -2,7 +2,10 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:meta/meta.dart';
 import 'package:test/test.dart';
+import 'package:xcross/src/shared/compose/kotlin_native_class_patches.dart';
+import 'package:xcross/src/shared/compose/kotlin_native_entries.dart';
 import 'package:xcross/src/shared/compose/toolchain/host_manager_patcher.dart';
 
 import 'support/class_file_builder.dart';
@@ -11,12 +14,19 @@ import 'support/compose_platforms.dart';
 import 'support/fake_classes.dart';
 
 // JVM opcode aliases — only where a name clearly aids reading.
+@internal
 const int iconst1 = 0x04; // ICONST_1
+@internal
 const int ireturn = 0xAC; // IRETURN
+@internal
 const int aload0 = 0x2A; // ALOAD_0
+@internal
 const int invokeVirtual = 0xB6; // INVOKEVIRTUAL
+@internal
 const int areturn = 0xB0; // ARETURN
+@internal
 const int vreturn = 0xB1; // RETURN (void)
+@internal
 const int invokeSpecial = 0xB7; // INVOKESPECIAL
 
 void main() {

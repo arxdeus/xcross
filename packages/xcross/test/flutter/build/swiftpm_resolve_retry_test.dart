@@ -1,4 +1,4 @@
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/binary_recovery.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/network_retry.dart';

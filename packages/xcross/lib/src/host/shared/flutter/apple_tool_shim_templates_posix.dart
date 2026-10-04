@@ -1,7 +1,10 @@
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:darwin_sdk_kit/target/shared/ios_build_platform.dart';
+import 'package:meta/meta.dart';
 
+@internal
 String shellQuote(String value) => "'${value.replaceAll("'", "'\"'\"'")}'";
 
+@internal
 String renderUnixCompilerShim({
   required String iosSdk,
   required String clang,
@@ -49,6 +52,7 @@ done
 exec ${shellQuote(clang)} "\$@"
 ''';
 
+@internal
 String renderUnixOtoolShim({required String tool, required bool usesObjdump}) =>
     usesObjdump
     ? '''
@@ -66,6 +70,7 @@ esac
 /// xcrun shim. native_toolchain_c probes `xcrun --version` and requires a
 /// zero exit plus a parseable version before it asks for SDK paths, so the
 /// shim answers that probe itself regardless of which xcrun it forwards to.
+@internal
 String renderUnixXcrunShim(String tool) =>
     '''
 #!/bin/sh
@@ -75,7 +80,9 @@ esac
 exec ${shellQuote(tool)} "\$@"
 ''';
 
+@internal
 String renderUnixToolShim(String tool) =>
     '#!/bin/sh\nexec ${shellQuote(tool)} "\$@"\n';
 
+@internal
 const unixCodesignShim = '#!/bin/sh\nexit 0\n';

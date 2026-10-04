@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/apple/arm64_instructions.dart';
 import 'package:xcross/src/shared/apple/mach_o.dart';
 
+@internal
 abstract final class ObjCFastStubRewriter {
   static const _nSect = 0x0e;
   static const _nExt = 0x01;
@@ -271,6 +273,7 @@ abstract final class ObjCFastStubRewriter {
       file.invalid(message);
 }
 
+@internal
 final class FastObjCStub {
   const FastObjCStub({
     required this.selector,

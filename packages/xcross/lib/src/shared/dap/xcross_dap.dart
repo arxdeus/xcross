@@ -2,11 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
-    show TunnelAvailability;
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:dart_mobile_device/shared/tunnel/tunnel_availability.dart';
 import 'package:dds/dap.dart';
-import 'package:frontend_server_kit/frontend_server_kit.dart';
+import 'package:frontend_server_kit/shared/compiler/package_uris.dart';
+import 'package:meta/meta.dart';
 import 'package:pure/pure.dart';
 import 'package:vm_service/vm_service.dart' as vm;
 import 'package:xcross/src/shared/dap/dap_child_controller.dart';
@@ -16,6 +16,7 @@ import 'package:xcross/src/shared/runtime/constants.dart';
 /// Spawns `xcross flutter run` and drives it: keypresses on its stdin for
 /// hot reload/restart/quit, plus a Dart VM Service connection (via
 /// [DartDebugAdapter]) for breakpoints/stepping/stack/variables.
+@internal
 final class XcrossDap
     extends
         DartDebugAdapter<

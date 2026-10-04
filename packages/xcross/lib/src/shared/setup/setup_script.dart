@@ -2,17 +2,22 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/config/config.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/setup/setup_script_policy.dart';
 
+@internal
 typedef SetupScriptDownload = Future<List<int>> Function(Uri uri);
+@internal
 typedef SetupScriptExecute =
     Future<void> Function(String executable, List<String> arguments);
 
+@internal
 final class SetupScriptManager {
   static const _downloadTimeout = Duration(seconds: 30);
   static final _contentHashPattern = RegExp(r'^[0-9a-f]{64}$');

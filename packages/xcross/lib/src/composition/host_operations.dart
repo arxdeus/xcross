@@ -1,6 +1,8 @@
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart' show Pymd;
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/host/linux/setup/linux_setup_requirements.dart';
 import 'package:xcross/src/host/linux/update/linux_update_policy.dart';
 import 'package:xcross/src/host/macos/setup/macos_setup_requirements.dart';
@@ -32,6 +34,7 @@ SetupRequirementServices _services(
   ensurePymdInstalled: pymd.ensureInstalled,
 );
 
+@internal
 HostOperations windowsHostOperations(
   WindowsHostInterface host,
   ProcessRunner runner,
@@ -53,6 +56,7 @@ HostOperations windowsHostOperations(
   );
 }
 
+@internal
 HostOperations linuxHostOperations(
   LinuxHostInterface host,
   ProcessRunner runner,
@@ -74,6 +78,7 @@ HostOperations linuxHostOperations(
   );
 }
 
+@internal
 HostOperations macOSHostOperations(
   MacOSHostInterface host,
   ProcessRunner runner,

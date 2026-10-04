@@ -1,14 +1,16 @@
 import 'package:args/command_runner.dart';
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/tui/tui.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/cli/basic/config_tui_controller.dart';
 import 'package:xcross/src/shared/config/config.dart';
 import 'package:xcross/src/shared/config/config_decoder.dart';
+import 'package:xcross/src/shared/config/config_store.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
-export 'package:xcross/src/shared/cli/basic/config_tui_controller.dart';
-
+@internal
 typedef ConfigWriteLine = void Function(String value);
 
+@internal
 final class ConfigCommand extends Command<void> {
   ConfigCommand({
     required XcrossConfigStore store,
@@ -75,6 +77,7 @@ final class ConfigCommand extends Command<void> {
   }
 }
 
+@internal
 final class ConfigShowCommand extends Command<void> {
   ConfigShowCommand({
     required XcrossConfigStore store,
@@ -103,6 +106,7 @@ final class ConfigShowCommand extends Command<void> {
   }
 }
 
+@internal
 final class ConfigValidateCommand extends Command<void> {
   ConfigValidateCommand({
     required XcrossConfigStore store,

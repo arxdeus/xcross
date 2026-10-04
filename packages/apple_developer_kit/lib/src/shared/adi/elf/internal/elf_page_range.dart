@@ -1,6 +1,7 @@
 import 'package:meta/meta.dart';
 
 /// A page-aligned protection range within an [ElfImage].
+@internal
 @immutable
 final class ElfPageRange {
   const ElfPageRange({required this.offset, required this.length});

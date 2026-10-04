@@ -1,5 +1,6 @@
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_simulator.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:darwin_sdk_kit/target/simulator/simulator_target.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/compose/build/compose_pack_operation.dart';
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain_resolver.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
@@ -9,6 +10,7 @@ import 'package:xcross/src/target/shared/runtime/build_features.dart';
 import 'package:xcross/src/target/simulator/compose/simulator_compose_target.dart';
 import 'package:xcross/src/target/simulator/flutter/simulator_flutter_target.dart';
 
+@internal
 final class SimulatorBuildFeatures<T extends PlatformHostInterface>
     implements XcrossBuildFeatures<T> {
   SimulatorBuildFeatures(this.runtime) : target = SimulatorTarget(runtime.host);

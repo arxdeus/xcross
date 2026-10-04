@@ -1,20 +1,25 @@
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/element/type.dart';
+import 'package:meta/meta.dart';
 
+import 'boundaries.dart';
+import 'export_graph.dart';
 import 'identity.dart';
-import 'inventory.dart';
 import 'native_safety.dart';
 
+@internal
 String? topFunction(AstNode node) {
   final function = node.thisOrAncestorOfType<FunctionDeclaration>();
   return function?.parent is CompilationUnit ? function?.name.lexeme : null;
 }
 
+@internal
 class NativeRules {
   final String path;
   final IdentityAnalysis identity;
   final List<Violation> violations = [];
-  NativeRules(this.path, this.identity);
+  final String? root;
+  NativeRules(this.path, this.identity, {this.root});
   bool hookControl(AstNode condition) {
     var input = false;
     for (final node in astNodes(condition).whereType<SimpleIdentifier>()) {
@@ -49,7 +54,7 @@ class NativeRules {
   }
 
   bool approved(SimpleIdentifier node) {
-    if (NativeSafety(path).read(node)) return true;
+    if (NativeSafety(path, root: root).read(node)) return true;
     final function = topFunction(node);
     final element = node.element;
     final owner = element?.enclosingElement?.name;
@@ -140,7 +145,7 @@ class NativeRules {
     final element = node.element;
     final uri = element?.library?.uri.toString() ?? '';
     if (node.thisOrAncestorOfType<Combinator>() == null &&
-        uri.endsWith('/composition/native_host.dart') &&
+        resolveUri(path, uri, root: root) == detector &&
         (element?.name?.startsWith('detectPlatformHost') ?? false) &&
         !(detectorCallers.containsKey(path) &&
             detectorCallers[path] == topFunction(node))) {

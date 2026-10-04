@@ -1,5 +1,7 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:meta/meta.dart';
 
+@internal
 abstract final class UpdatePhases {
   static const release = [
     'Download release archive',
@@ -21,6 +23,7 @@ abstract final class UpdatePhases {
   ];
 }
 
+@internal
 final class UpdateProgress {
   UpdateProgress(this.group, this.total, {required this.log});
 

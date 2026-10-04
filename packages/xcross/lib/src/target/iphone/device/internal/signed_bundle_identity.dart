@@ -1,4 +1,5 @@
-import 'package:apple_developer_kit/apple_developer_kit_shared.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/provisioning_identifiers.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
 /// The one bundle identity used from provisioning through device launch.
@@ -6,6 +7,7 @@ import 'package:xcross/src/shared/errors/errors.dart';
 /// [exact] is computed once from the requested project id and signing identity.
 /// Every operation must carry this value forward rather than qualifying or
 /// resolving the identifier again.
+@internal
 final class SignedBundleIdentity {
   SignedBundleIdentity._({required this.requested, required this.exact});
 

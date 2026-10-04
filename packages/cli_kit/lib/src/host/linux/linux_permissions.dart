@@ -1,7 +1,9 @@
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/src/shared/platform/permission_mode.dart';
-import 'package:cli_kit/src/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:posix/posix.dart' as posix;
 
+@internal
 final class LinuxPermissions implements HostPermissionsInterface {
   LinuxPermissions({void Function(String, String)? chmod})
     : _chmod = chmod ?? _nativeChmod;

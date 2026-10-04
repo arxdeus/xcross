@@ -1,10 +1,15 @@
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:darwin_sdk_kit/target/shared/ios_build_platform.dart';
+import 'package:darwin_sdk_kit/target/shared/ios_target.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer.dart';
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 
+@internal
 @immutable
 final class OtoolConfig {
   const OtoolConfig(this.executable, {required this.usesObjdump});
@@ -13,6 +18,7 @@ final class OtoolConfig {
   final bool usesObjdump;
 }
 
+@internal
 @immutable
 final class AppleToolShimConfig {
   const AppleToolShimConfig({
@@ -44,6 +50,7 @@ final class AppleToolShimConfig {
   final IosBuildPlatformInterface target;
 }
 
+@internal
 final class AppleToolShimResolver<T extends PlatformHostInterface> {
   AppleToolShimResolver(
     this.target,
@@ -158,6 +165,7 @@ final class AppleToolShimResolver<T extends PlatformHostInterface> {
   }
 }
 
+@internal
 FlutterBuildError missingNativeAssetToolForwarderError() => FlutterBuildError(
   "Windows native assets need the native xcross.exe binary: Flutter's "
   'native_toolchain_c only accepts a C compiler named clang.exe, so xcross '
@@ -168,6 +176,7 @@ FlutterBuildError missingNativeAssetToolForwarderError() => FlutterBuildError(
   'in `xcross config`.',
 );
 
+@internal
 Future<void> installAppleToolShims<T extends PlatformHostInterface>(
   String directory,
   AppleToolShimConfig config, {

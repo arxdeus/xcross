@@ -1,6 +1,8 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/compose/compose_host.dart';
 
+@internal
 final class ProcessInvocation {
   const ProcessInvocation({required this.executable, required this.arguments});
   final String executable;

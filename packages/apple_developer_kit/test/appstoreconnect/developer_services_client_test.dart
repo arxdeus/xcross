@@ -1,11 +1,12 @@
 import 'dart:convert';
 
-import 'package:apple_developer_kit/src/shared/appstoreconnect/developer_services_client.dart';
-import 'package:apple_developer_kit/src/shared/appstoreconnect/developer_services_team_discovery_client.dart';
-import 'package:apple_developer_kit/src/shared/errors/errors.dart';
-import 'package:apple_developer_kit/src/shared/grandslam/app_token_exchange.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/developer_services_client.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/developer_services_team_discovery_client.dart';
+import 'package:apple_developer_kit/shared/errors/errors.dart';
+import 'package:apple_developer_kit/shared/grandslam/app_token_exchange.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:meta/meta.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
 
@@ -790,6 +791,7 @@ DeveloperServicesLoginToken _token({bool expired = false}) =>
       expiry: DateTime.now().toUtc().add(Duration(days: expired ? -1 : 1)),
     );
 
+@internal
 final class TrackingTeamHttpClient extends MockClient {
   TrackingTeamHttpClient(super.fn);
 

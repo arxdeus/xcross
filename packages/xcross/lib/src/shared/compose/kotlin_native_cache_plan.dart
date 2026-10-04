@@ -1,5 +1,7 @@
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
+@internal
 final class KlibCacheNode {
   const KlibCacheNode({
     required this.uniqueName,
@@ -28,6 +30,7 @@ final class KlibCacheNode {
   String get cachePath => p.join(cacheRoot, '$uniqueName-cache');
 }
 
+@internal
 final class KotlinNativeCachePlan {
   const KotlinNativeCachePlan({
     required this.libraries,

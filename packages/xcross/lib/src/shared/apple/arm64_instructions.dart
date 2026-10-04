@@ -1,3 +1,6 @@
+import 'package:meta/meta.dart';
+
+@internal
 final class Arm64AdrpLdr {
   const Arm64AdrpLdr({required this.adrp, required this.ldr});
 

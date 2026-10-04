@@ -1,12 +1,16 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/tool/mach_o_slices.dart';
-import 'package:xcross/xcross.dart';
+import 'package:xcross/src/shared/tool/tool_alias_operation.dart';
 
+import '../log_fixture.dart';
 import 'runtime_fixture.dart';
 
 void main() {
@@ -226,6 +230,7 @@ void main() {
   });
 }
 
+@internal
 ProcessRunner<WindowsHostInterface> windowsAliasRunner() {
   final fixture = testRuntime();
   return ProcessRunner<WindowsHostInterface>(

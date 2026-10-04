@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'package:meta/meta.dart';
 
+@internal
 final class SwiftPmResponseArguments {
   static List<dynamic>? decodeLlbuildArguments(String line) {
     const prefix = '    args: ';

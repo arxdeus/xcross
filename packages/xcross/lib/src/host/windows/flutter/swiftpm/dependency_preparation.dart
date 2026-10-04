@@ -1,6 +1,8 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/host/windows/flutter/swiftpm/pinned_dependency_resolver.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
@@ -16,6 +18,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/network_retry.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/package_metadata.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
 
+@internal
 final class WindowsSwiftPmDependencyPreparation<T extends PlatformHostInterface>
     implements SwiftPmDependencyPreparation<T> {
   WindowsSwiftPmDependencyPreparation({

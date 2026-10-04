@@ -1,7 +1,14 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/shared/download/download.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/host/linux/linux_darwin_toolchain_locations.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:darwin_sdk_kit/target/iphone/iphone_target.dart';
+import 'package:darwin_sdk_kit/target/simulator/simulator_target.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/composition/flutter/swiftpm_checkout.dart';
 import 'package:xcross/src/composition/flutter/swiftpm_foundation.dart';
 import 'package:xcross/src/host/linux/flutter/native_host_tools.dart';
@@ -34,6 +41,7 @@ import 'package:xcross/src/target/simulator/flutter/simulator_flutter_target.dar
 
 import 'flutter_test_log.dart';
 
+@internal
 FlutterBuildRuntime<LinuxHost> testIPhoneRuntime({
   FlutterSdkHostPolicy<LinuxHost>? sdkHostPolicy,
   FlutterResolutionConfiguration resolution =
@@ -51,6 +59,7 @@ FlutterBuildRuntime<LinuxHost> testIPhoneRuntime({
   );
 }
 
+@internal
 FlutterBuildRuntime<LinuxHost> testSimulatorRuntime({
   FlutterResolutionConfiguration resolution =
       const FlutterResolutionConfiguration(executable: '/xcross'),
@@ -66,6 +75,7 @@ FlutterBuildRuntime<LinuxHost> testSimulatorRuntime({
   );
 }
 
+@internal
 FlutterBuildRuntime<LinuxHost> testFlutterRuntime(
   FlutterTargetBuildPolicy<LinuxHost> policy, {
   FlutterSdkHostPolicy<LinuxHost>? sdkHostPolicy,
@@ -194,6 +204,7 @@ FlutterBuildRuntime<LinuxHost> testFlutterRuntime(
   );
 }
 
+@internal
 final class TestSwiftPmSdkIdentity implements SwiftPmSdkIdentity {
   const TestSwiftPmSdkIdentity();
   @override

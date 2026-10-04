@@ -1,9 +1,15 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
+import 'package:meta/meta.dart';
 
+@internal
 Log fixtureLog() => Log(output: FixtureLogOutput());
 
+@internal
 final class FixtureLogOutput implements LogOutput {
   @override
   bool get supportsAnsi => false;
@@ -17,6 +23,7 @@ final class FixtureLogOutput implements LogOutput {
   void write(String message) => print(message);
 }
 
+@internal
 final class FixturePrivileges implements HostPrivilegesInterface {
   @override
   Future<void> ensureElevated({
@@ -30,8 +37,10 @@ final class FixturePrivileges implements HostPrivilegesInterface {
   Future<String?> resolve() async => null;
 }
 
+@internal
 FixtureIOSink fixtureSink() => FixtureIOSink();
 
+@internal
 final class FixtureIOSink implements IOSink {
   final buffer = StringBuffer();
   @override
@@ -73,6 +82,7 @@ final class FixtureIOSink implements IOSink {
   Future<void> get done async {}
 }
 
+@internal
 ProcessRunner<T> fixtureRunner<T extends PlatformHostInterface>(
   T host, {
   required Log log,
@@ -87,6 +97,7 @@ ProcessRunner<T> fixtureRunner<T extends PlatformHostInterface>(
   configuration: configuration,
 );
 
+@internal
 final class FixtureMappedFileSystem implements HostFileSystemInterface {
   FixtureMappedFileSystem(this.root);
   final Directory root;

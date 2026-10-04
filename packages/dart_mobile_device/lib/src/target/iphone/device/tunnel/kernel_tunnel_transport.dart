@@ -1,13 +1,15 @@
-import 'package:dart_mobile_device/src/shared/device/models/device_endpoint.dart';
+import 'package:dart_mobile_device/shared/device/models/device_endpoint.dart';
+import 'package:dart_mobile_device/shared/device/transport/device_transport.dart';
 import 'package:dart_mobile_device/src/shared/device/models/tunnel.dart';
-import 'package:dart_mobile_device/src/shared/device/transport/device_transport.dart';
 import 'package:dart_mobile_device/src/target/iphone/device/tunnel/tunnel_daemon.dart';
+import 'package:meta/meta.dart';
 
 /// RSD over the privileged tunnel published by `pymobiledevice3 remote
 /// tunneld` (WinTun on Windows, utun on Linux).
 ///
 /// The tunnel is a real host interface, so every device port is reachable
 /// directly at [Tunnel.address] and no relay is needed.
+@internal
 class KernelTunnelTransport implements DeviceTransport {
   KernelTunnelTransport({
     required Tunnel tunnel,

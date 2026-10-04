@@ -1,5 +1,6 @@
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk.dart';
+import 'package:darwin_sdk_kit/shared/tbd/tbd_linker_diagnostic.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
@@ -11,6 +12,7 @@ import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 /// ld64.lld to produce the `Runner` executable for an iOS `.app` bundle.
 ///
 /// This is the cross-platform equivalent of the Xcode-built Runner.
+@internal
 final class RunnerShim<T extends PlatformHostInterface> {
   RunnerShim(this.runtime);
   final FlutterBuildRuntime<T> runtime;

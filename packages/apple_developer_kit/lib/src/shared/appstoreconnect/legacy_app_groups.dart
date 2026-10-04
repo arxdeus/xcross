@@ -21,20 +21,22 @@
 /// over.
 library;
 
-import 'package:apple_developer_kit/src/shared/appstoreconnect/asc_client.dart';
-import 'package:apple_developer_kit/src/shared/appstoreconnect/asc_models.dart';
-import 'package:apple_developer_kit/src/shared/errors/errors.dart';
-import 'package:apple_developer_kit/src/shared/grandslam/anisette/anisette_state.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/asc_client.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/asc_models.dart';
+import 'package:apple_developer_kit/shared/errors/errors.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_state.dart';
 import 'package:apple_developer_kit/src/shared/grandslam/internal/grandslam_response_decoder.dart';
 import 'package:http/http.dart' as http;
 import 'package:meta/meta.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
 
 /// Supplies the auth (and, for GrandSlam, Anisette) headers for one request.
+@internal
 typedef LegacyAuthHeaders = Future<Map<String, String>> Function();
 
 /// Resolves the team the request acts on. An Apple ID session carries it
 /// directly; an API key has to look it up (see `AscClient`).
+@internal
 typedef LegacyTeamId = Future<String> Function();
 
 /// The `QH65B2` App Groups actions, shared by both provisioning backends.

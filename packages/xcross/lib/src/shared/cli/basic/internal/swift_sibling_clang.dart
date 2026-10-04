@@ -1,6 +1,7 @@
 import 'package:meta/meta.dart';
 
 /// The clang shipped beside a resolved `swift` executable.
+@internal
 @immutable
 final class SwiftSiblingClang {
   const SwiftSiblingClang({required this.clang, required this.swift});

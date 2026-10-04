@@ -1,19 +1,17 @@
 import 'dart:async';
 
-import 'package:apple_developer_kit/apple_developer_kit_shared.dart';
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart'
-    show
-        DeviceEndpoint,
-        DeviceTransport,
-        DeviceTransportResolver,
-        GdbRemoteClient,
-        PortForwarder,
-        Pymd,
-        TunnelConstants;
-import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
-    show DeviceSockets;
-import 'package:frontend_server_kit/frontend_server_kit.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/provisioning_identifiers.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:dart_mobile_device/shared/device/gdb_remote_client.dart';
+import 'package:dart_mobile_device/shared/device/models/device_endpoint.dart';
+import 'package:dart_mobile_device/shared/device/transport/device_transport.dart';
+import 'package:dart_mobile_device/shared/device/tunnel/port_forwarder.dart';
+import 'package:dart_mobile_device/shared/network/device_sockets.dart';
+import 'package:dart_mobile_device/target/iphone/device/constants.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd.dart';
+import 'package:dart_mobile_device/target/iphone/device/transport/device_transport_resolver.dart';
+import 'package:frontend_server_kit/host/shared/process/host_compiler_process_factory.dart';
 import 'package:meta/meta.dart';
 import 'package:pure/pure.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
@@ -41,6 +39,7 @@ const _terminateDiscoveryTimeout = Duration(seconds: 8);
 
 /// Launches an installed app on an iOS 17+ device through a CoreDevice RSD
 /// tunnel. Blocks until the app exits or the user presses `q`/Ctrl-C.
+@internal
 final class CoreDeviceLauncher {
   CoreDeviceLauncher(
     this.pymd, {

@@ -15,26 +15,36 @@
 
 import 'dart:ffi';
 
-import 'package:apple_developer_kit/src/host/shared/adi/loader/loader.dart';
+import 'package:apple_developer_kit/host/shared/adi/loader/loader.dart';
 import 'package:ffi/ffi.dart';
+import 'package:meta/meta.dart';
 
 // Native (C) and Dart call signatures, paired per ADI function. The
 // native side is ported verbatim from adi.d's `extern(C)` aliases.
 
+@internal
 typedef ADILoadLibraryWithPathNative = Int32 Function(Pointer<Utf8> path);
+@internal
 typedef ADILoadLibraryWithPathDart = int Function(Pointer<Utf8> path);
 
+@internal
 typedef ADISetAndroidIDNative =
     Int32 Function(Pointer<Uint8> identifier, Uint32 length);
+@internal
 typedef ADISetAndroidIDDart =
     int Function(Pointer<Uint8> identifier, int length);
 
+@internal
 typedef ADISetProvisioningPathNative = Int32 Function(Pointer<Utf8> path);
+@internal
 typedef ADISetProvisioningPathDart = int Function(Pointer<Utf8> path);
 
+@internal
 typedef ADIProvisioningEraseNative = Int32 Function(Uint64 dsId);
+@internal
 typedef ADIProvisioningEraseDart = int Function(int dsId);
 
+@internal
 typedef ADISynchronizeNative =
     Int32 Function(
       Uint64 dsId,
@@ -45,6 +55,7 @@ typedef ADISynchronizeNative =
       Pointer<Pointer<Uint8>> outSynchronizationResumeMetadata,
       Pointer<Uint32> outSynchronizationResumeMetadataLength,
     );
+@internal
 typedef ADISynchronizeDart =
     int Function(
       int dsId,
@@ -56,9 +67,12 @@ typedef ADISynchronizeDart =
       Pointer<Uint32> outSynchronizationResumeMetadataLength,
     );
 
+@internal
 typedef ADIProvisioningDestroyNative = Int32 Function(Uint32 session);
+@internal
 typedef ADIProvisioningDestroyDart = int Function(int session);
 
+@internal
 typedef ADIProvisioningEndNative =
     Int32 Function(
       Uint32 session,
@@ -67,6 +81,7 @@ typedef ADIProvisioningEndNative =
       Pointer<Uint8> trustKey,
       Uint32 trustKeyLength,
     );
+@internal
 typedef ADIProvisioningEndDart =
     int Function(
       int session,
@@ -76,6 +91,7 @@ typedef ADIProvisioningEndDart =
       int trustKeyLength,
     );
 
+@internal
 typedef ADIProvisioningStartNative =
     Int32 Function(
       Uint64 dsId,
@@ -85,6 +101,7 @@ typedef ADIProvisioningStartNative =
       Pointer<Uint32> outClientProvisioningIntermediateMetadataLength,
       Pointer<Uint32> outSession,
     );
+@internal
 typedef ADIProvisioningStartDart =
     int Function(
       int dsId,
@@ -95,12 +112,17 @@ typedef ADIProvisioningStartDart =
       Pointer<Uint32> outSession,
     );
 
+@internal
 typedef ADIGetLoginCodeNative = Int32 Function(Uint64 dsId);
+@internal
 typedef ADIGetLoginCodeDart = int Function(int dsId);
 
+@internal
 typedef ADIDisposeNative = Int32 Function(Pointer<Void> ptr);
+@internal
 typedef ADIDisposeDart = int Function(Pointer<Void> ptr);
 
+@internal
 typedef ADIOTPRequestNative =
     Int32 Function(
       Uint64 dsId,
@@ -109,6 +131,7 @@ typedef ADIOTPRequestNative =
       Pointer<Pointer<Uint8>> outOneTimePassword,
       Pointer<Uint32> outOneTimePasswordLength,
     );
+@internal
 typedef ADIOTPRequestDart =
     int Function(
       int dsId,
@@ -125,6 +148,7 @@ typedef ADIOTPRequestDart =
 /// The `argc` passed alongside each symbol is the SysV thunk arity used
 /// by the Windows ABI bridge; it must match the native signature above
 /// it.
+@internal
 class AdiNativeBindings {
   AdiNativeBindings(LoadedNativeLibrary lib)
     : adiLoadLibraryWithPath = _lookup<ADILoadLibraryWithPathNative>(

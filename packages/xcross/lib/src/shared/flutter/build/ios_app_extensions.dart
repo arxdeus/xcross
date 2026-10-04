@@ -1,4 +1,4 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/pbxproj.dart';
@@ -14,6 +14,7 @@ const _extensionProductTypes = {'com.apple.product-type.app-extension'};
 const _applicationProductType = 'com.apple.product-type.application';
 
 /// One iOS app-extension target discovered in `project.pbxproj`.
+@internal
 @immutable
 final class IosAppExtension {
   const IosAppExtension({
@@ -83,6 +84,7 @@ final class IosAppExtension {
 }
 
 /// Discovers app-extension targets in a Flutter project's Xcode project.
+@internal
 final class IosAppExtensions {
   IosAppExtensions(this.fileSystem, this.paths, this.projects);
 

@@ -2,7 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:darwin_sdk_kit/src/shared/errors/errors.dart';
+import 'package:darwin_sdk_kit/shared/errors/errors.dart';
+import 'package:meta/meta.dart';
 import 'package:xml/xml.dart';
 
 /// `xar!` magic, big-endian u32, from the start of every XAR file.
@@ -17,6 +18,7 @@ const int _tocLengthCompressedOffset = 8;
 
 /// Absolute byte range of a single named entry's data in a XAR archive's
 /// heap.
+@internal
 final class XarEntry {
   const XarEntry({required this.offset, required this.length});
 
@@ -28,6 +30,7 @@ final class XarEntry {
 }
 
 /// Locates named entries in a XAR table of contents.
+@internal
 abstract final class XarReader {
   /// Locates the `<file><name>[name]</name>` entry in [file]'s XAR table of
   /// contents and returns its absolute heap byte range, or null if no such

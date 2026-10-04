@@ -1,8 +1,10 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart'
-    show MacOSDeviceHost, Pymd;
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/host/shared/posix_privileges.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:dart_mobile_device/host/macos/macos_device_host.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd.dart';
 import 'package:test/test.dart';
 
 import 'test_log_output.dart';

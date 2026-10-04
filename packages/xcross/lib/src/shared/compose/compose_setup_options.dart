@@ -1,10 +1,13 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/compose/compose_host.dart';
 
+@internal
 const kotlinNativeMavenBase =
     'https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-native-prebuilt';
 
+@internal
 final class ComposeSetupOptions<T extends PlatformHostInterface> {
   const ComposeSetupOptions({
     required this.host,

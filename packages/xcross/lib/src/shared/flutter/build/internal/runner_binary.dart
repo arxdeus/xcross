@@ -2,6 +2,7 @@ import 'package:meta/meta.dart';
 
 /// Result of building the ObjC Runner shim: the xcframework used and the
 /// linked Runner binary path.
+@internal
 @immutable
 final class RunnerBinary {
   const RunnerBinary({

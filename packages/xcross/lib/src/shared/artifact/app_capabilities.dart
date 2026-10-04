@@ -1,5 +1,5 @@
-import 'package:cli_kit/cli_kit_shared.dart'
-    show HostFileSystemInterface, HostPathsInterface;
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 
 /// Capability types a Compose build recorded in the app's `Info.plist`.
 ///
@@ -13,6 +13,7 @@ import 'package:cli_kit/cli_kit_shared.dart'
 /// enabled before it is issued: an entitlement that no profile backs is inert,
 /// and the ceremony that needs it fails at runtime with nothing in the build log
 /// to explain it.
+@internal
 final class AppCapabilities {
   const AppCapabilities({required this.fileSystem, required this.paths});
   final HostFileSystemInterface fileSystem;

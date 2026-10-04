@@ -1,8 +1,11 @@
 import 'dart:io';
+
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
 /// Collects the highest iOS availability version annotated directly on one
 /// plugin class declaration across Swift and Objective-C sources.
+@internal
 final class PluginClassAvailabilityScanner {
   PluginClassAvailabilityScanner(String pluginClass)
     : _swiftDeclaration = RegExp(

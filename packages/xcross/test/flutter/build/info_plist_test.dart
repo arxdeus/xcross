@@ -1,6 +1,8 @@
 import 'dart:io';
 
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:darwin_sdk_kit/target/iphone/iphone_build_platform.dart';
+import 'package:darwin_sdk_kit/target/simulator/simulator_build_platform.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/artifact/plist_mutations.dart';
@@ -858,6 +860,7 @@ APP[sdk=iphoneos*] = $(inherited).device
   });
 }
 
+@internal
 String applyIPhoneRequiredKeys(
   String xml, {
   required String bundleId,

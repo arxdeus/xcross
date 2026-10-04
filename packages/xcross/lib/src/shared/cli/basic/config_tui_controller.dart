@@ -1,17 +1,24 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/tui/tui.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/config/config.dart';
 
+@internal
 typedef ConfigPrompt = String? Function(String label);
+@internal
 typedef ConfigConfirm = bool Function(String label);
 
+@internal
 enum ConfigTab { roots, toolchains, tools, environment, setup, commands }
 
+@internal
 enum ConfigAction { save, validate, discard, quit }
 
+@internal
 enum ConfigToolchain { swift, llvm }
 
+@internal
 enum ConfigRoot { darwinSdk, flutterSdk, xcross, javaHome, konanData }
 
 extension on ConfigTab {
@@ -34,6 +41,7 @@ extension on ConfigAction {
   };
 }
 
+@internal
 final class ConfigTuiController {
   ConfigTuiController(XcrossConfig config) : config = config, _saved = config;
 

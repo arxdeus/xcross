@@ -1,10 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:apple_developer_kit/src/shared/appstoreconnect/appstoreconnect.dart';
-import 'package:apple_developer_kit/src/shared/appstoreconnect/asc_client.dart';
-import 'package:apple_developer_kit/src/shared/appstoreconnect/asc_models.dart';
-import 'package:apple_developer_kit/src/shared/errors/errors.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/appstoreconnect.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/asc_client.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/asc_models.dart';
+import 'package:apple_developer_kit/shared/errors/errors.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -575,6 +576,7 @@ void main() {
   });
 }
 
+@internal
 class FakeProvisioningClient implements DevelopmentProvisioningClient {
   FakeProvisioningClient({
     this.bundleExists = true,

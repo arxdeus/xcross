@@ -1,11 +1,13 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/host/windows/flutter/swiftpm/windows_swift_plan_repair.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/build_plan.dart'
-    show SwiftPmBuildPlan;
+import 'package:xcross/src/shared/flutter/swiftpm/build_plan.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/plan_reader.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/plan_reader.dart'
+    as swiftpm_plan_reader;
 
+@internal
 final class WindowsSwiftPmHostPolicy implements SwiftPmHostPolicy {
   WindowsSwiftPmHostPolicy(this.runner)
     : repairs = WindowsSwiftPlanRepair(runner);
@@ -62,7 +64,10 @@ final class WindowsSwiftPmHostPolicy implements SwiftPmHostPolicy {
   List<String> orderInteropTargets(
     Map<String, dynamic>? dependencies,
     List<String> targets,
-  ) => SwiftPmPlanReader.orderTargetsByDependencies(dependencies, targets);
+  ) => swiftpm_plan_reader.SwiftPmPlanReader.orderTargetsByDependencies(
+    dependencies,
+    targets,
+  );
   @override
   List<String> selectInteropTargets(
     List<String> planned,

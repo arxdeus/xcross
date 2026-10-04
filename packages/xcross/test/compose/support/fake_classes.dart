@@ -2,6 +2,7 @@
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:meta/meta.dart';
 
 import 'class_file_builder.dart';
 
@@ -25,9 +26,11 @@ import 'class_file_builder.dart';
 //  [15 = null, second slot of Long]
 //  16  UTF8 "LineNumberTable"
 
+@internal
 Uint8List buildFakeHostManagerClass() =>
     _buildFakeHostManagerClass(cpLong(0, 42));
 
+@internal
 Uint8List buildFakeHostManagerClassWithDouble() =>
     _buildFakeHostManagerClass(cpDouble(0x400921FB, 0x54442D18));
 
@@ -98,6 +101,7 @@ Uint8List _buildFakeHostManagerClass(List<int> doubleSlotEntry) {
 //   7  UTF8 "generateWorkaroundForSwiftSR10177"
 //   8  UTF8 "(LObjCExportedInterface;)V"
 
+@internal
 Uint8List buildFakeObjCExportClass() {
   final cpEntries = [
     cpUtf8('Code'), // 1
@@ -157,6 +161,7 @@ Uint8List buildFakeObjCExportClass() {
 //  15  Methodref(5,14)             ← KonanPropertiesLoader.getDependencies
 //                                    ← key for the patcher
 
+@internal
 Uint8List buildFakeAppleConfigurablesImplClass() {
   final cpEntries = [
     cpUtf8('Code'), // 1
@@ -204,6 +209,7 @@ Uint8List buildFakeAppleConfigurablesImplClass() {
 
 // ── In-memory JAR (ZIP) builder ───────────────────────────────────────────────
 
+@internal
 Uint8List buildJar(Map<String, List<int>> entries) {
   final archive = Archive();
   for (final MapEntry(:key, :value) in entries.entries) {

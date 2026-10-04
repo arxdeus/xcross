@@ -1,4 +1,21 @@
+import 'package:meta/meta.dart';
+
+@internal
 const architectureSources = {
+  'tool/architecture/internal_roles/apple_developer_kit_roles.dart',
+  'tool/architecture/internal_roles/apple_developer_kit_tests_roles.dart',
+  'tool/architecture/internal_roles/support_packages_roles.dart',
+  'tool/architecture/internal_roles/xcross_flutter_roles.dart',
+  'tool/architecture/internal_roles/xcross_compose_roles.dart',
+  'tool/architecture/internal_roles/xcross_shared_roles.dart',
+  'tool/architecture/internal_roles/xcross_platform_roles.dart',
+  'tool/architecture/internal_roles/xcross_flutter_tests_roles.dart',
+  'tool/architecture/internal_roles/xcross_compose_tests_roles.dart',
+  'tool/architecture/internal_roles/xcross_application_tests_roles.dart',
+  'tool/architecture/internal_roles/workspace_tools_roles.dart',
+  'tool/architecture/internal_policy.dart',
+  'tool/architecture/internal_roles.dart',
+  'tool/architecture/source_policy_test.dart',
   'tool/architecture/native_acquisition.dart',
   'tool/architecture/acquisition_fixtures.dart',
   'tool/architecture/native_safety.dart',
@@ -18,6 +35,7 @@ const architectureSources = {
   'tool/architecture/declarations.dart',
   'tool/architecture/check_test.dart',
 };
+@internal
 const workspacePackages = {
   'xcross',
   'cli_kit',
@@ -26,12 +44,14 @@ const workspacePackages = {
   'dart_mobile_device',
   'frontend_server_kit',
 };
+@internal
 const toolBoundaries = {
   'packages/xcross/tool/build_xcross.dart',
   'packages/xcross/tool/swiftpm_binary_fixture.dart',
   'packages/xcross/tool/swiftpm_gate_evidence.dart',
   'packages/xcross/tool/verify_flutter_notices.dart',
 };
+@internal
 const hostFactories = {
   'packages/xcross/lib/src/composition/flutter/linux_flutter_feature_services.dart':
       'linux',
@@ -45,20 +65,25 @@ const hostFactories = {
   'packages/xcross/lib/src/composition/host/macos_xcross_context.dart': 'macos',
 };
 
+@internal
 const detectorCallers = {
-  'packages/cli_kit/lib/src/composition/native_host.dart': 'detectPlatformHost',
+  'packages/cli_kit/lib/composition/native_host.dart': 'detectPlatformHost',
   'packages/xcross/bin/xcross.dart': 'main',
   'packages/xcross/bin/xcrun.dart': 'main',
   'packages/xcross/lib/src/composition/native_runtime.dart':
       'createNativeXcrossContext',
   'packages/xcross/tool/build_xcross.dart': 'main',
 };
-const detector = 'packages/cli_kit/lib/src/composition/native_host.dart';
+@internal
+const detector = 'packages/cli_kit/lib/composition/native_host.dart';
+@internal
 const hostComposition =
     'packages/xcross/lib/src/composition/xcross_runtime.dart';
+@internal
 const targetComposition = {
   'packages/xcross/lib/src/composition/ios_target.dart',
 };
+@internal
 const cliCompositions = {
   'packages/xcross/lib/src/composition/cli/runner.dart',
   'packages/xcross/lib/src/composition/cli/flutter_command.dart',
@@ -70,14 +95,15 @@ const cliCompositions = {
   'packages/xcross/lib/src/composition/cli/compose_setup_command.dart',
   'packages/xcross/lib/src/composition/cli/doctor_project_checks.dart',
 };
+@internal
 const hostAssemblies = {
-  'packages/apple_developer_kit/lib/src/composition/apple_host.dart': {
+  'packages/apple_developer_kit/lib/composition/apple_host.dart': {
     'packages/apple_developer_kit/lib/src/host/linux/linux_machine_identity.dart',
     'packages/apple_developer_kit/lib/src/host/macos/macos_machine_identity.dart',
     'packages/apple_developer_kit/lib/src/host/windows/windows_machine_identity.dart',
     'packages/apple_developer_kit/lib/src/host/windows/windows_file_permissions.dart',
   },
-  'packages/apple_developer_kit/lib/src/composition/native_library_loader.dart': {
+  'packages/apple_developer_kit/lib/composition/native_library_loader.dart': {
     'packages/apple_developer_kit/lib/src/host/linux/adi/linux_native_library_loader.dart',
     'packages/apple_developer_kit/lib/src/host/macos/adi/macos_native_library_loader.dart',
     'packages/apple_developer_kit/lib/src/host/windows/adi/loader/loader_windows.dart',
@@ -93,6 +119,7 @@ const hostAssemblies = {
     'packages/xcross/lib/src/host/windows/xcrun/windows_executable.dart',
   },
 };
+@internal
 const standaloneAssemblies = {
   'packages/xcross/tool/swiftpm_binary_fixture.dart': {
     'packages/xcross/lib/src/composition/native_runtime.dart',
@@ -102,40 +129,42 @@ const standaloneAssemblies = {
     'packages/xcross/lib/src/composition/native_runtime.dart',
   },
 };
+@internal
 const targetAssemblies = {
   'packages/xcross/lib/src/composition/cli/compose_command.dart': {
-    'packages/dart_mobile_device/lib/src/target/iphone/device/pymd/pymd.dart',
+    'packages/dart_mobile_device/lib/target/iphone/device/pymd/pymd.dart',
   },
   'packages/xcross/lib/src/composition/cli/flutter_command.dart': {
-    'packages/dart_mobile_device/lib/src/target/iphone/device/pymd/pymd.dart',
-    'packages/dart_mobile_device/lib/src/target/iphone/tunnel/pymd_tunnel_availability.dart',
+    'packages/dart_mobile_device/lib/target/iphone/device/pymd/pymd.dart',
+    'packages/dart_mobile_device/lib/target/iphone/tunnel/pymd_tunnel_availability.dart',
   },
   'packages/xcross/lib/src/composition/xcross_application.dart': {
-    'packages/dart_mobile_device/lib/src/target/iphone/device/pymd/pymd.dart',
+    'packages/dart_mobile_device/lib/target/iphone/device/pymd/pymd.dart',
   },
   'packages/xcross/lib/src/composition/cli/compose_run_command.dart': {
-    'packages/dart_mobile_device/lib/src/target/iphone/device/pymd/pymd.dart',
+    'packages/dart_mobile_device/lib/target/iphone/device/pymd/pymd.dart',
     'packages/xcross/lib/src/target/iphone/device/core_device_launch_profile.dart',
     'packages/xcross/lib/src/target/iphone/device/device_run_operation.dart',
   },
   'packages/xcross/lib/src/composition/cli/flutter_run_command.dart': {
-    'packages/dart_mobile_device/lib/src/target/iphone/device/pymd/pymd.dart',
+    'packages/dart_mobile_device/lib/target/iphone/device/pymd/pymd.dart',
     'packages/xcross/lib/src/target/iphone/device/core_device_launch_profile.dart',
     'packages/xcross/lib/src/target/iphone/device/device_run_operation.dart',
   },
   'packages/xcross/lib/src/composition/cli/runner.dart': {
-    'packages/dart_mobile_device/lib/src/target/iphone/diagnostics/pymd_device_diagnostics.dart',
+    'packages/dart_mobile_device/lib/target/iphone/diagnostics/pymd_device_diagnostics.dart',
     'packages/xcross/lib/src/target/iphone/cli/basic/tunnel_command.dart',
-    'packages/dart_mobile_device/lib/src/target/iphone/device/device_prepare.dart',
+    'packages/dart_mobile_device/lib/target/iphone/device/device_prepare.dart',
   },
   'packages/xcross/lib/src/composition/host_operations.dart': {
-    'packages/dart_mobile_device/lib/src/target/iphone/device/pymd/pymd.dart',
+    'packages/dart_mobile_device/lib/target/iphone/device/pymd/pymd.dart',
   },
   'packages/xcross/lib/src/composition/xcrun_sdk.dart': {
-    'packages/darwin_sdk_kit/lib/src/target/iphone/iphone_build_platform.dart',
-    'packages/darwin_sdk_kit/lib/src/target/simulator/simulator_build_platform.dart',
+    'packages/darwin_sdk_kit/lib/target/iphone/iphone_build_platform.dart',
+    'packages/darwin_sdk_kit/lib/target/simulator/simulator_build_platform.dart',
   },
 };
+@internal
 const generatedCompositionParts = {
   'packages/xcross/lib/src/composition/cli/compose_build_command.g.dart':
       'packages/xcross/lib/src/composition/cli/compose_build_command.dart',
@@ -148,13 +177,14 @@ const generatedCompositionParts = {
   'packages/xcross/lib/src/composition/cli/flutter_run_command.g.dart':
       'packages/xcross/lib/src/composition/cli/flutter_run_command.dart',
 };
+@internal
 const compositions = {
   'packages/xcross/lib/src/composition/xcross_application.dart',
   'packages/xcross/lib/src/composition/flutter/swiftpm_foundation.dart',
   'packages/xcross/lib/src/composition/flutter/posix_flutter_feature_services.dart',
 
-  'packages/apple_developer_kit/lib/src/composition/apple_host.dart',
-  'packages/apple_developer_kit/lib/src/composition/native_library_loader.dart',
+  'packages/apple_developer_kit/lib/composition/apple_host.dart',
+  'packages/apple_developer_kit/lib/composition/native_library_loader.dart',
   'packages/xcross/lib/src/composition/host_operations.dart',
   'packages/xcross/lib/src/composition/xcrun_sdk.dart',
   'packages/xcross/lib/src/composition/xcross_host_context.dart',
@@ -165,24 +195,29 @@ const compositions = {
   hostComposition,
   ...targetComposition,
 };
+@internal
 const nativeHooks = {'packages/apple_developer_kit/hook/build.dart'};
+@internal
 const resources = {
   'packages/xcross/lib/src/shared/flutter/build/assets/preview_macro_stub.c':
       Classification('shared', 'shared', 'embedded-native-template'),
   'packages/dart_mobile_device/lib/src/target/iphone/device/pymd/scripts/pair_host.py':
       Classification('shared', 'iphone', 'target-resource'),
 };
+@internal
 const templates = {
   'packages/xcross/lib/src/host/shared/flutter/apple_tool_shim_templates_posix.dart',
   'packages/xcross/lib/src/host/windows/flutter/apple_tool_shim_templates.dart',
 };
 
+@internal
 const nativeSources = {
   'packages/apple_developer_kit/src/host/shared/adi/posix_bridge.c': 'shared',
   'packages/apple_developer_kit/src/host/shared/adi/sysv_abi_bridge.c':
       'shared',
 };
 
+@internal
 class Classification {
   final String host;
   final String target;
@@ -195,6 +230,7 @@ class Classification {
   };
 }
 
+@internal
 class Violation {
   final String path;
   final String rule;
@@ -209,10 +245,12 @@ class Violation {
   };
 }
 
+@internal
 const entrypoints = {
   'packages/xcross/bin/xcross.dart',
   'packages/xcross/bin/xcrun.dart',
 };
+@internal
 const ciFiles = {
   '.github/FUNDING.yml': Classification('shared', 'shared', 'ci-metadata'),
   '.github/ISSUE_TEMPLATE/bug_report.md': Classification(
@@ -280,4 +318,32 @@ const ciFiles = {
     'simulator',
     'ci',
   ),
+};
+
+@internal
+const partOwners = {
+  'packages/apple_developer_kit/lib/src/host/windows/adi/loader/internal/windows/linux_abi.dart':
+      'packages/apple_developer_kit/lib/src/host/windows/adi/loader/internal/native_symbol_stubs_windows.dart',
+  'packages/apple_developer_kit/lib/src/host/windows/adi/loader/internal/windows/windows_crt.dart':
+      'packages/apple_developer_kit/lib/src/host/windows/adi/loader/internal/native_symbol_stubs_windows.dart',
+  'packages/xcross/lib/src/composition/cli/compose_build_command.g.dart':
+      'packages/xcross/lib/src/composition/cli/compose_build_command.dart',
+  'packages/xcross/lib/src/composition/cli/compose_run_command.g.dart':
+      'packages/xcross/lib/src/composition/cli/compose_run_command.dart',
+  'packages/xcross/lib/src/composition/cli/compose_setup_command.g.dart':
+      'packages/xcross/lib/src/composition/cli/compose_setup_command.dart',
+  'packages/xcross/lib/src/composition/cli/flutter_build_command.g.dart':
+      'packages/xcross/lib/src/composition/cli/flutter_build_command.dart',
+  'packages/xcross/lib/src/composition/cli/flutter_run_command.g.dart':
+      'packages/xcross/lib/src/composition/cli/flutter_run_command.dart',
+  'packages/xcross/lib/src/shared/cli/basic/auth_command.g.dart':
+      'packages/xcross/lib/src/shared/cli/basic/auth_command.dart',
+  'packages/xcross/lib/src/shared/cli/basic/update_command.g.dart':
+      'packages/xcross/lib/src/shared/cli/basic/update_command.dart',
+  'packages/xcross/lib/src/shared/cli/internal/xcross_runner.g.dart':
+      'packages/xcross/lib/src/shared/cli/internal/xcross_runner.dart',
+  'packages/xcross/lib/src/shared/flutter/build/preview_macro_stub_source.g.dart':
+      'packages/xcross/lib/src/shared/flutter/build/preview_macro_stub_source.dart',
+  'packages/xcross/lib/src/shared/runtime/version.g.dart':
+      'packages/xcross/lib/src/shared/runtime/version.dart',
 };

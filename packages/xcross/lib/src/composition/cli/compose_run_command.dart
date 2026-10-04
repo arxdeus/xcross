@@ -1,8 +1,13 @@
+@internal
+library;
+
 import 'package:build_cli_annotations/build_cli_annotations.dart';
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart' show Pymd;
-import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
-    show DeviceSearchMode, DeviceSockets;
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:dart_mobile_device/shared/device/models/device.dart';
+import 'package:dart_mobile_device/shared/network/device_sockets.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/composition/cli/compose_build_command.dart';
 import 'package:xcross/src/composition/ios_target.dart';
 import 'package:xcross/src/shared/cli/device_selection.dart';
@@ -18,6 +23,7 @@ import 'package:xcross/src/target/shared/runtime/build_features.dart';
 
 part 'compose_run_command.g.dart';
 
+@internal
 typedef ComposeRunDevice =
     Future<void> Function({
       required PackResult pack,
@@ -27,6 +33,7 @@ typedef ComposeRunDevice =
       Future<bool> Function()? onRestartRequested,
     });
 
+@internal
 @CliOptions()
 final class ComposeRunArgs {
   @CliOption(abbr: 'd', help: 'Target device id or name (flutter-style).')
@@ -70,6 +77,7 @@ final class ComposeRunArgs {
   late bool verbose;
 }
 
+@internal
 final class ComposeRunCommand<T extends PlatformHostInterface>
     extends ParsedCommand<ComposeRunArgs, void> {
   @override

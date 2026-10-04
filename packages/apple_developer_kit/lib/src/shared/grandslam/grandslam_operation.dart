@@ -5,9 +5,9 @@
 /// app-token layer from drifting away from the SRP layer.
 library;
 
-import 'package:apple_developer_kit/src/shared/errors/errors.dart';
+import 'package:apple_developer_kit/shared/errors/errors.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/grandslam_endpoints.dart';
 import 'package:apple_developer_kit/src/shared/grandslam/anisette/anisette_headers.dart';
-import 'package:apple_developer_kit/src/shared/grandslam/anisette/grandslam_endpoints.dart';
 import 'package:apple_developer_kit/src/shared/grandslam/internal/grandslam_response_decoder.dart';
 import 'package:http/http.dart' as http;
 import 'package:meta/meta.dart';

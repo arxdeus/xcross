@@ -1,8 +1,10 @@
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:darwin_sdk_kit/target/shared/ios_target.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/errors.dart';
 
+@internal
 abstract interface class FlutterTargetBuildPolicy<
   T extends PlatformHostInterface
 > {
@@ -19,6 +21,7 @@ abstract interface class FlutterTargetBuildPolicy<
   String get binaryArtifactDirectory;
 }
 
+@internal
 String selectFlutterEngineSlice(
   String xcframework,
   Iterable<String> identifiers, {

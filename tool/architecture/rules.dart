@@ -2,7 +2,9 @@ import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/element/type.dart';
+import 'package:meta/meta.dart';
 
+import 'boundaries.dart';
 import 'declarations.dart';
 import 'dependencies.dart';
 import 'export_graph.dart';
@@ -12,16 +14,19 @@ import 'native_acquisition.dart';
 import 'native_rules.dart';
 import 'native_safety.dart';
 
+@internal
 class Guard extends RecursiveAstVisitor<void> {
   final String path;
   final IdentityAnalysis identity;
+  final String? root;
   final Classification classification;
   final DependencyRules dependencies;
   final List<Violation> violations = [];
   final Set<int> selections = {};
-  late final native = NativeRules(path, identity);
+  late final native = NativeRules(path, identity, root: root);
   Guard(this.path, this.identity, ExportGraph exports)
-    : classification = classify(path),
+    : root = exports.root,
+      classification = classify(path),
       dependencies = DependencyRules(path, exports);
   void reject(AstNode node, String rule, String detail) =>
       violations.add(Violation(path, rule, node.offset, detail));
@@ -70,7 +75,7 @@ class Guard extends RecursiveAstVisitor<void> {
     if (sourceInspection) return;
     final kind = identity.control(condition);
     if (kind.isEmpty) return;
-    if (NativeSafety(path).allocationBranch(node)) return;
+    if (NativeSafety(path, root: root).allocationBranch(node)) return;
     if (supportsArchitecture(kind) &&
         body != null &&
         (validation(body) || metadataReturn(body))) {
@@ -166,7 +171,7 @@ class Guard extends RecursiveAstVisitor<void> {
       final parts = unit.directives.whereType<PartOfDirective>().toList();
       if (parts.length != 1 ||
           parts.single.uri?.stringValue == null ||
-          resolveUri(path, parts.single.uri!.stringValue!) !=
+          resolveUri(path, parts.single.uri!.stringValue!, root: root) !=
               generatedCompositionParts[path]) {
         reject(
           unit,
@@ -174,11 +179,6 @@ class Guard extends RecursiveAstVisitor<void> {
           'Generated parser part must bind its exact approved composition owner',
         );
       }
-    }
-    if (classification.kind == 'barrel' &&
-        (unit.declarations.isNotEmpty ||
-            unit.directives.any((d) => d is PartDirective))) {
-      reject(unit, 'barrel', 'Public barrel contains implementation');
     }
     if (classification.kind == 'entrypoint' &&
         (unit.declarations.length > 2 || astNodes(unit).length > 150)) {

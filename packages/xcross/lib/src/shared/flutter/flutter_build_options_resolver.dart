@@ -1,6 +1,8 @@
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
 import 'package:xcross/src/shared/flutter/project/dart_defines_reader.dart';
 
+@internal
 final class FlutterBuildOptionsResolver {
   FlutterBuildOptionsResolver(this.defines);
 

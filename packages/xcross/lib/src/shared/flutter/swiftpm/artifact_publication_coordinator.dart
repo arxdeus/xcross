@@ -1,17 +1,21 @@
 import 'dart:async';
 
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
+@internal
 abstract interface class SwiftPmPublicationLockProvider {
   Future<SwiftPmPublicationLock> open(String path);
 }
 
+@internal
 abstract interface class SwiftPmPublicationLock {
   Future<void> acquire();
   Future<void> release();
   Future<void> close();
 }
 
+@internal
 final class SwiftPmPublicationCoordinator {
   SwiftPmPublicationCoordinator({required this.locks, required this.pathKey});
   final SwiftPmPublicationLockProvider locks;

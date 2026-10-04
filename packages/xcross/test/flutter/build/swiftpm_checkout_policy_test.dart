@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/checkout_attributes.dart';
@@ -237,6 +238,7 @@ void main() {
   );
 }
 
+@internal
 final class RecordingCheckoutAttributes implements SwiftPmCheckoutAttributes {
   final List<String> paths = [];
   @override
@@ -245,6 +247,7 @@ final class RecordingCheckoutAttributes implements SwiftPmCheckoutAttributes {
   }
 }
 
+@internal
 final class FixtureVendoredManifestPolicy
     implements SwiftPmVendoredManifestPolicy {
   const FixtureVendoredManifestPolicy();

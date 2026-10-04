@@ -1,12 +1,13 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/shared/appstoreconnect/asc_config.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/asc_config.dart';
 import 'package:basic_utils/basic_utils.dart';
 import 'package:meta/meta.dart';
 
 /// Builds the short-lived JWT bearer token App Store Connect API requests
 /// are authenticated with (Team-scoped API key, ES256).
+@internal
 abstract final class AscJwt {
   static const _audience = 'appstoreconnect-v1';
 

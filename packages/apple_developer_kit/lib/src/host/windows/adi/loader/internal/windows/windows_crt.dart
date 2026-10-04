@@ -7,6 +7,7 @@
 
 part of '../native_symbol_stubs_windows.dart';
 
+@internal
 final class WindowsCrt {
   final DynamicLibrary _process = DynamicLibrary.process();
 

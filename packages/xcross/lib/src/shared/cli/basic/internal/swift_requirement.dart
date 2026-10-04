@@ -1,4 +1,6 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
 /// Where each host installs the Swift toolchain, for the "install it first"
@@ -27,6 +29,7 @@ const _swiftInstallHint = {
 /// toolchain's identity into the bundle, so without Swift it cannot produce a
 /// usable SDK at all. Failing here, before an hours-long extraction or a
 /// package-manager transaction, is far cheaper than failing after.
+@internal
 final class SwiftRequirement {
   const SwiftRequirement(this.runner);
 

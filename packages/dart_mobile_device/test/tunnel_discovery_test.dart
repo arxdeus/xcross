@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dart_mobile_device/src/shared/errors/errors.dart';
+import 'package:dart_mobile_device/shared/errors/errors.dart';
 import 'package:dart_mobile_device/src/target/iphone/device/tunnel/tunnel_discovery.dart';
 import 'package:test/test.dart';
 

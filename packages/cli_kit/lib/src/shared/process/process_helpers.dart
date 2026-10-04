@@ -1,7 +1,9 @@
 import 'dart:async';
 
+import 'package:meta/meta.dart';
 import 'package:pure/pure.dart';
 
+@internal
 abstract final class ProcessHelpers {
   static const _windowsStatuses = <int, String>{
     0xC0000005: 'STATUS_ACCESS_VIOLATION, a bad pointer dereference',

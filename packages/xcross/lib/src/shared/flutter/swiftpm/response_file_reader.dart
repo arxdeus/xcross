@@ -1,8 +1,11 @@
 import 'dart:io';
+
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/response_arguments.dart';
 
+@internal
 final class SwiftPmResponseFileReader {
   SwiftPmResponseFileReader({required this.fileSystem});
   final SwiftPmArtifactFileSystem fileSystem;

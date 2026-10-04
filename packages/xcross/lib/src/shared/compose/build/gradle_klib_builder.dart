@@ -1,12 +1,15 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/compose/build/process_invocation.dart';
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
+@internal
 typedef GradleRunChecked =
     Future<void> Function(
       String executable,
@@ -15,6 +18,7 @@ typedef GradleRunChecked =
       Map<String, String>? environment,
     });
 
+@internal
 final class GradleKlibResult {
   const GradleKlibResult({
     required this.moduleKlibPath,
@@ -25,6 +29,7 @@ final class GradleKlibResult {
   final List<String> dependencies;
 }
 
+@internal
 final class GradleKlibBuilder<T extends PlatformHostInterface> {
   const GradleKlibBuilder(this.runner) : _runChecked = null;
 

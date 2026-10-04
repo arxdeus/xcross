@@ -1,13 +1,25 @@
 import 'dart:ffi';
 import 'dart:io';
 
-import 'package:apple_developer_kit/apple_developer_kit.dart';
+import 'package:apple_developer_kit/composition/apple_host.dart';
+import 'package:apple_developer_kit/composition/native_library_loader.dart';
+import 'package:apple_developer_kit/host/shared/adi/loader/loader.dart';
+import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
+import 'package:apple_developer_kit/shared/secure/local_cipher.dart';
 import 'package:apple_developer_kit/src/host/linux/linux_machine_identity.dart';
 import 'package:apple_developer_kit/src/host/macos/macos_machine_identity.dart';
 import 'package:apple_developer_kit/src/host/shared/file_system_file_permissions.dart';
 import 'package:apple_developer_kit/src/host/windows/windows_machine_identity.dart';
+import 'package:apple_developer_kit/src/shared/adi/adi_bindings.dart';
+import 'package:apple_developer_kit/src/shared/config/config_dir.dart';
 import 'package:apple_developer_kit/src/shared/grandslam/anisette/anisette_headers.dart';
-import 'package:cli_kit/cli_kit.dart';
+import 'package:apple_developer_kit/src/shared/secure/secure_file.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -218,6 +230,7 @@ void main() {
   });
 }
 
+@internal
 final class IdentityRunner {
   IdentityRunner(this.output, {this.exitCode = 0});
 
@@ -242,6 +255,7 @@ final class IdentityRunner {
   }
 }
 
+@internal
 final class Permissions implements AppleFilePermissions {
   final List<String> hardened = [];
 
@@ -252,6 +266,7 @@ final class Permissions implements AppleFilePermissions {
   void preserve(String path, int mode) {}
 }
 
+@internal
 final class Identity implements MachineIdentityProvider {
   Identity(this.value);
   final String value;
@@ -259,6 +274,7 @@ final class Identity implements MachineIdentityProvider {
   Future<String> read() async => value;
 }
 
+@internal
 final class RecordingLibrary implements LoadedNativeLibrary {
   final Map<String, int> arities = {};
   int rawLookups = 0;
@@ -279,6 +295,7 @@ final class RecordingLibrary implements LoadedNativeLibrary {
   }
 }
 
+@internal
 final class SecureWritePermissions implements AppleFilePermissions {
   SecureWritePermissions(this.delegate, this.onHarden);
   final AppleFilePermissions delegate;
@@ -293,6 +310,7 @@ final class SecureWritePermissions implements AppleFilePermissions {
   void preserve(String path, int mode) => delegate.preserve(path, mode);
 }
 
+@internal
 final class SecureWriteFileSystem implements HostFileSystemInterface {
   SecureWriteFileSystem(this.delegate, this.onWrite);
   final HostFileSystemInterface delegate;
@@ -315,6 +333,7 @@ final class SecureWriteFileSystem implements HostFileSystemInterface {
       delegate.createArchiveLink(destination, target);
 }
 
+@internal
 final class SecureWriteFile implements File {
   SecureWriteFile(this.delegate, this.onWrite);
   final File delegate;
@@ -347,6 +366,7 @@ final class SecureWriteFile implements File {
   dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError();
 }
 
+@internal
 final class PermissionPolicyFileSystem implements HostFileSystemInterface {
   final List<(String, int)> calls = [];
   StateError? failure;

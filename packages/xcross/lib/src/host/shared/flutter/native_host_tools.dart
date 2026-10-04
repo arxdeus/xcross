@@ -1,7 +1,10 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 
+@internal
 typedef HostCompiler = ({String executable, List<String> arguments});
 
+@internal
 abstract interface class NativeHostTools<T extends PlatformHostInterface> {
   T get host;
   String get artifactPlatform;

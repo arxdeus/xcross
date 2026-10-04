@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:apple_developer_kit/src/shared/grandslam/anisette/anisette_state.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_state.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:meta/meta.dart';
 

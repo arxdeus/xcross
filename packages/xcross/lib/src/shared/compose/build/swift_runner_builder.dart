@@ -1,6 +1,8 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/compose/build/mach_o_validator.dart';
 import 'package:xcross/src/shared/compose/build/process_invocation.dart';
@@ -9,6 +11,7 @@ import 'package:xcross/src/shared/compose/project/kmp_project.dart';
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
+@internal
 typedef SwiftRunnerRunChecked =
     Future<void> Function(
       String executable,
@@ -18,6 +21,7 @@ typedef SwiftRunnerRunChecked =
 
 const _iosMinimumVersion = composeMinimumIosVersion;
 
+@internal
 final class SwiftRunnerBuilder<T extends PlatformHostInterface> {
   SwiftRunnerBuilder(this.runner) : _runChecked = runner.runTool;
 
@@ -175,6 +179,7 @@ String _iphoneSdk<T extends PlatformHostInterface>(
 /// the call site's comment. Mirrors konan_configuration.dart's
 /// _findCompilerRtDarwinDir, duplicated rather than shared for the same
 /// reason as _sdkVersion above.
+@internal
 String? compilerRtIos(
   String darwinSdkBundle, {
   required HostFileSystemInterface files,

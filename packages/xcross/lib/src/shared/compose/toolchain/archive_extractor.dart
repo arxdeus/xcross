@@ -1,11 +1,13 @@
 import 'dart:io';
 
 import 'package:archive/archive.dart';
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/update/internal/archive_entry_path.dart';
 
+@internal
 final class ArchiveExtractor<T extends PlatformHostInterface> {
   const ArchiveExtractor(this.host);
   final T host;

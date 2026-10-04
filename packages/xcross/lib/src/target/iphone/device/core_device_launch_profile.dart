@@ -1,7 +1,8 @@
-import 'package:dart_mobile_device/dart_mobile_device.dart'
-    show TunnelConstants;
+import 'package:dart_mobile_device/target/iphone/device/constants.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/models/hot_reload_config.dart';
 
+@internal
 final class CoreDeviceLaunchProfile {
   const CoreDeviceLaunchProfile.native({this.arguments = const []})
     : hotReload = null,

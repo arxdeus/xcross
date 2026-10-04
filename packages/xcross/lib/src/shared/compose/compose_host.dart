@@ -1,8 +1,10 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/compose/build/process_invocation.dart';
 
+@internal
 abstract interface class ComposeHost<T extends PlatformHostInterface> {
   T get host;
   String get classifier;

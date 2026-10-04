@@ -11,7 +11,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:darwin_sdk_kit/shared/archive/cpio_reader.dart';
+import 'package:darwin_sdk_kit/shared/tbd/tbd_linker_diagnostic.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 

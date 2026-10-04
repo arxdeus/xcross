@@ -1,8 +1,10 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_source_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/source_fallback.dart';
 
+@internal
 final class PosixSwiftPmVendoredManifestPolicy<T extends PlatformHostInterface>
     implements SwiftPmVendoredManifestPolicy {
   const PosixSwiftPmVendoredManifestPolicy({

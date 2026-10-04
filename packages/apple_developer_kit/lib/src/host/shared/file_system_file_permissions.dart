@@ -1,6 +1,8 @@
-import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
-import 'package:cli_kit/cli_kit_shared.dart' show HostFileSystemInterface;
+import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 
+@internal
 final class FileSystemAppleFilePermissions implements AppleFilePermissions {
   FileSystemAppleFilePermissions(this.files);
 

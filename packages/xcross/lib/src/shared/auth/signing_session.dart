@@ -1,9 +1,11 @@
-import 'package:apple_developer_kit/apple_developer_kit_shared.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/asc_client.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_provider.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
 /// An authenticated provisioning client plus the on-disk locations derived
 /// from whichever identity (Apple ID team or ASC issuer) it authenticated as.
+@internal
 @immutable
 final class SigningSession {
   const SigningSession({

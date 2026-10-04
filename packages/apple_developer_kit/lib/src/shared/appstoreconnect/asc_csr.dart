@@ -1,4 +1,4 @@
-import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
+import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
 import 'package:apple_developer_kit/src/shared/secure/secure_file.dart';
 import 'package:basic_utils/basic_utils.dart';
 import 'package:meta/meta.dart';
@@ -11,6 +11,7 @@ import 'package:meta/meta.dart';
 /// certificate. The private key must be persisted locally forever after,
 /// since it's what `zsign`-style tooling will need later to actually sign a
 /// build with the certificate Apple returns.
+@internal
 abstract final class AscCsr {
   /// Generates a fresh 2048-bit RSA keypair and a CSR for it.
   @useResult
@@ -45,6 +46,7 @@ abstract final class AscCsr {
 }
 
 /// A freshly generated RSA keypair and its PKCS#10 CSR, from [AscCsr.generate].
+@internal
 @immutable
 final class AscGeneratedCsr {
   const AscGeneratedCsr({

@@ -1,12 +1,15 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 
+@internal
 abstract interface class SwiftPmArchiveTransport {
   Future<void> download(Uri url, File destination, int maximumBytes);
 }
 
+@internal
 final class HttpSwiftPmArchiveTransport implements SwiftPmArchiveTransport {
   const HttpSwiftPmArchiveTransport({required this.createClient});
   final HttpClient Function() createClient;

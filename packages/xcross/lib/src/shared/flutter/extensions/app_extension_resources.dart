@@ -1,9 +1,12 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/ios_app_extensions.dart';
 
+@internal
 final class AppExtensionResources {
   AppExtensionResources({required this.fileSystem, required this.log});
   final HostFileSystemInterface fileSystem;

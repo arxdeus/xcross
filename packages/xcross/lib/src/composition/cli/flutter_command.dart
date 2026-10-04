@@ -1,15 +1,16 @@
 import 'package:args/command_runner.dart';
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart'
-    show Pymd, PymdTunnelAvailability;
-import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
-    show DeviceSockets;
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:dart_mobile_device/shared/network/device_sockets.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd.dart';
+import 'package:dart_mobile_device/target/iphone/tunnel/pymd_tunnel_availability.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/composition/cli/flutter_build_command.dart';
 import 'package:xcross/src/composition/cli/flutter_run_command.dart';
 import 'package:xcross/src/shared/cli/flutter/subcommands/dap_command.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 
 /// `xcross flutter` — parent command grouping `build`, `run`, and hidden `dap`.
+@internal
 final class FlutterCommand<T extends PlatformHostInterface>
     extends Command<void> {
   FlutterCommand(XcrossRuntime<T> runtime, Pymd pymd, DeviceSockets sockets) {

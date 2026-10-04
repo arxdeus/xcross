@@ -1,5 +1,7 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:meta/meta.dart';
 
+@internal
 final class RecordingFlutterLogOutput implements LogOutput {
   final messages = <String>[];
   final errors = <String>[];
@@ -15,5 +17,6 @@ final class RecordingFlutterLogOutput implements LogOutput {
   void write(String message) => messages.add(message);
 }
 
+@internal
 Log testFlutterLog({bool verbose = false}) =>
     Log(output: RecordingFlutterLogOutput(), verbose: verbose);

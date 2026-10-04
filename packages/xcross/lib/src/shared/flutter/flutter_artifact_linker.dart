@@ -1,4 +1,5 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/app_extension_builder.dart';
 import 'package:xcross/src/shared/flutter/build/internal/runner_binary.dart';
@@ -13,6 +14,7 @@ import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
 
+@internal
 final class FlutterArtifactLinker<T extends PlatformHostInterface>
     implements FlutterLinkStep<T> {
   FlutterArtifactLinker(this.context);

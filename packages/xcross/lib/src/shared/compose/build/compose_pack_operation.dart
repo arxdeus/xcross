@@ -1,7 +1,12 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:cli_kit/shared/download/download.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/compose/build/compose_packer.dart';
 import 'package:xcross/src/shared/compose/compose_build_context.dart';
@@ -12,7 +17,9 @@ import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/models/pack_result.dart';
 import 'package:xcross/src/target/shared/compose/compose_target.dart';
 
+@internal
 typedef ComposeCurrentDirectory = String Function();
+@internal
 typedef ComposeDetectProject =
     KmpProject Function(
       String root, {
@@ -20,12 +27,14 @@ typedef ComposeDetectProject =
       String? appName,
       String gradleTarget,
     });
+@internal
 typedef ComposePackProject =
     Future<PackResult> Function({
       required KmpProject project,
       required ComposeBuildOptions options,
     });
 
+@internal
 final class ComposePackOperation<T extends PlatformHostInterface> {
   ComposePackOperation(
     ComposeTarget<T> target, {

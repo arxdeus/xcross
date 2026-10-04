@@ -1,7 +1,8 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:dart_mobile_device/src/target/iphone/device/tunnel/tunnel_daemon.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -81,6 +82,7 @@ void main() {
   });
 }
 
+@internal
 final class MappedTailFileSystem implements HostFileSystemInterface {
   MappedTailFileSystem(this.logicalPath, this.physicalPath);
 

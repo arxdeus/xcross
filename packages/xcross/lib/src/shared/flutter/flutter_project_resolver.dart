@@ -1,8 +1,10 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
 
+@internal
 final class FlutterProjectResolver<T extends PlatformHostInterface>
     implements FlutterResolveStep<T> {
   FlutterProjectResolver(this.runtime);

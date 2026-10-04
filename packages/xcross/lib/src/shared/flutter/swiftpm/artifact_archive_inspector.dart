@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_target.dart';
@@ -10,6 +11,7 @@ import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
+@internal
 final class SwiftPmArtifactArchiveInspector {
   const SwiftPmArtifactArchiveInspector({
     required this.policy,
@@ -411,6 +413,7 @@ final class SwiftPmArtifactArchiveInspector {
   }
 }
 
+@internal
 final class ValidatedArchiveEntry {
   const ValidatedArchiveEntry(this.file, this.name);
 
@@ -418,6 +421,7 @@ final class ValidatedArchiveEntry {
   final String name;
 }
 
+@internal
 final class XcFrameworkLibrary {
   const XcFrameworkLibrary({
     required this.raw,
@@ -440,6 +444,7 @@ final class XcFrameworkLibrary {
   final List<String> architectures;
 }
 
+@internal
 final class InspectedXcFrameworkArchive {
   const InspectedXcFrameworkArchive({
     required this.entries,

@@ -1,4 +1,9 @@
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
+import 'package:cli_kit/host/windows/windows_privileges.dart';
+import 'package:cli_kit/shared/errors/errors.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
 import 'package:test/test.dart';
 
 import 'support/test_log_output.dart';

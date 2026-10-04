@@ -1,10 +1,13 @@
 import 'dart:ffi';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
-    show DeviceConsole, DeviceSockets;
+import 'package:cli_kit/shared/download/download.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:dart_mobile_device/shared/console/device_console.dart';
+import 'package:dart_mobile_device/shared/network/device_sockets.dart';
 import 'package:http/http.dart' as http;
+import 'package:meta/meta.dart';
 import 'package:xcross/src/composition/host/linux_xcross_context.dart';
 import 'package:xcross/src/composition/host/macos_xcross_context.dart';
 import 'package:xcross/src/composition/host/windows_xcross_context.dart';
@@ -15,8 +18,7 @@ import 'package:xcross/src/shared/flutter/hot_reload/vm_service_output.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
 import 'package:xcross/src/shared/update/release_lookup.dart';
 
-export 'package:xcross/src/composition/native_runtime.dart';
-
+@internal
 XcrossHostContext<PlatformHostInterface> composeXcrossHost(
   PlatformHostInterface host, {
   required Abi abi,

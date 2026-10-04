@@ -1,6 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:cli_kit/cli_kit_shared.dart';
+
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/file_system_inspection.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/cli/basic/internal/swift_sibling_clang.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
@@ -8,6 +14,7 @@ import 'package:xcross/src/shared/sdk/sdk_directory_copy.dart';
 import 'package:xcross/src/shared/sdk/sdk_install_constants.dart';
 import 'package:xcross/src/shared/sdk/sdk_json_file_writer.dart';
 
+@internal
 final class SdkSwiftToolchain<T extends PlatformHostInterface> {
   SdkSwiftToolchain(this.runner) : json = SdkJsonFileWriter(runner.host);
   final ProcessRunner<T> runner;

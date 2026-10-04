@@ -1,6 +1,7 @@
 import 'package:meta/meta.dart';
 
 /// The frontend_server snapshot and the Dart runtime able to execute it.
+@internal
 @immutable
 final class KernelCompiler {
   const KernelCompiler({

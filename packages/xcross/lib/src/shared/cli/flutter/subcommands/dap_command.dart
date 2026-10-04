@@ -1,9 +1,9 @@
 import 'package:args/command_runner.dart';
-import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
-    show TunnelAvailability;
-import 'package:frontend_server_kit/frontend_server_kit.dart'
-    show PackageUriLoader;
-import 'package:xcross/src/shared/dap/dap.dart';
+import 'package:dart_mobile_device/shared/tunnel/tunnel_availability.dart';
+import 'package:frontend_server_kit/shared/compiler/package_uris.dart';
+import 'package:meta/meta.dart';
+import 'package:xcross/src/shared/dap/dap_router.dart';
+import 'package:xcross/src/shared/dap/xcross_dap.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 
 /// `xcross flutter dap` — Debug Adapter Protocol server driving
@@ -13,6 +13,7 @@ import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 /// LSP4IJ DAP run config (see `xcross ide idea`). Launch configs must set
 /// `"env": {"XCROSS": "true"}`; other Flutter sessions are proxied to
 /// Flutter's DAP.
+@internal
 final class DapCommand extends Command<void> {
   DapCommand(this.runtime, {required this.tunnelAvailability}) {
     argParser.addFlag('test', negatable: false);

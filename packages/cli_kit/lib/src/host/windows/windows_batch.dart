@@ -1,8 +1,10 @@
 import 'dart:convert';
 
-import 'package:cli_kit/src/shared/errors/errors.dart';
+import 'package:cli_kit/shared/errors/errors.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
+@internal
 abstract final class WindowsBatchPolicy {
   static bool isBatchScript(String executable) {
     final extension = p.windows.extension(executable).toLowerCase();

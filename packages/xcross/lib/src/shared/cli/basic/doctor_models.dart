@@ -1,5 +1,9 @@
+import 'package:meta/meta.dart';
+
+@internal
 enum DoctorStatus { success, warning, failure }
 
+@internal
 final class DoctorCheck {
   const DoctorCheck(this.status, this.name, this.message, {this.path});
 
@@ -16,8 +20,10 @@ final class DoctorCheck {
   final String? path;
 }
 
+@internal
 enum DoctorProjectKind { flutter, compose }
 
+@internal
 final class DoctorProject {
   const DoctorProject(this.kind, this.root);
 

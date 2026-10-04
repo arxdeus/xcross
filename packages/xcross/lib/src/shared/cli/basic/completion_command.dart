@@ -1,5 +1,6 @@
 import 'package:args/command_runner.dart';
 import 'package:completion/completion.dart';
+import 'package:meta/meta.dart';
 
 /// `xcross completion` — prints a shell completion script for `xcross`.
 ///
@@ -15,6 +16,7 @@ import 'package:completion/completion.dart';
 /// The runtime `xcross completion -- ...` shell hook itself is handled
 /// earlier in [XcrossCli.run] via `tryArgsCompletion`, before the command
 /// runner parses args.
+@internal
 final class CompletionCommand extends Command<void> {
   CompletionCommand({required this.write});
   final void Function(String) write;

@@ -3,18 +3,25 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
-    show DeviceConsole, DeviceSockets;
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:cli_kit/shared/download/download.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/tui/tui.dart';
+import 'package:dart_mobile_device/shared/console/device_console.dart';
+import 'package:dart_mobile_device/shared/network/device_sockets.dart';
+import 'package:darwin_sdk_kit/host/shared/darwin_toolchain_locations.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
 import 'package:http/http.dart' as http;
+import 'package:meta/meta.dart';
 import 'package:xcross/src/composition/cli/runner.dart';
 import 'package:xcross/src/composition/ios_target.dart';
 import 'package:xcross/src/composition/xcross_application.dart';
 import 'package:xcross/src/composition/xcrun_sdk.dart';
 import 'package:xcross/src/shared/cli/command_prompt.dart';
-import 'package:xcross/src/shared/config/config.dart';
 import 'package:xcross/src/shared/config/config_host.dart';
+import 'package:xcross/src/shared/config/config_store.dart';
 import 'package:xcross/src/shared/config/runtime_config.dart';
 import 'package:xcross/src/shared/device/signing_http_client_factory.dart';
 import 'package:xcross/src/shared/flutter/hot_reload/vm_service_output.dart';
@@ -25,6 +32,7 @@ import 'package:xcross/src/shared/update/release_lookup.dart';
 import 'package:xcross/src/shared/xcrun/xcrun_operation.dart';
 import 'package:xcross/src/target/shared/runtime/build_features.dart';
 
+@internal
 abstract class XcrossHostContext<T extends PlatformHostInterface>
     implements XcrunRuntimeLoader, SwiftPmGateRuntimeLoader {
   T get host;

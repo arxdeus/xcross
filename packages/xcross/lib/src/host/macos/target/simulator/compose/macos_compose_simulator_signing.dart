@@ -1,9 +1,12 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/compose/compose_simulator_signing.dart';
 
+@internal
 final class MacOSComposeSimulatorSigning<T extends MacOSHostInterface>
     implements ComposeSimulatorSigning<T> {
   const MacOSComposeSimulatorSigning(this.runner);

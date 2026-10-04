@@ -1,6 +1,8 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/update/internal/swap_entry.dart';
 import 'package:xcross/src/shared/update/update_host_policy.dart';
@@ -12,6 +14,7 @@ import 'package:xcross/src/shared/update/update_host_policy.dart';
 /// previous file is renamed aside instead of being overwritten: that is the
 /// only way to replace a running executable or a loaded DLL on Windows, and it
 /// doubles as the rollback copy on every platform.
+@internal
 final class FileSwap {
   FileSwap({required this.operations, required this.log});
 
@@ -130,6 +133,7 @@ final class FileSwap {
   Future<void> _delete(String path) => operations.delete(path);
 }
 
+@internal
 final class StaleBackupCleaner {
   const StaleBackupCleaner({required this.fileSystem, required this.paths});
 

@@ -1,11 +1,14 @@
 import 'dart:io';
 import 'dart:isolate';
 
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:darwin_sdk_kit/target/iphone/iphone_build_platform.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/shared/compose/compose.dart';
+import 'package:xcross/src/shared/compose/build/compose_info_plist.dart';
+import 'package:xcross/src/shared/compose/project/ios_app_config.dart';
+import 'package:xcross/src/shared/compose/project/kmp_project.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/flutter/constants.dart';
 
@@ -193,10 +196,11 @@ void main() {
   });
 }
 
-final String _repoRoot = File.fromUri(
-  Isolate.resolvePackageUriSync(Uri.parse('package:xcross/xcross.dart'))!,
-).parent.parent.parent.parent.path;
+final String _repoRoot = Directory.fromUri(
+  Isolate.resolvePackageUriSync(Uri.parse('package:xcross/'))!,
+).parent.parent.parent.path;
 
+@internal
 final class ComposeFixture {
   ComposeFixture._(this.temp) : root = temp.path;
 

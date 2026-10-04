@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:meta/meta.dart';
 
+@internal
 final class OwnedProcesses {
   final Set<Process> _processes = {};
   Future<Process> track(Future<Process> pending, ProcessStartMode mode) async {

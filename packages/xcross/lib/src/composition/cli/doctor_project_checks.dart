@@ -1,4 +1,5 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/composition/ios_target.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_models.dart';
 import 'package:xcross/src/shared/compose/kmp_project_detector.dart';
@@ -7,6 +8,7 @@ import 'package:xcross/src/shared/packages/package_config_resolver.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 import 'package:xcross/src/target/shared/runtime/build_features.dart';
 
+@internal
 final class DoctorProjectChecks<T extends PlatformHostInterface>
     implements DoctorProjectInspector {
   DoctorProjectChecks(this.runtime)

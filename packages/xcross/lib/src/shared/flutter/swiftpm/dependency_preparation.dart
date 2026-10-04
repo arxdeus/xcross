@@ -1,6 +1,8 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 
+@internal
 abstract interface class SwiftPmDependencyPreparation<
   T extends PlatformHostInterface
 > {
@@ -21,6 +23,7 @@ abstract interface class SwiftPmDependencyPreparation<
   Future<bool> recoverArtifacts(SwiftPmDependencyArtifactCommand command);
 }
 
+@internal
 final class SwiftPmDependencyCommand {
   SwiftPmDependencyCommand({
     required this.swift,
@@ -50,6 +53,7 @@ final class SwiftPmDependencyCommand {
   final String swiftSdkTriple;
 }
 
+@internal
 final class SwiftPmPinnedDependencyCommand {
   SwiftPmPinnedDependencyCommand({
     required Iterable<String> packageDirectories,
@@ -59,6 +63,7 @@ final class SwiftPmPinnedDependencyCommand {
   final String vendorDir;
 }
 
+@internal
 final class SwiftPmDependencyArtifactCommand {
   SwiftPmDependencyArtifactCommand({
     required this.packageRoot,

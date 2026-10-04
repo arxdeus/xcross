@@ -7,6 +7,7 @@ part of '../native_symbol_stubs_windows.dart';
 
 /// Linux x86_64 `struct stat`, the layout the loaded library reads back
 /// from our `lstat`/`fstat` stubs.
+@internal
 final class LinuxStat extends Struct {
   @Uint64()
   external int stDev;
@@ -47,6 +48,7 @@ final class LinuxStat extends Struct {
 }
 
 /// Linux `struct timeval`; both members are native words.
+@internal
 final class LinuxTimeval extends Struct {
   @IntPtr()
   external int tvSec;
@@ -55,6 +57,7 @@ final class LinuxTimeval extends Struct {
 }
 
 /// Windows CRT `_O_*` flags (`fcntl.h`).
+@internal
 abstract final class WindowsOpenFlags {
   static const int binary = 0x8000;
   static const int creat = 0x0100;
@@ -65,6 +68,7 @@ abstract final class WindowsOpenFlags {
 
 /// Linux/bionic `O_*` flags, whose bit values differ from the Windows
 /// CRT's (upstream windows.d spells these in octal).
+@internal
 abstract final class LinuxOpenFlags {
   /// `O_CREAT`, octal 0100.
   static const int creat = 0x40;

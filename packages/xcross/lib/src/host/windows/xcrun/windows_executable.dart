@@ -1,8 +1,11 @@
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
+@internal
 String normalizeWindowsExecutableExtension(String path) =>
     const WindowsExecutable().normalize(path);
 
+@internal
 final class WindowsExecutable {
   const WindowsExecutable();
 

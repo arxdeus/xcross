@@ -1,5 +1,7 @@
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/models/internal/pubspec_font.dart';
 
+@internal
 final class PubspecInfo {
   const PubspecInfo({
     required this.name,

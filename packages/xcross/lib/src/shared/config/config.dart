@@ -1,22 +1,21 @@
 import 'dart:convert';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/config/config_decoder.dart';
 import 'package:xcross/src/shared/config/config_host.dart';
 import 'package:yaml/yaml.dart';
 
-export 'package:xcross/src/shared/config/config_decoder.dart'
-    show expandNativeEnvironment;
-export 'package:xcross/src/shared/config/config_store.dart';
-
 const _notProvided = ConfigNotProvided();
 const _windowsExecutableExtensions = {'.exe', '.com', '.bat', '.cmd'};
 
+@internal
 final class ConfigNotProvided {
   const ConfigNotProvided();
 }
 
 /// A malformed or incomplete xcross configuration.
+@internal
 final class XcrossConfigException implements Exception {
   const XcrossConfigException(this.message, {this.path});
 
@@ -30,6 +29,7 @@ final class XcrossConfigException implements Exception {
 }
 
 /// Optional install roots understood by xcross commands.
+@internal
 final class XcrossConfigRoots {
   const XcrossConfigRoots({
     this.darwinSdk,
@@ -75,6 +75,7 @@ final class XcrossConfigRoots {
 }
 
 /// Optional compiler toolchain binary directories.
+@internal
 final class XcrossConfigToolchains {
   const XcrossConfigToolchains({this.swift, this.llvm = const []});
 
@@ -85,6 +86,7 @@ final class XcrossConfigToolchains {
 }
 
 /// Contents of an xcross YAML configuration.
+@internal
 final class XcrossConfig {
   XcrossConfig({
     this.roots = const XcrossConfigRoots(),

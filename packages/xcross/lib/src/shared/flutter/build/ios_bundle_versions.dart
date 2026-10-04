@@ -5,6 +5,7 @@ import 'package:meta/meta.dart';
 /// iOS requires an embedded app extension's `CFBundleShortVersionString` and
 /// `CFBundleVersion` to match its host app's; installd rejects a mismatched
 /// pair, and a stale extension version silently breaks upgrades.
+@internal
 @immutable
 final class IosBundleVersions {
   const IosBundleVersions({

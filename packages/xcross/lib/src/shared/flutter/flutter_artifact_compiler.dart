@@ -1,4 +1,5 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/build/dart_plugin_registrant.dart';
 import 'package:xcross/src/shared/flutter/build/flutter_debug_bundler.dart';
 import 'package:xcross/src/shared/flutter/build/internal/swiftpm_workspace.dart';
@@ -12,6 +13,7 @@ import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
 import 'package:xcross/src/shared/flutter/flutter_kernel_compiler.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
 
+@internal
 final class FlutterArtifactCompiler<T extends PlatformHostInterface>
     implements FlutterCompileStep<T> {
   FlutterArtifactCompiler(this.context);

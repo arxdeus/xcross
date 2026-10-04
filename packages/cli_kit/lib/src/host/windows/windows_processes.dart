@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/src/host/shared/native_tool_lookup.dart';
 import 'package:cli_kit/src/host/shared/owned_processes.dart';
 import 'package:cli_kit/src/host/windows/windows_batch.dart';
-import 'package:cli_kit/src/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 
+@internal
 final class WindowsProcesses implements HostProcessInterface {
   WindowsProcesses({
     required HostPathsInterface paths,

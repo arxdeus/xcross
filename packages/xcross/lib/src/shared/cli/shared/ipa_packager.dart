@@ -1,10 +1,12 @@
 import 'dart:io';
 
 import 'package:archive/archive_io.dart';
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
 /// Groups `.ipa` packaging.
+@internal
 final class IpaPackager {
   const IpaPackager({required this.host});
 

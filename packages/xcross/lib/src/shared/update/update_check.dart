@@ -1,6 +1,7 @@
 import 'dart:convert';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/runtime/version.dart';
 import 'package:xcross/src/shared/update/release_lookup.dart';
@@ -11,6 +12,7 @@ import 'package:xcross/src/shared/update/semver.dart';
 /// The hint is printed from the cache, never from a live request, so no
 /// command pays for the network. The refresh runs after the command finished
 /// and its result is what the *next* invocation reports.
+@internal
 final class UpdateCheck {
   const UpdateCheck(
     this.host, {
@@ -124,6 +126,7 @@ final class UpdateCheck {
 }
 
 /// Contents of the update-check cache file.
+@internal
 @immutable
 final class UpdateCheckCache {
   const UpdateCheckCache({required this.checkedAt, this.latest});

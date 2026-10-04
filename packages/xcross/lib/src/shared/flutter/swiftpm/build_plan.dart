@@ -1,6 +1,8 @@
 import 'dart:async';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/ios_linker_compatibility.dart';
 import 'package:xcross/src/shared/flutter/build/preview_macro_stub_source.dart';
@@ -8,9 +10,12 @@ import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/preview_macro_compiler.dart';
 
+@internal
 const String flutterFrameworkPackageName = 'FlutterFramework';
+@internal
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
+@internal
 final class SwiftPmBuildPlan<T extends PlatformHostInterface> {
   SwiftPmBuildPlan({
     required this.filesystem,

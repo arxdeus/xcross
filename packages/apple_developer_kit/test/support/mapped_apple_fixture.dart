@@ -1,10 +1,13 @@
 import 'dart:ffi';
 import 'dart:io';
 
-import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
-import 'package:cli_kit/cli_kit.dart';
+import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
+@internal
 final class MappedAppleFixture {
   MappedAppleFixture() {
     root = Directory.systemTemp.createTempSync('apple-residual-mapped-');
@@ -39,6 +42,7 @@ final class MappedAppleFixture {
   void dispose() => root.deleteSync(recursive: true);
 }
 
+@internal
 final class MappedAppleHost implements PlatformHostInterface {
   MappedAppleHost(this.base, this.fileSystem, this.paths);
 
@@ -57,6 +61,7 @@ final class MappedAppleHost implements PlatformHostInterface {
   HostProcessInterface get processes => base.processes;
 }
 
+@internal
 final class MappedApplePaths implements HostPathsInterface {
   MappedApplePaths(this.root) : context = p.Context(style: p.Style.posix);
 
@@ -77,6 +82,7 @@ final class MappedApplePaths implements HostPathsInterface {
   String executableName(String name, {String extension = '.exe'}) => name;
 }
 
+@internal
 final class MappedAppleFileSystem implements HostFileSystemInterface {
   MappedAppleFileSystem(this.logicalRoot, this.backingRoot);
 
@@ -108,6 +114,7 @@ final class MappedAppleFileSystem implements HostFileSystemInterface {
       throw StateError('Unexpected archive link');
 }
 
+@internal
 final class RecordingApplePermissions implements AppleFilePermissions {
   final List<String> hardened = [];
   final List<(String, int)> preserved = [];
@@ -117,6 +124,7 @@ final class RecordingApplePermissions implements AppleFilePermissions {
   void preserve(String path, int mode) => preserved.add((path, mode));
 }
 
+@internal
 final class FixedAppleMachineIdentity implements MachineIdentityProvider {
   @override
   Future<String> read() async => 'mapped-apple-machine';

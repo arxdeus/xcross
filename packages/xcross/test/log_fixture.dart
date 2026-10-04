@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:meta/meta.dart';
 
+@internal
 final class TestLogOutput implements LogOutput {
   final messages = <String>[];
   @override
@@ -17,8 +19,10 @@ final class TestLogOutput implements LogOutput {
   void write(String message) => messages.add(message);
 }
 
+@internal
 Log testLog() => Log(output: TestLogOutput());
 
+@internal
 final class TestByteConsumer implements StreamConsumer<List<int>> {
   @override
   Future<void> addStream(Stream<List<int>> stream) => stream.forEach((_) {});
@@ -26,4 +30,5 @@ final class TestByteConsumer implements StreamConsumer<List<int>> {
   Future<void> close() async {}
 }
 
+@internal
 IOSink testByteSink() => IOSink(TestByteConsumer());

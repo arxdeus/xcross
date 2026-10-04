@@ -1,9 +1,11 @@
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
 /// Reads and applies the `SHA256SUMS.txt` published with every release.
+@internal
 abstract final class Checksums {
   /// Parses `sha256sum` output into a filename-to-digest map.
   ///

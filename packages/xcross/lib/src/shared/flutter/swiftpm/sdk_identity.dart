@@ -1,3 +1,6 @@
+import 'package:meta/meta.dart';
+
+@internal
 abstract interface class SwiftPmSdkIdentity {
   Future<Map<String, Object>> sdkBuildIdentity(String sdkRoot);
   Future<String?> hostToolchainMismatch(String sdkRoot);

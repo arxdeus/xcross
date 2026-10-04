@@ -1,5 +1,7 @@
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/tools/swiftpm_gate_operation.dart';
 
+@internal
 final class UnsupportedSwiftPmGate implements SwiftPmGateOperation {
   const UnsupportedSwiftPmGate(this.hostName);
   final String hostName;

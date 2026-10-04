@@ -1,10 +1,16 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/shared/compose/compose.dart';
+import 'package:xcross/src/shared/compose/build/objc_runner_builder.dart';
+import 'package:xcross/src/shared/compose/build/swift_runner_builder.dart';
+import 'package:xcross/src/shared/compose/project/kmp_project.dart';
+import 'package:xcross/src/shared/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/target/shared/compose/compose_target.dart';
 
 import 'support/compose_platforms.dart';
 
@@ -595,6 +601,7 @@ List<int> _machoBytes(List<int> magic) => [
   ...List<int>.filled(28, 0),
 ];
 
+@internal
 final class MachOOutput {
   const MachOOutput(this.name, this.bytes);
 
@@ -602,6 +609,7 @@ final class MachOOutput {
   final List<int> bytes;
 }
 
+@internal
 final class ComposeFixture {
   final ComposeTestSession session;
   ComposeFixture._(this.session, this.temp, this.target, this.sdkVersion)
@@ -759,6 +767,7 @@ final class ComposeFixture {
   }
 }
 
+@internal
 final class ComposeCall {
   const ComposeCall(this.executable, this.arguments, this.workingDirectory);
   final String executable;

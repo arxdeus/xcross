@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:meta/meta.dart';
 
 /// One filesystem entry found while walking a bundle tree.
+@internal
 @immutable
 final class BundleEntry {
   const BundleEntry(this.path, this.relativePath, this.type);

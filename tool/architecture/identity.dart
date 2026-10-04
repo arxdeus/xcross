@@ -1,7 +1,9 @@
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/element/type.dart';
+import 'package:meta/meta.dart';
 
+@internal
 Iterable<AstNode> astNodes(AstNode node) sync* {
   yield node;
   for (final child in node.childEntities.whereType<AstNode>()) {
@@ -9,6 +11,7 @@ Iterable<AstNode> astNodes(AstNode node) sync* {
   }
 }
 
+@internal
 class IdentityAnalysis {
   final Map<Element, Set<String>> aliases = {};
   static const types = {

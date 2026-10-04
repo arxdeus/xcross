@@ -1,4 +1,5 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/flutter_artifact_compiler.dart';
 import 'package:xcross/src/shared/flutter/flutter_artifact_linker.dart';
@@ -8,6 +9,7 @@ import 'package:xcross/src/shared/flutter/flutter_bundle_assembler.dart';
 import 'package:xcross/src/shared/flutter/flutter_project_resolver.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
 
+@internal
 final class FlutterPacker<T extends PlatformHostInterface> {
   FlutterPacker({
     required FlutterBuildRuntime<T> runtime,

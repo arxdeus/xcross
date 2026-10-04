@@ -1,5 +1,7 @@
-import 'package:cli_kit/src/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 
+@internal
 final class PosixEnvironment implements HostEnvironmentInterface {
   PosixEnvironment(Map<String, String> values)
     : values = Map.unmodifiable(values);

@@ -18,12 +18,13 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/shared/grandslam/anisette/grandslam_endpoints.dart';
-import 'package:apple_developer_kit/src/shared/grandslam/grandslam_login.dart';
-import 'package:apple_developer_kit/src/shared/grandslam/grandslam_two_factor.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/grandslam_endpoints.dart';
+import 'package:apple_developer_kit/shared/grandslam/grandslam_login.dart';
+import 'package:apple_developer_kit/shared/grandslam/grandslam_two_factor.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:meta/meta.dart';
 import 'package:pointycastle/export.dart' as pc;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
@@ -855,6 +856,7 @@ final BigInt _n = BigInt.parse(
 final BigInt _g = BigInt.two;
 final int _nByteLength = (_n.bitLength + 7) ~/ 8;
 
+@internal
 class SrpVerifyResult {
   SrpVerifyResult({required this.hamk, required this.sessionKey});
   final Uint8List hamk;
@@ -865,6 +867,7 @@ class SrpVerifyResult {
 /// its verifier `v`), accepts the client's public key `A`, generates its
 /// own ephemeral `b`/`B`, and can verify a client-submitted `M1` against
 /// its own independently-derived expectation.
+@internal
 class FakeGsaServer {
   FakeGsaServer({required this.username, required this.password})
     : salt = _randomBytes(16);

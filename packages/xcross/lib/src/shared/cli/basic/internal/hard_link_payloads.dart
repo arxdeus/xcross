@@ -1,9 +1,10 @@
 import 'dart:typed_data';
 
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:darwin_sdk_kit/shared/archive/cpio_reader.dart';
 import 'package:meta/meta.dart';
 
 /// `(dev, ino)` identity of a cpio hard-link group.
+@internal
 @immutable
 final class CpioHardLinkKey {
   const CpioHardLinkKey({required this.dev, required this.ino});
@@ -20,6 +21,7 @@ final class CpioHardLinkKey {
 }
 
 /// A hard-link group's cached payload and remaining unseen entries.
+@internal
 @immutable
 final class HardLinkPayload {
   const HardLinkPayload({required this.data, required this.remaining});
@@ -31,6 +33,7 @@ final class HardLinkPayload {
 /// cpio writes a hard link's bytes once and leaves later entries for the same
 /// `(dev, ino)` empty, so the first payload seen has to be replayed for the
 /// rest of the group — even when that first entry is outside the SDK subset.
+@internal
 final class HardLinkPayloads {
   // ponytail: archive-order cache is memory-bound; disk-spool only if a future
   // Xcode archive makes pending groups large.

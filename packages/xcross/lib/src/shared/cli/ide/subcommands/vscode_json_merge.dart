@@ -1,16 +1,24 @@
 import 'dart:convert';
+import 'package:meta/meta.dart';
 
+@internal
 const String xcrossLaunchName = 'xcross: iOS device';
+@internal
 const String dapPathSetting = 'dart.customFlutterDapPath';
+@internal
 const String dapPathValue = '.vscode/xcross_dap.dart';
+@internal
 const String promptErrorsSetting = 'dart.promptToRunIfErrors';
 
 /// Marks a launch config as xcross-owned. Carried in the config's `env` (a
 /// schema-valid Dart launch field) so editors don't flag an unknown key.
+@internal
 const String xcrossEnvKey = 'XCROSS';
+@internal
 const String xcrossEnvValue = 'true';
 
 /// JSONC parse/merge helpers for VS Code launch.json / settings.json.
+@internal
 abstract final class VscodeJsonMerge {
   /// Strip JSONC sugar VS Code allows: `//` / `/* */` comments and trailing
   /// commas before `}` / `]`. Strings are left untouched.

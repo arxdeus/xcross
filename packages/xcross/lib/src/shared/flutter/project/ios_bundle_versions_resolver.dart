@@ -1,7 +1,9 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/build/ios_bundle_versions.dart';
 import 'package:xcross/src/shared/flutter/project/pbx_project_reader.dart';
 
+@internal
 final class IosBundleVersionsResolver {
   IosBundleVersionsResolver(this.fileSystem, this.projects);
 

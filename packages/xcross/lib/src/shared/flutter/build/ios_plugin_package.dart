@@ -1,7 +1,10 @@
 import 'dart:async';
 
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/shared/flutter/build/internal/swiftpm_workspace.dart';
@@ -10,6 +13,7 @@ import 'package:xcross/src/shared/flutter/build/ios_plugins.dart';
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_artifact_preparer.dart';
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_target.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_destination_publisher.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
@@ -26,8 +30,11 @@ import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
+@internal
 const String flutterFrameworkPackageName = 'FlutterFramework';
+@internal
 const String pluginsProductName = 'FlutterPluginsGenerated';
+@internal
 typedef SwiftPmDependencyRefEvaluator =
     Future<Map<String, String>> Function(
       String packageDirectory, {
@@ -39,18 +46,22 @@ typedef SwiftPmDependencyRefEvaluator =
       required List<SwiftPmPackageDependency> dependencies,
     });
 
+@internal
 typedef PrepareSwiftPmBinaryArtifact =
     Future<SwiftPmPreparedBinaryArtifact> Function(
       SwiftPmRemoteBinaryTarget target,
     );
+@internal
 typedef CreateSwiftPmBinaryAlias =
     Future<void> Function({required String alias, required String target});
+@internal
 typedef MaterializeSwiftPmBinaryArtifact =
     Future<SwiftPmBinaryArtifactPublication> Function({
       required String source,
       required String destination,
     });
 
+@internal
 final class SwiftPmPackageDependency<T extends PlatformHostInterface> {
   const SwiftPmPackageDependency({
     required this.name,
@@ -65,6 +76,7 @@ final class SwiftPmPackageDependency<T extends PlatformHostInterface> {
   final String match;
 }
 
+@internal
 final class SwiftPmBinaryArtifactProvenance<T extends PlatformHostInterface> {
   const SwiftPmBinaryArtifactProvenance({
     required this.packageIdentity,
@@ -77,12 +89,14 @@ final class SwiftPmBinaryArtifactProvenance<T extends PlatformHostInterface> {
   final String manifestPath;
 }
 
+@internal
 final class SwiftPmBinaryAttemptState {
   final Set<String> bootstrapRecovered = {};
   final Set<String> finalRecovered = {};
   final Set<String> copied = {};
 }
 
+@internal
 final class GeneratedPluginsBuildResult {
   const GeneratedPluginsBuildResult({
     required this.libraryPath,
@@ -94,9 +108,11 @@ final class GeneratedPluginsBuildResult {
   final String? modulesDir;
 }
 
+@internal
 typedef ArtifactJunctionCapabilityResolver =
     Future<({bool swiftPmArtifact, bool packageLocalArtifact})> Function();
 
+@internal
 final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
   GeneratedPluginsPackage(
     FlutterTargetBuildPolicy<T> policy, {

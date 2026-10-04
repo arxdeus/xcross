@@ -1,11 +1,16 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/host/shared/config/posix_config_host.dart';
 import 'package:xcross/src/host/windows/config/windows_config_host.dart';
 import 'package:xcross/src/shared/config/config.dart';
+import 'package:xcross/src/shared/config/config_store.dart';
 import 'package:xcross/src/shared/config/runtime_config.dart';
 
 import '../log_fixture.dart';
@@ -171,6 +176,7 @@ environment:
   });
 }
 
+@internal
 final class ConfigFixtureFileSystem implements HostFileSystemInterface {
   const ConfigFixtureFileSystem(this.delegate);
   final HostFileSystemInterface delegate;

@@ -1,7 +1,8 @@
 import 'dart:io';
 
-import 'package:apple_developer_kit/src/shared/http/apple_http_client.dart';
+import 'package:apple_developer_kit/shared/http/apple_http_client.dart';
 import 'package:http/io_client.dart';
+import 'package:meta/meta.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -98,6 +99,7 @@ void main() {
   });
 }
 
+@internal
 final class RecordingHttpClient implements HttpClient {
   final List<bool> closeForces = [];
 

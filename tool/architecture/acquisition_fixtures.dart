@@ -1,3 +1,6 @@
+import 'package:meta/meta.dart';
+
+@internal
 Map<String, (String, Set<String>)> acquisitionFixtures() => {
   'native_file_alias': (
     "import 'dart:io' as renamed; Object acquire(String path) => renamed.File(path);",

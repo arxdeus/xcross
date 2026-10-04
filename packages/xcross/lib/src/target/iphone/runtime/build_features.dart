@@ -1,5 +1,6 @@
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_iphone.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:darwin_sdk_kit/target/iphone/iphone_target.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/compose/build/compose_pack_operation.dart';
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain_resolver.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
@@ -9,6 +10,7 @@ import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
 import 'package:xcross/src/target/shared/compose/compose_target.dart';
 import 'package:xcross/src/target/shared/runtime/build_features.dart';
 
+@internal
 final class IPhoneBuildFeatures<T extends PlatformHostInterface>
     implements XcrossBuildFeatures<T> {
   IPhoneBuildFeatures(this.runtime) : target = IPhoneTarget(runtime.host);

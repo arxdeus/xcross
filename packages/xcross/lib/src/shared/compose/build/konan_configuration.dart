@@ -2,17 +2,22 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
 import 'package:crypto/crypto.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/compose/apple_toolchain.dart';
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/shared/compose/toolchain/host_manager_patcher.dart';
 
+@internal
 typedef KonanPatchCompilerJar = Future<void> Function(File jar);
+@internal
 typedef MakeExecutable = void Function(String path);
 
+@internal
 final class PreparedKonanConfiguration {
   const PreparedKonanConfiguration({
     required this.kotlinHome,
@@ -31,6 +36,7 @@ final class PreparedKonanConfiguration {
   final Map<String, String> environment;
 }
 
+@internal
 final class KonanConfiguration<T extends PlatformHostInterface> {
   KonanConfiguration(this.runner)
     : _patchCompilerJar = null,

@@ -1,7 +1,9 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/cli/basic/sdk_install.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
 
+@internal
 final class SdkInstallSwiftPmIdentity<T extends PlatformHostInterface>
     implements SwiftPmSdkIdentity {
   const SdkInstallSwiftPmIdentity(

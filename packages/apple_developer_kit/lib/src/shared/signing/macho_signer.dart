@@ -1,15 +1,16 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
-import 'package:apple_developer_kit/src/shared/errors/errors.dart';
+import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
+import 'package:apple_developer_kit/shared/errors/errors.dart';
+import 'package:apple_developer_kit/shared/signing/signing_asset.dart';
 import 'package:apple_developer_kit/src/shared/signing/code_signature.dart';
 import 'package:apple_developer_kit/src/shared/signing/internal/signature_inputs.dart';
 import 'package:apple_developer_kit/src/shared/signing/macho_format.dart';
-import 'package:apple_developer_kit/src/shared/signing/signing_asset.dart';
 import 'package:meta/meta.dart';
 
 /// Signs xcross-generated thin arm64 Mach-O files without invoking zsign.
+@internal
 class MachOSigner {
   MachOSigner(this.signingAsset, {required this.hostServices});
 

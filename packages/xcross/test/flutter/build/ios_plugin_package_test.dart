@@ -5,14 +5,15 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/shared/errors/errors.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
 import 'package:crypto/crypto.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:darwin_sdk_kit/target/iphone/iphone_build_platform.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/dependency_preparation.dart';
-import 'package:xcross/src/shared/cli/basic/sdk_install.dart';
 import 'package:xcross/src/shared/flutter/build/internal/swiftpm_binary_fixture.dart';
 import 'package:xcross/src/shared/flutter/build/internal/swiftpm_workspace.dart';
 import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
@@ -23,6 +24,7 @@ import 'package:xcross/src/shared/flutter/build/swiftpm_binary_artifact_preparer
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_artifact_store.dart';
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_target.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_destination_publisher.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/binary_provenance.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/dependency_evaluator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
@@ -33,6 +35,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/manifest.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_dependencies.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
+import 'package:xcross/src/shared/sdk/sdk_install_constants.dart';
 
 import 'swiftpm_test_context.dart';
 
@@ -60,8 +63,10 @@ final _plugins = GeneratedPluginsPackage(
   checkoutManifestNormalizer: _swiftPmRuntime.checkoutManifestNormalizer,
 );
 
+@internal
 String swiftPath(String path) => p.absolute(path).replaceAll(r'\', '/');
 
+@internal
 SwiftPmBinaryArtifactProvenance binaryProvenance(
   String identity,
   String target,
@@ -79,6 +84,7 @@ SwiftPmBinaryArtifactProvenance binaryProvenance(
 
 /// Resolves a path under `lib/src/` without depending on the working
 /// directory the suite happens to be launched from.
+@internal
 String packageSrcPath(String relative) => p.join(
   File.fromUri(
     Isolate.resolvePackageUriSync(Uri.parse('package:xcross/src/'))!,

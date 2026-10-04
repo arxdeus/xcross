@@ -1,6 +1,9 @@
+import 'package:meta/meta.dart';
+
 /// Recursive-descent parser for the OpenStep property list dialect Xcode
 /// writes. Handles quoted strings with escapes, `//` comments, `/* */`
 /// comments, dictionaries, and arrays.
+@internal
 final class PbxParser {
   PbxParser(this._source);
 

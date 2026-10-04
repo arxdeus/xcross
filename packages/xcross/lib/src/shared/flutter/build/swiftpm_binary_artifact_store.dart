@@ -1,14 +1,16 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:crypto/crypto.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_tree.dart';
 
+@internal
 final class SwiftPmBinaryArtifactEntry {
   const SwiftPmBinaryArtifactEntry({
     required this.archiveChecksum,
@@ -21,6 +23,7 @@ final class SwiftPmBinaryArtifactEntry {
   final String artifactPath;
 }
 
+@internal
 final class SwiftPmBinaryArtifactStore {
   SwiftPmBinaryArtifactStore(
     this.root, {

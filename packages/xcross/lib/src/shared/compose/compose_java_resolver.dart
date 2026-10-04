@@ -1,14 +1,17 @@
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/compose/compose_host.dart';
 import 'package:xcross/src/shared/compose/compose_process_contracts.dart';
 
+@internal
 final class ComposeJava {
   const ComposeJava(this.home, this.executable);
   final String home;
   final String executable;
 }
 
+@internal
 final class ComposeJavaResolver<T extends PlatformHostInterface> {
   const ComposeJavaResolver(this._which, this._run);
   final ComposeWhich _which;

@@ -2,11 +2,18 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/shared/http/local_http.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
+import 'package:dart_mobile_device/shared/host/device_host_policy.dart';
+import 'package:dart_mobile_device/target/iphone/device/device_prepare.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd.dart';
+import 'package:meta/meta.dart';
 import 'package:test/test.dart';
 
-import 'device_roles_test.dart' show ForbiddenPrivileges, ProbeHttpClient;
+import 'device_roles_test.dart';
 import 'test_log_output.dart';
 
 void main() {
@@ -173,6 +180,7 @@ void main() {
   }
 }
 
+@internal
 final class WirelessFixtureFileSystem implements HostFileSystemInterface {
   WirelessFixtureFileSystem({required this.failWait});
   final bool failWait;
@@ -190,6 +198,7 @@ final class WirelessFixtureFileSystem implements HostFileSystemInterface {
       throw StateError('unexpected native filesystem operation');
 }
 
+@internal
 final class WirelessHostPolicy implements DeviceHostPolicy {
   @override
   String get preparationDeniedMessage => 'selected preparation denial';
@@ -205,6 +214,7 @@ final class WirelessHostPolicy implements DeviceHostPolicy {
       throw StateError('unexpected host installation or daemon policy');
 }
 
+@internal
 final class WirelessProcesses implements HostProcessInterface {
   WirelessProcesses({this.hasUsb = false});
   final bool hasUsb;
@@ -253,6 +263,7 @@ final class WirelessProcesses implements HostProcessInterface {
       throw StateError('unexpected native process operation');
 }
 
+@internal
 final class DeniedPreparationPrivileges implements HostPrivilegesInterface {
   String? manualHint;
   String? deniedMessage;
@@ -269,6 +280,7 @@ final class DeniedPreparationPrivileges implements HostPrivilegesInterface {
       throw StateError('unexpected privilege operation');
 }
 
+@internal
 final class WirelessChild implements Process {
   WirelessChild({this.body = ''}) {
     input.stream.listen((_) {});

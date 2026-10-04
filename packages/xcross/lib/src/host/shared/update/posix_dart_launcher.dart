@@ -2,8 +2,10 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:ffi/ffi.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
+@internal
 final class PosixDartLauncher {
   PosixDartLauncher() : _access = _lookupAccess();
   final int Function(Pointer<Utf8>, int)? _access;

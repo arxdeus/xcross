@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/binary_preparation.dart';
@@ -10,8 +11,10 @@ import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_source_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
 
+@internal
 const String flutterFrameworkPackageName = 'FlutterFramework';
 
+@internal
 final class SwiftPmPluginOverlay<T extends PlatformHostInterface> {
   static const iosUnreachableEntries = {
     // development trees

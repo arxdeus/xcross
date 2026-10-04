@@ -1,8 +1,10 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 
+@internal
 final class PosixSwiftPmArtifactFileSystem
     implements SwiftPmArtifactFileSystem {
   const PosixSwiftPmArtifactFileSystem(this.host);

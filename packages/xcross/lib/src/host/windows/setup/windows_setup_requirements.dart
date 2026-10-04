@@ -1,9 +1,12 @@
-import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/cli/basic/internal/clang_requirement.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
 
+@internal
 final class WindowsSetupRequirements implements SetupRequirements {
   WindowsSetupRequirements(this.services);
   final SetupRequirementServices services;

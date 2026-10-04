@@ -1,11 +1,16 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
+import 'package:cli_kit/shared/process/tool_lookup.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
 import '../host_operations_fixtures.dart';
 
+@internal
 final class ResidualHost implements LinuxHostInterface {
   const ResidualHost({
     required this.base,
@@ -29,6 +34,7 @@ final class ResidualHost implements LinuxHostInterface {
   HostEnvironmentInterface get environment => base.environment;
 }
 
+@internal
 final class ResidualPaths implements HostPathsInterface {
   ResidualPaths(this.root);
 
@@ -49,6 +55,7 @@ final class ResidualPaths implements HostPathsInterface {
   String pathKey(String path) => context.normalize(path);
 }
 
+@internal
 final class ResidualFileSystem implements HostFileSystemInterface {
   ResidualFileSystem(this.logicalRoot, this.backingRoot);
 
@@ -88,6 +95,7 @@ final class ResidualFileSystem implements HostFileSystemInterface {
       link(destination).create(target);
 }
 
+@internal
 final class ResidualProcesses implements HostProcessInterface {
   ResidualProcesses(this.onStart);
 
@@ -118,6 +126,7 @@ final class ResidualProcesses implements HostProcessInterface {
   }) async => process.kill();
 }
 
+@internal
 final class ResidualChild implements Process {
   ResidualChild({this.code = 0, this.output = '', this.errors = ''});
 
@@ -138,6 +147,7 @@ final class ResidualChild implements Process {
   bool kill([ProcessSignal signal = ProcessSignal.sigterm]) => true;
 }
 
+@internal
 final class ResidualLookup
     implements ProcessToolLookupInterface<PlatformHostInterface> {
   ResidualLookup(this.host, this.find) : base = ProcessToolLookup(host);
@@ -190,6 +200,7 @@ final class ResidualLookup
       (throw StateError('missing fixture tool $name'));
 }
 
+@internal
 ProcessRunner residualRunner(
   PlatformHostInterface host, {
   Future<String?> Function(String, List<String>)? lookup,
@@ -202,6 +213,7 @@ ProcessRunner residualRunner(
   toolLookup: lookup == null ? null : ResidualLookup(host, lookup),
 );
 
+@internal
 LinuxHostInterface residualProcessHost(
   LinuxHostInterface base,
   Future<Process> Function(String, List<String>, String?) start,
