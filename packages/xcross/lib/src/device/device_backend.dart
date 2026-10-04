@@ -223,7 +223,7 @@ final class NativeBackend implements DeviceBackend {
         capabilities: _capabilities.of(appOrIpaPath).toSet(),
         onProgress: _warnOnce,
       );
-      final asset = await SigningAsset.load(
+      final asset = await SigningAssetLoader(hostServices: hostServices).load(
         privateKeyPemPath: identity.privateKeyPemPath,
         certificatePemPath: identity.certificatePemPath,
         provisioningProfilePath: identity.profilePath,
@@ -342,15 +342,16 @@ final class NativeBackend implements DeviceBackend {
           },
           onProgress: _warnOnce,
         );
-        assets[extensionBundleId] = await SigningAsset.load(
-          privateKeyPemPath: identity.privateKeyPemPath,
-          certificatePemPath: identity.certificatePemPath,
-          provisioningProfilePath: identity.profilePath,
-          declaredEntitlements: switch (extension.path) {
-            final String path => _entitlements.of(path),
-            null => const {},
-          },
-        );
+        assets[extensionBundleId] =
+            await SigningAssetLoader(hostServices: hostServices).load(
+              privateKeyPemPath: identity.privateKeyPemPath,
+              certificatePemPath: identity.certificatePemPath,
+              provisioningProfilePath: identity.profilePath,
+              declaredEntitlements: switch (extension.path) {
+                final String path => _entitlements.of(path),
+                null => const {},
+              },
+            );
       } on Object catch (error) {
         throw XcrossError(
           'Could not provision the app extension "$extensionBundleId": $error\n'
