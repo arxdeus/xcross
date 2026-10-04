@@ -32,9 +32,11 @@ void main() {
   late ResidualPaths paths;
   late ResidualFileSystem files;
   late ResidualHost host;
+  late LinuxHostInterface base;
   late ResidualProcesses processes;
 
   setUp(() async {
+    base = LinuxHost(architecture: 'x64');
     backing = await Directory.systemTemp.createTemp('host-ops-residual-');
     paths = ResidualPaths(
       '/selected-${backing.uri.pathSegments.lastWhere((part) => part.isNotEmpty)}',
@@ -43,7 +45,12 @@ void main() {
     processes = ResidualProcesses(
       (_, _, _) async => throw StateError('unexpected process'),
     );
-    host = ResidualHost(fileSystem: files, paths: paths, processes: processes);
+    host = ResidualHost(
+      base: base,
+      fileSystem: files,
+      paths: paths,
+      processes: processes,
+    );
     await files.directory(paths.temporaryRoot).create();
     files.lookups.clear();
   });
@@ -61,6 +68,19 @@ void main() {
     await file.writeAsString(value);
   }
 
+  test(
+    'residual host retains the explicitly composed base and selected ports',
+    () {
+      expect(host.base, same(base));
+      expect(host.environment, same(base.environment));
+      expect(host.architecture, base.architecture);
+      expect(host.name, base.name);
+      expect(host.fileSystem, same(files));
+      expect(host.paths, same(paths));
+      expect(host.processes, same(processes));
+    },
+  );
+
   test('mapped clang discovers versioned pair in selected namespace', () async {
     await write('tools/clang-22', 'clang');
     await write('tools/clang++-22', 'clang++');
@@ -68,7 +88,12 @@ void main() {
       expect(args, ['--version']);
       return ResidualChild(output: 'clang version 22.0.1');
     });
-    host = ResidualHost(fileSystem: files, paths: paths, processes: processes);
+    host = ResidualHost(
+      base: base,
+      fileSystem: files,
+      paths: paths,
+      processes: processes,
+    );
     final runner = residualRunner(
       host,
       lookup: (name, dirs) async {
@@ -235,6 +260,7 @@ void main() {
         return ResidualChild();
       });
       host = ResidualHost(
+        base: base,
         fileSystem: files,
         paths: paths,
         processes: processes,
@@ -314,6 +340,7 @@ void main() {
             : ResidualChild(code: 1, errors: 'fixture fetch failure'),
       );
       host = ResidualHost(
+        base: base,
         fileSystem: files,
         paths: ResidualMappedPaths(paths.root, files),
         processes: processes,
@@ -365,6 +392,7 @@ void main() {
         return ResidualChild();
       });
       host = ResidualHost(
+        base: base,
         fileSystem: files,
         paths: ResidualMappedPaths(paths.root, files),
         processes: processes,
@@ -457,6 +485,7 @@ void main() {
         return ResidualChild(output: 'xcross 1.2.3\n');
       });
       host = ResidualHost(
+        base: base,
         fileSystem: files,
         paths: paths,
         processes: processes,
@@ -568,6 +597,7 @@ void main() {
       }
       processes = ResidualProcesses((_, _, _) async => ResidualChild(code: 1));
       host = ResidualHost(
+        base: base,
         fileSystem: files,
         paths: paths,
         processes: processes,

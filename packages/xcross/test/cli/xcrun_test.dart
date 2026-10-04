@@ -589,6 +589,7 @@ void main() {
 
   test('returns the exact streamed child exit code', () async {
     final host = residualProcessHost(
+      LinuxHost(),
       (_, _, _) async => ResidualChild(code: 37),
     );
     final runner = residualRunner(host);
@@ -766,6 +767,7 @@ Future<int> _runXcrun(
   Future<int> Function(String, List<String>)? runTool,
 }) {
   final host = residualProcessHost(
+    LinuxHost(),
     (tool, arguments, _) async => ResidualChild(
       code: runTool == null ? 0 : await runTool(tool, arguments),
     ),

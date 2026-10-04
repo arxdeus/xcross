@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit.dart';
+
 import 'package:test/test.dart';
 import 'package:xcross/src/cli/basic/internal/clang_requirement.dart';
 import 'host_ops_residual_fixtures.dart';
@@ -83,6 +85,7 @@ Future<String?> _resolveClang({
   required Future<String> Function(String) version,
 }) {
   final host = residualProcessHost(
+    LinuxHost(),
     (executable, _, _) async =>
         ResidualChild(output: await version(executable)),
   );

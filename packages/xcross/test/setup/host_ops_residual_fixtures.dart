@@ -1,20 +1,20 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
 
 import '../host_operations_fixtures.dart';
 
 final class ResidualHost implements LinuxHostInterface {
-  ResidualHost({
+  const ResidualHost({
+    required this.base,
     required this.fileSystem,
     required this.paths,
     required this.processes,
-    Map<String, String> environment = const {},
-  }) : base = LinuxHost(architecture: 'x64', environment: environment);
+  });
 
-  final LinuxHost base;
+  final LinuxHostInterface base;
   @override
   final HostFileSystemInterface fileSystem;
   @override
@@ -203,10 +203,11 @@ ProcessRunner residualRunner(
 );
 
 LinuxHostInterface residualProcessHost(
+  LinuxHostInterface base,
   Future<Process> Function(String, List<String>, String?) start,
 ) {
-  final base = LinuxHost();
   return ResidualHost(
+    base: base,
     fileSystem: base.fileSystem,
     paths: base.paths,
     processes: ResidualProcesses(start),
