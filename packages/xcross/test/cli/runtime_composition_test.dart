@@ -379,6 +379,32 @@ void main() {
       isTrue,
     );
     expect(identical(physical.flutterRuntime.runner, runtime.runner), isTrue);
+    final physicalServices = physical.flutterRuntime.plugins.runtime;
+    final simulatorServices = simulator.flutterRuntime.plugins.runtime;
+    expect(
+      physicalServices.toolchain.hostBuildServices.target,
+      same(physical.target),
+    );
+    expect(
+      simulatorServices.toolchain.hostBuildServices.target,
+      same(simulator.target),
+    );
+    expect(
+      physicalServices.gatePlatform.fileSystem,
+      same(physicalServices.artifactFileSystem),
+    );
+    expect(
+      physicalServices.gatePlatform.matchesTarget(
+        physical.flutterRuntime.policy,
+      ),
+      isTrue,
+    );
+    expect(
+      simulatorServices.gatePlatform.matchesTarget(
+        simulator.flutterRuntime.policy,
+      ),
+      isTrue,
+    );
     expect(physical.target.buildPlatform.sdkName, 'iphoneos');
     expect(simulator.target.buildPlatform.sdkName, 'iphonesimulator');
   });

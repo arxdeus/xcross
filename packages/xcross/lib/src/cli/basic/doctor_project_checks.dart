@@ -10,7 +10,13 @@ import 'package:xcross/src/target/shared/runtime/build_features.dart';
 final class DoctorProjectChecks<T extends PlatformHostInterface>
     implements DoctorProjectInspector {
   DoctorProjectChecks(this.runtime)
-    : features = composePhysicalFeatures(runtime);
+    : features = composePhysicalFeatures(runtime),
+      packageConfigs = PackageConfigResolver(
+        fileSystem: runtime.host.fileSystem,
+        paths: runtime.host.paths.context,
+      );
+
+  final PackageConfigResolver packageConfigs;
 
   final XcrossBuildFeatures<T> features;
 
@@ -90,8 +96,8 @@ final class DoctorProjectChecks<T extends PlatformHostInterface>
     }
   }
 
-  static Future<DoctorCheck> _flutterPackages(String root) async {
-    final packageConfig = await PackageConfigResolver.find(root);
+  Future<DoctorCheck> _flutterPackages(String root) async {
+    final packageConfig = await packageConfigs.find(root);
     return packageConfig == null
         ? const DoctorCheck.warning(
             'Flutter packages',

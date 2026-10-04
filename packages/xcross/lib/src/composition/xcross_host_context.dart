@@ -142,8 +142,8 @@ abstract class XcrossHostContext<T extends PlatformHostInterface>
           }) =>
               SwiftPmGateEvidence<T>(
                 root,
-                execution: plugins.gateExecution,
-                platform: plugins.hostPolicy.gatePlatform,
+                repository: runtime.sdkRepository,
+                platform: plugins.gatePlatform,
                 platformIdentity: plugins.sdkIdentity.platformIdentity,
                 fileSystem: plugins.artifactFileSystem,
               ).verifies(

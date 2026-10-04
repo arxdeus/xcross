@@ -1,4 +1,5 @@
-import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
+    show DeviceSearchMode;
 
 enum DeviceConnection { attached, wireless, both }
 

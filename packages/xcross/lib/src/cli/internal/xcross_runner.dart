@@ -1,6 +1,6 @@
 import 'package:args/command_runner.dart';
 import 'package:build_cli_annotations/build_cli_annotations.dart';
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/cli_kit_shared.dart' show Log;
 import 'package:xcross/src/version.dart';
 
 part 'xcross_runner.g.dart';

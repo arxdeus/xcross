@@ -9,6 +9,8 @@ import 'package:xcross/src/host/shared/flutter/flutter_sdk_host_policy.dart';
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/build_execution.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/dependency_preparation.dart';
+import 'package:xcross/src/host/windows/flutter/swiftpm/gate_platform.dart';
+import 'package:xcross/src/host/windows/flutter/swiftpm/host_build_services.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/pinned_dependency_resolver.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
@@ -19,6 +21,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_attributes.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/librarian_resolver.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
 import 'package:xcross/src/shared/runtime/flutter_feature_services.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
@@ -91,6 +94,20 @@ final class WindowsFlutterFeatureServices<T extends WindowsHostInterface>
       xcrun: resolution.xcrun,
       declarative: resolution.declarative,
     );
+    final librarianResolver = SwiftPmLibrarianResolver<T>(
+      runner: runner,
+      filesystem: checkoutManifestNormalizer.filesystem,
+      lookup: DarwinSwiftPmLlvmToolLookup(toolchain),
+    );
+    final buildServices = WindowsSwiftPmHostBuildServices<T>(
+      target: policy.target,
+      filesystem: checkoutManifestNormalizer.filesystem,
+      sdkIdentity: sdkIdentity,
+      runner: runner,
+      sdkRepository: repository,
+      toolchainResolver: toolchain,
+      librarianResolver: librarianResolver,
+    );
     final foundation = prepareSwiftPmFoundation<T>(
       policy: policy,
       runner: runner,
@@ -105,6 +122,8 @@ final class WindowsFlutterFeatureServices<T extends WindowsHostInterface>
       copyPolicy: copyPolicy,
       filesystem: checkoutManifestNormalizer.filesystem,
       checkoutAttributes: checkoutAttributes,
+      hostBuildServices: buildServices,
+      librarianResolver: librarianResolver,
     );
     final pinnedResolver = WindowsSwiftPmPinnedDependencyResolver<T>(
       runner: runner,
@@ -133,9 +152,20 @@ final class WindowsFlutterFeatureServices<T extends WindowsHostInterface>
       extractedArtifacts: foundation.extractedArtifacts,
       pinnedResolver: pinnedResolver,
     );
+    final gatePlatform = WindowsSwiftPmGatePlatform<T>(
+      execution: foundation.gateExecution,
+      fileSystem: artifactFileSystem,
+      sdkRepository: repository,
+      toolchain: foundation.toolchain,
+      processPolicy: foundation.processPolicy,
+      buildPlan: foundation.buildPlan,
+      targetPolicy: policy,
+      log: runner.log,
+    );
     final plugins = GeneratedPluginsPackage(
       policy,
       foundation: foundation,
+      gatePlatform: gatePlatform,
       checkout: checkout,
       checkoutAttributes: checkoutAttributes,
       checkoutManifestNormalizer: checkoutManifestNormalizer,

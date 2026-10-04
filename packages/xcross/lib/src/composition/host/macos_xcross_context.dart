@@ -14,7 +14,7 @@ import 'package:darwin_sdk_kit/darwin_sdk_kit.dart'
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:http/http.dart' as http;
 import 'package:xcross/src/cli/basic/sdk_install.dart';
-import 'package:xcross/src/composition/flutter/posix_flutter_feature_services.dart';
+import 'package:xcross/src/composition/flutter/macos_flutter_feature_services.dart';
 import 'package:xcross/src/composition/flutter/swiftpm_checkout.dart';
 import 'package:xcross/src/composition/host_operations.dart';
 import 'package:xcross/src/composition/xcross_application.dart';
@@ -224,7 +224,7 @@ final class MacOSXcrossHostContext
             sourceFallback: checkoutParts.sourceFallback,
           ),
         );
-    final flutter = PosixFlutterFeatureServices<MacOSHostInterface>(
+    final flutter = MacOSFlutterFeatureServices<MacOSHostInterface>(
       checkout: checkout,
       checkoutAttributes: checkoutAttributes,
       checkoutManifestNormalizer: checkoutManifestNormalizer,

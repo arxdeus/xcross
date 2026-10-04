@@ -297,6 +297,36 @@ void main() {
     expect(flutterSdkChecks.single.message, contains('not configured'));
   });
 
+  test(
+    'Flutter package diagnostics use the selected filesystem resolver',
+    () async {
+      final project = Directory.systemTemp.createTempSync(
+        'xcross-doctor-packages-',
+      );
+      addTearDown(() => project.deleteSync(recursive: true));
+      File('${project.path}/pubspec.yaml').writeAsStringSync('name: demo');
+      Directory('${project.path}/.dart_tool').createSync();
+      final packageConfig = File(
+        '${project.path}/.dart_tool/package_config.json',
+      )..writeAsStringSync('{"configVersion":2,"packages":[]}');
+      final runtime = testRuntime(configuration: XcrossConfig());
+      final inspector = DoctorProjectChecks(runtime);
+      expect(
+        inspector.packageConfigs.fileSystem,
+        same(runtime.host.fileSystem),
+      );
+      expect(inspector.packageConfigs.paths, same(runtime.host.paths.context));
+      final checks = await inspector.examine(
+        DoctorProject.flutter(project.path),
+      );
+      final packages = checks.singleWhere(
+        (check) => check.name == 'Flutter packages',
+      );
+      expect(packages.status, DoctorStatus.success);
+      expect(packages.path, packageConfig.path);
+    },
+  );
+
   test('Windows Flutter checks require the Flutter launcher', () async {
     final checks = await DoctorEnvironmentChecks.flutterToolWithSeams(
       locateTool: (name, {windows, accept, extraDirectories = const []}) async {

@@ -1,7 +1,9 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:xcross/xcross.dart';
+import 'package:cli_kit/cli_kit.dart' show IoTuiTerminal;
+import 'package:cli_kit/cli_kit_shared.dart' show ProcessRunner;
+import 'package:xcross/xcross.dart'
+    show ToolAliasOperation, XcrossCli, createNativeXcrossContext;
 
 Future<void> main(List<String> args) async {
   try {

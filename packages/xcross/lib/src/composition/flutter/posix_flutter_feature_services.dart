@@ -8,6 +8,7 @@ import 'package:xcross/src/host/shared/flutter/flutter_sdk_host_policy.dart';
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_build_execution.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_dependency_preparation.dart';
+import 'package:xcross/src/host/shared/flutter/swiftpm/posix_gate_platform.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
@@ -16,12 +17,14 @@ import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_attributes.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/host_build_services.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/librarian_resolver.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
 import 'package:xcross/src/shared/runtime/flutter_feature_services.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
-final class PosixFlutterFeatureServices<T extends PlatformHostInterface>
+abstract class PosixFlutterFeatureServices<T extends PlatformHostInterface>
     implements FlutterFeatureServices<T> {
   const PosixFlutterFeatureServices({
     required this.checkout,
@@ -62,6 +65,8 @@ final class PosixFlutterFeatureServices<T extends PlatformHostInterface>
   final SwiftPmSdkIdentity sdkIdentity;
   final FlutterResolutionConfiguration resolution;
 
+  SwiftPmHostBuildServices<T> hostBuildServices(IosTarget<T> target);
+
   @override
   FlutterBuildRuntime<T> build(FlutterTargetBuildPolicy<T> policy) {
     if (!identical(policy.target.host, runner.host) ||
@@ -89,6 +94,12 @@ final class PosixFlutterFeatureServices<T extends PlatformHostInterface>
       xcrun: resolution.xcrun,
       declarative: resolution.declarative,
     );
+    final librarianResolver = SwiftPmLibrarianResolver<T>(
+      runner: runner,
+      filesystem: checkoutManifestNormalizer.filesystem,
+      lookup: DarwinSwiftPmLlvmToolLookup(toolchain),
+    );
+    final buildServices = hostBuildServices(policy.target);
     final foundation = prepareSwiftPmFoundation<T>(
       policy: policy,
       runner: runner,
@@ -103,15 +114,21 @@ final class PosixFlutterFeatureServices<T extends PlatformHostInterface>
       copyPolicy: copyPolicy,
       filesystem: checkoutManifestNormalizer.filesystem,
       checkoutAttributes: checkoutAttributes,
+      hostBuildServices: buildServices,
+      librarianResolver: librarianResolver,
     );
     final buildExecution = PosixSwiftPmBuildExecution<T>(
       runner: runner,
       sourceRepair: foundation.sourceRepair,
     );
     final dependencyPreparation = PosixSwiftPmDependencyPreparation<T>();
+    final gatePlatform = PosixSwiftPmGatePlatform(
+      fileSystem: artifactFileSystem,
+    );
     final plugins = GeneratedPluginsPackage(
       policy,
       foundation: foundation,
+      gatePlatform: gatePlatform,
       checkout: checkout,
       checkoutAttributes: checkoutAttributes,
       checkoutManifestNormalizer: checkoutManifestNormalizer,
