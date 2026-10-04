@@ -170,6 +170,8 @@ build/
 !**/lib/src/flutter/build/
 # ...and lib/src/compose/build/ is xcross source, not build output.
 !**/lib/src/compose/build/
+!/packages/xcross/lib/src/shared/flutter/build/
+!/packages/xcross/lib/src/shared/compose/build/
 # ...and test/flutter/build/ mirrors it, same reason.
 !**/test/flutter/build/
 DerivedData/
