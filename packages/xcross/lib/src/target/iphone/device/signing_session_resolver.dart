@@ -93,10 +93,9 @@ final class SigningSessionResolver implements SigningSessionProvider {
     String configPath,
     String configDirectory,
   ) async {
-    final credentials = await AscCredentials.fromFile(
-      path: configPath,
+    final credentials = await AscCredentialsLoader(
       hostServices: hostServices,
-    );
+    ).load(path: configPath);
     return SigningSession(
       client: AscClient(credentials, httpClient: httpClients.create()),
       anisette: null,

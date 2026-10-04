@@ -210,19 +210,21 @@ final class NativeBackend implements DeviceBackend {
             ProvisioningIdentifiers.qualifyAppGroup(group, signing.identityId),
         ],
       };
-      final identity = await AscProvisioning.provisionDevelopmentIdentity(
-        hostServices: hostServices,
-        client: signing.client,
-        bundleId: bundleIdentity.exact,
-        deviceUdids: [udid],
-        outputDir: outputDir,
-        identityDir: signing.identityDir,
-        appGroups: appGroups,
-        // Recorded by the assembler from the project's entitlements; a profile
-        // only grants what the App ID has switched on.
-        capabilities: _capabilities.of(appOrIpaPath).toSet(),
-        onProgress: _warnOnce,
-      );
+      final identity =
+          await AscProvisioning(
+            hostServices: hostServices,
+            client: signing.client,
+          ).provisionDevelopmentIdentity(
+            bundleId: bundleIdentity.exact,
+            deviceUdids: [udid],
+            outputDir: outputDir,
+            identityDir: signing.identityDir,
+            appGroups: appGroups,
+            // Recorded by the assembler from the project's entitlements; a profile
+            // only grants what the App ID has switched on.
+            capabilities: _capabilities.of(appOrIpaPath).toSet(),
+            onProgress: _warnOnce,
+          );
       final asset = await SigningAssetLoader(hostServices: hostServices).load(
         privateKeyPemPath: identity.privateKeyPemPath,
         certificatePemPath: identity.certificatePemPath,
@@ -325,23 +327,25 @@ final class NativeBackend implements DeviceBackend {
       final extensionBundleId = extension.bundleId;
       pymd.runner.log.logInfo('Extension', extensionBundleId);
       try {
-        final identity = await AscProvisioning.provisionDevelopmentIdentity(
-          hostServices: hostServices,
-          client: signing.client,
-          bundleId: extensionBundleId,
-          deviceUdids: [udid],
-          outputDir: pymd.runner.host.paths.context.join(
-            profilesDir,
-            extensionBundleId,
-          ),
-          identityDir: signing.identityDir,
-          appGroups: appGroups,
-          capabilities: {
-            if (extension.path case final String path)
-              ..._capabilities.of(path),
-          },
-          onProgress: _warnOnce,
-        );
+        final identity =
+            await AscProvisioning(
+              hostServices: hostServices,
+              client: signing.client,
+            ).provisionDevelopmentIdentity(
+              bundleId: extensionBundleId,
+              deviceUdids: [udid],
+              outputDir: pymd.runner.host.paths.context.join(
+                profilesDir,
+                extensionBundleId,
+              ),
+              identityDir: signing.identityDir,
+              appGroups: appGroups,
+              capabilities: {
+                if (extension.path case final String path)
+                  ..._capabilities.of(path),
+              },
+              onProgress: _warnOnce,
+            );
         assets[extensionBundleId] =
             await SigningAssetLoader(hostServices: hostServices).load(
               privateKeyPemPath: identity.privateKeyPemPath,

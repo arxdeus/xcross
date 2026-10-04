@@ -141,7 +141,7 @@ void main() {
       'in-process signer currently supports xcross-generated .app',
     );
     final provision = source.indexOf(
-      'await AscProvisioning.provisionDevelopmentIdentity(',
+      'await AscProvisioning(',
     );
 
     expect(guard, greaterThanOrEqualTo(0));
