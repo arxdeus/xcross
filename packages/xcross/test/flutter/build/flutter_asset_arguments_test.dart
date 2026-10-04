@@ -14,6 +14,7 @@ void main() {
       final runtime = testSimulatorRuntime();
       final args =
           IosNativeAssetsBuilder(
+            nativeAssetFrameworks: runtime.nativeAssetFrameworks,
             hooks: runtime.nativeAssetHooks,
             engineCache: runtime.engineCache('/flutter'),
             runner: runtime.runner,
@@ -41,6 +42,7 @@ void main() {
       final runtime = testIPhoneRuntime();
       List<String> arguments(List<String> defines, {String? flavor}) =>
           IosNativeAssetsBuilder(
+            nativeAssetFrameworks: runtime.nativeAssetFrameworks,
             hooks: runtime.nativeAssetHooks,
             engineCache: runtime.engineCache('/flutter'),
             runner: runtime.runner,

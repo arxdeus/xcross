@@ -2,7 +2,11 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/flutter/build/internal/recursive_directory_copy.dart';
+import 'package:xcross/src/flutter/build/ios_bundle_resources.dart';
+import 'package:xcross/src/shared/flutter/project/pbx_project_reader.dart';
 
+import '../../host_operations_fixtures.dart';
 import '../flutter_test_runtime.dart';
 
 void main() {
@@ -201,6 +205,68 @@ void main() {
         _bundleFile(bundle, 'Settings.plist').readAsStringSync(),
         'settings',
       );
+    },
+  );
+  test(
+    'resource classification and destinations use selected mapped filesystem',
+    () async {
+      final fileSystem = FixtureMappedFileSystem(tmp);
+      final paths = p.Context(style: p.Style.posix);
+      final copier = RecursiveDirectoryCopier(
+        fileSystem: fileSystem,
+        paths: paths,
+      );
+      const root = '/selected-resource-project';
+      const source = '/selected-resource-input';
+      const destination = '/selected-resource-bundle.app';
+      fileSystem.file('$source/Settings.plist')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('selected resource');
+      fileSystem.file('$source/Payload/nested/value.txt')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('selected directory');
+      fileSystem.file('$root/ios/Runner.xcodeproj/project.pbxproj')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('''
+{
+ rootObject = PROJECT;
+ objects = {
+ PROJECT = { isa = PBXProject; };
+ APP = { isa = PBXNativeTarget; productType = com.apple.product-type.application; buildPhases = (RESOURCES); };
+ RESOURCES = { isa = PBXResourcesBuildPhase; files = (SETTINGS_BUILD, PAYLOAD_BUILD); };
+ SETTINGS_BUILD = { isa = PBXBuildFile; fileRef = SETTINGS; };
+ PAYLOAD_BUILD = { isa = PBXBuildFile; fileRef = PAYLOAD; };
+ SETTINGS = { isa = PBXFileReference; path = /selected-resource-input/Settings.plist; sourceTree = "<absolute>"; };
+ PAYLOAD = { isa = PBXFileReference; path = /selected-resource-input/Payload; sourceTree = "<absolute>"; };
+ }
+}
+''');
+      final resources = IosBundleResources(
+        fileSystem,
+        paths,
+        PbxProjectReader(fileSystem, paths),
+        copier: copier,
+      );
+      fileSystem.touched.clear();
+      await resources.stage(projectRoot: root, bundleDir: destination);
+      expect(
+        fileSystem.file('$destination/Settings.plist').readAsStringSync(),
+        'selected resource',
+      );
+      expect(
+        fileSystem
+            .file('$destination/Payload/nested/value.txt')
+            .readAsStringSync(),
+        'selected directory',
+      );
+      expect(fileSystem.touched, contains('$source/Settings.plist'));
+      expect(fileSystem.touched, contains('$source/Payload'));
+      expect(fileSystem.touched, contains('$destination/Settings.plist'));
+      expect(
+        fileSystem.touched,
+        contains('$destination/Payload/nested/value.txt'),
+      );
+      expect(File('$destination/Settings.plist').existsSync(), isFalse);
     },
   );
 }

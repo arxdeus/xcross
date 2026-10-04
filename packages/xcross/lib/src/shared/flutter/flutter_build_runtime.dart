@@ -1,7 +1,9 @@
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
+import 'package:xcross/src/flutter/build/internal/native_asset_frameworks.dart';
 import 'package:xcross/src/flutter/build/internal/native_assets_hook_discovery.dart';
+import 'package:xcross/src/flutter/build/internal/recursive_directory_copy.dart';
 import 'package:xcross/src/flutter/build/internal/xcconfig_resolver.dart';
 import 'package:xcross/src/flutter/build/ios_app_extensions.dart';
 import 'package:xcross/src/flutter/build/ios_bundle_id.dart';
@@ -83,9 +85,22 @@ final class FlutterBuildRuntime<T extends PlatformHostInterface> {
   late final FlutterBuildOptionsResolver options = FlutterBuildOptionsResolver(
     defines,
   );
+  late final RecursiveDirectoryCopier directoryCopier =
+      RecursiveDirectoryCopier(
+        fileSystem: host.fileSystem,
+        paths: host.paths.context,
+      );
+  late final NativeAssetFrameworks<T> nativeAssetFrameworks =
+      NativeAssetFrameworks(
+        fileSystem: host.fileSystem,
+        paths: host.paths.context,
+        runner: runner,
+        copier: directoryCopier,
+      );
   late final FlutterFrameworkCopier frameworks = FlutterFrameworkCopier(
     host.fileSystem,
     host.paths.context,
+    copier: directoryCopier,
   );
   late final XcconfigResolver xcconfigs = XcconfigResolver(
     host.fileSystem,
@@ -99,6 +114,7 @@ final class FlutterBuildRuntime<T extends PlatformHostInterface> {
     host.fileSystem,
     host.paths.context,
     projects,
+    copier: directoryCopier,
   );
   late final PbxProjectReader projects = PbxProjectReader(
     host.fileSystem,

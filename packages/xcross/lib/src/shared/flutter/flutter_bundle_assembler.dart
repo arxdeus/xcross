@@ -1,9 +1,7 @@
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:meta/meta.dart';
-import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/app_extension_builder.dart';
 import 'package:xcross/src/flutter/build/info_plist.dart';
-import 'package:xcross/src/flutter/build/internal/recursive_directory_copy.dart';
 import 'package:xcross/src/flutter/build/ios_bundle_versions.dart';
 import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/flutter/constants.dart';
@@ -56,7 +54,7 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     await _stageBundle(
       bundleDir: tmp.path,
       appFramework: appFramework,
-      flutterFramework: p.join(
+      flutterFramework: runtime.host.paths.context.join(
         runtime.policy.selectEngineSlice(xcframework),
         'Flutter.framework',
       ),
@@ -68,15 +66,18 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
       extensions: extensions,
     );
 
-    final dest = p.join(outputDirectory, '$appName.app');
+    final dest = runtime.host.paths.context.join(
+      outputDirectory,
+      '$appName.app',
+    );
     final destDir = runtime.host.fileSystem.directory(dest);
     if (destDir.existsSync()) {
       await destDir.delete(recursive: true);
     }
     await runtime.host.fileSystem
-        .directory(p.dirname(dest))
+        .directory(runtime.host.paths.context.dirname(dest))
         .create(recursive: true);
-    await copyDirectoryPreservingSymlinks(tmp.path, dest);
+    await runtime.directoryCopier.copy(tmp.path, dest);
     await tmp.delete(recursive: true);
 
     return dest;
@@ -95,22 +96,27 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     required IosDeploymentTarget deploymentTarget,
     required List<BuiltAppExtension> extensions,
   }) async {
-    final frameworksDir = p.join(bundleDir, 'Frameworks');
+    final frameworksDir = runtime.host.paths.context.join(
+      bundleDir,
+      'Frameworks',
+    );
     await runtime.host.fileSystem
         .directory(frameworksDir)
         .create(recursive: true);
 
-    final runnerDest = p.join(bundleDir, 'Runner');
-    await runtime.host.fileSystem.file(runnerBinary).copy(runnerDest);
+    final runnerDest = runtime.host.paths.context.join(bundleDir, 'Runner');
+    await runtime.host.fileSystem
+        .file(runnerBinary)
+        .copy(runtime.host.fileSystem.file(runnerDest).path);
     runtime.runner.makeExecutable(runnerDest);
 
-    await copyDirectoryPreservingSymlinks(
+    await runtime.directoryCopier.copy(
       flutterFramework,
-      p.join(frameworksDir, 'Flutter.framework'),
+      runtime.host.paths.context.join(frameworksDir, 'Flutter.framework'),
     );
-    await copyDirectoryPreservingSymlinks(
+    await runtime.directoryCopier.copy(
       appFramework,
-      p.join(frameworksDir, 'App.framework'),
+      runtime.host.paths.context.join(frameworksDir, 'App.framework'),
     );
     await runtime.frameworks.copyPluginLibraries(
       pluginLibraries,
@@ -140,12 +146,15 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     List<BuiltAppExtension> extensions,
   ) async {
     if (extensions.isEmpty) return;
-    final plugInsDir = p.join(bundleDir, 'PlugIns');
+    final plugInsDir = runtime.host.paths.context.join(bundleDir, 'PlugIns');
     await runtime.host.fileSystem.directory(plugInsDir).create(recursive: true);
     for (final extension in extensions) {
-      await copyDirectoryPreservingSymlinks(
+      await runtime.directoryCopier.copy(
         extension.bundlePath,
-        p.join(plugInsDir, extension.extension.bundleName),
+        runtime.host.paths.context.join(
+          plugInsDir,
+          extension.extension.bundleName,
+        ),
       );
     }
   }
@@ -202,7 +211,7 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     plistXml = AppExtensionPlist.setAppGroups(plistXml, _hostAppGroups());
 
     await runtime.host.fileSystem
-        .file(p.join(bundleDir, 'Info.plist'))
+        .file(runtime.host.paths.context.join(bundleDir, 'Info.plist'))
         .writeAsString(plistXml);
   }
 
@@ -217,7 +226,12 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
   /// Read `ios/Runner/Info.plist`, falling back to [InfoPlist.fallback].
   Future<String> _loadPlistTemplate() async {
     final plistFile = runtime.host.fileSystem.file(
-      p.join(projectRoot, 'ios', 'Runner', 'Info.plist'),
+      runtime.host.paths.context.join(
+        projectRoot,
+        'ios',
+        'Runner',
+        'Info.plist',
+      ),
     );
     if (plistFile.existsSync()) return plistFile.readAsString();
     return InfoPlist.fallback;
@@ -258,12 +272,22 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
       subs['CUSTOM_GROUP_ID'] = hostGroups.first;
     }
 
-    final flutterConfigDirectory = p.join(projectRoot, 'ios', 'Flutter');
+    final flutterConfigDirectory = runtime.host.paths.context.join(
+      projectRoot,
+      'ios',
+      'Flutter',
+    );
     final overrides = _buildVersionOverrides();
     subs.addAll(
       await runtime.xcconfigs.readDebugConfiguration(
-        debugPath: p.join(flutterConfigDirectory, 'Debug.xcconfig'),
-        generatedPath: p.join(flutterConfigDirectory, 'Generated.xcconfig'),
+        debugPath: runtime.host.paths.context.join(
+          flutterConfigDirectory,
+          'Debug.xcconfig',
+        ),
+        generatedPath: runtime.host.paths.context.join(
+          flutterConfigDirectory,
+          'Generated.xcconfig',
+        ),
         sdk: selectedSdk,
         defaults: subs,
         overrides: overrides,

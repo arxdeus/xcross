@@ -8,7 +8,13 @@ import 'package:xcross/src/shared/flutter/project/pbx_project_reader.dart';
 
 /// Stages the application target's Xcode resources into an app bundle.
 final class IosBundleResources {
-  IosBundleResources(this.fileSystem, this.paths, this.projects);
+  IosBundleResources(
+    this.fileSystem,
+    this.paths,
+    this.projects, {
+    required this.copier,
+  });
+  final RecursiveDirectoryCopier copier;
 
   final HostFileSystemInterface fileSystem;
   final p.Context paths;
@@ -44,12 +50,12 @@ final class IosBundleResources {
         source = paths.setExtension(source, '.storyboardc');
       }
 
-      var sourceType = FileSystemEntity.typeSync(source, followLinks: false);
+      var sourceType = _sourceType(source);
       if (sourceType == FileSystemEntityType.notFound) {
         final relocated = _findRelocatedResource(projectRoot, source);
         if (relocated == null) continue;
         source = relocated;
-        sourceType = FileSystemEntity.typeSync(source, followLinks: false);
+        sourceType = _sourceType(source);
       }
 
       final localization = _nearestLocalization(source);
@@ -69,11 +75,20 @@ final class IosBundleResources {
       if (sourceType == FileSystemEntityType.directory) {
         final existing = fileSystem.directory(destination);
         if (existing.existsSync()) await existing.delete(recursive: true);
-        await copyDirectoryPreservingSymlinks(source, destination);
+        await copier.copy(source, destination);
       } else if (sourceType == FileSystemEntityType.file) {
-        await fileSystem.file(source).copy(destination);
+        await fileSystem.file(source).copy(fileSystem.file(destination).path);
       }
     }
+  }
+
+  FileSystemEntityType _sourceType(String source) {
+    if (fileSystem.link(source).existsSync()) return FileSystemEntityType.link;
+    if (fileSystem.directory(source).existsSync()) {
+      return FileSystemEntityType.directory;
+    }
+    if (fileSystem.file(source).existsSync()) return FileSystemEntityType.file;
+    return FileSystemEntityType.notFound;
   }
 
   String? _findRelocatedResource(String projectRoot, String unresolved) {

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
+import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/flutter/build/internal/runner_binary.dart';
@@ -9,7 +10,10 @@ import 'package:xcross/src/flutter/models/flutter/flutter_build_options.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
 import 'package:xcross/src/shared/flutter/flutter_bundle_assembler.dart';
+import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
+import 'package:xcross/src/target/simulator/flutter/simulator_flutter_target.dart';
 
+import '../../host_operations_fixtures.dart';
 import '../flutter_test_runtime.dart';
 
 void main() {
@@ -127,6 +131,131 @@ void main() {
         File(p.join(frameworks.path, 'libPlugin.dylib')).readAsStringSync(),
         'plugin',
       );
+    },
+  );
+  test(
+    'mapped bundle assembly preserves destination mapping and target isolation',
+    () async {
+      final root = Directory.systemTemp.createTempSync(
+        'mapped-bundle-assembly-',
+      );
+      addTearDown(() => root.deleteSync(recursive: true));
+      final fileSystem = FixtureMappedFileSystem(root);
+      final host = LinuxHost(
+        fileSystem: fileSystem,
+        currentDirectory: '/selected-project',
+        temporaryDirectory: '/selected-temp',
+      );
+      fileSystem.directory('/selected-temp').createSync();
+      fileSystem.file('/selected-project/pubspec.yaml')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('name: mapped_fixture\n');
+      for (final (path, contents) in [
+        ('/selected-input/App.framework/App', 'kernel'),
+        ('/selected-input/Runner', 'runner'),
+        ('/selected-input/Native.framework/Native', 'native'),
+        ('/selected-input/libPlugin.dylib', 'plugin'),
+        (
+          '/selected-input/Flutter.xcframework/ios-arm64/Flutter.framework/Flutter',
+          'device',
+        ),
+        (
+          '/selected-input/Flutter.xcframework/ios-arm64-simulator/Flutter.framework/Flutter',
+          'simulator',
+        ),
+      ]) {
+        fileSystem.file(path)
+          ..createSync(recursive: true)
+          ..writeAsStringSync(contents);
+      }
+      final physical = testFlutterRuntime(
+        IPhoneFlutterTarget(IPhoneTarget(host)),
+      );
+      final simulator = testFlutterRuntime(
+        SimulatorFlutterTarget(SimulatorTarget(host)),
+      );
+      Future<String> assemble(FlutterBuildRuntime<LinuxHost> runtime) =>
+          FlutterBundleAssembler(
+            FlutterBuildContext(
+              request: FlutterBuildRequest(
+                runtime: runtime,
+                projectRoot: '/selected-project',
+                bundleId: 'com.example.mapped',
+                options: const FlutterBuildOptions(pub: false),
+              ),
+              flutterRoot: '/unused',
+            ),
+          ).assemble(
+            FlutterLinkedArtifacts(
+              compiled: const FlutterCompiledArtifacts(
+                appFramework: '/selected-input/App.framework',
+                nativeAssets: IosNativeAssetsBuildResult(
+                  manifestPath: '/unused',
+                  frameworks: ['/selected-input/Native.framework'],
+                ),
+              ),
+              runner: RunnerBinary(
+                xcframework: '/selected-input/Flutter.xcframework',
+                runnerBinary: '/selected-input/Runner',
+                sdkName: runtime.target.buildPlatform.sdkName,
+              ),
+              extensions: const [],
+            ),
+          );
+      final physicalBundle = await assemble(physical);
+      fileSystem
+          .file('$physicalBundle/device-sentinel')
+          .writeAsStringSync('untouched');
+      final simulatorBundle = await assemble(simulator);
+      expect(physicalBundle, isNot(simulatorBundle));
+      expect(
+        fileSystem.file('$physicalBundle/device-sentinel').readAsStringSync(),
+        'untouched',
+      );
+      expect(
+        fileSystem
+            .file('$physicalBundle/Frameworks/Flutter.framework/Flutter')
+            .readAsStringSync(),
+        'device',
+      );
+      expect(
+        fileSystem
+            .file('$simulatorBundle/Frameworks/Flutter.framework/Flutter')
+            .readAsStringSync(),
+        'simulator',
+      );
+      expect(
+        fileSystem
+            .file('$simulatorBundle/Frameworks/App.framework/App')
+            .readAsStringSync(),
+        'kernel',
+      );
+      expect(
+        fileSystem
+            .file('$simulatorBundle/Frameworks/Native.framework/Native')
+            .readAsStringSync(),
+        'native',
+      );
+      expect(
+        fileSystem.file('$simulatorBundle/Runner').readAsStringSync(),
+        'runner',
+      );
+      await simulator.frameworks.copyPluginLibraries([
+        '/selected-input/libPlugin.dylib',
+      ], '$simulatorBundle/Frameworks');
+      expect(
+        fileSystem
+            .file('$simulatorBundle/Frameworks/libPlugin.dylib')
+            .readAsStringSync(),
+        'plugin',
+      );
+      expect(fileSystem.touched, contains('$simulatorBundle/Runner'));
+      expect(
+        fileSystem.touched,
+        contains('$simulatorBundle/Frameworks/libPlugin.dylib'),
+      );
+      expect(fileSystem.directory('/selected-temp').listSync(), isEmpty);
+      expect(File('$simulatorBundle/Runner').existsSync(), isFalse);
     },
   );
 }

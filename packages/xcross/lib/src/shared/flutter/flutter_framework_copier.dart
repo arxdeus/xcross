@@ -3,7 +3,8 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/internal/recursive_directory_copy.dart';
 
 final class FlutterFrameworkCopier {
-  FlutterFrameworkCopier(this.fileSystem, this.paths);
+  FlutterFrameworkCopier(this.fileSystem, this.paths, {required this.copier});
+  final RecursiveDirectoryCopier copier;
 
   final HostFileSystemInterface fileSystem;
   final p.Context paths;
@@ -16,7 +17,11 @@ final class FlutterFrameworkCopier {
     for (final library in pluginLibraries) {
       await fileSystem
           .file(library)
-          .copy(paths.join(frameworksDir, paths.basename(library)));
+          .copy(
+            fileSystem
+                .file(paths.join(frameworksDir, paths.basename(library)))
+                .path,
+          );
     }
   }
 
@@ -26,7 +31,7 @@ final class FlutterFrameworkCopier {
     String frameworksDir,
   ) async {
     for (final framework in frameworks) {
-      await copyDirectoryPreservingSymlinks(
+      await copier.copy(
         framework,
         paths.join(frameworksDir, paths.basename(framework)),
       );
