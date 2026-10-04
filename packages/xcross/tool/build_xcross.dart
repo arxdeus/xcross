@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit.dart' show detectPlatformHostSnapshot;
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:cli_kit/src/composition/native_host.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/update/semver.dart';
 
