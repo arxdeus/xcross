@@ -81,7 +81,13 @@ void main() {
       final sibling = File(p.join(tmp.path, 'xcrun'))
         ..writeAsStringSync('bundled');
       final host = MacOSHost(architecture: 'arm64');
-      final runner = ProcessRunner(host, log: nativeTestLog());
+      final runner = ProcessRunner(
+        host,
+        log: nativeTestLog(),
+        stdinStream: const Stream<List<int>>.empty(),
+        stdoutSink: nativeTestSink(),
+        stderrSink: nativeTestSink(),
+      );
       final resolver = AppleToolShimResolver(
         IPhoneTarget(host),
         runner,
@@ -119,7 +125,13 @@ void main() {
     final host = windowsFixtureHost();
     final compiler = await WindowsNativeHostTools(
       host,
-      ProcessRunner(host, log: nativeTestLog()),
+      ProcessRunner(
+        host,
+        log: nativeTestLog(),
+        stdinStream: const Stream<List<int>>.empty(),
+        stdoutSink: nativeTestSink(),
+        stderrSink: nativeTestSink(),
+      ),
     ).compiler(r'C:\Program Files\LLVM\bin\clang.exe');
     expect(compiler.executable, r'C:\Program Files\LLVM\bin\clang.exe');
     expect(compiler.arguments, isEmpty);
@@ -131,7 +143,13 @@ void main() {
     );
     final compiler = await MacOSNativeHostTools(
       host,
-      ProcessRunner(host, log: nativeTestLog()),
+      ProcessRunner(
+        host,
+        log: nativeTestLog(),
+        stdinStream: const Stream<List<int>>.empty(),
+        stdoutSink: nativeTestSink(),
+        stderrSink: nativeTestSink(),
+      ),
     ).compiler('/cross/clang');
     expect(compiler.executable, '/usr/bin/xcrun');
     expect(compiler.arguments, ['--sdk', 'macosx', 'clang']);
@@ -142,6 +160,9 @@ void main() {
       final host = LinuxHost(architecture: 'arm64');
       final runner = ProcessRunner(
         host,
+        stdinStream: const Stream<List<int>>.empty(),
+        stdoutSink: nativeTestSink(),
+        stderrSink: nativeTestSink(),
         configuration: ProcessConfiguration(
           normalizedTools: const {'cc': '/host/cc'},
           effectiveChildEnvironment: const {},
@@ -165,6 +186,9 @@ void main() {
     final host = windowsFixtureHost();
     final runner = ProcessRunner(
       host,
+      stdinStream: const Stream<List<int>>.empty(),
+      stdoutSink: nativeTestSink(),
+      stderrSink: nativeTestSink(),
       configuration: ProcessConfiguration(
         normalizedTools: {'xcross': launcher.path},
         effectiveChildEnvironment: const {},
@@ -181,7 +205,13 @@ void main() {
     expect(
       await WindowsNativeHostTools(
         host,
-        ProcessRunner(host, log: nativeTestLog()),
+        ProcessRunner(
+          host,
+          log: nativeTestLog(),
+          stdinStream: const Stream<List<int>>.empty(),
+          stdoutSink: nativeTestSink(),
+          stderrSink: nativeTestSink(),
+        ),
       ).forwarder('/dart', null),
       isNull,
     );

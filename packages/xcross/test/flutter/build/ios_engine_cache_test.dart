@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -19,6 +20,24 @@ import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dar
 import 'package:xcross/src/target/simulator/flutter/simulator_flutter_target.dart';
 
 void main() {
+  final sinks = <IOSink>[];
+  final subscriptions = <StreamSubscription<List<int>>>[];
+  IOSink sink() {
+    final controller = StreamController<List<int>>();
+    subscriptions.add(controller.stream.listen((_) {}));
+    final output = IOSink(controller.sink);
+    sinks.add(output);
+    return output;
+  }
+
+  tearDownAll(() async {
+    for (final output in sinks) {
+      await output.close();
+    }
+    for (final subscription in subscriptions) {
+      await subscription.cancel();
+    }
+  });
   test(
     'POSIX engine extraction retains executable mode and relative links',
     () async {
@@ -99,7 +118,13 @@ void main() {
   final host = LinuxHost(architecture: 'arm64');
   final hostTools = LinuxNativeHostTools(
     host,
-    ProcessRunner(host, log: _log()),
+    ProcessRunner(
+      host,
+      log: _log(),
+      stdinStream: const Stream<List<int>>.empty(),
+      stdoutSink: sink(),
+      stderrSink: sink(),
+    ),
   );
   final policy = IPhoneFlutterTarget(IPhoneTarget(host));
   IosEngineCache<LinuxHost> cache() => IosEngineCache(
@@ -198,25 +223,61 @@ void main() {
       in <(NativeHostTools, FlutterTargetBuildPolicy, String, String)>[
         (hostTools, policy, 'linux-arm64', 'linux-arm64'),
         (
-          LinuxNativeHostTools(linuxX64, ProcessRunner(linuxX64, log: _log())),
+          LinuxNativeHostTools(
+            linuxX64,
+            ProcessRunner(
+              linuxX64,
+              log: _log(),
+              stdinStream: const Stream<List<int>>.empty(),
+              stdoutSink: sink(),
+              stderrSink: sink(),
+            ),
+          ),
           IPhoneFlutterTarget(IPhoneTarget(linuxX64)),
           'linux-x64',
           'linux-x64',
         ),
         (
-          MacOSNativeHostTools(macArm, ProcessRunner(macArm, log: _log())),
+          MacOSNativeHostTools(
+            macArm,
+            ProcessRunner(
+              macArm,
+              log: _log(),
+              stdinStream: const Stream<List<int>>.empty(),
+              stdoutSink: sink(),
+              stderrSink: sink(),
+            ),
+          ),
           IPhoneFlutterTarget(IPhoneTarget(macArm)),
           'darwin-arm64',
           'darwin-x64',
         ),
         (
-          MacOSNativeHostTools(macX64, ProcessRunner(macX64, log: _log())),
+          MacOSNativeHostTools(
+            macX64,
+            ProcessRunner(
+              macX64,
+              log: _log(),
+              stdinStream: const Stream<List<int>>.empty(),
+              stdoutSink: sink(),
+              stderrSink: sink(),
+            ),
+          ),
           IPhoneFlutterTarget(IPhoneTarget(macX64)),
           'darwin-x64',
           'darwin-x64',
         ),
         (
-          WindowsNativeHostTools(windows, ProcessRunner(windows, log: _log())),
+          WindowsNativeHostTools(
+            windows,
+            ProcessRunner(
+              windows,
+              log: _log(),
+              stdinStream: const Stream<List<int>>.empty(),
+              stdoutSink: sink(),
+              stderrSink: sink(),
+            ),
+          ),
           IPhoneFlutterTarget(IPhoneTarget(windows)),
           'windows-x64',
           'windows-x64',
@@ -273,7 +334,13 @@ void main() {
         targetPolicy: IPhoneFlutterTarget(IPhoneTarget(unsupported)),
         hostTools: WindowsNativeHostTools(
           unsupported,
-          ProcessRunner(unsupported, log: _log()),
+          ProcessRunner(
+            unsupported,
+            log: _log(),
+            stdinStream: const Stream<List<int>>.empty(),
+            stdoutSink: sink(),
+            stderrSink: sink(),
+          ),
         ),
         flutterRoot: flutterRoot,
         log: _log(),
@@ -285,7 +352,16 @@ void main() {
     expect(
       () => IosEngineCache(
         targetPolicy: IPhoneFlutterTarget(IPhoneTarget(arm)),
-        hostTools: LinuxNativeHostTools(arm, ProcessRunner(arm, log: _log())),
+        hostTools: LinuxNativeHostTools(
+          arm,
+          ProcessRunner(
+            arm,
+            log: _log(),
+            stdinStream: const Stream<List<int>>.empty(),
+            stdoutSink: sink(),
+            stderrSink: sink(),
+          ),
+        ),
         flutterRoot: flutterRoot,
         log: _log(),
         downloader: _downloader(),

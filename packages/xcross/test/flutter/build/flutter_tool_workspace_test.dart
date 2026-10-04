@@ -102,7 +102,13 @@ void main() {
         final host = WindowsHost(architecture: 'x64');
         final tools = WindowsNativeHostTools(
           host,
-          ProcessRunner(host, log: nativeTestLog()),
+          ProcessRunner(
+            host,
+            log: nativeTestLog(),
+            stdinStream: const Stream<List<int>>.empty(),
+            stdoutSink: nativeTestSink(),
+            stderrSink: nativeTestSink(),
+          ),
         );
         final source = Directory(p.join(temp.path, 'source'))..createSync();
         final file = File(p.join(source.path, 'payload'))

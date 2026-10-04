@@ -140,7 +140,13 @@ void main() {
       final compilerHost = MacOSHost(architecture: 'arm64');
       final compiler = await MacOSNativeHostTools(
         compilerHost,
-        ProcessRunner(compilerHost, log: nativeTestLog()),
+        ProcessRunner(
+          compilerHost,
+          log: nativeTestLog(),
+          stdinStream: const Stream<List<int>>.empty(),
+          stdoutSink: nativeTestSink(),
+          stderrSink: nativeTestSink(),
+        ),
       ).compiler('/cross/clang');
       final shims = p.join(temp.path, 'shims');
       await installAppleToolShims(
