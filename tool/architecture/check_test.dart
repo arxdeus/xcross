@@ -304,6 +304,28 @@ Future<void> main() async {
         );
       }
     }
+    const windowsLoaderPath =
+        'packages/apple_developer_kit/lib/src/host/windows/adi/loader/loader_windows.dart';
+    final windowsLoaderSource = dependencyAssets()[windowsLoaderPath]!.$1;
+    for (final owner in [
+      'Object sameFactory()',
+      'WindowsNativeLibraryLoader.wrongLibrary()',
+      'WindowsNativeLibraryLoader.wrongFactory()',
+      'WindowsNativeLibraryLoader.nested()',
+    ]) {
+      final ownerOffset = windowsLoaderSource.indexOf(owner);
+      final readOffset = windowsLoaderSource.indexOf('current', ownerOffset);
+      if (ownerOffset < 0 ||
+          readOffset < 0 ||
+          !violations.any(
+            (v) =>
+                v.path == windowsLoaderPath &&
+                v.offset == readOffset &&
+                v.rule == 'ambient-detection',
+          )) {
+        throw StateError('Unapproved Windows ABI read accepted in $owner');
+      }
+    }
     if (classify(
               'packages/fixture/lib/src/host/windows/target/simulator/a.dart',
             ).host !=

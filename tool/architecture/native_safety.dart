@@ -27,7 +27,7 @@ class NativeSafety {
         (
           'WindowsNativeLibraryLoader',
           'WindowsMemoryAllocator',
-          {'windowsX64'},
+          {'windowsX64', 'windowsArm64'},
         ),
   };
   bool scoped(AstNode node) =>
@@ -115,6 +115,23 @@ class NativeSafety {
         node.thisOrAncestorOfType<MethodInvocation>();
     final arguments = call?.parent;
     final outer = arguments?.parent;
+    if (path ==
+            'packages/apple_developer_kit/lib/src/host/windows/adi/loader/loader_windows.dart' &&
+        arguments is ArgumentList &&
+        arguments.arguments.length == 1 &&
+        outer is InstanceCreationExpression &&
+        outer.staticType is InterfaceType &&
+        (outer.staticType! as InterfaceType).element.name == 'WindowsAdiAbi' &&
+        outer.constructorName.name?.name == 'forAbi' &&
+        resolveUri(
+              path,
+              (outer.staticType! as InterfaceType).element.library.uri
+                  .toString(),
+              root: root,
+            ) ==
+            'packages/apple_developer_kit/lib/src/host/windows/adi/loader/internal/windows/windows_adi_abi.dart') {
+      return true;
+    }
     return arguments is ArgumentList &&
         arguments.arguments.length == 1 &&
         outer is MethodInvocation &&
