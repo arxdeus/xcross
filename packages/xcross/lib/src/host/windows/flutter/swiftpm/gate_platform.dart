@@ -19,6 +19,7 @@ final class WindowsSwiftPmGatePlatform<T extends PlatformHostInterface>
     implements SwiftPmGatePlatform {
   WindowsSwiftPmGatePlatform({
     required this.execution,
+    required this.fixtureGenerator,
     required this.fileSystem,
     required this.sdkRepository,
     required this.toolchain,
@@ -36,13 +37,33 @@ final class WindowsSwiftPmGatePlatform<T extends PlatformHostInterface>
         !identical(toolchain.hostBuildServices.target, target) ||
         !identical(toolchain.filesystem.host, target.host) ||
         !identical(toolchain.filesystem.artifactFileSystem, fileSystem) ||
+        !identical(fixtureGenerator.fileSystem, target.host.fileSystem) ||
+        !identical(fixtureGenerator.paths, target.host.paths.context) ||
         !identical(buildPlan.filesystem, toolchain.filesystem) ||
         !identical(log, processPolicy.runner.log)) {
       throw ArgumentError(
         'SwiftPM gate requires coherent configured target, host, filesystem and runner ports',
       );
     }
+    const candidates = [
+      SwiftPmBinaryFixtureLibrary(identifier: 'ios-arm64'),
+      SwiftPmBinaryFixtureLibrary(
+        identifier: 'ios-arm64-simulator',
+        variant: 'simulator',
+      ),
+    ];
+    final matching = candidates
+        .where(
+          (candidate) => targetPolicy.matchesLibraryVariant(candidate.variant),
+        )
+        .toList();
+    if (matching.length != 1) {
+      throw ArgumentError('Gate requires one matching fixture library');
+    }
+    fixtureLibrary = matching.single;
   }
+  final SwiftPmBinaryFixtureGenerator fixtureGenerator;
+  late final SwiftPmBinaryFixtureLibrary fixtureLibrary;
   final SwiftPmGateProcess execution;
   @override
   final SwiftPmArtifactFileSystem fileSystem;
@@ -117,11 +138,10 @@ final class WindowsSwiftPmGatePlatform<T extends PlatformHostInterface>
       );
       await probeParent.create(recursive: true);
       probeRoot = await probeParent.createTemp('run-');
-      final fixture = SwiftPmBinaryFixture.generateXcframework(
-        fileSystem: fileSystem,
+      final fixture = fixtureGenerator.generateXcframework(
         root: probeRoot.path,
         name: 'GateFixture',
-        policy: targetPolicy,
+        library: fixtureLibrary,
       );
       final package = fileSystem.directory(p.join(probeRoot.path, 'package'))
         ..createSync();
@@ -131,8 +151,7 @@ final class WindowsSwiftPmGatePlatform<T extends PlatformHostInterface>
       if (mode == SwiftPmGateMode.packageLocalArtifact) {
         junction = p.join(package.path, 'artifacts', 'GateFixture.xcframework');
         fileSystem.directory(p.dirname(junction)).createSync();
-        SwiftPmBinaryFixture.writeGatePackage(
-          fileSystem: fileSystem,
+        fixtureGenerator.writeGatePackage(
           root: package.path,
           targetName: 'GateFixture',
           path: 'artifacts/GateFixture.xcframework',
@@ -142,13 +161,11 @@ final class WindowsSwiftPmGatePlatform<T extends PlatformHostInterface>
           return false;
         }
       } else {
-        SwiftPmBinaryFixture.archiveXcframework(
-          fileSystem: fileSystem,
+        fixtureGenerator.archiveXcframework(
           framework: fixture,
           output: p.join(package.path, 'GateFixture.zip'),
         );
-        SwiftPmBinaryFixture.writeGatePackage(
-          fileSystem: fileSystem,
+        fixtureGenerator.writeGatePackage(
           root: package.path,
           targetName: 'GateFixture',
           path: 'GateFixture.zip',

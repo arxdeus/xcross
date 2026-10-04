@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:xcross/src/composition/native_runtime.dart';
 import 'package:xcross/src/flutter/build/internal/swiftpm_binary_fixture.dart';
 
 void main(List<String> arguments) {
@@ -8,7 +9,12 @@ void main(List<String> arguments) {
     exitCode = 64;
     return;
   }
-  final fixture = SwiftPmBinaryFixture.generate(
+  final context = createNativeXcrossContext();
+  final generator = SwiftPmBinaryFixtureGenerator(
+    fileSystem: context.host.fileSystem,
+    paths: context.host.paths.context,
+  );
+  final fixture = generator.generate(
     root: arguments[0],
     archiveUrl: Uri.parse(arguments[1]),
   );

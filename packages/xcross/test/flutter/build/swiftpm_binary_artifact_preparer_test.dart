@@ -221,11 +221,15 @@ void main() {
   });
 
   test('generates deterministic SwiftPM XCFramework ZIP fixture', () {
-    final first = SwiftPmBinaryFixture.generate(
+    final generator = SwiftPmBinaryFixtureGenerator(
+      fileSystem: store.host.fileSystem,
+      paths: store.host.paths.context,
+    );
+    final first = generator.generate(
       root: p.join(temp.path, 'first'),
       archiveUrl: Uri.parse('http://127.0.0.1:8123/BinaryFixture.zip'),
     );
-    final second = SwiftPmBinaryFixture.generate(
+    final second = generator.generate(
       root: p.join(temp.path, 'second'),
       archiveUrl: Uri.parse('http://127.0.0.1:8123/BinaryFixture.zip'),
     );

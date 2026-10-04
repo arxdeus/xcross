@@ -2,11 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:archive/archive.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:crypto/crypto.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart' show SimulatorTarget;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/flutter/build/internal/swiftpm_binary_fixture.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/gate_platform.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/build_plan.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/gate_execution.dart';
@@ -26,6 +28,202 @@ void main() {
   tearDown(() async {
     if (root.existsSync()) await root.delete(recursive: true);
   });
+
+  test('fixture generator respects selected mapped namespace', () {
+    final context = CheckoutTestContext(root, (_) => CheckoutTestProcess());
+    addTearDown(context.output.close);
+    final logicalRoot = p.join(root.path, 'logical');
+    final physicalRoot = p.join(root.path, 'mapped');
+    final fileSystem = MappedGateFixtureFileSystem(
+      logicalRoot: logicalRoot,
+      physicalRoot: physicalRoot,
+      delegate: context.host.fileSystem,
+      paths: context.host.paths.context,
+    );
+    final generator = SwiftPmBinaryFixtureGenerator(
+      fileSystem: fileSystem,
+      paths: context.host.paths.context,
+    );
+    final fixture = generator.generate(
+      root: p.join(logicalRoot, 'first'),
+      archiveUrl: Uri.parse('https://fixture.invalid/BinaryFixture.zip'),
+    );
+    expect(
+      fixture.pluginRoot.path,
+      p.join(physicalRoot, 'first', 'binary_fixture_plugin'),
+    );
+    expect(fileSystem.acquisitions, hasLength(8));
+    final second = generator.generate(
+      root: p.join(logicalRoot, 'second'),
+      archiveUrl: Uri.parse('https://fixture.invalid/BinaryFixture.zip'),
+    );
+    expect(fileSystem.acquisitions, hasLength(16));
+    expect(fixture.archive.readAsBytesSync(), second.archive.readAsBytesSync());
+    expect(fixture.checksum, second.checksum);
+    expect(
+      fixture.checksum,
+      sha256.convert(fixture.archive.readAsBytesSync()).toString(),
+    );
+    final manifest = fileSystem
+        .file(
+          p.join(
+            logicalRoot,
+            'first',
+            'binary_fixture_plugin',
+            'ios',
+            'binary_fixture_plugin',
+            'Package.swift',
+          ),
+        )
+        .readAsStringSync();
+    expect(manifest, contains('checksum: "${fixture.checksum}"'));
+    expect(manifest, contains('import PackageDescription'));
+    expect(
+      fileSystem
+          .file(
+            p.join(
+              logicalRoot,
+              'first',
+              'binary_fixture_plugin',
+              'pubspec.yaml',
+            ),
+          )
+          .existsSync(),
+      isTrue,
+    );
+    expect(
+      fileSystem
+          .file(
+            p.join(
+              logicalRoot,
+              'first',
+              'binary_fixture_plugin',
+              'ios',
+              'binary_fixture_plugin',
+              'Sources',
+              'binary_fixture_plugin',
+              'BinaryFixturePlugin.swift',
+            ),
+          )
+          .existsSync(),
+      isTrue,
+    );
+    final decoded = ZipDecoder().decodeBytes(fixture.archive.readAsBytesSync());
+    final names = decoded.files.map((entry) => entry.name).toList();
+    expect(names, orderedEquals([...names]..sort()));
+    expect(names.every((name) => !name.contains(r'\')), isTrue);
+    expect(Directory(logicalRoot).existsSync(), isFalse);
+
+    final frameworks = <Directory>[];
+    for (final order in [false, true]) {
+      final directory = p.join(
+        logicalRoot,
+        order ? 'tree-second' : 'tree-first',
+      );
+      final framework = generator.generateXcframework(
+        root: directory,
+        name: 'GateFixture',
+        library: const SwiftPmBinaryFixtureLibrary(identifier: 'ios-arm64'),
+      );
+      for (final name in order ? ['Z.txt', 'A.txt'] : ['A.txt', 'Z.txt']) {
+        fileSystem
+            .file(p.join(directory, 'GateFixture.xcframework', name))
+            .writeAsStringSync(name);
+      }
+      frameworks.add(framework);
+      generator.writeGatePackage(
+        root: directory,
+        targetName: 'GateFixture',
+        path: 'GateFixture.xcframework',
+      );
+      expect(
+        fileSystem.file(p.join(directory, 'Package.swift')).readAsStringSync(),
+        contains('import PackageDescription'),
+      );
+    }
+    final firstArchive = generator.archiveXcframework(
+      framework: frameworks[0],
+      output: p.join(logicalRoot, 'tree-first.zip'),
+    );
+    final secondArchive = generator.archiveXcframework(
+      framework: frameworks[1],
+      output: p.join(logicalRoot, 'tree-second.zip'),
+    );
+    expect(firstArchive.readAsBytesSync(), secondArchive.readAsBytesSync());
+    final archivedNames = ZipDecoder()
+        .decodeBytes(firstArchive.readAsBytesSync())
+        .files
+        .map((entry) => entry.name)
+        .toList();
+    expect(archivedNames, orderedEquals([...archivedNames]..sort()));
+    expect(archivedNames.every((name) => !name.contains(r'\')), isTrue);
+  });
+
+  test(
+    'fixture generator uses selected Windows paths and portable archive names',
+    () {
+      final context = CheckoutTestContext(root, (_) => CheckoutTestProcess());
+      addTearDown(context.output.close);
+      final paths = p.Context(style: p.Style.windows);
+      const logicalRoot = r'Q:\fixtures';
+      final physicalRoot = p.join(root.path, 'windows-mapped');
+      final fileSystem = MappedGateFixtureFileSystem(
+        logicalRoot: logicalRoot,
+        physicalRoot: physicalRoot,
+        delegate: context.host.fileSystem,
+        paths: paths,
+      );
+      final generator = SwiftPmBinaryFixtureGenerator(
+        fileSystem: fileSystem,
+        paths: paths,
+      );
+      final fixture = generator.generate(
+        root: logicalRoot,
+        archiveUrl: Uri.parse('https://fixture.invalid/BinaryFixture.zip'),
+      );
+      expect(
+        fixture.pluginRoot.path,
+        p.join(physicalRoot, 'binary_fixture_plugin'),
+      );
+      expect(fileSystem.acquisitions, hasLength(8));
+      expect(
+        fileSystem.acquisitions.every((path) => !path.contains('/')),
+        isTrue,
+      );
+      final framework = generator.generateXcframework(
+        root: logicalRoot,
+        name: 'GateFixture',
+        library: const SwiftPmBinaryFixtureLibrary(
+          identifier: 'ios-arm64-simulator',
+          variant: 'simulator',
+        ),
+      );
+      final metadata = fileSystem
+          .file(
+            paths.join(logicalRoot, 'GateFixture.xcframework', 'Info.plist'),
+          )
+          .readAsStringSync();
+      expect(metadata, contains('<string>simulator</string>'));
+      expect(metadata, contains('ios-arm64-simulator'));
+      final archive = generator.archiveXcframework(
+        framework: framework,
+        output: paths.join(logicalRoot, 'GateFixture.zip'),
+      );
+      final names = ZipDecoder()
+          .decodeBytes(archive.readAsBytesSync())
+          .files
+          .map((entry) => entry.name)
+          .toList();
+      expect(
+        names,
+        contains(
+          'GateFixture.xcframework/ios-arm64-simulator/GateFixture.framework/GateFixture',
+        ),
+      );
+      expect(names.every((name) => !name.contains(r'\')), isTrue);
+      expect(names, orderedEquals([...names]..sort()));
+    },
+  );
 
   group('bounded gate processes', () {
     test('captures complete output and exit', () async {
@@ -98,6 +296,52 @@ void main() {
     }
   });
 
+  test('gate rejects incoherent generator ports before effects', () {
+    final runtime = testWindowsSwiftPmRuntime(
+      currentDirectory: root.path,
+      environment: {
+        'USERPROFILE': root.path,
+        'LOCALAPPDATA': root.path,
+        'TEMP': root.path,
+        'TMP': root.path,
+      },
+    );
+    final executor = RecordingGateTestProcess(runtime.runner.host);
+    final mapped = MappedGateFixtureFileSystem(
+      logicalRoot: p.join(root.path, 'logical'),
+      physicalRoot: p.join(root.path, 'mapped'),
+      delegate: runtime.runner.host.fileSystem,
+      paths: runtime.runner.host.paths.context,
+    );
+    for (final generator in [
+      SwiftPmBinaryFixtureGenerator(
+        fileSystem: mapped,
+        paths: runtime.runner.host.paths.context,
+      ),
+      SwiftPmBinaryFixtureGenerator(
+        fileSystem: runtime.runner.host.fileSystem,
+        paths: p.Context(style: p.Style.posix),
+      ),
+    ]) {
+      expect(
+        () => WindowsSwiftPmGatePlatform(
+          execution: executor,
+          fixtureGenerator: generator,
+          fileSystem: runtime.artifactFileSystem,
+          sdkRepository: runtime.sdkRepository,
+          toolchain: runtime.toolchain,
+          processPolicy: runtime.processPolicy,
+          buildPlan: runtime.buildPlan,
+          targetPolicy: runtime.targetPolicy,
+          log: runtime.runner.log,
+        ),
+        throwsArgumentError,
+      );
+    }
+    expect(executor.calls, 0);
+    expect(mapped.acquisitions, isEmpty);
+  });
+
   group('selected Windows gate', () {
     for (final simulator in [false, true]) {
       for (final mode in SwiftPmGateMode.values) {
@@ -119,6 +363,10 @@ void main() {
             final executor = RecordingGateTestProcess(runtime.runner.host);
             final gate = WindowsSwiftPmGatePlatform(
               execution: executor,
+              fixtureGenerator: SwiftPmBinaryFixtureGenerator(
+                fileSystem: runtime.runner.host.fileSystem,
+                paths: runtime.runner.host.paths.context,
+              ),
               fileSystem: runtime.artifactFileSystem,
               sdkRepository: runtime.sdkRepository,
               toolchain: runtime.toolchain,
@@ -218,6 +466,10 @@ void main() {
           );
           final gate = WindowsSwiftPmGatePlatform(
             execution: executor,
+            fixtureGenerator: SwiftPmBinaryFixtureGenerator(
+              fileSystem: runtime.runner.host.fileSystem,
+              paths: runtime.runner.host.paths.context,
+            ),
             fileSystem: runtime.artifactFileSystem,
             sdkRepository: runtime.sdkRepository,
             toolchain: runtime.toolchain,
@@ -333,6 +585,7 @@ final class RecordingGateTestProcess implements SwiftPmGateProcess {
   @override
   final WindowsHost host;
   final bool uncertain;
+  int calls = 0;
   final List<List<String>> swiftArguments = [];
   final List<String> manifests = [];
   final List<String> plists = [];
@@ -344,6 +597,7 @@ final class RecordingGateTestProcess implements SwiftPmGateProcess {
     required Duration timeout,
     Map<String, String>? environment,
   }) async {
+    calls++;
     if (arguments.contains('--version')) {
       return ProcessResult(42, 0, 'fixture version', '');
     }
@@ -519,4 +773,54 @@ final class GateThrowingCancelSubscription
   bool get isPaused => source.isPaused;
   @override
   Future<E> asFuture<E>([E? futureValue]) => source.asFuture<E>(futureValue);
+}
+
+final class MappedGateFixtureFileSystem implements HostFileSystemInterface {
+  MappedGateFixtureFileSystem({
+    required this.logicalRoot,
+    required this.physicalRoot,
+    required this.delegate,
+    required this.paths,
+  });
+  final String logicalRoot;
+  final String physicalRoot;
+  final HostFileSystemInterface delegate;
+  final p.Context paths;
+  final List<String> acquisitions = [];
+  String map(String path) {
+    if (path != logicalRoot && !paths.isWithin(logicalRoot, path)) {
+      throw StateError('Unexpected or reacquired physical fixture path: $path');
+    }
+    return p.joinAll([
+      physicalRoot,
+      ...paths.split(paths.relative(path, from: logicalRoot)),
+    ]);
+  }
+
+  @override
+  File file(String path) {
+    acquisitions.add(path);
+    return delegate.file(map(path));
+  }
+
+  @override
+  Directory directory(String path) {
+    acquisitions.add(path);
+    return delegate.directory(map(path));
+  }
+
+  @override
+  Link link(String path) {
+    acquisitions.add(path);
+    return delegate.link(map(path));
+  }
+
+  @override
+  void makeExecutable(String path) => delegate.makeExecutable(map(path));
+  @override
+  void setPermissions(String path, int mode) =>
+      delegate.setPermissions(map(path), mode);
+  @override
+  Future<void> createArchiveLink(String destination, String target) =>
+      delegate.createArchiveLink(map(destination), map(target));
 }
