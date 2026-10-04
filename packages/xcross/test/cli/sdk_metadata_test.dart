@@ -15,6 +15,7 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/host/windows/sdk/materialized_sdk_archive_links.dart';
+import 'package:xcross/src/host/windows/sdk/windows_swift_toolchain_host.dart';
 import 'package:xcross/src/shared/cli/basic/sdk_install.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/sdk/sdk_metadata_platform.dart';
@@ -61,7 +62,7 @@ void main() {
         runner,
         repository,
         links: MaterializedSdkArchiveLinks(host),
-        swiftInstallGuidance: 'fixture',
+        swiftToolchain: const WindowsSwiftToolchainHost(),
         swiftBuildTools: const ['swift-build'],
         metadataPlatforms: [WindowsSdkMetadataPlatformFixture(sdkRoot)],
       );

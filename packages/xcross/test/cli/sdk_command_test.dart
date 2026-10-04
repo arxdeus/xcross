@@ -11,8 +11,10 @@ import 'package:darwin_sdk_kit/target/simulator/simulator_build_platform.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/host/macos/sdk/macos_swift_toolchain_host.dart';
 import 'package:xcross/src/host/shared/sdk/preserved_sdk_archive_links.dart';
 import 'package:xcross/src/host/windows/sdk/materialized_sdk_archive_links.dart';
+import 'package:xcross/src/host/windows/sdk/windows_swift_toolchain_host.dart';
 import 'package:xcross/src/shared/cli/basic/sdk_command.dart';
 import 'package:xcross/src/shared/cli/basic/sdk_install.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
@@ -36,7 +38,7 @@ void main() {
           sdkContext.runner,
           DarwinSdkRepository(otherHost, log: sdkContext.log),
           links: PreservedSdkArchiveLinks(sdkContext.host),
-          swiftInstallGuidance: 'fixture',
+          swiftToolchain: const MacOSSwiftToolchainHost(),
           swiftBuildTools: const ['swift'],
           metadataPlatforms: const [IPhoneSdkMetadataPlatform<MacOSHost>()],
         ),
@@ -54,7 +56,7 @@ void main() {
         sdkContext.runner,
         sdkContext.repository,
         links: PreservedSdkArchiveLinks(sdkContext.host),
-        swiftInstallGuidance: 'fixture',
+        swiftToolchain: const MacOSSwiftToolchainHost(),
         swiftBuildTools: tools,
         metadataPlatforms: platforms,
       );
@@ -150,7 +152,7 @@ void main() {
             runner,
             repository,
             links: MaterializedSdkArchiveLinks(host),
-            swiftInstallGuidance: 'fixture',
+            swiftToolchain: const WindowsSwiftToolchainHost(),
             swiftBuildTools: const ['swift-build'],
             metadataPlatforms: const [IPhoneSdkMetadataPlatform<WindowsHost>()],
           );

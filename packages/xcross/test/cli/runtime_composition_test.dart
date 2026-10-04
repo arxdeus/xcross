@@ -295,6 +295,19 @@ void main() {
           releaseLookup: const ReleaseLookup(createClient: HttpClient.new),
           outputHasTerminal: false,
         );
+        final runtime = (await context.load()).runtime;
+        expect(
+          runtime.sdkInstall.toolchain.policy,
+          same(runtime.operations.swiftToolchain),
+        );
+        expect(
+          runtime.sdkInstall.swiftInstallGuidance,
+          contains('install/$name'),
+        );
+        expect(
+          runtime.operations.swiftToolchain.failureGuidance(0xC0000135),
+          name == 'windows' ? contains('runtime DLLs') : isNull,
+        );
         final physical = await context.createBuildFeatures('iphone');
         expect(physical.flutterRuntime.host, same(host));
         expect(physical.composeOperation.context.runner.host, same(host));
@@ -378,6 +391,15 @@ void main() {
 
   test('feature runtimes retain one host and target identity', () {
     final runtime = testRuntime();
+    expect(
+      runtime.sdkInstall.toolchain.policy,
+      same(runtime.operations.swiftToolchain),
+    );
+    expect(runtime.sdkInstall.swiftInstallGuidance, contains('install/linux'));
+    expect(
+      runtime.operations.swiftToolchain.failureGuidance(0xC0000135),
+      isNull,
+    );
     final physical = composePhysicalFeatures(runtime);
     final simulator = composeBuildFeatures('simulator', runtime);
     expect(identical(physical.target.host, runtime.host), isTrue);

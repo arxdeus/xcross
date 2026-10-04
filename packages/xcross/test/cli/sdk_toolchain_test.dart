@@ -3,13 +3,16 @@ import 'dart:io';
 import 'package:cli_kit/shared/process/process_models.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/host/windows/sdk/windows_swift_toolchain_host.dart';
 import 'package:xcross/src/shared/cli/basic/sdk_install.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/shared/sdk/sdk_swift_toolchain.dart';
 
 import 'sdk_test_support.dart';
 
 void main() {
   final sdkContext = SdkTestContext();
+  tearDownAll(sdkContext.close);
   final installer = sdkContext.installer();
 
   test('uses clang beside the selected Swift executable', () async {
@@ -109,39 +112,63 @@ void main() {
     expect(File(destination).readAsStringSync(), '21');
   });
 
-  test('reports the DLL hint when no shipped headers exist', () async {
-    final temp = Directory.systemTemp.createTempSync('xcross-sdk-nodir-');
-    addTearDown(() => temp.deleteSync(recursive: true));
-    final bin = await Directory(
-      p.join(temp.path, 'usr', 'bin'),
-    ).create(recursive: true);
-    File(
-      p.join(bin.path, sdkContext.runner.hostExecutableName('swift')),
-    ).createSync();
-    File(
-      p.join(bin.path, sdkContext.runner.hostExecutableName('clang')),
-    ).createSync();
+  test(
+    'uses the selected failure guidance when no shipped headers exist',
+    () async {
+      final temp = Directory.systemTemp.createTempSync('xcross-sdk-nodir-');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final bin = await Directory(
+        p.join(temp.path, 'usr', 'bin'),
+      ).create(recursive: true);
+      File(
+        p.join(bin.path, sdkContext.runner.hostExecutableName('swift')),
+      ).createSync();
+      File(
+        p.join(bin.path, sdkContext.runner.hostExecutableName('clang')),
+      ).createSync();
 
-    await expectLater(
-      installer.replaceClangBuiltinHeaders(
-        temp.path,
-        locateTool: (name) async =>
-            p.join(bin.path, sdkContext.runner.hostExecutableName('swift')),
-        runProcess: (executable, arguments) async =>
-            const CapturedProcess(0xC0000135, '', ''),
-      ),
-      throwsA(
-        isA<XcrossError>().having(
-          (error) => error.message,
-          'message',
-          allOf(
-            contains('exited 3221225781'),
-            contains('STATUS_DLL_NOT_FOUND'),
+      await expectLater(
+        SdkSwiftToolchain(
+          sdkContext.runner,
+          const WindowsSwiftToolchainHost(),
+        ).replaceClangBuiltinHeaders(
+          temp.path,
+          locateTool: (name) async =>
+              p.join(bin.path, sdkContext.runner.hostExecutableName('swift')),
+          runProcess: (executable, arguments) async =>
+              const CapturedProcess(0xC0000135, '', ''),
+        ),
+        throwsA(
+          isA<XcrossError>().having(
+            (error) => error.message,
+            'message',
+            allOf(contains('exited 3221225781'), contains('runtime DLLs')),
           ),
         ),
-      ),
-    );
-  });
+      );
+
+      await expectLater(
+        installer.replaceClangBuiltinHeaders(
+          temp.path,
+          locateTool: (name) async =>
+              p.join(bin.path, sdkContext.runner.hostExecutableName('swift')),
+          runProcess: (executable, arguments) async =>
+              const CapturedProcess(0xC0000135, '', ''),
+        ),
+        throwsA(
+          isA<XcrossError>().having(
+            (error) => error.message,
+            'message',
+            allOf(
+              contains('exited 3221225781'),
+              isNot(contains('DLL')),
+              isNot(contains('LOCALAPPDATA')),
+            ),
+          ),
+        ),
+      );
+    },
+  );
 
   group('host toolchain stamp', () {
     /// A fake toolchain layout: `bin/swift` with a sibling `clang` that

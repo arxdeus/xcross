@@ -6,6 +6,7 @@ import 'package:cli_kit/shared/logging/logging.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
 import 'package:meta/meta.dart';
+import 'package:xcross/src/host/macos/sdk/macos_swift_toolchain_host.dart';
 import 'package:xcross/src/host/shared/sdk/preserved_sdk_archive_links.dart';
 import 'package:xcross/src/shared/cli/basic/sdk_install.dart';
 import 'package:xcross/src/shared/sdk/sdk_archive_links.dart';
@@ -52,7 +53,7 @@ final class SdkTestContext {
         runner,
         repository,
         links: links ?? PreservedSdkArchiveLinks(host),
-        swiftInstallGuidance: 'Use the isolated fixture Swift toolchain.',
+        swiftToolchain: const MacOSSwiftToolchainHost(),
         swiftBuildTools: const ['swift', 'swiftc'],
         metadataPlatforms: const [
           IPhoneSdkMetadataPlatform<MacOSHost>(),

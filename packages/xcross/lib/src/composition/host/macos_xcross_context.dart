@@ -178,7 +178,7 @@ final class MacOSXcrossHostContext
       runner,
       repository,
       links: PreservedSdkArchiveLinks(host),
-      swiftInstallGuidance: operations.swiftInstallGuidance,
+      swiftToolchain: operations.swiftToolchain,
       swiftBuildTools: const ['swift', 'swiftc'],
       metadataPlatforms: [
         const IPhoneSdkMetadataPlatform<MacOSHostInterface>(),

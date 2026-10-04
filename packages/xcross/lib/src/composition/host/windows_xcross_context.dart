@@ -184,7 +184,7 @@ final class WindowsXcrossHostContext
       runner,
       repository,
       links: MaterializedSdkArchiveLinks(host),
-      swiftInstallGuidance: operations.swiftInstallGuidance,
+      swiftToolchain: operations.swiftToolchain,
       swiftBuildTools: const ['swift-package', 'swift-build', 'swiftc'],
       metadataPlatforms: [
         const IPhoneSdkMetadataPlatform<WindowsHostInterface>(),

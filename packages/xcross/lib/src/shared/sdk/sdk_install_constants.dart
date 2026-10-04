@@ -59,11 +59,6 @@ const sdkJsonEncoder = JsonEncoder.withIndent('  ');
 @internal
 const hostToolchainStampName = 'xcross-host-toolchain.json';
 
-/// Windows reports "a DLL this executable needs is missing" as a bare exit
-/// code, with no output on either stream.
-@internal
-const sdkStatusDllNotFound = 0xC0000135;
-
 /// The compiler-mismatch diagnostic Swift emits when the bundle was patched
 /// against a different toolchain than the one now building.
 @internal

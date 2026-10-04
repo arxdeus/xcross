@@ -12,6 +12,7 @@ import 'package:xcross/src/shared/sdk/sdk_build_identity.dart';
 import 'package:xcross/src/shared/sdk/sdk_bundle_metadata_writer.dart';
 import 'package:xcross/src/shared/sdk/sdk_metadata_platform.dart';
 import 'package:xcross/src/shared/sdk/sdk_swift_toolchain.dart';
+import 'package:xcross/src/shared/sdk/swift_toolchain_host.dart';
 
 @internal
 final class SdkInstall<T extends PlatformHostInterface> {
@@ -19,7 +20,7 @@ final class SdkInstall<T extends PlatformHostInterface> {
     this.runner,
     this.repository, {
     required this.links,
-    required this.swiftInstallGuidance,
+    required SwiftToolchainHostInterface swiftToolchain,
     required List<String> swiftBuildTools,
     required List<SdkMetadataPlatformInterface<T>> metadataPlatforms,
   }) : swiftBuildTools = List.unmodifiable(swiftBuildTools),
@@ -31,7 +32,7 @@ final class SdkInstall<T extends PlatformHostInterface> {
     }
     archive = SdkArchiveExtraction(runner, repository, links);
     metadata = SdkBundleMetadataWriter(repository, this.metadataPlatforms);
-    toolchain = SdkSwiftToolchain(runner);
+    toolchain = SdkSwiftToolchain(runner, swiftToolchain);
     fingerprints = SdkBuildIdentity(
       runner,
       repository,
@@ -42,7 +43,7 @@ final class SdkInstall<T extends PlatformHostInterface> {
   final ProcessRunner<T> runner;
   final DarwinSdkRepository<T> repository;
   final SdkArchiveLinksInterface links;
-  final String swiftInstallGuidance;
+  String get swiftInstallGuidance => toolchain.policy.installGuidance;
   final List<String> swiftBuildTools;
   final List<SdkMetadataPlatformInterface<T>> metadataPlatforms;
   T get host => runner.host;

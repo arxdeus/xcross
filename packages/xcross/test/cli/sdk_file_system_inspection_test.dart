@@ -171,7 +171,10 @@ void main() {
           .writeAsString('untouched');
       await files.link(destination).create(files.map(outside));
 
-      await SdkSwiftToolchain(runner).replaceClangBuiltinHeaders(
+      await SdkSwiftToolchain(
+        runner,
+        context.installer().toolchain.policy,
+      ).replaceClangBuiltinHeaders(
         bundle,
         locateTool: (_) async => swift,
         runProcess: (_, arguments) async => arguments.contains('--version')

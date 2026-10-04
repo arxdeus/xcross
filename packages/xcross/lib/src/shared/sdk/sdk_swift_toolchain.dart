@@ -13,11 +13,14 @@ import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/sdk/sdk_directory_copy.dart';
 import 'package:xcross/src/shared/sdk/sdk_install_constants.dart';
 import 'package:xcross/src/shared/sdk/sdk_json_file_writer.dart';
+import 'package:xcross/src/shared/sdk/swift_toolchain_host.dart';
 
 @internal
 final class SdkSwiftToolchain<T extends PlatformHostInterface> {
-  SdkSwiftToolchain(this.runner) : json = SdkJsonFileWriter(runner.host);
+  SdkSwiftToolchain(this.runner, this.policy)
+    : json = SdkJsonFileWriter(runner.host);
   final ProcessRunner<T> runner;
+  final SwiftToolchainHostInterface policy;
   final SdkJsonFileWriter<T> json;
   T get host => runner.host;
   Log get log => runner.log;
@@ -293,7 +296,7 @@ final class SdkSwiftToolchain<T extends PlatformHostInterface> {
       .map((segment) => int.tryParse(segment) ?? -1)
       .toList(growable: false);
 
-  static String _clangFailureDetail(CapturedProcess? result, Object? failure) {
+  String _clangFailureDetail(CapturedProcess? result, Object? failure) {
     if (result == null) return '\n$failure';
     final detail = <String>[
       '`clang -print-resource-dir` exited ${result.exitCode}.',
@@ -301,17 +304,10 @@ final class SdkSwiftToolchain<T extends PlatformHostInterface> {
     for (final output in [result.stdout.trim(), result.stderr.trim()]) {
       if (output.isNotEmpty) detail.add(output);
     }
-    final status = ProcessRunner.describeExitCode(result.exitCode);
+    final status = runner.describeExitCode(result.exitCode);
     if (status != null) detail.add('That is $status.');
-    if (result.exitCode == sdkStatusDllNotFound ||
-        result.exitCode == sdkStatusDllNotFound - 0x100000000) {
-      detail.add(
-        'The Swift toolchain binaries cannot start because their runtime DLLs '
-        'are not on PATH. Open a new terminal so the installer PATH applies, '
-        r'or add %LOCALAPPDATA%\Programs\Swift\Runtimes\<version>\usr\bin to '
-        'PATH.',
-      );
-    }
+    final guidance = policy.failureGuidance(result.exitCode);
+    if (guidance != null) detail.add(guidance);
     return '\n${detail.join('\n')}';
   }
 

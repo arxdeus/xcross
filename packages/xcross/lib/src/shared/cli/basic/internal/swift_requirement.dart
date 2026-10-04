@@ -3,22 +3,6 @@ import 'package:cli_kit/shared/process/process.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
-/// Where each host installs the Swift toolchain, for the "install it first"
-/// message. Linux gets swiftly because that is what swift.org now recommends
-/// and what the SDK-install step has to read a version out of.
-const _swiftInstallHint = {
-  'windows':
-      'Install Swift for Windows from https://www.swift.org/install/windows/\n'
-      'then open a new terminal so its bin directory is on PATH.',
-  'macos':
-      'Install Swift with Xcode or the toolchain installer from\n'
-      'https://www.swift.org/install/macos/',
-  'linux':
-      'Install Swift from https://www.swift.org/install/linux/ (swiftly is the\n'
-      'easiest route), then open a new terminal so its bin directory is on '
-      'PATH.',
-};
-
 /// Preflight for the two commands that cannot do anything useful without a
 /// Swift toolchain already on PATH.
 ///
@@ -84,12 +68,5 @@ final class SwiftRequirement {
       'this Swift.\n'
       'Reinstall a complete Swift toolchain from https://www.swift.org/install/',
     );
-  }
-
-  /// Per-host instructions for installing Swift.
-  static String installHint(String name) {
-    return _swiftInstallHint[name] ??
-        'Install Swift from https://www.swift.org/install/ and ensure its bin '
-            'directory is on PATH.';
   }
 }
