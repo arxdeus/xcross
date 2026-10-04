@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:frontend_server_kit/frontend_server_kit.dart';
 import 'package:test/test.dart';
-import 'package:path/path.dart' as p;
 
 import 'test_log_output.dart';
 
@@ -13,7 +12,7 @@ void main() {
   late Factory factory;
   late FrontendServerSession session;
   late List<String> diagnostics;
-  final host = MacOSHost(environment: const {});
+  final host = MacOSHost();
 
   setUp(() {
     directory = Directory.systemTemp.createTempSync('compiler_lifecycle_');

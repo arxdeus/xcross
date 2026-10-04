@@ -2,11 +2,11 @@ import 'dart:async';
 
 import 'package:async/async.dart';
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:path/path.dart' as p;
 import 'package:frontend_server_kit/src/errors.dart';
 import 'package:frontend_server_kit/src/frontend_server_options.dart';
 import 'package:frontend_server_kit/src/package_uris.dart';
 import 'package:frontend_server_kit/src/shared/process/compiler_transport.dart';
+import 'package:path/path.dart' as p;
 
 /// Drives a persistent `frontend_server` subprocess over its stdin/stdout
 /// protocol, producing incremental kernel diffs for hot reload.

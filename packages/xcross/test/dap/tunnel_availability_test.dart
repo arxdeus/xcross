@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/dart_mobile_device_shared.dart';
 import 'package:dds/dap.dart';
+import 'package:frontend_server_kit/frontend_server_kit.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/dap/dap_router.dart';
 import 'package:xcross/src/dap/xcross_dap.dart';
@@ -16,13 +18,19 @@ void main() {
       final root = Directory.systemTemp.createTempSync('dap_availability_');
       addTearDown(() => root.deleteSync(recursive: true));
       Directory('${root.path}/.dart_tool').createSync();
-      File(
-        '${root.path}/.dart_tool/package_config.json',
-      ).writeAsStringSync('{"configVersion":2,"packages":[]}');
+      File('${root.path}/.dart_tool/package_config.json').writeAsStringSync(
+        '{"configVersion":2,"packages":[{"name":"dap_fixture","rootUri":"../","packageUri":"lib/"}]}',
+      );
       final processes = AvailabilityProcesses();
-      final fileSystem = DapFixtureFileSystem();
+      final logicalRoot = '/dap-${p.basename(root.path)}';
+      final paths = PosixPaths(currentDirectory: logicalRoot);
+      final fileSystem = DapFixtureFileSystem(
+        logicalRoot,
+        root.path,
+        paths.context,
+      );
       final runner = ProcessRunner(
-        MacOSHost(processes: processes, fileSystem: fileSystem),
+        MacOSHost(processes: processes, fileSystem: fileSystem, paths: paths),
         log: testLog(),
         stdinStream: const Stream.empty(),
         stdoutSink: testSink(),
@@ -42,10 +50,14 @@ void main() {
         runner: runner,
         tunnelAvailability: availability,
         launcher: '/selected/xcross',
+        packageUriLoader: PackageUriLoader(
+          fileSystem: runner.host.fileSystem,
+          paths: runner.host.paths.context,
+        ),
       );
       adapter.args = DartLaunchRequestArguments.fromJson({
         'program': 'lib/main.dart',
-        'cwd': root.path,
+        'cwd': logicalRoot,
       });
       var responded = false;
       final watch = Stopwatch()..start();
@@ -53,10 +65,10 @@ void main() {
       watch.stop();
       await Future<void>.delayed(Duration.zero);
       expect(availability.calls, 1);
-      expect(fileSystem.directories, [root.path]);
+      expect(fileSystem.directories, [logicalRoot]);
       expect(
         fileSystem.files,
-        contains('${root.path}/.dart_tool/package_config.json'),
+        contains('$logicalRoot/.dart_tool/package_config.json'),
       );
       expect(responded, isTrue);
       expect(processes.executable, '/selected/xcross');
@@ -67,7 +79,16 @@ void main() {
         'lib/main.dart',
       ]);
       expect(processes.environment, {'XCROSS_DAP': '1'});
-      expect(processes.workingDirectory, root.path);
+      expect(processes.workingDirectory, logicalRoot);
+      expect(
+        adapter
+            .convertUriToOrgDartlangSdk(
+              paths.context.toUri('$logicalRoot/lib/main.dart'),
+            )
+            .toString(),
+        'package:dap_fixture/main.dart',
+      );
+      expect(Directory(logicalRoot).existsSync(), isFalse);
       final warnings = events.where((event) => event['event'] == 'output');
       if (outcome == 'reachable') {
         expect(warnings, isEmpty);
@@ -170,19 +191,31 @@ final class AvailabilityChild implements Process {
 }
 
 final class DapFixtureFileSystem implements HostFileSystemInterface {
+  DapFixtureFileSystem(this.logicalRoot, this.backingRoot, this.paths);
+  final String logicalRoot;
+  final String backingRoot;
+  final p.Context paths;
+  String map(String path) {
+    if (path == logicalRoot) return backingRoot;
+    if (!paths.isWithin(logicalRoot, path)) {
+      throw StateError('outside selected DAP namespace: $path');
+    }
+    return paths.join(backingRoot, paths.relative(path, from: logicalRoot));
+  }
+
   final directories = <String>[];
   final files = <String>[];
 
   @override
   File file(String path) {
     files.add(path);
-    return File(path);
+    return File(map(path));
   }
 
   @override
   Directory directory(String path) {
     directories.add(path);
-    return Directory(path);
+    return Directory(map(path));
   }
 
   @override

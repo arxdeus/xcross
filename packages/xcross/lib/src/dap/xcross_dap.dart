@@ -27,11 +27,19 @@ final class XcrossDap
     required this.runner,
     required this.tunnelAvailability,
     required this.launcher,
+    required this.packageUriLoader,
   }) : super(channel) {
+    if (!identical(runner.host.fileSystem, packageUriLoader.fileSystem) ||
+        !identical(runner.host.paths.context, packageUriLoader.paths)) {
+      throw ArgumentError(
+        'package URI loader must use the DAP filesystem and paths',
+      );
+    }
     channel.closed.then((_) => _quitChild());
   }
 
   final ProcessRunner runner;
+  final PackageUriLoader packageUriLoader;
   final TunnelAvailability tunnelAvailability;
   final String launcher;
 
@@ -143,7 +151,7 @@ final class XcrossDap
       fileSystem: runner.host.fileSystem,
       paths: runner.host.paths.context,
     ).require(cwd);
-    _packageUris ??= await PackageUris.load(packageConfig);
+    _packageUris ??= await packageUriLoader.load(packageConfig);
     orgDartlangSdkMappings.clear();
   }
 

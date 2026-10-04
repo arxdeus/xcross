@@ -1,7 +1,6 @@
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:path/path.dart' as p;
-
 import 'package:package_config/package_config.dart';
+import 'package:path/path.dart' as p;
 
 /// Maps local file paths to `package:` URIs via a project's
 /// `.dart_tool/package_config.json`, so breakpoints match reliably: the VM
