@@ -1,4 +1,6 @@
 const architectureSources = {
+  'tool/architecture/native_acquisition.dart',
+  'tool/architecture/acquisition_fixtures.dart',
   'tool/architecture/native_safety.dart',
   'tool/architecture/check.dart',
   'tool/architecture/boundaries.dart',

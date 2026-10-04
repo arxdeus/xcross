@@ -14,6 +14,13 @@ Map<String, (String, Set<String>)> dependencyFixtures() => {
 Map<String, (String, Set<String>)> dependencyAssets() {
   final result = <String, (String, Set<String>)>{};
   for (final entry in {
+    'packages/fixture/lib/src/target/iphone/native_fixture.dart':
+        "import 'dart:io' as renamed; Object acquire(String path)=>renamed.File(path);",
+    'packages/fixture/lib/src/target/simulator/native_fixture.g.dart':
+        "import 'dart:io' as renamed; Object acquire(String path)=>renamed.Directory(path);",
+    'packages/cli_kit/lib/src/host/shared/native_file_system.dart':
+        "import 'dart:io'; class NativeFileSystem { File file(String path)=>File(path); Directory directory(String path)=>Directory(path); Link link(String path)=>Link(path); }",
+
     'packages/xcross/lib/src/composition/cli/flutter_run_command.dart':
         "import '../../target/iphone/device/core_device_launch_profile.dart'; import '../../../../../darwin_sdk_kit/lib/src/target/simulator/simulator_build_platform.dart'; CoreDeviceLaunchProfile wire()=>CoreDeviceLaunchProfile();",
     'packages/xcross/lib/src/target/iphone/device/core_device_launch_profile.dart':
@@ -137,6 +144,14 @@ Map<String, (String, Set<String>)> dependencyAssets() {
     'packages/fixture/lib/src/host/windows/adapter.dart': 'class Adapter {}',
   }.entries) {
     final explicit = <String, Set<String>>{
+      'packages/fixture/lib/src/target/iphone/native_fixture.dart': {
+        'native-acquisition',
+      },
+      'packages/fixture/lib/src/target/simulator/native_fixture.g.dart': {
+        'native-acquisition',
+      },
+      'packages/cli_kit/lib/src/host/shared/native_file_system.dart': {},
+
       'packages/xcross/lib/src/composition/cli/flutter_run_command.dart': {
         'concrete-edge',
       },

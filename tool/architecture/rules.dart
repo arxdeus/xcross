@@ -8,6 +8,7 @@ import 'dependencies.dart';
 import 'export_graph.dart';
 import 'identity.dart';
 import 'inventory.dart';
+import 'native_acquisition.dart';
 import 'native_rules.dart';
 import 'native_safety.dart';
 
@@ -193,6 +194,9 @@ class Guard extends RecursiveAstVisitor<void> {
       }
     }
     unit.accept(this);
+    final acquisitions = NativeAcquisitionRules(path);
+    unit.accept(acquisitions);
+    violations.addAll(acquisitions.violations);
     final declarations = DeclarationRules(path);
     unit.accept(declarations);
     violations.addAll(declarations.violations);

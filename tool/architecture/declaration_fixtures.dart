@@ -80,7 +80,7 @@ Map<String, (String, Set<String>)> declarationFixtures() => {
   ),
   'di_factory_default': (
     '''import 'dart:io'; class Service { final HttpClient Function() createClient; Service({this.createClient=HttpClient.new}); }''',
-    {'hidden-di-default'},
+    {'hidden-di-default', 'native-acquisition'},
   ),
   'di_factory_injection': (
     '''import 'dart:io'; class Service { final HttpClient Function() createClient; Service({required this.createClient}); }''',

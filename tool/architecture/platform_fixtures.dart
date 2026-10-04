@@ -44,7 +44,7 @@ Map<String, (String, Set<String>)> platformFixtures() => {
     {},
   ),
   'descriptor_path': (
-    '''import 'dart:io'; abstract class IosBuildPlatformInterface {} class Repository { String iosSdk(String sdk, {required IosBuildPlatformInterface target}) => '/tmp/sdk'; } void verify(Repository repository, IosBuildPlatformInterface target) { final root = repository.iosSdk('sdk', target: target); if (!Directory(root).existsSync()) throw StateError(root); }''',
+    '''import 'dart:io'; abstract class IosBuildPlatformInterface {} class Repository { String iosSdk(String sdk, {required IosBuildPlatformInterface target}) => '/sdk'; } abstract interface class Files { Directory directory(String path); } void verify(Repository repository, IosBuildPlatformInterface target, Files files) { final root = repository.iosSdk('sdk', target: target); if (!files.directory(root).existsSync()) throw StateError(root); }''',
     {},
   ),
   'elf_architecture': (

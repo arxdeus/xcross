@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'acquisition_fixtures.dart';
 import 'check.dart';
 import 'declaration_fixtures.dart';
 import 'dependency_fixtures.dart';
@@ -24,6 +25,7 @@ Future<void> main() async {
   packageFile.parent.createSync(recursive: true);
   packageFile.writeAsStringSync(jsonEncode(config));
   final cases = {
+    ...acquisitionFixtures(),
     ...platformFixtures(),
     ...declarationFixtures(),
     ...dependencyFixtures(),
