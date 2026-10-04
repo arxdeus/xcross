@@ -8,6 +8,7 @@ import 'package:cli_kit/shared/process/process_models.dart';
 import 'package:dart_mobile_device/shared/console/device_console.dart';
 import 'package:dart_mobile_device/shared/errors/errors.dart';
 import 'package:dart_mobile_device/shared/host/device_host_policy.dart';
+import 'package:dart_mobile_device/src/target/iphone/device/pymd/pymd_launch_command.dart';
 
 /// Resolved pymobiledevice3 invocation — either the bare CLI or python3 -m.
 class PymdInvocation {
@@ -248,7 +249,7 @@ final class Pymd {
     required String bundleId,
     required List<String> appArguments,
   }) async {
-    final joined = ProcessRunner.commandLine(bundleId, appArguments);
+    final joined = PymdLaunchCommand.encode(bundleId, appArguments);
     final args = [
       'developer',
       'dvt',

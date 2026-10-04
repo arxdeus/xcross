@@ -2,14 +2,92 @@ import 'dart:io';
 
 import 'package:cli_kit/host/macos/macos_host.dart';
 import 'package:cli_kit/host/shared/posix_privileges.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
 import 'package:dart_mobile_device/host/macos/macos_device_host.dart';
+import 'package:dart_mobile_device/src/target/iphone/device/pymd/pymd_launch_command.dart';
 import 'package:dart_mobile_device/target/iphone/device/pymd/pymd.dart';
+import 'package:meta/meta.dart';
 import 'package:test/test.dart';
 
 import 'test_log_output.dart';
+import 'wireless_device_preparation_test.dart';
 
 void main() {
+  group('PymdLaunchCommand.encode', () {
+    const cases = {
+      'plain': 'plain',
+      '': "''",
+      'two words': "'two words'",
+      'a\tb': "'a\tb'",
+      'a\nb': "'a\nb'",
+      'a\rb': "'a\rb'",
+      "it's": r"'it'\''s'",
+      '"quoted"': "'\"quoted\"'",
+      r'C:\path\file': r"'C:\path\file'",
+      r'$HOME': r"'$HOME'",
+      '`literal`': "'`literal`'",
+      'a;&|<>*?()': 'a;&|<>*?()',
+      '你好': '你好',
+    };
+    for (final entry in cases.entries) {
+      test('preserves shlex protocol for ${entry.key.codeUnits}', () {
+        expect(
+          PymdLaunchCommand.encode('com.example.app', [entry.key]),
+          'com.example.app ${entry.value}',
+        );
+      });
+    }
+    test('encodes the bundle identifier by the same protocol', () {
+      expect(PymdLaunchCommand.encode('app name', []), "'app name'");
+      expect(PymdLaunchCommand.encode('', []), "''");
+    });
+  });
+
+  test('launchSuspended passes one shlex command after the separator', () async {
+    final processes = PymdLaunchProcesses();
+    final host = MacOSHost(processes: processes);
+    final runner = ProcessRunner(
+      host,
+      configuration: ProcessConfiguration(
+        normalizedTools: const {'pymobiledevice3': '/fixture/pymd'},
+        effectiveChildEnvironment: const {
+          'USBMUXD_SOCKET_ADDRESS': 'fixture-usbmux',
+        },
+      ),
+      log: testLog(),
+      stdinStream: const Stream.empty(),
+      stdoutSink: testSink(),
+      stderrSink: testSink(),
+    );
+    final pymd = Pymd(
+      runner,
+      console: TestDeviceConsole(),
+      localHttp: testLocalHttp(),
+      privileges: PosixPrivileges(runner),
+      hostPolicy: MacOSDeviceHost(runner),
+    );
+    final pid = await pymd.launchSuspended(
+      deviceArgs: ['--rsd', 'fd00::1', '1234'],
+      bundleId: 'com.example.app',
+      appArguments: ['', 'two words', "it's", '"quoted"', r'C:\path', r'$HOME'],
+    );
+    expect(pid, 12345);
+    expect(processes.arguments, [
+      'developer',
+      'dvt',
+      'launch',
+      '--rsd',
+      'fd00::1',
+      '1234',
+      '--suspended',
+      '--kill-existing',
+      '--',
+      r"""com.example.app '' 'two words' 'it'\''s' '"quoted"' 'C:\path' '$HOME'""",
+    ]);
+  });
+
   final runner = ProcessRunner(
     stdinStream: const Stream.empty(),
     stdoutSink: testSink(),
@@ -79,4 +157,31 @@ void main() {
       }
     });
   });
+}
+
+@internal
+final class PymdLaunchProcesses implements HostProcessInterface {
+  List<String>? arguments;
+
+  @override
+  Future<Process> start(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+    Map<String, String>? environment,
+    bool includeParentEnvironment = true,
+    bool runInShell = false,
+    ProcessStartMode mode = ProcessStartMode.normal,
+  }) async {
+    expect(executable, '/fixture/pymd');
+    expect(runInShell, isFalse);
+    this.arguments = List.of(arguments);
+    final process = WirelessChild(body: 'Process launched with pid 12345');
+    process.exited.complete(0);
+    return process;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw StateError('unexpected native process operation');
 }
