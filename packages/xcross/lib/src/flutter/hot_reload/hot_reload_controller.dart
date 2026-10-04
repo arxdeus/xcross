@@ -30,7 +30,21 @@ final class HotReloadController {
            'http://${ProcessRunner.bracketHost(vmService.host)}:'
            '${vmService.port}/',
        _frontend = FrontendServerSession(
-         _frontendOptions(config, log),
+         _frontendOptions(
+           config,
+           log,
+           initializeFromDill:
+               config.warmDill != null &&
+                   localHttp.host.fileSystem.file(config.warmDill!).existsSync()
+               ? config.warmDill
+               : null,
+         ),
+         fileSystem: localHttp.host.fileSystem,
+         paths: localHttp.host.paths.context,
+         packageUriLoader: PackageUriLoader(
+           fileSystem: localHttp.host.fileSystem,
+           paths: localHttp.host.paths.context,
+         ),
          processFactory: processFactory,
          diagnostics: diagnostics,
        ),
@@ -66,9 +80,9 @@ final class HotReloadController {
   // project layout knowledge.
   static FrontendServerOptions _frontendOptions(
     HotReloadConfig config,
-    Log log,
-  ) {
-    final warm = config.warmDill;
+    Log log, {
+    required String? initializeFromDill,
+  }) {
     return FrontendServerOptions(
       dart: config.dart,
       frontendServer: config.frontendServer,
@@ -77,7 +91,7 @@ final class HotReloadController {
       entrypoint: config.entrypoint,
       outputDill: config.outputDill,
       dartDefines: config.dartDefines,
-      initializeFromDill: warm != null && File(warm).existsSync() ? warm : null,
+      initializeFromDill: initializeFromDill,
       onTrace: log.logTrace,
     );
   }
@@ -315,7 +329,7 @@ final class HotReloadController {
     String fileName = 'main.dart.dill',
   }) async {
     final targetUri = '${_devFsBaseUri ?? _devFsFallbackUri}$fileName';
-    final raw = await File(dillPath).readAsBytes();
+    final raw = await localHttp.host.fileSystem.file(dillPath).readAsBytes();
     final gz = GZipCodec().encode(raw);
     log.logTrace('[timing] devfs-bytes raw=${raw.length} gz=${gz.length}');
 

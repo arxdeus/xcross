@@ -1,4 +1,5 @@
-import 'dart:io';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:path/path.dart' as p;
 
 import 'package:package_config/package_config.dart';
 
@@ -7,21 +8,10 @@ import 'package:package_config/package_config.dart';
 /// matches breakpoints by `package:` URI, not by absolute path, which
 /// differs between the compile host and the editor.
 final class PackageUris {
-  PackageUris._(this._config);
+  PackageUris._(this._config, this.paths);
 
   final PackageConfig _config;
-
-  /// Null when the config is missing or unparseable; callers then fall back to
-  /// plain file paths, which is the pre-existing behaviour.
-  static Future<PackageUris?> load(String packageConfigPath) async {
-    final file = File(packageConfigPath);
-    if (!file.existsSync()) return null;
-    try {
-      return PackageUris._(await loadPackageConfigUri(file.uri));
-    } on Object {
-      return null;
-    }
-  }
+  final p.Context paths;
 
   /// `file:///…/lib/main.dart` → `package:my_app/main.dart`.
   ///
@@ -33,5 +23,28 @@ final class PackageUris {
   /// [path] as a `package:` URI string, or [path] unchanged when it has no
   /// package equivalent. Suitable for handing straight to `frontend_server`.
   String toCompilerUri(String path) =>
-      toPackageUri(Uri.file(path))?.toString() ?? path;
+      toPackageUri(paths.toUri(paths.absolute(path)))?.toString() ?? path;
+}
+
+final class PackageUriLoader {
+  const PackageUriLoader({required this.fileSystem, required this.paths});
+
+  final HostFileSystemInterface fileSystem;
+  final p.Context paths;
+
+  Future<PackageUris?> load(String packageConfigPath) async {
+    try {
+      final config = await loadPackageConfigUri(
+        paths.toUri(paths.absolute(packageConfigPath)),
+        loader: (uri) async {
+          if (!uri.isScheme('file')) return null;
+          final file = fileSystem.file(paths.fromUri(uri));
+          return file.existsSync() ? file.readAsBytes() : null;
+        },
+      );
+      return PackageUris._(config, paths);
+    } on Object {
+      return null;
+    }
+  }
 }

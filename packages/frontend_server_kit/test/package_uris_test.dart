@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:frontend_server_kit/frontend_server_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -10,6 +11,11 @@ import 'package:test/test.dart';
 /// Getting this wrong produces breakpoints that silently never resolve.
 void main() {
   late Directory tmp;
+  final host = MacOSHost(environment: const {});
+  final loader = PackageUriLoader(
+    fileSystem: host.fileSystem,
+    paths: host.paths.context,
+  );
 
   setUp(() async {
     tmp = await Directory.systemTemp.createTemp('frontend_server_pkg_uris-');
@@ -36,7 +42,7 @@ void main() {
   String configPath() => p.join(tmp.path, '.dart_tool', 'package_config.json');
 
   test('maps a lib/ file to its package: URI', () async {
-    final uris = await PackageUris.load(configPath());
+    final uris = await loader.load(configPath());
     expect(uris, isNotNull);
     expect(
       uris!
@@ -53,7 +59,7 @@ void main() {
   });
 
   test('leaves files with no package equivalent alone', () async {
-    final uris = (await PackageUris.load(configPath()))!;
+    final uris = (await loader.load(configPath()))!;
     // Outside lib/ — the VM will fall back to file-URI matching for these.
     final testFile = p.join(tmp.path, 'test', 'a_test.dart');
     expect(uris.toPackageUri(Uri.file(testFile)), isNull);
@@ -63,7 +69,7 @@ void main() {
   });
 
   test('toCompilerUri returns the package: form when there is one', () async {
-    final uris = (await PackageUris.load(configPath()))!;
+    final uris = (await loader.load(configPath()))!;
     expect(
       uris.toCompilerUri(p.join(tmp.path, 'lib', 'main.dart')),
       'package:my_app/main.dart',
@@ -73,11 +79,11 @@ void main() {
   test(
     'returns null when the package config is missing or malformed',
     () async {
-      expect(await PackageUris.load(p.join(tmp.path, 'nope.json')), isNull);
+      expect(await loader.load(p.join(tmp.path, 'nope.json')), isNull);
 
       final bad = p.join(tmp.path, 'bad.json');
       await File(bad).writeAsString('not json at all');
-      expect(await PackageUris.load(bad), isNull);
+      expect(await loader.load(bad), isNull);
     },
   );
 }

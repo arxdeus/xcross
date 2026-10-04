@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:frontend_server_kit/frontend_server_kit.dart';
 import 'package:test/test.dart';
+import 'package:path/path.dart' as p;
 
 import 'test_log_output.dart';
 
@@ -12,6 +13,7 @@ void main() {
   late Factory factory;
   late FrontendServerSession session;
   late List<String> diagnostics;
+  final host = MacOSHost(environment: const {});
 
   setUp(() {
     directory = Directory.systemTemp.createTempSync('compiler_lifecycle_');
@@ -27,6 +29,12 @@ void main() {
         outputDill: '${directory.path}/out.dill',
       ),
       processFactory: factory,
+      fileSystem: host.fileSystem,
+      paths: host.paths.context,
+      packageUriLoader: PackageUriLoader(
+        fileSystem: host.fileSystem,
+        paths: host.paths.context,
+      ),
       diagnostics: diagnostics.add,
     );
   });
@@ -121,6 +129,12 @@ Future<void> main() async {
           outputDill: '${directory.path}/native.dill',
         ),
         processFactory: HostCompilerProcessFactory(runner),
+        fileSystem: runner.host.fileSystem,
+        paths: runner.host.paths.context,
+        packageUriLoader: PackageUriLoader(
+          fileSystem: runner.host.fileSystem,
+          paths: runner.host.paths.context,
+        ),
         diagnostics: (line) {
           if (line.startsWith('environment=')) environmentSeen.complete(line);
         },

@@ -1,7 +1,8 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:async/async.dart';
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:path/path.dart' as p;
 import 'package:frontend_server_kit/src/errors.dart';
 import 'package:frontend_server_kit/src/frontend_server_options.dart';
 import 'package:frontend_server_kit/src/package_uris.dart';
@@ -13,10 +14,23 @@ final class FrontendServerSession {
   FrontendServerSession(
     this.options, {
     required this.processFactory,
+    required this.fileSystem,
+    required this.paths,
+    required this.packageUriLoader,
     required this.diagnostics,
-  });
+  }) {
+    if (!identical(fileSystem, packageUriLoader.fileSystem) ||
+        !identical(paths, packageUriLoader.paths)) {
+      throw ArgumentError(
+        'package URI loader must use the session filesystem and paths',
+      );
+    }
+  }
 
+  final PackageUriLoader packageUriLoader;
   final CompilerProcessFactory processFactory;
+  final HostFileSystemInterface fileSystem;
+  final p.Context paths;
   final void Function(String) diagnostics;
   StreamSubscription<String>? _diagnosticsSubscription;
 
@@ -45,12 +59,12 @@ final class FrontendServerSession {
   }
 
   Future<void> _spawn() async {
-    _packageUris = await PackageUris.load(options.packageConfig);
+    _packageUris = await packageUriLoader.load(options.packageConfig);
 
     final args = _spawnArguments();
-    await Directory(
-      File(options.outputDill).parent.path,
-    ).create(recursive: true);
+    await fileSystem
+        .directory(paths.dirname(options.outputDill))
+        .create(recursive: true);
 
     options.onTrace?.call(
       '[frontend_server] running: ${options.dart} ${args.join(' ')}',
@@ -107,7 +121,8 @@ final class FrontendServerSession {
     return result;
   }
 
-  String get _entrypointUri => _compilerUri(Uri.file(options.entrypoint));
+  String get _entrypointUri =>
+      _compilerUri(paths.toUri(paths.absolute(options.entrypoint)));
 
   String _compilerUri(Uri uri) =>
       _packageUris?.toPackageUri(uri)?.toString() ?? uri.toString();
@@ -176,7 +191,7 @@ final class FrontendServerSession {
         isStatic: isStatic,
       ),
     );
-    return File(await _readResultBoundary()).readAsBytes();
+    return fileSystem.file(await _readResultBoundary()).readAsBytes();
   });
 
   Future<void> close() =>
