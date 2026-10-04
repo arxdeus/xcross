@@ -35,6 +35,8 @@ final class PosixPaths implements HostPathsInterface {
   String executableName(String name, {String extension = '.exe'}) => name;
   @override
   String pathKey(String path) => context.normalize(context.absolute(path));
+  @override
+  String toolNameKey(String name) => name.trim();
   String? _nonempty(String? value) =>
       value == null || value.isEmpty ? null : value;
 }

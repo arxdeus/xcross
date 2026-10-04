@@ -45,6 +45,20 @@ void main() {
     await tmp.delete(recursive: true);
   });
 
+  DarwinToolchainResolver<WindowsHost> windowsResolver() {
+    final windows = WindowsHost();
+    return DarwinToolchainResolver(
+      ProcessRunner(
+        windows,
+        log: log,
+        stdinStream: io.input,
+        stdoutSink: io.output,
+        stderrSink: io.error,
+      ),
+      WindowsDarwinToolchainLocations(windows),
+    );
+  }
+
   group('probeDarwinDriver', () {
     test('accepts a driver that only misses its input file', () async {
       final failure = await resolver.probeDarwinDriver(
@@ -60,7 +74,7 @@ void main() {
     });
 
     test('rejects a driver that fast-fails on the sysroot', () async {
-      final failure = await resolver.probeDarwinDriver(
+      final failure = await windowsResolver().probeDarwinDriver(
         p.join(tmp.path, 'swift-clang'),
         sysroot: tmp.path,
         runProcess: (executable, arguments) async =>
@@ -69,6 +83,29 @@ void main() {
       expect(failure, allOf(contains('crashed'), contains('0xC0000409')));
     });
 
+    test(
+      'macOS interprets signals without inferring Windows status meanings',
+      () async {
+        expect(
+          await resolver.probeDarwinDriver(
+            'signal-clang',
+            sysroot: tmp.path,
+            runProcess: (_, _) async => const CapturedProcess(-11, '', ''),
+          ),
+          allOf(contains('crashed'), contains('killed by signal 11')),
+        );
+        expect(
+          await resolver.probeDarwinDriver(
+            'status-clang',
+            sysroot: tmp.path,
+            runProcess: (_, _) async =>
+                const CapturedProcess(-1073740791, '', ''),
+          ),
+          isNull,
+        );
+      },
+    );
+
     test('keeps probe verdicts separate for different SDK roots', () async {
       var runs = 0;
       Future<CapturedProcess> run(
@@ -76,11 +113,7 @@ void main() {
         List<String> arguments,
       ) async {
         runs++;
-        return CapturedProcess(
-          arguments.contains('bad-sdk') ? -1073740791 : 1,
-          '',
-          '',
-        );
+        return CapturedProcess(arguments.contains('bad-sdk') ? -11 : 1, '', '');
       }
 
       expect(
@@ -307,7 +340,7 @@ void main() {
     });
 
     test('rejects a linker that dies without saying anything', () async {
-      final failure = await resolver.probeIosSupport(
+      final failure = await windowsResolver().probeIosSupport(
         p.join(tmp.path, 'crashing-ld64.lld'),
         runProcess: (executable, arguments) async =>
             const CapturedProcess(-1073740791, '', ''),

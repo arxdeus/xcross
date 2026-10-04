@@ -5,6 +5,7 @@ import 'package:cli_kit/host/macos/macos_host.dart';
 import 'package:cli_kit/shared/logging/logging.dart';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/host_symlink_capability.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_artifact_filesystem.dart';
@@ -101,6 +102,14 @@ final class CheckoutCommand {
 
 @internal
 final class RecordingCheckoutProcesses implements HostProcessInterface {
+  @override
+  ProcessExitDiagnostic describeExit(int exitCode) {
+    if (exitCode < 0 || exitCode > 255) {
+      throw StateError('Unexpected fixture exit: $exitCode');
+    }
+    return const ProcessExitDiagnostic(crashed: false, description: null);
+  }
+
   RecordingCheckoutProcesses(this.execute);
   final Process Function(CheckoutCommand) execute;
   final List<CheckoutCommand> commands = [];

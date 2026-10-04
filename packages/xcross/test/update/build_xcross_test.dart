@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:cli_kit/host/linux/linux_host.dart';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -335,6 +336,14 @@ void main() {
 
 @internal
 final class FixtureBuildProcesses implements HostProcessInterface {
+  @override
+  ProcessExitDiagnostic describeExit(int exitCode) {
+    if (exitCode < 0 || exitCode > 255) {
+      throw StateError('Unexpected fixture exit: $exitCode');
+    }
+    return const ProcessExitDiagnostic(crashed: false, description: null);
+  }
+
   @override
   Future<Process> start(
     String executable,

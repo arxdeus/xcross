@@ -479,6 +479,14 @@ final class DoctorServiceLookup
 
 @internal
 final class DoctorServiceProcesses implements HostProcessInterface {
+  @override
+  ProcessExitDiagnostic describeExit(int exitCode) {
+    if (exitCode < 0 || exitCode > 255) {
+      throw StateError('Unexpected fixture exit: $exitCode');
+    }
+    return const ProcessExitDiagnostic(crashed: false, description: null);
+  }
+
   String linkerVersion = 'LLD 19.1';
   String? clangFailure;
   final List<(String, List<String>)> calls = [];

@@ -61,47 +61,34 @@ void main() {
   );
 
   group('commandLine', () {
-    test('quotes an empty-string argument as a pair of empty quotes', () {
-      expect(ProcessRunner.commandLine('ls', ['']), "ls ''");
+    test('displays empty arguments explicitly', () {
+      expect(ProcessRunner.commandLine('ls', ['']), 'ls ""');
     });
 
-    test('leaves a token with no special characters unquoted', () {
+    test('leaves plain tokens readable', () {
       expect(ProcessRunner.commandLine('echo', ['hello']), 'echo hello');
     });
 
-    test('single-quotes a token containing a space', () {
-      expect(
-        ProcessRunner.commandLine('echo', ['has space']),
-        "echo 'has space'",
-      );
-    });
-
-    // Regression check: the classic POSIX idiom for embedding a literal
-    // single quote inside a single-quoted string is close-quote,
-    // backslash-escaped-quote, reopen-quote. Getting this wrong produces a
-    // command line that a shell can't actually parse back.
-    test(
-      'single-quotes a token with an embedded quote using close/escape/reopen',
-      () {
-        final result = ProcessRunner.commandLine('echo', ["it's"]);
+    test('uses JSON string escapes for display, not shell syntax', () {
+      for (final token in [
+        'has space',
+        "it's",
+        r'$HOME`cmd`"quoted"',
+        'line\nbreak',
+        r'C:\Program Files\tool',
+      ]) {
         expect(
-          result,
-          'echo '
-          r"'it'\''s'",
+          ProcessRunner.commandLine('echo', [token]),
+          'echo ${jsonEncode(token)}',
         );
-      },
-    );
-
-    test(r'quotes tokens containing $, backtick, or double-quote', () {
-      const token = r'$HOME`cmd`"quoted"';
-      final result = ProcessRunner.commandLine('echo', [token]);
-      expect(result, "echo '$token'");
+      }
     });
 
-    test('joins executable and arguments, quoting only where needed', () {
-      final result = ProcessRunner.commandLine('ls', ['-la', 'my file.txt']);
-      expect(result, startsWith('ls -la'));
-      expect(result, contains("'my file.txt'"));
+    test('formats executable and arguments consistently', () {
+      expect(
+        ProcessRunner.commandLine('my tool', ['-la', 'my file.txt']),
+        '"my tool" -la "my file.txt"',
+      );
     });
   });
 
@@ -1049,40 +1036,42 @@ void main() {
   group('describeExitCode', () {
     test('names a Windows NTSTATUS reported as a raw DWORD', () {
       expect(
-        ProcessRunner.describeExitCode(0xC0000135),
+        windowsRunner().describeExitCode(0xC0000135),
         contains('STATUS_DLL_NOT_FOUND'),
       );
     });
 
     test('names the same status when dart:io sign-extends it', () {
       expect(
-        ProcessRunner.describeExitCode(-1073740791),
+        windowsRunner().describeExitCode(-1073740791),
         allOf(contains('0xC0000409'), contains('abort()')),
       );
     });
 
     test('still explains an NTSTATUS it has no name for', () {
       expect(
-        ProcessRunner.describeExitCode(0xC0000123),
+        windowsRunner().describeExitCode(0xC0000123),
         contains('died instead of exiting'),
       );
     });
 
     test('reads a small negative code as a POSIX signal', () {
-      expect(ProcessRunner.describeExitCode(-11), 'killed by signal 11');
+      expect(posixRunner().describeExitCode(-11), 'killed by signal 11');
     });
 
     test('says nothing about an ordinary non-zero exit', () {
-      expect(ProcessRunner.describeExitCode(1), isNull);
-      expect(ProcessRunner.describeExitCode(255), isNull);
+      expect(windowsRunner().describeExitCode(1), isNull);
+      expect(windowsRunner().describeExitCode(255), isNull);
     });
 
     test('separates a crash from a chosen exit status', () {
-      expect(ProcessRunner.crashed(1), isFalse);
-      expect(ProcessRunner.crashed(255), isFalse);
-      expect(ProcessRunner.crashed(-11), isTrue);
-      expect(ProcessRunner.crashed(-1073740791), isTrue);
-      expect(ProcessRunner.crashed(0xC0000409), isTrue);
+      expect(windowsRunner().crashed(1), isFalse);
+      expect(windowsRunner().crashed(255), isFalse);
+      expect(posixRunner().crashed(-11), isTrue);
+      expect(windowsRunner().crashed(-11), isFalse);
+      expect(posixRunner().crashed(0xC0000409), isFalse);
+      expect(windowsRunner().crashed(-1073740791), isTrue);
+      expect(windowsRunner().crashed(0xC0000409), isTrue);
     });
   });
 }

@@ -36,7 +36,29 @@ abstract interface class ProcessToolLookupInterface<
 
 final class ProcessToolLookup<T extends PlatformHostInterface>
     implements ProcessToolLookupInterface<T> {
-  ProcessToolLookup(this.host, {this.configuration});
+  ProcessToolLookup(this.host, {this.configuration})
+    : _configuredTools = _normalizeTools(
+        host.paths,
+        configuration?.normalizedTools ?? const {},
+      );
+
+  final Map<String, String> _configuredTools;
+
+  static Map<String, String> _normalizeTools(
+    HostPathsInterface paths,
+    Map<String, String> tools,
+  ) {
+    final normalized = <String, String>{};
+    for (final entry in tools.entries) {
+      final key = paths.toolNameKey(entry.key);
+      if (normalized.containsKey(key)) {
+        throw ArgumentError('Conflicting configured tool aliases: $key');
+      }
+      normalized[key] = entry.value;
+    }
+    return Map.unmodifiable(normalized);
+  }
+
   @override
   final T host;
   @override
@@ -50,8 +72,7 @@ final class ProcessToolLookup<T extends PlatformHostInterface>
     if (configured == null || host.paths.context.isAbsolute(executable)) {
       return executable;
     }
-    final override =
-        configured.normalizedTools[_normalizedToolName(executable)];
+    final override = _configuredTools[host.paths.toolNameKey(executable)];
     return override ?? _toolchainOverride(executable, configured) ?? executable;
   }
 
@@ -101,7 +122,7 @@ final class ProcessToolLookup<T extends PlatformHostInterface>
           );
     final names = host.environment.executableCandidates(name, env);
     final override = _configuredToolOverride(
-      configured?.normalizedTools,
+      configured == null ? null : _configuredTools,
       names,
     );
     if (override != null && (accept == null || accept(override))) {
@@ -150,7 +171,6 @@ final class ProcessToolLookup<T extends PlatformHostInterface>
     'swift-frontend',
   };
   static const _llvmExecutables = {'clang', 'clang++', 'ld64.lld', 'dsymutil'};
-  static const _windowsExecutableExtensions = ['.exe', '.cmd', '.bat', '.com'];
 
   String? _toolchainOverride(
     String name,
@@ -172,7 +192,7 @@ final class ProcessToolLookup<T extends PlatformHostInterface>
   }
 
   ({String toolchain, String basename})? _toolchainExecutable(String name) {
-    final normalized = _normalizedToolName(name);
+    final normalized = host.paths.toolNameKey(name);
     if (_swiftExecutables.contains(normalized)) {
       return (toolchain: 'swift', basename: normalized);
     }
@@ -209,20 +229,10 @@ final class ProcessToolLookup<T extends PlatformHostInterface>
   ) {
     if (tools == null) return null;
     for (final candidate in candidateNames) {
-      final override = tools[_normalizedToolName(candidate)];
+      final override = tools[host.paths.toolNameKey(candidate)];
       if (override != null) return override;
     }
     return null;
-  }
-
-  String _normalizedToolName(String name) {
-    final normalized = name.trim().toLowerCase();
-    for (final extension in _windowsExecutableExtensions) {
-      if (normalized.endsWith(extension)) {
-        return normalized.substring(0, normalized.length - extension.length);
-      }
-    }
-    return normalized;
   }
 
   @override

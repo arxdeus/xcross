@@ -63,6 +63,18 @@ final class WindowsPaths implements HostPathsInterface {
   @override
   String pathKey(String path) =>
       context.normalize(context.absolute(path)).toLowerCase();
+  @override
+  String toolNameKey(String name) {
+    final normalized = name.trim().toLowerCase();
+    for (final extension in _executableExtensions) {
+      if (normalized.endsWith(extension)) {
+        return normalized.substring(0, normalized.length - extension.length);
+      }
+    }
+    return normalized;
+  }
+
+  static const _executableExtensions = ['.exe', '.cmd', '.bat', '.com'];
   static const _prefix = r'\\?\';
   static const _uncPrefix = r'\\?\UNC\';
 }

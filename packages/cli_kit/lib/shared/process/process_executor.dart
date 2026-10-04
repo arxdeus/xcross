@@ -149,6 +149,11 @@ final class ProcessExecutor<T extends PlatformHostInterface> {
   Future<void> killTree(Process process) => host.processes.killTree(
     process,
     environment: effectiveEnvironment,
-    executableOverrides: configuration?.normalizedTools ?? const {},
+    executableOverrides: {
+      for (final entry
+          in configuration?.normalizedTools.entries ??
+              const <MapEntry<String, String>>[])
+        host.paths.toolNameKey(entry.key): entry.value,
+    },
   );
 }

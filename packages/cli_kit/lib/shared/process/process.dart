@@ -126,9 +126,9 @@ final class ProcessRunner<T extends PlatformHostInterface> {
       ProcessHelpers.pausingBroadcast(source);
   static String commandLine(String executable, List<String> arguments) =>
       ProcessHelpers.commandLine(executable, arguments);
-  static bool crashed(int code) => ProcessHelpers.crashed(code);
-  static String? describeExitCode(int code) =>
-      ProcessHelpers.describeExitCode(code);
+  bool crashed(int code) => host.processes.describeExit(code).crashed;
+  String? describeExitCode(int code) =>
+      host.processes.describeExit(code).description;
   static String bracketHost(String address) =>
       ProcessHelpers.bracketHost(address);
   static String unbracketHost(String address) =>
@@ -242,6 +242,7 @@ final class ProcessRunner<T extends PlatformHostInterface> {
           executable,
           arguments,
           code,
+          diagnostic: host.processes.describeExit(code),
           captured: false,
         ),
       );
@@ -278,6 +279,7 @@ final class ProcessRunner<T extends PlatformHostInterface> {
         executable,
         arguments,
         result.exitCode,
+        diagnostic: host.processes.describeExit(result.exitCode),
         output: output,
       ),
     );
@@ -317,6 +319,7 @@ final class ProcessRunner<T extends PlatformHostInterface> {
           executable,
           arguments,
           code,
+          diagnostic: host.processes.describeExit(code),
           output: '$captured',
         ),
       );
@@ -392,6 +395,7 @@ final class ProcessRunner<T extends PlatformHostInterface> {
             executable,
             arguments,
             code,
+            diagnostic: host.processes.describeExit(code),
             output: '$captured',
           ),
         );

@@ -183,11 +183,11 @@ final class DarwinToolchainResolver<T extends PlatformHostInterface> {
             .replaceFirst(RegExp('^.*?: *'), ''),
       );
     }
-    if (ProcessRunner.crashed(result.exitCode)) {
+    if (runner.crashed(result.exitCode)) {
       return _rememberIosSupport(
         linker,
         'crashed on an iOS link: '
-        '${ProcessRunner.describeExitCode(result.exitCode)}',
+        '${runner.describeExitCode(result.exitCode)}',
       );
     }
     return _rememberIosSupport(linker, null);
@@ -401,11 +401,11 @@ final class DarwinToolchainResolver<T extends PlatformHostInterface> {
 
     // A missing input file is expected and says nothing about the driver, so
     // only an outright crash disqualifies a candidate.
-    if (ProcessRunner.crashed(result.exitCode)) {
+    if (runner.crashed(result.exitCode)) {
       return _rememberDarwinDriver(
         key,
         'crashed on a Darwin driver run: '
-        '${ProcessRunner.describeExitCode(result.exitCode)}',
+        '${runner.describeExitCode(result.exitCode)}',
       );
     }
     return _rememberDarwinDriver(key, null);

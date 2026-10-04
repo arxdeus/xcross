@@ -36,6 +36,9 @@ final class ResidualHost implements LinuxHostInterface {
 
 @internal
 final class ResidualPaths implements HostPathsInterface {
+  @override
+  String toolNameKey(String name) => name.trim();
+
   ResidualPaths(this.root);
 
   final String root;
@@ -97,6 +100,14 @@ final class ResidualFileSystem implements HostFileSystemInterface {
 
 @internal
 final class ResidualProcesses implements HostProcessInterface {
+  @override
+  ProcessExitDiagnostic describeExit(int exitCode) {
+    if (exitCode < 0 || exitCode > 255) {
+      throw StateError('Unexpected fixture exit: $exitCode');
+    }
+    return const ProcessExitDiagnostic(crashed: false, description: null);
+  }
+
   ResidualProcesses(this.onStart);
 
   final Future<Process> Function(String, List<String>, String?) onStart;

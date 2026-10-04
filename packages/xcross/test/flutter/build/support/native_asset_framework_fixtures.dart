@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/build/internal/native_asset_frameworks.dart';
 import 'package:xcross/src/shared/flutter/build/internal/recursive_directory_copy.dart';
@@ -23,6 +24,14 @@ NativeAssetFrameworks<T> nativeFrameworkService<
 
 @internal
 final class FrameworkLipoProcesses implements HostProcessInterface {
+  @override
+  ProcessExitDiagnostic describeExit(int exitCode) {
+    if (exitCode < 0 || exitCode > 255) {
+      throw StateError('Unexpected fixture exit: $exitCode');
+    }
+    return const ProcessExitDiagnostic(crashed: false, description: null);
+  }
+
   FrameworkLipoProcesses({required this.fileSystem});
 
   final HostFileSystemInterface fileSystem;

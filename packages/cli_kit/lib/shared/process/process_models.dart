@@ -1,6 +1,17 @@
 import 'package:meta/meta.dart';
 
 @immutable
+final class ProcessExitDiagnostic {
+  const ProcessExitDiagnostic({
+    required this.crashed,
+    required this.description,
+  });
+
+  final bool crashed;
+  final String? description;
+}
+
+@immutable
 final class CapturedProcess {
   const CapturedProcess(
     this.exitCode,

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:cli_kit/host/linux/linux_host.dart';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
 import 'package:darwin_sdk_kit/host/shared/darwin_toolchain_locations.dart';
 import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
 import 'package:meta/meta.dart';
@@ -209,6 +210,14 @@ final class FixtureLocations implements DarwinToolchainLocationsInterface {
 
 @internal
 final class FixtureProcesses implements HostProcessInterface {
+  @override
+  ProcessExitDiagnostic describeExit(int exitCode) {
+    if (exitCode < 0 || exitCode > 255) {
+      throw StateError('Unexpected fixture exit: $exitCode');
+    }
+    return const ProcessExitDiagnostic(crashed: false, description: null);
+  }
+
   final commands = <String>[];
   @override
   Future<Process> start(

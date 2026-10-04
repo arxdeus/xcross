@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:cli_kit/shared/process/process_models.dart';
 import 'package:path/path.dart' as p;
 
 abstract interface class PlatformHostInterface {
@@ -26,6 +27,7 @@ abstract interface class HostPathsInterface {
   String ioPath(String path);
   String executableName(String name, {String extension = '.exe'});
   String pathKey(String path);
+  String toolNameKey(String name);
 }
 
 abstract interface class HostEnvironmentInterface {
@@ -44,6 +46,8 @@ abstract interface class HostEnvironmentInterface {
 }
 
 abstract interface class HostProcessInterface {
+  ProcessExitDiagnostic describeExit(int exitCode);
+
   Future<Process> start(
     String executable,
     List<String> arguments, {

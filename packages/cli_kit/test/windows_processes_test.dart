@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:cli_kit/host/windows/windows_host.dart';
+import 'package:cli_kit/host/windows/windows_paths.dart';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/src/host/windows/windows_environment.dart';
 import 'package:cli_kit/src/host/windows/windows_processes.dart';
@@ -11,6 +12,9 @@ import 'package:test/test.dart';
 
 @internal
 final class WindowsProcessTestPaths implements HostPathsInterface {
+  @override
+  String toolNameKey(String name) => WindowsPaths().toolNameKey(name);
+
   WindowsProcessTestPaths(String root) : context = p.Context(current: root);
 
   @override

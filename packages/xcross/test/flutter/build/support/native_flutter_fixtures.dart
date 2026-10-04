@@ -5,10 +5,12 @@ import 'package:cli_kit/host/linux/linux_host.dart';
 import 'package:cli_kit/host/macos/macos_host.dart';
 import 'package:cli_kit/host/shared/posix_paths.dart';
 import 'package:cli_kit/host/windows/windows_host.dart';
+import 'package:cli_kit/host/windows/windows_paths.dart';
 import 'package:cli_kit/shared/download/download.dart';
 import 'package:cli_kit/shared/logging/logging.dart';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
 import 'package:darwin_sdk_kit/host/linux/linux_darwin_toolchain_locations.dart';
 import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
 import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
@@ -149,13 +151,43 @@ AppleToolShimResolver<LinuxHost> appleToolResolver({
 @internal
 WindowsHost windowsFixtureHost() => WindowsHost(
   architecture: 'x64',
-  paths: PosixPaths(),
-  processes: WindowsFixtureProcesses(),
+  paths: WindowsFixturePaths(),
+  processes: WindowsFixtureProcesses(WindowsHost().processes),
   environment: const {'PATH': '', 'PATHEXT': '.EXE'},
 );
 
 @internal
+final class WindowsFixturePaths implements HostPathsInterface {
+  WindowsFixturePaths();
+  final PosixPaths _posix = PosixPaths();
+  final WindowsPaths _windows = WindowsPaths();
+  @override
+  p.Context get context => _posix.context;
+  @override
+  String get configRoot => _posix.configRoot;
+  @override
+  String get cacheRoot => _posix.cacheRoot;
+  @override
+  String get temporaryRoot => _posix.temporaryRoot;
+  @override
+  String ioPath(String path) => _posix.ioPath(path);
+  @override
+  String executableName(String name, {String extension = '.exe'}) =>
+      _posix.executableName(name, extension: extension);
+  @override
+  String pathKey(String path) => _posix.pathKey(path);
+  @override
+  String toolNameKey(String name) => _windows.toolNameKey(name);
+}
+
+@internal
 final class WindowsFixtureProcesses implements HostProcessInterface {
+  WindowsFixtureProcesses(this.diagnostics);
+  final HostProcessInterface diagnostics;
+  @override
+  ProcessExitDiagnostic describeExit(int exitCode) =>
+      diagnostics.describeExit(exitCode);
+
   @override
   Future<Process> start(
     String executable,

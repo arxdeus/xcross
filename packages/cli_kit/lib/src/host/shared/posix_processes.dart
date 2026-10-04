@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
 import 'package:cli_kit/src/host/shared/owned_processes.dart';
 import 'package:meta/meta.dart';
 
@@ -10,6 +11,15 @@ final class PosixProcesses implements HostProcessInterface {
   PosixProcesses({required this.paths});
   final HostPathsInterface paths;
   final OwnedProcesses _owned = OwnedProcesses();
+  @override
+  ProcessExitDiagnostic describeExit(int exitCode) {
+    final signal = exitCode < 0 && exitCode > -256;
+    return ProcessExitDiagnostic(
+      crashed: signal,
+      description: signal ? 'killed by signal ${-exitCode}' : null,
+    );
+  }
+
   @override
   Future<String?> findOnShellPath(
     String name, {
