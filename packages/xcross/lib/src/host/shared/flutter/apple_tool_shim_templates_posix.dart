@@ -17,6 +17,7 @@ String renderUnixCompilerShim({
     '''
 #!/bin/sh
 is_apple_target=false
+is_macos_target=false
 has_target=false
 has_sysroot=false
 has_deployment=false
@@ -26,7 +27,10 @@ expect_target=false
 for arg in "\$@"; do
   if \$expect_target; then
     has_target=true
-    case "\$arg" in *-apple-*) is_apple_target=true;; esac
+    case "\$arg" in
+      *-apple-macos*|*-apple-darwin*) is_macos_target=true;;
+      *-apple-*) is_apple_target=true;;
+    esac
     expect_target=false
     continue
   fi
@@ -34,16 +38,22 @@ for arg in "\$@"; do
     -target|--target) expect_target=true;;
     -target=*|--target=*)
       has_target=true
-      case "\${arg#*=}" in *-apple-*) is_apple_target=true;; esac;;
+      case "\${arg#*=}" in
+        *-apple-macos*|*-apple-darwin*) is_macos_target=true;;
+        *-apple-*) is_apple_target=true;;
+      esac;;
     -arch|-arch=*) is_apple_target=true;;
-    -miphoneos-version-min=*) is_apple_target=true; has_deployment=true;;
+    -mmacosx-version-min=*|-mmacos-version-min=*) is_macos_target=true;;
+    -miphoneos-version-min=*|-mios-version-min=*) is_apple_target=true; has_deployment=true;;
     -mios-simulator-version-min=*) is_apple_target=true; has_deployment=true;;
     -isysroot|--sysroot|-isysroot=*|--sysroot=*) has_sysroot=true;;
     -fuse-ld=*) has_fuse_ld=true;;
     --ld-path=*) has_ld_path=true;;
   esac
 done
-\$is_apple_target || exec ${[hostCompiler, ...hostCompilerArguments].map(shellQuote).join(' ')} "\$@"
+if \$is_macos_target || ! \$is_apple_target; then
+  exec ${[hostCompiler, ...hostCompilerArguments].map(shellQuote).join(' ')} "\$@"
+fi
 \$has_ld_path || set -- ${shellQuote('--ld-path=$linker')} "\$@"
 \$has_fuse_ld || set -- ${shellQuote('-fuse-ld=lld')} "\$@"
 \$has_deployment || set -- ${shellQuote(target.minimumVersionFlag(deploymentTarget))} "\$@"

@@ -69,6 +69,49 @@ void main() {
     },
   );
 
+  test(
+    'compiler shim sends macOS-targeted invocations to the host compiler',
+    () async {
+      final temp = await Directory.systemTemp.createTemp('macos-target-shim-');
+      addTearDown(() => temp.delete(recursive: true));
+      final shim = File(p.join(temp.path, 'cc'))
+        ..writeAsStringSync(
+          renderUnixCompilerShim(
+            iosSdk: '/simulator-sdk',
+            clang: '/bin/echo',
+            hostCompiler: '/bin/echo',
+            hostCompilerArguments: ['host'],
+            linker: '/ld64.lld',
+            deploymentTarget: '15.0',
+            target: const SimulatorBuildPlatform(),
+          ),
+        );
+      for (final arguments in [
+        ['-arch', 'arm64', '-mmacosx-version-min=11.0.0', '-o', 'script'],
+        ['-arch', 'x86_64', '-mmacos-version-min=12.0', '-o', 'script'],
+        ['-target', 'arm64-apple-macosx11.0.0', '-c', 'probe.c'],
+        ['--target=x86_64-apple-darwin', '-c', 'probe.c'],
+      ]) {
+        final result = await Process.run('/bin/sh', [shim.path, ...arguments]);
+        expect(result.exitCode, 0, reason: result.stderr.toString());
+        expect(
+          result.stdout.toString().trim(),
+          ['host', ...arguments].join(' '),
+        );
+      }
+      for (final arguments in [
+        ['-arch', 'arm64', '-c', 'probe.c'],
+        ['-mios-version-min=16.0', '-c', 'probe.c'],
+      ]) {
+        final result = await Process.run('/bin/sh', [shim.path, ...arguments]);
+        expect(result.exitCode, 0, reason: result.stderr.toString());
+        expect(result.stdout.toString(), isNot(startsWith('host')));
+        expect(result.stdout, contains('-isysroot /simulator-sdk'));
+      }
+    },
+    skip: Platform.isWindows,
+  );
+
   test('translates otool options for llvm-objdump', () {
     final unix = renderUnixOtoolShim(tool: '/llvm/objdump', usesObjdump: true);
     final windows = renderPowerShellOtoolShim(
