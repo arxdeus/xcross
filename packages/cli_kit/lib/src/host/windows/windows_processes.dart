@@ -101,7 +101,10 @@ final class WindowsProcesses implements HostProcessInterface {
         batch
             ? WindowsBatchPolicy.arguments(plain, executable: command)
             : plain,
-        workingDirectory: shell ? _plainPath(directory) : directory,
+        workingDirectory:
+            shell || _plainPath(directory).length < _maxPlainDirectory
+            ? _plainPath(directory)
+            : directory,
         environment: environment,
         includeParentEnvironment: includeParentEnvironment,
         runInShell: shell,
@@ -110,6 +113,8 @@ final class WindowsProcesses implements HostProcessInterface {
     }),
     mode,
   );
+
+  static const _maxPlainDirectory = 248;
 
   static String _plainPath(String path) {
     if (path.startsWith(r'\\?\UNC\')) return '\\\\${path.substring(8)}';

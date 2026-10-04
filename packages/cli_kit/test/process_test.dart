@@ -720,6 +720,29 @@ void main() {
       skip: !Platform.isWindows,
     );
 
+    test('starts Windows children in a plain working directory', () async {
+      final directory = Directory.systemTemp.createTempSync('plain-cwd-');
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final script = File(p.join(directory.path, 'cwd.dart'))
+        ..writeAsStringSync(
+          "import 'dart:io'; void main() { stdout.write(Directory.current.path); }",
+        );
+
+      final process = await runner.start(Platform.resolvedExecutable, [
+        script.path,
+      ], workingDirectory: directory.path);
+      final output = await process.stdout
+          .transform(systemEncoding.decoder)
+          .join();
+
+      expect(await process.exitCode, 0);
+      expect(output, isNot(startsWith(r'\\?\')));
+      expect(
+        output.toLowerCase(),
+        directory.resolveSymbolicLinksSync().toLowerCase(),
+      );
+    }, skip: !Platform.isWindows);
+
     test('starts Windows batch scripts in a plain working directory', () async {
       final directory = Directory.systemTemp.createTempSync('batch-cwd-');
       addTearDown(() => directory.deleteSync(recursive: true));
