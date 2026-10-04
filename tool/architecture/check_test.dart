@@ -16,7 +16,8 @@ Future<void> main() async {
       jsonDecode(File('.dart_tool/package_config.json').readAsStringSync())
           as Map<String, dynamic>;
   final base = File('.dart_tool/package_config.json').absolute.uri;
-  for (final package in config['packages'] as List<dynamic>) {
+  for (final package
+      in (config['packages'] as List<dynamic>).cast<Map<String, dynamic>>()) {
     package['rootUri'] = base.resolve(package['rootUri'] as String).toString();
   }
   final packageFile = File('${directory.path}/.dart_tool/package_config.json');
