@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:meta/meta.dart';
-import 'package:path/path.dart' as p;
 import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/flutter/build/internal/flutter_tool_workspace.dart';
 import 'package:xcross/src/flutter/build/internal/native_asset_frameworks.dart';
@@ -33,6 +32,7 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
   IosNativeAssetsBuilder({
     required this.engineCache,
     required this.hooks,
+    required this.nativeAssetFrameworks,
     required this.renderer,
     required this.runner,
     required this.tools,
@@ -47,7 +47,10 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
         !identical(target, tools.target) ||
         !identical(host, runner.host) ||
         !identical(host, renderer.host) ||
-        !identical(host, tools.host)) {
+        !identical(host, tools.host) ||
+        !identical(runner, nativeAssetFrameworks.runner) ||
+        !identical(host.fileSystem, nativeAssetFrameworks.fileSystem) ||
+        !identical(host.paths.context, nativeAssetFrameworks.paths)) {
       throw ArgumentError(
         'Native assets collaborators must share one target and host',
       );
@@ -55,6 +58,7 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
   }
 
   final NativeAssetsHookDiscovery hooks;
+  final NativeAssetFrameworks<T> nativeAssetFrameworks;
   final IosEngineCache<T> engineCache;
   final AppleToolShimRenderer<T> renderer;
   IosTarget<T> get target => engineCache.target;
@@ -112,7 +116,7 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
       }
     }
 
-    final manifest = p.join(
+    final manifest = host.paths.context.join(
       output,
       'App.framework',
       'flutter_assets',
@@ -129,15 +133,15 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
     final normalized = normalizeIosNativeAssetsManifest(original);
     if (normalized != original) await manifestFile.writeAsString(normalized);
 
-    final sources = collectNativeAssetFrameworks(
+    final sources = nativeAssetFrameworks.collect(
       normalized,
       output,
       projectRoot: projectRoot,
     );
-    final frameworks = await stageNativeAssetFrameworks(sources, output);
-    await thinFrameworksToArm64(frameworks, lipo: config.lipo, runner: runner);
-    await alignNativeAssetLinkedit(frameworks, log: runner.log);
-    await normalizeNativeAssetInstallNames(frameworks);
+    final frameworks = await nativeAssetFrameworks.stage(sources, output);
+    await nativeAssetFrameworks.thin(frameworks, lipo: config.lipo);
+    await nativeAssetFrameworks.align(frameworks);
+    await nativeAssetFrameworks.normalize(frameworks);
 
     return IosNativeAssetsBuildResult(
       manifestPath: manifest,
@@ -153,7 +157,11 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
       flutterRoot: flutterRoot,
       engineCache: engineCache,
     );
-    final assets = p.join(output, 'App.framework', 'flutter_assets');
+    final assets = host.paths.context.join(
+      output,
+      'App.framework',
+      'flutter_assets',
+    );
     try {
       await runner.runChecked(
         workspace.dart,
@@ -167,7 +175,10 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
       await workspace.dispose();
     }
 
-    final manifest = p.join(assets, 'NativeAssetsManifest.json');
+    final manifest = host.paths.context.join(
+      assets,
+      'NativeAssetsManifest.json',
+    );
     if (!host.fileSystem.file(manifest).existsSync()) {
       throw FlutterBuildError('Flutter asset bundle did not produce $manifest');
     }

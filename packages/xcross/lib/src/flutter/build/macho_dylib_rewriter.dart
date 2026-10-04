@@ -1,8 +1,6 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:path/path.dart' as p;
 import 'package:xcross/src/apple/mach_o.dart';
 import 'package:xcross/src/flutter/build/objc_fast_stub_rewriter.dart';
 import 'package:xcross/src/flutter/errors.dart';
@@ -23,28 +21,6 @@ abstract final class MachODylibRewriter {
 
   /// Byte size of `dylib_command` up to (excluding) its inline name string.
   static const _dylibCommandHeaderSize = 24;
-
-  /// Rewrites [path] in place and leaves unrelated dependency paths unchanged.
-  static Future<void> rewriteFile(
-    String path, {
-    required Set<String> producedDylibNames,
-    String? installName,
-    Map<String, String> producedInstallNames = const {},
-    bool repairObjCFastStubs = false,
-  }) async {
-    final file = File(path);
-    final bytes = await file.readAsBytes();
-    final changed = rewriteBytes(
-      bytes,
-      dylibName: p.basename(path),
-      producedDylibNames: producedDylibNames,
-      installName: installName,
-      producedInstallNames: producedInstallNames,
-      repairObjCFastStubs: repairObjCFastStubs,
-      source: path,
-    );
-    if (changed) await file.writeAsBytes(bytes, flush: true);
-  }
 
   /// Rewrites load-command strings in [bytes]. Returns whether bytes changed.
   static bool rewriteBytes(

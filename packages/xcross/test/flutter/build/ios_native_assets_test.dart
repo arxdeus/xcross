@@ -18,9 +18,18 @@ import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer_posix.da
 import 'package:xcross/src/package_config_resolver.dart';
 import 'package:xcross/src/target/simulator/flutter/simulator_flutter_target.dart';
 
+import '../../host_operations_fixtures.dart';
+import 'macho_linkedit_aligner_test.dart'
+    show buildMachO, readSymtab, stringTable;
+import 'support/native_asset_framework_fixtures.dart';
 import 'support/native_flutter_fixtures.dart';
 
 void main() {
+  final fixtureHost = LinuxHost();
+  final frameworks = nativeFrameworkService(
+    fixtureRunner(fixtureHost, log: fixtureLog()),
+  );
+
   test('native hook assembly preserves target, manifest and flavor inputs', () {
     final host = LinuxHost(architecture: 'arm64');
     final runner = ProcessRunner(
@@ -40,6 +49,7 @@ void main() {
       downloader: nativeTestDownloader(),
     );
     final builder = IosNativeAssetsBuilder(
+      nativeAssetFrameworks: nativeFrameworkService(runner),
       hooks: NativeAssetsHookDiscovery(
         fileSystem: host.fileSystem,
         paths: host.paths.context,
@@ -149,7 +159,9 @@ void main() {
       LinuxHost? renderHost,
       ProcessRunner<LinuxHost>? processRunner,
       String flutterRoot = '/flutter',
+      NativeAssetFrameworks<LinuxHost>? frameworkService,
     }) => IosNativeAssetsBuilder(
+      nativeAssetFrameworks: frameworkService ?? nativeFrameworkService(runner),
       hooks: NativeAssetsHookDiscovery(
         fileSystem: host.fileSystem,
         paths: host.paths.context,
@@ -173,6 +185,15 @@ void main() {
     expect(() => create(renderHost: otherHost), throwsArgumentError);
     expect(() => create(processRunner: otherRunner), throwsArgumentError);
     expect(() => create(flutterRoot: '/different-sdk'), throwsArgumentError);
+    expect(
+      () => create(frameworkService: nativeFrameworkService(otherRunner)),
+      throwsArgumentError,
+    );
+    final sameHostRunner = fixtureRunner(host, log: fixtureLog());
+    expect(
+      () => create(frameworkService: nativeFrameworkService(sameHostRunner)),
+      throwsArgumentError,
+    );
     expect(() => LinuxNativeHostTools(host, otherRunner), throwsArgumentError);
     expect(create, returnsNormally);
   });
@@ -282,7 +303,7 @@ void main() {
         p.join(dependency.path, 'Dependency'),
       ).writeAsBytesSync(dependencyBytes);
 
-      await normalizeNativeAssetInstallNames([asset.path, dependency.path]);
+      await frameworks.normalize([asset.path, dependency.path]);
 
       expect(_dylibNames(File(p.join(asset.path, 'Asset')).readAsBytesSync()), [
         '@rpath/Asset.framework/Asset',
@@ -299,6 +320,214 @@ void main() {
     }
   });
 
+  test(
+    'mapped collection staging normalization and alignment preserve source outputs',
+    () async {
+      final root = Directory.systemTemp.createTempSync(
+        'mapped-native-frameworks-',
+      );
+      addTearDown(() => root.deleteSync(recursive: true));
+      final mapped = FixtureMappedFileSystem(root);
+      final host = LinuxHost(fileSystem: mapped);
+      final service = nativeFrameworkService(
+        fixtureRunner(host, log: fixtureLog()),
+      );
+      const output = '/xcross-native-framework-fixture/assemble';
+      const project = '/xcross-native-framework-fixture/project';
+      final paths = host.paths.context;
+      final asset = paths.join(output, 'native_assets', 'Asset.framework');
+      final table = paths.join(
+        project,
+        'build',
+        'native_assets',
+        'ios',
+        'Table.framework',
+      );
+      final assetBinary = mapped.file(paths.join(asset, 'Asset'))
+        ..createSync(recursive: true);
+      final tableBinary = mapped.file(paths.join(table, 'Table'))
+        ..createSync(recursive: true);
+      final assetBytes = _dylibMachO([
+        '/very/long/native/assets/path/libAsset.dylib',
+      ]);
+      final tableBytes = buildMachO(
+        indirectCount: 3,
+        strings: stringTable('_hello', padding: 8),
+      );
+      assetBinary.writeAsBytesSync(assetBytes);
+      tableBinary.writeAsBytesSync(tableBytes);
+      final stale =
+          mapped.file(
+              paths.join(
+                project,
+                'build',
+                'native_assets',
+                'ios',
+                'Asset.framework',
+                'Asset',
+              ),
+            )
+            ..createSync(recursive: true)
+            ..writeAsStringSync('stale');
+      final selected = service.collect(
+        jsonEncode({
+          'native-assets': {
+            'ios_arm64': {
+              'asset': ['relative', 'Asset.framework/Asset'],
+              'table': ['relative', 'Table.framework/Table'],
+            },
+          },
+        }),
+        output,
+        projectRoot: project,
+      );
+      expect(selected, [asset, table]);
+      final staged = await service.stage(selected, output);
+      expect(staged, [
+        paths.join(output, 'xcross_staged_frameworks', 'Asset.framework'),
+        paths.join(output, 'xcross_staged_frameworks', 'Table.framework'),
+      ]);
+      await service.normalize(staged);
+      await service.align(staged);
+      expect(Directory(output).existsSync(), isFalse);
+      await expectLater(
+        File(paths.join(staged[0], 'Asset')).readAsBytes(),
+        throwsA(isA<FileSystemException>()),
+      );
+      final stagedAsset = mapped.file(paths.join(staged[0], 'Asset'));
+      final stagedTable = mapped.file(paths.join(staged[1], 'Table'));
+      expect(_dylibNames(stagedAsset.readAsBytesSync()), [
+        '@rpath/Asset.framework/Asset',
+      ]);
+      expect(readSymtab(stagedTable.readAsBytesSync()).offset % 8, 0);
+      expect(stagedTable.lengthSync(), tableBytes.length);
+      expect(assetBinary.readAsBytesSync(), assetBytes);
+      expect(tableBinary.readAsBytesSync(), tableBytes);
+      expect(stale.readAsStringSync(), 'stale');
+      final unchangedTime = DateTime.utc(2000);
+      stagedAsset.setLastModifiedSync(unchangedTime);
+      stagedTable.setLastModifiedSync(unchangedTime);
+      await service.normalize(staged);
+      await service.align(staged);
+      expect(stagedAsset.lastModifiedSync().toUtc(), unchangedTime);
+      expect(stagedTable.lastModifiedSync().toUtc(), unchangedTime);
+      expect(
+        mapped.touched,
+        containsAll([
+          paths.join(staged[0], 'Asset'),
+          paths.join(staged[1], 'Table'),
+        ]),
+      );
+      expect(
+        service.collect(
+          jsonEncode({
+            'native-assets': {'ios_arm64': <String, Object?>{}},
+          }),
+          output,
+        ),
+        isEmpty,
+      );
+      final collision = mapped.directory(
+        '/xcross-native-framework-fixture/other/Asset.framework',
+      )..createSync(recursive: true);
+      expect(
+        () => service.collect(
+          jsonEncode({
+            'native-assets': {
+              'ios_arm64': {
+                'first': ['absolute', paths.join(asset, 'Asset')],
+                'second': [
+                  'absolute',
+                  paths.join(
+                    '/xcross-native-framework-fixture/other/Asset.framework',
+                    'Asset',
+                  ),
+                ],
+              },
+            },
+          }),
+          output,
+        ),
+        throwsA(
+          isA<FlutterBuildError>().having(
+            (e) => e.message,
+            'message',
+            contains('name collision'),
+          ),
+        ),
+      );
+      expect(collision.existsSync(), isTrue);
+    },
+  );
+
+  for (final outcome in [
+    'success',
+    'nonzero-exit',
+    'missing-output',
+    'start-failure',
+  ]) {
+    test(
+      'mapped thinning preserves hooks and cleans scratch on $outcome',
+      () async {
+        final root = Directory.systemTemp.createTempSync(
+          'mapped-native-thinning-',
+        );
+        addTearDown(() => root.deleteSync(recursive: true));
+        final mapped = FixtureMappedFileSystem(root);
+        final processes = FrameworkLipoProcesses(fileSystem: mapped);
+        final startFailure = Exception('lipo fixture start failure');
+        if (outcome == 'nonzero-exit') processes.code = 23;
+        if (outcome == 'missing-output') processes.produceOutput = false;
+        if (outcome == 'start-failure') processes.startFailure = startFailure;
+        final host = LinuxHost(fileSystem: mapped, processes: processes);
+        final runner = fixtureRunner(
+          host,
+          log: fixtureLog(),
+          configuration: ProcessConfiguration(
+            normalizedTools: const {'lipo': '/configured/llvm-lipo'},
+            effectiveChildEnvironment: const {'SELECTED_ENV': 'fixture'},
+          ),
+        );
+        final service = nativeFrameworkService(runner);
+        const output = '/xcross-native-thin-fixture/assemble';
+        const source = '$output/native_assets/Fat.framework';
+        final original = mapped.file('$source/Fat')
+          ..createSync(recursive: true);
+        final fat = <int>[0xca, 0xfe, 0xba, 0xbe, 1, 2, 3, 4];
+        original.writeAsBytesSync(fat);
+        final staged = await service.stage([source], output);
+        final binary = '${staged.single}/Fat';
+        final result = service.thin(staged, lipo: 'lipo');
+        if (outcome == 'success') {
+          await result;
+          expect(mapped.file(binary).readAsBytesSync(), processes.output);
+          await service.thin(staged, lipo: 'lipo');
+          expect(processes.calls, hasLength(1));
+        } else {
+          await expectLater(
+            result,
+            outcome == 'start-failure'
+                ? throwsA(same(startFailure))
+                : throwsA(isA<Exception>()),
+          );
+          expect(mapped.file(binary).readAsBytesSync(), fat);
+        }
+        expect(processes.calls.single.$1, '/configured/llvm-lipo');
+        expect(processes.calls.single.$2, [
+          '-thin',
+          'arm64',
+          binary,
+          '-output',
+          '$binary.xcross-thin',
+        ]);
+        expect(processes.calls.single.$3?['SELECTED_ENV'], 'fixture');
+        expect(mapped.file('$binary.xcross-thin').existsSync(), isFalse);
+        expect(original.readAsBytesSync(), fat);
+        expect(mapped.touched, containsAll([binary, '$binary.xcross-thin']));
+      },
+    );
+  }
+
   test('detects all FAT Mach-O binaries', () async {
     final tmp = await Directory.systemTemp.createTemp('fat_macho_test-');
     try {
@@ -310,11 +539,11 @@ void main() {
       ]) {
         final fat = File(p.join(tmp.path, 'fat-${magic.first}'))
           ..writeAsBytesSync(magic);
-        expect(await isFatMachO(fat.path), isTrue);
+        expect(await frameworks.isFat(fat.path), isTrue);
       }
       final thin = File(p.join(tmp.path, 'thin'))
         ..writeAsBytesSync([0xcf, 0xfa, 0xed, 0xfe]);
-      expect(await isFatMachO(thin.path), isFalse);
+      expect(await frameworks.isFat(thin.path), isFalse);
     } finally {
       await tmp.delete(recursive: true);
     }

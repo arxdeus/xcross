@@ -1,7 +1,7 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/apple/mach_o.dart';
 import 'package:xcross/src/flutter/errors.dart';
@@ -41,33 +41,105 @@ const _ulebPayloadMask = 0x7f;
 const _ulebContinuation = 0x80;
 const _ulebMaximumShift = 63;
 
-/// Eager-load only native frameworks that satisfy unbound SwiftPM plugin
-/// imports. Other frameworks stay embedded for Flutter's manifest-driven
-/// `dlopen` path and cannot change Runner startup behavior.
-Future<List<String>> nativeFrameworksRequiredByPlugins(
-  Iterable<String> frameworks,
-  Iterable<String> pluginLibraries,
-) async {
-  final imports = <String>{};
-  for (final library in pluginLibraries) {
-    imports.addAll(await _unboundImports(library));
-  }
-  if (imports.isEmpty) return const [];
+final class NativeAssetLinkage {
+  const NativeAssetLinkage({required this.fileSystem, required this.paths});
 
-  final required = <String>[];
-  for (final framework in frameworks) {
-    final binary = p.join(framework, p.basenameWithoutExtension(framework));
-    final exports = await _publicExports(binary);
-    if (exports.any(imports.contains)) required.add(framework);
+  final HostFileSystemInterface fileSystem;
+  final p.Context paths;
+
+  /// Eager-load only native frameworks that satisfy unbound SwiftPM plugin
+  /// imports. Other frameworks stay embedded for Flutter's manifest-driven
+  /// `dlopen` path and cannot change Runner startup behavior.
+  Future<List<String>> requiredByPlugins(
+    Iterable<String> frameworks,
+    Iterable<String> pluginLibraries,
+  ) async {
+    final imports = <String>{};
+    for (final library in pluginLibraries) {
+      imports.addAll(await _unboundImports(library));
+    }
+    if (imports.isEmpty) return const [];
+
+    final required = <String>[];
+    for (final framework in frameworks) {
+      final binary = paths.join(
+        framework,
+        paths.basenameWithoutExtension(framework),
+      );
+      final exports = await _publicExports(binary);
+      if (exports.any(imports.contains)) required.add(framework);
+    }
+    return required;
   }
-  return required;
+
+  Future<MachOFile> _readMachO(String path) async => MachOFile.parse(
+    await fileSystem.file(path).readAsBytes(),
+    invalid: (message) =>
+        throw FlutterBuildError('Invalid Mach-O $path: $message'),
+  );
+
+  /// Undefined external symbols a plugin library expects dyld to resolve from
+  /// any loaded image: flat-namespace imports and two-level dynamic lookups.
+  Future<Set<String>> _unboundImports(String path) async {
+    final file = await _readMachO(path);
+    final flags = file.data.getUint32(_headerFlagsOffset, Endian.little);
+    final twoLevel =
+        (flags & _twoLevelNamespace) != 0 && (flags & _forceFlatNamespace) == 0;
+    final entries = _symbolTableEntries(file);
+    if (entries == null) {
+      throw FlutterBuildError(
+        'Plugin library has no Mach-O symbol table: $path',
+      );
+    }
+    final imports = <String>{};
+    for (final (:index, :symbol, :table) in entries) {
+      if (!_isUndefinedPublicSymbol(symbol.type)) continue;
+      final description = file.data.getUint16(
+        table.symbolOffset + index * _nlistSize + _nlistDescriptionOffset,
+        Endian.little,
+      );
+      // A weak import must not make its provider a required Runner dependency.
+      if ((description & _weakReference) != 0) continue;
+      if (twoLevel && !_isUnboundOrdinal(description >> _libraryOrdinalShift)) {
+        continue;
+      }
+      imports.add(table.symbolName(index, symbol));
+    }
+    return imports;
+  }
+
+  /// Symbols a framework exports, preferring dyld's export trie.
+  Future<Set<String>> _publicExports(String path) async {
+    final file = await _readMachO(path);
+    for (final command in file.commands) {
+      if (command.type == _exportsTrie) {
+        if (command.size < _linkeditDataMinimumSize) {
+          file.invalid('truncated exports trie command');
+        }
+        return _readExportTrieAt(file, command.offset + _linkeditDataOffset);
+      }
+    }
+    for (final command in file.commands) {
+      if (command.type == _dyldInfo || command.type == _dyldInfoOnly) {
+        if (command.size < _dyldInfoMinimumSize) {
+          file.invalid('truncated dyld info command');
+        }
+        return _readExportTrieAt(file, command.offset + _dyldInfoExportOffset);
+      }
+    }
+
+    // Older Mach-O files without dyld export metadata use their public nlist.
+    final entries = _symbolTableEntries(file);
+    if (entries == null) {
+      throw FlutterBuildError('Native framework has no export metadata: $path');
+    }
+    return {
+      for (final (:index, :symbol, :table) in entries)
+        if (_isDefinedPublicSymbol(symbol.type))
+          table.symbolName(index, symbol),
+    };
+  }
 }
-
-Future<MachOFile> _readMachO(String path) async => MachOFile.parse(
-  await File(path).readAsBytes(),
-  invalid: (message) =>
-      throw FlutterBuildError('Invalid Mach-O $path: $message'),
-);
 
 typedef NativeSymbolEntry = ({
   int index,
@@ -94,34 +166,6 @@ Iterable<NativeSymbolEntry> _lazySymbolTableEntries(MachOFile file) sync* {
   }
 }
 
-/// Undefined external symbols a plugin library expects dyld to resolve from
-/// any loaded image: flat-namespace imports and two-level dynamic lookups.
-Future<Set<String>> _unboundImports(String path) async {
-  final file = await _readMachO(path);
-  final flags = file.data.getUint32(_headerFlagsOffset, Endian.little);
-  final twoLevel =
-      (flags & _twoLevelNamespace) != 0 && (flags & _forceFlatNamespace) == 0;
-  final entries = _symbolTableEntries(file);
-  if (entries == null) {
-    throw FlutterBuildError('Plugin library has no Mach-O symbol table: $path');
-  }
-  final imports = <String>{};
-  for (final (:index, :symbol, :table) in entries) {
-    if (!_isUndefinedPublicSymbol(symbol.type)) continue;
-    final description = file.data.getUint16(
-      table.symbolOffset + index * _nlistSize + _nlistDescriptionOffset,
-      Endian.little,
-    );
-    // A weak import must not make its provider a required Runner dependency.
-    if ((description & _weakReference) != 0) continue;
-    if (twoLevel && !_isUnboundOrdinal(description >> _libraryOrdinalShift)) {
-      continue;
-    }
-    imports.add(table.symbolName(index, symbol));
-  }
-  return imports;
-}
-
 bool _isUndefinedPublicSymbol(int type) =>
     (type & _stab) == 0 &&
     (type & _external) != 0 &&
@@ -131,37 +175,6 @@ bool _isUndefinedPublicSymbol(int type) =>
 /// Two-level ordinals that do not name a specific dependent library.
 bool _isUnboundOrdinal(int ordinal) =>
     ordinal == _dynamicLookupOrdinal || ordinal == _executableOrdinal;
-
-/// Symbols a framework exports, preferring dyld's export trie.
-Future<Set<String>> _publicExports(String path) async {
-  final file = await _readMachO(path);
-  for (final command in file.commands) {
-    if (command.type == _exportsTrie) {
-      if (command.size < _linkeditDataMinimumSize) {
-        file.invalid('truncated exports trie command');
-      }
-      return _readExportTrieAt(file, command.offset + _linkeditDataOffset);
-    }
-  }
-  for (final command in file.commands) {
-    if (command.type == _dyldInfo || command.type == _dyldInfoOnly) {
-      if (command.size < _dyldInfoMinimumSize) {
-        file.invalid('truncated dyld info command');
-      }
-      return _readExportTrieAt(file, command.offset + _dyldInfoExportOffset);
-    }
-  }
-
-  // Older Mach-O files without dyld export metadata use their public nlist.
-  final entries = _symbolTableEntries(file);
-  if (entries == null) {
-    throw FlutterBuildError('Native framework has no export metadata: $path');
-  }
-  return {
-    for (final (:index, :symbol, :table) in entries)
-      if (_isDefinedPublicSymbol(symbol.type)) table.symbolName(index, symbol),
-  };
-}
 
 bool _isDefinedPublicSymbol(int type) {
   if ((type & (_stab | _privateExternal)) != 0 || (type & _external) == 0) {

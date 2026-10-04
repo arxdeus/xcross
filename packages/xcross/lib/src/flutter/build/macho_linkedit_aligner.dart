@@ -1,7 +1,5 @@
-import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:meta/meta.dart';
 import 'package:xcross/src/apple/mach_o.dart';
 import 'package:xcross/src/flutter/errors.dart';
 
@@ -32,23 +30,9 @@ abstract final class MachOLinkeditAligner {
   /// Apple's alignment for the LINKEDIT string pool.
   static const _stringTableAlignment = 8;
 
-  /// Aligns the string table of [path] when it needs it.
-  ///
-  /// Returns true when the file was rewritten. A file that is already aligned,
-  /// or that cannot be repaired safely, is left untouched.
-  static Future<bool> alignFile(String path) async {
-    final file = File(path);
-    if (!file.existsSync()) return false;
-    final bytes = await file.readAsBytes();
-    if (!alignBytes(bytes, source: path)) return false;
-    await file.writeAsBytes(bytes, flush: true);
-    return true;
-  }
-
   /// Aligns the string table inside [bytes] in place.
   ///
   /// Returns true when [bytes] were modified.
-  @visibleForTesting
   static bool alignBytes(Uint8List bytes, {required String source}) {
     if (!_isMachO64(bytes)) return false;
     final file = MachOFile.parse(
