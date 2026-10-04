@@ -75,16 +75,6 @@ final class SetupRequirementServices {
     throw XcrossError('Could not install pipx.\n$manualHint');
   }
 
-  Future<void> pipxEnsurePath(String pipx) async {
-    try {
-      await runner.runChecked(pipx, ['ensurepath'], label: 'pipx ensurepath');
-    } on Object catch (error) {
-      runner.log.logWarn(
-        'pipx ensurepath failed, add ~/.local/bin to PATH: $error',
-      );
-    }
-  }
-
   Future<void> ensurePymd() async {
     if (!await ensurePymdInstalled()) {
       throw XcrossError('pymobiledevice3 install failed; see above.');

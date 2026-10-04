@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:cli_kit/shared/process/process_models.dart';
@@ -13,6 +14,7 @@ import 'package:test/test.dart';
 import 'package:xcross/src/host/linux/setup/linux_package_manager.dart';
 import 'package:xcross/src/host/linux/setup/linux_setup_requirements.dart';
 import 'package:xcross/src/host/macos/setup/macos_setup_requirements.dart';
+import 'package:xcross/src/host/shared/setup/posix_pipx_path.dart';
 import 'package:xcross/src/host/windows/setup/windows_setup_requirements.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
 
@@ -181,6 +183,22 @@ void main() {
     },
   );
 
+  test('pipx ensurepath failure warns through the selected runner', () async {
+    final warnings = FixtureWarningOutput();
+    final failing = fixtureRunner(
+      LinuxHost(
+        processes: FixtureFailingProcesses(),
+        environment: {'PATH': fixture.path},
+      ),
+      log: Log(output: warnings),
+    );
+    await PosixPipxPath(failing).ensure('pipx');
+    expect(
+      warnings.messages.single,
+      contains('pipx ensurepath failed, add ~/.local/bin to PATH:'),
+    );
+  });
+
   test('missing Homebrew rejects without Linux fallback', () async {
     File(p.join(fixture.path, 'brew')).deleteSync();
     await expectLater(
@@ -242,6 +260,51 @@ final class FixtureProcesses implements HostProcessInterface {
           : 'clang version 22.1.0',
     );
   }
+
+  @override
+  Future<String?> findOnShellPath(
+    String name, {
+    Map<String, String>? environment,
+    bool includeParentEnvironment = true,
+  }) async => null;
+  @override
+  Future<void> killTree(
+    Process process, {
+    Map<String, String>? environment,
+    Map<String, String> executableOverrides = const {},
+  }) async {}
+}
+
+@internal
+final class FixtureWarningOutput implements LogOutput {
+  final messages = <String>[];
+  @override
+  bool get supportsAnsi => false;
+  @override
+  int get terminalColumns => 80;
+  @override
+  void stdout(String message) {}
+  @override
+  void stderr(String message) => messages.add(message);
+  @override
+  void write(String message) {}
+}
+
+@internal
+final class FixtureFailingProcesses implements HostProcessInterface {
+  @override
+  ProcessExitDiagnostic describeExit(int exitCode) =>
+      const ProcessExitDiagnostic(crashed: false, description: null);
+  @override
+  Future<Process> start(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+    Map<String, String>? environment,
+    bool includeParentEnvironment = true,
+    bool runInShell = false,
+    ProcessStartMode mode = ProcessStartMode.normal,
+  }) async => throw const ProcessException('pipx', ['ensurepath'], 'denied', 1);
 
   @override
   Future<String?> findOnShellPath(

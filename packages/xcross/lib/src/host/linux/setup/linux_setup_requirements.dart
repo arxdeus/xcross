@@ -6,6 +6,7 @@ import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/host/linux/setup/linux_package_manager.dart';
+import 'package:xcross/src/host/shared/setup/posix_pipx_path.dart';
 import 'package:xcross/src/shared/cli/basic/internal/clang_requirement.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
@@ -55,7 +56,7 @@ final class LinuxSetupRequirements implements SetupRequirements {
       manualHint: manager.manualHint([manager.pipxPackage]),
     );
     await services.ensurePymd();
-    await services.pipxEnsurePath(pipx);
+    await PosixPipxPath(runner).ensure(pipx);
     runner.log.logDone('Requirements installed');
   }
 
