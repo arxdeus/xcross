@@ -109,6 +109,9 @@ const hostAssemblies = {
     'packages/apple_developer_kit/lib/src/host/windows/adi/loader/loader_windows.dart',
   },
   'packages/xcross/lib/src/composition/host_operations.dart': {
+    'packages/xcross/lib/src/host/linux/sdk/linux_swift_toolchain_host.dart',
+    'packages/xcross/lib/src/host/macos/sdk/macos_swift_toolchain_host.dart',
+    'packages/xcross/lib/src/host/windows/sdk/windows_swift_toolchain_host.dart',
     'packages/xcross/lib/src/host/linux/setup/linux_setup_requirements.dart',
     'packages/xcross/lib/src/host/linux/update/linux_update_policy.dart',
     'packages/xcross/lib/src/host/macos/setup/macos_setup_requirements.dart',
@@ -201,6 +204,10 @@ const nativeHooks = {'packages/apple_developer_kit/hook/build.dart'};
 const resources = {
   'packages/xcross/lib/src/shared/flutter/build/assets/preview_macro_stub.c':
       Classification('shared', 'shared', 'embedded-native-template'),
+  'packages/xcross/lib/src/host/shared/flutter/assets/posix_preview_macro_prologue.c':
+      Classification('shared', 'shared', 'embedded-native-template'),
+  'packages/xcross/lib/src/host/windows/flutter/assets/preview_macro_prologue.c':
+      Classification('windows', 'shared', 'embedded-native-template'),
   'packages/dart_mobile_device/lib/src/target/iphone/device/pymd/scripts/pair_host.py':
       Classification('shared', 'iphone', 'target-resource'),
 };
@@ -213,8 +220,12 @@ const templates = {
 @internal
 const nativeSources = {
   'packages/apple_developer_kit/src/host/shared/adi/posix_bridge.c': 'shared',
-  'packages/apple_developer_kit/src/host/shared/adi/sysv_abi_bridge.c':
-      'shared',
+  'packages/apple_developer_kit/src/host/linux/adi/adi_posix_host_mapping.h':
+      'linux',
+  'packages/apple_developer_kit/src/host/macos/adi/adi_posix_host_mapping.h':
+      'macos',
+  'packages/apple_developer_kit/src/host/windows/adi/windows_abi_bridge.c':
+      'windows',
   'packages/apple_developer_kit/src/host/windows/adi/windows_arm64_abi_bridge.h':
       'windows',
 };
@@ -342,6 +353,10 @@ const partOwners = {
       'packages/xcross/lib/src/shared/cli/internal/xcross_runner.dart',
   'packages/xcross/lib/src/shared/flutter/build/preview_macro_stub_source.g.dart':
       'packages/xcross/lib/src/shared/flutter/build/preview_macro_stub_source.dart',
+  'packages/xcross/lib/src/host/shared/flutter/posix_preview_macro_prologue.g.dart':
+      'packages/xcross/lib/src/host/shared/flutter/posix_preview_macro_prologue.dart',
+  'packages/xcross/lib/src/host/windows/flutter/preview_macro_prologue.g.dart':
+      'packages/xcross/lib/src/host/windows/flutter/preview_macro_prologue.dart',
   'packages/xcross/lib/src/shared/runtime/version.g.dart':
       'packages/xcross/lib/src/shared/runtime/version.dart',
 };

@@ -6,6 +6,7 @@ const appleDeveloperKitTestsRoles = <String, Map<String, String>>{
     'FUNCTION:_buildWithSystemCc': 'private',
     'FUNCTION:_resolveSystemCc': 'private',
     'FUNCTION:main': 'entrypoint',
+    'FUNCTION:posixHostMappingHeader': 'internal',
     'FUNCTION:resolveMacOSCompiler': 'internal',
     'FUNCTION:systemCompilerFlags': 'internal',
     'FUNCTION:windowsBridgeSources': 'internal',
@@ -22,6 +23,7 @@ const appleDeveloperKitTestsRoles = <String, Map<String, String>>{
   },
   'workspace:packages/apple_developer_kit/test/adi/build_hook_test.dart': {
     'FUNCTION:main': 'entrypoint',
+    'TOP_LEVEL_VARIABLE:_packageRoot': 'private',
   },
   'workspace:packages/apple_developer_kit/test/adi/elf_loader_test.dart': {
     'CLASS:RecordingAllocator': 'internal',
@@ -267,6 +269,8 @@ const appleDeveloperKitTestsRoles = <String, Map<String, String>>{
         'TOP_LEVEL_VARIABLE:_oidSigningTime': 'private',
       },
   'workspace:packages/apple_developer_kit/test/support/host_services.dart': {
+    'CLASS:InertElfLibrary': 'internal',
+    'CLASS:RecordingPathLibrary': 'internal',
     'CLASS:SilentLogOutput': 'internal',
     'CLASS:UnusedNativeLoader': 'internal',
     'FUNCTION:testMacOSAppleHostServices': 'internal',

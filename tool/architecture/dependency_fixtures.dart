@@ -17,7 +17,44 @@ Map<String, (String, Set<String>)> dependencyFixtures() => {
 
 @internal
 Map<String, (String, Set<String>)> dependencyAssets() {
-  final result = <String, (String, Set<String>)>{};
+  final result = <String, (String, Set<String>)>{
+    'packages/fixture/lib/shared/process/exit_diagnostic.dart': (
+      'class ExitDiagnostic { final bool crashed; const ExitDiagnostic(this.crashed); } abstract interface class ProcessPort { ExitDiagnostic describeExit(int code); }',
+      {},
+    ),
+    'packages/fixture/lib/src/shared/process/exit_message.dart': (
+      "import '../../../shared/process/exit_diagnostic.dart'; bool crashed(ProcessPort port, int code)=>port.describeExit(code).crashed;",
+      {},
+    ),
+    'packages/fixture/lib/src/host/windows/exit_diagnostic.dart': (
+      "import '../../../shared/process/exit_diagnostic.dart'; class WindowsExitDiagnostic implements ProcessPort { @override ExitDiagnostic describeExit(int code)=>ExitDiagnostic(code == 0xc0000135); }",
+      {},
+    ),
+    'packages/fixture/lib/src/host/shared/posix_exit_diagnostic.dart': (
+      "import '../../../shared/process/exit_diagnostic.dart'; class PosixExitDiagnostic implements ProcessPort { @override ExitDiagnostic describeExit(int code)=>ExitDiagnostic(code < 0); }",
+      {},
+    ),
+    'packages/fixture/lib/src/shared/process/windows_exit_import.dart': (
+      "import '../../host/windows/exit_diagnostic.dart'; Object diagnostic()=>WindowsExitDiagnostic();",
+      {'concrete-edge'},
+    ),
+    'packages/fixture/lib/src/host/shared/windows_exit_import.dart': (
+      "import '../windows/exit_diagnostic.dart'; Object diagnostic()=>WindowsExitDiagnostic();",
+      {'concrete-edge'},
+    ),
+    'packages/fixture/lib/src/host/linux/windows_exit_import.dart': (
+      "import '../windows/exit_diagnostic.dart'; Object diagnostic()=>WindowsExitDiagnostic();",
+      {'concrete-edge'},
+    ),
+    'packages/fixture/lib/src/host/windows/abi_bridge.dart': (
+      'class WindowsAbiBridge {}',
+      {},
+    ),
+    'packages/fixture/lib/src/host/shared/windows_abi_import.dart': (
+      "import '../windows/abi_bridge.dart'; Object bridge()=>WindowsAbiBridge();",
+      {'concrete-edge'},
+    ),
+  };
   for (final entry in {
     'packages/fixture/lib/src/target/iphone/native_fixture.dart':
         "import 'dart:io' as renamed; Object acquire(String path)=>renamed.File(path);",

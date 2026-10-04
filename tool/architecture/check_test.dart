@@ -16,6 +16,15 @@ import 'platform_fixtures.dart';
 import 'workspace_inventory.dart';
 
 Future<void> main() async {
+  const windowsBridge =
+      'packages/apple_developer_kit/src/host/windows/adi/windows_abi_bridge.c';
+  const retiredSharedBridge =
+      'packages/apple_developer_kit/src/host/shared/adi/sysv_abi_bridge.c';
+  if (classify(windowsBridge).host != 'windows' ||
+      classify(windowsBridge).kind != 'native-abi' ||
+      classify(retiredSharedBridge).kind != 'unclassified') {
+    throw StateError('Windows ABI code must remain a Windows-owned asset');
+  }
   final scratch =
       Platform.environment['JCODE_SCRATCH_DIR'] ?? Directory.systemTemp.path;
   final directory = Directory('$scratch/architecture-fixtures-$pid');

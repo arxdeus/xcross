@@ -2,6 +2,16 @@ import 'package:meta/meta.dart';
 
 @internal
 const xcrossPlatformRoles = <String, Map<String, String>>{
+  'package:xcross/src/host/linux/sdk/linux_swift_toolchain_host.dart': {
+    'CLASS:LinuxSwiftToolchainHost': 'internal',
+  },
+  'package:xcross/src/host/macos/sdk/macos_swift_toolchain_host.dart': {
+    'CLASS:MacOSSwiftToolchainHost': 'internal',
+  },
+  'package:xcross/src/host/windows/sdk/windows_swift_toolchain_host.dart': {
+    'CLASS:WindowsSwiftToolchainHost': 'internal',
+    'TOP_LEVEL_VARIABLE:_statusDllNotFound': 'private',
+  },
   'package:xcross/src/composition/cli/compose_build_command.dart': {
     'CLASS:ComposeBuildArgs': 'internal',
     'CLASS:ComposeBuildCommand': 'internal',
@@ -251,6 +261,13 @@ const xcrossPlatformRoles = <String, Map<String, String>>{
   'package:xcross/src/host/shared/sdk/preserved_sdk_archive_links.dart': {
     'CLASS:PreservedSdkArchiveLinks': 'internal',
   },
+  'package:xcross/src/host/shared/flutter/posix_preview_macro_prologue.dart': {
+    r'TOP_LEVEL_VARIABLE:_$posixPreviewMacroPrologue': 'private',
+    'TOP_LEVEL_VARIABLE:posixPreviewMacroPrologue': 'internal',
+  },
+  'package:xcross/src/host/shared/setup/posix_pipx_path.dart': {
+    'CLASS:PosixPipxPath': 'internal',
+  },
   'package:xcross/src/host/shared/setup/posix_setup_script.dart': {
     'CLASS:PosixSetupScript': 'internal',
   },
@@ -283,6 +300,11 @@ const xcrossPlatformRoles = <String, Map<String, String>>{
   },
   'package:xcross/src/host/windows/flutter/native_host_tools.dart': {
     'CLASS:WindowsNativeHostTools': 'internal',
+    'FUNCTION:missingNativeAssetToolForwarderError': 'internal',
+  },
+  'package:xcross/src/host/windows/flutter/preview_macro_prologue.dart': {
+    r'TOP_LEVEL_VARIABLE:_$windowsPreviewMacroPrologue': 'private',
+    'TOP_LEVEL_VARIABLE:windowsPreviewMacroPrologue': 'internal',
   },
   'package:xcross/src/host/windows/flutter/swiftpm/artifact_copy_policy.dart': {
     'CLASS:BinaryCopyDiagnosticCollector': 'internal',

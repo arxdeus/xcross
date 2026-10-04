@@ -33,7 +33,6 @@ const xcrossFlutterRoles = <String, Map<String, String>>{
     'CLASS:AppleToolShimResolver': 'internal',
     'CLASS:OtoolConfig': 'internal',
     'FUNCTION:installAppleToolShims': 'internal',
-    'FUNCTION:missingNativeAssetToolForwarderError': 'internal',
   },
   'package:xcross/src/shared/flutter/build/internal/flutter_tool_workspace.dart':
       {'CLASS:FlutterToolWorkspace': 'internal'},

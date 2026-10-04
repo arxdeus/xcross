@@ -63,8 +63,8 @@ const xcrossSharedRoles = <String, Map<String, String>>{
     'ENUM:ConfigRoot': 'internal',
     'ENUM:ConfigTab': 'internal',
     'ENUM:ConfigToolchain': 'internal',
-    'EXTENSION:@561': 'private',
-    'EXTENSION:@852': 'private',
+    'EXTENSION:@622': 'private',
+    'EXTENSION:@913': 'private',
     'TYPE_ALIAS:ConfigConfirm': 'internal',
     'TYPE_ALIAS:ConfigPrompt': 'internal',
   },
@@ -98,7 +98,6 @@ const xcrossSharedRoles = <String, Map<String, String>>{
   },
   'package:xcross/src/shared/cli/basic/internal/swift_requirement.dart': {
     'CLASS:SwiftRequirement': 'internal',
-    'TOP_LEVEL_VARIABLE:_swiftInstallHint': 'private',
   },
   'package:xcross/src/shared/cli/basic/internal/swift_sibling_clang.dart': {
     'CLASS:SwiftSiblingClang': 'internal',
@@ -177,7 +176,6 @@ const xcrossSharedRoles = <String, Map<String, String>>{
     'FUNCTION:_sortedObjects': 'private',
     'FUNCTION:_yamlString': 'private',
     'TOP_LEVEL_VARIABLE:_notProvided': 'private',
-    'TOP_LEVEL_VARIABLE:_windowsExecutableExtensions': 'private',
   },
   'package:xcross/src/shared/config/config_decoder.dart': {
     'CLASS:XcrossConfigDecoder': 'internal',
@@ -279,7 +277,6 @@ const xcrossSharedRoles = <String, Map<String, String>>{
     'TOP_LEVEL_VARIABLE:sdkIncludedRoots': 'internal',
     'TOP_LEVEL_VARIABLE:sdkJsonEncoder': 'internal',
     'TOP_LEVEL_VARIABLE:sdkRegularFileType': 'internal',
-    'TOP_LEVEL_VARIABLE:sdkStatusDllNotFound': 'internal',
     'TOP_LEVEL_VARIABLE:sdkSwiftResourcesRelativePath': 'internal',
     'TOP_LEVEL_VARIABLE:sdkSwiftStaticResourcesRelativePath': 'internal',
     'TOP_LEVEL_VARIABLE:sdkSymbolicLinkFileType': 'internal',
@@ -294,6 +291,9 @@ const xcrossSharedRoles = <String, Map<String, String>>{
   },
   'package:xcross/src/shared/sdk/sdk_swift_toolchain.dart': {
     'CLASS:SdkSwiftToolchain': 'internal',
+  },
+  'package:xcross/src/shared/sdk/swift_toolchain_host.dart': {
+    'CLASS:SwiftToolchainHostInterface': 'internal',
   },
   'package:xcross/src/shared/sdk/xcode_swift_requirement.dart': {
     'CLASS:XcodeSwiftRequirement': 'internal',

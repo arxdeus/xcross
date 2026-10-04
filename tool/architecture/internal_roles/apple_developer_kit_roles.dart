@@ -186,11 +186,14 @@ const appleDeveloperKitRoles = <String, Map<String, String>>{
       {'CLASS:NativeSymbolStubs': 'internal'},
   'package:apple_developer_kit/src/host/shared/adi/loader/internal/posix_loaded_library.dart':
       {'CLASS:PosixLoadedLibrary': 'internal'},
-  'package:apple_developer_kit/src/host/shared/adi/loader/internal/sysv_abi_bridge.dart':
+  'package:apple_developer_kit/src/host/shared/adi/loader/internal/posix_native_bindings.dart':
       {
-        'CLASS:SysvAbiBridge': 'internal',
         'FUNCTION:provisionClearCache': 'internal',
         'FUNCTION:provisionPosixSymbol': 'internal',
+      },
+  'package:apple_developer_kit/src/host/windows/adi/loader/internal/windows_abi_bridge.dart':
+      {
+        'CLASS:SysvAbiBridge': 'internal',
         'FUNCTION:provisionSysvWrapExport': 'internal',
         'FUNCTION:provisionSysvWrapImport': 'internal',
         'FUNCTION:provisionWindowsArm64PrepareCode': 'internal',

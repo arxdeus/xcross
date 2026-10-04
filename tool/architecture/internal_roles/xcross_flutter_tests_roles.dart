@@ -183,6 +183,7 @@ const xcrossFlutterTestsRoles = <String, Map<String, String>>{
   'workspace:packages/xcross/test/flutter/build/support/native_flutter_fixtures.dart':
       {
         'CLASS:NativeTestLogOutput': 'internal',
+        'CLASS:WindowsFixturePaths': 'internal',
         'CLASS:WindowsFixtureProcesses': 'internal',
         'FUNCTION:appleToolResolver': 'internal',
         'FUNCTION:expectWorkspaceSdk': 'internal',

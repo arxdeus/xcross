@@ -2,6 +2,14 @@ import 'package:meta/meta.dart';
 
 @internal
 const supportPackagesRoles = <String, Map<String, String>>{
+  'package:dart_mobile_device/src/target/iphone/device/pymd/pymd_launch_command.dart':
+      {'CLASS:PymdLaunchCommand': 'internal'},
+  'workspace:packages/cli_kit/test/process_diagnostics_test.dart': {
+    'CLASS:DiagnosticHost': 'internal',
+    'CLASS:DiagnosticProcesses': 'internal',
+    'CLASS:DiagnosticChild': 'internal',
+    'FUNCTION:main': 'entrypoint',
+  },
   'package:cli_kit/composition/native_host.dart': {
     'CLASS:NativeHostSnapshot': 'public',
     'FUNCTION:detectPlatformHost': 'public',
@@ -63,6 +71,7 @@ const supportPackagesRoles = <String, Map<String, String>>{
   'package:cli_kit/shared/process/process_models.dart': {
     'CLASS:CapturedProcess': 'public',
     'CLASS:ProcessConfiguration': 'public',
+    'CLASS:ProcessExitDiagnostic': 'public',
   },
   'package:cli_kit/shared/process/tool_lookup.dart': {
     'CLASS:ProcessToolLookup': 'public',
@@ -460,6 +469,7 @@ const supportPackagesRoles = <String, Map<String, String>>{
     'FUNCTION:main': 'entrypoint',
   },
   'workspace:packages/dart_mobile_device/test/pymd_test.dart': {
+    'CLASS:PymdLaunchProcesses': 'internal',
     'FUNCTION:main': 'entrypoint',
   },
   'workspace:packages/dart_mobile_device/test/remote_pairing_test.dart': {

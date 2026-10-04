@@ -147,6 +147,7 @@ const xcrossApplicationTestsRoles = <String, Map<String, String>>{
   },
   'workspace:packages/xcross/test/cli/xcrun_test.dart': {
     'CLASS:FixtureNativeChild': 'internal',
+    'CLASS:FixtureWindowsFileSystem': 'internal',
     'CLASS:FixtureNativeProcesses': 'internal',
     'CLASS:FixtureProbeOutput': 'internal',
     'CLASS:FixtureUnusedLoader': 'internal',
@@ -280,8 +281,10 @@ const xcrossApplicationTestsRoles = <String, Map<String, String>>{
   },
   'workspace:packages/xcross/test/setup/host_requirements_test.dart': {
     'CLASS:FixtureChild': 'internal',
+    'CLASS:FixtureFailingProcesses': 'internal',
     'CLASS:FixtureInput': 'internal',
     'CLASS:FixtureLocations': 'internal',
+    'CLASS:FixtureWarningOutput': 'internal',
     'CLASS:FixturePrivileges': 'internal',
     'CLASS:FixtureProcesses': 'internal',
     'FUNCTION:main': 'entrypoint',

@@ -150,6 +150,7 @@ class Guard extends RecursiveAstVisitor<void> {
               'main',
               '_buildWithSystemCc',
               'systemCompilerFlags',
+              'posixHostMappingHeader',
             }.contains(function) &&
             native.hookControl(condition);
     if (approved) {
