@@ -6,9 +6,6 @@ import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
 import 'package:native_toolchain_c/native_toolchain_c.dart';
 
-/// Asset id of the code asset, which must stay equal to the path of the
-/// library holding the `@Native` externals: that is the id those lookups
-/// default to, and a mismatch only shows up at runtime as "no asset with id".
 const _assetName = 'src/host/shared/adi/loader/internal/sysv_abi_bridge.dart';
 
 void main(List<String> args) async {
@@ -48,7 +45,7 @@ List<String> windowsBridgeSources(Architecture architecture) {
   if (architecture != Architecture.x64 && architecture != Architecture.arm64) {
     throw UnsupportedError('Windows ADI requires x64 or ARM64.');
   }
-  return const ['src/host/shared/adi/sysv_abi_bridge.c'];
+  return const ['src/host/windows/adi/windows_abi_bridge.c'];
 }
 
 Future<void> _buildWithSystemCc({
@@ -60,9 +57,6 @@ Future<void> _buildWithSystemCc({
   final outDir = Directory.fromUri(input.outputDirectory)
     ..createSync(recursive: true);
   final outFile = outDir.uri.resolve(os.dylibFileName('sysv_abi_bridge'));
-  final source = input.packageRoot.resolve(
-    'src/host/shared/adi/sysv_abi_bridge.c',
-  );
   final posixSource = input.packageRoot.resolve(
     'src/host/shared/adi/posix_bridge.c',
   );
@@ -83,7 +77,6 @@ Future<void> _buildWithSystemCc({
     '-O2',
     '-o',
     outFile.toFilePath(),
-    source.toFilePath(),
     posixSource.toFilePath(),
   ];
   logger.info('Running `$cc ${args.join(' ')}`.');
@@ -111,7 +104,6 @@ Future<void> _buildWithSystemCc({
       file: outFile,
     ),
   );
-  output.dependencies.add(source);
   output.dependencies.add(posixSource);
 }
 

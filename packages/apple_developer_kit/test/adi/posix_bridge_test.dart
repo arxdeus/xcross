@@ -7,7 +7,7 @@ import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/host/shared/adi/elf/elf_code_preparation.dart';
 import 'package:apple_developer_kit/src/host/shared/adi/elf/elf_loaded_library.dart';
-import 'package:apple_developer_kit/src/host/shared/adi/loader/internal/sysv_abi_bridge.dart';
+import 'package:apple_developer_kit/src/host/shared/adi/loader/internal/posix_native_bindings.dart';
 import 'package:apple_developer_kit/src/shared/adi/adi_architecture.dart';
 import 'package:ffi/ffi.dart';
 import 'package:meta/meta.dart';
@@ -22,11 +22,9 @@ Pointer<Void> symbol(String name) => using(
 );
 
 void main() {
-  test('camelCase native bindings retain all original C exports', () {
+  test('POSIX native bindings resolve cache and symbol exports', () {
     using((arena) {
       final address = arena<Uint8>(16).cast<Void>();
-      expect(provisionSysvWrapExport(address, 0), address);
-      expect(provisionSysvWrapImport(address, 0), address);
       provisionClearCache(address, 16);
       expect(
         provisionPosixSymbol('close'.toNativeUtf8(allocator: arena).cast()),

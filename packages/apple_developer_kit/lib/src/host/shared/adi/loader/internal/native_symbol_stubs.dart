@@ -22,7 +22,7 @@ import 'dart:ffi';
 import 'dart:math';
 
 import 'package:apple_developer_kit/src/host/shared/adi/elf/elf_loaded_library.dart';
-import 'package:apple_developer_kit/src/host/shared/adi/loader/internal/sysv_abi_bridge.dart';
+import 'package:apple_developer_kit/src/host/shared/adi/loader/internal/posix_native_bindings.dart';
 import 'package:ffi/ffi.dart';
 import 'package:meta/meta.dart';
 

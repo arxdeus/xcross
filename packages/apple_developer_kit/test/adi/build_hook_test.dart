@@ -9,7 +9,7 @@ void main() {
   test('Windows builds the target-specific bridge for x64 and ARM64', () {
     for (final architecture in [Architecture.x64, Architecture.arm64]) {
       expect(hook.windowsBridgeSources(architecture), [
-        'src/host/shared/adi/sysv_abi_bridge.c',
+        'src/host/windows/adi/windows_abi_bridge.c',
       ]);
     }
   });

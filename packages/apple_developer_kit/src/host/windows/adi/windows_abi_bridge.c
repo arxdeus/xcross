@@ -412,28 +412,10 @@ __declspec(dllexport) void* provision_sysv_wrap_import(void* sysv_fn, int argc) 
 
 #elif defined(_WIN32) && (defined(_M_ARM64) || defined(__aarch64__))
 
-#include "../../windows/adi/windows_arm64_abi_bridge.h"
+#include "windows_arm64_abi_bridge.h"
 
 #elif defined(_WIN32)
 
 #error Windows ADI requires native x64 or ARM64
-
-#else
-
-#if defined(_WIN32)
-__declspec(dllexport)
-#endif
-void* provision_sysv_wrap_export(void* fn, int argc) {
-  (void)argc;
-  return fn;
-}
-
-#if defined(_WIN32)
-__declspec(dllexport)
-#endif
-void* provision_sysv_wrap_import(void* fn, int argc) {
-  (void)argc;
-  return fn;
-}
 
 #endif

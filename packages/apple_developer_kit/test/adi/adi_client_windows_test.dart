@@ -6,9 +6,9 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:apple_developer_kit/shared/adi/apk_fetch.dart';
-import 'package:apple_developer_kit/src/host/shared/adi/loader/internal/sysv_abi_bridge.dart';
 import 'package:apple_developer_kit/src/host/windows/adi/loader/internal/native_symbol_stubs_windows.dart';
 import 'package:apple_developer_kit/src/host/windows/adi/loader/internal/windows/windows_adi_abi.dart';
+import 'package:apple_developer_kit/src/host/windows/adi/loader/internal/windows_abi_bridge.dart';
 import 'package:apple_developer_kit/src/host/windows/adi/loader/loader_windows.dart';
 import 'package:apple_developer_kit/src/shared/adi/adi_client.dart';
 import 'package:ffi/ffi.dart';

@@ -3,8 +3,8 @@ library;
 
 import 'dart:ffi';
 
-import 'package:apple_developer_kit/src/host/shared/adi/loader/internal/sysv_abi_bridge.dart';
 import 'package:apple_developer_kit/src/host/windows/adi/loader/internal/memory_allocator_windows.dart';
+import 'package:apple_developer_kit/src/host/windows/adi/loader/internal/windows_abi_bridge.dart';
 import 'package:ffi/ffi.dart';
 import 'package:test/test.dart';
 

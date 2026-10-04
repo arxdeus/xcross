@@ -1,10 +1,6 @@
 /// SysV <-> MS ABI bridge wrappers around the @Native externals below.
 library;
 
-// @Native bindings to the sysv_abi_bridge code asset built by
-// hook/build.dart. On Windows x64 these rearrange SysV <-> MS ABI, and on
-// Windows ARM64 they switch platform state. Other hosts use an identity stub.
-
 import 'dart:ffi';
 
 import 'package:meta/meta.dart';
@@ -12,6 +8,8 @@ import 'package:meta/meta.dart';
 /// Wraps an MS-ABI function so Android/SysV callers can invoke it.
 @internal
 @Native<Pointer<Void> Function(Pointer<Void>, Int32)>(
+  assetId:
+      'package:apple_developer_kit/src/host/shared/adi/loader/internal/sysv_abi_bridge.dart',
   symbol: 'provision_sysv_wrap_export',
   isLeaf: true,
 )
@@ -20,6 +18,8 @@ external Pointer<Void> provisionSysvWrapExport(Pointer<Void> msAbiFn, int argc);
 /// Wraps a SysV function so Dart/MS-ABI callers can invoke it.
 @internal
 @Native<Pointer<Void> Function(Pointer<Void>, Int32)>(
+  assetId:
+      'package:apple_developer_kit/src/host/shared/adi/loader/internal/sysv_abi_bridge.dart',
   symbol: 'provision_sysv_wrap_import',
   isLeaf: true,
 )
@@ -27,6 +27,8 @@ external Pointer<Void> provisionSysvWrapImport(Pointer<Void> sysvFn, int argc);
 
 @internal
 @Native<Int32 Function(Pointer<Void>, Size)>(
+  assetId:
+      'package:apple_developer_kit/src/host/shared/adi/loader/internal/sysv_abi_bridge.dart',
   symbol: 'provision_windows_arm64_prepare_code',
 )
 external int provisionWindowsArm64PrepareCode(
@@ -60,17 +62,3 @@ abstract final class SysvAbiBridge {
     return wrapped.cast();
   }
 }
-
-@internal
-@Native<Void Function(Pointer<Void>, IntPtr)>(
-  symbol: 'provision_clear_cache',
-  isLeaf: true,
-)
-external void provisionClearCache(Pointer<Void> address, int size);
-
-@internal
-@Native<Pointer<Void> Function(Pointer<Char>)>(
-  symbol: 'provision_posix_symbol',
-  isLeaf: true,
-)
-external Pointer<Void> provisionPosixSymbol(Pointer<Char> name);
