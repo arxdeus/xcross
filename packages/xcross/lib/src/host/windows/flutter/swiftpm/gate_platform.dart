@@ -85,6 +85,7 @@ final class WindowsSwiftPmGatePlatform<T extends PlatformHostInterface>
     required String sdkIdentity,
   }) async {
     Directory? probeRoot;
+    var retainProbeRoot = false;
     var stage = 'validating toolchain';
     try {
       final identity = jsonDecode(toolchainIdentity);
@@ -227,12 +228,19 @@ final class WindowsSwiftPmGatePlatform<T extends PlatformHostInterface>
         }
       }
       return true;
+    } on SwiftPmGateLiveProcessException catch (error, stackTrace) {
+      retainProbeRoot = true;
+      log.output.stderr(
+        'SwiftPM junction gate retained ${probeRoot?.path} at $stage: $error',
+      );
+      log.output.stderr(stackTrace.toString());
+      return false;
     } on Object catch (error, stackTrace) {
       log.output.stderr('SwiftPM junction gate failed at $stage: $error');
       log.output.stderr(stackTrace.toString());
       return false;
     } finally {
-      if (probeRoot != null && probeRoot.existsSync()) {
+      if (!retainProbeRoot && probeRoot != null && probeRoot.existsSync()) {
         await probeRoot.delete(recursive: true);
         final parent = probeRoot.parent;
         if (parent.existsSync() && parent.listSync().isEmpty) {

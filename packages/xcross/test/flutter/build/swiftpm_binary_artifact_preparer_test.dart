@@ -1068,8 +1068,7 @@ void main() {
     Future<void> expectProductionProbe(SwiftPmGateMode mode) async {
       final sdk = _windowsRuntime.sdkRepository.current()!;
       expect(
-        await _windowsRuntime.hostPolicy.gatePlatform.probe(
-          _windowsRuntime,
+        await _windowsRuntime.gatePlatform.probe(
           mode: mode,
           root: temp.path,
           toolchainIdentity: jsonEncode(
