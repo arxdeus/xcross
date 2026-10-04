@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:path/path.dart' as p;
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/shared/update/update_host_policy.dart';
 import 'package:xcross/src/update/checksums.dart';
@@ -13,6 +12,14 @@ import 'package:xcross/src/update/semver.dart';
 import 'package:xcross/src/update/update_check.dart';
 import 'package:xcross/src/update/update_progress.dart';
 
+typedef UpdateVerificationProcess =
+    Future<CapturedProcess> Function({
+      required String executable,
+      required List<String> arguments,
+      required Map<String, String> environment,
+      required Duration timeout,
+    });
+
 /// Downloads a release archive and swaps it over the running installation.
 final class SelfUpdate {
   SelfUpdate({
@@ -20,11 +27,27 @@ final class SelfUpdate {
     required this.runner,
     required this.policy,
     required this.downloader,
-  });
+    UpdateVerificationProcess? verifyProcess,
+  }) : _backupCleaner = StaleBackupCleaner(
+         fileSystem: host.fileSystem,
+         paths: host.paths.context,
+       ),
+       _verifyProcess =
+           verifyProcess ??
+           (({
+             required executable,
+             required arguments,
+             required environment,
+             required timeout,
+           }) => runner
+               .run(executable, arguments, environment: environment)
+               .timeout(timeout));
   final PlatformHostInterface host;
   final ProcessRunner runner;
   final UpdateHostPolicy policy;
   final Downloader downloader;
+  final UpdateVerificationProcess _verifyProcess;
+  final StaleBackupCleaner _backupCleaner;
 
   String assetName() => policy.releaseAsset();
 
@@ -63,15 +86,23 @@ final class SelfUpdate {
     final staging = await host.fileSystem
         .directory(host.paths.temporaryRoot)
         .createTemp('xcross-update-');
+    final stagingPath = host.paths.context.join(
+      host.paths.temporaryRoot,
+      host.paths.context.basename(staging.path),
+    );
     try {
-      final archiveFile = File(p.join(staging.path, asset));
+      final archiveFile = host.fileSystem.file(
+        host.paths.context.join(stagingPath, asset),
+      );
       await downloader.downloadToFile(
         '${xcrossAssetBaseUrl(tag)}/$asset',
         archiveFile,
         label: progress.nextLabel('Download release archive'),
       );
 
-      final sums = File(p.join(staging.path, checksumAsset));
+      final sums = host.fileSystem.file(
+        host.paths.context.join(stagingPath, checksumAsset),
+      );
       await downloader.downloadToFile(
         '${xcrossAssetBaseUrl(tag)}/$checksumAsset',
         sums,
@@ -87,13 +118,14 @@ final class SelfUpdate {
         );
       });
 
-      final payload = Directory(p.join(staging.path, 'payload'));
+      final payloadPath = host.paths.context.join(stagingPath, 'payload');
+      final payload = host.fileSystem.directory(payloadPath);
       await progress.run(
         'Extract release bundle',
-        () => ReleasePayload.extract(
+        () => ReleasePayload(host).extract(
           bytes: bytes,
           asset: asset,
-          destination: payload,
+          destination: payloadPath,
           executableName: _executableName,
         ),
       );
@@ -122,13 +154,6 @@ final class SelfUpdate {
     String? expectedIdentity,
     bool expectedReleased = false,
     UpdateProgress? progress,
-    Future<CapturedProcess> Function({
-      required String executable,
-      required List<String> arguments,
-      required Map<String, String> environment,
-      required Duration timeout,
-    })?
-    runProcess,
   }) async {
     final swap = FileSwap(
       operations: await policy.prepare(layout),
@@ -139,20 +164,31 @@ final class SelfUpdate {
           progress?.nextLabel('Install $label') ?? 'Installing $label';
       await runner.log.logStep(installLabel, () async {
         await swap.replace(
-          source: p.join(bundleRoot.path, 'bin', _executableName),
-          target: p.join(layout.binDir, p.basename(layout.binaryPath)),
+          source: host.paths.context.join(
+            bundleRoot.path,
+            'bin',
+            _executableName,
+          ),
+          target: host.paths.context.join(
+            layout.binDir,
+            host.paths.context.basename(layout.binaryPath),
+          ),
         );
         await swap.replace(
-          source: p.join(bundleRoot.path, 'bin', _xcrunName),
-          target: p.join(layout.binDir, _xcrunName),
+          source: host.paths.context.join(bundleRoot.path, 'bin', _xcrunName),
+          target: host.paths.context.join(layout.binDir, _xcrunName),
         );
-        final libs = Directory(
-          p.join(bundleRoot.path, 'lib'),
-        ).listSync().whereType<File>();
+        final libs = host.fileSystem
+            .directory(host.paths.context.join(bundleRoot.path, 'lib'))
+            .listSync()
+            .whereType<File>();
         for (final lib in libs) {
           await swap.replace(
             source: lib.path,
-            target: p.join(layout.libDir, p.basename(lib.path)),
+            target: host.paths.context.join(
+              layout.libDir,
+              host.paths.context.basename(lib.path),
+            ),
           );
         }
       });
@@ -162,7 +198,6 @@ final class SelfUpdate {
         expectedIdentity: expectedIdentity,
         expectedReleased: expectedReleased,
         progress: progress,
-        runProcess: runProcess,
       );
     } on Object {
       await swap.rollback();
@@ -172,11 +207,8 @@ final class SelfUpdate {
   }
 
   /// Best-effort removal of backups a previous update could not delete.
-  static void sweepStaleBackups(InstallLayout layout) =>
-      FileSwap.sweepStaleBackups([
-        layout.binDir,
-        layout.libDir,
-      ], fileSystem: layout.host.fileSystem);
+  void sweepStaleBackups(InstallLayout layout) =>
+      _backupCleaner.sweep([layout.binDir, layout.libDir]);
 
   // ------------------------------------------------------------ privileges
 
@@ -201,19 +233,12 @@ final class SelfUpdate {
     String? expectedIdentity,
     bool expectedReleased = false,
     UpdateProgress? progress,
-    Future<CapturedProcess> Function({
-      required String executable,
-      required List<String> arguments,
-      required Map<String, String> environment,
-      required Duration timeout,
-    })?
-    runProcess,
   }) async {
     final verifyLabel =
         progress?.nextLabel('Verify $label') ?? 'Verifying $label';
     final result = await runner.log.logStep(
       verifyLabel,
-      () => _runVersionCheck(layout, runProcess: runProcess),
+      () => _runVersionCheck(layout),
     );
     // Scanned rather than parsed positionally: the credits banner also starts
     // with the word "xcross", and a false negative here would roll back a
@@ -252,28 +277,11 @@ final class SelfUpdate {
     return result;
   }
 
-  Future<CapturedProcess> _runVersionCheck(
-    InstallLayout layout, {
-    Future<CapturedProcess> Function({
-      required String executable,
-      required List<String> arguments,
-      required Map<String, String> environment,
-      required Duration timeout,
-    })?
-    runProcess,
-  }) => (runProcess ?? _defaultRunProcess)(
-    executable: layout.binaryPath,
-    arguments: const ['--version'],
-    environment: {UpdateCheck.disableEnvVar: '1', verificationEnvVar: '1'},
-    timeout: const Duration(seconds: 30),
-  );
-
-  Future<CapturedProcess> _defaultRunProcess({
-    required String executable,
-    required List<String> arguments,
-    required Map<String, String> environment,
-    required Duration timeout,
-  }) => runner
-      .run(executable, arguments, environment: environment)
-      .timeout(timeout);
+  Future<CapturedProcess> _runVersionCheck(InstallLayout layout) =>
+      _verifyProcess(
+        executable: layout.binaryPath,
+        arguments: const ['--version'],
+        environment: {UpdateCheck.disableEnvVar: '1', verificationEnvVar: '1'},
+        timeout: const Duration(seconds: 30),
+      );
 }

@@ -11,6 +11,7 @@ import 'package:xcross/src/shared/xcrun/cross_xcrun.dart' as xcrun;
 import 'package:xcross/src/shared/xcrun/xcrun_operation.dart';
 
 import '../host_operations_fixtures.dart';
+import '../setup/host_ops_residual_fixtures.dart';
 
 void main() {
   test('lazy output uses supplied sink without runtime loading', () async {
@@ -20,6 +21,7 @@ void main() {
     final loader = FixtureUnusedLoader();
     final operation = xcrun.CrossXcrunOperation(
       loader,
+      host: LinuxHost(),
       executable: '/fixture/missing-xcrun',
       output: selected,
       errors: errors,
@@ -45,6 +47,7 @@ void main() {
         await IOOverrides.runZoned(() async {
           final operation = xcrun.CrossXcrunOperation(
             loader,
+            host: LinuxHost(),
             executable: executable,
             output: output,
             errors: fixtureSink(),
@@ -97,32 +100,29 @@ void main() {
         ['--sdk=iphoneos', '--sdk', 'iphonesimulator'],
       ]) {
         expect(
-          xcrun.xcrunShimResponse([
-            ...selection,
-            '--show-sdk-path',
-          ], executable: executable),
+          xcrun.CrossXcrunProbe(
+            LinuxHost(),
+          ).response([...selection, '--show-sdk-path'], executable: executable),
           sdk,
         );
         expect(
-          xcrun.xcrunShimResponse([
+          xcrun.CrossXcrunProbe(LinuxHost()).response([
             ...selection,
             '--show-sdk-version',
           ], executable: executable),
           '26.5',
         );
         expect(
-          xcrun.xcrunShimResponse([
+          xcrun.CrossXcrunProbe(LinuxHost()).response([
             ...selection,
             '--show-sdk-platform-path',
           ], executable: executable),
           platform,
         );
         expect(
-          xcrun.xcrunShimResponse([
-            ...selection,
-            '--find',
-            'clang',
-          ], executable: executable),
+          xcrun.CrossXcrunProbe(
+            LinuxHost(),
+          ).response([...selection, '--find', 'clang'], executable: executable),
           clang.path,
         );
       }
@@ -135,21 +135,21 @@ void main() {
         '',
       ]) {
         expect(
-          () => xcrun.xcrunShimResponse([
+          () => xcrun.CrossXcrunProbe(LinuxHost()).response([
             '--sdk=$rejected',
             '--show-sdk-path',
           ], executable: executable),
           throwsFormatException,
         );
         expect(
-          () => xcrun.xcrunShimResponse([
+          () => xcrun.CrossXcrunProbe(LinuxHost()).response([
             '--sdk=$rejected',
             '--show-sdk-version',
           ], executable: executable),
           throwsFormatException,
         );
         expect(
-          () => xcrun.findShimTool([
+          () => xcrun.CrossXcrunProbe(LinuxHost()).findTool([
             '--sdk=$rejected',
             '--find',
             'clang',
@@ -158,7 +158,9 @@ void main() {
         );
       }
       expect(
-        () => xcrun.xcrunShimResponse(['--sdk'], executable: executable),
+        () => xcrun.CrossXcrunProbe(
+          LinuxHost(),
+        ).response(['--sdk'], executable: executable),
         throwsFormatException,
       );
     },
@@ -176,24 +178,26 @@ void main() {
           r'C:\SDK\iPhoneSimulator.platform\Developer\SDKs\iPhoneSimulator26.5.sdk';
       File('$executable.sdk').writeAsStringSync(sdk);
       expect(
-        xcrun.xcrunShimResponse([
+        xcrun.CrossXcrunProbe(LinuxHost()).response([
           '--sdk=iphonesimulator',
           '--show-sdk-path',
         ], executable: executable),
         sdk,
       );
       expect(
-        xcrun.xcrunShimResponse(['--show-sdk-version'], executable: executable),
+        xcrun.CrossXcrunProbe(
+          LinuxHost(),
+        ).response(['--show-sdk-version'], executable: executable),
         '26.5',
       );
       expect(
-        xcrun.xcrunShimResponse([
-          '--show-sdk-platform-path',
-        ], executable: executable),
+        xcrun.CrossXcrunProbe(
+          LinuxHost(),
+        ).response(['--show-sdk-platform-path'], executable: executable),
         r'C:\SDK\iPhoneSimulator.platform',
       );
       expect(
-        () => xcrun.xcrunShimResponse([
+        () => xcrun.CrossXcrunProbe(LinuxHost()).response([
           '--sdk=iphoneos',
           '--show-sdk-path',
         ], executable: executable),
@@ -391,14 +395,14 @@ void main() {
         File('$executable.sdk').writeAsStringSync('$sdk\n');
         for (final name in [target.sdkName, '${target.sdkName}26.5']) {
           expect(
-            xcrun.xcrunShimResponse([
+            xcrun.CrossXcrunProbe(LinuxHost()).response([
               '--sdk=$name',
               '--show-sdk-version',
             ], executable: executable),
             '26.5',
           );
           expect(
-            xcrun.xcrunShimResponse([
+            xcrun.CrossXcrunProbe(LinuxHost()).response([
               '--sdk=$name',
               '--show-sdk-path',
             ], executable: executable),
@@ -406,7 +410,7 @@ void main() {
           );
         }
         expect(
-          () => xcrun.xcrunShimResponse([
+          () => xcrun.CrossXcrunProbe(LinuxHost()).response([
             '--sdk=${target.sdkName}26.4',
             '--show-sdk-version',
           ], executable: executable),
@@ -416,16 +420,16 @@ void main() {
           p.join(sdk, 'SDKSettings.json'),
         ).writeAsStringSync('{"Version":"bogus"}');
         expect(
-          () => xcrun.xcrunShimResponse([
-            '--show-sdk-version',
-          ], executable: executable),
+          () => xcrun.CrossXcrunProbe(
+            LinuxHost(),
+          ).response(['--show-sdk-version'], executable: executable),
           throwsFormatException,
         );
         File(p.join(sdk, 'SDKSettings.json')).deleteSync();
         expect(
-          () => xcrun.xcrunShimResponse([
-            '--show-sdk-version',
-          ], executable: executable),
+          () => xcrun.CrossXcrunProbe(
+            LinuxHost(),
+          ).response(['--show-sdk-version'], executable: executable),
           throwsFormatException,
         );
       }
@@ -441,12 +445,15 @@ void main() {
     File('$executable.sdk').writeAsStringSync('/sdk/MacOSX26.5.sdk');
     File(p.join(directory.path, 'clang.exe')).writeAsStringSync('');
     expect(
-      () =>
-          xcrun.xcrunShimResponse(['--show-sdk-path'], executable: executable),
+      () => xcrun.CrossXcrunProbe(
+        LinuxHost(),
+      ).response(['--show-sdk-path'], executable: executable),
       throwsFormatException,
     );
     expect(
-      () => xcrun.findShimTool(['--find', 'clang'], executable: executable),
+      () => xcrun.CrossXcrunProbe(
+        LinuxHost(),
+      ).findTool(['--find', 'clang'], executable: executable),
       throwsFormatException,
     );
     expect(
@@ -524,25 +531,23 @@ void main() {
     addTearDown(() => directory.deleteSync(recursive: true));
     final executable = p.join(directory.path, 'xcrun.exe');
     expect(
-      xcrun.xcrunShimResponse(const [
-        '--show-sdk-path',
-      ], executable: executable),
+      xcrun.CrossXcrunProbe(
+        LinuxHost(),
+      ).response(const ['--show-sdk-path'], executable: executable),
       isNull,
     );
     File('$executable.sdk').writeAsStringSync('/sdk/iPhoneOS.sdk');
     File(p.join(directory.path, 'arbitrary.exe')).writeAsStringSync('');
     expect(
-      xcrun.xcrunShimResponse(const [
-        '--find',
-        'arbitrary',
-      ], executable: executable),
+      xcrun.CrossXcrunProbe(
+        LinuxHost(),
+      ).response(const ['--find', 'arbitrary'], executable: executable),
       isNull,
     );
     expect(
-      xcrun.xcrunShimResponse(const [
-        '--find',
-        'clang',
-      ], executable: executable),
+      xcrun.CrossXcrunProbe(
+        LinuxHost(),
+      ).response(const ['--find', 'clang'], executable: executable),
       isNull,
     );
   });
@@ -551,11 +556,15 @@ void main() {
     addTearDown(() => directory.deleteSync(recursive: true));
     final executable = p.join(directory.path, 'xcrun.exe');
     expect(
-      xcrun.xcrunShimResponse(const ['--version'], executable: executable),
+      xcrun.CrossXcrunProbe(
+        LinuxHost(),
+      ).response(const ['--version'], executable: executable),
       'xcrun version ${xcrun.xcrunCompatVersion}.',
     );
     expect(
-      xcrun.xcrunShimResponse(const ['-version'], executable: executable),
+      xcrun.CrossXcrunProbe(
+        LinuxHost(),
+      ).response(const ['-version'], executable: executable),
       'xcrun version ${xcrun.xcrunCompatVersion}.',
     );
   });
@@ -579,24 +588,28 @@ void main() {
   });
 
   test('returns the exact streamed child exit code', () async {
-    final directory = Directory.systemTemp.createTempSync('xcross-xcrun-exit-');
-    addTearDown(() => directory.deleteSync(recursive: true));
-    final script = File(p.join(directory.path, 'exit.dart'))
-      ..writeAsStringSync("import 'dart:io'; void main() => exit(37);");
-    final child = await Process.start(Platform.resolvedExecutable, [
-      script.path,
-    ]);
-    expect(
-      await xcrun.runResolvedTool(
-        '/ignored',
-        const [],
-        output: fixtureSink(),
-        errors: fixtureSink(),
-        runner: fixtureRunner(LinuxHost(), log: fixtureLog()),
-        start: (_, _) async => child,
-      ),
-      37,
+    final host = residualProcessHost(
+      (_, _, _) async => ResidualChild(code: 37),
     );
+    final runner = residualRunner(host);
+    final command = xcrun.XcrunSdkCommand(
+      runner: runner,
+      output: fixtureSink(),
+      errors: fixtureSink(),
+      repository: DarwinSdkRepository(
+        host,
+        log: runner.log,
+        installBundle: '/fixture/missing-sdk',
+      ),
+      toolchain: DarwinToolchainResolver(
+        runner,
+        LinuxDarwinToolchainLocations(host),
+      ),
+      executable: '/fixture/xcrun',
+      normalizeExecutable: (path) => path,
+      target: const IPhoneBuildPlatform(),
+    );
+    expect(await command.runResolvedTool('/ignored', const []), 37);
   });
 
   test('prefers build shims on PATH for known Apple tools', () async {
@@ -624,29 +637,28 @@ void main() {
       final sdk = p.join(platform, 'Developer', 'SDKs', 'iPhoneOS26.5.sdk');
       File('${executable.path}.sdk').writeAsStringSync(sdk);
       expect(
-        xcrun.xcrunShimResponse(const [
-          '--show-sdk-path',
-        ], executable: executable.path),
+        xcrun.CrossXcrunProbe(
+          LinuxHost(),
+        ).response(const ['--show-sdk-path'], executable: executable.path),
         sdk,
       );
       final clang = File('${directory.path}${Platform.pathSeparator}clang.exe')
         ..writeAsStringSync('');
 
       expect(
-        xcrun.xcrunShimResponse(const [
-          '--find',
-          'clang',
-        ], executable: executable.path),
+        xcrun.CrossXcrunProbe(
+          LinuxHost(),
+        ).response(const ['--find', 'clang'], executable: executable.path),
         clang.path,
       );
       expect(
-        xcrun.xcrunShimResponse(const [
-          '--version',
-        ], executable: executable.path),
+        xcrun.CrossXcrunProbe(
+          LinuxHost(),
+        ).response(const ['--version'], executable: executable.path),
         'xcrun version ${xcrun.xcrunCompatVersion}.',
       );
       expect(
-        xcrun.xcrunShimResponse(const [
+        xcrun.CrossXcrunProbe(LinuxHost()).response(const [
           '--sdk',
           'iphoneos',
           'clang',
@@ -661,7 +673,7 @@ void main() {
         '--show-sdk-platform-path',
       ]) {
         expect(
-          xcrun.xcrunShimResponse([
+          xcrun.CrossXcrunProbe(LinuxHost()).response([
             '--sdk',
             'iphoneos',
             'clang',
@@ -672,7 +684,7 @@ void main() {
         );
       }
       expect(
-        xcrun.xcrunShimResponse(const [
+        xcrun.CrossXcrunProbe(LinuxHost()).response(const [
           '--sdk',
           'iphoneos',
           '--show-sdk-platform-path',
@@ -684,12 +696,14 @@ void main() {
         ['--sdk=iphonesimulator', '--show-sdk-platform-path'],
       ]) {
         expect(
-          () => xcrun.xcrunShimResponse(arguments, executable: executable.path),
+          () => xcrun.CrossXcrunProbe(
+            LinuxHost(),
+          ).response(arguments, executable: executable.path),
           throwsFormatException,
         );
       }
       expect(
-        xcrun.xcrunShimResponse(const [
+        xcrun.CrossXcrunProbe(LinuxHost()).response(const [
           '--sdk=iphoneos',
           '--show-sdk-path',
         ], executable: executable.path),
@@ -751,10 +765,16 @@ Future<int> _runXcrun(
   Future<String?> Function(String)? findOnPath,
   Future<int> Function(String, List<String>)? runTool,
 }) {
-  final host = LinuxHost();
-  final runner = fixtureRunner(host, log: fixtureLog());
-  return xcrun.runXcrun(
-    arguments,
+  final host = residualProcessHost(
+    (tool, arguments, _) async => ResidualChild(
+      code: runTool == null ? 0 : await runTool(tool, arguments),
+    ),
+  );
+  final runner = residualRunner(
+    host,
+    lookup: findOnPath == null ? null : (name, _) => findOnPath(name),
+  );
+  return xcrun.XcrunSdkCommand(
     runner: runner,
     output: stdout,
     errors: stderr,
@@ -770,10 +790,7 @@ Future<int> _runXcrun(
     normalizeExecutable: (path) => path,
     target: _fixtureTarget(arguments),
     executable: executable,
-    sdk: sdk,
-    findOnPath: findOnPath,
-    runTool: runTool,
-  );
+  ).run(arguments, sdk: sdk);
 }
 
 final class FixtureProbeOutput implements Stdout {

@@ -141,7 +141,7 @@ final class SetupScriptManager {
     }
   }
 
-  File _temporaryFile(File destination) => File(
+  File _temporaryFile(File destination) => host.fileSystem.file(
     '${destination.path}.$pid.${DateTime.now().microsecondsSinceEpoch}.tmp',
   );
 

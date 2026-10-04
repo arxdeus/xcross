@@ -185,7 +185,8 @@ void main() {
         libDir: '/logical/lib',
       );
       await expectLater(
-        updater.installBundle(
+        _installBundle(
+          updater,
           bundleRoot: bundle,
           layout: layout,
           label: 'fixture',
@@ -228,7 +229,8 @@ void main() {
     }
 
     final lines = await _captureAsync(() async {
-      await updater.installBundle(
+      await _installBundle(
+        updater,
         bundleRoot: bundle,
         layout: layout,
         label: 'xcross main',
@@ -269,7 +271,8 @@ void main() {
     bundleBin('new-bin');
     bundleLib('libkeep.so', 'new-lib');
 
-    await updater.installBundle(
+    await _installBundle(
+      updater,
       bundleRoot: bundle,
       layout: layout,
       label: 'source build',
@@ -319,7 +322,8 @@ void main() {
     bundleLib('libnew.so', 'fresh-lib');
 
     await expectLater(
-      updater.installBundle(
+      _installBundle(
+        updater,
         bundleRoot: bundle,
         layout: layout,
         label: 'source build',
@@ -358,7 +362,8 @@ void main() {
     bundleBin('new-bin');
     bundleLib('libkeep.so', 'new-lib');
 
-    await updater.installBundle(
+    await _installBundle(
+      updater,
       bundleRoot: bundle,
       layout: layout,
       label: 'source build',
@@ -400,7 +405,8 @@ void main() {
     'release verification still requires the exact expected identity',
     () async {
       await expectLater(
-        updater.verifyInstalledBinary(
+        _verifyInstalledBinary(
+          updater,
           layout: layout,
           label: 'xcross 1.2.3',
           expectedIdentity: 'v1.2.3',
@@ -429,7 +435,8 @@ void main() {
   );
 
   test('release verification normalizes a v-prefixed tag', () async {
-    await updater.verifyInstalledBinary(
+    await _verifyInstalledBinary(
+      updater,
       layout: layout,
       label: 'xcross v1.2.3',
       expectedIdentity: 'v1.2.3',
@@ -453,7 +460,8 @@ void main() {
   });
 
   test('source verification requires the exact arbitrary identity', () async {
-    await updater.verifyInstalledBinary(
+    await _verifyInstalledBinary(
+      updater,
       layout: layout,
       label: 'xcross main',
       expectedIdentity: 'main',
@@ -470,7 +478,8 @@ void main() {
 
   test('source verification rejects a mismatched arbitrary identity', () async {
     await expectLater(
-      updater.verifyInstalledBinary(
+      _verifyInstalledBinary(
+        updater,
         layout: layout,
         label: 'xcross main',
         expectedIdentity: 'main',
@@ -492,7 +501,8 @@ void main() {
 
   test('source verification rejects a released marker mismatch', () async {
     await expectLater(
-      updater.verifyInstalledBinary(
+      _verifyInstalledBinary(
+        updater,
         layout: layout,
         label: 'xcross 1.2.3',
         expectedIdentity: '1.2.3',
@@ -521,7 +531,8 @@ void main() {
     bundleLib('libnew.so', 'fresh-lib');
 
     await expectLater(
-      updater.installBundle(
+      _installBundle(
+        updater,
         bundleRoot: bundle,
         layout: layout,
         label: 'xcross main',
@@ -562,7 +573,8 @@ void main() {
     bundleLib('libkeep.so', 'new-lib');
 
     await expectLater(
-      updater.installBundle(
+      _installBundle(
+        updater,
         bundleRoot: bundle,
         layout: layout,
         label: 'xcross 1.2.3',
@@ -596,3 +608,48 @@ void main() {
     );
   });
 }
+
+SelfUpdate _configuredUpdater(
+  SelfUpdate updater,
+  UpdateVerificationProcess? verifyProcess,
+) => SelfUpdate(
+  host: updater.host,
+  runner: updater.runner,
+  policy: updater.policy,
+  downloader: updater.downloader,
+  verifyProcess: verifyProcess,
+);
+
+Future<CapturedProcess> _verifyInstalledBinary(
+  SelfUpdate updater, {
+  required InstallLayout layout,
+  required String label,
+  String? expectedIdentity,
+  bool expectedReleased = false,
+  UpdateProgress? progress,
+  UpdateVerificationProcess? runProcess,
+}) => _configuredUpdater(updater, runProcess).verifyInstalledBinary(
+  layout: layout,
+  label: label,
+  expectedIdentity: expectedIdentity,
+  expectedReleased: expectedReleased,
+  progress: progress,
+);
+
+Future<void> _installBundle(
+  SelfUpdate updater, {
+  required Directory bundleRoot,
+  required InstallLayout layout,
+  required String label,
+  String? expectedIdentity,
+  bool expectedReleased = false,
+  UpdateProgress? progress,
+  UpdateVerificationProcess? runProcess,
+}) => _configuredUpdater(updater, runProcess).installBundle(
+  bundleRoot: bundleRoot,
+  layout: layout,
+  label: label,
+  expectedIdentity: expectedIdentity,
+  expectedReleased: expectedReleased,
+  progress: progress,
+);

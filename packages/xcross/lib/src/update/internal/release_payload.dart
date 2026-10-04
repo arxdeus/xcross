@@ -1,7 +1,5 @@
-import 'dart:io';
-
 import 'package:archive/archive.dart';
-import 'package:path/path.dart' as p;
+import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/update/internal/archive_entry_path.dart';
 
@@ -10,7 +8,11 @@ import 'package:xcross/src/update/internal/archive_entry_path.dart';
 /// A downloaded archive is untrusted input, so every entry is validated before
 /// it becomes a path and anything outside the two payload directories is
 /// ignored rather than written.
-abstract final class ReleasePayload {
+final class ReleasePayload {
+  const ReleasePayload(this.host);
+
+  final PlatformHostInterface host;
+
   /// Directories an update replaces. The Windows zip also ships `LICENSE` and
   /// `THIRD_PARTY_LICENSES/`, which the installers place but updates leave
   /// alone.
@@ -21,17 +23,18 @@ abstract final class ReleasePayload {
   ///
   /// [asset] selects the container format and names the archive in errors.
   /// [executableName] is the binary the bundle must contain.
-  static Future<void> extract({
+  Future<void> extract({
     required List<int> bytes,
     required String asset,
-    required Directory destination,
+    required String destination,
     required String executableName,
   }) async {
     final archive = asset.endsWith('.zip')
         ? ZipDecoder().decodeBytes(bytes)
         : TarDecoder().decodeBytes(const GZipDecoder().decodeBytes(bytes));
 
-    await destination.create(recursive: true);
+    final paths = host.paths.context;
+    await host.fileSystem.directory(destination).create(recursive: true);
     for (final entry in archive) {
       // `isFile` stays true for a tar symlink entry, whose payload is a target
       // path rather than content; writing it would produce a plausible-looking
@@ -42,18 +45,23 @@ abstract final class ReleasePayload {
         );
       }
       if (!entry.isFile) continue;
-      final target = ArchiveEntryPath.resolve(destination.path, entry.name);
+      final relative = ArchiveEntryPath.sanitize(entry.name);
+      final target = relative == null
+          ? null
+          : paths.joinAll([destination, ...relative.split('/')]);
       if (target == null) {
         throw XcrossError(
           'refusing to extract $asset: unsafe entry "${entry.name}"',
         );
       }
-      final relative = p.split(p.relative(target, from: destination.path));
-      if (relative.length < 2 || !payloadDirs.contains(relative.first)) {
+      final segments = relative!.split('/');
+      if (segments.length < 2 || !payloadDirs.contains(segments.first)) {
         continue;
       }
-      await Directory(p.dirname(target)).create(recursive: true);
-      await File(target).writeAsBytes(entry.content);
+      await host.fileSystem
+          .directory(paths.dirname(target))
+          .create(recursive: true);
+      await host.fileSystem.file(target).writeAsBytes(entry.content);
     }
 
     _assertComplete(
@@ -65,16 +73,20 @@ abstract final class ReleasePayload {
 
   /// A half-populated payload must be caught here, before anything installed
   /// is touched.
-  static void _assertComplete({
-    required Directory destination,
+  void _assertComplete({
+    required String destination,
     required String asset,
     required String executableName,
   }) {
-    final binary = File(p.join(destination.path, 'bin', executableName));
+    final binary = host.fileSystem.file(
+      host.paths.context.join(destination, 'bin', executableName),
+    );
     if (!binary.existsSync() || binary.lengthSync() == 0) {
       throw XcrossError('$asset is missing bin/$executableName');
     }
-    final libDir = Directory(p.join(destination.path, 'lib'));
+    final libDir = host.fileSystem.directory(
+      host.paths.context.join(destination, 'lib'),
+    );
     if (!libDir.existsSync() || libDir.listSync().isEmpty) {
       throw XcrossError('$asset is missing its lib/ payload');
     }

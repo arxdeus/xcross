@@ -1,9 +1,8 @@
 import 'dart:io';
-import 'package:cli_kit/cli_kit.dart';
 
 import 'package:test/test.dart';
 import 'package:xcross/src/cli/basic/internal/clang_requirement.dart';
-import '../host_operations_fixtures.dart';
+import 'host_ops_residual_fixtures.dart';
 
 void main() {
   for (final suffix in ['.exe', '.EXE']) {
@@ -16,8 +15,7 @@ void main() {
           File(executable).createSync();
           File('${dir.path}/clang++$suffix').createSync();
           expect(
-            await ClangRequirement.resolve(
-              runner: fixtureRunner(LinuxHost(), log: fixtureLog()),
+            await _resolveClang(
               directories: [dir.path],
               lookup: (name, _) async => name == 'clang' ? executable : null,
               version: (_) async => 'clang version 22.1.8',
@@ -42,8 +40,7 @@ void main() {
       for (final name in ['clang-21', 'clang++-21', 'clang-19', 'clang++-19']) {
         File('${dir.path}/$name').createSync();
       }
-      final result = await ClangRequirement.resolve(
-        runner: fixtureRunner(LinuxHost(), log: fixtureLog()),
+      final result = await _resolveClang(
         directories: [dir.path],
         lookup: (name, _) async => name == 'clang'
             ? '${dir.path}/clang'
@@ -65,8 +62,7 @@ void main() {
     try {
       File('${dir.path}/clang-20').createSync();
       expect(
-        await ClangRequirement.resolve(
-          runner: fixtureRunner(LinuxHost(), log: fixtureLog()),
+        await _resolveClang(
           directories: [dir.path],
           lookup: (name, _) async => File('${dir.path}/$name').existsSync()
               ? '${dir.path}/$name'
@@ -79,4 +75,18 @@ void main() {
       await dir.delete(recursive: true);
     }
   });
+}
+
+Future<String?> _resolveClang({
+  required List<String> directories,
+  required Future<String?> Function(String, List<String>) lookup,
+  required Future<String> Function(String) version,
+}) {
+  final host = residualProcessHost(
+    (executable, _, _) async =>
+        ResidualChild(output: await version(executable)),
+  );
+  return ClangRequirement(
+    residualRunner(host, lookup: lookup),
+  ).resolve(directories: directories);
 }

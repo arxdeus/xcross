@@ -6,6 +6,7 @@ import 'package:test/test.dart';
 import 'package:xcross/src/cli/basic/internal/swift_requirement.dart';
 import 'package:xcross/src/errors.dart';
 import '../host_operations_fixtures.dart';
+import '../setup/host_ops_residual_fixtures.dart';
 
 void main() {
   final host = LinuxHost();
@@ -13,7 +14,7 @@ void main() {
   group('SwiftRequirement.require', () {
     test('returns the located toolchain when Swift is on PATH', () async {
       expect(
-        await SwiftRequirement.require(
+        await _requireSwift(
           'install the Darwin SDK',
           runner: runner,
           installGuidance: SwiftRequirement.installHint('linux'),
@@ -25,7 +26,7 @@ void main() {
 
     test('names the action and how to verify the fix', () async {
       await expectLater(
-        SwiftRequirement.require(
+        _requireSwift(
           'install the Darwin SDK',
           runner: runner,
           installGuidance: SwiftRequirement.installHint('linux'),
@@ -48,7 +49,7 @@ void main() {
     test('points each host at its own installer', () async {
       Future<String> hintFor(String platform) async {
         try {
-          await SwiftRequirement.require(
+          await _requireSwift(
             'set up this host',
             runner: runner,
             installGuidance: SwiftRequirement.installHint(platform),
@@ -83,7 +84,7 @@ void main() {
       File(p.join(bin.path, runner.hostExecutableName('clang'))).createSync();
 
       await expectLater(
-        SwiftRequirement.requireSiblingClang(swift.path, host: host),
+        SwiftRequirement(runner).requireSiblingClang(swift.path),
         completes,
       );
     });
@@ -94,7 +95,7 @@ void main() {
         ..createSync();
 
       await expectLater(
-        SwiftRequirement.requireSiblingClang(swift.path, host: host),
+        SwiftRequirement(runner).requireSiblingClang(swift.path),
         throwsA(
           isA<XcrossError>().having(
             (error) => error.message,
@@ -109,12 +110,19 @@ void main() {
       // Not this check's job to report: sdk_install produces a far more
       // detailed diagnostic for a broken toolchain path.
       await expectLater(
-        SwiftRequirement.requireSiblingClang(
-          p.join(temp.path, 'gone'),
-          host: host,
-        ),
+        SwiftRequirement(runner).requireSiblingClang(p.join(temp.path, 'gone')),
         completes,
       );
     });
   });
 }
+
+Future<String> _requireSwift(
+  String action, {
+  required ProcessRunner runner,
+  required String installGuidance,
+  required Future<String?> Function(String) locate,
+  String? extra,
+}) => SwiftRequirement(
+  residualRunner(runner.host, lookup: (name, _) => locate(name)),
+).require(action, installGuidance: installGuidance, extra: extra);

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
+import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/errors.dart';
@@ -40,10 +41,10 @@ void main() {
       File(p.join(destination.path, relative)).readAsStringSync();
 
   test('unpacks a tar.gz bundle', () async {
-    await ReleasePayload.extract(
+    await ReleasePayload(LinuxHost()).extract(
       bytes: _tarGz(_bundle()),
       asset: 'xcross-linux-x64.tar.gz',
-      destination: destination,
+      destination: destination.path,
       executableName: 'xcross',
     );
 
@@ -52,10 +53,10 @@ void main() {
   });
 
   test('unpacks a zip bundle', () async {
-    await ReleasePayload.extract(
+    await ReleasePayload(LinuxHost()).extract(
       bytes: _zip(_bundle(binary: 'bin/xcross.exe')),
       asset: 'xcross-windows-x64.zip',
-      destination: destination,
+      destination: destination.path,
       executableName: 'xcross.exe',
     );
 
@@ -63,7 +64,7 @@ void main() {
   });
 
   test('ignores the licence files the Windows zip also ships', () async {
-    await ReleasePayload.extract(
+    await ReleasePayload(LinuxHost()).extract(
       bytes: _zip(
         _bundle(
           binary: 'bin/xcross.exe',
@@ -74,7 +75,7 @@ void main() {
         ),
       ),
       asset: 'xcross-windows-x64.zip',
-      destination: destination,
+      destination: destination.path,
       executableName: 'xcross.exe',
     );
 
@@ -87,10 +88,10 @@ void main() {
   test('refuses an entry that escapes the destination', () async {
     final archive = _bundle()..add(_entry('../../etc/passwd', 'pwned'));
     await expectLater(
-      ReleasePayload.extract(
+      ReleasePayload(LinuxHost()).extract(
         bytes: _tarGz(archive),
         asset: 'xcross-linux-x64.tar.gz',
-        destination: destination,
+        destination: destination.path,
         executableName: 'xcross',
       ),
       throwsA(
@@ -114,10 +115,10 @@ void main() {
       ..add(ArchiveFile.symlink('bin/xcross', '/etc/passwd'))
       ..add(_entry('lib/libsysv.so', 'library'));
     await expectLater(
-      ReleasePayload.extract(
+      ReleasePayload(LinuxHost()).extract(
         bytes: _tarGz(archive),
         asset: 'xcross-linux-x64.tar.gz',
-        destination: destination,
+        destination: destination.path,
         executableName: 'xcross',
       ),
       throwsA(
@@ -135,10 +136,10 @@ void main() {
       ..add(_entry('bin/xcross', ''))
       ..add(_entry('lib/libsysv.so', 'library'));
     await expectLater(
-      ReleasePayload.extract(
+      ReleasePayload(LinuxHost()).extract(
         bytes: _tarGz(archive),
         asset: 'xcross-linux-x64.tar.gz',
-        destination: destination,
+        destination: destination.path,
         executableName: 'xcross',
       ),
       throwsA(isA<XcrossError>()),
@@ -148,10 +149,10 @@ void main() {
   test('rejects a bundle with no executable', () async {
     final archive = Archive()..add(_entry('lib/libsysv.so', 'library'));
     await expectLater(
-      ReleasePayload.extract(
+      ReleasePayload(LinuxHost()).extract(
         bytes: _tarGz(archive),
         asset: 'xcross-linux-x64.tar.gz',
-        destination: destination,
+        destination: destination.path,
         executableName: 'xcross',
       ),
       throwsA(
@@ -167,10 +168,10 @@ void main() {
   test('rejects a bundle with no libraries', () async {
     final archive = Archive()..add(_entry('bin/xcross', 'binary'));
     await expectLater(
-      ReleasePayload.extract(
+      ReleasePayload(LinuxHost()).extract(
         bytes: _tarGz(archive),
         asset: 'xcross-linux-x64.tar.gz',
-        destination: destination,
+        destination: destination.path,
         executableName: 'xcross',
       ),
       throwsA(

@@ -5,19 +5,14 @@ final class SdkDirectoryCopy<T extends PlatformHostInterface> {
   const SdkDirectoryCopy(this.host);
   final T host;
   Future<void> copy(String source, String destination) async {
-    await Directory(host.paths.ioPath(destination)).create(recursive: true);
-    await for (final entity in Directory(host.paths.ioPath(source)).list()) {
-      final target = host.paths.context.join(
-        destination,
-        host.paths.context.basename(entity.path),
-      );
-      switch (FileSystemEntity.typeSync(entity.path)) {
-        case FileSystemEntityType.directory:
-          await copy(entity.path, target);
-        case FileSystemEntityType.file:
-          await File(entity.path).copy(host.paths.ioPath(target));
-        default:
-          continue;
+    await host.fileSystem.directory(destination).create(recursive: true);
+    await for (final entity in host.fileSystem.directory(source).list()) {
+      final name = host.paths.context.basename(entity.path);
+      final target = host.paths.context.join(destination, name);
+      if (entity is Directory) {
+        await copy(host.paths.context.join(source, name), target);
+      } else if (entity is File) {
+        await entity.copy(host.fileSystem.file(target).path);
       }
     }
   }

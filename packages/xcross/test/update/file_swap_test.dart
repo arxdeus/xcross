@@ -11,6 +11,11 @@ import '../host_operations_fixtures.dart';
 import 'file_swap_fixtures.dart';
 
 void main() {
+  final host = LinuxHost();
+  final cleaner = StaleBackupCleaner(
+    fileSystem: host.fileSystem,
+    paths: host.paths.context,
+  );
   late Directory root;
   late Directory staged;
   late Directory installed;
@@ -136,9 +141,7 @@ void main() {
       File(
         backup,
       ).setLastModifiedSync(DateTime.now().subtract(const Duration(hours: 1)));
-      FileSwap.sweepStaleBackups([
-        installed.path,
-      ], fileSystem: LinuxHost().fileSystem);
+      cleaner.sweep([installed.path]);
       expect(File(backup).existsSync(), isFalse);
     },
   );
@@ -296,9 +299,7 @@ void main() {
     );
     File(target('xcross')).writeAsStringSync('current');
 
-    FileSwap.sweepStaleBackups([
-      installed.path,
-    ], fileSystem: LinuxHost().fileSystem);
+    cleaner.sweep([installed.path]);
 
     expect(installed.listSync().map((e) => p.basename(e.path)), ['xcross']);
   });
@@ -310,9 +311,7 @@ void main() {
       p.join(installed.path, '.xcross${FileSwap.backupMarker}999'),
     ).writeAsStringSync('in flight');
 
-    FileSwap.sweepStaleBackups([
-      installed.path,
-    ], fileSystem: LinuxHost().fileSystem);
+    cleaner.sweep([installed.path]);
 
     expect(installed.listSync(), hasLength(1));
   });
@@ -334,9 +333,7 @@ void main() {
       );
     }
 
-    FileSwap.sweepStaleBackups([
-      installed.path,
-    ], fileSystem: LinuxHost().fileSystem);
+    cleaner.sweep([installed.path]);
 
     expect(
       installed.listSync().map((e) => p.basename(e.path)).toSet(),
@@ -345,9 +342,7 @@ void main() {
   });
 
   test('sweepStaleBackups ignores a directory that does not exist', () {
-    FileSwap.sweepStaleBackups([
-      p.join(root.path, 'missing'),
-    ], fileSystem: LinuxHost().fileSystem);
+    cleaner.sweep([p.join(root.path, 'missing')]);
   });
 }
 

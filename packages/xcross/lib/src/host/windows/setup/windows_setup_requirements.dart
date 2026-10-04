@@ -26,10 +26,9 @@ final class WindowsSetupRequirements implements SetupRequirements {
         'then retry.',
       );
     }
-    if (await ClangRequirement.resolve(
-          runner: runner,
-          llvmDirectories: toolchain.llvmToolDirs(),
-        ) ==
+    if (await ClangRequirement(
+          runner,
+        ).resolve(llvmDirectories: toolchain.llvmToolDirs()) ==
         null) {
       throw XcrossError(
         'Clang 20 or newer (clang and clang++) is required on Windows. '

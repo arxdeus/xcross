@@ -61,12 +61,11 @@ final class SdkInstallCommand<T extends PlatformHostInterface>
     // patched against — and stamped with — the selected Swift toolchain. With
     // no Swift on PATH that work is wasted, and the old failure came only
     // after the extraction had already finished.
-    final swift = await SwiftRequirement.require(
+    final swift = await SwiftRequirement(installer.runner).require(
       'install the Darwin SDK',
-      runner: installer.runner,
       installGuidance: installer.swiftInstallGuidance,
     );
-    await SwiftRequirement.requireSiblingClang(swift, host: host);
+    await SwiftRequirement(installer.runner).requireSiblingClang(swift);
 
     // Newer Xcode SDKs cannot be consumed by older Swift compilers at all, so
     // the pairing is rejected here rather than after the extraction. The

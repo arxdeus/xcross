@@ -60,11 +60,9 @@ final class SetupCommand extends Command<void> {
       processRunner.log.logDone('Configured setup script completed');
       return;
     }
-    await SwiftRequirement.require(
-      'set up this host',
-      runner: processRunner,
-      installGuidance: swiftInstallGuidance,
-    );
+    await SwiftRequirement(
+      processRunner,
+    ).require('set up this host', installGuidance: swiftInstallGuidance);
     await requirements.run();
   }
 }

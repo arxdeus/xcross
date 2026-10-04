@@ -57,10 +57,9 @@ final class LinuxSetupRequirements implements SetupRequirements {
   }
 
   Future<void> ensureLinuxClang(LinuxPackageManager manager) async {
-    if (await ClangRequirement.resolve(
-          runner: runner,
-          llvmDirectories: toolchain.llvmToolDirs(),
-        ) !=
+    if (await ClangRequirement(
+          runner,
+        ).resolve(llvmDirectories: toolchain.llvmToolDirs()) !=
         null) {
       return;
     }
@@ -74,10 +73,9 @@ final class LinuxSetupRequirements implements SetupRequirements {
           await manager.installAttempts([package], runner, services.privileges),
           label: '${manager.name} install $package',
         );
-        if (await ClangRequirement.resolve(
-              runner: runner,
-              llvmDirectories: toolchain.llvmToolDirs(),
-            ) !=
+        if (await ClangRequirement(
+              runner,
+            ).resolve(llvmDirectories: toolchain.llvmToolDirs()) !=
             null) {
           return;
         }

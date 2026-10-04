@@ -123,21 +123,31 @@ final class FileSwap {
     }
   }
 
+  Future<void> _copy(String source, String target) =>
+      operations.copy(source, target);
+  Future<void> _move(String source, String target) =>
+      operations.move(source, target);
+  Future<void> _delete(String path) => operations.delete(path);
+}
+
+final class StaleBackupCleaner {
+  const StaleBackupCleaner({required this.fileSystem, required this.paths});
+
+  final HostFileSystemInterface fileSystem;
+  final p.Context paths;
+
   /// A parked file younger than this may belong to an update still running in
   /// another process, whose rollback would break if it disappeared.
   static const _minimumAge = Duration(minutes: 10);
 
   /// Best-effort removal of leftovers a previous update could not delete.
-  static void sweepStaleBackups(
-    Iterable<String> directories, {
-    required HostFileSystemInterface fileSystem,
-  }) {
+  void sweep(Iterable<String> directories) {
     final now = DateTime.now();
     for (final directory in directories.toSet()) {
       try {
         for (final file
             in fileSystem.directory(directory).listSync().whereType<File>()) {
-          if (!_leftover.hasMatch(p.basename(file.path))) continue;
+          if (!_leftover.hasMatch(paths.basename(file.path))) continue;
           try {
             if (now.difference(file.lastModifiedSync()) < _minimumAge) continue;
             file.deleteSync();
@@ -155,13 +165,7 @@ final class FileSwap {
   /// `contains` test would also match unrelated files such as
   /// `libfoo.so.old-2024` sitting in a shared `/usr/local/lib`.
   static final _leftover = RegExp(
-    '^\\..+(?:${RegExp.escape(backupMarker)}|'
-    '${RegExp.escape(incomingMarker)})[0-9]+(?:-failed)?\$',
+    '^\\..+(?:${RegExp.escape(FileSwap.backupMarker)}|'
+    '${RegExp.escape(FileSwap.incomingMarker)})[0-9]+(?:-failed)?\$',
   );
-
-  Future<void> _copy(String source, String target) =>
-      operations.copy(source, target);
-  Future<void> _move(String source, String target) =>
-      operations.move(source, target);
-  Future<void> _delete(String path) => operations.delete(path);
 }

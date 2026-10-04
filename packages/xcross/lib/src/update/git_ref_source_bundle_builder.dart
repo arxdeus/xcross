@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:cli_kit/cli_kit_shared.dart';
 
-import 'package:path/path.dart' as p;
 import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/update/git_update_ref_resolver.dart';
 import 'package:xcross/src/update/internal/dart_executable_resolver.dart';
@@ -22,7 +21,8 @@ final class GitRefSourceBundleBuilder {
     Directory? systemTempDirectory,
     TempDirectoryModifiedAt? tempDirectoryModifiedAt,
     DartExecutableLocator? resolveDartExecutable,
-  }) : _run =
+  }) : _usesSelectedTemporaryRoot = systemTempDirectory == null,
+       _run =
            run ??
            ((executable, arguments, {workingDirectory}) => runUpdateProcess(
              runner,
@@ -55,6 +55,7 @@ final class GitRefSourceBundleBuilder {
   final CreateTempDirectory _createTempDirectory;
   final DeleteDirectory _deleteDirectory;
   final Directory _systemTempDirectory;
+  final bool _usesSelectedTemporaryRoot;
   final TempDirectoryModifiedAt _tempDirectoryModifiedAt;
   final DartExecutableLocator _resolveDartExecutable;
 
@@ -81,13 +82,25 @@ final class GitRefSourceBundleBuilder {
       log: runner.log,
     );
     try {
-      final repoDirectory = Directory(p.join(tempDirectory.path, 'xcross'));
+      final paths = runner.host.paths.context;
+      final tempPath =
+          _usesSelectedTemporaryRoot &&
+              paths.isWithin(_systemTempDirectory.path, tempDirectory.path)
+          ? paths.join(
+              runner.host.paths.temporaryRoot,
+              paths.relative(
+                tempDirectory.path,
+                from: _systemTempDirectory.path,
+              ),
+            )
+          : tempDirectory.path;
+      final repoPath = paths.join(tempPath, 'xcross');
       await progress.run(
         'Clone repository',
         () => _runChecked('git', [
           'clone',
           repoUrl,
-          repoDirectory.path,
+          runner.host.fileSystem.directory(repoPath).path,
         ], action: 'clone update source'),
       );
       await progress.run(
@@ -95,7 +108,7 @@ final class GitRefSourceBundleBuilder {
         () => _runChecked(
           'git',
           ['fetch', '--depth', '1', 'origin', ref.commitSha],
-          workingDirectory: repoDirectory.path,
+          workingDirectory: repoPath,
           action: 'fetch update commit ${ref.commitSha}',
         ),
       );
@@ -104,7 +117,7 @@ final class GitRefSourceBundleBuilder {
         () => _runChecked(
           'git',
           ['checkout', '--detach', ref.commitSha],
-          workingDirectory: repoDirectory.path,
+          workingDirectory: repoPath,
           action: 'checkout update commit ${ref.commitSha}',
         ),
       );
@@ -113,13 +126,11 @@ final class GitRefSourceBundleBuilder {
         () => _runChecked(
           dartExecutable,
           ['pub', 'get'],
-          workingDirectory: repoDirectory.path,
+          workingDirectory: repoPath,
           action: 'run dart pub get for update source',
         ),
       );
-      final packageDirectory = Directory(
-        p.join(repoDirectory.path, 'packages', 'xcross'),
-      );
+      final packagePath = paths.join(repoPath, 'packages', 'xcross');
       final encodedVersion = Uri.encodeComponent(ref.displayName);
       await progress.run(
         'Build xcross ${ref.displayName}',
@@ -131,11 +142,11 @@ final class GitRefSourceBundleBuilder {
             '-DXCROSS_RELEASED=false',
             'tool/build_xcross.dart',
           ],
-          workingDirectory: packageDirectory.path,
+          workingDirectory: packagePath,
           action: 'build update bundle',
         ),
       );
-      return await onBundle(_findBundle(packageDirectory), progress);
+      return await onBundle(_findBundle(packagePath), progress);
     } finally {
       try {
         await _deleteDirectory(tempDirectory);
@@ -145,22 +156,21 @@ final class GitRefSourceBundleBuilder {
     }
   }
 
-  Directory _findBundle(Directory packageDirectory) {
-    final bundle = runner.host.fileSystem.directory(
-      p.join(
-        packageDirectory.path,
-        'build',
-        'cli',
-        '${runner.host.name}_${runner.host.architecture}',
-        'bundle',
-      ),
+  Directory _findBundle(String packagePath) {
+    final bundlePath = runner.host.paths.context.join(
+      packagePath,
+      'build',
+      'cli',
+      '${runner.host.name}_${runner.host.architecture}',
+      'bundle',
     );
+    final bundle = runner.host.fileSystem.directory(bundlePath);
     if (!bundle.existsSync() ||
         !runner.host.fileSystem
-            .directory(p.join(bundle.path, 'bin'))
+            .directory(runner.host.paths.context.join(bundlePath, 'bin'))
             .existsSync() ||
         !runner.host.fileSystem
-            .directory(p.join(bundle.path, 'lib'))
+            .directory(runner.host.paths.context.join(bundlePath, 'lib'))
             .existsSync()) {
       throw XcrossError('expected built update bundle at ${bundle.path}');
     }
@@ -190,7 +200,9 @@ final class GitRefSourceBundleBuilder {
     try {
       await for (final entry in _systemTempDirectory.list(followLinks: false)) {
         if (entry is! Directory ||
-            !p.basename(entry.path).startsWith(_tempDirectoryPrefix)) {
+            !runner.host.paths.context
+                .basename(entry.path)
+                .startsWith(_tempDirectoryPrefix)) {
           continue;
         }
         try {

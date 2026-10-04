@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:xcross/src/errors.dart';
 
@@ -29,19 +27,22 @@ const _swiftInstallHint = {
 /// toolchain's identity into the bundle, so without Swift it cannot produce a
 /// usable SDK at all. Failing here, before an hours-long extraction or a
 /// package-manager transaction, is far cheaper than failing after.
-abstract final class SwiftRequirement {
+final class SwiftRequirement {
+  const SwiftRequirement(this.runner);
+
+  final ProcessRunner runner;
+
+  PlatformHostInterface get host => runner.host;
+
   /// Throws [XcrossError] unless a usable `swift` is on PATH.
   ///
   /// [action] completes the sentence "xcross cannot <action> …".
-  static Future<String> require(
+  Future<String> require(
     String action, {
-    required ProcessRunner runner,
     required String installGuidance,
-    Future<String?> Function(String name)? locate,
     String? extra,
   }) async {
-    final find = locate ?? runner.which;
-    final swift = await find(runner.hostExecutableName('swift'));
+    final swift = await runner.which(runner.hostExecutableName('swift'));
     if (swift == null) {
       throw XcrossError(
         'No Swift toolchain found on PATH, so xcross cannot $action.\n'
@@ -59,13 +60,10 @@ abstract final class SwiftRequirement {
   /// A Swift installation missing its own clang cannot supply the builtin
   /// headers the Darwin SDK bundle is patched with, and the failure would
   /// otherwise surface much later as unresolved `import UIKit`.
-  static Future<void> requireSiblingClang(
-    String swift, {
-    required PlatformHostInterface host,
-  }) async {
+  Future<void> requireSiblingClang(String swift) async {
     final String resolved;
     try {
-      resolved = await File(swift).resolveSymbolicLinks();
+      resolved = await host.fileSystem.file(swift).resolveSymbolicLinks();
     } on Object {
       // An unresolvable path is the installer's problem to report, not a
       // reason to block here; sdk_install surfaces it with full detail.
@@ -75,7 +73,7 @@ abstract final class SwiftRequirement {
       host.paths.context.dirname(resolved),
       host.paths.executableName('clang'),
     );
-    if (File(clang).existsSync()) return;
+    if (host.fileSystem.file(clang).existsSync()) return;
     throw XcrossError(
       'The Swift toolchain at "$resolved" ships no sibling clang '
       '("$clang").\n'
