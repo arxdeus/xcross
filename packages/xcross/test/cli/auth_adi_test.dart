@@ -3,6 +3,9 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:apple_developer_kit/apple_developer_kit.dart';
+import 'package:archive/archive.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/cli/basic/auth_command.dart';
@@ -49,10 +52,6 @@ void main() {
       await root.delete(recursive: true);
     });
 
-    Future<AdiLibraryPaths> noFetch(AdiLibraryFetcher fetcher) {
-      fail('Unexpected ADI download for ${fetcher.libraryDirectory.path}');
-    }
-
     for (final style in [p.Style.posix, p.Style.windows]) {
       test(
         'ADI lookup uses only selected logical acquisitions on $style',
@@ -67,15 +66,11 @@ void main() {
           fixture.fileSystem.acquisitions.clear();
           final command = authFixture(services: fixture.services);
           expect(
-            await command.resolveAdiLibraryDirectory(
-              cacheDirectory: cache,
-              fetchLibraries: noFetch,
-            ),
+            await command.resolveAdiLibraryDirectory(cacheDirectory: cache),
             cache,
           );
           final logicalResult = await command.resolveAdiLibraryDirectory(
             cacheDirectory: cache,
-            fetchLibraries: noFetch,
           );
           expect(
             AdiLibraryResolver(
@@ -105,9 +100,43 @@ void main() {
             command.resolveAdiLibraryDirectory(
               cacheDirectory: cache,
               configuredDirectory: fixture.paths.context.join(cache, 'x86_64'),
-              fetchLibraries: noFetch,
             ),
             throwsA(isA<XcrossError>()),
+          );
+        },
+      );
+    }
+
+    for (final style in [p.Style.posix, p.Style.windows]) {
+      test(
+        'ADI fetch uses constructor HTTP and selected writes on $style',
+        () async {
+          final fixture = AuthNamespaceFixture(style: style);
+          addTearDown(fixture.dispose);
+          final client = ClosingAuthApkClient(_apkBytes(62, 'x86_64'));
+          final cache = fixture.path('download-cache');
+          final command = authFixture(
+            services: fixture.services,
+            createAdiHttpClient: () => client,
+          );
+          expect(
+            await command.resolveAdiLibraryDirectory(cacheDirectory: cache),
+            cache,
+          );
+          expect(client.closed, isTrue);
+          expect(
+            AdiLibraryResolver(
+              hostServices: fixture.services,
+            ).resolve(cache, abi: Abi.linuxX64),
+            isNotNull,
+          );
+          expect(
+            fixture.fileSystem.acquisitions.every(
+              (value) =>
+                  value == cache ||
+                  fixture.paths.context.isWithin(cache, value),
+            ),
+            isTrue,
           );
         },
       );
@@ -120,10 +149,9 @@ void main() {
         _writeLibraries(root, 62);
 
         expect(
-          await authFixture(abi: abi).resolveAdiLibraryDirectory(
-            cacheDirectory: root.path,
-            fetchLibraries: noFetch,
-          ),
+          await authFixture(
+            abi: abi,
+          ).resolveAdiLibraryDirectory(cacheDirectory: root.path),
           root.absolute.path,
         );
       });
@@ -135,7 +163,6 @@ void main() {
       expect(
         await authFixture().resolveAdiLibraryDirectory(
           cacheDirectory: root.path,
-          fetchLibraries: noFetch,
         ),
         root.absolute.path,
       );
@@ -147,22 +174,20 @@ void main() {
         p.join(root.path, 'libCoreADI.so'),
       ).readAsBytesSync();
       var fetches = 0;
-
-      final result = await authFixture(abi: Abi.linuxArm64)
-          .resolveAdiLibraryDirectory(
-            cacheDirectory: root.path,
-            fetchLibraries: (fetcher) async {
-              fetches++;
-              expect(
-                fetcher.libraryDirectory.path,
-                p.join(root.path, 'arm64-v8a'),
-              );
-              return _writeLibraries(fetcher.libraryDirectory, 183);
-            },
-          );
-
+      final result = await authFixture(
+        abi: Abi.linuxArm64,
+        createAdiHttpClient: () => MockClient((request) async {
+          fetches++;
+          expect(request.url.toString(), appleMusicApkUrl);
+          return http.Response.bytes(_apkBytes(183, 'arm64-v8a'), 200);
+        }),
+      ).resolveAdiLibraryDirectory(cacheDirectory: root.path);
       expect(fetches, 1);
       expect(result, root.absolute.path);
+      expect(
+        File(p.join(root.path, 'arm64-v8a', 'libCoreADI.so')).existsSync(),
+        isTrue,
+      );
       expect(
         File(p.join(root.path, 'libCoreADI.so')).readAsBytesSync(),
         original,
@@ -177,7 +202,6 @@ void main() {
         await authFixture(abi: Abi.macosArm64).resolveAdiLibraryDirectory(
           cacheDirectory: Directory.systemTemp.path,
           configuredDirectory: libraries.path,
-          fetchLibraries: noFetch,
         ),
         libraries.absolute.path,
       );
@@ -190,7 +214,6 @@ void main() {
         authFixture(abi: Abi.linuxArm64).resolveAdiLibraryDirectory(
           cacheDirectory: Directory.systemTemp.path,
           configuredDirectory: root.path,
-          fetchLibraries: noFetch,
         ),
         throwsA(isA<XcrossError>()),
       );
@@ -205,57 +228,71 @@ void main() {
         authFixture(abi: Abi.macosArm64).resolveAdiLibraryDirectory(
           cacheDirectory: Directory.systemTemp.path,
           configuredDirectory: root.path,
-          fetchLibraries: noFetch,
         ),
         throwsA(isA<XcrossError>()),
       );
     });
 
     test('fetches into the host architecture directory', () async {
-      final result = await authFixture(abi: Abi.windowsX64)
-          .resolveAdiLibraryDirectory(
-            cacheDirectory: root.path,
-            fetchLibraries: (fetcher) async {
-              expect(
-                fetcher.libraryDirectory.path,
-                p.join(root.path, 'x86_64'),
-              );
-              return _writeLibraries(fetcher.libraryDirectory, 62);
-            },
-          );
-
+      final result = await authFixture(
+        abi: Abi.windowsX64,
+        createAdiHttpClient: () => MockClient(
+          (_) async => http.Response.bytes(_apkBytes(62, 'x86_64'), 200),
+        ),
+      ).resolveAdiLibraryDirectory(cacheDirectory: root.path);
       expect(result, root.absolute.path);
+      expect(
+        File(p.join(root.path, 'x86_64', 'libCoreADI.so')).existsSync(),
+        isTrue,
+      );
     });
 
     test('rejects unsupported hosts without changing the cache', () async {
       await expectLater(
-        authFixture(abi: Abi.windowsArm64).resolveAdiLibraryDirectory(
-          cacheDirectory: root.path,
-          fetchLibraries: noFetch,
-        ),
+        authFixture(
+          abi: Abi.windowsArm64,
+        ).resolveAdiLibraryDirectory(cacheDirectory: root.path),
         throwsA(isA<XcrossError>()),
       );
       expect(root.listSync(), isEmpty);
     });
 
-    test('checks that a download actually produced libraries', () async {
-      await expectLater(
-        authFixture(abi: Abi.linuxArm64).resolveAdiLibraryDirectory(
-          cacheDirectory: root.path,
-          fetchLibraries: (fetcher) async => AdiLibraryPaths(
-            coreAdiPath: fetcher.coreAdiFile.path,
-            storeServicesPath: fetcher.storeServicesFile.path,
-            apkSha256: 'fixture',
-          ),
-        ),
-        throwsA(isA<XcrossError>()),
-      );
-    });
+    test(
+      'rejects incomplete downloaded APK without producing a library pair',
+      () async {
+        await expectLater(
+          authFixture(
+            abi: Abi.linuxArm64,
+            createAdiHttpClient: () => MockClient(
+              (_) async => http.Response.bytes(
+                _apkBytes(183, 'arm64-v8a', complete: false),
+                200,
+              ),
+            ),
+          ).resolveAdiLibraryDirectory(cacheDirectory: root.path),
+          throwsStateError,
+        );
+        expect(Directory(p.join(root.path, 'arm64-v8a')).existsSync(), isFalse);
+      },
+    );
   });
 }
 
 AdiLibraryPaths _writeLibraries(Directory directory, int machine) {
   directory.createSync(recursive: true);
+  final data = ByteData.sublistView(_libraryBytes(machine));
+  final core = File(p.join(directory.path, 'libCoreADI.so'));
+  final services = File(p.join(directory.path, 'libstoreservicescore.so'));
+  core.writeAsBytesSync(data.buffer.asUint8List());
+  services.writeAsBytesSync(data.buffer.asUint8List());
+  return AdiLibraryPaths(
+    coreAdiPath: core.path,
+    storeServicesPath: services.path,
+    apkSha256: 'fixture',
+  );
+}
+
+Uint8List _libraryBytes(int machine) {
   final bytes = Uint8List(184);
   bytes.setRange(0, 7, [0x7f, 69, 76, 70, 2, 1, 1]);
   final data = ByteData.sublistView(bytes)
@@ -273,13 +310,30 @@ AdiLibraryPaths _writeLibraries(Directory directory, int machine) {
     ..setUint32(68, 4, Endian.little)
     ..setUint64(96, bytes.length, Endian.little)
     ..setUint64(104, bytes.length, Endian.little);
-  final core = File(p.join(directory.path, 'libCoreADI.so'));
-  final services = File(p.join(directory.path, 'libstoreservicescore.so'));
-  core.writeAsBytesSync(data.buffer.asUint8List());
-  services.writeAsBytesSync(data.buffer.asUint8List());
-  return AdiLibraryPaths(
-    coreAdiPath: core.path,
-    storeServicesPath: services.path,
-    apkSha256: 'fixture',
-  );
+  return data.buffer.asUint8List();
+}
+
+List<int> _apkBytes(int machine, String architecture, {bool complete = true}) {
+  final bytes = _libraryBytes(machine);
+  final archive = Archive();
+  for (final name in [
+    'libCoreADI.so',
+    if (complete) 'libstoreservicescore.so',
+  ]) {
+    archive.addFile(
+      ArchiveFile('lib/$architecture/$name', bytes.length, bytes),
+    );
+  }
+  return ZipEncoder().encode(archive);
+}
+
+final class ClosingAuthApkClient extends MockClient {
+  ClosingAuthApkClient(List<int> bytes)
+    : super((_) async => http.Response.bytes(bytes, 200));
+  bool closed = false;
+  @override
+  void close() {
+    closed = true;
+    super.close();
+  }
 }

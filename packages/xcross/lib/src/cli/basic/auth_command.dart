@@ -416,7 +416,6 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
   Future<String> resolveAdiLibraryDirectory({
     required String cacheDirectory,
     String? configuredDirectory,
-    Future<AdiLibraryPaths> Function(AdiLibraryFetcher fetcher)? fetchLibraries,
   }) async {
     final hostAbi = hostServices.abi;
     requireAppleIdHost(hostAbi);
@@ -445,12 +444,7 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
       abi: hostAbi,
       createClient: createAdiHttpClient,
     );
-    await log.logStep(
-      'Fetching Apple ADI libraries',
-      () => fetchLibraries == null
-          ? fetcher.ensureLibraries()
-          : fetchLibraries(fetcher),
-    );
+    await log.logStep('Fetching Apple ADI libraries', fetcher.ensureLibraries);
     final resolved = AdiLibraryResolver(
       hostServices: hostServices,
     ).resolve(logicalDirectory, abi: hostAbi);

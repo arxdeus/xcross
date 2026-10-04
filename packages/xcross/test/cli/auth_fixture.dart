@@ -3,12 +3,17 @@ import 'dart:io';
 
 import 'package:apple_developer_kit/apple_developer_kit_shared.dart';
 import 'package:cli_kit/cli_kit.dart';
+import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/cli/basic/auth_command.dart';
 
 import 'runtime_fixture.dart';
 
-AuthCommand authFixture({AppleHostServices? services, Abi abi = Abi.linuxX64}) {
+AuthCommand authFixture({
+  AppleHostServices? services,
+  Abi abi = Abi.linuxX64,
+  http.Client Function()? createAdiHttpClient,
+}) {
   final base = services ?? testRuntime().appleHostServices;
   return AuthCommand(
     log: testLog(),
@@ -19,7 +24,8 @@ AuthCommand authFixture({AppleHostServices? services, Abi abi = Abi.linuxX64}) {
       machineIdentity: base.machineIdentity,
       permissions: base.permissions,
     ),
-    createAdiHttpClient: () => throw StateError('Unexpected ADI HTTP'),
+    createAdiHttpClient:
+        createAdiHttpClient ?? () => throw StateError('Unexpected ADI HTTP'),
     createHttpClient: () => throw StateError('Unexpected Apple HTTP'),
     createNativeLibraryLoader: () =>
         throw StateError('Unexpected native loader'),
