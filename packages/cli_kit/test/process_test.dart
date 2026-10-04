@@ -720,6 +720,37 @@ void main() {
       skip: !Platform.isWindows,
     );
 
+    test(
+      'passes Windows extended-length environment paths in plain form',
+      () async {
+        final directory = Directory.systemTemp.createTempSync('plain-env-');
+        addTearDown(() => directory.deleteSync(recursive: true));
+        final script = File(p.join(directory.path, 'env.dart'))
+          ..writeAsStringSync(
+            "import 'dart:io'; void main() { final e = Platform.environment; "
+            "stdout.write('\${e['PATH']}|\${e['TOOL_ROOT']}'); }",
+          );
+        final extended = '\\\\?\\${directory.path}';
+
+        final process = await runner.start(
+          Platform.resolvedExecutable,
+          [script.path],
+          environment: {
+            'PATH': '$extended;${Platform.environment['PATH']}',
+            'TOOL_ROOT': extended,
+          },
+        );
+        final output = await process.stdout
+            .transform(systemEncoding.decoder)
+            .join();
+
+        expect(await process.exitCode, 0);
+        expect(output, startsWith('${directory.path};'));
+        expect(output, endsWith('|${directory.path}'));
+      },
+      skip: !Platform.isWindows,
+    );
+
     test('starts Windows children in a plain working directory', () async {
       final directory = Directory.systemTemp.createTempSync('plain-cwd-');
       addTearDown(() => directory.deleteSync(recursive: true));

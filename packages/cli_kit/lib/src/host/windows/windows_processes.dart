@@ -105,7 +105,9 @@ final class WindowsProcesses implements HostProcessInterface {
             shell || _plainPath(directory).length < _maxPlainDirectory
             ? _plainPath(directory)
             : directory,
-        environment: environment,
+        environment: environment == null
+            ? null
+            : _plainEnvironment(environment),
         includeParentEnvironment: includeParentEnvironment,
         runInShell: shell,
         mode: mode,
@@ -121,6 +123,13 @@ final class WindowsProcesses implements HostProcessInterface {
     if (path.startsWith(r'\\?\')) return path.substring(4);
     return path;
   }
+
+  static Map<String, String> _plainEnvironment(Map<String, String> values) => {
+    for (final entry in values.entries)
+      entry.key: entry.key.toUpperCase() == 'PATH'
+          ? entry.value.split(';').map(_plainPath).join(';')
+          : _plainPath(entry.value),
+  };
 
   static final _optionValue = RegExp(r'^(--?[^=\s]+=)(.*)$');
 
