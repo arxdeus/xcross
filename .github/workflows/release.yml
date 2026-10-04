@@ -94,12 +94,24 @@ jobs:
           if-no-files-found: error
 
   build-windows:
-    name: Build xcross-windows-x64
-    runs-on: windows-2022
+    name: Build ${{ matrix.asset }}
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       id-token: write
       attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2022
+            asset: xcross-windows-x64
+            architecture: x64
+            cli-dir: windows_x64
+          - runner: windows-11-arm
+            asset: xcross-windows-arm64
+            architecture: arm64
+            cli-dir: windows_arm64
 
     steps:
       - name: Checkout
@@ -108,11 +120,62 @@ jobs:
           persist-credentials: false
           submodules: true
 
+      # Pin the SDK architecture: the AOT executable and the native bridge are
+      # built for the architecture of the Dart SDK that runs the build, so an
+      # emulated x64 SDK on the ARM64 runner would silently ship x64 binaries.
       - name: Set up Dart
         # v1
         uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260
         with:
           sdk: stable
+          architecture: ${{ matrix.architecture }}
+
+      # The Windows ADI bridge is compiled by a Dart build hook through
+      # native_toolchain_c, which resolves MSVC with `vswhere -requires
+      # Microsoft.VisualStudio.Component.VC.Tools.<arch>`. Verify that query
+      # succeeds and add the component when the runner image lacks it.
+      - name: Ensure MSVC tools
+        shell: pwsh
+        env:
+          MSVC_ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $component = switch ($env:MSVC_ARCHITECTURE) {
+            'x64' { 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64' }
+            'arm64' { 'Microsoft.VisualStudio.Component.VC.Tools.ARM64' }
+            default { throw "Unsupported MSVC architecture: $env:MSVC_ARCHITECTURE" }
+          }
+          $installerDir = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer"
+          $vswhere = Join-Path $installerDir 'vswhere.exe'
+          if (-not (Test-Path $vswhere)) {
+            throw "vswhere.exe not found at $vswhere"
+          }
+          function Find-Msvc {
+            & $vswhere -latest -products '*' -requires $component `
+              -property installationPath
+          }
+          $installation = Find-Msvc
+          if (-not $installation) {
+            $visualStudio = & $vswhere -latest -products '*' -property installationPath
+            if (-not $visualStudio) {
+              throw 'No Visual Studio installation found on this runner'
+            }
+            Write-Host "Adding $component to $visualStudio"
+            $process = Start-Process `
+              (Join-Path $installerDir 'vs_installer.exe') `
+              -ArgumentList 'modify', '--installPath', "`"$visualStudio`"", `
+                '--add', $component, '--quiet', '--norestart', '--nocache' `
+              -PassThru `
+              -Wait
+            if ($process.ExitCode -notin 0, 3010) {
+              throw "Visual Studio installer failed: $($process.ExitCode)"
+            }
+            $installation = Find-Msvc
+            if (-not $installation) {
+              throw "$component is still missing after installation"
+            }
+          }
+          Write-Host "MSVC ${env:MSVC_ARCHITECTURE} tools: $installation"
 
       # bash, not the pwsh default: GitHub only propagates $LASTEXITCODE from
       # the final line of a pwsh `run` block, so a failing `dart test` on any
@@ -147,10 +210,12 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item -Recurse `
-            packages/xcross/build/cli/windows_x64/bundle/bin dist/bin
-          Copy-Item -Recurse `
-            packages/xcross/build/cli/windows_x64/bundle/lib dist/lib
+          $bundle = "packages/xcross/build/cli/${{ matrix.cli-dir }}/bundle"
+          if (-not (Test-Path "$bundle/bin/xcross.exe")) {
+            throw "Missing $bundle; build produced: $(Get-ChildItem packages/xcross/build/cli -Name)"
+          }
+          Copy-Item -Recurse "$bundle/bin" dist/bin
+          Copy-Item -Recurse "$bundle/lib" dist/lib
 
       - name: Package Windows release
         shell: pwsh
@@ -162,13 +227,13 @@ jobs:
           Copy-Item `
             packages/apple_developer_kit/ADI_LICENSE `
             dist/THIRD_PARTY_LICENSES/provision-dart.txt
-          Compress-Archive -Path dist/* -DestinationPath xcross-windows-x64.zip
+          Compress-Archive -Path dist/* -DestinationPath "${{ matrix.asset }}.zip"
 
       - name: Smoke-test Windows archive
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          Expand-Archive xcross-windows-x64.zip smoke
+          Expand-Archive "${{ matrix.asset }}.zip" smoke
           $expected = @(
             'LICENSE'
             'THIRD_PARTY_LICENSES/provision-dart.txt'
@@ -184,6 +249,18 @@ jobs:
             throw "Unexpected archive contents: $actual"
           }
 
+          # IMAGE_FILE_HEADER.Machine: 0x8664 is x64, 0xAA64 is ARM64.
+          $expectedMachine = @{ x64 = 0x8664; arm64 = 0xAA64 }['${{ matrix.architecture }}']
+          foreach ($binary in $expected | Where-Object { $_ -match '\.(exe|dll)$' }) {
+            $bytes = [IO.File]::ReadAllBytes((Join-Path $root $binary))
+            $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
+            $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+            if ($machine -ne $expectedMachine) {
+              throw ('{0} targets machine 0x{1:X4}, expected 0x{2:X4}' -f
+                $binary, $machine, $expectedMachine)
+            }
+          }
+
           & smoke/bin/xcross.exe --help | Out-Null
           if ($LASTEXITCODE -ne 0) { throw 'xcross.exe --help failed' }
 
@@ -192,14 +269,14 @@ jobs:
         # v4.1.1
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373
         with:
-          subject-path: xcross-windows-x64.zip
+          subject-path: ${{ matrix.asset }}.zip
 
       - name: Upload Windows artifact
         # v7
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: xcross-windows-x64
-          path: xcross-windows-x64.zip
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}.zip
           if-no-files-found: error
 
   release:
@@ -238,7 +315,8 @@ jobs:
           for asset in \
             xcross-linux-x64.tar.gz \
             xcross-linux-arm64.tar.gz \
-            xcross-windows-x64.zip; do
+            xcross-windows-x64.zip \
+            xcross-windows-arm64.zip; do
             echo "==> verifying $asset"
             gh attestation verify "dist/$asset" \
               --repo "$GITHUB_REPOSITORY" \
@@ -255,7 +333,8 @@ jobs:
           sha256sum \
             xcross-linux-x64.tar.gz \
             xcross-linux-arm64.tar.gz \
-            xcross-windows-x64.zip >SHA256SUMS.txt
+            xcross-windows-x64.zip \
+            xcross-windows-arm64.zip >SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Create and publish release
@@ -285,6 +364,7 @@ jobs:
             dist/xcross-linux-x64.tar.gz \
             dist/xcross-linux-arm64.tar.gz \
             dist/xcross-windows-x64.zip \
+            dist/xcross-windows-arm64.zip \
             dist/SHA256SUMS.txt \
             packages/apple_developer_kit/ADI_LICENSE \
             --title "$tag" \
