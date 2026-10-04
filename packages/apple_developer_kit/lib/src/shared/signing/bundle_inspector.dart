@@ -13,7 +13,7 @@ import 'package:apple_developer_kit/src/signing/internal/resolved_bundle.dart';
 import 'package:apple_developer_kit/src/signing/macho_signer.dart';
 import 'package:apple_developer_kit/src/signing/plist.dart';
 import 'package:apple_developer_kit/src/signing/signing_asset.dart';
-import 'package:path/path.dart' as p;
+import 'package:cli_kit/cli_kit_shared.dart' show HostFileSystemInspection;
 
 class BundleInspector {
   BundleInspector({
@@ -47,10 +47,14 @@ class BundleInspector {
     return BundlePlan(bundles, looseBinaries);
   }
 
-  static String _requireAppDirectory(String appPath) {
-    final normalized = p.normalize(p.absolute(appPath));
-    if (!p.basename(normalized).endsWith('.app') ||
-        FileSystemEntity.typeSync(normalized, followLinks: false) !=
+  String _requireAppDirectory(String appPath) {
+    final normalized = hostServices.host.paths.context.normalize(
+      hostServices.host.paths.context.absolute(appPath),
+    );
+    if (!hostServices.host.paths.context
+            .basename(normalized)
+            .endsWith('.app') ||
+        hostServices.host.fileSystem.typeSync(normalized, followLinks: false) !=
             FileSystemEntityType.directory) {
       throw AppleError('Bundle "$appPath" must be an existing .app directory.');
     }
@@ -147,7 +151,13 @@ class BundleInspector {
                 isWithinOrEqual(bundle.path, path, hostServices: hostServices),
           );
       if (!insideNestedBundle && relative.split('/').contains('Frameworks')) {
-        looseBinaries.add(LooseBinary(path, relative, p.basename(path)));
+        looseBinaries.add(
+          LooseBinary(
+            path,
+            relative,
+            hostServices.host.paths.context.basename(path),
+          ),
+        );
       } else {
         bundleFail(normalized, path, 'unknown nested Mach-O code');
       }
@@ -190,8 +200,8 @@ class BundleInspector {
     bool isRoot = false,
     bool isAppExtension = false,
   }) {
-    final infoPath = p.join(path, 'Info.plist');
-    if (FileSystemEntity.typeSync(infoPath, followLinks: false) !=
+    final infoPath = hostServices.host.paths.context.join(path, 'Info.plist');
+    if (hostServices.host.fileSystem.typeSync(infoPath, followLinks: false) !=
         FileSystemEntityType.file) {
       bundleFail(root, infoPath, 'required Info.plist is missing');
     }
@@ -214,7 +224,7 @@ class BundleInspector {
         executable.isEmpty ||
         executable == '.' ||
         executable == '..' ||
-        p.basename(executable) != executable ||
+        hostServices.host.paths.context.basename(executable) != executable ||
         executable.contains('/') ||
         executable.contains(r'\')) {
       bundleFail(root, infoPath, 'CFBundleExecutable must be a file name');
@@ -224,8 +234,14 @@ class BundleInspector {
         identifier.contains('\u0000')) {
       bundleFail(root, infoPath, 'CFBundleIdentifier is missing or invalid');
     }
-    final executablePath = p.join(path, executable);
-    if (FileSystemEntity.typeSync(executablePath, followLinks: false) !=
+    final executablePath = hostServices.host.paths.context.join(
+      path,
+      executable,
+    );
+    if (hostServices.host.fileSystem.typeSync(
+          executablePath,
+          followLinks: false,
+        ) !=
         FileSystemEntityType.file) {
       bundleFail(
         root,

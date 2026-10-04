@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:apple_developer_kit/src/errors.dart';
@@ -8,8 +9,61 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../support/host_services.dart';
+import '../support/mapped_apple_fixture.dart';
 
 void main() {
+  test(
+    'mapped filesystem migrates, seals, reloads and clears without native bypass',
+    () async {
+      final fixture = MappedAppleFixture();
+      addTearDown(fixture.dispose);
+      final path = fixture.path('session.json');
+      final cipher = LocalCipher(
+        hostServices: fixture.services,
+        keyFilePath: fixture.path('local.key'),
+        machineId: 'mapped-machine',
+      );
+      final store = GrandSlamSessionStore(
+        hostServices: fixture.services,
+        path: path,
+        cipher: cipher,
+      );
+      expect(await store.load(), isNull);
+      final session = GrandSlamSession(
+        username: 'mapped@example.test',
+        teamId: 'TEAM',
+        token: DeveloperServicesLoginToken(
+          adsid: '123',
+          token: 'secret',
+          expiry: DateTime.utc(2030),
+        ),
+      );
+      fixture.fileSystem
+          .file(path)
+          .writeAsStringSync(jsonEncode(session.toJson()));
+      expect((await store.load())!.token.token, 'secret');
+      final sealed = fixture.fileSystem.file(path).readAsStringSync();
+      expect(LocalCipher.isSealed(sealed), isTrue);
+      expect(sealed, isNot(contains('secret')));
+      expect(File(path).existsSync(), isFalse);
+      expect((await store.load())!.username, session.username);
+      final reopened = GrandSlamSessionStore(
+        hostServices: fixture.services,
+        path: path,
+        cipher: LocalCipher(
+          hostServices: fixture.services,
+          keyFilePath: fixture.path('local.key'),
+          machineId: 'mapped-machine',
+        ),
+      );
+      expect((await reopened.load())!.token.token, 'secret');
+      await reopened.clear();
+      expect(await store.load(), isNull);
+      expect(fixture.fileSystem.file(path).existsSync(), isFalse);
+      expect(fixture.permissions.hardened, hasLength(3));
+    },
+  );
+
   late Directory tempDir;
   late String sessionPath;
 

@@ -1,8 +1,8 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/errors.dart';
+import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
 import 'package:apple_developer_kit/src/signing/der.dart';
 import 'package:apple_developer_kit/src/signing/internal/profile_identity.dart';
 import 'package:apple_developer_kit/src/signing/provisioning_profile.dart';
@@ -63,22 +63,17 @@ class SigningAsset {
 
   /// Loads and validates a PEM RSA key, PEM leaf certificate, and
   /// CMS-wrapped mobile provisioning profile.
-  @useResult
-  static Future<SigningAsset> load({
+  factory SigningAsset.fromBytes({
+    required String keyPem,
+    required String certificatePem,
+    required Uint8List profileCms,
     required String privateKeyPemPath,
     required String certificatePemPath,
     required String provisioningProfilePath,
     Map<String, Object?> declaredEntitlements = const {},
     DateTime? now,
     @visibleForTesting List<Uint8List> trustedRootCertificates = const [],
-  }) async {
-    final keyPem = await _readText(privateKeyPemPath, 'private key');
-    final certificatePem = await _readText(certificatePemPath, 'certificate');
-    final profileCms = await _readBytes(
-      provisioningProfilePath,
-      'provisioning profile',
-    );
-
+  }) {
     final privateKey = parsePrivateKey(keyPem, privateKeyPemPath);
     final certificate = parseCertificatePem(certificatePem, certificatePemPath);
     final profileContent = parseProfileCms(profileCms, provisioningProfilePath);
@@ -372,18 +367,46 @@ class SigningAsset {
     }
     return unique.values;
   }
+}
 
-  static Future<String> _readText(String path, String description) async {
+final class SigningAssetLoader {
+  SigningAssetLoader({required this.hostServices});
+
+  final AppleHostServices hostServices;
+
+  Future<SigningAsset> load({
+    required String privateKeyPemPath,
+    required String certificatePemPath,
+    required String provisioningProfilePath,
+    Map<String, Object?> declaredEntitlements = const {},
+    DateTime? now,
+    @visibleForTesting List<Uint8List> trustedRootCertificates = const [],
+  }) async => SigningAsset.fromBytes(
+    keyPem: await _readText(privateKeyPemPath, 'private key'),
+    certificatePem: await _readText(certificatePemPath, 'certificate'),
+    profileCms: await _readBytes(
+      provisioningProfilePath,
+      'provisioning profile',
+    ),
+    privateKeyPemPath: privateKeyPemPath,
+    certificatePemPath: certificatePemPath,
+    provisioningProfilePath: provisioningProfilePath,
+    declaredEntitlements: declaredEntitlements,
+    now: now,
+    trustedRootCertificates: trustedRootCertificates,
+  );
+
+  Future<String> _readText(String path, String description) async {
     try {
-      return await File(path).readAsString();
+      return await hostServices.host.fileSystem.file(path).readAsString();
     } on Object catch (error) {
       throw AppleError('Could not read $description "$path": $error');
     }
   }
 
-  static Future<Uint8List> _readBytes(String path, String description) async {
+  Future<Uint8List> _readBytes(String path, String description) async {
     try {
-      return await File(path).readAsBytes();
+      return await hostServices.host.fileSystem.file(path).readAsBytes();
     } on Object catch (error) {
       throw AppleError('Could not read $description "$path": $error');
     }

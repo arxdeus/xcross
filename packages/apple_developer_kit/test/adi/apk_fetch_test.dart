@@ -4,10 +4,13 @@ import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/adi/apk_fetch.dart';
 import 'package:archive/archive.dart';
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:test/test.dart';
 
+import '../support/host_services.dart';
+import '../support/mapped_apple_fixture.dart';
 import 'support/elf_fixture.dart';
 
 class RecordingApkClient extends MockClient {
@@ -26,6 +29,71 @@ class RecordingApkClient extends MockClient {
 }
 
 void main() {
+  test(
+    'mapped filesystem downloads, hashes, extracts and resolves without native bypass',
+    () async {
+      final fixture = MappedAppleFixture();
+      addTearDown(fixture.dispose);
+      final archive = Archive();
+      for (final name in ['libCoreADI.so', 'libstoreservicescore.so']) {
+        final bytes = elfFixture(183);
+        archive.addFile(
+          ArchiveFile('lib/arm64-v8a/$name', bytes.length, bytes),
+        );
+      }
+      final bytes = ZipEncoder().encode(archive);
+      final client = RecordingApkClient(
+        (_) async => http.Response.bytes(bytes, 200),
+      );
+      final logicalCache = fixture.path('cache');
+      final fetcher = AdiLibraryFetcher(
+        cacheDir: logicalCache,
+        hostServices: fixture.services,
+        abi: Abi.linuxArm64,
+        createClient: () => client,
+      );
+      final result = await fetcher.ensureLibraries();
+      expect(client.closeCount, 1);
+      expect(result.apkSha256, sha256.convert(bytes).toString());
+      expect(fetcher.coreAdiFile.readAsBytesSync(), elfFixture(183));
+      expect(fetcher.storeServicesFile.readAsBytesSync(), elfFixture(183));
+      expect(File('$logicalCache/applemusic.apk').existsSync(), isFalse);
+      final cached = AdiLibraryFetcher(
+        cacheDir: logicalCache,
+        hostServices: fixture.services,
+        abi: Abi.linuxArm64,
+        createClient: () => throw StateError('Unexpected download'),
+      );
+      expect((await cached.ensureLibraries()).apkSha256, result.apkSha256);
+      final resolver = AdiLibraryResolver(hostServices: fixture.services);
+      expect(
+        resolver.resolve(logicalCache, abi: Abi.macosArm64)?.path,
+        fetcher.libraryDirectory.path,
+      );
+      expect(
+        resolver.resolve(fixture.path('missing'), abi: Abi.linuxArm64),
+        isNull,
+      );
+      fixture.fileSystem.directory(fixture.path('flat')).createSync();
+      for (final name in ['libCoreADI.so', 'libstoreservicescore.so']) {
+        fixture.fileSystem
+            .file(fixture.path('flat/$name'))
+            .writeAsBytesSync(elfFixture(183));
+      }
+      expect(
+        resolver.resolve(fixture.path('flat'), abi: Abi.linuxArm64)?.path,
+        '${fixture.backingRoot}/flat',
+      );
+      fixture.fileSystem
+          .file(fixture.path('flat/libCoreADI.so'))
+          .writeAsBytesSync(elfFixture(62));
+      expect(
+        () => resolver.resolve(fixture.path('flat'), abi: Abi.linuxArm64),
+        throwsFormatException,
+      );
+    },
+  );
+
   late Directory cache;
   setUp(() => cache = Directory.systemTemp.createTempSync('adi-fetch-test-'));
   tearDown(() => cache.deleteSync(recursive: true));
@@ -70,7 +138,8 @@ void main() {
         return http.Response.bytes(bytes, 200);
       });
       final fetcher = AdiLibraryFetcher(
-        cacheDir: cache,
+        hostServices: testHostServices,
+        cacheDir: cache.path,
         abi: Abi.linuxArm64,
         createClient: () {
           creates++;
@@ -98,7 +167,8 @@ void main() {
         closeError: closeThrows ? StateError('close failed') : null,
       );
       final fetcher = AdiLibraryFetcher(
-        cacheDir: cache,
+        hostServices: testHostServices,
+        cacheDir: cache.path,
         abi: Abi.linuxArm64,
         createClient: () => client,
       );
@@ -119,7 +189,8 @@ void main() {
         closeError: closeThrows ? StateError('close failed') : null,
       );
       final fetcher = AdiLibraryFetcher(
-        cacheDir: cache,
+        hostServices: testHostServices,
+        cacheDir: cache.path,
         abi: Abi.linuxArm64,
         createClient: () => client,
       );
@@ -143,7 +214,8 @@ void main() {
         return http.Response.bytes(apkBytes(), 200);
       }, closeError: closeThrows ? StateError('close failed') : null);
       final fetcher = AdiLibraryFetcher(
-        cacheDir: cache,
+        hostServices: testHostServices,
+        cacheDir: cache.path,
         abi: Abi.linuxArm64,
         createClient: () => client,
       );
@@ -162,7 +234,8 @@ void main() {
       closeError: failure,
     );
     final fetcher = AdiLibraryFetcher(
-      cacheDir: cache,
+      hostServices: testHostServices,
+      cacheDir: cache.path,
       abi: Abi.linuxArm64,
       createClient: () => client,
     );
@@ -170,7 +243,8 @@ void main() {
     expect(client.closeCount, 1);
     expect(File('${cache.path}/applemusic.apk').existsSync(), isTrue);
     final retry = AdiLibraryFetcher(
-      cacheDir: cache,
+      hostServices: testHostServices,
+      cacheDir: cache.path,
       abi: Abi.linuxArm64,
       createClient: unexpectedClient,
     );
@@ -180,7 +254,8 @@ void main() {
   test('propagates factory failure without creating APK', () async {
     final failure = StateError('factory failed');
     final fetcher = AdiLibraryFetcher(
-      cacheDir: cache,
+      hostServices: testHostServices,
+      cacheDir: cache.path,
       abi: Abi.linuxArm64,
       createClient: () => throw failure,
     );
@@ -193,7 +268,8 @@ void main() {
       (_) async => http.Response.bytes(apkBytes(wrongArm: true), 200),
     );
     final fetcher = AdiLibraryFetcher(
-      cacheDir: cache,
+      hostServices: testHostServices,
+      cacheDir: cache.path,
       abi: Abi.linuxArm64,
       createClient: () => client,
     );
@@ -221,7 +297,8 @@ void main() {
       expect(AdiLibraryFetcher.supportsAbi(abi), isFalse);
       expect(
         () => AdiLibraryFetcher(
-          cacheDir: cache,
+          hostServices: testHostServices,
+          cacheDir: cache.path,
           abi: abi,
           createClient: unexpectedClient,
         ),
@@ -233,12 +310,14 @@ void main() {
   test('extracts both host slices into independent caches', () async {
     writeApk();
     final arm = AdiLibraryFetcher(
-      cacheDir: cache,
+      hostServices: testHostServices,
+      cacheDir: cache.path,
       abi: Abi.linuxArm64,
       createClient: unexpectedClient,
     );
     final x64 = AdiLibraryFetcher(
-      cacheDir: cache,
+      hostServices: testHostServices,
+      cacheDir: cache.path,
       abi: Abi.linuxX64,
       createClient: unexpectedClient,
     );
@@ -248,17 +327,15 @@ void main() {
     expect(x.coreAdiPath, contains('x86_64'));
     expect(a.apkSha256, x.apkSha256);
     expect(
-      AdiLibraryFetcher.resolveLibraryDirectory(
-        cache,
-        abi: Abi.macosArm64,
-      )?.path,
+      AdiLibraryResolver(
+        hostServices: testHostServices,
+      ).resolve(cache.path, abi: Abi.macosArm64)?.path,
       arm.libraryDirectory.path,
     );
     expect(
-      AdiLibraryFetcher.resolveLibraryDirectory(
-        cache,
-        abi: Abi.windowsX64,
-      )?.path,
+      AdiLibraryResolver(
+        hostServices: testHostServices,
+      ).resolve(cache.path, abi: Abi.windowsX64)?.path,
       x64.libraryDirectory.path,
     );
     final cached = await arm.ensureLibraries();
@@ -270,7 +347,8 @@ void main() {
   test('never falls back to wrong APK architecture', () async {
     writeApk(arm64: false);
     final fetcher = AdiLibraryFetcher(
-      cacheDir: cache,
+      hostServices: testHostServices,
+      cacheDir: cache.path,
       abi: Abi.linuxArm64,
       createClient: unexpectedClient,
     );
@@ -281,7 +359,8 @@ void main() {
   test('validates actual machine before writing a slice', () async {
     writeApk(wrongArm: true);
     final fetcher = AdiLibraryFetcher(
-      cacheDir: cache,
+      hostServices: testHostServices,
+      cacheDir: cache.path,
       abi: Abi.linuxArm64,
       createClient: unexpectedClient,
     );
@@ -294,17 +373,17 @@ void main() {
     () async {
       writeApk();
       final fetcher = AdiLibraryFetcher(
-        cacheDir: cache,
+        hostServices: testHostServices,
+        cacheDir: cache.path,
         abi: Abi.linuxArm64,
         createClient: unexpectedClient,
       );
       await fetcher.ensureLibraries();
       fetcher.coreAdiFile.writeAsBytesSync(elfFixture(62));
       expect(
-        () => AdiLibraryFetcher.resolveLibraryDirectory(
-          cache,
-          abi: Abi.linuxArm64,
-        ),
+        () => AdiLibraryResolver(
+          hostServices: testHostServices,
+        ).resolve(cache.path, abi: Abi.linuxArm64),
         throwsFormatException,
       );
       expect(fetcher.coreAdiFile.readAsBytesSync(), elfFixture(62));
@@ -314,10 +393,9 @@ void main() {
         File('${cache.path}/$name').writeAsBytesSync(elfFixture(183));
       }
       expect(
-        () => AdiLibraryFetcher.resolveLibraryDirectory(
-          cache,
-          abi: Abi.windowsX64,
-        ),
+        () => AdiLibraryResolver(
+          hostServices: testHostServices,
+        ).resolve(cache.path, abi: Abi.windowsX64),
         throwsFormatException,
       );
     },
@@ -325,17 +403,18 @@ void main() {
 
   test('accepts matching legacy flat library directories', () {
     expect(
-      AdiLibraryFetcher.resolveLibraryDirectory(cache, abi: Abi.linuxArm64),
+      AdiLibraryResolver(
+        hostServices: testHostServices,
+      ).resolve(cache.path, abi: Abi.linuxArm64),
       isNull,
     );
     for (final name in ['libCoreADI.so', 'libstoreservicescore.so']) {
       File('${cache.path}/$name').writeAsBytesSync(elfFixture(183));
     }
     expect(
-      AdiLibraryFetcher.resolveLibraryDirectory(
-        cache,
-        abi: Abi.linuxArm64,
-      )?.path,
+      AdiLibraryResolver(
+        hostServices: testHostServices,
+      ).resolve(cache.path, abi: Abi.linuxArm64)?.path,
       cache.path,
     );
   });
@@ -359,10 +438,9 @@ void main() {
         File('${cache.path}/$name').writeAsBytesSync(bytes);
       }
       expect(
-        () => AdiLibraryFetcher.resolveLibraryDirectory(
-          cache,
-          abi: Abi.linuxArm64,
-        ),
+        () => AdiLibraryResolver(
+          hostServices: testHostServices,
+        ).resolve(cache.path, abi: Abi.linuxArm64),
         throwsFormatException,
       );
     });

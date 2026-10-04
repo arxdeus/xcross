@@ -8,11 +8,11 @@ import 'dart:io';
 
 import 'package:apple_developer_kit/src/adi/adi_architecture.dart';
 import 'package:apple_developer_kit/src/adi/elf/elf_reader.dart';
+import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:meta/meta.dart';
-import 'package:path/path.dart' as p;
 
 /// Paths to the extracted ADI native libraries, in dependency-load order,
 /// plus the cached APK's recorded SHA-256.
@@ -46,54 +46,50 @@ const _libraryNames = ['libCoreADI.so', 'libstoreservicescore.so'];
 class AdiLibraryFetcher {
   AdiLibraryFetcher({
     required this.cacheDir,
+    required this.hostServices,
     required Abi abi,
     required http.Client Function() createClient,
   }) : _createClient = createClient,
        _architecture = AdiArchitecture.forAbi(abi);
 
+  final AppleHostServices hostServices;
   final http.Client Function() _createClient;
   final AdiArchitecture _architecture;
 
   Directory get libraryDirectory =>
-      Directory(p.join(cacheDir.path, _architecture.apkAbi));
+      hostServices.host.fileSystem.directory(_libraryPath);
 
   /// Directory the APK and extracted libraries are cached in.
-  final Directory cacheDir;
+  final String cacheDir;
+
+  String get _libraryPath =>
+      hostServices.host.paths.context.join(cacheDir, _architecture.apkAbi);
 
   static bool supportsAbi(Abi abi) => AdiArchitecture.tryForAbi(abi) != null;
 
-  static Directory? resolveLibraryDirectory(
-    Directory directory, {
-    required Abi abi,
-  }) {
-    final architecture = AdiArchitecture.forAbi(abi);
-    final scoped = Directory(p.join(directory.path, architecture.apkAbi));
-    final selected = scoped.existsSync() ? scoped : directory;
-    final files = [
-      for (final name in _libraryNames) File(p.join(selected.path, name)),
-    ];
-    if (files.any((file) => !file.existsSync())) return null;
-    for (final file in files) {
-      ElfReader(
-        file.readAsBytesSync(),
-      ).validate(machine: architecture.elfMachine);
-    }
-    return selected;
-  }
-
-  File get _apkFile => File(p.join(cacheDir.path, 'applemusic.apk'));
+  File get _apkFile => hostServices.host.fileSystem.file(
+    hostServices.host.paths.context.join(cacheDir, 'applemusic.apk'),
+  );
 
   /// SHA-256 of the downloaded APK is recorded next to it, so a future
   /// Apple Music version bump is at least *detectable* (not enforced
   /// yet — this just makes a silent upstream change visible).
-  File get _apkShaSidecar => File('${_apkFile.path}.sha256');
+  File get _apkShaSidecar => hostServices.host.fileSystem.file(
+    hostServices.host.paths.context.join(cacheDir, 'applemusic.apk.sha256'),
+  );
 
   /// Path the extracted `libCoreADI.so` is cached at.
-  File get coreAdiFile => File(p.join(libraryDirectory.path, 'libCoreADI.so'));
+  File get coreAdiFile => hostServices.host.fileSystem.file(
+    hostServices.host.paths.context.join(_libraryPath, 'libCoreADI.so'),
+  );
 
   /// Path the extracted `libstoreservicescore.so` is cached at.
-  File get storeServicesFile =>
-      File(p.join(libraryDirectory.path, 'libstoreservicescore.so'));
+  File get storeServicesFile => hostServices.host.fileSystem.file(
+    hostServices.host.paths.context.join(
+      _libraryPath,
+      'libstoreservicescore.so',
+    ),
+  );
 
   /// Ensures both native libraries are present in [cacheDir], downloading
   /// and extracting them first if needed.
@@ -109,7 +105,9 @@ class AdiLibraryFetcher {
       );
     }
 
-    await cacheDir.create(recursive: true);
+    await hostServices.host.fileSystem
+        .directory(cacheDir)
+        .create(recursive: true);
     await _downloadApkIfNeeded();
     final apkSha256 = _recordApkHash();
     _extractLibraries();
@@ -170,9 +168,9 @@ class AdiLibraryFetcher {
     }
     libraryDirectory.createSync(recursive: true);
     for (final entry in entries.entries) {
-      File(
-        p.join(libraryDirectory.path, entry.key),
-      ).writeAsBytesSync(entry.value);
+      hostServices.host.fileSystem
+          .file(hostServices.host.paths.context.join(_libraryPath, entry.key))
+          .writeAsBytesSync(entry.value);
     }
   }
 
@@ -191,5 +189,32 @@ class AdiLibraryFetcher {
         file.readAsBytesSync(),
       ).validate(machine: _architecture.elfMachine);
     }
+  }
+}
+
+final class AdiLibraryResolver {
+  AdiLibraryResolver({required this.hostServices});
+
+  final AppleHostServices hostServices;
+
+  Directory? resolve(String directory, {required Abi abi}) {
+    final architecture = AdiArchitecture.forAbi(abi);
+    final paths = hostServices.host.paths.context;
+    final fileSystem = hostServices.host.fileSystem;
+    final scopedPath = paths.join(directory, architecture.apkAbi);
+    final scoped = fileSystem.directory(scopedPath);
+    final selectedPath = scoped.existsSync() ? scopedPath : directory;
+    final selected = fileSystem.directory(selectedPath);
+    final files = [
+      for (final name in _libraryNames)
+        fileSystem.file(paths.join(selectedPath, name)),
+    ];
+    if (files.any((file) => !file.existsSync())) return null;
+    for (final file in files) {
+      ElfReader(
+        file.readAsBytesSync(),
+      ).validate(machine: architecture.elfMachine);
+    }
+    return selected;
   }
 }

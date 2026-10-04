@@ -3,10 +3,60 @@ import 'dart:io';
 
 import 'package:apple_developer_kit/src/appstoreconnect/asc_config.dart';
 import 'package:apple_developer_kit/src/appstoreconnect/asc_jwt.dart';
+import 'package:apple_developer_kit/src/errors.dart';
 import 'package:basic_utils/basic_utils.dart';
 import 'package:test/test.dart';
 
+import '../support/host_services.dart';
+import '../support/mapped_apple_fixture.dart';
+
 void main() {
+  test(
+    'mapped filesystem owns credential save, load and private key reads',
+    () async {
+      final fixture = MappedAppleFixture();
+      addTearDown(fixture.dispose);
+      final keyPath = fixture.path('AuthKey_TEST.p8');
+      final key = CryptoUtils.generateEcKeyPair();
+      final pem = CryptoUtils.encodeEcPrivateKeyToPem(
+        key.privateKey as ECPrivateKey,
+      );
+      fixture.fileSystem.file(keyPath).writeAsStringSync(pem);
+      final credentials = AscCredentials(
+        hostServices: fixture.services,
+        issuerId: 'issuer',
+        keyId: 'TEST',
+        privateKeyPath: keyPath,
+      );
+      await credentials.save();
+      final configPath = AscCredentials.defaultConfigPath(
+        hostServices: fixture.services,
+      );
+      expect(File(configPath).existsSync(), isFalse);
+      final loaded = await AscCredentialsLoader(
+        hostServices: fixture.services,
+      ).load();
+      expect(loaded.issuerId, 'issuer');
+      expect(await loaded.readPrivateKeyPem(), pem);
+      expect((await AscJwt.generate(loaded)).split('.'), hasLength(3));
+      expect(
+        fixture.permissions.hardened.last,
+        fixture.fileSystem.file(configPath).path,
+      );
+      fixture.fileSystem.file(configPath).writeAsStringSync('{broken');
+      await expectLater(
+        AscCredentialsLoader(hostServices: fixture.services).load(),
+        throwsA(isA<AppleError>()),
+      );
+      await expectLater(
+        AscCredentialsLoader(
+          hostServices: fixture.services,
+        ).load(path: fixture.path('missing')),
+        throwsA(isA<AppleError>()),
+      );
+    },
+  );
+
   group('AscJwt.generate', () {
     late Directory tmp;
     late AscCredentials credentials;
@@ -22,6 +72,7 @@ void main() {
       final keyFile = File('${tmp.path}/AuthKey_TESTKEY123.p8');
       await keyFile.writeAsString(pem);
       credentials = AscCredentials(
+        hostServices: testHostServices,
         issuerId: 'issuer-1234',
         keyId: 'TESTKEY123',
         privateKeyPath: keyFile.path,

@@ -10,7 +10,6 @@
 library;
 
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:apple_developer_kit/src/adi/adi_client.dart';
 import 'package:apple_developer_kit/src/adi/apk_fetch.dart';
@@ -195,11 +194,13 @@ final class AnisetteDataProvider implements AnisetteProvider {
     // ADI on Windows is happier with forward-slash provisioning paths
     // (bionic open() stubs translate them); the trailing slash matches
     // Provision's usage.
-    final path = provisioningPath.replaceAll(r'\', '/');
-    final directory = AdiLibraryFetcher.resolveLibraryDirectory(
-      Directory(adiLibraryDirectory),
-      abi: hostServices.abi,
-    );
+    final path = hostServices.host.fileSystem
+        .directory(provisioningPath)
+        .path
+        .replaceAll(r'\', '/');
+    final directory = AdiLibraryResolver(
+      hostServices: hostServices,
+    ).resolve(adiLibraryDirectory, abi: hostServices.abi);
     if (directory == null) {
       throw StateError('ADI libraries are missing from $adiLibraryDirectory.');
     }

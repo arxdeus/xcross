@@ -20,7 +20,8 @@ void main() {
       final apk = Platform.environment['ADI_TEST_APK'];
       if (apk != null) File(apk).copySync('${directory.path}/applemusic.apk');
       final fetcher = AdiLibraryFetcher(
-        cacheDir: directory,
+        hostServices: testHostServices,
+        cacheDir: directory.path,
         abi: testHostServices.abi,
         createClient: http.Client.new,
       );

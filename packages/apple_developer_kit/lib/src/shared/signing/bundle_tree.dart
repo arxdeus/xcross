@@ -6,7 +6,7 @@ import 'package:apple_developer_kit/src/signing/bundle_paths.dart';
 import 'package:apple_developer_kit/src/signing/bytes.dart';
 import 'package:apple_developer_kit/src/signing/internal/bundle_entry.dart';
 import 'package:apple_developer_kit/src/signing/plist.dart';
-import 'package:path/path.dart' as p;
+import 'package:cli_kit/cli_kit_shared.dart' show HostFileSystemInspection;
 
 /// Directory names that always imply nested code this signer cannot handle.
 ///
@@ -64,20 +64,29 @@ class BundleTree {
                 .listSync(followLinks: false)
                 .toList()
               ..sort(
-                (left, right) =>
-                    compareUtf8(p.basename(left.path), p.basename(right.path)),
+                (left, right) => compareUtf8(
+                  hostServices.host.paths.context.basename(left.path),
+                  hostServices.host.paths.context.basename(right.path),
+                ),
               );
       } on Object catch (error) {
         bundleFail(root, directory, 'could not list directory: $error');
       }
       for (final child in children) {
-        final type = FileSystemEntity.typeSync(child.path, followLinks: false);
+        final childPath = hostServices.host.paths.context.join(
+          directory,
+          hostServices.host.paths.context.basename(child.path),
+        );
+        final type = hostServices.host.fileSystem.typeSync(
+          childPath,
+          followLinks: false,
+        );
         result.add(
-          BundleEntry(child.path, bundleRelativePath(root, child.path), type),
+          BundleEntry(childPath, bundleRelativePath(root, childPath), type),
         );
         switch (type) {
           case FileSystemEntityType.link:
-            final resolved = _resolveLink(child.path, root);
+            final resolved = _resolveLink(childPath, root);
             if (!isWithinOrEqual(
               rootReal,
               resolved,
@@ -85,20 +94,20 @@ class BundleTree {
             )) {
               bundleFail(
                 root,
-                child.path,
+                childPath,
                 'symlink target escapes the app bundle',
               );
             }
           case FileSystemEntityType.directory:
-            visit(child.path);
+            visit(childPath);
           case FileSystemEntityType.file:
             try {
-              hostServices.host.fileSystem.file(child.path).readAsBytesSync();
+              hostServices.host.fileSystem.file(childPath).readAsBytesSync();
             } on Object catch (error) {
-              bundleFail(root, child.path, 'could not read file: $error');
+              bundleFail(root, childPath, 'could not read file: $error');
             }
           default:
-            bundleFail(root, child.path, 'unsupported filesystem entry');
+            bundleFail(root, childPath, 'unsupported filesystem entry');
         }
       }
     }
@@ -113,7 +122,7 @@ class BundleTree {
   void rejectUnsupportedTree(String root, List<BundleEntry> entries) {
     for (final entry in entries) {
       if (entry.type != FileSystemEntityType.directory) continue;
-      final name = p.basename(entry.path);
+      final name = hostServices.host.paths.context.basename(entry.path);
       if (_forbiddenDirectoryNames.contains(name)) {
         bundleFail(
           root,
@@ -149,7 +158,7 @@ class BundleTree {
 
   bool _declaresBundleExecutable(String directory) {
     final info = hostServices.host.fileSystem.file(
-      p.join(directory, 'Info.plist'),
+      hostServices.host.paths.context.join(directory, 'Info.plist'),
     );
     if (!info.existsSync()) return false;
     try {

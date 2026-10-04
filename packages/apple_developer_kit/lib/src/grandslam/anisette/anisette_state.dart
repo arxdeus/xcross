@@ -5,14 +5,13 @@
 library;
 
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math';
+
 import 'package:apple_developer_kit/src/config_dir.dart';
 import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
 import 'package:apple_developer_kit/src/secure/secure_file.dart';
 import 'package:meta/meta.dart';
-import 'package:path/path.dart' as p;
 
 /// Persisted Anisette provisioning state.
 @immutable
@@ -100,20 +99,26 @@ final class AnisetteStateStore {
 
   /// `<config-dir>/xcross/anisette-state.json` — see [xcrossConfigDir].
   @useResult
-  static String defaultPath({required AppleHostServices hostServices}) => p
-      .join(xcrossConfigDir(hostServices: hostServices), 'anisette-state.json');
+  static String defaultPath({required AppleHostServices hostServices}) =>
+      hostServices.host.paths.context.join(
+        xcrossConfigDir(hostServices: hostServices),
+        'anisette-state.json',
+      );
 
   /// Directory the ADI library provisions itself into, next to [path].
   ///
   /// Holds the machine attestation material ADI writes itself; it belongs to
   /// the same install identity as [path] and is only meaningful with it.
   @useResult
-  String get provisioningDirectory => p.join(p.dirname(path), 'adi');
+  String get provisioningDirectory => hostServices.host.paths.context.join(
+    hostServices.host.paths.context.dirname(path),
+    'adi',
+  );
 
   /// Loads the persisted state, creating and saving a fresh one (with a
   /// new [AnisetteState.localUserUid]) if none exists yet.
   Future<AnisetteState> load() async {
-    final file = File(path);
+    final file = hostServices.host.fileSystem.file(path);
     if (!file.existsSync()) {
       final fresh = AnisetteState(localUserUid: AnisetteState.generateUuidV4());
       await save(fresh);

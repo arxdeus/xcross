@@ -10,6 +10,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/adi/adi_client.dart';
+import 'package:apple_developer_kit/src/adi/loader/loader.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/anisette_data_provider.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/anisette_state.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/internal/adi_provisioning.dart';
@@ -20,7 +21,9 @@ import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
 
+import '../../adi/support/elf_fixture.dart';
 import '../../support/host_services.dart';
+import '../../support/mapped_apple_fixture.dart';
 
 const _lookupUrl = 'https://gsa.apple.com/grandslam/GsService2/lookup';
 const _midStartUrl = 'https://gsa.apple.com/gsa/midStartProvisioning';
@@ -134,6 +137,50 @@ class RefusingAdiProvisioning implements AdiProvisioning {
 }
 
 void main() {
+  test(
+    'mapped filesystem resolves default ADI boundary without native effects',
+    () async {
+      final fixture = MappedAppleFixture();
+      addTearDown(fixture.dispose);
+      final store = AnisetteStateStore(hostServices: fixture.services);
+      await store.save(
+        const AnisetteState(
+          localUserUid: '12345678-1234-4234-8234-123456789abc',
+          provisioned: true,
+          routingInfo: 123,
+        ),
+      );
+      final library = fixture.path('libraries/arm64-v8a');
+      fixture.fileSystem.directory(library).createSync(recursive: true);
+      for (final name in ['libCoreADI.so', 'libstoreservicescore.so']) {
+        fixture.fileSystem
+            .file('$library/$name')
+            .writeAsBytesSync(elfFixture(183));
+      }
+      final loader = RejectingBoundaryLoader();
+      final provider = AnisetteDataProvider(
+        fixture.path('libraries'),
+        hostServices: fixture.services,
+        loader: loader,
+        httpClient: MockClient(
+          (_) async => throw StateError('Unexpected network'),
+        ),
+        stateStore: store,
+      );
+      addTearDown(provider.close);
+      await expectLater(provider.fetchAnisetteHeaders(), throwsStateError);
+      expect(
+        loader.paths.single,
+        '${fixture.backingRoot}/libraries/arm64-v8a/libstoreservicescore.so',
+      );
+      expect(
+        fixture.fileSystem.acquisitions,
+        contains(store.provisioningDirectory),
+      );
+      expect(Directory(store.provisioningDirectory).existsSync(), isFalse);
+    },
+  );
+
   late Directory tempDir;
   late String statePath;
 
@@ -375,4 +422,13 @@ void main() {
       );
     },
   );
+}
+
+final class RejectingBoundaryLoader implements NativeLibraryLoader {
+  final List<String> paths = [];
+  @override
+  LoadedNativeLibrary load(String path) {
+    paths.add(path);
+    throw StateError('Native boundary blocked');
+  }
 }

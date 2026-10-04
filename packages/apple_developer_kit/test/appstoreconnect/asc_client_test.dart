@@ -9,6 +9,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:test/test.dart';
 
+import '../support/host_services.dart';
+
 void main() {
   late Directory tmp;
   late AscCredentials credentials;
@@ -23,6 +25,7 @@ void main() {
       CryptoUtils.encodeEcPrivateKeyToPem(keyPair.privateKey as ECPrivateKey),
     );
     credentials = AscCredentials(
+      hostServices: testHostServices,
       issuerId: 'issuer-1234',
       keyId: 'TESTKEY123',
       privateKeyPath: keyFile.path,

@@ -3,7 +3,7 @@
 library;
 
 import 'dart:convert';
-import 'dart:io';
+
 import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/anisette_state.dart';
 import 'package:apple_developer_kit/src/grandslam/app_token_exchange.dart';
@@ -110,8 +110,10 @@ final class GrandSlamSessionStore {
 
   @useResult
   static String defaultPath({required AppleHostServices hostServices}) =>
-      p.join(
-        p.dirname(AnisetteStateStore.defaultPath(hostServices: hostServices)),
+      hostServices.host.paths.context.join(
+        hostServices.host.paths.context.dirname(
+          AnisetteStateStore.defaultPath(hostServices: hostServices),
+        ),
         'grandslam-session.json',
       );
 
@@ -121,7 +123,7 @@ final class GrandSlamSessionStore {
   /// plaintext once and immediately rewritten sealed, so the cleartext
   /// token stops existing on disk without forcing a re-login.
   Future<GrandSlamSession?> load() async {
-    final file = File(path);
+    final file = hostServices.host.fileSystem.file(path);
     if (!file.existsSync()) return null;
 
     final contents = await file.readAsString();
@@ -152,7 +154,7 @@ final class GrandSlamSessionStore {
   }
 
   Future<void> clear() async {
-    final file = File(path);
+    final file = hostServices.host.fileSystem.file(path);
     if (file.existsSync()) await file.delete();
   }
 }

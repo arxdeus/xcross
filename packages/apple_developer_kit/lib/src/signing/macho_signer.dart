@@ -62,7 +62,7 @@ class MachOSigner {
     try {
       await temporary.writeAsBytes(signed, flush: true);
       hostServices.permissions.preserve(temporary.path, mode);
-      await temporary.rename(path);
+      await temporary.rename(hostServices.host.fileSystem.file(path).path);
     } on Object catch (error) {
       if (temporary.existsSync()) temporary.deleteSync();
       throw AppleError('Could not atomically replace "$path": $error');

@@ -3,13 +3,41 @@
 // network/native-ADI involved - this is pure persisted-state logic.
 import 'dart:io';
 
+import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/grandslam/anisette/anisette_state.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../../support/host_services.dart';
+import '../../support/mapped_apple_fixture.dart';
 
 void main() {
+  test(
+    'mapped filesystem preserves pseudo identity and unsigned routing info',
+    () async {
+      final fixture = MappedAppleFixture();
+      addTearDown(fixture.dispose);
+      final store = AnisetteStateStore(hostServices: fixture.services);
+      final fresh = await store.load();
+      final state = fresh.copyWith(
+        provisioned: true,
+        routingInfo: int.parse('9007199254740993'),
+      );
+      await store.save(state);
+      final loaded = await AnisetteStateStore(
+        hostServices: fixture.services,
+      ).load();
+      expect(loaded.localUserUid, fresh.localUserUid);
+      expect(loaded.provisioned, isTrue);
+      expect(loaded.routingInfo, int.parse('9007199254740993'));
+      expect(store.provisioningDirectory, fixture.path('config/xcross/adi'));
+      expect(File(store.path).existsSync(), isFalse);
+      expect(fixture.permissions.hardened, hasLength(2));
+      fixture.fileSystem.file(store.path).writeAsStringSync('{broken');
+      await expectLater(store.load(), throwsA(isA<AppleError>()));
+    },
+  );
+
   late Directory tempDir;
   late String statePath;
 

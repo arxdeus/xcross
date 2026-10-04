@@ -22,7 +22,8 @@ void main() {
       );
       addTearDown(() => directory.deleteSync(recursive: true));
       final fetcher = AdiLibraryFetcher(
-        cacheDir: directory,
+        hostServices: testHostServices,
+        cacheDir: directory.path,
         abi: testHostServices.abi,
         createClient: http.Client.new,
       );

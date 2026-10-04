@@ -9,6 +9,9 @@ import 'package:crypto/crypto.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
 
+import '../support/host_services.dart';
+import '../support/mapped_apple_fixture.dart';
+
 void main() {
   final now = DateTime.utc(2030, 1, 2, 3, 4, 5);
   late Directory temporaryDirectory;
@@ -37,6 +40,46 @@ void main() {
   });
 
   tearDownAll(() => temporaryDirectory.delete(recursive: true));
+  test(
+    'mapped filesystem validates crypto material and retains read diagnostics',
+    () async {
+      final fixture = MappedAppleFixture();
+      addTearDown(fixture.dispose);
+      final paths = await _writeFixture(
+        Directory(fixture.backingRoot),
+        'mapped',
+        privateKeyPem: privateKeyPem,
+        certificatePem: certificatePem,
+        developerCertificates: [certificateDer],
+      );
+      final loader = SigningAssetLoader(hostServices: fixture.services);
+      final asset = await loader.load(
+        privateKeyPemPath: fixture.logicalPath(paths.key),
+        certificatePemPath: fixture.logicalPath(paths.certificate),
+        provisioningProfilePath: fixture.logicalPath(paths.profile),
+        now: now,
+        trustedRootCertificates: [certificateDer],
+      );
+      expect(asset.privateKey.modulus, privateKey.modulus);
+      expect(asset.leafCertificateDer, certificateDer);
+      expect(asset.teamIdentifier, 'TESTTEAM123');
+      expect(File(fixture.logicalPath(paths.key)).existsSync(), isFalse);
+      await expectLater(
+        loader.load(
+          privateKeyPemPath: fixture.path('missing'),
+          certificatePemPath: fixture.logicalPath(paths.certificate),
+          provisioningProfilePath: fixture.logicalPath(paths.profile),
+        ),
+        throwsA(
+          isA<AppleError>().having(
+            (error) => error.message,
+            'message',
+            contains('Could not read private key'),
+          ),
+        ),
+      );
+    },
+  );
 
   test('loads XML profile signing assets', () async {
     final paths = await _writeFixture(
@@ -47,7 +90,7 @@ void main() {
       developerCertificates: [certificateDer],
     );
 
-    final asset = await SigningAsset.load(
+    final asset = await SigningAssetLoader(hostServices: testHostServices).load(
       privateKeyPemPath: paths.key,
       certificatePemPath: paths.certificate,
       provisioningProfilePath: paths.profile,
@@ -89,19 +132,20 @@ void main() {
         },
       );
 
-      final asset = await SigningAsset.load(
-        privateKeyPemPath: paths.key,
-        certificatePemPath: paths.certificate,
-        provisioningProfilePath: paths.profile,
-        declaredEntitlements: const {
-          'com.apple.developer.associated-domains': [
-            'webcredentials:example.com',
-          ],
-          'com.apple.developer.applesignin': ['Default'],
-        },
-        now: now,
-        trustedRootCertificates: [certificateDer],
-      );
+      final asset = await SigningAssetLoader(hostServices: testHostServices)
+          .load(
+            privateKeyPemPath: paths.key,
+            certificatePemPath: paths.certificate,
+            provisioningProfilePath: paths.profile,
+            declaredEntitlements: const {
+              'com.apple.developer.associated-domains': [
+                'webcredentials:example.com',
+              ],
+              'com.apple.developer.applesignin': ['Default'],
+            },
+            now: now,
+            trustedRootCertificates: [certificateDer],
+          );
 
       expect(asset.entitlements['com.apple.developer.associated-domains'], [
         'webcredentials:example.com',
@@ -125,14 +169,15 @@ void main() {
         extraEntitlements: const {'aps-environment': 'development'},
       );
 
-      final asset = await SigningAsset.load(
-        privateKeyPemPath: paths.key,
-        certificatePemPath: paths.certificate,
-        provisioningProfilePath: paths.profile,
-        declaredEntitlements: const {'aps-environment': 'production'},
-        now: now,
-        trustedRootCertificates: [certificateDer],
-      );
+      final asset = await SigningAssetLoader(hostServices: testHostServices)
+          .load(
+            privateKeyPemPath: paths.key,
+            certificatePemPath: paths.certificate,
+            provisioningProfilePath: paths.profile,
+            declaredEntitlements: const {'aps-environment': 'production'},
+            now: now,
+            trustedRootCertificates: [certificateDer],
+          );
 
       expect(asset.entitlements['aps-environment'], 'development');
     });
@@ -151,16 +196,19 @@ void main() {
         appGroups: const ['group.XCR-ABC.dev.xcross.shared'],
       );
 
-      final asset = await SigningAsset.load(
-        privateKeyPemPath: paths.key,
-        certificatePemPath: paths.certificate,
-        provisioningProfilePath: paths.profile,
-        declaredEntitlements: const {
-          'com.apple.security.application-groups': ['group.dev.xcross.shared'],
-        },
-        now: now,
-        trustedRootCertificates: [certificateDer],
-      );
+      final asset = await SigningAssetLoader(hostServices: testHostServices)
+          .load(
+            privateKeyPemPath: paths.key,
+            certificatePemPath: paths.certificate,
+            provisioningProfilePath: paths.profile,
+            declaredEntitlements: const {
+              'com.apple.security.application-groups': [
+                'group.dev.xcross.shared',
+              ],
+            },
+            now: now,
+            trustedRootCertificates: [certificateDer],
+          );
 
       expect(asset.grantedAppGroups, ['group.XCR-ABC.dev.xcross.shared']);
     });
@@ -176,17 +224,18 @@ void main() {
         developerCertificates: [certificateDer],
       );
 
-      final asset = await SigningAsset.load(
-        privateKeyPemPath: paths.key,
-        certificatePemPath: paths.certificate,
-        provisioningProfilePath: paths.profile,
-        declaredEntitlements: const {
-          'com.apple.developer.healthkit': true,
-          'application-identifier': 'EVIL.dev.xcross.test',
-        },
-        now: now,
-        trustedRootCertificates: [certificateDer],
-      );
+      final asset = await SigningAssetLoader(hostServices: testHostServices)
+          .load(
+            privateKeyPemPath: paths.key,
+            certificatePemPath: paths.certificate,
+            provisioningProfilePath: paths.profile,
+            declaredEntitlements: const {
+              'com.apple.developer.healthkit': true,
+              'application-identifier': 'EVIL.dev.xcross.test',
+            },
+            now: now,
+            trustedRootCertificates: [certificateDer],
+          );
 
       expect(
         asset.entitlements.containsKey('com.apple.developer.healthkit'),
@@ -215,13 +264,14 @@ void main() {
         appGroups: const ['group.dev.xcross.shared'],
       );
 
-      final asset = await SigningAsset.load(
-        privateKeyPemPath: paths.key,
-        certificatePemPath: paths.certificate,
-        provisioningProfilePath: paths.profile,
-        now: now,
-        trustedRootCertificates: [certificateDer],
-      );
+      final asset = await SigningAssetLoader(hostServices: testHostServices)
+          .load(
+            privateKeyPemPath: paths.key,
+            certificatePemPath: paths.certificate,
+            provisioningProfilePath: paths.profile,
+            now: now,
+            trustedRootCertificates: [certificateDer],
+          );
 
       expect(asset.grantedAppGroups, ['group.dev.xcross.shared']);
     });
@@ -236,13 +286,14 @@ void main() {
         appGroups: const [],
       );
 
-      final asset = await SigningAsset.load(
-        privateKeyPemPath: paths.key,
-        certificatePemPath: paths.certificate,
-        provisioningProfilePath: paths.profile,
-        now: now,
-        trustedRootCertificates: [certificateDer],
-      );
+      final asset = await SigningAssetLoader(hostServices: testHostServices)
+          .load(
+            privateKeyPemPath: paths.key,
+            certificatePemPath: paths.certificate,
+            provisioningProfilePath: paths.profile,
+            now: now,
+            trustedRootCertificates: [certificateDer],
+          );
 
       expect(asset.grantedAppGroups, isEmpty);
     });
@@ -256,13 +307,14 @@ void main() {
         developerCertificates: [certificateDer],
       );
 
-      final asset = await SigningAsset.load(
-        privateKeyPemPath: paths.key,
-        certificatePemPath: paths.certificate,
-        provisioningProfilePath: paths.profile,
-        now: now,
-        trustedRootCertificates: [certificateDer],
-      );
+      final asset = await SigningAssetLoader(hostServices: testHostServices)
+          .load(
+            privateKeyPemPath: paths.key,
+            certificatePemPath: paths.certificate,
+            provisioningProfilePath: paths.profile,
+            now: now,
+            trustedRootCertificates: [certificateDer],
+          );
 
       expect(asset.grantedAppGroups, isEmpty);
     });
@@ -278,7 +330,7 @@ void main() {
       binaryPlist: true,
     );
 
-    final asset = await SigningAsset.load(
+    final asset = await SigningAssetLoader(hostServices: testHostServices).load(
       privateKeyPemPath: paths.key,
       certificatePemPath: paths.certificate,
       provisioningProfilePath: paths.profile,
@@ -301,13 +353,14 @@ void main() {
         developerCertificates: [certificateDer],
         embeddedCertificates: [certificateDer, otherCertificateDer],
       );
-      final asset = await SigningAsset.load(
-        privateKeyPemPath: paths.key,
-        certificatePemPath: paths.certificate,
-        provisioningProfilePath: paths.profile,
-        now: now,
-        trustedRootCertificates: [certificateDer],
-      );
+      final asset = await SigningAssetLoader(hostServices: testHostServices)
+          .load(
+            privateKeyPemPath: paths.key,
+            certificatePemPath: paths.certificate,
+            provisioningProfilePath: paths.profile,
+            now: now,
+            trustedRootCertificates: [certificateDer],
+          );
       final codeDirectory = Uint8List.fromList(
         utf8.encode('deterministic CodeDirectory bytes'),
       );
@@ -426,7 +479,7 @@ void main() {
       ],
     );
 
-    final asset = await SigningAsset.load(
+    final asset = await SigningAssetLoader(hostServices: testHostServices).load(
       privateKeyPemPath: paths.key,
       certificatePemPath: paths.certificate,
       provisioningProfilePath: paths.profile,
@@ -477,7 +530,7 @@ void main() {
     );
 
     await expectLater(
-      SigningAsset.load(
+      SigningAssetLoader(hostServices: testHostServices).load(
         privateKeyPemPath: paths.key,
         certificatePemPath: paths.certificate,
         provisioningProfilePath: paths.profile,
@@ -509,7 +562,7 @@ void main() {
     );
 
     await expectLater(
-      SigningAsset.load(
+      SigningAssetLoader(hostServices: testHostServices).load(
         privateKeyPemPath: paths.key,
         certificatePemPath: paths.certificate,
         provisioningProfilePath: paths.profile,
@@ -535,7 +588,7 @@ void main() {
     );
 
     await expectLater(
-      SigningAsset.load(
+      SigningAssetLoader(hostServices: testHostServices).load(
         privateKeyPemPath: paths.key,
         certificatePemPath: paths.certificate,
         provisioningProfilePath: paths.profile,
@@ -565,7 +618,7 @@ void main() {
     );
 
     await expectLater(
-      SigningAsset.load(
+      SigningAssetLoader(hostServices: testHostServices).load(
         privateKeyPemPath: paths.key,
         certificatePemPath: paths.certificate,
         provisioningProfilePath: paths.profile,
@@ -597,13 +650,14 @@ void main() {
         expirationDate: DateTime.utc(2040),
       );
 
-      final asset = await SigningAsset.load(
-        privateKeyPemPath: paths.key,
-        certificatePemPath: paths.certificate,
-        provisioningProfilePath: paths.profile,
-        now: now,
-        trustedRootCertificates: [certificateDer],
-      );
+      final asset = await SigningAssetLoader(hostServices: testHostServices)
+          .load(
+            privateKeyPemPath: paths.key,
+            certificatePemPath: paths.certificate,
+            provisioningProfilePath: paths.profile,
+            now: now,
+            trustedRootCertificates: [certificateDer],
+          );
       expect(asset.teamIdentifier, isNotEmpty);
     },
   );
@@ -620,7 +674,7 @@ void main() {
     );
 
     await expectLater(
-      SigningAsset.load(
+      SigningAssetLoader(hostServices: testHostServices).load(
         privateKeyPemPath: paths.key,
         certificatePemPath: paths.certificate,
         provisioningProfilePath: paths.profile,
@@ -646,7 +700,7 @@ void main() {
     );
 
     await expectLater(
-      SigningAsset.load(
+      SigningAssetLoader(hostServices: testHostServices).load(
         privateKeyPemPath: paths.key,
         certificatePemPath: paths.certificate,
         provisioningProfilePath: paths.profile,
@@ -675,7 +729,7 @@ void main() {
     );
 
     await expectLater(
-      SigningAsset.load(
+      SigningAssetLoader(hostServices: testHostServices).load(
         privateKeyPemPath: paths.key,
         certificatePemPath: paths.certificate,
         provisioningProfilePath: paths.profile,

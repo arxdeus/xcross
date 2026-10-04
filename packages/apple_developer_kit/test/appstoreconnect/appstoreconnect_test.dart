@@ -9,8 +9,49 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../support/host_services.dart';
+import '../support/mapped_apple_fixture.dart';
 
 void main() {
+  test(
+    'mapped filesystem persists and reuses signing identity and profiles',
+    () async {
+      final fixture = MappedAppleFixture();
+      addTearDown(fixture.dispose);
+      final client = FakeProvisioningClient();
+      final provisioning = AscProvisioning(
+        hostServices: fixture.services,
+        client: client,
+      );
+      final identityDir = fixture.path('identity');
+      for (final bundle in ['com.example.one', 'com.example.two']) {
+        final result = await provisioning.provisionDevelopmentIdentity(
+          bundleId: bundle,
+          deviceUdids: ['UDID'],
+          outputDir: fixture.path('profiles/$bundle'),
+          identityDir: identityDir,
+        );
+        expect(result.certificatePemPath, '$identityDir/cert.pem');
+        expect(
+          fixture.fileSystem.file(result.certificatePemPath).readAsStringSync(),
+          contains('BEGIN CERTIFICATE'),
+        );
+        expect(
+          fixture.fileSystem.file(result.privateKeyPemPath).readAsStringSync(),
+          contains('PRIVATE KEY'),
+        );
+        expect(fixture.fileSystem.file(result.profilePath).readAsBytesSync(), [
+          4,
+          5,
+          6,
+        ]);
+        expect(File(result.profilePath).existsSync(), isFalse);
+      }
+      expect(client.certificateCreations, 1);
+      expect(fixture.permissions.hardened, isNotEmpty);
+      expect(Directory(identityDir).existsSync(), isFalse);
+    },
+  );
+
   group('wrapDerAsPem', () {
     test('wraps base64 DER content into a line-wrapped PEM block', () {
       final der = base64.encode(List<int>.generate(200, (i) => i % 256));
@@ -48,14 +89,16 @@ void main() {
       final identityDir = p.join(temp.path, 'identity');
 
       for (final bundleId in ['com.example.one', 'com.example.two']) {
-        final result = await AscProvisioning.provisionDevelopmentIdentity(
-          client: client,
-          bundleId: bundleId,
-          deviceUdids: const ['UDID'],
-          outputDir: p.join(temp.path, 'profiles', bundleId),
-          identityDir: identityDir,
-          hostServices: testHostServices,
-        );
+        final result =
+            await AscProvisioning(
+              hostServices: testHostServices,
+              client: client,
+            ).provisionDevelopmentIdentity(
+              bundleId: bundleId,
+              deviceUdids: const ['UDID'],
+              outputDir: p.join(temp.path, 'profiles', bundleId),
+              identityDir: identityDir,
+            );
         expect(File(result.certificatePemPath).parent.path, identityDir);
         expect(
           File(result.profilePath).parent.path,
@@ -72,12 +115,13 @@ void main() {
     addTearDown(() => temp.deleteSync(recursive: true));
     final client = FakeProvisioningClient(bundleExists: false);
 
-    await AscProvisioning.provisionDevelopmentIdentity(
+    await AscProvisioning(
+      hostServices: testHostServices,
       client: client,
+    ).provisionDevelopmentIdentity(
       bundleId: 'com.example.my-app',
       deviceUdids: const ['UDID'],
       outputDir: temp.path,
-      hostServices: testHostServices,
     );
 
     expect(client.registeredBundleName, 'xcross com example my app');
@@ -89,13 +133,14 @@ void main() {
     addTearDown(() => temp.deleteSync(recursive: true));
     final client = FakeProvisioningClient();
 
-    await AscProvisioning.provisionDevelopmentIdentity(
+    await AscProvisioning(
+      hostServices: testHostServices,
       client: client,
+    ).provisionDevelopmentIdentity(
       bundleId: 'com.example.app',
       deviceUdids: const ['UDID'],
       outputDir: temp.path,
       appGroups: const ['group.com.example.Shared'],
-      hostServices: testHostServices,
     );
 
     expect(client.registeredAppGroups, ['group.com.example.Shared']);
@@ -115,13 +160,14 @@ void main() {
       name: 'xcross group com example Shared',
     );
 
-    await AscProvisioning.provisionDevelopmentIdentity(
+    await AscProvisioning(
+      hostServices: testHostServices,
       client: client,
+    ).provisionDevelopmentIdentity(
       bundleId: 'com.example.app',
       deviceUdids: const ['UDID'],
       outputDir: temp.path,
       appGroups: const ['group.com.example.Shared'],
-      hostServices: testHostServices,
     );
 
     expect(client.registeredAppGroups, isEmpty);
@@ -133,12 +179,13 @@ void main() {
     addTearDown(() => temp.deleteSync(recursive: true));
     final client = FakeProvisioningClient();
 
-    await AscProvisioning.provisionDevelopmentIdentity(
+    await AscProvisioning(
+      hostServices: testHostServices,
       client: client,
+    ).provisionDevelopmentIdentity(
       bundleId: 'com.example.app',
       deviceUdids: const ['UDID'],
       outputDir: temp.path,
-      hostServices: testHostServices,
     );
 
     expect(client.registeredAppGroups, isEmpty);
@@ -154,15 +201,17 @@ void main() {
 
     // Enabling the capability can fail for reasons outside our control; that
     // must degrade to a warning, not sink an otherwise working install.
-    final result = await AscProvisioning.provisionDevelopmentIdentity(
-      client: client,
-      bundleId: 'com.example.app',
-      deviceUdids: const ['UDID'],
-      outputDir: temp.path,
-      appGroups: const ['group.com.example.Shared'],
-      onProgress: warnings.add,
-      hostServices: testHostServices,
-    );
+    final result =
+        await AscProvisioning(
+          hostServices: testHostServices,
+          client: client,
+        ).provisionDevelopmentIdentity(
+          bundleId: 'com.example.app',
+          deviceUdids: const ['UDID'],
+          outputDir: temp.path,
+          appGroups: const ['group.com.example.Shared'],
+          onProgress: warnings.add,
+        );
 
     expect(File(result.profilePath).existsSync(), isTrue);
     expect(warnings, anyElement(contains('App Groups')));
@@ -182,15 +231,17 @@ void main() {
       );
     final warnings = <String>[];
 
-    final result = await AscProvisioning.provisionDevelopmentIdentity(
-      client: client,
-      bundleId: 'com.example.app',
-      deviceUdids: const ['UDID'],
-      outputDir: temp.path,
-      appGroups: const ['group.com.example.Shared'],
-      onProgress: warnings.add,
-      hostServices: testHostServices,
-    );
+    final result =
+        await AscProvisioning(
+          hostServices: testHostServices,
+          client: client,
+        ).provisionDevelopmentIdentity(
+          bundleId: 'com.example.app',
+          deviceUdids: const ['UDID'],
+          outputDir: temp.path,
+          appGroups: const ['group.com.example.Shared'],
+          onProgress: warnings.add,
+        );
 
     expect(File(result.profilePath).existsSync(), isTrue);
     expect(warnings, anyElement(contains('Apple rejected these credentials')));
@@ -208,15 +259,17 @@ void main() {
       ..findAppGroupFailure = const AppGroupsUnsupported();
     final warnings = <String>[];
 
-    final result = await AscProvisioning.provisionDevelopmentIdentity(
-      client: client,
-      bundleId: 'com.example.app',
-      deviceUdids: const ['UDID'],
-      outputDir: temp.path,
-      appGroups: const ['group.com.example.Shared'],
-      onProgress: warnings.add,
-      hostServices: testHostServices,
-    );
+    final result =
+        await AscProvisioning(
+          hostServices: testHostServices,
+          client: client,
+        ).provisionDevelopmentIdentity(
+          bundleId: 'com.example.app',
+          deviceUdids: const ['UDID'],
+          outputDir: temp.path,
+          appGroups: const ['group.com.example.Shared'],
+          onProgress: warnings.add,
+        );
 
     expect(File(result.profilePath).existsSync(), isTrue);
     expect(warnings, isEmpty);
@@ -234,15 +287,17 @@ void main() {
       );
     final warnings = <String>[];
 
-    final result = await AscProvisioning.provisionDevelopmentIdentity(
-      client: client,
-      bundleId: 'com.example.app',
-      deviceUdids: const ['UDID'],
-      outputDir: temp.path,
-      appGroups: const ['group.com.example.Shared'],
-      onProgress: warnings.add,
-      hostServices: testHostServices,
-    );
+    final result =
+        await AscProvisioning(
+          hostServices: testHostServices,
+          client: client,
+        ).provisionDevelopmentIdentity(
+          bundleId: 'com.example.app',
+          deviceUdids: const ['UDID'],
+          outputDir: temp.path,
+          appGroups: const ['group.com.example.Shared'],
+          onProgress: warnings.add,
+        );
 
     expect(File(result.profilePath).existsSync(), isTrue);
     expect(warnings, anyElement(contains('App Groups')));
@@ -255,15 +310,17 @@ void main() {
       ..registerAppGroupFailure = Exception('boom');
     final warnings = <String>[];
 
-    final result = await AscProvisioning.provisionDevelopmentIdentity(
-      client: client,
-      bundleId: 'com.example.app',
-      deviceUdids: const ['UDID'],
-      outputDir: temp.path,
-      appGroups: const ['group.com.example.Shared'],
-      onProgress: warnings.add,
-      hostServices: testHostServices,
-    );
+    final result =
+        await AscProvisioning(
+          hostServices: testHostServices,
+          client: client,
+        ).provisionDevelopmentIdentity(
+          bundleId: 'com.example.app',
+          deviceUdids: const ['UDID'],
+          outputDir: temp.path,
+          appGroups: const ['group.com.example.Shared'],
+          onProgress: warnings.add,
+        );
 
     expect(File(result.profilePath).existsSync(), isTrue);
     expect(warnings, anyElement(contains('App Groups')));
@@ -274,13 +331,15 @@ void main() {
     addTearDown(() => temp.deleteSync(recursive: true));
     final client = FakeProvisioningClient(quotaUsedBy: const ['old-cert']);
 
-    final result = await AscProvisioning.provisionDevelopmentIdentity(
-      client: client,
-      bundleId: 'com.example.app',
-      deviceUdids: const ['UDID'],
-      outputDir: temp.path,
-      hostServices: testHostServices,
-    );
+    final result =
+        await AscProvisioning(
+          hostServices: testHostServices,
+          client: client,
+        ).provisionDevelopmentIdentity(
+          bundleId: 'com.example.app',
+          deviceUdids: const ['UDID'],
+          outputDir: temp.path,
+        );
 
     expect(client.revoked, ['old-cert']);
     expect(client.certificateCreations, 2, reason: 'retried after revoking');
@@ -294,12 +353,13 @@ void main() {
     final client = FakeProvisioningClient(pendingRequest: true);
 
     await expectLater(
-      AscProvisioning.provisionDevelopmentIdentity(
+      AscProvisioning(
+        hostServices: testHostServices,
         client: client,
+      ).provisionDevelopmentIdentity(
         bundleId: 'com.example.app',
         deviceUdids: const ['UDID'],
         outputDir: temp.path,
-        hostServices: testHostServices,
       ),
       throwsA(isA<AppleApiError>()),
     );
@@ -312,12 +372,13 @@ void main() {
     addTearDown(() => temp.deleteSync(recursive: true));
     final client = FakeProvisioningClient(teamIdForSerial: 'team-side-id');
 
-    await AscProvisioning.provisionDevelopmentIdentity(
+    await AscProvisioning(
+      hostServices: testHostServices,
       client: client,
+    ).provisionDevelopmentIdentity(
       bundleId: 'com.example.app',
       deviceUdids: const ['UDID'],
       outputDir: temp.path,
-      hostServices: testHostServices,
     );
 
     expect(client.lastProfileCertificateIds, ['team-side-id']);
@@ -332,12 +393,13 @@ void main() {
       ],
     );
 
-    await AscProvisioning.provisionDevelopmentIdentity(
+    await AscProvisioning(
+      hostServices: testHostServices,
       client: client,
+    ).provisionDevelopmentIdentity(
       bundleId: 'com.example.app',
       deviceUdids: const ['UDID'],
       outputDir: temp.path,
-      hostServices: testHostServices,
     );
 
     expect(client.deletedProfiles, ['old-profile']);
@@ -351,8 +413,10 @@ void main() {
       final client = FakeProvisioningClient()
         ..enabledCapabilities.add('ASSOCIATED_DOMAINS');
 
-      await AscProvisioning.provisionDevelopmentIdentity(
+      await AscProvisioning(
+        hostServices: testHostServices,
         client: client,
+      ).provisionDevelopmentIdentity(
         bundleId: 'com.example.app',
         deviceUdids: const ['UDID'],
         outputDir: temp.path,
@@ -361,7 +425,6 @@ void main() {
           'ASSOCIATED_DOMAINS',
           'PUSH_NOTIFICATIONS',
         },
-        hostServices: testHostServices,
       );
 
       // Sorted, and the one already on is not asked for again.
@@ -382,15 +445,17 @@ void main() {
       final client = FakeProvisioningClient(capabilitiesSupported: false);
       final progress = <String>[];
 
-      final result = await AscProvisioning.provisionDevelopmentIdentity(
-        client: client,
-        bundleId: 'com.example.app',
-        deviceUdids: const ['UDID'],
-        outputDir: temp.path,
-        capabilities: const {'APPLE_ID_AUTH'},
-        onProgress: progress.add,
-        hostServices: testHostServices,
-      );
+      final result =
+          await AscProvisioning(
+            hostServices: testHostServices,
+            client: client,
+          ).provisionDevelopmentIdentity(
+            bundleId: 'com.example.app',
+            deviceUdids: const ['UDID'],
+            outputDir: temp.path,
+            capabilities: const {'APPLE_ID_AUTH'},
+            onProgress: progress.add,
+          );
 
       expect(File(result.profilePath).existsSync(), isTrue);
       expect(progress.join('\n'), contains('capabilities'));
@@ -409,12 +474,13 @@ void main() {
       ],
     );
 
-    await AscProvisioning.provisionDevelopmentIdentity(
+    await AscProvisioning(
+      hostServices: testHostServices,
       client: client,
+    ).provisionDevelopmentIdentity(
       bundleId: 'com.example.app',
       deviceUdids: const ['UDID'],
       outputDir: temp.path,
-      hostServices: testHostServices,
     );
 
     // Deleting it would take a release pipeline's profile with it: an App ID
@@ -436,12 +502,13 @@ void main() {
       ],
     );
 
-    await AscProvisioning.provisionDevelopmentIdentity(
+    await AscProvisioning(
+      hostServices: testHostServices,
       client: client,
+    ).provisionDevelopmentIdentity(
       bundleId: 'com.example.app',
       deviceUdids: const ['UDID'],
       outputDir: temp.path,
-      hostServices: testHostServices,
     );
 
     expect(client.deletedProfiles, ['xcode-profile']);
@@ -455,12 +522,13 @@ void main() {
     addTearDown(() => temp.deleteSync(recursive: true));
     final client = FakeProvisioningClient();
 
-    await AscProvisioning.provisionDevelopmentIdentity(
+    await AscProvisioning(
+      hostServices: testHostServices,
       client: client,
+    ).provisionDevelopmentIdentity(
       bundleId: 'com.example.app',
       deviceUdids: const ['UDID'],
       outputDir: temp.path,
-      hostServices: testHostServices,
     );
 
     expect(
@@ -491,12 +559,13 @@ void main() {
       ],
     );
 
-    await AscProvisioning.provisionDevelopmentIdentity(
+    await AscProvisioning(
+      hostServices: testHostServices,
       client: client,
+    ).provisionDevelopmentIdentity(
       bundleId: 'com.example.app',
       deviceUdids: const ['UDID'],
       outputDir: temp.path,
-      hostServices: testHostServices,
     );
 
     expect(

@@ -12,7 +12,7 @@ import 'package:apple_developer_kit/src/signing/internal/bundle_plan.dart';
 import 'package:apple_developer_kit/src/signing/internal/resolved_bundle.dart';
 import 'package:apple_developer_kit/src/signing/macho_signer.dart';
 import 'package:apple_developer_kit/src/signing/signing_asset.dart';
-import 'package:path/path.dart' as p;
+import 'package:cli_kit/cli_kit_shared.dart' show HostFileSystemInspection;
 
 class BundleSigner {
   /// [asset] signs the app itself. [extensionAssets] maps an embedded
@@ -69,20 +69,33 @@ class BundleSigner {
     final plan = await _inspect(appPath);
 
     for (final bundle in plan.bundles) {
-      await _removeIfPresent(p.join(bundle.path, '_CodeSignature'));
+      await _removeIfPresent(
+        hostServices.host.paths.context.join(bundle.path, '_CodeSignature'),
+      );
       if (!bundle.isRoot) {
-        await _removeIfPresent(p.join(bundle.path, 'embedded.mobileprovision'));
+        await _removeIfPresent(
+          hostServices.host.paths.context.join(
+            bundle.path,
+            'embedded.mobileprovision',
+          ),
+        );
       }
     }
     await _atomicWrite(
-      p.join(plan.root.path, 'embedded.mobileprovision'),
+      hostServices.host.paths.context.join(
+        plan.root.path,
+        'embedded.mobileprovision',
+      ),
       asset.profileCmsBytes,
       plan.root.path,
     );
     // Each extension is its own signed, provisioned bundle.
     for (final extension in plan.bundles.where((b) => b.isAppExtension)) {
       await _atomicWrite(
-        p.join(extension.path, 'embedded.mobileprovision'),
+        hostServices.host.paths.context.join(
+          extension.path,
+          'embedded.mobileprovision',
+        ),
         _assetFor(extension).profileCmsBytes,
         plan.root.path,
       );
@@ -162,7 +175,7 @@ class BundleSigner {
       bundle.path,
       _inspector.tree.resolveDirectory(plan.root.path, plan.root.path),
     );
-    return buildCodeResources(
+    return CodeResourcesBuilder(hostServices: hostServices).build(
       candidates: [
         for (final entry in entries)
           if (entry.type == FileSystemEntityType.file ||
@@ -188,7 +201,7 @@ class BundleSigner {
     Uint8List bytes,
   ) async {
     final directory = hostServices.host.fileSystem.directory(
-      p.join(bundle.path, '_CodeSignature'),
+      hostServices.host.paths.context.join(bundle.path, '_CodeSignature'),
     );
     try {
       await directory.create(recursive: true);
@@ -196,7 +209,11 @@ class BundleSigner {
       bundleFail(plan.root.path, directory.path, 'could not create: $error');
     }
     await _atomicWrite(
-      p.join(directory.path, 'CodeResources'),
+      hostServices.host.paths.context.join(
+        bundle.path,
+        '_CodeSignature',
+        'CodeResources',
+      ),
       bytes,
       plan.root.path,
     );
@@ -206,7 +223,10 @@ class BundleSigner {
       relative == '.' ? 0 : relative.split('/').length;
 
   Future<void> _removeIfPresent(String path) async {
-    final type = FileSystemEntity.typeSync(path, followLinks: false);
+    final type = hostServices.host.fileSystem.typeSync(
+      path,
+      followLinks: false,
+    );
     if (type == FileSystemEntityType.notFound) return;
     try {
       if (type == FileSystemEntityType.directory) {
@@ -229,7 +249,7 @@ class BundleSigner {
     );
     try {
       await temporary.writeAsBytes(bytes, flush: true);
-      await temporary.rename(path);
+      await temporary.rename(hostServices.host.fileSystem.file(path).path);
     } on Object catch (error) {
       if (temporary.existsSync()) await temporary.delete();
       bundleFail(root, path, 'could not atomically write file: $error');

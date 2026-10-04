@@ -12,6 +12,7 @@ import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
 
 import '../support/host_services.dart';
+import '../support/mapped_apple_fixture.dart';
 
 void main() {
   final signingTime = DateTime.utc(2030, 2, 3, 4, 5, 6);
@@ -38,6 +39,93 @@ void main() {
   tearDownAll(() {
     temporaryDirectory.deleteSync(recursive: true);
   });
+
+  test(
+    'mapped filesystem signs bundle and preserves containment and modes',
+    () async {
+      final fixture = MappedAppleFixture();
+      addTearDown(fixture.dispose);
+      final physicalApp = _app(
+        Directory(fixture.backingRoot),
+        'mapped',
+        'dev.xcross.Runner',
+      );
+      final appPath = fixture.logicalPath(physicalApp.path);
+      File(
+        p.join(physicalApp.path, 'resource.txt'),
+      ).writeAsStringSync('mapped resource');
+      Link(p.join(physicalApp.path, 'alias')).createSync('resource.txt');
+      Directory(p.join(physicalApp.path, '_CodeSignature')).createSync();
+      File(
+        p.join(physicalApp.path, '_CodeSignature', 'stale'),
+      ).writeAsStringSync('stale');
+      File(
+        p.join(physicalApp.path, 'embedded.mobileprovision'),
+      ).writeAsStringSync('stale');
+      final signer = BundleSigner(exactAsset, hostServices: fixture.services);
+      await signer.signApp(appPath, signingTime: signingTime);
+      expect(
+        File(p.join(appPath, 'embedded.mobileprovision')).existsSync(),
+        isFalse,
+      );
+      expect(
+        File(
+          p.join(physicalApp.path, 'embedded.mobileprovision'),
+        ).readAsBytesSync(),
+        exactAsset.profileCmsBytes,
+      );
+      expect(
+        File(p.join(physicalApp.path, '_CodeSignature', 'stale')).existsSync(),
+        isFalse,
+      );
+      final resourcePath = p.join(
+        physicalApp.path,
+        '_CodeSignature',
+        'CodeResources',
+      );
+      final first = File(resourcePath).readAsBytesSync();
+      expect((_plist(first)['files2']! as Map)['alias'], {
+        'symlink': 'resource.txt',
+      });
+      expect(fixture.permissions.preserved, hasLength(4));
+      await signer.signApp(appPath, signingTime: signingTime);
+      expect(File(resourcePath).readAsBytesSync(), first);
+      expect(Directory(fixture.logicalRoot).listSync(recursive: true), isEmpty);
+      File(p.join(fixture.backingRoot, 'outside')).writeAsStringSync('outside');
+      Link(p.join(physicalApp.path, 'escape')).createSync('../outside');
+      await expectLater(
+        signer.signApp(appPath),
+        throwsA(
+          isA<AppleError>().having(
+            (error) => error.message,
+            'message',
+            contains('symlink target escapes'),
+          ),
+        ),
+      );
+      Link(p.join(physicalApp.path, 'escape')).deleteSync();
+      final originalInfo = File(
+        p.join(physicalApp.path, 'Info.plist'),
+      ).readAsBytesSync();
+      File(p.join(physicalApp.path, 'Info.plist')).deleteSync();
+      File(
+        p.join(physicalApp.path, 'Info-copy.plist'),
+      ).writeAsBytesSync(originalInfo);
+      Link(
+        p.join(physicalApp.path, 'Info.plist'),
+      ).createSync('Info-copy.plist');
+      await expectLater(
+        signer.signApp(appPath),
+        throwsA(
+          isA<AppleError>().having(
+            (error) => error.message,
+            'message',
+            contains('Info.plist'),
+          ),
+        ),
+      );
+    },
+  );
 
   test(
     'signs children first and emits deterministic zsign file seals',
@@ -736,7 +824,7 @@ Future<SigningAsset> _signingAsset(
   ).writeAsStringSync(CryptoUtils.encodeRSAPrivateKeyToPem(privateKey));
   File(certificatePath).writeAsStringSync(certificatePem);
   File(profilePath).writeAsBytesSync(profileCms);
-  return SigningAsset.load(
+  return SigningAssetLoader(hostServices: testHostServices).load(
     privateKeyPemPath: keyPath,
     certificatePemPath: certificatePath,
     provisioningProfilePath: profilePath,

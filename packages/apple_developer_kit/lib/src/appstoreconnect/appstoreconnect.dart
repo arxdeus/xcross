@@ -4,7 +4,6 @@
 library;
 
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math';
 
 import 'package:apple_developer_kit/src/appstoreconnect/asc_client.dart';
@@ -15,7 +14,6 @@ import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
 import 'package:basic_utils/basic_utils.dart';
 import 'package:meta/meta.dart';
-import 'package:path/path.dart' as p;
 
 /// Where [AscProvisioning.provisionDevelopmentIdentity] left the three files
 /// a signer needs.
@@ -37,7 +35,12 @@ final class DevelopmentIdentityPaths {
 typedef ProvisioningProgress = void Function(String message);
 
 /// Development identity provisioning against App Store Connect.
-abstract final class AscProvisioning {
+final class AscProvisioning {
+  AscProvisioning({required this.hostServices, required this.client});
+
+  final AppleHostServices hostServices;
+  final DevelopmentProvisioningClient client;
+
   /// Wraps [derBase64] (base64-encoded DER, as returned raw by the
   /// certificates API's `certificateContent`) into a line-wrapped PEM block.
   ///
@@ -70,9 +73,7 @@ abstract final class AscProvisioning {
   /// 4. Resolve the cert's team-side id by serial (never trust create-response
   ///    id alone), attach every iOS-capable device on the team, and create an
   ///    `IOS_APP_DEVELOPMENT` profile.
-  static Future<DevelopmentIdentityPaths> provisionDevelopmentIdentity({
-    required AppleHostServices hostServices,
-    required DevelopmentProvisioningClient client,
+  Future<DevelopmentIdentityPaths> provisionDevelopmentIdentity({
     required String bundleId,
     required List<String> deviceUdids,
     required String outputDir,
@@ -83,33 +84,43 @@ abstract final class AscProvisioning {
   }) async {
     final signingIdentityDir = identityDir ?? outputDir;
     await Future.wait([
-      Directory(outputDir).create(recursive: true),
-      Directory(signingIdentityDir).create(recursive: true),
+      hostServices.host.fileSystem.directory(outputDir).create(recursive: true),
+      hostServices.host.fileSystem
+          .directory(signingIdentityDir)
+          .create(recursive: true),
     ]);
 
-    final certPath = p.join(signingIdentityDir, 'cert.pem');
-    final keyPath = p.join(signingIdentityDir, 'key.pem');
-    final profilePath = p.join(outputDir, 'profile.mobileprovision');
+    final certPath = hostServices.host.paths.context.join(
+      signingIdentityDir,
+      'cert.pem',
+    );
+    final keyPath = hostServices.host.paths.context.join(
+      signingIdentityDir,
+      'key.pem',
+    );
+    final profilePath = hostServices.host.paths.context.join(
+      outputDir,
+      'profile.mobileprovision',
+    );
 
     final serialNumber = await _loadOrIssueIdentity(
-      hostServices: hostServices,
-      client: client,
       certPath: certPath,
       keyPath: keyPath,
-      statePath: p.join(signingIdentityDir, 'state.json'),
+      statePath: hostServices.host.paths.context.join(
+        signingIdentityDir,
+        'state.json',
+      ),
       onProgress: onProgress,
     );
 
-    final bundleIdResource = await _findOrRegisterBundleId(client, bundleId);
+    final bundleIdResource = await _findOrRegisterBundleId(bundleId);
     await _ensureCapabilities(
-      client,
       bundleId: bundleId,
       bundleIdResource: bundleIdResource,
       capabilities: capabilities,
       onProgress: onProgress,
     );
     await _assignAppGroups(
-      client,
       bundleIdResource: bundleIdResource,
       appGroups: appGroups,
       onProgress: onProgress,
@@ -118,19 +129,19 @@ abstract final class AscProvisioning {
       await client.findDeviceByUdid(udid) ??
           await client.registerDevice(udid: udid, name: udid);
     }
-    await _freeProfileSlot(client, bundleIdResource.id, onProgress);
+    await _freeProfileSlot(bundleIdResource.id, onProgress);
 
-    final certificateIds = await _teamCertificateIds(client, serialNumber);
-    final deviceIds = await _profileDeviceIds(client, deviceUdids);
+    final certificateIds = await _teamCertificateIds(serialNumber);
+    final deviceIds = await _profileDeviceIds(deviceUdids);
     final profile = await client.createProfile(
       name: '$profileNamePrefix${DateTime.now().microsecondsSinceEpoch}',
       bundleIdResourceId: bundleIdResource.id,
       certificateResourceIds: certificateIds,
       deviceResourceIds: deviceIds,
     );
-    await File(
-      profilePath,
-    ).writeAsBytes(base64.decode(profile.profileContentBase64));
+    await hostServices.host.fileSystem
+        .file(profilePath)
+        .writeAsBytes(base64.decode(profile.profileContentBase64));
 
     return DevelopmentIdentityPaths(
       certificatePemPath: certPath,
@@ -139,10 +150,7 @@ abstract final class AscProvisioning {
     );
   }
 
-  static Future<AscBundleId> _findOrRegisterBundleId(
-    DevelopmentProvisioningClient client,
-    String bundleId,
-  ) async =>
+  Future<AscBundleId> _findOrRegisterBundleId(String bundleId) async =>
       await client.findBundleId(bundleId) ??
       await client.registerBundleId(
         identifier: bundleId,
@@ -156,8 +164,7 @@ abstract final class AscProvisioning {
   /// Without this an app and its share extension are each sandboxed into
   /// their own container and cannot exchange the shared files/data an
   /// extension exists to hand over.
-  static Future<void> _assignAppGroups(
-    DevelopmentProvisioningClient client, {
+  Future<void> _assignAppGroups({
     required AscBundleId bundleIdResource,
     required List<String> appGroups,
     ProvisioningProgress? onProgress,
@@ -222,8 +229,7 @@ abstract final class AscProvisioning {
   /// keeps the real bundle id when the team owns it - that one profile is the
   /// App Store one, and deleting it takes the team's release pipeline down with
   /// it.
-  static Future<void> _freeProfileSlot(
-    DevelopmentProvisioningClient client,
+  Future<void> _freeProfileSlot(
     String bundleIdResourceId,
     ProvisioningProgress? onProgress,
   ) async {
@@ -253,8 +259,7 @@ abstract final class AscProvisioning {
   ///
   /// Additive and idempotent: an App ID that already has them - a shipping one
   /// usually does - costs a single lookup.
-  static Future<void> _ensureCapabilities(
-    DevelopmentProvisioningClient client, {
+  Future<void> _ensureCapabilities({
     required String bundleId,
     required AscBundleId bundleIdResource,
     required Set<String> capabilities,
@@ -282,10 +287,7 @@ abstract final class AscProvisioning {
     }
   }
 
-  static Future<List<String>> _teamCertificateIds(
-    DevelopmentProvisioningClient client,
-    String serialNumber,
-  ) async {
+  Future<List<String>> _teamCertificateIds(String serialNumber) async {
     final ids = await client.findCertificateIdsBySerial(serialNumber);
     if (ids.isEmpty) {
       throw AppleError(
@@ -299,10 +301,7 @@ abstract final class AscProvisioning {
 
   /// xtool attaches every iPhone/iPad/iPod on the team, not just the current
   /// UDID — Apple's profile create is picky about device membership.
-  static Future<List<String>> _profileDeviceIds(
-    DevelopmentProvisioningClient client,
-    List<String> deviceUdids,
-  ) async {
+  Future<List<String>> _profileDeviceIds(List<String> deviceUdids) async {
     final ids = {
       for (final device in await client.listDevices())
         if (device.supportsIosApps || deviceUdids.contains(device.udid))
@@ -321,9 +320,7 @@ abstract final class AscProvisioning {
   /// local identity when its serial is still on the team and unexpired;
   /// otherwise revoke team certificates and create a new one. Returns the
   /// certificate's serial number.
-  static Future<String> _loadOrIssueIdentity({
-    required AppleHostServices hostServices,
-    required DevelopmentProvisioningClient client,
+  Future<String> _loadOrIssueIdentity({
     required String certPath,
     required String keyPath,
     required String statePath,
@@ -338,11 +335,9 @@ abstract final class AscProvisioning {
         'Cached Development certificate serial $cached is '
         'gone from the team; revoking leftovers and re-issuing.',
       );
-      await _revokeAllCertificates(client, onProgress: onProgress);
+      await _revokeAllCertificates(onProgress: onProgress);
     }
     return _issueAndPersistIdentity(
-      hostServices: hostServices,
-      client: client,
       certPath: certPath,
       keyPath: keyPath,
       statePath: statePath,
@@ -350,9 +345,7 @@ abstract final class AscProvisioning {
     );
   }
 
-  static Future<String> _issueAndPersistIdentity({
-    required AppleHostServices hostServices,
-    required DevelopmentProvisioningClient client,
+  Future<String> _issueAndPersistIdentity({
     required String certPath,
     required String keyPath,
     required String statePath,
@@ -360,13 +353,12 @@ abstract final class AscProvisioning {
   }) async {
     final csr = AscCsr.generate();
     final certificate = await _issueDevelopmentCertificate(
-      client,
       csr.csrPem,
       onProgress: onProgress,
     );
-    await File(
-      certPath,
-    ).writeAsString(wrapDerAsPem(certificate.certificateContentBase64));
+    await hostServices.host.fileSystem
+        .file(certPath)
+        .writeAsString(wrapDerAsPem(certificate.certificateContentBase64));
     await AscCsr.writePrivateKeyPem(
       keyPath,
       AscCsr.privateKeyToPem(csr.privateKey),
@@ -374,22 +366,25 @@ abstract final class AscProvisioning {
     );
     final serialNumber =
         certificate.serialNumber ??
-        _serialNumberFromCertificatePem(await File(certPath).readAsString());
-    await File(statePath).writeAsString(
-      jsonEncode({
-        'certificateId': certificate.id,
-        'certificateSerialNumber': serialNumber,
-        'certificateExpirationDate': certificate.expirationDate,
-      }),
-    );
+        _serialNumberFromCertificatePem(
+          await hostServices.host.fileSystem.file(certPath).readAsString(),
+        );
+    await hostServices.host.fileSystem
+        .file(statePath)
+        .writeAsString(
+          jsonEncode({
+            'certificateId': certificate.id,
+            'certificateSerialNumber': serialNumber,
+            'certificateExpirationDate': certificate.expirationDate,
+          }),
+        );
     return serialNumber;
   }
 
   /// Issues a Development certificate. On HTTP 409 (quota), revoke every
   /// certificate on the team first — same as xtool's free-team
   /// `replaceCertificates`.
-  static Future<AscCertificate> _issueDevelopmentCertificate(
-    DevelopmentProvisioningClient client,
+  Future<AscCertificate> _issueDevelopmentCertificate(
     String csrPem, {
     ProvisioningProgress? onProgress,
   }) async {
@@ -401,17 +396,12 @@ abstract final class AscProvisioning {
       // revoking cannot clear; surface it rather than retrying pointlessly.
       final existing = await client.listCertificateIds();
       if (existing.isEmpty) rethrow;
-      await _revokeAllCertificates(
-        client,
-        knownIds: existing,
-        onProgress: onProgress,
-      );
+      await _revokeAllCertificates(knownIds: existing, onProgress: onProgress);
       return client.createDevelopmentCertificate(csrPem: csrPem);
     }
   }
 
-  static Future<void> _revokeAllCertificates(
-    DevelopmentProvisioningClient client, {
+  Future<void> _revokeAllCertificates({
     List<String>? knownIds,
     ProvisioningProgress? onProgress,
   }) async {
@@ -426,18 +416,20 @@ abstract final class AscProvisioning {
 
   /// Serial of the cached identity when [certPath]/[keyPath] exist and the
   /// certificate isn't expired, else null.
-  static Future<String?> _cachedSerialNumber(
+  Future<String?> _cachedSerialNumber(
     String statePath,
     String certPath,
     String keyPath,
   ) async {
-    if (!File(statePath).existsSync() ||
-        !File(certPath).existsSync() ||
-        !File(keyPath).existsSync()) {
+    if (!hostServices.host.fileSystem.file(statePath).existsSync() ||
+        !hostServices.host.fileSystem.file(certPath).existsSync() ||
+        !hostServices.host.fileSystem.file(keyPath).existsSync()) {
       return null;
     }
     try {
-      final state = jsonDecode(await File(statePath).readAsString());
+      final state = jsonDecode(
+        await hostServices.host.fileSystem.file(statePath).readAsString(),
+      );
       if (state is! Map) return null;
       final expiry = DateTime.tryParse(
         state['certificateExpirationDate'] as String? ?? '',
@@ -447,7 +439,9 @@ abstract final class AscProvisioning {
       }
       final serial =
           state['certificateSerialNumber'] as String? ??
-          _serialNumberFromCertificatePem(await File(certPath).readAsString());
+          _serialNumberFromCertificatePem(
+            await hostServices.host.fileSystem.file(certPath).readAsString(),
+          );
       return serial.isEmpty ? null : serial;
     } on Object {
       // A corrupt or unreadable cache is never fatal: re-issue instead.

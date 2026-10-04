@@ -1,9 +1,9 @@
 import 'dart:collection';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/errors.dart';
+import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
 import 'package:apple_developer_kit/src/signing/bundle_paths.dart';
 import 'package:apple_developer_kit/src/signing/bytes.dart';
 import 'package:crypto/crypto.dart' as crypto;
@@ -35,65 +35,106 @@ const String codeResourcesPath = '_CodeSignature/CodeResources';
 /// SHA-1-only format, and `files2` adds a SHA-256 `hash2` and omits more
 /// build residue. Both are keyed by bundle-relative path.
 @internal
-@useResult
-Uint8List buildCodeResources({
-  required List<SealCandidate> candidates,
-  required String executableRelativePath,
-  required String bundleRelativePath,
-  required String rootPath,
-}) {
-  final files = sortedPlistMap();
-  final files2 = sortedPlistMap();
+final class CodeResourcesBuilder {
+  CodeResourcesBuilder({required this.hostServices});
 
-  for (final candidate in candidates) {
-    final key = candidate.relativePath;
-    if (key == executableRelativePath || key == codeResourcesPath) continue;
-    if (candidate.isSymlink) {
-      // Resolved before the omit check so a broken symlink is still reported.
-      final seal = _symlinkSeal(candidate.path, rootPath);
-      if (!_omitFromFiles(key)) files[key] = seal;
-    } else if (!_omitFromFiles(key)) {
-      final hash = _sha1File(candidate.path, rootPath);
-      files[key] = _isLocalization(key)
-          ? (sortedPlistMap()
-              ..['hash'] = _data(hash)
-              ..['optional'] = true)
-          : _data(hash);
+  final AppleHostServices hostServices;
+
+  @useResult
+  Uint8List build({
+    required List<SealCandidate> candidates,
+    required String executableRelativePath,
+    required String bundleRelativePath,
+    required String rootPath,
+  }) {
+    final files = sortedPlistMap();
+    final files2 = sortedPlistMap();
+
+    for (final candidate in candidates) {
+      final key = candidate.relativePath;
+      if (key == executableRelativePath || key == codeResourcesPath) continue;
+      if (candidate.isSymlink) {
+        // Resolved before the omit check so a broken symlink is still reported.
+        final seal = _symlinkSeal(candidate.path, rootPath);
+        if (!_omitFromFiles(key)) files[key] = seal;
+      } else if (!_omitFromFiles(key)) {
+        final hash = _sha1File(candidate.path, rootPath);
+        files[key] = _isLocalization(key)
+            ? (sortedPlistMap()
+                ..['hash'] = _data(hash)
+                ..['optional'] = true)
+            : _data(hash);
+      }
+    }
+
+    for (final candidate in candidates) {
+      final key = candidate.relativePath;
+      if (key == executableRelativePath ||
+          key == codeResourcesPath ||
+          _omitFromFiles2(key)) {
+        continue;
+      }
+      if (candidate.isSymlink) {
+        files2[key] = _symlinkSeal(candidate.path, rootPath);
+      } else {
+        final value = sortedPlistMap()
+          ..['hash'] = _data(_sha1File(candidate.path, rootPath))
+          ..['hash2'] = _data(_sha256File(candidate.path, rootPath));
+        if (_isLocalization(key)) value['optional'] = true;
+        files2[key] = value;
+      }
+    }
+
+    final output = sortedPlistMap()
+      ..['files'] = files
+      ..['files2'] = files2
+      ..['rules'] = _rules()
+      ..['rules2'] = _rules2();
+    try {
+      return Uint8List.fromList(
+        utf8.encode(PropertyListSerialization.stringWithPropertyList(output)),
+      );
+    } on Object catch (error) {
+      throw AppleError(
+        'Bundle "$bundleRelativePath" could not serialize CodeResources: '
+        '$error',
+      );
     }
   }
 
-  for (final candidate in candidates) {
-    final key = candidate.relativePath;
-    if (key == executableRelativePath ||
-        key == codeResourcesPath ||
-        _omitFromFiles2(key)) {
-      continue;
-    }
-    if (candidate.isSymlink) {
-      files2[key] = _symlinkSeal(candidate.path, rootPath);
-    } else {
-      final value = sortedPlistMap()
-        ..['hash'] = _data(_sha1File(candidate.path, rootPath))
-        ..['hash2'] = _data(_sha256File(candidate.path, rootPath));
-      if (_isLocalization(key)) value['optional'] = true;
-      files2[key] = value;
+  Uint8List _sha1File(String path, String root) {
+    try {
+      return Uint8List.fromList(
+        crypto.sha1
+            .convert(hostServices.host.fileSystem.file(path).readAsBytesSync())
+            .bytes,
+      );
+    } on Object catch (error) {
+      bundleFail(root, path, 'could not hash file with SHA-1: $error');
     }
   }
 
-  final output = sortedPlistMap()
-    ..['files'] = files
-    ..['files2'] = files2
-    ..['rules'] = _rules()
-    ..['rules2'] = _rules2();
-  try {
-    return Uint8List.fromList(
-      utf8.encode(PropertyListSerialization.stringWithPropertyList(output)),
-    );
-  } on Object catch (error) {
-    throw AppleError(
-      'Bundle "$bundleRelativePath" could not serialize CodeResources: '
-      '$error',
-    );
+  Uint8List _sha256File(String path, String root) {
+    try {
+      return Uint8List.fromList(
+        crypto.sha256
+            .convert(hostServices.host.fileSystem.file(path).readAsBytesSync())
+            .bytes,
+      );
+    } on Object catch (error) {
+      bundleFail(root, path, 'could not hash file with SHA-256: $error');
+    }
+  }
+
+  /// Symlinks are sealed by their literal target text, not by content.
+  SplayTreeMap<String, Object?> _symlinkSeal(String path, String root) {
+    final String target;
+    try {
+      target = hostServices.host.fileSystem.link(path).targetSync();
+    } on Object catch (error) {
+      bundleFail(root, path, 'could not read symlink target: $error');
+    }
+    return sortedPlistMap()..['symlink'] = target;
   }
 }
 
@@ -152,34 +193,3 @@ bool _omitFromFiles2(String path) =>
 
 ByteData _data(List<int> bytes) =>
     ByteData.sublistView(Uint8List.fromList(bytes));
-
-Uint8List _sha1File(String path, String root) {
-  try {
-    return Uint8List.fromList(
-      crypto.sha1.convert(File(path).readAsBytesSync()).bytes,
-    );
-  } on Object catch (error) {
-    bundleFail(root, path, 'could not hash file with SHA-1: $error');
-  }
-}
-
-Uint8List _sha256File(String path, String root) {
-  try {
-    return Uint8List.fromList(
-      crypto.sha256.convert(File(path).readAsBytesSync()).bytes,
-    );
-  } on Object catch (error) {
-    bundleFail(root, path, 'could not hash file with SHA-256: $error');
-  }
-}
-
-/// Symlinks are sealed by their literal target text, not by content.
-SplayTreeMap<String, Object?> _symlinkSeal(String path, String root) {
-  final String target;
-  try {
-    target = Link(path).targetSync();
-  } on Object catch (error) {
-    bundleFail(root, path, 'could not read symlink target: $error');
-  }
-  return sortedPlistMap()..['symlink'] = target;
-}
