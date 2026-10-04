@@ -170,15 +170,27 @@ public final class BinaryFixturePlugin: NSObject, FlutterPlugin {
     required String output,
   }) {
     final archive = Archive();
-    final files = framework.listSync(recursive: true).whereType<File>().toList()
-      ..sort((a, b) => a.path.compareTo(b.path));
-    for (final entity in files) {
-      final name = paths
-          .relative(entity.path, from: framework.parent.path)
-          .replaceAll(r'\', '/');
+    final files =
+        framework
+            .listSync(recursive: true)
+            .whereType<File>()
+            .map(
+              (entity) => (
+                name: paths
+                    .relative(entity.path, from: framework.parent.path)
+                    .replaceAll(r'\', '/'),
+                file: entity,
+              ),
+            )
+            .toList()
+          ..sort((a, b) => a.name.compareTo(b.name));
+    for (final entry in files) {
       archive.addFile(
-        ArchiveFile(name, entity.lengthSync(), entity.readAsBytesSync())
-          ..lastModTime = 0,
+        ArchiveFile(
+          entry.name,
+          entry.file.lengthSync(),
+          entry.file.readAsBytesSync(),
+        )..lastModTime = 0,
       );
     }
     return fileSystem.file(output)
