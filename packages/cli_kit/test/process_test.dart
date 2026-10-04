@@ -70,18 +70,25 @@ void main() {
     });
 
     test('uses JSON string escapes for display, not shell syntax', () {
-      for (final token in [
-        'has space',
-        "it's",
-        r'$HOME`cmd`"quoted"',
-        'line\nbreak',
-        r'C:\Program Files\tool',
-      ]) {
+      for (final token in [r'$HOME`cmd`"quoted"', 'line\nbreak', 'tab\there']) {
         expect(
           ProcessRunner.commandLine('echo', [token]),
           'echo ${jsonEncode(token)}',
         );
       }
+    });
+
+    test('keeps native path separators readable', () {
+      expect(
+        ProcessRunner.commandLine(r'C:\dart-sdk\bin\dart.exe', ['--flag']),
+        r'C:\dart-sdk\bin\dart.exe --flag',
+      );
+      expect(
+        ProcessRunner.commandLine('echo', [r'C:\Program Files\tool', "it's"]),
+        r'echo "C:\Program Files\tool" "it'
+        "'"
+        's"',
+      );
     });
 
     test('formats executable and arguments consistently', () {

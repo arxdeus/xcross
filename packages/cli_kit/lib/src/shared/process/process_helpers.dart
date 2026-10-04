@@ -31,15 +31,17 @@ abstract final class ProcessHelpers {
     return message.toString();
   }
 
-  static final _plainArgument = RegExp(r'^[a-zA-Z0-9_./:=+,-]+$');
+  static final _plainArgument = RegExp(r'^[a-zA-Z0-9_./:=+,\\-]+$');
+  static final _needsEscape = RegExp(r'["\x00-\x1f\x7f]');
 
   static String commandLine(String executable, List<String> arguments) =>
-      [executable, ...arguments]
-          .map(
-            (value) =>
-                _plainArgument.hasMatch(value) ? value : jsonEncode(value),
-          )
-          .join(' ');
+      [executable, ...arguments].map(_displayToken).join(' ');
+
+  static String _displayToken(String value) {
+    if (_plainArgument.hasMatch(value)) return value;
+    if (_needsEscape.hasMatch(value)) return jsonEncode(value);
+    return '"$value"';
+  }
 
   static Stream<T> pausingBroadcast<T>(Stream<T> source) =>
       source.asBroadcastStream(
