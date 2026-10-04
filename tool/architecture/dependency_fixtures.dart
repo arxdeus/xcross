@@ -83,7 +83,7 @@ Map<String, (String, Set<String>)> dependencyAssets() {
     'packages/fixture/lib/src/host/windows/asset_mapping.dart':
         "abstract class PlatformHostInterface { String get architecture; } String asset(PlatformHostInterface host) => host.architecture == 'arm64' ? throw UnsupportedError('unsupported CPU') : 'windows-x64.zip';",
     'packages/xcross/lib/src/composition/native_runtime.dart':
-        "import 'package:cli_kit/src/composition/native_host.dart'; Object createNativeXcrossContext() => detectPlatformHostSnapshot(); Object disguisedFactory() => detectPlatformHostSnapshot(); class Log {} class Service { final Log log=Log(); Service(); Service.other():log=Log(); }",
+        "import 'package:cli_kit/src/composition/native_host.dart' show detectPlatformHostSnapshot; Object createNativeXcrossContext() => detectPlatformHostSnapshot(); Object disguisedFactory() => detectPlatformHostSnapshot(); Object nested() { Object createNativeXcrossContext() => detectPlatformHostSnapshot(); return createNativeXcrossContext(); } class Log {} class Service { final Log log=Log(); Service(); Service.other():log=Log(); }",
     detector:
         "import 'dart:io'; String detectPlatformHostSnapshot() => Platform.operatingSystem; String another() => Platform.operatingSystem;",
     'packages/apple_developer_kit/hook/build.dart':
@@ -123,7 +123,7 @@ Map<String, (String, Set<String>)> dependencyAssets() {
     'packages/fixture/lib/src/shared/public_generated.g.dart':
         'class Generated {}',
     hostComposition:
-        'abstract class WindowsHostInterface {} int composeXcrossHost(Object host) => switch(host) { WindowsHostInterface() => 1, _ => 2 }; int another(Object host) { int composeXcrossHost(Object inner) => switch(inner) { WindowsHostInterface() => 1, _ => 2 }; return composeXcrossHost(host); }',
+        "export 'native_runtime.dart'; abstract class WindowsHostInterface {} int composeXcrossHost(Object host) => switch(host) { WindowsHostInterface() => 1, _ => 2 }; int another(Object host) { int composeXcrossHost(Object inner) => switch(inner) { WindowsHostInterface() => 1, _ => 2 }; return composeXcrossHost(host); }",
     'packages/xcross/lib/src/composition/ios_target.dart':
         "int fakeFactory(String renamed) => switch(renamed) { 'simulator' => 1, _ => 2 };",
     'packages/fixture/lib/fixture.dart':
@@ -257,5 +257,54 @@ Map<String, (String, Set<String>)> dependencyAssets() {
             : {'inventory'});
     result[entry.key] = (entry.value, expected);
   }
+  final exactPairs = {
+    'packages/xcross/lib/src/composition/cli/compose_command.dart': {
+      'packages/dart_mobile_device/lib/src/target/iphone/device/pymd/pymd.dart',
+    },
+    'packages/xcross/lib/src/composition/cli/compose_run_command.dart': {
+      'packages/dart_mobile_device/lib/src/target/iphone/device/pymd/pymd.dart',
+    },
+    'packages/xcross/lib/src/composition/cli/flutter_run_command.dart': {
+      'packages/dart_mobile_device/lib/src/target/iphone/device/pymd/pymd.dart',
+    },
+    'packages/xcross/lib/src/composition/cli/flutter_command.dart': {
+      'packages/dart_mobile_device/lib/src/target/iphone/device/pymd/pymd.dart',
+      'packages/dart_mobile_device/lib/src/target/iphone/tunnel/pymd_tunnel_availability.dart',
+    },
+    'packages/xcross/lib/src/composition/cli/runner.dart': {
+      'packages/dart_mobile_device/lib/src/target/iphone/diagnostics/pymd_device_diagnostics.dart',
+    },
+    'packages/xcross/tool/swiftpm_binary_fixture.dart': {
+      'packages/xcross/lib/src/composition/native_runtime.dart',
+    },
+    'packages/xcross/tool/swiftpm_gate_evidence.dart': {
+      'packages/xcross/lib/src/composition/xcross_runtime.dart',
+      'packages/xcross/lib/src/composition/native_runtime.dart',
+    },
+  };
+  for (final entry in exactPairs.entries) {
+    final old = result[entry.key];
+    final approved = entry.value
+        .map((path) => "import '${fixturePackageUri(path)}';")
+        .join(' ');
+    final denied = standaloneAssemblies.containsKey(entry.key)
+        ? "import 'package:xcross/src/composition/ios_target.dart';"
+        : "import 'package:darwin_sdk_kit/src/target/simulator/simulator_build_platform.dart';";
+    result[entry.key] = (
+      '$approved $denied ${old?.$1 ?? ''}',
+      {
+        ...?old?.$2,
+        if (standaloneAssemblies.containsKey(entry.key))
+          'composition-edge'
+        else
+          'concrete-edge',
+      },
+    );
+  }
   return result;
+}
+
+String fixturePackageUri(String path) {
+  final parts = path.split('/');
+  return 'package:${parts[1]}/${parts.skip(3).join('/')}';
 }

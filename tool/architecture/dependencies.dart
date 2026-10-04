@@ -42,7 +42,8 @@ class DependencyRules {
             'generated-composition',
             'entrypoint',
           }.contains(classification.kind) &&
-          !(detectorCallers.containsKey(path) && destinationPath == detector)) {
+          !(detectorCallers.containsKey(path) && destinationPath == detector) &&
+          !(standaloneAssemblies[path]?.contains(destinationPath) ?? false)) {
         reject(
           node,
           'composition-edge',

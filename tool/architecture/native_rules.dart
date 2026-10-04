@@ -139,7 +139,8 @@ class NativeRules {
     }
     final element = node.element;
     final uri = element?.library?.uri.toString() ?? '';
-    if (uri.endsWith('/composition/native_host.dart') &&
+    if (node.thisOrAncestorOfType<Combinator>() == null &&
+        uri.endsWith('/composition/native_host.dart') &&
         (element?.name?.startsWith('detectPlatformHost') ?? false) &&
         !(detectorCallers.containsKey(path) &&
             detectorCallers[path] == topFunction(node))) {

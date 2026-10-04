@@ -81,6 +81,52 @@ Future<void> main() async {
         )) {
       throw StateError('Exact native caller approval failed');
     }
+    final showOffset = nativeSource.indexOf('detectPlatformHostSnapshot;');
+    final nestedCall = nativeSource.indexOf(
+      'detectPlatformHostSnapshot()',
+      deniedCall + 1,
+    );
+    if (violations.any((v) => v.path == nativePath && v.offset == showOffset) ||
+        !violations.any(
+          (v) =>
+              v.path == nativePath &&
+              v.offset == nestedCall &&
+              v.rule == 'hidden-detection',
+        )) {
+      throw StateError('Detector combinator or nested caller approval failed');
+    }
+    for (final path in {
+      'packages/xcross/lib/src/composition/cli/compose_command.dart',
+      'packages/xcross/lib/src/composition/cli/compose_run_command.dart',
+      'packages/xcross/lib/src/composition/cli/flutter_run_command.dart',
+      'packages/xcross/lib/src/composition/cli/flutter_command.dart',
+      'packages/xcross/lib/src/composition/cli/runner.dart',
+      'packages/xcross/tool/swiftpm_binary_fixture.dart',
+      'packages/xcross/tool/swiftpm_gate_evidence.dart',
+    }) {
+      final source = dependencyAssets()[path]!.$1;
+      final deniedUri = path.contains('/tool/')
+          ? "import 'package:xcross/src/composition/ios_target.dart';"
+          : "import 'package:darwin_sdk_kit/src/target/simulator/simulator_build_platform.dart';";
+      final denied = source.indexOf(deniedUri);
+      if (violations.any(
+            (v) =>
+                v.path == path &&
+                v.offset < denied &&
+                {'composition-edge', 'concrete-edge'}.contains(v.rule),
+          ) ||
+          !violations.any(
+            (v) =>
+                v.path == path &&
+                v.offset == denied &&
+                v.rule ==
+                    (path.contains('/tool/')
+                        ? 'composition-edge'
+                        : 'concrete-edge'),
+          )) {
+        throw StateError('Exact standalone/physical import pair failed: $path');
+      }
+    }
     final hostSource = dependencyAssets()[hostComposition]!.$1;
     final approvedSwitch = hostSource.indexOf('switch(host)');
     final deniedSwitch = hostSource.indexOf('switch(inner)');
@@ -217,7 +263,15 @@ Future<void> main() async {
     for (final entry in scopedPairs.entries) {
       final source = dependencyAssets()[entry.key]!.$1;
       final boundary = source.indexOf(entry.value);
-      final findings = violations.where((v) => v.path == entry.key).toList();
+      final findings = violations
+          .where(
+            (v) =>
+                v.path == entry.key &&
+                (entry.key !=
+                        'packages/xcross/tool/swiftpm_binary_fixture.dart' ||
+                    v.rule == 'ambient-detection'),
+          )
+          .toList();
       if (boundary < 0 ||
           findings.isEmpty ||
           findings.any((v) => v.offset < boundary)) {

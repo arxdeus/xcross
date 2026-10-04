@@ -93,19 +93,38 @@ const hostAssemblies = {
     'packages/xcross/lib/src/host/windows/xcrun/windows_executable.dart',
   },
 };
+const standaloneAssemblies = {
+  'packages/xcross/tool/swiftpm_binary_fixture.dart': {
+    'packages/xcross/lib/src/composition/native_runtime.dart',
+  },
+  'packages/xcross/tool/swiftpm_gate_evidence.dart': {
+    'packages/xcross/lib/src/composition/xcross_runtime.dart',
+    'packages/xcross/lib/src/composition/native_runtime.dart',
+  },
+};
 const targetAssemblies = {
+  'packages/xcross/lib/src/composition/cli/compose_command.dart': {
+    'packages/dart_mobile_device/lib/src/target/iphone/device/pymd/pymd.dart',
+  },
+  'packages/xcross/lib/src/composition/cli/flutter_command.dart': {
+    'packages/dart_mobile_device/lib/src/target/iphone/device/pymd/pymd.dart',
+    'packages/dart_mobile_device/lib/src/target/iphone/tunnel/pymd_tunnel_availability.dart',
+  },
   'packages/xcross/lib/src/composition/xcross_application.dart': {
     'packages/dart_mobile_device/lib/src/target/iphone/device/pymd/pymd.dart',
   },
   'packages/xcross/lib/src/composition/cli/compose_run_command.dart': {
+    'packages/dart_mobile_device/lib/src/target/iphone/device/pymd/pymd.dart',
     'packages/xcross/lib/src/target/iphone/device/core_device_launch_profile.dart',
     'packages/xcross/lib/src/target/iphone/device/device_run_operation.dart',
   },
   'packages/xcross/lib/src/composition/cli/flutter_run_command.dart': {
+    'packages/dart_mobile_device/lib/src/target/iphone/device/pymd/pymd.dart',
     'packages/xcross/lib/src/target/iphone/device/core_device_launch_profile.dart',
     'packages/xcross/lib/src/target/iphone/device/device_run_operation.dart',
   },
   'packages/xcross/lib/src/composition/cli/runner.dart': {
+    'packages/dart_mobile_device/lib/src/target/iphone/diagnostics/pymd_device_diagnostics.dart',
     'packages/xcross/lib/src/target/iphone/cli/basic/tunnel_command.dart',
     'packages/dart_mobile_device/lib/src/target/iphone/device/device_prepare.dart',
   },
