@@ -9,8 +9,8 @@ import 'package:dart_mobile_device/dart_mobile_device_shared.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/basic/doctor_environment_checks.dart';
-import 'package:xcross/src/cli/basic/doctor_models.dart';
+import 'package:xcross/src/shared/cli/basic/doctor_environment_checks.dart';
+import 'package:xcross/src/shared/cli/basic/doctor_models.dart';
 
 import 'auth_fixture.dart' show AuthNamespaceIdentity, AuthNamespacePermissions;
 import 'runtime_fixture.dart';

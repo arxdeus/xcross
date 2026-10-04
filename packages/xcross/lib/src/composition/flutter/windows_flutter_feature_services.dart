@@ -1,10 +1,6 @@
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:xcross/src/composition/flutter/swiftpm_foundation.dart';
-import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
-import 'package:xcross/src/flutter/build/internal/swiftpm_binary_fixture.dart';
-import 'package:xcross/src/flutter/build/internal/windows_swift_plan_repair.dart';
-import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer.dart';
 import 'package:xcross/src/host/shared/flutter/flutter_sdk_host_policy.dart';
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
@@ -13,6 +9,10 @@ import 'package:xcross/src/host/windows/flutter/swiftpm/dependency_preparation.d
 import 'package:xcross/src/host/windows/flutter/swiftpm/gate_platform.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/host_build_services.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/pinned_dependency_resolver.dart';
+import 'package:xcross/src/host/windows/flutter/swiftpm/windows_swift_plan_repair.dart';
+import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
+import 'package:xcross/src/shared/flutter/build/internal/swiftpm_binary_fixture.dart';
+import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';

@@ -1,0 +1,414 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
+import 'package:apple_developer_kit/src/shared/errors/errors.dart';
+import 'package:apple_developer_kit/src/shared/signing/der.dart';
+import 'package:apple_developer_kit/src/shared/signing/internal/profile_identity.dart';
+import 'package:apple_developer_kit/src/shared/signing/provisioning_profile.dart';
+import 'package:apple_developer_kit/src/shared/signing/x509.dart';
+import 'package:crypto/crypto.dart' as crypto;
+import 'package:meta/meta.dart';
+import 'package:pointycastle/export.dart';
+import 'package:propertylistserialization/propertylistserialization.dart';
+
+/// Parsed signing material used to produce Apple code-signing CMS blobs.
+@immutable
+class SigningAsset {
+  const SigningAsset._({
+    required this.privateKey,
+    required this.leafCertificateDer,
+    required this.profileCmsBytes,
+    required this.profilePlistBytes,
+    required this.profile,
+    required this.entitlements,
+    required this.teamIdentifier,
+    required this.applicationIdentifier,
+    required this.applicationIdentifierPrefix,
+    required this.certificateCommonName,
+    required ParsedCertificate certificate,
+    required List<Uint8List> certificateChain,
+  }) : _certificate = certificate,
+       _certificateChain = certificateChain;
+
+  final RSAPrivateKey privateKey;
+  final Uint8List leafCertificateDer;
+  final Uint8List profileCmsBytes;
+  final Uint8List profilePlistBytes;
+  final Map<String, Object?> profile;
+  final Map<String, Object?> entitlements;
+
+  /// App Groups this profile actually grants.
+  ///
+  /// Authoritative in a way the provisioning calls are not: iOS honours what
+  /// the profile says, not what xcross asked for. A profile whose App ID has
+  /// the App Groups capability enabled but no group attached carries an empty
+  /// list, and signing a real group against it makes installd reject the app
+  /// with `0xe8008015`. Callers can therefore check here whether a shared
+  /// container will actually work before promising the user one.
+  List<String> get grantedAppGroups => switch (entitlements['com.apple.security'
+      '.application-groups']) {
+    final List<Object?> groups => [
+      for (final group in groups)
+        if (group is String && group.isNotEmpty) group,
+    ],
+    _ => const [],
+  };
+  final String teamIdentifier;
+  final String applicationIdentifier;
+  final String applicationIdentifierPrefix;
+  final String certificateCommonName;
+  final ParsedCertificate _certificate;
+  final List<Uint8List> _certificateChain;
+
+  /// Loads and validates a PEM RSA key, PEM leaf certificate, and
+  /// CMS-wrapped mobile provisioning profile.
+  factory SigningAsset.fromBytes({
+    required String keyPem,
+    required String certificatePem,
+    required Uint8List profileCms,
+    required String privateKeyPemPath,
+    required String certificatePemPath,
+    required String provisioningProfilePath,
+    Map<String, Object?> declaredEntitlements = const {},
+    DateTime? now,
+    @visibleForTesting List<Uint8List> trustedRootCertificates = const [],
+  }) {
+    final privateKey = parsePrivateKey(keyPem, privateKeyPemPath);
+    final certificate = parseCertificatePem(certificatePem, certificatePemPath);
+    final profileContent = parseProfileCms(profileCms, provisioningProfilePath);
+    final profile = parsePlist(profileContent.plist, provisioningProfilePath);
+    final effectiveNow = (now ?? DateTime.now()).toUtc();
+
+    _requireKeyMatchesCertificate(
+      privateKey,
+      certificate,
+      privateKeyPemPath,
+      certificatePemPath,
+    );
+    _requireWithinValidityWindows(
+      certificate: certificate,
+      profile: profile,
+      now: effectiveNow,
+      certificatePath: certificatePemPath,
+      profilePath: provisioningProfilePath,
+    );
+    _requireCertificateIsInProfile(
+      certificate,
+      profile,
+      certificatePemPath,
+      provisioningProfilePath,
+    );
+
+    final identity = _readIdentity(profile, provisioningProfilePath);
+    final certificateChain = buildCertificateChain(
+      leaf: certificate,
+      profileCertificates: profileContent.certificates,
+      trustedRootCertificates: trustedRootCertificates,
+      now: effectiveNow,
+      profilePath: provisioningProfilePath,
+    );
+
+    return SigningAsset._(
+      privateKey: privateKey,
+      leafCertificateDer: Uint8List.fromList(certificate.der),
+      profileCmsBytes: Uint8List.fromList(profileCms),
+      profilePlistBytes: Uint8List.fromList(profileContent.plist),
+      profile: Map.unmodifiable(profile),
+      entitlements: Map.unmodifiable(
+        _withDeclaredEntitlements(identity.entitlements, declaredEntitlements),
+      ),
+      teamIdentifier: identity.teamIdentifier,
+      applicationIdentifier: identity.applicationIdentifier,
+      applicationIdentifierPrefix: identity.applicationIdentifierPrefix,
+      certificateCommonName: certificate.commonName,
+      certificate: certificate,
+      certificateChain: certificateChain,
+    );
+  }
+
+  /// Refuses a key and certificate that do not describe the same RSA pair.
+  static void _requireKeyMatchesCertificate(
+    RSAPrivateKey privateKey,
+    ParsedCertificate certificate,
+    String privateKeyPemPath,
+    String certificatePemPath,
+  ) {
+    if (privateKey.modulus != certificate.publicKey!.modulus ||
+        privateKey.publicExponent != certificate.publicKey!.publicExponent) {
+      throw AppleError(
+        'RSA private key "$privateKeyPemPath" does not match certificate '
+        '"$certificatePemPath".',
+      );
+    }
+  }
+
+  static void _requireWithinValidityWindows({
+    required ParsedCertificate certificate,
+    required Map<String, Object?> profile,
+    required DateTime now,
+    required String certificatePath,
+    required String profilePath,
+  }) {
+    checkValidity(
+      now,
+      certificate.notBefore!,
+      certificate.notAfter!,
+      'Certificate "$certificatePath"',
+    );
+    checkValidity(
+      now,
+      requiredDate(profile, 'CreationDate', profilePath),
+      requiredDate(profile, 'ExpirationDate', profilePath),
+      'Provisioning profile "$profilePath"',
+    );
+  }
+
+  /// The profile enumerates the certificates it authorises; signing with one
+  /// it does not list would produce a bundle the device rejects.
+  static void _requireCertificateIsInProfile(
+    ParsedCertificate certificate,
+    Map<String, Object?> profile,
+    String certificatePemPath,
+    String profilePath,
+  ) {
+    final authorised = developerCertificates(profile, profilePath);
+    if (!authorised.any(
+      (candidate) => bytesEqual(candidate, certificate.der),
+    )) {
+      throw AppleError(
+        'Certificate "$certificatePemPath" is absent from '
+        'DeveloperCertificates in provisioning profile '
+        '"$profilePath".',
+      );
+    }
+  }
+
+  /// Keys the profile owns outright: they identify the signature, and installd
+  /// checks them against the profile, so the app's own file must not move them.
+  static const _profileOwnedEntitlements = {
+    'application-identifier',
+    'com.apple.developer.team-identifier',
+    'get-task-allow',
+    'beta-reports-active',
+    'keychain-access-groups',
+  };
+
+  /// Whether [value] is Apple's "whatever the app declares" placeholder.
+  ///
+  /// Profiles carry it as a bare string or as a one-element array, depending on
+  /// the entitlement (`com.apple.developer.applesignin` is granted as `("*")`,
+  /// `associated-domains` as `*`).
+  static bool _isWildcard(Object? value) => switch (value) {
+    '*' => true,
+    final List<Object?> list => list.length == 1 && list.single == '*',
+    _ => false,
+  };
+
+  /// Replaces the profile's *wildcard* grants with what the app declares.
+  ///
+  /// A development profile grants `com.apple.developer.associated-domains` as
+  /// `*` - Apple's "whatever the app declares" - and signing with that verbatim
+  /// leaves the app declaring a literal `*`. iOS then cannot match the callback
+  /// host an `ASWebAuthenticationSession` is waiting for, and the flow dies
+  /// instantly with "Login was cancelled", which reads like the user backed out.
+  ///
+  /// Only wildcards are replaced, which is what makes this safe to apply to
+  /// every key rather than to a list that has to be kept up to date. Where the
+  /// profile names a concrete value it is the authority and the app's file loses:
+  /// a profile grants `aps-environment` as exactly `development` or
+  /// `production`, and a project that declares `production` against a
+  /// development profile would otherwise be signed into an install failure.
+  /// App Groups behave the same way - the profile carries the team-qualified
+  /// group, the project's file the unqualified one it was written with.
+  ///
+  /// A key the profile does not grant at all is left alone: an entitlement the
+  /// profile lacks is refused by installd, so adding one locally cannot help.
+  static Map<String, Object?> _withDeclaredEntitlements(
+    Map<String, Object?> granted,
+    Map<String, Object?> declared,
+  ) {
+    if (declared.isEmpty) return granted;
+    final effective = Map<String, Object?>.from(granted);
+    for (final entry in declared.entries) {
+      if (_profileOwnedEntitlements.contains(entry.key)) continue;
+      if (!granted.containsKey(entry.key)) continue;
+      if (!_isWildcard(granted[entry.key])) continue;
+      effective[entry.key] = entry.value;
+    }
+    return effective;
+  }
+
+  static ProfileIdentity _readIdentity(
+    Map<String, Object?> profile,
+    String profilePath,
+  ) {
+    final teamIdentifier = requiredFirstString(
+      profile,
+      'TeamIdentifier',
+      profilePath,
+    );
+    final entitlements = requiredMap(
+      profile['Entitlements'],
+      'Entitlements',
+      profilePath,
+    );
+    final applicationIdentifier = entitlements['application-identifier'];
+    if (applicationIdentifier is! String || applicationIdentifier.isEmpty) {
+      throw AppleError(
+        'Provisioning profile "$profilePath" is missing '
+        'Entitlements.application-identifier.',
+      );
+    }
+    // The prefix is normally listed outright; older profiles only imply it as
+    // the part of the application identifier before the first dot.
+    final prefix = switch (profile['ApplicationIdentifierPrefix']) {
+      [final String first, ...] when first.isNotEmpty => first,
+      _ => applicationIdentifier.split('.').first,
+    };
+    return ProfileIdentity(
+      teamIdentifier: teamIdentifier,
+      entitlements: entitlements,
+      applicationIdentifier: applicationIdentifier,
+      applicationIdentifierPrefix: prefix,
+    );
+  }
+
+  /// Builds detached CMS SignedData for [codeDirectoryBytes].
+  ///
+  /// [cdhashBytes] is the full 32-byte SHA-256 CodeDirectory hash. Apple's
+  /// legacy cdhash plist receives its first 20 bytes, while CDHashes2 receives
+  /// all 32 bytes. Supplying [signingTime] makes the output deterministic.
+  @useResult
+  Uint8List buildDetachedCms({
+    required Uint8List codeDirectoryBytes,
+    required Uint8List cdhashBytes,
+    DateTime? signingTime,
+  }) {
+    if (cdhashBytes.length != 32) {
+      throw ArgumentError.value(
+        cdhashBytes.length,
+        'cdhashBytes',
+        'must contain a full 32-byte SHA-256 hash',
+      );
+    }
+
+    final signedAttributesContent = _signedAttributes(
+      codeDirectoryBytes: codeDirectoryBytes,
+      cdhashBytes: cdhashBytes,
+      signingTime: signingTime ?? DateTime.now(),
+    );
+
+    // The signature is computed over an explicit SET OF, but SignerInfo embeds
+    // the very same content under an implicit [0]. CMS requires that swap.
+    final signer = Signer('SHA-256/RSA')
+      ..init(true, PrivateKeyParameter<RSAPrivateKey>(privateKey));
+    final signature =
+        (signer.generateSignature(Der.tlv(DerTag.set, signedAttributesContent))
+                as RSASignature)
+            .bytes;
+
+    final signerInfo = Der.sequence([
+      Der.unsignedInteger(1),
+      Der.sequence([_certificate.issuer, _certificate.serialNumber]),
+      Der.algorithmIdentifier(Oid.sha256, includeNull: false),
+      Der.tlv(DerTag.context0, signedAttributesContent),
+      Der.algorithmIdentifier(Oid.rsaEncryption),
+      Der.octetString(signature),
+    ]);
+
+    final signedData = Der.sequence([
+      Der.unsignedInteger(1),
+      Der.setOf([Der.algorithmIdentifier(Oid.sha256, includeNull: false)]),
+      Der.sequence([Der.oid(Oid.data)]),
+      Der.tlv(DerTag.context0, Der.sortedContent(_uniqueCertificates())),
+      Der.setOf([signerInfo]),
+    ]);
+    return Der.sequence([
+      Der.oid(Oid.signedData),
+      Der.tlv(DerTag.context0, signedData),
+    ]);
+  }
+
+  /// The signed attributes, already concatenated in DER `SET OF` order so the
+  /// same bytes can be reused under both the SET and the implicit `[0]` tag.
+  Uint8List _signedAttributes({
+    required Uint8List codeDirectoryBytes,
+    required Uint8List cdhashBytes,
+    required DateTime signingTime,
+  }) {
+    final digest = Uint8List.fromList(
+      crypto.sha256.convert(codeDirectoryBytes).bytes,
+    );
+    final cdhashPlist = utf8.encode(
+      PropertyListSerialization.stringWithPropertyList({
+        'cdhashes': [
+          ByteData.sublistView(Uint8List.fromList(cdhashBytes.sublist(0, 20))),
+        ],
+      }),
+    );
+    return Der.sortedContent(<Uint8List>[
+      Der.attribute(Oid.contentType, [Der.oid(Oid.data)]),
+      Der.attribute(Oid.signingTime, [Der.time(signingTime)]),
+      Der.attribute(Oid.messageDigest, [Der.octetString(digest)]),
+      Der.attribute(Oid.appleCdHashes, [Der.octetString(cdhashPlist)]),
+      Der.attribute(Oid.appleCdHashes2, [
+        Der.sequence([Der.oid(Oid.sha256), Der.octetString(cdhashBytes)]),
+      ]),
+    ]);
+  }
+
+  /// The leaf followed by its chain, deduplicated in case the profile already
+  /// embedded an intermediate this signer also carries.
+  Iterable<Uint8List> _uniqueCertificates() {
+    final unique = <String, Uint8List>{};
+    for (final certificate in [leafCertificateDer, ..._certificateChain]) {
+      unique[base64.encode(certificate)] = certificate;
+    }
+    return unique.values;
+  }
+}
+
+final class SigningAssetLoader {
+  SigningAssetLoader({required this.hostServices});
+
+  final AppleHostServices hostServices;
+
+  Future<SigningAsset> load({
+    required String privateKeyPemPath,
+    required String certificatePemPath,
+    required String provisioningProfilePath,
+    Map<String, Object?> declaredEntitlements = const {},
+    DateTime? now,
+    @visibleForTesting List<Uint8List> trustedRootCertificates = const [],
+  }) async => SigningAsset.fromBytes(
+    keyPem: await _readText(privateKeyPemPath, 'private key'),
+    certificatePem: await _readText(certificatePemPath, 'certificate'),
+    profileCms: await _readBytes(
+      provisioningProfilePath,
+      'provisioning profile',
+    ),
+    privateKeyPemPath: privateKeyPemPath,
+    certificatePemPath: certificatePemPath,
+    provisioningProfilePath: provisioningProfilePath,
+    declaredEntitlements: declaredEntitlements,
+    now: now,
+    trustedRootCertificates: trustedRootCertificates,
+  );
+
+  Future<String> _readText(String path, String description) async {
+    try {
+      return await hostServices.host.fileSystem.file(path).readAsString();
+    } on Object catch (error) {
+      throw AppleError('Could not read $description "$path": $error');
+    }
+  }
+
+  Future<Uint8List> _readBytes(String path, String description) async {
+    try {
+      return await hostServices.host.fileSystem.file(path).readAsBytes();
+    } on Object catch (error) {
+      throw AppleError('Could not read $description "$path": $error');
+    }
+  }
+}

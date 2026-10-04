@@ -5,7 +5,7 @@ import 'dart:typed_data';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/basic/sdk_install.dart';
+import 'package:xcross/src/shared/cli/basic/sdk_install.dart';
 import 'sdk_test_support.dart';
 
 void main() {

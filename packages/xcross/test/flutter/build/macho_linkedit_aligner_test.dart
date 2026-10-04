@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/macho_linkedit_aligner.dart';
+import 'package:xcross/src/shared/flutter/build/macho_linkedit_aligner.dart';
 
 /// Builds a minimal 64-bit Mach-O carrying LC_SYMTAB + LC_DYSYMTAB laid out
 /// the way `ld64.lld` emits it: the string table packed directly after an

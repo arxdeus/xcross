@@ -96,11 +96,13 @@ class IdentityAnalysis {
         return {'host'};
       }
       if (name == 'targetArchitecture' ||
-          element.enclosingElement?.name == 'Architecture' && name == 'current') {
+          element.enclosingElement?.name == 'Architecture' &&
+              name == 'current') {
         return {'architecture'};
       }
     }
-    if (element.enclosingElement?.name == 'NativeHostSnapshot' && name == 'abi') {
+    if (element.enclosingElement?.name == 'NativeHostSnapshot' &&
+        name == 'abi') {
       return {'architecture'};
     }
     if (platformOwner(element)) {

@@ -1,5 +1,5 @@
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_containment.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';

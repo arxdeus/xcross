@@ -2,11 +2,11 @@ import 'dart:io';
 
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/compose/project/ios_app_config.dart';
-import 'package:xcross/src/compose/project/kmp_project.dart';
-import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/shared/compose/gradle_kmp_metadata.dart';
 import 'package:xcross/src/shared/compose/kmp_entry_discovery.dart';
+import 'package:xcross/src/shared/compose/project/ios_app_config.dart';
+import 'package:xcross/src/shared/compose/project/kmp_project.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
 
 final class KmpProjectDetector {
   KmpProjectDetector({

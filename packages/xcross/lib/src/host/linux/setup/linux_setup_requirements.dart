@@ -3,9 +3,9 @@ import 'dart:io';
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/cli/basic/internal/clang_requirement.dart';
-import 'package:xcross/src/cli/basic/internal/linux_package_manager.dart';
-import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/host/linux/setup/linux_package_manager.dart';
+import 'package:xcross/src/shared/cli/basic/internal/clang_requirement.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
 
 final class LinuxSetupRequirements implements SetupRequirements {

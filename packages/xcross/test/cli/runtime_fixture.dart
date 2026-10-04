@@ -10,14 +10,14 @@ import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:http/http.dart' as http;
 import 'package:xcross/src/composition/host/linux_xcross_context.dart';
 import 'package:xcross/src/composition/xcross_application.dart';
-import 'package:xcross/src/config/config.dart';
-import 'package:xcross/src/config/runtime_config.dart';
-import 'package:xcross/src/flutter/hot_reload/vm_service_output.dart';
 import 'package:xcross/src/shared/cli/command_prompt.dart';
+import 'package:xcross/src/shared/config/config.dart';
+import 'package:xcross/src/shared/config/runtime_config.dart';
+import 'package:xcross/src/shared/flutter/hot_reload/vm_service_output.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
+import 'package:xcross/src/shared/update/release_lookup.dart';
 import 'package:xcross/src/target/iphone/device/signing_http_client_factory.dart';
-import 'package:xcross/src/update/release_lookup.dart';
 
 import '../log_fixture.dart';
 

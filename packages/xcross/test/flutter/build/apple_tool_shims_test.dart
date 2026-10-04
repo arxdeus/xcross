@@ -5,13 +5,13 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
-import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/host/linux/flutter/native_host_tools.dart';
 import 'package:xcross/src/host/macos/flutter/native_host_tools.dart';
 import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer_posix.dart';
 import 'package:xcross/src/host/windows/flutter/apple_tool_shim_renderer.dart';
 import 'package:xcross/src/host/windows/flutter/native_host_tools.dart';
+import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
+import 'package:xcross/src/shared/flutter/errors.dart';
 
 import 'support/native_flutter_fixtures.dart';
 

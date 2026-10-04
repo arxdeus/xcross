@@ -1,6 +1,6 @@
 import 'package:test/test.dart';
-import 'package:xcross/src/device/internal/signed_bundle_identity.dart';
-import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/target/iphone/device/internal/signed_bundle_identity.dart';
 
 void main() {
   test('computes the exact signed id once, including qualification', () {

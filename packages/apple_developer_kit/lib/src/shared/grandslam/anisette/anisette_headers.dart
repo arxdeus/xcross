@@ -1,0 +1,110 @@
+import 'dart:convert';
+
+import 'package:apple_developer_kit/src/shared/grandslam/anisette/anisette_state.dart';
+import 'package:crypto/crypto.dart' as crypto;
+import 'package:meta/meta.dart';
+
+/// Client identity string Apple's servers expect. Cross-validated against
+/// Dadoum/Provision and xtool's `XADIProvider`: intentionally a stable
+/// fixed value, never real host hardware. GrandSlam's edge rejects client-info
+/// containing com.apple.dt.Xcode. Use the AuthKit daemon identity instead:
+/// https://github.com/Dadoum/anisette-v3-server/issues/59.
+@internal
+const String anisetteClientInfo =
+    '<MacBookPro13,2> <macOS;13.1;22C65> '
+    '<com.apple.AuthKit/1 (com.apple.akd/1.0)>';
+
+const String _defaultLocale = 'en_US';
+const String _defaultTimeZone = 'America/Los_Angeles';
+const String _defaultCountry = 'US';
+
+/// Builders for the `X-Apple-*`/`X-Mme-*` header sets GrandSlam requires.
+/// Every header name, spelling, and casing below is a protocol constant.
+@internal
+abstract final class AnisetteHeaders {
+  /// Headers accompanying an authenticated GrandSlam request.
+  @useResult
+  static Map<String, String> buildAnisetteHeaders({
+    required String oneTimePassword,
+    required String machineIdentifier,
+    required String routingInfo,
+    required String localUserUid,
+    required String localeName,
+    String? clientInfo,
+    String? deviceId,
+    String? localUserId,
+  }) => {
+    'X-Apple-I-MD': oneTimePassword,
+    'X-Apple-I-MD-M': machineIdentifier,
+    'X-Apple-I-MD-RINFO': routingInfo,
+    'X-Apple-I-MD-LU': localUserId ?? anisetteLocalUserIdHash(localUserUid),
+    'X-Mme-Device-Id': deviceId ?? localUserUid,
+    'X-MMe-Client-Info': clientInfo ?? anisetteClientInfo,
+    'X-Apple-Locale': anisetteSystemLocale(localeName: localeName),
+    'X-Apple-I-TimeZone': _defaultTimeZone,
+    'X-Apple-I-Client-Time': anisetteIsoClientTime(),
+  };
+
+  /// Headers for the GrandSlam endpoint-bag lookup, which runs before any
+  /// ADI identity exists (hence no OTP/machine-identifier headers).
+  @useResult
+  static Map<String, String> buildAnisetteLookupHeaders(
+    AnisetteState state, {
+    required String localeName,
+    String? clientInfo,
+    String? deviceId,
+  }) => {
+    'X-MMe-Client-Info': clientInfo ?? anisetteClientInfo,
+    'X-Mme-Device-Id': deviceId ?? state.localUserUid,
+    'X-Apple-I-Locale': anisetteSystemLocale(localeName: localeName),
+    'X-Apple-I-TimeZone': _defaultTimeZone,
+    'X-Apple-I-TimeZone-Offset': '${DateTime.now().timeZoneOffset.inSeconds}',
+    'X-MMe-Country': _defaultCountry,
+  };
+
+  /// Headers for the one-time device provisioning POSTs.
+  @useResult
+  static Map<String, String> buildAnisetteProvisioningHeaders(
+    AnisetteState state, {
+    required String localeName,
+  }) => {
+    'Content-Type': 'text/x-xml-plist',
+    'X-Apple-I-Client-Time': anisetteIsoClientTime(),
+    'X-Apple-I-MD-LU': anisetteLocalUserIdHash(state.localUserUid),
+    'X-Mme-Device-Id': state.localUserUid,
+    'X-MMe-Client-Info': anisetteClientInfo,
+    'X-MMe-Country': _defaultCountry,
+    'X-Apple-I-Locale': anisetteSystemLocale(localeName: localeName),
+    'X-Apple-I-TimeZone': _defaultTimeZone,
+  };
+
+  /// `X-Apple-I-MD-LU`: uppercase hex SHA-256 of the install's identity UUID.
+  @useResult
+  static String anisetteLocalUserIdHash(String localUserUid) => crypto.sha256
+      .convert(utf8.encode(localUserUid))
+      .bytes
+      .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+      .join()
+      .toUpperCase();
+
+  /// `X-Apple-I-Client-Time`: second-precision UTC ISO-8601. Deliberately
+  /// hand-built - `toIso8601String()` would append milliseconds.
+  @useResult
+  static String anisetteIsoClientTime() {
+    final now = DateTime.now().toUtc();
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${now.year.toString().padLeft(4, '0')}'
+        '-${two(now.month)}-${two(now.day)}'
+        'T${two(now.hour)}:${two(now.minute)}:${two(now.second)}Z';
+  }
+
+  /// The host locale as `ll_CC`, falling back to [_defaultLocale] when the
+  /// platform reports something Apple would not recognise.
+  @useResult
+  static String anisetteSystemLocale({required String localeName}) {
+    final raw = localeName.split(RegExp('[.@]')).first.replaceAll('-', '_');
+    return RegExp(r'^[a-zA-Z]{2,3}_[a-zA-Z]{2,4}$').hasMatch(raw)
+        ? raw
+        : _defaultLocale;
+  }
+}

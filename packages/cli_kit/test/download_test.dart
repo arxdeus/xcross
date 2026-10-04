@@ -2,9 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/src/download.dart';
-import 'package:cli_kit/src/errors.dart';
-import 'package:cli_kit/src/logging.dart';
+import 'package:cli_kit/src/shared/download/download.dart';
+import 'package:cli_kit/src/shared/errors/errors.dart';
+import 'package:cli_kit/src/shared/logging/logging.dart';
 import 'package:test/test.dart';
 
 import 'support/log_output.dart';

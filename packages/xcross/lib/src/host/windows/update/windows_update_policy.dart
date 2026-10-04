@@ -1,7 +1,7 @@
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/shared/update/install_layout.dart';
 import 'package:xcross/src/shared/update/update_host_policy.dart';
-import 'package:xcross/src/update/install_layout.dart';
 
 final class WindowsUpdatePolicy implements UpdateHostPolicy {
   const WindowsUpdatePolicy(this.host, this.privileges);

@@ -2,14 +2,14 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:dart_mobile_device/src/errors.dart';
-import 'package:dart_mobile_device/src/models/device.dart';
-import 'package:dart_mobile_device/src/pymd/pymd.dart';
-import 'package:dart_mobile_device/src/pymd/pymd_devices.dart';
-import 'package:dart_mobile_device/src/pymd/remote_pairing.dart';
+import 'package:dart_mobile_device/src/shared/device/models/device.dart';
+import 'package:dart_mobile_device/src/shared/errors/errors.dart';
+import 'package:dart_mobile_device/src/target/iphone/device/pymd/pymd.dart';
+import 'package:dart_mobile_device/src/target/iphone/device/pymd/pymd_devices.dart';
+import 'package:dart_mobile_device/src/target/iphone/device/pymd/remote_pairing.dart';
+import 'package:dart_mobile_device/src/target/iphone/device/tunnel/tunnel_daemon.dart';
+import 'package:dart_mobile_device/src/target/iphone/device/tunnel/tunnel_discovery.dart';
 import 'package:dart_mobile_device/src/target/iphone/preparation/developer_disk_image.dart';
-import 'package:dart_mobile_device/src/tunnel/tunnel_daemon.dart';
-import 'package:dart_mobile_device/src/tunnel/tunnel_discovery.dart';
 import 'package:meta/meta.dart';
 
 /// Bootstrap route selected by `xcross tunnel --wifi`.

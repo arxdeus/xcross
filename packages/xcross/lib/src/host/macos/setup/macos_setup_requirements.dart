@@ -1,6 +1,6 @@
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
-import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
 
 final class MacOSSetupRequirements implements SetupRequirements {

@@ -1,12 +1,13 @@
 import 'dart:io';
-import 'package:cli_kit/cli_kit.dart';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/host/shared/update/posix_dart_launcher.dart';
 import 'package:xcross/src/host/windows/xcrun/windows_executable.dart';
-import 'package:xcross/src/update/internal/dart_executable_resolver.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/shared/update/internal/dart_executable_resolver.dart';
+
 import '../host_operations_fixtures.dart';
 
 void main() {

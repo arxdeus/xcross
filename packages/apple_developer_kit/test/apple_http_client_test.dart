@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:apple_developer_kit/src/apple_http_client.dart';
+import 'package:apple_developer_kit/src/shared/http/apple_http_client.dart';
 import 'package:http/io_client.dart';
 import 'package:test/test.dart';
 

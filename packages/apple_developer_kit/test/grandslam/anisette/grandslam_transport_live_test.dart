@@ -3,7 +3,7 @@
 import 'dart:io';
 
 import 'package:apple_developer_kit/apple_developer_kit.dart';
-import 'package:apple_developer_kit/src/grandslam/anisette/anisette_headers.dart';
+import 'package:apple_developer_kit/src/shared/grandslam/anisette/anisette_headers.dart';
 import 'package:test/test.dart';
 
 void main() {

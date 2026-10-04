@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:cli_kit/src/composition/native_host.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/update/semver.dart';
+import 'package:xcross/src/shared/update/semver.dart';
 
 const _encodedVersion = String.fromEnvironment(
   'XCROSS_VERSION',
@@ -59,7 +59,14 @@ Future<int> buildXcross({
   final version = _normalizeVersion(Uri.decodeComponent(encodedVersion));
   _validateIdentity(packageRoot, version, released: released);
   final generated = File(
-    p.join(packageRoot.path, 'lib', 'src', 'version.g.dart'),
+    p.join(
+      packageRoot.path,
+      'lib',
+      'src',
+      'shared',
+      'runtime',
+      'version.g.dart',
+    ),
   );
   final original = await generated.readAsBytes();
   try {

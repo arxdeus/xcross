@@ -4,7 +4,7 @@ import 'package:archive/archive_io.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/shared/ipa_packager.dart';
+import 'package:xcross/src/shared/cli/shared/ipa_packager.dart';
 
 /// Deterministic, non-repeating byte content — long enough that a truncated
 /// or reordered copy would fail the equality check.

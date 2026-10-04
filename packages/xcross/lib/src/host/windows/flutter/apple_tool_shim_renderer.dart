@@ -1,9 +1,9 @@
 import 'dart:convert';
 
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer.dart';
 import 'package:xcross/src/host/windows/flutter/apple_tool_shim_templates.dart';
+import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
 
 final class WindowsAppleToolShimRenderer<T extends WindowsHostInterface>
     implements AppleToolShimRenderer<T> {

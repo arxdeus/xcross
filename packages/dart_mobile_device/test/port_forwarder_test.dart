@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dart_mobile_device/src/tunnel/port_forwarder.dart';
+import 'package:dart_mobile_device/src/shared/device/tunnel/port_forwarder.dart';
 import 'package:test/test.dart';
 
 import 'test_device_sockets.dart';

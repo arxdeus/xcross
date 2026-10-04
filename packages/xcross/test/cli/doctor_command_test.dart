@@ -10,12 +10,12 @@ import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart' show IPhoneBuildPlatform;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/basic/doctor_command.dart';
-import 'package:xcross/src/cli/basic/doctor_environment_checks.dart';
-import 'package:xcross/src/cli/basic/doctor_project_checks.dart';
-import 'package:xcross/src/cli/runner.dart';
-import 'package:xcross/src/config/config.dart';
-import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/composition/cli/doctor_project_checks.dart';
+import 'package:xcross/src/composition/cli/runner.dart';
+import 'package:xcross/src/shared/cli/basic/doctor_command.dart';
+import 'package:xcross/src/shared/cli/basic/doctor_environment_checks.dart';
+import 'package:xcross/src/shared/config/config.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
 
 import 'auth_fixture.dart';
 import 'doctor_environment_checks_test.dart' show DoctorServiceFixture;

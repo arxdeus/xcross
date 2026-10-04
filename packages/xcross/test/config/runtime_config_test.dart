@@ -3,10 +3,10 @@ import 'dart:io';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/config/config.dart';
-import 'package:xcross/src/config/runtime_config.dart';
 import 'package:xcross/src/host/shared/config/posix_config_host.dart';
 import 'package:xcross/src/host/windows/config/windows_config_host.dart';
+import 'package:xcross/src/shared/config/config.dart';
+import 'package:xcross/src/shared/config/runtime_config.dart';
 
 import '../log_fixture.dart';
 

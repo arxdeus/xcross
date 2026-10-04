@@ -1,5 +1,5 @@
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 import 'package:xcross/src/target/iphone/runtime/build_features.dart';
 import 'package:xcross/src/target/shared/runtime/build_features.dart';

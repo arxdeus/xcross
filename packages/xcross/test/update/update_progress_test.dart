@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:test/test.dart';
 
-import 'package:xcross/src/update/update_progress.dart';
+import 'package:xcross/src/shared/update/update_progress.dart';
 import '../host_operations_fixtures.dart';
 
 Future<List<String>> _captureAsync(Future<void> Function() body) async {

@@ -9,11 +9,11 @@ import 'package:xcross/src/composition/host/linux_xcross_context.dart';
 import 'package:xcross/src/composition/host/macos_xcross_context.dart';
 import 'package:xcross/src/composition/host/windows_xcross_context.dart';
 import 'package:xcross/src/composition/xcross_host_context.dart';
-import 'package:xcross/src/flutter/hot_reload/vm_service_output.dart';
 import 'package:xcross/src/shared/cli/command_prompt.dart';
 import 'package:xcross/src/shared/device/signing_http_client_factory.dart';
+import 'package:xcross/src/shared/flutter/hot_reload/vm_service_output.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
-import 'package:xcross/src/update/release_lookup.dart';
+import 'package:xcross/src/shared/update/release_lookup.dart';
 
 export 'package:xcross/src/composition/native_runtime.dart';
 

@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/internal/native_assets_manifest.dart';
+import 'package:xcross/src/shared/flutter/build/internal/native_assets_manifest.dart';
 
 void main() {
   test(

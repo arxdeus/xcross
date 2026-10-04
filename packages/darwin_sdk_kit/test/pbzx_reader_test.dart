@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:darwin_sdk_kit/src/pbzx_reader.dart';
+import 'package:darwin_sdk_kit/src/shared/archive/pbzx_reader.dart';
 import 'package:test/test.dart';
 
 import 'test_fixtures.dart';

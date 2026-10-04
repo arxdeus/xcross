@@ -4,7 +4,7 @@ import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/hot_reload/dart_vm_service_client.dart';
+import 'package:xcross/src/shared/flutter/hot_reload/dart_vm_service_client.dart';
 import 'package:xcross/src/shared/flutter/vm_service_connector.dart';
 
 import 'flutter_test_log.dart';

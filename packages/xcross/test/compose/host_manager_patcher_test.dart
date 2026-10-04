@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/compose/toolchain/host_manager_patcher.dart';
+import 'package:xcross/src/shared/compose/toolchain/host_manager_patcher.dart';
 
 import 'support/class_file_builder.dart';
 import 'support/class_file_inspector.dart';

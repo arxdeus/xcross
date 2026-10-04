@@ -7,8 +7,8 @@ import 'package:dds/dap.dart';
 import 'package:frontend_server_kit/frontend_server_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/dap/dap_router.dart';
-import 'package:xcross/src/dap/xcross_dap.dart';
+import 'package:xcross/src/shared/dap/dap_router.dart';
+import 'package:xcross/src/shared/dap/xcross_dap.dart';
 
 import '../device/test_log_output.dart';
 

@@ -1,10 +1,10 @@
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/device/core_device_launch_profile.dart';
-import 'package:xcross/src/device/device_backend.dart';
-import 'package:xcross/src/device/device_run_operation.dart';
-import 'package:xcross/src/errors.dart';
-import 'package:xcross/src/models/pack_result.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/shared/models/pack_result.dart';
+import 'package:xcross/src/target/iphone/device/core_device_launch_profile.dart';
+import 'package:xcross/src/target/iphone/device/device_backend.dart';
+import 'package:xcross/src/target/iphone/device/device_run_operation.dart';
 
 import 'test_log_output.dart';
 

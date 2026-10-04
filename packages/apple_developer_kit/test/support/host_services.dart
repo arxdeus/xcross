@@ -2,9 +2,9 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:apple_developer_kit/apple_developer_kit.dart';
-import 'package:apple_developer_kit/src/adi/loader/internal/memory_allocator.dart';
 import 'package:apple_developer_kit/src/host/linux/adi/linux_memory_allocator.dart';
 import 'package:apple_developer_kit/src/host/macos/adi/macos_memory_allocator.dart';
+import 'package:apple_developer_kit/src/host/shared/adi/loader/internal/memory_allocator.dart';
 import 'package:cli_kit/cli_kit.dart';
 
 AppleHostServices get testHostServices {

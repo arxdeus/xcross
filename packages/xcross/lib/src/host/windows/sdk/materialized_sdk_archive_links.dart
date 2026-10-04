@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/sdk/sdk_archive_links.dart';
 import 'package:xcross/src/shared/sdk/sdk_directory_copy.dart';
 

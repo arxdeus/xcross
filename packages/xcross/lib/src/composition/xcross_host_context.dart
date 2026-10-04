@@ -8,22 +8,22 @@ import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
     show DeviceConsole, DeviceSockets;
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:http/http.dart' as http;
-import 'package:xcross/src/cli/runner.dart';
+import 'package:xcross/src/composition/cli/runner.dart';
 import 'package:xcross/src/composition/ios_target.dart';
 import 'package:xcross/src/composition/xcross_application.dart';
 import 'package:xcross/src/composition/xcrun_sdk.dart';
-import 'package:xcross/src/config/config.dart';
-import 'package:xcross/src/config/runtime_config.dart';
-import 'package:xcross/src/flutter/build/internal/swiftpm_gate_evidence.dart';
-import 'package:xcross/src/flutter/hot_reload/vm_service_output.dart';
 import 'package:xcross/src/shared/cli/command_prompt.dart';
+import 'package:xcross/src/shared/config/config.dart';
 import 'package:xcross/src/shared/config/config_host.dart';
+import 'package:xcross/src/shared/config/runtime_config.dart';
 import 'package:xcross/src/shared/device/signing_http_client_factory.dart';
+import 'package:xcross/src/shared/flutter/hot_reload/vm_service_output.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/gate_evidence.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
 import 'package:xcross/src/shared/tools/swiftpm_gate_operation.dart';
+import 'package:xcross/src/shared/update/release_lookup.dart';
 import 'package:xcross/src/shared/xcrun/xcrun_operation.dart';
 import 'package:xcross/src/target/shared/runtime/build_features.dart';
-import 'package:xcross/src/update/release_lookup.dart';
 
 abstract class XcrossHostContext<T extends PlatformHostInterface>
     implements XcrunRuntimeLoader, SwiftPmGateRuntimeLoader {

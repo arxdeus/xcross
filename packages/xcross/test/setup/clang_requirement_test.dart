@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:cli_kit/cli_kit.dart';
 
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/basic/internal/clang_requirement.dart';
+import 'package:xcross/src/shared/cli/basic/internal/clang_requirement.dart';
 import 'host_ops_residual_fixtures.dart';
 
 void main() {

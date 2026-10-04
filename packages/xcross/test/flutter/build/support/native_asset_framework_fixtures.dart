@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:xcross/src/flutter/build/internal/native_asset_frameworks.dart';
-import 'package:xcross/src/flutter/build/internal/recursive_directory_copy.dart';
+import 'package:xcross/src/shared/flutter/build/internal/native_asset_frameworks.dart';
+import 'package:xcross/src/shared/flutter/build/internal/recursive_directory_copy.dart';
 
 import '../../../host_operations_fixtures.dart';
 

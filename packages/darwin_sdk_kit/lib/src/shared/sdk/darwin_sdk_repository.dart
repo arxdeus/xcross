@@ -1,10 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/src/darwin_sdk.dart';
-import 'package:darwin_sdk_kit/src/errors.dart';
+import 'package:darwin_sdk_kit/src/shared/errors/errors.dart';
+import 'package:darwin_sdk_kit/src/shared/sdk/darwin_sdk.dart';
+import 'package:darwin_sdk_kit/src/shared/tbd/tbd_bundle_patch.dart';
 import 'package:darwin_sdk_kit/src/target/shared/ios_build_platform.dart';
-import 'package:darwin_sdk_kit/src/tbd_bundle_patch.dart';
 
 final class DarwinSdkRepository<T extends PlatformHostInterface> {
   DarwinSdkRepository(this.host, {required this.log, String? installBundle})

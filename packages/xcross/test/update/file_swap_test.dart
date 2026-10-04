@@ -1,12 +1,13 @@
 import 'dart:io';
-import 'package:cli_kit/cli_kit.dart';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/host/shared/update/posix_update_policy.dart';
 import 'package:xcross/src/host/windows/update/windows_update_policy.dart';
+import 'package:xcross/src/shared/update/internal/file_swap.dart';
 import 'package:xcross/src/shared/update/update_host_policy.dart';
-import 'package:xcross/src/update/internal/file_swap.dart';
+
 import '../host_operations_fixtures.dart';
 import 'file_swap_fixtures.dart';
 

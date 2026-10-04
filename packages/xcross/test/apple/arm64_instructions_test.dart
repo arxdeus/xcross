@@ -1,5 +1,5 @@
 import 'package:test/test.dart';
-import 'package:xcross/src/apple/arm64_instructions.dart';
+import 'package:xcross/src/shared/apple/arm64_instructions.dart';
 
 void main() {
   test('round trips positive and negative ADRP/LDR targets', () {

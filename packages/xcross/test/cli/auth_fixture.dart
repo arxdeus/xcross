@@ -5,7 +5,7 @@ import 'package:apple_developer_kit/apple_developer_kit_shared.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/cli/basic/auth_command.dart';
+import 'package:xcross/src/shared/cli/basic/auth_command.dart';
 
 import 'runtime_fixture.dart';
 

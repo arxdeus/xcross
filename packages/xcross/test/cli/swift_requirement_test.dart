@@ -3,8 +3,8 @@ import 'package:cli_kit/cli_kit.dart';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/basic/internal/swift_requirement.dart';
-import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/cli/basic/internal/swift_requirement.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
 import '../host_operations_fixtures.dart';
 import '../setup/host_ops_residual_fixtures.dart';
 

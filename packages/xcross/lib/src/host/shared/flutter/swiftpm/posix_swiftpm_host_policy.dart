@@ -1,4 +1,4 @@
-import 'package:xcross/src/flutter/build/ios_linker_compatibility.dart';
+import 'package:xcross/src/shared/flutter/build/ios_linker_compatibility.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 
 abstract class PosixSwiftPmHostPolicy implements SwiftPmHostPolicy {

@@ -1,7 +1,7 @@
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit_simulator.dart';
-import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/sdk/sdk_metadata_platform.dart';
 
 final class SimulatorSdkMetadataPlatform<T extends PlatformHostInterface>

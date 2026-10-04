@@ -1,7 +1,7 @@
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/sdk/sdk_install_constants.dart';
 import 'package:xcross/src/shared/sdk/sdk_json_file_writer.dart';
 import 'package:xcross/src/shared/sdk/sdk_metadata_platform.dart';

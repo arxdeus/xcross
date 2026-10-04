@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:darwin_sdk_kit/src/cpio_reader.dart';
+import 'package:darwin_sdk_kit/src/shared/archive/cpio_reader.dart';
 import 'package:test/test.dart';
 
 import 'test_fixtures.dart';

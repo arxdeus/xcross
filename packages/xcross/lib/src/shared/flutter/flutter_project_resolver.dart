@@ -1,5 +1,5 @@
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:xcross/src/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
 

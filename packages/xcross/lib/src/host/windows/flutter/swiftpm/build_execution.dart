@@ -1,5 +1,5 @@
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:xcross/src/flutter/build/internal/windows_swift_plan_repair.dart';
+import 'package:xcross/src/host/windows/flutter/swiftpm/windows_swift_plan_repair.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/build_execution.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/interop_consumer_repair.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/source_repair.dart';

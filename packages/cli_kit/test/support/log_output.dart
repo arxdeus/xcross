@@ -1,4 +1,4 @@
-import 'package:cli_kit/src/logging.dart';
+import 'package:cli_kit/src/shared/logging/logging.dart';
 
 class RecordingLogOutput implements LogOutput {
   RecordingLogOutput({this.supportsAnsi = false, this.terminalColumns = 80});

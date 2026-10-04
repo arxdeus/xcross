@@ -5,7 +5,7 @@ import 'package:apple_developer_kit/apple_developer_kit.dart';
 import 'package:args/command_runner.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/device/internal/signing_session.dart';
+import 'package:xcross/src/shared/auth/signing_session.dart';
 
 import 'auth_fixture.dart';
 import 'runtime_fixture.dart';

@@ -7,8 +7,8 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/device/device_backend.dart';
-import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/target/iphone/device/device_backend.dart';
 import 'package:xcross/src/target/iphone/device/signing_http_client_factory.dart';
 import 'package:xcross/src/target/iphone/device/signing_session_resolver.dart';
 
@@ -134,15 +134,13 @@ void main() {
 
   test('rejects non-app inputs before provisioning mutates Apple state', () {
     final uri = Isolate.resolvePackageUriSync(
-      Uri.parse('package:xcross/src/device/device_backend.dart'),
+      Uri.parse('package:xcross/src/target/iphone/device/device_backend.dart'),
     )!;
     final source = File.fromUri(uri).readAsStringSync();
     final guard = source.indexOf(
       'in-process signer currently supports xcross-generated .app',
     );
-    final provision = source.indexOf(
-      'await AscProvisioning(',
-    );
+    final provision = source.indexOf('await AscProvisioning(');
 
     expect(guard, greaterThanOrEqualTo(0));
     expect(provision, greaterThan(guard));

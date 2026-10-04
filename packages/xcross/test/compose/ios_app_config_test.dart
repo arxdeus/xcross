@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/compose/project/ios_app_config.dart';
+import 'package:xcross/src/shared/compose/project/ios_app_config.dart';
 
 import 'support/compose_platforms.dart';
 

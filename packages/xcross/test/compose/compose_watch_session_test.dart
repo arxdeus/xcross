@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/compose/watch/compose_watch_session.dart';
-import 'package:xcross/src/models/pack_result.dart';
+import 'package:xcross/src/shared/compose/watch/compose_watch_session.dart';
+import 'package:xcross/src/shared/models/pack_result.dart';
 
 import 'support/compose_platforms.dart';
 

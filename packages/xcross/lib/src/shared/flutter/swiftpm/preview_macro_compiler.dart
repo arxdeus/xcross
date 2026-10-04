@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:crypto/crypto.dart';
-import 'package:xcross/src/flutter/build/preview_macro_stub_source.dart';
+import 'package:xcross/src/shared/flutter/build/preview_macro_stub_source.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 
 abstract interface class SwiftPmNativeCompiler {

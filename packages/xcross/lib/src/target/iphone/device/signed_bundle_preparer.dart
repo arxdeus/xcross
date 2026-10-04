@@ -3,11 +3,11 @@ import 'dart:io';
 import 'package:cli_kit/cli_kit_shared.dart'
     show HostFileSystemInterface, HostPathsInterface;
 import 'package:propertylistserialization/propertylistserialization.dart';
-import 'package:xcross/src/device/internal/app_capabilities.dart';
-import 'package:xcross/src/device/internal/app_entitlements.dart';
-import 'package:xcross/src/device/internal/embedded_extension.dart';
-import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/artifact/app_capabilities.dart';
+import 'package:xcross/src/shared/artifact/app_entitlements.dart';
+import 'package:xcross/src/shared/artifact/embedded_extension.dart';
 import 'package:xcross/src/shared/artifact/plist_mutations.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
 
 final class SignedBundlePreparer {
   const SignedBundlePreparer({required this.fileSystem, required this.paths});

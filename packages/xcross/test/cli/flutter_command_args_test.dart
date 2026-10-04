@@ -4,11 +4,11 @@
 // `Command.argParser` seam from package:args — no private state.
 import 'package:args/command_runner.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/basic/auth_command.dart';
-import 'package:xcross/src/cli/flutter/subcommands/flutter_build_command.dart';
-import 'package:xcross/src/cli/flutter/subcommands/flutter_run_command.dart';
-import 'package:xcross/src/cli/runner.dart';
-import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/composition/cli/flutter_build_command.dart';
+import 'package:xcross/src/composition/cli/flutter_run_command.dart';
+import 'package:xcross/src/composition/cli/runner.dart';
+import 'package:xcross/src/shared/cli/basic/auth_command.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
 
 import 'runtime_fixture.dart';
 

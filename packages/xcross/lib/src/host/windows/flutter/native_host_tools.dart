@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
+import 'package:xcross/src/shared/flutter/errors.dart';
 
 final class WindowsNativeHostTools<T extends WindowsHostInterface>
     implements NativeHostTools<T> {

@@ -1,8 +1,8 @@
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/flutter/errors.dart';
-import 'package:xcross/src/flutter/models/internal/pubspec_font.dart';
-import 'package:xcross/src/flutter/models/pubspec_info.dart';
+import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/models/internal/pubspec_font.dart';
+import 'package:xcross/src/shared/flutter/models/pubspec_info.dart';
 import 'package:yaml/yaml.dart';
 
 final class PubspecInfoReader {

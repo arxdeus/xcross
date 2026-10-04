@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/hot_reload/vm_service_output.dart';
+import 'package:xcross/src/shared/flutter/hot_reload/vm_service_output.dart';
 
 Map<String, dynamic> _write(String text) => {
   'streamId': 'Stdout',

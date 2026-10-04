@@ -4,8 +4,8 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/device/internal/app_capabilities.dart';
-import 'package:xcross/src/device/internal/app_entitlements.dart';
+import 'package:xcross/src/shared/artifact/app_capabilities.dart';
+import 'package:xcross/src/shared/artifact/app_entitlements.dart';
 
 void main() {
   final host = MacOSHost();

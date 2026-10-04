@@ -1,9 +1,9 @@
 import 'package:args/command_runner.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/basic/update_command.dart';
-import 'package:xcross/src/errors.dart';
-import 'package:xcross/src/update/git_update_ref_resolver.dart';
-import 'package:xcross/src/update/install_layout.dart';
+import 'package:xcross/src/shared/cli/basic/update_command.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/shared/update/git_update_ref_resolver.dart';
+import 'package:xcross/src/shared/update/install_layout.dart';
 
 import 'runtime_fixture.dart';
 

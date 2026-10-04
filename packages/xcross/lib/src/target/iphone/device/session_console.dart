@@ -1,0 +1,455 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:dart_mobile_device/dart_mobile_device.dart'
+    show DeviceConsole, GdbRemoteClient, GdbReply, GdbReplyPacket;
+import 'package:meta/meta.dart';
+import 'package:pure/pure.dart';
+import 'package:xcross/src/shared/flutter/hot_reload/hot_reload_controller.dart';
+import 'package:xcross/src/shared/runtime/constants.dart';
+
+/// Interactive terminal session for an attached app: streams the app's stdout,
+/// dispatches `r`/`R`/`q` keypresses to hot reload, and stops on SIGINT or when
+/// the app exits.
+final class SessionConsole {
+  SessionConsole({
+    required this.log,
+    required this.console,
+    required this.keyboardInput,
+    required this.gdb,
+    required this.hotReload,
+    this.hotReloadUnavailable,
+    this.onRestartRequested,
+    this.crashReason,
+    this.recentDeviceLines,
+    this.listenForKeyboard = true,
+    this.allowPipedKeyboard = false,
+  });
+
+  /// Drain and keypress loops are already unwinding via [_stop] by the time we
+  /// await them; this only bounds a wedged stdin cancel that would otherwise
+  /// block process exit.
+  static const _unwindTimeout = Duration(seconds: 1);
+
+  final Log log;
+  final DeviceConsole console;
+  final Stream<List<int>> keyboardInput;
+  final GdbRemoteClient gdb;
+  HotReloadController? hotReload;
+
+  /// Rebuild-and-relaunch hook for runtimes without in-place hot reload
+  /// (Kotlin/Native Compose is AOT-compiled, so `r` can only mean "build the
+  /// new binary and restart the app").
+  ///
+  /// Returning `true` means the session should end so the caller can relaunch;
+  /// `false` keeps the current session running (e.g. the build failed).
+  final Future<bool> Function()? onRestartRequested;
+
+  /// The device log line explaining a native abort, when the app printed one.
+  /// A closure, not a value: the reason only exists once the crash happened.
+  final String? Function()? crashReason;
+
+  /// The app's last device-log lines, shown when a crash has no single
+  /// recognisable reason line so the user still gets something to go on.
+  final List<String> Function()? recentDeviceLines;
+
+  /// Whether the session reads interactive reload commands from stdin.
+  final bool listenForKeyboard;
+  final bool allowPipedKeyboard;
+
+  /// Why [hotReload] is null, shown when `r`/`R` are pressed anyway.
+  ///
+  /// A key that does nothing at all reads as a broken terminal, so the session
+  /// answers every press even when it has nothing to reload.
+  String? hotReloadUnavailable;
+
+  /// Completes the moment [_stop] is first called. `run()` awaits it instead of
+  /// polling, and [_drainGdbReplies] uses it to bail out without waiting for a
+  /// next GDB packet (which may never come after `q`).
+  final Completer<void> _stoppedCompleter = Completer<void>();
+
+  /// App output that arrived while a reload spinner was on screen. Writing it
+  /// straight to fd1 would shred the spinner block, so it waits its turn.
+  final List<List<int>> _heldOutput = [];
+
+  /// Prevents overlapping reload/restart operations.
+  bool _busy = false;
+
+  final Map<String, int> _resumedStops = {};
+  bool _resumePending = false;
+  static const _maxAutomaticResumes = 8;
+
+  Completer<void>? _keypressDone;
+
+  bool get _stopped => _stoppedCompleter.isCompleted;
+
+  bool get isStopped => _stopped;
+
+  Future<void> get stopped => _stoppedCompleter.future;
+
+  /// End the session when launch or setup fails before the normal run loop
+  /// finishes. Safe to call again from cleanup.
+  void stop() => _stop();
+
+  void configureHotReload({
+    required HotReloadController? controller,
+    required String? unavailable,
+  }) {
+    hotReload = controller;
+    hotReloadUnavailable = unavailable;
+  }
+
+  /// Signal every loop to unwind (idempotent).
+  void _stop() {
+    if (!_stoppedCompleter.isCompleted) _stoppedCompleter.complete();
+  }
+
+  void _finishKeypressLoop() {
+    final done = _keypressDone;
+    if (done != null && !done.isCompleted) done.complete();
+  }
+
+  /// Run until the app exits or the user quits.
+  Future<void> run() async {
+    // Forward Ctrl-C cleanly; a second Ctrl-C hard-kills in case cleanup hangs.
+    final signals = console.interrupts.listen((_) {
+      if (_stopped) exit(130);
+      _stop();
+    });
+
+    try {
+      final drainFuture = _drainGdbReplies();
+      final keypressFuture = listenForKeyboard
+          ? _runKeypressLoop()
+          : Future<void>.value();
+
+      await _stoppedCompleter.future;
+      await drainFuture.timeout(_unwindTimeout, onTimeout: nothing);
+      await keypressFuture.timeout(_unwindTimeout, onTimeout: nothing);
+    } finally {
+      // An uncancelled signal subscription keeps the event loop alive forever;
+      // bin/xcross.dart only sets exitCode, so a clean 'q' would never return.
+      // In a finally so a gdb socket error still lets the caller clean up.
+      await signals.cancel();
+    }
+  }
+
+  void _writeAppOutput(List<int> bytes) {
+    if (_busy) {
+      _heldOutput.add(bytes);
+      return;
+    }
+    try {
+      console.add(bytes);
+    } on Object catch (_) {
+      // Stdout can be wedged on Windows AOT after console-mode churn; dropping
+      // a chunk is better than hanging the drain loop forever.
+    }
+  }
+
+  void _flushAppOutput() {
+    for (final bytes in _heldOutput) {
+      _writeAppOutput(bytes);
+    }
+    _heldOutput.clear();
+  }
+
+  /// Forward `O` (stdout) packets and stop on exit/termination.
+  Future<void> _drainGdbReplies() async {
+    final done = Completer<void>();
+    void finish() {
+      if (!done.isCompleted) done.complete();
+    }
+
+    final sub = gdb.replies.listen(
+      (reply) {
+        if (_stopped) {
+          finish();
+          return;
+        }
+        switch (reply.type) {
+          case GdbReply.stdout:
+            _writeAppOutput(reply.stdoutBytes);
+          case GdbReply.exited || GdbReply.terminated:
+            log.logInfo('App exited ${log.dim('(${reply.payload})')}');
+            _stop();
+            finish();
+          case GdbReply.stopped:
+            // A crash arrives as a T-packet, not as W/X: the process is
+            // stopped, not gone. Ignoring it (the old behaviour) left the
+            // app frozen on a black screen with no output at all, which is
+            // indistinguishable from a hang. Report it and end the session.
+            if (_mustReportStop(reply)) {
+              _reportStop(reply);
+              _stop();
+              finish();
+            } else {
+              _resumeAttachHandOff(reply, finish);
+            }
+          case GdbReply.other:
+            break;
+        }
+      },
+      onDone: finish,
+      onError: (_) => finish(),
+      cancelOnError: true,
+    );
+
+    // Exit as soon as either the stream ends or the user quits — don't sit on
+    // `await for` forever with no more packets after `q`.
+    await Future.any([done.future, _stoppedCompleter.future]);
+    try {
+      await sub.cancel().timeout(const Duration(milliseconds: 500));
+    } on Object catch (_) {}
+  }
+
+  /// Attach SIGTRAP policy: attaching can leave one bare, unnamed stop behind
+  /// as the debugger's hand-off, and that stop is resumed automatically.
+  /// Anything else is reported instead of resumed:
+  /// - a fatal or named stop ([GdbReplyPacket.isFatalStop]),
+  /// - any SIGTRAP after a stop was already resumed (the hand-off happens
+  ///   once).
+  ///
+  /// Only a bare SIGTRAP gets past the first rule and the second rejects any
+  /// later one, so at most one stop is ever resumed. The remaining checks, a
+  /// repeat at the same execution point, [_maxAutomaticResumes] or more
+  /// resumes, and a stop during an in-flight resume, are defensive bounds that
+  /// keep the loop finite if those two rules ever change.
+  bool _mustReportStop(GdbReplyPacket reply) {
+    if (reply.isFatalStop) return true;
+    if (reply.stopSignal == GdbReplyPacket.sigtrap &&
+        _resumedStops.isNotEmpty) {
+      return true;
+    }
+    if (_timesResumed(reply) > 0) return true;
+    if (_resumedStops.length >= _maxAutomaticResumes) return true;
+    return _resumePending;
+  }
+
+  int _timesResumed(GdbReplyPacket reply) =>
+      _resumedStops[reply.stopIdentity] ?? 0;
+
+  /// Resume past an attach hand-off stop, remembering where it stopped so a
+  /// second stop at the same point is reported by [_mustReportStop].
+  void _resumeAttachHandOff(GdbReplyPacket reply, void Function() finish) {
+    _resumedStops[reply.stopIdentity] = _timesResumed(reply) + 1;
+    _resumePending = true;
+    unawaited(
+      gdb.resume().then(
+        (_) => _resumePending = false,
+        onError: (Object error, StackTrace stack) {
+          _resumePending = false;
+          log.logWarn('could not resume debugger after stop: $error');
+          _stop();
+          finish();
+        },
+      ),
+    );
+  }
+
+  /// A SIGTRAP with a debugger reason (breakpoint, watchpoint, ...) rather
+  /// than a Mach exception is a debugger stop, not a crash.
+  static bool _isDebuggerStop(GdbReplyPacket reply) {
+    final reason = reply.stopReason;
+    return reply.stopSignal == GdbReplyPacket.sigtrap &&
+        reason != null &&
+        reason != 'exception' &&
+        !reply.stopFields.containsKey('metype');
+  }
+
+  /// Report an unexpected stop with whatever the app said on its way down.
+  ///
+  /// The signal name alone ("SIGABRT") is not actionable: every uncaught
+  /// Objective-C exception, failed plugin assertion and misconfigured SDK
+  /// looks identical. The device log carries the actual reason, so it is
+  /// printed with the stop instead of being discarded.
+  void _reportStop(GdbReplyPacket reply) {
+    if (_isDebuggerStop(reply)) {
+      log.logError(
+        'App stopped: ${reply.stopDescription} (${reply.stopReason}). '
+        'The process is stopped by the debugger.',
+      );
+    } else {
+      log.logError(
+        'App crashed: ${reply.stopDescription}. '
+        'The process is stopped at the fault.',
+      );
+    }
+    final crashDetail = crashReason?.call();
+    if (crashDetail != null) {
+      log.logError(crashDetail);
+      return;
+    }
+    final recent = recentDeviceLines?.call() ?? const <String>[];
+    if (recent.isEmpty) return;
+    log.logInfo('Last device log lines');
+    for (final line in recent) {
+      console.writeln('  $line');
+    }
+  }
+
+  /// Reads control keys from stdin. Deliberately does NOT require a TTY: the
+  /// DAP adapter drives the same `r`/`R`/`q` protocol over a pipe.
+  Future<void> _runKeypressLoop() async {
+    // EOF means "controller went away" only when the DAP owns our stdin pipe.
+    // Without any controller (CI, docker without -i, `< /dev/null`, nohup)
+    // stdin is at EOF from the start and must not stop the session.
+    if (!console.inputHasTerminal && !allowPipedKeyboard) return;
+
+    // Never swallow failures: silent cooked mode looks like "keys do nothing".
+    if (!_enableRawStdin()) {
+      log.logWarn(
+        "could not enable raw stdin — press Enter after 'r'/'R', or check TTY",
+      );
+    }
+
+    final done = _keypressDone = Completer<void>();
+    // _stop() must run BEFORE _finishKeypressLoop(): the session must observe
+    // "stopped" when our stdin pipe closes, or frontend_server and the RSD
+    // tunnel are orphaned while run() waits on a stop that never comes.
+    // ProcessRunner.sharedStdin, not stdin: cancelling an earlier raw stdin
+    // subscription leaves this listen dead on arrival — onDone fires at once
+    // and the session quits the moment the app launches.
+    final sub = keyboardInput.listen(
+      handleKeyByte,
+      onDone: () {
+        _stop();
+        _finishKeypressLoop();
+      },
+      onError: (_) {
+        _stop();
+        _finishKeypressLoop();
+      },
+    );
+
+    // Break out promptly when stopped externally (e.g. SIGINT), since the stdin
+    // subscription otherwise keeps the event loop alive and blocks exit.
+    final poll = Timer.periodic(const Duration(milliseconds: 100), (t) {
+      if (_stopped) {
+        t.cancel();
+        _finishKeypressLoop();
+      }
+    });
+
+    await done.future;
+    poll.cancel();
+    try {
+      await sub.cancel().timeout(const Duration(milliseconds: 500));
+    } on Object catch (_) {}
+    _restoreCookedStdin();
+  }
+
+  /// Put stdin into cbreak/raw-ish mode so a single keypress is delivered
+  /// without Enter. Returns whether both mode flags were applied successfully.
+  ///
+  /// Order matches Flutter tools / dart-lang#28599: echoMode off first, then
+  /// lineMode (Windows rejects lineMode=false while echo is still on).
+  bool _enableRawStdin() {
+    // A pipe already delivers bytes unbuffered, and setting the terminal modes
+    // on one throws — warning about it would be a warning for a non-problem.
+    if (!console.inputHasTerminal) return true;
+    try {
+      console.echoMode = false;
+      console.lineMode = false;
+      // Verify — a silent no-op leaves "keys do nothing" with no clue why.
+      if (console.echoMode || console.lineMode) {
+        log.logWarn(
+          'stdin still cooked after raw request '
+          '(echo=${console.echoMode}, line=${console.lineMode})',
+        );
+        return false;
+      }
+      return true;
+    } on Object catch (e) {
+      log.logWarn('stdin raw mode failed: $e');
+      return false;
+    }
+  }
+
+  void _restoreCookedStdin() {
+    if (!console.inputHasTerminal) return;
+    try {
+      console.lineMode = true;
+      console.echoMode = true;
+    } on Object catch (_) {}
+  }
+
+  /// Handle a single raw [bytes] chunk from stdin. Quit keys stop the session;
+  /// reload/restart keys are ignored while one is already in flight, so presses
+  /// don't overlap and corrupt frontend_server state.
+  @visibleForTesting
+  Future<void> handleKeyByte(List<int> bytes) async {
+    for (final ch in bytes) {
+      if (_stopped) return _finishKeypressLoop();
+      switch (ch) {
+        case DeviceConstants.keyQ ||
+            DeviceConstants.keyBigQ ||
+            DeviceConstants.keyCtrlC ||
+            DeviceConstants.keyCtrlD:
+          log.logInfo('Quitting');
+          _stop();
+          return _finishKeypressLoop();
+        case DeviceConstants.keyR || DeviceConstants.keyBigR
+            when !_busy && onRestartRequested != null:
+          await _runExclusive(_handleRestartRequest);
+        case DeviceConstants.keyR when !_busy:
+          await _runExclusive(_handleHotReload);
+        case DeviceConstants.keyBigR when !_busy:
+          await _runExclusive(_handleHotRestart);
+      }
+    }
+  }
+
+  Future<void> _runExclusive(Future<void> Function() operation) async {
+    _busy = true;
+    await operation();
+    _busy = false;
+    _flushAppOutput();
+  }
+
+  void _reportHotReloadUnavailable() => log.logWarn(
+    hotReloadUnavailable ?? 'hot reload is not available in this session.',
+  );
+
+  /// Ask the owner to rebuild and relaunch, then end this session when it
+  /// agrees. The console cannot relaunch by itself: the app's process, the
+  /// debugger attachment, and the install all belong to the caller.
+  Future<void> _handleRestartRequest() async {
+    final handler = onRestartRequested;
+    if (handler == null) return;
+    if (await handler()) {
+      _stop();
+      _finishKeypressLoop();
+    }
+  }
+
+  Future<void> _handleHotReload() async {
+    final controller = hotReload;
+    if (controller == null) return _reportHotReloadUnavailable();
+    final step = log.beginStep('Hot reload');
+    try {
+      if (await controller.reload()) {
+        step.done('Reloaded');
+      } else {
+        step.fail("Reload rejected (try 'R' to restart)");
+      }
+    } catch (e) {
+      step.fail('Hot reload failed');
+      log.logError('$e');
+    }
+  }
+
+  Future<void> _handleHotRestart() async {
+    final controller = hotReload;
+    if (controller == null) return _reportHotReloadUnavailable();
+    final step = log.beginStep('Hot restart');
+    try {
+      await controller.restart();
+      step.done('Restarted');
+    } catch (e) {
+      step.fail('Hot restart failed');
+      log.logError('$e');
+    }
+  }
+}

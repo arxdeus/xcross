@@ -1,4 +1,4 @@
-import 'package:xcross/src/flutter/models/flutter/flutter_build_options.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
 import 'package:xcross/src/shared/flutter/project/dart_defines_reader.dart';
 
 final class FlutterBuildOptionsResolver {

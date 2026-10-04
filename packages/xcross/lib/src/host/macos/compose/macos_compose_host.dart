@@ -1,6 +1,6 @@
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/host/shared/compose/posix_compose_host.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
 
 final class MacOSComposeHost<T extends MacOSHostInterface>
     extends PosixComposeHost<T> {

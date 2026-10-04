@@ -1,18 +1,18 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
+import 'package:apple_developer_kit/src/shared/errors/errors.dart';
+import 'package:apple_developer_kit/src/shared/signing/bundle_paths.dart';
 import 'package:apple_developer_kit/src/shared/signing/bundle_tree.dart';
-import 'package:apple_developer_kit/src/signing/bundle_paths.dart';
-import 'package:apple_developer_kit/src/signing/bytes.dart';
-import 'package:apple_developer_kit/src/signing/internal/bundle_entry.dart';
-import 'package:apple_developer_kit/src/signing/internal/bundle_plan.dart';
-import 'package:apple_developer_kit/src/signing/internal/loose_binary.dart';
-import 'package:apple_developer_kit/src/signing/internal/resolved_bundle.dart';
-import 'package:apple_developer_kit/src/signing/macho_signer.dart';
-import 'package:apple_developer_kit/src/signing/plist.dart';
-import 'package:apple_developer_kit/src/signing/signing_asset.dart';
+import 'package:apple_developer_kit/src/shared/signing/bytes.dart';
+import 'package:apple_developer_kit/src/shared/signing/internal/bundle_entry.dart';
+import 'package:apple_developer_kit/src/shared/signing/internal/bundle_plan.dart';
+import 'package:apple_developer_kit/src/shared/signing/internal/loose_binary.dart';
+import 'package:apple_developer_kit/src/shared/signing/internal/resolved_bundle.dart';
+import 'package:apple_developer_kit/src/shared/signing/macho_signer.dart';
+import 'package:apple_developer_kit/src/shared/signing/plist.dart';
+import 'package:apple_developer_kit/src/shared/signing/signing_asset.dart';
 import 'package:cli_kit/cli_kit_shared.dart' show HostFileSystemInspection;
 
 class BundleInspector {

@@ -1,5 +1,5 @@
 import 'package:test/test.dart';
-import 'package:xcross/src/device/device_log.dart';
+import 'package:xcross/src/target/iphone/device/device_log.dart';
 
 import 'test_log_output.dart';
 

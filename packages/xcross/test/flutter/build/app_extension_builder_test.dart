@@ -3,11 +3,11 @@ import 'dart:io';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/device/internal/embedded_extension.dart';
-import 'package:xcross/src/flutter/build/app_extension_builder.dart';
-import 'package:xcross/src/flutter/build/ios_app_extensions.dart';
-import 'package:xcross/src/flutter/build/ios_bundle_versions.dart';
-import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
+import 'package:xcross/src/shared/artifact/embedded_extension.dart';
+import 'package:xcross/src/shared/flutter/build/app_extension_builder.dart';
+import 'package:xcross/src/shared/flutter/build/ios_app_extensions.dart';
+import 'package:xcross/src/shared/flutter/build/ios_bundle_versions.dart';
+import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/extensions/app_extension_plist.dart';
 import 'package:xcross/src/shared/flutter/extensions/app_extension_resources.dart';
 

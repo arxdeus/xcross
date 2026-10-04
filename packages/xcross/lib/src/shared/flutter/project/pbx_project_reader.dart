@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/flutter/build/pbxproj.dart';
+import 'package:xcross/src/shared/flutter/build/pbxproj.dart';
 
 final class PbxProjectReader {
   PbxProjectReader(this.fileSystem, this.paths);

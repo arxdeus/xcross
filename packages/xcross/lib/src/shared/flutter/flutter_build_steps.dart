@@ -1,12 +1,12 @@
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:xcross/src/flutter/build/app_extension_builder.dart';
-import 'package:xcross/src/flutter/build/internal/runner_binary.dart';
-import 'package:xcross/src/flutter/build/ios_bundle_versions.dart';
-import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
-import 'package:xcross/src/flutter/build/ios_native_assets.dart';
-import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
-import 'package:xcross/src/flutter/models/flutter/flutter_build_options.dart';
+import 'package:xcross/src/shared/flutter/build/app_extension_builder.dart';
+import 'package:xcross/src/shared/flutter/build/internal/runner_binary.dart';
+import 'package:xcross/src/shared/flutter/build/ios_bundle_versions.dart';
+import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
+import 'package:xcross/src/shared/flutter/build/ios_native_assets.dart';
+import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
 
 final class FlutterBuildRequest<T extends PlatformHostInterface> {
   FlutterBuildRequest({

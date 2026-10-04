@@ -2,9 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:test/test.dart';
-import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/host/shared/cli/native_command_prompt.dart';
 import 'package:xcross/src/shared/cli/command_prompt.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
 
 final class PromptTestInput implements Stdin {
   PromptTestInput({

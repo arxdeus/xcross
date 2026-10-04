@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/internal/recursive_directory_copy.dart';
+import 'package:xcross/src/shared/flutter/build/internal/recursive_directory_copy.dart';
 
 void main() {
   test('preserves versioned framework directory and file links', () async {

@@ -20,8 +20,9 @@ void main() {
     File(
       p.join(sandbox.path, 'pubspec.yaml'),
     ).writeAsStringSync('name: xcross\nversion: $pubspecVersion\n');
-    final lib = Directory(p.join(sandbox.path, 'lib', 'src'))
-      ..createSync(recursive: true);
+    final lib = Directory(
+      p.join(sandbox.path, 'lib', 'src', 'shared', 'runtime'),
+    )..createSync(recursive: true);
     generatedPath = p.join(lib.path, 'version.g.dart');
     File(generatedPath).writeAsStringSync(generatedSource);
     final builtBin = Directory(

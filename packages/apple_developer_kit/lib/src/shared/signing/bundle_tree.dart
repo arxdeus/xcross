@@ -2,10 +2,10 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
-import 'package:apple_developer_kit/src/signing/bundle_paths.dart';
-import 'package:apple_developer_kit/src/signing/bytes.dart';
-import 'package:apple_developer_kit/src/signing/internal/bundle_entry.dart';
-import 'package:apple_developer_kit/src/signing/plist.dart';
+import 'package:apple_developer_kit/src/shared/signing/bundle_paths.dart';
+import 'package:apple_developer_kit/src/shared/signing/bytes.dart';
+import 'package:apple_developer_kit/src/shared/signing/internal/bundle_entry.dart';
+import 'package:apple_developer_kit/src/shared/signing/plist.dart';
 import 'package:cli_kit/cli_kit_shared.dart' show HostFileSystemInspection;
 
 /// Directory names that always imply nested code this signer cannot handle.

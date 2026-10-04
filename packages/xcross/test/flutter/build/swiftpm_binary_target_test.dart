@@ -1,5 +1,5 @@
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/swiftpm_binary_target.dart';
+import 'package:xcross/src/shared/flutter/build/swiftpm_binary_target.dart';
 
 void main() {
   const checksum =

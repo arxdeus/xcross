@@ -2,10 +2,10 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/basic/clean_command.dart';
-import 'package:xcross/src/cli/runner.dart';
+import 'package:xcross/src/composition/cli/runner.dart';
 import 'package:xcross/src/composition/ios_target.dart';
-import 'package:xcross/src/flutter/build/internal/swiftpm_workspace.dart';
+import 'package:xcross/src/shared/cli/basic/clean_command.dart';
+import 'package:xcross/src/shared/flutter/build/internal/swiftpm_workspace.dart';
 
 import 'runtime_fixture.dart';
 

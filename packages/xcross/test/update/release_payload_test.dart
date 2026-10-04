@@ -5,8 +5,8 @@ import 'package:archive/archive.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/errors.dart';
-import 'package:xcross/src/update/internal/release_payload.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/shared/update/internal/release_payload.dart';
 
 Archive _bundle({
   String binary = 'bin/xcross',

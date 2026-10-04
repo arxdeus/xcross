@@ -1,17 +1,17 @@
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/flutter/build/app_extension_builder.dart';
-import 'package:xcross/src/flutter/build/internal/runner_binary.dart';
-import 'package:xcross/src/flutter/build/ios_app_extensions.dart';
-import 'package:xcross/src/flutter/build/ios_bundle_versions.dart';
-import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
-import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
-import 'package:xcross/src/flutter/build/runner_shim.dart';
-import 'package:xcross/src/flutter/errors.dart';
-import 'package:xcross/src/flutter/models/flutter/flutter_build_options.dart';
+import 'package:xcross/src/shared/flutter/build/app_extension_builder.dart';
+import 'package:xcross/src/shared/flutter/build/internal/runner_binary.dart';
+import 'package:xcross/src/shared/flutter/build/ios_app_extensions.dart';
+import 'package:xcross/src/shared/flutter/build/ios_bundle_versions.dart';
+import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
+import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
+import 'package:xcross/src/shared/flutter/build/runner_shim.dart';
+import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/extensions/app_extension_resources.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
 
 final class FlutterArtifactLinker<T extends PlatformHostInterface>
     implements FlutterLinkStep<T> {

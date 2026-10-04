@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/compose/toolchain/compose_toolchain.dart';
+import 'package:xcross/src/shared/compose/toolchain/compose_toolchain.dart';
 
 final class AppleToolchainStager<T extends PlatformHostInterface> {
   const AppleToolchainStager(

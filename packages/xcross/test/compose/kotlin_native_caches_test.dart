@@ -5,8 +5,8 @@ import 'package:archive/archive.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/compose/compose.dart';
-import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/compose/compose.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
 
 import 'support/compose_platforms.dart';
 

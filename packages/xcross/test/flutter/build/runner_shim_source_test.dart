@@ -1,5 +1,5 @@
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/runner_shim.dart';
+import 'package:xcross/src/shared/flutter/build/runner_shim.dart';
 
 void main() {
   test('always records the first rendered Flutter frame', () {

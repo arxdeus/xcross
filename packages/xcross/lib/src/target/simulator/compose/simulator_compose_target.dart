@@ -1,9 +1,9 @@
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/shared/compose/compose_host.dart';
 import 'package:xcross/src/shared/compose/compose_simulator_signing.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/target/shared/compose/compose_target.dart';
 
 final class SimulatorComposeTarget<T extends PlatformHostInterface>

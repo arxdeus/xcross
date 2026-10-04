@@ -5,8 +5,8 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:dds/dap.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/dap/dap_router.dart';
-import 'package:xcross/src/dap/internal/dap_router.dart';
+import 'package:xcross/src/shared/dap/dap_router.dart';
+import 'package:xcross/src/shared/dap/internal/dap_router.dart';
 
 import '../device/test_log_output.dart';
 

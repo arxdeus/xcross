@@ -1,16 +1,16 @@
 import 'dart:io';
+
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
-
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/flutter_packer.dart';
-import 'package:xcross/src/flutter/build/info_plist.dart';
-import 'package:xcross/src/flutter/errors.dart';
-import 'package:xcross/src/flutter/models/flutter/flutter_build_options.dart';
 import 'package:xcross/src/host/shared/flutter/flutter_sdk_host_policy.dart';
+import 'package:xcross/src/shared/flutter/build/flutter_packer.dart';
+import 'package:xcross/src/shared/flutter/build/info_plist.dart';
+import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
 import 'package:xcross/src/shared/flutter/flutter_bundle_assembler.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
 import 'package:xml/xml.dart';
 
 import '../flutter_test_runtime.dart';

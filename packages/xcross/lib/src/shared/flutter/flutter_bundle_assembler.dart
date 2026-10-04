@@ -1,15 +1,15 @@
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:meta/meta.dart';
-import 'package:xcross/src/flutter/build/app_extension_builder.dart';
-import 'package:xcross/src/flutter/build/info_plist.dart';
-import 'package:xcross/src/flutter/build/ios_bundle_versions.dart';
-import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
-import 'package:xcross/src/flutter/constants.dart';
-import 'package:xcross/src/flutter/models/flutter/flutter_build_options.dart';
 import 'package:xcross/src/shared/artifact/plist_mutations.dart';
+import 'package:xcross/src/shared/flutter/build/app_extension_builder.dart';
+import 'package:xcross/src/shared/flutter/build/info_plist.dart';
+import 'package:xcross/src/shared/flutter/build/ios_bundle_versions.dart';
+import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
+import 'package:xcross/src/shared/flutter/constants.dart';
 import 'package:xcross/src/shared/flutter/extensions/app_extension_plist.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
 
 final class FlutterBundleAssembler<T extends PlatformHostInterface>
     implements FlutterAssembleStep<T> {

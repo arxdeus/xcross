@@ -1,8 +1,8 @@
 import 'dart:convert';
 
 import 'package:test/test.dart';
-import 'package:xcross/src/errors.dart';
-import 'package:xcross/src/update/checksums.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/shared/update/checksums.dart';
 
 const _payload = 'xcross';
 

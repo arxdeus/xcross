@@ -2,7 +2,7 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/adi/apk_fetch.dart';
+import 'package:apple_developer_kit/src/shared/adi/apk_fetch.dart';
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;

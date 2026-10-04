@@ -4,11 +4,11 @@ import 'dart:io';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/internal/swiftpm_gate_evidence.dart';
-import 'package:xcross/src/flutter/build/internal/swiftpm_workspace.dart';
-import 'package:xcross/src/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/build/internal/swiftpm_workspace.dart';
+import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_capabilities.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_identity.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/gate_evidence.dart';
 import 'package:xcross/src/shared/sdk/sdk_build_identity.dart';
 
 import 'swiftpm_test_context.dart';

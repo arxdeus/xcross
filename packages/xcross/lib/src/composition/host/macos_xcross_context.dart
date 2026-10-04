@@ -13,19 +13,16 @@ import 'package:darwin_sdk_kit/darwin_sdk_kit.dart'
     show MacOSDarwinToolchainLocations;
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:http/http.dart' as http;
-import 'package:xcross/src/cli/basic/sdk_install.dart';
 import 'package:xcross/src/composition/flutter/macos_flutter_feature_services.dart';
 import 'package:xcross/src/composition/flutter/swiftpm_checkout.dart';
 import 'package:xcross/src/composition/host_operations.dart';
 import 'package:xcross/src/composition/xcross_application.dart';
 import 'package:xcross/src/composition/xcross_host_context.dart';
-import 'package:xcross/src/config/runtime_config.dart';
-import 'package:xcross/src/flutter/hot_reload/vm_service_output.dart';
-import 'package:xcross/src/host/macos/compose/macos_compose_simulator_signing.dart';
 import 'package:xcross/src/host/macos/flutter/native_host_tools.dart';
 import 'package:xcross/src/host/macos/flutter/swiftpm/swiftpm_host_policy.dart';
 import 'package:xcross/src/host/macos/runtime/compose_host_provider.dart';
-import 'package:xcross/src/host/macos/runtime/compose_simulator_capability.dart';
+import 'package:xcross/src/host/macos/target/simulator/compose/macos_compose_simulator_signing.dart';
+import 'package:xcross/src/host/macos/target/simulator/runtime/compose_simulator_capability.dart';
 import 'package:xcross/src/host/macos/xcrun/native_xcrun.dart';
 import 'package:xcross/src/host/shared/config/posix_config_host.dart';
 import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer_posix.dart';
@@ -39,10 +36,13 @@ import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_link_polic
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_manifest_policy.dart';
 import 'package:xcross/src/host/shared/sdk/preserved_sdk_archive_links.dart';
 import 'package:xcross/src/host/shared/tools/unsupported_swiftpm_gate.dart';
+import 'package:xcross/src/shared/cli/basic/sdk_install.dart';
 import 'package:xcross/src/shared/cli/command_prompt.dart';
 import 'package:xcross/src/shared/config/config_host.dart';
+import 'package:xcross/src/shared/config/runtime_config.dart';
 import 'package:xcross/src/shared/device/signing_http_client_factory.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
+import 'package:xcross/src/shared/flutter/hot_reload/vm_service_output.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
@@ -51,10 +51,10 @@ import 'package:xcross/src/shared/flutter/vm_service_connector.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
 import 'package:xcross/src/shared/tools/swiftpm_gate_operation.dart';
+import 'package:xcross/src/shared/update/release_lookup.dart';
 import 'package:xcross/src/shared/xcrun/xcrun_operation.dart';
 import 'package:xcross/src/target/iphone/sdk/iphone_sdk_metadata_platform.dart';
 import 'package:xcross/src/target/simulator/sdk/simulator_sdk_metadata_platform.dart';
-import 'package:xcross/src/update/release_lookup.dart';
 
 final class MacOSXcrossHostContext
     extends XcrossHostContext<MacOSHostInterface> {

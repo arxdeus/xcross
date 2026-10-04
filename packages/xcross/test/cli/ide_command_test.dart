@@ -4,11 +4,11 @@ import 'dart:io';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/ide/subcommands/idea_command.dart';
-import 'package:xcross/src/cli/ide/subcommands/vscode_command.dart';
-import 'package:xcross/src/cli/ide/subcommands/vscode_json_merge.dart';
-import 'package:xcross/src/cli/ide/xcross_executable.dart';
-import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/cli/ide/subcommands/idea_command.dart';
+import 'package:xcross/src/shared/cli/ide/subcommands/vscode_command.dart';
+import 'package:xcross/src/shared/cli/ide/subcommands/vscode_json_merge.dart';
+import 'package:xcross/src/shared/cli/ide/xcross_executable.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
 
 import 'runtime_fixture.dart';
 

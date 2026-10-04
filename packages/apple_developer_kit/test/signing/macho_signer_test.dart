@@ -2,10 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/errors.dart';
 import 'package:apple_developer_kit/src/host/shared/apple_host_services.dart';
-import 'package:apple_developer_kit/src/signing/macho_signer.dart';
-import 'package:apple_developer_kit/src/signing/signing_asset.dart';
+import 'package:apple_developer_kit/src/shared/errors/errors.dart';
+import 'package:apple_developer_kit/src/shared/signing/macho_signer.dart';
+import 'package:apple_developer_kit/src/shared/signing/signing_asset.dart';
 import 'package:basic_utils/basic_utils.dart';
 import 'package:crypto/crypto.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';

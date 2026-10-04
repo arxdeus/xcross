@@ -13,14 +13,11 @@ import 'package:darwin_sdk_kit/darwin_sdk_kit.dart'
     show WindowsDarwinToolchainLocations;
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:http/http.dart' as http;
-import 'package:xcross/src/cli/basic/sdk_install.dart';
 import 'package:xcross/src/composition/flutter/swiftpm_checkout.dart';
 import 'package:xcross/src/composition/flutter/windows_flutter_feature_services.dart';
 import 'package:xcross/src/composition/host_operations.dart';
 import 'package:xcross/src/composition/xcross_application.dart';
 import 'package:xcross/src/composition/xcross_host_context.dart';
-import 'package:xcross/src/config/runtime_config.dart';
-import 'package:xcross/src/flutter/hot_reload/vm_service_output.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/artifact_publication_lock.dart';
 import 'package:xcross/src/host/shared/runtime/unsupported_compose_simulator_capability.dart';
 import 'package:xcross/src/host/windows/config/windows_config_host.dart';
@@ -37,10 +34,13 @@ import 'package:xcross/src/host/windows/flutter/windows_flutter_sdk_policy.dart'
 import 'package:xcross/src/host/windows/runtime/compose_host_provider.dart';
 import 'package:xcross/src/host/windows/sdk/materialized_sdk_archive_links.dart';
 import 'package:xcross/src/host/windows/tools/windows_swiftpm_gate.dart';
+import 'package:xcross/src/shared/cli/basic/sdk_install.dart';
 import 'package:xcross/src/shared/cli/command_prompt.dart';
 import 'package:xcross/src/shared/config/config_host.dart';
+import 'package:xcross/src/shared/config/runtime_config.dart';
 import 'package:xcross/src/shared/device/signing_http_client_factory.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
+import 'package:xcross/src/shared/flutter/hot_reload/vm_service_output.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
@@ -50,11 +50,11 @@ import 'package:xcross/src/shared/flutter/vm_service_connector.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
 import 'package:xcross/src/shared/tools/swiftpm_gate_operation.dart';
+import 'package:xcross/src/shared/update/release_lookup.dart';
 import 'package:xcross/src/shared/xcrun/cross_xcrun.dart';
 import 'package:xcross/src/shared/xcrun/xcrun_operation.dart';
 import 'package:xcross/src/target/iphone/sdk/iphone_sdk_metadata_platform.dart';
 import 'package:xcross/src/target/simulator/sdk/simulator_sdk_metadata_platform.dart';
-import 'package:xcross/src/update/release_lookup.dart';
 
 final class WindowsXcrossHostContext
     extends XcrossHostContext<WindowsHostInterface> {

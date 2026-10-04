@@ -1,5 +1,5 @@
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:xcross/src/cli/basic/sdk_install.dart';
+import 'package:xcross/src/shared/cli/basic/sdk_install.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
 
 final class SdkInstallSwiftPmIdentity<T extends PlatformHostInterface>

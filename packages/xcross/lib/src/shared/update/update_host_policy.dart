@@ -1,4 +1,4 @@
-import 'package:xcross/src/update/install_layout.dart';
+import 'package:xcross/src/shared/update/install_layout.dart';
 
 abstract interface class UpdateHostPolicy {
   String releaseAsset();

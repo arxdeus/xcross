@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:xcross/src/composition/native_runtime.dart';
-import 'package:xcross/src/flutter/build/internal/swiftpm_binary_fixture.dart';
+import 'package:xcross/src/shared/flutter/build/internal/swiftpm_binary_fixture.dart';
 
 void main(List<String> arguments) {
   if (arguments.length != 2) {

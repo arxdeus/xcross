@@ -5,8 +5,8 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
-import 'package:xcross/src/flutter/build/swiftpm_binary_target.dart';
-import 'package:xcross/src/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/build/swiftpm_binary_target.dart';
+import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 

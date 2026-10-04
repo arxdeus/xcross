@@ -1,8 +1,8 @@
 import 'dart:io';
 
-import 'package:cli_kit/src/errors.dart';
-import 'package:cli_kit/src/process.dart';
+import 'package:cli_kit/src/shared/errors/errors.dart';
 import 'package:cli_kit/src/shared/platform/platform_host.dart';
+import 'package:cli_kit/src/shared/process/process.dart';
 
 final class PosixPrivileges<T extends PlatformHostInterface>
     implements HostPrivilegesInterface {

@@ -1,4 +1,4 @@
-import 'package:dart_mobile_device/src/models/device.dart';
+import 'package:dart_mobile_device/src/shared/device/models/device.dart';
 
 abstract interface class DeviceDiagnostics {
   Future<String> resolveExecutable();

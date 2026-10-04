@@ -3,11 +3,11 @@ import 'dart:io';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/flutter_packer.dart';
-import 'package:xcross/src/flutter/build/internal/runner_binary.dart';
-import 'package:xcross/src/flutter/build/ios_native_assets.dart';
-import 'package:xcross/src/flutter/models/flutter/flutter_build_options.dart';
+import 'package:xcross/src/shared/flutter/build/flutter_packer.dart';
+import 'package:xcross/src/shared/flutter/build/internal/runner_binary.dart';
+import 'package:xcross/src/shared/flutter/build/ios_native_assets.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
 
 import '../flutter_test_runtime.dart';
 

@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/compose/build/compose_entitlements.dart';
+import 'package:xcross/src/shared/compose/build/compose_entitlements.dart';
 
 import 'support/compose_platforms.dart';
 

@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:cli_kit/src/errors.dart';
+import 'package:cli_kit/src/shared/errors/errors.dart';
 import 'package:path/path.dart' as p;
 
 abstract final class WindowsBatchPolicy {

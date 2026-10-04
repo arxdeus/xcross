@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/signing/code_resources.dart';
+import 'package:apple_developer_kit/src/shared/signing/code_resources.dart';
 import 'package:crypto/crypto.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';

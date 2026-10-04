@@ -5,7 +5,7 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/basic/internal/linux_package_manager.dart';
+import 'package:xcross/src/host/linux/setup/linux_package_manager.dart';
 import 'package:xcross/src/host/linux/setup/linux_setup_requirements.dart';
 import 'package:xcross/src/host/macos/setup/macos_setup_requirements.dart';
 import 'package:xcross/src/host/windows/setup/windows_setup_requirements.dart';

@@ -1,9 +1,9 @@
 import 'dart:convert';
 
-import 'package:apple_developer_kit/src/appstoreconnect/developer_services_client.dart';
-import 'package:apple_developer_kit/src/appstoreconnect/developer_services_team_discovery_client.dart';
-import 'package:apple_developer_kit/src/errors.dart';
-import 'package:apple_developer_kit/src/grandslam/app_token_exchange.dart';
+import 'package:apple_developer_kit/src/shared/appstoreconnect/developer_services_client.dart';
+import 'package:apple_developer_kit/src/shared/appstoreconnect/developer_services_team_discovery_client.dart';
+import 'package:apple_developer_kit/src/shared/errors/errors.dart';
+import 'package:apple_developer_kit/src/shared/grandslam/app_token_exchange.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';

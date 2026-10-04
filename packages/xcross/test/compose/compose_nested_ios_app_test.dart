@@ -4,8 +4,8 @@ import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/compose/build/compose_entitlements.dart';
-import 'package:xcross/src/compose/compose.dart';
+import 'package:xcross/src/shared/compose/build/compose_entitlements.dart';
+import 'package:xcross/src/shared/compose/compose.dart';
 
 import 'support/compose_platforms.dart';
 

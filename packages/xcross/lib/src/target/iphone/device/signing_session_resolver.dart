@@ -2,9 +2,9 @@ import 'dart:ffi';
 
 import 'package:apple_developer_kit/apple_developer_kit_shared.dart';
 import 'package:meta/meta.dart';
-import 'package:xcross/src/device/internal/signing_session.dart';
-import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/auth/signing_session.dart';
 import 'package:xcross/src/shared/device/signing_http_client_factory.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
 
 abstract interface class SigningSessionProvider {
   Future<SigningSession> resolve();

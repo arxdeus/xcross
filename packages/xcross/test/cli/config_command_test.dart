@@ -5,10 +5,10 @@ import 'package:args/command_runner.dart';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/basic/config_command.dart';
-import 'package:xcross/src/cli/runner.dart';
-import 'package:xcross/src/config/config.dart';
+import 'package:xcross/src/composition/cli/runner.dart';
 import 'package:xcross/src/host/shared/config/posix_config_host.dart';
+import 'package:xcross/src/shared/cli/basic/config_command.dart';
+import 'package:xcross/src/shared/config/config.dart';
 
 import 'runtime_fixture.dart';
 

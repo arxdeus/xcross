@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/flutter/build/swift_package_host_patches.dart';
+import 'package:xcross/src/shared/flutter/build/swift_package_host_patches.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
 

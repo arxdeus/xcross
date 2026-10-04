@@ -4,9 +4,9 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/swiftpm_binary_artifact_store.dart';
-import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/artifact_publication_lock.dart';
+import 'package:xcross/src/shared/flutter/build/swiftpm_binary_artifact_store.dart';
+import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
 
 import 'swiftpm_test_context.dart';

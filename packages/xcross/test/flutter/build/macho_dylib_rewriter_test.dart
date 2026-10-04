@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/macho_dylib_rewriter.dart';
-import 'package:xcross/src/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/build/macho_dylib_rewriter.dart';
+import 'package:xcross/src/shared/flutter/errors.dart';
 
 const _idDylib = 0x0d;
 const _loadDylib = 0x0c;

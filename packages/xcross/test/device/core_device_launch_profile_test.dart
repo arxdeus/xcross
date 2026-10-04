@@ -1,6 +1,6 @@
 import 'package:test/test.dart';
-import 'package:xcross/src/device/core_device_launch_profile.dart';
-import 'package:xcross/src/flutter/models/hot_reload_config.dart';
+import 'package:xcross/src/shared/flutter/models/hot_reload_config.dart';
+import 'package:xcross/src/target/iphone/device/core_device_launch_profile.dart';
 
 void main() {
   test('native profile forwards only application arguments', () {

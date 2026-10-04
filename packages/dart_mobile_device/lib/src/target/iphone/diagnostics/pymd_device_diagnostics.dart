@@ -1,8 +1,8 @@
-import 'package:dart_mobile_device/src/models/device.dart';
-import 'package:dart_mobile_device/src/os_version.dart';
-import 'package:dart_mobile_device/src/pymd/pymd.dart';
-import 'package:dart_mobile_device/src/pymd/pymd_devices.dart';
+import 'package:dart_mobile_device/src/shared/device/models/device.dart';
 import 'package:dart_mobile_device/src/shared/diagnostics/device_probe.dart';
+import 'package:dart_mobile_device/src/target/iphone/device/os_version.dart';
+import 'package:dart_mobile_device/src/target/iphone/device/pymd/pymd.dart';
+import 'package:dart_mobile_device/src/target/iphone/device/pymd/pymd_devices.dart';
 
 final class PymdDeviceDiagnostics implements DeviceDiagnostics {
   PymdDeviceDiagnostics(this.pymd);

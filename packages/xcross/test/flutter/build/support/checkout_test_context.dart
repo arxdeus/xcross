@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
-import 'package:xcross/src/flutter/build/internal/host_symlink_capability.dart';
+import 'package:xcross/src/host/shared/flutter/swiftpm/host_symlink_capability.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_artifact_filesystem.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_attributes.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_link_creator.dart';

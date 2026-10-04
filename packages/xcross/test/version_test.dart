@@ -1,5 +1,5 @@
 import 'package:test/test.dart';
-import 'package:xcross/src/version.dart';
+import 'package:xcross/src/shared/runtime/version.dart';
 
 void main() {
   test('the committed build identity is unreleased', () {

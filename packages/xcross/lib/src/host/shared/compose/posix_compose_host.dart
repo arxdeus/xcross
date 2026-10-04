@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/compose/build/process_invocation.dart';
+import 'package:xcross/src/shared/compose/build/process_invocation.dart';
 import 'package:xcross/src/shared/compose/compose_host.dart';
 
 abstract class PosixComposeHost<T extends PlatformHostInterface>

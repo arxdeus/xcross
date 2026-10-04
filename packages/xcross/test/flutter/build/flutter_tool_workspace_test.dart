@@ -3,9 +3,9 @@ import 'dart:io';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/internal/flutter_tool_workspace.dart';
-import 'package:xcross/src/flutter/build/ios_engine_cache.dart';
 import 'package:xcross/src/host/windows/flutter/native_host_tools.dart';
+import 'package:xcross/src/shared/flutter/build/internal/flutter_tool_workspace.dart';
+import 'package:xcross/src/shared/flutter/build/ios_engine_cache.dart';
 
 import 'support/native_flutter_fixtures.dart';
 

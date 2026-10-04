@@ -4,9 +4,9 @@ import 'package:cli_kit/cli_kit.dart';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/errors.dart';
-import 'package:xcross/src/update/git_ref_source_bundle_builder.dart';
-import 'package:xcross/src/update/git_update_ref_resolver.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/shared/update/git_ref_source_bundle_builder.dart';
+import 'package:xcross/src/shared/update/git_update_ref_resolver.dart';
 import '../host_operations_fixtures.dart';
 
 Future<List<String>> _captureAsync(Future<void> Function() body) async {

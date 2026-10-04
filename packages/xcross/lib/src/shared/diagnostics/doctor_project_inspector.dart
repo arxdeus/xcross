@@ -1,4 +1,4 @@
-import 'package:xcross/src/cli/basic/doctor_models.dart';
+import 'package:xcross/src/shared/cli/basic/doctor_models.dart';
 
 abstract interface class DoctorProjectInspector {
   DoctorProject? detect(String root);

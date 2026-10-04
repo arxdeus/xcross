@@ -8,9 +8,9 @@ import 'package:frontend_server_kit/frontend_server_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:xcross/src/flutter/hot_reload/dart_vm_service_client.dart';
-import 'package:xcross/src/flutter/hot_reload/hot_reload_controller.dart';
-import 'package:xcross/src/flutter/models/hot_reload_config.dart';
+import 'package:xcross/src/shared/flutter/hot_reload/dart_vm_service_client.dart';
+import 'package:xcross/src/shared/flutter/hot_reload/hot_reload_controller.dart';
+import 'package:xcross/src/shared/flutter/models/hot_reload_config.dart';
 import 'package:xcross/src/shared/flutter/vm_service_connector.dart';
 
 import 'flutter_test_log.dart';

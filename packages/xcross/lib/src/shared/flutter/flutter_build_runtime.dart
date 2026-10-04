@@ -1,21 +1,20 @@
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
-import 'package:xcross/src/flutter/build/flutter_notice_artifact.dart';
-import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
-import 'package:xcross/src/flutter/build/internal/native_asset_frameworks.dart';
-import 'package:xcross/src/flutter/build/internal/native_assets_hook_discovery.dart';
-import 'package:xcross/src/flutter/build/internal/recursive_directory_copy.dart';
-import 'package:xcross/src/flutter/build/internal/xcconfig_resolver.dart';
-import 'package:xcross/src/flutter/build/ios_app_extensions.dart';
-import 'package:xcross/src/flutter/build/ios_bundle_id.dart';
-import 'package:xcross/src/flutter/build/ios_bundle_resources.dart';
-import 'package:xcross/src/flutter/build/ios_engine_cache.dart';
-import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer.dart';
 import 'package:xcross/src/host/shared/flutter/flutter_sdk_host_policy.dart';
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
-import 'package:xcross/src/package_config_resolver.dart';
 import 'package:xcross/src/shared/artifact/plist_storyboard_policy.dart';
+import 'package:xcross/src/shared/flutter/build/flutter_notice_artifact.dart';
+import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
+import 'package:xcross/src/shared/flutter/build/internal/native_asset_frameworks.dart';
+import 'package:xcross/src/shared/flutter/build/internal/native_assets_hook_discovery.dart';
+import 'package:xcross/src/shared/flutter/build/internal/recursive_directory_copy.dart';
+import 'package:xcross/src/shared/flutter/build/internal/xcconfig_resolver.dart';
+import 'package:xcross/src/shared/flutter/build/ios_app_extensions.dart';
+import 'package:xcross/src/shared/flutter/build/ios_bundle_id.dart';
+import 'package:xcross/src/shared/flutter/build/ios_bundle_resources.dart';
+import 'package:xcross/src/shared/flutter/build/ios_engine_cache.dart';
+import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_options_resolver.dart';
 import 'package:xcross/src/shared/flutter/flutter_framework_copier.dart';
 import 'package:xcross/src/shared/flutter/flutter_project_resolver.dart';
@@ -24,6 +23,7 @@ import 'package:xcross/src/shared/flutter/project/ios_bundle_versions_resolver.d
 import 'package:xcross/src/shared/flutter/project/ios_deployment_target_resolver.dart';
 import 'package:xcross/src/shared/flutter/project/pbx_project_reader.dart';
 import 'package:xcross/src/shared/flutter/project/pubspec_info_reader.dart';
+import 'package:xcross/src/shared/packages/package_config_resolver.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
 final class FlutterResolutionConfiguration {

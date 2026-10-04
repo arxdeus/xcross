@@ -3,8 +3,8 @@ import 'dart:io';
 
 import 'package:cli_kit/cli_kit.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/update/release_lookup.dart';
-import 'package:xcross/src/update/update_check.dart';
+import 'package:xcross/src/shared/update/release_lookup.dart';
+import 'package:xcross/src/shared/update/update_check.dart';
 
 import '../host_operations_fixtures.dart';
 import 'release_http_fixtures.dart';

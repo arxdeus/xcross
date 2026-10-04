@@ -3,7 +3,7 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/project/dart_defines_reader.dart';
 
 void main() {

@@ -1,17 +1,18 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:cli_kit/cli_kit.dart';
 
+import 'package:cli_kit/cli_kit.dart';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/host/shared/setup/posix_setup_script.dart';
 import 'package:xcross/src/host/windows/setup/windows_setup_script.dart';
-import 'package:xcross/src/setup/setup_script.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/shared/setup/setup_script.dart';
+
 import '../host_operations_fixtures.dart';
 
 void main() {

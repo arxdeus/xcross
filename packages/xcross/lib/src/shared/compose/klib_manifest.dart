@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:archive/archive_io.dart';
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
 
 final class KlibManifestReader {
   const KlibManifestReader(this.files);

@@ -4,12 +4,12 @@ import 'dart:io';
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/compose/build/gradle_klib_builder.dart';
-import 'package:xcross/src/compose/build/konan_configuration.dart';
-import 'package:xcross/src/compose/project/kmp_project.dart';
-import 'package:xcross/src/compose/toolchain/compose_toolchain.dart';
+import 'package:xcross/src/shared/compose/build/gradle_klib_builder.dart';
+import 'package:xcross/src/shared/compose/build/konan_configuration.dart';
 import 'package:xcross/src/shared/compose/klib_manifest.dart';
 import 'package:xcross/src/shared/compose/kotlin_native_cache_plan.dart';
+import 'package:xcross/src/shared/compose/project/kmp_project.dart';
+import 'package:xcross/src/shared/compose/toolchain/compose_toolchain.dart';
 
 final class KotlinNativeCachePlanner {
   const KotlinNativeCachePlanner(this.files, this.log);

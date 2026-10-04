@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:xcross/src/errors.dart';
 import 'package:xcross/src/shared/cli/command_prompt.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
 
 final class NativeCommandPrompt implements CommandPrompt {
   NativeCommandPrompt({required Stdin input, required StringSink output})

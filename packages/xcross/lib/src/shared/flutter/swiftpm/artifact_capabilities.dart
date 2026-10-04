@@ -3,10 +3,10 @@ import 'dart:io';
 
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
-import 'package:xcross/src/flutter/build/internal/swiftpm_gate_evidence.dart';
-import 'package:xcross/src/flutter/build/internal/swiftpm_workspace.dart';
+import 'package:xcross/src/shared/flutter/build/internal/swiftpm_workspace.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_identity.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/gate_evidence.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/gate_platform.dart';
 
 final class SwiftPmArtifactCapabilities<T extends PlatformHostInterface> {

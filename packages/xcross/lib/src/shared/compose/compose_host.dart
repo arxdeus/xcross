@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:xcross/src/compose/build/process_invocation.dart';
+import 'package:xcross/src/shared/compose/build/process_invocation.dart';
 
 abstract interface class ComposeHost<T extends PlatformHostInterface> {
   T get host;

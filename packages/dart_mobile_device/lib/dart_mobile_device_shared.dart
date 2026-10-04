@@ -1,9 +1,9 @@
-export 'src/errors.dart';
-export 'src/models/device.dart';
-export 'src/models/device_endpoint.dart';
-export 'src/models/tunnel.dart';
 export 'src/shared/console/device_console.dart';
+export 'src/shared/device/models/device.dart';
+export 'src/shared/device/models/device_endpoint.dart';
+export 'src/shared/device/models/tunnel.dart';
 export 'src/shared/diagnostics/device_probe.dart';
+export 'src/shared/errors/errors.dart';
 export 'src/shared/host/device_host_policy.dart';
 export 'src/shared/network/device_sockets.dart';
 export 'src/shared/preparation/device_preparation.dart';

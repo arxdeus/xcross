@@ -1,5 +1,5 @@
-import 'package:cli_kit/src/logging.dart';
-import 'package:cli_kit/src/progress.dart';
+import 'package:cli_kit/src/shared/logging/logging.dart';
+import 'package:cli_kit/src/shared/progress/progress.dart';
 import 'package:test/test.dart';
 
 import 'support/log_output.dart';

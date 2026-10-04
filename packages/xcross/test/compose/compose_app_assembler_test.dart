@@ -4,8 +4,8 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/compose/compose.dart';
-import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/compose/compose.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
 
 import 'support/compose_platforms.dart';
 
@@ -586,7 +586,7 @@ import 'dart:io';
 import 'package:xcross/src/host/linux/compose/linux_compose_host.dart';
 import 'package:xcross/src/target/iphone/compose/iphone_compose_target.dart';
 import 'package:cli_kit/cli_kit.dart';
-import 'package:xcross/src/compose/compose.dart';
+import 'package:xcross/src/shared/compose/compose.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 
 Future<void> main() async {

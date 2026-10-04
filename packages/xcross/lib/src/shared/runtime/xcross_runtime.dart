@@ -4,19 +4,19 @@ import 'package:apple_developer_kit/apple_developer_kit_shared.dart';
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
 import 'package:http/http.dart' as http;
-import 'package:xcross/src/cli/basic/sdk_install.dart';
-import 'package:xcross/src/config/runtime_config.dart';
-import 'package:xcross/src/flutter/hot_reload/vm_service_output.dart';
+import 'package:xcross/src/shared/cli/basic/sdk_install.dart';
 import 'package:xcross/src/shared/cli/command_prompt.dart';
 import 'package:xcross/src/shared/config/config_host.dart';
+import 'package:xcross/src/shared/config/runtime_config.dart';
 import 'package:xcross/src/shared/device/signing_http_client_factory.dart';
+import 'package:xcross/src/shared/flutter/hot_reload/vm_service_output.dart';
 import 'package:xcross/src/shared/flutter/vm_service_connector.dart';
 import 'package:xcross/src/shared/runtime/compose_host_provider.dart';
 import 'package:xcross/src/shared/runtime/compose_simulator_capability.dart';
 import 'package:xcross/src/shared/runtime/flutter_feature_services.dart';
 import 'package:xcross/src/shared/setup/host_operations.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
-import 'package:xcross/src/update/release_lookup.dart';
+import 'package:xcross/src/shared/update/release_lookup.dart';
 
 final class XcrossRuntime<T extends PlatformHostInterface> {
   XcrossRuntime({

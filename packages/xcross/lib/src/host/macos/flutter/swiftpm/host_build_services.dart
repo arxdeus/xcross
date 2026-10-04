@@ -1,7 +1,7 @@
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/flutter/build/macho_dylib_rewriter.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_host_build_services.dart';
+import 'package:xcross/src/shared/flutter/build/macho_dylib_rewriter.dart';
 
 final class MacOSSwiftPmHostBuildServices<T extends PlatformHostInterface>
     extends PosixSwiftPmHostBuildServices<T> {

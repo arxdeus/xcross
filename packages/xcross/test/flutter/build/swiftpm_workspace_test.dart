@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/internal/swiftpm_workspace.dart';
+import 'package:xcross/src/shared/flutter/build/internal/swiftpm_workspace.dart';
 
 import 'swiftpm_test_context.dart';
 

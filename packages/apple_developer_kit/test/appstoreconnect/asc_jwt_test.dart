@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:apple_developer_kit/src/appstoreconnect/asc_config.dart';
-import 'package:apple_developer_kit/src/appstoreconnect/asc_jwt.dart';
-import 'package:apple_developer_kit/src/errors.dart';
+import 'package:apple_developer_kit/src/shared/appstoreconnect/asc_config.dart';
+import 'package:apple_developer_kit/src/shared/appstoreconnect/asc_jwt.dart';
+import 'package:apple_developer_kit/src/shared/errors/errors.dart';
 import 'package:basic_utils/basic_utils.dart';
 import 'package:test/test.dart';
 

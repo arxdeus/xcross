@@ -1,7 +1,8 @@
 import 'dart:io';
+
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:darwin_sdk_kit/src/errors.dart';
 import 'package:darwin_sdk_kit/src/host/shared/darwin_toolchain_locations.dart';
+import 'package:darwin_sdk_kit/src/shared/errors/errors.dart';
 
 final class DarwinToolchainResolver<T extends PlatformHostInterface> {
   DarwinToolchainResolver(this.runner, this.locations);

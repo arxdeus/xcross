@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/internal/windows_swift_plan_repair.dart';
+import 'package:xcross/src/host/windows/flutter/swiftpm/windows_swift_plan_repair.dart';
 import 'swiftpm_test_context.dart';
 
 void main() {

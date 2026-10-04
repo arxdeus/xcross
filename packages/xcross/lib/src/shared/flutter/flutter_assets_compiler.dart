@@ -7,10 +7,10 @@ import 'package:meta/meta.dart';
 import 'package:package_config/package_config.dart';
 import 'package:path/path.dart' as p;
 import 'package:standard_message_codec/standard_message_codec.dart';
-import 'package:xcross/src/flutter/errors.dart';
-import 'package:xcross/src/flutter/models/pubspec_info.dart';
-import 'package:xcross/src/package_config_resolver.dart';
+import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/models/pubspec_info.dart';
 import 'package:xcross/src/shared/flutter/project/pubspec_info_reader.dart';
+import 'package:xcross/src/shared/packages/package_config_resolver.dart';
 
 final class FlutterAssetsCompiler {
   FlutterAssetsCompiler({

@@ -8,21 +8,21 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/internal/swiftpm_binary_fixture.dart';
-import 'package:xcross/src/flutter/build/internal/swiftpm_gate_evidence.dart';
-import 'package:xcross/src/flutter/build/swiftpm_binary_artifact_preparer.dart';
-import 'package:xcross/src/flutter/build/swiftpm_binary_artifact_store.dart';
-import 'package:xcross/src/flutter/build/swiftpm_binary_target.dart';
-import 'package:xcross/src/flutter/errors.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/artifact_publication_lock.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_artifact_copy_policy.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/artifact_copy_policy.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/flutter/build/internal/swiftpm_binary_fixture.dart';
+import 'package:xcross/src/shared/flutter/build/swiftpm_binary_artifact_preparer.dart';
+import 'package:xcross/src/shared/flutter/build/swiftpm_binary_artifact_store.dart';
+import 'package:xcross/src/shared/flutter/build/swiftpm_binary_target.dart';
+import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_offline_publisher.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/gate_evidence.dart';
 
 import 'swiftpm_test_context.dart';
 

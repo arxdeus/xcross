@@ -1,5 +1,5 @@
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:xcross/src/flutter/build/ios_bundle_versions.dart';
+import 'package:xcross/src/shared/flutter/build/ios_bundle_versions.dart';
 import 'package:xcross/src/shared/flutter/project/pbx_project_reader.dart';
 
 final class IosBundleVersionsResolver {

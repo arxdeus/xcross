@@ -1,6 +1,6 @@
 import 'package:darwin_sdk_kit/darwin_sdk_kit_shared.dart';
-import 'package:xcross/src/flutter/constants.dart';
 import 'package:xcross/src/shared/artifact/plist_xml.dart';
+import 'package:xcross/src/shared/flutter/constants.dart';
 import 'package:xml/xml.dart';
 
 abstract final class IosPlistMetadata {

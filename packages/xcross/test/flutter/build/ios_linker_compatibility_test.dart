@@ -1,5 +1,5 @@
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/ios_linker_compatibility.dart';
+import 'package:xcross/src/shared/flutter/build/ios_linker_compatibility.dart';
 
 void main() {
   test('provides Objective-C linker flags as Swift driver arguments', () {

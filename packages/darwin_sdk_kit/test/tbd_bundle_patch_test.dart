@@ -3,9 +3,9 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/src/tbd_architecture_rewrite.dart';
-import 'package:darwin_sdk_kit/src/tbd_bundle_patch.dart';
-import 'package:darwin_sdk_kit/src/tbd_linker_diagnostic.dart';
+import 'package:darwin_sdk_kit/src/shared/tbd/tbd_architecture_rewrite.dart';
+import 'package:darwin_sdk_kit/src/shared/tbd/tbd_bundle_patch.dart';
+import 'package:darwin_sdk_kit/src/shared/tbd/tbd_linker_diagnostic.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 

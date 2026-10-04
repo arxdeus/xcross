@@ -1,5 +1,5 @@
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
+import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 
 abstract interface class SwiftPmDependencyPreparation<
   T extends PlatformHostInterface

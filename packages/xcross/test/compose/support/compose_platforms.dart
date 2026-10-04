@@ -4,12 +4,12 @@ import 'dart:io';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/compose/build/framework_build_stamp.dart';
-import 'package:xcross/src/compose/compose.dart';
-import 'package:xcross/src/compose/watch/kotlin_source_watcher.dart';
 import 'package:xcross/src/host/linux/compose/linux_compose_host.dart';
 import 'package:xcross/src/host/macos/compose/macos_compose_host.dart';
 import 'package:xcross/src/host/windows/compose/windows_compose_host.dart';
+import 'package:xcross/src/shared/compose/build/framework_build_stamp.dart';
+import 'package:xcross/src/shared/compose/compose.dart';
+import 'package:xcross/src/shared/compose/watch/kotlin_source_watcher.dart';
 import 'package:xcross/src/target/iphone/compose/iphone_compose_target.dart';
 import 'package:xcross/src/target/simulator/compose/simulator_compose_target.dart';
 

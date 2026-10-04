@@ -3,8 +3,8 @@ import 'dart:isolate';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/compose/project/kmp_project.dart';
-import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/compose/project/kmp_project.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
 
 import 'support/compose_platforms.dart';
 

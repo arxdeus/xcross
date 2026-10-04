@@ -2,8 +2,8 @@ import 'dart:convert';
 
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
-import 'package:xcross/src/flutter/build/ios_native_assets.dart';
+import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
+import 'package:xcross/src/shared/flutter/build/ios_native_assets.dart';
 
 import '../flutter_test_runtime.dart';
 

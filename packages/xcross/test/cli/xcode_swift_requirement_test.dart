@@ -1,7 +1,7 @@
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/basic/internal/xcode_swift_requirement.dart';
+import 'package:xcross/src/shared/sdk/xcode_swift_requirement.dart';
 
 import 'doctor_environment_checks_test.dart' show DoctorServiceFixture;
 

@@ -5,9 +5,9 @@ import 'dart:isolate';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/internal/native_assets_hook_discovery.dart';
-import 'package:xcross/src/flutter/errors.dart';
-import 'package:xcross/src/package_config_resolver.dart';
+import 'package:xcross/src/shared/flutter/build/internal/native_assets_hook_discovery.dart';
+import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/packages/package_config_resolver.dart';
 
 void _writePackageConfig(String directory) {
   final file = File(p.join(directory, '.dart_tool', 'package_config.json'));
@@ -264,9 +264,9 @@ void main() {
 
   test('resolver and hook discovery expose only neutral host contracts', () {
     for (final source in [
-      _readXcrossSource('lib/src/package_config_resolver.dart'),
+      _readXcrossSource('lib/src/shared/packages/package_config_resolver.dart'),
       _readXcrossSource(
-        'lib/src/flutter/build/internal/native_assets_hook_discovery.dart',
+        'lib/src/shared/flutter/build/internal/native_assets_hook_discovery.dart',
       ),
     ]) {
       expect(source, contains('package:cli_kit/cli_kit_shared.dart'));

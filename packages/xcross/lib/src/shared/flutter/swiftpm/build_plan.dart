@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/flutter/build/ios_linker_compatibility.dart';
-import 'package:xcross/src/flutter/build/preview_macro_stub_source.dart';
+import 'package:xcross/src/shared/flutter/build/ios_linker_compatibility.dart';
+import 'package:xcross/src/shared/flutter/build/preview_macro_stub_source.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/preview_macro_compiler.dart';

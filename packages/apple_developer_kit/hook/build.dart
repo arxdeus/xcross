@@ -8,7 +8,7 @@ import 'package:native_toolchain_c/native_toolchain_c.dart';
 /// Asset id of the code asset, which must stay equal to the path of the
 /// library holding the `@Native` externals: that is the id those lookups
 /// default to, and a mismatch only shows up at runtime as "no asset with id".
-const _assetName = 'src/adi/loader/internal/sysv_abi_bridge.dart';
+const _assetName = 'src/host/shared/adi/loader/internal/sysv_abi_bridge.dart';
 
 void main(List<String> args) async {
   await build(args, (input, output) async {
@@ -30,7 +30,7 @@ void main(List<String> args) async {
       final cBuilder = CBuilder.library(
         name: 'sysv_abi_bridge',
         assetName: _assetName,
-        sources: const ['src/sysv_abi_bridge.c'],
+        sources: const ['src/host/shared/adi/sysv_abi_bridge.c'],
       );
       await cBuilder.run(input: input, output: output, logger: logger);
       return;
@@ -49,8 +49,12 @@ Future<void> _buildWithSystemCc({
   final outDir = Directory.fromUri(input.outputDirectory)
     ..createSync(recursive: true);
   final outFile = outDir.uri.resolve(os.dylibFileName('sysv_abi_bridge'));
-  final source = input.packageRoot.resolve('src/sysv_abi_bridge.c');
-  final posixSource = input.packageRoot.resolve('src/posix_bridge.c');
+  final source = input.packageRoot.resolve(
+    'src/host/shared/adi/sysv_abi_bridge.c',
+  );
+  final posixSource = input.packageRoot.resolve(
+    'src/host/shared/adi/posix_bridge.c',
+  );
   final targetFlags = systemCompilerFlags(
     targetOS: os,
     targetArchitecture: input.config.code.targetArchitecture,

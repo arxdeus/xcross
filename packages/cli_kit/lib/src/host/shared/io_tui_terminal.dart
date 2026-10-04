@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:cli_kit/src/tui.dart';
+import 'package:cli_kit/src/shared/tui/tui.dart';
 
 final class IoTuiTerminal implements TuiTerminal {
   IoTuiTerminal({required this.input, required this.output});

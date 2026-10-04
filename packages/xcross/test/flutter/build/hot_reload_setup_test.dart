@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/hot_reload_setup.dart';
+import 'package:xcross/src/shared/flutter/build/hot_reload_setup.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 
 import '../flutter_test_runtime.dart';

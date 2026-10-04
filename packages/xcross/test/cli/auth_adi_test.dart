@@ -8,8 +8,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/basic/auth_command.dart';
-import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/cli/basic/auth_command.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
 
 import 'auth_fixture.dart';
 

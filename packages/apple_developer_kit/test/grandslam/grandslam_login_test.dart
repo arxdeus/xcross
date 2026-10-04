@@ -18,9 +18,9 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/grandslam/anisette/grandslam_endpoints.dart';
-import 'package:apple_developer_kit/src/grandslam/grandslam_login.dart';
-import 'package:apple_developer_kit/src/grandslam/grandslam_two_factor.dart';
+import 'package:apple_developer_kit/src/shared/grandslam/anisette/grandslam_endpoints.dart';
+import 'package:apple_developer_kit/src/shared/grandslam/grandslam_login.dart';
+import 'package:apple_developer_kit/src/shared/grandslam/grandslam_two_factor.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';

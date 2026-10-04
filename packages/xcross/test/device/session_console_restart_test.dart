@@ -1,7 +1,7 @@
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/constants.dart';
-import 'package:xcross/src/device/session_console.dart';
+import 'package:xcross/src/shared/runtime/constants.dart';
+import 'package:xcross/src/target/iphone/device/session_console.dart';
 
 import 'test_log_output.dart';
 

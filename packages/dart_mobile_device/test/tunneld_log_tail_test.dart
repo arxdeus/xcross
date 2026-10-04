@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:cli_kit/cli_kit_shared.dart';
-import 'package:dart_mobile_device/src/tunnel/tunnel_daemon.dart';
+import 'package:dart_mobile_device/src/target/iphone/device/tunnel/tunnel_daemon.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 

@@ -1,10 +1,9 @@
 import 'dart:io';
+
 import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:xcross/src/composition/flutter/swiftpm_checkout.dart';
 import 'package:xcross/src/composition/flutter/swiftpm_foundation.dart';
-import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
-import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/host/linux/flutter/native_host_tools.dart';
 import 'package:xcross/src/host/linux/flutter/swiftpm/host_build_services.dart';
 import 'package:xcross/src/host/linux/flutter/swiftpm/swiftpm_host_policy.dart';
@@ -21,6 +20,8 @@ import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_link_polic
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_manifest_policy.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_dependency_preparation.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_gate_platform.dart';
+import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
+import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';

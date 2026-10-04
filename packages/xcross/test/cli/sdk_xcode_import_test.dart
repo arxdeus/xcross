@@ -6,8 +6,8 @@ import 'package:args/command_runner.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/basic/sdk_command.dart';
-import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/cli/basic/sdk_command.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
 
 import '../../../darwin_sdk_kit/test/test_fixtures.dart';
 import 'sdk_test_support.dart';

@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:test/test.dart';
-import 'package:xcross/src/update/release_lookup.dart';
+import 'package:xcross/src/shared/update/release_lookup.dart';
 
 import 'release_http_fixtures.dart';
 

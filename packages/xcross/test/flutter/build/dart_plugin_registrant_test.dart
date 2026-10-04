@@ -4,9 +4,9 @@ import 'package:cli_kit/cli_kit.dart';
 import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/dart_plugin_registrant.dart';
-import 'package:xcross/src/flutter/build/internal/kernel_compiler.dart';
-import 'package:xcross/src/flutter/build/ios_plugins.dart';
+import 'package:xcross/src/shared/flutter/build/dart_plugin_registrant.dart';
+import 'package:xcross/src/shared/flutter/build/internal/kernel_compiler.dart';
+import 'package:xcross/src/shared/flutter/build/ios_plugins.dart';
 import 'package:xcross/src/shared/flutter/flutter_kernel_compiler.dart';
 import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
 

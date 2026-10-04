@@ -1,6 +1,6 @@
 import 'package:cli_kit/cli_kit_shared.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/flutter/build/internal/recursive_directory_copy.dart';
+import 'package:xcross/src/shared/flutter/build/internal/recursive_directory_copy.dart';
 
 final class FlutterFrameworkCopier {
   FlutterFrameworkCopier(this.fileSystem, this.paths, {required this.copier});

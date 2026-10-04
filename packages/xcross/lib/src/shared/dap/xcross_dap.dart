@@ -1,0 +1,220 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:cli_kit/cli_kit_shared.dart';
+import 'package:dart_mobile_device/dart_mobile_device_shared.dart'
+    show TunnelAvailability;
+import 'package:dds/dap.dart';
+import 'package:frontend_server_kit/frontend_server_kit.dart';
+import 'package:pure/pure.dart';
+import 'package:vm_service/vm_service.dart' as vm;
+import 'package:xcross/src/shared/dap/dap_child_controller.dart';
+import 'package:xcross/src/shared/packages/package_config_resolver.dart';
+import 'package:xcross/src/shared/runtime/constants.dart';
+
+/// Spawns `xcross flutter run` and drives it: keypresses on its stdin for
+/// hot reload/restart/quit, plus a Dart VM Service connection (via
+/// [DartDebugAdapter]) for breakpoints/stepping/stack/variables.
+final class XcrossDap
+    extends
+        DartDebugAdapter<
+          DartLaunchRequestArguments,
+          DartAttachRequestArguments
+        > {
+  XcrossDap(
+    ByteStreamServerChannel channel, {
+    required this.runner,
+    required this.tunnelAvailability,
+    required this.launcher,
+    required this.packageUriLoader,
+  }) : super(channel) {
+    if (!identical(runner.host.fileSystem, packageUriLoader.fileSystem) ||
+        !identical(runner.host.paths.context, packageUriLoader.paths)) {
+      throw ArgumentError(
+        'package URI loader must use the DAP filesystem and paths',
+      );
+    }
+    channel.closed.then((_) => _quitChild());
+  }
+
+  final ProcessRunner runner;
+  final PackageUriLoader packageUriLoader;
+  final TunnelAvailability tunnelAvailability;
+  final String launcher;
+
+  @override
+  final parseLaunchArgs = DartLaunchRequestArguments.fromJson;
+  @override
+  final parseAttachArgs = DartAttachRequestArguments.fromJson;
+
+  @override
+  bool get supportsRestartRequest => true;
+
+  @override
+  bool get terminateOnVmServiceClose => false;
+
+  late final DapChildController _childController = DapChildController(
+    cleanup: runner.killTree,
+  );
+  String _pendingLine = '';
+  bool _vmServiceReported = false;
+  PackageUris? _packageUris;
+
+  /// Re-keys breakpoints from local file paths to `package:` URIs, which
+  /// bind more reliably than plain file URIs.
+  @override
+  Uri? convertUriToOrgDartlangSdk(Uri input) =>
+      super.convertUriToOrgDartlangSdk(input) ??
+      (input.isScheme('file') ? _packageUris?.toPackageUri(input) : null);
+
+  @override
+  Future<void> debuggerConnected(vm.VM vmInfo) async {}
+
+  @override
+  Future<void> attachImpl() =>
+      throw UnimplementedError('xcross dap only supports launch requests.');
+
+  @override
+  Future<void> launchImpl() =>
+      throw UnsupportedError('Call launchAndRespond() instead.');
+
+  @override
+  Future<void> launchAndRespond(void Function() sendResponse) async {
+    final launchArgs = args as DartLaunchRequestArguments;
+    final cwd = launchArgs.cwd ?? runner.host.paths.context.current;
+    await _prepareUriMappings(cwd);
+    await _warnIfTunnelUnreachable();
+
+    final child = await _startRun(launchArgs, cwd);
+    await _childController.attach(child);
+    _pipeChildOutput(child);
+    unawaited(
+      child.exitCode.then((code) {
+        handleSessionExited(code);
+        handleSessionTerminate();
+      }),
+    );
+
+    sendResponse();
+    sendEvent(
+      RawEventBody({
+        'appId': 'xcross',
+        'deviceId': 'ios',
+        'mode': 'debug',
+        'supportsRestart': true,
+      }),
+      eventType: 'flutter.appStart',
+    );
+  }
+
+  Future<void> _warnIfTunnelUnreachable() async {
+    final reachable = await tunnelAvailability.isReachable().timeout(
+      const Duration(seconds: 5),
+      onTimeout: nullaryFalse,
+    );
+    if (reachable) return;
+    sendOutput(
+      'stderr',
+      'xcross: the iOS 17+ RSD tunnel daemon is not reachable — falling '
+          'back to the userspace tunnel over usbmux.\n'
+          'For the faster kernel tunnel, run `xcross tunnel` once in a '
+          'terminal (it needs sudo/Administrator).\n',
+    );
+  }
+
+  Future<Process> _startRun(DartLaunchRequestArguments launchArgs, String cwd) {
+    final program = launchArgs.program;
+    final target = runner.host.paths.context.isAbsolute(program)
+        ? runner.host.paths.context.relative(program, from: cwd)
+        : program;
+    return runner.start(
+      launcher,
+      ['flutter', 'run', '--target', target, ...?launchArgs.args],
+      workingDirectory: cwd,
+      environment: const {'XCROSS_DAP': '1'},
+    );
+  }
+
+  void _pipeChildOutput(Process child) {
+    child.stdin.done.ignore();
+    child.stdout
+        .transform(const Utf8Decoder(allowMalformed: true))
+        .listen(_onChildStdout, onError: _childError);
+    child.stderr
+        .transform(const Utf8Decoder(allowMalformed: true))
+        .listen((text) => sendOutput('stderr', text), onError: _childError);
+  }
+
+  Future<void> _prepareUriMappings(String cwd) async {
+    final packageConfig = await PackageConfigResolver(
+      fileSystem: runner.host.fileSystem,
+      paths: runner.host.paths.context,
+    ).require(cwd);
+    _packageUris ??= await packageUriLoader.load(packageConfig);
+    orgDartlangSdkMappings.clear();
+  }
+
+  void _childError(Object e) =>
+      sendOutput('stderr', 'xcross dap: child stream error: $e\n');
+
+  void _onChildStdout(String text) {
+    sendOutput('stdout', text);
+    if (_vmServiceReported) return;
+    final lines = (_pendingLine + text).split('\n');
+    _pendingLine = lines.removeLast();
+    for (final line in lines) {
+      final start = line.indexOf(DeviceConstants.vmServiceMarker);
+      if (start < 0) continue;
+      _vmServiceReported = true;
+      sendEvent(RawEventBody(const {}), eventType: 'flutter.appStarted');
+      final uri = line
+          .substring(start + DeviceConstants.vmServiceMarker.length)
+          .trim();
+      if (uri.isNotEmpty) {
+        unawaited(connectDebugger(Uri.parse(uri)));
+      }
+      return;
+    }
+  }
+
+  /// Handles Dart-Code's `hotReload`/`hotRestart` toolbar commands.
+  @override
+  Future<void> customRequest(
+    Request request,
+    RawRequestArguments? args,
+    void Function(Object?) sendResponse,
+  ) async {
+    switch (request.command) {
+      case 'hotReload':
+        _writeKey('r');
+        sendResponse(null);
+      case 'hotRestart':
+        _writeKey('R');
+        sendResponse(null);
+      default:
+        await super.customRequest(request, args, sendResponse);
+    }
+  }
+
+  /// The debug toolbar's Restart button — a hot restart, not a relaunch.
+  @override
+  Future<void> restartRequest(
+    Request request,
+    RestartArguments? args,
+    void Function() sendResponse,
+  ) async {
+    _writeKey('R');
+    sendResponse();
+  }
+
+  Future<void> _quitChild() => _childController.close();
+
+  @override
+  Future<void> disconnectImpl() => _quitChild();
+
+  @override
+  Future<void> terminateImpl() => _quitChild();
+
+  void _writeKey(String key) => _childController.writeKey(key);
+}

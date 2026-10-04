@@ -1,15 +1,15 @@
 import 'package:args/command_runner.dart';
 import 'package:dart_mobile_device/dart_mobile_device.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/compose/compose_build_command.dart';
-import 'package:xcross/src/cli/compose/compose_command.dart';
-import 'package:xcross/src/cli/compose/compose_run_command.dart';
-import 'package:xcross/src/cli/compose/compose_setup_command.dart';
-import 'package:xcross/src/cli/runner.dart';
-import 'package:xcross/src/compose/models/compose_build_options.dart';
-import 'package:xcross/src/device/core_device_launch_profile.dart';
-import 'package:xcross/src/errors.dart';
-import 'package:xcross/src/models/pack_result.dart';
+import 'package:xcross/src/composition/cli/compose_build_command.dart';
+import 'package:xcross/src/composition/cli/compose_command.dart';
+import 'package:xcross/src/composition/cli/compose_run_command.dart';
+import 'package:xcross/src/composition/cli/compose_setup_command.dart';
+import 'package:xcross/src/composition/cli/runner.dart';
+import 'package:xcross/src/shared/compose/models/compose_build_options.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/shared/models/pack_result.dart';
+import 'package:xcross/src/target/iphone/device/core_device_launch_profile.dart';
 
 import 'runtime_fixture.dart';
 

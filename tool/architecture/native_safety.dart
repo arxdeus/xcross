@@ -53,7 +53,8 @@ class NativeSafety {
           id.element?.name,
     };
     final expected = loaders[path]!.$3;
-    if (constants.length != expected.length || !constants.containsAll(expected)) {
+    if (constants.length != expected.length ||
+        !constants.containsAll(expected)) {
       return false;
     }
     final creation = node.cases.first.expression;

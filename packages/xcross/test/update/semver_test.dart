@@ -1,5 +1,5 @@
 import 'package:test/test.dart';
-import 'package:xcross/src/update/semver.dart';
+import 'package:xcross/src/shared/update/semver.dart';
 
 XcrossSemver _parse(String value) {
   final parsed = XcrossSemver.tryParse(value);
