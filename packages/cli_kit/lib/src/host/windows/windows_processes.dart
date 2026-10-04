@@ -92,13 +92,16 @@ final class WindowsProcesses implements HostProcessInterface {
       final directory = _paths.ioPath(
         workingDirectory ?? _paths.context.current,
       );
-      final command = shell ? _shellPath(executable) : executable;
+      final command = _plainPath(executable);
+      final plain = [
+        for (final argument in arguments) _plainArgument(argument),
+      ];
       return Process.start(
         command,
         batch
-            ? WindowsBatchPolicy.arguments(arguments, executable: command)
-            : arguments,
-        workingDirectory: shell ? _shellPath(directory) : directory,
+            ? WindowsBatchPolicy.arguments(plain, executable: command)
+            : plain,
+        workingDirectory: shell ? _plainPath(directory) : directory,
         environment: environment,
         includeParentEnvironment: includeParentEnvironment,
         runInShell: shell,
@@ -108,10 +111,18 @@ final class WindowsProcesses implements HostProcessInterface {
     mode,
   );
 
-  static String _shellPath(String path) {
+  static String _plainPath(String path) {
     if (path.startsWith(r'\\?\UNC\')) return '\\\\${path.substring(8)}';
     if (path.startsWith(r'\\?\')) return path.substring(4);
     return path;
+  }
+
+  static final _optionValue = RegExp(r'^(--?[^=\s]+=)(.*)$');
+
+  static String _plainArgument(String argument) {
+    final option = _optionValue.firstMatch(argument);
+    if (option != null) return '${option[1]}${_plainPath(option[2]!)}';
+    return _plainPath(argument);
   }
 
   @override

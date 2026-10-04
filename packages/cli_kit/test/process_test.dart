@@ -693,6 +693,33 @@ void main() {
   });
 
   group('start', () {
+    test(
+      'passes Windows extended-length paths to children in plain form',
+      () async {
+        final directory = Directory.systemTemp.createTempSync('plain-args-');
+        addTearDown(() => directory.deleteSync(recursive: true));
+        final script = File(p.join(directory.path, 'args.dart'))
+          ..writeAsStringSync(
+            "import 'dart:io'; void main(List<String> a) { stdout.write(a.join('|')); }",
+          );
+        final extended = '\\\\?\\${directory.path}';
+
+        final process = await runner.start(Platform.resolvedExecutable, [
+          '\\\\?\\${script.path}',
+          extended,
+          '--out=$extended',
+          'plain',
+        ]);
+        final output = await process.stdout
+            .transform(systemEncoding.decoder)
+            .join();
+
+        expect(await process.exitCode, 0);
+        expect(output, '${directory.path}|--out=${directory.path}|plain');
+      },
+      skip: !Platform.isWindows,
+    );
+
     test('starts Windows batch scripts in a plain working directory', () async {
       final directory = Directory.systemTemp.createTempSync('batch-cwd-');
       addTearDown(() => directory.deleteSync(recursive: true));
