@@ -215,6 +215,8 @@ const nativeSources = {
   'packages/apple_developer_kit/src/host/shared/adi/posix_bridge.c': 'shared',
   'packages/apple_developer_kit/src/host/shared/adi/sysv_abi_bridge.c':
       'shared',
+  'packages/apple_developer_kit/src/host/windows/adi/windows_arm64_abi_bridge.h':
+      'windows',
 };
 
 @internal
@@ -322,10 +324,6 @@ const ciFiles = {
 
 @internal
 const partOwners = {
-  'packages/apple_developer_kit/lib/src/host/windows/adi/loader/internal/windows/linux_abi.dart':
-      'packages/apple_developer_kit/lib/src/host/windows/adi/loader/internal/native_symbol_stubs_windows.dart',
-  'packages/apple_developer_kit/lib/src/host/windows/adi/loader/internal/windows/windows_crt.dart':
-      'packages/apple_developer_kit/lib/src/host/windows/adi/loader/internal/native_symbol_stubs_windows.dart',
   'packages/xcross/lib/src/composition/cli/compose_build_command.g.dart':
       'packages/xcross/lib/src/composition/cli/compose_build_command.dart',
   'packages/xcross/lib/src/composition/cli/compose_run_command.g.dart':

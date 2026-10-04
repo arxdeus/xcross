@@ -155,6 +155,11 @@ const appleDeveloperKitRoles = <String, Map<String, String>>{
   'package:apple_developer_kit/src/host/macos/macos_machine_identity.dart': {
     'CLASS:MacOSMachineIdentity': 'internal',
   },
+  'package:apple_developer_kit/src/host/shared/adi/elf/elf_code_preparation.dart':
+      {
+        'CLASS:ElfCodePreparation': 'internal',
+        'CLASS:UnmodifiedElfCodePreparation': 'internal',
+      },
   'package:apple_developer_kit/src/host/shared/adi/elf/elf_loaded_library.dart':
       {
         'CLASS:ElfLoadedLibrary': 'internal',
@@ -188,6 +193,7 @@ const appleDeveloperKitRoles = <String, Map<String, String>>{
         'FUNCTION:provisionPosixSymbol': 'internal',
         'FUNCTION:provisionSysvWrapExport': 'internal',
         'FUNCTION:provisionSysvWrapImport': 'internal',
+        'FUNCTION:provisionWindowsArm64PrepareCode': 'internal',
       },
   'package:apple_developer_kit/src/host/shared/adi/loader/loader_posix.dart': {
     'CLASS:PosixNativeLibraryLoader': 'internal',
@@ -212,28 +218,29 @@ const appleDeveloperKitRoles = <String, Map<String, String>>{
       },
   'package:apple_developer_kit/src/host/windows/adi/loader/internal/native_symbol_stubs_windows.dart':
       {
-        'CLASS:LinuxOpenFlags': 'internal',
-        'CLASS:LinuxStat': 'internal',
-        'CLASS:LinuxTimeval': 'internal',
-        'CLASS:WindowsCrt': 'internal',
         'CLASS:WindowsNativeSymbolStubs': 'internal',
-        'CLASS:WindowsOpenFlags': 'internal',
-        'FUNCTION:_fillLinuxStat': 'private',
-        'FUNCTION:_linuxStatMode': 'private',
-        'FUNCTION:_toWindowsPath': 'private',
-        'FUNCTION:_windowsChmodMode': 'private',
-        'FUNCTION:_windowsOpenFlags': 'private',
         'TOP_LEVEL_VARIABLE:_ebadf': 'private',
         'TOP_LEVEL_VARIABLE:_enoent': 'private',
-        'TOP_LEVEL_VARIABLE:_linuxReadExecuteAll': 'private',
-        'TOP_LEVEL_VARIABLE:_linuxWriteOther': 'private',
-        'TOP_LEVEL_VARIABLE:_linuxWriteUser': 'private',
-        'TOP_LEVEL_VARIABLE:_statIfdir': 'private',
         'TOP_LEVEL_VARIABLE:_statScratchSize': 'private',
-        'TOP_LEVEL_VARIABLE:_windowsRead': 'private',
-        'TOP_LEVEL_VARIABLE:_windowsStatSize': 'private',
-        'TOP_LEVEL_VARIABLE:_windowsWrite': 'private',
       },
+  'package:apple_developer_kit/src/host/windows/adi/loader/internal/windows/linux_abi.dart':
+      {
+        'CLASS:LinuxArm64StatLayout': 'internal',
+        'CLASS:LinuxOpenFlags': 'internal',
+        'CLASS:LinuxStatLayout': 'internal',
+        'CLASS:LinuxTimeval': 'internal',
+        'CLASS:LinuxX64StatLayout': 'internal',
+        'CLASS:WindowsOpenFlags': 'internal',
+        'FUNCTION:linuxStatMode': 'internal',
+        'FUNCTION:toWindowsPath': 'internal',
+        'FUNCTION:windowsChmodMode': 'internal',
+      },
+  'package:apple_developer_kit/src/host/windows/adi/loader/internal/windows/windows_adi_abi.dart':
+      {'CLASS:WindowsAdiAbi': 'internal'},
+  'package:apple_developer_kit/src/host/windows/adi/loader/internal/windows/windows_arm64_code_preparation.dart':
+      {'CLASS:WindowsArm64CodePreparation': 'internal'},
+  'package:apple_developer_kit/src/host/windows/adi/loader/internal/windows/windows_crt.dart':
+      {'CLASS:WindowsCrt': 'internal'},
   'package:apple_developer_kit/src/host/windows/adi/loader/internal/windows_loaded_library.dart':
       {'CLASS:WindowsLoadedLibrary': 'internal'},
   'package:apple_developer_kit/src/host/windows/adi/loader/loader_windows.dart':

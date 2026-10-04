@@ -8,6 +8,7 @@ const appleDeveloperKitTestsRoles = <String, Map<String, String>>{
     'FUNCTION:main': 'entrypoint',
     'FUNCTION:resolveMacOSCompiler': 'internal',
     'FUNCTION:systemCompilerFlags': 'internal',
+    'FUNCTION:windowsBridgeSources': 'internal',
     'TOP_LEVEL_VARIABLE:_assetName': 'private',
   },
   'workspace:packages/apple_developer_kit/test/adi/adi_client_test.dart': {
@@ -37,8 +38,21 @@ const appleDeveloperKitTestsRoles = <String, Map<String, String>>{
     'FUNCTION:symbol': 'internal',
   },
   'workspace:packages/apple_developer_kit/test/adi/support/elf_fixture.dart': {
+    'CLASS:CallbackElfCodePreparation': 'internal',
     'FUNCTION:elfFixture': 'internal',
   },
+  'workspace:packages/apple_developer_kit/test/adi/windows_abi_test.dart': {
+    'FUNCTION:main': 'entrypoint',
+  },
+  'workspace:packages/apple_developer_kit/test/adi/windows_arm64_bridge_test.dart':
+      {
+        'FUNCTION:_code': 'private',
+        'FUNCTION:_integerProbe': 'private',
+        'FUNCTION:main': 'entrypoint',
+        'TOP_LEVEL_VARIABLE:_callWithShadowStack': 'private',
+        'TOP_LEVEL_VARIABLE:_readX18': 'private',
+        'TOP_LEVEL_VARIABLE:_return': 'private',
+      },
   'workspace:packages/apple_developer_kit/test/apple_http_client_test.dart': {
     'CLASS:RecordingHttpClient': 'internal',
     'FUNCTION:main': 'entrypoint',

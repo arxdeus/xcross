@@ -135,11 +135,14 @@ abstract final class LinuxOpenFlags {
   static const int cloexec = 0x80000;
 }
 
+@internal
 int windowsChmodMode(int linuxMode) => (linuxMode & 0x92) != 0 ? 0x180 : 0x100;
 
+@internal
 int linuxStatMode(int windowsMode) =>
     (windowsMode & 0xf000) | 0x16d | (windowsMode & 0x80);
 
+@internal
 Pointer<Utf8> toWindowsPath(Pointer<Utf8> path) {
   final posix = path.toDartString();
   final stripped = posix.startsWith('//?/') ? posix.substring(4) : posix;

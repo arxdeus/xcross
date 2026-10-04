@@ -43,5 +43,6 @@ final class WindowsAdiAbi {
         );
       }
     }
+    elf.validateExecutableSections();
   }
 }

@@ -58,6 +58,21 @@ void main() {
       );
     });
 
+    for (final (name, offset, value) in [
+      ('unallocated code', 0x308, 4),
+      ('mismatched file offset', 0x318, 0x1104),
+      ('code in bss', 0x310, 0x2800),
+      ('overlapping allocated data', 0x390, 0x1108),
+    ]) {
+      test('$host rejects $name before native initialization', () {
+        final abi = WindowsAdiAbi.forAbi(host);
+        final bytes = elfFixture(machine);
+        expect(() => abi.validateElf(bytes), returnsNormally);
+        ByteData.sublistView(bytes).setUint64(offset, value, Endian.little);
+        expect(() => abi.validateElf(bytes), throwsFormatException);
+      });
+    }
+
     test('$host writes every stat field and preserves adjacent memory', () {
       final layout = WindowsAdiAbi.forAbi(host).statLayout;
       expect(layout.size, size);
