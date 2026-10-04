@@ -2,15 +2,6 @@
 // Provision's lib/provision/compat/windows.d + symbols.d (LGPLv2 — see
 // NOTICE.md).
 //
-// Unlike the Linux stubs (which forward open/stat/etc. straight to host
-// libc), Windows must translate Linux/bionic open flags and struct-stat
-// layouts — see windows/linux_abi.dart. Every address published into the
-// ELF GOT is a SysV-callable trampoline wrapping an MS-ABI
-// NativeCallable, because the loaded library calls its imports with the
-// SysV AMD64 convention while Dart's NativeCallable speaks the Microsoft
-// x64 one (different argument registers, different shadow space, no red
-// zone).
-//
 // DO NOT "IMPROVE" THE PTHREAD STUBS: they are deliberately no-ops,
 // matching upstream's `emptyStub` in symbols.d. Bionic's
 // `pthread_mutex_t`/`pthread_once_t` are ~4 bytes; glibc's and the CRT's
@@ -22,15 +13,14 @@
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:math';
-import 'dart:typed_data';
 
 import 'package:apple_developer_kit/src/host/shared/adi/elf/elf_loaded_library.dart';
 import 'package:apple_developer_kit/src/host/shared/adi/loader/internal/sysv_abi_bridge.dart';
+import 'package:apple_developer_kit/src/host/windows/adi/loader/internal/windows/linux_abi.dart';
+import 'package:apple_developer_kit/src/host/windows/adi/loader/internal/windows/windows_adi_abi.dart';
+import 'package:apple_developer_kit/src/host/windows/adi/loader/internal/windows/windows_crt.dart';
 import 'package:ffi/ffi.dart';
 import 'package:meta/meta.dart';
-
-part 'windows/linux_abi.dart';
-part 'windows/windows_crt.dart';
 
 /// Builds the fixed stub-symbol table for Windows, with SysV GOT entries.
 ///
@@ -39,7 +29,10 @@ part 'windows/windows_crt.dart';
 /// library will call straight into.
 @internal
 final class WindowsNativeSymbolStubs {
-  WindowsNativeSymbolStubs({required this.loadLibraryForDlopen}) {
+  WindowsNativeSymbolStubs({
+    required this.abi,
+    required this.loadLibraryForDlopen,
+  }) {
     _errnoPtr = calloc<Int32>();
     _bindAll();
   }
@@ -49,6 +42,7 @@ final class WindowsNativeSymbolStubs {
   /// glue (`loader_windows.dart`), so this class stays a pure "symbol
   /// table" independent of how libraries are actually loaded.
   final ElfLoadedLibrary Function(String path) loadLibraryForDlopen;
+  final WindowsAdiAbi abi;
 
   final Map<String, Pointer<Void>> _table = {};
   final Map<int, ElfLoadedLibrary> _dlopenHandles = {};
@@ -73,11 +67,11 @@ final class WindowsNativeSymbolStubs {
   void _bindAll() {
     _publishCallable(
       'open',
-      NativeCallable<Int32 Function(Pointer<Utf8>, Int32)>.isolateLocal(
+      NativeCallable<Int32 Function(Pointer<Utf8>, Int32, Int32)>.isolateLocal(
         _open,
         exceptionalReturn: -1,
       ),
-      2,
+      3,
     );
     _publishCallable(
       'close',
@@ -89,18 +83,16 @@ final class WindowsNativeSymbolStubs {
     );
     _publishCallable(
       'read',
-      NativeCallable<Int32 Function(Int32, Pointer<Void>, Uint32)>.isolateLocal(
-        _read,
-        exceptionalReturn: -1,
-      ),
+      NativeCallable<
+        IntPtr Function(Int32, Pointer<Void>, UintPtr)
+      >.isolateLocal(_read, exceptionalReturn: -1),
       3,
     );
     _publishCallable(
       'write',
-      NativeCallable<Int32 Function(Int32, Pointer<Void>, Uint32)>.isolateLocal(
-        _write,
-        exceptionalReturn: -1,
-      ),
+      NativeCallable<
+        IntPtr Function(Int32, Pointer<Void>, UintPtr)
+      >.isolateLocal(_write, exceptionalReturn: -1),
       3,
     );
     _publishCallable(
@@ -121,7 +113,7 @@ final class WindowsNativeSymbolStubs {
     );
     _publishCallable(
       'ftruncate',
-      NativeCallable<Int32 Function(Int64, Int64)>.isolateLocal(
+      NativeCallable<Int32 Function(Int32, Int64)>.isolateLocal(
         _ftruncate,
         exceptionalReturn: -1,
       ),
@@ -129,7 +121,7 @@ final class WindowsNativeSymbolStubs {
     );
     _publishCallable(
       'umask',
-      NativeCallable<Uint64 Function(Uint64)>.isolateLocal(
+      NativeCallable<Uint32 Function(Uint32)>.isolateLocal(
         _umask,
         exceptionalReturn: 0,
       ),
@@ -138,13 +130,13 @@ final class WindowsNativeSymbolStubs {
     _publishCallable(
       'lstat',
       NativeCallable<
-        Int32 Function(Pointer<Utf8>, Pointer<LinuxStat>)
+        Int32 Function(Pointer<Utf8>, Pointer<Uint8>)
       >.isolateLocal(_lstat, exceptionalReturn: -1),
       2,
     );
     _publishCallable(
       'fstat',
-      NativeCallable<Int32 Function(Int32, Pointer<LinuxStat>)>.isolateLocal(
+      NativeCallable<Int32 Function(Int32, Pointer<Uint8>)>.isolateLocal(
         _fstat,
         exceptionalReturn: -1,
       ),
@@ -340,10 +332,14 @@ final class WindowsNativeSymbolStubs {
 
   // --- File system ---
 
-  int _open(Pointer<Utf8> path, int oflag) {
-    final winPath = _toWindowsPath(path);
+  int _open(Pointer<Utf8> path, int oflag, int mode) {
+    final winPath = toWindowsPath(path);
     try {
-      final result = _crt.open(winPath, _windowsOpenFlags(oflag));
+      final result = _crt.open(
+        winPath,
+        WindowsOpenFlags.fromLinux(oflag),
+        WindowsOpenFlags.creationMode(oflag, mode),
+      );
       if (result < 0) _errnoPtr.value = _enoent;
       return result;
     } finally {
@@ -353,14 +349,25 @@ final class WindowsNativeSymbolStubs {
 
   int _close(int fd) => _crt.close(fd);
 
-  int _read(int fd, Pointer<Void> buf, int count) => _crt.read(fd, buf, count);
+  int _read(int fd, Pointer<Void> buf, int count) {
+    if (count < 0 || count > 0x7fffffff) {
+      _errnoPtr.value = 22;
+      return -1;
+    }
+    return _crt.read(fd, buf, count);
+  }
 
-  int _write(int fd, Pointer<Void> buf, int count) =>
-      _crt.write(fd, buf, count);
+  int _write(int fd, Pointer<Void> buf, int count) {
+    if (count < 0 || count > 0x7fffffff) {
+      _errnoPtr.value = 22;
+      return -1;
+    }
+    return _crt.write(fd, buf, count);
+  }
 
   /// The Windows `_mkdir` takes no mode; the requested one is dropped.
   int _mkdir(Pointer<Utf8> path, int mode) {
-    final winPath = _toWindowsPath(path);
+    final winPath = toWindowsPath(path);
     try {
       return _crt.mkdir(winPath);
     } finally {
@@ -369,9 +376,9 @@ final class WindowsNativeSymbolStubs {
   }
 
   int _chmod(Pointer<Utf8> path, int mode) {
-    final winPath = _toWindowsPath(path);
+    final winPath = toWindowsPath(path);
     try {
-      return _crt.chmod(winPath, _windowsChmodMode(mode));
+      return _crt.chmod(winPath, windowsChmodMode(mode));
     } finally {
       malloc.free(winPath);
     }
@@ -382,8 +389,8 @@ final class WindowsNativeSymbolStubs {
   /// Upstream returns the argument unchanged rather than tracking a mask.
   int _umask(int mask) => mask;
 
-  int _lstat(Pointer<Utf8> path, Pointer<LinuxStat> out) {
-    final winPath = _toWindowsPath(path);
+  int _lstat(Pointer<Utf8> path, Pointer<Uint8> out) {
+    final winPath = toWindowsPath(path);
     final buf = calloc<Uint8>(_statScratchSize);
     try {
       final rc = _crt.stat(winPath, buf);
@@ -391,7 +398,7 @@ final class WindowsNativeSymbolStubs {
         _errnoPtr.value = _enoent;
         return rc;
       }
-      _fillLinuxStat(out, buf);
+      abi.statLayout.write(out, buf);
       return 0;
     } finally {
       calloc.free(buf);
@@ -399,7 +406,7 @@ final class WindowsNativeSymbolStubs {
     }
   }
 
-  int _fstat(int fd, Pointer<LinuxStat> out) {
+  int _fstat(int fd, Pointer<Uint8> out) {
     final buf = calloc<Uint8>(_statScratchSize);
     try {
       final rc = _crt.fstat(fd, buf);
@@ -407,7 +414,7 @@ final class WindowsNativeSymbolStubs {
         _errnoPtr.value = _ebadf;
         return rc;
       }
-      _fillLinuxStat(out, buf);
+      abi.statLayout.write(out, buf);
       return 0;
     } finally {
       calloc.free(buf);

@@ -5,7 +5,10 @@
 // one the loaded Android library imports: `open` -> `_open`, `ftruncate`
 // -> `_chsize_s`, `lstat` -> `_stat64`, `fstat` -> `_fstat64`.
 
-part of '../native_symbol_stubs_windows.dart';
+import 'dart:ffi';
+
+import 'package:ffi/ffi.dart';
+import 'package:meta/meta.dart';
 
 @internal
 final class WindowsCrt {
@@ -13,12 +16,19 @@ final class WindowsCrt {
 
   /// Raw address of CRT symbol [name], for entries published straight
   /// into the ELF GOT with no Dart-side wrapper.
-  Pointer<Void> symbol(String name) => _process.lookup<Void>(name).cast();
+  Pointer<Void> symbol(String name) =>
+      _process.lookup<Void>(androidSymbolName(name)).cast();
 
-  late final int Function(Pointer<Utf8>, int) open = _process
+  static String androidSymbolName(String name) => switch (name) {
+    'strtol' => 'strtoll',
+    'strtoul' => 'strtoull',
+    _ => name,
+  };
+
+  late final int Function(Pointer<Utf8>, int, int) open = _process
       .lookupFunction<
-        Int32 Function(Pointer<Utf8>, Int32),
-        int Function(Pointer<Utf8>, int)
+        Int32 Function(Pointer<Utf8>, Int32, VarArgs<(Int32,)>),
+        int Function(Pointer<Utf8>, int, int)
       >('_open');
 
   late final int Function(int) close = _process

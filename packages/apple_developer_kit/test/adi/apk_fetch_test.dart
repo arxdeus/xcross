@@ -280,18 +280,19 @@ void main() {
     expect(fetcher.coreAdiFile.existsSync(), isFalse);
   });
 
-  test('host selection allows ARM64 POSIX and keeps Windows x64-only', () {
+  test('host selection allows x64 and ARM64 desktop hosts', () {
     for (final abi in [
       Abi.linuxX64,
       Abi.linuxArm64,
       Abi.macosX64,
       Abi.macosArm64,
       Abi.windowsX64,
+      Abi.windowsArm64,
     ]) {
       expect(AdiLibraryFetcher.supportsAbi(abi), isTrue);
     }
     for (final abi in [
-      Abi.windowsArm64,
+      Abi.windowsIA32,
       Abi.linuxArm,
       Abi.androidArm64,
       Abi.iosArm64,
@@ -345,6 +346,53 @@ void main() {
     File('${cache.path}/applemusic.apk').deleteSync();
     expect((await arm.ensureLibraries()).apkSha256, a.apkSha256);
   });
+
+  test('Windows ARM64 extracts and resolves only the ARM64 slice', () async {
+    writeApk();
+    final fetcher = AdiLibraryFetcher(
+      hostServices: testHostServices,
+      cacheDir: cache.path,
+      abi: Abi.windowsArm64,
+      createClient: unexpectedClient,
+    );
+    final paths = await fetcher.ensureLibraries();
+    expect(paths.coreAdiPath, contains('arm64-v8a'));
+    expect(fetcher.coreAdiFile.readAsBytesSync(), elfFixture(183));
+    expect(fetcher.storeServicesFile.readAsBytesSync(), elfFixture(183));
+    expect(
+      AdiLibraryResolver(
+        hostServices: testHostServices,
+      ).resolve(cache.path, abi: Abi.windowsArm64)?.path,
+      fetcher.libraryDirectory.path,
+    );
+    fetcher.coreAdiFile.writeAsBytesSync(elfFixture(62));
+    expect(
+      () => AdiLibraryResolver(
+        hostServices: testHostServices,
+      ).resolve(cache.path, abi: Abi.windowsArm64),
+      throwsFormatException,
+    );
+  });
+
+  for (final wrongArm in [false, true]) {
+    test(
+      'Windows ARM64 rejects unavailable matching slice: $wrongArm',
+      () async {
+        writeApk(arm64: wrongArm, wrongArm: wrongArm);
+        final fetcher = AdiLibraryFetcher(
+          hostServices: testHostServices,
+          cacheDir: cache.path,
+          abi: Abi.windowsArm64,
+          createClient: unexpectedClient,
+        );
+        await expectLater(
+          fetcher.ensureLibraries(),
+          wrongArm ? throwsFormatException : throwsStateError,
+        );
+        expect(fetcher.coreAdiFile.existsSync(), isFalse);
+      },
+    );
+  }
 
   test('never falls back to wrong APK architecture', () async {
     writeApk(arm64: false);

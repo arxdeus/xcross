@@ -8,27 +8,21 @@ import 'package:apple_developer_kit/host/shared/adi/loader/loader.dart';
 import 'package:apple_developer_kit/src/host/shared/adi/elf/elf_loaded_library.dart';
 import 'package:apple_developer_kit/src/host/windows/adi/loader/internal/memory_allocator_windows.dart';
 import 'package:apple_developer_kit/src/host/windows/adi/loader/internal/native_symbol_stubs_windows.dart';
+import 'package:apple_developer_kit/src/host/windows/adi/loader/internal/windows/windows_adi_abi.dart';
 import 'package:apple_developer_kit/src/host/windows/adi/loader/internal/windows_loaded_library.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
 @internal
 final class WindowsNativeLibraryLoader implements NativeLibraryLoader {
-  WindowsNativeLibraryLoader() : _allocator = _createAllocator() {
-    _stubs = WindowsNativeSymbolStubs(loadLibraryForDlopen: _loadByPath);
-  }
+  WindowsNativeLibraryLoader() : _abi = WindowsAdiAbi.forAbi(Abi.current());
 
-  static WindowsMemoryAllocator _createAllocator() {
-    if (Abi.current() != Abi.windowsX64) {
-      throw UnsupportedError(
-        'Windows ADI loader requires windows_x64 (got ${Abi.current()}).',
-      );
-    }
-    return WindowsMemoryAllocator();
-  }
-
-  final WindowsMemoryAllocator _allocator;
-  late final WindowsNativeSymbolStubs _stubs;
+  final WindowsAdiAbi _abi;
+  late final WindowsMemoryAllocator _allocator = WindowsMemoryAllocator();
+  late final WindowsNativeSymbolStubs _stubs = WindowsNativeSymbolStubs(
+    abi: _abi,
+    loadLibraryForDlopen: _loadByPath,
+  );
   final Map<String, ElfLoadedLibrary> _loaded = {};
   String? _lastLoadDir;
 
@@ -41,11 +35,14 @@ final class WindowsNativeLibraryLoader implements NativeLibraryLoader {
     if (cached != null) return cached;
 
     final resolvedPath = _resolvePath(path, canonical);
+    final bytes = File(resolvedPath).readAsBytesSync();
+    _abi.validateElf(bytes);
     final lib = ElfLoadedLibrary.load(
-      File(resolvedPath).readAsBytesSync(),
+      bytes,
       _allocator,
       _stubs.resolve,
-      machine: 62,
+      machine: _abi.architecture.elfMachine,
+      codePreparation: _abi.codePreparation,
     );
     _loaded[resolvedPath] = lib;
     return lib;

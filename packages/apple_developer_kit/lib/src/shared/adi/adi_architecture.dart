@@ -18,7 +18,7 @@ enum AdiArchitecture {
 
   static AdiArchitecture? tryForAbi(Abi abi) => switch (abi) {
     Abi.linuxX64 || Abi.macosX64 || Abi.windowsX64 => x64,
-    Abi.linuxArm64 || Abi.macosArm64 => arm64,
+    Abi.linuxArm64 || Abi.macosArm64 || Abi.windowsArm64 => arm64,
     _ => null,
   };
 }
