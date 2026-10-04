@@ -5,6 +5,7 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:apple_developer_kit/src/host/shared/adi/elf/elf_code_preparation.dart';
 import 'package:apple_developer_kit/src/host/shared/adi/elf/elf_loaded_library.dart';
 import 'package:apple_developer_kit/src/host/shared/adi/loader/internal/sysv_abi_bridge.dart';
 import 'package:apple_developer_kit/src/shared/adi/adi_architecture.dart';
@@ -255,28 +256,43 @@ void main() {
     });
   });
 
-  test(
-    'copied host machine code executes after instruction-cache synchronization',
-    () {
-      final architecture = AdiArchitecture.forAbi(Abi.current());
-      final bytes = elfFixture(architecture.elfMachine);
-      bytes.setAll(
-        0x1100,
-        architecture == AdiArchitecture.arm64
-            ? [0x40, 0x05, 0x80, 0x52, 0xc0, 0x03, 0x5f, 0xd6]
-            : [0xb8, 42, 0, 0, 0, 0xc3],
-      );
-      final library = ElfLoadedLibrary.load(
-        bytes,
-        testPosixAllocator(),
-        (_) => nullptr,
-        machine: architecture.elfMachine,
-      );
-      final call = library
-          .lookup('local')
-          .cast<NativeFunction<Int32 Function()>>()
-          .asFunction<int Function()>();
-      expect(call(), 42);
-    },
-  );
+  for (final answer in [42, 43]) {
+    test(
+      'copied host code returns $answer after preparation and cache synchronization',
+      () {
+        final architecture = AdiArchitecture.forAbi(Abi.current());
+        final bytes = elfFixture(architecture.elfMachine);
+        bytes.setAll(
+          0x1100,
+          architecture == AdiArchitecture.arm64
+              ? [0x40, 0x05, 0x80, 0x52, 0xc0, 0x03, 0x5f, 0xd6]
+              : [0xb8, 42, 0, 0, 0, 0xc3],
+        );
+        var prepared = 0;
+        final library = ElfLoadedLibrary.load(
+          bytes,
+          testPosixAllocator(),
+          (_) => nullptr,
+          machine: architecture.elfMachine,
+          codePreparation: answer == 42
+              ? const UnmodifiedElfCodePreparation()
+              : CallbackElfCodePreparation((code, length) {
+                  if (prepared++ != 0) return;
+                  expect(length, 16);
+                  if (architecture == AdiArchitecture.arm64) {
+                    code[0] = 0x60;
+                  } else {
+                    code[1] = 43;
+                  }
+                }),
+        );
+        final call = library
+            .lookup('local')
+            .cast<NativeFunction<Int32 Function()>>()
+            .asFunction<int Function()>();
+        expect(call(), answer);
+        expect(prepared, answer == 42 ? 0 : 2);
+      },
+    );
+  }
 }

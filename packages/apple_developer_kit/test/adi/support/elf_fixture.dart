@@ -1,5 +1,18 @@
+import 'dart:ffi';
 import 'dart:typed_data';
+
+import 'package:apple_developer_kit/src/host/shared/adi/elf/elf_code_preparation.dart';
 import 'package:meta/meta.dart';
+
+@internal
+final class CallbackElfCodePreparation implements ElfCodePreparation {
+  const CallbackElfCodePreparation(this.callback);
+
+  final void Function(Pointer<Uint8>, int) callback;
+
+  @override
+  void prepare(Pointer<Uint8> code, int length) => callback(code, length);
+}
 
 @internal
 Uint8List elfFixture(int machine, {int base = 0x1000}) {
@@ -21,7 +34,7 @@ Uint8List elfFixture(int machine, {int base = 0x1000}) {
   u16(54, 56);
   u16(56, 2);
   u16(58, 64);
-  u16(60, 4);
+  u16(60, 8);
   u16(62, 2);
   for (var i = 0; i < 2; i++) {
     final ph = 64 + i * 56;
@@ -29,7 +42,7 @@ Uint8List elfFixture(int machine, {int base = 0x1000}) {
     u32(ph + 4, i == 0 ? 5 : 6);
     u64(ph + 8, 0x1000 + i * 0x1000);
     u64(ph + 16, base + i * 0x1000);
-    u64(ph + 32, 0x1000);
+    u64(ph + 32, i == 0 ? 0x1000 : 0x800);
     u64(ph + 40, 0x1000);
     u64(ph + 48, 0x1000);
   }
@@ -41,6 +54,15 @@ Uint8List elfFixture(int machine, {int base = 0x1000}) {
     u64(sh + 24, [0, 0x400, 0x500, 0x600][i]);
     u64(sh + 32, [0, 96, names.length, 120][i]);
     if (i == 1) u32(sh + 40, 2);
+  }
+  for (var i = 4; i < 8; i++) {
+    final sh = 0x200 + i * 64;
+    final offset = [0x100, 0x180, 0x200, 0x1800][i - 4];
+    u32(sh + 4, i == 7 ? 8 : 1);
+    u64(sh + 8, i < 6 ? 6 : (i == 7 ? 3 : 2));
+    u64(sh + 16, base + offset);
+    u64(sh + 24, 0x1000 + offset);
+    u64(sh + 32, [16, 8, 32, 0x800][i - 4]);
   }
   for (var i = 1; i <= 3; i++) {
     final sym = 0x400 + i * 24;

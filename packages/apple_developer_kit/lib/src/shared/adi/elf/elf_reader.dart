@@ -47,6 +47,9 @@ abstract final class ElfSegmentFlags {
 /// `sh_type` values of an ELF64 section header.
 @internal
 abstract final class ElfSectionType {
+  static const int programBits = 1;
+  static const int noBits = 8;
+
   /// `SHT_STRTAB`
   static const int stringTable = 3;
 
@@ -155,7 +158,9 @@ class ElfReader {
       throw const FormatException('ELF has no load segments.');
     }
     for (var i = 0; i < ehShnum; i++) {
-      if (shType(i) != 8) checkRange(shOffset(i), shSize(i));
+      if (shType(i) != ElfSectionType.noBits) {
+        checkRange(shOffset(i), shSize(i));
+      }
     }
   }
 
@@ -163,6 +168,67 @@ class ElfReader {
     if (offset < 0 || length < 0 || offset > bytes.length - length) {
       throw const FormatException('ELF range exceeds file bounds.');
     }
+  }
+
+  List<int> validateExecutableSections() {
+    final sections = <int>[];
+    for (var i = 0; i < ehShnum; i++) {
+      if (shFlags(i) & 4 == 0) continue;
+      final address = shAddr(i);
+      final size = shSize(i);
+      if (shFlags(i) & 0xc03 != 2 ||
+          shType(i) != ElfSectionType.programBits ||
+          address < 0 ||
+          size < 0 ||
+          address > 1 << 32 ||
+          size > (1 << 32) - address) {
+        throw const FormatException('Invalid ELF executable section.');
+      }
+      var mapped = false;
+      for (var segment = 0; segment < ehPhnum; segment++) {
+        if (phType(segment) != ElfSegmentType.load) continue;
+        final start = phVaddr(segment);
+        final delta = address - start;
+        final contained = delta >= 0 && size <= phFilesz(segment) - delta;
+        final overlaps =
+            size != 0 &&
+            address < start + phMemsz(segment) &&
+            start < address + size;
+        if (!contained && !overlaps) continue;
+        if (!contained ||
+            phFlags(segment) & ElfSegmentFlags.execute == 0 ||
+            shOffset(i) - phOffset(segment) != delta) {
+          throw const FormatException(
+            'ELF executable section mapping conflicts.',
+          );
+        }
+        mapped = true;
+      }
+      if (!mapped) {
+        throw const FormatException(
+          'ELF executable section is not file-backed.',
+        );
+      }
+      if (size != 0) sections.add(i);
+    }
+    for (final section in sections) {
+      for (var other = 0; other < ehShnum; other++) {
+        if (other == section || shFlags(other) & 2 == 0 || shSize(other) == 0) {
+          continue;
+        }
+        final address = shAddr(other);
+        final size = shSize(other);
+        if (address < 0 ||
+            size < 0 ||
+            address > 1 << 32 ||
+            size > (1 << 32) - address ||
+            (address < shAddr(section) + shSize(section) &&
+                shAddr(section) < address + size)) {
+          throw const FormatException('ELF executable sections overlap.');
+        }
+      }
+    }
+    return sections;
   }
 
   // --- Ehdr (Elf64_Ehdr) ---
@@ -191,6 +257,10 @@ class ElfReader {
   int shName(int i) => data.getUint32(ehShoff + i * _shdrSize, Endian.little);
   int shType(int i) =>
       data.getUint32(ehShoff + i * _shdrSize + 4, Endian.little);
+  int shFlags(int i) =>
+      data.getUint64(ehShoff + i * _shdrSize + 8, Endian.little);
+  int shAddr(int i) =>
+      data.getUint64(ehShoff + i * _shdrSize + 16, Endian.little);
   int shOffset(int i) =>
       data.getUint64(ehShoff + i * _shdrSize + 24, Endian.little);
   int shSize(int i) =>

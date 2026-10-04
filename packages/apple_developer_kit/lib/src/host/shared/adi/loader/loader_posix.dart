@@ -14,6 +14,7 @@
 import 'dart:io';
 
 import 'package:apple_developer_kit/host/shared/adi/loader/loader.dart';
+import 'package:apple_developer_kit/src/host/shared/adi/elf/elf_code_preparation.dart';
 import 'package:apple_developer_kit/src/host/shared/adi/elf/elf_loaded_library.dart';
 import 'package:apple_developer_kit/src/host/shared/adi/loader/internal/memory_allocator.dart';
 import 'package:apple_developer_kit/src/host/shared/adi/loader/internal/native_symbol_stubs.dart';
@@ -42,6 +43,7 @@ abstract class PosixNativeLibraryLoader implements NativeLibraryLoader {
       _allocator,
       _stubs.resolve,
       machine: _machine,
+      codePreparation: const UnmodifiedElfCodePreparation(),
     );
     _loaded[path] = lib;
     return lib;

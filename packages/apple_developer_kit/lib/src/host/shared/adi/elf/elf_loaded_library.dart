@@ -18,6 +18,7 @@
 import 'dart:ffi';
 import 'dart:typed_data';
 
+import 'package:apple_developer_kit/src/host/shared/adi/elf/elf_code_preparation.dart';
 import 'package:apple_developer_kit/src/host/shared/adi/loader/internal/memory_allocator.dart';
 import 'package:apple_developer_kit/src/shared/adi/elf/elf_reader.dart';
 import 'package:meta/meta.dart';
@@ -34,9 +35,14 @@ class ElfLoadedLibrary {
     NativeMemoryAllocator allocator,
     ExternalSymbolResolver resolveExternalSymbol, {
     required int machine,
+    required ElfCodePreparation codePreparation,
   }) {
     final elf = ElfReader(bytes);
     elf.validate(machine: machine);
+    final codeRegions = [
+      for (final section in elf.validateExecutableSections())
+        (elf.shAddr(section), elf.shSize(section)),
+    ];
     final pageSize = allocator.pageSize;
     if (pageSize < 4096 || pageSize & (pageSize - 1) != 0) {
       throw StateError('Unsupported host page size: $pageSize');
@@ -182,6 +188,12 @@ class ElfLoadedLibrary {
               ? bias + rela.addend(i)
               : resolved + ((jump || global) && !arm64 ? 0 : rela.addend(i));
         }
+      }
+      for (final (address, size) in codeRegions) {
+        codePreparation.prepare(
+          Pointer<Uint8>.fromAddress(bias + address),
+          size,
+        );
       }
       allocator.flushInstructionCache(allocation);
       for (var page = 0; page < length; page += pageSize) {
