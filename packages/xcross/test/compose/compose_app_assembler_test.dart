@@ -585,11 +585,14 @@ void main() {
     final script = File(p.join(fixture.root, 'assemble.dart'))
       ..writeAsStringSync('''
 import 'dart:io';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/target/iphone/iphone_target.dart';
 import 'package:xcross/src/host/linux/compose/linux_compose_host.dart';
+import 'package:xcross/src/shared/compose/build/compose_app_assembler.dart';
+import 'package:xcross/src/shared/compose/project/kmp_project.dart';
 import 'package:xcross/src/target/iphone/compose/iphone_compose_target.dart';
-import 'package:cli_kit/cli_kit.dart';
-import 'package:xcross/src/shared/compose/compose.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
 
 Future<void> main() async {
   final host = LinuxHost(architecture: 'x64');
@@ -610,11 +613,12 @@ Future<void> main() async {
   );
 }
 ''');
-    final result = await Process.run(Platform.executable, [
+    final result = await Process.run(Platform.resolvedExecutable, [
       '--packages=${_packageConfig()}',
       script.path,
     ]);
 
+    expect(result.exitCode, 0, reason: result.stderr.toString());
     expect(result.stderr, contains('MissingResourceException'));
     expect(
       Directory(

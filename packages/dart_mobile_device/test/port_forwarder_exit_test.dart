@@ -29,9 +29,9 @@ void main() {
     final script = File('${dir.path}/probe.dart');
     await script.writeAsString('''
 import 'dart:io';
-import 'package:dart_mobile_device/src/shared/device/tunnel/port_forwarder.dart';
-import 'package:dart_mobile_device/src/host/shared/network/native_device_sockets.dart';
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:dart_mobile_device/host/shared/network/native_device_sockets.dart';
+import 'package:dart_mobile_device/shared/device/tunnel/port_forwarder.dart';
 
 Future<void> main() async {
   // Stands in for the VM Service on the phone.
