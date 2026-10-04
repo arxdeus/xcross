@@ -329,7 +329,7 @@ SwiftPmRuntime<WindowsHost> testWindowsSwiftPmRuntime({
       execution: foundation.gateExecution,
       fileSystem: artifactFileSystem,
       fixtureGenerator: SwiftPmBinaryFixtureGenerator(
-        fileSystem: artifactFileSystem,
+        fileSystem: runner.host.fileSystem,
         paths: runner.host.paths.context,
       ),
       sdkRepository: repository,

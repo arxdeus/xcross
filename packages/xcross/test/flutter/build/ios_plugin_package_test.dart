@@ -2320,7 +2320,7 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
           final layout = extractedLayout('offline-manifest-failure');
           final root = p.join(tmp.path, 'offline-manifest-failure');
           final generator = SwiftPmBinaryFixtureGenerator(
-            fileSystem: _windowsRuntime.artifactFileSystem,
+            fileSystem: _windowsRuntime.runner.host.fileSystem,
             paths: _windowsRuntime.runner.host.paths.context,
           );
           final fixture = generator.generateXcframework(
