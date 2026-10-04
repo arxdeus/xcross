@@ -88,22 +88,32 @@ final class WindowsProcesses implements HostProcessInterface {
   }) => _owned.track(
     Future.sync(() {
       final batch = WindowsBatchPolicy.isBatchScript(executable);
+      final shell = runInShell || batch;
+      final directory = _paths.ioPath(
+        workingDirectory ?? _paths.context.current,
+      );
+      final command = shell ? _shellPath(executable) : executable;
       return Process.start(
-        executable,
+        command,
         batch
-            ? WindowsBatchPolicy.arguments(arguments, executable: executable)
+            ? WindowsBatchPolicy.arguments(arguments, executable: command)
             : arguments,
-        workingDirectory: _paths.ioPath(
-          workingDirectory ?? _paths.context.current,
-        ),
+        workingDirectory: shell ? _shellPath(directory) : directory,
         environment: environment,
         includeParentEnvironment: includeParentEnvironment,
-        runInShell: runInShell || batch,
+        runInShell: shell,
         mode: mode,
       );
     }),
     mode,
   );
+
+  static String _shellPath(String path) {
+    if (path.startsWith(r'\\?\UNC\')) return '\\\\${path.substring(8)}';
+    if (path.startsWith(r'\\?\')) return path.substring(4);
+    return path;
+  }
+
   @override
   Future<void> killTree(
     Process process, {

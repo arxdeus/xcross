@@ -686,6 +686,32 @@ void main() {
   });
 
   group('start', () {
+    test('starts Windows batch scripts in a plain working directory', () async {
+      final directory = Directory.systemTemp.createTempSync('batch-cwd-');
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final script = File(p.join(directory.path, 'cwd.cmd'))
+        ..writeAsStringSync('@echo off\r\necho %CD%\r\n');
+
+      final process = await runner.start(
+        script.path,
+        const [],
+        workingDirectory: directory.path,
+      );
+      final output = await process.stdout
+          .transform(systemEncoding.decoder)
+          .join();
+      final errors = await process.stderr
+          .transform(systemEncoding.decoder)
+          .join();
+
+      expect(await process.exitCode, 0);
+      expect(errors, isNot(contains('UNC')));
+      expect(
+        output.trim().toLowerCase(),
+        directory.resolveSymbolicLinksSync().toLowerCase(),
+      );
+    }, skip: !Platform.isWindows);
+
     test(
       'forwards escaped and quoted arguments through a Windows batch script',
       () async {
