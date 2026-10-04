@@ -29,7 +29,6 @@ import 'package:xcross/src/shared/flutter/swiftpm/binary_provenance.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/dependency_evaluator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/discovery.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_source_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_dependencies.dart';
@@ -560,7 +559,8 @@ import Glibc
 import MSVCRT
 #endif
 ''';
-      final out = _swiftPmRuntime.sourceNormalizer.normalizeHostManifest(input);
+      final out = _windowsRuntime.checkoutManifestNormalizer.policy
+          .normalizeHostManifest(input);
       expect(
         out,
         contains(
@@ -580,7 +580,9 @@ import MSVCRT
           '#elseif canImport(MSVCRT)\r\n'
           'import MSVCRT';
       expect(
-        _swiftPmRuntime.sourceNormalizer.normalizeHostManifest(input),
+        _windowsRuntime.checkoutManifestNormalizer.policy.normalizeHostManifest(
+          input,
+        ),
         contains('import CRT\n'),
       );
     });
@@ -621,11 +623,12 @@ func packageDependencies() -> [Package.Dependency] {
 #elseif canImport(MSVCRT)
 import MSVCRT
 ''';
-      final normalized = _swiftPmRuntime.sourceNormalizer.normalizeHostManifest(
-        input,
-      );
+      final normalized = _windowsRuntime.checkoutManifestNormalizer.policy
+          .normalizeHostManifest(input);
       expect(
-        _swiftPmRuntime.sourceNormalizer.normalizeHostManifest(normalized),
+        _windowsRuntime.checkoutManifestNormalizer.policy.normalizeHostManifest(
+          normalized,
+        ),
         normalized,
       );
       expect('import CRT'.allMatches(normalized), hasLength(1));
@@ -1132,7 +1135,7 @@ let package = Package(
     ]
 )
 ''';
-      final rewritten = await _swiftPmRuntime.dependencyVendor
+      final rewritten = await _windowsRuntime.dependencyVendor
           .vendorUrlPackagesAsPathDeps(
             manifest,
             vendorDir: vendorDir,
@@ -2778,22 +2781,6 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
         expect(writes, 0);
       },
     );
-
-    test('bounds robocopy retries', () {
-      expect(SwiftPmFilesystem.windowsCopyArguments('source', 'destination'), [
-        'source',
-        'destination',
-        '/E',
-        '/R:0',
-        '/W:0',
-        '/MT:8',
-        '/NFL',
-        '/NDL',
-        '/NJH',
-        '/NJS',
-        '/NP',
-      ]);
-    });
   });
 
   group('Windows checkout symlinks', () {

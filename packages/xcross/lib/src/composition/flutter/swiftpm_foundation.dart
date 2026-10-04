@@ -87,6 +87,7 @@ SwiftPmFoundation<T> prepareSwiftPmFoundation<T extends PlatformHostInterface>({
   );
   final previewCompiler = SwiftPmPreviewMacroCompiler<T>(
     host: host,
+    hostTools: tools.hostTools,
     filesystem: filesystem,
     compiler: ProcessSwiftPmNativeCompiler<T>(runner),
   );

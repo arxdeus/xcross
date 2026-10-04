@@ -252,6 +252,8 @@ final class FixtureVendoredManifestPolicy
     implements SwiftPmVendoredManifestPolicy {
   const FixtureVendoredManifestPolicy();
   @override
+  String normalizeHostManifest(String manifest) => 'host-normalized';
+  @override
   Future<String> normalize(
     String manifest, {
     required String packageDir,

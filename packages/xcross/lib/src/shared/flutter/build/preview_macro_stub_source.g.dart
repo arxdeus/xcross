@@ -20,24 +20,6 @@ const _$previewMacroStubSource = r'''
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef _WIN32
-#include <fcntl.h>
-#include <io.h>
-#define DUP _dup
-#define DUP2 _dup2
-#define CLOSE _close
-#define READFD _read
-#define WRITEFD _write
-#define FILENO _fileno
-#else
-#include <unistd.h>
-#define DUP dup
-#define DUP2 dup2
-#define CLOSE close
-#define READFD read
-#define WRITEFD write
-#define FILENO fileno
-#endif
 
 static int in_fd, out_fd;
 
@@ -105,21 +87,7 @@ static const char *extract_case_tag(const char *json) {
 }
 
 int main(void) {
-#ifdef _WIN32
-  int stdin_fd = FILENO(stdin);
-  int stdout_fd = FILENO(stdout);
-  in_fd = DUP(stdin_fd);
-  CLOSE(stdin_fd);
-  out_fd = DUP(stdout_fd);
-  DUP2(FILENO(stderr), stdout_fd);
-  _setmode(in_fd, _O_BINARY);
-  _setmode(out_fd, _O_BINARY);
-#else
-  in_fd = DUP(FILENO(stdin));
-  CLOSE(FILENO(stdin));
-  out_fd = DUP(FILENO(stdout));
-  DUP2(FILENO(stderr), FILENO(stdout));
-#endif
+  initialize_fds(&in_fd, &out_fd);
 
   for (;;) {
     size_t len = 0;

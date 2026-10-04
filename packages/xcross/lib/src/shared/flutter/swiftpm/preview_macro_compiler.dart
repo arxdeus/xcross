@@ -4,6 +4,7 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:crypto/crypto.dart';
 import 'package:meta/meta.dart';
+import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
 import 'package:xcross/src/shared/flutter/build/preview_macro_stub_source.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 
@@ -41,8 +42,16 @@ final class SwiftPmPreviewMacroCompiler<T extends PlatformHostInterface> {
     required this.host,
     required this.filesystem,
     required this.compiler,
-  });
+    required NativeHostTools<T> hostTools,
+  }) : source = '${hostTools.previewMacroPrologue}\n$previewMacroStubSource' {
+    if (!identical(host, hostTools.host) || !identical(host, filesystem.host)) {
+      throw ArgumentError(
+        'Preview macro compiler must share the selected host',
+      );
+    }
+  }
   final T host;
+  final String source;
   final SwiftPmFilesystem<T> filesystem;
   final SwiftPmNativeCompiler compiler;
 
@@ -50,8 +59,9 @@ final class SwiftPmPreviewMacroCompiler<T extends PlatformHostInterface> {
     required String outputDir,
     required String cCompilerPath,
     List<String> cCompilerArguments = const [],
-    String source = previewMacroStubSource,
+    String? source,
   }) async {
+    source ??= this.source;
     final paths = host.paths.context;
     final root = host.fileSystem.directory(
       paths.join(outputDir, '.xcross', 'preview-macro-stub'),

@@ -136,7 +136,7 @@ final class AppleToolShimResolver<T extends PlatformHostInterface> {
 
   Future<HostCompiler> resolveHostCompiler(String clang) =>
       hostTools.compiler(clang);
-  Future<String?> resolveNativeAssetToolForwarder(
+  Future<String> resolveNativeAssetToolForwarder(
     String executable, {
     String? launcher,
   }) => hostTools.forwarder(executable, launcher ?? this.launcher);
@@ -164,17 +164,6 @@ final class AppleToolShimResolver<T extends PlatformHostInterface> {
     return objdump == null ? null : OtoolConfig(objdump, usesObjdump: true);
   }
 }
-
-@internal
-FlutterBuildError missingNativeAssetToolForwarderError() => FlutterBuildError(
-  "Windows native assets need the native xcross.exe binary: Flutter's "
-  'native_toolchain_c only accepts a C compiler named clang.exe, so xcross '
-  'installs copies of xcross.exe as clang.exe/cc.exe/ar.exe/ld.exe tool '
-  'aliases. No xcross.exe was found (this happens when xcross runs through '
-  '`dart run` or a `dart pub global` .bat launcher). Install the xcross '
-  'release binary, add its directory to PATH, or set the xcross launcher path '
-  'in `xcross config`.',
-);
 
 @internal
 Future<void> installAppleToolShims<T extends PlatformHostInterface>(

@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/windows_swift_plan_repair.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/response_arguments.dart';
 
 import 'swiftpm_test_context.dart';
 
@@ -125,9 +124,7 @@ void main() {
       r'ends\',
       '😀',
     ];
-    final measured = SwiftPmResponseArguments.windowsCommandLineLength(
-      arguments,
-    );
+    final measured = WindowsSwiftPlanRepair.windowsCommandLineLength(arguments);
     expect(measured, greaterThan(arguments.join(' ').length));
     expect(measured, greaterThan(0));
   });

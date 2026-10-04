@@ -9,7 +9,8 @@ abstract interface class NativeHostTools<T extends PlatformHostInterface> {
   T get host;
   String get artifactPlatform;
   String get engineCacheDirectory;
+  String get previewMacroPrologue;
   Future<HostCompiler> compiler(String clang);
-  Future<String?> forwarder(String executable, String? launcher);
+  Future<String> forwarder(String executable, String? launcher);
   Future<void> link(String path, String target);
 }

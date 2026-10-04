@@ -14,10 +14,6 @@ final class SwiftPmResponseArguments {
     }
   }
 
-  /// Conservative CreateProcess length in UTF-16 units, including the NUL.
-  static int windowsCommandLineLength(List<String> arguments) =>
-      arguments.map(quoteWindowsArgument).join(' ').length + 1;
-
   /// Quotes [argument] for `CommandLineToArgvW`, as swiftc parses it.
   static String quoteWindowsArgument(String argument) {
     // Double the backslashes preceding a quote or the closing quote, so they

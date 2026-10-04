@@ -94,7 +94,6 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
     final forwarder = await tools.resolveNativeAssetToolForwarder(
       tools.executable,
     );
-    if (forwarder == null) throw missingNativeAssetToolForwarderError();
     await engineCache.ensureArtifactsAvailable();
     final workspace = await FlutterToolWorkspace.create(
       flutterRoot: flutterRoot,

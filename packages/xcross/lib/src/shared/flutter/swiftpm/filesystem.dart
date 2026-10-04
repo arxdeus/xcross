@@ -309,21 +309,6 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
     return changed;
   }
 
-  static List<String> windowsCopyArguments(String source, String destination) =>
-      [
-        source,
-        destination,
-        '/E',
-        '/R:0',
-        '/W:0',
-        '/MT:8',
-        '/NFL',
-        '/NDL',
-        '/NJH',
-        '/NJS',
-        '/NP',
-      ];
-
   Future<void> deleteUnless(String path, FileSystemEntityType keep) async {
     final type = artifactFileSystem.typeSync(path, followLinks: false);
     if (type == FileSystemEntityType.notFound || type == keep) return;

@@ -36,6 +36,7 @@ void main() {
     native = RecordingSwiftPmNativeCompiler();
     compiler = SwiftPmPreviewMacroCompiler(
       host: runtime.host,
+      hostTools: runtime.tools.hostTools,
       filesystem: runtime.filesystem,
       compiler: native,
     );

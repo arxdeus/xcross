@@ -9,6 +9,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 
 @internal
 abstract interface class SwiftPmVendoredManifestPolicy {
+  String normalizeHostManifest(String manifest);
   Future<String> normalize(
     String manifest, {
     required String packageDir,

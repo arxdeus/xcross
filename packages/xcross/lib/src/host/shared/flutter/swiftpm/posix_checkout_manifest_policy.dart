@@ -14,13 +14,16 @@ final class PosixSwiftPmVendoredManifestPolicy<T extends PlatformHostInterface>
   final SwiftPmHostSourceNormalizer sourceNormalizer;
   final SwiftPmSourceFallback<T> sourceFallback;
   @override
+  String normalizeHostManifest(String manifest) =>
+      sourceNormalizer.normalizeHostManifest(manifest);
+  @override
   Future<String> normalize(
     String manifest, {
     required String packageDir,
     required Set<String> consumedProducts,
     Map<String, List<String>>? fallbackSwiftModules,
   }) => sourceFallback.synthesizeBinaryFallbackCompatibility(
-    sourceNormalizer.normalizeHostManifest(manifest),
+    normalizeHostManifest(manifest),
     packageDir: packageDir,
     consumedProducts: consumedProducts,
     fallbackSwiftModules: fallbackSwiftModules,

@@ -2,6 +2,7 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
+import 'package:xcross/src/host/shared/flutter/posix_preview_macro_prologue.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 
 @internal
@@ -28,10 +29,12 @@ final class LinuxNativeHostTools<T extends LinuxHostInterface>
   @override
   String get engineCacheDirectory => artifactPlatform;
   @override
+  String get previewMacroPrologue => posixPreviewMacroPrologue;
+  @override
   Future<HostCompiler> compiler(String clang) async =>
       (executable: await runner.locateTool('cc'), arguments: const <String>[]);
   @override
-  Future<String?> forwarder(String executable, String? launcher) async {
+  Future<String> forwarder(String executable, String? launcher) async {
     return executable;
   }
 

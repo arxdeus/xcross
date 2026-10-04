@@ -6,6 +6,7 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/binary_preparation.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/dependency_vendor.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_source_normalizer.dart';
@@ -47,7 +48,18 @@ final class SwiftPmPluginOverlay<T extends PlatformHostInterface> {
     required this.filesystem,
     required this.sourceNormalizer,
     required this.binaryPreparation,
-  });
+    required this.manifestPolicy,
+  }) {
+    if (!identical(
+      manifestPolicy,
+      dependencyVendor.checkoutManifestNormalizer.policy,
+    )) {
+      throw ArgumentError(
+        'Plugin overlay must share the vendored manifest policy',
+      );
+    }
+  }
+  final SwiftPmVendoredManifestPolicy manifestPolicy;
   final SwiftPmBinaryPreparation<T> binaryPreparation;
 
   final SwiftPmDependencyVendor<T> dependencyVendor;
@@ -110,7 +122,7 @@ final class SwiftPmPluginOverlay<T extends PlatformHostInterface> {
         .file(p.join(target, 'Package.swift'))
         .readAsString();
     var normalizedManifest = sourceNormalizer.removeMissingResources(
-      sourceNormalizer.normalizeHostManifest(manifest),
+      manifestPolicy.normalizeHostManifest(manifest),
       target,
     );
     for (final call in SwiftPmManifestLexer.swiftCalls(

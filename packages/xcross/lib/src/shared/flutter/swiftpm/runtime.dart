@@ -148,6 +148,7 @@ final class SwiftPmRuntime<T extends PlatformHostInterface> {
     );
     pluginOverlay = SwiftPmPluginOverlay<T>(
       dependencyVendor: dependencyVendor,
+      manifestPolicy: checkoutManifestNormalizer.policy,
       filesystem: filesystem,
       sourceNormalizer: sourceNormalizer,
       binaryPreparation: binaryPreparation,

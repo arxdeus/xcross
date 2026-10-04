@@ -17,7 +17,7 @@ const String _extendedPathPrefix = r'\\?\';
 const int _legacyMaxPath = 260;
 
 /// The CreateProcess command-line limit in UTF-16 units, including the
-/// terminating NUL that [SwiftPmResponseArguments.windowsCommandLineLength]
+/// terminating NUL that [WindowsSwiftPlanRepair.windowsCommandLineLength]
 /// counts, so staying below it keeps one unit of headroom.
 const int _maxCommandLineLength = 32767;
 
@@ -59,6 +59,12 @@ const Set<String> _clangCompilers = {
 final class WindowsSwiftPlanRepair {
   WindowsSwiftPlanRepair(this.runner);
   final ProcessRunner runner;
+  static int windowsCommandLineLength(List<String> arguments) =>
+      arguments
+          .map(SwiftPmResponseArguments.quoteWindowsArgument)
+          .join(' ')
+          .length +
+      1;
   static bool isWindowsMountPointReparseOutput(String output) =>
       RegExp(r'0x0*a0000003\b', caseSensitive: false).hasMatch(output);
 
@@ -174,8 +180,7 @@ final class WindowsSwiftPlanRepair {
     final swift = _swiftCompilers.contains(tool);
     final clang = _clangCompilers.contains(tool);
     if ((!swift && !clang) ||
-        SwiftPmResponseArguments.windowsCommandLineLength(args) <
-            _responseFileThreshold) {
+        windowsCommandLineLength(args) < _responseFileThreshold) {
       return null;
     }
     final contents = args
@@ -195,8 +200,7 @@ final class WindowsSwiftPlanRepair {
       await file.writeAsString(contents);
     }
     final shortened = [args.first, '@${p.absolute(file.path)}'];
-    if (SwiftPmResponseArguments.windowsCommandLineLength(shortened) >=
-        _maxCommandLineLength) {
+    if (windowsCommandLineLength(shortened) >= _maxCommandLineLength) {
       throw FlutterBuildError('Compiler response-file path is too long');
     }
     return _encodeLlbuildArgs(shortened);

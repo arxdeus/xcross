@@ -237,8 +237,8 @@ void main() {
     );
     expect(await tools.forwarder('/dart', launcher.path), launcher.path);
     expect(await tools.forwarder('/dart', null), launcher.path);
-    expect(
-      await WindowsNativeHostTools(
+    await expectLater(
+      WindowsNativeHostTools(
         host,
         ProcessRunner(
           host,
@@ -248,7 +248,13 @@ void main() {
           stderrSink: nativeTestSink(),
         ),
       ).forwarder('/dart', null),
-      isNull,
+      throwsA(
+        isA<FlutterBuildError>().having(
+          (error) => error.toString(),
+          'message',
+          contains('No xcross.exe was found'),
+        ),
+      ),
     );
   });
 
@@ -790,6 +796,10 @@ final class MappedXcrunFileSystem implements HostFileSystemInterface {
 
 @internal
 final class XcrunTestProcesses implements HostProcessInterface {
+  @override
+  ProcessExitDiagnostic describeExit(int exitCode) =>
+      throw StateError('Unexpected process exit: $exitCode');
+
   XcrunTestProcesses(this.ambientXcrun);
 
   final String ambientXcrun;

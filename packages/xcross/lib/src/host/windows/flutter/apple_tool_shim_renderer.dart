@@ -4,6 +4,7 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer.dart';
 import 'package:xcross/src/host/windows/flutter/apple_tool_shim_templates.dart';
+import 'package:xcross/src/host/windows/flutter/native_host_tools.dart';
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
 
 @internal

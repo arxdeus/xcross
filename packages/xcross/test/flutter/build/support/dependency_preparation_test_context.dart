@@ -145,6 +145,9 @@ final class RecordingDependencyManifestPolicy
   final bool failNormalization;
   final List<({String directory, Set<String> products})> calls = [];
   @override
+  String normalizeHostManifest(String manifest) =>
+      throw StateError('Unexpected host manifest normalization');
+  @override
   Future<String> normalize(
     String manifest, {
     required String packageDir,
@@ -197,10 +200,13 @@ final class RejectingDependencyNativeTools
   String get engineCacheDirectory =>
       throw StateError('Unexpected native tool query');
   @override
+  String get previewMacroPrologue =>
+      throw StateError('Unexpected native tool query');
+  @override
   Future<HostCompiler> compiler(String clang) async =>
       throw StateError('Unexpected native compilation');
   @override
-  Future<String?> forwarder(String executable, String? launcher) async =>
+  Future<String> forwarder(String executable, String? launcher) async =>
       throw StateError('Unexpected native tool operation');
   @override
   Future<void> link(String path, String target) async =>

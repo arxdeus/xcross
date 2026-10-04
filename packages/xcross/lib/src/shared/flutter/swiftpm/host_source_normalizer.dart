@@ -56,37 +56,8 @@ final class SwiftPmHostSourceNormalizer {
     return result;
   }
 
-  /// Host-side Package.swift fixes for cross builds.
-  ///
-  /// Includes [normalizeLinkerFlags], plus Windows Swift 6+ CRT imports so
-  /// manifests that call `getenv` via removed `MSVCRT` (notably sentry-cocoa)
-  /// still compile on the host, and drops the Foundation-only
-  /// `String(cString:encoding:)` overload that manifests cannot use.
   String normalizeHostManifest(String manifest) {
     var result = SwiftPmHostSourceNormalizer.normalizeLinkerFlags(manifest);
-    // sentry-cocoa and similar: Darwin/Glibc/MSVCRT — MSVCRT was replaced by
-    // CRT on Windows Swift 6 (https://github.com/apple/swift/pull/34299).
-    final beforeCrtNormalization = result;
-    result = result.replaceAllMapped(
-      RegExp(r'#elseif\s+canImport\(MSVCRT\)\r?\nimport MSVCRT'),
-      (match) {
-        final prefix = beforeCrtNormalization.substring(0, match.start);
-        if (prefix.endsWith(
-          '#elseif canImport(CRT)\n'
-          'import CRT\n'
-          '#elseif canImport(ucrt)\n'
-          'import ucrt\n',
-        )) {
-          return match.group(0)!;
-        }
-        return '#elseif canImport(CRT)\n'
-            'import CRT\n'
-            '#elseif canImport(ucrt)\n'
-            'import ucrt\n'
-            '#elseif canImport(MSVCRT)\n'
-            'import MSVCRT';
-      },
-    );
     result = exposeMacOSPackageGraphEntries(result);
     result = result.replaceAllMapped(
       RegExp(r'(path:\s*"FirebaseSessions/Sources",)(\s*)(cSettings:)'),

@@ -16,13 +16,38 @@ final class WindowsSwiftPmVendoredManifestPolicy<
   final SwiftPmHostSourceNormalizer sourceNormalizer;
   final SwiftPmSourceFallback<T> sourceFallback;
   @override
+  String normalizeHostManifest(String manifest) {
+    final normalized = sourceNormalizer.normalizeHostManifest(manifest);
+    return normalized.replaceAllMapped(
+      RegExp(r'#elseif\s+canImport\(MSVCRT\)\r?\nimport MSVCRT'),
+      (match) {
+        final prefix = normalized.substring(0, match.start);
+        if (prefix.endsWith(
+          '#elseif canImport(CRT)\n'
+          'import CRT\n'
+          '#elseif canImport(ucrt)\n'
+          'import ucrt\n',
+        )) {
+          return match.group(0)!;
+        }
+        return '#elseif canImport(CRT)\n'
+            'import CRT\n'
+            '#elseif canImport(ucrt)\n'
+            'import ucrt\n'
+            '#elseif canImport(MSVCRT)\n'
+            'import MSVCRT';
+      },
+    );
+  }
+
+  @override
   Future<String> normalize(
     String manifest, {
     required String packageDir,
     required Set<String> consumedProducts,
     Map<String, List<String>>? fallbackSwiftModules,
   }) => sourceFallback.synthesizeBinaryFallbackCompatibility(
-    sourceNormalizer.normalizeHostManifest(manifest),
+    normalizeHostManifest(manifest),
     packageDir: packageDir,
     consumedProducts: consumedProducts,
     fallbackSwiftModules: fallbackSwiftModules,
