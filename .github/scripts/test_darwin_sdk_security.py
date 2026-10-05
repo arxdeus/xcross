@@ -89,7 +89,11 @@ class DownloadTests(unittest.TestCase):
             stale.write_text("must not be reused")
             with patch("urllib.request.urlopen", return_value=io.BytesIO(self.payload())) as download:
                 self.execute()
-            download.assert_called_once_with(URL, timeout=120)
+            download.assert_called_once()
+            request = download.call_args.args[0]
+            self.assertEqual(request.full_url, URL)
+            self.assertTrue(request.get_header("User-agent").startswith("curl/"))
+            self.assertEqual(download.call_args.kwargs, {"timeout": 120})
             self.assertEqual((self.bundle / "info.json").read_text(), "{}")
             self.assertFalse(stale.exists())
             self.assertFalse(self.archive.exists())
@@ -132,6 +136,14 @@ class DownloadTests(unittest.TestCase):
                 self.execute()
         self.assertEqual(failure.exception.code, 1)
         self.assertIn("Archive must contain xcross-darwin.artifactbundle", self.log.getvalue())
+        self.assertFalse(self.archive.exists())
+
+    def test_html_response_fails_actionably_and_removes_archive(self):
+        with patch("urllib.request.urlopen", return_value=io.BytesIO(b"<!doctype html>")):
+            with self.assertRaises(SystemExit) as failure:
+                self.execute()
+        self.assertEqual(failure.exception.code, 1)
+        self.assertIn("did not return a .tar.gz", self.log.getvalue())
         self.assertFalse(self.archive.exists())
 
     def test_extraction_failure_removes_archive(self):

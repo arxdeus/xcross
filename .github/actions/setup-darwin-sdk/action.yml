@@ -85,8 +85,11 @@ runs:
         print("Downloading private Darwin SDK archive...")
         try:
             try:
+                request = urllib.request.Request(
+                    url, headers={"User-Agent": "curl/8.5.0", "Accept": "*/*"}
+                )
                 with (
-                    urllib.request.urlopen(url, timeout=120) as response,
+                    urllib.request.urlopen(request, timeout=120) as response,
                     archive.open("wb") as output,
                 ):
                     shutil.copyfileobj(response, output)
@@ -97,6 +100,13 @@ runs:
                     "and runner network access."
                 )
                 raise SystemExit(1) from None
+            with archive.open("rb") as downloaded:
+                if downloaded.read(2) != b"\x1f\x8b":
+                    print(
+                        "::error::Darwin SDK URL did not return a .tar.gz "
+                        "file. Use a direct download link."
+                    )
+                    raise SystemExit(1)
             subprocess.run(
                 ["tar", "-xzf", str(archive), "-C", str(parent)],
                 check=True,
