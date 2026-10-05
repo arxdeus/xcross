@@ -206,7 +206,7 @@ class WorkflowSecurityTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", source)
         self.assertNotIn("inputs:", source)
         self.assertNotIn("inputs.", source)
-        self.assertIn("os: [ubuntu-24.04, ubuntu-24.04-arm, windows-2022]", source)
+        self.assertIn("os: [ubuntu-24.04, ubuntu-24.04-arm, windows-2022, windows-11-arm]", source)
         self.assertIn("artifactbundle-url: ${{ secrets.DARWIN_ARTIFACTBUNDLE_URL }}", source)
         self.assertIn("- name: Verify Darwin Swift SDK", ACTION.read_text())
         self.assertNotIn("Warm Darwin SDK cache", source)

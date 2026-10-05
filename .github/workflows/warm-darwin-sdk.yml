@@ -12,8 +12,13 @@ permissions:
 
 env:
   SWIFT_VERSION: 6.3.3
-  SWIFT_WINDOWS_SHA256: >-
+  SWIFT_WINDOWS_X64_SHA256: >-
     235626548F249CD516D3D4D90EEE980DCCAD46F3822DAC1F8E3119B0FEDE94B7
+  SWIFT_WINDOWS_ARM64_SHA256: >-
+    09E39C60F0B05D00FBE5F55B2D344752CCBC86E64802A2D896C0D55BC51E243D
+  LLVM_VERSION: 22.1.8
+  LLVM_WINDOWS_ARM64_SHA256: >-
+    76F44EF1BA6EEB5A65904E9500F042F588FADE49952778CE48F0374DAA934396
 
 jobs:
   validate-source:
@@ -21,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm, windows-2022]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, windows-2022, windows-11-arm]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -81,15 +86,26 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          switch ($env:RUNNER_ARCH) {
+            'ARM64' {
+              $swiftPlatform = 'windows10-arm64'
+              $swiftSha256 = $env:SWIFT_WINDOWS_ARM64_SHA256
+            }
+            'X64' {
+              $swiftPlatform = 'windows10'
+              $swiftSha256 = $env:SWIFT_WINDOWS_X64_SHA256
+            }
+            default { throw "Unsupported runner architecture: $env:RUNNER_ARCH" }
+          }
           $installer = "$env:RUNNER_TEMP\swift-installer.exe"
           $release = "swift-$env:SWIFT_VERSION-release"
           $version = "swift-$env:SWIFT_VERSION-RELEASE"
           $base = 'https://download.swift.org'
-          $url = "$base/$release/windows10/$version/" +
-            "$version-windows10.exe"
+          $url = "$base/$release/$swiftPlatform/$version/" +
+            "$version-$swiftPlatform.exe"
           Invoke-WebRequest $url -OutFile $installer
           $hash = (Get-FileHash $installer -Algorithm SHA256).Hash
-          if ($hash -ne $env:SWIFT_WINDOWS_SHA256) {
+          if ($hash -ne $swiftSha256) {
             throw "Swift installer checksum mismatch: $hash"
           }
           $process = Start-Process `
@@ -102,8 +118,29 @@ jobs:
           }
 
           $llvmBin = "${env:ProgramFiles}\LLVM\bin"
+          if ($env:RUNNER_ARCH -eq 'ARM64') {
+            $llvmAsset = "LLVM-$env:LLVM_VERSION-woa64.exe"
+            $llvmInstaller = "$env:RUNNER_TEMP\llvm-installer.exe"
+            $llvmRoot = "$env:RUNNER_TEMP\llvm-$env:LLVM_VERSION"
+            $llvmUrl = "https://github.com/llvm/llvm-project/releases/download/" +
+              "llvmorg-$env:LLVM_VERSION/$llvmAsset"
+            Invoke-WebRequest $llvmUrl -OutFile $llvmInstaller
+            $llvmHash = (Get-FileHash $llvmInstaller -Algorithm SHA256).Hash
+            if ($llvmHash -ne $env:LLVM_WINDOWS_ARM64_SHA256) {
+              throw "LLVM installer checksum mismatch: $llvmHash"
+            }
+            $llvmProcess = Start-Process `
+              $llvmInstaller `
+              -ArgumentList '/S', "/D=$llvmRoot" `
+              -PassThru `
+              -Wait
+            if ($llvmProcess.ExitCode -ne 0) {
+              throw "LLVM installer failed: $($llvmProcess.ExitCode)"
+            }
+            $llvmBin = "$llvmRoot\bin"
+          }
           if (-not (Test-Path "$llvmBin\ld64.lld.exe")) {
-            throw "Hosted-runner LLVM missing ld64.lld.exe at $llvmBin"
+            throw "LLVM missing ld64.lld.exe at $llvmBin"
           }
           $swiftRoot = "$env:LOCALAPPDATA\Programs\Swift"
           # The installer registers its Runtimes, Toolchains, and Tools
