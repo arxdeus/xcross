@@ -11,9 +11,6 @@ permissions:
   contents: read
 
 env:
-  SWIFT_VERSION: 6.3.3
-  SWIFT_WINDOWS_SHA256: >-
-    235626548F249CD516D3D4D90EEE980DCCAD46F3822DAC1F8E3119B0FEDE94B7
   LLVM_VERSION: 22.1.8
   LLVM_WINDOWS_SHA256: >-
     16E5709785FEF73C854646241C4A92C5CD574318D1B33C63330DD7721903E55C
@@ -134,14 +131,23 @@ jobs:
           retention-days: 7
 
   compose-build:
-    name: Compose build (${{ matrix.os }})
+    name: Compose build (${{ matrix.os }}, Swift ${{ matrix.swift }})
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, windows-2022]
+        swift: ['6.3.3', '6.4.0']
+        include:
+          - swift: '6.3.3'
+            swift-windows-x64-sha256: 235626548F249CD516D3D4D90EEE980DCCAD46F3822DAC1F8E3119B0FEDE94B7
+          - swift: '6.4.0'
+            swift-windows-x64-sha256: 76169A85BCBA82854A0CD8F9655FFB74B3758D60C35A245457510095F2823C03
     runs-on: ${{ matrix.os }}
+    env:
+      SWIFT_VERSION: ${{ matrix.swift }}
+      SWIFT_WINDOWS_SHA256: ${{ matrix.swift-windows-x64-sha256 }}
     timeout-minutes: 90
 
     steps:
@@ -212,6 +218,50 @@ jobs:
             echo "GRADLE_USER_HOME=$RUNNER_TEMP/gradle"
             echo "XCROSS_CACHE_DIR=$RUNNER_TEMP/xcross-cache"
           } >> "$GITHUB_ENV"
+
+      - name: Install pinned Swift on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$RUNNER_ARCH" in
+            ARM64) arch=aarch64; platform=ubuntu2404-aarch64; suffix=-aarch64 ;;
+            X64) arch=x86_64; platform=ubuntu2404; suffix= ;;
+            *) echo "Unsupported runner architecture: $RUNNER_ARCH"; exit 1 ;;
+          esac
+          tag="(swift-$SWIFT_VERSION-RELEASE)"
+          current="$(swift --version 2>/dev/null || true)"
+          if ! grep -Fq "$tag" <<< "$current" ||
+              ! grep -Eq "Target: $arch-.*linux" <<< "$current"; then
+            sudo apt-get update
+            sudo apt-get install -y \
+              binutils git gnupg2 libc6-dev libcurl4-openssl-dev libedit2 \
+              libgcc-13-dev libncurses-dev libpython3-dev libsqlite3-0 \
+              libstdc++-13-dev libxml2-dev libz3-dev pkg-config tzdata \
+              zip unzip zlib1g-dev
+            release="swift-$SWIFT_VERSION-release"
+            version="swift-$SWIFT_VERSION-RELEASE"
+            archive="$version-ubuntu24.04$suffix.tar.gz"
+            base="https://download.swift.org/$release/$platform/$version"
+            download="$RUNNER_TEMP/swift-download"
+            mkdir -p "$download/gnupg" "$RUNNER_TEMP/swift"
+            chmod 700 "$download/gnupg"
+            curl --fail --location --retry 3 "$base/$archive" -o "$download/$archive"
+            curl --fail --location --retry 3 "$base/$archive.sig" -o "$download/$archive.sig"
+            curl --fail --location --retry 3 https://www.swift.org/keys/all-keys.asc \
+              -o "$download/all-keys.asc"
+            gpg --batch --homedir "$download/gnupg" --import "$download/all-keys.asc"
+            gpg --batch --homedir "$download/gnupg" \
+              --verify "$download/$archive.sig" "$download/$archive"
+            tar -xzf "$download/$archive" -C "$RUNNER_TEMP/swift" --strip-components=1
+            echo "$RUNNER_TEMP/swift/usr/bin" >> "$GITHUB_PATH"
+            export PATH="$RUNNER_TEMP/swift/usr/bin:$PATH"
+          fi
+          swift --version | tee "$RUNNER_TEMP/swift-version.txt"
+          grep -Fq "$tag" "$RUNNER_TEMP/swift-version.txt"
+          grep -Eq "Target: $arch-.*linux" "$RUNNER_TEMP/swift-version.txt"
+          printf 'print("ok")\n' > "$RUNNER_TEMP/swift-probe.swift"
+          swiftc -typecheck "$RUNNER_TEMP/swift-probe.swift"
 
       - name: Install Linux requirements
         if: runner.os == 'Linux'
@@ -359,6 +409,10 @@ jobs:
           & swift --version
           if ($LASTEXITCODE -ne 0) {
             throw "swift --version failed with $LASTEXITCODE"
+          }
+          $swiftVersion = (& swift --version 2>&1 | Out-String)
+          if (-not $swiftVersion.Contains("(swift-$env:SWIFT_VERSION-RELEASE)")) {
+            throw "Swift is not the pinned $env:SWIFT_VERSION release"
           }
           & swift sdk list
           if ($LASTEXITCODE -ne 0) {

@@ -12,11 +12,6 @@ permissions:
 
 env:
   FLUTTER_VERSION: 3.47.2
-  SWIFT_VERSION: 6.3.3
-  SWIFT_WINDOWS_X64_SHA256: >-
-    235626548F249CD516D3D4D90EEE980DCCAD46F3822DAC1F8E3119B0FEDE94B7
-  SWIFT_WINDOWS_ARM64_SHA256: >-
-    09E39C60F0B05D00FBE5F55B2D344752CCBC86E64802A2D896C0D55BC51E243D
   LLVM_VERSION: 22.1.8
   LLVM_WINDOWS_X64_SHA256: >-
     16E5709785FEF73C854646241C4A92C5CD574318D1B33C63330DD7721903E55C
@@ -31,14 +26,26 @@ concurrency:
 
 jobs:
   flutter-build:
-    name: Flutter SwiftPM build (${{ matrix.os }})
+    name: Flutter SwiftPM build (${{ matrix.os }}, Swift ${{ matrix.swift }})
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, ubuntu-24.04-arm, windows-2022, windows-11-arm]
+        swift: ['6.3.3', '6.4.0']
+        include:
+          - swift: '6.3.3'
+            swift-windows-x64-sha256: 235626548F249CD516D3D4D90EEE980DCCAD46F3822DAC1F8E3119B0FEDE94B7
+            swift-windows-arm64-sha256: 09E39C60F0B05D00FBE5F55B2D344752CCBC86E64802A2D896C0D55BC51E243D
+          - swift: '6.4.0'
+            swift-windows-x64-sha256: 76169A85BCBA82854A0CD8F9655FFB74B3758D60C35A245457510095F2823C03
+            swift-windows-arm64-sha256: F48E393634995CB589F547E40D64673BC641CA76B099697BA8227A8904BE4A49
     runs-on: ${{ matrix.os }}
+    env:
+      SWIFT_VERSION: ${{ matrix.swift }}
+      SWIFT_WINDOWS_X64_SHA256: ${{ matrix.swift-windows-x64-sha256 }}
+      SWIFT_WINDOWS_ARM64_SHA256: ${{ matrix.swift-windows-arm64-sha256 }}
 
     steps:
       # Fork PR code must never receive the private Apple SDK or its URL, so those
@@ -203,12 +210,20 @@ jobs:
           }
           Write-Host "MSVC ${env:MSVC_ARCHITECTURE} tools: $installation"
 
-      - name: Ensure native Swift on Linux ARM64
-        if: runner.os == 'Linux' && runner.arch == 'ARM64'
+      - name: Install pinned Swift on Linux
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
-          if ! swift --version 2>/dev/null | grep -Eq 'Target: aarch64-.*linux'; then
+          case "$RUNNER_ARCH" in
+            ARM64) arch=aarch64; platform=ubuntu2404-aarch64; suffix=-aarch64 ;;
+            X64) arch=x86_64; platform=ubuntu2404; suffix= ;;
+            *) echo "Unsupported runner architecture: $RUNNER_ARCH"; exit 1 ;;
+          esac
+          tag="(swift-$SWIFT_VERSION-RELEASE)"
+          current="$(swift --version 2>/dev/null || true)"
+          if ! grep -Fq "$tag" <<< "$current" ||
+              ! grep -Eq "Target: $arch-.*linux" <<< "$current"; then
             sudo apt-get update
             sudo apt-get install -y \
               binutils git gnupg2 libc6-dev libcurl4-openssl-dev libedit2 \
@@ -217,8 +232,8 @@ jobs:
               zip unzip zlib1g-dev
             release="swift-$SWIFT_VERSION-release"
             version="swift-$SWIFT_VERSION-RELEASE"
-            archive="$version-ubuntu24.04-aarch64.tar.gz"
-            base="https://download.swift.org/$release/ubuntu2404-aarch64/$version"
+            archive="$version-ubuntu24.04$suffix.tar.gz"
+            base="https://download.swift.org/$release/$platform/$version"
             download="$RUNNER_TEMP/swift-download"
             mkdir -p "$download/gnupg" "$RUNNER_TEMP/swift"
             chmod 700 "$download/gnupg"
@@ -234,7 +249,8 @@ jobs:
             export PATH="$RUNNER_TEMP/swift/usr/bin:$PATH"
           fi
           swift --version | tee "$RUNNER_TEMP/swift-version.txt"
-          grep -Eq 'Target: aarch64-.*linux' "$RUNNER_TEMP/swift-version.txt"
+          grep -Fq "$tag" "$RUNNER_TEMP/swift-version.txt"
+          grep -Eq "Target: $arch-.*linux" "$RUNNER_TEMP/swift-version.txt"
           swift sdk list
           printf 'print("ok")\n' > "$RUNNER_TEMP/swift-probe.swift"
           swiftc -typecheck "$RUNNER_TEMP/swift-probe.swift"
@@ -417,6 +433,9 @@ jobs:
           Write-Host $swiftVersion
           if ($swiftVersion -notmatch "Target:\s+$([regex]::Escape($hostTriple))") {
             throw "Swift is not the native $hostTriple toolchain"
+          }
+          if (-not $swiftVersion.Contains("(swift-$env:SWIFT_VERSION-RELEASE)")) {
+            throw "Swift is not the pinned $env:SWIFT_VERSION release"
           }
           & swift sdk list
           if ($LASTEXITCODE -ne 0) {
