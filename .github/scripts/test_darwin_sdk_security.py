@@ -149,6 +149,8 @@ class WorkflowSecurityTests(unittest.TestCase):
         action = ACTION.read_text()
         self.assertIn("os.environ[\"RUNNER_OS\"]", step(action, "Resolve xcross Swift SDK path"))
         self.assertIn("os.environ[\"RUNNER_ARCH\"]", step(action, "Resolve xcross Swift SDK path"))
+        self.assertNotIn("revision", action)
+        self.assertIn('os.environ["RUNNER_OS"].lower()', action)
         self.assertIn("uses: actions/cache/restore@", step(action, "Restore Darwin SDK cache"))
         self.assertIn("if: steps.darwin-cache.outputs.cache-hit != 'true'", step(action, "Download Darwin SDK"))
         save = step(action, "Save Darwin SDK cache")
@@ -215,7 +217,7 @@ class WorkflowSecurityTests(unittest.TestCase):
         self.assertIn("uses: ./.github/actions/setup-darwin-sdk", warm)
         self.assertIn("inputs.artifactbundle_url", warm)
         self.assertIn("secrets.DARWIN_ARTIFACTBUNDLE_URL", warm)
-        self.assertIn("cache-revision: ${{ inputs.cache_revision }}", warm)
+        self.assertNotIn("revision", source)
         self.assertLess(source.index("- name: Mask dispatched"), source.index("- name: Restore or download"))
 
     def test_test_workflows_run_manually_without_inputs(self):

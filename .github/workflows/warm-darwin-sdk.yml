@@ -14,11 +14,6 @@ on:
         required: false
         default: ""
         type: string
-      cache_revision:
-        description: Cache key revision. Use a new value to replace the SDK.
-        required: false
-        default: v3
-        type: string
 
 permissions:
   contents: read
@@ -255,4 +250,3 @@ jobs:
             ${{ inputs.artifactbundle_url != ''
             && inputs.artifactbundle_url
             || secrets.DARWIN_ARTIFACTBUNDLE_URL }}
-          cache-revision: ${{ inputs.cache_revision }}

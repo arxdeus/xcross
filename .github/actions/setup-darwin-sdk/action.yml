@@ -10,10 +10,6 @@ inputs:
       Only used on a cache miss.
     required: false
     default: ""
-  cache-revision:
-    description: Revision in the per-host cache key. Bump to replace the SDK.
-    required: false
-    default: v3
 
 runs:
   using: composite
@@ -21,8 +17,6 @@ runs:
     - name: Resolve xcross Swift SDK path
       id: sdk-path
       shell: python
-      env:
-        CACHE_REVISION: ${{ inputs.cache-revision }}
       run: |
         import os
         from pathlib import Path
@@ -41,9 +35,8 @@ runs:
         cache_key = "-".join(
             (
                 "xcross-darwin",
-                os.environ["CACHE_REVISION"].strip() or "v3",
-                os.environ["RUNNER_OS"],
-                os.environ["RUNNER_ARCH"],
+                os.environ["RUNNER_OS"].lower(),
+                os.environ["RUNNER_ARCH"].lower(),
             )
         )
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
