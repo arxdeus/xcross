@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/host/shared/posix_paths.dart';
 import 'package:cli_kit/host/windows/windows_host.dart';
 import 'package:cli_kit/host/windows/windows_paths.dart';
 import 'package:cli_kit/shared/logging/logging.dart';
@@ -58,6 +59,17 @@ import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dar
 import 'package:xcross/src/target/simulator/flutter/simulator_flutter_target.dart';
 
 @internal
+HostPathsInterface nativeTestPaths(
+  Map<String, String> environment, {
+  String? currentDirectory,
+}) => PosixPaths(
+  environment: environment,
+  currentDirectory: currentDirectory ?? Directory.current.path,
+  temporaryDirectory: Directory.systemTemp.path,
+  context: p.Context(current: currentDirectory ?? Directory.current.path),
+);
+
+@internal
 SwiftPmRuntime<MacOSHost> testSwiftPmRuntime({
   SwiftPmHostPolicy? hostPolicy,
   FlutterTargetBuildPolicy<MacOSHost> Function(MacOSHost)? targetPolicy,
@@ -68,6 +80,7 @@ SwiftPmRuntime<MacOSHost> testSwiftPmRuntime({
     environment: environment ?? Platform.environment,
     currentDirectory: Directory.current.path,
     temporaryDirectory: Directory.systemTemp.path,
+    paths: nativeTestPaths(environment ?? Platform.environment),
   );
   final runner = ProcessRunner(
     host,
@@ -195,6 +208,10 @@ SwiftPmRuntime<WindowsHost> testWindowsSwiftPmRuntime({
     environment: Platform.environment,
     currentDirectory: currentDirectory ?? Directory.current.path,
     temporaryDirectory: Directory.systemTemp.path,
+    paths: nativeTestPaths(
+      Platform.environment,
+      currentDirectory: currentDirectory,
+    ),
   );
   final host = WindowsHost(
     environment: environment ?? Platform.environment,

@@ -131,7 +131,7 @@ void main() {
         ..writeAsStringSync('bundled');
       final host = MacOSHost(
         architecture: 'arm64',
-        paths: PosixPaths(context: p.Context()),
+        paths: nativeFixturePaths(),
       );
       final runner = ProcessRunner(
         host,

@@ -127,10 +127,7 @@ AppleToolShimResolver<LinuxHost> appleToolResolver({
   String? xcrun,
   bool declarative = false,
 }) {
-  final host = LinuxHost(
-    architecture: 'arm64',
-    paths: PosixPaths(context: p.Context()),
-  );
+  final host = LinuxHost(architecture: 'arm64', paths: nativeFixturePaths());
   final runner = ProcessRunner(
     host,
     log: nativeTestLog(),
@@ -150,6 +147,9 @@ AppleToolShimResolver<LinuxHost> appleToolResolver({
     executable: '/isolated/dart',
   );
 }
+
+@internal
+PosixPaths nativeFixturePaths() => PosixPaths(context: p.Context());
 
 @internal
 WindowsHost windowsFixtureHost() => WindowsHost(
@@ -238,10 +238,13 @@ final class WindowsFixtureProcesses implements HostProcessInterface {
 
 @internal
 List<(String, NativeHostTools, FlutterTargetBuildPolicy)> nativeHostCases() {
-  final linuxArm = LinuxHost(architecture: 'arm64');
-  final linuxX64 = LinuxHost(architecture: 'x64');
-  final macArm = MacOSHost(architecture: 'arm64');
-  final macX64 = MacOSHost(architecture: 'x64');
+  final linuxArm = LinuxHost(
+    architecture: 'arm64',
+    paths: nativeFixturePaths(),
+  );
+  final linuxX64 = LinuxHost(architecture: 'x64', paths: nativeFixturePaths());
+  final macArm = MacOSHost(architecture: 'arm64', paths: nativeFixturePaths());
+  final macX64 = MacOSHost(architecture: 'x64', paths: nativeFixturePaths());
   final windows = windowsFixtureHost();
   return [
     (
@@ -347,7 +350,7 @@ IosEngineCache<LinuxHost> nativeLinuxEngineCache({
   required String flutterRoot,
   String? cacheRoot,
 }) {
-  final host = LinuxHost(architecture: 'arm64');
+  final host = LinuxHost(architecture: 'arm64', paths: nativeFixturePaths());
   final log = nativeTestLog();
   final runner = ProcessRunner(
     host,

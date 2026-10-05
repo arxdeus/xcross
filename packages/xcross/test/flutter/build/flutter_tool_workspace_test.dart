@@ -100,7 +100,10 @@ void main() {
         'native_windows_links-',
       );
       try {
-        final host = WindowsHost(architecture: 'x64');
+        final host = WindowsHost(
+          architecture: 'x64',
+          environment: Platform.environment,
+        );
         final tools = WindowsNativeHostTools(
           host,
           ProcessRunner(
