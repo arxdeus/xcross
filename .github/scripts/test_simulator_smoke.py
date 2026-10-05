@@ -280,6 +280,13 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(lipo, ["/usr/bin/xcrun", "lipo", str(self.app / "Runner"), "-verify_arch", "arm64"])
         self.assert_scoped_cleanup()
 
+    def test_first_launch_waits_within_boot_budget(self):
+        self.smoke.boot_timeout = 240
+        self.smoke.run()
+        launch = next(kwargs for args, kwargs in self.calls if "launch" in args)
+        self.assertEqual(launch["timeout"], 240)
+        self.assert_scoped_cleanup()
+
     def test_ready_marker_from_new_unified_log_is_required(self):
         self.smoke.ready_marker = "XCROSS_READY"
         self.ready_output = "app: XCROSS_READY\n"

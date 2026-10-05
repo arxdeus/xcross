@@ -284,7 +284,7 @@ class Smoke:
                 "launch", "--terminate-running-process",
                 f"--stdout={self.output / 'app-stdout.log'}",
                 f"--stderr={self.output / 'app-stderr.log'}",
-                self.device, identifier, name="launch.log",
+                self.device, identifier, name="launch.log", timeout=self.boot_timeout,
             )
             match = re.search(rf"^{re.escape(identifier)}: ([1-9][0-9]*)$", result.stdout, re.MULTILINE)
             if not match:
