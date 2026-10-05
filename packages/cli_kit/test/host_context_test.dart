@@ -157,6 +157,29 @@ void main() {
     skip: Platform.isWindows ? 'POSIX native process semantics' : false,
   );
   test(
+    'shell lookup reports relative path entries under the logical cwd',
+    () async {
+      final temp = Directory.systemTemp.createTempSync('host-logical-cwd-');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      for (var index = 0; index < constructors.length; index++) {
+        final real = Directory(p.join(temp.path, '$index-real'))..createSync();
+        final linked = p.join(temp.path, '$index-linked');
+        Link(linked).createSync(real.path);
+        final host = constructors[index](linked);
+        host.fileSystem.file('tool').writeAsStringSync('#!/bin/sh\nexit 0\n');
+        host.fileSystem.makeExecutable('tool');
+        final found = await host.processes.findOnShellPath(
+          'tool',
+          environment: host.environment.values,
+          includeParentEnvironment: false,
+        );
+        expect(found, isNotNull);
+        expect(host.paths.pathKey(found!), host.paths.pathKey('tool'));
+      }
+    },
+    skip: Platform.isWindows ? 'POSIX shell lookup semantics' : false,
+  );
+  test(
     'filesystem and explicit cwd preserve symlink parent traversal',
     () async {
       final temp = Directory.systemTemp.createTempSync('host-symlink-parent-');

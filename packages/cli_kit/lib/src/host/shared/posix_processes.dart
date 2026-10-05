@@ -29,7 +29,7 @@ final class PosixProcesses implements HostProcessInterface {
     final process = await start(
       '/bin/sh',
       ['-c', r'command -v "$1"', 'sh', name],
-      environment: environment,
+      environment: {...?environment, 'PWD': paths.context.current},
       includeParentEnvironment: includeParentEnvironment,
     );
     final output = process.stdout
