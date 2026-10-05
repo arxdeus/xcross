@@ -546,10 +546,10 @@ let package = Package(
     test('finds dependency products that may emit Swift headers', () {
       expect(
         SwiftPmManifestDependencies.dependencyProductNames('''
-.product(name: "FirebaseFirestore", package: "firebase-ios-sdk"),
-.product(name: "firebase-core", package: "firebase_core"),
+.product(name: "AlphaKit", package: "alpha-kit"),
+.product(name: "beta-kit", package: "beta_kit"),
 '''),
-        {'FirebaseFirestore', 'firebase-core'},
+        {'AlphaKit', 'beta-kit'},
       );
     });
 
@@ -675,30 +675,123 @@ if getenv("EXPERIMENTAL_SPM_BUILDS") != nil {
       );
     });
 
-    test('normalizes Firebase Sessions and GoogleDataTransport manifests', () {
-      const input = '''
+    for (final name in ['AlphaKit', 'BetaKit']) {
+      test('leaves $name target and package declarations unchanged', () {
+        final input =
+            '''
 let package = Package(
-  name: "GoogleDataTransport",
+  name: "$name",
   platforms: [.iOS(.v12)],
   targets: [
     .target(
-    name: "FirebaseSessions",
-    path: "FirebaseSessions/Sources",
+    name: "$name",
+    path: "$name/Sources",
     cSettings: []
     )
   ]
 )
 ''';
-      final normalized = _swiftPmRuntime.sourceNormalizer.normalizeHostManifest(
-        input,
-      );
-      expect(normalized, contains('defaultLocalization: "en"'));
+        expect(
+          _swiftPmRuntime.sourceNormalizer.normalizeHostManifest(input),
+          input,
+        );
+      });
+    }
+
+    test('isolates the graph in the block gated on the variable', () {
+      const input = '''
+var products: [Product] = []
+if true {
+    products.append(.library(name: "AlphaKit", targets: ["AlphaKit"]))
+}
+var targets: [Target] = [.binaryTarget(name: "BetaKit", path: "BetaKit.xcframework")]
+if getenv("GAMMA_FLAG") != nil {
+    targets.append(.target(name: "BetaSource"))
+    products.append(.library(name: "BetaKit", targets: ["BetaSource"]))
+}
+''';
       expect(
-        normalized,
-        contains(
-          RegExp(r'path: "FirebaseSessions/Sources",\s+sources: \["\."\],'),
+        SwiftPmHostSourceNormalizer.isolateEnvironmentGatedGraph(
+          input,
+          'GAMMA_FLAG',
+        ),
+        input.replaceFirst(
+          'if getenv("GAMMA_FLAG") != nil {',
+          'if getenv("GAMMA_FLAG") != nil {\n'
+              '    products.removeAll()\n'
+              '    targets.removeAll()',
         ),
       );
+    });
+
+    test('isolates the graph gated through a variable binding', () {
+      const input = '''
+products.append(.library(name: "AlphaKit", targets: ["AlphaKit"]))
+let gamma = getenv("GAMMA_FLAG")
+#if os(Linux)
+let unrelated = true
+#endif
+if let gamma, String(cString: gamma) == "1" {
+    products.append(.library(name: "BetaKit", targets: ["BetaSource"]))
+}
+''';
+      expect(
+        SwiftPmHostSourceNormalizer.isolateEnvironmentGatedGraph(
+          input,
+          'GAMMA_FLAG',
+        ),
+        input.replaceFirst(
+          '== "1" {',
+          '== "1" {\n'
+              '    products.removeAll()\n'
+              '    targets.removeAll()',
+        ),
+      );
+    });
+
+    test('isolates the source fallback block after unrelated products', () {
+      const input = '''
+var products: [Product] = []
+if true {
+    products.append(.library(name: "AlphaKit", targets: ["AlphaKit"]))
+}
+if getenv("EXPERIMENTAL_SPM_BUILDS") != nil {
+    products.append(.library(name: "BetaKit", targets: ["BetaSource"]))
+}
+''';
+      expect(
+        _swiftPmRuntime.sourceNormalizer.normalizeHostManifest(input),
+        input.replaceFirst(
+          'if getenv("EXPERIMENTAL_SPM_BUILDS") != nil {',
+          'if getenv("EXPERIMENTAL_SPM_BUILDS") != nil {\n'
+              '    products.removeAll()\n'
+              '    targets.removeAll()',
+        ),
+      );
+    });
+
+    test('leaves manifests without a gated product block unchanged', () {
+      for (final input in [
+        'products.append(.library(name: "AlphaKit", targets: ["AlphaKit"]))\n'
+            'let flag = getenv("OTHER_FLAG")\n'
+            'if flag != nil {\n'
+            '    products.append(.library(name: "BetaKit", targets: []))\n'
+            '}\n',
+        'products.append(.library(name: "AlphaKit", targets: ["AlphaKit"]))\n'
+            'if getenv("GAMMA_FLAG") != nil {\n'
+            '    targets.append(.target(name: "BetaKit"))\n'
+            '}\n',
+        '// if getenv("GAMMA_FLAG") != nil { products.append(x) }\n'
+            'products.append(.library(name: "AlphaKit", targets: []))\n',
+      ]) {
+        expect(
+          SwiftPmHostSourceNormalizer.isolateEnvironmentGatedGraph(
+            input,
+            'GAMMA_FLAG',
+          ),
+          input,
+        );
+      }
     });
 
     test('still normalizes linker flags', () {

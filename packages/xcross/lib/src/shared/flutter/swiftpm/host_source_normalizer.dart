@@ -60,15 +60,6 @@ final class SwiftPmHostSourceNormalizer {
     var result = SwiftPmHostSourceNormalizer.normalizeLinkerFlags(manifest);
     result = exposeMacOSPackageGraphEntries(result);
     result = result.replaceAllMapped(
-      RegExp(r'(path:\s*"FirebaseSessions/Sources",)(\s*)(cSettings:)'),
-      (match) => '${match[1]}${match[2]}sources: ["."],${match[2]}${match[3]}',
-    );
-    result = result.replaceAllMapped(
-      RegExp(r'(name:\s*"GoogleDataTransport",)(\s*)(platforms:)'),
-      (match) =>
-          '${match[1]}${match[2]}defaultLocalization: "en",${match[2]}${match[3]}',
-    );
-    result = result.replaceAllMapped(
       RegExp(r'"([^"\r\n]+)/"'),
       (match) => '"${match[1]}"',
     );
@@ -78,22 +69,55 @@ final class SwiftPmHostSourceNormalizer {
       RegExp(r'String\(cString:\s*([^,]+),\s*encoding:\s*\.utf8\)'),
       (match) => 'String(cString: ${match[1]})',
     );
-    final sourceProduct = RegExp(
-      r'products\.append\(\s*\.library\([\s\S]*?\)\s*\)',
-    ).firstMatch(result);
-    if (result.contains('EXPERIMENTAL_SPM_BUILDS') &&
-        sourceProduct != null &&
-        !result.contains('products.removeAll()')) {
-      final blockStart = result.lastIndexOf('{', sourceProduct.start);
-      if (blockStart >= 0) {
-        result = result.replaceRange(
-          blockStart + 1,
-          blockStart + 1,
-          '\n    products.removeAll()\n    targets.removeAll()',
-        );
+    return SwiftPmHostSourceNormalizer.isolateEnvironmentGatedGraph(
+      result,
+      'EXPERIMENTAL_SPM_BUILDS',
+    );
+  }
+
+  @internal
+  static String isolateEnvironmentGatedGraph(String manifest, String variable) {
+    if (manifest.contains('products.removeAll()')) return manifest;
+    final code = SwiftPmManifestLexer.swiftCodeMask(manifest);
+    final lookup = RegExp('getenv\\(\\s*"${RegExp.escape(variable)}"\\s*\\)');
+    final bindings = [
+      for (final match in RegExp(
+        r'\b(?:let|var)\s+([A-Za-z_]\w*)\s*(?::[^=\n]*)?=\s*([^\n]*)',
+      ).allMatches(manifest))
+        if (code[match.start] && lookup.hasMatch(match[2]!)) match[1]!,
+    ];
+    final conditionPatterns = [
+      lookup,
+      for (final binding in bindings) RegExp('\\b${RegExp.escape(binding)}\\b'),
+    ];
+    for (final keyword in RegExp(r'\bif\b').allMatches(manifest)) {
+      if (!code[keyword.start] ||
+          (keyword.start > 0 && manifest[keyword.start - 1] == '#')) {
+        continue;
       }
+      var open = keyword.end;
+      while (open < manifest.length && (manifest[open] != '{' || !code[open])) {
+        open++;
+      }
+      if (open >= manifest.length) return manifest;
+      final condition = manifest.substring(keyword.end, open);
+      if (!conditionPatterns.any((pattern) => pattern.hasMatch(condition))) {
+        continue;
+      }
+      final close = SwiftPmManifestLexer.indexOfMatchingDelimiter(
+        manifest,
+        open,
+      );
+      if (close < 0) return manifest;
+      final body = manifest.substring(open + 1, close);
+      if (!RegExp(r'\bproducts\.append\(').hasMatch(body)) continue;
+      return manifest.replaceRange(
+        open + 1,
+        open + 1,
+        '\n    products.removeAll()\n    targets.removeAll()',
+      );
     }
-    return result;
+    return manifest;
   }
 
   /// Injects `import <fallback>` lines ahead of imports of a package whose
