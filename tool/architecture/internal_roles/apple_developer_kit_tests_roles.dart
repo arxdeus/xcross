@@ -31,6 +31,8 @@ const appleDeveloperKitTestsRoles = <String, Map<String, String>>{
   },
   'workspace:packages/apple_developer_kit/test/adi/linux_abi_layout_test.dart':
       {'FUNCTION:main': 'entrypoint'},
+  'workspace:packages/apple_developer_kit/test/adi/native_library_loader_aot_test.dart':
+      {'FUNCTION:main': 'entrypoint'},
   'workspace:packages/apple_developer_kit/test/adi/native_asset_id_test.dart': {
     'FUNCTION:main': 'entrypoint',
     'TOP_LEVEL_VARIABLE:_packageRoot': 'private',
