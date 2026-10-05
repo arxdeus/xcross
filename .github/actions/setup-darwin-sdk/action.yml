@@ -114,11 +114,11 @@ runs:
                 with tarfile.open(archive) as tar:
                     members = tar.getmembers()
                     links = [m for m in members if m.issym() or m.islnk()]
-                    tar.extractall(
-                        parent,
-                        members=[m for m in members if m not in links],
-                        filter="tar",
-                    )
+                    regular = [m for m in members if m not in links]
+                    if hasattr(tarfile, "tar_filter"):
+                        tar.extractall(parent, members=regular, filter="tar")
+                    else:
+                        tar.extractall(parent, members=regular)
                 pending = sorted(links, key=lambda m: -m.name.count("/"))
                 while pending:
                     unresolved = []
