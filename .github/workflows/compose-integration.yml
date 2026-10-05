@@ -11,6 +11,9 @@ permissions:
   contents: read
 
 env:
+  SWIFT_VERSION: 6.4.0
+  SWIFT_WINDOWS_SHA256: >-
+    76169A85BCBA82854A0CD8F9655FFB74B3758D60C35A245457510095F2823C03
   LLVM_VERSION: 22.1.8
   LLVM_WINDOWS_SHA256: >-
     16E5709785FEF73C854646241C4A92C5CD574318D1B33C63330DD7721903E55C
@@ -131,23 +134,14 @@ jobs:
           retention-days: 7
 
   compose-build:
-    name: Compose build (${{ matrix.os }}, Swift ${{ matrix.swift }})
+    name: Compose build (${{ matrix.os }})
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, windows-2022]
-        swift: ['6.3.3', '6.4.0']
-        include:
-          - swift: '6.3.3'
-            swift-windows-x64-sha256: 235626548F249CD516D3D4D90EEE980DCCAD46F3822DAC1F8E3119B0FEDE94B7
-          - swift: '6.4.0'
-            swift-windows-x64-sha256: 76169A85BCBA82854A0CD8F9655FFB74B3758D60C35A245457510095F2823C03
     runs-on: ${{ matrix.os }}
-    env:
-      SWIFT_VERSION: ${{ matrix.swift }}
-      SWIFT_WINDOWS_SHA256: ${{ matrix.swift-windows-x64-sha256 }}
     timeout-minutes: 90
 
     steps:

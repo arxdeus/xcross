@@ -117,7 +117,7 @@ class ArchitectureWorkflowTests(unittest.TestCase):
             self.assertIn(f'{prefix} --verbose flutter build --target-platform simulator --debug', step['script'])
         upload = build['Upload Flutter example simulator app']
         self.assertNotIn('continue-on-error', upload)
-        self.assertIn('flutter-example-simulator-${{ matrix.os }}-swift-${{ matrix.swift }}', '\n'.join(jobs['flutter-build']))
+        self.assertIn('name: flutter-example-simulator-${{ matrix.os }}\n', '\n'.join(jobs['flutter-build']) + '\n')
         self.assertIn('if-no-files-found: error', '\n'.join(jobs['flutter-build']))
         lines = jobs['flutter-example-simulator-run']
         text = '\n'.join(lines)
@@ -125,8 +125,7 @@ class ArchitectureWorkflowTests(unittest.TestCase):
         self.assertIn('    runs-on: macos-15', lines)
         self.assertFalse(any(line.startswith('    continue-on-error:') for line in lines))
         self.assertIn('host: [ubuntu-24.04, ubuntu-24.04-arm, windows-2022, windows-11-arm]', text)
-        self.assertIn("swift: ['6.3.3', '6.4.0']", text)
-        self.assertIn('name: flutter-example-simulator-${{ matrix.host }}-swift-${{ matrix.swift }}', text)
+        self.assertIn('name: flutter-example-simulator-${{ matrix.host }}\n', text + '\n')
         steps = workflow_steps(lines)
         smoke = self.required_step(steps, 'Boot install launch and observe cross-built Flutter example headlessly')
         self.assertIn('test "${#apps[@]}" -eq 1', smoke)

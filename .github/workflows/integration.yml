@@ -12,6 +12,11 @@ permissions:
 
 env:
   FLUTTER_VERSION: 3.47.2
+  SWIFT_VERSION: 6.4.0
+  SWIFT_WINDOWS_X64_SHA256: >-
+    76169A85BCBA82854A0CD8F9655FFB74B3758D60C35A245457510095F2823C03
+  SWIFT_WINDOWS_ARM64_SHA256: >-
+    F48E393634995CB589F547E40D64673BC641CA76B099697BA8227A8904BE4A49
   LLVM_VERSION: 22.1.8
   LLVM_WINDOWS_X64_SHA256: >-
     16E5709785FEF73C854646241C4A92C5CD574318D1B33C63330DD7721903E55C
@@ -26,26 +31,14 @@ concurrency:
 
 jobs:
   flutter-build:
-    name: Flutter SwiftPM build (${{ matrix.os }}, Swift ${{ matrix.swift }})
+    name: Flutter SwiftPM build (${{ matrix.os }})
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, ubuntu-24.04-arm, windows-2022, windows-11-arm]
-        swift: ['6.3.3', '6.4.0']
-        include:
-          - swift: '6.3.3'
-            swift-windows-x64-sha256: 235626548F249CD516D3D4D90EEE980DCCAD46F3822DAC1F8E3119B0FEDE94B7
-            swift-windows-arm64-sha256: 09E39C60F0B05D00FBE5F55B2D344752CCBC86E64802A2D896C0D55BC51E243D
-          - swift: '6.4.0'
-            swift-windows-x64-sha256: 76169A85BCBA82854A0CD8F9655FFB74B3758D60C35A245457510095F2823C03
-            swift-windows-arm64-sha256: F48E393634995CB589F547E40D64673BC641CA76B099697BA8227A8904BE4A49
     runs-on: ${{ matrix.os }}
-    env:
-      SWIFT_VERSION: ${{ matrix.swift }}
-      SWIFT_WINDOWS_X64_SHA256: ${{ matrix.swift-windows-x64-sha256 }}
-      SWIFT_WINDOWS_ARM64_SHA256: ${{ matrix.swift-windows-arm64-sha256 }}
 
     steps:
       # Fork PR code must never receive the private Apple SDK or its URL, so those
@@ -569,7 +562,7 @@ jobs:
         if: steps.darwin.outputs.available == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: flutter-example-simulator-${{ matrix.os }}-swift-${{ matrix.swift }}
+          name: flutter-example-simulator-${{ matrix.os }}
           path: examples/flutter_example/build/xcross-ios-simulator/*.app
           if-no-files-found: error
           retention-days: 7
@@ -687,7 +680,7 @@ jobs:
           retention-days: 7
 
   flutter-example-simulator-run:
-    name: Run cross-built Flutter example on simulator (${{ matrix.host }}, Swift ${{ matrix.swift }})
+    name: Run cross-built Flutter example on simulator (${{ matrix.host }})
     needs: flutter-build
     if: >-
       ${{ !cancelled() && (github.event_name != 'pull_request' ||
@@ -699,7 +692,6 @@ jobs:
       fail-fast: false
       matrix:
         host: [ubuntu-24.04, ubuntu-24.04-arm, windows-2022, windows-11-arm]
-        swift: ['6.3.3', '6.4.0']
     runs-on: macos-15
     timeout-minutes: 45
     steps:
@@ -714,7 +706,7 @@ jobs:
       - name: Download cross-built simulator app
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          name: flutter-example-simulator-${{ matrix.host }}-swift-${{ matrix.swift }}
+          name: flutter-example-simulator-${{ matrix.host }}
           path: ${{ runner.temp }}/cross-built
 
       - name: Boot install launch and observe cross-built Flutter example headlessly
@@ -737,7 +729,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: flutter-example-simulator-run-${{ matrix.host }}-swift-${{ matrix.swift }}-${{ github.run_attempt }}
+          name: flutter-example-simulator-run-${{ matrix.host }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/ios-simulator-smoke
           if-no-files-found: warn
           retention-days: 7

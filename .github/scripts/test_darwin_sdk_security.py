@@ -119,47 +119,36 @@ class WorkflowSecurityTests(unittest.TestCase):
                 self.assertNotIn("secrets.", source)
                 self.assertNotIn("steps.darwin.outputs.available", step(build, "Checkout"))
 
-    def test_cross_host_jobs_build_with_every_supported_swift_release(self):
-        sha = r"[0-9A-F]{64}"
-        for filename, job_name, hosts, windows_keys in (
+    def test_every_workflow_pins_the_minimum_supported_swift_release(self):
+        x64 = "76169A85BCBA82854A0CD8F9655FFB74B3758D60C35A245457510095F2823C03"
+        arm64 = "F48E393634995CB589F547E40D64673BC641CA76B099697BA8227A8904BE4A49"
+        for filename, job_name, pins in (
             ("integration.yml", "flutter-build",
-             ["ubuntu-24.04", "ubuntu-24.04-arm", "windows-2022", "windows-11-arm"],
-             ("swift-windows-x64-sha256", "swift-windows-arm64-sha256")),
-            ("compose-integration.yml", "compose-build",
-             ["ubuntu-24.04", "windows-2022"], ("swift-windows-x64-sha256",)),
+             {"SWIFT_WINDOWS_X64_SHA256": x64, "SWIFT_WINDOWS_ARM64_SHA256": arm64}),
+            ("compose-integration.yml", "compose-build", {"SWIFT_WINDOWS_SHA256": x64}),
+            ("warm-darwin-sdk.yml", "warm-cache",
+             {"SWIFT_WINDOWS_X64_SHA256": x64, "SWIFT_WINDOWS_ARM64_SHA256": arm64}),
         ):
             with self.subTest(workflow=filename):
                 source = (WORKFLOWS / filename).read_text()
-                self.assertNotRegex(source, r"(?m)^  SWIFT_")
+                self.assertIn("\n  SWIFT_VERSION: 6.4.0\n", source)
+                for key, value in pins.items():
+                    self.assertIn(f"\n  {key}: >-\n    {value}\n", source)
+                self.assertNotRegex(source, r"6\.3\.\d|matrix\.swift|swift: \[")
                 build = job(source, job_name)
-                self.assertRegex(build, r"(?m)^    name: .*\$\{\{ matrix\.swift \}\}")
-                matrix = re.search(r"(?ms)^      matrix:\n(.*?)^    \S", build).group(1)
-                self.assertIn(f"        os: [{', '.join(hosts)}]\n", matrix)
-                self.assertIn("        swift: ['6.3.3', '6.4.0']\n", matrix)
-                entries = re.findall(r"(?ms)^          - swift: '([\d.]+)'\n(.*?)(?=^          - |\Z)", matrix)
-                self.assertEqual([version for version, _ in entries], ["6.3.3", "6.4.0"])
-                for _, body in entries:
-                    for key in windows_keys:
-                        self.assertRegex(body, rf"(?m)^            {key}: {sha}$")
-                self.assertIn("      SWIFT_VERSION: ${{ matrix.swift }}\n", build)
                 linux = step(build, "Install pinned Swift on Linux")
                 self.assertIn("if: runner.os == 'Linux'", linux)
                 for needle in ("ubuntu2404-aarch64", "ubuntu2404", '--verify "$download/$archive.sig"'):
                     self.assertIn(needle, linux)
                 tag = re.search(r'(?m)^ +(tag="[^\n]+")$', linux).group(1)
-                for version, expected in (("6.3.3", "(swift-6.3.3-RELEASE)"), ("6.4.0", "(swift-6.4-RELEASE)")):
-                    result = subprocess.run(
-                        ["bash", "-c", f'{tag}; printf %s "$tag"'], check=True, capture_output=True, text=True,
-                        env={**os.environ, "SWIFT_VERSION": version},
-                    )
-                    self.assertEqual(result.stdout, expected)
+                result = subprocess.run(
+                    ["bash", "-c", f'{tag}; printf %s "$tag"'], check=True, capture_output=True, text=True,
+                    env={**os.environ, "SWIFT_VERSION": "6.4.0"},
+                )
+                self.assertEqual(result.stdout, "(swift-6.4-RELEASE)")
                 self.assertIn('gzip -dcf "$download/all-keys.asc" > "$download/all-keys.txt"', linux)
                 self.assertIn('--import "$download/all-keys.txt"', linux)
                 self.assertIn("(swift-$($env:SWIFT_VERSION -replace '\\.0$')-RELEASE)", step(build, "Install official Swift and LLVM on Windows"))
-        integration = (WORKFLOWS / "integration.yml").read_text()
-        self.assertIn("'6.4.0'", integration)
-        self.assertIn("76169A85BCBA82854A0CD8F9655FFB74B3758D60C35A245457510095F2823C03", integration)
-        self.assertIn("F48E393634995CB589F547E40D64673BC641CA76B099697BA8227A8904BE4A49", integration)
 
     def test_native_simulator_jobs_use_installed_xcode_without_secrets(self):
         for filename, job_name in (("integration.yml", "flutter-simulator"), ("compose-integration.yml", "compose-simulator")):
