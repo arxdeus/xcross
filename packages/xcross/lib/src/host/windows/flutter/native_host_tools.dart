@@ -3,9 +3,10 @@ import 'dart:io';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:meta/meta.dart';
+import 'package:open_apple_macros/host/shared/toolchain_plugin_layout.dart';
+import 'package:open_apple_macros/host/windows/windows_toolchain_plugin_layout.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
-import 'package:xcross/src/host/windows/flutter/preview_macro_prologue.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 
 @internal
@@ -32,7 +33,8 @@ final class WindowsNativeHostTools<T extends WindowsHostInterface>
   @override
   String get engineCacheDirectory => artifactPlatform;
   @override
-  String get previewMacroPrologue => windowsPreviewMacroPrologue;
+  ToolchainPluginLayoutInterface get toolchainPluginLayout =>
+      const WindowsToolchainPluginLayout();
   @override
   Future<HostCompiler> compiler(String clang) async =>
       (executable: clang, arguments: const <String>[]);

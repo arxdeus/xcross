@@ -273,11 +273,6 @@ const xcrossFlutterTestsRoles = <String, Map<String, String>>{
   },
   'workspace:packages/xcross/test/flutter/build/swiftpm_dependency_preparation_test.dart':
       {'FUNCTION:main': 'entrypoint'},
-  'workspace:packages/xcross/test/flutter/build/swiftpm_preview_macro_compiler_test.dart':
-      {
-        'CLASS:RecordingSwiftPmNativeCompiler': 'internal',
-        'FUNCTION:main': 'entrypoint',
-      },
   'workspace:packages/xcross/test/flutter/build/swiftpm_resolve_retry_test.dart':
       {
         'FUNCTION:main': 'entrypoint',

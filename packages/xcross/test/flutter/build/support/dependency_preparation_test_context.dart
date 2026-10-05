@@ -6,6 +6,7 @@ import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
 import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
 import 'package:darwin_sdk_kit/target/iphone/iphone_target.dart';
 import 'package:meta/meta.dart';
+import 'package:open_apple_macros/host/shared/toolchain_plugin_layout.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
@@ -204,7 +205,7 @@ final class RejectingDependencyNativeTools
   String get engineCacheDirectory =>
       throw StateError('Unexpected native tool query');
   @override
-  String get previewMacroPrologue =>
+  ToolchainPluginLayoutInterface get toolchainPluginLayout =>
       throw StateError('Unexpected native tool query');
   @override
   Future<HostCompiler> compiler(String clang) async =>

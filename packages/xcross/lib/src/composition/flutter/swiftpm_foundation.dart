@@ -3,6 +3,7 @@ import 'package:cli_kit/shared/process/process.dart';
 import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
 import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
 import 'package:meta/meta.dart';
+import 'package:open_apple_macros/shared/open_apple_macros_server.dart';
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
@@ -25,7 +26,6 @@ import 'package:xcross/src/shared/flutter/swiftpm/librarian_resolver.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/network_retry.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/package_metadata.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/plan_reader.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/preview_macro_compiler.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/response_file_reader.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
@@ -85,11 +85,9 @@ SwiftPmFoundation<T> prepareSwiftPmFoundation<T extends PlatformHostInterface>({
     hostBuildServices: hostBuildServices,
     librarianResolver: librarianResolver,
   );
-  final previewCompiler = SwiftPmPreviewMacroCompiler<T>(
-    host: host,
-    hostTools: tools.hostTools,
-    filesystem: filesystem,
-    compiler: ProcessSwiftPmNativeCompiler<T>(runner),
+  final macroServer = OpenAppleMacrosServer<T>(
+    runner: runner,
+    layout: tools.hostTools.toolchainPluginLayout,
   );
   final planReader = SwiftPmPlanReader(
     fileSystem: artifactFileSystem,
@@ -99,7 +97,7 @@ SwiftPmFoundation<T> prepareSwiftPmFoundation<T extends PlatformHostInterface>({
     filesystem: filesystem,
     hostPolicy: hostPolicy,
     runner: runner,
-    previewCompiler: previewCompiler,
+    macroServer: macroServer,
   );
   final consumerRepair = SwiftPmInteropConsumerRepair<T>(
     filesystem: filesystem,
@@ -172,7 +170,7 @@ SwiftPmFoundation<T> prepareSwiftPmFoundation<T extends PlatformHostInterface>({
     processPolicy: processPolicy,
     sourceRepair: sourceRepair,
     toolchain: toolchain,
-    previewCompiler: previewCompiler,
+    macroServer: macroServer,
     planReader: planReader,
     buildPlan: buildPlan,
     consumerRepair: consumerRepair,

@@ -177,10 +177,6 @@ const xcrossFlutterRoles = <String, Map<String, String>>{
     'TOP_LEVEL_VARIABLE:_nonResourceExtensions': 'private',
     'TOP_LEVEL_VARIABLE:_sourceExtensions': 'private',
   },
-  'package:xcross/src/shared/flutter/build/preview_macro_stub_source.dart': {
-    r'TOP_LEVEL_VARIABLE:_$previewMacroStubSource': 'private',
-    'TOP_LEVEL_VARIABLE:previewMacroStubSource': 'internal',
-  },
   'package:xcross/src/shared/flutter/build/runner_shim.dart': {
     'CLASS:RunnerShim': 'internal',
   },
@@ -554,11 +550,6 @@ const xcrossFlutterRoles = <String, Map<String, String>>{
   'package:xcross/src/shared/flutter/swiftpm/plugin_overlay.dart': {
     'CLASS:SwiftPmPluginOverlay': 'internal',
     'TOP_LEVEL_VARIABLE:flutterFrameworkPackageName': 'internal',
-  },
-  'package:xcross/src/shared/flutter/swiftpm/preview_macro_compiler.dart': {
-    'CLASS:ProcessSwiftPmNativeCompiler': 'internal',
-    'CLASS:SwiftPmNativeCompiler': 'internal',
-    'CLASS:SwiftPmPreviewMacroCompiler': 'internal',
   },
   'package:xcross/src/shared/flutter/swiftpm/process_policy.dart': {
     'CLASS:SwiftPmProcessPolicy': 'internal',

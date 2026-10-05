@@ -1,8 +1,9 @@
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:meta/meta.dart';
+import 'package:open_apple_macros/host/shared/posix_toolchain_plugin_layout.dart';
+import 'package:open_apple_macros/host/shared/toolchain_plugin_layout.dart';
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
-import 'package:xcross/src/host/shared/flutter/posix_preview_macro_prologue.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 
 @internal
@@ -29,7 +30,8 @@ final class MacOSNativeHostTools<T extends MacOSHostInterface>
   @override
   String get engineCacheDirectory => 'darwin-x64';
   @override
-  String get previewMacroPrologue => posixPreviewMacroPrologue;
+  ToolchainPluginLayoutInterface get toolchainPluginLayout =>
+      const PosixToolchainPluginLayout();
   @override
   Future<HostCompiler> compiler(String clang) async => (
     executable: '/usr/bin/xcrun',

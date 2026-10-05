@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
@@ -20,7 +19,6 @@ import 'package:xcross/src/shared/flutter/build/internal/swiftpm_workspace.dart'
 import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugins.dart';
-import 'package:xcross/src/shared/flutter/build/preview_macro_stub_source.dart';
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_artifact_preparer.dart';
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_artifact_store.dart';
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_target.dart';
@@ -809,9 +807,6 @@ if getenv("EXPERIMENTAL_SPM_BUILDS") != nil {
 
   group('normalizeHostSwiftSource', () {
     test('leaves preview declarations and every other source untouched', () {
-      // #Preview no longer needs a source rewrite: writePreviewMacroStub
-      // answers it through Swift's own plugin protocol instead, so this is
-      // the identity transform whenever no fallback module applies.
       const input = '''
 let before = true
 @available(iOS 17.0, *)
@@ -6364,121 +6359,30 @@ module FirebaseFirestore {
     });
   });
 
-  group('preview macro stub', () {
-    test(
-      'compiles a native macOS stub with Xcode-first PATH and no SDKROOT workaround',
-      () async {
-        final selection = await Process.run('/usr/bin/xcode-select', ['-p']);
-        expect(selection.exitCode, 0, reason: selection.stderr.toString());
-        final developer = Link(p.join(tmp.path, 'chosen developer'))
-          ..createSync(selection.stdout.toString().trim());
-        final environment = Map<String, String>.of(Platform.environment)
-          ..remove('SDKROOT')
-          ..['DEVELOPER_DIR'] = developer.path;
-        final native = await Process.run(
-          '/usr/bin/xcrun',
-          ['--sdk', 'macosx', '--find', 'clang'],
-          environment: environment,
-          includeParentEnvironment: false,
-        );
-        expect(native.exitCode, 0, reason: native.stderr.toString());
-        final iosSdk = await Process.run(
-          '/usr/bin/xcrun',
-          ['--sdk', 'iphonesimulator', '--show-sdk-path'],
-          environment: environment,
-          includeParentEnvironment: false,
-        );
-        expect(iosSdk.exitCode, 0, reason: iosSdk.stderr.toString());
-        environment['PATH'] =
-            '${p.dirname(native.stdout.toString().trim())}:/usr/bin:/bin';
-        for (final sdkRoot in <String?>[
-          null,
-          iosSdk.stdout.toString().trim(),
-        ]) {
-          final runtime = testSwiftPmRuntime(
-            environment: {
-              ...environment,
-              if (sdkRoot != null) 'SDKROOT': sdkRoot,
-            },
-          );
-          final compiler = await runtime.tools.resolveHostCompiler(
-            '/cross/clang',
-          );
-          final executable = await runtime.buildPlan.writePreviewMacroStub(
-            outputDir: p.join(tmp.path, sdkRoot == null ? 'clean' : 'polluted'),
-            cCompilerPath: compiler.executable,
-            cCompilerArguments: compiler.arguments,
-          );
-          final header = ByteData.sublistView(
-            File(executable).readAsBytesSync(),
-          );
-          expect(header.getUint32(0, Endian.little), 0xfeedfacf);
-          expect(
-            header.getUint32(4, Endian.little),
-            Abi.current() == Abi.macosArm64 ? 0x0100000c : 0x01000007,
-          );
-          final loadCommands = await Process.run(
-            '/usr/bin/xcrun',
-            ['--sdk', 'macosx', 'otool', '-l', executable],
-            environment: environment,
-            includeParentEnvironment: false,
-          );
-          expect(
-            loadCommands.exitCode,
-            0,
-            reason: loadCommands.stderr.toString(),
-          );
-          expect(
-            loadCommands.stdout,
-            contains(RegExp(r'platform\s+(?:MACOS|1)(?:\s|$)')),
-          );
-          final child = await Process.start(executable, []);
-          final output = child.stdout.fold<List<int>>(
-            [],
-            (bytes, chunk) => bytes..addAll(chunk),
-          );
-          final errors = child.stderr.transform(utf8.decoder).join();
-          final request = utf8.encode('{"getCapability":{}}');
-          child.stdin.add(
-            (ByteData(8)..setUint64(0, request.length, Endian.little)).buffer
-                .asUint8List(),
-          );
-          child.stdin.add(request);
-          await child.stdin.close();
-          expect(await child.exitCode, 0);
-          expect(await errors, isEmpty);
-          final response = Uint8List.fromList(await output);
-          expect(
-            ByteData.sublistView(response).getUint64(0, Endian.little),
-            response.length - 8,
-          );
-          expect(jsonDecode(utf8.decode(response.sublist(8))), {
-            'getCapabilityResult': {
-              'capability': {'protocolVersion': 8},
-            },
-          });
-        }
-      },
-      skip: !Platform.isMacOS,
-    );
-
-    test('threads the stub path onto the frontend', () {
+  group('open apple macros', () {
+    test('threads the macro server arguments onto the frontend', () {
+      const macros = [
+        '-Xswiftc',
+        '-plugin-path',
+        '-Xswiftc',
+        'toolchain/host/plugins',
+        '-Xswiftc',
+        '-load-plugin-executable',
+        '-Xswiftc',
+        'server#PreviewsMacros',
+      ];
       final arguments = _swiftPmRuntime.buildPlan.swiftBuildArguments(
         pluginsDir: 'plugins',
         scratchPath: 'scratch',
         swiftSdksPath: 'xcross-swift-sdks',
         iosSdk: 'iPhoneOS.sdk',
         flutterFrameworkSlice: 'Flutter.xcframework/ios-arm64',
-        previewMacroStubPath: 'stub.exe',
+        macroServerArguments: macros,
       );
+      expect(arguments, containsAllInOrder(macros));
       expect(
-        arguments,
-        containsAllInOrder([
-          '-Xswiftc',
-          '-load-plugin-executable',
-          '-Xswiftc',
-          'stub.exe#PreviewsMacros',
-        ]),
+        arguments.indexOf('-plugin-path'),
+        lessThan(arguments.indexOf('-sdk')),
       );
       expect(
         _swiftPmRuntime.buildPlan.swiftBuildArguments(
@@ -6490,31 +6394,6 @@ module FirebaseFirestore {
         ),
         isNot(contains('-load-plugin-executable')),
       );
-    });
-
-    test('embedded stub source matches the tracked C file', () {
-      // The stub is kept as a real, standalone-compilable .c file so it
-      // can be edited and diffed like any other C source; embed.dart
-      // inlines it into previewMacroStubSource at build time. This guards
-      // against the embedded copy drifting from the tracked file, which
-      // would need `dart run build_runner build` to fix.
-      final tracked = File(
-        packageSrcPath(
-          p.join(
-            'shared',
-            'flutter',
-            'build',
-            'assets',
-            'preview_macro_stub.c',
-          ),
-        ),
-      ).readAsStringSync();
-      // Git may check the tracked .c file out with CRLF on Windows while the
-      // generated Dart string keeps the LF it was embedded with, so compare
-      // the content, not the host's line endings.
-      String normalize(String source) =>
-          source.replaceAll('\r\n', '\n').trimRight();
-      expect(normalize(previewMacroStubSource), normalize(tracked));
     });
   });
 

@@ -462,7 +462,7 @@ void main() {
             filesystem: runtime.buildPlan.filesystem,
             hostPolicy: runtime.hostPolicy,
             runner: runner,
-            previewCompiler: runtime.buildPlan.previewCompiler,
+            macroServer: runtime.buildPlan.macroServer,
           );
           final executor = RecordingGateTestProcess(
             runtime.runner.host,

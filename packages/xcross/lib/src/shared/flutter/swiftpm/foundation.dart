@@ -3,6 +3,7 @@ import 'package:cli_kit/shared/process/process.dart';
 import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
 import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
 import 'package:meta/meta.dart';
+import 'package:open_apple_macros/shared/open_apple_macros_server.dart';
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
@@ -24,7 +25,6 @@ import 'package:xcross/src/shared/flutter/swiftpm/librarian_resolver.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/network_retry.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/package_metadata.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/plan_reader.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/preview_macro_compiler.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/source_repair.dart';
@@ -56,7 +56,7 @@ final class SwiftPmFoundation<T extends PlatformHostInterface> {
     required this.processPolicy,
     required this.sourceRepair,
     required this.toolchain,
-    required this.previewCompiler,
+    required this.macroServer,
     required this.planReader,
     required this.buildPlan,
     required this.consumerRepair,
@@ -84,7 +84,7 @@ final class SwiftPmFoundation<T extends PlatformHostInterface> {
   final SwiftPmProcessPolicy<T> processPolicy;
   final SwiftPmSourceRepair<T> sourceRepair;
   final SwiftPmToolchain<T> toolchain;
-  final SwiftPmPreviewMacroCompiler<T> previewCompiler;
+  final OpenAppleMacrosServer<T> macroServer;
   final SwiftPmPlanReader planReader;
   final SwiftPmBuildPlan<T> buildPlan;
   final SwiftPmInteropConsumerRepair<T> consumerRepair;

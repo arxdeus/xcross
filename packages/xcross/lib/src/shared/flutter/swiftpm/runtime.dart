@@ -4,6 +4,7 @@ import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
 import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
 import 'package:darwin_sdk_kit/target/shared/ios_target.dart';
 import 'package:meta/meta.dart';
+import 'package:open_apple_macros/shared/open_apple_macros_server.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/host_symlink_capability.dart';
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_capabilities.dart';
@@ -43,7 +44,6 @@ import 'package:xcross/src/shared/flutter/swiftpm/network_retry.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/package_metadata.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/plan_reader.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/plugin_overlay.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/preview_macro_compiler.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/source_fallback.dart';
@@ -108,7 +108,7 @@ final class SwiftPmRuntime<T extends PlatformHostInterface> {
     processPolicy = foundation.processPolicy;
     sourceRepair = foundation.sourceRepair;
     toolchain = foundation.toolchain;
-    previewCompiler = foundation.previewCompiler;
+    macroServer = foundation.macroServer;
     planReader = foundation.planReader;
     buildPlan = foundation.buildPlan;
     consumerRepair = foundation.consumerRepair;
@@ -260,7 +260,7 @@ final class SwiftPmRuntime<T extends PlatformHostInterface> {
   late final SwiftPmBinaryLayout<T> binaryLayout;
   late final SwiftPmDependencyEvaluator<T> dependencyEvaluator;
   late final SwiftPmBinaryRecovery<T> binaryRecovery;
-  late final SwiftPmPreviewMacroCompiler<T> previewCompiler;
+  late final OpenAppleMacrosServer<T> macroServer;
   late final SwiftPmBuildPlan<T> buildPlan;
   late final SwiftPmProcessPolicy<T> processPolicy;
 }

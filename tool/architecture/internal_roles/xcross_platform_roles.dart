@@ -269,10 +269,6 @@ const xcrossPlatformRoles = <String, Map<String, String>>{
   'package:xcross/src/host/shared/sdk/preserved_sdk_archive_links.dart': {
     'CLASS:PreservedSdkArchiveLinks': 'internal',
   },
-  'package:xcross/src/host/shared/flutter/posix_preview_macro_prologue.dart': {
-    r'TOP_LEVEL_VARIABLE:_$posixPreviewMacroPrologue': 'private',
-    'TOP_LEVEL_VARIABLE:posixPreviewMacroPrologue': 'internal',
-  },
   'package:xcross/src/host/shared/setup/posix_pipx_path.dart': {
     'CLASS:PosixPipxPath': 'internal',
   },
@@ -309,10 +305,6 @@ const xcrossPlatformRoles = <String, Map<String, String>>{
   'package:xcross/src/host/windows/flutter/native_host_tools.dart': {
     'CLASS:WindowsNativeHostTools': 'internal',
     'FUNCTION:missingNativeAssetToolForwarderError': 'internal',
-  },
-  'package:xcross/src/host/windows/flutter/preview_macro_prologue.dart': {
-    r'TOP_LEVEL_VARIABLE:_$windowsPreviewMacroPrologue': 'private',
-    'TOP_LEVEL_VARIABLE:windowsPreviewMacroPrologue': 'internal',
   },
   'package:xcross/src/host/windows/flutter/swiftpm/artifact_copy_policy.dart': {
     'CLASS:BinaryCopyDiagnosticCollector': 'internal',

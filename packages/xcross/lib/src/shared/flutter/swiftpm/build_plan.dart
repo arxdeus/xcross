@@ -3,12 +3,11 @@ import 'dart:async';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:meta/meta.dart';
+import 'package:open_apple_macros/shared/open_apple_macros_server.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/ios_linker_compatibility.dart';
-import 'package:xcross/src/shared/flutter/build/preview_macro_stub_source.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/preview_macro_compiler.dart';
 
 @internal
 const String flutterFrameworkPackageName = 'FlutterFramework';
@@ -21,12 +20,12 @@ final class SwiftPmBuildPlan<T extends PlatformHostInterface> {
     required this.filesystem,
     required this.hostPolicy,
     required this.runner,
-    required this.previewCompiler,
+    required this.macroServer,
   });
   final SwiftPmFilesystem<T> filesystem;
   final SwiftPmHostPolicy hostPolicy;
   final ProcessRunner<T> runner;
-  final SwiftPmPreviewMacroCompiler<T> previewCompiler;
+  final OpenAppleMacrosServer<T> macroServer;
 
   /// Disables Clang's implicit-module lock files, whose POSIX lock
   /// protocol deadlocks competing frontends on Windows.
@@ -48,34 +47,23 @@ final class SwiftPmBuildPlan<T extends PlatformHostInterface> {
     '-fno-implicit-modules-use-lock',
   ];
 
-  /// Compiles and caches the Swift compiler plugin stub that answers
-  /// `#Preview` macro-expansion requests with empty source, so builds
-  /// succeed without Apple's `PreviewsMacros` plugin (an Xcode-only,
-  /// closed-source binary with no host build of its own).
-  ///
-  /// `#Preview` is a freestanding declaration macro (SE-0394's SwiftUI
-  /// sibling proposal), so expanding it to nothing is a legal expansion
-  /// wherever it appears: previews are development-only UI and
-  /// contribute nothing to the app being built. The stub speaks
-  /// swift-syntax's own `StandardIOMessageConnection` wire protocol
-  /// directly (an 8-byte little-endian length prefix, then UTF-8 JSON;
-  /// see swift-syntax/Sources/SwiftCompilerPluginMessageHandling), so it
-  /// has no swift-syntax dependency of its own, only C standard I/O.
-  /// This is a real implementation of `swift build`'s public
-  /// `-load-plugin-executable` extension point, not a source patch: no
-  /// plugin source is read or modified.
-  ///
-  /// Its C source lives at `assets/preview_macro_stub.c` and is embedded
-  /// as [previewMacroStubSource] — see that constant's doc comment.
-  Future<String> writePreviewMacroStub({
-    required String outputDir,
-    required String cCompilerPath,
-    List<String> cCompilerArguments = const [],
-  }) => previewCompiler.write(
-    outputDir: outputDir,
-    cCompilerPath: cCompilerPath,
-    cCompilerArguments: cCompilerArguments,
-  );
+  Future<List<String>> macroServerArguments({
+    required String cacheRoot,
+    required String swiftBuild,
+    required Map<String, String> environment,
+  }) async {
+    final driver = runner.host.paths.context.join(
+      runner.host.paths.context.dirname(swiftBuild),
+      runner.hostExecutableName('swiftc'),
+    );
+    final build = await macroServer.ensure(
+      cacheRoot: cacheRoot,
+      swiftDriver: SwiftToolCommand(driver),
+      swiftBuild: SwiftToolCommand(swiftBuild, hostPolicy.buildPrefix),
+      environment: environment,
+    );
+    return build.swiftBuildArguments;
+  }
 
   Future<String> writeObjectiveCCompatibilityHeader(String outputDir) async {
     final path = p.join(outputDir, '.xcross', 'objective-c-compatibility.h');
@@ -102,7 +90,7 @@ final class SwiftPmBuildPlan<T extends PlatformHostInterface> {
     String? toolsetPath,
     String? linkerPath,
     List<String> interopSearchPaths = const [],
-    String? previewMacroStubPath,
+    List<String> macroServerArguments = const [],
   }) => [
     ...hostPolicy.buildPrefix,
     '--package-path',
@@ -134,14 +122,7 @@ final class SwiftPmBuildPlan<T extends PlatformHostInterface> {
     scratchPath,
     ...hostPolicy.buildArguments,
     ...interopSearchPaths,
-    // Apple's `PreviewsMacros` plugin ships only inside Xcode, so `#Preview`
-    // needs the stub on every cross host, not just Windows.
-    if (previewMacroStubPath != null) ...[
-      '-Xswiftc',
-      '-load-plugin-executable',
-      '-Xswiftc',
-      '$previewMacroStubPath#PreviewsMacros',
-    ],
+    ...macroServerArguments,
     // On macOS, SwiftPM's host toolchain can override the Swift SDK bundle's
     // sdkRootPath with the host MacOSX SDK. Pin the installed iPhoneOS SDK for
     // Swift imports and every C/Objective-C target so UIKit and Foundation are

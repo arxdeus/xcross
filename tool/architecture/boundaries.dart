@@ -205,12 +205,6 @@ const compositions = {
 const nativeHooks = {'packages/apple_developer_kit/hook/build.dart'};
 @internal
 const resources = {
-  'packages/xcross/lib/src/shared/flutter/build/assets/preview_macro_stub.c':
-      Classification('shared', 'shared', 'embedded-native-template'),
-  'packages/xcross/lib/src/host/shared/flutter/assets/posix_preview_macro_prologue.c':
-      Classification('shared', 'shared', 'embedded-native-template'),
-  'packages/xcross/lib/src/host/windows/flutter/assets/preview_macro_prologue.c':
-      Classification('windows', 'shared', 'embedded-native-template'),
   'packages/open_apple_macros/swift/Package.resolved': Classification(
     'shared',
     'shared',
@@ -390,12 +384,6 @@ const partOwners = {
       'packages/xcross/lib/src/shared/cli/basic/update_command.dart',
   'packages/xcross/lib/src/shared/cli/internal/xcross_runner.g.dart':
       'packages/xcross/lib/src/shared/cli/internal/xcross_runner.dart',
-  'packages/xcross/lib/src/shared/flutter/build/preview_macro_stub_source.g.dart':
-      'packages/xcross/lib/src/shared/flutter/build/preview_macro_stub_source.dart',
-  'packages/xcross/lib/src/host/shared/flutter/posix_preview_macro_prologue.g.dart':
-      'packages/xcross/lib/src/host/shared/flutter/posix_preview_macro_prologue.dart',
-  'packages/xcross/lib/src/host/windows/flutter/preview_macro_prologue.g.dart':
-      'packages/xcross/lib/src/host/windows/flutter/preview_macro_prologue.dart',
   'packages/xcross/lib/src/shared/runtime/version.g.dart':
       'packages/xcross/lib/src/shared/runtime/version.dart',
   'packages/open_apple_macros/lib/src/shared/open_apple_macros_sources.g.dart':

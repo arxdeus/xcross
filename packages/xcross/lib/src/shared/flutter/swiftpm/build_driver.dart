@@ -131,21 +131,15 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
         sdkRepository.iosSdk(sdk, target: target.buildPlatform),
       ),
     );
-    // Apple's real `#Preview` macro plugin ships only inside Xcode, so no
-    // cross host has it. The compiled stub answers the macro through
-    // Swift's own `-load-plugin-executable` extension point instead — its
-    // host compiler is whichever one built [darwinClang], available on
-    // every host that can build this project at all.
-    final hostCompiler = await tools.resolveHostCompiler(darwinClang ?? 'cc');
-    final previewMacroStub = await buildPlan.writePreviewMacroStub(
-      outputDir: outputDir,
-      cCompilerPath: hostCompiler.executable,
-      cCompilerArguments: hostCompiler.arguments,
-    );
     final objectiveCCompatibilityHeader = await buildPlan
         .writeObjectiveCCompatibilityHeader(outputDir);
     final swiftSdksPath = p.dirname(sdk.swiftSdkPath);
     final environment = await processPolicy.swiftProcessEnvironment();
+    final macroServerArguments = await buildPlan.macroServerArguments(
+      cacheRoot: workspace.cacheRoot,
+      swiftBuild: swiftBuild,
+      environment: environment,
+    );
     await dependencyPreparation.prepare(
       SwiftPmDependencyCommand(
         swiftSdkTriple: target.buildPlatform.swiftSdkTriple,
@@ -174,7 +168,7 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
       objectiveCCompatibilityHeader: objectiveCCompatibilityHeader,
       toolsetPath: toolsetPath,
       linkerPath: linker,
-      previewMacroStubPath: previewMacroStub,
+      macroServerArguments: macroServerArguments,
     );
 
     await sourceRepair.buildTranslatingSdkMismatch(

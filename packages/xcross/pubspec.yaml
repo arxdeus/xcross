@@ -49,6 +49,7 @@ dependencies:
   darwin_sdk_kit: ^1.0.0
   dart_mobile_device: ^1.0.0
   frontend_server_kit: ^1.0.0
+  open_apple_macros: ^1.0.0
   embed_annotation: ^1.2.3
 
 dev_dependencies:

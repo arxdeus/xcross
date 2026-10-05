@@ -124,10 +124,6 @@ final class SwiftPmHostSourceNormalizer {
   /// Windows build fell back to source and needs its Swift half imported
   /// alongside its Objective-C compatibility module (see
   /// [synthesizeBinaryFallbackCompatibility]).
-  ///
-  /// `#Preview` no longer needs handling here: [writePreviewMacroStub]
-  /// answers the macro through Swift's own plugin protocol, so preview
-  /// declarations compile unmodified instead of being blanked out.
   static String normalizeHostSwiftSource(
     String source, {
     Map<String, List<String>> fallbackSwiftModules = const {},
