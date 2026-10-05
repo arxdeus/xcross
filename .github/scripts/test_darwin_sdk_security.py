@@ -151,6 +151,7 @@ class DownloadTests(unittest.TestCase):
         with tarfile.open(fileobj=output, mode="w:gz") as archive:
             def add(name, data=None, link=None, directory=False):
                 member = tarfile.TarInfo(f"xcross-darwin.artifactbundle/{name}")
+                member.mode = 0o755
                 if directory:
                     member.type = tarfile.DIRTYPE
                     archive.addfile(member)
