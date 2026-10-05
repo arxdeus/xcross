@@ -105,6 +105,7 @@ const xcrossFlutterTestsRoles = <String, Map<String, String>>{
   },
   'workspace:packages/xcross/test/flutter/build/ios_plugin_package_test.dart': {
     'FUNCTION:_emptyMachO': 'private',
+    'FUNCTION:_vendorDirName': 'private',
     'FUNCTION:binaryProvenance': 'internal',
     'FUNCTION:main': 'entrypoint',
     'FUNCTION:packageSrcPath': 'internal',

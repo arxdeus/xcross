@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
@@ -53,11 +56,23 @@ final class SwiftPmManifestDependencies {
   static String vendorPackageDirName(String url, String ref) {
     final safeRef = ref.replaceAll(RegExp(r'[^\w.\-]+'), '_');
     final identity = SwiftPmManifestDependencies.packageIdentityFromUrl(url);
-    if (identity == 'firebase-ios-sdk') {
-      return 'fb@${safeRef.length > 12 ? safeRef.substring(0, 12) : safeRef}';
-    }
-    return '$identity@$safeRef';
+    final name = '$identity@$safeRef';
+    if (name.length <= vendorPackageDirNameBudget) return name;
+    final digest = sha256
+        .convert(utf8.encode('${identity.toLowerCase()}@$ref'))
+        .toString()
+        .substring(0, 8);
+    final prefixLength = vendorPackageDirNameBudget - digest.length - 1;
+    final prefix =
+        (identity.length > prefixLength
+                ? identity.substring(0, prefixLength)
+                : identity)
+            .replaceAll(RegExp(r'[^A-Za-z0-9]+$'), '');
+    return '$prefix-$digest';
   }
+
+  @internal
+  static const int vendorPackageDirNameBudget = 16;
 
   /// Swift tools version declared by [manifest], or `null` when absent.
   ///

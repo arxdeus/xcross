@@ -69,6 +69,9 @@ final _plugins = GeneratedPluginsPackage(
 @internal
 String swiftPath(String path) => p.absolute(path).replaceAll(r'\', '/');
 
+String _vendorDirName(String url, String ref) =>
+    SwiftPmManifestDependencies.vendorPackageDirName(url, ref);
+
 @internal
 SwiftPmBinaryArtifactProvenance binaryProvenance(
   String identity,
@@ -1445,7 +1448,7 @@ let package = Package(name: "Sentry", products: [], targets: [])
         rewritten,
         contains(
           '.package(name: "sentry-cocoa", '
-          'path: "${swiftPath(p.join(vendorDir, 'sentry-cocoa@8.58.1'))}")',
+          'path: "${swiftPath(p.join(vendorDir, _vendorDirName('https://github.com/getsentry/sentry-cocoa', '8.58.1')))}")',
         ),
       );
       expect(
@@ -1453,11 +1456,19 @@ let package = Package(name: "Sentry", products: [], targets: [])
         contains('.product(name: "Sentry", package: "sentry-cocoa")'),
       );
       final vendored = File(
-        p.join(vendorDir, 'sentry-cocoa@8.58.1', 'Package.swift'),
+        p.join(
+          vendorDir,
+          _vendorDirName('https://github.com/getsentry/sentry-cocoa', '8.58.1'),
+          'Package.swift',
+        ),
       ).readAsStringSync();
       expect(vendored, contains('import CRT'));
       final vendored61 = File(
-        p.join(vendorDir, 'sentry-cocoa@8.58.1', 'Package@swift-6.1.swift'),
+        p.join(
+          vendorDir,
+          _vendorDirName('https://github.com/getsentry/sentry-cocoa', '8.58.1'),
+          'Package@swift-6.1.swift',
+        ),
       ).readAsStringSync();
       expect(vendored61, contains('String(cString: env)'));
       expect(vendored61, contains('import CRT'));
@@ -1521,7 +1532,13 @@ let package = Package(
             },
           );
 
-      final imageDir = p.join(vendorDir, 'SDWebImage@sha-image');
+      final imageDir = p.join(
+        vendorDir,
+        _vendorDirName(
+          'https://github.com/SDWebImage/SDWebImage.git',
+          'sha-image',
+        ),
+      );
       expect(rewritten, isNot(contains('url:')));
       expect(
         rewritten,
@@ -1531,7 +1548,14 @@ let package = Package(
       );
 
       final nested = File(
-        p.join(vendorDir, 'SDWebImageWebPCoder@sha-webp', 'Package.swift'),
+        p.join(
+          vendorDir,
+          _vendorDirName(
+            'https://github.com/SDWebImage/SDWebImageWebPCoder.git',
+            'sha-webp',
+          ),
+          'Package.swift',
+        ),
       ).readAsStringSync();
       expect(nested, isNot(contains('url:')));
       expect(
@@ -1598,7 +1622,14 @@ let package = Package(
 
         // The vendored 5.0 manifest must not, or SwiftPM refuses to compile it.
         final nested = File(
-          p.join(vendorDir, 'SDWebImageWebPCoder@sha-webp', 'Package.swift'),
+          p.join(
+            vendorDir,
+            _vendorDirName(
+              'https://github.com/SDWebImage/SDWebImageWebPCoder.git',
+              'sha-webp',
+            ),
+            'Package.swift',
+          ),
         ).readAsStringSync();
         expect(nested, isNot(contains('url:')));
         expect(nested, isNot(contains('.package(name:')));
@@ -1606,7 +1637,7 @@ let package = Package(
           nested,
           contains(
             '.package(path: '
-            '"${swiftPath(p.join(vendorDir, 'SDWebImage@sha-image'))}")',
+            '"${swiftPath(p.join(vendorDir, _vendorDirName('https://github.com/SDWebImage/SDWebImage.git', 'sha-image')))}")',
           ),
         );
       },
@@ -1617,16 +1648,22 @@ let package = Package(
       const manifest = '''
 import PackageDescription
 let package = Package(
-    name: "firebase_core",
+    name: "gamma_plugin",
     dependencies: [
-        .package(url: "https://github.com/firebase/firebase-ios-sdk", exact: "12.18.0"),
+        .package(url: "https://example.com/gamma/gamma-kit-sdk", exact: "1.18.0"),
     ],
     targets: []
 )
 ''';
       final clones = <String>[];
       final evaluated = <String>[];
-      final firebaseDir = p.join(vendorDir, 'fb@sha-firebase');
+      final gammaDir = p.join(
+        vendorDir,
+        SwiftPmManifestDependencies.vendorPackageDirName(
+          'https://example.com/gamma/gamma-kit-sdk',
+          'sha-gamma',
+        ),
+      );
       await _swiftPmRuntime.dependencyVendor.vendorUrlPackagesAsPathDeps(
         manifest,
         vendorDir: vendorDir,
@@ -1634,30 +1671,27 @@ let package = Package(
         locateTool: (_) async => 'git',
         evaluateDependencyRefs: (directory) async {
           evaluated.add(directory);
-          if (directory == firebaseDir) {
+          if (directory == gammaDir) {
             final onDisk = File(
               p.join(directory, 'Package.swift'),
             ).readAsStringSync();
             expect(onDisk, isNot(contains('#if os(macOS)')));
-            expect(onDisk, contains('url: appMeasurementURL'));
+            expect(onDisk, contains('url: alphaURL'));
             return const {
-              'https://github.com/google/GoogleAppMeasurement':
-                  'sha-measurement',
-              'https://github.com/google/GoogleUtilities': 'sha-utilities',
+              'https://example.com/alpha/AlphaKit': 'sha-alpha',
+              'https://example.com/beta/BetaKit': 'sha-beta',
             };
           }
-          return const {
-            'https://github.com/firebase/firebase-ios-sdk': 'sha-firebase',
-          };
+          return const {'https://example.com/gamma/gamma-kit-sdk': 'sha-gamma'};
         },
         clonePackage: (_, url, ref, destination) async {
           clones.add(url);
           await Directory(destination).create(recursive: true);
-          final nested = url.contains('firebase-ios-sdk')
+          final nested = url.contains('gamma-kit-sdk')
               ? '''
 import PackageDescription
 let package = Package(
-    name: "Firebase",
+    name: "GammaKit",
     dependencies: packageDependencies(),
     targets: []
 )
@@ -1665,74 +1699,74 @@ func packageDependencies() -> [Package.Dependency] {
   var dependencies: [Package.Dependency] = []
   #if os(macOS)
     dependencies.append(contentsOf: [
-      googleAppMeasurementDependency(),
+      alphaDependency(),
       .package(
-        url: "https://github.com/google/GoogleUtilities.git",
+        url: "https://example.com/beta/BetaKit.git",
         "8.1.0" ..< "9.0.0"
       ),
-      abseilDependency(),
+      deltaDependency(),
     ])
   #endif // os(macOS)
   return dependencies
 }
-func googleAppMeasurementDependency() -> Package.Dependency {
-  let appMeasurementURL = "https://github.com/google/GoogleAppMeasurement.git"
-  if Context.environment["FIREBASECI_USE_LATEST_GOOGLEAPPMEASUREMENT"] != nil {
-    return .package(url: appMeasurementURL, branch: "main")
+func alphaDependency() -> Package.Dependency {
+  let alphaURL = "https://example.com/alpha/AlphaKit.git"
+  if Context.environment["GAMMA_FLAG"] != nil {
+    return .package(url: alphaURL, branch: "main")
   }
-  return .package(url: appMeasurementURL, "12.18.0" ..< "12.19.0")
+  return .package(url: alphaURL, "1.18.0" ..< "1.19.0")
 }
-func abseilDependency() -> Package.Dependency {
+func deltaDependency() -> Package.Dependency {
   let packageInfo: (url: String, range: Range<Version>)
-  packageInfo = ("https://github.com/google/abseil-cpp-binary.git", "1.0.0" ..< "2.0.0")
+  packageInfo = ("https://example.com/delta/delta-binary.git", "1.0.0" ..< "2.0.0")
   return .package(url: packageInfo.url, packageInfo.range)
 }
 '''
-              : url.contains('GoogleAppMeasurement')
+              : url.contains('AlphaKit')
               ? '''
 import PackageDescription
 let package = Package(
-    name: "GoogleAppMeasurement",
+    name: "AlphaKit",
     dependencies: [
-        .package(url: "https://github.com/google/GoogleUtilities.git", "8.0.2" ..< "9.0.0"),
+        .package(url: "https://example.com/beta/BetaKit.git", "8.0.2" ..< "9.0.0"),
     ],
     targets: []
 )
 '''
               : 'import PackageDescription\n'
-                    'let package = Package(name: "GoogleUtilities")\n';
+                    'let package = Package(name: "BetaKit")\n';
           await File(
             p.join(destination, 'Package.swift'),
           ).writeAsString(nested);
         },
       );
 
-      final utilitiesDir = p.join(vendorDir, 'GoogleUtilities@sha-utilities');
-      final measurementDir = p.join(
+      final betaDir = p.join(
         vendorDir,
-        'GoogleAppMeasurement@sha-measurement',
-      );
-      final firebase = File(
-        p.join(firebaseDir, 'Package.swift'),
-      ).readAsStringSync();
-      expect(evaluated, [p.join(tmp.path, 'constant-plugin'), firebaseDir]);
-      expect(
-        firebase,
-        contains(
-          '.package(name: "GoogleAppMeasurement", '
-          'path: "${swiftPath(measurementDir)}")',
+        SwiftPmManifestDependencies.vendorPackageDirName(
+          'https://example.com/beta/BetaKit.git',
+          'sha-beta',
         ),
       );
-      expect(firebase, isNot(contains('url: appMeasurementURL')));
-      expect(firebase, contains('url: packageInfo.url'));
-      final measurement = File(
-        p.join(measurementDir, 'Package.swift'),
-      ).readAsStringSync();
-      expect(
-        measurement,
-        contains(
-          '.package(name: "GoogleUtilities", path: "${swiftPath(utilitiesDir)}")',
+      final alphaDir = p.join(
+        vendorDir,
+        SwiftPmManifestDependencies.vendorPackageDirName(
+          'https://example.com/alpha/AlphaKit.git',
+          'sha-alpha',
         ),
+      );
+      final gamma = File(p.join(gammaDir, 'Package.swift')).readAsStringSync();
+      expect(evaluated, [p.join(tmp.path, 'constant-plugin'), gammaDir]);
+      expect(
+        gamma,
+        contains('.package(name: "AlphaKit", path: "${swiftPath(alphaDir)}")'),
+      );
+      expect(gamma, isNot(contains('url: alphaURL')));
+      expect(gamma, contains('url: packageInfo.url'));
+      final alpha = File(p.join(alphaDir, 'Package.swift')).readAsStringSync();
+      expect(
+        alpha,
+        contains('.package(name: "BetaKit", path: "${swiftPath(betaDir)}")'),
       );
       expect(clones.length, 3);
     });
@@ -1982,38 +2016,38 @@ let package = Package(
       });
     });
 
-    test('uses Swift-evaluated Firebase version before cloning', () async {
+    test('uses the Swift-evaluated version before cloning', () async {
       final vendorDir = p.join(tmp.path, 'Vendor');
       const manifest = '''
 import PackageDescription
-let firebaseSdkVersion = Version(12, 1, 0)
+let gammaSdkVersion = Version(12, 1, 0)
 let package = Package(
-    name: "firebase_core",
+    name: "gamma_plugin",
     dependencies: [
         .package(
-            url: "https://github.com/firebase/firebase-ios-sdk",
-            exact: firebaseSdkVersion
+            url: "https://example.com/gamma/gamma-kit-sdk",
+            exact: gammaSdkVersion
         ),
     ],
     targets: []
 )
 ''';
+      const revision = 'b9bf3adac18e6e3059167194aeb632f15a5ba4b2';
       final rewritten = await _swiftPmRuntime.dependencyVendor
           .vendorUrlPackagesAsPathDeps(
             manifest,
             vendorDir: vendorDir,
-            packageDirectory: 'firebase_core/ios/firebase_core',
+            packageDirectory: 'gamma_plugin/ios/gamma_plugin',
             locateTool: (_) async => 'git',
             evaluateDependencyRefs: (directory) async {
-              expect(directory, 'firebase_core/ios/firebase_core');
+              expect(directory, 'gamma_plugin/ios/gamma_plugin');
               return const {
-                'https://github.com/firebase/firebase-ios-sdk':
-                    'b9bf3adac18e6e3059167194aeb632f15a5ba4b2',
+                'https://example.com/gamma/gamma-kit-sdk': revision,
               };
             },
             clonePackage: (_, url, ref, destination) async {
-              expect(url, 'https://github.com/firebase/firebase-ios-sdk');
-              expect(ref, 'b9bf3adac18e6e3059167194aeb632f15a5ba4b2');
+              expect(url, 'https://example.com/gamma/gamma-kit-sdk');
+              expect(ref, revision);
               await Directory(destination).create(recursive: true);
               await File(
                 p.join(destination, 'Package.swift'),
@@ -2022,13 +2056,86 @@ let package = Package(
           );
 
       expect(rewritten, isNot(contains('url:')));
+      final directory = _vendorDirName(
+        'https://example.com/gamma/gamma-kit-sdk',
+        revision,
+      );
+      expect(
+        directory.length,
+        SwiftPmManifestDependencies.vendorPackageDirNameBudget,
+      );
       expect(
         rewritten,
         contains(
-          '.package(name: "firebase-ios-sdk", '
-          'path: "${swiftPath(p.join(vendorDir, 'fb@b9bf3adac18e'))}")',
+          '.package(name: "gamma-kit-sdk", '
+          'path: "${swiftPath(p.join(vendorDir, directory))}")',
         ),
       );
+    });
+  });
+
+  group('vendorPackageDirName', () {
+    const budget = SwiftPmManifestDependencies.vendorPackageDirNameBudget;
+
+    test('keeps identity and ref when they fit the budget', () {
+      expect(
+        _vendorDirName('https://example.com/a/AlphaKit.git', '1.2.3'),
+        'AlphaKit@1.2.3',
+      );
+      expect(
+        _vendorDirName('https://example.com/a/beta', 'feature/x y'),
+        'beta@feature_x_y',
+      );
+    });
+
+    test('shortens every identity whose name exceeds the budget', () {
+      final names = {
+        for (final (url, ref) in const [
+          ('https://example.com/a/AlphaKit.git', '1.2.3-beta.4'),
+          ('https://example.com/g/gamma-kit-sdk', '12.19.0'),
+          (
+            'https://example.com/g/gamma-kit-sdk',
+            'b9bf3adac18e6e3059167194aeb632f15a5ba4b2',
+          ),
+          (
+            'https://example.com/d/delta-package-manager-extremely-long-name',
+            '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+          ),
+          ('https://example.com/e/e', '0123456789abcdef'),
+          ('https://example.com/f/kit-------', '2.0.0-rc.1'),
+        ])
+          (url, ref): _vendorDirName(url, ref),
+      };
+      for (final MapEntry(key: (url, ref), value: name) in names.entries) {
+        final identity = SwiftPmManifestDependencies.packageIdentityFromUrl(
+          url,
+        );
+        expect(name.length, lessThanOrEqualTo(budget), reason: '$url $ref');
+        expect(name, matches(RegExp(r'^[A-Za-z0-9][\w.\-]*-[0-9a-f]{8}$')));
+        expect(
+          identity.startsWith(name.substring(0, name.length - 9)),
+          isTrue,
+          reason: name,
+        );
+        expect(_vendorDirName(url, ref), name);
+      }
+      expect(names.values.toSet(), hasLength(names.length));
+    });
+
+    test('keeps a distinct directory per identity and ref', () {
+      final names = {
+        for (var index = 0; index < 64; index++)
+          _vendorDirName(
+            'https://example.com/x/alpha-kit-extended-$index',
+            '1.0.$index',
+          ),
+        for (var index = 0; index < 64; index++)
+          _vendorDirName(
+            'https://example.com/x/alpha-kit-extended',
+            '1.0.$index',
+          ),
+      };
+      expect(names, hasLength(128));
     });
   });
 
@@ -2077,7 +2184,7 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
           p.join(
             tmp.path,
             'vendor',
-            'cold-package@1.2.3',
+            _vendorDirName('https://example.com/vendor/cold-package', '1.2.3'),
             'Package@swift-6.1.swift',
           ),
         ).readAsStringSync(),
