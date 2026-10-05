@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:cli_kit/host/windows/windows_host.dart';
 import 'package:cli_kit/host/windows/windows_paths.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:cli_kit/shared/process/process_models.dart';
@@ -27,7 +28,7 @@ const _machineKey =
 
 void main() {
   late WindowsSdkRootFixture fixture;
-  setUp(() => fixture = WindowsSdkRootFixture());
+  setUp(() => fixture = WindowsSdkRootFixture(TestLogOutput()));
   tearDown(() => fixture.dispose());
 
   test('uses the User registry value when SDKROOT is absent', () async {
@@ -117,6 +118,13 @@ void main() {
       variables: {'SDKROOT': r'C:\Stale\Windows.sdk'},
     );
     expect(await environment.swiftEnvironment(), {'SDKROOT': _userSdk});
+    expect(await environment.swiftEnvironment(), {'SDKROOT': _userSdk});
+    expect(
+      fixture.output.messages.where(
+        (message) => message.contains('is not a Windows SDK for Swift'),
+      ),
+      hasLength(1),
+    );
     final check = (await environment.doctorChecks()).single;
     expect(check.status, DoctorStatus.warning);
     expect(check.message, contains(r'"C:\Stale\Windows.sdk"'));
@@ -187,9 +195,10 @@ void main() {
 
 @internal
 final class WindowsSdkRootFixture {
-  WindowsSdkRootFixture()
+  WindowsSdkRootFixture(this.output)
     : backing = Directory.systemTemp.createTempSync('xcross-sdkroot-');
   final Directory backing;
+  final TestLogOutput output;
   final Map<String, String> registry = {};
   final Set<String> failingRegistry = {};
   final List<String> path = [];
@@ -238,7 +247,7 @@ final class WindowsSdkRootFixture {
     return WindowsSwiftEnvironment(
       ProcessRunner(
         host,
-        log: testLog(),
+        log: Log(output: output),
         stdinStream: const Stream.empty(),
         stdoutSink: testByteSink(),
         stderrSink: testByteSink(),

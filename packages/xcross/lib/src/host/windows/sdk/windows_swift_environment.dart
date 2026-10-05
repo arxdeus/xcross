@@ -28,6 +28,7 @@ final class WindowsSwiftEnvironment implements SwiftEnvironmentHostInterface {
   WindowsSwiftEnvironment(this.runner);
   final ProcessRunner runner;
   Future<WindowsSdkRootResolution>? _resolution;
+  var _reported = false;
 
   static const _variable = 'SDKROOT';
   static const _userKey = r'HKCU\Environment';
@@ -45,6 +46,8 @@ final class WindowsSwiftEnvironment implements SwiftEnvironmentHostInterface {
     final path = resolution.path;
     if (path == null) throw XcrossError(missingMessage(resolution));
     if (resolution.source == WindowsSdkRootSource.environment) return const {};
+    if (_reported) return {_variable: path};
+    _reported = true;
     if (resolution.inherited case final inherited?) {
       runner.log.logWarn(
         '$_variable "$inherited" is not a Windows SDK for Swift; using '
