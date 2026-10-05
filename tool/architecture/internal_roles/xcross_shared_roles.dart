@@ -304,6 +304,9 @@ const xcrossSharedRoles = <String, Map<String, String>>{
   'package:xcross/src/shared/setup/host_operations.dart': {
     'CLASS:HostOperations': 'internal',
   },
+  'package:xcross/src/shared/sdk/swift_environment_host.dart': {
+    'CLASS:SwiftEnvironmentHostInterface': 'internal',
+  },
   'package:xcross/src/shared/setup/setup_requirements.dart': {
     'CLASS:SetupConsole': 'internal',
     'CLASS:SetupRequirementServices': 'internal',

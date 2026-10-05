@@ -145,7 +145,7 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
     final objectiveCCompatibilityHeader = await buildPlan
         .writeObjectiveCCompatibilityHeader(outputDir);
     final swiftSdksPath = p.dirname(sdk.swiftSdkPath);
-    final environment = processPolicy.swiftProcessEnvironment();
+    final environment = await processPolicy.swiftProcessEnvironment();
     await dependencyPreparation.prepare(
       SwiftPmDependencyCommand(
         swiftSdkTriple: target.buildPlatform.swiftSdkTriple,

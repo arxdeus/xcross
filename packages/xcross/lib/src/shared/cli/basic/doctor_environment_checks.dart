@@ -28,6 +28,7 @@ final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
     required this.sdkMismatch,
     required this.sdkToolchainIdentity,
     required this.createAppleHttpClient,
+    this.swiftEnvironmentChecks,
   });
   final http.Client Function() createAppleHttpClient;
   final T hostPlatform;
@@ -39,6 +40,7 @@ final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
   final DeviceDiagnostics deviceDiagnostics;
   final Future<String?> Function(String bundle) sdkMismatch;
   final Future<Map<String, String>> Function() sdkToolchainIdentity;
+  final Future<List<DoctorCheck>> Function()? swiftEnvironmentChecks;
 
   static const _requiredTools = ['swift', 'clang++', 'llvm-ar'];
 
@@ -49,10 +51,21 @@ final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
     for (final tool in _requiredTools) {
       checks.add(await _tool(tool));
     }
+    checks.addAll(await _swiftEnvironment());
     checks.add(await _iosClang());
     checks.add(await _iosLinker());
     checks.add(await _darwinSdk());
     return checks;
+  }
+
+  Future<List<DoctorCheck>> _swiftEnvironment() async {
+    final run = swiftEnvironmentChecks;
+    if (run == null) return const [];
+    try {
+      return await run();
+    } on Object catch (error) {
+      return [DoctorCheck.failure('Swift environment', '$error')];
+    }
   }
 
   Future<DoctorCheck> _tool(String name) async {

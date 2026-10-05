@@ -1,4 +1,5 @@
 import 'package:meta/meta.dart';
+import 'package:xcross/src/shared/sdk/swift_environment_host.dart';
 import 'package:xcross/src/shared/sdk/swift_toolchain_host.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
 import 'package:xcross/src/shared/setup/setup_script_policy.dart';
@@ -10,6 +11,7 @@ final class HostOperations {
     required this.setupScript,
     required this.setupRequirements,
     required this.swiftToolchain,
+    required this.swiftEnvironment,
     required this.update,
     required this.normalizeExecutable,
     required this.acceptDartLauncher,
@@ -17,6 +19,7 @@ final class HostOperations {
   final SetupScriptPolicy setupScript;
   final SetupRequirements setupRequirements;
   final SwiftToolchainHostInterface swiftToolchain;
+  final SwiftEnvironmentHostInterface swiftEnvironment;
   String get swiftInstallGuidance => swiftToolchain.installGuidance;
   final UpdateHostPolicy update;
   final String Function(String) normalizeExecutable;

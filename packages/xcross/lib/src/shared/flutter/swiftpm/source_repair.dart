@@ -163,7 +163,7 @@ final class SwiftPmSourceRepair<T extends PlatformHostInterface> {
       '--package-path',
       directory,
       'resolve',
-    ], environment: processPolicy.swiftProcessEnvironment());
+    ], environment: await processPolicy.swiftProcessEnvironment());
     if (result.exitCode != 0) {
       throw FlutterBuildError(
         'Cannot resolve SwiftPM dependencies in $directory:\n'

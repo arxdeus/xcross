@@ -6,13 +6,18 @@ import 'package:xcross/src/shared/flutter/swiftpm/build_plan.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/plan_reader.dart'
     as swiftpm_plan_reader;
+import 'package:xcross/src/shared/sdk/swift_environment_host.dart';
 
 @internal
 final class WindowsSwiftPmHostPolicy implements SwiftPmHostPolicy {
-  WindowsSwiftPmHostPolicy(this.runner)
+  WindowsSwiftPmHostPolicy(this.runner, {required this.swiftEnvironment})
     : repairs = WindowsSwiftPlanRepair(runner);
   final ProcessRunner runner;
+  final SwiftEnvironmentHostInterface swiftEnvironment;
   final WindowsSwiftPlanRepair repairs;
+  @override
+  Future<Map<String, String>> hostEnvironment() =>
+      swiftEnvironment.swiftEnvironment();
   @override
   String artifactIdentity(String value) => value.toLowerCase();
 

@@ -90,12 +90,19 @@ final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
       host.environment.lookup(
         host.environment.overlay(
           runner.effectiveEnvironment,
-          swiftProcessEnvironment(),
+          _processEnvironment(),
         ),
         'EXPERIMENTAL_SPM_BUILDS',
       ) !=
       null;
-  Map<String, String> swiftProcessEnvironment({
+  Future<Map<String, String>> swiftProcessEnvironment({
+    String? executable,
+    Map<String, String>? environment,
+  }) async => {
+    ...await hostPolicy.hostEnvironment(),
+    ..._processEnvironment(executable: executable, environment: environment),
+  };
+  Map<String, String> _processEnvironment({
     String? executable,
     Map<String, String>? environment,
   }) {

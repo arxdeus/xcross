@@ -267,7 +267,10 @@ final class WindowsXcrossHostContext
       hostTools: WindowsNativeHostTools(host, runner),
       renderer: WindowsAppleToolShimRenderer(host),
       sdkPolicy: WindowsFlutterSdkPolicy(),
-      swiftPmPolicy: WindowsSwiftPmHostPolicy(runner),
+      swiftPmPolicy: WindowsSwiftPmHostPolicy(
+        runner,
+        swiftEnvironment: operations.swiftEnvironment,
+      ),
       artifactFileSystem: artifactFileSystem,
       publicationCoordinator: publicationCoordinator,
       transport: transport,

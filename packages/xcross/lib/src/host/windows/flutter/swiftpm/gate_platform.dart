@@ -205,7 +205,7 @@ final class WindowsSwiftPmGatePlatform<T extends PlatformHostInterface>
         toolsetPath: toolset,
         swiftSdkTriple: targetPolicy.target.buildPlatform.swiftSdkTriple,
       );
-      final environment = processPolicy.swiftProcessEnvironment();
+      final environment = await processPolicy.swiftProcessEnvironment();
 
       if (mode == SwiftPmGateMode.swiftPmArtifact) {
         if (!await _runSwift(swiftPackage, resolve, environment)) {

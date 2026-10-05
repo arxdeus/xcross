@@ -266,6 +266,7 @@ const xcrossFlutterTestsRoles = <String, Map<String, String>>{
         'FUNCTION:main': 'entrypoint',
       },
   'workspace:packages/xcross/test/flutter/build/swiftpm_cross_host_test.dart': {
+    'CLASS:RecordingSwiftEnvironment': 'internal',
     'FUNCTION:main': 'entrypoint',
     'TOP_LEVEL_VARIABLE:_swiftPmRuntime': 'private',
     'TOP_LEVEL_VARIABLE:_windowsRuntime': 'private',

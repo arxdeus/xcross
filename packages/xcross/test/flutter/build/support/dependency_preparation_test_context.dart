@@ -12,6 +12,7 @@ import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/artifact_publication_lock.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_artifact_copy_policy.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_attributes.dart';
+import 'package:xcross/src/host/shared/sdk/inherited_swift_environment.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/dependency_preparation.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/pinned_dependency_resolver.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/swiftpm_host_policy.dart';
@@ -44,7 +45,10 @@ WindowsSwiftPmDependencyPreparation<MacOSHost> dependencyTestPreparation(
   final fileSystem = context.fileSystem;
   final filesystem = context.filesystem;
   final targetPolicy = IPhoneFlutterTarget(IPhoneTarget(host));
-  final hostPolicy = WindowsSwiftPmHostPolicy(runner);
+  final hostPolicy = WindowsSwiftPmHostPolicy(
+    runner,
+    swiftEnvironment: const InheritedSwiftEnvironment(),
+  );
   final normalizer = SwiftPmCheckoutManifestNormalizer(
     fileSystem: fileSystem,
     filesystem: filesystem,

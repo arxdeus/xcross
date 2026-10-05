@@ -65,6 +65,49 @@ void main() {
     },
   );
 
+  test('doctor lists host Swift environment checks after the tools', () async {
+    final fixture = DoctorServiceFixture(
+      baseHost: LinuxHost(
+        currentDirectory: '/fixture',
+        environment: const {'HOME': '/fixture'},
+      ),
+      swiftEnvironmentChecks: () async => const [
+        DoctorCheck.warning('SDKROOT', 'fixture warning', path: '/sdk'),
+      ],
+    );
+    addTearDown(fixture.dispose);
+    final checks = await fixture.checks.host();
+    expect(checks.map((check) => check.name), [
+      'Host',
+      'swift',
+      'clang++',
+      'llvm-ar',
+      'SDKROOT',
+      'iOS clang',
+      'iOS linker',
+      'Darwin SDK',
+    ]);
+    final sdkRoot = checks.firstWhere((check) => check.name == 'SDKROOT');
+    expect(sdkRoot.status, DoctorStatus.warning);
+    expect(sdkRoot.path, '/sdk');
+  });
+
+  test('doctor reports a failing Swift environment probe', () async {
+    final fixture = DoctorServiceFixture(
+      baseHost: LinuxHost(
+        currentDirectory: '/fixture',
+        environment: const {'HOME': '/fixture'},
+      ),
+      swiftEnvironmentChecks: () async => throw StateError('probe broke'),
+    );
+    addTearDown(fixture.dispose);
+    final check = (await fixture.checks.host()).firstWhere(
+      (check) => check.name == 'Swift environment',
+    );
+    expect(check.status, DoctorStatus.failure);
+    expect(check.message, contains('probe broke'));
+  });
+
   test('doctor reports missing tools without installer effects', () async {
     final fixture = DoctorServiceFixture(
       baseHost: LinuxHost(
@@ -194,6 +237,7 @@ final class DoctorServiceFixture {
     Abi abi = Abi.linuxX64,
     Map<String, String>? tools,
     bool sdkInstalled = true,
+    Future<List<DoctorCheck>> Function()? swiftEnvironmentChecks,
   }) {
     root = Directory.systemTemp.createTempSync('xcross-doctor-services-');
     final logicalRoot = baseHost.paths.context.current;
@@ -260,6 +304,7 @@ final class DoctorServiceFixture {
       sdkMismatch: sdkMismatch,
       sdkToolchainIdentity: sdkIdentity,
       createAppleHttpClient: () => throw StateError('Unexpected doctor HTTP'),
+      swiftEnvironmentChecks: swiftEnvironmentChecks,
     );
     if (sdkInstalled) installSdk();
   }

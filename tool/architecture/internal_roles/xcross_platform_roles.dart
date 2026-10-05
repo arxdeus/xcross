@@ -12,6 +12,14 @@ const xcrossPlatformRoles = <String, Map<String, String>>{
     'CLASS:WindowsSwiftToolchainHost': 'internal',
     'TOP_LEVEL_VARIABLE:_statusDllNotFound': 'private',
   },
+  'package:xcross/src/host/windows/sdk/windows_swift_environment.dart': {
+    'CLASS:WindowsSdkRootResolution': 'internal',
+    'CLASS:WindowsSwiftEnvironment': 'internal',
+    'ENUM:WindowsSdkRootSource': 'internal',
+  },
+  'package:xcross/src/host/shared/sdk/inherited_swift_environment.dart': {
+    'CLASS:InheritedSwiftEnvironment': 'internal',
+  },
   'package:xcross/src/composition/cli/compose_build_command.dart': {
     'CLASS:ComposeBuildArgs': 'internal',
     'CLASS:ComposeBuildCommand': 'internal',

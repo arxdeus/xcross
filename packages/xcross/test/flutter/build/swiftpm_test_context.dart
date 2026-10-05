@@ -30,6 +30,7 @@ import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_link_polic
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_manifest_policy.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_dependency_preparation.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_gate_platform.dart';
+import 'package:xcross/src/host/shared/sdk/inherited_swift_environment.dart';
 import 'package:xcross/src/host/windows/flutter/native_host_tools.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/build_execution.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/checkout_link_policy.dart';
@@ -54,6 +55,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/librarian_resolver.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/toolchain.dart';
+import 'package:xcross/src/shared/sdk/swift_environment_host.dart';
 import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 import 'package:xcross/src/target/simulator/flutter/simulator_flutter_target.dart';
@@ -203,6 +205,8 @@ SwiftPmRuntime<WindowsHost> testWindowsSwiftPmRuntime({
   SwiftPmSdkIdentity? sdkIdentity,
   FlutterTargetBuildPolicy<WindowsHost> Function(WindowsHost)? targetPolicy,
   String architecture = 'x64',
+  SwiftEnvironmentHostInterface swiftEnvironment =
+      const InheritedSwiftEnvironment(),
 }) {
   final native = MacOSHost(
     environment: Platform.environment,
@@ -276,7 +280,10 @@ SwiftPmRuntime<WindowsHost> testWindowsSwiftPmRuntime({
     ),
   );
 
-  final selectedHostPolicy = WindowsSwiftPmHostPolicy(runner);
+  final selectedHostPolicy = WindowsSwiftPmHostPolicy(
+    runner,
+    swiftEnvironment: swiftEnvironment,
+  );
   final selectedIdentity = sdkIdentity ?? const TestSwiftPmSdkIdentity();
   final coordinator = SwiftPmPublicationCoordinator(
     locks: FileSwiftPmPublicationLockProvider(artifactFileSystem),

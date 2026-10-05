@@ -13,6 +13,7 @@ abstract interface class SwiftPmHostPolicy {
   List<String> get fingerprintArguments;
   List<String> get gitConfiguration;
   Map<String, String> get sourceEnvironment;
+  Future<Map<String, String>> hostEnvironment();
 
   Future<bool> repairBuildPlan(String scratchPath, String targetBuildDir);
 

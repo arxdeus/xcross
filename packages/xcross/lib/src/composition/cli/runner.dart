@@ -67,6 +67,7 @@ abstract final class XcrossCli {
       appleHostServices: runtime.appleHostServices,
       sdkMismatch: runtime.sdkInstall.hostToolchainMismatch,
       sdkToolchainIdentity: runtime.sdkInstall.hostToolchainIdentity,
+      swiftEnvironmentChecks: runtime.operations.swiftEnvironment.doctorChecks,
     );
     final ideLauncher = XcrossIdeLauncher(
       host: runtime.host,

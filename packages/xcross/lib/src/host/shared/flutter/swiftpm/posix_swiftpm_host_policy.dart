@@ -29,6 +29,8 @@ abstract class PosixSwiftPmHostPolicy implements SwiftPmHostPolicy {
   @override
   Map<String, String> get sourceEnvironment => const {};
   @override
+  Future<Map<String, String>> hostEnvironment() async => const {};
+  @override
   bool get captureBuildOutput => false;
 
   @override

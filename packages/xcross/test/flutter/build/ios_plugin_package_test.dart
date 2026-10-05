@@ -1307,7 +1307,7 @@ framework module FallbackKit {
           runtime.host.environment.lookup(
                 runtime.host.environment.overlay(
                   runtime.runner.effectiveEnvironment,
-                  runtime.processPolicy.swiftProcessEnvironment(),
+                  await runtime.processPolicy.swiftProcessEnvironment(),
                 ),
                 'EXPERIMENTAL_SPM_BUILDS',
               ) !=
@@ -6205,55 +6205,59 @@ module FirebaseFirestore {
       );
     });
 
-    test('resolves with package options before the resolve subcommand', () {
-      expect(
-        _swiftPmRuntime.processPolicy.swiftResolveArguments(
-          pluginsDir: 'plugins',
-          scratchPath: 'scratch',
-          swiftSdksPath: 'xcross-swift-sdks',
-          toolsetPath: 'toolset.json',
-        ),
-        [
-          'package',
-          ..._swiftPmRuntime.processPolicy.hostManifestArguments(),
-          '--package-path',
-          'plugins',
-          '--scratch-path',
-          'scratch',
-          '--swift-sdks-path',
-          'xcross-swift-sdks',
-          '--swift-sdk',
-          'arm64-apple-ios',
-          '--toolset',
-          'toolset.json',
-          'resolve',
-        ],
-      );
-      expect(_windowsRuntime.processPolicy.swiftProcessEnvironment(), {
-        ...SwiftPmProcessPolicy.nonInteractiveGitEnvironment,
-        'GIT_CONFIG_COUNT': '5',
-        'GIT_CONFIG_KEY_0': 'credential.helper',
-        // Two quotes, not the empty string: git rejects a genuinely empty
-        // GIT_CONFIG_VALUE_* and would then fail every command.
-        'GIT_CONFIG_VALUE_0': '""',
-        'GIT_CONFIG_KEY_1': 'credential.interactive',
-        'GIT_CONFIG_VALUE_1': 'false',
-        // Abort a stalled fetch instead of holding it open forever.
-        'GIT_CONFIG_KEY_2': 'http.lowSpeedLimit',
-        'GIT_CONFIG_VALUE_2': '1024',
-        'GIT_CONFIG_KEY_3': 'http.lowSpeedTime',
-        'GIT_CONFIG_VALUE_3': '60',
-        'GIT_CONFIG_KEY_4': 'core.symlinks',
-        'GIT_CONFIG_VALUE_4': 'false',
-        'EXPERIMENTAL_SPM_BUILDS': '1',
-      });
-    });
+    test(
+      'resolves with package options before the resolve subcommand',
+      () async {
+        expect(
+          _swiftPmRuntime.processPolicy.swiftResolveArguments(
+            pluginsDir: 'plugins',
+            scratchPath: 'scratch',
+            swiftSdksPath: 'xcross-swift-sdks',
+            toolsetPath: 'toolset.json',
+          ),
+          [
+            'package',
+            ..._swiftPmRuntime.processPolicy.hostManifestArguments(),
+            '--package-path',
+            'plugins',
+            '--scratch-path',
+            'scratch',
+            '--swift-sdks-path',
+            'xcross-swift-sdks',
+            '--swift-sdk',
+            'arm64-apple-ios',
+            '--toolset',
+            'toolset.json',
+            'resolve',
+          ],
+        );
+        expect(await _windowsRuntime.processPolicy.swiftProcessEnvironment(), {
+          ...SwiftPmProcessPolicy.nonInteractiveGitEnvironment,
+          'GIT_CONFIG_COUNT': '5',
+          'GIT_CONFIG_KEY_0': 'credential.helper',
+          // Two quotes, not the empty string: git rejects a genuinely empty
+          // GIT_CONFIG_VALUE_* and would then fail every command.
+          'GIT_CONFIG_VALUE_0': '""',
+          'GIT_CONFIG_KEY_1': 'credential.interactive',
+          'GIT_CONFIG_VALUE_1': 'false',
+          // Abort a stalled fetch instead of holding it open forever.
+          'GIT_CONFIG_KEY_2': 'http.lowSpeedLimit',
+          'GIT_CONFIG_VALUE_2': '1024',
+          'GIT_CONFIG_KEY_3': 'http.lowSpeedTime',
+          'GIT_CONFIG_VALUE_3': '60',
+          'GIT_CONFIG_KEY_4': 'core.symlinks',
+          'GIT_CONFIG_VALUE_4': 'false',
+          'EXPERIMENTAL_SPM_BUILDS': '1',
+        });
+      },
+    );
 
-    test('refuses interactive git credential prompts on every host', () {
+    test('refuses interactive git credential prompts on every host', () async {
       // A prompt no one can answer is how a CI build hangs for hours
       // instead of failing on the dependency it could not read.
       for (final runtime in [_windowsRuntime, _swiftPmRuntime]) {
-        final environment = runtime.processPolicy.swiftProcessEnvironment();
+        final environment = await runtime.processPolicy
+            .swiftProcessEnvironment();
         expect(environment, isNotNull);
         expect(environment['GIT_TERMINAL_PROMPT'], '0');
         expect(environment['GIT_ASKPASS'], '');
@@ -6265,8 +6269,9 @@ module FirebaseFirestore {
       }
     });
 
-    test('keeps Windows-only SwiftPM settings off other hosts', () {
-      final posix = _swiftPmRuntime.processPolicy.swiftProcessEnvironment();
+    test('keeps Windows-only SwiftPM settings off other hosts', () async {
+      final posix = await _swiftPmRuntime.processPolicy
+          .swiftProcessEnvironment();
       expect(posix.containsKey('EXPERIMENTAL_SPM_BUILDS'), isFalse);
       // Only the credential settings, never the Windows symlink lane.
       expect(posix['GIT_CONFIG_COUNT'], '4');
@@ -6291,7 +6296,7 @@ module FirebaseFirestore {
         environment: const {'PATH': r'C:\configured\tools'},
       );
 
-      final environment = runtime.processPolicy.swiftProcessEnvironment(
+      final environment = await runtime.processPolicy.swiftProcessEnvironment(
         executable: executable,
       );
       expect(
@@ -6312,7 +6317,7 @@ module FirebaseFirestore {
           environment: const {'Path': r'C:\configured\tools'},
         );
 
-        final environment = runtime.processPolicy.swiftProcessEnvironment(
+        final environment = await runtime.processPolicy.swiftProcessEnvironment(
           executable: p.join(directory.path, 'xcross.exe'),
         );
         expect(
@@ -6322,12 +6327,13 @@ module FirebaseFirestore {
       },
     );
 
-    test('disables every configured git credential helper', () {
+    test('disables every configured git credential helper', () async {
       // A system-wide helper (Git Credential Manager on the Windows
       // runners) is consulted before GIT_TERMINAL_PROMPT applies and can
       // block on UI of its own, so the helper list has to be reset too.
       for (final runtime in [_windowsRuntime, _swiftPmRuntime]) {
-        final environment = runtime.processPolicy.swiftProcessEnvironment();
+        final environment = await runtime.processPolicy
+            .swiftProcessEnvironment();
         final count = int.parse(environment['GIT_CONFIG_COUNT']!);
         final settings = {
           for (var index = 0; index < count; index++)

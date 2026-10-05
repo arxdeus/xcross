@@ -197,6 +197,7 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
           .where((plugin) => plugin.usesSwiftPackageManager)
           .toList();
       if (spmPlugins.isEmpty) return null;
+      await runtime.hostPolicy.hostEnvironment();
       final capabilities =
           await artifactJunctionCapabilityResolver?.call() ??
           (

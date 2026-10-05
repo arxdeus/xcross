@@ -114,6 +114,7 @@ const hostAssemblies = {
     'packages/xcross/lib/src/host/linux/sdk/linux_swift_toolchain_host.dart',
     'packages/xcross/lib/src/host/macos/sdk/macos_swift_toolchain_host.dart',
     'packages/xcross/lib/src/host/windows/sdk/windows_swift_toolchain_host.dart',
+    'packages/xcross/lib/src/host/windows/sdk/windows_swift_environment.dart',
     'packages/xcross/lib/src/host/linux/setup/linux_setup_requirements.dart',
     'packages/xcross/lib/src/host/linux/update/linux_update_policy.dart',
     'packages/xcross/lib/src/host/macos/setup/macos_setup_requirements.dart',

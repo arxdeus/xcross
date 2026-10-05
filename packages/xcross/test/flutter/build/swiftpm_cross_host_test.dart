@@ -2,9 +2,13 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/shared/cli/basic/doctor_models.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
+import 'package:xcross/src/shared/sdk/swift_environment_host.dart';
 
 import 'swiftpm_test_context.dart';
 
@@ -16,26 +20,59 @@ void main() {
   setUp(() => root = Directory.systemTemp.createTempSync('xcross-cross-host-'));
   tearDown(() => root.deleteSync(recursive: true));
 
-  test('prefers bundled xcrun using the Windows PATH list separator', () {
+  test('passes the resolved host Swift environment to SwiftPM', () async {
+    final environment = RecordingSwiftEnvironment(
+      () async => {'SDKROOT': r'C:\Swift\Windows.sdk'},
+    );
+    final runtime = testWindowsSwiftPmRuntime(swiftEnvironment: environment);
+    final resolved = await runtime.processPolicy.swiftProcessEnvironment();
+    expect(resolved['SDKROOT'], r'C:\Swift\Windows.sdk');
+    expect(resolved['EXPERIMENTAL_SPM_BUILDS'], '1');
+    expect(resolved['GIT_TERMINAL_PROMPT'], '0');
+    expect(runtime.processPolicy.sourceFallbackActive, isTrue);
+    expect(environment.calls, 1);
+  });
+
+  test('stops before SwiftPM when the host Swift environment fails', () async {
+    final runtime = testWindowsSwiftPmRuntime(
+      swiftEnvironment: RecordingSwiftEnvironment(
+        () async => throw XcrossError('SDKROOT is not set'),
+      ),
+    );
+    await expectLater(
+      runtime.processPolicy.swiftProcessEnvironment(),
+      throwsA(
+        isA<XcrossError>().having(
+          (error) => error.message,
+          'message',
+          'SDKROOT is not set',
+        ),
+      ),
+    );
+  });
+
+  test('prefers bundled xcrun using the Windows PATH list separator', () async {
     File(p.join(root.path, 'xcrun.exe')).writeAsStringSync('tool');
     final executable = p.join(root.path, 'xcross.exe');
-    Map<String, String> environment(String path, SwiftPmRuntime runtime) =>
-        runtime.processPolicy.swiftProcessEnvironment(
-          executable: executable,
-          environment: {'PATH': path},
-        );
+    Future<Map<String, String>> environment(
+      String path,
+      SwiftPmRuntime runtime,
+    ) => runtime.processPolicy.swiftProcessEnvironment(
+      executable: executable,
+      environment: {'PATH': path},
+    );
     expect(
-      environment('other;tools', _windowsRuntime)['PATH'],
+      (await environment('other;tools', _windowsRuntime))['PATH'],
       '${root.path};other;tools',
     );
-    expect(environment('', _windowsRuntime)['PATH'], root.path);
+    expect((await environment('', _windowsRuntime))['PATH'], root.path);
     expect(
-      environment('other:tools', _swiftPmRuntime),
+      await environment('other:tools', _swiftPmRuntime),
       isNot(contains('PATH')),
     );
     File(p.join(root.path, 'xcrun.exe')).deleteSync();
     expect(
-      environment('other;tools', _windowsRuntime),
+      await environment('other;tools', _windowsRuntime),
       isNot(contains('PATH')),
     );
   });
@@ -127,4 +164,19 @@ void main() {
     );
     expect(builds, 1);
   });
+}
+
+@internal
+final class RecordingSwiftEnvironment implements SwiftEnvironmentHostInterface {
+  RecordingSwiftEnvironment(this.resolve);
+  final Future<Map<String, String>> Function() resolve;
+  int calls = 0;
+  @override
+  Future<Map<String, String>> swiftEnvironment() {
+    calls++;
+    return resolve();
+  }
+
+  @override
+  Future<List<DoctorCheck>> doctorChecks() async => const [];
 }
