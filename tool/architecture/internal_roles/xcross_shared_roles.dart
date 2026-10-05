@@ -14,6 +14,9 @@ const xcrossSharedRoles = <String, Map<String, String>>{
     'CLASS:MachOSymbolTable': 'internal',
     'TYPE_ALIAS:InvalidMachO': 'internal',
   },
+  'package:xcross/src/shared/apple/mach_o_code_signature.dart': {
+    'CLASS:MachOCodeSignature': 'internal',
+  },
   'package:xcross/src/shared/artifact/app_capabilities.dart': {
     'CLASS:AppCapabilities': 'internal',
   },

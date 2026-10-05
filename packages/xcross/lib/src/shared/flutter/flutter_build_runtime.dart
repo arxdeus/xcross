@@ -9,6 +9,7 @@ import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer.dart';
 import 'package:xcross/src/host/shared/flutter/flutter_sdk_host_policy.dart';
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
 import 'package:xcross/src/shared/artifact/plist_storyboard_policy.dart';
+import 'package:xcross/src/shared/flutter/build/adhoc_signature_refresher.dart';
 import 'package:xcross/src/shared/flutter/build/flutter_notice_artifact.dart';
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/shared/flutter/build/internal/native_asset_frameworks.dart';
@@ -96,6 +97,10 @@ final class FlutterBuildRuntime<T extends PlatformHostInterface> {
   late final FlutterNoticeArtifact notices = FlutterNoticeArtifact(
     fileSystem: host.fileSystem,
     paths: host.paths.context,
+  );
+  late final AdHocSignatureRefresher signatures = AdHocSignatureRefresher(
+    host.fileSystem,
+    host.paths.context,
   );
   late final RecursiveDirectoryCopier directoryCopier =
       RecursiveDirectoryCopier(

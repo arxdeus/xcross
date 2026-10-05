@@ -5,6 +5,15 @@ const xcrossApplicationTestsRoles = <String, Map<String, String>>{
   'workspace:packages/xcross/test/apple/arm64_instructions_test.dart': {
     'FUNCTION:main': 'entrypoint',
   },
+  'workspace:packages/xcross/test/apple/mach_o_code_signature_test.dart': {
+    'FUNCTION:main': 'entrypoint',
+  },
+  'workspace:packages/xcross/test/apple/support/adhoc_macho_fixtures.dart': {
+    'FUNCTION:_writePageHashes': 'private',
+    'FUNCTION:adHocSignedMachO': 'internal',
+    'FUNCTION:payloadOffset': 'internal',
+    'FUNCTION:stalePages': 'internal',
+  },
   'workspace:packages/xcross/test/cli/auth_adi_test.dart': {
     'CLASS:ClosingAuthApkClient': 'internal',
     'FUNCTION:_apkBytes': 'private',

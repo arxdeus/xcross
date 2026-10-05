@@ -138,6 +138,9 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
       deploymentTarget: deploymentTarget,
       sdkName: sdkName,
     );
+    for (final binary in await runtime.signatures.refresh(bundleDir)) {
+      runtime.runner.log.logTrace('refreshed ad-hoc signature of $binary');
+    }
   }
 
   /// Copy each built `.appex` into the app's `PlugIns` directory, the only

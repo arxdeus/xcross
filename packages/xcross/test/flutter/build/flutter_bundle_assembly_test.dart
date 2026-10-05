@@ -14,6 +14,7 @@ import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.d
 import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
 import 'package:xcross/src/target/simulator/flutter/simulator_flutter_target.dart';
 
+import '../../apple/support/adhoc_macho_fixtures.dart';
 import '../../host_operations_fixtures.dart';
 import '../flutter_test_runtime.dart';
 
@@ -132,6 +133,74 @@ void main() {
         File(p.join(frameworks.path, 'libPlugin.dylib')).readAsStringSync(),
         'plugin',
       );
+    },
+  );
+  test(
+    'bundle assembly refreshes ad-hoc signatures of code edited after linking',
+    () async {
+      final project = Directory.systemTemp.createTempSync(
+        'xcross_bundle_signatures_',
+      );
+      addTearDown(() => project.deleteSync(recursive: true));
+      File(
+        p.join(project.path, 'pubspec.yaml'),
+      ).writeAsStringSync('name: fixture\n');
+      final app = Directory(p.join(project.path, 'App.framework'))
+        ..createSync();
+      File(p.join(app.path, 'App')).writeAsStringSync('kernel');
+      final framework = Directory(
+        p.join(
+          project.path,
+          'Flutter.xcframework',
+          'ios-arm64-simulator',
+          'Flutter.framework',
+        ),
+      )..createSync(recursive: true);
+      File(p.join(framework.path, 'Flutter')).writeAsStringSync('engine');
+      final runner = File(p.join(project.path, 'Runner'))
+        ..writeAsBytesSync(adHocSignedMachO(List.filled(5000, 1)));
+      final native = Directory(p.join(project.path, 'Native.framework'))
+        ..createSync();
+      final edited = adHocSignedMachO(List.filled(9000, 2));
+      edited[payloadOffset()] = 3;
+      File(p.join(native.path, 'Native')).writeAsBytesSync(edited);
+      expect(stalePages(edited), [0]);
+
+      final runtime = testSimulatorRuntime();
+      final bundle =
+          await FlutterBundleAssembler(
+            FlutterBuildContext(
+              request: FlutterBuildRequest(
+                runtime: runtime,
+                projectRoot: project.path,
+                bundleId: 'com.example.fixture',
+                options: const FlutterBuildOptions(pub: false),
+              ),
+              flutterRoot: '/unused',
+            ),
+          ).assemble(
+            FlutterLinkedArtifacts(
+              compiled: FlutterCompiledArtifacts(
+                appFramework: app.path,
+                nativeAssets: IosNativeAssetsBuildResult(
+                  manifestPath: '/unused',
+                  frameworks: [native.path],
+                ),
+              ),
+              runner: RunnerBinary(
+                xcframework: p.join(project.path, 'Flutter.xcframework'),
+                runnerBinary: runner.path,
+                sdkName: runtime.target.buildPlatform.sdkName,
+              ),
+              extensions: const [],
+            ),
+          );
+      for (final binary in [
+        p.join(bundle, 'Runner'),
+        p.join(bundle, 'Frameworks', 'Native.framework', 'Native'),
+      ]) {
+        expect(stalePages(File(binary).readAsBytesSync()), isEmpty);
+      }
     },
   );
   test(

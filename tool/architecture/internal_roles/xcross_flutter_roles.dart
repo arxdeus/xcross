@@ -2,6 +2,9 @@ import 'package:meta/meta.dart';
 
 @internal
 const xcrossFlutterRoles = <String, Map<String, String>>{
+  'package:xcross/src/shared/flutter/build/adhoc_signature_refresher.dart': {
+    'CLASS:AdHocSignatureRefresher': 'internal',
+  },
   'package:xcross/src/shared/flutter/build/app_extension_builder.dart': {
     'CLASS:AppExtensionBuilder': 'internal',
     'CLASS:BuiltAppExtension': 'internal',
