@@ -28,6 +28,8 @@ final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
     required this.sdkMismatch,
     required this.sdkToolchainIdentity,
     required this.createAppleHttpClient,
+    this.minimumSwift,
+    this.swiftInstallGuidance,
     this.swiftEnvironmentChecks,
   });
   final http.Client Function() createAppleHttpClient;
@@ -41,6 +43,8 @@ final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
   final Future<String?> Function(String bundle) sdkMismatch;
   final Future<Map<String, String>> Function() sdkToolchainIdentity;
   final Future<List<DoctorCheck>> Function()? swiftEnvironmentChecks;
+  final (int, int)? minimumSwift;
+  final String? swiftInstallGuidance;
 
   static const _requiredTools = ['swift', 'clang++', 'llvm-ar'];
 
@@ -50,6 +54,9 @@ final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
     ];
     for (final tool in _requiredTools) {
       checks.add(await _tool(tool));
+    }
+    if (await swiftBelowHostMinimum() case final problem?) {
+      checks.add(DoctorCheck.failure('Swift version', problem));
     }
     checks.addAll(await _swiftEnvironment());
     checks.add(await _iosClang());
@@ -209,6 +216,27 @@ final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
       xcodeMajor: xcodeMajor,
       swiftVersionOutput: identity['version'] ?? '',
       swiftPath: identity['swift'],
+    );
+  }
+
+  /// Why the Swift on PATH is older than this host supports, or null when it
+  /// is new enough, the host sets no floor, or the version cannot be read.
+  Future<String?> swiftBelowHostMinimum() async {
+    if (minimumSwift == null) return null;
+    final Map<String, String> identity;
+    try {
+      identity = await sdkToolchainIdentity();
+    } on Object catch (error) {
+      runner.log.logTrace(
+        'Could not identify the host Swift toolchain: $error',
+      );
+      return null;
+    }
+    return XcodeSwiftRequirement.hostFloorMismatch(
+      minimum: minimumSwift,
+      swiftVersionOutput: identity['version'] ?? '',
+      swiftPath: identity['swift'],
+      installHint: swiftInstallGuidance,
     );
   }
 

@@ -20,6 +20,7 @@ final class SetupCommand extends Command<void> {
     required this.requirements,
     required this.scriptPolicy,
     required this.swiftInstallGuidance,
+    this.minimumSwift,
     this.setupSource,
   }) : processRunner = runner {
     argParser.addFlag(
@@ -35,6 +36,7 @@ final class SetupCommand extends Command<void> {
   final SetupRequirements requirements;
   final SetupScriptPolicy scriptPolicy;
   final String swiftInstallGuidance;
+  final (int, int)? minimumSwift;
   final String? setupSource;
 
   static const _refreshScriptFlag = 'refresh-script';
@@ -63,9 +65,16 @@ final class SetupCommand extends Command<void> {
       processRunner.log.logDone('Configured setup script completed');
       return;
     }
-    await SwiftRequirement(
-      processRunner,
-    ).require('set up this host', installGuidance: swiftInstallGuidance);
+    final swiftRequirement = SwiftRequirement(processRunner);
+    final swift = await swiftRequirement.require(
+      'set up this host',
+      installGuidance: swiftInstallGuidance,
+    );
+    await swiftRequirement.requireMinimum(
+      swift,
+      minimumSwift,
+      installGuidance: swiftInstallGuidance,
+    );
     await requirements.run();
   }
 }

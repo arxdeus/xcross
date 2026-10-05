@@ -239,6 +239,7 @@ final class DoctorServiceFixture {
     Map<String, String>? tools,
     bool sdkInstalled = true,
     Future<List<DoctorCheck>> Function()? swiftEnvironmentChecks,
+    (int, int)? minimumSwift,
   }) {
     root = Directory.systemTemp.createTempSync('xcross-doctor-services-');
     final logicalRoot = baseHost.paths.context.current;
@@ -306,6 +307,8 @@ final class DoctorServiceFixture {
       sdkToolchainIdentity: sdkIdentity,
       createAppleHttpClient: () => throw StateError('Unexpected doctor HTTP'),
       swiftEnvironmentChecks: swiftEnvironmentChecks,
+      minimumSwift: minimumSwift,
+      swiftInstallGuidance: 'Install Swift from the fixture installer.',
     );
     if (sdkInstalled) installSdk();
   }

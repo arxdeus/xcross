@@ -71,6 +71,11 @@ final class SdkInstallCommand<T extends PlatformHostInterface>
       'install the Darwin SDK',
       installGuidance: installer.swiftInstallGuidance,
     );
+    await SwiftRequirement(installer.runner).requireMinimum(
+      swift,
+      installer.minimumSwift,
+      installGuidance: installer.swiftInstallGuidance,
+    );
     await SwiftRequirement(installer.runner).requireSiblingClang(swift);
 
     // Newer Xcode SDKs cannot be consumed by older Swift compilers at all, so

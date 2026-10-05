@@ -44,7 +44,7 @@ Both platforms need the same five ingredients:
 | Requirement | Purpose |
 |---|---|
 | [Flutter](https://flutter.dev) | Your app's SDK; xcross reuses its engine artifacts |
-| [Swift toolchain](https://www.swift.org/install/) | Compiles SwiftPM plugins and runner glue code |
+| [Swift toolchain](https://www.swift.org/install/) 6.4 or newer (on macOS, the Swift paired with your Xcode) | Compiles SwiftPM plugins and runner glue code |
 | [LLVM](https://releases.llvm.org/) (`clang`, `clang++`, `llvm-ar`, `ld64.lld` on `PATH`) | Compiles and links the iOS Mach-O binaries |
 | Python 3 + [`pymobiledevice3`](https://github.com/doronz88/pymobiledevice3) | Device communication and the iOS 17+ RSD tunnel |
 | A complete `Xcode.xip` ([xcodereleases.com](https://xcodereleases.com/)) | Processed **once** by `xcross sdk install` into a private Darwin Swift SDK |

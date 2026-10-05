@@ -113,6 +113,73 @@ void main() {
     }
   });
 
+  group('SwiftRequirement.requireMinimum', () {
+    Future<void> requireFloor(String printed, (int, int)? minimum) =>
+        SwiftRequirement(
+          residualRunner(
+            residualProcessHost(
+              LinuxHost(),
+              (_, _, _) async => ResidualChild(output: printed),
+            ),
+          ),
+        ).requireMinimum(
+          '/opt/swift/bin/swift',
+          minimum,
+          installGuidance: const LinuxSwiftToolchainHost().installGuidance,
+        );
+
+    for (final policy in const <SwiftToolchainHostInterface>[
+      LinuxSwiftToolchainHost(),
+      WindowsSwiftToolchainHost(),
+    ]) {
+      test('$policy rejects Swift 6.3 with an install hint', () async {
+        await expectLater(
+          requireFloor(
+            'Swift version 6.3.3 (swift-6.3.3-RELEASE)\nTarget: x',
+            policy.minimumSwift,
+          ),
+          throwsA(
+            isA<XcrossError>().having(
+              (error) => error.message,
+              'message',
+              allOf(
+                contains('requires Swift 6.4 or newer'),
+                contains('is 6.3'),
+                contains('/opt/swift/bin/swift'),
+                contains('swift.org/install'),
+              ),
+            ),
+          ),
+        );
+      });
+
+      test('$policy accepts Swift 6.4 and newer', () async {
+        for (final printed in [
+          'Swift version 6.4 (swift-6.4-RELEASE)',
+          'Swift version 6.10-dev',
+          'Swift version 7.0 (swift-7.0-RELEASE)',
+          '',
+        ]) {
+          await expectLater(
+            requireFloor(printed, policy.minimumSwift),
+            completes,
+          );
+        }
+      });
+    }
+
+    test('macOS defers to the Xcode-paired Swift', () async {
+      expect(const MacOSSwiftToolchainHost().minimumSwift, isNull);
+      await expectLater(
+        requireFloor(
+          'Apple Swift version 6.2.4 (swiftlang-6.2.4.1.4)',
+          const MacOSSwiftToolchainHost().minimumSwift,
+        ),
+        completes,
+      );
+    });
+  });
+
   group('SwiftRequirement.requireSiblingClang', () {
     late Directory temp;
 

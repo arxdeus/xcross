@@ -44,6 +44,7 @@ final class SdkInstall<T extends PlatformHostInterface> {
   final DarwinSdkRepository<T> repository;
   final SdkArchiveLinksInterface links;
   String get swiftInstallGuidance => toolchain.policy.installGuidance;
+  (int, int)? get minimumSwift => toolchain.policy.minimumSwift;
   final List<String> swiftBuildTools;
   final List<SdkMetadataPlatformInterface<T>> metadataPlatforms;
   T get host => runner.host;

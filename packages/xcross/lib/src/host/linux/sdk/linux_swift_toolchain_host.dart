@@ -6,6 +6,9 @@ final class LinuxSwiftToolchainHost implements SwiftToolchainHostInterface {
   const LinuxSwiftToolchainHost();
 
   @override
+  (int, int)? get minimumSwift => (6, 4);
+
+  @override
   String get installGuidance =>
       'Install Swift from https://www.swift.org/install/linux/ (swiftly is the\n'
       'easiest route), then open a new terminal so its bin directory is on '

@@ -80,13 +80,33 @@ abstract final class XcodeSwiftRequirement {
     final required = minimumSwift(xcodeMajor);
     if (required == null) return null;
     final found = parseSwiftVersion(swiftVersionOutput);
-    if (found == null) return null;
-    if (found.$1 > required.$1) return null;
-    if (found.$1 == required.$1 && found.$2 >= required.$2) return null;
+    if (found == null || _atLeast(found, required)) return null;
     final where = swiftPath == null ? '' : ' ($swiftPath)';
     return 'The Darwin SDK from Xcode $xcodeMajor requires Swift '
         '${required.$1}.${required.$2} or newer, but the `swift` on PATH is '
         '${found.$1}.${found.$2}$where.';
+  }
+
+  static bool _atLeast((int, int) found, (int, int) required) =>
+      found.$1 > required.$1 ||
+      (found.$1 == required.$1 && found.$2 >= required.$2);
+
+  /// Why [swiftVersionOutput] is older than the host's [minimum] Swift, with
+  /// the install advice appended, or null when it is new enough, the host has
+  /// no floor, or the version cannot be read.
+  static String? hostFloorMismatch({
+    required (int, int)? minimum,
+    required String swiftVersionOutput,
+    String? swiftPath,
+    String? installHint,
+  }) {
+    if (minimum == null) return null;
+    final found = parseSwiftVersion(swiftVersionOutput);
+    if (found == null || _atLeast(found, minimum)) return null;
+    final where = swiftPath == null ? '' : ' ($swiftPath)';
+    return 'xcross requires Swift ${minimum.$1}.${minimum.$2} or newer, but '
+        'the `swift` on PATH is ${found.$1}.${found.$2}$where.\n'
+        '${installHint ?? 'Install a newer Swift from https://www.swift.org/install/'}';
   }
 
   /// [mismatch] with the "install a newer Swift" advice appended.

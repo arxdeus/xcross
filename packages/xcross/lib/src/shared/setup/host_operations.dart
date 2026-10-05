@@ -21,6 +21,7 @@ final class HostOperations {
   final SwiftToolchainHostInterface swiftToolchain;
   final SwiftEnvironmentHostInterface swiftEnvironment;
   String get swiftInstallGuidance => swiftToolchain.installGuidance;
+  (int, int)? get minimumSwift => swiftToolchain.minimumSwift;
   final UpdateHostPolicy update;
   final String Function(String) normalizeExecutable;
   final bool Function(String) acceptDartLauncher;

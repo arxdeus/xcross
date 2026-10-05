@@ -67,6 +67,8 @@ abstract final class XcrossCli {
       appleHostServices: runtime.appleHostServices,
       sdkMismatch: runtime.sdkInstall.hostToolchainMismatch,
       sdkToolchainIdentity: runtime.sdkInstall.hostToolchainIdentity,
+      minimumSwift: runtime.operations.minimumSwift,
+      swiftInstallGuidance: runtime.operations.swiftInstallGuidance,
       swiftEnvironmentChecks: runtime.operations.swiftEnvironment.doctorChecks,
     );
     final ideLauncher = XcrossIdeLauncher(
@@ -109,6 +111,7 @@ abstract final class XcrossCli {
         scriptPolicy: runtime.operations.setupScript,
         createHttpClient: runtime.createHttpClient,
         swiftInstallGuidance: runtime.operations.swiftInstallGuidance,
+        minimumSwift: runtime.operations.minimumSwift,
         setupSource: runtime.config.config?.setup,
       ),
       AuthCommand(

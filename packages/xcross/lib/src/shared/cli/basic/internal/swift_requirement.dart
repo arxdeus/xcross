@@ -2,6 +2,7 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/shared/sdk/xcode_swift_requirement.dart';
 
 /// Preflight for the two commands that cannot do anything useful without a
 /// Swift toolchain already on PATH.
@@ -40,6 +41,32 @@ final class SwiftRequirement {
       );
     }
     return swift;
+  }
+
+  /// Throws [XcrossError] when [swift] reports a version older than the
+  /// host's [minimum]. A null [minimum], or a toolchain whose version cannot
+  /// be read, passes: see [XcodeSwiftRequirement].
+  Future<void> requireMinimum(
+    String swift,
+    (int, int)? minimum, {
+    required String installGuidance,
+  }) async {
+    if (minimum == null) return;
+    final String output;
+    try {
+      final printed = await runner.run(swift, const ['--version']);
+      output = '${printed.stdout}\n${printed.stderr}';
+    } on Object catch (error) {
+      runner.log.logTrace('Could not read the host Swift version: $error');
+      return;
+    }
+    final problem = XcodeSwiftRequirement.hostFloorMismatch(
+      minimum: minimum,
+      swiftVersionOutput: output,
+      swiftPath: swift,
+      installHint: installGuidance,
+    );
+    if (problem != null) throw XcrossError(problem);
   }
 
   /// The clang that must sit beside the selected `swift`.

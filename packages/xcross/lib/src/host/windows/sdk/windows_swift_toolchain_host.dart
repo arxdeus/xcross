@@ -8,6 +8,9 @@ final class WindowsSwiftToolchainHost implements SwiftToolchainHostInterface {
   static const _statusDllNotFound = 0xC0000135;
 
   @override
+  (int, int)? get minimumSwift => (6, 4);
+
+  @override
   String get installGuidance =>
       'Install Swift for Windows from https://www.swift.org/install/windows/\n'
       'then open a new terminal so its bin directory is on PATH.';
