@@ -118,6 +118,18 @@ class ArchitectureWorkflowTests(unittest.TestCase):
                 if first_use is not None:
                     self.assertLess(names.index('Update example submodule'), names.index(first_use))
 
+    def test_warm_cache_builds_xcross_from_checkout_on_every_host(self):
+        jobs = workflow_jobs((ROOT / '.github/workflows/warm-darwin-sdk.yml').read_text())
+        steps = workflow_steps(jobs['warm-cache'])
+        for name in ('Build xcross on Linux', 'Build xcross on Windows'):
+            with self.subTest(step=name):
+                self.assertIn(name, steps)
+                self.assertNotIn('continue-on-error', steps[name])
+                self.assertTrue(any('dart run tool/build_xcross.dart' in line and not line.startswith('#') for line in steps[name]['script']))
+        names = list(steps)
+        self.assertLess(names.index('Build xcross on Windows'), names.index('Install Darwin SDK with xcross'))
+        self.assertNotIn('if', steps['Install Darwin SDK with xcross'])
+
     def test_disabled_or_optional_real_smoke_is_rejected(self):
         original = (ROOT / '.github/workflows/integration.yml').read_text()
         name = '      - name: Boot install launch and observe Flutter app headlessly\n'

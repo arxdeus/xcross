@@ -386,8 +386,6 @@ jobs:
       - name: Download Darwin SDK
         if: steps.darwin.outputs.available == 'true'
         uses: ./.github/actions/setup-darwin-sdk
-        with:
-          artifactbundle-url: ${{ secrets.DARWIN_ARTIFACTBUNDLE_URL }}
 
       - name: Set up Compose toolchain
         if: steps.darwin.outputs.available == 'true'

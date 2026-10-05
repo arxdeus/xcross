@@ -1,15 +1,7 @@
 name: Setup Darwin SDK
 description: >-
-  Restore xcross-darwin.artifactbundle from the per-host Actions cache, or
-  download it once from the artifactbundle URL and cache it for this host.
-
-inputs:
-  artifactbundle-url:
-    description: >-
-      URL to a .tar.gz containing xcross-darwin.artifactbundle at its root.
-      Only used on a cache miss.
-    required: false
-    default: ""
+  Restore xcross-darwin.artifactbundle from the per-host Actions cache seeded
+  by the Warm Darwin SDK cache workflow.
 
 runs:
   using: composite
@@ -50,135 +42,14 @@ runs:
         path: ${{ steps.sdk-path.outputs.bundle }}
         key: ${{ steps.sdk-path.outputs.cache-key }}
 
-    - name: Download Darwin SDK
+    - name: Require warmed Darwin SDK cache
       if: steps.darwin-cache.outputs.cache-hit != 'true'
-      shell: python
+      shell: bash
       env:
-        DARWIN_ARTIFACTBUNDLE_URL: ${{ inputs.artifactbundle-url }}
         CACHE_KEY: ${{ steps.sdk-path.outputs.cache-key }}
       run: |
-        import os
-        import shutil
-        import subprocess
-        import sys
-        import urllib.request
-        from pathlib import Path
-
-        url = os.environ.get("DARWIN_ARTIFACTBUNDLE_URL", "").strip()
-        if not url:
-            print(
-                f"::error::Darwin SDK cache {os.environ.get('CACHE_KEY', '')} "
-                "is empty. Run the Warm Darwin SDK cache workflow with "
-                "artifactbundle_url, or set the repository secret "
-                "DARWIN_ARTIFACTBUNDLE_URL."
-            )
-            raise SystemExit(1)
-
-        parent = Path(os.environ["XCROSS_SWIFT_SDKS_PATH"])
-        bundle = Path(os.environ["XCROSS_DARWIN_BUNDLE"])
-        archive = (
-            Path(os.environ["RUNNER_TEMP"])
-            / "xcross-darwin.artifactbundle.tar.gz"
-        )
-        parent.mkdir(parents=True, exist_ok=True)
-        if bundle.exists():
-            shutil.rmtree(bundle)
-        print("Downloading private Darwin SDK archive...")
-        try:
-            try:
-                request = urllib.request.Request(
-                    url, headers={"User-Agent": "curl/8.5.0", "Accept": "*/*"}
-                )
-                with (
-                    urllib.request.urlopen(request, timeout=120) as response,
-                    archive.open("wb") as output,
-                ):
-                    shutil.copyfileobj(response, output)
-            except Exception:
-                print(
-                    "::error::Darwin SDK download failed. Check the repository "
-                    "secret DARWIN_ARTIFACTBUNDLE_URL, source availability, "
-                    "and runner network access."
-                )
-                raise SystemExit(1) from None
-            with archive.open("rb") as downloaded:
-                if downloaded.read(2) != b"\x1f\x8b":
-                    print(
-                        "::error::Darwin SDK URL did not return a .tar.gz "
-                        "file. Use a direct download link."
-                    )
-                    raise SystemExit(1)
-            if sys.platform == "win32":
-                import tarfile
-
-                with tarfile.open(archive) as tar:
-                    members = [
-                        m for m in tar.getmembers()
-                        if not any(
-                            part == "__MACOSX" or part.startswith("._")
-                            for part in m.name.split("/")
-                        )
-                    ]
-                    links = [m for m in members if m.issym() or m.islnk()]
-                    regular = [m for m in members if m not in links]
-                    if hasattr(tarfile, "tar_filter"):
-                        tar.extractall(parent, members=regular, filter="tar")
-                    else:
-                        tar.extractall(parent, members=regular)
-                pending = sorted(links, key=lambda m: -m.name.count("/"))
-                while pending:
-                    unresolved = []
-                    for member in pending:
-                        destination = parent / member.name
-                        source = (
-                            destination.parent / member.linkname
-                            if member.issym()
-                            else parent / member.linkname
-                        ).resolve()
-                        blocked = any(
-                            other is not member
-                            and (
-                                (parent / other.name).resolve() == source
-                                or source
-                                in (parent / other.name).resolve().parents
-                            )
-                            for other in pending
-                        )
-                        if blocked:
-                            unresolved.append(member)
-                        elif source.is_dir():
-                            shutil.copytree(
-                                source, destination, dirs_exist_ok=True
-                            )
-                        elif source.is_file():
-                            destination.parent.mkdir(parents=True, exist_ok=True)
-                            shutil.copy2(source, destination)
-                        else:
-                            unresolved.append(member)
-                    if len(unresolved) == len(pending):
-                        break
-                    pending = unresolved
-            else:
-                subprocess.run(
-                    [
-                        "tar", "-xzf", str(archive), "-C", str(parent),
-                        "--exclude=._*", "--exclude=__MACOSX",
-                        *(
-                            ["--no-mac-metadata"]
-                            if sys.platform == "darwin"
-                            else []
-                        ),
-                    ],
-                    check=True,
-                )
-        finally:
-            archive.unlink(missing_ok=True)
-        if not (bundle / "info.json").is_file():
-            print(
-                "::error::Archive must contain "
-                "xcross-darwin.artifactbundle at its root."
-            )
-            raise SystemExit(1)
+        echo "::error::Darwin SDK cache $CACHE_KEY is missing. Run the \"Warm Darwin SDK cache\" workflow with xcode_xip_url set to an Xcode .xip download URL."
+        exit 1
 
     - name: Refresh clang builtin headers
       shell: python
@@ -269,10 +140,3 @@ runs:
             for entry in os.environ["PATH"].split(os.pathsep):
                 print(f"  {entry}")
             raise SystemExit(completed.returncode)
-
-    - name: Save Darwin SDK cache
-      if: steps.darwin-cache.outputs.cache-hit != 'true'
-      uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
-      with:
-        path: ${{ steps.sdk-path.outputs.bundle }}
-        key: ${{ steps.sdk-path.outputs.cache-key }}

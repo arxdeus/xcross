@@ -1,22 +1,15 @@
-import contextlib
-import io
 import os
 from pathlib import Path
 import re
 import subprocess
-import sys
-import tarfile
 import tempfile
 import textwrap
 import unittest
-from unittest.mock import patch
-import urllib.error
 
 
 ROOT = Path(__file__).resolve().parents[2]
 ACTION = ROOT / ".github/actions/setup-darwin-sdk/action.yml"
 WORKFLOWS = ROOT / ".github/workflows"
-URL = "https://source.invalid/private/sdk.tar.gz?token=synthetic-secret"
 
 
 def steps(source):
@@ -40,224 +33,32 @@ def job(source, name):
     ).group(1)
 
 
-class DownloadTests(unittest.TestCase):
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir=os.environ.get("JCODE_SCRATCH_DIR"))
-        self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
-        self.parent = self.root / "swift-sdks"
-        self.bundle = self.parent / "xcross-darwin.artifactbundle"
-        self.archive = self.root / "xcross-darwin.artifactbundle.tar.gz"
-        self.code = compile(script(step(ACTION.read_text(), "Download Darwin SDK")), str(ACTION), "exec")
-        self.env = {
-            "DARWIN_ARTIFACTBUNDLE_URL": URL,
-            "XCROSS_SWIFT_SDKS_PATH": str(self.parent),
-            "XCROSS_DARWIN_BUNDLE": str(self.bundle),
-            "RUNNER_TEMP": str(self.root),
-        }
-        self.log = io.StringIO()
-
-    def execute(self):
-        with patch.dict(os.environ, self.env), contextlib.redirect_stdout(self.log), contextlib.redirect_stderr(self.log):
-            exec(self.code, {})
-
-    def payload(self, valid=True):
-        output = io.BytesIO()
-        with tarfile.open(fileobj=output, mode="w:gz") as archive:
-            if valid:
-                member = tarfile.TarInfo("xcross-darwin.artifactbundle/info.json")
-                member.size = 2
-                archive.addfile(member, io.BytesIO(b"{}"))
-        return output.getvalue()
-
-    def test_missing_url_fails_actionably_without_network_even_with_existing_bundle(self):
-        self.bundle.mkdir(parents=True)
-        (self.bundle / "info.json").write_text("stale")
-        for value in ("", " \n "):
-            with self.subTest(value=value), patch("urllib.request.urlopen") as download:
-                self.env["DARWIN_ARTIFACTBUNDLE_URL"] = value
-                with self.assertRaises(SystemExit) as failure:
-                    self.execute()
-                self.assertEqual(failure.exception.code, 1)
-                download.assert_not_called()
-                self.assertIn("Run the Warm Darwin SDK cache workflow", self.log.getvalue())
-                self.assertFalse(self.archive.exists())
-
-    def test_each_run_downloads_fresh_sdk_and_removes_archive(self):
-        for _ in range(2):
-            self.bundle.mkdir(parents=True, exist_ok=True)
-            stale = self.bundle / "stale-sdk"
-            stale.write_text("must not be reused")
-            with patch("urllib.request.urlopen", return_value=io.BytesIO(self.payload())) as download:
-                self.execute()
-            download.assert_called_once()
-            request = download.call_args.args[0]
-            self.assertEqual(request.full_url, URL)
-            self.assertTrue(request.get_header("User-agent").startswith("curl/"))
-            self.assertEqual(download.call_args.kwargs, {"timeout": 120})
-            self.assertEqual((self.bundle / "info.json").read_text(), "{}")
-            self.assertFalse(stale.exists())
-            self.assertFalse(self.archive.exists())
-        self.assertNotIn(URL, self.log.getvalue())
-        self.assertNotIn("synthetic-secret", self.log.getvalue())
-
-    def test_download_exceptions_cannot_leak_urls_or_credentials(self):
-        redirected = "https://redirect.invalid/encoded-secret?credential=transformed-secret"
-        errors = (
-            urllib.error.HTTPError(URL, 403, redirected, None, None),
-            urllib.error.URLError(f"{URL} {redirected}"),
-            ValueError(f"invalid URL {URL}"),
-            OSError(f"{URL} {redirected}"),
-            TimeoutError(URL),
+class CacheMissTests(unittest.TestCase):
+    def test_cache_miss_fails_and_points_to_warm_workflow(self):
+        action = ACTION.read_text()
+        miss = step(action, "Require warmed Darwin SDK cache")
+        self.assertIn("if: steps.darwin-cache.outputs.cache-hit != 'true'", miss)
+        result = subprocess.run(
+            ["bash", "-c", script(miss)], capture_output=True, text=True,
+            env={**os.environ, "CACHE_KEY": "xcross-darwin-linux-x64"},
         )
-        for error in errors:
-            with self.subTest(error=type(error).__name__), patch("urllib.request.urlopen", side_effect=error):
-                with self.assertRaises(SystemExit) as failure:
-                    self.execute()
-                self.assertEqual(failure.exception.code, 1)
-                self.assertTrue(failure.exception.__suppress_context__)
-                self.assertFalse(self.archive.exists())
-        self.assertIn("Darwin SDK download failed", self.log.getvalue())
-        for sensitive in (URL, redirected, "synthetic-secret", "transformed-secret", "Traceback"):
-            self.assertNotIn(sensitive, self.log.getvalue())
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("::error::", result.stdout)
+        self.assertIn("xcross-darwin-linux-x64", result.stdout)
+        self.assertIn('"Warm Darwin SDK cache"', result.stdout)
+        self.assertIn("xcode_xip_url", result.stdout)
 
-    def test_response_read_failure_is_redacted_and_partial_archive_removed(self):
-        response = io.BytesIO(b"partial")
-        with patch.object(response, "read", side_effect=OSError(URL)), patch("urllib.request.urlopen", return_value=response):
-            with self.assertRaises(SystemExit) as failure:
-                self.execute()
-        self.assertEqual(failure.exception.code, 1)
-        self.assertTrue(failure.exception.__suppress_context__)
-        self.assertNotIn(URL, self.log.getvalue())
-        self.assertFalse(self.archive.exists())
-
-    def test_invalid_bundle_fails_and_removes_archive(self):
-        with patch("urllib.request.urlopen", return_value=io.BytesIO(self.payload(valid=False))):
-            with self.assertRaises(SystemExit) as failure:
-                self.execute()
-        self.assertEqual(failure.exception.code, 1)
-        self.assertIn("Archive must contain xcross-darwin.artifactbundle", self.log.getvalue())
-        self.assertFalse(self.archive.exists())
-
-    def test_html_response_fails_actionably_and_removes_archive(self):
-        with patch("urllib.request.urlopen", return_value=io.BytesIO(b"<!doctype html>")):
-            with self.assertRaises(SystemExit) as failure:
-                self.execute()
-        self.assertEqual(failure.exception.code, 1)
-        self.assertIn("did not return a .tar.gz", self.log.getvalue())
-        self.assertFalse(self.archive.exists())
-
-    def test_windows_extraction_materializes_links_as_copies(self):
-        output = io.BytesIO()
-        with tarfile.open(fileobj=output, mode="w:gz") as archive:
-            def add(name, data=None, link=None, directory=False):
-                member = tarfile.TarInfo(f"xcross-darwin.artifactbundle/{name}")
-                member.mode = 0o755
-                if directory:
-                    member.type = tarfile.DIRTYPE
-                    archive.addfile(member)
-                elif link:
-                    member.type = tarfile.SYMTYPE
-                    member.linkname = link
-                    archive.addfile(member)
-                else:
-                    member.size = len(data)
-                    archive.addfile(member, io.BytesIO(data))
-            add("info.json", b"{}")
-            add("lib/swift/clang", link="../clang/21")
-            add("lib/clang/21.0.0", link="21")
-            add("lib/clang/21", directory=True)
-            add("lib/clang/21/include/header.h", b"h")
-            add("lib/clang/21/lib/alias", link="real")
-            add("lib/clang/21/lib/real", b"r")
-        with patch("sys.platform", "win32"), patch(
-            "urllib.request.urlopen", return_value=io.BytesIO(output.getvalue()),
-        ):
-            self.execute()
-        for path in ("lib/swift/clang", "lib/clang/21.0.0"):
-            with self.subTest(path=path):
-                link = self.bundle / path
-                self.assertFalse(link.is_symlink())
-                self.assertEqual((link / "include/header.h").read_text(), "h")
-        alias = self.bundle / "lib/clang/21/lib/alias"
-        self.assertFalse(alias.is_symlink())
-        self.assertEqual(alias.read_text(), "r")
-        self.assertFalse(self.archive.exists())
-
-    def test_windows_directory_links_copy_after_nested_link_chains(self):
-        output = io.BytesIO()
-        with tarfile.open(fileobj=output, mode="w:gz") as archive:
-            def add(name, data=None, link=None):
-                member = tarfile.TarInfo(f"xcross-darwin.artifactbundle/{name}")
-                if link:
-                    member.type = tarfile.SYMTYPE
-                    member.linkname = link
-                    archive.addfile(member)
-                else:
-                    member.size = len(data)
-                    archive.addfile(member, io.BytesIO(data))
-            add("info.json", b"{}")
-            add("SDKs/iPhoneOS26.5.sdk", link="iPhoneOS.sdk")
-            add("SDKs/iPhoneOS.sdk/usr/lib/libSystem.B.tbd", b"system")
-            add("SDKs/iPhoneOS.sdk/usr/lib/libm.tbd", link="libSystem.tbd")
-            add("SDKs/iPhoneOS.sdk/usr/lib/libSystem.tbd", link="libSystem.B.tbd")
-        with patch("sys.platform", "win32"), patch(
-            "urllib.request.urlopen", return_value=io.BytesIO(output.getvalue()),
-        ):
-            self.execute()
-        for sdk in ("iPhoneOS.sdk", "iPhoneOS26.5.sdk"):
-            for name in ("libm.tbd", "libSystem.tbd", "libSystem.B.tbd"):
-                with self.subTest(sdk=sdk, name=name):
-                    path = self.bundle / "SDKs" / sdk / "usr/lib" / name
-                    self.assertFalse(path.is_symlink())
-                    self.assertEqual(path.read_text(), "system")
-
-    def test_extraction_skips_appledouble_members_on_every_platform(self):
-        output = io.BytesIO()
-        with tarfile.open(fileobj=output, mode="w:gz") as archive:
-            for name in ("xcross-darwin.artifactbundle", "xcross-darwin.artifactbundle/usr", "__MACOSX", "__MACOSX/xcross-darwin.artifactbundle"):
-                member = tarfile.TarInfo(name)
-                member.type = tarfile.DIRTYPE
-                member.mode = 0o755
-                archive.addfile(member)
-            for name in (
-                "._xcross-darwin.artifactbundle",
-                "xcross-darwin.artifactbundle/info.json",
-                "xcross-darwin.artifactbundle/._info.json",
-                "xcross-darwin.artifactbundle/._usr",
-                "xcross-darwin.artifactbundle/usr/hash_info.h",
-                "xcross-darwin.artifactbundle/usr/._hash_info.h",
-                "xcross-darwin.artifactbundle/usr/kept._name.h",
-                "__MACOSX/xcross-darwin.artifactbundle/._info.json",
-            ):
-                member = tarfile.TarInfo(name)
-                member.size = 2
-                member.mode = 0o644
-                archive.addfile(member, io.BytesIO(b"{}"))
-        for platform in sorted({"win32", sys.platform}):
-            with self.subTest(platform=platform), patch("sys.platform", platform), patch(
-                "urllib.request.urlopen", return_value=io.BytesIO(output.getvalue()),
-            ):
-                self.execute()
-                extracted = sorted(
-                    path.relative_to(self.parent).as_posix()
-                    for path in self.parent.rglob("*") if path.is_file()
-                )
-                self.assertEqual(extracted, [
-                    "xcross-darwin.artifactbundle/info.json",
-                    "xcross-darwin.artifactbundle/usr/hash_info.h",
-                    "xcross-darwin.artifactbundle/usr/kept._name.h",
-                ])
-                self.assertFalse((self.parent / "__MACOSX").exists())
-
-    def test_extraction_failure_removes_archive(self):
-        with patch("urllib.request.urlopen", return_value=io.BytesIO(self.payload())), patch(
-            "subprocess.run", side_effect=subprocess.CalledProcessError(1, "tar"),
-        ):
-            with self.assertRaises(subprocess.CalledProcessError):
-                self.execute()
-        self.assertFalse(self.archive.exists())
-        self.assertNotIn(URL, self.log.getvalue())
+    def test_action_only_restores_and_never_downloads_or_saves(self):
+        action = ACTION.read_text()
+        self.assertNotIn("inputs:", action)
+        self.assertNotIn("artifactbundle-url", action)
+        self.assertNotIn("urllib", action)
+        self.assertNotIn("actions/cache/save@", action)
+        self.assertNotIn("- name: Download Darwin SDK", action)
+        names = [title for _, title, _ in steps(action)]
+        self.assertLess(names.index("Restore Darwin SDK cache"), names.index("Require warmed Darwin SDK cache"))
+        for kept in ("Refresh clang builtin headers", "Materialize Swift compatibility resources", "Verify Darwin Swift SDK"):
+            self.assertLess(names.index("Require warmed Darwin SDK cache"), names.index(kept))
 
 
 class WorkflowSecurityTests(unittest.TestCase):
@@ -268,15 +69,15 @@ class WorkflowSecurityTests(unittest.TestCase):
         self.assertNotIn("revision", action)
         self.assertIn('os.environ["RUNNER_OS"].lower()', action)
         self.assertIn("uses: actions/cache/restore@", step(action, "Restore Darwin SDK cache"))
-        self.assertIn("if: steps.darwin-cache.outputs.cache-hit != 'true'", step(action, "Download Darwin SDK"))
-        save = step(action, "Save Darwin SDK cache")
-        self.assertIn("uses: actions/cache/save@", save)
-        self.assertIn("if: steps.darwin-cache.outputs.cache-hit != 'true'", save)
-        self.assertLess(action.index("- name: Verify Darwin Swift SDK"), action.index("- name: Save Darwin SDK cache"))
         for name in ("integration.yml", "compose-integration.yml", "warm-darwin-sdk.yml"):
             source = (WORKFLOWS / name).read_text()
             with self.subTest(path=name):
-                self.assertNotRegex(source, r"(?i)actions/cache(?:[/@\s]|$)")
+                caches = re.findall(r"(?i)actions/cache[^\s]*", source)
+                if name == "warm-darwin-sdk.yml":
+                    self.assertEqual(len(caches), 1)
+                    self.assertTrue(caches[0].startswith("actions/cache/save@"))
+                else:
+                    self.assertEqual(caches, [])
                 uploads = [body for _, _, body in steps(source) if "actions/upload-artifact@" in body]
                 if name == "warm-darwin-sdk.yml":
                     self.assertEqual(uploads, [])
@@ -287,7 +88,7 @@ class WorkflowSecurityTests(unittest.TestCase):
                         ["${{ runner.temp }}/ios-simulator-smoke"],
                     )
 
-    def test_only_trusted_cross_host_calls_receive_secret_and_forks_keep_toolchain_checks(self):
+    def test_trusted_cross_host_jobs_restore_cache_without_secrets_and_forks_keep_toolchain_checks(self):
         for filename, job_name in (("integration.yml", "flutter-build"), ("compose-integration.yml", "compose-build")):
             with self.subTest(workflow=filename):
                 source = (WORKFLOWS / filename).read_text()
@@ -308,8 +109,8 @@ class WorkflowSecurityTests(unittest.TestCase):
                 download = step(build, "Download Darwin SDK")
                 self.assertIn("if: steps.darwin.outputs.available == 'true'", download)
                 self.assertIn("uses: ./.github/actions/setup-darwin-sdk", download)
-                self.assertIn("artifactbundle-url: ${{ secrets.DARWIN_ARTIFACTBUNDLE_URL }}", download)
-                self.assertEqual(source.count("secrets.DARWIN_ARTIFACTBUNDLE_URL"), 1)
+                self.assertNotIn("with:", download)
+                self.assertNotIn("secrets.", source)
                 self.assertNotIn("steps.darwin.outputs.available", step(build, "Checkout"))
 
     def test_native_simulator_jobs_use_installed_xcode_without_secrets(self):
@@ -322,19 +123,67 @@ class WorkflowSecurityTests(unittest.TestCase):
                 self.assertNotIn("secrets.", native)
                 self.assertNotIn("setup-darwin-sdk", native)
 
-    def test_warm_workflow_caches_every_host_from_dispatched_url(self):
+    def test_warm_workflow_installs_xip_with_xcross_and_replaces_each_host_cache(self):
         source = (WORKFLOWS / "warm-darwin-sdk.yml").read_text()
         self.assertIn("name: Warm Darwin SDK cache", source)
-        self.assertIn("  workflow_dispatch:\n    inputs:\n      artifactbundle_url:", source)
+        self.assertIn(
+            "  workflow_dispatch:\n    inputs:\n      xcode_xip_url:\n", source,
+        )
+        triggers = re.search(r"(?ms)^on:\n(.*?)^\S", source).group(1)
+        self.assertEqual(re.findall(r"(?m)^      (\w+):$", triggers), ["xcode_xip_url"])
+        self.assertIn("required: true", triggers)
+        self.assertNotIn("artifactbundle_url", source)
+        self.assertNotIn("secrets.", source)
+        self.assertNotIn("setup-darwin-sdk", source)
         self.assertIn("os: [ubuntu-24.04, ubuntu-24.04-arm, windows-2022, windows-11-arm]", source)
-        mask = step(source, "Mask dispatched artifactbundle URL")
-        self.assertIn("::add-mask::", mask)
-        warm = step(source, "Restore or download xcross Darwin SDK")
-        self.assertIn("uses: ./.github/actions/setup-darwin-sdk", warm)
-        self.assertIn("inputs.artifactbundle_url", warm)
-        self.assertIn("secrets.DARWIN_ARTIFACTBUNDLE_URL", warm)
-        self.assertNotIn("revision", source)
-        self.assertLess(source.index("- name: Mask dispatched"), source.index("- name: Restore or download"))
+        self.assertIn("actions: write", job(source, "warm-cache"))
+        names = [title for _, title, _ in steps(source)]
+        self.assertEqual(names[0], "Mask Xcode xip URL")
+        self.assertIn('::add-mask::$XCODE_XIP_URL', step(source, "Mask Xcode xip URL"))
+        download = step(source, "Download Xcode xip")
+        self.assertIn("--user-agent curl/", download)
+        self.assertIn("--retry", download)
+        self.assertIn('"$RUNNER_TEMP/Xcode.xip"', download)
+        self.assertRegex(script(step(source, "Install Darwin SDK with xcross")), r'(?m)^xcross sdk install "\$XCODE_XIP"$')
+        self.assertIn("if: always()", step(source, "Delete Xcode xip"))
+        verify = step(source, "Verify installed Darwin SDK")
+        for needle in ("iPhoneOS.platform", "iPhoneSimulator.platform", '"--swift-sdks-path"'):
+            self.assertIn(needle, verify)
+        delete = step(source, "Delete previous Darwin SDK cache")
+        self.assertIn('gh cache delete "$CACHE_KEY" --repo "$GITHUB_REPOSITORY"', delete)
+        self.assertIn("GH_TOKEN: ${{ github.token }}", delete)
+        save = step(source, "Save Darwin SDK cache")
+        self.assertIn("key: ${{ steps.sdk-path.outputs.cache-key }}", save)
+        self.assertIn("path: ${{ steps.sdk-path.outputs.bundle }}", save)
+        self.assertNotIn("if:", save)
+        order = [
+            "Download Xcode xip", "Install Darwin SDK with xcross", "Delete Xcode xip",
+            "Verify installed Darwin SDK", "Delete previous Darwin SDK cache", "Save Darwin SDK cache",
+        ]
+        self.assertEqual([n for n in names if n in order], order)
+        self.assertEqual(
+            script(step(source, "Resolve xcross Swift SDK path")),
+            script(step(ACTION.read_text(), "Resolve xcross Swift SDK path")),
+        )
+
+    def test_warm_cache_delete_tolerates_only_missing_caches(self):
+        delete = step((WORKFLOWS / "warm-darwin-sdk.yml").read_text(), "Delete previous Darwin SDK cache")
+        with tempfile.TemporaryDirectory(dir=os.environ.get("JCODE_SCRATCH_DIR")) as directory:
+            fake = Path(directory) / "gh"
+            for message, status, expected in (
+                ("deleted", 0, 0),
+                ("X Could not find a cache matching xcross-darwin-linux-x64", 1, 0),
+                ("HTTP 403: Resource not accessible by integration", 1, 1),
+            ):
+                with self.subTest(message=message):
+                    fake.write_text(f"#!/bin/bash\necho '{message}' >&2\nexit {status}\n")
+                    fake.chmod(0o755)
+                    result = subprocess.run(
+                        ["bash", "-c", script(delete)], capture_output=True, text=True,
+                        env={**os.environ, "PATH": f"{directory}:{os.environ['PATH']}",
+                             "CACHE_KEY": "xcross-darwin-linux-x64", "GITHUB_REPOSITORY": "o/r"},
+                    )
+                    self.assertEqual(result.returncode, expected)
 
     def test_test_workflows_run_manually_without_inputs(self):
         for name in ("architecture.yml", "integration.yml", "compose-integration.yml"):
