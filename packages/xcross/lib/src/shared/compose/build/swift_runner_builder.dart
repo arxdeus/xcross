@@ -132,6 +132,8 @@ final class SwiftRunnerBuilder<T extends PlatformHostInterface> {
       // _findCompilerRtDarwinDir there for the exact layout/rationale).
       if (compilerRt != null) ...['-Xlinker', compilerRt],
       '-Xlinker',
+      '-dead_strip',
+      '-Xlinker',
       '-rpath',
       '-Xlinker',
       '@executable_path/Frameworks',

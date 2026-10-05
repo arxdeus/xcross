@@ -194,6 +194,7 @@ void main() {
         containsAllInOrder(['-framework', 'Shared']),
       );
       expect(calls.last.arguments, containsAllInOrder(['-framework', 'UIKit']));
+      expect(calls.last.arguments, contains('-dead_strip'));
       expect(
         calls.last.arguments,
         containsAllInOrder(['-rpath', '@executable_path/Frameworks']),
@@ -271,6 +272,12 @@ void main() {
           '-Xlinker',
           '26.5',
         ]),
+      );
+      expect(calls.single.arguments, contains('-dead_strip'));
+      expect(
+        calls.single.arguments[calls.single.arguments.indexOf('-dead_strip') -
+            1],
+        '-Xlinker',
       );
       expect(
         calls.single.arguments,

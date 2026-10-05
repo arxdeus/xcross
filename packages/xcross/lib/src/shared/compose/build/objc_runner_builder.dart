@@ -125,6 +125,7 @@ final class ObjcRunnerBuilder<T extends PlatformHostInterface> {
           )
           case final String rt)
         rt,
+      '-dead_strip',
       '-rpath',
       '@executable_path/Frameworks',
     ]);
