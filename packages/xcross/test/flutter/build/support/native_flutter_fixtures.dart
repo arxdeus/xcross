@@ -237,6 +237,59 @@ final class WindowsFixtureProcesses implements HostProcessInterface {
 }
 
 @internal
+final class LinkRecordingProcesses implements HostProcessInterface {
+  final List<List<String>> arguments = [];
+  @override
+  ProcessExitDiagnostic describeExit(int exitCode) =>
+      const ProcessExitDiagnostic(crashed: false, description: null);
+
+  @override
+  Future<Process> start(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+    Map<String, String>? environment,
+    bool includeParentEnvironment = true,
+    bool runInShell = false,
+    ProcessStartMode mode = ProcessStartMode.normal,
+  }) async {
+    this.arguments.add(arguments);
+    return LinkRecordingChild();
+  }
+
+  @override
+  Future<String?> findOnShellPath(
+    String name, {
+    Map<String, String>? environment,
+    bool includeParentEnvironment = true,
+  }) async => name == 'cmd' ? r'C:\fixture\cmd.exe' : null;
+  @override
+  Future<void> killTree(
+    Process process, {
+    Map<String, String>? environment,
+    Map<String, String> executableOverrides = const {},
+  }) async {
+    process.kill();
+  }
+}
+
+@internal
+final class LinkRecordingChild implements Process {
+  @override
+  final IOSink stdin = nativeTestSink();
+  @override
+  Stream<List<int>> get stdout => const Stream.empty();
+  @override
+  Stream<List<int>> get stderr => const Stream.empty();
+  @override
+  Future<int> get exitCode async => 0;
+  @override
+  int get pid => 1;
+  @override
+  bool kill([ProcessSignal signal = ProcessSignal.sigterm]) => true;
+}
+
+@internal
 List<(String, NativeHostTools, FlutterTargetBuildPolicy)> nativeHostCases() {
   final linuxArm = LinuxHost(
     architecture: 'arm64',

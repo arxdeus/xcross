@@ -177,6 +177,8 @@ const xcrossFlutterTestsRoles = <String, Map<String, String>>{
       },
   'workspace:packages/xcross/test/flutter/build/support/native_flutter_fixtures.dart':
       {
+        'CLASS:LinkRecordingChild': 'internal',
+        'CLASS:LinkRecordingProcesses': 'internal',
         'CLASS:NativeTestLogOutput': 'internal',
         'CLASS:WindowsFixturePaths': 'internal',
         'CLASS:WindowsFixtureProcesses': 'internal',

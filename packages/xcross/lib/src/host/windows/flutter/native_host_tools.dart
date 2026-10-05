@@ -57,8 +57,8 @@ final class WindowsNativeHostTools<T extends WindowsHostInterface>
       '/c',
       'mklink',
       if (host.fileSystem.directory(target).existsSync()) '/J' else '/H',
-      path,
-      target,
+      host.paths.ioPath(path),
+      host.paths.ioPath(target),
     ]);
     if (result.exitCode != 0) {
       throw FileSystemException(result.stderr.trim(), path);

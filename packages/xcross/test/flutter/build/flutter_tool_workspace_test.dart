@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:cli_kit/host/windows/windows_host.dart';
+import 'package:cli_kit/host/windows/windows_paths.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -132,6 +133,36 @@ void main() {
     },
     skip: !Platform.isWindows,
   );
+
+  test('Windows native tools pass long-path link operands to mklink', () async {
+    final processes = LinkRecordingProcesses();
+    final host = WindowsHost(
+      architecture: 'arm64',
+      paths: WindowsPaths(currentDirectory: r'C:\work'),
+      processes: processes,
+      environment: const {'PATH': '', 'PATHEXT': '.EXE'},
+    );
+    final tools = WindowsNativeHostTools(
+      host,
+      ProcessRunner(
+        host,
+        log: nativeTestLog(),
+        stdinStream: const Stream<List<int>>.empty(),
+        stdoutSink: nativeTestSink(),
+        stderrSink: nativeTestSink(),
+      ),
+    );
+    final deep = [r'C:\root', for (var i = 0; i < 30; i++) 'segment$i'];
+    final path = '${deep.join(r'\')}\\entry';
+    await tools.link(path, r'C:\source\entry');
+    expect(processes.arguments.single, [
+      '/c',
+      'mklink',
+      '/H',
+      '\\\\?\\$path',
+      r'\\?\C:\source\entry',
+    ]);
+  });
 
   for (final removeOldRoot in [false, true]) {
     test(
