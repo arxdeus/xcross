@@ -165,11 +165,11 @@ void main() {
           expectWorkspaceSdk(second, 'sdk-b');
           expect(second.flutterRoot, isNot(first.flutterRoot));
           expect(Directory(first.flutterRoot).existsSync(), isTrue);
-          expect(second.dart, startsWith(secondCache.flutterRoot));
-          expect(
-            second.flutterToolsSnapshot,
-            startsWith(secondCache.flutterRoot),
-          );
+          final secondRoot = Directory(
+            secondCache.flutterRoot,
+          ).resolveSymbolicLinksSync();
+          expect(second.dart, startsWith(secondRoot));
+          expect(second.flutterToolsSnapshot, startsWith(secondRoot));
         } finally {
           await tmp.delete(recursive: true);
         }
