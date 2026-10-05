@@ -211,6 +211,15 @@ class WorkflowSecurityTests(unittest.TestCase):
         self.assertIn("- name: Verify Darwin Swift SDK", ACTION.read_text())
         self.assertNotIn("Warm Darwin SDK cache", source)
 
+    def test_test_workflows_run_manually_without_inputs(self):
+        for name in ("architecture.yml", "integration.yml", "compose-integration.yml"):
+            with self.subTest(workflow=name):
+                source = (WORKFLOWS / name).read_text()
+                triggers = re.search(r"(?ms)^on:\n(.*?)^\S", source).group(1)
+                self.assertRegex(triggers, r"(?m)^  workflow_dispatch:\s*$")
+                self.assertRegex(triggers, r"(?m)^  pull_request:\s*$")
+                self.assertNotIn("inputs", triggers)
+
 
 if __name__ == "__main__":
     unittest.main()
