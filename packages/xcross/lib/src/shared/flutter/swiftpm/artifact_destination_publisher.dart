@@ -360,10 +360,10 @@ final class SwiftPmArtifactDestinationPublisher {
             FileSystemEntityType.directory) {
       return false;
     }
-    final sourcePath = _ioPath(source);
-    final destinationPath = _ioPath(destination);
-    final sourceRoot = fileSystem.directory(sourcePath);
-    final destinationRoot = fileSystem.directory(destinationPath);
+    final sourceRoot = fileSystem.directory(source);
+    final destinationRoot = fileSystem.directory(destination);
+    final sourcePath = sourceRoot.path;
+    final destinationPath = destinationRoot.path;
     final sourceEntities = sourceRoot.listSync(
       recursive: true,
       followLinks: false,
@@ -397,7 +397,6 @@ final class SwiftPmArtifactDestinationPublisher {
     return true;
   }
 
-  String _ioPath(String path) => _store.host.paths.ioPath(path);
   static bool _sameBytes(List<int> first, List<int> second) {
     if (first.length != second.length) return false;
     for (var index = 0; index < first.length; index++) {
@@ -407,13 +406,15 @@ final class SwiftPmArtifactDestinationPublisher {
   }
 
   Future<bool> _completeEntryContaining(String target) async {
-    final root = p.normalize(p.absolute(_store.root));
-    final absoluteTarget = p.normalize(p.absolute(target));
+    final root = p.normalize(p.absolute(fileSystem.processPath(_store.root)));
+    final absoluteTarget = p.normalize(
+      p.absolute(fileSystem.processPath(target)),
+    );
     if (!p.isWithin(root, absoluteTarget)) return false;
-    var current = fileSystem.directory(absoluteTarget);
-    while (p.isWithin(root, current.path)) {
-      final metadata = fileSystem.file(p.join(current.path, 'metadata.json'));
-      if (fileSystem.file(p.join(current.path, '.complete')).existsSync() &&
+    var current = absoluteTarget;
+    while (p.isWithin(root, current)) {
+      final metadata = fileSystem.file(p.join(current, 'metadata.json'));
+      if (fileSystem.file(p.join(current, '.complete')).existsSync() &&
           metadata.existsSync()) {
         try {
           final decoded = jsonDecode(await metadata.readAsString());
@@ -425,7 +426,11 @@ final class SwiftPmArtifactDestinationPublisher {
               decoded['targetName'] as String,
             );
             return entry != null &&
-                _pathKey(p.normalize(p.absolute(entry.artifactPath))) ==
+                _pathKey(
+                      p.normalize(
+                        p.absolute(fileSystem.processPath(entry.artifactPath)),
+                      ),
+                    ) ==
                     _pathKey(absoluteTarget);
           }
         } on FormatException {
@@ -434,7 +439,7 @@ final class SwiftPmArtifactDestinationPublisher {
           return false;
         }
       }
-      current = current.parent;
+      current = p.dirname(current);
     }
     return false;
   }

@@ -261,7 +261,10 @@ final class SwiftPmBinaryArtifactStore {
       );
       final artifactName = decoded['artifactDirectoryName'] as String;
       if (!_isSafeComponent(artifactName)) return null;
-      final artifactPath = p.join(target.path, artifactName);
+      final artifactPath = p.join(
+        targetRoot(safeChecksum, safeTarget),
+        artifactName,
+      );
       if (fileSystem.typeSync(artifactPath, followLinks: false) !=
               FileSystemEntityType.directory ||
           await _tree.treeDigest(fileSystem.directory(artifactPath)) !=

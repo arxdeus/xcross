@@ -222,6 +222,58 @@ void main() {
     expect(outcomes.where((value) => value.nonce == null), hasLength(1));
   });
 
+  test(
+    'materializes store entries addressed through host io path spellings',
+    () async {
+      final logical = p.join(temp.path, 'logical-store');
+      final physical = p.join(temp.path, 'physical-store');
+      final fileSystem = AliasedSwiftPmArtifactFileSystem(
+        logicalRoot: logical,
+        physicalRoot: physical,
+      );
+      final aliasedStore = SwiftPmBinaryArtifactStore(
+        logical,
+        host: store.host,
+        fileSystem: fileSystem,
+        publicationCoordinator: store.publicationCoordinator,
+      );
+      final preparer = SwiftPmBinaryArtifactPreparer(
+        store: aliasedStore,
+        policy: _swiftPmRuntime.targetPolicy,
+        transport: const HttpSwiftPmArchiveTransport(
+          createClient: HttpClient.new,
+        ),
+        copyPolicy: PosixSwiftPmArtifactCopyPolicy(fileSystem),
+      );
+      final fixture = createFixture(temp, 'SpelledKit', defaultLibraries);
+      final entry = await preparer.prepareDownloadedArchive(
+        target: fixture.target,
+        archive: fixture.file,
+      );
+      expect(p.isWithin(logical, entry.artifactPath), isTrue);
+      final physicalSource = fileSystem.physical(entry.artifactPath);
+      expect(Directory(physicalSource).existsSync(), isTrue);
+      for (final (index, source) in [
+        entry.artifactPath,
+        physicalSource,
+      ].indexed) {
+        final destination = p.join(temp.path, 'materialized-$index');
+        final publication = await preparer.materializeBinaryArtifact(
+          source: source,
+          destination: destination,
+        );
+        expect(publication.nonce, isNotNull);
+        expect(
+          await preparer.validatesMaterializedBinaryArtifact(
+            source: source,
+            destination: destination,
+          ),
+          isTrue,
+        );
+      }
+    },
+  );
+
   test('generates deterministic SwiftPM XCFramework ZIP fixture', () {
     final generator = SwiftPmBinaryFixtureGenerator(
       fileSystem: store.host.fileSystem,
