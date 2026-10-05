@@ -2,6 +2,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import re
 import subprocess
 import tempfile
 import unittest
@@ -445,6 +446,31 @@ class SmokeTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Not an ARM64 iOS Simulator"):
             self.smoke.run()
         self.assertFalse(any("create" in args for args, _ in self.calls))
+
+    def test_invalid_code_signature_never_creates_a_simulator(self):
+        framework = self.app / "Frameworks/Bad.framework"
+        framework.mkdir(parents=True)
+        (framework / "Bad").touch()
+        (self.app / "Frameworks/libLoose.dylib").touch()
+        original = self.fake_run
+        for bad in ("/Runner", "/Bad", "/libLoose.dylib"):
+            with self.subTest(bad=bad):
+                def run(args, **kwargs):
+                    if args[0] == "/usr/bin/codesign" and args[-1].endswith(bad):
+                        return subprocess.CompletedProcess(args, 1, f"{args[-1]}: invalid signature (code or signature have been modified)\n")
+                    return original(args, **kwargs)
+
+                self.run_mock.side_effect = run
+                self.calls.clear()
+                with self.assertRaisesRegex(RuntimeError, "Invalid code signature: .*" + re.escape(bad)):
+                    self.smoke.run()
+                self.assertFalse(any("create" in args for args, _ in self.calls))
+                self.smoke.output = Path(tempfile.mkdtemp(dir=self.root))
+        self.run_mock.side_effect = original
+        self.calls.clear()
+        self.smoke.run()
+        signed = [args[-1] for args, _ in self.calls if args[0] == "/usr/bin/codesign"]
+        self.assertEqual(sorted(Path(path).name for path in signed), ["Bad", "Runner", "libLoose.dylib"])
 
     def test_device_plist_rejected(self):
         self.info["CFBundleSupportedPlatforms"] = ["iPhoneOS"]

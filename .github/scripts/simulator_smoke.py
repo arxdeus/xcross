@@ -140,6 +140,12 @@ class Smoke:
         )
         if not re.search(r"platform\s+(?:IOSSIMULATOR|7)\b", result.stdout):
             raise RuntimeError(f"Not an ARM64 iOS Simulator Mach-O: {binary}")
+        result = self.command(
+            ["/usr/bin/codesign", "--verify", "--no-strict", "--ignore-resources", "-v", str(binary)],
+            "signature-validation.log", check=False,
+        )
+        if result.returncode:
+            raise RuntimeError(f"Invalid code signature: {binary}\n{result.stdout.strip()}")
 
     def observe(self):
         deadline = time.monotonic() + self.observe_seconds
@@ -328,6 +334,8 @@ class Smoke:
             self.validate_binary(self.app / self.executable)
             for framework in sorted((self.app / "Frameworks").glob("*.framework")):
                 self.validate_binary(framework / framework.stem)
+            for library in sorted((self.app / "Frameworks").glob("*.dylib")):
+                self.validate_binary(library)
             result = self.simctl("list", "--json", name="inventory.json")
             sdk_version = self.command(
                 ["/usr/bin/xcrun", "--sdk", "iphonesimulator", "--show-sdk-version"],
