@@ -547,6 +547,32 @@ jobs:
           dart run ../../packages/xcross/tool/verify_flutter_notices.dart build/xcross-ios
           if ($LASTEXITCODE -ne 0) { throw 'Packaged Flutter notices are invalid' }
 
+      - name: Build Flutter example for ARM64 simulator on Linux
+        if: runner.os == 'Linux' && steps.darwin.outputs.available == 'true'
+        shell: bash
+        working-directory: examples/flutter_example
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/xcross-bundle/bin/xcross" --verbose flutter build --target-platform simulator --debug
+
+      - name: Build Flutter example for ARM64 simulator on Windows
+        if: runner.os == 'Windows' && steps.darwin.outputs.available == 'true'
+        shell: pwsh
+        working-directory: examples/flutter_example
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & "$env:RUNNER_TEMP\xcross-bundle\bin\xcross.exe" --verbose flutter build --target-platform simulator --debug
+          if ($LASTEXITCODE -ne 0) { throw 'flutter_example simulator build failed' }
+
+      - name: Upload Flutter example simulator app
+        if: steps.darwin.outputs.available == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: flutter-example-simulator-${{ matrix.os }}-swift-${{ matrix.swift }}
+          path: examples/flutter_example/build/xcross-ios-simulator/*.app
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Verify notices without native hooks on Linux
         if: runner.os == 'Linux' && steps.darwin.outputs.available == 'true'
         shell: bash
@@ -655,6 +681,62 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: flutter-arm64-ios-simulator-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ios-simulator-smoke
+          if-no-files-found: warn
+          retention-days: 7
+
+  flutter-example-simulator-run:
+    name: Run cross-built Flutter example on simulator (${{ matrix.host }}, Swift ${{ matrix.swift }})
+    needs: flutter-build
+    if: >-
+      ${{ !cancelled() && (github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository) }}
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [ubuntu-24.04, ubuntu-24.04-arm, windows-2022, windows-11-arm]
+        swift: ['6.3.3', '6.4.0']
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+      - name: Select compatible native Xcode
+        uses: ./.github/actions/configure-xcode
+
+      - name: Download cross-built simulator app
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: flutter-example-simulator-${{ matrix.host }}-swift-${{ matrix.swift }}
+          path: ${{ runner.temp }}/cross-built
+
+      - name: Boot install launch and observe cross-built Flutter example headlessly
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apps=("$RUNNER_TEMP/cross-built/"*.app)
+          test "${#apps[@]}" -eq 1
+          executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "${apps[0]}/Info.plist")"
+          chmod +x "${apps[0]}/$executable"
+          for framework in "${apps[0]}/Frameworks/"*.framework; do
+            chmod +x "$framework/$(basename "$framework" .framework)"
+          done
+          python3 .github/scripts/simulator_smoke.py "${apps[0]}" \
+            --output "$RUNNER_TEMP/ios-simulator-smoke/flutter-example" \
+            --observe-seconds 30 --grace-seconds 10
+
+      - name: Upload simulator evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: flutter-example-simulator-run-${{ matrix.host }}-swift-${{ matrix.swift }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/ios-simulator-smoke
           if-no-files-found: warn
           retention-days: 7

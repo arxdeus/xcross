@@ -108,6 +108,50 @@ class ArchitectureWorkflowTests(unittest.TestCase):
             with self.subTest(workflow=name):
                 self.check_simulator_job((ROOT / '.github/workflows' / name).read_text(), feature, marker)
 
+    def check_cross_host_simulator_run(self, workflow):
+        jobs = workflow_jobs(workflow)
+        build = workflow_steps(jobs['flutter-build'])
+        for host, prefix in (('Linux', '"$RUNNER_TEMP/xcross-bundle/bin/xcross"'), ('Windows', '& "$env:RUNNER_TEMP\\xcross-bundle\\bin\\xcross.exe"')):
+            step = build[f'Build Flutter example for ARM64 simulator on {host}']
+            self.assertNotIn('continue-on-error', step)
+            self.assertIn(f'{prefix} --verbose flutter build --target-platform simulator --debug', step['script'])
+        upload = build['Upload Flutter example simulator app']
+        self.assertNotIn('continue-on-error', upload)
+        self.assertIn('flutter-example-simulator-${{ matrix.os }}-swift-${{ matrix.swift }}', '\n'.join(jobs['flutter-build']))
+        self.assertIn('if-no-files-found: error', '\n'.join(jobs['flutter-build']))
+        lines = jobs['flutter-example-simulator-run']
+        text = '\n'.join(lines)
+        self.assertIn('    needs: flutter-build', lines)
+        self.assertIn('    runs-on: macos-15', lines)
+        self.assertFalse(any(line.startswith('    continue-on-error:') for line in lines))
+        self.assertIn('host: [ubuntu-24.04, ubuntu-24.04-arm, windows-2022, windows-11-arm]', text)
+        self.assertIn("swift: ['6.3.3', '6.4.0']", text)
+        self.assertIn('name: flutter-example-simulator-${{ matrix.host }}-swift-${{ matrix.swift }}', text)
+        steps = workflow_steps(lines)
+        smoke = self.required_step(steps, 'Boot install launch and observe cross-built Flutter example headlessly')
+        self.assertIn('test "${#apps[@]}" -eq 1', smoke)
+        self.assertTrue(any(line.startswith('python3 .github/scripts/simulator_smoke.py "${apps[0]}"') for line in smoke))
+        self.assertIn('--observe-seconds 30 --grace-seconds 10', smoke)
+        self.assertEqual(steps['Upload simulator evidence'].get('if'), 'always()')
+
+    def test_cross_host_simulator_apps_are_built_uploaded_and_run(self):
+        self.check_cross_host_simulator_run((ROOT / '.github/workflows/integration.yml').read_text())
+
+    def test_disabled_cross_host_simulator_run_is_rejected(self):
+        original = (ROOT / '.github/workflows/integration.yml').read_text()
+        name = '      - name: Boot install launch and observe cross-built Flutter example headlessly\n'
+        for old, new in (
+            (name, name + '        if: false\n'),
+            (name, name + '        continue-on-error: true\n'),
+            ('          python3 .github/scripts/simulator_smoke.py "${apps[0]}" \\\n            --output "$RUNNER_TEMP/ios-simulator-smoke/flutter-example"', '          echo mocked "${apps[0]}" \\\n            --output "$RUNNER_TEMP/ios-simulator-smoke/flutter-example"'),
+            ('    needs: flutter-build\n    if: >-', '    needs: flutter-build\n    continue-on-error: true\n    if: >-'),
+            ('"$RUNNER_TEMP/xcross-bundle/bin/xcross" --verbose flutter build --target-platform simulator --debug', 'echo skipped'),
+        ):
+            with self.subTest(new=new):
+                self.assertIn(old, original)
+                with self.assertRaises((AssertionError, KeyError)):
+                    self.check_cross_host_simulator_run(original.replace(old, new))
+
     def test_jobs_running_example_fixtures_check_out_examples_first(self):
         jobs = workflow_jobs((ROOT / '.github/workflows/integration.yml').read_text())
         for job, first_use in (('flutter-build', None), ('native-host', 'Test xcross host workflows')):

@@ -12,6 +12,13 @@ import time
 import uuid
 
 
+ABORT_MARKERS = re.compile(
+    r"SIGABRT|SIGSEGV|SIGBUS|SIGILL|EXC_BAD_ACCESS|EXC_CRASH|abort\(\) called"
+    r"|Terminating app due to uncaught exception|Fatal error|Library not loaded"
+    r"|Symbol not found"
+)
+
+
 def version_tuple(version):
     parts = tuple(int(part) for part in version.split("."))
     return parts + (0,) * max(0, 3 - len(parts))
@@ -70,7 +77,8 @@ def app_metadata(app):
 
 
 class Smoke:
-    def __init__(self, app, output, boot_timeout=180, observe_seconds=20, ready_marker=None):
+    def __init__(self, app, output, boot_timeout=180, observe_seconds=20, ready_marker=None,
+                 grace_seconds=5):
         self.app = app.resolve()
         self.output = output.resolve()
         self.output.mkdir(parents=True, exist_ok=True)
@@ -79,6 +87,9 @@ class Smoke:
             raise RuntimeError("Smoke output directory must not contain evidence from a previous run")
         self.boot_timeout = boot_timeout
         self.observe_seconds = observe_seconds
+        self.grace_seconds = grace_seconds
+        self.abort_markers = []
+        self.exit_status = None
         self.device = None
         self.pid = None
         self.executable = None
@@ -143,6 +154,46 @@ class Smoke:
             if time.monotonic() >= deadline:
                 return
             time.sleep(min(1, max(0, deadline - time.monotonic())))
+
+    def recheck_after_grace(self):
+        time.sleep(self.grace_seconds)
+        observed = self.observe_seconds
+        self.observe_seconds = 0
+        try:
+            self.observe()
+        except RuntimeError as error:
+            raise RuntimeError(f"Launched app exited or crashed after observation (PID {self.pid})") from error
+        finally:
+            self.observe_seconds = observed
+        self.check_exit_status()
+
+    def check_exit_status(self):
+        result = self.simctl(
+            "spawn", self.device, "launchctl", "list", name="launchctl.log", timeout=30,
+        )
+        label = f"UIKitApplication:{self.identifier}["
+        jobs = [
+            fields for fields in (line.split(None, 2) for line in result.stdout.splitlines())
+            if len(fields) == 3 and fields[2].startswith(label)
+        ]
+        if not jobs:
+            raise RuntimeError("Launched app has no launchd job after observation")
+        running = [fields for fields in jobs if fields[0] == str(self.pid)]
+        if not running:
+            self.exit_status = jobs[0][1]
+            raise RuntimeError(f"Launched app is no longer the running launchd job (status {jobs[0][1]})")
+        self.exit_status = running[0][1]
+        if self.exit_status not in ("0", "-"):
+            raise RuntimeError(f"Launched app reported abnormal exit status {self.exit_status}")
+
+    def scan_abort_markers(self):
+        for name in ("app-stdout.log", "app-stderr.log", "simulator.log"):
+            path = self.output / name
+            if not path.is_file():
+                continue
+            for line in path.read_text(errors="replace").splitlines():
+                if ABORT_MARKERS.search(line):
+                    self.abort_markers.append(f"{name}: {line.strip()[:500]}")
 
     def capture_crashes(self):
         if not self.executable or not self.device:
@@ -291,6 +342,7 @@ class Smoke:
                 raise RuntimeError("simctl launch did not return an app PID")
             self.pid = int(match.group(1))
             self.observe()
+            self.recheck_after_grace()
         except Exception as failure:
             error = failure
         finally:
@@ -301,6 +353,7 @@ class Smoke:
             diagnostics = []
             try:
                 diagnostics = self.diagnostics()
+                self.scan_abort_markers()
                 if self.ready_marker:
                     self.ready_marker_found = any(
                         path.is_file() and self.ready_marker in path.read_text(errors="replace")
@@ -318,10 +371,13 @@ class Smoke:
                 error = error or failure
             if not error and (diagnostics or self.crashes):
                 error = RuntimeError(f"Smoke diagnostics failed or found crashes: {diagnostics + self.crashes}")
+            if not error and self.abort_markers:
+                error = RuntimeError(f"App logged an abort or crash marker: {self.abort_markers[:5]}")
             (self.output / "result.json").write_text(json.dumps({
                 "passed": error is None, "error": str(error) if error else None,
                 "pid": self.pid, "device": self.device,
-                "observe_seconds": self.observe_seconds,
+                "observe_seconds": self.observe_seconds, "grace_seconds": self.grace_seconds,
+                "exit_status": self.exit_status, "abort_markers": self.abort_markers,
                 "ready_marker": self.ready_marker, "ready_marker_found": self.ready_marker_found,
                 "diagnostic_failures": diagnostics, "crashes": self.crashes,
             }, indent=2))
@@ -336,9 +392,10 @@ def main():
     parser.add_argument("--boot-timeout", type=int, default=180)
     parser.add_argument("--observe-seconds", type=int, default=20)
     parser.add_argument("--ready-marker")
+    parser.add_argument("--grace-seconds", type=int, default=5)
     args = parser.parse_args()
-    if args.boot_timeout < 1 or args.observe_seconds < 20:
-        parser.error("Boot timeout must be positive and observation must last at least 20 seconds")
+    if args.boot_timeout < 1 or args.observe_seconds < 20 or args.grace_seconds < 1:
+        parser.error("Boot timeout and grace must be positive and observation must last at least 20 seconds")
 
     def terminate(signum, _frame):
         signal.signal(signum, signal.SIG_IGN)
@@ -346,7 +403,10 @@ def main():
 
     signal.signal(signal.SIGTERM, terminate)
     signal.signal(signal.SIGINT, terminate)
-    Smoke(args.app, args.output, args.boot_timeout, args.observe_seconds, args.ready_marker).run()
+    Smoke(
+        args.app, args.output, args.boot_timeout, args.observe_seconds, args.ready_marker,
+        args.grace_seconds,
+    ).run()
 
 
 if __name__ == "__main__":

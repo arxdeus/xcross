@@ -83,11 +83,16 @@ class WorkflowSecurityTests(unittest.TestCase):
                 if name == "warm-darwin-sdk.yml":
                     self.assertEqual(uploads, [])
                 else:
-                    self.assertEqual(len(uploads), 1)
-                    self.assertEqual(
-                        re.findall(r"(?m)^\s+path: (.+)$", uploads[0]),
-                        ["${{ runner.temp }}/ios-simulator-smoke"],
+                    paths = sorted(
+                        path for body in uploads for path in re.findall(r"(?m)^\s+path: (.+)$", body)
                     )
+                    allowed = {"${{ runner.temp }}/ios-simulator-smoke"}
+                    if name == "integration.yml":
+                        allowed.add("examples/flutter_example/build/xcross-ios-simulator/*.app")
+                    self.assertEqual(len(paths), len(uploads))
+                    self.assertTrue(paths)
+                    self.assertLessEqual(set(paths), allowed)
+                    self.assertIn("${{ runner.temp }}/ios-simulator-smoke", paths)
 
     def test_trusted_cross_host_jobs_restore_cache_without_secrets_and_forks_keep_toolchain_checks(self):
         for filename, job_name in (("integration.yml", "flutter-build"), ("compose-integration.yml", "compose-build")):

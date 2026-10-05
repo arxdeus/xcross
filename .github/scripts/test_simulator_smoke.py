@@ -207,6 +207,8 @@ class SmokeTests(unittest.TestCase):
         self.nonzero = None
         self.screenshot = True
         self.keep_deleted_device = False
+        self.launchctl = "1234\t0\tUIKitApplication:dev.xcross.smoke[a1b2][rb-legacy]\n"
+        self.app_stderr = None
         self.run_mock = patch("simulator_smoke.subprocess.run", side_effect=self.fake_run).start()
         self.addCleanup(patch.stopall)
         patch("simulator_smoke.Path.home", return_value=self.root / "home").start()
@@ -229,7 +231,9 @@ class SmokeTests(unittest.TestCase):
             return subprocess.CompletedProcess(args, 1, "failure")
         stdout = ""
         code = 0
-        if args[0] == "/usr/bin/uname":
+        if "launchctl" in args:
+            stdout = self.launchctl
+        elif args[0] == "/usr/bin/uname":
             stdout = self.arch
         elif "vtool" in args:
             stdout = f"platform {self.binary_platform}\n"
@@ -244,6 +248,9 @@ class SmokeTests(unittest.TestCase):
             stdout = DEVICE + "\n"
         elif "launch" in args:
             stdout = self.launch
+            if self.app_stderr is not None:
+                stderr = next(arg for arg in args if arg.startswith("--stderr="))
+                Path(stderr.split("=", 1)[1]).write_text(self.app_stderr)
         elif "screenshot" in args and self.screenshot:
             Path(args[-1]).write_bytes(b"png")
         elif "delete" in args and not self.keep_deleted_device:
@@ -450,6 +457,67 @@ class SmokeTests(unittest.TestCase):
         self.write_plist()
         with self.assertRaisesRegex(RuntimeError, "Invalid app executable"):
             app_metadata(self.app)
+
+    def test_exit_after_observation_grace_fails(self):
+        observe = Smoke.observe
+
+        def observe_then_exit(smoke):
+            observe(smoke)
+            if smoke.observe_seconds:
+                self.exit_after = self.process_calls
+
+        patch("simulator_smoke.Smoke.observe", observe_then_exit).start()
+        with self.assertRaisesRegex(RuntimeError, "after observation"):
+            self.smoke.run()
+        self.assertFalse(self.result()["passed"])
+        self.assert_scoped_cleanup()
+
+    def test_grace_recheck_waits_before_final_process_check(self):
+        sleeps = patch("simulator_smoke.time.sleep").start()
+        self.smoke.grace_seconds = 9
+        self.smoke.run()
+        self.assertIn(unittest.mock.call(9), sleeps.call_args_list)
+        self.assertEqual(self.result()["exit_status"], "0")
+
+    def test_abnormal_launchd_exit_status_fails(self):
+        for line, message in (
+            ("1234\t-6\tUIKitApplication:dev.xcross.smoke[a1b2]\n", "abnormal exit status -6"),
+            ("-\t-6\tUIKitApplication:dev.xcross.smoke[a1b2]\n", "no longer the running"),
+            ("1234\t0\tUIKitApplication:other.bundle[a1b2]\n", "no launchd job"),
+        ):
+            with self.subTest(line=line):
+                self.launchctl = line
+                self.smoke.output = Path(tempfile.mkdtemp(dir=self.root))
+                with self.assertRaisesRegex(RuntimeError, message):
+                    self.smoke.run()
+                self.assertFalse(self.result()["passed"])
+                self.assert_scoped_cleanup()
+                self.calls.clear()
+
+    def test_abort_markers_in_app_output_or_unified_log_fail(self):
+        for stream, text in (
+            ("stderr", "*** Terminating app due to uncaught exception 'NSInvalidArgumentException'\n"),
+            ("stderr", "dyld[42]: Library not loaded: @rpath/Missing.framework/Missing\n"),
+            ("stderr", "dyld[42]: Symbol not found: _swift_task_create\n"),
+            ("log", "Runner: Fatal error: Unexpectedly found nil\n"),
+            ("log", "Runner: (libsystem_c.dylib) abort() called\n"),
+            ("log", "Runner: signal SIGABRT\n"),
+        ):
+            with self.subTest(text=text):
+                self.app_stderr = text if stream == "stderr" else None
+                self.ready_output = text if stream == "log" else None
+                self.smoke.output = Path(tempfile.mkdtemp(dir=self.root))
+                with self.assertRaisesRegex(RuntimeError, "abort or crash marker"):
+                    self.smoke.run()
+                self.assertTrue(self.result()["abort_markers"])
+                self.assert_scoped_cleanup()
+                self.calls.clear()
+
+    def test_benign_app_output_passes(self):
+        self.app_stderr = "flutter: The Dart VM service is listening\n"
+        self.ready_output = "Runner: app started normally\n"
+        self.smoke.run()
+        self.assertEqual(self.result()["abort_markers"], [])
 
     def test_new_crash_report_fails_and_is_preserved(self):
         reports = self.root / "home/Library/Logs/DiagnosticReports"
