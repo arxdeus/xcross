@@ -73,7 +73,8 @@ final class IosEngineCache<T extends PlatformHostInterface> {
       flutterSdkDirectory,
       'Flutter.xcframework',
     );
-    if (host.fileSystem.directory(flutterFramework).existsSync()) {
+    if (host.fileSystem.directory(flutterFramework).existsSync() &&
+        _preservesCase(flutterSdkDirectory)) {
       return flutterSdkDirectory;
     }
 
@@ -81,6 +82,32 @@ final class IosEngineCache<T extends PlatformHostInterface> {
       _userEngineRoot,
       targetPolicy.engineArtifact,
     );
+  }
+
+  bool _preservesCase(String engineDirectory) {
+    final context = host.paths.context;
+    final xcframework = context.join(engineDirectory, 'Flutter.xcframework');
+    if (!_entryNames(engineDirectory).contains('Flutter.xcframework')) {
+      return false;
+    }
+    final slices = _entryNames(xcframework);
+    for (final identifier in targetPolicy.engineSliceIdentifiers) {
+      if (!slices.contains(identifier)) continue;
+      final slice = context.join(xcframework, identifier);
+      if (!_entryNames(slice).contains('Flutter.framework')) return false;
+      final framework = _entryNames(context.join(slice, 'Flutter.framework'));
+      return framework.contains('Flutter') && framework.contains('Info.plist');
+    }
+    return true;
+  }
+
+  Set<String> _entryNames(String path) {
+    final directory = host.fileSystem.directory(path);
+    if (!directory.existsSync()) return const {};
+    return {
+      for (final entity in directory.listSync(followLinks: false))
+        host.paths.context.basename(entity.path),
+    };
   }
 
   /// Flutter.xcframework inside [_engineDir].

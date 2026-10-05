@@ -423,9 +423,10 @@ void main() {
       ),
     );
     final sdk = p.join(flutterRoot, 'bin', 'cache', 'artifacts', 'engine');
-    Directory(
-      p.join(sdk, 'ios', 'Flutter.xcframework'),
-    ).createSync(recursive: true);
+    _writeEngineFramework(
+      p.join(sdk, 'ios', 'Flutter.xcframework', 'ios-arm64'),
+      folded: false,
+    );
     Directory(
       p.join(sdk, 'common', 'flutter_patched_sdk'),
     ).createSync(recursive: true);
@@ -435,6 +436,34 @@ void main() {
     );
     expect(engine.patchedSdkRoot, p.join(sdk, 'common', 'flutter_patched_sdk'));
   });
+  test('ignores SDK engine artifacts whose names were case-folded', () {
+    final sdk = p.join(flutterRoot, 'bin', 'cache', 'artifacts', 'engine');
+    _writeEngineFramework(
+      p.join(sdk, 'ios', 'Flutter.xcframework', 'ios-arm64'),
+      folded: true,
+    );
+    expect(
+      cache().flutterXcframework,
+      p.join(
+        cacheRoot,
+        'engine-hash',
+        'artifacts',
+        'engine',
+        'ios',
+        'Flutter.xcframework',
+      ),
+    );
+  });
+}
+
+void _writeEngineFramework(String slice, {required bool folded}) {
+  final framework = Directory(p.join(slice, 'Flutter.framework'))
+    ..createSync(recursive: true);
+  for (final name in ['Flutter', 'Info.plist']) {
+    File(
+      p.join(framework.path, folded ? name.toLowerCase() : name),
+    ).writeAsStringSync(name);
+  }
 }
 
 Uint8List _unixZip(Archive archive) {

@@ -93,6 +93,7 @@ const xcrossFlutterTestsRoles = <String, Map<String, String>>{
     'FUNCTION:_downloader': 'private',
     'FUNCTION:_log': 'private',
     'FUNCTION:_unixZip': 'private',
+    'FUNCTION:_writeEngineFramework': 'private',
     'FUNCTION:main': 'entrypoint',
   },
   'workspace:packages/xcross/test/flutter/build/ios_linker_compatibility_test.dart':
