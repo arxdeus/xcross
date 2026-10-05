@@ -111,7 +111,10 @@ void main() {
             .transform(utf8.decoder)
             .transform(const LineSplitter())
             .first;
-        expect(cwd, root.resolveSymbolicLinksSync());
+        expect(
+          Directory(cwd).resolveSymbolicLinksSync(),
+          root.resolveSymbolicLinksSync(),
+        );
         await host.processes.killTree(process);
         await process.exitCode;
         expect(files.probes, [

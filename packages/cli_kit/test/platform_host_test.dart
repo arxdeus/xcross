@@ -631,7 +631,7 @@ void main() {
         executableOverrides: {'taskkill': '/configured/taskkill'},
       );
       await process.exitCode;
-      expect(invoked, '/configured/taskkill');
+      expect(invoked, native.paths.ioPath('/configured/taskkill'));
       expect(values, same(env));
       expect(inherited, isFalse);
       await processes.killTree(process, environment: env);
