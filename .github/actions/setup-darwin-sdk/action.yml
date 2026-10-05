@@ -112,7 +112,13 @@ runs:
                 import tarfile
 
                 with tarfile.open(archive) as tar:
-                    members = tar.getmembers()
+                    members = [
+                        m for m in tar.getmembers()
+                        if not any(
+                            part == "__MACOSX" or part.startswith("._")
+                            for part in m.name.split("/")
+                        )
+                    ]
                     links = [m for m in members if m.issym() or m.islnk()]
                     regular = [m for m in members if m not in links]
                     if hasattr(tarfile, "tar_filter"):
@@ -129,7 +135,18 @@ runs:
                             if member.issym()
                             else parent / member.linkname
                         ).resolve()
-                        if source.is_dir():
+                        blocked = any(
+                            other is not member
+                            and (
+                                (parent / other.name).resolve() == source
+                                or source
+                                in (parent / other.name).resolve().parents
+                            )
+                            for other in pending
+                        )
+                        if blocked:
+                            unresolved.append(member)
+                        elif source.is_dir():
                             shutil.copytree(
                                 source, destination, dirs_exist_ok=True
                             )
@@ -143,7 +160,15 @@ runs:
                     pending = unresolved
             else:
                 subprocess.run(
-                    ["tar", "-xzf", str(archive), "-C", str(parent)],
+                    [
+                        "tar", "-xzf", str(archive), "-C", str(parent),
+                        "--exclude=._*", "--exclude=__MACOSX",
+                        *(
+                            ["--no-mac-metadata"]
+                            if sys.platform == "darwin"
+                            else []
+                        ),
+                    ],
                     check=True,
                 )
         finally:

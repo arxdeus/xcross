@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tarfile
 import tempfile
 import textwrap
@@ -182,6 +183,72 @@ class DownloadTests(unittest.TestCase):
         self.assertFalse(alias.is_symlink())
         self.assertEqual(alias.read_text(), "r")
         self.assertFalse(self.archive.exists())
+
+    def test_windows_directory_links_copy_after_nested_link_chains(self):
+        output = io.BytesIO()
+        with tarfile.open(fileobj=output, mode="w:gz") as archive:
+            def add(name, data=None, link=None):
+                member = tarfile.TarInfo(f"xcross-darwin.artifactbundle/{name}")
+                if link:
+                    member.type = tarfile.SYMTYPE
+                    member.linkname = link
+                    archive.addfile(member)
+                else:
+                    member.size = len(data)
+                    archive.addfile(member, io.BytesIO(data))
+            add("info.json", b"{}")
+            add("SDKs/iPhoneOS26.5.sdk", link="iPhoneOS.sdk")
+            add("SDKs/iPhoneOS.sdk/usr/lib/libSystem.B.tbd", b"system")
+            add("SDKs/iPhoneOS.sdk/usr/lib/libm.tbd", link="libSystem.tbd")
+            add("SDKs/iPhoneOS.sdk/usr/lib/libSystem.tbd", link="libSystem.B.tbd")
+        with patch("sys.platform", "win32"), patch(
+            "urllib.request.urlopen", return_value=io.BytesIO(output.getvalue()),
+        ):
+            self.execute()
+        for sdk in ("iPhoneOS.sdk", "iPhoneOS26.5.sdk"):
+            for name in ("libm.tbd", "libSystem.tbd", "libSystem.B.tbd"):
+                with self.subTest(sdk=sdk, name=name):
+                    path = self.bundle / "SDKs" / sdk / "usr/lib" / name
+                    self.assertFalse(path.is_symlink())
+                    self.assertEqual(path.read_text(), "system")
+
+    def test_extraction_skips_appledouble_members_on_every_platform(self):
+        output = io.BytesIO()
+        with tarfile.open(fileobj=output, mode="w:gz") as archive:
+            for name in ("xcross-darwin.artifactbundle", "xcross-darwin.artifactbundle/usr", "__MACOSX", "__MACOSX/xcross-darwin.artifactbundle"):
+                member = tarfile.TarInfo(name)
+                member.type = tarfile.DIRTYPE
+                member.mode = 0o755
+                archive.addfile(member)
+            for name in (
+                "._xcross-darwin.artifactbundle",
+                "xcross-darwin.artifactbundle/info.json",
+                "xcross-darwin.artifactbundle/._info.json",
+                "xcross-darwin.artifactbundle/._usr",
+                "xcross-darwin.artifactbundle/usr/hash_info.h",
+                "xcross-darwin.artifactbundle/usr/._hash_info.h",
+                "xcross-darwin.artifactbundle/usr/kept._name.h",
+                "__MACOSX/xcross-darwin.artifactbundle/._info.json",
+            ):
+                member = tarfile.TarInfo(name)
+                member.size = 2
+                member.mode = 0o644
+                archive.addfile(member, io.BytesIO(b"{}"))
+        for platform in sorted({"win32", sys.platform}):
+            with self.subTest(platform=platform), patch("sys.platform", platform), patch(
+                "urllib.request.urlopen", return_value=io.BytesIO(output.getvalue()),
+            ):
+                self.execute()
+                extracted = sorted(
+                    path.relative_to(self.parent).as_posix()
+                    for path in self.parent.rglob("*") if path.is_file()
+                )
+                self.assertEqual(extracted, [
+                    "xcross-darwin.artifactbundle/info.json",
+                    "xcross-darwin.artifactbundle/usr/hash_info.h",
+                    "xcross-darwin.artifactbundle/usr/kept._name.h",
+                ])
+                self.assertFalse((self.parent / "__MACOSX").exists())
 
     def test_extraction_failure_removes_archive(self):
         with patch("urllib.request.urlopen", return_value=io.BytesIO(self.payload())), patch(
