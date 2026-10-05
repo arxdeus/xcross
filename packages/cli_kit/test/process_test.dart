@@ -721,6 +721,36 @@ void main() {
     );
 
     test(
+      'keeps Windows extended-length form for paths beyond the plain limit',
+      () async {
+        final directory = Directory.systemTemp.createTempSync('long-args-');
+        addTearDown(() => directory.deleteSync(recursive: true));
+        final script = File(p.join(directory.path, 'args.dart'))
+          ..writeAsStringSync(
+            "import 'dart:io'; void main(List<String> a) { stdout.write(a.join('|')); }",
+          );
+        final long = p.joinAll([
+          directory.path,
+          for (var i = 0; i < 30; i++) 'segment$i',
+        ]);
+        final extended = '\\\\?\\$long';
+
+        final process = await runner.start(Platform.resolvedExecutable, [
+          script.path,
+          extended,
+          '--out=$extended',
+        ]);
+        final output = await process.stdout
+            .transform(systemEncoding.decoder)
+            .join();
+
+        expect(await process.exitCode, 0);
+        expect(output, '$extended|--out=$extended');
+      },
+      skip: !Platform.isWindows,
+    );
+
+    test(
       'passes Windows extended-length environment paths in plain form',
       () async {
         final directory = Directory.systemTemp.createTempSync('plain-env-');

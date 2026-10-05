@@ -135,8 +135,13 @@ final class WindowsProcesses implements HostProcessInterface {
 
   static String _plainArgument(String argument) {
     final option = _optionValue.firstMatch(argument);
-    if (option != null) return '${option[1]}${_plainPath(option[2]!)}';
-    return _plainPath(argument);
+    if (option != null) return '${option[1]}${_shortPlainPath(option[2]!)}';
+    return _shortPlainPath(argument);
+  }
+
+  static String _shortPlainPath(String path) {
+    final plain = _plainPath(path);
+    return plain.length < _maxPlainDirectory ? plain : path;
   }
 
   @override
