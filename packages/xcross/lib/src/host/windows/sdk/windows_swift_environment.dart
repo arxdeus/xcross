@@ -203,7 +203,9 @@ final class WindowsSwiftEnvironment implements SwiftEnvironmentHostInterface {
       searched.add('the Swift toolchain (swift is not on PATH)');
       return null;
     }
-    final toolchain = _paths.dirname(_paths.dirname(_paths.dirname(swift)));
+    final toolchain = _paths.dirname(
+      _paths.dirname(_paths.dirname(_paths.normalize(swift))),
+    );
     final platforms = _paths.join(
       _paths.dirname(_paths.dirname(toolchain)),
       'Platforms',

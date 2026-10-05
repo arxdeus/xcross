@@ -79,8 +79,8 @@ void main() {
         r'\Windows.platform\Developer\SDKs\Windows.sdk',
       )
       ..swift(
-        r'C:\Users\Mind\AppData\Local\Programs\Swift\Toolchains'
-        r'\6.4.0+Asserts\usr\bin',
+        'C:/Users/Mind/AppData/Local/Programs/Swift/Toolchains'
+        '/6.4.0+Asserts/usr/bin',
       )
       ..registry[_userKey] = r'C:\Removed\Windows.sdk';
     final environment = fixture.environment(
