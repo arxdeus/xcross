@@ -146,8 +146,16 @@ class WorkflowSecurityTests(unittest.TestCase):
                 self.assertIn("if: runner.os == 'Linux'", linux)
                 for needle in ("ubuntu2404-aarch64", "ubuntu2404", '--verify "$download/$archive.sig"'):
                     self.assertIn(needle, linux)
-                self.assertIn('"(swift-$SWIFT_VERSION-RELEASE)"', linux)
-                self.assertIn("(swift-$env:SWIFT_VERSION-RELEASE)", step(build, "Install official Swift and LLVM on Windows"))
+                tag = re.search(r'(?m)^ +(tag="[^\n]+")$', linux).group(1)
+                for version, expected in (("6.3.3", "(swift-6.3.3-RELEASE)"), ("6.4.0", "(swift-6.4-RELEASE)")):
+                    result = subprocess.run(
+                        ["bash", "-c", f'{tag}; printf %s "$tag"'], check=True, capture_output=True, text=True,
+                        env={**os.environ, "SWIFT_VERSION": version},
+                    )
+                    self.assertEqual(result.stdout, expected)
+                self.assertIn('gzip -dcf "$download/all-keys.asc" > "$download/all-keys.txt"', linux)
+                self.assertIn('--import "$download/all-keys.txt"', linux)
+                self.assertIn("(swift-$($env:SWIFT_VERSION -replace '\\.0$')-RELEASE)", step(build, "Install official Swift and LLVM on Windows"))
         integration = (WORKFLOWS / "integration.yml").read_text()
         self.assertIn("'6.4.0'", integration)
         self.assertIn("76169A85BCBA82854A0CD8F9655FFB74B3758D60C35A245457510095F2823C03", integration)

@@ -229,7 +229,7 @@ jobs:
             X64) arch=x86_64; platform=ubuntu2404; suffix= ;;
             *) echo "Unsupported runner architecture: $RUNNER_ARCH"; exit 1 ;;
           esac
-          tag="(swift-$SWIFT_VERSION-RELEASE)"
+          tag="(swift-${SWIFT_VERSION%.0}-RELEASE)"
           current="$(swift --version 2>/dev/null || true)"
           if ! grep -Fq "$tag" <<< "$current" ||
               ! grep -Eq "Target: $arch-.*linux" <<< "$current"; then
@@ -248,9 +248,10 @@ jobs:
             chmod 700 "$download/gnupg"
             curl --fail --location --retry 3 "$base/$archive" -o "$download/$archive"
             curl --fail --location --retry 3 "$base/$archive.sig" -o "$download/$archive.sig"
-            curl --fail --location --retry 3 https://www.swift.org/keys/all-keys.asc \
+            curl --fail --location --compressed --retry 3 https://www.swift.org/keys/all-keys.asc \
               -o "$download/all-keys.asc"
-            gpg --batch --homedir "$download/gnupg" --import "$download/all-keys.asc"
+            gzip -dcf "$download/all-keys.asc" > "$download/all-keys.txt"
+            gpg --batch --homedir "$download/gnupg" --import "$download/all-keys.txt"
             gpg --batch --homedir "$download/gnupg" \
               --verify "$download/$archive.sig" "$download/$archive"
             tar -xzf "$download/$archive" -C "$RUNNER_TEMP/swift" --strip-components=1
@@ -411,7 +412,7 @@ jobs:
             throw "swift --version failed with $LASTEXITCODE"
           }
           $swiftVersion = (& swift --version 2>&1 | Out-String)
-          if (-not $swiftVersion.Contains("(swift-$env:SWIFT_VERSION-RELEASE)")) {
+          if (-not $swiftVersion.Contains("(swift-$($env:SWIFT_VERSION -replace '\.0$')-RELEASE)")) {
             throw "Swift is not the pinned $env:SWIFT_VERSION release"
           }
           & swift sdk list

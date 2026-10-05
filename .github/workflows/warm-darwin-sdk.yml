@@ -162,9 +162,10 @@ jobs:
             chmod 700 "$download/gnupg"
             curl --fail --location --retry 3 "$base/$archive" -o "$download/$archive"
             curl --fail --location --retry 3 "$base/$archive.sig" -o "$download/$archive.sig"
-            curl --fail --location --retry 3 https://www.swift.org/keys/all-keys.asc \
+            curl --fail --location --compressed --retry 3 https://www.swift.org/keys/all-keys.asc \
               -o "$download/all-keys.asc"
-            gpg --batch --homedir "$download/gnupg" --import "$download/all-keys.asc"
+            gzip -dcf "$download/all-keys.asc" > "$download/all-keys.txt"
+            gpg --batch --homedir "$download/gnupg" --import "$download/all-keys.txt"
             gpg --batch --homedir "$download/gnupg" \
               --verify "$download/$archive.sig" "$download/$archive"
             tar -xzf "$download/$archive" -C "$RUNNER_TEMP/swift" --strip-components=1
