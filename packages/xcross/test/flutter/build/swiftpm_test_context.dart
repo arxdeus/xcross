@@ -185,10 +185,7 @@ SwiftPmRuntime<MacOSHost> testSwiftPmRuntime({
     coordinator,
     transport,
     copyPolicy,
-    PosixSwiftPmBuildExecution(
-      runner: runner,
-      sourceRepair: foundation.sourceRepair,
-    ),
+    PosixSwiftPmBuildExecution(runner: runner),
     const PosixSwiftPmDependencyPreparation(),
     checkout,
     attributes,
@@ -337,7 +334,6 @@ SwiftPmRuntime<WindowsHost> testWindowsSwiftPmRuntime({
     WindowsSwiftPmBuildExecution(
       runner: runner,
       repair: WindowsSwiftPlanRepair(runner),
-      sourceRepair: foundation.sourceRepair,
       consumerRepair: foundation.consumerRepair,
     ),
     WindowsSwiftPmDependencyPreparation(
@@ -521,7 +517,6 @@ final class RecordingSwiftPmInteropBuild implements SwiftPmInteropBuild {
     environment: const {},
     scratchPath: 'fixture',
     targetBuildDir: 'fixture',
-    ownedRoots: const [],
     consumerProducts: const {},
   );
   final Future<void> Function() _build;

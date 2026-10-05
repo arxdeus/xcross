@@ -9,11 +9,9 @@ final class SwiftPmBuildCommand {
     required Map<String, String> environment,
     required this.scratchPath,
     required this.targetBuildDir,
-    required List<String> ownedRoots,
     required Map<String, Set<String>> consumerProducts,
   }) : arguments = List.unmodifiable(arguments),
        environment = Map.unmodifiable(environment),
-       ownedRoots = List.unmodifiable(ownedRoots),
        consumerProducts = Map.unmodifiable(
          consumerProducts.map(
            (key, value) => MapEntry(key, Set<String>.unmodifiable(value)),
@@ -24,7 +22,6 @@ final class SwiftPmBuildCommand {
   final Map<String, String> environment;
   final String scratchPath;
   final String targetBuildDir;
-  final List<String> ownedRoots;
   final Map<String, Set<String>> consumerProducts;
 }
 

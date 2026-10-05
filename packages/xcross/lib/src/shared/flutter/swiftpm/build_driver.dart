@@ -224,7 +224,6 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
         environment: environment,
         scratchPath: scratchPath,
         targetBuildDir: targetBuildDir,
-        ownedRoots: [workspace.vendor, p.join(outputDir, 'Packages')],
         consumerProducts: interopConsumers,
       ),
       consumerRepair: consumerRepair,

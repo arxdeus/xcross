@@ -184,10 +184,7 @@ FlutterBuildRuntime<LinuxHost> testFlutterRuntime(
     checkout: checkout,
     checkoutAttributes: attributes,
     checkoutManifestNormalizer: normalizer,
-    buildExecution: PosixSwiftPmBuildExecution(
-      runner: runner,
-      sourceRepair: foundation.sourceRepair,
-    ),
+    buildExecution: PosixSwiftPmBuildExecution(runner: runner),
     dependencyPreparation: const PosixSwiftPmDependencyPreparation<LinuxHost>(),
   );
   return FlutterBuildRuntime(

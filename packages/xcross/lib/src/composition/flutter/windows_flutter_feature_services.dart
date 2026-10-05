@@ -141,7 +141,6 @@ final class WindowsFlutterFeatureServices<T extends WindowsHostInterface>
     final buildExecution = WindowsSwiftPmBuildExecution<T>(
       runner: runner,
       repair: WindowsSwiftPlanRepair(runner),
-      sourceRepair: foundation.sourceRepair,
       consumerRepair: foundation.consumerRepair,
     );
     final dependencyPreparation = WindowsSwiftPmDependencyPreparation<T>(

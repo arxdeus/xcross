@@ -117,12 +117,6 @@ const xcrossFlutterTestsRoles = <String, Map<String, String>>{
   'workspace:packages/xcross/test/flutter/build/ios_plugins_test.dart': {
     'FUNCTION:main': 'entrypoint',
   },
-  'workspace:packages/xcross/test/flutter/build/ios_swift_state_recovery_test.dart':
-      {
-        'FUNCTION:diagnostic': 'internal',
-        'FUNCTION:main': 'entrypoint',
-        'TOP_LEVEL_VARIABLE:_swiftPmRuntime': 'private',
-      },
   'workspace:packages/xcross/test/flutter/build/macho_dylib_rewriter_test.dart':
       {
         'FUNCTION:_dylibNames': 'private',

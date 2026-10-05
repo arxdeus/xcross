@@ -25,7 +25,6 @@ final class SwiftPmBuildSession<T extends PlatformHostInterface>
       environment: command.environment,
       scratchPath: command.scratchPath,
       targetBuildDir: command.targetBuildDir,
-      ownedRoots: command.ownedRoots,
       consumerProducts: command.consumerProducts,
     ),
   );

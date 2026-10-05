@@ -189,7 +189,6 @@ const xcrossFlutterRoles = <String, Map<String, String>>{
     'FUNCTION:_swiftCodeMask': 'private',
     'FUNCTION:_swiftRegexEnd': 'private',
     'FUNCTION:exposeMacOSPackageGraphEntries': 'internal',
-    'FUNCTION:restoreSwiftUIStatePropertyWrapper': 'internal',
   },
   'package:xcross/src/shared/flutter/build/swiftpm_binary_artifact_preparer.dart':
       {

@@ -131,37 +131,6 @@ List<(int, int)> _macOSDirectiveRemovals(
   return removals;
 }
 
-/// Disambiguates SDK State macros from the genuine SwiftUI property wrapper.
-/// Called only after a missing StateMacro diagnostic for an owned staged file.
-@internal
-String restoreSwiftUIStatePropertyWrapper(String source) {
-  final code = _swiftCodeMask(source);
-  final attributes = RegExp(
-    r'@(?:SwiftUI\.)?State\b(?!\s*\.)',
-  ).allMatches(code).toList();
-  if (attributes.isEmpty) return source;
-  const base = '_XcrossSwiftUIState';
-  var alias = base;
-  var suffix = 2;
-  while (RegExp('\\b$alias\\b').hasMatch(code)) {
-    alias = '$base${suffix++}';
-  }
-  final output = StringBuffer();
-  var start = 0;
-  for (final attribute in attributes) {
-    output
-      ..write(source.substring(start, attribute.start))
-      ..write('@$alias');
-    start = attribute.end;
-  }
-  output
-    ..write(source.substring(start))
-    ..write('\n#if canImport(SwiftUI)\nimport SwiftUI\n')
-    ..write('private typealias $alias<Value> = SwiftUI.State<Value>\n')
-    ..write('#endif\n');
-  return output.toString();
-}
-
 String _swiftCodeMask(String source) {
   final output = StringBuffer();
   var index = 0;

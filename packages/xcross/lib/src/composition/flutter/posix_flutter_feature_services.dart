@@ -123,10 +123,7 @@ abstract class PosixFlutterFeatureServices<T extends PlatformHostInterface>
       hostBuildServices: buildServices,
       librarianResolver: librarianResolver,
     );
-    final buildExecution = PosixSwiftPmBuildExecution<T>(
-      runner: runner,
-      sourceRepair: foundation.sourceRepair,
-    );
+    final buildExecution = PosixSwiftPmBuildExecution<T>(runner: runner);
     final dependencyPreparation = PosixSwiftPmDependencyPreparation<T>();
     final gatePlatform = PosixSwiftPmGatePlatform(
       fileSystem: artifactFileSystem,

@@ -4,8 +4,6 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:cli_kit/shared/process/process_models.dart';
 import 'package:meta/meta.dart';
-import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/build/swift_package_host_patches.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
@@ -65,73 +63,6 @@ final class SwiftPmSourceRepair<T extends PlatformHostInterface> {
     'couldn\u2019t fetch updates from remote repositories',
     "couldn't fetch updates from remote repositories",
   ];
-
-  /// Retry once, and only when the exact compiler diagnostic changed owned
-  /// staged sources. Unrelated failures and failed repairs keep their errors.
-  Future<void> buildWithSwiftUIStateRecovery({
-    required Future<void> Function() build,
-    required List<String> ownedRoots,
-  }) async {
-    try {
-      await build();
-    } on Object catch (error, stack) {
-      bool changed;
-      try {
-        changed = await repairMissingSwiftUIStateMacro(
-          error.toString(),
-          ownedRoots: ownedRoots,
-        );
-      } on Object {
-        Error.throwWithStackTrace(error, stack);
-      }
-      if (!changed) rethrow;
-      await build();
-    }
-  }
-
-  Future<bool> repairMissingSwiftUIStateMacro(
-    String diagnostics, {
-    required List<String> ownedRoots,
-  }) async {
-    final diagnostic = RegExp(
-      r"^(.+\.swift):\d+:\d+: error: external macro implementation type 'SwiftUIMacros\.StateMacro' could not be found for macro 'State\([^'\r\n]*\)'; plugin for module 'SwiftUIMacros' not found\s*$",
-      multiLine: true,
-    );
-    final paths = diagnostic
-        .allMatches(diagnostics)
-        .map((match) => match[1]!)
-        .toSet();
-    if (paths.isEmpty) return false;
-    final roots = <(String, String)>[
-      for (final root in ownedRoots)
-        if (filesystem.artifactFileSystem.directory(root).existsSync())
-          (
-            p.normalize(p.absolute(root)),
-            filesystem.artifactFileSystem
-                .directory(root)
-                .resolveSymbolicLinksSync(),
-          ),
-    ];
-    var changed = false;
-    for (final path in paths) {
-      if (!p.isAbsolute(path)) continue;
-      final file = filesystem.artifactFileSystem.file(p.normalize(path));
-      if (!file.existsSync()) continue;
-      final realPath = file.resolveSymbolicLinksSync();
-      if (!roots.any(
-        (root) =>
-            p.isWithin(root.$1, file.path) && p.isWithin(root.$2, realPath),
-      )) {
-        continue;
-      }
-      final original = await file.readAsString();
-      final repaired = restoreSwiftUIStatePropertyWrapper(original);
-      if (repaired == original) continue;
-      await filesystem.writeStable(file.path, repaired);
-      changed = true;
-    }
-    return changed;
-  }
 
   Future<void> buildTranslatingSdkMismatch(
     Future<void> Function() build,
