@@ -24,8 +24,7 @@ if (\$ToolArguments.Count -eq 0) { Write-Error 'otool: missing option'; exit 64 
 exit \$LASTEXITCODE
 '''
     : '''
-param([Parameter(ValueFromRemainingArguments = \$true)][string[]]\$Arguments)
-& ${powerShellQuote(tool)} @Arguments
+& ${powerShellQuote(tool)} @args
 exit \$LASTEXITCODE
 ''';
 

@@ -135,6 +135,18 @@ void main() {
     }
   });
 
+  test('PowerShell otool passthrough forwards single-letter options raw', () {
+    final script = renderPowerShellOtoolShim(
+      tool: r'C:\Tools\fixture-otool.exe',
+      usesObjdump: false,
+    );
+
+    expect(script, isNot(contains('param(')));
+    expect(script, isNot(contains('[Parameter(')));
+    expect(script, contains(r"& 'C:\Tools\fixture-otool.exe' @args"));
+    expect(script, contains(r'exit $LASTEXITCODE'));
+  });
+
   test('Unix host compiler prefix arguments are shell quoted', () async {
     final temp = await Directory.systemTemp.createTemp('host-prefix-shim-');
     addTearDown(() => temp.delete(recursive: true));
