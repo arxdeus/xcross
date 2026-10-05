@@ -37,10 +37,14 @@ jobs:
 
     steps:
       - name: Mask Xcode xip URL
-        shell: bash
-        env:
-          XCODE_XIP_URL: ${{ inputs.xcode_xip_url }}
-        run: echo "::add-mask::$XCODE_XIP_URL"
+        shell: python
+        run: |
+          import json
+          import os
+
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as event:
+              url = json.load(event)["inputs"]["xcode_xip_url"]
+          print(f"::add-mask::{url}")
 
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6

@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 import textwrap
 import unittest
@@ -139,7 +140,16 @@ class WorkflowSecurityTests(unittest.TestCase):
         self.assertIn("actions: write", job(source, "warm-cache"))
         names = [title for _, title, _ in steps(source)]
         self.assertEqual(names[0], "Mask Xcode xip URL")
-        self.assertIn('::add-mask::$XCODE_XIP_URL', step(source, "Mask Xcode xip URL"))
+        mask = step(source, "Mask Xcode xip URL")
+        self.assertNotIn("${{", mask)
+        with tempfile.TemporaryDirectory(dir=os.environ.get("JCODE_SCRATCH_DIR")) as directory:
+            event = Path(directory) / "event.json"
+            event.write_text('{"inputs": {"xcode_xip_url": "https://host.invalid/X.xip?sig=s"}}')
+            result = subprocess.run(
+                [sys.executable, "-c", script(mask)], check=True, capture_output=True, text=True,
+                env={**os.environ, "GITHUB_EVENT_PATH": str(event)},
+            )
+        self.assertEqual(result.stdout, "::add-mask::https://host.invalid/X.xip?sig=s\n")
         download = step(source, "Download Xcode xip")
         self.assertIn("--user-agent curl/", download)
         self.assertIn("--retry", download)
