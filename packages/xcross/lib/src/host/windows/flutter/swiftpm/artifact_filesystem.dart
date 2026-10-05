@@ -108,7 +108,7 @@ final class WindowsSwiftPmArtifactFileSystem
       return host.paths.pathKey(
             await directory(alias).resolveSymbolicLinks(),
           ) ==
-          host.paths.pathKey(target);
+          host.paths.pathKey(await directory(target).resolveSymbolicLinks());
     } on FileSystemException {
       return false;
     }
