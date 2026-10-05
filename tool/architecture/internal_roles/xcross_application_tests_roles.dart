@@ -41,6 +41,8 @@ const xcrossApplicationTestsRoles = <String, Map<String, String>>{
   },
   'workspace:packages/xcross/test/cli/doctor_environment_checks_test.dart': {
     'CLASS:DoctorServiceDevices': 'internal',
+    'CLASS:DoctorServiceDirectory': 'internal',
+    'CLASS:DoctorServiceFile': 'internal',
     'CLASS:DoctorServiceFileSystem': 'internal',
     'CLASS:DoctorServiceFixture': 'internal',
     'CLASS:DoctorServiceHost': 'internal',
@@ -48,6 +50,7 @@ const xcrossApplicationTestsRoles = <String, Map<String, String>>{
     'CLASS:DoctorServiceLookup': 'internal',
     'CLASS:DoctorServiceProcess': 'internal',
     'CLASS:DoctorServiceProcesses': 'internal',
+    'FUNCTION:logicalProjectFiles': 'internal',
     'FUNCTION:main': 'entrypoint',
   },
   'workspace:packages/xcross/test/cli/flutter_command_args_test.dart': {

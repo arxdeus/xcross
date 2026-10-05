@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
 import 'package:cli_kit/host/linux/linux_host.dart';
@@ -396,6 +397,13 @@ final class DoctorServiceFixture {
 }
 
 @internal
+DoctorServiceFileSystem logicalProjectFiles() {
+  final root = Directory.systemTemp.createTempSync('xcross-doctor-project-');
+  addTearDown(() => root.deleteSync(recursive: true));
+  return DoctorServiceFileSystem(p.posix, '/', root.path);
+}
+
+@internal
 final class DoctorServiceHost implements PlatformHostInterface {
   const DoctorServiceHost(this.base, this.fileSystem, this.processes);
   final PlatformHostInterface base;
@@ -434,9 +442,10 @@ final class DoctorServiceFileSystem implements HostFileSystemInterface {
   }
 
   @override
-  File file(String path) => File(physical(path));
+  File file(String path) => DoctorServiceFile(path, File(physical(path)), this);
   @override
-  Directory directory(String path) => Directory(physical(path));
+  Directory directory(String path) =>
+      DoctorServiceDirectory(path, Directory(physical(path)), this);
   @override
   Link link(String path) => Link(physical(path));
   @override
@@ -448,6 +457,92 @@ final class DoctorServiceFileSystem implements HostFileSystemInterface {
   @override
   Future<void> createArchiveLink(String destination, String target) async =>
       throw StateError('Unexpected diagnostic install');
+}
+
+@internal
+final class DoctorServiceFile implements File {
+  const DoctorServiceFile(this.path, this.backing, this.files);
+  @override
+  final String path;
+  final File backing;
+  final DoctorServiceFileSystem files;
+  @override
+  Directory get parent => files.directory(files.paths.dirname(path));
+  @override
+  bool existsSync() => backing.existsSync();
+  @override
+  int lengthSync() => backing.lengthSync();
+  @override
+  String readAsStringSync({Encoding encoding = utf8}) =>
+      backing.readAsStringSync(encoding: encoding);
+  @override
+  Future<String> readAsString({Encoding encoding = utf8}) =>
+      backing.readAsString(encoding: encoding);
+  @override
+  Uint8List readAsBytesSync() => backing.readAsBytesSync();
+  @override
+  Future<Uint8List> readAsBytes() => backing.readAsBytes();
+  @override
+  void writeAsStringSync(
+    String contents, {
+    FileMode mode = FileMode.write,
+    Encoding encoding = utf8,
+    bool flush = false,
+  }) => backing.writeAsStringSync(
+    contents,
+    mode: mode,
+    encoding: encoding,
+    flush: flush,
+  );
+  @override
+  void writeAsBytesSync(
+    List<int> bytes, {
+    FileMode mode = FileMode.write,
+    bool flush = false,
+  }) => backing.writeAsBytesSync(bytes, mode: mode, flush: flush);
+  @override
+  File copySync(String newPath) => backing.copySync(files.physical(newPath));
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnsupportedError(invocation.memberName.toString());
+}
+
+@internal
+final class DoctorServiceDirectory implements Directory {
+  const DoctorServiceDirectory(this.path, this.backing, this.files);
+  @override
+  final String path;
+  final Directory backing;
+  final DoctorServiceFileSystem files;
+  String _logical(String entry) => files.paths.joinAll([
+    path,
+    ...p.split(p.relative(entry, from: backing.path)),
+  ]);
+  @override
+  bool existsSync() => backing.existsSync();
+  @override
+  Directory get parent => files.directory(files.paths.dirname(path));
+  @override
+  void createSync({bool recursive = false}) =>
+      backing.createSync(recursive: recursive);
+  @override
+  List<FileSystemEntity> listSync({
+    bool recursive = false,
+    bool followLinks = true,
+  }) => [
+    for (final entry in backing.listSync(
+      recursive: recursive,
+      followLinks: followLinks,
+    ))
+      switch (entry) {
+        Directory() => files.directory(_logical(entry.path)),
+        File() => files.file(_logical(entry.path)),
+        _ => files.link(_logical(entry.path)),
+      },
+  ];
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnsupportedError(invocation.memberName.toString());
 }
 
 @internal

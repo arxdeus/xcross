@@ -34,8 +34,13 @@ XcrossApplication<LinuxHostInterface> testApplication({
   Map<String, String> environment = const {},
   int processorCount = 1,
   String architecture = 'x64',
+  HostFileSystemInterface? fileSystem,
 }) {
-  final host = LinuxHost(environment: environment, architecture: architecture);
+  final host = LinuxHost(
+    environment: environment,
+    architecture: architecture,
+    fileSystem: fileSystem,
+  );
   final log = testLog();
   final context = LinuxXcrossHostContext(
     host,
@@ -96,12 +101,14 @@ XcrossRuntime<LinuxHostInterface> testRuntime({
   Map<String, String> environment = const {},
   int processorCount = 1,
   String architecture = 'x64',
+  HostFileSystemInterface? fileSystem,
 }) => testApplication(
   configuration: configuration,
   commandPrompt: commandPrompt,
   environment: environment,
   processorCount: processorCount,
   architecture: architecture,
+  fileSystem: fileSystem,
 ).runtime;
 
 @internal

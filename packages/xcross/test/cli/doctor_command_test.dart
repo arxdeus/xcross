@@ -1,5 +1,4 @@
 import 'dart:ffi';
-import 'dart:io';
 
 import 'package:apple_developer_kit/shared/appstoreconnect/asc_config.dart';
 import 'package:args/command_runner.dart';
@@ -198,17 +197,17 @@ void main() {
   });
 
   test('detects Flutter and Compose projects from the current directory', () {
-    final flutter = Directory.systemTemp.createTempSync('doctor_flutter');
-    final compose = Directory.systemTemp.createTempSync('doctor_compose');
-    addTearDown(() {
-      flutter.deleteSync(recursive: true);
-      compose.deleteSync(recursive: true);
-    });
-    File('${flutter.path}/pubspec.yaml').writeAsStringSync('name: demo');
-    File('${compose.path}/settings.gradle.kts').writeAsStringSync('');
+    final files = logicalProjectFiles();
+    files.file('/flutter/pubspec.yaml')
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync('name: demo');
+    files.file('/compose/settings.gradle.kts')
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync('');
+    final inspector = DoctorProjectChecks(testRuntime(fileSystem: files));
 
     expect(
-      DoctorProjectChecks(testRuntime()).detect(flutter.path),
+      inspector.detect('/flutter'),
       isA<DoctorProject>().having(
         (project) => project.kind,
         'kind',
@@ -216,7 +215,7 @@ void main() {
       ),
     );
     expect(
-      DoctorProjectChecks(testRuntime()).detect(compose.path),
+      inspector.detect('/compose'),
       isA<DoctorProject>().having(
         (project) => project.kind,
         'kind',
@@ -326,19 +325,17 @@ void main() {
   });
 
   test('Flutter project reports only configured SDK resolution', () async {
-    final project = Directory.systemTemp.createTempSync(
-      'xcross-doctor-flutter-',
-    );
-    addTearDown(() {
-      project.deleteSync(recursive: true);
-    });
-    File('${project.path}/pubspec.yaml').writeAsStringSync('name: demo');
-    Directory('${project.path}/lib').createSync();
-    File('${project.path}/lib/main.dart').writeAsStringSync('');
+    final files = logicalProjectFiles();
+    files.file('/project/pubspec.yaml')
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync('name: demo');
+    files.file('/project/lib/main.dart')
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync('');
 
     final checks = await DoctorProjectChecks(
-      testRuntime(configuration: XcrossConfig()),
-    ).examine(DoctorProject.flutter(project.path));
+      testRuntime(configuration: XcrossConfig(), fileSystem: files),
+    ).examine(const DoctorProject.flutter('/project'));
     final flutterSdkChecks = checks.where(
       (check) => check.name == 'Flutter SDK',
     );
@@ -351,16 +348,17 @@ void main() {
   test(
     'Flutter package diagnostics use the selected filesystem resolver',
     () async {
-      final project = Directory.systemTemp.createTempSync(
-        'xcross-doctor-packages-',
+      final files = logicalProjectFiles();
+      files.file('/project/pubspec.yaml')
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('name: demo');
+      files.file('/project/.dart_tool/package_config.json')
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('{"configVersion":2,"packages":[]}');
+      final runtime = testRuntime(
+        configuration: XcrossConfig(),
+        fileSystem: files,
       );
-      addTearDown(() => project.deleteSync(recursive: true));
-      File('${project.path}/pubspec.yaml').writeAsStringSync('name: demo');
-      Directory('${project.path}/.dart_tool').createSync();
-      final packageConfig = File(
-        '${project.path}/.dart_tool/package_config.json',
-      )..writeAsStringSync('{"configVersion":2,"packages":[]}');
-      final runtime = testRuntime(configuration: XcrossConfig());
       final inspector = DoctorProjectChecks(runtime);
       expect(
         inspector.packageConfigs.fileSystem,
@@ -368,13 +366,13 @@ void main() {
       );
       expect(inspector.packageConfigs.paths, same(runtime.host.paths.context));
       final checks = await inspector.examine(
-        DoctorProject.flutter(project.path),
+        const DoctorProject.flutter('/project'),
       );
       final packages = checks.singleWhere(
         (check) => check.name == 'Flutter packages',
       );
       expect(packages.status, DoctorStatus.success);
-      expect(packages.path, packageConfig.path);
+      expect(packages.path, '/project/.dart_tool/package_config.json');
     },
   );
 
