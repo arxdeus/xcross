@@ -53,7 +53,7 @@ final class SwiftPmDiscovery<T extends PlatformHostInterface> {
 
     // v7 invalidated dylibs compiled with availability guards disabled; v8
     // invalidates staged sources compiled before State-wrapper recovery.
-    add('xcross-swiftpm-build-v8-state-wrapper-recovery');
+    add('xcross-swiftpm-build-v9-open-apple-macros');
     add(objectiveCLinkerSwiftDriverArguments.join('\u0001'));
     add(hostPolicy.fingerprintArguments.join('\u0001'));
     add(deploymentTarget.version);
