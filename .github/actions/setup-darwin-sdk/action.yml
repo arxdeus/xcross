@@ -1,21 +1,28 @@
 name: Setup Darwin SDK
 description: >-
-  Download and verify xcross-darwin.artifactbundle from a private URL
-  without restoring or saving Apple SDK content in Actions caches.
+  Restore xcross-darwin.artifactbundle from the per-host Actions cache, or
+  download it once from the artifactbundle URL and cache it for this host.
 
 inputs:
   artifactbundle-url:
     description: >-
-      Private URL to a .tar.gz containing xcross-darwin.artifactbundle at its
-      root. Pass the repository secret DARWIN_ARTIFACTBUNDLE_URL only in
-      trusted jobs.
-    required: true
+      URL to a .tar.gz containing xcross-darwin.artifactbundle at its root.
+      Only used on a cache miss.
+    required: false
+    default: ""
+  cache-revision:
+    description: Revision in the per-host cache key. Bump to replace the SDK.
+    required: false
+    default: v3
 
 runs:
   using: composite
   steps:
     - name: Resolve xcross Swift SDK path
+      id: sdk-path
       shell: python
+      env:
+        CACHE_REVISION: ${{ inputs.cache-revision }}
       run: |
         import os
         from pathlib import Path
@@ -31,11 +38,31 @@ runs:
         with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
             env.write(f"XCROSS_SWIFT_SDKS_PATH={parent}\n")
             env.write(f"XCROSS_DARWIN_BUNDLE={bundle}\n")
+        cache_key = "-".join(
+            (
+                "xcross-darwin",
+                os.environ["CACHE_REVISION"].strip() or "v3",
+                os.environ["RUNNER_OS"],
+                os.environ["RUNNER_ARCH"],
+            )
+        )
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+            out.write(f"bundle={bundle}\n")
+            out.write(f"cache-key={cache_key}\n")
+
+    - name: Restore Darwin SDK cache
+      id: darwin-cache
+      uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+      with:
+        path: ${{ steps.sdk-path.outputs.bundle }}
+        key: ${{ steps.sdk-path.outputs.cache-key }}
 
     - name: Download Darwin SDK
+      if: steps.darwin-cache.outputs.cache-hit != 'true'
       shell: python
       env:
         DARWIN_ARTIFACTBUNDLE_URL: ${{ inputs.artifactbundle-url }}
+        CACHE_KEY: ${{ steps.sdk-path.outputs.cache-key }}
       run: |
         import os
         import shutil
@@ -46,9 +73,10 @@ runs:
         url = os.environ.get("DARWIN_ARTIFACTBUNDLE_URL", "").strip()
         if not url:
             print(
-                "::error::Set the repository secret DARWIN_ARTIFACTBUNDLE_URL "
-                "to a private SDK .tar.gz URL and pass it as artifactbundle-url "
-                "from a trusted workflow. Fork pull requests must skip this action."
+                f"::error::Darwin SDK cache {os.environ.get('CACHE_KEY', '')} "
+                "is empty. Run the Warm Darwin SDK cache workflow with "
+                "artifactbundle_url, or set the repository secret "
+                "DARWIN_ARTIFACTBUNDLE_URL."
             )
             raise SystemExit(1)
 
@@ -178,3 +206,10 @@ runs:
             for entry in os.environ["PATH"].split(os.pathsep):
                 print(f"  {entry}")
             raise SystemExit(completed.returncode)
+
+    - name: Save Darwin SDK cache
+      if: steps.darwin-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+      with:
+        path: ${{ steps.sdk-path.outputs.bundle }}
+        key: ${{ steps.sdk-path.outputs.cache-key }}

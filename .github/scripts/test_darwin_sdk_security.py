@@ -79,7 +79,7 @@ class DownloadTests(unittest.TestCase):
                     self.execute()
                 self.assertEqual(failure.exception.code, 1)
                 download.assert_not_called()
-                self.assertIn("Set the repository secret DARWIN_ARTIFACTBUNDLE_URL", self.log.getvalue())
+                self.assertIn("Run the Warm Darwin SDK cache workflow", self.log.getvalue())
                 self.assertFalse(self.archive.exists())
 
     def test_each_run_downloads_fresh_sdk_and_removes_archive(self):
@@ -145,25 +145,29 @@ class DownloadTests(unittest.TestCase):
 
 
 class WorkflowSecurityTests(unittest.TestCase):
-    def test_no_sdk_cache_restore_save_or_artifact_upload(self):
-        sources = [ACTION, *(WORKFLOWS / name for name in (
-            "integration.yml", "compose-integration.yml", "warm-darwin-sdk.yml",
-        ))]
-        for path in sources:
-            source = path.read_text()
-            with self.subTest(path=path.name):
+    def test_sdk_cached_per_host_and_never_uploaded_as_artifact(self):
+        action = ACTION.read_text()
+        self.assertIn("os.environ[\"RUNNER_OS\"]", step(action, "Resolve xcross Swift SDK path"))
+        self.assertIn("os.environ[\"RUNNER_ARCH\"]", step(action, "Resolve xcross Swift SDK path"))
+        self.assertIn("uses: actions/cache/restore@", step(action, "Restore Darwin SDK cache"))
+        self.assertIn("if: steps.darwin-cache.outputs.cache-hit != 'true'", step(action, "Download Darwin SDK"))
+        save = step(action, "Save Darwin SDK cache")
+        self.assertIn("uses: actions/cache/save@", save)
+        self.assertIn("if: steps.darwin-cache.outputs.cache-hit != 'true'", save)
+        self.assertLess(action.index("- name: Verify Darwin Swift SDK"), action.index("- name: Save Darwin SDK cache"))
+        for name in ("integration.yml", "compose-integration.yml", "warm-darwin-sdk.yml"):
+            source = (WORKFLOWS / name).read_text()
+            with self.subTest(path=name):
                 self.assertNotRegex(source, r"(?i)actions/cache(?:[/@\s]|$)")
-                self.assertNotIn("cache-revision", source)
-                self.assertNotIn("cache-key", source)
                 uploads = [body for _, _, body in steps(source) if "actions/upload-artifact@" in body]
-                if path.name in ("integration.yml", "compose-integration.yml"):
+                if name == "warm-darwin-sdk.yml":
+                    self.assertEqual(uploads, [])
+                else:
                     self.assertEqual(len(uploads), 1)
                     self.assertEqual(
                         re.findall(r"(?m)^\s+path: (.+)$", uploads[0]),
                         ["${{ runner.temp }}/ios-simulator-smoke"],
                     )
-                else:
-                    self.assertEqual(uploads, [])
 
     def test_only_trusted_cross_host_calls_receive_secret_and_forks_keep_toolchain_checks(self):
         for filename, job_name in (("integration.yml", "flutter-build"), ("compose-integration.yml", "compose-build")):
@@ -200,16 +204,19 @@ class WorkflowSecurityTests(unittest.TestCase):
                 self.assertNotIn("secrets.", native)
                 self.assertNotIn("setup-darwin-sdk", native)
 
-    def test_dispatch_validates_source_without_plaintext_url_inputs(self):
+    def test_warm_workflow_caches_every_host_from_dispatched_url(self):
         source = (WORKFLOWS / "warm-darwin-sdk.yml").read_text()
-        self.assertIn("name: Validate Darwin SDK source", source)
-        self.assertIn("workflow_dispatch:", source)
-        self.assertNotIn("inputs:", source)
-        self.assertNotIn("inputs.", source)
+        self.assertIn("name: Warm Darwin SDK cache", source)
+        self.assertIn("  workflow_dispatch:\n    inputs:\n      artifactbundle_url:", source)
         self.assertIn("os: [ubuntu-24.04, ubuntu-24.04-arm, windows-2022, windows-11-arm]", source)
-        self.assertIn("artifactbundle-url: ${{ secrets.DARWIN_ARTIFACTBUNDLE_URL }}", source)
-        self.assertIn("- name: Verify Darwin Swift SDK", ACTION.read_text())
-        self.assertNotIn("Warm Darwin SDK cache", source)
+        mask = step(source, "Mask dispatched artifactbundle URL")
+        self.assertIn("::add-mask::", mask)
+        warm = step(source, "Restore or download xcross Darwin SDK")
+        self.assertIn("uses: ./.github/actions/setup-darwin-sdk", warm)
+        self.assertIn("inputs.artifactbundle_url", warm)
+        self.assertIn("secrets.DARWIN_ARTIFACTBUNDLE_URL", warm)
+        self.assertIn("cache-revision: ${{ inputs.cache_revision }}", warm)
+        self.assertLess(source.index("- name: Mask dispatched"), source.index("- name: Restore or download"))
 
     def test_test_workflows_run_manually_without_inputs(self):
         for name in ("architecture.yml", "integration.yml", "compose-integration.yml"):

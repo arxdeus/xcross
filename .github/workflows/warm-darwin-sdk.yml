@@ -1,11 +1,24 @@
-# Validates the private Darwin SDK source used by cross-host integration jobs.
-# The repository secret DARWIN_ARTIFACTBUNDLE_URL must point to an archive with
-# xcross-darwin.artifactbundle at its root, produced by `xcross sdk install`.
-# Never cache or publish the archive: it contains Apple SDK content.
-name: Validate Darwin SDK source
+# Seeds the per-host Darwin SDK caches used by the integration workflows.
+# artifactbundle_url, or the DARWIN_ARTIFACTBUNDLE_URL secret when empty, must
+# point to an archive with xcross-darwin.artifactbundle at its root, produced
+# by `xcross sdk install`. Dispatch from main so every branch can restore it.
+name: Warm Darwin SDK cache
 
 on:
   workflow_dispatch:
+    inputs:
+      artifactbundle_url:
+        description: >-
+          URL to the SDK .tar.gz. Defaults to the DARWIN_ARTIFACTBUNDLE_URL
+          secret. Inputs are visible in run metadata.
+        required: false
+        default: ""
+        type: string
+      cache_revision:
+        description: Cache key revision. Use a new value to replace the SDK.
+        required: false
+        default: v3
+        type: string
 
 permissions:
   contents: read
@@ -21,8 +34,8 @@ env:
     76F44EF1BA6EEB5A65904E9500F042F588FADE49952778CE48F0374DAA934396
 
 jobs:
-  validate-source:
-    name: Validate SDK on ${{ matrix.os }}
+  warm-cache:
+    name: Warm ${{ matrix.os }} cache
     strategy:
       fail-fast: false
       matrix:
@@ -228,7 +241,18 @@ jobs:
             throw "swift sdk list failed with $LASTEXITCODE"
           }
 
-      - name: Download and validate xcross Darwin SDK
+      - name: Mask dispatched artifactbundle URL
+        if: inputs.artifactbundle_url != ''
+        shell: bash
+        env:
+          ARTIFACTBUNDLE_URL: ${{ inputs.artifactbundle_url }}
+        run: echo "::add-mask::$ARTIFACTBUNDLE_URL"
+
+      - name: Restore or download xcross Darwin SDK
         uses: ./.github/actions/setup-darwin-sdk
         with:
-          artifactbundle-url: ${{ secrets.DARWIN_ARTIFACTBUNDLE_URL }}
+          artifactbundle-url: >-
+            ${{ inputs.artifactbundle_url != ''
+            && inputs.artifactbundle_url
+            || secrets.DARWIN_ARTIFACTBUNDLE_URL }}
+          cache-revision: ${{ inputs.cache_revision }}
