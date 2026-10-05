@@ -78,7 +78,7 @@ def app_metadata(app):
 
 class Smoke:
     def __init__(self, app, output, boot_timeout=180, observe_seconds=20, ready_marker=None,
-                 grace_seconds=5):
+                 grace_seconds=5, crash_report_wait=60):
         self.app = app.resolve()
         self.output = output.resolve()
         self.output.mkdir(parents=True, exist_ok=True)
@@ -88,6 +88,8 @@ class Smoke:
         self.boot_timeout = boot_timeout
         self.observe_seconds = observe_seconds
         self.grace_seconds = grace_seconds
+        self.crash_report_wait = crash_report_wait
+        self.process_died = False
         self.abort_markers = []
         self.exit_status = None
         self.device = None
@@ -150,6 +152,7 @@ class Smoke:
             fields = result.stdout.strip().split(maxsplit=1)
             if (result.returncode or len(fields) != 2
                     or fields[0].startswith("Z") or expected not in fields[1]):
+                self.process_died = True
                 raise RuntimeError(f"Launched app exited or crashed during observation (PID {self.pid})")
             if time.monotonic() >= deadline:
                 return
@@ -212,9 +215,19 @@ class Smoke:
                         and path.suffix in (".ips", ".crash")
                         and path.stat().st_mtime >= self.started
                         and (index == 1 or self.attributed_crash(path))):
+                    if str(path) in self.crashes:
+                        continue
                     target.mkdir(exist_ok=True)
                     shutil.copy2(path, target / f"{index}-{path.name}")
                     self.crashes.append(str(path))
+
+    def await_crash_reports(self):
+        deadline = time.monotonic() + self.crash_report_wait
+        while True:
+            self.capture_crashes()
+            if self.crashes or time.monotonic() >= deadline:
+                return
+            time.sleep(min(2, max(0, deadline - time.monotonic())))
 
     def attributed_crash(self, path):
         if not self.pid:
@@ -272,7 +285,10 @@ class Smoke:
                 except Exception as error:
                     failures.append(f"{name}: {error}")
         try:
-            self.capture_crashes()
+            if self.process_died:
+                self.await_crash_reports()
+            else:
+                self.capture_crashes()
         except Exception as error:
             failures.append(f"crash collection: {error}")
         return failures

@@ -519,6 +519,32 @@ class SmokeTests(unittest.TestCase):
         self.smoke.run()
         self.assertEqual(self.result()["abort_markers"], [])
 
+    def test_crash_report_written_after_exit_is_awaited_and_preserved(self):
+        reports = self.root / "home/Library/Logs/DiagnosticReports"
+        reports.mkdir(parents=True)
+        self.exit_after = 1
+        self.smoke.crash_report_wait = 30
+        sleeps = []
+
+        def sleep(seconds):
+            sleeps.append(seconds)
+            if self.process_calls > 1 and len(sleeps) == 4:
+                (reports / "Runner-late.ips").write_text(json.dumps({
+                    "pid": 1234, "bundleInfo": {"CFBundleIdentifier": self.info["CFBundleIdentifier"]},
+                }))
+
+        patch("simulator_smoke.time.sleep", side_effect=sleep).start()
+        with self.assertRaisesRegex(RuntimeError, "exited or crashed"):
+            self.smoke.run()
+        self.assertEqual(len(self.result()["crashes"]), 1)
+        self.assertTrue((self.smoke.output / "crashes/0-Runner-late.ips").exists())
+        self.assert_scoped_cleanup()
+
+    def test_healthy_run_does_not_wait_for_crash_reports(self):
+        self.smoke.crash_report_wait = 1000
+        self.smoke.run()
+        self.assertLess(self.clock, 200)
+
     def test_new_crash_report_fails_and_is_preserved(self):
         reports = self.root / "home/Library/Logs/DiagnosticReports"
         reports.mkdir(parents=True)
