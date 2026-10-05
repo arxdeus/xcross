@@ -20,7 +20,7 @@ void main() {
       try {
         final roots = <String>{};
         final iosFrameworks = <String>{};
-        final flutterRoot = p.join(tmp.path, 'sdk');
+        final flutterRoot = p.join(tmp.resolveSymbolicLinksSync(), 'sdk');
         Directory(p.join(flutterRoot, 'packages')).createSync(recursive: true);
         final sdkCache = Directory(p.join(flutterRoot, 'bin', 'cache'))
           ..createSync(recursive: true);

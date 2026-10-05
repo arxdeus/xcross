@@ -14,7 +14,11 @@ void main() {
   late Directory prefix;
 
   setUp(() {
-    prefix = Directory.systemTemp.createTempSync('install-layout-test-');
+    prefix = Directory(
+      Directory.systemTemp
+          .createTempSync('install-layout-test-')
+          .resolveSymbolicLinksSync(),
+    );
     Directory(p.join(prefix.path, 'bin')).createSync();
     Directory(p.join(prefix.path, 'lib')).createSync();
     File(p.join(prefix.path, 'bin', _exeName())).writeAsStringSync('binary');

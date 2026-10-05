@@ -44,7 +44,11 @@ void main() {
 
   setUp(() async {
     base = LinuxHost(architecture: 'x64');
-    backing = await Directory.systemTemp.createTemp('host-ops-residual-');
+    backing = Directory(
+      await (await Directory.systemTemp.createTemp(
+        'host-ops-residual-',
+      )).resolveSymbolicLinks(),
+    );
     paths = ResidualPaths(
       '/selected-${backing.uri.pathSegments.lastWhere((part) => part.isNotEmpty)}',
     );
