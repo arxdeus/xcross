@@ -28,7 +28,8 @@ abstract base class PosixDeviceHost implements DeviceHostPolicy {
 
   @override
   String get installCommand =>
-      'pipx install pymobiledevice3 && pipx ensurepath';
+      'pipx install pymobiledevice3 --pip-args=--prefer-binary && '
+      'pipx ensurepath';
 
   @override
   String elevatedCommand(String arguments) => 'sudo pymobiledevice3 $arguments';

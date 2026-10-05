@@ -17,7 +17,8 @@ final class WindowsDeviceHost implements DeviceHostPolicy {
       describeDeviceTunnelFailure(recent);
 
   @override
-  String get installCommand => 'py -m pip install -U pymobiledevice3';
+  String get installCommand =>
+      'py -m pip install --prefer-binary -U pymobiledevice3';
 
   @override
   String elevatedCommand(String arguments) => 'pymobiledevice3 $arguments';

@@ -228,12 +228,13 @@ final class Pymd {
   Future<List<List<String>>> _buildInstallAttempts(String py) async {
     final sudo = await privileges.resolve();
     final pipx = await hostPolicy.resolvePipx();
-    const pipInstall = ['-m', 'pip', 'install'];
+    const pipInstall = ['-m', 'pip', 'install', '--prefer-binary'];
     const upgradeTarget = ['-U', 'pymobiledevice3'];
     const breakSystem = '--break-system-packages';
 
     return <List<String>>[
-      if (pipx != null) [pipx, 'install', 'pymobiledevice3'],
+      if (pipx != null)
+        [pipx, 'install', 'pymobiledevice3', '--pip-args=--prefer-binary'],
       if (sudo != null)
         [sudo, py, ...pipInstall, breakSystem, ...upgradeTarget],
       if (sudo != null) [sudo, py, ...pipInstall, ...upgradeTarget],

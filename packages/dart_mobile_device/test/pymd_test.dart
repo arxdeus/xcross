@@ -102,6 +102,39 @@ void main() {
     privileges: PosixPrivileges(runner),
     hostPolicy: MacOSDeviceHost(runner),
   );
+  test('ensureInstalled prefers binary wheels for every pip attempt', () async {
+    final bin = Directory.systemTemp.createTempSync('pymd_install');
+    addTearDown(() => bin.deleteSync(recursive: true));
+    final python = File('${bin.path}/python3')..writeAsStringSync('');
+    final processes = PymdInstallProcesses(python.path);
+    final env = {'PATH': bin.path, 'HOME': bin.path};
+    final host = MacOSHost(environment: env, processes: processes);
+    final runner = ProcessRunner(
+      host,
+      configuration: ProcessConfiguration(
+        normalizedTools: const {},
+        effectiveChildEnvironment: env,
+      ),
+      log: testLog(),
+      stdinStream: const Stream.empty(),
+      stdoutSink: testSink(),
+      stderrSink: testSink(),
+    );
+    final pymd = Pymd(
+      runner,
+      console: TestDeviceConsole(),
+      localHttp: testLocalHttp(),
+      privileges: PosixPrivileges(runner),
+      hostPolicy: MacOSDeviceHost(runner),
+    );
+    expect(await pymd.ensureInstalled(), isTrue);
+    expect(processes.installs, isNotEmpty);
+    for (final install in processes.installs) {
+      expect(install.take(4), ['-m', 'pip', 'install', '--prefer-binary']);
+      expect(install, contains('pymobiledevice3'));
+    }
+  });
+
   group('Pymd.asPort', () {
     test('passes through an int unchanged', () {
       expect(Pymd.asPort(12345), 12345);
@@ -157,6 +190,38 @@ void main() {
       }
     });
   });
+}
+
+@internal
+final class PymdInstallProcesses implements HostProcessInterface {
+  PymdInstallProcesses(this.python);
+  final String python;
+  final installs = <List<String>>[];
+
+  @override
+  Future<Process> start(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+    Map<String, String>? environment,
+    bool includeParentEnvironment = true,
+    bool runInShell = false,
+    ProcessStartMode mode = ProcessStartMode.normal,
+  }) async {
+    expect(executable, python);
+    final process = WirelessChild();
+    if (arguments.take(3).join(' ') == '-m pip install') {
+      installs.add(List.of(arguments));
+      process.exited.complete(0);
+    } else {
+      process.exited.complete(installs.isEmpty ? 1 : 0);
+    }
+    return process;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw StateError('unexpected native process operation');
 }
 
 @internal
