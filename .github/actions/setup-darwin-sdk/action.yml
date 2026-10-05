@@ -60,6 +60,7 @@ runs:
         import os
         import shutil
         import subprocess
+        import sys
         import urllib.request
         from pathlib import Path
 
@@ -107,10 +108,44 @@ runs:
                         "file. Use a direct download link."
                     )
                     raise SystemExit(1)
-            subprocess.run(
-                ["tar", "-xzf", str(archive), "-C", str(parent)],
-                check=True,
-            )
+            if sys.platform == "win32":
+                import tarfile
+
+                with tarfile.open(archive) as tar:
+                    members = tar.getmembers()
+                    links = [m for m in members if m.issym() or m.islnk()]
+                    tar.extractall(
+                        parent,
+                        members=[m for m in members if m not in links],
+                        filter="tar",
+                    )
+                pending = sorted(links, key=lambda m: -m.name.count("/"))
+                while pending:
+                    unresolved = []
+                    for member in pending:
+                        destination = parent / member.name
+                        source = (
+                            destination.parent / member.linkname
+                            if member.issym()
+                            else parent / member.linkname
+                        ).resolve()
+                        if source.is_dir():
+                            shutil.copytree(
+                                source, destination, dirs_exist_ok=True
+                            )
+                        elif source.is_file():
+                            destination.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(source, destination)
+                        else:
+                            unresolved.append(member)
+                    if len(unresolved) == len(pending):
+                        break
+                    pending = unresolved
+            else:
+                subprocess.run(
+                    ["tar", "-xzf", str(archive), "-C", str(parent)],
+                    check=True,
+                )
         finally:
             archive.unlink(missing_ok=True)
         if not (bundle / "info.json").is_file():

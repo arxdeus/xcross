@@ -146,6 +146,42 @@ class DownloadTests(unittest.TestCase):
         self.assertIn("did not return a .tar.gz", self.log.getvalue())
         self.assertFalse(self.archive.exists())
 
+    def test_windows_extraction_materializes_links_as_copies(self):
+        output = io.BytesIO()
+        with tarfile.open(fileobj=output, mode="w:gz") as archive:
+            def add(name, data=None, link=None, directory=False):
+                member = tarfile.TarInfo(f"xcross-darwin.artifactbundle/{name}")
+                if directory:
+                    member.type = tarfile.DIRTYPE
+                    archive.addfile(member)
+                elif link:
+                    member.type = tarfile.SYMTYPE
+                    member.linkname = link
+                    archive.addfile(member)
+                else:
+                    member.size = len(data)
+                    archive.addfile(member, io.BytesIO(data))
+            add("info.json", b"{}")
+            add("lib/swift/clang", link="../clang/21")
+            add("lib/clang/21.0.0", link="21")
+            add("lib/clang/21", directory=True)
+            add("lib/clang/21/include/header.h", b"h")
+            add("lib/clang/21/lib/alias", link="real")
+            add("lib/clang/21/lib/real", b"r")
+        with patch("sys.platform", "win32"), patch(
+            "urllib.request.urlopen", return_value=io.BytesIO(output.getvalue()),
+        ):
+            self.execute()
+        for path in ("lib/swift/clang", "lib/clang/21.0.0"):
+            with self.subTest(path=path):
+                link = self.bundle / path
+                self.assertFalse(link.is_symlink())
+                self.assertEqual((link / "include/header.h").read_text(), "h")
+        alias = self.bundle / "lib/clang/21/lib/alias"
+        self.assertFalse(alias.is_symlink())
+        self.assertEqual(alias.read_text(), "r")
+        self.assertFalse(self.archive.exists())
+
     def test_extraction_failure_removes_archive(self):
         with patch("urllib.request.urlopen", return_value=io.BytesIO(self.payload())), patch(
             "subprocess.run", side_effect=subprocess.CalledProcessError(1, "tar"),
