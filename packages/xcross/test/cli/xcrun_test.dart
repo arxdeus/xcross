@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:cli_kit/host/linux/linux_host.dart';
@@ -5,6 +6,7 @@ import 'package:cli_kit/host/macos/macos_host.dart';
 import 'package:cli_kit/host/windows/windows_host.dart';
 import 'package:cli_kit/host/windows/windows_paths.dart';
 import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
 import 'package:darwin_sdk_kit/host/linux/linux_darwin_toolchain_locations.dart';
 import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk.dart';
 import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
@@ -676,6 +678,53 @@ void main() {
     );
     expect(await command.runResolvedTool('/ignored', const []), 37);
   });
+
+  test(
+    'forwards a tool with inherited stdio and leaves stdin unread',
+    () async {
+      final processes = FixtureNativeProcesses();
+      final host = ResidualHost(
+        base: LinuxHost(),
+        fileSystem: LinuxHost().fileSystem,
+        paths: LinuxHost().paths,
+        processes: processes,
+      );
+      var listened = false;
+      final stdinStream = StreamController<List<int>>(
+        onListen: () => listened = true,
+      );
+      addTearDown(() => unawaited(stdinStream.close()));
+      final runner = ProcessRunner(
+        host,
+        log: fixtureLog(),
+        stdinStream: stdinStream.stream,
+        stdoutSink: fixtureSink(),
+        stderrSink: fixtureSink(),
+      );
+      final command = xcrun.XcrunSdkCommand(
+        runner: runner,
+        output: fixtureSink(),
+        errors: fixtureSink(),
+        repository: DarwinSdkRepository(
+          host,
+          log: runner.log,
+          installBundle: '/fixture/missing-sdk',
+        ),
+        toolchain: DarwinToolchainResolver(
+          runner,
+          LinuxDarwinToolchainLocations(host),
+        ),
+        executable: '/fixture/xcrun',
+        normalizeExecutable: (path) => path,
+        target: const IPhoneBuildPlatform(),
+      );
+      expect(await command.runResolvedTool('/fixture/tool', const ['-x']), 37);
+      expect(processes.executable, '/fixture/tool');
+      expect(processes.arguments, ['-x']);
+      expect(processes.mode, ProcessStartMode.inheritStdio);
+      expect(listened, isFalse);
+    },
+  );
 
   test('prefers build shims on PATH for known Apple tools', () async {
     const sdk = DarwinSdk('/unused');

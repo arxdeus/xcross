@@ -334,20 +334,13 @@ final class XcrunSdkCommand {
 
   /// Streams a resolved tool directly and preserves its exact exit status.
   Future<int> runResolvedTool(String tool, List<String> arguments) async {
-    final child = await runner.start(tool, arguments);
-    final outputDone = output.addStream(child.stdout);
-    final errorsDone = errors.addStream(child.stderr);
-    final input = runner.sharedStdin.listen(
-      child.stdin.add,
-      onDone: child.stdin.close,
+    await Future.wait([output.flush(), errors.flush()]);
+    final child = await runner.start(
+      tool,
+      arguments,
+      mode: ProcessStartMode.inheritStdio,
     );
-    try {
-      final code = await child.exitCode;
-      await Future.wait([outputDone, errorsDone]);
-      return code;
-    } finally {
-      await input.cancel();
-    }
+    return child.exitCode;
   }
 }
 
