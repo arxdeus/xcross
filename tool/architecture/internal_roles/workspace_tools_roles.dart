@@ -107,6 +107,9 @@ const workspaceToolsRoles = <String, Map<String, String>>{
   'workspace:tool/architecture/internal_roles/support_packages_roles.dart': {
     'TOP_LEVEL_VARIABLE:supportPackagesRoles': 'internal',
   },
+  'workspace:tool/architecture/internal_roles/open_apple_macros_roles.dart': {
+    'TOP_LEVEL_VARIABLE:openAppleMacrosRoles': 'internal',
+  },
   'workspace:tool/architecture/internal_roles/workspace_tools_roles.dart': {
     'TOP_LEVEL_VARIABLE:workspaceToolsRoles': 'internal',
   },

@@ -13,6 +13,7 @@ const architectureSources = {
   'tool/architecture/internal_roles/xcross_compose_tests_roles.dart',
   'tool/architecture/internal_roles/xcross_application_tests_roles.dart',
   'tool/architecture/internal_roles/workspace_tools_roles.dart',
+  'tool/architecture/internal_roles/open_apple_macros_roles.dart',
   'tool/architecture/internal_policy.dart',
   'tool/architecture/internal_roles.dart',
   'tool/architecture/source_policy_test.dart',
@@ -43,6 +44,7 @@ const workspacePackages = {
   'apple_developer_kit',
   'dart_mobile_device',
   'frontend_server_kit',
+  'open_apple_macros',
 };
 @internal
 const toolBoundaries = {
@@ -208,6 +210,42 @@ const resources = {
       Classification('shared', 'shared', 'embedded-native-template'),
   'packages/xcross/lib/src/host/windows/flutter/assets/preview_macro_prologue.c':
       Classification('windows', 'shared', 'embedded-native-template'),
+  'packages/open_apple_macros/swift/Package.resolved': Classification(
+    'shared',
+    'shared',
+    'embedded-native-template',
+  ),
+  'packages/open_apple_macros/swift/Package.swift': Classification(
+    'shared',
+    'shared',
+    'embedded-native-template',
+  ),
+  'packages/open_apple_macros/swift/Sources/FoundationModelsMacros/GenerableMacro.swift':
+      Classification('shared', 'shared', 'embedded-native-template'),
+  'packages/open_apple_macros/swift/Sources/FoundationModelsMacros/GuideMacro.swift':
+      Classification('shared', 'shared', 'embedded-native-template'),
+  'packages/open_apple_macros/swift/Sources/FoundationModelsMacros/Macros.swift':
+      Classification('shared', 'shared', 'embedded-native-template'),
+  'packages/open_apple_macros/swift/Sources/FoundationModelsMacros/SessionPropertyEntryMacro.swift':
+      Classification('shared', 'shared', 'embedded-native-template'),
+  'packages/open_apple_macros/swift/Sources/OpenAppleMacrosBase/MacroError.swift':
+      Classification('shared', 'shared', 'embedded-native-template'),
+  'packages/open_apple_macros/swift/Sources/OpenAppleMacrosBase/OpenAppleMacrosBase.swift':
+      Classification('shared', 'shared', 'embedded-native-template'),
+  'packages/open_apple_macros/swift/Sources/OpenAppleMacrosServer/Modules.swift':
+      Classification('shared', 'shared', 'embedded-native-template'),
+  'packages/open_apple_macros/swift/Sources/OpenAppleMacrosServer/OpenAppleMacros.swift':
+      Classification('shared', 'shared', 'embedded-native-template'),
+  'packages/open_apple_macros/swift/Sources/PreviewsMacros/Macros.swift':
+      Classification('shared', 'shared', 'embedded-native-template'),
+  'packages/open_apple_macros/swift/Sources/SwiftUIMacros/AnimatableMacro.swift':
+      Classification('shared', 'shared', 'embedded-native-template'),
+  'packages/open_apple_macros/swift/Sources/SwiftUIMacros/EntryMacro.swift':
+      Classification('shared', 'shared', 'embedded-native-template'),
+  'packages/open_apple_macros/swift/Sources/SwiftUIMacros/Macros.swift':
+      Classification('shared', 'shared', 'embedded-native-template'),
+  'packages/open_apple_macros/swift/Sources/SwiftUIMacros/StateMacro.swift':
+      Classification('shared', 'shared', 'embedded-native-template'),
   'packages/dart_mobile_device/lib/src/target/iphone/device/pymd/scripts/pair_host.py':
       Classification('shared', 'iphone', 'target-resource'),
 };
@@ -359,4 +397,6 @@ const partOwners = {
       'packages/xcross/lib/src/host/windows/flutter/preview_macro_prologue.dart',
   'packages/xcross/lib/src/shared/runtime/version.g.dart':
       'packages/xcross/lib/src/shared/runtime/version.dart',
+  'packages/open_apple_macros/lib/src/shared/open_apple_macros_sources.g.dart':
+      'packages/open_apple_macros/lib/src/shared/open_apple_macros_sources.dart',
 };

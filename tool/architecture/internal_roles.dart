@@ -2,6 +2,7 @@ import 'package:meta/meta.dart';
 
 import 'internal_roles/apple_developer_kit_roles.dart';
 import 'internal_roles/apple_developer_kit_tests_roles.dart';
+import 'internal_roles/open_apple_macros_roles.dart';
 import 'internal_roles/support_packages_roles.dart';
 import 'internal_roles/workspace_tools_roles.dart';
 import 'internal_roles/xcross_application_tests_roles.dart';
@@ -16,6 +17,7 @@ import 'internal_roles/xcross_shared_roles.dart';
 const reviewedDeclarationRoles = <String, Map<String, String>>{
   ...appleDeveloperKitRoles,
   ...appleDeveloperKitTestsRoles,
+  ...openAppleMacrosRoles,
   ...supportPackagesRoles,
   ...xcrossFlutterRoles,
   ...xcrossComposeRoles,

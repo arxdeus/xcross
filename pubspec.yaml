@@ -14,6 +14,7 @@ workspace:
   - packages/darwin_sdk_kit
   - packages/dart_mobile_device
   - packages/frontend_server_kit
+  - packages/open_apple_macros
 
 dev_dependencies:
   analyzer: 13.3.0
