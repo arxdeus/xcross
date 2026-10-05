@@ -469,6 +469,7 @@ const supportPackagesRoles = <String, Map<String, String>>{
     'FUNCTION:main': 'entrypoint',
   },
   'workspace:packages/dart_mobile_device/test/pymd_test.dart': {
+    'CLASS:PymdInstallProcesses': 'internal',
     'CLASS:PymdLaunchProcesses': 'internal',
     'FUNCTION:main': 'entrypoint',
   },
