@@ -129,7 +129,10 @@ void main() {
       final launcher = File(p.join(tmp.path, 'xcross'))..writeAsStringSync('');
       final sibling = File(p.join(tmp.path, 'xcrun'))
         ..writeAsStringSync('bundled');
-      final host = MacOSHost(architecture: 'arm64');
+      final host = MacOSHost(
+        architecture: 'arm64',
+        paths: PosixPaths(context: p.Context()),
+      );
       final runner = ProcessRunner(
         host,
         log: nativeTestLog(),

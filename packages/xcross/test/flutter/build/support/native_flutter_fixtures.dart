@@ -127,7 +127,10 @@ AppleToolShimResolver<LinuxHost> appleToolResolver({
   String? xcrun,
   bool declarative = false,
 }) {
-  final host = LinuxHost(architecture: 'arm64');
+  final host = LinuxHost(
+    architecture: 'arm64',
+    paths: PosixPaths(context: p.Context()),
+  );
   final runner = ProcessRunner(
     host,
     log: nativeTestLog(),
@@ -161,8 +164,9 @@ final class WindowsFixturePaths implements HostPathsInterface {
   WindowsFixturePaths();
   final PosixPaths _posix = PosixPaths();
   final WindowsPaths _windows = WindowsPaths();
+  final p.Context _native = p.Context();
   @override
-  p.Context get context => _posix.context;
+  p.Context get context => _native;
   @override
   String get configRoot => _posix.configRoot;
   @override
@@ -170,12 +174,12 @@ final class WindowsFixturePaths implements HostPathsInterface {
   @override
   String get temporaryRoot => _posix.temporaryRoot;
   @override
-  String ioPath(String path) => _posix.ioPath(path);
+  String ioPath(String path) => _native.absolute(path);
   @override
   String executableName(String name, {String extension = '.exe'}) =>
       _posix.executableName(name, extension: extension);
   @override
-  String pathKey(String path) => _posix.pathKey(path);
+  String pathKey(String path) => _native.normalize(_native.absolute(path));
   @override
   String toolNameKey(String name) => _windows.toolNameKey(name);
 }
