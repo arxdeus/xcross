@@ -108,6 +108,16 @@ class ArchitectureWorkflowTests(unittest.TestCase):
             with self.subTest(workflow=name):
                 self.check_simulator_job((ROOT / '.github/workflows' / name).read_text(), feature, marker)
 
+    def test_jobs_running_example_fixtures_check_out_examples_first(self):
+        jobs = workflow_jobs((ROOT / '.github/workflows/integration.yml').read_text())
+        for job, first_use in (('flutter-build', None), ('native-host', 'Test xcross host workflows')):
+            with self.subTest(job=job):
+                steps = workflow_steps(jobs[job])
+                names = list(steps)
+                self.assertIn('git submodule update --init --checkout examples', self.required_step(steps, 'Update example submodule'))
+                if first_use is not None:
+                    self.assertLess(names.index('Update example submodule'), names.index(first_use))
+
     def test_disabled_or_optional_real_smoke_is_rejected(self):
         original = (ROOT / '.github/workflows/integration.yml').read_text()
         name = '      - name: Boot install launch and observe Flutter app headlessly\n'
