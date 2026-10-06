@@ -19,6 +19,10 @@ ABORT_MARKERS = re.compile(
 )
 
 
+class CommandTimeout(RuntimeError):
+    pass
+
+
 def version_tuple(version):
     parts = tuple(int(part) for part in version.split("."))
     return parts + (0,) * max(0, 3 - len(parts))
@@ -103,6 +107,7 @@ class Smoke:
         self.device_type = None
         self.ready_marker = ready_marker
         self.ready_marker_found = False
+        self.launch_retries = []
 
     def command(self, args, name, timeout=60, check=True):
         with (self.output / "commands.log").open("a") as log:
@@ -117,7 +122,7 @@ class Smoke:
             if isinstance(data, bytes):
                 data = data.decode(errors="replace")
             (self.output / name).write_text(data + f"\nTimed out after {timeout}s\n")
-            raise RuntimeError(f"Command timed out after {timeout}s: {args}") from error
+            raise CommandTimeout(f"Command timed out after {timeout}s: {args}") from error
         with (self.output / name).open("a") as log:
             log.write(result.stdout)
         if check and result.returncode:
@@ -195,8 +200,34 @@ class Smoke:
         if self.exit_status not in ("0", "-"):
             raise RuntimeError(f"Launched app reported abnormal exit status {self.exit_status}")
 
+    def launch(self):
+        return self.simctl(
+            "launch", "--terminate-running-process",
+            f"--stdout={self.output / 'app-stdout.log'}",
+            f"--stderr={self.output / 'app-stderr.log'}",
+            self.device, self.identifier, name="launch.log", timeout=self.boot_timeout,
+        )
+
+    def launch_with_retry(self):
+        try:
+            return self.launch()
+        except CommandTimeout as failure:
+            self.capture_crashes()
+            if self.crashes:
+                raise
+            self.launch_retries.append(str(failure))
+            for name in ("app-stdout.log", "app-stderr.log", "launch.log"):
+                path = self.output / name
+                if path.exists():
+                    path.rename(self.output / f"launch-attempt-1-{name}")
+            self.simctl("shutdown", self.device, name="relaunch.log", check=False, timeout=60)
+            self.simctl("boot", self.device, name="relaunch.log")
+            self.simctl("bootstatus", self.device, "-b", name="relaunch.log", timeout=self.boot_timeout)
+            return self.launch()
+
     def scan_abort_markers(self):
-        for name in ("app-stdout.log", "app-stderr.log", "simulator.log"):
+        for name in ("app-stdout.log", "app-stderr.log", "simulator.log",
+                     "launch-attempt-1-app-stdout.log", "launch-attempt-1-app-stderr.log"):
             path = self.output / name
             if not path.is_file():
                 continue
@@ -355,12 +386,7 @@ class Smoke:
             self.simctl("boot", self.device, name="boot.log")
             self.simctl("bootstatus", self.device, "-b", name="bootstatus.log", timeout=self.boot_timeout)
             self.simctl("install", self.device, str(self.app), name="install.log", timeout=120)
-            result = self.simctl(
-                "launch", "--terminate-running-process",
-                f"--stdout={self.output / 'app-stdout.log'}",
-                f"--stderr={self.output / 'app-stderr.log'}",
-                self.device, identifier, name="launch.log", timeout=self.boot_timeout,
-            )
+            result = self.launch_with_retry()
             match = re.search(rf"^{re.escape(identifier)}: ([1-9][0-9]*)$", result.stdout, re.MULTILINE)
             if not match:
                 raise RuntimeError("simctl launch did not return an app PID")
@@ -404,6 +430,7 @@ class Smoke:
                 "exit_status": self.exit_status, "abort_markers": self.abort_markers,
                 "ready_marker": self.ready_marker, "ready_marker_found": self.ready_marker_found,
                 "diagnostic_failures": diagnostics, "crashes": self.crashes,
+                "launch_retries": self.launch_retries,
             }, indent=2))
         if error:
             raise error

@@ -197,6 +197,7 @@ class SmokeTests(unittest.TestCase):
         self.smoke = Smoke(self.app, self.root / "artifacts", boot_timeout=7, observe_seconds=2)
         self.calls = []
         self.failure = None
+        self.failure_budget = None
         self.arch = "arm64"
         self.binary_platform = "IOSSIMULATOR"
         self.process = "Ss /simulator/Applications/Test.app/Runner\n"
@@ -227,7 +228,12 @@ class SmokeTests(unittest.TestCase):
     def fake_run(self, args, **kwargs):
         self.calls.append((args, kwargs))
         if self.failure and self.failure in args:
-            raise subprocess.TimeoutExpired(args, kwargs["timeout"], output=b"timed out")
+            if self.failure_budget is not None:
+                self.failure_budget -= 1
+                if self.failure_budget < 0:
+                    self.failure = None
+            if self.failure:
+                raise subprocess.TimeoutExpired(args, kwargs["timeout"], output=b"timed out")
         if self.nonzero and self.nonzero in args:
             return subprocess.CompletedProcess(args, 1, "failure")
         stdout = ""
@@ -363,6 +369,39 @@ class SmokeTests(unittest.TestCase):
                 self.smoke.executable = "Runner"
                 with self.assertRaisesRegex(RuntimeError, "exited or crashed"):
                     self.smoke.observe()
+
+    def test_hung_launch_is_retried_once_after_fresh_boot(self):
+        self.failure = "launch"
+        self.failure_budget = 1
+        self.smoke.run()
+        launches = [args for args, _ in self.calls if "launch" in args]
+        self.assertEqual(len(launches), 2)
+        boots = [args[2] for args, _ in self.calls if args[2:3] in (["boot"], ["bootstatus"])]
+        self.assertEqual(boots, ["boot", "bootstatus", "boot", "bootstatus"])
+        self.assertEqual(len(self.result()["launch_retries"]), 1)
+        self.assertTrue(self.result()["passed"])
+        self.assertTrue((self.smoke.output / "launch-attempt-1-launch.log").is_file())
+        delete = [args for args, _ in self.calls if "delete" in args]
+        self.assertEqual(delete, [["/usr/bin/xcrun", "simctl", "delete", DEVICE]])
+
+    def test_launch_hanging_twice_fails(self):
+        self.failure = "launch"
+        with self.assertRaisesRegex(RuntimeError, "timed out"):
+            self.smoke.run()
+        self.assertEqual(len([args for args, _ in self.calls if "launch" in args]), 2)
+        self.assertFalse(self.result()["passed"])
+
+    def test_hung_launch_with_crash_report_is_not_retried(self):
+        self.failure = "launch"
+        self.failure_budget = 1
+        reports = (self.root / "home/Library/Developer/CoreSimulator/Devices" / DEVICE
+                   / "data/Library/Logs/CrashReporter")
+        reports.mkdir(parents=True)
+        (reports / "Runner-2026.ips").write_text("{}")
+        with self.assertRaisesRegex(RuntimeError, "timed out"):
+            self.smoke.run()
+        self.assertEqual(len([args for args, _ in self.calls if "launch" in args]), 1)
+        self.assertEqual(self.result()["launch_retries"], [])
 
     def test_launch_without_pid_is_not_success(self):
         self.launch = "launch request accepted"
