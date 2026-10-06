@@ -131,9 +131,13 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
       nativeAssetFrameworks,
       frameworksDir,
     );
-    await runtime.frameworks.copyMissingFrameworks(
+    final embedded = await runtime.frameworks.copyMissingFrameworks(
       pluginFrameworks,
       frameworksDir,
+    );
+    await runtime.nativeAssetFrameworks.thinEmbedded(
+      embedded,
+      lipo: () => runtime.nativeTools.locateLlvmTool('llvm-lipo'),
     );
 
     await _embedAppExtensions(bundleDir, extensions);

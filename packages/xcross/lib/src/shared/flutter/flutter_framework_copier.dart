@@ -40,14 +40,17 @@ final class FlutterFrameworkCopier {
     }
   }
 
-  Future<void> copyMissingFrameworks(
+  Future<List<String>> copyMissingFrameworks(
     Iterable<String> frameworks,
     String frameworksDir,
   ) async {
+    final copied = <String>[];
     for (final framework in frameworks) {
       final destination = paths.join(frameworksDir, paths.basename(framework));
       if (fileSystem.directory(destination).existsSync()) continue;
       await copier.copy(framework, destination);
+      copied.add(destination);
     }
+    return copied;
   }
 }

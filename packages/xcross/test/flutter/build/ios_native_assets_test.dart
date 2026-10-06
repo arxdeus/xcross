@@ -536,6 +536,58 @@ void main() {
     );
   }
 
+  test('embedded frameworks are thinned only when universal', () async {
+    final root = Directory.systemTemp.createTempSync('embedded-thinning-');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final mapped = FixtureMappedFileSystem(root);
+    final processes = FrameworkLipoProcesses(fileSystem: mapped);
+    final host = LinuxHost(fileSystem: mapped, processes: processes);
+    final runner = fixtureRunner(
+      host,
+      log: fixtureLog(),
+      configuration: ProcessConfiguration(
+        normalizedTools: const {'lipo': '/configured/llvm-lipo'},
+        effectiveChildEnvironment: const {},
+      ),
+    );
+    final service = nativeFrameworkService(runner);
+    const frameworks = '/xcross-embedded-thin-fixture/Frameworks';
+    final universal = mapped.file('$frameworks/Universal.framework/Universal')
+      ..createSync(recursive: true)
+      ..writeAsBytesSync([0xca, 0xfe, 0xba, 0xbe, 1, 2, 3, 4]);
+    final single = mapped.file('$frameworks/Single.framework/Single')
+      ..createSync(recursive: true)
+      ..writeAsBytesSync([0xcf, 0xfa, 0xed, 0xfe, 7]);
+    var lookups = 0;
+
+    await service.thinEmbedded(
+      ['$frameworks/Single.framework'],
+      lipo: () async {
+        lookups++;
+        return 'lipo';
+      },
+    );
+    expect(lookups, 0);
+    expect(processes.calls, isEmpty);
+
+    await service.thinEmbedded(
+      ['$frameworks/Universal.framework', '$frameworks/Single.framework'],
+      lipo: () async {
+        lookups++;
+        return 'lipo';
+      },
+    );
+    expect(lookups, 1);
+    expect(processes.calls, hasLength(1));
+    expect(processes.calls.single.$2.take(3).toList(), [
+      '-thin',
+      'arm64',
+      '$frameworks/Universal.framework/Universal',
+    ]);
+    expect(universal.readAsBytesSync(), processes.output);
+    expect(single.readAsBytesSync(), [0xcf, 0xfa, 0xed, 0xfe, 7]);
+  });
+
   test('detects all FAT Mach-O binaries', () async {
     final tmp = await Directory.systemTemp.createTemp('fat_macho_test-');
     try {

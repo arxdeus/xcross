@@ -238,6 +238,21 @@ final class NativeAssetFrameworks<T extends PlatformHostInterface> {
     }
   }
 
+  Future<void> thinEmbedded(
+    Iterable<String> frameworks, {
+    required Future<String> Function() lipo,
+  }) async {
+    final fat = [
+      for (final framework in frameworks)
+        if (await isFat(
+          paths.join(framework, paths.basenameWithoutExtension(framework)),
+        ))
+          framework,
+    ];
+    if (fat.isEmpty) return;
+    await thin(fat, lipo: await lipo());
+  }
+
   Future<void> thin(Iterable<String> frameworks, {required String lipo}) async {
     for (final framework in frameworks) {
       final binary = paths.join(
