@@ -710,8 +710,17 @@ jobs:
             --observe-seconds 30 --grace-seconds 10 \
             --ready-marker XCROSS_FLUTTER_EXAMPLE_READY
 
+      - name: Upload simulator screenshots
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: flutter-arm64-ios-simulator-screenshots-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ios-simulator-smoke/**/screenshot*.png
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Upload simulator evidence
-        if: always()
+        if: failure() || cancelled()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: flutter-arm64-ios-simulator-${{ github.run_attempt }}
@@ -766,8 +775,17 @@ jobs:
             --observe-seconds 30 --grace-seconds 10 \
             --ready-marker XCROSS_FLUTTER_EXAMPLE_READY
 
+      - name: Upload simulator screenshots
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: flutter-example-simulator-run-${{ matrix.host }}-screenshots-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ios-simulator-smoke/**/screenshot*.png
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Upload simulator evidence
-        if: always()
+        if: failure() || cancelled()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: flutter-example-simulator-run-${{ matrix.host }}-${{ github.run_attempt }}

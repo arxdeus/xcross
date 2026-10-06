@@ -124,8 +124,17 @@ jobs:
             --output "$RUNNER_TEMP/ios-simulator-smoke/compose" \
             --ready-marker XCROSS_COMPOSE_READY
 
+      - name: Upload simulator screenshots
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: compose-arm64-ios-simulator-screenshots-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ios-simulator-smoke/**/screenshot*.png
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Upload simulator evidence
-        if: always()
+        if: failure() || cancelled()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: compose-arm64-ios-simulator-${{ github.run_attempt }}

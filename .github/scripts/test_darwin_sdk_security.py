@@ -86,13 +86,24 @@ class WorkflowSecurityTests(unittest.TestCase):
                     paths = sorted(
                         path for body in uploads for path in re.findall(r"(?m)^\s+path: (.+)$", body)
                     )
-                    allowed = {"${{ runner.temp }}/ios-simulator-smoke"}
+                    smoke = "${{ runner.temp }}/ios-simulator-smoke"
+                    screenshots = smoke + "/**/screenshot*.png"
+                    allowed = {smoke, screenshots}
                     if name == "integration.yml":
                         allowed.add("examples/flutter_example/build/xcross-ios-simulator/*.app")
                     self.assertEqual(len(paths), len(uploads))
                     self.assertTrue(paths)
                     self.assertLessEqual(set(paths), allowed)
-                    self.assertIn("${{ runner.temp }}/ios-simulator-smoke", paths)
+                    self.assertEqual(paths.count(smoke), paths.count(screenshots))
+                    self.assertIn(screenshots, paths)
+                    for body in uploads:
+                        path = re.search(r"(?m)^\s+path: (.+)$", body).group(1)
+                        condition = re.search(r"(?m)^\s+if: (.+)$", body)
+                        condition = condition and condition.group(1)
+                        if path == smoke:
+                            self.assertEqual(condition, "failure() || cancelled()")
+                        elif path == screenshots:
+                            self.assertEqual(condition, "success()")
 
     def test_trusted_cross_host_jobs_restore_cache_without_secrets_and_forks_keep_toolchain_checks(self):
         for filename, job_name in (("integration.yml", "flutter-build"), ("compose-integration.yml", "compose-build")):
