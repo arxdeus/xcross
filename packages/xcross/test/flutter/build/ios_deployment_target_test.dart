@@ -196,6 +196,64 @@ IPHONEOS_DEPLOYMENT_TARGET = 16.1;
     },
   );
 
+  Future<void> writePluginPackage(String name, String platforms) async {
+    final dir = Directory(p.join(tmp.path, 'deps', name, 'ios', name));
+    await dir.create(recursive: true);
+    await File(p.join(dir.path, 'Package.swift')).writeAsString('''
+// swift-tools-version: 5.9
+import PackageDescription
+
+// platforms: [.iOS("99.0")]
+let package = Package(
+    name: "$name",
+    platforms: [$platforms],
+    targets: [.target(name: "$name")]
+)
+''');
+  }
+
+  Future<void> writePluginDependencies(
+    List<String> names,
+  ) => File(p.join(tmp.path, '.flutter-plugins-dependencies')).writeAsString(
+    '{"plugins":{"ios":[${[for (final name in names) '{"name":"$name","path":"deps/$name"}'].join(',')}]}}',
+  );
+
+  test(
+    'raises the deployment target to the highest plugin package floor',
+    () async {
+      await writePbxproj('IPHONEOS_DEPLOYMENT_TARGET = 15.0;\n');
+      await writePluginPackage('first_plugin', '.iOS("16.0"), .macOS("10.15")');
+      await writePluginPackage('second_plugin', '.iOS(.v16_4)');
+      await writePluginPackage('third_plugin', '.iOS(.v12)');
+      await writePluginDependencies([
+        'first_plugin',
+        'second_plugin',
+        'third_plugin',
+      ]);
+
+      final target = testIPhoneRuntime().deployments.resolve(
+        tmp.path,
+        platform: const SimulatorBuildPlatform(),
+      );
+      expect(target.version, '16.4');
+      expect(target.buildTriple, 'arm64-apple-ios16.4-simulator');
+      expect(target.minimumVersionFlag, '-mios-simulator-version-min=16.4');
+    },
+  );
+
+  test('keeps a project target above every plugin package floor', () async {
+    await writePbxproj('IPHONEOS_DEPLOYMENT_TARGET = 17.0;\n');
+    await writePluginPackage('first_plugin', '.iOS("16.0")');
+    await writePluginDependencies(['first_plugin']);
+
+    expect(
+      testIPhoneRuntime().deployments
+          .resolve(tmp.path, platform: const IPhoneBuildPlatform())
+          .version,
+      '17.0',
+    );
+  });
+
   test(
     'returns 13.0 fallback when no deployment target source is usable',
     () async {

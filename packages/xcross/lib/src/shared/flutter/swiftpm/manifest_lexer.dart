@@ -129,6 +129,31 @@ final class SwiftPmManifestLexer {
     return calls;
   }
 
+  static List<String> iosPlatformVersions(String manifest) {
+    final code = SwiftPmManifestLexer.swiftCodeMask(manifest);
+    final versions = <String>[];
+    for (final call in SwiftPmManifestLexer.swiftCalls(manifest, '.iOS')) {
+      if (!code[call.start]) continue;
+      final argument = call.text.substring(call.text.indexOf('(') + 1).trim();
+      final literal = RegExp(r'^"(\d+(?:\.\d+)*)"').firstMatch(argument);
+      final member = RegExp(
+        r'^\.v(\d+)(?:_(\d+))?(?:_(\d+))?\b',
+      ).firstMatch(argument);
+      if (literal != null) {
+        versions.add(literal[1]!);
+      } else if (member != null) {
+        versions.add(
+          [
+            member[1]!,
+            member[2] ?? '0',
+            if (member[3] case final String patch) patch,
+          ].join('.'),
+        );
+      }
+    }
+    return versions;
+  }
+
   static String? namedString(String call, String name) =>
       RegExp('${RegExp.escape(name)}\\s*:\\s*"([^"]+)"').firstMatch(call)?[1];
 

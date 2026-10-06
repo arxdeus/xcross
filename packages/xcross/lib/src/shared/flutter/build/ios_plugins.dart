@@ -276,7 +276,10 @@ final class PluginDiscovery {
   /// callers decide whether that's fatal.
   ///
   /// Throws [FlutterBuildError] only if the file exists but holds bad JSON.
-  Future<List<IosPlugin>> discover(String projectRoot) async {
+  Future<List<IosPlugin>> discover(String projectRoot) async =>
+      discoverSync(projectRoot);
+
+  List<IosPlugin> discoverSync(String projectRoot) {
     final file = fileSystem.file(
       p.join(projectRoot, '.flutter-plugins-dependencies'),
     );

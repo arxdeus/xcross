@@ -5,6 +5,8 @@ import 'package:darwin_sdk_kit/target/shared/ios_build_platform.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
+import 'package:xcross/src/shared/flutter/build/ios_plugins.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
 
 @internal
 final class IosDeploymentTargetResolver {
@@ -28,21 +30,34 @@ final class IosDeploymentTargetResolver {
     String projectRoot, {
     required IosBuildPlatformInterface platform,
   }) {
-    final fromPbxproj = _deploymentTargetFromPbxproj(projectRoot);
-    if (fromPbxproj != null) {
-      return IosDeploymentTarget(fromPbxproj, platform: platform);
-    }
-
-    final fromPlist = _minimumOsVersionFromPlist(projectRoot);
-    if (fromPlist != null) {
-      return IosDeploymentTarget(fromPlist, platform: platform);
-    }
-
+    final project =
+        _deploymentTargetFromPbxproj(projectRoot) ??
+        _minimumOsVersionFromPlist(projectRoot) ??
+        IosDeploymentTarget.fallbackVersion;
     return IosDeploymentTarget(
-      IosDeploymentTarget.fallbackVersion,
+      _highest([project, ..._pluginPackageFloors(projectRoot)]),
       platform: platform,
     );
   }
+
+  Iterable<String> _pluginPackageFloors(String projectRoot) sync* {
+    for (final plugin in PluginDiscovery(
+      fileSystem,
+    ).discoverSync(projectRoot)) {
+      final manifest = fileSystem.file(plugin.swiftPackageManifest);
+      if (!manifest.existsSync()) continue;
+      for (final version in SwiftPmManifestLexer.iosPlatformVersions(
+        manifest.readAsStringSync(),
+      )) {
+        if (_normalize(version) case final String floor) yield floor;
+      }
+    }
+  }
+
+  static String _highest(List<String> versions) => versions.reduce(
+    (highest, candidate) =>
+        _compareVersions(candidate, highest) > 0 ? candidate : highest,
+  );
 
   String? _deploymentTargetFromPbxproj(String projectRoot) {
     final pbxproj = _findPbxproj(projectRoot);
