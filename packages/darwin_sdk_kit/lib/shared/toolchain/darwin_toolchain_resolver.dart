@@ -435,7 +435,41 @@ final class DarwinToolchainResolver<T extends PlatformHostInterface> {
         '${runner.describeExitCode(result.exitCode)}',
       );
     }
+    final resourceDir = await _resourceDirectory(clang, runProcess);
+    if (resourceDir != null) {
+      final builtins = host.paths.context.join(
+        resourceDir,
+        'include',
+        'stdbool.h',
+      );
+      if (!host.fileSystem.file(builtins).existsSync()) {
+        return _rememberDarwinDriver(
+          key,
+          'has no compiler builtin headers: $builtins is missing',
+        );
+      }
+    }
     return _rememberDarwinDriver(key, null);
+  }
+
+  Future<String?> _resourceDirectory(
+    String clang,
+    Future<CapturedProcess> Function(String, List<String>)? runProcess,
+  ) async {
+    try {
+      final result = await (runProcess ?? runner.run)(clang, [
+        '-print-resource-dir',
+      ]);
+      if (result.exitCode != 0) return null;
+      final lines = result.stdout
+          .split('\n')
+          .map((line) => line.trim())
+          .where((line) => line.isNotEmpty);
+      return lines.isEmpty ? null : lines.last;
+    } on Object catch (error) {
+      log.logTrace('clang: $clang -print-resource-dir failed: $error');
+      return null;
+    }
   }
 
   String? _rememberDarwinDriver(String clang, String? failure) {

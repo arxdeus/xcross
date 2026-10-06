@@ -73,6 +73,42 @@ void main() {
       expect(failure, isNull);
     });
 
+    test(
+      'rejects a driver whose resource directory lacks builtin headers',
+      () async {
+        final empty = Directory(p.join(tmp.path, 'empty-resources'))
+          ..createSync();
+        final complete = Directory(p.join(tmp.path, 'full-resources'));
+        File(p.join(complete.path, 'include', 'stdbool.h'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('');
+        Future<CapturedProcess> Function(String, List<String>) driver(
+          String resources,
+        ) =>
+            (executable, arguments) async =>
+                arguments.contains('-print-resource-dir')
+                ? CapturedProcess(0, '$resources\n', '')
+                : const CapturedProcess(1, '', 'no such file or directory');
+
+        expect(
+          await resolver.probeDarwinDriver(
+            p.join(tmp.path, 'headerless-clang'),
+            sysroot: tmp.path,
+            runProcess: driver(empty.path),
+          ),
+          contains('builtin headers'),
+        );
+        expect(
+          await resolver.probeDarwinDriver(
+            p.join(tmp.path, 'complete-clang'),
+            sysroot: tmp.path,
+            runProcess: driver(complete.path),
+          ),
+          isNull,
+        );
+      },
+    );
+
     test('rejects a driver that fast-fails on the sysroot', () async {
       final failure = await windowsResolver().probeDarwinDriver(
         p.join(tmp.path, 'swift-clang'),
@@ -112,6 +148,9 @@ void main() {
         String executable,
         List<String> arguments,
       ) async {
+        if (arguments.contains('-print-resource-dir')) {
+          return const CapturedProcess(1, '', '');
+        }
         runs++;
         return CapturedProcess(arguments.contains('bad-sdk') ? -11 : 1, '', '');
       }
@@ -188,7 +227,7 @@ void main() {
         p.join(tmp.path, 'recorded-clang'),
         sysroot: p.join(tmp.path, 'iPhoneOS26.5.sdk'),
         runProcess: (executable, arguments) async {
-          seen = arguments;
+          if (!arguments.contains('-print-resource-dir')) seen = arguments;
           return const CapturedProcess(1, '', 'no such file');
         },
       );
