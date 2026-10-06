@@ -69,18 +69,13 @@ final class WindowsAppleToolShimRenderer<T extends WindowsHostInterface>
         );
 
     if (config.otool case final otool?) {
-      await host.fileSystem
-          .file(host.paths.context.join(directory, 'otool.ps1'))
-          .writeAsString(
-            renderPowerShellOtoolShim(
-              tool: otool.executable,
-              usesObjdump: otool.usesObjdump,
-            ),
-          );
       await _writeWindowsShim(
         directory,
         'otool',
-        renderBatchPowerShellShim('otool.ps1'),
+        renderBatchOtoolShim(
+          tool: otool.executable,
+          usesObjdump: otool.usesObjdump,
+        ),
       );
     }
 
@@ -101,27 +96,7 @@ final class WindowsAppleToolShimRenderer<T extends WindowsHostInterface>
       );
     }
     await _writeWindowsShim(directory, 'codesign', batchCodesignShim);
-    await host.fileSystem
-        .file(host.paths.context.join(directory, 'rsync.ps1'))
-        .writeAsString(r'''
-$items = @($args | Where-Object { -not $_.StartsWith('-') -and $_ -ne '.DS_Store/' })
-if ($items.Count -lt 2) { exit 1 }
-$source = $items[$items.Count - 2]
-$destination = $items[$items.Count - 1]
-if (-not ($source.EndsWith('/') -or $source.EndsWith('\'))) {
-  $destination = Join-Path $destination (Split-Path $source.TrimEnd('/', '\') -Leaf)
-}
-$source = $source.TrimEnd('/', '\')
-$mode = if ($args -contains '--delete') { '/MIR' } else { '/E' }
-& robocopy.exe $source $destination $mode /XD .DS_Store /XF .DS_Store /NFL /NDL /NJH /NJS /NP /R:0 /W:0 | Out-Host
-if ($LASTEXITCODE -ge 8) { exit $LASTEXITCODE }
-exit 0
-''');
-    await _writeWindowsShim(
-      directory,
-      'rsync',
-      renderBatchPowerShellShim('rsync.ps1'),
-    );
+    await _writeWindowsShim(directory, 'rsync', batchRsyncShim);
   }
 
   Future<void> _writeWindowsShim(

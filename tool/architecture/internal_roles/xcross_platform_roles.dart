@@ -296,11 +296,10 @@ const xcrossPlatformRoles = <String, Map<String, String>>{
     'CLASS:WindowsAppleToolShimRenderer': 'internal',
   },
   'package:xcross/src/host/windows/flutter/apple_tool_shim_templates.dart': {
-    'FUNCTION:powerShellQuote': 'internal',
-    'FUNCTION:renderBatchPowerShellShim': 'internal',
+    'FUNCTION:renderBatchOtoolShim': 'internal',
     'FUNCTION:renderBatchToolShim': 'internal',
-    'FUNCTION:renderPowerShellOtoolShim': 'internal',
     'TOP_LEVEL_VARIABLE:batchCodesignShim': 'internal',
+    'TOP_LEVEL_VARIABLE:batchRsyncShim': 'internal',
   },
   'package:xcross/src/host/windows/flutter/native_host_tools.dart': {
     'CLASS:WindowsNativeHostTools': 'internal',

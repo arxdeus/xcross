@@ -114,7 +114,7 @@ void main() {
 
   test('translates otool options for llvm-objdump', () {
     final unix = renderUnixOtoolShim(tool: '/llvm/objdump', usesObjdump: true);
-    final windows = renderPowerShellOtoolShim(
+    final windows = renderBatchOtoolShim(
       tool: r'C:\LLVM\llvm-objdump.exe',
       usesObjdump: true,
     );
@@ -125,27 +125,73 @@ void main() {
       '--macho --private-headers',
     ]) {
       expect(unix, contains(translation));
-    }
-    for (final translation in [
-      "@('--macho', '--dylibs-used')",
-      "@('--macho', '--dylib-id')",
-      "@('--macho', '--private-headers')",
-    ]) {
       expect(windows, contains(translation));
     }
+    expect(
+      windows,
+      contains(r'"C:\LLVM\llvm-objdump.exe" %XCROSS_OTOOL_OPTION%'),
+    );
+    expect(windows, contains('exit /b 64'));
   });
 
-  test('PowerShell otool passthrough forwards single-letter options raw', () {
-    final script = renderPowerShellOtoolShim(
+  test('batch otool passthrough forwards single-letter options raw', () {
+    final script = renderBatchOtoolShim(
       tool: r'C:\Tools\fixture-otool.exe',
       usesObjdump: false,
     );
 
-    expect(script, isNot(contains('param(')));
-    expect(script, isNot(contains('[Parameter(')));
-    expect(script, contains(r"& 'C:\Tools\fixture-otool.exe' @args"));
-    expect(script, contains(r'exit $LASTEXITCODE'));
+    expect(script, contains(r'"C:\Tools\fixture-otool.exe" %*'));
+    expect(script, contains('exit /b %errorlevel%'));
   });
+
+  test('Windows shim scripts never launch PowerShell', () {
+    for (final script in [
+      renderBatchOtoolShim(tool: r'C:\a\otool.exe', usesObjdump: true),
+      renderBatchOtoolShim(tool: r'C:\a\otool.exe', usesObjdump: false),
+      renderBatchToolShim(r'C:\a\lipo.exe'),
+      batchRsyncShim,
+      batchCodesignShim,
+    ]) {
+      expect(script.toLowerCase(), isNot(contains('powershell')));
+      expect(script.toLowerCase(), isNot(contains('.ps1')));
+    }
+  });
+
+  test(
+    'batch otool shim translates options and preserves exit codes',
+    () async {
+      final temp = await Directory.systemTemp.createTemp('batch-otool-');
+      addTearDown(() => temp.delete(recursive: true));
+      final probe = File(p.join(temp.path, 'probe.bat'))
+        ..writeAsStringSync('@echo off\r\necho [%*]\r\nexit /b 3\r\n');
+      final objdump = File(p.join(temp.path, 'otool.bat'))
+        ..writeAsStringSync(
+          renderBatchOtoolShim(tool: probe.path, usesObjdump: true),
+        );
+      final translated = await Process.run(objdump.path, [
+        '-D',
+        r'C:\with space\Flutter',
+      ]);
+      expect(translated.exitCode, 3);
+      expect(
+        translated.stdout.toString().trim(),
+        r'[--macho --dylib-id "C:\with space\Flutter"]',
+      );
+      final unsupported = await Process.run(objdump.path, ['-x', 'file']);
+      expect(unsupported.exitCode, 64);
+      final missing = await Process.run(objdump.path, const []);
+      expect(missing.exitCode, 64);
+
+      final passthrough = File(p.join(temp.path, 'raw.bat'))
+        ..writeAsStringSync(
+          renderBatchOtoolShim(tool: probe.path, usesObjdump: false),
+        );
+      final raw = await Process.run(passthrough.path, ['-L', 'binary']);
+      expect(raw.exitCode, 3);
+      expect(raw.stdout.toString().trim(), '[-L binary]');
+    },
+    skip: !Platform.isWindows,
+  );
 
   test('Unix host compiler prefix arguments are shell quoted', () async {
     final temp = await Directory.systemTemp.createTemp('host-prefix-shim-');
