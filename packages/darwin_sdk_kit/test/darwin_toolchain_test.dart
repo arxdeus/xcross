@@ -378,6 +378,23 @@ void main() {
       );
       expect(seen, contains('-dylib'));
     });
+
+    test('links an existing iOS object and removes it afterwards', () async {
+      late String input;
+      late List<int> bytes;
+      await resolver.probeIosSupport(
+        p.join(tmp.path, 'object-ld64.lld'),
+        runProcess: (executable, arguments) async {
+          input = arguments.last;
+          bytes = await File(input).readAsBytes();
+          return const CapturedProcess(0, '', '');
+        },
+      );
+      expect(bytes, DarwinToolchainResolver.iosProbeObject);
+      expect(bytes.sublist(0, 8), [0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0, 0, 1]);
+      expect(bytes.sublist(32, 44), [0x32, 0, 0, 0, 24, 0, 0, 0, 2, 0, 0, 0]);
+      expect(File(input).existsSync(), isFalse);
+    });
   });
 
   group('selectorStubDefect', () {

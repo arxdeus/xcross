@@ -6,6 +6,7 @@ import 'package:cli_kit/shared/process/process.dart';
 import 'package:cli_kit/shared/process/process_models.dart';
 import 'package:darwin_sdk_kit/host/shared/darwin_toolchain_locations.dart';
 import 'package:darwin_sdk_kit/shared/errors/errors.dart';
+import 'package:meta/meta.dart';
 
 final class DarwinToolchainResolver<T extends PlatformHostInterface> {
   DarwinToolchainResolver(this.runner, this.locations);
@@ -134,11 +135,11 @@ final class DarwinToolchainResolver<T extends PlatformHostInterface> {
 
   /// Why [linker] cannot link for iOS, or null when it can.
   ///
-  /// Asks for an iOS dylib with an input that does not exist: a working linker
-  /// gets as far as complaining about the missing file, while one built
-  /// without Mach-O iOS support rejects the platform first. Only positive
-  /// evidence of failure counts, so an unfamiliar diagnostic is treated as a
-  /// working linker rather than locking a user out of their own toolchain.
+  /// Asks for an iOS dylib from an empty arm64 object built for iOS: a linker
+  /// without Mach-O iOS support rejects the platform once it reads the
+  /// object. Only positive evidence of failure counts, so an unfamiliar
+  /// diagnostic is treated as a working linker rather than locking a user out
+  /// of their own toolchain.
   Future<String?> probeIosSupport(
     String linker, {
     Future<CapturedProcess> Function(String, List<String>)? runProcess,
@@ -146,13 +147,22 @@ final class DarwinToolchainResolver<T extends PlatformHostInterface> {
     final cached = _iosSupport[linker];
     if (cached != null) return cached.isEmpty ? null : cached;
 
-    // Inside a directory that is never created, so the probe cannot pick up a
-    // stray object file and actually link something.
-    final missing = host.paths.context.join(
+    Directory? scratch;
+    var object = host.paths.context.join(
       host.paths.temporaryRoot,
       'xcross-ld64-probe',
       'probe.o',
     );
+    try {
+      scratch = await host.fileSystem
+          .directory(host.paths.temporaryRoot)
+          .createTemp('xcross-ld64-probe-');
+      final written = host.paths.context.join(scratch.path, 'probe.o');
+      await host.fileSystem.file(written).writeAsBytes(iosProbeObject);
+      object = written;
+    } on FileSystemException catch (error) {
+      log.logTrace('ld64.lld: probe object unavailable: $error');
+    }
     final CapturedProcess result;
     try {
       result = await (runProcess ?? runner.run)(linker, [
@@ -164,11 +174,17 @@ final class DarwinToolchainResolver<T extends PlatformHostInterface> {
         '13.0',
         '-dylib',
         '-o',
-        '$missing.dylib',
-        missing,
+        '$object.dylib',
+        object,
       ]);
     } on Object catch (error) {
       return _rememberIosSupport(linker, 'could not be run: $error');
+    } finally {
+      try {
+        await scratch?.delete(recursive: true);
+      } on FileSystemException catch (error) {
+        log.logTrace('ld64.lld: probe cleanup failed: $error');
+      }
     }
 
     final output = '${result.stdout}\n${result.stderr}';
@@ -192,6 +208,17 @@ final class DarwinToolchainResolver<T extends PlatformHostInterface> {
     }
     return _rememberIosSupport(linker, null);
   }
+
+  @internal
+  static final List<int> iosProbeObject = List.unmodifiable([
+    ..._littleEndianWords([0xfeedfacf, 0x0100000c, 0, 1, 1, 24, 0, 0]),
+    ..._littleEndianWords([0x32, 24, 2, 0x000d0000, 0x000d0000, 0]),
+  ]);
+
+  static List<int> _littleEndianWords(List<int> words) => [
+    for (final word in words)
+      for (var shift = 0; shift < 32; shift += 8) (word >> shift) & 0xff,
+  ];
 
   String? _rememberIosSupport(String linker, String? failure) {
     _iosSupport[linker] = failure ?? '';
