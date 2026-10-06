@@ -140,6 +140,17 @@ class ArchitectureWorkflowTests(unittest.TestCase):
         self.assertIn('git submodule update --init --checkout examples', self.required_step(steps, 'Update example submodule'))
         build_name = 'Build Flutter example for ARM64 simulator through production xcross'
         smoke_name = 'Boot install launch and observe Flutter example headlessly'
+        rust_name = 'Install Flutter example Rust toolchain with preinstalled rustup'
+        rust = self.required_step(steps, rust_name)
+        self.assertEqual(steps[rust_name].get('working-directory'), 'examples/flutter_example/rust')
+        self.assertIn('channel="$(sed -n \'s/^channel = "\\(.*\\)"$/\\1/p\' rust-toolchain.toml)"', rust)
+        self.assertIn('test -n "$channel"', rust)
+        self.assertTrue(any(line.startswith('rustup toolchain install "$channel"') for line in rust))
+        self.assertIn('--target aarch64-apple-ios-sim --target aarch64-apple-ios', rust)
+        self.assertIn('grep -qx aarch64-apple-ios-sim "$RUNNER_TEMP/rust-targets.txt"', rust)
+        self.assertIn('grep -qx aarch64-apple-ios "$RUNNER_TEMP/rust-targets.txt"', rust)
+        self.assertLess(names.index('Update example submodule'), names.index(rust_name))
+        self.assertLess(names.index(rust_name), names.index(build_name))
         build = self.required_step(steps, build_name)
         self.assertEqual(steps[build_name].get('working-directory'), 'examples/flutter_example')
         self.assertTrue(any(line.startswith('xcross --verbose flutter build --target-platform simulator --debug') for line in build))
@@ -190,8 +201,13 @@ class ArchitectureWorkflowTests(unittest.TestCase):
         original = (ROOT / '.github/workflows/integration.yml').read_text()
         smoke = '      - name: Boot install launch and observe Flutter example headlessly\n'
         build = '      - name: Build Flutter example for ARM64 simulator through production xcross\n'
+        rust = '      - name: Install Flutter example Rust toolchain with preinstalled rustup\n'
         for old, new in (
             (smoke, smoke + '        if: false\n'),
+            (rust, rust + '        if: false\n'),
+            (rust, rust + '        continue-on-error: true\n'),
+            ('            --target aarch64-apple-ios-sim --target aarch64-apple-ios\n', '            --target aarch64-apple-ios\n'),
+            ('          rustup toolchain install "$channel"', '          echo rustup toolchain install "$channel"'),
             (build, build + '        continue-on-error: true\n'),
             ('          xcross --verbose flutter build --target-platform simulator --debug 2>&1 | \\\n            tee "$RUNNER_TEMP/ios-simulator-smoke/flutter-example-build.log"', '          echo skipped'),
         ):

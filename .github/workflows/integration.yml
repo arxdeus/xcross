@@ -674,6 +674,22 @@ jobs:
             --output "$RUNNER_TEMP/ios-simulator-smoke/flutter" \
             --ready-marker XCROSS_SIMULATOR_NATIVE_FIRST_FRAME_READY
 
+      - name: Install Flutter example Rust toolchain with preinstalled rustup
+        shell: bash
+        working-directory: examples/flutter_example/rust
+        run: |
+          set -euo pipefail
+          channel="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
+          test -n "$channel"
+          rustup --version
+          rustup toolchain install "$channel" --profile minimal \
+            --target aarch64-apple-ios-sim --target aarch64-apple-ios
+          rustup show active-toolchain | grep -F "$channel"
+          rustup +"$channel" target list --installed | tee "$RUNNER_TEMP/rust-targets.txt"
+          grep -qx aarch64-apple-ios-sim "$RUNNER_TEMP/rust-targets.txt"
+          grep -qx aarch64-apple-ios "$RUNNER_TEMP/rust-targets.txt"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
       - name: Build Flutter example for ARM64 simulator through production xcross
         shell: bash
         working-directory: examples/flutter_example
