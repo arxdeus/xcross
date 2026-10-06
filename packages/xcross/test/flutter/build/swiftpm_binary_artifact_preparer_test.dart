@@ -175,6 +175,56 @@ void main() {
     },
   );
 
+  test(
+    'materializes an intact offline tree and refuses a changed one',
+    () async {
+      final staging = temp.createTempSync('offline-input-');
+      final tree = Directory(p.join(staging.path, 'Offline.xcframework'))
+        ..createSync();
+      File(p.join(tree.path, 'Info.plist')).writeAsStringSync('plist');
+      final offline =
+          await SwiftPmOfflineArtifactPublisher(
+            fileSystem: store.fileSystem,
+            publicationCoordinator: store.publicationCoordinator,
+          ).publish(
+            stagingRoot: staging,
+            destination: p.join(temp.path, 'offline-store', 'entry'),
+            artifactDirectoryName: 'Offline.xcframework',
+          );
+      final preparer = SwiftPmBinaryArtifactPreparer(
+        store: store,
+        policy: _swiftPmRuntime.targetPolicy,
+        transport: const HttpSwiftPmArchiveTransport(
+          createClient: HttpClient.new,
+        ),
+        copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
+      );
+      final destination = p.join(temp.path, 'offline-materialized');
+      expect(
+        await preparer.materializeBinaryArtifact(
+          source: offline,
+          destination: destination,
+        ),
+        SwiftPmBinaryArtifactPublication.published(),
+      );
+      expect(
+        await preparer.validatesMaterializedBinaryArtifact(
+          source: offline,
+          destination: destination,
+        ),
+        isTrue,
+      );
+      File(p.join(offline, 'Info.plist')).writeAsStringSync('changed');
+      await expectLater(
+        preparer.materializeBinaryArtifact(
+          source: offline,
+          destination: p.join(temp.path, 'offline-changed'),
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+    },
+  );
+
   test('distinct preparers share session destination serialization', () async {
     final fixture = createFixture(
       temp,

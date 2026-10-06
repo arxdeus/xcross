@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_artifact_store.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_offline_publisher.dart';
 
 @internal
 final class SwiftPmBinaryArtifactPublication {
@@ -42,7 +43,7 @@ final class SwiftPmArtifactDestinationPublisher {
     required String alias,
     required String target,
   }) => _withDestinationLock(alias, () async {
-    if (!await _completeEntryContaining(target)) {
+    if (!await _publishedSource(target)) {
       throw FileSystemException(
         'SwiftPM binary artifact target is not a complete store entry',
         target,
@@ -212,7 +213,7 @@ final class SwiftPmArtifactDestinationPublisher {
   });
 
   Future<void> _validateMaterializationSource(String source) async {
-    if (await _completeEntryContaining(source)) return;
+    if (await _publishedSource(source)) return;
     throw FileSystemException(
       'SwiftPM binary artifact source is not a complete store entry',
       source,
@@ -269,7 +270,7 @@ final class SwiftPmArtifactDestinationPublisher {
     required String destination,
     required bool alias,
   }) async {
-    if (!await _completeEntryContaining(source)) return false;
+    if (!await _publishedSource(source)) return false;
     if (!alias) return _sameArtifactTree(source, destination);
     final absoluteDestination = p.normalize(p.absolute(destination));
     final marker = fileSystem.file(_aliasMarkerPath(absoluteDestination));
@@ -404,6 +405,13 @@ final class SwiftPmArtifactDestinationPublisher {
     }
     return true;
   }
+
+  Future<bool> _publishedSource(String source) async =>
+      await _completeEntryContaining(source) ||
+      await SwiftPmOfflineArtifactPublisher(
+        fileSystem: fileSystem,
+        publicationCoordinator: _store.publicationCoordinator,
+      ).isPublishedArtifact(source);
 
   Future<bool> _completeEntryContaining(String target) async {
     final root = p.normalize(p.absolute(fileSystem.processPath(_store.root)));

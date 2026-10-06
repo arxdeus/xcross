@@ -88,6 +88,34 @@ final class SwiftPmOfflineArtifactPublisher {
     });
   }
 
+  Future<bool> isPublishedArtifact(String artifactPath) async {
+    final artifactName = p.basename(artifactPath);
+    if (!SwiftPmArtifactTree.isSafeComponent(artifactName)) return false;
+    final root = p.dirname(artifactPath);
+    try {
+      final metadata = jsonDecode(
+        await fileSystem
+            .file(p.join(root, '.xcross-offline.json'))
+            .readAsString(),
+      );
+      if (metadata is! Map<String, dynamic> ||
+          metadata['treeDigest'] is! String) {
+        return false;
+      }
+      return await _reusable(
+        root,
+        artifactName,
+        metadata['treeDigest'] as String,
+      );
+    } on FormatException {
+      return false;
+    } on FileSystemException {
+      return false;
+    } on FlutterBuildError {
+      return false;
+    }
+  }
+
   Future<bool> _reusable(
     String root,
     String artifactName,
