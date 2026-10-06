@@ -21,6 +21,8 @@ final class SwiftPmWorkspace {
   String get binaryArtifactStore =>
       p.join(cacheRoot, 'swiftpm', policy.binaryArtifactDirectory);
   String get binaryArtifactFallback => p.join(root, 'binary-artifacts');
+  String get dependencyRefs =>
+      p.join(cacheRoot, 'swiftpm', 'dependency-refs-v1');
   String get gateEvidence => p.join(cacheRoot, 'swiftpm', 'gate-evidence-v2');
   String get gateIdentityCache => p.join(gateEvidence, 'build-identities.json');
   String get gateCapabilityCache => p.join(gateEvidence, 'capabilities.json');

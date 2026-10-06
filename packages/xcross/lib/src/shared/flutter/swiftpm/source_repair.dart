@@ -88,6 +88,7 @@ final class SwiftPmSourceRepair<T extends PlatformHostInterface> {
   /// [swiftProcessEnvironment] are what keep a credential prompt from
   /// hanging forever, not a timeout.
   Future<void> resolveOnce(String swift, String directory) async {
+    runner.log.logTrace('[swift package resolve] running in $directory');
     final result = await runner.run(swift, [
       ...hostPolicy.packagePrefix,
       ...processPolicy.hostManifestArguments(),

@@ -268,6 +268,7 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
         deploymentTarget: deploymentTarget,
         verbose: verbose,
         scratchPath: workspace.scratch,
+        dependencyRefsCache: workspace.dependencyRefs,
         binaryArtifactStore: workspace.binaryArtifactStore,
         binaryArtifactFallback: workspace.binaryArtifactFallback,
         swiftPmArtifactJunctionCapability: capabilities.swiftPmArtifact,

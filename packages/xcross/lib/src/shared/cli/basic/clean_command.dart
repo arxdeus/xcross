@@ -55,6 +55,7 @@ final class CleanCommand extends Command<void> {
         'xcross-native-assets',
       ),
       workspace.root,
+      workspace.dependencyRefs,
     ];
     final removed = <String>[];
     for (final path in paths) {

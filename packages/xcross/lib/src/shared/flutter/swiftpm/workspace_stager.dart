@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
+import 'package:crypto/crypto.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
@@ -89,6 +91,7 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
     String? vendorDir,
     Set<String> copyPluginPackages = const {},
     String? scratchPath,
+    String? dependencyRefsCache,
     String? binaryArtifactStore,
     String? binaryArtifactFallback,
     bool swiftPmArtifactJunctionCapability = false,
@@ -150,6 +153,14 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
         );
       }
       final scoped = evaluateDependencyRefs;
+      final refsCacheFile = dependencyRefsCache == null
+          ? null
+          : artifactFileSystem.file(
+              p.join(
+                dependencyRefsCache,
+                '${await unifiedRefsKey(prestaged, [outputDir, resolvedVendorDir, ?scratchPath, ?binaryArtifactStore, ?binaryArtifactFallback])}.json',
+              ),
+            );
       final bootstrap = await dependencyPreparation.bootstrapPinned(
         SwiftPmPinnedDependencyCommand(
           packageDirectories: prestaged,
@@ -158,7 +169,8 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
       );
       Map<String, String>? unified;
       try {
-        unified = await resolveUnifiedDependencyRefs(
+        unified = await readUnifiedRefs(refsCacheFile);
+        unified ??= await resolveUnifiedDependencyRefs(
           resolveRoot: p.join(outputDir, 'Resolve'),
           packageDirectories: prestaged,
           evaluate: (directory, dependencies) => scoped != null
@@ -185,6 +197,10 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
                   dependencies: dependencies,
                 ),
         );
+        if (refsCacheFile != null && unified != null) {
+          await refsCacheFile.parent.create(recursive: true);
+          await filesystem.writeStable(refsCacheFile.path, jsonEncode(unified));
+        }
       } finally {
         for (final entry in bootstrap.originals.entries) {
           await filesystem.writeStable(entry.key, entry.value);
@@ -284,6 +300,56 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
       deploymentTarget: deploymentTarget,
       verbose: verbose,
     );
+  }
+
+  Future<String> unifiedRefsKey(
+    Iterable<String> packageDirectories,
+    Iterable<String> workspaceRoots,
+  ) async {
+    String portable(String content) {
+      var result = content;
+      for (final root in workspaceRoots) {
+        result = result
+            .replaceAll(SwiftPmFilesystem.swiftPath(root), '\u0001')
+            .replaceAll(p.absolute(root), '\u0001');
+      }
+      return result;
+    }
+
+    final parts = <String>['xcross-unified-refs-v1'];
+    for (final directory in packageDirectories) {
+      final manifests = <String>[];
+      final entries = artifactFileSystem.directory(directory).existsSync()
+          ? artifactFileSystem.directory(directory).listSync(followLinks: false)
+          : const <FileSystemEntity>[];
+      for (final entity in entries) {
+        final name = p.basename(entity.path);
+        if (entity is File &&
+            name.startsWith('Package') &&
+            name.endsWith('.swift')) {
+          manifests.add('$name\u0000${portable(await entity.readAsString())}');
+        }
+      }
+      manifests.sort();
+      parts
+        ..add(portable(p.absolute(directory)))
+        ..addAll(manifests);
+    }
+    return sha256.convert(utf8.encode(parts.join('\u0000'))).toString();
+  }
+
+  Future<Map<String, String>?> readUnifiedRefs(File? file) async {
+    if (file == null || !file.existsSync()) return null;
+    try {
+      final decoded = jsonDecode(await file.readAsString());
+      if (decoded is! Map<String, Object?>) return null;
+      return {
+        for (final entry in decoded.entries)
+          if (entry.value case final String ref) entry.key: ref,
+      };
+    } on FormatException {
+      return null;
+    }
   }
 
   Future<Map<String, String>?> resolveUnifiedDependencyRefs({

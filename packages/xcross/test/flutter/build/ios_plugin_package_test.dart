@@ -3954,6 +3954,143 @@ API_AVAILABLE(macos(10.15), ios(17.0))
   });
 
   group('writeGeneratedPackages', () {
+    test('reuses unified dependency refs across workspaces', () async {
+      const url = 'https://example.com/owner/shared.git';
+      final plugin = makePlugin(
+        'plugin_shared',
+        packageManifest:
+            '''
+import PackageDescription
+let package = Package(
+  name: "plugin_shared",
+  dependencies: [.package(url: "$url", from: "1.0.0")],
+  targets: []
+)
+''',
+      );
+      final flutter = Directory(p.join(tmp.path, 'Flutter.xcframework'))
+        ..createSync();
+      final refsCache = p.join(tmp.path, 'cache', 'dependency-refs');
+      final evaluated = <String>[];
+      final cloned = <String>[];
+
+      Future<void> stage(String workspace) =>
+          _swiftPmRuntime.workspaceStager.writeGeneratedPackages(
+            outputDir: p.join(tmp.path, workspace, 'plugins'),
+            vendorDir: p.join(tmp.path, workspace, 'vendor'),
+            scratchPath: p.join(tmp.path, workspace, 'scratch'),
+            dependencyRefsCache: refsCache,
+            plugins: [plugin],
+            flutterXcframework: flutter.path,
+            deploymentTarget: const IosDeploymentTarget(
+              '15.0',
+              platform: IPhoneBuildPlatform(),
+            ),
+            copyFlutterXcframework: true,
+            vendorRemotePackages: true,
+            evaluateDependencyRefs:
+                (
+                  directory, {
+                  required scratchPath,
+                  required binaryArtifactStore,
+                  required binaryArtifactFallback,
+                  required swiftPmArtifactJunctionCapability,
+                  required packageLocalArtifactJunctionCapability,
+                  required dependencies,
+                }) async {
+                  evaluated.add(directory);
+                  return const {'https://example.com/owner/shared': 'rev-1'};
+                },
+            clonePackage: (_, _, ref, destination) async {
+              cloned.add(ref);
+              await Directory(destination).create(recursive: true);
+              await File(
+                p.join(destination, 'Package.swift'),
+              ).writeAsString('import PackageDescription\n');
+            },
+          );
+
+      await stage('device');
+      await stage('simulator');
+
+      expect(evaluated, [p.join(tmp.path, 'device', 'plugins', 'Resolve')]);
+      expect(cloned, ['rev-1', 'rev-1']);
+      final simulatorManifest = File(
+        p.join(
+          tmp.path,
+          'simulator',
+          'plugins',
+          'Packages',
+          'plugin_shared',
+          'ios',
+          'plugin_shared',
+          'Package.swift',
+        ),
+      ).readAsStringSync();
+      expect(
+        simulatorManifest,
+        contains(swiftPath(p.join(tmp.path, 'simulator', 'vendor'))),
+      );
+    });
+
+    test('re-resolves when a plugin manifest changes', () async {
+      final refsCache = p.join(tmp.path, 'cache', 'dependency-refs');
+      final flutter = Directory(p.join(tmp.path, 'Flutter.xcframework'))
+        ..createSync();
+      var evaluations = 0;
+      Future<void> stage(String version) async {
+        final plugin = makePlugin(
+          'plugin_changed',
+          packageManifest:
+              '''
+import PackageDescription
+let package = Package(
+  name: "plugin_changed",
+  dependencies: [.package(url: "https://example.com/o/r.git", from: "$version")],
+  targets: []
+)
+''',
+        );
+        await _swiftPmRuntime.workspaceStager.writeGeneratedPackages(
+          outputDir: p.join(tmp.path, 'w', 'plugins'),
+          vendorDir: p.join(tmp.path, 'w', 'vendor'),
+          dependencyRefsCache: refsCache,
+          plugins: [plugin],
+          flutterXcframework: flutter.path,
+          deploymentTarget: const IosDeploymentTarget(
+            '15.0',
+            platform: IPhoneBuildPlatform(),
+          ),
+          copyFlutterXcframework: true,
+          vendorRemotePackages: true,
+          evaluateDependencyRefs:
+              (
+                directory, {
+                required scratchPath,
+                required binaryArtifactStore,
+                required binaryArtifactFallback,
+                required swiftPmArtifactJunctionCapability,
+                required packageLocalArtifactJunctionCapability,
+                required dependencies,
+              }) async {
+                evaluations++;
+                return {'https://example.com/o/r': 'rev-$version'};
+              },
+          clonePackage: (_, _, _, destination) async {
+            await Directory(destination).create(recursive: true);
+            await File(
+              p.join(destination, 'Package.swift'),
+            ).writeAsString('import PackageDescription\n');
+          },
+        );
+      }
+
+      await stage('1.0.0');
+      await stage('2.0.0');
+
+      expect(evaluations, 2);
+    });
+
     test(
       'passes build-scoped recovery inputs to dependency evaluation',
       () async {
