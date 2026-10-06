@@ -26,6 +26,7 @@ class CommandTimeout(RuntimeError):
 
 
 INSTALL_ERROR = re.compile(r"error|fail|denied|invalid", re.IGNORECASE)
+HOME_SCREEN_SERVICE = "system/com.apple.SpringBoard"
 
 
 def app_size(app):
@@ -239,9 +240,8 @@ class Smoke:
                 path = self.output / name
                 if path.exists():
                     path.rename(self.output / f"launch-attempt-1-{name}")
-            self.simctl("shutdown", self.device, name="relaunch.log", check=False, timeout=60)
-            self.simctl("boot", self.device, name="relaunch.log")
-            self.simctl("bootstatus", self.device, "-b", name="relaunch.log", timeout=self.boot_timeout)
+            self.fresh_boot("relaunch.log")
+            self.install_with_retry()
             return self.launch()
 
     def install_with_retry(self):
@@ -253,10 +253,34 @@ class Smoke:
                 raise
             self.install_retries.append(str(failure))
             (self.output / "install.log").rename(self.output / "install-attempt-1.log")
-            self.simctl("shutdown", self.device, name="reinstall.log", check=False, timeout=60)
-            self.simctl("boot", self.device, name="reinstall.log")
-            self.simctl("bootstatus", self.device, "-b", name="reinstall.log", timeout=self.boot_timeout)
+            self.fresh_boot("reinstall.log")
             return self.simctl("install", self.device, str(self.app), name="install.log", timeout=timeout)
+
+    def boot(self, name):
+        self.simctl("boot", self.device, name=name)
+        self.simctl("bootstatus", self.device, "-b", name=name, timeout=self.boot_timeout)
+        self.wait_for_home_screen(name)
+
+    def fresh_boot(self, name):
+        self.simctl("shutdown", self.device, name=name, check=False, timeout=60)
+        self.simctl("erase", self.device, name=name, timeout=120)
+        self.boot(name)
+
+    def wait_for_home_screen(self, name):
+        deadline = time.monotonic() + self.boot_timeout
+        while True:
+            try:
+                result = self.simctl(
+                    "spawn", self.device, "launchctl", "print", HOME_SCREEN_SERVICE,
+                    name=name, timeout=30, check=False,
+                )
+                if not result.returncode and re.search(r"^\s*state = running$", result.stdout, re.MULTILINE):
+                    return
+            except CommandTimeout:
+                pass
+            if time.monotonic() >= deadline:
+                raise RuntimeError(f"Simulator home screen not running after {self.boot_timeout}s")
+            time.sleep(1)
 
     def scan_abort_markers(self):
         for name in ("app-stdout.log", "app-stderr.log", "simulator.log",
@@ -420,6 +444,7 @@ class Smoke:
             }, indent=2))
             self.simctl("boot", self.device, name="boot.log")
             self.simctl("bootstatus", self.device, "-b", name="bootstatus.log", timeout=self.boot_timeout)
+            self.wait_for_home_screen("bootstatus.log")
             self.install_with_retry()
             result = self.launch_with_retry()
             match = re.search(rf"^{re.escape(identifier)}: ([1-9][0-9]*)$", result.stdout, re.MULTILINE)

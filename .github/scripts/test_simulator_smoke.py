@@ -212,6 +212,8 @@ class SmokeTests(unittest.TestCase):
         self.keep_deleted_device = False
         self.launchctl = "1234\t0\tUIKitApplication:dev.xcross.smoke[a1b2][rb-legacy]\n"
         self.app_stderr = None
+        self.home_screen_polls = 0
+        self.home_screen_delay = 0
         self.run_mock = patch("simulator_smoke.subprocess.run", side_effect=self.fake_run).start()
         self.addCleanup(patch.stopall)
         patch("simulator_smoke.Path.home", return_value=self.root / "home").start()
@@ -228,7 +230,8 @@ class SmokeTests(unittest.TestCase):
 
     def fake_run(self, args, **kwargs):
         self.calls.append((args, kwargs))
-        if self.failure and self.failure in args:
+        probe = "print" in args and self.failure != "print"
+        if self.failure and self.failure in args and not probe:
             if self.failure_budget is not None:
                 self.failure_budget -= 1
                 if self.failure_budget < 0:
@@ -239,7 +242,11 @@ class SmokeTests(unittest.TestCase):
             return subprocess.CompletedProcess(args, 1, "failure")
         stdout = ""
         code = 0
-        if "launchctl" in args:
+        if "print" in args:
+            self.home_screen_polls += 1
+            stdout = "" if self.home_screen_polls <= self.home_screen_delay else "\tstate = running\n"
+            code = 0 if stdout else 113
+        elif "launchctl" in args:
             stdout = self.launchctl
         elif args[0] == "/usr/bin/uname":
             stdout = self.arch
@@ -377,13 +384,35 @@ class SmokeTests(unittest.TestCase):
         self.smoke.run()
         launches = [args for args, _ in self.calls if "launch" in args]
         self.assertEqual(len(launches), 2)
-        boots = [args[2] for args, _ in self.calls if args[2:3] in (["boot"], ["bootstatus"])]
-        self.assertEqual(boots, ["boot", "bootstatus", "boot", "bootstatus"])
+        boots = [args[2] for args, _ in self.calls if args[2:3] in (["boot"], ["bootstatus"], ["erase"], ["install"])]
+        self.assertEqual(boots, ["boot", "bootstatus", "install", "erase", "boot", "bootstatus", "install"])
         self.assertEqual(len(self.result()["launch_retries"]), 1)
         self.assertTrue(self.result()["passed"])
         self.assertTrue((self.smoke.output / "launch-attempt-1-launch.log").is_file())
         delete = [args for args, _ in self.calls if "delete" in args]
         self.assertEqual(delete, [["/usr/bin/xcrun", "simctl", "delete", DEVICE]])
+
+    def test_install_waits_until_home_screen_is_running(self):
+        self.home_screen_delay = 3
+        self.smoke.run()
+        names = [args[2] if args[2] != "spawn" else args[5] for args, _ in self.calls
+                 if args[2:3] in (["install"], ["spawn"]) and "list" not in args and "log" not in args]
+        self.assertEqual(names[:5], ["print", "print", "print", "print", "install"])
+        self.assertTrue(self.result()["passed"])
+
+    def test_home_screen_never_running_fails_before_install(self):
+        self.home_screen_delay = 10 ** 6
+        with self.assertRaisesRegex(RuntimeError, "home screen not running"):
+            self.smoke.run()
+        self.assertFalse(any("install" in args for args, _ in self.calls))
+        self.assert_scoped_cleanup()
+
+    def test_hung_home_screen_probe_is_retried_until_running(self):
+        self.failure = "print"
+        self.failure_budget = 2
+        self.smoke.run()
+        self.assertEqual(len([args for args, _ in self.calls if "print" in args]), 3)
+        self.assertTrue(self.result()["passed"])
 
     def test_launch_hanging_twice_fails(self):
         self.failure = "launch"
@@ -448,8 +477,8 @@ class SmokeTests(unittest.TestCase):
         self.failure_budget = 1
         self.smoke.run()
         self.assertEqual(len([args for args, _ in self.calls if "install" in args]), 2)
-        boots = [args[2] for args, _ in self.calls if args[2:3] in (["boot"], ["bootstatus"])]
-        self.assertEqual(boots, ["boot", "bootstatus", "boot", "bootstatus"])
+        boots = [args[2] for args, _ in self.calls if args[2:3] in (["boot"], ["bootstatus"], ["erase"])]
+        self.assertEqual(boots, ["boot", "bootstatus", "erase", "boot", "bootstatus"])
         self.assertEqual(len(self.result()["install_retries"]), 1)
         self.assertTrue(self.result()["passed"])
         self.assertTrue((self.smoke.output / "install-attempt-1.log").is_file())
