@@ -403,6 +403,24 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(len([args for args, _ in self.calls if "launch" in args]), 1)
         self.assertEqual(self.result()["launch_retries"], [])
 
+    def test_timed_out_diagnostics_are_recorded_without_failing(self):
+        for command in ("launchctl", "screenshot"):
+            with self.subTest(command=command):
+                self.calls = []
+                self.failure = command
+                self.smoke = Smoke(self.app, self.root / command, boot_timeout=7, observe_seconds=2)
+                self.smoke.run()
+                self.assertTrue(self.result()["passed"])
+                self.assertEqual(len(self.result()["diagnostic_timeouts"]), 1)
+                self.assert_scoped_cleanup()
+
+    def test_timed_out_diagnostic_with_abort_evidence_fails(self):
+        self.failure = "launchctl"
+        self.app_stderr = "Fatal error: synthetic failure\n"
+        with self.assertRaisesRegex(RuntimeError, "abort or crash marker"):
+            self.smoke.run()
+        self.assertEqual(len(self.result()["diagnostic_timeouts"]), 1)
+
     def test_launch_without_pid_is_not_success(self):
         self.launch = "launch request accepted"
         with self.assertRaisesRegex(RuntimeError, "did not return an app PID"):
@@ -433,7 +451,7 @@ class SmokeTests(unittest.TestCase):
         self.assert_scoped_cleanup()
 
     def test_screenshot_failure_fails_successful_smoke(self):
-        self.failure = "screenshot"
+        self.nonzero = "screenshot"
         with self.assertRaisesRegex(RuntimeError, "diagnostics failed"):
             self.smoke.run()
         self.assert_scoped_cleanup()

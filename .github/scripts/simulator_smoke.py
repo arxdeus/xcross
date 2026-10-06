@@ -108,6 +108,7 @@ class Smoke:
         self.ready_marker = ready_marker
         self.ready_marker_found = False
         self.launch_retries = []
+        self.diagnostic_timeouts = []
 
     def command(self, args, name, timeout=60, check=True):
         with (self.output / "commands.log").open("a") as log:
@@ -182,9 +183,13 @@ class Smoke:
         self.check_exit_status()
 
     def check_exit_status(self):
-        result = self.simctl(
-            "spawn", self.device, "launchctl", "list", name="launchctl.log", timeout=30,
-        )
+        try:
+            result = self.simctl(
+                "spawn", self.device, "launchctl", "list", name="launchctl.log", timeout=30,
+            )
+        except CommandTimeout as error:
+            self.diagnostic_timeouts.append(f"launchctl.log: {error}")
+            return
         label = f"UIKitApplication:{self.identifier}["
         jobs = [
             fields for fields in (line.split(None, 2) for line in result.stdout.splitlines())
@@ -319,6 +324,8 @@ class Smoke:
                         failures.append(name)
                     elif name == "screenshot.log" and not (self.output / "screenshot.png").is_file():
                         failures.append("screenshot.png was not created")
+                except CommandTimeout as error:
+                    self.diagnostic_timeouts.append(f"{name}: {error}")
                 except Exception as error:
                     failures.append(f"{name}: {error}")
         try:
@@ -431,6 +438,7 @@ class Smoke:
                 "ready_marker": self.ready_marker, "ready_marker_found": self.ready_marker_found,
                 "diagnostic_failures": diagnostics, "crashes": self.crashes,
                 "launch_retries": self.launch_retries,
+                "diagnostic_timeouts": self.diagnostic_timeouts,
             }, indent=2))
         if error:
             raise error
