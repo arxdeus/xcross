@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from configure_xcode import configure
 from prepare_simulator_fixture import FLUTTER_MAIN, FLUTTER_PUBSPEC, prepare_compose, prepare_flutter
-from simulator_smoke import Smoke, app_metadata, select_device
+from simulator_smoke import Smoke, app_metadata, install_timeout, select_device
 
 
 DEVICE = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
@@ -198,6 +198,7 @@ class SmokeTests(unittest.TestCase):
         self.calls = []
         self.failure = None
         self.failure_budget = None
+        self.failure_output = b"timed out"
         self.arch = "arm64"
         self.binary_platform = "IOSSIMULATOR"
         self.process = "Ss /simulator/Applications/Test.app/Runner\n"
@@ -233,7 +234,7 @@ class SmokeTests(unittest.TestCase):
                 if self.failure_budget < 0:
                     self.failure = None
             if self.failure:
-                raise subprocess.TimeoutExpired(args, kwargs["timeout"], output=b"timed out")
+                raise subprocess.TimeoutExpired(args, kwargs["timeout"], output=self.failure_output)
         if self.nonzero and self.nonzero in args:
             return subprocess.CompletedProcess(args, 1, "failure")
         stdout = ""
@@ -431,7 +432,50 @@ class SmokeTests(unittest.TestCase):
         self.failure = "install"
         with self.assertRaises(RuntimeError):
             self.smoke.run()
+        self.assert_scoped_cleanup_after_retry()
+
+    def test_install_timeout_scales_with_app_size(self):
+        self.assertEqual(install_timeout(0), 300)
+        self.assertEqual(install_timeout(246 * 1024 * 1024), 420)
+        self.assertEqual(install_timeout(1024 * 1024 * 1024), 900)
+        with patch("simulator_smoke.app_size", return_value=246 * 1024 * 1024):
+            self.smoke.run()
+        install = next(kwargs for args, kwargs in self.calls if "install" in args)
+        self.assertEqual(install["timeout"], 420)
+
+    def test_silent_install_timeout_is_retried_once_after_fresh_boot(self):
+        self.failure = "install"
+        self.failure_budget = 1
+        self.smoke.run()
+        self.assertEqual(len([args for args, _ in self.calls if "install" in args]), 2)
+        boots = [args[2] for args, _ in self.calls if args[2:3] in (["boot"], ["bootstatus"])]
+        self.assertEqual(boots, ["boot", "bootstatus", "boot", "bootstatus"])
+        self.assertEqual(len(self.result()["install_retries"]), 1)
+        self.assertTrue(self.result()["passed"])
+        self.assertTrue((self.smoke.output / "install-attempt-1.log").is_file())
+        self.assert_scoped_cleanup_after_retry()
+
+    def test_install_hanging_twice_fails(self):
+        self.failure = "install"
+        with self.assertRaisesRegex(RuntimeError, "timed out"):
+            self.smoke.run()
+        self.assertEqual(len([args for args, _ in self.calls if "install" in args]), 2)
+        self.assertFalse(self.result()["passed"])
+        self.assertEqual(len(self.result()["install_retries"]), 1)
+
+    def test_install_timeout_with_error_output_is_not_retried(self):
+        self.failure = "install"
+        self.failure_output = b"An error was encountered processing the command"
+        with self.assertRaisesRegex(RuntimeError, "timed out"):
+            self.smoke.run()
+        self.assertEqual(len([args for args, _ in self.calls if "install" in args]), 1)
+        self.assertEqual(self.result()["install_retries"], [])
         self.assert_scoped_cleanup()
+
+    def assert_scoped_cleanup_after_retry(self):
+        delete = [args for args, _ in self.calls if "delete" in args]
+        self.assertEqual(delete, [["/usr/bin/xcrun", "simctl", "delete", DEVICE]])
+        self.assertFalse(any("booted" in args or "all" in args for args, _ in self.calls))
 
     def test_nonzero_install_and_launch_clean_up(self):
         for command in ("install", "launch"):

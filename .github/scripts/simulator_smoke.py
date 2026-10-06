@@ -20,7 +20,20 @@ ABORT_MARKERS = re.compile(
 
 
 class CommandTimeout(RuntimeError):
-    pass
+    def __init__(self, message, output=""):
+        super().__init__(message)
+        self.output = output
+
+
+INSTALL_ERROR = re.compile(r"error|fail|denied|invalid", re.IGNORECASE)
+
+
+def app_size(app):
+    return sum(path.stat().st_size for path in app.rglob("*") if path.is_file() and not path.is_symlink())
+
+
+def install_timeout(size):
+    return max(300, 240 + 60 * -(-size // (100 * 1024 * 1024)))
 
 
 def version_tuple(version):
@@ -108,6 +121,7 @@ class Smoke:
         self.ready_marker = ready_marker
         self.ready_marker_found = False
         self.launch_retries = []
+        self.install_retries = []
         self.diagnostic_timeouts = []
 
     def command(self, args, name, timeout=60, check=True):
@@ -123,7 +137,7 @@ class Smoke:
             if isinstance(data, bytes):
                 data = data.decode(errors="replace")
             (self.output / name).write_text(data + f"\nTimed out after {timeout}s\n")
-            raise CommandTimeout(f"Command timed out after {timeout}s: {args}") from error
+            raise CommandTimeout(f"Command timed out after {timeout}s: {args}", data) from error
         with (self.output / name).open("a") as log:
             log.write(result.stdout)
         if check and result.returncode:
@@ -229,6 +243,20 @@ class Smoke:
             self.simctl("boot", self.device, name="relaunch.log")
             self.simctl("bootstatus", self.device, "-b", name="relaunch.log", timeout=self.boot_timeout)
             return self.launch()
+
+    def install_with_retry(self):
+        timeout = install_timeout(app_size(self.app))
+        try:
+            return self.simctl("install", self.device, str(self.app), name="install.log", timeout=timeout)
+        except CommandTimeout as failure:
+            if INSTALL_ERROR.search(failure.output):
+                raise
+            self.install_retries.append(str(failure))
+            (self.output / "install.log").rename(self.output / "install-attempt-1.log")
+            self.simctl("shutdown", self.device, name="reinstall.log", check=False, timeout=60)
+            self.simctl("boot", self.device, name="reinstall.log")
+            self.simctl("bootstatus", self.device, "-b", name="reinstall.log", timeout=self.boot_timeout)
+            return self.simctl("install", self.device, str(self.app), name="install.log", timeout=timeout)
 
     def scan_abort_markers(self):
         for name in ("app-stdout.log", "app-stderr.log", "simulator.log",
@@ -392,7 +420,7 @@ class Smoke:
             }, indent=2))
             self.simctl("boot", self.device, name="boot.log")
             self.simctl("bootstatus", self.device, "-b", name="bootstatus.log", timeout=self.boot_timeout)
-            self.simctl("install", self.device, str(self.app), name="install.log", timeout=120)
+            self.install_with_retry()
             result = self.launch_with_retry()
             match = re.search(rf"^{re.escape(identifier)}: ([1-9][0-9]*)$", result.stdout, re.MULTILINE)
             if not match:
@@ -438,6 +466,7 @@ class Smoke:
                 "ready_marker": self.ready_marker, "ready_marker_found": self.ready_marker_found,
                 "diagnostic_failures": diagnostics, "crashes": self.crashes,
                 "launch_retries": self.launch_retries,
+                "install_retries": self.install_retries,
                 "diagnostic_timeouts": self.diagnostic_timeouts,
             }, indent=2))
         if error:
