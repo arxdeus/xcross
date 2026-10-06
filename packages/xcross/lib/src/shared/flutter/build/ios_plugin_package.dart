@@ -102,9 +102,11 @@ final class GeneratedPluginsBuildResult {
     required this.libraryPath,
     required this.dylibPaths,
     required this.modulesDir,
+    this.frameworkPaths = const [],
   });
   final String libraryPath;
   final List<String> dylibPaths;
+  final List<String> frameworkPaths;
   final String? modulesDir;
 }
 

@@ -31,6 +31,7 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
         runnerBinary: linked.runner.runnerBinary,
         sdkName: linked.runner.sdkName,
         pluginLibraries: linked.compiled.plugins?.dylibPaths ?? const [],
+        pluginFrameworks: linked.compiled.plugins?.frameworkPaths ?? const [],
         nativeAssetFrameworks: linked.compiled.nativeAssets.frameworks,
         deploymentTarget: context.deploymentTarget,
         extensions: linked.extensions,
@@ -42,6 +43,7 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     required String runnerBinary,
     required String sdkName,
     required List<String> pluginLibraries,
+    required List<String> pluginFrameworks,
     required List<String> nativeAssetFrameworks,
     required IosDeploymentTarget deploymentTarget,
     required List<BuiltAppExtension> extensions,
@@ -62,6 +64,7 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
       runnerBinary: runnerBinary,
       sdkName: sdkName,
       pluginLibraries: pluginLibraries,
+      pluginFrameworks: pluginFrameworks,
       nativeAssetFrameworks: nativeAssetFrameworks,
       deploymentTarget: deploymentTarget,
       extensions: extensions,
@@ -93,6 +96,7 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     required String runnerBinary,
     required String sdkName,
     required List<String> pluginLibraries,
+    required List<String> pluginFrameworks,
     required List<String> nativeAssetFrameworks,
     required IosDeploymentTarget deploymentTarget,
     required List<BuiltAppExtension> extensions,
@@ -125,6 +129,10 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     );
     await runtime.frameworks.copyNativeAssetFrameworks(
       nativeAssetFrameworks,
+      frameworksDir,
+    );
+    await runtime.frameworks.copyMissingFrameworks(
+      pluginFrameworks,
       frameworksDir,
     );
 

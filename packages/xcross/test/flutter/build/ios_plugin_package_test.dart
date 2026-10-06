@@ -6682,6 +6682,50 @@ module FirebaseFirestore {
         p.absolute(dependency.path),
       });
     });
+
+    test('returns dynamic binary frameworks for embedding', () async {
+      final output = Directory(p.join(tmp.path, 'debug'))..createSync();
+      File(
+        p.join(output.path, 'libFlutterPluginsGenerated.dylib'),
+      ).writeAsBytesSync(_emptyMachO());
+      Uint8List machO(int fileType) {
+        final bytes = _emptyMachO();
+        ByteData.sublistView(bytes).setUint32(12, fileType, Endian.little);
+        return bytes;
+      }
+
+      Uint8List universal(int fileType) {
+        final slice = machO(fileType);
+        final bytes = Uint8List(4096 + slice.length);
+        ByteData.sublistView(bytes)
+          ..setUint32(0, 0xcafebabe)
+          ..setUint32(4, 1)
+          ..setUint32(8, 0x0100000c)
+          ..setUint32(16, 4096)
+          ..setUint32(20, slice.length);
+        bytes.setRange(4096, bytes.length, slice);
+        return bytes;
+      }
+
+      String framework(String name, Uint8List binary) {
+        final directory = Directory(p.join(output.path, '$name.framework'))
+          ..createSync();
+        File(p.join(directory.path, name)).writeAsBytesSync(binary);
+        return p.absolute(directory.path);
+      }
+
+      final thinDynamic = framework('ThinDynamic', machO(6));
+      final universalDynamic = framework('UniversalDynamic', universal(6));
+      framework('ThinStatic', machO(1));
+      framework('UniversalStatic', universal(1));
+      Directory(p.join(output.path, 'Empty.framework')).createSync();
+
+      final result = await _swiftPmRuntime.assembly.discoverAndRewriteDylibs(
+        output.path,
+      );
+
+      expect(result.frameworkPaths, [thinDynamic, universalDynamic]);
+    });
   });
 
   group('build', () {

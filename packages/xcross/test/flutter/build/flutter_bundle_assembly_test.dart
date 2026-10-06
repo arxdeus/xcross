@@ -7,10 +7,12 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/flutter/build/internal/runner_binary.dart';
 import 'package:xcross/src/shared/flutter/build/ios_native_assets.dart';
+import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
 import 'package:xcross/src/shared/flutter/flutter_bundle_assembler.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
+
 import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
 import 'package:xcross/src/target/simulator/flutter/simulator_flutter_target.dart';
 
@@ -47,6 +49,12 @@ void main() {
       final native = Directory(p.join(project.path, 'Native.framework'))
         ..createSync();
       File(p.join(native.path, 'Native')).writeAsStringSync('native');
+      final pluginFramework = Directory(
+        p.join(project.path, 'products', 'BinaryDependency.framework'),
+      )..createSync(recursive: true);
+      File(
+        p.join(pluginFramework.path, 'BinaryDependency'),
+      ).writeAsStringSync('binary-dependency');
       final physical = testIPhoneRuntime();
       final simulator = testSimulatorRuntime();
 
@@ -73,6 +81,12 @@ void main() {
                 manifestPath: '/unused',
                 frameworks: [native.path],
               ),
+              plugins: GeneratedPluginsBuildResult(
+                libraryPath: library.path,
+                dylibPaths: [library.path],
+                frameworkPaths: [pluginFramework.path],
+                modulesDir: null,
+              ),
             ),
             runner: RunnerBinary(
               xcframework: engine.path,
@@ -85,6 +99,17 @@ void main() {
       }
 
       final physicalBundle = await assemble(physical);
+      expect(
+        File(
+          p.join(
+            physicalBundle,
+            'Frameworks',
+            'BinaryDependency.framework',
+            'BinaryDependency',
+          ),
+        ).readAsStringSync(),
+        'binary-dependency',
+      );
       final preserved = File(p.join(physicalBundle, 'device-sentinel'))
         ..writeAsStringSync('untouched');
       final simulatorBundle = await assemble(simulator);
@@ -132,6 +157,38 @@ void main() {
       expect(
         File(p.join(frameworks.path, 'libPlugin.dylib')).readAsStringSync(),
         'plugin',
+      );
+      final dynamicFramework = Directory(
+        p.join(project.path, 'products', 'Dynamic.framework'),
+      )..createSync(recursive: true);
+      File(
+        p.join(dynamicFramework.path, 'Dynamic'),
+      ).writeAsStringSync('dynamic');
+      final existing = Directory(
+        p.join(project.path, 'products', 'Existing.framework'),
+      )..createSync(recursive: true);
+      File(p.join(existing.path, 'Existing')).writeAsStringSync('product');
+      Directory(
+        p.join(frameworks.path, 'Existing.framework'),
+      ).createSync(recursive: true);
+      File(
+        p.join(frameworks.path, 'Existing.framework', 'Existing'),
+      ).writeAsStringSync('embedded');
+      await simulator.frameworks.copyMissingFrameworks([
+        dynamicFramework.path,
+        existing.path,
+      ], frameworks.path);
+      expect(
+        File(
+          p.join(frameworks.path, 'Dynamic.framework', 'Dynamic'),
+        ).readAsStringSync(),
+        'dynamic',
+      );
+      expect(
+        File(
+          p.join(frameworks.path, 'Existing.framework', 'Existing'),
+        ).readAsStringSync(),
+        'embedded',
       );
     },
   );
