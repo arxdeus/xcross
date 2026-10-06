@@ -160,7 +160,7 @@ final class DarwinToolchainResolver<T extends PlatformHostInterface> {
       final written = host.paths.context.join(scratch.path, 'probe.o');
       await host.fileSystem.file(written).writeAsBytes(iosProbeObject);
       object = written;
-    } on FileSystemException catch (error) {
+    } on Object catch (error) {
       log.logTrace('ld64.lld: probe object unavailable: $error');
     }
     final CapturedProcess result;
@@ -182,7 +182,7 @@ final class DarwinToolchainResolver<T extends PlatformHostInterface> {
     } finally {
       try {
         await scratch?.delete(recursive: true);
-      } on FileSystemException catch (error) {
+      } on Object catch (error) {
         log.logTrace('ld64.lld: probe cleanup failed: $error');
       }
     }
