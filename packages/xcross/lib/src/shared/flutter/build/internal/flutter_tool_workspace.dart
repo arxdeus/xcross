@@ -113,12 +113,21 @@ final class FlutterToolWorkspace {
     String flutterRoot,
   ) => engineCache.host.paths.context.join(
     engineCache.cacheRoot,
-    engineCache.engineHash,
     'workspaces',
-    'flutter',
-    engineCache.hostArtifactPlatform,
     sha256
-        .convert(utf8.encode(engineCache.host.paths.pathKey(flutterRoot)))
-        .toString(),
+        .convert(
+          utf8.encode(
+            [
+              engineCache.engineHash,
+              engineCache.hostArtifactPlatform,
+              engineCache.host.paths.pathKey(flutterRoot),
+            ].join('\n'),
+          ),
+        )
+        .toString()
+        .substring(0, workspaceKeyLength),
   );
+
+  @internal
+  static const workspaceKeyLength = 16;
 }

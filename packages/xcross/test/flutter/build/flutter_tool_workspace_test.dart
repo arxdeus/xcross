@@ -164,6 +164,26 @@ void main() {
     ]);
   });
 
+  test('keeps the workspace root one short key below the cache root', () async {
+    final tmp = await Directory.systemTemp.createTemp('workspace_depth-');
+    try {
+      final cacheRoot = p.join(tmp.path, 'cache');
+      final cache = workspaceSdk(p.join(tmp.path, 'sdk'), cacheRoot, 'sdk');
+      final workspace = await FlutterToolWorkspace.create(
+        flutterRoot: cache.flutterRoot,
+        engineCache: cache,
+      );
+      final segments = p.split(
+        p.relative(workspace.flutterRoot, from: cacheRoot),
+      );
+      expect(segments, hasLength(2));
+      expect(segments.first, 'workspaces');
+      expect(segments.last, hasLength(FlutterToolWorkspace.workspaceKeyLength));
+    } finally {
+      await tmp.delete(recursive: true);
+    }
+  });
+
   for (final removeOldRoot in [false, true]) {
     test(
       'isolates same-engine SDK roots with old root removed: $removeOldRoot',
