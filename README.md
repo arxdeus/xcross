@@ -10,7 +10,7 @@
 [![GitHub stars](https://img.shields.io/github/stars/arxdeus/xcross?style=flat-square&label=stars)](https://github.com/arxdeus/xcross/stargazers)
 [![Open issues](https://img.shields.io/github/issues/arxdeus/xcross?style=flat-square)](https://github.com/arxdeus/xcross/issues)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-3C873A?style=flat-square)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg?style=flat-square)](https://www.gnu.org/licenses/agpl-3.0)
 
 **Build, run, and hot-reload Flutter iOS apps natively from Windows or Linux.**
 
@@ -583,4 +583,4 @@ xcross is free and open source. If it saves you a Mac, consider giving back:
 
 ## License
 
-[MIT](LICENSE)
+[AGPL-3.0](LICENSE)
