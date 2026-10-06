@@ -584,3 +584,5 @@ xcross is free and open source. If it saves you a Mac, consider giving back:
 ## License
 
 [AGPL-3.0](LICENSE)
+
+Copyright (C) 2026 Artemis Kushner
