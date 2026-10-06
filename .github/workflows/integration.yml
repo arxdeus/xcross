@@ -600,6 +600,10 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Update example submodule
+        shell: bash
+        run: git submodule update --init --checkout examples
+
       - name: Test simulator CI helpers without simulator access
         run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
 
@@ -670,6 +674,26 @@ jobs:
             --output "$RUNNER_TEMP/ios-simulator-smoke/flutter" \
             --ready-marker XCROSS_SIMULATOR_NATIVE_FIRST_FRAME_READY
 
+      - name: Build Flutter example for ARM64 simulator through production xcross
+        shell: bash
+        working-directory: examples/flutter_example
+        run: |
+          set -euo pipefail
+          xcross --verbose flutter build --target-platform simulator --debug 2>&1 | \
+            tee "$RUNNER_TEMP/ios-simulator-smoke/flutter-example-build.log"
+
+      - name: Boot install launch and observe Flutter example headlessly
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apps=(examples/flutter_example/build/xcross-ios-simulator/*.app)
+          test "${#apps[@]}" -eq 1
+          python3 .github/scripts/simulator_smoke.py "${apps[0]}" \
+            --output "$RUNNER_TEMP/ios-simulator-smoke/flutter-example" \
+            --observe-seconds 30 --grace-seconds 10 \
+            --ready-marker XCROSS_FLUTTER_EXAMPLE_READY
+
       - name: Upload simulator evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -723,7 +747,8 @@ jobs:
           done
           python3 .github/scripts/simulator_smoke.py "${apps[0]}" \
             --output "$RUNNER_TEMP/ios-simulator-smoke/flutter-example" \
-            --observe-seconds 30 --grace-seconds 10
+            --observe-seconds 30 --grace-seconds 10 \
+            --ready-marker XCROSS_FLUTTER_EXAMPLE_READY
 
       - name: Upload simulator evidence
         if: always()

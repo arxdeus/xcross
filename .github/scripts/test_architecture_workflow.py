@@ -130,8 +130,75 @@ class ArchitectureWorkflowTests(unittest.TestCase):
         smoke = self.required_step(steps, 'Boot install launch and observe cross-built Flutter example headlessly')
         self.assertIn('test "${#apps[@]}" -eq 1', smoke)
         self.assertTrue(any(line.startswith('python3 .github/scripts/simulator_smoke.py "${apps[0]}"') for line in smoke))
-        self.assertIn('--observe-seconds 30 --grace-seconds 10', smoke)
+        self.assertIn('--observe-seconds 30 --grace-seconds 10', [line.removesuffix('\\').rstrip() for line in smoke])
+        self.assertIn('--ready-marker XCROSS_FLUTTER_EXAMPLE_READY', smoke)
         self.assertEqual(steps['Upload simulator evidence'].get('if'), 'always()')
+
+    def check_native_example_simulator_run(self, workflow):
+        steps = workflow_steps(workflow_jobs(workflow)['flutter-simulator'])
+        names = list(steps)
+        self.assertIn('git submodule update --init --checkout examples', self.required_step(steps, 'Update example submodule'))
+        build_name = 'Build Flutter example for ARM64 simulator through production xcross'
+        smoke_name = 'Boot install launch and observe Flutter example headlessly'
+        build = self.required_step(steps, build_name)
+        self.assertEqual(steps[build_name].get('working-directory'), 'examples/flutter_example')
+        self.assertTrue(any(line.startswith('xcross --verbose flutter build --target-platform simulator --debug') for line in build))
+        smoke = self.required_step(steps, smoke_name)
+        self.assertIn('apps=(examples/flutter_example/build/xcross-ios-simulator/*.app)', smoke)
+        self.assertIn('test "${#apps[@]}" -eq 1', smoke)
+        self.assertTrue(any(line.startswith('python3 .github/scripts/simulator_smoke.py "${apps[0]}"') for line in smoke))
+        self.assertIn('--ready-marker XCROSS_FLUTTER_EXAMPLE_READY', smoke)
+        self.assertLess(names.index('Update example submodule'), names.index(build_name))
+        self.assertLess(names.index('Build native production xcross CLI'), names.index(build_name))
+        self.assertLess(names.index(build_name), names.index(smoke_name))
+        self.assertLess(names.index(smoke_name), names.index('Upload simulator evidence'))
+
+    def check_flutter_example_smokes_require_marker(self, workflow):
+        smokes = []
+        for job, lines in workflow_jobs(workflow).items():
+            for name, step in workflow_steps(lines).items():
+                script = step.get('script', [])
+                if any('simulator_smoke.py' in line for line in script) and any('flutter-example' in line for line in script):
+                    smokes.append((job, name, script))
+        self.assertGreaterEqual(len(smokes), 2)
+        for job, name, script in smokes:
+            self.assertIn('--ready-marker XCROSS_FLUTTER_EXAMPLE_READY', script, f'{job}: {name}')
+
+    def test_native_flutter_example_is_built_and_run_with_ready_marker(self):
+        self.check_native_example_simulator_run((ROOT / '.github/workflows/integration.yml').read_text())
+
+    def test_every_flutter_example_smoke_requires_ready_marker(self):
+        self.check_flutter_example_smokes_require_marker((ROOT / '.github/workflows/integration.yml').read_text())
+
+    def test_missing_flutter_example_ready_marker_is_rejected(self):
+        original = (ROOT / '.github/workflows/integration.yml').read_text()
+        marker = ' \\\n            --ready-marker XCROSS_FLUTTER_EXAMPLE_READY'
+        self.assertEqual(original.count(marker), 2)
+        first = original.index(marker)
+        variants = (
+            original[:first] + original[first + len(marker):],
+            original[:first + 1] + original[first + 1:].replace(marker, '', 1),
+            original.replace(marker, ''),
+            original.replace('--ready-marker XCROSS_FLUTTER_EXAMPLE_READY', '--ready-marker SOMETHING_ELSE'),
+        )
+        for index, variant in enumerate(variants):
+            with self.subTest(variant=index):
+                with self.assertRaises(AssertionError):
+                    self.check_flutter_example_smokes_require_marker(variant)
+
+    def test_disabled_native_flutter_example_run_is_rejected(self):
+        original = (ROOT / '.github/workflows/integration.yml').read_text()
+        smoke = '      - name: Boot install launch and observe Flutter example headlessly\n'
+        build = '      - name: Build Flutter example for ARM64 simulator through production xcross\n'
+        for old, new in (
+            (smoke, smoke + '        if: false\n'),
+            (build, build + '        continue-on-error: true\n'),
+            ('          xcross --verbose flutter build --target-platform simulator --debug 2>&1 | \\\n            tee "$RUNNER_TEMP/ios-simulator-smoke/flutter-example-build.log"', '          echo skipped'),
+        ):
+            with self.subTest(new=new):
+                self.assertIn(old, original)
+                with self.assertRaises((AssertionError, KeyError)):
+                    self.check_native_example_simulator_run(original.replace(old, new))
 
     def test_cross_host_simulator_apps_are_built_uploaded_and_run(self):
         self.check_cross_host_simulator_run((ROOT / '.github/workflows/integration.yml').read_text())
