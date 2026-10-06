@@ -270,6 +270,11 @@ const xcrossFlutterTestsRoles = <String, Map<String, String>>{
   },
   'workspace:packages/xcross/test/flutter/build/swiftpm_dependency_preparation_test.dart':
       {'FUNCTION:main': 'entrypoint'},
+  'workspace:packages/xcross/test/flutter/build/swiftpm_manifest_target_alias_test.dart':
+      {
+        'CLASS:RecordingAliasExecution': 'internal',
+        'FUNCTION:main': 'entrypoint',
+      },
   'workspace:packages/xcross/test/flutter/build/swiftpm_resolve_retry_test.dart':
       {
         'FUNCTION:main': 'entrypoint',

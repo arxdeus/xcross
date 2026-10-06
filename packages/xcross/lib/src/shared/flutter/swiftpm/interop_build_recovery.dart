@@ -33,32 +33,34 @@ final class SwiftPmInteropBuildRecovery<T extends PlatformHostInterface> {
   }) async {
     final repair = session.repairConsumers;
     final build = session.build;
-    final buildTarget = session.buildTarget;
+    final dependencies = planReader.targetDependencies(targetBuildDir);
+    Future<void> buildLayered(List<String> targets) async {
+      for (final layer in SwiftPmPlanReader.layerTargetsByDependencies(
+        dependencies,
+        targets,
+      )) {
+        await session.buildTargets(layer);
+      }
+    }
 
     Future<bool> recoverMissingTargets({Set<String>? candidates}) async {
       final targets = consumerRepair.missingSwiftInteropTargets(
         targetBuildDir,
         candidates: candidates ?? interopTargetCandidates,
       );
-      for (final target in targets) {
-        await buildTarget(target);
-      }
+      await buildLayered(targets);
       if (targets.isNotEmpty) await repair();
       return targets.isNotEmpty;
     }
 
     final planned = planReader.plannedSwiftInteropTargets(targetBuildDir);
-    final selected = hostPolicy.selectInteropTargets(
-      planned,
-      interopTargetCandidates,
+    await buildLayered(
+      hostPolicy.selectInteropTargets(
+        planned,
+        interopTargetCandidates,
+        planReader.interopTargetsReachedByNonSwiftTargets(targetBuildDir),
+      ),
     );
-    final prebuild = hostPolicy.orderInteropTargets(
-      planReader.targetDependencies(targetBuildDir),
-      selected,
-    );
-    for (final target in prebuild) {
-      await buildTarget(target);
-    }
     await repair();
     if (!skipInitialRecovery && await recoverMissingTargets()) {
       await build();

@@ -17,13 +17,10 @@ abstract interface class SwiftPmHostPolicy {
 
   Future<bool> repairBuildPlan(String scratchPath, String targetBuildDir);
 
-  List<String> orderInteropTargets(
-    Map<String, dynamic>? dependencies,
-    List<String> targets,
-  );
   List<String> selectInteropTargets(
     List<String> planned,
     Set<String> candidates,
+    Set<String>? consumed,
   );
 
   bool get captureBuildOutput;

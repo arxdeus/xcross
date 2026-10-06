@@ -33,6 +33,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/host_source_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_dependencies.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/module_files.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/plan_reader.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/source_fallback.dart';
@@ -5698,6 +5699,131 @@ let package = Package(
         'target:example_plugin',
         'build',
       ]);
+    });
+
+    test(
+      'Windows prebuilds only interop targets reached by non-Swift consumers',
+      () async {
+        final buildDir = p.join(
+          tmp.path,
+          'consumed',
+          'arm64-apple-ios',
+          'debug',
+        );
+        final swiftTargets = [
+          'ConsumedLeaf',
+          'ConsumedRoot',
+          'PublicProduct',
+          'SwiftOnlyLeaf',
+          'SwiftOnlyPlugin',
+        ];
+        final headers = {
+          for (final target in swiftTargets)
+            target: p.join(
+              buildDir,
+              '$target.build',
+              'include',
+              '$target-Swift.h',
+            ),
+        };
+        Directory(buildDir).createSync(recursive: true);
+        File(p.join(buildDir, 'description.json')).writeAsStringSync(
+          jsonEncode({
+            'swiftCommands': {
+              for (final entry in headers.entries)
+                entry.key: {
+                  'otherArguments': ['-emit-objc-header-path', entry.value],
+                },
+            },
+            'targetDependencyMap': {
+              'FlutterPluginsGenerated': [
+                'objc_plugin',
+                'SwiftOnlyPlugin',
+                'PublicProduct',
+              ],
+              'objc_plugin': ['ConsumedRoot'],
+              'ConsumedRoot': ['ConsumedLeaf'],
+              'ConsumedLeaf': <String>[],
+              'SwiftOnlyPlugin': ['SwiftOnlyLeaf'],
+              'SwiftOnlyLeaf': <String>[],
+              'PublicProduct': <String>[],
+            },
+          }),
+        );
+
+        final events = <String>[];
+        final session = RecordingSwiftPmInteropBuild(
+          build: () async => events.add('build'),
+          buildTarget: (target) async {
+            events.add('target:$target');
+            final header = File(headers[target]!);
+            await header.parent.create(recursive: true);
+            await header.writeAsString('generated');
+          },
+        );
+        await testWindowsInteropRecovery(_windowsRuntime, session).build(
+          targetBuildDir: buildDir,
+          interopTargetCandidates: const {'PublicProduct'},
+          skipInitialRecovery: true,
+        );
+
+        expect(events, [
+          'target:ConsumedLeaf',
+          'target:PublicProduct',
+          'target:ConsumedRoot',
+          'build',
+        ]);
+        expect(session.invocations, [
+          ['ConsumedLeaf', 'PublicProduct'],
+          ['ConsumedRoot'],
+        ]);
+      },
+    );
+
+    test('Windows host policy keeps every planned target without a map', () {
+      expect(
+        _windowsRuntime.hostPolicy.selectInteropTargets(
+          const ['Alpha', 'Beta'],
+          const {'Alpha'},
+          null,
+        ),
+        ['Alpha', 'Beta'],
+      );
+      expect(
+        _windowsRuntime.hostPolicy.selectInteropTargets(
+          const ['Alpha', 'Beta', 'Gamma'],
+          const {'Alpha'},
+          const {'Gamma'},
+        ),
+        ['Alpha', 'Gamma'],
+      );
+    });
+
+    test('layers independent interop targets into shared invocations', () {
+      expect(
+        SwiftPmPlanReader.layerTargetsByDependencies(
+          {
+            'Top': ['Middle', 'Other'],
+            'Middle': ['Bridge'],
+            'Bridge': ['Bottom'],
+            'Bottom': <String>[],
+            'Other': <String>[],
+          },
+          const ['Top', 'Middle', 'Bottom', 'Other'],
+        ),
+        [
+          ['Other', 'Bottom'],
+          ['Middle'],
+          ['Top'],
+        ],
+      );
+      expect(
+        SwiftPmPlanReader.layerTargetsByDependencies(null, const ['B', 'A']),
+        [
+          ['B'],
+          ['A'],
+        ],
+      );
     });
 
     test('rejects missing and malformed Swift planning descriptions', () {

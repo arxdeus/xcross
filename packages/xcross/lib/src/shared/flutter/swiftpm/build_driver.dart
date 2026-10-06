@@ -20,6 +20,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/host_build_services.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/interop_build_recovery.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/interop_consumer_repair.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/manifest_target_alias.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/plan_reader.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
@@ -227,6 +228,9 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
         consumerProducts: interopConsumers,
       ),
       consumerRepair: consumerRepair,
+      targetAlias: SwiftPmManifestTargetAlias(
+        fileSystem: planReader.fileSystem,
+      ),
     );
 
     await sourceRepair.buildTranslatingSdkMismatch(

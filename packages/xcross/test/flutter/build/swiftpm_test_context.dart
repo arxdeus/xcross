@@ -526,6 +526,15 @@ final class RecordingSwiftPmInteropBuild implements SwiftPmInteropBuild {
   Future<void> build() => _build();
   @override
   Future<void> buildTarget(String target) => _buildTarget(target);
+  final List<List<String>> invocations = [];
+  @override
+  Future<void> buildTargets(List<String> targets) async {
+    invocations.add(targets);
+    for (final target in targets) {
+      await _buildTarget(target);
+    }
+  }
+
   @override
   Future<void> repairConsumers() async {
     await _repairConsumers?.call();

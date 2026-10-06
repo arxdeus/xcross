@@ -166,6 +166,87 @@ final class SwiftPmPlanReader {
     return ordered;
   }
 
+  static List<List<String>> layerTargetsByDependencies(
+    Map<String, dynamic>? dependencies,
+    List<String> planned,
+  ) {
+    final ordered = orderTargetsByDependencies(dependencies, planned);
+    if (dependencies == null) {
+      return [
+        for (final target in ordered) [target],
+      ];
+    }
+    final eligible = ordered.toSet();
+    final heights = <String, int>{};
+    final visiting = <String>{};
+    int height(String target) {
+      if (heights[target] case final known?) return known;
+      if (!visiting.add(target)) return 0;
+      var result = 0;
+      final children = dependencies[target];
+      if (children is List) {
+        for (final child in children.whereType<String>()) {
+          final below = height(child) + (eligible.contains(child) ? 1 : 0);
+          if (below > result) result = below;
+        }
+      }
+      visiting.remove(target);
+      return heights[target] = result;
+    }
+
+    final layers = <List<String>>[];
+    for (final target in ordered) {
+      final level = height(target);
+      while (layers.length <= level) {
+        layers.add([]);
+      }
+      layers[level].add(target);
+    }
+    return [
+      for (final layer in layers)
+        if (layer.isNotEmpty) layer,
+    ];
+  }
+
+  Set<String>? interopTargetsReachedByNonSwiftTargets(String targetBuildDir) {
+    final dependencies = targetDependencies(targetBuildDir);
+    if (dependencies == null || dependencies.isEmpty) return null;
+    final List<String> searchPaths;
+    try {
+      searchPaths = plannedSwiftInteropSearchPaths(targetBuildDir);
+    } on Object {
+      return null;
+    }
+    final interop = <String>{};
+    for (final argument in searchPaths) {
+      if (p.basename(argument) != 'include') continue;
+      final owner = p.basename(p.dirname(argument));
+      if (!owner.endsWith('.build')) continue;
+      interop.add(owner.substring(0, owner.length - '.build'.length));
+    }
+    final reachable =
+        plannedTargetClosure(targetBuildDir, pluginsProductName) ??
+        dependencies.keys.toSet();
+    final consumed = <String>{};
+    for (final consumer in reachable) {
+      if (interop.contains(consumer) || consumer == pluginsProductName) {
+        continue;
+      }
+      final seen = <String>{consumer};
+      final stack = <String>[consumer];
+      while (stack.isNotEmpty) {
+        final children = dependencies[stack.removeLast()];
+        if (children is! List) continue;
+        for (final child in children.whereType<String>()) {
+          if (!seen.add(child)) continue;
+          if (interop.contains(child)) consumed.add(child);
+          stack.add(child);
+        }
+      }
+    }
+    return consumed;
+  }
+
   Set<String>? plannedTargetClosure(String targetBuildDir, String root) {
     final description = fileSystem.file(
       p.join(targetBuildDir, 'description.json'),

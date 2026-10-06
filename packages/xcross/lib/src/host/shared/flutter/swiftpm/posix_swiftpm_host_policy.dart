@@ -40,14 +40,10 @@ abstract class PosixSwiftPmHostPolicy implements SwiftPmHostPolicy {
   ) async => false;
 
   @override
-  List<String> orderInteropTargets(
-    Map<String, dynamic>? dependencies,
-    List<String> targets,
-  ) => targets;
-  @override
   List<String> selectInteropTargets(
     List<String> planned,
     Set<String> candidates,
+    Set<String>? consumed,
   ) => planned.where(candidates.contains).toList();
 
   @override

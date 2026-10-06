@@ -43,5 +43,6 @@ abstract interface class SwiftPmInteropBuild {
   SwiftPmBuildCommand get command;
   Future<void> build();
   Future<void> buildTarget(String target);
+  Future<void> buildTargets(List<String> targets);
   Future<void> repairConsumers();
 }

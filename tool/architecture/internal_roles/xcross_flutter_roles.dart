@@ -542,6 +542,9 @@ const xcrossFlutterRoles = <String, Map<String, String>>{
     'TOP_LEVEL_VARIABLE:flutterFrameworkPackageName': 'internal',
     'TOP_LEVEL_VARIABLE:pluginsProductName': 'internal',
   },
+  'package:xcross/src/shared/flutter/swiftpm/manifest_target_alias.dart': {
+    'CLASS:SwiftPmManifestTargetAlias': 'internal',
+  },
   'package:xcross/src/shared/flutter/swiftpm/package_metadata.dart': {
     'CLASS:SwiftPmPackageMetadata': 'internal',
   },
