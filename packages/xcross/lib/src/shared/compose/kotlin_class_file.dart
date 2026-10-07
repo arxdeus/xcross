@@ -262,7 +262,13 @@ class KotlinClassFile {
       );
     }
 
-    final body = method.attrs[codeAttrIdx].body;
+    method.attrs[codeAttrIdx] = KotlinClassAttribute(
+      nameIdx: codeAttrNameIdx,
+      body: _replacedCodeBody(method.attrs[codeAttrIdx].body, newCode),
+    );
+  }
+
+  Uint8List _replacedCodeBody(Uint8List body, Uint8List newCode) {
     final maxStack = readClassU2(body, 0);
     final maxLocals = readClassU2(body, 2);
     final codeLength = readClassU4(body, 4);
@@ -303,11 +309,7 @@ class KotlinClassFile {
     builder.add(padded);
     builder.add(emitClassU2(0)); // empty exception table
     builder.add(_emitAttributes(keptInner));
-
-    method.attrs[codeAttrIdx] = KotlinClassAttribute(
-      nameIdx: codeAttrNameIdx,
-      body: builder.toBytes(),
-    );
+    return builder.toBytes();
   }
 
   // ── Serialization ──────────────────────────────────────────────────────────
