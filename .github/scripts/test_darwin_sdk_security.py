@@ -187,8 +187,9 @@ class WorkflowSecurityTests(unittest.TestCase):
             "  workflow_dispatch:\n    inputs:\n      xcode_xip_url:\n", source,
         )
         triggers = re.search(r"(?ms)^on:\n(.*?)^\S", source).group(1)
-        self.assertEqual(re.findall(r"(?m)^      (\w+):$", triggers), ["xcode_xip_url"])
+        self.assertEqual(re.findall(r"(?m)^      (\w+):$", triggers), ["xcode_xip_url", "source_ref"])
         self.assertIn("required: true", triggers)
+        self.assertIn("ref: ${{ inputs.source_ref }}", step(source, "Checkout"))
         self.assertNotIn("artifactbundle_url", source)
         self.assertNotIn("secrets.", source)
         self.assertNotIn("setup-darwin-sdk", source)
@@ -216,7 +217,7 @@ class WorkflowSecurityTests(unittest.TestCase):
         for needle in ("iPhoneOS.platform", "iPhoneSimulator.platform", '"--swift-sdks-path"'):
             self.assertIn(needle, verify)
         delete = step(source, "Delete previous Darwin SDK cache")
-        self.assertIn('gh cache delete "$CACHE_KEY" --repo "$GITHUB_REPOSITORY"', delete)
+        self.assertIn('gh cache delete "$CACHE_KEY" --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF"', delete)
         self.assertIn("GH_TOKEN: ${{ github.token }}", delete)
         save = step(source, "Save Darwin SDK cache")
         self.assertIn("key: ${{ steps.sdk-path.outputs.cache-key }}", save)
@@ -247,9 +248,21 @@ class WorkflowSecurityTests(unittest.TestCase):
                     result = subprocess.run(
                         ["bash", "-c", script(delete)], capture_output=True, text=True,
                         env={**os.environ, "PATH": f"{directory}:{os.environ['PATH']}",
-                             "CACHE_KEY": "xcross-darwin-linux-x64", "GITHUB_REPOSITORY": "o/r"},
+                             "CACHE_KEY": "xcross-darwin-linux-x64", "GITHUB_REPOSITORY": "o/r",
+                             "GITHUB_REF": "refs/heads/main"},
                     )
                     self.assertEqual(result.returncode, expected)
+
+    def test_direct_setup_installs_a_missing_pinned_llvm_directory(self):
+        source = (ROOT / "setup/direct.ps1").read_text()
+        missing = re.search(r"(?m)^\$llvmDirMissing = (.+)$", source)
+        self.assertIsNotNone(missing)
+        self.assertIn("$LlvmDir -and", missing.group(1))
+        self.assertIn("ld64.lld.exe", missing.group(1))
+        gate = re.search(r"(?m)^if \(\(Test-Wanted 'llvm'\) -and \((.+)\)\) \{$", source)
+        self.assertIsNotNone(gate)
+        self.assertTrue(gate.group(1).startswith("$llvmDirMissing -or "))
+        self.assertLess(missing.start(), gate.start())
 
     def test_test_workflows_run_manually_without_inputs(self):
         for name in ("architecture.yml", "integration.yml", "compose-integration.yml"):

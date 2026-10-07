@@ -7,6 +7,13 @@ on:
         description: Direct download URL of an Xcode .xip.
         required: true
         type: string
+      source_ref:
+        description: >-
+          Branch whose workflow files and xcross build the SDK. Dispatch from
+          main so pull requests into main can restore the caches.
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -49,6 +56,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
+          ref: ${{ inputs.source_ref }}
           persist-credentials: false
 
       - name: Free disk space on Linux
@@ -464,7 +472,7 @@ jobs:
           CACHE_KEY: ${{ steps.sdk-path.outputs.cache-key }}
         run: |
           set -euo pipefail
-          if ! output=$(gh cache delete "$CACHE_KEY" --repo "$GITHUB_REPOSITORY" 2>&1); then
+          if ! output=$(gh cache delete "$CACHE_KEY" --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF" 2>&1); then
             if ! grep -qi 'not find\|no caches\|not found' <<<"$output"; then
               echo "$output"
               exit 1
