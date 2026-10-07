@@ -59,27 +59,7 @@ class BundleTree {
     final result = <BundleEntry>[];
 
     void visit(String directory) {
-      final List<FileSystemEntity> children;
-      try {
-        children =
-            hostServices.host.fileSystem
-                .directory(directory)
-                .listSync(followLinks: false)
-                .toList()
-              ..sort(
-                (left, right) => compareUtf8(
-                  hostServices.host.paths.context.basename(left.path),
-                  hostServices.host.paths.context.basename(right.path),
-                ),
-              );
-      } on Object catch (error) {
-        bundleFail(
-          root,
-          directory,
-          'could not list directory: $error',
-          paths: hostServices.host.paths,
-        );
-      }
+      final children = _sortedChildren(root, directory);
       for (final child in children) {
         final childPath = hostServices.host.paths.context.join(
           directory,
@@ -89,41 +69,19 @@ class BundleTree {
           childPath,
           followLinks: false,
         );
-        result.add(
-          BundleEntry(
-            childPath,
-            bundleRelativePath(root, childPath, paths: hostServices.host.paths),
-            type,
-          ),
+        final relativePath = bundleRelativePath(
+          root,
+          childPath,
+          paths: hostServices.host.paths,
         );
+        result.add(BundleEntry(childPath, relativePath, type));
         switch (type) {
           case FileSystemEntityType.link:
-            final resolved = _resolveLink(childPath, root);
-            if (!isWithinOrEqual(
-              rootReal,
-              resolved,
-              hostServices: hostServices,
-            )) {
-              bundleFail(
-                root,
-                childPath,
-                'symlink target escapes the app bundle',
-                paths: hostServices.host.paths,
-              );
-            }
+            _requireLinkInsideBundle(root, rootReal, childPath);
           case FileSystemEntityType.directory:
             visit(childPath);
           case FileSystemEntityType.file:
-            try {
-              hostServices.host.fileSystem.file(childPath).readAsBytesSync();
-            } on Object catch (error) {
-              bundleFail(
-                root,
-                childPath,
-                'could not read file: $error',
-                paths: hostServices.host.paths,
-              );
-            }
+            _requireReadableFile(root, childPath);
           default:
             bundleFail(
               root,
@@ -140,6 +98,62 @@ class BundleTree {
       (left, right) => compareUtf8(left.relativePath, right.relativePath),
     );
     return result;
+  }
+
+  List<FileSystemEntity> _sortedChildren(String root, String directory) {
+    try {
+      return hostServices.host.fileSystem
+          .directory(directory)
+          .listSync(followLinks: false)
+          .toList()
+        ..sort(
+          (left, right) => compareUtf8(
+            hostServices.host.paths.context.basename(left.path),
+            hostServices.host.paths.context.basename(right.path),
+          ),
+        );
+    } on Object catch (error) {
+      bundleFail(
+        root,
+        directory,
+        'could not list directory: $error',
+        paths: hostServices.host.paths,
+      );
+    }
+  }
+
+  void _requireLinkInsideBundle(
+    String root,
+    String rootReal,
+    String childPath,
+  ) {
+    final resolved = _resolveLink(childPath, root);
+    final staysInside = isWithinOrEqual(
+      rootReal,
+      resolved,
+      hostServices: hostServices,
+    );
+    if (!staysInside) {
+      bundleFail(
+        root,
+        childPath,
+        'symlink target escapes the app bundle',
+        paths: hostServices.host.paths,
+      );
+    }
+  }
+
+  void _requireReadableFile(String root, String childPath) {
+    try {
+      hostServices.host.fileSystem.file(childPath).readAsBytesSync();
+    } on Object catch (error) {
+      bundleFail(
+        root,
+        childPath,
+        'could not read file: $error',
+        paths: hostServices.host.paths,
+      );
+    }
   }
 
   void rejectUnsupportedTree(String root, List<BundleEntry> entries) {
