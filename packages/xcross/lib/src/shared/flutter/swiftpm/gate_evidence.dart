@@ -165,7 +165,9 @@ final class SwiftPmGateEvidence<T extends PlatformHostInterface> {
     final target = fileSystem.directory(p.join(proofRoot, 'target'));
     final alias = fileSystem.directory(p.join(proofRoot, 'junction'));
     final result = fileSystem.file(p.join(target.path, 'probe-result.bin'));
-    if (!target.existsSync() || !alias.existsSync() || !result.existsSync()) {
+    final proofComplete =
+        target.existsSync() && alias.existsSync() && result.existsSync();
+    if (!proofComplete) {
       return false;
     }
     if (sha256.convert(result.readAsBytesSync()).toString() !=
@@ -240,8 +242,11 @@ Future<bool> validSwiftPmGateToolchainIdentity(
     'ld64.lld',
     'librarian',
   };
-  if (identity.keys.toSet().difference(tools).isNotEmpty ||
-      tools.difference(identity.keys.toSet()).isNotEmpty) {
+  final recordedTools = identity.keys.toSet();
+  final coversExactlyTools =
+      recordedTools.difference(tools).isEmpty &&
+      tools.difference(recordedTools).isEmpty;
+  if (!coversExactlyTools) {
     return false;
   }
   for (final name in tools) {
@@ -259,15 +264,19 @@ Future<bool> validSwiftPmGateToolchainIdentity(
     if (!file.existsSync()) return false;
     final resolved = file.resolveSymbolicLinksSync();
     final stat = fileSystem.file(resolved).statSync();
-    if (p.normalize(resolved) != p.normalize(executable['path'] as String) ||
-        stat.size != executable['size'] ||
-        stat.modified.microsecondsSinceEpoch != executable['modified'] ||
-        stat.changed.microsecondsSinceEpoch != executable['changed']) {
+    final resolvesElsewhere =
+        p.normalize(resolved) != p.normalize(executable['path'] as String);
+    if (resolvesElsewhere || !_statMatches(stat, executable)) {
       return false;
     }
   }
   return true;
 }
+
+bool _statMatches(FileStat stat, Map<Object?, Object?> expected) =>
+    stat.size == expected['size'] &&
+    stat.modified.microsecondsSinceEpoch == expected['modified'] &&
+    stat.changed.microsecondsSinceEpoch == expected['changed'];
 
 @internal
 Future<bool> validSwiftPmGateSdkIdentity(
@@ -292,9 +301,7 @@ Future<bool> validSwiftPmGateSdkIdentity(
     final file = fileSystem.file(p.join(root, entry.key as String));
     if (!file.existsSync()) return false;
     final stat = file.statSync();
-    if (stat.size != expected['size'] ||
-        stat.modified.microsecondsSinceEpoch != expected['modified'] ||
-        stat.changed.microsecondsSinceEpoch != expected['changed']) {
+    if (!_statMatches(stat, expected)) {
       return false;
     }
   }
