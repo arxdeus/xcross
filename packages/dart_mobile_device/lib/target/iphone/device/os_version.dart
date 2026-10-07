@@ -41,11 +41,12 @@ final class OsVersion {
         );
         return null;
       }
-      if (jsonDecode(stdout) case {'ProductVersion': final String version}) {
+      final Object? info = jsonDecode(stdout);
+      if (info case {'ProductVersion': final String version}) {
         return _majorFromVersionString(version);
       }
       return null;
-    } catch (e) {
+    } on Object catch (e) {
       pymd.runner.log.logWarn(
         'Could not determine device OS version via pymobiledevice3: $e',
       );
@@ -67,7 +68,7 @@ final class OsVersion {
         return null;
       }
       return _majorFromVersionString(result.stdout.trim());
-    } catch (e) {
+    } on Object catch (e) {
       pymd.runner.log.logWarn(
         'Could not determine device OS version via ideviceinfo: $e',
       );

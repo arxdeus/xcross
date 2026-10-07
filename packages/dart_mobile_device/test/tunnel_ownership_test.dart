@@ -262,10 +262,15 @@ final class Processes implements HostProcessInterface {
 final class Child implements Process {
   Child() {
     input.stream.listen((_) {});
+    addTearDown(close);
   }
   final exited = Completer<int>();
   final input = StreamController<List<int>>();
   late final IOSink sink = IOSink(input.sink);
+  Future<void> close() async {
+    await sink.close();
+    await input.close();
+  }
 
   @override
   Future<int> get exitCode => exited.future;

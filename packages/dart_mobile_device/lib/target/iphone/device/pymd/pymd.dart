@@ -172,7 +172,7 @@ final class Pymd {
     try {
       await resolve();
       return true;
-    } catch (_) {
+    } on Object catch (_) {
       return false;
     }
   }
@@ -276,10 +276,10 @@ final class Pymd {
 
   /// Return set of installed bundle identifiers.
   ///
-  /// [deviceArgs] selects the device (`--rsd <host> <port>`, `--tunnel
-  /// <udid>`, or `--userspace --udid <udid>`); without it pymobiledevice3
-  /// falls back to the first usbmux device, which does not exist for a
-  /// wireless connection on Linux/Windows.
+  /// [deviceArgs] selects the device (`--rsd <host> <port>`,
+  /// `--tunnel <udid>`, or `--userspace --udid <udid>`); without it
+  /// pymobiledevice3 falls back to the first usbmux device, which does not
+  /// exist for a wireless connection on Linux/Windows.
   ///
   /// pymobiledevice3 renamed the `--user`/`--system` filters to `--userspace`
   /// in newer releases (9.x); try the current flag first and fall back to the
@@ -301,7 +301,8 @@ final class Pymd {
           ...args,
           ...deviceArgs,
         ], timeout: const Duration(seconds: 45));
-        if (jsonDecode(result.stdout) case final Map<Object?, Object?> json) {
+        final Object? decoded = jsonDecode(result.stdout);
+        if (decoded case final Map<Object?, Object?> json) {
           return json.keys.cast<String>().toList();
         }
       } on Object {
@@ -425,7 +426,7 @@ final class Pymd {
     final stderr = process.stderr.transform(utf8.decoder).join();
     try {
       await process.stdin.close();
-    } catch (_) {}
+    } on Object catch (_) {}
     final int exitCode;
     try {
       exitCode = await process.exitCode.timeout(timeout);

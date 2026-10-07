@@ -281,7 +281,8 @@ class PymdDeviceResolver {
     } on TunnelError catch (e) {
       _daemonFailure = e;
       pymd.runner.log.logTrace('wireless bring-up: tunneld unavailable: $e');
-      return PymdDevices(pymd).devices(mode: mode);
+      final devices = await PymdDevices(pymd).devices(mode: mode);
+      return devices;
     }
 
     final activeTunnels = await TunnelDiscovery(
@@ -460,7 +461,7 @@ class PymdDeviceResolver {
   static T? _tryGet<T>(T Function() f) {
     try {
       return f();
-    } catch (_) {
+    } on Object catch (_) {
       return null;
     }
   }
@@ -468,6 +469,6 @@ class PymdDeviceResolver {
   static void _trySet(void Function() f) {
     try {
       f();
-    } catch (_) {}
+    } on Object catch (_) {}
   }
 }

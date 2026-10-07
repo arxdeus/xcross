@@ -165,7 +165,7 @@ class TunnelDaemon {
       } finally {
         client.close();
       }
-    } catch (_) {
+    } on Object catch (_) {
       return false;
     }
   }

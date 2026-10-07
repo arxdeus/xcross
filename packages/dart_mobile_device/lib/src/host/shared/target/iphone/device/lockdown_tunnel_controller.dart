@@ -42,7 +42,7 @@ final class LockdownTunnelController {
 
     try {
       await proc.stdin.close();
-    } catch (_) {}
+    } on Object catch (_) {}
 
     final logSink = logFile.openWrite(mode: FileMode.append);
     final ready = Completer<void>();
@@ -65,7 +65,7 @@ final class LockdownTunnelController {
         try {
           await logSink.flush();
           await logSink.close();
-        } catch (_) {}
+        } on Object catch (_) {}
         if (!ready.isCompleted) {
           ready.completeError(
             TunnelError(

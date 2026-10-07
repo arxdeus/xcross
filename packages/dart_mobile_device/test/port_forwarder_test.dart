@@ -172,6 +172,7 @@ void main() {
           InternetAddress.loopbackIPv4,
           forwarder.localPort,
         );
+        addTearDown(client.close);
         // Our side closes the client; the forwarder itself must survive so a
         // later retry (DevTools reconnecting) still works.
         expect(await client.isEmpty, isTrue);

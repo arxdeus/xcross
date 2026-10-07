@@ -26,11 +26,16 @@ final class TestDeviceSockets implements DeviceSockets {
     connections.add((host: host, port: port, timeout: timeout));
     if (!connectionRequested.isCompleted) connectionRequested.complete();
     if (connectFailure case final Object failure) {
-      return Future.error(failure);
+      Error.throwWithStackTrace(failure, StackTrace.current);
     }
     await connectReady;
     final endpoint = destination ?? (host: host, port: port);
-    return Socket.connect(endpoint.host, endpoint.port, timeout: timeout);
+    final socket = await Socket.connect(
+      endpoint.host,
+      endpoint.port,
+      timeout: timeout,
+    );
+    return socket;
   }
 
   @override

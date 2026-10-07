@@ -50,10 +50,11 @@ $body
 }
 ''');
     final config = await Isolate.packageConfig;
-    return Process.start(Platform.resolvedExecutable, [
+    final process = await Process.start(Platform.resolvedExecutable, [
       '--packages=${config!.toFilePath()}',
       script.path,
     ], workingDirectory: Directory.current.path);
+    return process;
   }
 
   Future<int?> waitForExit(Process child) async {

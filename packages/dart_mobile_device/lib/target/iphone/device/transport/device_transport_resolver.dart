@@ -39,11 +39,12 @@ final class DeviceTransportResolver {
           sockets: sockets,
         );
       case DeviceTransportMode.kernel:
-        return _kernelTransport(
+        final transport = await _kernelTransport(
           udid: udid,
           discoveryTimeout: discoveryTimeout,
           allowTunnelRepair: allowTunnelRepair,
         );
+        return transport;
       case DeviceTransportMode.auto:
         try {
           return await _kernelTransport(
@@ -157,7 +158,8 @@ final class DeviceTransportResolver {
         );
         throw error;
       }
-      return _debugproxyPort(tunnel);
+      final port = await _debugproxyPort(tunnel);
+      return port;
     }
   }
 
@@ -192,10 +194,11 @@ final class DeviceTransportResolver {
         pymd.runner.log.logTrace('tunnel repair failed: $repairFailure');
         throw error;
       }
-      return TunnelDiscovery(
+      final tunnel = await TunnelDiscovery(
         pymd.runner.log,
         localHttp: pymd.localHttp,
       ).discoverTunnel(udid: udid, timeout: discoveryTimeout);
+      return tunnel;
     }
   }
 

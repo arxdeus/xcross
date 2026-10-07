@@ -283,10 +283,16 @@ final class DiagnosticsProcesses implements HostProcessInterface {
 final class DiagnosticsChild implements Process {
   DiagnosticsChild(this.body) {
     input.stream.listen((_) {});
+    addTearDown(close);
   }
   final String body;
   final input = StreamController<List<int>>();
   late final IOSink sink = IOSink(input.sink);
+  Future<void> close() async {
+    await sink.close();
+    await input.close();
+  }
+
   @override
   Future<int> get exitCode => Future.value(0);
   @override

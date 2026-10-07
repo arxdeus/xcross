@@ -284,11 +284,17 @@ final class DeniedPreparationPrivileges implements HostPrivilegesInterface {
 final class WirelessChild implements Process {
   WirelessChild({this.body = ''}) {
     input.stream.listen((_) {});
+    addTearDown(close);
   }
   final String body;
   final exited = Completer<int>();
   final input = StreamController<List<int>>();
   late final IOSink sink = IOSink(input.sink);
+  Future<void> close() async {
+    await sink.close();
+    await input.close();
+  }
+
   @override
   Future<int> get exitCode => exited.future;
   @override

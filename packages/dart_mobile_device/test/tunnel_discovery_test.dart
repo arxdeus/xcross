@@ -219,7 +219,7 @@ void main() {
             timeout: const Duration(milliseconds: 500),
             pollInterval: const Duration(milliseconds: 80),
           );
-    } catch (e) {
+    } on Object catch (e) {
       caught = e;
     }
 

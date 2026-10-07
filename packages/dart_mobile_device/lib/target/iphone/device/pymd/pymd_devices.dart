@@ -105,7 +105,8 @@ final class PymdDevices {
         '--tunnel',
         udid,
       ], timeout: const Duration(seconds: 15));
-      if (jsonDecode(result.stdout) case {'DeviceName': final String n}) {
+      final Object? info = jsonDecode(result.stdout);
+      if (info case {'DeviceName': final String n}) {
         name = n;
       }
     } on Object catch (e) {

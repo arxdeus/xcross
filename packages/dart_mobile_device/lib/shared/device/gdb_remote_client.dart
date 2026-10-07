@@ -218,6 +218,7 @@ final class GdbRemoteClient {
   }
 
   Future<void> close() async {
+    _socket?.close().ignore();
     final s = _socket;
     _socket = null;
     s?.destroy();

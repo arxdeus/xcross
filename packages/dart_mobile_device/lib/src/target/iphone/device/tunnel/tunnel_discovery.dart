@@ -37,7 +37,7 @@ final class TunnelDiscovery {
     final step = log.beginStep('Waiting for RSD tunnel');
     final deadline = DateTime.now().add(timeout);
     while (DateTime.now().isBefore(deadline)) {
-      Map<String, dynamic>? data;
+      Map<String, Object?>? data;
       try {
         data = await _fetch(TunnelConstants.tunneldUrl);
         lastUnreachable = false;
@@ -122,7 +122,7 @@ final class TunnelDiscovery {
   /// tunneled devices into discovery, where an unreachable tunneld simply
   /// means "no wireless devices yet".
   Future<Map<String, Tunnel>> activeTunnels() async {
-    final Map<String, dynamic> data;
+    final Map<String, Object?> data;
     try {
       data = await _fetch(TunnelConstants.tunneldUrl);
     } on Object catch (e) {
@@ -175,7 +175,7 @@ final class TunnelDiscovery {
         'tunneld said: $detail',
       );
 
-  Future<Map<String, dynamic>> _fetch(String url) async {
+  Future<Map<String, Object?>> _fetch(String url) async {
     final client = localHttp.client(
       connectionTimeout: const Duration(seconds: 5),
     );
@@ -191,7 +191,7 @@ final class TunnelDiscovery {
         );
       }
       final Object? decoded = jsonDecode(body);
-      if (decoded is! Map<String, dynamic>) {
+      if (decoded is! Map<String, Object?>) {
         throw TunnelError('tunneld returned non-object JSON');
       }
       return decoded;
@@ -201,7 +201,7 @@ final class TunnelDiscovery {
   }
 
   /// Parse the `GET /` multi-device map: `{udid: [{address,port}, …], …}`.
-  Tunnel? _parseTunnelList(Map<String, dynamic> root, String? udid) {
+  Tunnel? _parseTunnelList(Map<String, Object?> root, String? udid) {
     if (root.isEmpty) return null;
 
     final List<Object?> candidates;

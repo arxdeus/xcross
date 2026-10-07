@@ -211,7 +211,7 @@ final class RemotePairing {
   static void _pipeLines(Process process, void Function(String) onLine) {
     try {
       unawaited(process.stdin.close().catchError((Object _) {}));
-    } catch (_) {}
+    } on Object catch (_) {}
     for (final stream in [process.stdout, process.stderr]) {
       stream
           // Lossy on purpose: a strict decoder would drop a whole chunk
