@@ -60,71 +60,21 @@ final class WirelessDevicePreparation {
     // tunneld must not prompt for sudo again.
     await TunnelDaemon(pymd).ensureRunning();
 
-    var tunnel = await TunnelDiscovery(
-      pymd.runner.log,
-      localHttp: pymd.localHttp,
-    ).findExistingTunnel();
-    if (tunnel == null &&
-        bootstrapSequence.contains(WirelessBootstrapPath.savedPairing)) {
-      pymd.runner.log.logInfo(
-        'Wireless',
-        'no USB device — reconnecting to ${savedPairings.length} saved '
-            'wireless ${savedPairings.length == 1 ? 'device' : 'devices'}',
-      );
-      tunnel = await _awaitWirelessTunnel();
+    var tunnel = await _findExistingTunnel();
+    final shouldReconnectSaved = bootstrapSequence.contains(
+      WirelessBootstrapPath.savedPairing,
+    );
+    if (tunnel == null && shouldReconnectSaved) {
+      tunnel = await _reconnectSavedPairings(savedPairings);
     }
-    if (tunnel == null &&
-        bootstrapSequence.contains(WirelessBootstrapPath.pairHost)) {
-      final fresh = savedPairings.isNotEmpty;
-      final name = fresh
-          ? RemotePairing(pymd).freshAdvertiseName()
-          : RemotePairing(pymd).advertiseName;
-      if (fresh) {
-        pymd.runner.log.logWarn(
-          'saved wireless devices did not reconnect — starting fresh pairing',
-        );
-      }
-      final pairHost = await RemotePairing(
-        pymd,
-      ).startPairHost(onLine: _onPairHostLine, fresh: fresh, name: name);
-      if (pairHost != null) {
-        pymd.runner.log.logInfo(
-          'Wireless',
-          'to pair, on the iPhone (iOS 27+): Settings > Developer > Paired '
-              'Macs > "Other Devices" > "$name" — the 6-digit code appears '
-              'here when the phone connects',
-        );
-        pymd.runner.log.logInfo(
-          'Wireless',
-          'device-initiated pairing requires iOS 27+; on older iOS, connect '
-              'the iPhone over USB once and rerun this command',
-        );
-        if (fresh) {
-          pymd.runner.log.logInfo(
-            'Wireless',
-            'tap exactly "$name" under "Other Devices"; delete the older '
-                '"${RemotePairing(pymd).advertiseName}" entry because its saved '
-                'pairing no longer reconnects',
-          );
-        }
-      }
-      try {
-        tunnel = await _awaitWirelessTunnel(pairHost: pairHost);
-      } finally {
-        if (pairHost != null) await pymd.runner.killTree(pairHost);
-      }
+    final shouldAdvertisePairHost = bootstrapSequence.contains(
+      WirelessBootstrapPath.pairHost,
+    );
+    if (tunnel == null && shouldAdvertisePairHost) {
+      tunnel = await _pairOverPairHost(fresh: savedPairings.isNotEmpty);
     }
     if (tunnel == null) {
-      final guidance = savedPairings.isNotEmpty
-          ? 'Saved pairing records were found, but none of those devices '
-                'connected. Unlock the iPhone, keep its screen on, and verify '
-                'it is on the same network.\nTo refresh the pairing, connect '
-                'it over USB and rerun this command.'
-          : 'No saved pairing exists. Device-initiated pairing requires '
-                'iOS 27+: use Settings > Developer > Paired Macs > Other '
-                'Devices. On older iOS, connect the iPhone over USB once and '
-                'rerun this command.';
-      throw TunnelError('No wireless device connected.\n$guidance');
+      throw _noWirelessDeviceError(hasSavedPairings: savedPairings.isNotEmpty);
     }
     await diskImage.mountOverRsd(tunnel);
     pymd.runner.log.logDone(
@@ -135,6 +85,77 @@ final class WirelessDevicePreparation {
       'Next',
       pymd.runner.log.dim('xcross flutter run --wifi'),
     );
+  }
+
+  Future<Tunnel?> _findExistingTunnel() => TunnelDiscovery(
+    pymd.runner.log,
+    localHttp: pymd.localHttp,
+  ).findExistingTunnel();
+
+  Future<Tunnel?> _reconnectSavedPairings(List<String> savedPairings) {
+    final noun = savedPairings.length == 1 ? 'device' : 'devices';
+    pymd.runner.log.logInfo(
+      'Wireless',
+      'no USB device — reconnecting to ${savedPairings.length} saved '
+          'wireless $noun',
+    );
+    return _awaitWirelessTunnel();
+  }
+
+  Future<Tunnel?> _pairOverPairHost({required bool fresh}) async {
+    final name = fresh
+        ? RemotePairing(pymd).freshAdvertiseName()
+        : RemotePairing(pymd).advertiseName;
+    if (fresh) {
+      pymd.runner.log.logWarn(
+        'saved wireless devices did not reconnect — starting fresh pairing',
+      );
+    }
+    final pairHost = await RemotePairing(
+      pymd,
+    ).startPairHost(onLine: _onPairHostLine, fresh: fresh, name: name);
+    if (pairHost != null) _explainPairHost(name: name, fresh: fresh);
+    try {
+      final tunnel = await _awaitWirelessTunnel(pairHost: pairHost);
+      return tunnel;
+    } finally {
+      if (pairHost != null) await pymd.runner.killTree(pairHost);
+    }
+  }
+
+  void _explainPairHost({required String name, required bool fresh}) {
+    pymd.runner.log.logInfo(
+      'Wireless',
+      'to pair, on the iPhone (iOS 27+): Settings > Developer > Paired '
+          'Macs > "Other Devices" > "$name" — the 6-digit code appears '
+          'here when the phone connects',
+    );
+    pymd.runner.log.logInfo(
+      'Wireless',
+      'device-initiated pairing requires iOS 27+; on older iOS, connect '
+          'the iPhone over USB once and rerun this command',
+    );
+    if (fresh) {
+      pymd.runner.log.logInfo(
+        'Wireless',
+        'tap exactly "$name" under "Other Devices"; delete the older '
+            '"${RemotePairing(pymd).advertiseName}" entry because its saved '
+            'pairing no longer reconnects',
+      );
+    }
+  }
+
+  TunnelError _noWirelessDeviceError({required bool hasSavedPairings}) {
+    final guidance = hasSavedPairings
+        ? 'Saved pairing records were found, but none of those devices '
+              'connected. Unlock the iPhone, keep its screen on, and verify '
+              'it is on the same network.\nTo refresh the pairing, connect '
+              'it over USB and rerun this command.'
+        : 'No saved pairing exists. Device-initiated pairing requires '
+              'iOS 27+: use Settings > Developer > Paired Macs > Other '
+              'Devices. On older iOS, connect the iPhone over USB once and '
+              'rerun this command.';
+    return TunnelError('No wireless device connected.\n$guidance');
   }
 
   /// USB always wins. Without it, saved records get the first attempt and a
@@ -340,19 +361,17 @@ final class WirelessDevicePreparation {
           }),
         );
         final deadline = DateTime.now().add(RemotePairing.pairHostTimeout);
-        while (!exited && DateTime.now().isBefore(deadline)) {
-          final tunnel = await TunnelDiscovery(
-            pymd.runner.log,
-            localHttp: pymd.localHttp,
-          ).findExistingTunnel();
-          if (tunnel != null) {
-            step.done();
-            return tunnel;
-          }
-          await diagnostics.tick();
-          await Future<void>.delayed(_pollInterval);
+        final tunnel = await _pollForTunnel(
+          deadline,
+          diagnostics,
+          stopWhen: () => exited,
+        );
+        if (tunnel != null) {
+          step.done();
+          return tunnel;
         }
-        if (exited && exitCode != 0 && !hasRecord) {
+        final pairHostFailed = exited && exitCode != 0 && !hasRecord;
+        if (pairHostFailed) {
           step.fail();
           return null;
         }
@@ -360,17 +379,10 @@ final class WirelessDevicePreparation {
       // Phase 2: a pairing record exists (fresh or old) — give tunneld one
       // discovery cycle to find the phone and build the tunnel.
       final deadline = DateTime.now().add(_wirelessTunnelTimeout);
-      while (DateTime.now().isBefore(deadline)) {
-        final tunnel = await TunnelDiscovery(
-          pymd.runner.log,
-          localHttp: pymd.localHttp,
-        ).findExistingTunnel();
-        if (tunnel != null) {
-          step.done();
-          return tunnel;
-        }
-        await diagnostics.tick();
-        await Future<void>.delayed(_pollInterval);
+      final tunnel = await _pollForTunnel(deadline, diagnostics);
+      if (tunnel != null) {
+        step.done();
+        return tunnel;
       }
       step.fail();
       return null;
@@ -378,6 +390,20 @@ final class WirelessDevicePreparation {
       step.fail();
       rethrow;
     }
+  }
+
+  Future<Tunnel?> _pollForTunnel(
+    DateTime deadline,
+    WirelessWaitDiagnostics diagnostics, {
+    bool Function()? stopWhen,
+  }) async {
+    while (!(stopWhen?.call() ?? false) && DateTime.now().isBefore(deadline)) {
+      final tunnel = await _findExistingTunnel();
+      if (tunnel != null) return tunnel;
+      await diagnostics.tick();
+      await Future<void>.delayed(_pollInterval);
+    }
+    return null;
   }
 }
 
