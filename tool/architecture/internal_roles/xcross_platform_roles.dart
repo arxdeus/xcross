@@ -211,11 +211,13 @@ const xcrossPlatformRoles = <String, Map<String, String>>{
       {'CLASS:PosixAppleToolShimRenderer': 'internal'},
   'package:xcross/src/host/shared/flutter/apple_tool_shim_templates_posix.dart':
       {
+        'CLASS:UnixXcrunShim': 'internal',
         'FUNCTION:renderUnixCompilerShim': 'internal',
         'FUNCTION:renderUnixOtoolShim': 'internal',
         'FUNCTION:renderUnixToolShim': 'internal',
         'FUNCTION:renderUnixXcrunShim': 'internal',
         'FUNCTION:shellQuote': 'internal',
+        'TOP_LEVEL_VARIABLE:_xcrunProbedSdks': 'private',
         'TOP_LEVEL_VARIABLE:unixCodesignShim': 'internal',
       },
   'package:xcross/src/host/shared/flutter/engine_archive_writer.dart': {
