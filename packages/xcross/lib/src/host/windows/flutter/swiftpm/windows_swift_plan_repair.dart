@@ -185,8 +185,10 @@ final class WindowsSwiftPlanRepair {
     final tool = p.windows.basename(args.first).toLowerCase();
     final swift = _swiftCompilers.contains(tool);
     final clang = _clangCompilers.contains(tool);
-    if ((!swift && !clang) ||
-        windowsCommandLineLength(args) < _responseFileThreshold) {
+    final needsResponseFile =
+        (swift || clang) &&
+        windowsCommandLineLength(args) >= _responseFileThreshold;
+    if (!needsResponseFile) {
       return null;
     }
     final contents = args
@@ -202,7 +204,8 @@ final class WindowsSwiftPlanRepair {
       p.join(_responseCacheDirectory(scratchPath), '$digest.rsp'),
     );
     await file.parent.create(recursive: true);
-    if (!file.existsSync() || await file.readAsString() != contents) {
+    final isCached = file.existsSync() && await file.readAsString() == contents;
+    if (!isCached) {
       await file.writeAsString(contents);
     }
     final shortened = [args.first, '@${p.absolute(file.path)}'];
@@ -236,9 +239,11 @@ final class WindowsSwiftPlanRepair {
     final cutoff = DateTime.now().subtract(_responseFileRetention);
     for (final file in cache.listSync().whereType<File>()) {
       final name = p.basename(file.path);
-      if (!_responseFileName.hasMatch(name) ||
-          referenced.contains(canonical(file.path)) ||
-          !file.lastModifiedSync().isBefore(cutoff)) {
+      final isStaleResponseFile =
+          _responseFileName.hasMatch(name) &&
+          !referenced.contains(canonical(file.path)) &&
+          file.lastModifiedSync().isBefore(cutoff);
+      if (!isStaleResponseFile) {
         continue;
       }
       await file.delete();
@@ -322,7 +327,10 @@ final class WindowsSwiftPlanRepair {
       final source = _extendedDriveSource(name);
       if (source == null) continue;
       if (_windowsCopyTreeFitsLegacyPaths(source)) continue;
-      if (!runner.host.fileSystem.directory(name as String).existsSync()) {
+      final sourceDirectoryExists = runner.host.fileSystem
+          .directory(name as String)
+          .existsSync();
+      if (!sourceDirectoryExists) {
         continue;
       }
       final digest = sha256.convert(utf8.encode(p.windows.normalize(source)));
@@ -385,9 +393,7 @@ final class WindowsSwiftPlanRepair {
       _extendedDriveSource(resolved) ?? resolved,
     );
     final aliasDirectory = runner.host.fileSystem.directory(alias);
-    if (!runner.host.fileSystem.file(alias).existsSync() &&
-        !runner.host.fileSystem.directory(alias).existsSync() &&
-        !runner.host.fileSystem.link(alias).existsSync()) {
+    if (!_entryExists(alias)) {
       await aliasDirectory.parent.create(recursive: true);
       // PowerShell receives the paths as quoted literals, unlike cmd /c
       // mklink, which expands %NAME% and interprets & in user directory names.
@@ -400,10 +406,7 @@ final class WindowsSwiftPlanRepair {
         '-Command',
         'New-Item -ItemType Junction -Path ${literal(alias)} -Target ${literal(literalTarget)} | Out-Null',
       ]);
-      if (result.exitCode != 0 &&
-          (!runner.host.fileSystem.file(alias).existsSync() &&
-              !runner.host.fileSystem.directory(alias).existsSync() &&
-              !runner.host.fileSystem.link(alias).existsSync())) {
+      if (result.exitCode != 0 && !_entryExists(alias)) {
         throw FlutterBuildError(
           'Could not stage long SwiftPM directory copy: ${result.stderr}',
         );
@@ -417,17 +420,24 @@ final class WindowsSwiftPlanRepair {
     final aliasTarget = p.windows.normalize(
       await runner.host.fileSystem.link(alias).target(),
     );
-    if (mount.exitCode != 0 ||
-        !isWindowsMountPointReparseOutput(mount.stdout) ||
-        !p.windows.equals(
+    final isExpectedMountPoint =
+        mount.exitCode == 0 &&
+        isWindowsMountPointReparseOutput(mount.stdout) &&
+        p.windows.equals(
           _extendedDriveSource(aliasTarget) ?? aliasTarget,
           target,
-        )) {
+        );
+    if (!isExpectedMountPoint) {
       throw FlutterBuildError(
         'Refusing a changed SwiftPM directory copy alias: $alias',
       );
     }
   }
+
+  bool _entryExists(String path) =>
+      runner.host.fileSystem.file(path).existsSync() ||
+      runner.host.fileSystem.directory(path).existsSync() ||
+      runner.host.fileSystem.link(path).existsSync();
 
   bool _windowsCopyTreeFitsLegacyPaths(String root) {
     if (root.length >= _legacyMaxPath) return false;
