@@ -207,11 +207,13 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
       final fingerprintFile = runtime.artifactFileSystem.file(
         p.join(outputDir, '.xcross-build-fingerprint'),
       );
-      if (fingerprintFile.existsSync() &&
-          await fingerprintFile.readAsString() == fingerprint &&
-          runtime.artifactFileSystem
-              .file(p.join(targetDebugDir, 'lib$pluginsProductName.dylib'))
-              .existsSync()) {
+      final pluginsDylib = runtime.artifactFileSystem.file(
+        p.join(targetDebugDir, 'lib$pluginsProductName.dylib'),
+      );
+      final fingerprintMatches =
+          fingerprintFile.existsSync() &&
+          await fingerprintFile.readAsString() == fingerprint;
+      if (fingerprintMatches && pluginsDylib.existsSync()) {
         runtime.runner.log.logTrace('reusing unchanged SwiftPM plugin build');
         final reused = await runtime.assembly.discoverAndRewriteDylibs(
           targetDebugDir,
