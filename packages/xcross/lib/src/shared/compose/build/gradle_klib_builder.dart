@@ -216,9 +216,11 @@ allprojects {
       if (line.isEmpty) continue;
       final normalized = p.normalize(line);
       if (!_isKlib(normalized)) continue;
-      if (p.equals(normalized, kotlinRoot) ||
+      final isToolchainKlib =
+          p.equals(normalized, kotlinRoot) ||
           p.isWithin(kotlinRoot, normalized) ||
-          _isDistributionKlib(normalized)) {
+          _isDistributionKlib(normalized);
+      if (isToolchainKlib) {
         continue;
       }
       if (seen.add(normalized)) dependencies.add(normalized);
@@ -262,21 +264,17 @@ allprojects {
   /// libraries at all - the compiler jar among them - and excluding those by
   /// name only works until the next one appears.
   bool _isKlib(String path) {
+    final files = runner.host.fileSystem;
     if (p.extension(path) == '.klib') {
-      return (runner.host.fileSystem.link(path).existsSync()
-              ? FileSystemEntityType.link
-              : runner.host.fileSystem.directory(path).existsSync()
-              ? FileSystemEntityType.directory
-              : runner.host.fileSystem.file(path).existsSync()
-              ? FileSystemEntityType.file
-              : FileSystemEntityType.notFound) !=
-          FileSystemEntityType.notFound;
+      return files.link(path).existsSync() ||
+          files.directory(path).existsSync() ||
+          files.file(path).existsSync();
     }
-    if (runner.host.fileSystem.directory(path).existsSync()) {
-      return runner.host.fileSystem
-              .file(p.join(path, 'default', 'manifest'))
-              .existsSync() ||
-          runner.host.fileSystem.file(p.join(path, 'manifest')).existsSync();
+    if (files.directory(path).existsSync()) {
+      final currentManifest = p.join(path, 'default', 'manifest');
+      final flatManifest = p.join(path, 'manifest');
+      return files.file(currentManifest).existsSync() ||
+          files.file(flatManifest).existsSync();
     }
     return false;
   }
