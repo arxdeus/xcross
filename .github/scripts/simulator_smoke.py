@@ -228,21 +228,21 @@ class Smoke:
             self.device, self.identifier, name="launch.log", timeout=self.boot_timeout,
         )
 
-    def launch_with_retry(self):
-        try:
-            return self.launch()
-        except CommandTimeout as failure:
-            self.capture_crashes()
-            if self.crashes:
-                raise
-            self.launch_retries.append(str(failure))
-            for name in ("app-stdout.log", "app-stderr.log", "launch.log"):
-                path = self.output / name
-                if path.exists():
-                    path.rename(self.output / f"launch-attempt-1-{name}")
-            self.fresh_boot("relaunch.log")
-            self.install_with_retry()
-            return self.launch()
+    def launch_with_retry(self, attempts=3):
+        for attempt in range(1, attempts + 1):
+            try:
+                return self.launch()
+            except CommandTimeout as failure:
+                self.capture_crashes()
+                if self.crashes or attempt == attempts:
+                    raise
+                self.launch_retries.append(str(failure))
+                for name in ("app-stdout.log", "app-stderr.log", "launch.log"):
+                    path = self.output / name
+                    if path.exists():
+                        path.rename(self.output / f"launch-attempt-{attempt}-{name}")
+                self.fresh_boot("relaunch.log")
+                self.install_with_retry()
 
     def install_with_retry(self):
         timeout = install_timeout(app_size(self.app))
@@ -283,8 +283,10 @@ class Smoke:
             time.sleep(1)
 
     def scan_abort_markers(self):
-        for name in ("app-stdout.log", "app-stderr.log", "simulator.log",
-                     "launch-attempt-1-app-stdout.log", "launch-attempt-1-app-stderr.log"):
+        retried = sorted(
+            path.name for path in self.output.glob("launch-attempt-*-app-std*.log")
+        )
+        for name in ("app-stdout.log", "app-stderr.log", "simulator.log", *retried):
             path = self.output / name
             if not path.is_file():
                 continue

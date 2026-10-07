@@ -378,19 +378,32 @@ class SmokeTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "exited or crashed"):
                     self.smoke.observe()
 
-    def test_hung_launch_is_retried_once_after_fresh_boot(self):
+    def test_hung_launch_is_retried_after_fresh_boots(self):
+        for budget in (1, 2):
+            with self.subTest(hangs=budget):
+                self.calls = []
+                self.failure = "launch"
+                self.failure_budget = budget
+                self.smoke = Smoke(self.app, self.root / f"hangs-{budget}", boot_timeout=7, observe_seconds=2)
+                self.smoke.run()
+                launches = [args for args, _ in self.calls if "launch" in args]
+                self.assertEqual(len(launches), budget + 1)
+                boots = [args[2] for args, _ in self.calls if args[2:3] in (["boot"], ["bootstatus"], ["erase"], ["install"])]
+                self.assertEqual(boots, ["boot", "bootstatus", "install"] + ["erase", "boot", "bootstatus", "install"] * budget)
+                self.assertEqual(len(self.result()["launch_retries"]), budget)
+                self.assertTrue(self.result()["passed"])
+                for attempt in range(1, budget + 1):
+                    self.assertTrue((self.smoke.output / f"launch-attempt-{attempt}-launch.log").is_file())
+                delete = [args for args, _ in self.calls if "delete" in args]
+                self.assertEqual(delete, [["/usr/bin/xcrun", "simctl", "delete", DEVICE]])
+
+    def test_abort_marker_in_any_retried_attempt_fails(self):
         self.failure = "launch"
-        self.failure_budget = 1
-        self.smoke.run()
-        launches = [args for args, _ in self.calls if "launch" in args]
-        self.assertEqual(len(launches), 2)
-        boots = [args[2] for args, _ in self.calls if args[2:3] in (["boot"], ["bootstatus"], ["erase"], ["install"])]
-        self.assertEqual(boots, ["boot", "bootstatus", "install", "erase", "boot", "bootstatus", "install"])
-        self.assertEqual(len(self.result()["launch_retries"]), 1)
-        self.assertTrue(self.result()["passed"])
-        self.assertTrue((self.smoke.output / "launch-attempt-1-launch.log").is_file())
-        delete = [args for args, _ in self.calls if "delete" in args]
-        self.assertEqual(delete, [["/usr/bin/xcrun", "simctl", "delete", DEVICE]])
+        self.failure_budget = 2
+        self.smoke.output.mkdir(parents=True, exist_ok=True)
+        (self.smoke.output / "launch-attempt-2-app-stderr.log").write_text("Fatal error: synthetic failure\n")
+        with self.assertRaisesRegex(RuntimeError, "abort or crash marker"):
+            self.smoke.run()
 
     def test_install_waits_until_home_screen_is_running(self):
         self.home_screen_delay = 3
@@ -414,11 +427,12 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(len([args for args, _ in self.calls if "print" in args]), 3)
         self.assertTrue(self.result()["passed"])
 
-    def test_launch_hanging_twice_fails(self):
+    def test_launch_hanging_on_every_attempt_fails(self):
         self.failure = "launch"
         with self.assertRaisesRegex(RuntimeError, "timed out"):
             self.smoke.run()
-        self.assertEqual(len([args for args, _ in self.calls if "launch" in args]), 2)
+        self.assertEqual(len([args for args, _ in self.calls if "launch" in args]), 3)
+        self.assertEqual(len(self.result()["launch_retries"]), 2)
         self.assertFalse(self.result()["passed"])
 
     def test_hung_launch_with_crash_report_is_not_retried(self):
