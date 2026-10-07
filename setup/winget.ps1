@@ -74,7 +74,9 @@ function Confirm-Install([string]$Name, [string]$Url, [string]$What) {
 function Update-SessionEnvironment {
   $machine = [Environment]::GetEnvironmentVariable('Path', 'Machine')
   $user = [Environment]::GetEnvironmentVariable('Path', 'User')
-  $env:Path = (@($machine, $user) | Where-Object { $_ }) -join ';'
+  $session = @($env:Path -split ';' | Where-Object { $_ })
+  $registered = @(@($machine, $user) -join ';' -split ';' | Where-Object { $_ -and $session -notcontains $_ })
+  $env:Path = (@($session) + $registered | Select-Object -Unique) -join ';'
   foreach ($scope in 'User', 'Machine') {
     $sdk = [Environment]::GetEnvironmentVariable('SDKROOT', $scope)
     if ($sdk) { $env:SDKROOT = $sdk; break }

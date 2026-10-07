@@ -253,6 +253,17 @@ class WorkflowSecurityTests(unittest.TestCase):
                     )
                     self.assertEqual(result.returncode, expected)
 
+    def test_setup_scripts_keep_session_path_when_refreshing_environment(self):
+        for name in ("direct", "winget", "scoop", "choco"):
+            with self.subTest(script=name):
+                source = (ROOT / f"setup/{name}.ps1").read_text()
+                refresh = re.search(r"(?ms)^function Update-SessionEnvironment \{\n(.*?)^\}", source)
+                self.assertIsNotNone(refresh)
+                body = refresh.group(1)
+                self.assertIn("$session = @($env:Path -split ';'", body)
+                self.assertRegex(body, r"(?m)^  \$env:Path = \(@\(\$session\) \+ \$registered")
+                self.assertNotRegex(body, r"(?m)^  \$env:Path = \(@\(\$machine, \$user\)")
+
     def test_direct_setup_installs_a_missing_pinned_llvm_directory(self):
         source = (ROOT / "setup/direct.ps1").read_text()
         missing = re.search(r"(?m)^\$llvmDirMissing = (.+)$", source)
