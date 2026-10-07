@@ -378,8 +378,11 @@ final class WindowsSwiftPlanRepair {
     String alias,
     String source,
   ) async {
+    final resolved = await runner.host.fileSystem
+        .directory(source)
+        .resolveSymbolicLinks();
     final target = p.windows.normalize(
-      await runner.host.fileSystem.directory(source).resolveSymbolicLinks(),
+      _extendedDriveSource(resolved) ?? resolved,
     );
     final aliasDirectory = runner.host.fileSystem.directory(alias);
     if (!runner.host.fileSystem.file(alias).existsSync() &&
@@ -411,10 +414,13 @@ final class WindowsSwiftPlanRepair {
       'query',
       alias,
     ]);
+    final aliasTarget = p.windows.normalize(
+      await runner.host.fileSystem.link(alias).target(),
+    );
     if (mount.exitCode != 0 ||
         !isWindowsMountPointReparseOutput(mount.stdout) ||
         !p.windows.equals(
-          await aliasDirectory.resolveSymbolicLinks(),
+          _extendedDriveSource(aliasTarget) ?? aliasTarget,
           target,
         )) {
       throw FlutterBuildError(
