@@ -17,8 +17,9 @@ String exposeMacOSPackageGraphEntries(String manifest) {
 
   for (final function in functionPattern.allMatches(code)) {
     final bodyStart = _findFunctionBody(code, function.end);
-    if (bodyStart == null ||
-        !returnPattern.hasMatch(code.substring(function.end, bodyStart))) {
+    if (bodyStart == null) continue;
+    final signatureTail = code.substring(function.end, bodyStart);
+    if (!returnPattern.hasMatch(signatureTail)) {
       continue;
     }
     final bodyEnd = _matchingBrace(code, bodyStart);
@@ -94,8 +95,10 @@ List<(int, int)> _macOSDirectiveRemovals(
 
   final removals = <(int, int)>[];
   for (var index = 0; index < lines.length; index++) {
-    if (lines[index].$3 != '#if os(macOS)' ||
-        lines[index].$4 != '#if os(macOS)') {
+    final opensMacOSBlock =
+        lines[index].$3 == '#if os(macOS)' &&
+        lines[index].$4 == '#if os(macOS)';
+    if (!opensMacOSBlock) {
       continue;
     }
     var depth = 1;
@@ -240,10 +243,12 @@ bool _isEscapedSwiftQuote(String source, int quote) {
 // A bare `/` after an operand is division, not a regex: `a /b; c / d` must not
 // hide the code between the two slashes.
 int? _swiftRegexEnd(String source, int slash, int hashes) {
-  if (slash + 1 >= source.length ||
-      (hashes == 0 &&
-          (source[slash + 1].trim().isEmpty ||
-              !_canStartSwiftExpression(source, slash)))) {
+  if (slash + 1 >= source.length) return null;
+  final isBareSlashDivision =
+      hashes == 0 &&
+      (source[slash + 1].trim().isEmpty ||
+          !_canStartSwiftExpression(source, slash));
+  if (isBareSlashDivision) {
     return null;
   }
   final terminator = '/${'#' * hashes}';
