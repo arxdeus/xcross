@@ -94,8 +94,8 @@ final class IosEngineCache<T extends PlatformHostInterface> {
   bool get _sdkIosEngineUsable {
     final directory = _flutterSdkIosEngineDir;
     final framework = host.paths.context.join(directory, 'Flutter.xcframework');
-    if (!host.fileSystem.directory(framework).existsSync() ||
-        !_preservesCase(directory)) {
+    final hasFramework = host.fileSystem.directory(framework).existsSync();
+    if (!hasFramework || !_preservesCase(directory)) {
       return false;
     }
     final revision = sdkIosEngineRevision;
@@ -312,7 +312,8 @@ final class IosEngineCache<T extends PlatformHostInterface> {
       'common',
       'flutter_patched_sdk',
     );
-    if (!_isStale(sdkCommonEngineRevision) &&
+    final sdkCommonIsCurrent = !_isStale(sdkCommonEngineRevision);
+    if (sdkCommonIsCurrent &&
         host.fileSystem.directory(flutterSdkDirectory).existsSync()) {
       return flutterSdkDirectory;
     }
@@ -354,8 +355,10 @@ final class IosEngineCache<T extends PlatformHostInterface> {
       await _downloadIosArtifacts();
     }
     flutterSlice(flutterXcframework);
-    if (!host.fileSystem.file(vmSnapshotData).existsSync() ||
-        !host.fileSystem.file(isolateSnapshotData).existsSync()) {
+    final hasHostArtifacts =
+        host.fileSystem.file(vmSnapshotData).existsSync() &&
+        host.fileSystem.file(isolateSnapshotData).existsSync();
+    if (!hasHostArtifacts) {
       await _downloadHostArtifacts();
     }
     if (!host.fileSystem.directory(patchedSdkRoot).existsSync()) {
@@ -376,15 +379,12 @@ final class IosEngineCache<T extends PlatformHostInterface> {
       return; // The download below reports the missing engine hash.
     }
     final ios = sdkIosEngineRevision;
+    final sdkIosFramework = host.paths.context.join(
+      _flutterSdkIosEngineDir,
+      'Flutter.xcframework',
+    );
     if (_isStale(ios) &&
-        host.fileSystem
-            .directory(
-              host.paths.context.join(
-                _flutterSdkIosEngineDir,
-                'Flutter.xcframework',
-              ),
-            )
-            .existsSync()) {
+        host.fileSystem.directory(sdkIosFramework).existsSync()) {
       _warnOnce(
         'Flutter SDK iOS engine artifacts are from engine $ios, but the SDK '
         'is on engine $hash. xcross is using matching artifacts from its own '
