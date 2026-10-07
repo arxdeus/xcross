@@ -84,9 +84,17 @@ final class CrossXcrunProbe {
     }
     final xcrunExecutable = executable;
     final shimSdk = _readShimSdk(xcrunExecutable);
+    final wrapperArguments = _wrapperArguments(arguments);
+    if (_sdkPathProbe(wrapperArguments) case final probed?) {
+      // Without a sidecar the runtime-backed command answers iOS probes from
+      // the installed bundle. No xcross SDK ever provides macOS.
+      final untargeted = shimSdk == null
+          ? probed == _macosxSdk
+          : probed != _sdkBaseName(_sdkName(shimSdk));
+      if (untargeted) return placeholderSdk(probed);
+    }
     if (shimSdk == null) return null;
 
-    final wrapperArguments = _wrapperArguments(arguments);
     _requireSdkSelection(wrapperArguments, shimSdk);
 
     if (wrapperArguments.contains('--show-sdk-path')) return shimSdk;
@@ -123,6 +131,23 @@ final class CrossXcrunProbe {
       host.paths.executableName(tool),
     );
     return host.fileSystem.file(candidate).existsSync() ? candidate : null;
+  }
+
+  /// An empty stand-in for an Apple SDK the build does not target.
+  ///
+  /// native_toolchain_c resolves an iOS sysroot by asking xcrun for the
+  /// `macosx`, `iphoneos` and `iphonesimulator` SDK paths and logs a warning
+  /// for every probe that fails, although it only compiles against the SDK of
+  /// the current target. Answering the other probes with an existing empty
+  /// directory keeps the build output quiet without exposing a usable SDK.
+  String placeholderSdk(String name) {
+    final directory = host.paths.context.join(
+      host.paths.temporaryRoot,
+      'xcross-xcrun-placeholder-sdks',
+      '$name.sdk',
+    );
+    host.fileSystem.directory(directory).createSync(recursive: true);
+    return directory;
   }
 
   void _requireSdkSelection(List<String> arguments, String installedSdk) {
@@ -210,6 +235,17 @@ final class XcrunSdkCommand {
     String? installedSdk;
     try {
       final shimSdk = probe._readShimSdk(executable);
+      if (_sdkPathProbe(wrapperArguments) case final probed?) {
+        // A sidecar pins the targeted SDK. Without one the installed bundle
+        // still answers iOS probes, but no xcross SDK ever provides macOS.
+        final untargeted = shimSdk == null
+            ? probed == _macosxSdk
+            : _sdkBaseName(probe._sdkName(shimSdk)) != probed;
+        if (untargeted) {
+          output.writeln(probe.placeholderSdk(probed));
+          return 0;
+        }
+      }
       if (shimSdk != null) {
         probe._requireSdkSelection(wrapperArguments, shimSdk);
         installedSdk = shimSdk;
@@ -363,6 +399,26 @@ List<String> _wrapperArguments(List<String> arguments) {
   final toolIndex = _toolIndex(arguments);
   return arguments.sublist(0, toolIndex < 0 ? arguments.length : toolIndex);
 }
+
+/// The SDK named by a bare `xcrun --sdk <name> --show-sdk-path` probe.
+///
+/// Only the unversioned names native_toolchain_c probes qualify, so explicit
+/// versioned selections and tool lookups keep strict SDK validation.
+String? _sdkPathProbe(List<String> wrapperArguments) {
+  final name = switch (wrapperArguments) {
+    ['--sdk', final name, '--show-sdk-path'] => name,
+    [final selection, '--show-sdk-path'] when selection.startsWith('--sdk=') =>
+      selection.substring('--sdk='.length),
+    _ => null,
+  };
+  return switch (name?.toLowerCase()) {
+    final name? when _probedSdks.contains(name) => name,
+    _ => null,
+  };
+}
+
+const _macosxSdk = 'macosx';
+const _probedSdks = {_macosxSdk, 'iphoneos', 'iphonesimulator'};
 
 String _sdkBaseName(String name) {
   final match = RegExp(

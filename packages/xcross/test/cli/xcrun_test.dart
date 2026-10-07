@@ -147,13 +147,22 @@ void main() {
         'iphonesimulatorbogus',
         '',
       ]) {
-        expect(
-          () => xcrun.CrossXcrunProbe(LinuxHost()).response([
+        if (rejected case 'iphoneos' || 'macosx') {
+          final placeholder = xcrun.CrossXcrunProbe(LinuxHost()).response([
             '--sdk=$rejected',
             '--show-sdk-path',
-          ], executable: executable),
-          throwsFormatException,
-        );
+          ], executable: executable);
+          expect(p.basename(placeholder!), '$rejected.sdk');
+          expect(Directory(placeholder).listSync(), isEmpty);
+        } else {
+          expect(
+            () => xcrun.CrossXcrunProbe(LinuxHost()).response([
+              '--sdk=$rejected',
+              '--show-sdk-path',
+            ], executable: executable),
+            throwsFormatException,
+          );
+        }
         expect(
           () => xcrun.CrossXcrunProbe(LinuxHost()).response([
             '--sdk=$rejected',
@@ -179,53 +188,50 @@ void main() {
     },
   );
 
-  test(
-    'Windows-selected sidecar decodes Windows paths on a POSIX machine',
-    () {
-      final directory = Directory.systemTemp.createTempSync(
-        'xcross-xcrun-windows-',
-      );
-      addTearDown(() => directory.deleteSync(recursive: true));
-      final files = FixtureWindowsFileSystem(directory.path);
-      final host = WindowsHost(
-        paths: WindowsPaths(currentDirectory: r'C:\'),
-        fileSystem: files,
-      );
-      const executable = r'C:\tools\xcrun.exe';
-      const sdk =
-          r'C:\SDK\iPhoneSimulator.platform\Developer\SDKs\iPhoneSimulator26.5.sdk';
-      files.directory(r'C:\tools').createSync(recursive: true);
-      files.file('$executable.sdk').writeAsStringSync(sdk);
-      files.file(r'C:\tools\clang.exe').writeAsStringSync('');
-      final probe = xcrun.CrossXcrunProbe(host);
-      expect(
-        probe.response([
-          '--sdk=iphonesimulator',
-          '--show-sdk-path',
-        ], executable: executable),
-        sdk,
-      );
-      expect(
-        probe.response(['--show-sdk-version'], executable: executable),
-        '26.5',
-      );
-      expect(
-        probe.response(['--show-sdk-platform-path'], executable: executable),
-        r'C:\SDK\iPhoneSimulator.platform',
-      );
-      expect(
-        probe.response(['--find', 'clang'], executable: executable),
-        r'C:\tools\clang.exe',
-      );
-      expect(
-        () => probe.response([
-          '--sdk=iphoneos',
-          '--show-sdk-path',
-        ], executable: executable),
-        throwsFormatException,
-      );
-    },
-  );
+  test('Windows-selected sidecar decodes Windows paths on a POSIX machine', () {
+    final directory = Directory.systemTemp.createTempSync(
+      'xcross-xcrun-windows-',
+    );
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final files = FixtureWindowsFileSystem(directory.path);
+    final host = WindowsHost(
+      paths: WindowsPaths(currentDirectory: r'C:\'),
+      fileSystem: files,
+    );
+    const executable = r'C:\tools\xcrun.exe';
+    const sdk =
+        r'C:\SDK\iPhoneSimulator.platform\Developer\SDKs\iPhoneSimulator26.5.sdk';
+    files.directory(r'C:\tools').createSync(recursive: true);
+    files.file('$executable.sdk').writeAsStringSync(sdk);
+    files.file(r'C:\tools\clang.exe').writeAsStringSync('');
+    final probe = xcrun.CrossXcrunProbe(host);
+    expect(
+      probe.response([
+        '--sdk=iphonesimulator',
+        '--show-sdk-path',
+      ], executable: executable),
+      sdk,
+    );
+    expect(
+      probe.response(['--show-sdk-version'], executable: executable),
+      '26.5',
+    );
+    expect(
+      probe.response(['--show-sdk-platform-path'], executable: executable),
+      r'C:\SDK\iPhoneSimulator.platform',
+    );
+    expect(
+      probe.response(['--find', 'clang'], executable: executable),
+      r'C:\tools\clang.exe',
+    );
+    expect(
+      () => probe.response([
+        '--sdk=iphoneos',
+        '--show-sdk-version',
+      ], executable: executable),
+      throwsFormatException,
+    );
+  });
 
   test('POSIX-selected sidecar decodes POSIX paths and bare tool names', () {
     final directory = Directory.systemTemp.createTempSync(
@@ -266,7 +272,7 @@ void main() {
     expect(
       () => probe.response([
         '--sdk=iphoneos',
-        '--show-sdk-path',
+        '--show-sdk-version',
       ], executable: executable),
       throwsFormatException,
     );
@@ -399,7 +405,6 @@ void main() {
         }
       }
       for (final rejected in [
-        'macosx',
         'iphoneosbogus',
         'iphonesimulatorbogus',
         'iphonesimulator26.4',
@@ -423,7 +428,22 @@ void main() {
         (await probe(['--show-sdk-path'])).stdout.toString().trim(),
         paths['iphonesimulator'],
       );
-      expect((await probe(['--sdk=iphoneos', '--show-sdk-path'])).exitCode, 1);
+      final untargeted = await probe(['--sdk=iphoneos', '--show-sdk-path']);
+      expect(untargeted.exitCode, 0);
+      expect(
+        p.basename(untargeted.stdout.toString().trim()),
+        'iphoneos.sdk',
+        reason: 'a simulator sidecar answers device probes with a placeholder',
+      );
+      expect(
+        (await probe(['--sdk=iphoneos', '--show-sdk-version'])).exitCode,
+        1,
+      );
+      expect((await probe(['--sdk=iphoneos', '--find', 'clang'])).exitCode, 1);
+      final macos = await probe(['--sdk', 'macosx', '--show-sdk-path']);
+      expect(macos.exitCode, 0);
+      expect(p.basename(macos.stdout.toString().trim()), 'macosx.sdk');
+      expect(macos.stderr.toString(), isEmpty);
       File('$executable.sdk').deleteSync();
       Directory(paths['iphonesimulator']!).deleteSync(recursive: true);
       expect(
@@ -804,7 +824,7 @@ void main() {
         platform,
       );
       for (final arguments in [
-        ['--sdk', 'macosx', '--show-sdk-path'],
+        ['--sdk', 'macosx', '--show-sdk-version'],
         ['--sdk=iphonesimulator', '--show-sdk-platform-path'],
       ]) {
         expect(
