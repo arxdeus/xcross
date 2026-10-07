@@ -135,6 +135,32 @@ final class ComposePacker<T extends PlatformHostInterface> {
 
   Future<PackResult> pack() async {
     target.validateOutput(ipa: options.ipa);
+    final toolchain = await _resolveToolchain();
+    final klib = await log.logStep(
+      'Compiling Kotlin sources',
+      () => (_buildKlib ?? GradleKlibBuilder(runner).build)(
+        project: project,
+        toolchain: toolchain,
+      ),
+    );
+    final frameworkPath = await _compileFramework(toolchain, klib);
+    if (project.entryKind == KmpEntryKind.frameworkOnly) {
+      return PackResult(
+        outputPath: frameworkPath,
+        bundleId: project.bundleId,
+        kind: PackOutputKind.framework,
+        projectRoot: project.root,
+      );
+    }
+    final appPath = await _buildApp(toolchain, frameworkPath);
+    return PackResult(
+      outputPath: appPath,
+      bundleId: project.bundleId,
+      projectRoot: project.root,
+    );
+  }
+
+  Future<ComposeToolchain<T>> _resolveToolchain() async {
     final resolver = ComposeToolchainResolver(
       target,
       runner: runner,
@@ -158,13 +184,13 @@ final class ComposePacker<T extends PlatformHostInterface> {
         'Resolved Compose toolchain must retain its build target.',
       );
     }
-    final klib = await log.logStep(
-      'Compiling Kotlin sources',
-      () => (_buildKlib ?? GradleKlibBuilder(runner).build)(
-        project: project,
-        toolchain: toolchain,
-      ),
-    );
+    return toolchain;
+  }
+
+  Future<String> _compileFramework(
+    ComposeToolchain<T> toolchain,
+    GradleKlibResult klib,
+  ) async {
     final frameworkPath = await log.logStep(
       'Building ${project.baseName}.framework',
       () =>
@@ -180,14 +206,13 @@ final class ComposePacker<T extends PlatformHostInterface> {
             klib: klib,
           ),
     );
-    if (project.entryKind == KmpEntryKind.frameworkOnly) {
-      return PackResult(
-        outputPath: frameworkPath,
-        bundleId: project.bundleId,
-        kind: PackOutputKind.framework,
-        projectRoot: project.root,
-      );
-    }
+    return frameworkPath;
+  }
+
+  Future<String> _buildApp(
+    ComposeToolchain<T> toolchain,
+    String frameworkPath,
+  ) async {
     final buildRunner = switch (project.entryKind) {
       KmpEntryKind.runnableApp =>
         _buildObjcRunner ?? ObjcRunnerBuilder(runner).build,
@@ -213,10 +238,6 @@ final class ComposePacker<T extends PlatformHostInterface> {
             frameworkPath: frameworkPath,
           ),
     );
-    return PackResult(
-      outputPath: appPath,
-      bundleId: project.bundleId,
-      projectRoot: project.root,
-    );
+    return appPath;
   }
 }
