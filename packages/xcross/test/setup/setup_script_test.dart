@@ -200,14 +200,14 @@ void main() {
     expect(sha, sha256.convert(utf8.encode('cached')).toString());
   });
 
-  test('Windows defaults to the winget setup script', () {
+  test('Windows defaults to the windows.ps1 setup script', () {
     expect(
       WindowsSetupScript(host, runner).defaultSource,
-      endsWith('/setup/winget.ps1'),
+      endsWith('/setup/windows.ps1'),
     );
     expect(
       WindowsSetupScript.scriptUrl('v1.2.3'),
-      'https://raw.githubusercontent.com/arxdeus/xcross/v1.2.3/setup/winget.ps1',
+      'https://raw.githubusercontent.com/arxdeus/xcross/v1.2.3/setup/windows.ps1',
     );
     expect(PosixSetupScript(host).defaultSource, isNull);
   });

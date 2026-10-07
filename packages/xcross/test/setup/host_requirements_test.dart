@@ -161,7 +161,7 @@ void main() {
       const WindowsSetupRequirements().run(),
       throwsA(
         predicate(
-          (Object error) => error.toString().contains('setup/winget.ps1'),
+          (Object error) => error.toString().contains('setup/windows.ps1'),
         ),
       ),
     );

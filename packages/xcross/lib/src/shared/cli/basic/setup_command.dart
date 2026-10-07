@@ -13,7 +13,7 @@ import 'package:xcross/src/shared/setup/setup_script_policy.dart';
 /// `xcross setup` — install host requirements.
 ///
 /// A setup script runs when the config names one (`setup:`), or by default
-/// on Windows (`setup/winget.ps1`). Every script is shown by name, source and
+/// on Windows (`setup/windows.ps1`). Every script is shown by name, source and
 /// SHA-256 and needs confirmation before it runs. Without a script, Linux
 /// drives apt/dnf/pacman and macOS drives Homebrew in-process; both need
 /// Swift on PATH first.

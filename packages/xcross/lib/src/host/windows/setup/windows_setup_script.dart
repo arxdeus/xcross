@@ -14,15 +14,15 @@ final class WindowsSetupScript implements SetupScriptPolicy {
   final ProcessRunner runner;
 
   /// Windows has no package manager xcross can drive in-process, so setup
-  /// runs the repository's winget script, pinned to the release this binary
-  /// was built from (development builds follow `main`).
+  /// runs the repository's winget/Scoop/Chocolatey script, pinned to the
+  /// release this binary was built from (development builds follow `main`).
   @override
   String get defaultSource => scriptUrl(
     XcrossVersion.isReleased ? 'v${XcrossVersion.current}' : 'main',
   );
 
   static String scriptUrl(String ref) =>
-      'https://raw.githubusercontent.com/arxdeus/xcross/$ref/setup/winget.ps1';
+      'https://raw.githubusercontent.com/arxdeus/xcross/$ref/setup/windows.ps1';
 
   String get _directory =>
       host.paths.context.join(host.paths.cacheRoot, 'setup-scripts');

@@ -76,7 +76,16 @@ Both installers download the latest release, install it, **add xcross to your `P
    xcross setup
    ```
 
-   This runs [`setup/winget.ps1`](setup/winget.ps1) from the xcross release you installed. xcross first prints the script's name, source URL, and SHA-256 and waits for `y`. The script then asks before each winget package: Visual Studio Build Tools (MSVC + Windows SDK, which Swift links against), `Swift.Toolchain`, `LLVM.LLVM` (its `bin` goes on your user `PATH`), and Python 3.13. Then it installs `pymobiledevice3`. Installers that need elevation raise their own UAC prompt. `xcross setup --yes` accepts every prompt.
+   This runs [`setup/windows.ps1`](setup/windows.ps1) from the xcross release you installed. xcross first prints the script's name, source URL, and SHA-256 and waits for `y`. The script works with **winget, Scoop, or Chocolatey**. It uses whichever one is installed and asks if you have more than one (or set `XCROSS_SETUP_MANAGER=winget|scoop|choco`). It then asks before each package: Visual Studio Build Tools (MSVC + Windows SDK, which Swift links against), Swift, LLVM (its `bin` goes on your `PATH`), and Python 3. Then it installs `pymobiledevice3`. Installers that need elevation raise their own UAC prompt. `xcross setup --yes` accepts every prompt.
+
+   | | winget | Scoop | Chocolatey |
+   |---|---|---|---|
+   | VS Build Tools | `Microsoft.VisualStudio.2022.BuildTools` | official installer¹ | `visualstudio2022buildtools` |
+   | Swift | `Swift.Toolchain` | `main/swift` | official installer¹ |
+   | LLVM | `LLVM.LLVM` | `main/llvm` | `llvm` |
+   | Python | `Python.Python.3.13` | `main/python` | `python313` |
+
+   ¹ Neither Scoop's official buckets nor the Chocolatey community repository carries it, so the script downloads the vendor installer (`aka.ms/vs/17/release/vs_BuildTools.exe`, or the latest release from `download.swift.org`). It runs the installer only if it carries a valid Authenticode signature from Microsoft or Apple. Chocolatey needs an Administrator PowerShell. Scoop expects a normal one.
 
 3. Open a new terminal so the new `PATH` applies, then build the Darwin SDK:
 
