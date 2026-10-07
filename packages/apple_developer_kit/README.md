@@ -128,7 +128,7 @@ cancel. Keep credentials and returned login data out of logs.
   Requests are not automatically replayed. Wait at least the stated duration.
   If Apple provides no usable duration, stop repeated attempts and try later.
   Changing client-info does not remove an existing server-side cooldown.
-- Do not run `xcross auth clear`, delete ADI/Anisette state, or reset your password
+- Do not run `xcross auth clean`, delete ADI/Anisette state, or reset your password
   to address a 429. Keep the existing machine identity and saved session. If it
   persists, report the failing operation and HTTP status, not passwords, tokens,
   Anisette headers, or session files.

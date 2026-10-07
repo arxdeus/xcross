@@ -209,7 +209,7 @@ See [iOS app extensions](docs/app-extensions.md) for the details.
 ### Sign out
 
 ```sh
-xcross auth clear
+xcross auth clean
 ```
 
 Deletes the saved App Store Connect key, the Apple ID session and its machine attestation state, and every certificate, private key, and provisioning profile xcross minted. The downloaded ADI libraries stay - they are architecture-specific binaries that identify no account.
@@ -320,8 +320,9 @@ Edit it with `xcross config`, inspect it with `xcross config show`, prove it wit
 | `xcross config` | Interactively create or edit executable overrides, Swift/LLVM toolchain directories, roots, and child-environment paths |
 | `xcross config show` / `validate` | Print the selected YAML configuration or validate all configured paths |
 | `xcross sdk install <Xcode.xip>` | Extract a private Darwin Swift SDK from an Xcode archive, patched against the Swift toolchain currently on `PATH` |
+| `xcross sdk clean` | Remove the installed Darwin Swift SDK and any leftover backup or staging copies |
 | `xcross auth` | Save Apple ID or App Store Connect credentials |
-| `xcross auth clear` | Delete saved credentials, sessions, and signing material |
+| `xcross auth clean` | Delete saved credentials, sessions, and signing material |
 | `xcross doctor` | Read-only check of host, SDK, project, authentication, and device requirements for build and run |
 | `xcross tunnel` | Mount the Developer Disk Image + start the iOS 17+ RSD tunnel over USB |
 | `xcross tunnel --wifi` | Prepare wireless pairing, reconnect or advertise pair-host, mount DDI, and open the Wi-Fi RSD tunnel |
@@ -330,6 +331,8 @@ Edit it with `xcross config`, inspect it with `xcross config show`, prove it wit
 | `xcross compose build` | Build a KMP iOS framework or `.app` from the current Gradle project |
 | `xcross compose run -d <device>` | Build, sign, install, and launch a runnable KMP iOS app |
 | `xcross compose run --watch` | Same, plus `r` to rebuild + reinstall + relaunch (Compose has no in-place reload) |
+| `xcross flutter clean` | Clear this Flutter project's xcross native asset and SwiftPM build caches (device and simulator) |
+| `xcross compose clean` | Clear this Compose project's xcross build output and Kotlin/Native caches (device and simulator) |
 | `xcross flutter dap` | Run the Debug Adapter Protocol server (used by IDEs) |
 | `xcross ide vscode` | Upsert `.vscode/*` for Run & Debug / Hot Reload |
 | `xcross ide idea` | Write a JetBrains DAP run configuration (needs LSP4IJ) |

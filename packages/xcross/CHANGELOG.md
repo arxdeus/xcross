@@ -1,3 +1,8 @@
+## Unreleased
+
+- **Breaking:** split `xcross clean` into per-area commands. `xcross flutter clean` clears the project's native asset and SwiftPM build caches (what `xcross clean` used to do, now for both device and simulator targets). `xcross compose clean` clears the Compose project's xcross build output and Kotlin/Native caches. `xcross sdk clean` removes the installed Darwin Swift SDK along with leftover backup and staging copies. The top-level `xcross clean` is gone.
+- **Breaking:** rename `xcross auth clear` to `xcross auth clean`. The old spelling now fails with a pointer to the new one.
+
 ## 1.5.1
 
 - Resolve the Dart launcher per host platform in `xcross update`, and harden launcher resolution and batch launches.

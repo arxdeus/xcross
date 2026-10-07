@@ -16,7 +16,6 @@ import 'package:xcross/src/composition/cli/flutter_command.dart';
 import 'package:xcross/src/composition/ios_target.dart';
 import 'package:xcross/src/composition/xcross_application.dart';
 import 'package:xcross/src/shared/cli/basic/auth_command.dart';
-import 'package:xcross/src/shared/cli/basic/clean_command.dart';
 import 'package:xcross/src/shared/cli/basic/completion_command.dart';
 import 'package:xcross/src/shared/cli/basic/config_command.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_command.dart';
@@ -85,12 +84,6 @@ abstract final class XcrossCli {
       FlutterCommand(runtime, pymd, application.sockets),
       ComposeCommand(runtime, pymd, application.sockets),
       TunnelCommand(DevicePrepare(pymd)),
-      CleanCommand(
-        projectRoot: runtime.host.paths.context.current,
-        log: runtime.log,
-        policy: physical.flutterRuntime.policy,
-        environment: runtime.runner.effectiveEnvironment,
-      ),
       ConfigCommand(
         terminal: configTerminal,
         writeLine: runtime.log.output.stdout,

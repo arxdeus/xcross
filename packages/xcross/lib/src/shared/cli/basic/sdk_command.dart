@@ -11,6 +11,7 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/cli/basic/internal/swift_requirement.dart';
 import 'package:xcross/src/shared/cli/basic/sdk_install.dart';
+import 'package:xcross/src/shared/cli/shared/clean_paths.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/sdk/xcode_swift_requirement.dart';
 
@@ -19,6 +20,7 @@ import 'package:xcross/src/shared/sdk/xcode_swift_requirement.dart';
 final class SdkCommand<T extends PlatformHostInterface> extends Command<void> {
   SdkCommand(SdkInstall<T> installer) {
     addSubcommand(SdkInstallCommand(installer));
+    addSubcommand(SdkCleanCommand(installer));
   }
 
   @override
@@ -26,6 +28,57 @@ final class SdkCommand<T extends PlatformHostInterface> extends Command<void> {
 
   @override
   String get description => 'Manage the xcross Darwin Swift SDK.';
+}
+
+/// `xcross sdk clean` — remove the installed Darwin Swift SDK together with
+/// any backup or staging copy an interrupted install left behind.
+@internal
+final class SdkCleanCommand<T extends PlatformHostInterface>
+    extends Command<void> {
+  SdkCleanCommand(this.installer);
+  final SdkInstall<T> installer;
+
+  @override
+  String get name => 'clean';
+
+  @override
+  String get description =>
+      'Remove the installed Darwin Swift SDK and leftover install copies.';
+
+  @override
+  Future<void> run() async {
+    final removed = await cleanSdk(installer.repository.installBundle);
+    CleanPaths(
+      installer.host,
+      installer.log,
+    ).report(removed, nothingFound: 'No Darwin Swift SDK installed');
+    if (removed.isNotEmpty) {
+      installer.log.logStatus(
+        'Run xcross sdk install <path-to-Xcode.xip> to install it again.',
+      );
+    }
+  }
+
+  Future<List<String>> cleanSdk(String destDir) =>
+      CleanPaths(installer.host, installer.log).delete(sdkPaths(destDir));
+
+  /// The SDK at [destDir], its `.previous` backup, and any `.staging-*`
+  /// siblings created next to it by `xcross sdk install`.
+  List<String> sdkPaths(String destDir) {
+    final paths = installer.host.paths.context;
+    final parent = installer.host.fileSystem.directory(
+      installer.ioPath(paths.dirname(destDir)),
+    );
+    final stagingPrefix = '${paths.basename(destDir)}.staging-';
+    return [
+      destDir,
+      DarwinSdkRepository.previousInstallPath(destDir),
+      if (parent.existsSync())
+        for (final entity in parent.listSync(followLinks: false))
+          if (paths.basename(entity.path).startsWith(stagingPrefix))
+            paths.join(paths.dirname(destDir), paths.basename(entity.path)),
+    ];
+  }
 }
 
 /// `xcross sdk install <Xcode.xip>` — build xcross's Darwin Swift SDK bundle.

@@ -14,9 +14,9 @@ import 'auth_fixture.dart';
 import 'runtime_fixture.dart';
 
 void main() {
-  group('xcross auth clear', () {
+  group('xcross auth clean', () {
     for (final style in [p.Style.posix, p.Style.windows]) {
-      test('clear uses selected logical namespace on $style', () async {
+      test('clean uses selected logical namespace on $style', () async {
         final fixture = AuthNamespaceFixture(style: style);
         addTearDown(fixture.dispose);
         final directory = fixture.services.configDirectory;
@@ -138,7 +138,7 @@ void main() {
     test(
       'removes credentials and whole signing trees, reporting each',
       () async {
-        final root = await Directory.systemTemp.createTemp('xcross_auth_clear');
+        final root = await Directory.systemTemp.createTemp('xcross_auth_clean');
         addTearDown(() => root.delete(recursive: true));
 
         final session = File(p.join(root.path, 'grandslam-session.json'))
@@ -171,7 +171,7 @@ void main() {
     );
 
     test('reports nothing for an untouched config directory', () async {
-      final root = await Directory.systemTemp.createTemp('xcross_auth_clear');
+      final root = await Directory.systemTemp.createTemp('xcross_auth_clean');
       addTearDown(() => root.delete(recursive: true));
 
       expect(await authFixture().deleteAuthArtifacts(root.path), isEmpty);

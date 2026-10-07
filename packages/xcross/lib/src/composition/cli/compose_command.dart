@@ -6,6 +6,7 @@ import 'package:meta/meta.dart';
 import 'package:xcross/src/composition/cli/compose_build_command.dart';
 import 'package:xcross/src/composition/cli/compose_run_command.dart';
 import 'package:xcross/src/composition/cli/compose_setup_command.dart';
+import 'package:xcross/src/shared/cli/compose/compose_clean_command.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 
 @internal
@@ -24,6 +25,13 @@ final class ComposeCommand<T extends PlatformHostInterface>
       runCommand ?? ComposeRunCommand(runtime, pymd, sockets: sockets),
     );
     addSubcommand(setupCommand ?? ComposeSetupCommand(runtime));
+    addSubcommand(
+      ComposeCleanCommand(
+        host: runtime.host,
+        log: runtime.log,
+        projectRoot: runtime.host.paths.context.current,
+      ),
+    );
   }
 
   @override

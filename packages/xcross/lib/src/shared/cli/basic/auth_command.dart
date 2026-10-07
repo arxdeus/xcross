@@ -116,11 +116,11 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
   @override
   String get invocation =>
       'xcross auth [arguments]\n'
-      '       xcross auth clear';
+      '       xcross auth clean';
 
   @override
   String get usageFooter =>
-      '\n"xcross auth clear" signs out: it deletes the saved App Store Connect '
+      '\n"xcross auth clean" signs out: it deletes the saved App Store Connect '
       'key, the Apple ID session and its machine attestation state, and every '
       'certificate, private key, and provisioning profile xcross minted.';
 
@@ -128,7 +128,12 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
   Future<void> run() {
     final rest = argResults!.rest;
     if (rest.isNotEmpty) {
-      if (rest case ['clear']) return _clear();
+      if (rest case ['clean']) return _clean();
+      if (rest case ['clear']) {
+        throw XcrossError(
+          '"xcross auth clear" was renamed to "xcross auth clean".',
+        );
+      }
       throw XcrossError(
         'Unexpected argument "${rest.first}".\nUsage: $invocation',
       );
@@ -141,7 +146,7 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
     return usesAscKey ? _saveAscCredentials() : _appleIdLogin();
   }
 
-  // ------------------------------------------------------------------ clear
+  // ------------------------------------------------------------------ clean
 
   /// Per-user files and directories holding Apple authentication or signing
   /// material, under [configDirectory] (defaults to the xcross config dir).
@@ -163,11 +168,11 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
     ];
   }
 
-  Future<void> _clear() async {
+  Future<void> _clean() async {
     final given = _authOptionNames.where(argResults!.wasParsed);
     if (given.isNotEmpty) {
       throw XcrossError(
-        'xcross auth clear takes no options (got --${given.first}).',
+        'xcross auth clean takes no options (got --${given.first}).',
       );
     }
 
@@ -178,7 +183,7 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
     }
 
     if (removed.isEmpty) {
-      log.logDone('Nothing to clear in $configDirectory');
+      log.logDone('Nothing to clean in $configDirectory');
       return;
     }
     log.logDone(
