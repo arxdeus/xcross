@@ -35,55 +35,8 @@ final class KmpProjectDetector {
     if (!rootDir.existsSync()) {
       throw XcrossError('KMP project root not found: $root');
     }
-    final settings = findFile(root, ['settings.gradle.kts', 'settings.gradle']);
-    if (settings == null) {
-      throw XcrossError(
-        'No settings.gradle.kts found in $root. Is this a Gradle KMP project?',
-      );
-    }
-    final modules = metadata.parseIncludedModules(
-      settings.readAsStringSync(),
-      root,
-    );
-    if (modules.isEmpty) {
-      throw XcrossError('No included modules found in ${settings.path}.');
-    }
-
-    final candidates = <ComposeCandidate>[];
-    final target = gradleTarget;
-    for (final module in modules) {
-      final buildFile = findFile(module.diskPath, [
-        'build.gradle.kts',
-        'build.gradle',
-      ]);
-      if (buildFile == null) continue;
-      final content = metadata.stripComments(buildFile.readAsStringSync());
-      if (!metadata.hasIosTarget(content, target) ||
-          !metadata.hasFrameworkBlock(content)) {
-        continue;
-      }
-      final framework = metadata.frameworkMetadata(
-        content,
-        defaultBaseName: _capitalize(module.leaf),
-        buildFile: buildFile.path,
-        target: target,
-      );
-      candidates.add(
-        ComposeCandidate(
-          module.gradleId,
-          module.diskPath,
-          framework.baseName,
-          isStaticFramework: framework.isStatic,
-        ),
-      );
-    }
-    if (candidates.isEmpty) {
-      throw XcrossError(
-        'No KMP module with $target() + binaries.framework found in $root. '
-        'Declare $target in your build.gradle.kts files or select '
-        'another --target-platform supported by the project.',
-      );
-    }
+    final modules = _includedModules();
+    final candidates = _composeCandidates(modules);
     final chosen = candidates.length == 1
         ? candidates.first
         : entries.pickBySwiftImport(root, candidates);
@@ -117,6 +70,66 @@ final class KmpProjectDetector {
       swiftSources: entry.swiftSources,
       swiftImports: entry.swiftImports,
       iosConfig: iosConfig,
+    );
+  }
+
+  List<ComposeModuleSpec> _includedModules() {
+    final settings = findFile(root, ['settings.gradle.kts', 'settings.gradle']);
+    if (settings == null) {
+      throw XcrossError(
+        'No settings.gradle.kts found in $root. Is this a Gradle KMP project?',
+      );
+    }
+    final modules = metadata.parseIncludedModules(
+      settings.readAsStringSync(),
+      root,
+    );
+    if (modules.isEmpty) {
+      throw XcrossError('No included modules found in ${settings.path}.');
+    }
+    return modules;
+  }
+
+  List<ComposeCandidate> _composeCandidates(List<ComposeModuleSpec> modules) {
+    final candidates = <ComposeCandidate>[];
+    for (final module in modules) {
+      final candidate = _composeCandidate(module);
+      if (candidate != null) candidates.add(candidate);
+    }
+    if (candidates.isEmpty) {
+      final target = gradleTarget;
+      throw XcrossError(
+        'No KMP module with $target() + binaries.framework found in $root. '
+        'Declare $target in your build.gradle.kts files or select '
+        'another --target-platform supported by the project.',
+      );
+    }
+    return candidates;
+  }
+
+  ComposeCandidate? _composeCandidate(ComposeModuleSpec module) {
+    final target = gradleTarget;
+    final buildFile = findFile(module.diskPath, [
+      'build.gradle.kts',
+      'build.gradle',
+    ]);
+    if (buildFile == null) return null;
+    final content = metadata.stripComments(buildFile.readAsStringSync());
+    if (!metadata.hasIosTarget(content, target) ||
+        !metadata.hasFrameworkBlock(content)) {
+      return null;
+    }
+    final framework = metadata.frameworkMetadata(
+      content,
+      defaultBaseName: _capitalize(module.leaf),
+      buildFile: buildFile.path,
+      target: target,
+    );
+    return ComposeCandidate(
+      module.gradleId,
+      module.diskPath,
+      framework.baseName,
+      isStaticFramework: framework.isStatic,
     );
   }
 
