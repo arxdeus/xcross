@@ -230,6 +230,7 @@ const xcrossComposeRoles = <String, Map<String, String>>{
       {'CLASS:ComposeToolchainInstaller': 'internal'},
   'package:xcross/src/shared/compose/toolchain/compose_toolchain_resolver.dart':
       {
+        'CLASS:ComposeRequirement': 'internal',
         'CLASS:ComposeToolchainResolver': 'internal',
         'CLASS:ResolvedToolchain': 'internal',
       },

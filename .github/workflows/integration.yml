@@ -457,8 +457,10 @@ jobs:
           Push-Location packages/xcross
           dart test test/cli/doctor_command_test.dart
           Pop-Location
-          & "$env:RUNNER_TEMP\xcross-bundle\bin\xcross.exe" doctor --help
-          if ($LASTEXITCODE -ne 0) { throw 'doctor help failed' }
+          & "$env:RUNNER_TEMP\xcross-bundle\bin\xcross.exe" flutter doctor --help
+          if ($LASTEXITCODE -ne 0) { throw 'flutter doctor help failed' }
+          & "$env:RUNNER_TEMP\xcross-bundle\bin\xcross.exe" compose doctor --help
+          if ($LASTEXITCODE -ne 0) { throw 'compose doctor help failed' }
 
       - name: Download Darwin SDK
         if: steps.darwin.outputs.available == 'true'

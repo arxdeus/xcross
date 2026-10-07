@@ -195,6 +195,27 @@ final class ComposeToolchainResolver<T extends PlatformHostInterface> {
     return found.problems;
   }
 
+  /// Every requirement the Compose build resolves, ready or not, in the order
+  /// it resolves them, so diagnostics can show what was found as well as what
+  /// is missing without parsing [problems].
+  Future<List<ComposeRequirement>> requirements({
+    required Map<String, String> environment,
+    required String projectRoot,
+  }) async {
+    final options = ComposeSetupOptions.resolve(
+      cacheRootOverride: cacheRoot,
+      env: environment,
+      projectRoot: projectRoot,
+      host: target.toolchainHost,
+    );
+    final found = await _resolved(
+      environment: environment,
+      projectRoot: projectRoot,
+      options: options,
+    );
+    return found.requirements;
+  }
+
   Future<ComposeToolchain<T>> ensure({
     required Map<String, String> environment,
     required String projectRoot,
@@ -255,30 +276,59 @@ final class ComposeToolchainResolver<T extends PlatformHostInterface> {
   }) async {
     final host = target.toolchainHost;
     final problems = <String>[];
+    final requirements = <ComposeRequirement>[];
+    void record(String name, String? path, int problemsBefore) {
+      requirements.add(
+        ComposeRequirement(
+          name,
+          path: path,
+          problem: problems.length > problemsBefore
+              ? problems.sublist(problemsBefore).join(' ')
+              : null,
+        ),
+      );
+    }
+
     final konancExecutable = host.konancExecutable(options.kotlinHome);
-    if (!ComposeToolchainInstaller.isComplete(options)) {
+    var before = problems.length;
+    final kotlinComplete = ComposeToolchainInstaller.isComplete(options);
+    if (!kotlinComplete) {
       problems.add(
         'Missing complete Kotlin/Native compiler cache at ${options.kotlinHome}. Run `xcross compose setup` or allow toolchain installation.',
       );
     }
+    record(
+      ComposeRequirement.kotlinNative,
+      kotlinComplete ? options.kotlinHome : null,
+      before,
+    );
+    before = problems.length;
     final java = await ComposeJavaResolver<T>(
       _which,
       _run,
     ).resolve(host, environment, problems);
+    record(ComposeRequirement.jdk, java?.home, before);
+    before = problems.length;
     final gradle = await _resolveGradle(
       host,
       environment,
       projectRoot,
       problems,
     );
+    record(ComposeRequirement.gradle, gradle, before);
+    before = problems.length;
     final swiftc = await _which('swiftc', environment: environment);
     if (swiftc == null) {
       problems.add('Missing swiftc. Install Swift and put swiftc on PATH.');
     }
+    record(ComposeRequirement.swiftc, swiftc, before);
+    before = problems.length;
     final clang = await _which('clang', environment: environment);
     if (clang == null) {
       problems.add('Missing clang. Install LLVM clang and put it on PATH.');
     }
+    record(ComposeRequirement.clang, clang, before);
+    before = problems.length;
     final sdk = _currentDarwinSdk(null);
     if (sdk == null) {
       problems.add(
@@ -293,6 +343,8 @@ final class ComposeToolchainResolver<T extends PlatformHostInterface> {
         problems.add('Missing ${target.buildPlatform.sdkName} SDK. $error');
       }
     }
+    record(ComposeRequirement.darwinSdk, sdkPath, before);
+    before = problems.length;
     String? ld64;
     if (sdk != null) {
       try {
@@ -303,6 +355,7 @@ final class ComposeToolchainResolver<T extends PlatformHostInterface> {
     } else {
       problems.add('Missing ld64.lld. Install LLVM lld with ld64.lld support.');
     }
+    record(ComposeRequirement.ld64Lld, ld64, before);
 
     if (problems.isNotEmpty ||
         java == null ||
@@ -312,7 +365,7 @@ final class ComposeToolchainResolver<T extends PlatformHostInterface> {
         ld64 == null ||
         sdk == null ||
         sdkPath == null) {
-      return ResolvedToolchain(null, problems);
+      return ResolvedToolchain(null, problems, requirements: requirements);
     }
     return ResolvedToolchain(
       ComposeToolchain(
@@ -332,6 +385,7 @@ final class ComposeToolchainResolver<T extends PlatformHostInterface> {
         darwinSdkBundle: sdk.swiftSdkPath,
       ),
       problems,
+      requirements: requirements,
     );
   }
 
@@ -356,8 +410,34 @@ final class ComposeToolchainResolver<T extends PlatformHostInterface> {
 
 @internal
 final class ResolvedToolchain<T extends PlatformHostInterface> {
-  const ResolvedToolchain(this.toolchain, this.problems);
+  const ResolvedToolchain(
+    this.toolchain,
+    this.problems, {
+    this.requirements = const [],
+  });
 
   final ComposeToolchain<T>? toolchain;
   final List<String> problems;
+  final List<ComposeRequirement> requirements;
+}
+
+/// One tool or artifact the Compose build needs: where it was found, or why
+/// it could not be used.
+@internal
+final class ComposeRequirement {
+  const ComposeRequirement(this.name, {this.path, this.problem});
+
+  static const kotlinNative = 'Kotlin/Native';
+  static const jdk = 'JDK 21+';
+  static const gradle = 'Gradle';
+  static const swiftc = 'swiftc';
+  static const clang = 'clang';
+  static const darwinSdk = 'Darwin SDK';
+  static const ld64Lld = 'ld64.lld';
+
+  final String name;
+  final String? path;
+  final String? problem;
+
+  bool get isReady => problem == null;
 }

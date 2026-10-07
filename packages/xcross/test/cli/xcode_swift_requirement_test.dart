@@ -169,7 +169,7 @@ void main() {
           contains('fixture installer'),
         ),
       );
-      final checks = await fixture.checks.host();
+      final checks = await fixture.checks.flutterToolchain();
       expect(
         checks.where((check) => check.name == 'Swift version').single.status,
         DoctorStatus.failure,
@@ -186,7 +186,7 @@ void main() {
         )..swiftVersion = version;
         expect(await fixture.checks.swiftBelowHostMinimum(), isNull);
         expect(
-          (await fixture.checks.host()).map((check) => check.name),
+          (await fixture.checks.flutterToolchain()).map((check) => check.name),
           isNot(contains('Swift version')),
         );
       }

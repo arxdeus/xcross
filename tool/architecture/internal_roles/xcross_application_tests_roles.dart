@@ -46,7 +46,11 @@ const xcrossApplicationTestsRoles = <String, Map<String, String>>{
     'FUNCTION:main': 'entrypoint',
   },
   'workspace:packages/xcross/test/cli/doctor_command_test.dart': {
+    'CLASS:AnsiLogOutput': 'internal',
     'CLASS:DoctorNamespaceDiagnostics': 'internal',
+    'FUNCTION:ansiLog': 'internal',
+    'FUNCTION:doctorRunner': 'internal',
+    'FUNCTION:doctorSections': 'internal',
     'FUNCTION:main': 'entrypoint',
   },
   'workspace:packages/xcross/test/cli/doctor_environment_checks_test.dart': {

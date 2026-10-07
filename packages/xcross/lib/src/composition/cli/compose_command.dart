@@ -19,6 +19,7 @@ final class ComposeCommand<T extends PlatformHostInterface>
     ComposeBuildCommand? buildCommand,
     ComposeRunCommand? runCommand,
     ComposeSetupCommand? setupCommand,
+    Command<void>? doctorCommand,
   }) {
     addSubcommand(buildCommand ?? ComposeBuildCommand(runtime));
     addSubcommand(
@@ -32,6 +33,7 @@ final class ComposeCommand<T extends PlatformHostInterface>
         projectRoot: runtime.host.paths.context.current,
       ),
     );
+    if (doctorCommand != null) addSubcommand(doctorCommand);
   }
 
   @override
@@ -39,5 +41,5 @@ final class ComposeCommand<T extends PlatformHostInterface>
 
   @override
   String get description =>
-      'Build and run Compose Multiplatform iOS apps without Xcode.';
+      'Build, run, and diagnose Compose Multiplatform iOS apps without Xcode.';
 }

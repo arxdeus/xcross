@@ -95,7 +95,7 @@ const cliCompositions = {
   'packages/xcross/lib/src/composition/cli/flutter_run_command.dart',
   'packages/xcross/lib/src/composition/cli/compose_run_command.dart',
   'packages/xcross/lib/src/composition/cli/compose_setup_command.dart',
-  'packages/xcross/lib/src/composition/cli/doctor_project_checks.dart',
+  'packages/xcross/lib/src/composition/cli/doctor_sections.dart',
 };
 @internal
 const hostAssemblies = {

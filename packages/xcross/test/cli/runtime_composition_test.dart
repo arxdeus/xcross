@@ -89,7 +89,7 @@ void main() {
           throw StateError('No authentication HTTP expected');
         },
       );
-      final result = await checks.run();
+      final result = await checks.deployment();
       expect(result, hasLength(1));
       expect(result.single.status, DoctorStatus.failure);
       expect(result.single.name, 'Device tools');
@@ -231,7 +231,7 @@ void main() {
         isTrue,
       );
       expect(
-        XcrossCli.ownsMachineStdout(['--verbose', 'doctor'], runner),
+        XcrossCli.ownsMachineStdout(['--verbose', 'flutter', 'doctor'], runner),
         isFalse,
       );
     },

@@ -58,8 +58,8 @@ const xcrossPlatformRoles = <String, Map<String, String>>{
     'TYPE_ALIAS:ComposeSetupLogDone': 'internal',
     'TYPE_ALIAS:ComposeSetupProblems': 'internal',
   },
-  'package:xcross/src/composition/cli/doctor_project_checks.dart': {
-    'CLASS:DoctorProjectChecks': 'internal',
+  'package:xcross/src/composition/cli/doctor_sections.dart': {
+    'CLASS:DoctorSections': 'internal',
   },
   'package:xcross/src/composition/cli/flutter_build_command.dart': {
     'CLASS:CommonFlutterArgs': 'internal',

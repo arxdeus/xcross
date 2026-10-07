@@ -11,7 +11,7 @@ import 'package:dart_mobile_device/target/iphone/diagnostics/pymd_device_diagnos
 import 'package:darwin_sdk_kit/shared/errors/errors.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/composition/cli/compose_command.dart';
-import 'package:xcross/src/composition/cli/doctor_project_checks.dart';
+import 'package:xcross/src/composition/cli/doctor_sections.dart';
 import 'package:xcross/src/composition/cli/flutter_command.dart';
 import 'package:xcross/src/composition/ios_target.dart';
 import 'package:xcross/src/composition/xcross_application.dart';
@@ -20,7 +20,6 @@ import 'package:xcross/src/shared/cli/basic/completion_command.dart';
 import 'package:xcross/src/shared/cli/basic/config_command.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_command.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_environment_checks.dart';
-import 'package:xcross/src/shared/cli/basic/doctor_examiner.dart';
 import 'package:xcross/src/shared/cli/basic/sdk_command.dart';
 import 'package:xcross/src/shared/cli/basic/setup_command.dart';
 import 'package:xcross/src/shared/cli/basic/update_command.dart';
@@ -70,6 +69,7 @@ abstract final class XcrossCli {
       swiftInstallGuidance: runtime.operations.swiftInstallGuidance,
       swiftEnvironmentChecks: runtime.operations.swiftEnvironment.doctorChecks,
     );
+    final doctor = DoctorSections(runtime, environment: environmentChecks);
     final ideLauncher = XcrossIdeLauncher(
       host: runtime.host,
       log: runtime.log,
@@ -81,21 +81,31 @@ abstract final class XcrossCli {
       declarative: runtime.config.isConfigured,
     );
     final commands = <Command<void>>[
-      FlutterCommand(runtime, pymd, application.sockets),
-      ComposeCommand(runtime, pymd, application.sockets),
+      FlutterCommand(
+        runtime,
+        pymd,
+        application.sockets,
+        doctorCommand: DoctorCommand(
+          framework: 'Flutter',
+          sections: doctor.flutter,
+          log: runtime.log,
+        ),
+      ),
+      ComposeCommand(
+        runtime,
+        pymd,
+        application.sockets,
+        doctorCommand: DoctorCommand(
+          framework: 'Compose',
+          sections: doctor.compose,
+          log: runtime.log,
+        ),
+      ),
       TunnelCommand(DevicePrepare(pymd)),
       ConfigCommand(
         terminal: configTerminal,
         writeLine: runtime.log.output.stdout,
         store: XcrossConfigStore(runtime.host, policy: runtime.configPolicy),
-      ),
-      DoctorCommand(
-        DoctorExaminer(
-          projectRoot: runtime.host.paths.context.current,
-          environmentChecks: environmentChecks,
-          projectChecks: DoctorProjectChecks(runtime),
-        ),
-        log: runtime.log,
       ),
       SetupCommand(
         host: runtime.host,

@@ -4,21 +4,22 @@ import 'package:apple_developer_kit/shared/appstoreconnect/asc_config.dart';
 import 'package:args/command_runner.dart';
 import 'package:cli_kit/host/linux/linux_host.dart';
 import 'package:cli_kit/host/windows/windows_host.dart';
-import 'package:cli_util/cli_logging.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:dart_mobile_device/shared/device/models/device.dart';
 import 'package:dart_mobile_device/shared/diagnostics/device_probe.dart';
 import 'package:darwin_sdk_kit/target/iphone/iphone_build_platform.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/composition/cli/doctor_project_checks.dart';
+import 'package:xcross/src/composition/cli/doctor_sections.dart';
 import 'package:xcross/src/composition/cli/runner.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_command.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_environment_checks.dart';
-import 'package:xcross/src/shared/cli/basic/doctor_examiner.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_models.dart';
 import 'package:xcross/src/shared/config/config.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 
 import '../log_fixture.dart';
 import 'auth_fixture.dart';
@@ -47,7 +48,7 @@ void main() {
           createAppleHttpClient: () =>
               throw StateError('Unexpected authentication HTTP'),
         );
-        final results = await checks.run();
+        final results = await checks.deployment();
         expect(results.first.status, DoctorStatus.success);
         expect(
           results
@@ -66,104 +67,124 @@ void main() {
     );
   }
 
-  test('doctor is registered by the top-level runner', () {
+  test('doctor is a Flutter and Compose subcommand, not a top-level one', () {
+    final runner = XcrossCli.buildRunner(
+      testApplication(),
+      configTerminal: TestTerminal(),
+    );
+
+    expect(runner.commands.keys, isNot(contains('doctor')));
+    expect(runner.commands['flutter']!.subcommands.keys, contains('doctor'));
+    expect(runner.commands['compose']!.subcommands.keys, contains('doctor'));
     expect(
-      XcrossCli.buildRunner(
-        testApplication(),
-        configTerminal: TestTerminal(),
-      ).commands.keys,
-      contains('doctor'),
+      runner.commands['flutter']!.subcommands['doctor']!.description,
+      contains('Flutter'),
+    );
+    expect(
+      runner.commands['compose']!.subcommands['doctor']!.description,
+      contains('Compose'),
     );
   });
 
-  test('colors status markers like Flutter doctor', () {
+  test('each framework examines only its own sections', () {
+    final sections = doctorSections(testRuntime(), '/project');
+
+    expect(sections.flutter.map((section) => section.title), [
+      'Flutter project',
+      'iOS toolchain',
+      'Deployment',
+    ]);
+    expect(sections.compose.map((section) => section.title), [
+      'Compose project',
+      'Compose toolchain',
+      'Deployment',
+    ]);
+  });
+
+  test('section header carries the worst status of its checks', () {
+    final log = ansiLog();
     expect(
-      DoctorCommand.formatCheck(
-        const DoctorCheck.success('SDK', 'ready'),
-        ansi: Ansi(true),
-      ),
-      '\u001b[32m[✓]\u001b[0m SDK: ready',
+      DoctorCommand.formatSection('iOS toolchain', const [
+        DoctorCheck.success('swift', 'Found', path: '/bin/swift'),
+        DoctorCheck.warning('iOS linker', 'old'),
+      ], log: log),
+      '\u001b[33m[!]\u001b[0m \u001b[1miOS toolchain\u001b[0m\n'
+      '    \u001b[32m✓\u001b[0m swift       \u001b[2m/bin/swift\u001b[22m\n'
+      '    \u001b[33m!\u001b[0m iOS linker  old',
     );
     expect(
-      DoctorCommand.formatCheck(
-        const DoctorCheck.warning('Project', 'missing'),
-        ansi: Ansi(true),
-      ),
-      '\u001b[33m[!]\u001b[0m Project: missing',
-    );
-    expect(
-      DoctorCommand.formatCheck(
-        const DoctorCheck.failure('Swift', 'missing'),
-        ansi: Ansi(true),
-      ),
-      '\u001b[31m[✗]\u001b[0m Swift: missing',
+      DoctorCommand.formatSection('Deployment', const [
+        DoctorCheck.failure('Device tools', 'missing'),
+        DoctorCheck.warning('Device', 'none'),
+      ], log: log),
+      startsWith('\u001b[31m[✗]\u001b[0m'),
     );
   });
 
-  test('prints a path dimmed below its status line', () {
+  test('aligns check names and dims locations below messages', () {
     expect(
-      DoctorCommand.formatCheck(
-        const DoctorCheck.success('Flutter SDK', 'Found', path: '/opt/flutter'),
-        ansi: Ansi(true),
-        dim: (value) => '<dim>$value</dim>',
-      ),
-      '\u001b[32m[✓]\u001b[0m Flutter SDK: Found\n'
-      '    <dim>/opt/flutter</dim>',
-    );
-  });
-
-  test('prints a path plainly below its status when ANSI is unavailable', () {
-    expect(
-      DoctorCommand.formatCheck(
-        const DoctorCheck.success('Flutter SDK', 'Found', path: '/opt/flutter'),
-        ansi: Ansi(false),
-        dim: (value) => value,
-      ),
-      '[✓] Flutter SDK: Found\n    /opt/flutter',
-    );
-  });
-
-  test('keeps status markers plain when ANSI is unavailable', () {
-    expect(
-      DoctorCommand.formatCheck(
-        const DoctorCheck.failure('Swift', 'missing'),
-        ansi: Ansi(false),
-      ),
-      '[✗] Swift: missing',
+      DoctorCommand.formatSection('iOS toolchain', const [
+        DoctorCheck.success('swift', 'Found', path: '/bin/swift'),
+        DoctorCheck.success('Darwin SDK', 'Installed', path: '/sdk'),
+        DoctorCheck.failure('Swift version', 'Too old.\nUpgrade Swift.'),
+      ], log: testLog()),
+      '[✗] iOS toolchain\n'
+      '    ✓ swift          /bin/swift\n'
+      '    ✓ Darwin SDK     Installed\n'
+      '                     /sdk\n'
+      '    ✗ Swift version  Too old.\n'
+      '                     Upgrade Swift.',
     );
   });
 
   test('warnings do not fail doctor', () async {
     final lines = <String>[];
-    final command = DoctorCommand.withSeams(
-      log: testLog(),
-      examine: () async => const [
-        DoctorCheck.warning('Project', 'No Flutter or Compose project found.'),
-      ],
-      writeLine: lines.add,
-    );
-    final runner = CommandRunner<void>('xcross', 'test')..addCommand(command);
+    final runner = doctorRunner(lines, [
+      DoctorSection(
+        'Flutter project',
+        () async => const [DoctorCheck.warning('Project', 'No pubspec.yaml.')],
+      ),
+    ]);
 
     await runner.run(['doctor']);
 
     expect(lines, [
-      '[!] Project: No Flutter or Compose project found.',
+      '[!] Flutter project\n    ! Project  No pubspec.yaml.',
+      '',
       'Doctor found 1 warning.',
     ]);
   });
 
-  test('failures are all reported and fail doctor', () async {
+  test('a healthy doctor reports no issues', () async {
     final lines = <String>[];
-    final command = DoctorCommand.withSeams(
-      log: testLog(),
-      examine: () async => const [
-        DoctorCheck.failure('Swift', 'swift was not found on PATH.'),
-        DoctorCheck.success('SDK', 'Darwin SDK is installed.'),
-        DoctorCheck.failure('Device tools', 'pymobiledevice3 was not found.'),
-      ],
-      writeLine: lines.add,
-    );
-    final runner = CommandRunner<void>('xcross', 'test')..addCommand(command);
+    final runner = doctorRunner(lines, [
+      DoctorSection(
+        'Compose project',
+        () async => const [DoctorCheck.success('Project', 'composeApp')],
+      ),
+    ]);
+
+    await runner.run(['doctor']);
+
+    expect(lines.last, 'No issues found.');
+  });
+
+  test('failures are all reported across sections and fail doctor', () async {
+    final lines = <String>[];
+    final runner = doctorRunner(lines, [
+      DoctorSection(
+        'iOS toolchain',
+        () async => const [
+          DoctorCheck.failure('swift', 'Not found.'),
+          DoctorCheck.success('Darwin SDK', 'Installed'),
+        ],
+      ),
+      DoctorSection('Deployment', () => throw StateError('probe broke')),
+      DoctorSection(
+        'Flutter project',
+        () async => const [DoctorCheck.warning('Project', 'none')],
+      ),
+    ]);
 
     await expectLater(
       runner.run(['doctor']),
@@ -171,57 +192,50 @@ void main() {
         isA<XcrossError>().having(
           (error) => error.message,
           'message',
-          'Doctor found 2 failures.',
+          'Doctor found 2 failures and 1 warning.',
         ),
       ),
     );
     expect(lines, [
-      '[✗] Swift: swift was not found on PATH.',
-      '[✓] SDK: Darwin SDK is installed.',
-      '[✗] Device tools: pymobiledevice3 was not found.',
+      [
+        '[✗] iOS toolchain',
+        '    ✗ swift       Not found.',
+        '    ✓ Darwin SDK  Installed',
+      ].join('\n'),
+      '',
+      '[✗] Deployment\n    ✗ Deployment  Bad state: probe broke',
+      '',
+      '[!] Flutter project\n    ! Project  none',
+      '',
     ]);
   });
 
-  test('missing project is a warning', () async {
-    final examiner = DoctorExaminer.withSeams(
-      hostChecks: () async => const [],
-      detectProject: () async => null,
-      projectChecks: (_) => throw StateError('project checks must not run'),
-      runChecks: () async => const [],
-    );
+  test(
+    'Flutter doctor outside a project still checks the Flutter SDK',
+    () async {
+      final checks = await doctorSections(
+        testRuntime(
+          configuration: XcrossConfig(),
+          fileSystem: logicalProjectFiles(),
+        ),
+        '/empty',
+      ).flutterProject();
 
-    final results = await examiner.examine();
+      expect(checks.map((check) => (check.name, check.status)), [
+        ('Project', DoctorStatus.warning),
+        ('Flutter SDK', DoctorStatus.failure),
+      ]);
+    },
+  );
 
-    expect(results.single.status, DoctorStatus.warning);
-    expect(results.single.name, 'Project');
-  });
+  test('Compose doctor outside a project is a warning', () async {
+    final checks = await doctorSections(
+      testRuntime(fileSystem: logicalProjectFiles()),
+      '/empty',
+    ).composeProject();
 
-  test('detects Flutter and Compose projects from the current directory', () {
-    final files = logicalProjectFiles();
-    files.file('/flutter/pubspec.yaml')
-      ..parent.createSync(recursive: true)
-      ..writeAsStringSync('name: demo');
-    files.file('/compose/settings.gradle.kts')
-      ..parent.createSync(recursive: true)
-      ..writeAsStringSync('');
-    final inspector = DoctorProjectChecks(testRuntime(fileSystem: files));
-
-    expect(
-      inspector.detect('/flutter'),
-      isA<DoctorProject>().having(
-        (project) => project.kind,
-        'kind',
-        DoctorProjectKind.flutter,
-      ),
-    );
-    expect(
-      inspector.detect('/compose'),
-      isA<DoctorProject>().having(
-        (project) => project.kind,
-        'kind',
-        DoctorProjectKind.compose,
-      ),
-    );
+    expect(checks.single.status, DoctorStatus.warning);
+    expect(checks.single.message, contains('settings.gradle'));
   });
 
   test('Windows host checks resolve PATHEXT executable names', () async {
@@ -240,7 +254,7 @@ void main() {
       'clang': r'C:\Program Files\LLVM\bin\clang.exe',
       'ld64.lld': r'C:\Program Files\LLVM\bin\ld64.lld.exe',
     });
-    final checks = await fixture.checks.host();
+    final checks = await fixture.checks.flutterToolchain();
     final requested = fixture.lookup.requests
         .take(3)
         .map((request) => request.$1);
@@ -268,7 +282,7 @@ void main() {
     );
     addTearDown(fixture.dispose);
     fixture.processes.clangFailure = 'No clang that can target iOS.';
-    final checks = await fixture.checks.host();
+    final checks = await fixture.checks.flutterToolchain();
 
     expect(
       checks.firstWhere((check) => check.name == 'iOS clang'),
@@ -294,7 +308,7 @@ void main() {
       addTearDown(fixture.dispose);
       fixture.lookup.tools['ld64.lld'] = '/fixture/ld64.lld';
       fixture.processes.linkerVersion = 'LLD 18.1';
-      final checks = await fixture.checks.host();
+      final checks = await fixture.checks.flutterToolchain();
 
       expect(
         checks.firstWhere((check) => check.name == 'iOS linker'),
@@ -314,7 +328,7 @@ void main() {
       ),
     );
     addTearDown(fixture.dispose);
-    final checks = await fixture.checks.host();
+    final checks = await fixture.checks.flutterToolchain();
 
     expect(
       checks.firstWhere((check) => check.name == 'iOS linker'),
@@ -333,9 +347,10 @@ void main() {
       ..parent.createSync(recursive: true)
       ..writeAsStringSync('');
 
-    final checks = await DoctorProjectChecks(
+    final checks = await doctorSections(
       testRuntime(configuration: XcrossConfig(), fileSystem: files),
-    ).examine(const DoctorProject.flutter('/project'));
+      '/project',
+    ).flutterProject();
     final flutterSdkChecks = checks.where(
       (check) => check.name == 'Flutter SDK',
     );
@@ -359,40 +374,18 @@ void main() {
         configuration: XcrossConfig(),
         fileSystem: files,
       );
-      final inspector = DoctorProjectChecks(runtime);
+      final inspector = doctorSections(runtime, '/project');
       expect(
         inspector.packageConfigs.fileSystem,
         same(runtime.host.fileSystem),
       );
       expect(inspector.packageConfigs.paths, same(runtime.host.paths.context));
-      final checks = await inspector.examine(
-        const DoctorProject.flutter('/project'),
-      );
-      final packages = checks.singleWhere(
-        (check) => check.name == 'Flutter packages',
-      );
+      final checks = await inspector.flutterProject();
+      final packages = checks.singleWhere((check) => check.name == 'Packages');
       expect(packages.status, DoctorStatus.success);
       expect(packages.path, '/project/.dart_tool/package_config.json');
     },
   );
-
-  test('Windows Flutter checks require the Flutter launcher', () async {
-    final fixture = DoctorServiceFixture(
-      baseHost: WindowsHost(
-        currentDirectory: r'C:\',
-        environment: const {'USERPROFILE': r'C:\Users\Fixture'},
-      ),
-      abi: Abi.windowsX64,
-    );
-    addTearDown(fixture.dispose);
-    fixture.lookup.tools['flutter'] = r'C:\flutter\bin\flutter.bat';
-    final checks = await fixture.checks.flutterTool();
-    expect(fixture.lookup.requests.last.$1, 'flutter');
-
-    expect(checks, isA<DoctorCheck>());
-    expect(checks.status, DoctorStatus.success);
-    expect(checks.path, r'C:\flutter\bin\flutter.bat');
-  });
 
   test('device checks reject connected devices older than iOS 17', () async {
     final fixture = DoctorServiceFixture(
@@ -413,37 +406,58 @@ void main() {
       DoctorStatus.success,
     ]);
   });
+}
 
-  test(
-    'default examiner validates a detected project without building it',
-    () async {
-      final calls = <String>[];
-      final examiner = DoctorExaminer.withSeams(
-        hostChecks: () async {
-          calls.add('host');
-          return const [DoctorCheck.success('Host', 'ready')];
-        },
-        detectProject: () async => const DoctorProject.flutter('/project'),
-        projectChecks: (project) async {
-          calls.add('project:${project.root}');
-          return const [DoctorCheck.success('Flutter project', 'ready')];
-        },
-        runChecks: () async {
-          calls.add('run');
-          return const [DoctorCheck.warning('Device', 'not connected')];
-        },
-      );
+@internal
+DoctorSections<T> doctorSections<T extends PlatformHostInterface>(
+  XcrossRuntime<T> runtime,
+  String projectRoot,
+) => DoctorSections(
+  runtime,
+  projectRoot: projectRoot,
+  environment: DoctorEnvironmentChecks(
+    hostPlatform: runtime.host,
+    buildPlatform: const IPhoneBuildPlatform(),
+    appleHostServices: runtime.appleHostServices,
+    runner: runtime.runner,
+    repository: runtime.sdkRepository,
+    toolchain: runtime.darwinToolchain,
+    deviceDiagnostics: DoctorNamespaceDiagnostics(),
+    sdkMismatch: (_) async => null,
+    sdkToolchainIdentity: () async => {},
+    createAppleHttpClient: () => throw StateError('Unexpected HTTP'),
+  ),
+);
 
-      final results = await examiner.examine();
-
-      expect(calls, ['host', 'project:/project', 'run']);
-      expect(results.map((result) => result.name), [
-        'Host',
-        'Flutter project',
-        'Device',
-      ]);
-    },
+@internal
+CommandRunner<void> doctorRunner(
+  List<String> lines,
+  List<DoctorSection> sections,
+) => CommandRunner<void>('xcross', 'test')
+  ..addCommand(
+    DoctorCommand(
+      framework: 'Flutter',
+      sections: sections,
+      log: testLog(),
+      writeLine: lines.add,
+    ),
   );
+
+@internal
+Log ansiLog() => Log(output: AnsiLogOutput());
+
+@internal
+final class AnsiLogOutput implements LogOutput {
+  @override
+  bool get supportsAnsi => true;
+  @override
+  int get terminalColumns => 80;
+  @override
+  void stdout(String message) {}
+  @override
+  void stderr(String message) {}
+  @override
+  void write(String message) {}
 }
 
 @internal

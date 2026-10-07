@@ -672,6 +672,50 @@ void main() {
       }
     });
 
+    test('lists every requirement with its location or problem', () async {
+      final project = Directory.systemTemp.createTempSync(
+        'xcross-compose-project-',
+      );
+      final home = Directory.systemTemp.createTempSync('xcross-compose-home-');
+      try {
+        final gradlew = File(p.join(project.path, 'gradlew'))
+          ..writeAsStringSync('#!/bin/sh');
+        final javaHome = p.join(home.path, 'jdk-21');
+        final resolver = _resolverWithPreflight(
+          session,
+          host: session.hosts.linuxX64,
+          javaHome: javaHome,
+          sdk: FakeDarwinSdk('/sdk'),
+          home: home.path,
+        );
+
+        final requirements = await resolver.requirements(
+          environment: {'HOME': home.path, 'JAVA_HOME': javaHome},
+          projectRoot: project.path,
+        );
+
+        expect(requirements.map((requirement) => requirement.name), [
+          ComposeRequirement.kotlinNative,
+          ComposeRequirement.jdk,
+          ComposeRequirement.gradle,
+          ComposeRequirement.swiftc,
+          ComposeRequirement.clang,
+          ComposeRequirement.darwinSdk,
+          ComposeRequirement.ld64Lld,
+        ]);
+        final kotlin = requirements.first;
+        expect(kotlin.isReady, isFalse);
+        expect(kotlin.problem, contains('Kotlin/Native compiler'));
+        final gradle = requirements[2];
+        expect(gradle.isReady, isTrue);
+        expect(gradle.path, gradlew.path);
+        expect(requirements.skip(1).every((r) => r.isReady), isTrue);
+      } finally {
+        project.deleteSync(recursive: true);
+        home.deleteSync(recursive: true);
+      }
+    });
+
     test(
       'reports actionable missing JDK, Gradle, Swift, clang, ld64.lld, and SDK problems',
       () async {
