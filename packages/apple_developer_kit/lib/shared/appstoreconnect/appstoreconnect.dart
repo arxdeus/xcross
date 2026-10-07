@@ -90,26 +90,15 @@ final class AscProvisioning {
           .create(recursive: true),
     ]);
 
-    final certPath = hostServices.host.paths.context.join(
-      signingIdentityDir,
-      'cert.pem',
-    );
-    final keyPath = hostServices.host.paths.context.join(
-      signingIdentityDir,
-      'key.pem',
-    );
-    final profilePath = hostServices.host.paths.context.join(
-      outputDir,
-      'profile.mobileprovision',
-    );
+    final paths = hostServices.host.paths.context;
+    final certPath = paths.join(signingIdentityDir, 'cert.pem');
+    final keyPath = paths.join(signingIdentityDir, 'key.pem');
+    final profilePath = paths.join(outputDir, 'profile.mobileprovision');
 
     final serialNumber = await _loadOrIssueIdentity(
       certPath: certPath,
       keyPath: keyPath,
-      statePath: hostServices.host.paths.context.join(
-        signingIdentityDir,
-        'state.json',
-      ),
+      statePath: paths.join(signingIdentityDir, 'state.json'),
       onProgress: onProgress,
     );
 
@@ -126,8 +115,7 @@ final class AscProvisioning {
       onProgress: onProgress,
     );
     for (final udid in deviceUdids) {
-      await client.findDeviceByUdid(udid) ??
-          await client.registerDevice(udid: udid, name: udid);
+      await _findOrRegisterDevice(udid);
     }
     await _freeProfileSlot(bundleIdResource.id, onProgress);
 
@@ -139,15 +127,21 @@ final class AscProvisioning {
       certificateResourceIds: certificateIds,
       deviceResourceIds: deviceIds,
     );
+    final profileBytes = base64.decode(profile.profileContentBase64);
     await hostServices.host.fileSystem
         .file(profilePath)
-        .writeAsBytes(base64.decode(profile.profileContentBase64));
+        .writeAsBytes(profileBytes);
 
     return DevelopmentIdentityPaths(
       certificatePemPath: certPath,
       privateKeyPemPath: keyPath,
       profilePath: profilePath,
     );
+  }
+
+  Future<void> _findOrRegisterDevice(String udid) async {
+    await client.findDeviceByUdid(udid) ??
+        await client.registerDevice(udid: udid, name: udid);
   }
 
   Future<AscBundleId> _findOrRegisterBundleId(String bundleId) async =>
@@ -328,9 +322,8 @@ final class AscProvisioning {
   }) async {
     final cached = await _cachedSerialNumber(statePath, certPath, keyPath);
     if (cached != null) {
-      if ((await client.findCertificateIdsBySerial(cached)).isNotEmpty) {
-        return cached;
-      }
+      final teamIds = await client.findCertificateIdsBySerial(cached);
+      if (teamIds.isNotEmpty) return cached;
       onProgress?.call(
         'Cached Development certificate serial $cached is '
         'gone from the team; revoking leftovers and re-issuing.',
@@ -425,22 +418,23 @@ final class AscProvisioning {
     String certPath,
     String keyPath,
   ) async {
-    if (!hostServices.host.fileSystem.file(statePath).existsSync() ||
-        !hostServices.host.fileSystem.file(certPath).existsSync() ||
-        !hostServices.host.fileSystem.file(keyPath).existsSync()) {
-      return null;
-    }
+    bool exists(String path) =>
+        hostServices.host.fileSystem.file(path).existsSync();
+    final hasCachedFiles =
+        exists(statePath) && exists(certPath) && exists(keyPath);
+    if (!hasCachedFiles) return null;
     try {
-      final state = jsonDecode(
-        await hostServices.host.fileSystem.file(statePath).readAsString(),
-      );
+      final stateText = await hostServices.host.fileSystem
+          .file(statePath)
+          .readAsString();
+      final state = jsonDecode(stateText);
       if (state is! Map) return null;
       final expiry = DateTime.tryParse(
         state['certificateExpirationDate'] as String? ?? '',
       );
-      if (expiry == null || !expiry.toUtc().isAfter(DateTime.now().toUtc())) {
-        return null;
-      }
+      if (expiry == null) return null;
+      final isUnexpired = expiry.toUtc().isAfter(DateTime.now().toUtc());
+      if (!isUnexpired) return null;
       final serial =
           state['certificateSerialNumber'] as String? ??
           _serialNumberFromCertificatePem(

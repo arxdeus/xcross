@@ -65,6 +65,17 @@ final class WindowsNativeSymbolStubs {
   Pointer<Void> resolve(String symbolName) => _table[symbolName] ?? nullptr;
 
   void _bindAll() {
+    _bindFileSystem();
+    _bindTimeMemoryAndStrings();
+    _bindHostCrt();
+    _bindCxxAbi();
+    _bindErrno();
+    _bindPthreadNoOps();
+    _bindAndroidRuntime();
+    _bindDynamicLoader();
+  }
+
+  void _bindFileSystem() {
     _publishCallable(
       'open',
       NativeCallable<Int32 Function(Pointer<Utf8>, Int32, Int32)>.isolateLocal(
@@ -142,6 +153,9 @@ final class WindowsNativeSymbolStubs {
       ),
       2,
     );
+  }
+
+  void _bindTimeMemoryAndStrings() {
     _publishCallable(
       'gettimeofday',
       NativeCallable<
@@ -166,7 +180,9 @@ final class WindowsNativeSymbolStubs {
       >.isolateLocal(_strncpy),
       3,
     );
+  }
 
+  void _bindHostCrt() {
     // Pure-computation libc entry points with no Linux/Windows ABI
     // difference: published straight from the host CRT, no Dart wrapper.
     _publishCrt('memcpy', 3);
@@ -194,12 +210,6 @@ final class WindowsNativeSymbolStubs {
     _publishCrt('abort', 0);
     _publishCrt('strcasecmp', 2, '_stricmp');
     _publishCrt('strncasecmp', 3, '_strnicmp');
-
-    _bindCxxAbi();
-    _bindErrno();
-    _bindPthreadNoOps();
-    _bindAndroidRuntime();
-    _bindDynamicLoader();
   }
 
   /// C++ ABI bits CoreADI references. No-ops are enough: this is a
