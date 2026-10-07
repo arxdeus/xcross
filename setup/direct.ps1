@@ -311,7 +311,8 @@ if ((Test-Wanted 'swift') -and (-not $swiftVersion -or $swiftVersion -lt $MinSwi
 $llvmBin = if ($LlvmDir) { Join-Path $LlvmDir 'bin' } else { Find-LlvmBin }
 if ($llvmBin -and (Test-Path (Join-Path $llvmBin 'clang.exe'))) { Add-UserPath $llvmBin }
 $clangMajor = Get-ToolMajor 'clang' 'clang version (\d+)'
-if ((Test-Wanted 'llvm') -and (-not $clangMajor -or $clangMajor -lt $MinClang -or -not (Get-Command ld64.lld -ErrorAction SilentlyContinue))) {
+$llvmDirMissing = $LlvmDir -and -not (Test-Path (Join-Path (Join-Path $LlvmDir 'bin') 'ld64.lld.exe'))
+if ((Test-Wanted 'llvm') -and ($llvmDirMissing -or -not $clangMajor -or $clangMajor -lt $MinClang -or -not (Get-Command ld64.lld -ErrorAction SilentlyContinue))) {
   $release = Get-GitHubRelease $(if ($LlvmPin) { "llvmorg-$LlvmPin" })
   $suffix = if ($isArm64) { 'woa64' } else { 'win64' }
   # LLVM 22 ships NSIS .exe installers, LLVM 23+ ships .msi.
