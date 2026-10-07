@@ -17,34 +17,53 @@ final class LockdownTunnelController {
   );
   Future<void> start() async {
     final argv = await pymd.elevatedArgs(['lockdown', 'start-tunnel']);
-    final logPath = pymd.runner.host.paths.context.join(
-      pymd.runner.host.paths.temporaryRoot,
-      'xcross-start-tunnel.log',
-    );
-    final logFile = pymd.runner.host.fileSystem.file(logPath);
-    if (!logFile.existsSync()) logFile.createSync(recursive: true);
+    final (logPath, logFile) = _openLogFile();
 
     pymd.runner.log.logTrace(
       '[pymobiledevice3] starting lockdown RSD tunnel'
       ' (background; log: $logPath): ${argv.join(' ')}',
     );
 
-    late Process proc;
-    try {
-      proc = await pymd.runner.start(
-        argv.first,
-        argv.sublist(1),
-        environment: pymd.usbmuxEnvironment(),
-      );
-    } catch (e) {
-      throw TunnelError('could not start lockdown start-tunnel: $e');
-    }
+    final proc = await _launch(argv);
 
     try {
       await proc.stdin.close();
     } on Object catch (_) {}
 
     final logSink = logFile.openWrite(mode: FileMode.append);
+    final ready = _watchReadiness(proc, logSink, logPath);
+    await _awaitReady(ready, proc, logPath);
+
+    pymd.runner.log.logTrace(
+      '[pymobiledevice3] lockdown RSD tunnel is up '
+      '(pid ${proc.pid}; leave it running)',
+    );
+  }
+
+  (String, File) _openLogFile() {
+    final logPath = pymd.runner.host.paths.context.join(
+      pymd.runner.host.paths.temporaryRoot,
+      'xcross-start-tunnel.log',
+    );
+    final logFile = pymd.runner.host.fileSystem.file(logPath);
+    if (!logFile.existsSync()) logFile.createSync(recursive: true);
+    return (logPath, logFile);
+  }
+
+  Future<Process> _launch(List<String> argv) async {
+    try {
+      final proc = await pymd.runner.start(
+        argv.first,
+        argv.sublist(1),
+        environment: pymd.usbmuxEnvironment(),
+      );
+      return proc;
+    } catch (e) {
+      throw TunnelError('could not start lockdown start-tunnel: $e');
+    }
+  }
+
+  Future<void> _watchReadiness(Process proc, IOSink logSink, String logPath) {
     final ready = Completer<void>();
 
     final recent = <String>[];
@@ -77,9 +96,16 @@ final class LockdownTunnelController {
         }
       }),
     );
+    return ready.future;
+  }
 
+  Future<void> _awaitReady(
+    Future<void> ready,
+    Process proc,
+    String logPath,
+  ) async {
     try {
-      await ready.future.timeout(const Duration(seconds: 60));
+      await ready.timeout(const Duration(seconds: 60));
     } on TimeoutException {
       await pymd.runner.killTree(proc);
       throw TunnelError(
@@ -91,11 +117,6 @@ final class LockdownTunnelController {
     } on TunnelError {
       rethrow;
     }
-
-    pymd.runner.log.logTrace(
-      '[pymobiledevice3] lockdown RSD tunnel is up '
-      '(pid ${proc.pid}; leave it running)',
-    );
   }
 
   static void _teeOutput(
