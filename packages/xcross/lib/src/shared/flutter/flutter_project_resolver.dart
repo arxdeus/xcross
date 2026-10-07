@@ -30,8 +30,10 @@ final class FlutterProjectResolver<T extends PlatformHostInterface>
       if (inherited != null && inherited.isNotEmpty) return inherited;
     }
     final fvm = paths.join(projectRoot, '.fvm', 'flutter_sdk');
-    if (fileSystem.directory(fvm).existsSync() ||
-        fileSystem.link(fvm).existsSync()) {
+    final hasFvmSdk =
+        fileSystem.directory(fvm).existsSync() ||
+        fileSystem.link(fvm).existsSync();
+    if (hasFvmSdk) {
       return fileSystem.link(fvm).resolveSymbolicLinksSync();
     }
     final flutter = configuration.tool;
