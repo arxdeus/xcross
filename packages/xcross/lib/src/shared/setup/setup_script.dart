@@ -15,7 +15,20 @@ import 'package:xcross/src/shared/setup/setup_script_policy.dart';
 typedef SetupScriptDownload = Future<List<int>> Function(Uri uri);
 @internal
 typedef SetupScriptExecute =
-    Future<void> Function(String executable, List<String> arguments);
+    Future<void> Function(
+      String executable,
+      List<String> arguments,
+      Map<String, String> environment,
+    );
+
+/// What the user is shown before a setup script runs.
+@internal
+typedef SetupScriptApproval = ({
+  String name,
+  String source,
+  String path,
+  String sha256,
+});
 
 @internal
 final class SetupScriptManager {
@@ -34,8 +47,15 @@ final class SetupScriptManager {
        _download = download ?? ((uri) => _downloadBytes(uri, createHttpClient)),
        _execute =
            execute ??
-           ((executable, arguments) =>
-               runner.runChecked(executable, arguments, label: 'setup script'));
+           ((executable, arguments, environment) => runner.runChecked(
+             executable,
+             arguments,
+             environment: environment,
+             // The script talks to the user (progress, sudo, UAC, its own
+             // confirmation prompts), so it gets the terminal directly.
+             inheritStdio: true,
+             label: 'setup script',
+           ));
 
   final PlatformHostInterface host;
   final http.Client Function() createHttpClient;
@@ -79,17 +99,51 @@ final class SetupScriptManager {
     return cachedScript;
   }
 
-  Future<void> run() async {
-    final script = await resolve();
-    if (script == null) return;
+  /// Runs the script after [approve] accepts it. Returns false, without
+  /// running anything, when no script is configured or [approve] declines.
+  ///
+  /// [assumeYes] is forwarded as `XCROSS_SETUP_ASSUME_YES=1` so the script
+  /// can skip its own per-installer prompts too.
+  Future<bool> run({
+    required bool Function(SetupScriptApproval script) approve,
+    bool assumeYes = false,
+    bool refreshFirst = false,
+  }) async {
+    final script = refreshFirst ? await _refreshOrCached() : await resolve();
+    if (script == null) return false;
     if (!script.existsSync()) {
       throw XcrossError(
         'Configured setup script does not exist: ${script.path}',
       );
     }
 
+    final source = this.source!;
+    final uri = _remoteUri(source);
+    final approved = approve((
+      name: host.paths.context.basename(uri?.path ?? source),
+      source: uri == null ? source : _displayUri(uri),
+      path: script.path,
+      sha256: sha256.convert(script.readAsBytesSync()).toString(),
+    ));
+    if (!approved) return false;
+
     final invocation = await _policy.invocation(script.path);
-    await _execute(invocation.executable, invocation.arguments);
+    await _execute(invocation.executable, invocation.arguments, {
+      if (assumeYes) 'XCROSS_SETUP_ASSUME_YES': '1',
+    });
+    return true;
+  }
+
+  /// Fresh content when the network allows, else the last cached copy.
+  Future<File?> _refreshOrCached() async {
+    try {
+      return await refresh();
+    } on XcrossError {
+      final uri = source == null ? null : _remoteUri(source!);
+      final cached = uri == null ? null : _cachedScript(uri);
+      if (cached == null) rethrow;
+      return cached;
+    }
   }
 
   File? _cachedScript(Uri uri) {

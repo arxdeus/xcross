@@ -156,32 +156,19 @@ void main() {
     },
   );
 
-  test(
-    'Windows only verifies manual tools and installs device helper',
-    () async {
-      await WindowsSetupRequirements(services).run();
-      expect(processes.commands, isEmpty);
-      expect(privileges.cached, 0);
-      expect(pymdInstalls, 1);
-    },
-  );
-
-  test(
-    'missing Windows requirements reject before device installation',
-    () async {
-      File(p.join(fixture.path, 'flutter')).deleteSync();
-      await expectLater(
-        WindowsSetupRequirements(services).run(),
-        throwsA(
-          predicate(
-            (Object error) =>
-                error.toString().contains('Missing Windows requirements'),
-          ),
+  test('Windows hands setup to the per-manager scripts', () async {
+    await expectLater(
+      const WindowsSetupRequirements().run(),
+      throwsA(
+        predicate(
+          (Object error) => error.toString().contains('--manager winget'),
         ),
-      );
-      expect(pymdInstalls, 0);
-    },
-  );
+      ),
+    );
+    expect(processes.commands, isEmpty);
+    expect(privileges.cached, 0);
+    expect(pymdInstalls, 0);
+  });
 
   test('pipx ensurepath failure warns through the selected runner', () async {
     final warnings = FixtureWarningOutput();

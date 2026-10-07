@@ -300,43 +300,22 @@ jobs:
             }
             default { throw "Unsupported runner architecture: $env:RUNNER_ARCH" }
           }
-          $installer = "$env:RUNNER_TEMP\swift-installer.exe"
-          $release = "swift-$env:SWIFT_VERSION-release"
-          $version = "swift-$env:SWIFT_VERSION-RELEASE"
-          $base = 'https://download.swift.org'
-          $url = "$base/$release/$swiftPlatform/$version/" +
-            "$version-$swiftPlatform.exe"
-          Invoke-WebRequest $url -OutFile $installer
-          $hash = (Get-FileHash $installer -Algorithm SHA256).Hash
-          if ($hash -ne $swiftSha256) {
-            throw "Swift installer checksum mismatch: $hash"
-          }
-          $process = Start-Process `
-            $installer `
-            -ArgumentList '/quiet', '/norestart' `
-            -PassThru `
-            -Wait
-          if ($process.ExitCode -notin 0, 3010) {
-            throw "Swift installer failed: $($process.ExitCode)"
-          }
-
-          $llvmInstaller = "$env:RUNNER_TEMP\llvm-installer.exe"
+          # Install the pinned toolchains through setup\direct.ps1, the same
+          # script `xcross setup` uses on hosts without a package manager:
+          # each installer is checked against the pinned SHA-256 (and Swift's
+          # Apple signature) before it runs.
           $llvmRoot = "$env:RUNNER_TEMP\llvm-$env:LLVM_VERSION"
-          $llvmUrl = "https://github.com/llvm/llvm-project/releases/download/" +
-            "llvmorg-$env:LLVM_VERSION/$llvmAsset"
-          Invoke-WebRequest $llvmUrl -OutFile $llvmInstaller
-          $llvmHash = (Get-FileHash $llvmInstaller -Algorithm SHA256).Hash
-          if ($llvmHash -ne $llvmSha256) {
-            throw "LLVM installer checksum mismatch: $llvmHash"
-          }
-          $llvmProcess = Start-Process `
-            $llvmInstaller `
-            -ArgumentList '/S', "/D=$llvmRoot" `
-            -PassThru `
-            -Wait
-          if ($llvmProcess.ExitCode -ne 0) {
-            throw "LLVM installer failed: $($llvmProcess.ExitCode)"
-          }
+          $env:XCROSS_SWIFT_VERSION = $env:SWIFT_VERSION
+          $env:XCROSS_SWIFT_SHA256 = $swiftSha256
+          $env:XCROSS_LLVM_VERSION = $env:LLVM_VERSION
+          $env:XCROSS_LLVM_SHA256 = $llvmSha256
+          $env:XCROSS_LLVM_DIR = $llvmRoot
+          # Runners already ship MSVC and Python; xcross setup installs
+          # pymobiledevice3 later in this step.
+          $env:XCROSS_SETUP_ONLY = 'swift,llvm'
+          & .\setup\direct.ps1 -Yes
+          if ($LASTEXITCODE -ne 0) { throw "direct.ps1 failed: $LASTEXITCODE" }
+          Remove-Item Env:XCROSS_SETUP_ONLY
           $llvmBin = "$llvmRoot\bin"
           if (-not (Test-Path "$llvmBin\ld64.lld.exe")) {
             throw "Pinned LLVM missing ld64.lld.exe at $llvmBin"
@@ -459,7 +438,16 @@ jobs:
           Copy-Item -Recurse `
             "packages/xcross/build/cli/$cliDir/bundle" `
             "$env:RUNNER_TEMP\xcross-bundle"
-          & "$env:RUNNER_TEMP\xcross-bundle\bin\xcross.exe" setup
+          # Exercise this checkout's winget.ps1 instead of the copy on main.
+          # Swift and LLVM are already pinned above, so it only verifies them
+          # and installs pymobiledevice3. --yes: CI has no terminal to confirm.
+          $xcrossConfig = "$env:RUNNER_TEMP\xcross-config.yaml"
+          $setupScript = (Resolve-Path 'setup\winget.ps1').Path
+          Set-Content $xcrossConfig "setup: '$setupScript'" -Encoding utf8
+          $env:XCROSS_CONFIG = $xcrossConfig
+          & "$env:RUNNER_TEMP\xcross-bundle\bin\xcross.exe" setup --yes
+          if ($LASTEXITCODE -ne 0) { throw "xcross setup failed: $LASTEXITCODE" }
+          Remove-Item Env:XCROSS_CONFIG
 
       - name: Test doctor on Windows
         if: runner.os == 'Windows'

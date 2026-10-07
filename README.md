@@ -70,22 +70,30 @@ Both installers download the latest release, install it, **add xcross to your `P
    irm https://raw.githubusercontent.com/arxdeus/xcross/main/install.ps1 | iex
    ```
 
-2. Install Swift and LLVM from an **Administrator** PowerShell (the installer tells you if they're missing):
+2. Install [Flutter](https://docs.flutter.dev/get-started/install/windows), then let xcross install everything else:
 
    ```powershell
-   winget install --id Swift.Toolchain --exact
-   winget install --id LLVM.LLVM --exact
+   xcross setup
    ```
 
-3. Install Flutter, Python 3, and `pymobiledevice3`, then finish setup:
+   This runs the setup script for your package manager from the xcross release you installed: [`winget.ps1`](setup/winget.ps1), [`scoop.ps1`](setup/scoop.ps1), or [`choco.ps1`](setup/choco.ps1). If several are installed, xcross asks which one to use. If none is, it runs [`direct.ps1`](setup/direct.ps1), which downloads the vendor installers itself. Pick one explicitly with `xcross setup --manager winget|scoop|choco|direct`. xcross first prints the script's name, source URL, and SHA-256 and waits for `y`. The script then asks before each package: Visual Studio Build Tools (MSVC + Windows SDK, which Swift links against), Swift, LLVM (its `bin` goes on your `PATH`), and Python 3. Then it installs `pymobiledevice3`. Installers that need elevation raise their own UAC prompt. `xcross setup --yes` accepts every prompt.
+
+   | | `winget.ps1` | `scoop.ps1` | `choco.ps1` | `direct.ps1` |
+   |---|---|---|---|---|
+   | VS Build Tools | `Microsoft.VisualStudio.2022.BuildTools` | vendor installer¹ | `visualstudio2022buildtools` | vendor installer¹ |
+   | Swift | `Swift.Toolchain` | `main/swift` | vendor installer¹ | vendor installer¹ |
+   | LLVM | `LLVM.LLVM` | `main/llvm` | `llvm` | GitHub release² |
+   | Python | `Python.Python.3.13` | `main/python` | `python313` | python.org² |
+
+   ¹ Scoop's official buckets have no Build Tools, and Chocolatey has no Swift package. For those, the script downloads `aka.ms/vs/17/release/vs_BuildTools.exe` or the latest release from `download.swift.org` and runs it only with a valid Authenticode signature from Microsoft or Apple. ² The installer must also match the SHA-256 that GitHub or python.org publishes (and, for Python, the Python Software Foundation signature). `XCROSS_SWIFT_VERSION`, `XCROSS_LLVM_VERSION`, and `XCROSS_PYTHON_VERSION`, with optional `*_SHA256`, pin versions for `direct.ps1`. Chocolatey needs an Administrator PowerShell. Scoop expects a normal one.
+
+3. Open a new terminal so the new `PATH` applies, then build the Darwin SDK:
 
    ```powershell
-   py -m pip install -U pymobiledevice3
-   xcross setup
    xcross sdk install C:\Downloads\Xcode.xip   # once, takes a while
    ```
 
-   Open a new terminal after installing Swift so its `bin` directory is on `PATH`; both commands refuse to run without it. The SDK is tied to the Swift active here, so re-run `xcross sdk install` if you later switch Swift versions.
+   The SDK is tied to the Swift active here, so re-run `xcross sdk install` if you later switch Swift versions.
 
 ### Linux
 
@@ -114,6 +122,8 @@ Both installers download the latest release, install it, **add xcross to your `P
    `xcross setup` detects `apt`, `dnf`, or `pacman` (and asks which to use when the answer is ambiguous). It also installs `usbmuxd`, `usbutils`, and `libimobiledevice` for USB device access and diagnostics. `pymobiledevice3` goes into its own `pipx` venv, and `pipx ensurepath` puts `~/.local/bin` on your `PATH` - open a new shell for that to take effect.
 
    The SDK is tied to the Swift you had active here. If you later switch Swift versions, re-run `xcross sdk install`.
+
+   Prefer a script you can read first? [`setup/apt.sh`](setup/apt.sh), [`setup/dnf.sh`](setup/dnf.sh), and [`setup/pacman.sh`](setup/pacman.sh) install the same packages, plus Swift through swiftly if it is missing. Run one directly (`sh setup/apt.sh`) or point `setup:` in your config at it (see [Configuration](#configuration)). Before any third-party installer (apt.llvm.org's `llvm.sh`, swiftly) runs, they print its name and URL and wait for `y`.
 
 ### Verifying a release
 
@@ -306,9 +316,12 @@ roots:
 environment:
   PATH:
     - /absolute/toolchain/bin
+setup: https://raw.githubusercontent.com/arxdeus/xcross/main/setup/apt.sh
 ```
 
 Edit it with `xcross config`, inspect it with `xcross config show`, prove it with `xcross config validate`.
+
+`setup` makes `xcross setup` run that script (an absolute path or an HTTP(S) URL) instead of its built-in installer. Before running anything, xcross prints the script's name, source, and SHA-256 and asks for confirmation. Pass `--yes` to skip the prompt, which is required when there is no terminal. Remote scripts are cached by content hash, and `xcross update` refreshes them.
 
 **Full reference: [xcross.sh/docs/configuration](https://xcross.sh/docs/configuration)** - every key, discovery order, variable expansion, and the runtime overlay.
 
@@ -316,7 +329,7 @@ Edit it with `xcross config`, inspect it with `xcross config show`, prove it wit
 
 | Command | Description |
 |---|---|
-| `xcross setup` | Install host dependencies (apt/dnf/pacman packages, `pipx`, `pymobiledevice3`). Requires Swift on `PATH` |
+| `xcross setup` | Install host dependencies: apt/dnf/pacman or Homebrew packages, `pipx`, and `pymobiledevice3` (Linux/macOS need Swift on `PATH` first). On Windows, or when `setup:` is configured, runs a setup script after showing its name, URL, and SHA-256 and asking first (`--yes` skips the prompt) |
 | `xcross config` | Interactively create or edit executable overrides, Swift/LLVM toolchain directories, roots, and child-environment paths |
 | `xcross config show` / `validate` | Print the selected YAML configuration or validate all configured paths |
 | `xcross sdk install <Xcode.xip>` | Extract a private Darwin Swift SDK from an Xcode archive, patched against the Swift toolchain currently on `PATH` |

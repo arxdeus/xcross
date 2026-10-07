@@ -288,7 +288,7 @@ if (-not (Get-Command py -ErrorAction SilentlyContinue) -and
 
 if ($missing.Count -gt 0) {
   Write-Host ''
-  Write-Host 'Missing prerequisites (install from an Administrator PowerShell):' `
+  Write-Host 'Missing prerequisites (`xcross setup` installs them via winget, Scoop, Chocolatey or direct downloads, or run these from an Administrator PowerShell):' `
     -ForegroundColor Yellow
   $missing | ForEach-Object { Write-Host "  $_" }
 }
@@ -299,7 +299,7 @@ if ($missing.Count -gt 0) {
 
 Write-Host ''
 Write-Host 'Next steps:' -ForegroundColor Green
-Write-Host '  xcross setup                              # install pymobiledevice3 & friends'
+Write-Host '  xcross setup                              # Swift, LLVM, Python & pymobiledevice3 (winget/scoop/choco)'
 Write-Host '  xcross sdk install C:\Downloads\Xcode.xip # once'
 Write-Host '  xcross auth --apple-id you@example.com'
 Write-Host '  xcross tunnel                             # Administrator PowerShell, per reconnect'
