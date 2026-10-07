@@ -174,7 +174,7 @@ final class FlutterKernelCompiler<T extends PlatformHostInterface> {
     return packageUris?.toCompilerUri(resolved) ?? resolved;
   }
 
-  /// ORDER MATTERS: dartaotruntime takes <snapshot> as its first arg, so
+  /// ORDER MATTERS: dartaotruntime takes `<snapshot>` as its first arg, so
   /// `dart`'s --disable-dart-dev must precede it. --sdk-root needs its
   /// trailing slash: frontend_server resolves platform_strong.dill by string
   /// concatenation. The -Ddart.* / --track-widget-creation quartet is what

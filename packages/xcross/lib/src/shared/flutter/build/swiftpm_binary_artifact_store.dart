@@ -56,48 +56,52 @@ final class SwiftPmBinaryArtifactStore {
     final expected = _checksumComponent(checksum);
     final destination = fileSystem.file(archivePath(expected));
     await destination.parent.create(recursive: true);
-    return _withPublicationLock(destination.path, () async {
-      if (destination.existsSync()) {
-        await _verifyArchive(destination, expected);
-        return destination;
-      }
-
-      final stagingDirectory = await destination.parent.createTemp(
-        '.${p.basename(destination.path)}.staging-',
-      );
-      final staging = fileSystem.file(
-        p.join(stagingDirectory.path, 'archive.zip'),
-      );
-      try {
-        await staging.create(exclusive: true);
-        final output = await staging.open(mode: FileMode.writeOnly);
-        try {
-          var copiedBytes = 0;
-          await for (final chunk in stagingArchive.openRead()) {
-            copiedBytes += chunk.length;
-            if (copiedBytes > maximumBytes) {
-              throw FlutterBuildError(
-                'SwiftPM binary artifact exceeds compressed archive byte limit',
-              );
-            }
-            await output.writeFrom(chunk);
-          }
-          await output.flush();
-        } finally {
-          await output.close();
-        }
-        await _verifyArchive(staging, expected);
+    final publishedArchive = await _withPublicationLock(
+      destination.path,
+      () async {
         if (destination.existsSync()) {
           await _verifyArchive(destination, expected);
           return destination;
         }
-        return await staging.rename(destination.path);
-      } finally {
-        if (stagingDirectory.existsSync()) {
-          await stagingDirectory.delete(recursive: true);
+
+        final stagingDirectory = await destination.parent.createTemp(
+          '.${p.basename(destination.path)}.staging-',
+        );
+        final staging = fileSystem.file(
+          p.join(stagingDirectory.path, 'archive.zip'),
+        );
+        try {
+          await staging.create(exclusive: true);
+          final output = await staging.open(mode: FileMode.writeOnly);
+          try {
+            var copiedBytes = 0;
+            await for (final chunk in stagingArchive.openRead()) {
+              copiedBytes += chunk.length;
+              if (copiedBytes > maximumBytes) {
+                throw FlutterBuildError(
+                  'SwiftPM binary artifact exceeds compressed archive byte limit',
+                );
+              }
+              await output.writeFrom(chunk);
+            }
+            await output.flush();
+          } finally {
+            await output.close();
+          }
+          await _verifyArchive(staging, expected);
+          if (destination.existsSync()) {
+            await _verifyArchive(destination, expected);
+            return destination;
+          }
+          return await staging.rename(destination.path);
+        } finally {
+          if (stagingDirectory.existsSync()) {
+            await stagingDirectory.delete(recursive: true);
+          }
         }
-      }
-    });
+      },
+    );
+    return publishedArchive;
   }
 
   Future<List<int>> readVerifiedArchiveBytes(
@@ -155,7 +159,7 @@ final class SwiftPmBinaryArtifactStore {
         'SwiftPM binary artifact staging root must be a real directory',
       );
     }
-    return _withPublicationLock(destination.path, () async {
+    final publishedTarget = await _withPublicationLock(destination.path, () async {
       final winner = await findCompleteTarget(safeChecksum, safeTarget);
       if (winner != null) return winner;
       if (fileSystem.typeSync(destination.path, followLinks: false) !=
@@ -222,6 +226,7 @@ final class SwiftPmBinaryArtifactStore {
         if (staging.existsSync()) await staging.delete(recursive: true);
       }
     });
+    return publishedTarget;
   }
 
   Future<SwiftPmBinaryArtifactEntry?> findCompleteTarget(

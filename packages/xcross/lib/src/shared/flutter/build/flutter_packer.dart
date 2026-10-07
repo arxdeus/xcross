@@ -59,6 +59,7 @@ final class FlutterPacker<T extends PlatformHostInterface> {
     }
     final compiled = await _compile(context).compile();
     final linked = await _link(context).link(compiled);
-    return _assemble(context).assemble(linked);
+    final assembled = await _assemble(context).assemble(linked);
+    return assembled;
   }
 }

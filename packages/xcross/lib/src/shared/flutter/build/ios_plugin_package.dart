@@ -213,7 +213,10 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
               .file(p.join(targetDebugDir, 'lib$pluginsProductName.dylib'))
               .existsSync()) {
         runtime.runner.log.logTrace('reusing unchanged SwiftPM plugin build');
-        return runtime.assembly.discoverAndRewriteDylibs(targetDebugDir);
+        final reused = await runtime.assembly.discoverAndRewriteDylibs(
+          targetDebugDir,
+        );
+        return reused;
       }
       final targetDirectory = runtime.artifactFileSystem.directory(
         targetDebugDir,

@@ -87,7 +87,8 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
     await outputDirectory.create(recursive: true);
 
     if (!await hooks.hasBuildHooks(projectRoot)) {
-      return _buildBundleWithoutHooks(output);
+      final withoutHooks = await _buildBundleWithoutHooks(output);
+      return withoutHooks;
     }
 
     final config = await tools.resolve(deploymentTarget.version);

@@ -76,22 +76,24 @@ final class FlutterArtifactLinker<T extends PlatformHostInterface>
       buildable.add(extension);
     }
 
-    return AppExtensionBuilder(
-      runtime,
-      AppExtensionResources(
-        fileSystem: runtime.host.fileSystem,
-        log: runtime.runner.log,
-      ),
-    ).buildAll(
-      projectRoot: projectRoot,
-      extensions: buildable,
-      deploymentTarget: deploymentTarget,
-      outputDir: _buildDirectory('xcross-flutter-extensions'),
-      versions: _versions,
-      flutterXcframework: flutterXcframework,
-      pluginsLibrary: pluginsBuild?.libraryPath,
-      pluginModulesDir: pluginsBuild?.modulesDir,
-    );
+    final builtExtensions =
+        await AppExtensionBuilder(
+          runtime,
+          AppExtensionResources(
+            fileSystem: runtime.host.fileSystem,
+            log: runtime.runner.log,
+          ),
+        ).buildAll(
+          projectRoot: projectRoot,
+          extensions: buildable,
+          deploymentTarget: deploymentTarget,
+          outputDir: _buildDirectory('xcross-flutter-extensions'),
+          versions: _versions,
+          flutterXcframework: flutterXcframework,
+          pluginsLibrary: pluginsBuild?.libraryPath,
+          pluginModulesDir: pluginsBuild?.modulesDir,
+        );
+    return builtExtensions;
   }
 
   /// Compile the ObjC Runner shim and return both the xcframework path and the

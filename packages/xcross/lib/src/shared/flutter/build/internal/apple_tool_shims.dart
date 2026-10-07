@@ -131,7 +131,8 @@ final class AppleToolShimResolver<T extends PlatformHostInterface> {
         'xcrun not configured. Set tools.xcrun or configure an xcross launcher with a bundled xcrun sibling.',
       );
     }
-    return runner.locateTool('xcrun');
+    final located = await runner.locateTool('xcrun');
+    return located;
   }
 
   Future<HostCompiler> resolveHostCompiler(String clang) =>
@@ -146,7 +147,8 @@ final class AppleToolShimResolver<T extends PlatformHostInterface> {
       host.paths.executableName('llvm-ar'),
     );
     if (host.fileSystem.file(beside).existsSync()) return beside;
-    return locateLlvmTool('llvm-ar');
+    final llvmAr = await locateLlvmTool('llvm-ar');
+    return llvmAr;
   }
 
   Future<String?> findLlvmTool(String name) =>

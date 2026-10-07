@@ -250,7 +250,7 @@ final class HotReloadController {
         'ext.flutter.reassemble',
         params: {'isolateId': isolateId},
       );
-    } catch (e) {
+    } on Object catch (e) {
       log.logTrace('reassemble ignored: $e');
     }
   }
@@ -322,7 +322,7 @@ final class HotReloadController {
           '_deleteDevFS',
           params: {'fsName': FlutterDeviceConstants.devFsName},
         );
-      } catch (e) {
+      } on Object catch (e) {
         log.logTrace('_deleteDevFS ignored: $e');
       }
       response = await create();
@@ -385,7 +385,10 @@ final class HotReloadController {
 
   // Times [body] and logs `[timing] <label> <ms>ms` (helps locate reload cost).
   Future<T> _timed<T>(String label, Future<T> Function() body) async {
-    if (!_verbose) return body();
+    if (!_verbose) {
+      final untimed = await body();
+      return untimed;
+    }
     final sw = Stopwatch()..start();
     try {
       return await body();

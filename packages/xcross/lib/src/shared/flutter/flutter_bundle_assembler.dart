@@ -249,7 +249,10 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
         'Info.plist',
       ),
     );
-    if (plistFile.existsSync()) return plistFile.readAsString();
+    if (plistFile.existsSync()) {
+      final plistSource = await plistFile.readAsString();
+      return plistSource;
+    }
     return InfoPlist.fallback;
   }
 

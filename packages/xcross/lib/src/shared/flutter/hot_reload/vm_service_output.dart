@@ -44,7 +44,7 @@ final class VmServiceOutput {
   /// empty. Malformed UTF-8 is passed through with replacement chars since
   /// the VM chunks writes at arbitrary offsets.
   static String? decodeStreamWrite(Map<String, dynamic> event) {
-    if (event['bytes'] case final String bytes when bytes.isNotEmpty) {
+    if (event case {'bytes': final String bytes} when bytes.isNotEmpty) {
       try {
         return utf8.decode(base64Decode(bytes), allowMalformed: true);
       } on FormatException {
@@ -58,7 +58,7 @@ final class VmServiceOutput {
   /// `valueAsString` is read; a truncated message is not worth a follow-up
   /// `getObject` round trip.
   static String? formatLogRecord(Map<String, dynamic> event) {
-    if (event['logRecord'] case final Map<String, dynamic> record) {
+    if (event case {'logRecord': final Map<String, dynamic> record}) {
       final name = _valueAsString(record['loggerName']);
       final prefix = '[${name == null || name.isEmpty ? 'log' : name}] ';
       final lines = [

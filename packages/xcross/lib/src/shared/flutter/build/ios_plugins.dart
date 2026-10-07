@@ -193,12 +193,14 @@ final class IosPlugin {
     if (!plist.existsSync()) return const [];
     try {
       final value = _decodePropertyList(plist.readAsBytesSync());
-      if (value is! Map || value['AvailableLibraries'] is! List) {
+      if (value is! Map<Object?, Object?> ||
+          value['AvailableLibraries'] is! List) {
         return const [];
       }
       return [
-        for (final library in value['AvailableLibraries'] as List)
-          if (library is Map && _isIosArm64Library(library, policy))
+        for (final library in value['AvailableLibraries']! as List<Object?>)
+          if (library is Map<Object?, Object?> &&
+              _isIosArm64Library(library, policy))
             if (library['LibraryIdentifier'] case final String identifier)
               if (_isDirectChildName(framework.path, identifier)) identifier,
       ];
@@ -222,7 +224,7 @@ final class IosPlugin {
   }
 
   static bool _isIosArm64Library(
-    Map<dynamic, dynamic> library,
+    Map<Object?, Object?> library,
     FlutterTargetBuildPolicy policy,
   ) =>
       library['SupportedPlatform'] == 'ios' &&
@@ -231,7 +233,7 @@ final class IosPlugin {
         library['SupportedPlatformVariant'] as String?,
       ) &&
       library['SupportedArchitectures'] is List &&
-      (library['SupportedArchitectures'] as List).contains('arm64');
+      (library['SupportedArchitectures']! as List<Object?>).contains('arm64');
 
   /// Whether [name] is a single path segment naming a child of [parent].
   static bool _isDirectChildName(String parent, String name) =>

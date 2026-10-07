@@ -42,10 +42,11 @@ final class FlutterProjectResolver<T extends PlatformHostInterface>
     }
     final located = flutter ?? await runtime.runner.locateTool('flutter');
     final executable = fileSystem.file(located);
-    return runtime.sdkHostPolicy.rootFromExecutable(
+    final sdkRoot = await runtime.sdkHostPolicy.rootFromExecutable(
       executable.existsSync() ? executable.resolveSymbolicLinksSync() : located,
       runtime.runner,
     );
+    return sdkRoot;
   }
 
   @override

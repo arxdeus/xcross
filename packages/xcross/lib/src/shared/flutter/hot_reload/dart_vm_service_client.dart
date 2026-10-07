@@ -144,14 +144,14 @@ final class DartVmServiceClient {
     final Map<String, dynamic> message;
     try {
       message = jsonDecode(raw as String) as Map<String, dynamic>;
-    } catch (_) {
+    } on Object catch (_) {
       return;
     }
 
     // Three shapes share this socket: a notification (method, no id), a request
     // the VM makes OF US (method + id), and a reply to one of our calls.
     final id = message['id'];
-    if (message['method'] case final String method when id != null) {
+    if (message case {'method': final String method} when id != null) {
       unawaited(_handleServerRequest(id, method, message['params']));
     } else if (id is int) {
       _completeCall(id, message);
@@ -165,14 +165,15 @@ final class DartVmServiceClient {
       'method': 'streamNotify',
       'params': final Map<String, dynamic> params,
     }) {
-      if (params['event'] case final Map<String, dynamic> event
-          when !_events.isClosed) {
+      if (params case {
+        'event': final Map<String, dynamic> event,
+      } when !_events.isClosed) {
         // On the wire `streamId` is a SIBLING of `event`, not a field of it.
         // Fold it in: `Stdout` and `Stderr` both arrive as `WriteEvent`, so
         // without it a listener cannot tell app stdout from app stderr.
         _events.add({
           ...event,
-          if (params['streamId'] case final String streamId)
+          if (params case {'streamId': final String streamId})
             'streamId': streamId,
         });
       }

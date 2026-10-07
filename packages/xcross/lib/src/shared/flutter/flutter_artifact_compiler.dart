@@ -98,7 +98,7 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
     if (assembleDir.existsSync()) await assembleDir.delete(recursive: true);
     await assembleDir.create(recursive: true);
 
-    return FlutterDebugBundler(
+    final debugBundle = await FlutterDebugBundler(
       runtime: runtime,
       assets: FlutterAssetsCompiler(
         paths: runtime.host.paths.context,
@@ -124,6 +124,7 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
       dartDefines: options.dartDefines,
       flavor: options.flavor,
     ).build();
+    return debugBundle;
   }
 
   /// Discover the project's iOS plugins and build the aggregate Swift
@@ -181,7 +182,7 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
       projectRoot,
       policy: runtime.policy,
     );
-    return runtime.plugins.build(
+    final builtPlugins = await runtime.plugins.build(
       projectRoot: projectRoot,
       workspace: workspace,
       plugins: spmPlugins,
@@ -191,5 +192,6 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
       swiftPmArtifactJunctionCapability: capabilities.swiftPmArtifact,
       packageLocalArtifactJunctionCapability: capabilities.packageLocalArtifact,
     );
+    return builtPlugins;
   }
 }
