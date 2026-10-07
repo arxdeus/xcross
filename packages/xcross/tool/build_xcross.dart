@@ -8,10 +8,13 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/update/semver.dart';
 
+// Release builds inject these with -D; see release.yml.
+// ignore: do_not_use_environment
 const _encodedVersion = String.fromEnvironment(
   'XCROSS_VERSION',
   defaultValue: 'unreleased',
 );
+// ignore: do_not_use_environment
 const _released = bool.fromEnvironment('XCROSS_RELEASED');
 
 @internal
