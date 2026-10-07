@@ -122,20 +122,30 @@ final class FixtureChild implements Process {
   final String _stdout;
   final String _stderr;
   final int _exitCode;
-  final _stdin = StreamController<List<int>>.broadcast();
 
   @override
   Stream<List<int>> get stdout => Stream.value(utf8.encode(_stdout));
   @override
   Stream<List<int>> get stderr => Stream.value(utf8.encode(_stderr));
   @override
-  IOSink get stdin => IOSink(_stdin.sink);
+  IOSink get stdin => IOSink(const FixtureDiscardingConsumer());
   @override
   Future<int> get exitCode => Future.value(_exitCode);
   @override
   int get pid => 0;
   @override
   bool kill([ProcessSignal signal = ProcessSignal.sigterm]) => true;
+}
+
+@internal
+final class FixtureDiscardingConsumer implements StreamConsumer<List<int>> {
+  const FixtureDiscardingConsumer();
+
+  @override
+  Future<void> addStream(Stream<List<int>> stream) => stream.drain<void>();
+
+  @override
+  Future<void> close() async {}
 }
 
 @internal
