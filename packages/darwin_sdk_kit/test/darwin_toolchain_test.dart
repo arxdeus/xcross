@@ -563,6 +563,9 @@ final class DarwinToolchainTestIo {
   late final IOSink error;
 
   Future<void> close() async {
-    await Future.wait([output.close(), error.close()]);
+    await output.close();
+    await error.close();
+    await outputController.close();
+    await errorController.close();
   }
 }
