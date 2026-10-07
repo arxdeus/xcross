@@ -18,14 +18,17 @@ final class SwiftPmCheckoutContainment {
       );
     }
     validateTarget(root, p.dirname(destination));
-    if (fileSystem.directory(destination).existsSync() ||
-        fileSystem.file(destination).existsSync()) {
+    final destinationExists =
+        fileSystem.directory(destination).existsSync() ||
+        fileSystem.file(destination).existsSync();
+    if (destinationExists) {
       validateTarget(root, destination);
     }
   }
 
   void validateTarget(String root, String target) {
-    if (!p.equals(root, target) && !p.isWithin(root, target)) {
+    final isContained = p.equals(root, target) || p.isWithin(root, target);
+    if (!isContained) {
       throw FlutterBuildError(
         'Symlink target escapes SwiftPM checkout: $target',
         isSecurityFailure: true,
