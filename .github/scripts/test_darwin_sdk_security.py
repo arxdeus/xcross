@@ -253,6 +253,14 @@ class WorkflowSecurityTests(unittest.TestCase):
                     )
                     self.assertEqual(result.returncode, expected)
 
+    def test_windows_ci_setup_runs_the_checkout_direct_script(self):
+        install = step(job((WORKFLOWS / "integration.yml").read_text(), "flutter-build"), "Install official Swift and LLVM on Windows")
+        self.assertIn("$setupScript = (Resolve-Path 'setup\\direct.ps1').Path", install)
+        self.assertIn('xcross.exe" setup --yes', install)
+        for manager in ("winget", "scoop", "choco"):
+            with self.subTest(manager=manager):
+                self.assertNotIn(f"setup\\{manager}.ps1", install)
+
     def test_setup_scripts_keep_session_path_when_refreshing_environment(self):
         for name in ("direct", "winget", "scoop", "choco"):
             with self.subTest(script=name):

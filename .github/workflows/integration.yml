@@ -438,11 +438,12 @@ jobs:
           Copy-Item -Recurse `
             "packages/xcross/build/cli/$cliDir/bundle" `
             "$env:RUNNER_TEMP\xcross-bundle"
-          # Exercise this checkout's winget.ps1 instead of the copy on main.
+          # Exercise this checkout's direct.ps1 instead of the copy on main:
+          # the runners ship no winget, and direct.ps1 needs no package manager.
           # Swift and LLVM are already pinned above, so it only verifies them
           # and installs pymobiledevice3. --yes: CI has no terminal to confirm.
           $xcrossConfig = "$env:RUNNER_TEMP\xcross-config.yaml"
-          $setupScript = (Resolve-Path 'setup\winget.ps1').Path
+          $setupScript = (Resolve-Path 'setup\direct.ps1').Path
           Set-Content $xcrossConfig "setup: '$setupScript'" -Encoding utf8
           $env:XCROSS_CONFIG = $xcrossConfig
           & "$env:RUNNER_TEMP\xcross-bundle\bin\xcross.exe" setup --yes
