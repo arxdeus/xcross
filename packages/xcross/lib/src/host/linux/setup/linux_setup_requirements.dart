@@ -192,42 +192,7 @@ final class LinuxSetupRequirements implements SetupRequirements {
         : await toolchain.selectorStubDefect(onPath);
     if (onPath != null && defect == null) return;
 
-    var versioned = versionedLd64Llds();
-    final newestInstalled = versioned.keys.fold<int?>(
-      null,
-      (best, version) => best == null || version > best ? version : best,
-    );
-    if (newestInstalled == null ||
-        newestInstalled <
-            DarwinToolchainResolver.firstLd64LldWithCorrectSelectorStubs) {
-      final offered = await manager.availableVersionedLld(runner);
-      final wanted = offered
-          .where(
-            (name) =>
-                int.parse(name.substring(4)) >=
-                DarwinToolchainResolver.firstLd64LldWithCorrectSelectorStubs,
-          )
-          .firstOrNull;
-      if (wanted != null) {
-        final step = runner.log.beginStep('Installing $wanted');
-        try {
-          await services.runFirstWorking(
-            await manager.installAttempts(
-              [wanted],
-              runner,
-              services.privileges,
-            ),
-            label: '${manager.name} install',
-            tail: step,
-          );
-          step.done();
-        } on Object {
-          step.fail();
-          rethrow;
-        }
-        versioned = versionedLd64Llds();
-      }
-    }
+    final versioned = await _ensureFixedVersionedLd64Lld(manager);
     if (versioned.isEmpty) {
       if (defect != null) runner.log.logWarn(defect);
       return;
@@ -242,17 +207,7 @@ final class LinuxSetupRequirements implements SetupRequirements {
       return;
     }
     const stable = '/usr/local/bin/ld64.lld';
-    final managedLink = host.fileSystem.link(stable);
-    final existing = managedLink.existsSync()
-        ? FileSystemEntityType.link
-        : host.fileSystem.file(stable).existsSync()
-        ? FileSystemEntityType.file
-        : host.fileSystem.directory(stable).existsSync()
-        ? FileSystemEntityType.directory
-        : FileSystemEntityType.notFound;
-    if (existing != FileSystemEntityType.notFound &&
-        (existing != FileSystemEntityType.link ||
-            !p.basename(managedLink.targetSync()).startsWith('ld64.lld-'))) {
+    if (_isUnmanagedStableLd64Lld(stable)) {
       runner.log.logWarn(
         '$stable is not managed by xcross; leaving it alone. '
         'Put ${versioned[newest]} ahead of it on PATH to use lld $newest.',
@@ -266,6 +221,54 @@ final class LinuxSetupRequirements implements SetupRequirements {
       stable,
     ], label: 'link ld64.lld');
     runner.log.logInfo('ld64.lld', '$stable -> ${versioned[newest]}');
+  }
+
+  Future<Map<int, String>> _ensureFixedVersionedLd64Lld(
+    LinuxPackageManager manager,
+  ) async {
+    const firstFixed =
+        DarwinToolchainResolver.firstLd64LldWithCorrectSelectorStubs;
+    final versioned = versionedLd64Llds();
+    final newestInstalled = versioned.keys.fold<int?>(
+      null,
+      (best, version) => best == null || version > best ? version : best,
+    );
+    final hasFixedInstalled =
+        newestInstalled != null && newestInstalled >= firstFixed;
+    if (hasFixedInstalled) return versioned;
+    final offered = await manager.availableVersionedLld(runner);
+    final wanted = offered
+        .where((name) => int.parse(name.substring(4)) >= firstFixed)
+        .firstOrNull;
+    if (wanted == null) return versioned;
+    final step = runner.log.beginStep('Installing $wanted');
+    try {
+      await services.runFirstWorking(
+        await manager.installAttempts([wanted], runner, services.privileges),
+        label: '${manager.name} install',
+        tail: step,
+      );
+      step.done();
+    } on Object {
+      step.fail();
+      rethrow;
+    }
+    return versionedLd64Llds();
+  }
+
+  bool _isUnmanagedStableLd64Lld(String stable) {
+    final managedLink = host.fileSystem.link(stable);
+    final existing = managedLink.existsSync()
+        ? FileSystemEntityType.link
+        : host.fileSystem.file(stable).existsSync()
+        ? FileSystemEntityType.file
+        : host.fileSystem.directory(stable).existsSync()
+        ? FileSystemEntityType.directory
+        : FileSystemEntityType.notFound;
+    if (existing == FileSystemEntityType.notFound) return false;
+    if (existing != FileSystemEntityType.link) return true;
+    final linkTarget = p.basename(managedLink.targetSync());
+    return !linkTarget.startsWith('ld64.lld-');
   }
 
   Map<int, String> versionedLd64Llds() {
