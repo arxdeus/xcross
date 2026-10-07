@@ -27,16 +27,20 @@ final class ProcessRunner<T extends PlatformHostInterface> {
         toolLookup ??
         executor?.tools ??
         ProcessToolLookup(host, configuration: configuration);
-    if (!identical(this.toolLookup.host, host) ||
-        !identical(this.toolLookup.configuration, configuration)) {
+    final lookupMatchesRunner =
+        identical(this.toolLookup.host, host) &&
+        identical(this.toolLookup.configuration, configuration);
+    if (!lookupMatchesRunner) {
       throw ArgumentError(
         'Process lookup must use the runner host and configuration',
       );
     }
-    if (executor != null &&
-        (!identical(executor.host, host) ||
-            !identical(executor.tools, this.toolLookup) ||
-            !identical(executor.log, log))) {
+    final executorMatchesRunner =
+        executor == null ||
+        identical(executor.host, host) &&
+            identical(executor.tools, this.toolLookup) &&
+            identical(executor.log, log);
+    if (!executorMatchesRunner) {
       throw ArgumentError(
         'Process executor must use the runner host, lookup and log',
       );
@@ -237,15 +241,7 @@ final class ProcessRunner<T extends PlatformHostInterface> {
       arguments,
     );
     if (code != 0) {
-      throw CliError(
-        ProcessHelpers.failureMessage(
-          executable,
-          arguments,
-          code,
-          diagnostic: host.processes.describeExit(code),
-          captured: false,
-        ),
-      );
+      throw _commandFailed(executable, arguments, code, captured: false);
     }
   }
 
@@ -274,14 +270,11 @@ final class ProcessRunner<T extends PlatformHostInterface> {
       result.stdout,
       result.stderr,
     ].where((s) => s.trim().isNotEmpty).join('\n');
-    throw CliError(
-      ProcessHelpers.failureMessage(
-        executable,
-        arguments,
-        result.exitCode,
-        diagnostic: host.processes.describeExit(result.exitCode),
-        output: output,
-      ),
+    throw _commandFailed(
+      executable,
+      arguments,
+      result.exitCode,
+      output: output,
     );
   }
 
@@ -314,17 +307,26 @@ final class ProcessRunner<T extends PlatformHostInterface> {
     );
     await drained;
     if (code != 0) {
-      throw CliError(
-        ProcessHelpers.failureMessage(
-          executable,
-          arguments,
-          code,
-          diagnostic: host.processes.describeExit(code),
-          output: '$captured',
-        ),
-      );
+      throw _commandFailed(executable, arguments, code, output: '$captured');
     }
   }
+
+  CliError _commandFailed(
+    String executable,
+    List<String> arguments,
+    int code, {
+    String output = '',
+    bool captured = true,
+  }) => CliError(
+    ProcessHelpers.failureMessage(
+      executable,
+      arguments,
+      code,
+      diagnostic: host.processes.describeExit(code),
+      output: output,
+      captured: captured,
+    ),
+  );
 
   Future<void> _captureAndEchoStream(
     Stream<List<int>> source,
@@ -390,15 +392,7 @@ final class ProcessRunner<T extends PlatformHostInterface> {
       input = null;
       await drained;
       if (code != 0) {
-        throw CliError(
-          ProcessHelpers.failureMessage(
-            executable,
-            arguments,
-            code,
-            diagnostic: host.processes.describeExit(code),
-            output: '$captured',
-          ),
-        );
+        throw _commandFailed(executable, arguments, code, output: '$captured');
       }
     } finally {
       await input?.cancel();
