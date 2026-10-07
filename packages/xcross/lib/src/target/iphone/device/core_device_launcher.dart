@@ -25,6 +25,11 @@ import 'package:xcross/src/target/iphone/device/core_device_launch_profile.dart'
 import 'package:xcross/src/target/iphone/device/device_log.dart';
 import 'package:xcross/src/target/iphone/device/session_console.dart';
 
+typedef _HotReloadSetup = ({
+  HotReloadController? controller,
+  String? unavailable,
+});
+
 const _cleanupTimeout = Duration(seconds: 2);
 const _transportCloseTimeout = Duration(seconds: 3);
 const _vmServiceConnectTimeout = Duration(seconds: 5);
@@ -170,102 +175,131 @@ final class CoreDeviceLauncher {
 
     try {
       final gdb = await _attachDebugger(endpoint: debugproxy, pid: pid);
-
-      ({HotReloadController? controller, String? unavailable}) hotReloadSetup =
-          (controller: null, unavailable: null);
-      HotReloadController? hotReloadController;
-      PortForwarder? vmService;
-      // Hot-reload setup is inside the same cleanup boundary as the session. A
-      // failed VM connection must not leak the attached debugger or leave a DAP
-      // launch paused forever.
-      final console = SessionConsole(
-        console: pymd.console,
-        log: pymd.runner.log,
-        keyboardInput: pymd.runner.sharedStdin,
-        allowPipedKeyboard: _isDap,
+      await _holdDebugSession(
         gdb: gdb,
-        hotReload: null,
-        hotReloadUnavailable: hotReload == null
-            ? null
-            : 'hot reload is still preparing; wait for "Hot reload ready".',
+        transport: transport,
+        hotReload: hotReload,
+        deviceLog: deviceLog,
         onRestartRequested: onRestartRequested,
-        crashReason: () => deviceLog?.crashReason,
-        recentDeviceLines: () => deviceLog?.tailLines ?? const [],
       );
-      final consoleFuture = console.run();
-      try {
-        // Attach leaves the app paused. Install the reply listener before
-        // resuming it: debugproxy may send its first nonfatal stop packet
-        // immediately after `c`, and a broadcast stream would otherwise lose
-        // that packet and leave the Debug engine paused forever.
-        await resumeInitialDebugger(
-          console: console,
-          consoleFuture: consoleFuture,
-          resume: gdb.resume,
-        );
-        // An immediate exit or fault already ended the session: there is no
-        // app left to attach hot reload to, so skip the setup and its
-        // "Debugger attached" / "Preparing hot reload" progress lines.
-        if (console.isStopped) {
-          await consoleFuture;
-          return;
-        }
-        pymd.runner.log.logDone('Debugger attached');
-        if (hotReload != null) pymd.runner.log.logInfo('Preparing hot reload…');
-        final setupFuture = _trySpinUpHotReload(
-          hotReload: hotReload,
-          transport: transport,
-          // The session can end while setup is still polling, for example a
-          // crash reported moments after launch. Stop polling then instead of
-          // retrying a gone app for the whole VM Service timeout.
-          cancelled: () => console.isStopped,
-          onVmServiceReady: () async {
-            final forwarder = await _publishVmService(transport: transport);
-            if (console.isStopped) {
-              await forwarder?.close();
-              throw XcrossError('Session stopped');
-            }
-            vmService = forwarder;
-          },
-        );
-        final setupOrStop = await Future.any([
-          setupFuture
-              .then<({HotReloadController? controller, String? unavailable})?>(
-                (setup) => setup,
-              ),
-          console.stopped
-              .then<({HotReloadController? controller, String? unavailable})?>(
-                (_) => null,
-              ),
-        ]);
-        if (setupOrStop != null) {
-          hotReloadSetup = setupOrStop;
-          hotReloadController = hotReloadSetup.controller;
-          console.configureHotReload(
-            controller: hotReloadController,
-            unavailable: hotReloadSetup.unavailable,
-          );
-        } else {
-          unawaited(
-            setupFuture
-                .then((setup) => setup.controller?.close())
-                .catchError((Object _) {}),
-          );
-        }
-        await consoleFuture;
-      } finally {
-        console.stop();
-        await _cleanupStep('console', () => consoleFuture);
-        // Every step is timed out: a single hung flush/close on Windows left
-        // `q` in a silent stuck state (no further input or output).
-        await _cleanupStep('vm-service', () => vmService?.close());
-        await _cleanupStep('hot-reload', () => hotReloadController?.close());
-        await _cleanupStep('gdb-kill', gdb.kill);
-        await _cleanupStep('gdb-close', gdb.close);
-      }
     } finally {
       await deviceLog?.close();
     }
+  }
+
+  Future<void> _holdDebugSession({
+    required GdbRemoteClient gdb,
+    required DeviceTransport transport,
+    required HotReloadConfig? hotReload,
+    required DeviceLog? deviceLog,
+    Future<bool> Function()? onRestartRequested,
+  }) async {
+    HotReloadController? hotReloadController;
+    PortForwarder? vmService;
+    // Hot-reload setup is inside the same cleanup boundary as the session. A
+    // failed VM connection must not leak the attached debugger or leave a DAP
+    // launch paused forever.
+    final console = _createSessionConsole(
+      gdb: gdb,
+      hotReload: hotReload,
+      deviceLog: deviceLog,
+      onRestartRequested: onRestartRequested,
+    );
+    final consoleFuture = console.run();
+    try {
+      // Attach leaves the app paused. Install the reply listener before
+      // resuming it: debugproxy may send its first nonfatal stop packet
+      // immediately after `c`, and a broadcast stream would otherwise lose
+      // that packet and leave the Debug engine paused forever.
+      await resumeInitialDebugger(
+        console: console,
+        consoleFuture: consoleFuture,
+        resume: gdb.resume,
+      );
+      // An immediate exit or fault already ended the session: there is no
+      // app left to attach hot reload to, so skip the setup and its
+      // "Debugger attached" / "Preparing hot reload" progress lines.
+      if (console.isStopped) {
+        await consoleFuture;
+        return;
+      }
+      pymd.runner.log.logDone('Debugger attached');
+      if (hotReload != null) pymd.runner.log.logInfo('Preparing hot reload…');
+      final setupFuture = _trySpinUpHotReload(
+        hotReload: hotReload,
+        transport: transport,
+        // The session can end while setup is still polling, for example a
+        // crash reported moments after launch. Stop polling then instead of
+        // retrying a gone app for the whole VM Service timeout.
+        cancelled: () => console.isStopped,
+        onVmServiceReady: () async {
+          final forwarder = await _publishVmService(transport: transport);
+          if (console.isStopped) {
+            await forwarder?.close();
+            throw XcrossError('Session stopped');
+          }
+          vmService = forwarder;
+        },
+      );
+      final hotReloadSetup = await _awaitSetupOrStop(setupFuture, console);
+      if (hotReloadSetup != null) {
+        hotReloadController = hotReloadSetup.controller;
+        console.configureHotReload(
+          controller: hotReloadController,
+          unavailable: hotReloadSetup.unavailable,
+        );
+      }
+      await consoleFuture;
+    } finally {
+      console.stop();
+      await _cleanupStep('console', () => consoleFuture);
+      // Every step is timed out: a single hung flush/close on Windows left
+      // `q` in a silent stuck state (no further input or output).
+      await _cleanupStep('vm-service', () => vmService?.close());
+      await _cleanupStep('hot-reload', () => hotReloadController?.close());
+      await _cleanupStep('gdb-kill', gdb.kill);
+      await _cleanupStep('gdb-close', gdb.close);
+    }
+  }
+
+  SessionConsole _createSessionConsole({
+    required GdbRemoteClient gdb,
+    required HotReloadConfig? hotReload,
+    required DeviceLog? deviceLog,
+    Future<bool> Function()? onRestartRequested,
+  }) {
+    return SessionConsole(
+      console: pymd.console,
+      log: pymd.runner.log,
+      keyboardInput: pymd.runner.sharedStdin,
+      allowPipedKeyboard: _isDap,
+      gdb: gdb,
+      hotReload: null,
+      hotReloadUnavailable: hotReload == null
+          ? null
+          : 'hot reload is still preparing; wait for "Hot reload ready".',
+      onRestartRequested: onRestartRequested,
+      crashReason: () => deviceLog?.crashReason,
+      recentDeviceLines: () => deviceLog?.tailLines ?? const [],
+    );
+  }
+
+  Future<_HotReloadSetup?> _awaitSetupOrStop(
+    Future<_HotReloadSetup> setupFuture,
+    SessionConsole console,
+  ) async {
+    final setupOrStop = await Future.any([
+      setupFuture.then<_HotReloadSetup?>((setup) => setup),
+      console.stopped.then<_HotReloadSetup?>((_) => null),
+    ]);
+    if (setupOrStop == null) {
+      unawaited(
+        setupFuture
+            .then((setup) => setup.controller?.close())
+            .catchError((Object _) {}),
+      );
+    }
+    return setupOrStop;
   }
 
   /// Do not leave the console's GDB subscription and SIGINT listener alive
@@ -434,8 +468,7 @@ final class CoreDeviceLauncher {
   /// Returns the reason alongside a null controller instead of swallowing it:
   /// the session stays alive without hot reload, and `r`/`R` have to be able
   /// to say why they do nothing.
-  Future<({HotReloadController? controller, String? unavailable})>
-  _trySpinUpHotReload({
+  Future<_HotReloadSetup> _trySpinUpHotReload({
     required HotReloadConfig? hotReload,
     required DeviceTransport transport,
     Future<void> Function()? onVmServiceReady,
