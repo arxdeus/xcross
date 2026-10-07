@@ -4,18 +4,8 @@
 include: package:arxdeus_lints/analysis_options/recommended.yaml
 
 analyzer:
-  # Rules the preset enables that the codebase does not satisfy yet. They stay
-  # visible as `info` so they can be burned down, without failing CI under
-  # `dart analyze --fatal-warnings`. Remove an entry once its rule is clean.
   errors:
     avoid_classes_with_only_static_members: ignore
-    async_return_with_no_await: info
-    avoid_catches_without_on_clauses: info
-    avoid_equals_and_hash_code_on_mutable_classes: info
-    avoid_print: info
-    close_sinks: info
-    no_dynamic_casts: info
-    unreachable_from_main: info
   exclude:
     [
       tools/**,
