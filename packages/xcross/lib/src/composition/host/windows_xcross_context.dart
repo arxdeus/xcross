@@ -50,11 +50,14 @@ import 'package:xcross/src/shared/flutter/hot_reload/vm_service_output.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_compiler.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_install_identity.dart';
 import 'package:xcross/src/shared/flutter/vm_service_connector.dart';
+import 'package:xcross/src/shared/runtime/flutter_feature_services.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
+import 'package:xcross/src/shared/setup/host_operations.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
 import 'package:xcross/src/shared/tool/tool_alias_operation.dart';
 import 'package:xcross/src/shared/tools/swiftpm_gate_operation.dart';
@@ -185,18 +188,7 @@ final class WindowsXcrossHostContext
     final localHttp = LocalHttp(host, createClient: createLocalHttpClient);
     final vmConnector = LocalVmServiceConnector(localHttp);
     final resolvedExecutable = config.roots?.xcross ?? executable;
-    final pymd = Pymd(
-      localHttp: localHttp,
-      console: deviceConsole,
-      runner,
-      privileges: WindowsPrivileges(runner),
-      hostPolicy: WindowsDeviceHost(runner),
-      hostname: hostname,
-      executable: resolvedExecutable,
-      pairingHome:
-          host.environment.lookup(runner.effectiveEnvironment, 'HOME') ??
-          host.environment.lookup(runner.effectiveEnvironment, 'USERPROFILE'),
-    );
+    final pymd = _createPymd(runner, localHttp, resolvedExecutable);
     final operations = windowsHostOperations(
       host,
       runner,
@@ -205,7 +197,59 @@ final class WindowsXcrossHostContext
       WindowsPrivileges(runner),
       setupConsole,
     );
-    final installer = SdkInstall(
+    final installer = _createSdkInstall(runner, repository, operations);
+    final resolution = flutterResolution(config);
+    final flutter = _createFlutterServices(
+      runner: runner,
+      repository: repository,
+      toolchain: toolchain,
+      localHttp: localHttp,
+      installer: installer,
+      operations: operations,
+      resolution: resolution,
+    );
+    final runtime = _createRuntime(
+      config: config,
+      runner: runner,
+      repository: repository,
+      toolchain: toolchain,
+      flutter: flutter,
+      resolvedExecutable: resolvedExecutable,
+      operations: operations,
+      localHttp: localHttp,
+      vmConnector: vmConnector,
+      installer: installer,
+    );
+    return XcrossApplication(
+      runtime: runtime,
+      pymd: pymd,
+      sockets: deviceSockets,
+    );
+  }
+
+  Pymd _createPymd(
+    ProcessRunner<WindowsHostInterface> runner,
+    LocalHttp<WindowsHostInterface> localHttp,
+    String resolvedExecutable,
+  ) {
+    return Pymd(
+      localHttp: localHttp,
+      console: deviceConsole,
+      runner,
+      privileges: WindowsPrivileges(runner),
+      hostPolicy: WindowsDeviceHost(runner),
+      hostname: hostname,
+      executable: resolvedExecutable,
+      pairingHome: pairingHome(runner),
+    );
+  }
+
+  SdkInstall<WindowsHostInterface> _createSdkInstall(
+    ProcessRunner<WindowsHostInterface> runner,
+    DarwinSdkRepository<WindowsHostInterface> repository,
+    HostOperations operations,
+  ) {
+    return SdkInstall(
       runner,
       repository,
       links: MaterializedSdkArchiveLinks(host),
@@ -216,15 +260,17 @@ final class WindowsXcrossHostContext
         const SimulatorSdkMetadataPlatform<WindowsHostInterface>(),
       ],
     );
-    final resolution = FlutterResolutionConfiguration(
-      executable: executable,
-      launcher: config.roots?.xcross,
-      xcrun: config.tool('xcrun'),
-      root: config.roots?.flutterSdk,
-      environmentRoot: config.config?.environment['FLUTTER_ROOT'] as String?,
-      tool: config.tool('flutter'),
-      declarative: config.isConfigured,
-    );
+  }
+
+  WindowsFlutterFeatureServices<WindowsHostInterface> _createFlutterServices({
+    required ProcessRunner<WindowsHostInterface> runner,
+    required DarwinSdkRepository<WindowsHostInterface> repository,
+    required DarwinToolchainResolver<WindowsHostInterface> toolchain,
+    required LocalHttp<WindowsHostInterface> localHttp,
+    required SdkInstall<WindowsHostInterface> installer,
+    required HostOperations operations,
+    required FlutterResolutionConfiguration resolution,
+  }) {
     final artifactFileSystem = WindowsSwiftPmArtifactFileSystem(host, runner);
     final publicationCoordinator = SwiftPmPublicationCoordinator(
       locks: FileSwiftPmPublicationLockProvider(artifactFileSystem),
@@ -247,26 +293,11 @@ final class WindowsXcrossHostContext
       runner,
       fileSystem: artifactFileSystem,
     );
-    late final nativeLinks = WindowsSwiftPmNativeLinkApi(
-      DynamicLibrary.open('kernel32.dll'),
-    );
-    final checkout = assembleSwiftPmCheckout<WindowsHostInterface>(
-      parts: checkoutParts,
-      gitPolicy: const WindowsSwiftPmCheckoutGitPolicy(),
-      fallback: WindowsSwiftPmCheckoutFallback(
-        runner: runner,
-        fileSystem: artifactFileSystem,
-        filesystem: checkoutParts.filesystem,
-        stamps: checkoutParts.stamps,
-        graph: checkoutParts.graph,
-      ),
-      attributes: checkoutAttributes,
-      linkCreator: WindowsSwiftPmCheckoutLinkCreator(
-        fileSystem: artifactFileSystem,
-        createLink: (link, target, flags) =>
-            nativeLinks.createLink(link, target, flags),
-        lastError: () => nativeLinks.lastError(),
-      ),
+    final checkout = _assembleCheckout(
+      runner,
+      checkoutParts,
+      artifactFileSystem,
+      checkoutAttributes,
     );
     final checkoutManifestNormalizer =
         SwiftPmCheckoutManifestNormalizer<WindowsHostInterface>(
@@ -278,7 +309,7 @@ final class WindowsXcrossHostContext
             sourceFallback: checkoutParts.sourceFallback,
           ),
         );
-    final flutter = WindowsFlutterFeatureServices<WindowsHostInterface>(
+    return WindowsFlutterFeatureServices<WindowsHostInterface>(
       checkout: checkout,
       checkoutAttributes: checkoutAttributes,
       checkoutManifestNormalizer: checkoutManifestNormalizer,
@@ -303,7 +334,50 @@ final class WindowsXcrossHostContext
       ),
       resolution: resolution,
     );
-    final runtime = XcrossRuntime(
+  }
+
+  SwiftPmCheckout<WindowsHostInterface> _assembleCheckout(
+    ProcessRunner<WindowsHostInterface> runner,
+    SwiftPmCheckoutAssemblyParts<WindowsHostInterface> checkoutParts,
+    WindowsSwiftPmArtifactFileSystem artifactFileSystem,
+    WindowsSwiftPmCheckoutAttributes checkoutAttributes,
+  ) {
+    late final nativeLinks = WindowsSwiftPmNativeLinkApi(
+      DynamicLibrary.open('kernel32.dll'),
+    );
+    return assembleSwiftPmCheckout<WindowsHostInterface>(
+      parts: checkoutParts,
+      gitPolicy: const WindowsSwiftPmCheckoutGitPolicy(),
+      fallback: WindowsSwiftPmCheckoutFallback(
+        runner: runner,
+        fileSystem: artifactFileSystem,
+        filesystem: checkoutParts.filesystem,
+        stamps: checkoutParts.stamps,
+        graph: checkoutParts.graph,
+      ),
+      attributes: checkoutAttributes,
+      linkCreator: WindowsSwiftPmCheckoutLinkCreator(
+        fileSystem: artifactFileSystem,
+        createLink: (link, target, flags) =>
+            nativeLinks.createLink(link, target, flags),
+        lastError: () => nativeLinks.lastError(),
+      ),
+    );
+  }
+
+  XcrossRuntime<WindowsHostInterface> _createRuntime({
+    required XcrossRuntimeConfig config,
+    required ProcessRunner<WindowsHostInterface> runner,
+    required DarwinSdkRepository<WindowsHostInterface> repository,
+    required DarwinToolchainResolver<WindowsHostInterface> toolchain,
+    required FlutterFeatureServices<WindowsHostInterface> flutter,
+    required String resolvedExecutable,
+    required HostOperations operations,
+    required LocalHttp<WindowsHostInterface> localHttp,
+    required VmServiceConnector vmConnector,
+    required SdkInstall<WindowsHostInterface> installer,
+  }) {
+    return XcrossRuntime(
       commandPrompt: commandPrompt,
       setupConsole: setupConsole,
       releaseLookup: releaseLookup,
@@ -338,11 +412,6 @@ final class WindowsXcrossHostContext
       sdkInstall: installer,
       configPolicy: configPolicy,
       createNativeLibraryLoader: createWindowsNativeLibraryLoader,
-    );
-    return XcrossApplication(
-      runtime: runtime,
-      pymd: pymd,
-      sockets: deviceSockets,
     );
   }
 }

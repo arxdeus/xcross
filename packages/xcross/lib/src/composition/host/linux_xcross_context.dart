@@ -49,11 +49,14 @@ import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/hot_reload/vm_service_output.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_compiler.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_install_identity.dart';
 import 'package:xcross/src/shared/flutter/vm_service_connector.dart';
+import 'package:xcross/src/shared/runtime/flutter_feature_services.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
+import 'package:xcross/src/shared/setup/host_operations.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
 import 'package:xcross/src/shared/tool/tool_alias_operation.dart';
 import 'package:xcross/src/shared/tools/swiftpm_gate_operation.dart';
@@ -184,18 +187,7 @@ final class LinuxXcrossHostContext
     final localHttp = LocalHttp(host, createClient: createLocalHttpClient);
     final vmConnector = LocalVmServiceConnector(localHttp);
     final resolvedExecutable = config.roots?.xcross ?? executable;
-    final pymd = Pymd(
-      localHttp: localHttp,
-      console: deviceConsole,
-      runner,
-      privileges: PosixPrivileges(runner),
-      hostPolicy: LinuxDeviceHost(runner),
-      hostname: hostname,
-      executable: resolvedExecutable,
-      pairingHome:
-          host.environment.lookup(runner.effectiveEnvironment, 'HOME') ??
-          host.environment.lookup(runner.effectiveEnvironment, 'USERPROFILE'),
-    );
+    final pymd = _createPymd(runner, localHttp, resolvedExecutable);
     final operations = linuxHostOperations(
       host,
       runner,
@@ -204,7 +196,58 @@ final class LinuxXcrossHostContext
       PosixPrivileges(runner),
       setupConsole,
     );
-    final installer = SdkInstall(
+    final installer = _createSdkInstall(runner, repository, operations);
+    final resolution = flutterResolution(config);
+    final flutter = _createFlutterServices(
+      runner: runner,
+      repository: repository,
+      toolchain: toolchain,
+      localHttp: localHttp,
+      installer: installer,
+      resolution: resolution,
+    );
+    final runtime = _createRuntime(
+      config: config,
+      runner: runner,
+      repository: repository,
+      toolchain: toolchain,
+      flutter: flutter,
+      resolvedExecutable: resolvedExecutable,
+      operations: operations,
+      localHttp: localHttp,
+      vmConnector: vmConnector,
+      installer: installer,
+    );
+    return XcrossApplication(
+      runtime: runtime,
+      pymd: pymd,
+      sockets: deviceSockets,
+    );
+  }
+
+  Pymd _createPymd(
+    ProcessRunner<LinuxHostInterface> runner,
+    LocalHttp<LinuxHostInterface> localHttp,
+    String resolvedExecutable,
+  ) {
+    return Pymd(
+      localHttp: localHttp,
+      console: deviceConsole,
+      runner,
+      privileges: PosixPrivileges(runner),
+      hostPolicy: LinuxDeviceHost(runner),
+      hostname: hostname,
+      executable: resolvedExecutable,
+      pairingHome: pairingHome(runner),
+    );
+  }
+
+  SdkInstall<LinuxHostInterface> _createSdkInstall(
+    ProcessRunner<LinuxHostInterface> runner,
+    DarwinSdkRepository<LinuxHostInterface> repository,
+    HostOperations operations,
+  ) {
+    return SdkInstall(
       runner,
       repository,
       links: PreservedSdkArchiveLinks(host),
@@ -215,15 +258,16 @@ final class LinuxXcrossHostContext
         const SimulatorSdkMetadataPlatform<LinuxHostInterface>(),
       ],
     );
-    final resolution = FlutterResolutionConfiguration(
-      executable: executable,
-      launcher: config.roots?.xcross,
-      xcrun: config.tool('xcrun'),
-      root: config.roots?.flutterSdk,
-      environmentRoot: config.config?.environment['FLUTTER_ROOT'] as String?,
-      tool: config.tool('flutter'),
-      declarative: config.isConfigured,
-    );
+  }
+
+  LinuxFlutterFeatureServices<LinuxHostInterface> _createFlutterServices({
+    required ProcessRunner<LinuxHostInterface> runner,
+    required DarwinSdkRepository<LinuxHostInterface> repository,
+    required DarwinToolchainResolver<LinuxHostInterface> toolchain,
+    required LocalHttp<LinuxHostInterface> localHttp,
+    required SdkInstall<LinuxHostInterface> installer,
+    required FlutterResolutionConfiguration resolution,
+  }) {
     final artifactFileSystem = PosixSwiftPmArtifactFileSystem(host);
     final publicationCoordinator = SwiftPmPublicationCoordinator(
       locks: FileSwiftPmPublicationLockProvider(artifactFileSystem),
@@ -239,16 +283,10 @@ final class LinuxXcrossHostContext
           fileSystem: artifactFileSystem,
         );
     const checkoutAttributes = PosixSwiftPmCheckoutAttributes();
-    final checkout = assembleSwiftPmCheckout<LinuxHostInterface>(
-      parts: checkoutParts,
-      gitPolicy: const PosixSwiftPmCheckoutGitPolicy(),
-      fallback: PosixSwiftPmCheckoutFallback(
-        fileSystem: artifactFileSystem,
-        filesystem: checkoutParts.filesystem,
-        graph: checkoutParts.graph,
-      ),
-      attributes: checkoutAttributes,
-      linkCreator: PosixSwiftPmCheckoutLinkCreator(artifactFileSystem),
+    final checkout = _assembleCheckout(
+      checkoutParts,
+      artifactFileSystem,
+      checkoutAttributes,
     );
     final checkoutManifestNormalizer =
         SwiftPmCheckoutManifestNormalizer<LinuxHostInterface>(
@@ -260,7 +298,7 @@ final class LinuxXcrossHostContext
             sourceFallback: checkoutParts.sourceFallback,
           ),
         );
-    final flutter = LinuxFlutterFeatureServices<LinuxHostInterface>(
+    return LinuxFlutterFeatureServices<LinuxHostInterface>(
       checkout: checkout,
       checkoutAttributes: checkoutAttributes,
       checkoutManifestNormalizer: checkoutManifestNormalizer,
@@ -282,7 +320,39 @@ final class LinuxXcrossHostContext
       ),
       resolution: resolution,
     );
-    final runtime = XcrossRuntime(
+  }
+
+  SwiftPmCheckout<LinuxHostInterface> _assembleCheckout(
+    SwiftPmCheckoutAssemblyParts<LinuxHostInterface> checkoutParts,
+    PosixSwiftPmArtifactFileSystem artifactFileSystem,
+    PosixSwiftPmCheckoutAttributes checkoutAttributes,
+  ) {
+    return assembleSwiftPmCheckout<LinuxHostInterface>(
+      parts: checkoutParts,
+      gitPolicy: const PosixSwiftPmCheckoutGitPolicy(),
+      fallback: PosixSwiftPmCheckoutFallback(
+        fileSystem: artifactFileSystem,
+        filesystem: checkoutParts.filesystem,
+        graph: checkoutParts.graph,
+      ),
+      attributes: checkoutAttributes,
+      linkCreator: PosixSwiftPmCheckoutLinkCreator(artifactFileSystem),
+    );
+  }
+
+  XcrossRuntime<LinuxHostInterface> _createRuntime({
+    required XcrossRuntimeConfig config,
+    required ProcessRunner<LinuxHostInterface> runner,
+    required DarwinSdkRepository<LinuxHostInterface> repository,
+    required DarwinToolchainResolver<LinuxHostInterface> toolchain,
+    required FlutterFeatureServices<LinuxHostInterface> flutter,
+    required String resolvedExecutable,
+    required HostOperations operations,
+    required LocalHttp<LinuxHostInterface> localHttp,
+    required VmServiceConnector vmConnector,
+    required SdkInstall<LinuxHostInterface> installer,
+  }) {
+    return XcrossRuntime(
       commandPrompt: commandPrompt,
       setupConsole: setupConsole,
       releaseLookup: releaseLookup,
@@ -316,11 +386,6 @@ final class LinuxXcrossHostContext
       sdkInstall: installer,
       configPolicy: configPolicy,
       createNativeLibraryLoader: createLinuxNativeLibraryLoader,
-    );
-    return XcrossApplication(
-      runtime: runtime,
-      pymd: pymd,
-      sockets: deviceSockets,
     );
   }
 }

@@ -24,6 +24,7 @@ import 'package:xcross/src/shared/config/config_host.dart';
 import 'package:xcross/src/shared/config/config_store.dart';
 import 'package:xcross/src/shared/config/runtime_config.dart';
 import 'package:xcross/src/shared/device/signing_http_client_factory.dart';
+import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/hot_reload/vm_service_output.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/gate_evidence.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_compiler.dart';
@@ -145,6 +146,24 @@ abstract class XcrossHostContext<T extends PlatformHostInterface>
     ProcessRunner<T> runner,
     DarwinSdkRepository<T> repository,
     DarwinToolchainResolver<T> toolchain,
+  );
+
+  @protected
+  String? pairingHome(ProcessRunner<T> runner) =>
+      host.environment.lookup(runner.effectiveEnvironment, 'HOME') ??
+      host.environment.lookup(runner.effectiveEnvironment, 'USERPROFILE');
+
+  @protected
+  FlutterResolutionConfiguration flutterResolution(
+    XcrossRuntimeConfig config,
+  ) => FlutterResolutionConfiguration(
+    executable: executable,
+    launcher: config.roots?.xcross,
+    xcrun: config.tool('xcrun'),
+    root: config.roots?.flutterSdk,
+    environmentRoot: config.config?.environment['FLUTTER_ROOT'] as String?,
+    tool: config.tool('flutter'),
+    declarative: config.isConfigured,
   );
 
   @override
