@@ -97,81 +97,89 @@ final class DarwinSdkRepository<T extends PlatformHostInterface> {
 
   /// A complete bundle has Swift artifact metadata and a usable iPhoneOS SDK.
   bool isValidBundle(String candidate) {
-    const metadata = ['info.json', 'swift-sdk.json', 'toolset.json'];
-    if (!metadata.every(
-      (n) => host.fileSystem
-          .file(host.paths.context.join(candidate, n))
-          .existsSync(),
-    )) {
-      return false;
-    }
+    if (!_hasArtifactMetadata(candidate)) return false;
 
     try {
       final sdk = _firstSdk(_sdksDir(candidate, 'iPhoneOS'), 'iPhoneOS');
       if (sdk == null) return false;
+      if (!_hasDeviceSlice(candidate, sdk)) return false;
 
-      final canonicalLayout = _canonicalLayout(candidate);
-      final swiftResources = canonicalLayout.parent;
-      if (!host.fileSystem
-              .directory(
-                host.paths.context.join(sdk, 'System', 'Library', 'Frameworks'),
-              )
-              .existsSync() ||
-          !swiftResources.existsSync() ||
-          !_hasContent(canonicalLayout) ||
-          !_hasContent(_runtimeLayout(candidate))) {
+      final hasSimulatorPlatform = _hasSimulatorPlatform(candidate);
+      if (hasSimulatorPlatform && !isValidSimulatorSlice(candidate)) {
         return false;
       }
-
-      final simulatorPlatform = host.paths.context.join(
-        candidate,
-        'Developer',
-        'Platforms',
-        'iPhoneSimulator.platform',
-      );
-      if ((host.fileSystem.directory(simulatorPlatform).existsSync() ||
-              host.fileSystem.file(simulatorPlatform).existsSync() ||
-              host.fileSystem.link(simulatorPlatform).existsSync()) &&
-          !isValidSimulatorSlice(candidate)) {
-        return false;
-      }
-      final metadata = jsonDecode(
-        host.fileSystem
-            .file(host.paths.context.join(candidate, 'swift-sdk.json'))
-            .readAsStringSync(),
-      );
-      final targets = metadata is Map ? metadata['targetTriples'] : null;
-      if (targets is Map) {
-        for (final target in targets.entries) {
-          final triple = target.key;
-          if (triple is! String ||
-              !triple.contains('-apple-ios') ||
-              !triple.endsWith('-simulator')) {
-            continue;
-          }
-          if (!isValidSimulatorSlice(candidate)) return false;
-          final properties = target.value;
-          if (properties is Map &&
-              !isValidSimulatorSlice(
-                candidate,
-                sdkRootPath: properties['sdkRootPath'] is String
-                    ? properties['sdkRootPath'] as String
-                    : null,
-                swiftResourcesPath: properties['swiftResourcesPath'] is String
-                    ? properties['swiftResourcesPath'] as String
-                    : null,
-              )) {
-            return false;
-          }
-        }
-      }
-      return true;
+      return _declaredSimulatorSlicesAreValid(candidate);
     } on FileSystemException {
       return false;
     } on FormatException {
       return false;
     }
   }
+
+  bool _hasArtifactMetadata(String candidate) {
+    const metadata = ['info.json', 'swift-sdk.json', 'toolset.json'];
+    return metadata.every(
+      (n) => host.fileSystem
+          .file(host.paths.context.join(candidate, n))
+          .existsSync(),
+    );
+  }
+
+  bool _hasDeviceSlice(String candidate, String sdk) {
+    final canonicalLayout = _canonicalLayout(candidate);
+    final swiftResources = canonicalLayout.parent;
+    final frameworks = host.fileSystem.directory(
+      host.paths.context.join(sdk, 'System', 'Library', 'Frameworks'),
+    );
+    return frameworks.existsSync() &&
+        swiftResources.existsSync() &&
+        _hasContent(canonicalLayout) &&
+        _hasContent(_runtimeLayout(candidate));
+  }
+
+  bool _hasSimulatorPlatform(String candidate) {
+    final simulatorPlatform = host.paths.context.join(
+      candidate,
+      'Developer',
+      'Platforms',
+      'iPhoneSimulator.platform',
+    );
+    return host.fileSystem.directory(simulatorPlatform).existsSync() ||
+        host.fileSystem.file(simulatorPlatform).existsSync() ||
+        host.fileSystem.link(simulatorPlatform).existsSync();
+  }
+
+  bool _declaredSimulatorSlicesAreValid(String candidate) {
+    final metadata = jsonDecode(
+      host.fileSystem
+          .file(host.paths.context.join(candidate, 'swift-sdk.json'))
+          .readAsStringSync(),
+    );
+    final targets = metadata is Map ? metadata['targetTriples'] : null;
+    if (targets is! Map) return true;
+    for (final target in targets.entries) {
+      if (!_isSimulatorTriple(target.key)) continue;
+      if (!isValidSimulatorSlice(candidate)) return false;
+      final properties = target.value;
+      if (properties is! Map) continue;
+      final sdkRootPath = properties['sdkRootPath'];
+      final swiftResourcesPath = properties['swiftResourcesPath'];
+      final declaredSliceIsValid = isValidSimulatorSlice(
+        candidate,
+        sdkRootPath: sdkRootPath is String ? sdkRootPath : null,
+        swiftResourcesPath: swiftResourcesPath is String
+            ? swiftResourcesPath
+            : null,
+      );
+      if (!declaredSliceIsValid) return false;
+    }
+    return true;
+  }
+
+  bool _isSimulatorTriple(Object? triple) =>
+      triple is String &&
+      triple.contains('-apple-ios') &&
+      triple.endsWith('-simulator');
 
   bool isValidSimulatorSlice(
     String candidate, {
