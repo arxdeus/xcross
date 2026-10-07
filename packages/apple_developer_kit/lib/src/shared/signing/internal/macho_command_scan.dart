@@ -125,33 +125,15 @@ final class MachOCommandScan {
       '$name file range',
     );
     if (name == textSegmentName) {
-      if (textCommand != null) {
-        machoFail(_path, textSegmentName, 'segment is duplicated');
-      }
-      textCommand = command;
-      textVmSize = vmSize;
-      if (fileOffset != 0 || _header.commandsEnd > segmentEnd) {
-        machoFail(
-          _path,
-          '__TEXT file range',
-          'does not contain the Mach-O header',
-        );
-      }
+      _recordTextSegment(command, vmSize, fileOffset, segmentEnd);
     } else if (name == linkeditSegmentName) {
-      if (linkeditCommand != null) {
-        machoFail(_path, linkeditSegmentName, 'segment is duplicated');
-      }
-      if (fileOffset % machoPageSize != 0) {
-        machoFail(_path, '__LINKEDIT file offset', 'must be 4096-byte aligned');
-      }
-      linkeditCommand = command;
-      linkeditFileOffset = fileOffset;
-      linkeditFileSize = fileSize;
-      linkeditVmSize = vmSize;
+      _recordLinkeditSegment(command, vmSize, fileOffset, fileSize);
     }
     // The signature is appended inside __LINKEDIT, so every other segment has
     // to end before it.
-    if (name != linkeditSegmentName && segmentEnd > greatestNonLinkeditEnd) {
+    final extendsNonLinkeditEnd =
+        name != linkeditSegmentName && segmentEnd > greatestNonLinkeditEnd;
+    if (extendsNonLinkeditEnd) {
       greatestNonLinkeditEnd = segmentEnd;
     }
     _readSections(
@@ -161,6 +143,45 @@ final class MachOCommandScan {
       segmentFileOffset: fileOffset,
       segmentEnd: segmentEnd,
     );
+  }
+
+  void _recordTextSegment(
+    int command,
+    int vmSize,
+    int fileOffset,
+    int segmentEnd,
+  ) {
+    if (textCommand != null) {
+      machoFail(_path, textSegmentName, 'segment is duplicated');
+    }
+    textCommand = command;
+    textVmSize = vmSize;
+    final containsHeader = fileOffset == 0 && _header.commandsEnd <= segmentEnd;
+    if (!containsHeader) {
+      machoFail(
+        _path,
+        '__TEXT file range',
+        'does not contain the Mach-O header',
+      );
+    }
+  }
+
+  void _recordLinkeditSegment(
+    int command,
+    int vmSize,
+    int fileOffset,
+    int fileSize,
+  ) {
+    if (linkeditCommand != null) {
+      machoFail(_path, linkeditSegmentName, 'segment is duplicated');
+    }
+    if (fileOffset % machoPageSize != 0) {
+      machoFail(_path, '__LINKEDIT file offset', 'must be 4096-byte aligned');
+    }
+    linkeditCommand = command;
+    linkeditFileOffset = fileOffset;
+    linkeditFileSize = fileSize;
+    linkeditVmSize = vmSize;
   }
 
   void _readSections({
@@ -202,9 +223,11 @@ final class MachOCommandScan {
             'is outside its segment',
           );
         }
-        if (sectionOffset > 0 &&
-            (firstFileSectionOffset == null ||
-                sectionOffset < firstFileSectionOffset!)) {
+        final firstSoFar = firstFileSectionOffset;
+        final isEarliestSection =
+            sectionOffset > 0 &&
+            (firstSoFar == null || sectionOffset < firstSoFar);
+        if (isEarliestSection) {
           firstFileSectionOffset = sectionOffset;
         }
       }
@@ -274,8 +297,10 @@ final class MachOCommandScan {
     );
     // The signature is appended at the very end of the file, which is only
     // safe when __LINKEDIT is the last thing in it.
-    if (linkeditEnd != bytes.length ||
-        greatestNonLinkeditEnd > linkeditFileOffset) {
+    final linkeditIsTerminal =
+        linkeditEnd == bytes.length &&
+        greatestNonLinkeditEnd <= linkeditFileOffset;
+    if (!linkeditIsTerminal) {
       machoFail(path, '__LINKEDIT file range', 'segment is not terminal');
     }
     final firstSection = firstFileSectionOffset ?? textSectionOffset!;
@@ -286,8 +311,10 @@ final class MachOCommandScan {
         'overlaps file-backed section data',
       );
     }
-    if (signatureCommand == null &&
-        firstSection - header.commandsEnd < CodeSignatureCommand.size) {
+    final commandSlack = firstSection - header.commandsEnd;
+    final lacksSignatureSlack =
+        signatureCommand == null && commandSlack < CodeSignatureCommand.size;
+    if (lacksSignatureSlack) {
       machoFail(
         path,
         'load-command slack',
