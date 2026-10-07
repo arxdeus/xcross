@@ -2,6 +2,7 @@
 
 - **Breaking:** split `xcross clean` into per-area commands. `xcross flutter clean` clears the project's native asset and SwiftPM build caches (what `xcross clean` used to do, now for both device and simulator targets). `xcross compose clean` clears the Compose project's xcross build output and Kotlin/Native caches. `xcross sdk clean` removes the installed Darwin Swift SDK along with leftover backup and staging copies. The top-level `xcross clean` is gone.
 - **Breaking:** rename `xcross auth clear` to `xcross auth clean`. The old spelling now fails with a pointer to the new one.
+- Stop reusing Flutter SDK engine artifacts left over from an older engine. After a Flutter upgrade on Linux or Windows, `flutter precache --ios` artifacts are never refreshed, so xcross shipped a stale `Flutter.framework` that rejected the app kernel with "Invalid SDK hash" and showed a black screen. xcross now checks the framework's `FlutterEngine` revision (and the `ios-sdk` / `flutter_sdk` stamps), fetches matching artifacts into its own cache instead, and warns with the command to refresh the SDK copy. A Dart SDK from another engine is flagged too. ([#93](https://github.com/arxdeus/xcross/issues/93))
 
 ## 1.5.1
 
