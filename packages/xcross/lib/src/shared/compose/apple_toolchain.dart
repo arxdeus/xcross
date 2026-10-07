@@ -20,6 +20,11 @@ final class AppleToolchainStager<T extends PlatformHostInterface> {
     final appleToolchain = p.join(stagingRoot, 'apple-toolchain');
     final bin = p.join(appleToolchain, 'bin');
     runner.host.fileSystem.directory(bin).createSync(recursive: true);
+    _stageCompilerRt(appleToolchain, toolchain);
+    await _stageToolShims(appleToolchain, bin, toolchain);
+  }
+
+  void _stageCompilerRt(String appleToolchain, ComposeToolchain<T> toolchain) {
     // AppleConfigurablesImpl.getAbsoluteTargetToolchain() resolves to
     // "$appleToolchain/usr", and MacOSBasedLinker.compilerRtDir does
     // runner.host.fileSystem.file("$absoluteTargetToolchain/lib/clang/").getListFiles().firstOrNull()
@@ -54,12 +59,18 @@ final class AppleToolchainStager<T extends PlatformHostInterface> {
       for (final name in _compilerRtLibraryNames) {
         final source = runner.host.fileSystem.file(p.join(darwinRt, name));
         if (source.existsSync()) {
-          source.copySync(
-            runner.host.fileSystem.file(p.join(stagedDarwin.path, name)).path,
-          );
+          final stagedPath = p.join(stagedDarwin.path, name);
+          source.copySync(runner.host.fileSystem.file(stagedPath).path);
         }
       }
     }
+  }
+
+  Future<void> _stageToolShims(
+    String appleToolchain,
+    String bin,
+    ComposeToolchain<T> toolchain,
+  ) async {
     // MacOSBasedLinker's constructor also hardcodes linker/libtool/strip/
     // dsymutil as "$absoluteTargetToolchain/bin/<tool>" (i.e.
     // "$appleToolchain/usr/bin/<tool>"), bypassing any konan.properties
