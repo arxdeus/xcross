@@ -426,8 +426,8 @@ final class SwiftPmArtifactDestinationPublisher {
     var current = absoluteTarget;
     while (p.isWithin(root, current)) {
       final metadata = fileSystem.file(p.join(current, 'metadata.json'));
-      if (fileSystem.file(p.join(current, '.complete')).existsSync() &&
-          metadata.existsSync()) {
+      final completeMarker = fileSystem.file(p.join(current, '.complete'));
+      if (completeMarker.existsSync() && metadata.existsSync()) {
         try {
           final decoded = jsonDecode(await metadata.readAsString());
           if (decoded is Map<String, dynamic> &&
