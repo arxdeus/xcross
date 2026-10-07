@@ -38,7 +38,9 @@ final class PackageUriLoader {
         loader: (uri) async {
           if (!uri.isScheme('file')) return null;
           final file = fileSystem.file(paths.fromUri(uri));
-          return file.existsSync() ? file.readAsBytes() : null;
+          if (!file.existsSync()) return null;
+          final bytes = await file.readAsBytes();
+          return bytes;
         },
       );
       return PackageUris._(config, paths);

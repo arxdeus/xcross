@@ -129,7 +129,8 @@ final class FrontendServerSession {
 
   Future<String> compile() => _serialized(() async {
     await _send('compile $_entrypointUri\n');
-    return _readResultBoundary();
+    final outputPath = await _readResultBoundary();
+    return outputPath;
   });
 
   Future<String> recompile({required List<String> invalidated}) =>
@@ -146,7 +147,8 @@ final class FrontendServerSession {
     }
     sb.write('$boundaryToken\n');
     await _send(sb.toString());
-    return _readResultBoundary();
+    final outputPath = await _readResultBoundary();
+    return outputPath;
   }
 
   /// Resets the incremental compiler so the next [recompile] emits a full
@@ -191,7 +193,10 @@ final class FrontendServerSession {
         isStatic: isStatic,
       ),
     );
-    return fileSystem.file(await _readResultBoundary()).readAsBytes();
+    final bytes = await fileSystem
+        .file(await _readResultBoundary())
+        .readAsBytes();
+    return bytes;
   });
 
   Future<void> close() =>
