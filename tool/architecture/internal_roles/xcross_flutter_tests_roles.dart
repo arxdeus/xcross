@@ -90,6 +90,7 @@ const xcrossFlutterTestsRoles = <String, Map<String, String>>{
       {'FUNCTION:main': 'entrypoint'},
   'workspace:packages/xcross/test/flutter/build/ios_engine_cache_test.dart': {
     'CLASS:NativeTestLogOutput': 'internal',
+    'CLASS:RecordingTestLogOutput': 'internal',
     'FUNCTION:_downloader': 'private',
     'FUNCTION:_log': 'private',
     'FUNCTION:_unixZip': 'private',

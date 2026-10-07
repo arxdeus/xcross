@@ -536,7 +536,7 @@ void main() {
         p.join(userEngine('ios'), 'Flutter.xcframework', 'ios-arm64'),
         folded: false,
       );
-      final output = _RecordingLogOutput();
+      final output = RecordingTestLogOutput();
       for (var i = 0; i < 3; i++) {
         await IosEngineCache(
           targetPolicy: policy,
@@ -598,7 +598,7 @@ void main() {
       for (final name in ['vm_isolate_snapshot.bin', 'isolate_snapshot.bin']) {
         File(p.join(userEngine('linux-arm64'), name)).writeAsStringSync('x');
       }
-      final output = _RecordingLogOutput();
+      final output = RecordingTestLogOutput();
       final engine = IosEngineCache(
         targetPolicy: policy,
         hostTools: hostTools,
@@ -625,7 +625,7 @@ void main() {
       for (final name in ['ios-sdk', 'flutter_sdk', 'engine-dart-sdk']) {
         writeStamp(name, 'engine-hash');
       }
-      final output = _RecordingLogOutput();
+      final output = RecordingTestLogOutput();
       await IosEngineCache(
         targetPolicy: policy,
         hostTools: hostTools,
@@ -706,7 +706,8 @@ void _writeEngineFramework(
   }
 }
 
-final class _RecordingLogOutput implements LogOutput {
+@internal
+final class RecordingTestLogOutput implements LogOutput {
   final stderrLines = <String>[];
   @override
   bool get supportsAnsi => false;
