@@ -48,10 +48,14 @@ final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
 
   static const _requiredTools = ['swift', 'clang++', 'llvm-ar'];
 
-  Future<List<DoctorCheck>> host() async {
-    final checks = <DoctorCheck>[
-      DoctorCheck.success('Host', '${hostPlatform.name} is supported.'),
-    ];
+  DoctorCheck hostSupport() =>
+      DoctorCheck.success('Host', '${hostPlatform.name} is supported.');
+
+  /// Everything a Flutter build runs on the host: the Swift toolchain that
+  /// drives SwiftPM, its host environment, and the iOS compiler, linker and
+  /// SDK it builds against.
+  Future<List<DoctorCheck>> flutterToolchain() async {
+    final checks = <DoctorCheck>[hostSupport()];
     for (final tool in _requiredTools) {
       checks.add(await _tool(tool));
     }
@@ -60,8 +64,8 @@ final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
     }
     checks.addAll(await _swiftEnvironment());
     checks.add(await _iosClang());
-    checks.add(await _iosLinker());
-    checks.add(await _darwinSdk());
+    checks.add(await iosLinker());
+    checks.add(await darwinSdk());
     return checks;
   }
 
@@ -100,7 +104,7 @@ final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
     }
   }
 
-  Future<DoctorCheck> _iosLinker() async {
+  Future<DoctorCheck> iosLinker() async {
     final String path;
     try {
       path = await _resolveIosLinker();
@@ -141,17 +145,7 @@ final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
     return toolchain.resolveLd64Lld();
   }
 
-  Future<DoctorCheck> flutterTool() async {
-    final path = await runner.which('flutter');
-    return path == null
-        ? const DoctorCheck.failure(
-            'Flutter SDK',
-            'Flutter was not found on PATH.',
-          )
-        : DoctorCheck.success('Flutter SDK', 'Found', path: path);
-  }
-
-  Future<DoctorCheck> _darwinSdk() async {
+  Future<DoctorCheck> darwinSdk() async {
     final path = repository.installBundle;
     if (!repository.isValidBundle(path)) {
       return const DoctorCheck.failure(
@@ -240,7 +234,9 @@ final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
     );
   }
 
-  Future<List<DoctorCheck>> run() async {
+  /// Device tooling, signing credentials and connected devices: what `run`
+  /// needs beyond a successful build, shared by every framework.
+  Future<List<DoctorCheck>> deployment() async {
     final deviceTools = await _deviceTools();
     if (deviceTools.status == DoctorStatus.failure) return [deviceTools];
 

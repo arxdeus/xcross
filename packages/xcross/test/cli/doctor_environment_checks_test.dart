@@ -37,7 +37,7 @@ void main() {
       );
       addTearDown(fixture.dispose);
       fixture.processes.linkerVersion = 'LLD 18.1.3';
-      final checks = await fixture.checks.host();
+      final checks = await fixture.checks.flutterToolchain();
       expect(fixture.lookup.requests.take(3).map((request) => request.$1), [
         'swift',
         'clang++',
@@ -77,7 +77,7 @@ void main() {
       ],
     );
     addTearDown(fixture.dispose);
-    final checks = await fixture.checks.host();
+    final checks = await fixture.checks.flutterToolchain();
     expect(checks.map((check) => check.name), [
       'Host',
       'swift',
@@ -102,7 +102,7 @@ void main() {
       swiftEnvironmentChecks: () async => throw StateError('probe broke'),
     );
     addTearDown(fixture.dispose);
-    final check = (await fixture.checks.host()).firstWhere(
+    final check = (await fixture.checks.flutterToolchain()).firstWhere(
       (check) => check.name == 'Swift environment',
     );
     expect(check.status, DoctorStatus.failure);
@@ -119,7 +119,7 @@ void main() {
       tools: const {},
     );
     addTearDown(fixture.dispose);
-    final checks = await fixture.checks.host();
+    final checks = await fixture.checks.flutterToolchain();
     expect(
       checks.where((check) => check.status == DoctorStatus.failure),
       hasLength(6),
@@ -160,7 +160,7 @@ void main() {
         'fixture device tools missing',
       );
       fixture.fileSystem.acquisitions.clear();
-      final checks = await fixture.checks.run();
+      final checks = await fixture.checks.deployment();
       expect(checks.single.name, 'Device tools');
       expect(checks.single.message, 'Bad state: fixture device tools missing');
       expect(fixture.devices.calls, ['resolve']);
@@ -184,7 +184,7 @@ void main() {
       fixture.devices.versionFailure = StateError(
         'fixture version unavailable',
       );
-      final checks = await fixture.checks.run();
+      final checks = await fixture.checks.deployment();
       expect(checks.map((check) => check.name), [
         'Device tools',
         'Authentication',

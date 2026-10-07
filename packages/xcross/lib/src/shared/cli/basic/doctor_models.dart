@@ -21,15 +21,23 @@ final class DoctorCheck {
 }
 
 @internal
-enum DoctorProjectKind { flutter, compose }
+typedef DoctorExamine = Future<List<DoctorCheck>> Function();
+
+/// A titled group of related checks, examined together and reported under
+/// one status header the way `flutter doctor` groups its categories.
+@internal
+final class DoctorSection {
+  const DoctorSection(this.title, this.examine);
+
+  final String title;
+  final DoctorExamine examine;
+}
 
 @internal
-final class DoctorProject {
-  const DoctorProject(this.kind, this.root);
-
-  const DoctorProject.flutter(this.root) : kind = DoctorProjectKind.flutter;
-  const DoctorProject.compose(this.root) : kind = DoctorProjectKind.compose;
-
-  final DoctorProjectKind kind;
-  final String root;
+extension DoctorStatusWorst on Iterable<DoctorCheck> {
+  /// The most severe status among these checks; an empty group is healthy.
+  DoctorStatus get worst => fold(
+    DoctorStatus.success,
+    (worst, check) => check.status.index > worst.index ? check.status : worst,
+  );
 }

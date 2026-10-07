@@ -11,14 +11,20 @@ import 'package:xcross/src/shared/cli/flutter/subcommands/dap_command.dart';
 import 'package:xcross/src/shared/cli/flutter/subcommands/flutter_clean_command.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 
-/// `xcross flutter` — parent command grouping `build`, `run`, `clean`, and
-/// hidden `dap`.
+/// `xcross flutter`: parent command grouping `build`, `run`, `doctor`,
+/// `clean`, and hidden `dap`.
 @internal
 final class FlutterCommand<T extends PlatformHostInterface>
     extends Command<void> {
-  FlutterCommand(XcrossRuntime<T> runtime, Pymd pymd, DeviceSockets sockets) {
+  FlutterCommand(
+    XcrossRuntime<T> runtime,
+    Pymd pymd,
+    DeviceSockets sockets, {
+    Command<void>? doctorCommand,
+  }) {
     addSubcommand(FlutterBuildCommand(runtime));
     addSubcommand(FlutterRunCommand(runtime, pymd, sockets: sockets));
+    if (doctorCommand != null) addSubcommand(doctorCommand);
     addSubcommand(
       FlutterCleanCommand(
         log: runtime.log,
@@ -41,5 +47,6 @@ final class FlutterCommand<T extends PlatformHostInterface>
   String get name => 'flutter';
 
   @override
-  String get description => 'Build and run Flutter iOS apps without Xcode.';
+  String get description =>
+      'Build, run, and diagnose Flutter iOS apps without Xcode.';
 }

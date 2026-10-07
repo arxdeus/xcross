@@ -236,7 +236,7 @@ xcross auth --apple-id you@example.com
 
 # 2. Check build and run requirements without changing anything
 cd my_flutter_app
-xcross doctor
+xcross flutter doctor
 
 # 3. Once per device reconnect: mount DDI + start the RSD tunnel
 #    (Administrator PowerShell on Windows; root on Linux)
@@ -259,7 +259,7 @@ While the app is running:
 
 With multiple iPhones connected, an interactive terminal shows a numbered device picker; pass `-u <UDID>` for CI or piped runs.
 
-`xcross doctor` is read-only: it checks Linux or Windows host tools, the Darwin SDK, the current Flutter or Compose project, authentication, device tooling, and connected iOS versions without building, installing, or launching. Missing project or device context is a warning; failed requirements return a nonzero exit code.
+`xcross flutter doctor` and `xcross compose doctor` are read-only: each checks only what its own framework needs (the project, the toolchain its build drives, and the Darwin SDK), plus the shared deployment requirements (device tooling, authentication, and connected iOS versions), without building, installing, or launching. Results are grouped into sections, each headed by its worst status. Missing project or device context is a warning; failed requirements return a nonzero exit code.
 
 ## Run over Wi-Fi
 
@@ -336,11 +336,12 @@ Edit it with `xcross config`, inspect it with `xcross config show`, prove it wit
 | `xcross sdk clean` | Remove the installed Darwin Swift SDK and any leftover backup or staging copies |
 | `xcross auth` | Save Apple ID or App Store Connect credentials |
 | `xcross auth clean` | Delete saved credentials, sessions, and signing material |
-| `xcross doctor` | Read-only check of host, SDK, project, authentication, and device requirements for build and run |
 | `xcross tunnel` | Mount the Developer Disk Image + start the iOS 17+ RSD tunnel over USB |
 | `xcross tunnel --wifi` | Prepare wireless pairing, reconnect or advertise pair-host, mount DDI, and open the Wi-Fi RSD tunnel |
 | `xcross flutter run` | Build → sign → install → launch → hot reload |
+| `xcross flutter doctor` | Read-only check of the Flutter project, Swift/LLVM iOS toolchain, Darwin SDK, authentication, and devices |
 | `xcross compose setup` | Install Kotlin/Compose iOS cross-build helpers |
+| `xcross compose doctor` | Read-only check of the Gradle project, Kotlin/Native, JDK 21+, Gradle, swiftc, clang, Darwin SDK, `ld64.lld`, authentication, and devices |
 | `xcross compose build` | Build a KMP iOS framework or `.app` from the current Gradle project |
 | `xcross compose run -d <device>` | Build, sign, install, and launch a runnable KMP iOS app |
 | `xcross compose run --watch` | Same, plus `r` to rebuild + reinstall + relaunch (Compose has no in-place reload) |
@@ -383,6 +384,7 @@ xcross setup
 xcross sdk install /path/to/Xcode.xip
 xcross compose setup
 cd examples/compose_app        # or examples/kmp_swift_app
+xcross compose doctor
 xcross compose build
 xcross compose run -d <device>
 ```

@@ -51,7 +51,7 @@ void main() {
 
     expect(runner.commands, isNot(contains('setup')));
     expect(runner.commands, isNot(contains('config')));
-    expect(runner.commands, contains('doctor'));
+    expect(runner.commands, contains('auth'));
     await expectLater(
       runner.run(['setup']),
       throwsA(

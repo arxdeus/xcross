@@ -70,23 +70,17 @@ const xcrossSharedRoles = <String, Map<String, String>>{
   },
   'package:xcross/src/shared/cli/basic/doctor_command.dart': {
     'CLASS:DoctorCommand': 'internal',
-    'TYPE_ALIAS:DoctorExamine': 'internal',
     'TYPE_ALIAS:DoctorWriteLine': 'internal',
   },
   'package:xcross/src/shared/cli/basic/doctor_environment_checks.dart': {
     'CLASS:DoctorEnvironmentChecks': 'internal',
   },
-  'package:xcross/src/shared/cli/basic/doctor_examiner.dart': {
-    'CLASS:DoctorExaminer': 'internal',
-    'TYPE_ALIAS:DoctorChecks': 'internal',
-    'TYPE_ALIAS:DoctorDetectProject': 'internal',
-    'TYPE_ALIAS:DoctorProjectCheckRunner': 'internal',
-  },
   'package:xcross/src/shared/cli/basic/doctor_models.dart': {
     'CLASS:DoctorCheck': 'internal',
-    'CLASS:DoctorProject': 'internal',
-    'ENUM:DoctorProjectKind': 'internal',
+    'CLASS:DoctorSection': 'internal',
     'ENUM:DoctorStatus': 'internal',
+    'EXTENSION:DoctorStatusWorst': 'internal',
+    'TYPE_ALIAS:DoctorExamine': 'internal',
   },
   'package:xcross/src/shared/cli/basic/internal/clang_requirement.dart': {
     'CLASS:ClangRequirement': 'internal',
@@ -224,9 +218,6 @@ const xcrossSharedRoles = <String, Map<String, String>>{
   },
   'package:xcross/src/shared/device/signing_http_client_factory.dart': {
     'CLASS:SigningHttpClientFactory': 'internal',
-  },
-  'package:xcross/src/shared/diagnostics/doctor_project_inspector.dart': {
-    'CLASS:DoctorProjectInspector': 'internal',
   },
   'package:xcross/src/shared/errors/errors.dart': {
     'CLASS:XcrossError': 'internal',
