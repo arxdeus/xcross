@@ -86,11 +86,10 @@ final class DiagnosticChild implements Process {
   DiagnosticChild(int code, String output)
     : exitCode = Future.value(code),
       stdout = Stream.value(utf8.encode(output)) {
-    final input = StreamController<List<int>>();
-    input.stream.listen((_) {});
-    stdin = IOSink(input.sink);
+    _input.stream.listen((_) {});
   }
 
+  final _input = StreamController<List<int>>();
   @override
   final Future<int> exitCode;
   @override
@@ -98,12 +97,17 @@ final class DiagnosticChild implements Process {
   @override
   final Stream<List<int>> stderr = const Stream.empty();
   @override
-  late final IOSink stdin;
+  late final IOSink stdin = IOSink(_input.sink);
   @override
   int get pid => 101;
   @override
   bool kill([ProcessSignal signal = ProcessSignal.sigterm]) =>
       throw StateError('Unexpected child termination');
+
+  Future<void> close() async {
+    await stdin.close();
+    await _input.close();
+  }
 }
 
 void main() {
@@ -197,7 +201,7 @@ void main() {
               );
               addTearDown(() async {
                 for (final child in processes.children) {
-                  await child.stdin.close();
+                  await child.close();
                 }
               });
               final runner = ProcessRunner(
@@ -278,7 +282,7 @@ void main() {
             ),
           );
           final child = DiagnosticChild(0, '');
-          addTearDown(child.stdin.close);
+          addTearDown(child.close);
           await runner.killTree(child);
           expect(processes.terminationOverrides, [
             {host.paths.toolNameKey('TASKKILL.EXE'): '/configured/terminate'},

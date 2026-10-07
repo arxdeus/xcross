@@ -233,7 +233,7 @@ void main() {
           File('${temp.path}/file.txt'),
         );
         fail('must throw');
-      } catch (actual, actualStack) {
+      } on Object catch (actual, actualStack) {
         expect(actual, same(error));
         expect(actualStack.toString(), stack.toString());
       }

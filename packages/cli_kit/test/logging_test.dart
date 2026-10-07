@@ -157,6 +157,8 @@ void main() {
     final errBytes = <int>[];
     final outController = StreamController<List<int>>();
     final errController = StreamController<List<int>>();
+    addTearDown(outController.close);
+    addTearDown(errController.close);
     outController.stream.listen(outBytes.addAll);
     errController.stream.listen(errBytes.addAll);
     final out = IOSink(outController.sink);
@@ -207,7 +209,7 @@ void main() {
     try {
       await log.logStep<void>('Build', () => Future<void>.error(error, stack));
       fail('must throw');
-    } catch (actual, actualStack) {
+    } on Object catch (actual, actualStack) {
       expect(actual, same(error));
       expect(actualStack.toString(), stack.toString());
     }

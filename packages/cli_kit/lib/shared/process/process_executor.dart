@@ -54,13 +54,14 @@ final class ProcessExecutor<T extends PlatformHostInterface> {
     Duration? timeout,
   }) async {
     if (timeout != null) {
-      return _runWithTimeout(
+      final result = await _runWithTimeout(
         executable,
         arguments,
         workingDirectory: workingDirectory,
         environment: environment,
         timeout: timeout,
       );
+      return result;
     }
     final process = await start(
       executable,
@@ -134,7 +135,10 @@ final class ProcessExecutor<T extends PlatformHostInterface> {
     String executable,
     List<String> arguments,
   ) async {
-    if (timeout == null) return process.exitCode;
+    if (timeout == null) {
+      final code = await process.exitCode;
+      return code;
+    }
     try {
       return await process.exitCode.timeout(timeout);
     } on TimeoutException {

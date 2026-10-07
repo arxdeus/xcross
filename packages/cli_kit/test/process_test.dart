@@ -85,9 +85,7 @@ void main() {
       );
       expect(
         ProcessRunner.commandLine('echo', [r'C:\Program Files\tool', "it's"]),
-        r'echo "C:\Program Files\tool" "it'
-        "'"
-        's"',
+        r'''echo "C:\Program Files\tool" "it's"''',
       );
     });
 

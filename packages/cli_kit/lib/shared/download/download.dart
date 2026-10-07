@@ -31,7 +31,7 @@ final class Downloader {
           );
         }
         return response;
-      } catch (e) {
+      } on Object catch (e) {
         lastError = e;
         if (attempt == maxAttempts) break;
         await Future<void>.delayed(retryDelay);
@@ -109,7 +109,7 @@ final class Downloader {
   static String _labelFromUrl(String url) {
     try {
       return p.url.basename(Uri.parse(url).path);
-    } catch (_) {
+    } on FormatException {
       return url;
     }
   }

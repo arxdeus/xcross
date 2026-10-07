@@ -69,7 +69,7 @@ abstract final class ProcessHelpers {
       try {
         final result = await attempt();
         if (result != null) return result;
-      } catch (_) {}
+      } on Object catch (_) {}
       await Future<void>.delayed(interval);
     }
     return null;

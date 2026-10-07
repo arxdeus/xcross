@@ -19,5 +19,6 @@ final class TestProcessIo {
 
   Future<void> close() async {
     await Future.wait([output.close(), error.close()]);
+    await Future.wait([_output.close(), _error.close()]);
   }
 }

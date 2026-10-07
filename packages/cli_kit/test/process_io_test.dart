@@ -25,6 +25,8 @@ void main() {
         );
       final output = StreamController<List<int>>();
       final error = StreamController<List<int>>();
+      addTearDown(output.close);
+      addTearDown(error.close);
       final outputBytes = <int>[];
       final errorBytes = <int>[];
       output.stream.listen(outputBytes.addAll);
