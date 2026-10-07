@@ -63,7 +63,8 @@ final class SdkSwiftToolchain<T extends PlatformHostInterface> {
     runProcess,
   }) async {
     final sibling = await _swiftSiblingClang(locateTool ?? runner.locateTool);
-    return _identity(sibling, runProcess ?? runner.run);
+    final identity = await _identity(sibling, runProcess ?? runner.run);
+    return identity;
   }
 
   Future<Map<String, String>> _identity(

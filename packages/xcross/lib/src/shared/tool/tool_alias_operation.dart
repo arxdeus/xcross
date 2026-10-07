@@ -32,7 +32,10 @@ final class ToolAliasOperation {
     final name = runner.host.paths.context
         .basenameWithoutExtension(path)
         .toLowerCase();
-    if (name == 'plutil') return runPlutilAlias(arguments);
+    if (name == 'plutil') {
+      final plutilCode = await runPlutilAlias(arguments);
+      return plutilCode;
+    }
     final variables = environment ?? runner.effectiveEnvironment;
     final configuration = name == manifestCompilerName
         ? '$path.policy.json'
@@ -40,7 +43,7 @@ final class ToolAliasOperation {
     if (manifestCompiler != null &&
         configuration != null &&
         configuration.isNotEmpty) {
-      return runManifestCompiler(
+      final manifestCode = await runManifestCompiler(
         arguments,
         configuration,
         run: run,
@@ -49,6 +52,7 @@ final class ToolAliasOperation {
           manifestCompilerLogVariable,
         ),
       );
+      return manifestCode;
     }
     final variable = _toolAliasVariables[name];
     if (variable == null) return null;
@@ -83,7 +87,10 @@ final class ToolAliasOperation {
       final archiver = _llvmArchiverFor(target);
       if (archiver != null) {
         final converted = libtoolAsArArguments(arguments);
-        if (converted != null) return invoke(archiver, converted);
+        if (converted != null) {
+          final archiveCode = await invoke(archiver, converted);
+          return archiveCode;
+        }
       }
     }
     final prefix = runner.host.fileSystem.file('$path.args');
@@ -94,7 +101,8 @@ final class ToolAliasOperation {
             ...arguments,
           ]
         : arguments;
-    return invoke(target, forwarded);
+    final forwardedCode = await invoke(target, forwarded);
+    return forwardedCode;
   }
 
   Future<int> runManifestCompiler(
@@ -134,10 +142,11 @@ final class ToolAliasOperation {
               return;
             }
           };
-    return manifestCompiler!(
+    final compileCode = await manifestCompiler!(
       invoke,
       log: log,
     ).compile(arguments, configuration);
+    return compileCode;
   }
 
   /// `llvm-ar` next to a missing `llvm-libtool-darwin`: the official LLVM
@@ -299,7 +308,8 @@ final class ToolAliasOperation {
       runner.log.output.stderr('error: ${error.message}');
       return 1;
     }
-    return process.exitCode;
+    final processExitCode = await process.exitCode;
+    return processExitCode;
   }
 
   static const _toolAliasVariables = {

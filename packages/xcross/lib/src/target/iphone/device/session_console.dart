@@ -435,7 +435,7 @@ final class SessionConsole {
       } else {
         step.fail("Reload rejected (try 'R' to restart)");
       }
-    } catch (e) {
+    } on Object catch (e) {
       step.fail('Hot reload failed');
       log.logError('$e');
     }
@@ -448,7 +448,7 @@ final class SessionConsole {
     try {
       await controller.restart();
       step.done('Restarted');
-    } catch (e) {
+    } on Object catch (e) {
       step.fail('Hot restart failed');
       log.logError('$e');
     }

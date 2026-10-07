@@ -104,7 +104,15 @@ final class SdkBuildIdentity<T extends PlatformHostInterface> {
     Future<String> Function(String name) locate,
     Future<CapturedProcess> Function(String executable, List<String> arguments)
     run,
-  ) async => _executablePathBuildIdentity(name, await locate(name), run);
+  ) async {
+    final executablePath = await locate(name);
+    final identity = await _executablePathBuildIdentity(
+      name,
+      executablePath,
+      run,
+    );
+    return identity;
+  }
 
   Future<Map<String, Object>> _executablePathBuildIdentity(
     String name,

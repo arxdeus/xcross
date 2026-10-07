@@ -40,7 +40,7 @@ final class CrossXcrunOperation implements XcrunOperation {
             .toLowerCase(),
       ),
     );
-    return XcrunSdkCommand(
+    final sdkExitCode = await XcrunSdkCommand(
       runner: services.runner,
       output: output,
       errors: errors,
@@ -50,6 +50,7 @@ final class CrossXcrunOperation implements XcrunOperation {
       target: services.target,
       executable: executable,
     ).run(arguments);
+    return sdkExitCode;
   }
 }
 
@@ -306,7 +307,8 @@ final class XcrunSdkCommand {
       return 1;
     }
     final toolArguments = arguments.sublist(toolIndex + 1);
-    return runResolvedTool(tool, toolArguments);
+    final toolExitCode = await runResolvedTool(tool, toolArguments);
+    return toolExitCode;
   }
 
   Future<String?> _resolveTool(
@@ -328,12 +330,14 @@ final class XcrunSdkCommand {
     switch (name) {
       case 'clang':
       case 'clang++':
-        return toolchain.resolveDarwinClang(
+        final clangPath = await toolchain.resolveDarwinClang(
           sysroot ?? repository.iosSdk(sdk, target: target),
           name: name,
         );
+        return clangPath;
       case 'ld':
-        return toolchain.resolveLd64Lld();
+        final ldPath = await toolchain.resolveLd64Lld();
+        return ldPath;
       case 'ar':
         final clang = await toolchain.resolveDarwinClang(
           sysroot ?? repository.iosSdk(sdk, target: target),
@@ -343,28 +347,36 @@ final class XcrunSdkCommand {
           runner.host.paths.executableName('llvm-ar'),
         );
         if (runner.host.fileSystem.file(sibling).existsSync()) return sibling;
-        return toolchain.locateLlvmTool(
+        final llvmAr = await toolchain.locateLlvmTool(
           runner.host.paths.executableName('llvm-ar'),
         );
+        return llvmAr;
       case 'lipo':
-        return toolchain.locateLlvmTool(
+        final llvmLipo = await toolchain.locateLlvmTool(
           runner.host.paths.executableName('llvm-lipo'),
         );
+        return llvmLipo;
       case 'otool':
-        return await toolchain.locateLlvmTool(
-              runner.host.paths.executableName('llvm-otool'),
-            ) ??
-            toolchain.locateLlvmTool(
-              runner.host.paths.executableName('llvm-objdump'),
-            );
+        final llvmOtool = await toolchain.locateLlvmTool(
+          runner.host.paths.executableName('llvm-otool'),
+        );
+        if (llvmOtool != null) return llvmOtool;
+        final llvmObjdump = await toolchain.locateLlvmTool(
+          runner.host.paths.executableName('llvm-objdump'),
+        );
+        return llvmObjdump;
       case 'install_name_tool':
-        return toolchain.locateLlvmTool(
+        final llvmInstallNameTool = await toolchain.locateLlvmTool(
           runner.host.paths.executableName('llvm-install-name-tool'),
         );
+        return llvmInstallNameTool;
       case 'codesign':
         return null;
       default:
-        return toolchain.locateLlvmTool(runner.host.paths.executableName(name));
+        final llvmTool = await toolchain.locateLlvmTool(
+          runner.host.paths.executableName(name),
+        );
+        return llvmTool;
     }
   }
 
@@ -376,7 +388,8 @@ final class XcrunSdkCommand {
       arguments,
       mode: ProcessStartMode.inheritStdio,
     );
-    return child.exitCode;
+    final childExitCode = await child.exitCode;
+    return childExitCode;
   }
 }
 

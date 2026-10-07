@@ -73,7 +73,10 @@ final class SetupScriptManager {
     final uri = _remoteUri(configuredSource);
     if (uri == null) return host.fileSystem.file(configuredSource);
 
-    return _cachedScript(uri) ?? refresh();
+    final cached = _cachedScript(uri);
+    if (cached != null) return cached;
+    final refreshed = await refresh();
+    return refreshed;
   }
 
   Future<File?> refresh() async {

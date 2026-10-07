@@ -21,36 +21,35 @@ executables:
   xcrun:
 
 dependencies:
+  apple_developer_kit: ^1.0.0
   archive: ^4.3.0
   args: ^2.7.0
   async: ^2.13.1
-  completion: ^1.0.2
+  basic_utils: ^5.8.2
+  build_cli_annotations: ^2.1.1
+  cli_kit: ^1.0.0
   cli_util: ^0.6.0
+  completion: ^1.0.2
+  crypto: ^3.0.7
+  dart_mobile_device: ^1.0.0
+  darwin_sdk_kit: ^1.0.0
+  dds: ^5.4.0
+  embed_annotation: ^1.2.3
+  ffi: ^2.2.0
+  frontend_server_kit: ^1.0.0
+  http: ^1.6.0
   meta: ^1.19.0
+  open_apple_macros: ^1.0.0
   package_config: ^3.0.0
   path: ^1.9.1
-  standard_message_codec: ^0.0.1+5
-  yaml: ^3.1.4
-  web_socket_channel: ^3.0.3
-  basic_utils: ^5.8.2
-  http: ^1.6.0
-  xml: ^7.1.0
-  crypto: ^3.0.7
-  ffi: ^2.2.0
   pointycastle: ^4.0.0
   propertylistserialization: ^1.5.0
-  build_cli_annotations: ^2.1.1
   pure: ^1.0.0
-  dds: ^5.4.0
+  standard_message_codec: ^0.0.1+5
   vm_service: ^15.3.0
-
-  apple_developer_kit: ^1.0.0
-  cli_kit: ^1.0.0
-  darwin_sdk_kit: ^1.0.0
-  dart_mobile_device: ^1.0.0
-  frontend_server_kit: ^1.0.0
-  open_apple_macros: ^1.0.0
-  embed_annotation: ^1.2.3
+  web_socket_channel: ^3.0.3
+  xml: ^7.1.0
+  yaml: ^3.1.4
 
 dev_dependencies:
   analyzer: 13.3.0

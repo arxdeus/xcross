@@ -23,7 +23,9 @@ final class PackageConfigResolver {
       searchUri,
       loader: (uri) async {
         final file = fileSystem.file(paths.fromUri(uri));
-        return file.existsSync() ? file.readAsBytes() : null;
+        if (!file.existsSync()) return null;
+        final bytes = await file.readAsBytes();
+        return bytes;
       },
     );
     return result == null ? null : paths.fromUri(result.file);

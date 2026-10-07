@@ -74,10 +74,16 @@ final class GitUpdateRefResolver {
       );
     }
     if (ref.startsWith('refs/tags/')) {
-      return _resolveExact(ref, GitUpdateRefKind.tag, 'refs/tags/');
+      final tag = await _resolveExact(ref, GitUpdateRefKind.tag, 'refs/tags/');
+      return tag;
     }
     if (ref.startsWith('refs/heads/')) {
-      return _resolveExact(ref, GitUpdateRefKind.branch, 'refs/heads/');
+      final branch = await _resolveExact(
+        ref,
+        GitUpdateRefKind.branch,
+        'refs/heads/',
+      );
+      return branch;
     }
 
     final tagRef = _tagRef(ref);
