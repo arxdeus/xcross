@@ -5,6 +5,7 @@ import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
 import 'package:apple_developer_kit/shared/errors/errors.dart';
 import 'package:apple_developer_kit/shared/signing/signing_asset.dart';
 import 'package:apple_developer_kit/src/shared/signing/code_signature.dart';
+import 'package:apple_developer_kit/src/shared/signing/entitlements_encoding.dart';
 import 'package:apple_developer_kit/src/shared/signing/internal/signature_inputs.dart';
 import 'package:apple_developer_kit/src/shared/signing/macho_format.dart';
 import 'package:meta/meta.dart';
@@ -129,10 +130,9 @@ class MachOSigner {
     );
     // An existing signature area is reused whenever it is already big enough,
     // which keeps the file length unchanged.
-    final dataSize =
-        macho.signatureCommand != null && macho.signatureDataSize >= needed
-        ? macho.signatureDataSize
-        : needed;
+    final canReuseSignatureArea =
+        macho.signatureCommand != null && macho.signatureDataSize >= needed;
+    final dataSize = canReuseSignatureArea ? macho.signatureDataSize : needed;
     final finalLength = checkedAdd(
       dataOffset,
       dataSize,
@@ -152,14 +152,16 @@ class MachOSigner {
     // Pass two signs the finalized layout. RSA PKCS#1 v1.5 is deterministic in
     // length, so this must land in the space pass one reserved.
     final signature = _buildEmbeddedSignature(code, dataOffset, inputs);
-    if (signature.length > dataSize ||
+    final cmsSizeChanged =
+        signature.length > dataSize ||
         alignUp(
               signature.length,
               signatureAlignment,
               path,
               'signature length',
             ) !=
-            needed) {
+            needed;
+    if (cmsSizeChanged) {
       machoFail(path, 'CMS size', 'changed while finalizing the Mach-O layout');
     }
     final output = Uint8List(finalLength)..setRange(0, code.length, code);
@@ -262,11 +264,8 @@ class MachOSigner {
     required String path,
   }) {
     final code = Uint8List(dataOffset);
-    code.setRange(
-      0,
-      bytes.length < dataOffset ? bytes.length : dataOffset,
-      bytes,
-    );
+    final copyLength = bytes.length < dataOffset ? bytes.length : dataOffset;
+    code.setRange(0, copyLength, bytes);
     if (macho.signatureCommand != null) return code;
 
     if (macho.commandSlack < CodeSignatureCommand.size) {
@@ -470,11 +469,11 @@ class MachOSigner {
     ];
   }
 
-  static int _execSegmentFlags(SignatureInputs inputs) =>
-      (inputs.isExecutable ? csExecsegMainBinary : 0) |
-      (inputs.isExecutable && entitlementsAllowUnsigned(inputs.xmlEntitlements)
-          ? csExecsegAllowUnsigned
-          : 0);
+  static int _execSegmentFlags(SignatureInputs inputs) {
+    if (!inputs.isExecutable) return 0;
+    final allowsUnsigned = entitlementsAllowUnsigned(inputs.xmlEntitlements);
+    return csExecsegMainBinary | (allowsUnsigned ? csExecsegAllowUnsigned : 0);
+  }
 
   /// Accepts either the source bytes or a precomputed digest, never both, and
   /// falls back to an all-zero slot when the bundle has no such file.
