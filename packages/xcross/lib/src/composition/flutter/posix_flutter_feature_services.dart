@@ -75,36 +75,9 @@ abstract class PosixFlutterFeatureServices<T extends PlatformHostInterface>
 
   @override
   FlutterBuildRuntime<T> build(FlutterTargetBuildPolicy<T> policy) {
-    if (!identical(policy.target.host, runner.host) ||
-        !identical(repository.host, runner.host) ||
-        !identical(toolchain.runner, runner) ||
-        !identical(checkout.runner, runner) ||
-        !identical(checkout.fileSystem, artifactFileSystem) ||
-        !identical(checkoutManifestNormalizer.fileSystem, artifactFileSystem) ||
-        !identical(
-          checkout.repository.filesystem,
-          checkoutManifestNormalizer.filesystem,
-        )) {
-      throw ArgumentError(
-        'Flutter construction ports must share the selected host and configured services',
-      );
-    }
-    final tools = AppleToolShimResolver(
-      policy.target,
-      runner,
-      repository,
-      toolchain,
-      hostTools: hostTools,
-      executable: resolution.executable,
-      launcher: resolution.launcher,
-      xcrun: resolution.xcrun,
-      declarative: resolution.declarative,
-    );
-    final librarianResolver = SwiftPmLibrarianResolver<T>(
-      runner: runner,
-      filesystem: checkoutManifestNormalizer.filesystem,
-      lookup: DarwinSwiftPmLlvmToolLookup(toolchain),
-    );
+    _requireSharedHostServices(policy);
+    final tools = _toolShimResolver(policy);
+    final librarianResolver = _librarianResolver();
     final buildServices = hostBuildServices(policy.target);
     final foundation = prepareSwiftPmFoundation<T>(
       policy: policy,
@@ -165,4 +138,49 @@ abstract class PosixFlutterFeatureServices<T extends PlatformHostInterface>
       resolution: resolution,
     );
   }
+
+  void _requireSharedHostServices(FlutterTargetBuildPolicy<T> policy) {
+    final sharesHost =
+        identical(policy.target.host, runner.host) &&
+        identical(repository.host, runner.host);
+    final sharesRunner =
+        identical(toolchain.runner, runner) &&
+        identical(checkout.runner, runner);
+    final sharesArtifactFileSystem =
+        identical(checkout.fileSystem, artifactFileSystem) &&
+        identical(checkoutManifestNormalizer.fileSystem, artifactFileSystem);
+    final sharesCheckoutFilesystem = identical(
+      checkout.repository.filesystem,
+      checkoutManifestNormalizer.filesystem,
+    );
+    if (!sharesHost ||
+        !sharesRunner ||
+        !sharesArtifactFileSystem ||
+        !sharesCheckoutFilesystem) {
+      throw ArgumentError(
+        'Flutter construction ports must share the selected host and configured services',
+      );
+    }
+  }
+
+  AppleToolShimResolver<T> _toolShimResolver(
+    FlutterTargetBuildPolicy<T> policy,
+  ) => AppleToolShimResolver(
+    policy.target,
+    runner,
+    repository,
+    toolchain,
+    hostTools: hostTools,
+    executable: resolution.executable,
+    launcher: resolution.launcher,
+    xcrun: resolution.xcrun,
+    declarative: resolution.declarative,
+  );
+
+  SwiftPmLibrarianResolver<T> _librarianResolver() =>
+      SwiftPmLibrarianResolver<T>(
+        runner: runner,
+        filesystem: checkoutManifestNormalizer.filesystem,
+        lookup: DarwinSwiftPmLlvmToolLookup(toolchain),
+      );
 }
