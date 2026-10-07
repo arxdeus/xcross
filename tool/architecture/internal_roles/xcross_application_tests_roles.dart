@@ -21,7 +21,7 @@ const xcrossApplicationTestsRoles = <String, Map<String, String>>{
     'FUNCTION:_writeLibraries': 'private',
     'FUNCTION:main': 'entrypoint',
   },
-  'workspace:packages/xcross/test/cli/auth_clear_test.dart': {
+  'workspace:packages/xcross/test/cli/auth_clean_test.dart': {
     'FUNCTION:main': 'entrypoint',
   },
   'workspace:packages/xcross/test/cli/auth_fixture.dart': {
@@ -33,7 +33,8 @@ const xcrossApplicationTestsRoles = <String, Map<String, String>>{
     'CLASS:AuthNamespacePermissions': 'internal',
     'FUNCTION:authFixture': 'internal',
   },
-  'workspace:packages/xcross/test/cli/clean_command_test.dart': {
+  'workspace:packages/xcross/test/cli/clean_commands_test.dart': {
+    'FUNCTION:_temp': 'private',
     'FUNCTION:main': 'entrypoint',
   },
   'workspace:packages/xcross/test/cli/compose_command_args_test.dart': {

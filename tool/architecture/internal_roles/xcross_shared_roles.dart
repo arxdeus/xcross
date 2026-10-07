@@ -48,9 +48,6 @@ const xcrossSharedRoles = <String, Map<String, String>>{
     r'TOP_LEVEL_VARIABLE:_$parserForAuthArgs': 'private',
     'TOP_LEVEL_VARIABLE:_authOptionNames': 'private',
   },
-  'package:xcross/src/shared/cli/basic/clean_command.dart': {
-    'CLASS:CleanCommand': 'internal',
-  },
   'package:xcross/src/shared/cli/basic/completion_command.dart': {
     'CLASS:CompletionCommand': 'internal',
   },
@@ -106,6 +103,7 @@ const xcrossSharedRoles = <String, Map<String, String>>{
     'CLASS:SwiftSiblingClang': 'internal',
   },
   'package:xcross/src/shared/cli/basic/sdk_command.dart': {
+    'CLASS:SdkCleanCommand': 'internal',
     'CLASS:SdkCommand': 'internal',
     'CLASS:SdkInstallCommand': 'internal',
   },
@@ -130,9 +128,14 @@ const xcrossSharedRoles = <String, Map<String, String>>{
     'ENUM:DeviceConnection': 'internal',
     'FUNCTION:deviceSearchMode': 'internal',
   },
+  'package:xcross/src/shared/cli/compose/compose_clean_command.dart': {
+    'CLASS:ComposeCleanCommand': 'internal',
+  },
   'package:xcross/src/shared/cli/flutter/subcommands/dap_command.dart': {
     'CLASS:DapCommand': 'internal',
   },
+  'package:xcross/src/shared/cli/flutter/subcommands/flutter_clean_command.dart':
+      {'CLASS:FlutterCleanCommand': 'internal'},
   'package:xcross/src/shared/cli/ide/ide_command.dart': {
     'CLASS:IdeCommand': 'internal',
   },
@@ -165,6 +168,9 @@ const xcrossSharedRoles = <String, Map<String, String>>{
     r'FUNCTION:_$populateXcrossGlobalArgsParser': 'private',
     'FUNCTION:parseXcrossGlobalArgs': 'library-internal',
     r'TOP_LEVEL_VARIABLE:_$parserForXcrossGlobalArgs': 'private',
+  },
+  'package:xcross/src/shared/cli/shared/clean_paths.dart': {
+    'CLASS:CleanPaths': 'internal',
   },
   'package:xcross/src/shared/cli/shared/ipa_packager.dart': {
     'CLASS:IpaPackager': 'internal',

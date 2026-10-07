@@ -118,6 +118,7 @@ const xcrossPlatformRoles = <String, Map<String, String>>{
   },
   'package:xcross/src/composition/ios_target.dart': {
     'FUNCTION:composeBuildFeatures': 'internal',
+    'FUNCTION:composeFlutterTargetPolicies': 'internal',
     'FUNCTION:composePhysicalFeatures': 'internal',
   },
   'package:xcross/src/composition/native_runtime.dart': {
