@@ -64,6 +64,55 @@ abstract final class ObjCFastStubRewriter {
       fileInvalid(file, '__objc_selrefs size is not pointer-aligned');
     }
 
+    final (:namesByAddress, :addressesByName) = _parseMethodNames(
+      file,
+      methodNames,
+    );
+    final fastStubs = _parseFastStubs(
+      file,
+      symbolTable: file.parseSymbolTable(symtabs.single),
+      sections: sections,
+      stubs: stubs,
+      selectorRefs: selectorRefs,
+      addressesByName: addressesByName,
+    );
+
+    final readersByRef = <int, List<FastObjCStub>>{};
+    for (final stub in fastStubs) {
+      readersByRef
+          .putIfAbsent(stub.refAddress, () => <FastObjCStub>[])
+          .add(stub);
+    }
+    String? pointee(int refAddress) =>
+        namesByAddress[_chainedTarget(
+          file.data.getUint64(
+            selectorRefs.fileOffset + refAddress - selectorRefs.address,
+            Endian.little,
+          ),
+        )];
+
+    final settledRefsByName = _settledRefsByName(
+      selectorRefs,
+      readersByRef,
+      pointee,
+    );
+    final (:pointerRepairs, :instructionRepairs) = _planRepairs(
+      file,
+      selectorRefs: selectorRefs,
+      readersByRef: readersByRef,
+      settledRefsByName: settledRefsByName,
+      addressesByName: addressesByName,
+      pointee: pointee,
+    );
+    _applyRepairs(file, pointerRepairs, instructionRepairs);
+    return pointerRepairs.isNotEmpty || instructionRepairs.isNotEmpty;
+  }
+
+  static ({
+    Map<int, String> namesByAddress,
+    Map<String, List<int>> addressesByName,
+  })
+  _parseMethodNames(MachOFile file, MachOSection methodNames) {
     final namesByAddress = <int, String>{};
     final addressesByName = <String, List<int>>{};
     var start = methodNames.fileOffset;
@@ -82,77 +131,112 @@ abstract final class ObjCFastStubRewriter {
       addressesByName.putIfAbsent(name, () => <int>[]).add(address);
       start = end + 1;
     }
+    return (namesByAddress: namesByAddress, addressesByName: addressesByName);
+  }
 
-    final symbolTable = file.parseSymbolTable(symtabs.single);
+  static List<FastObjCStub> _parseFastStubs(
+    MachOFile file, {
+    required MachOSymbolTable symbolTable,
+    required List<MachOSection> sections,
+    required MachOSection stubs,
+    required MachOSection selectorRefs,
+    required Map<String, List<int>> addressesByName,
+  }) {
     final fastStubs = <FastObjCStub>[];
     for (var index = 0; index < symbolTable.symbolCount; index++) {
       final symbol = symbolTable.symbolAt(index);
-      if ((symbol.type & 0xe0) != 0 ||
-          (symbol.type & 0x0e) != _nSect ||
-          (symbol.type & _nExt) != 0 ||
-          symbol.sectionIndex == 0 ||
-          symbol.sectionIndex > sections.length ||
-          !identical(sections[symbol.sectionIndex - 1], stubs)) {
-        continue;
-      }
+      if (!_isLocalSymbolInSection(symbol, sections, stubs)) continue;
       final symbolName = symbolTable.symbolName(index, symbol);
       if (!symbolName.startsWith(_fastStubPrefix)) continue;
       final selector = symbolName.substring(_fastStubPrefix.length);
-      if (selector.isEmpty || !addressesByName.containsKey(selector)) {
+      final hasMethodName =
+          selector.isNotEmpty && addressesByName.containsKey(selector);
+      if (!hasMethodName) {
         fileInvalid(file, 'fast stub selector "$selector" has no method name');
       }
-      final relativeOffset = symbol.value - stubs.address;
-      if (relativeOffset < 0 || relativeOffset + 12 > stubs.size) {
-        fileInvalid(file, 'fast stub "$selector" exceeds __objc_stubs');
-      }
-      final fileOffset = stubs.fileOffset + relativeOffset;
-      final adrp = file.data.getUint32(fileOffset, Endian.little);
-      final ldr = file.data.getUint32(fileOffset + 4, Endian.little);
-      final branch = file.data.getUint32(fileOffset + 8, Endian.little);
-      final refAddress = Arm64AdrpLdr.decodeTarget(
-        adrp: adrp,
-        ldr: ldr,
-        instructionAddress: symbol.value,
-      );
-      if (refAddress == null || (branch & 0xfc000000) != 0x14000000) {
-        fileInvalid(file, 'fast stub "$selector" has unexpected instructions');
-      }
-      if (refAddress < selectorRefs.address ||
-          refAddress + 8 > selectorRefs.address + selectorRefs.size ||
-          (refAddress - selectorRefs.address) % 8 != 0) {
-        fileInvalid(file, 'fast stub "$selector" does not target a selref');
-      }
       fastStubs.add(
-        FastObjCStub(
+        _readFastStub(
+          file,
+          symbol: symbol,
           selector: selector,
-          address: symbol.value,
-          fileOffset: fileOffset,
-          refAddress: refAddress,
+          stubs: stubs,
+          selectorRefs: selectorRefs,
         ),
       );
     }
+    return fastStubs;
+  }
 
-    final readersByRef = <int, List<FastObjCStub>>{};
-    for (final stub in fastStubs) {
-      readersByRef
-          .putIfAbsent(stub.refAddress, () => <FastObjCStub>[])
-          .add(stub);
+  static bool _isLocalSymbolInSection(
+    MachOSymbol symbol,
+    List<MachOSection> sections,
+    MachOSection section,
+  ) {
+    final isPlainSectionSymbol =
+        (symbol.type & 0xe0) == 0 && (symbol.type & 0x0e) == _nSect;
+    final isLocal = (symbol.type & _nExt) == 0;
+    final hasSectionIndex =
+        symbol.sectionIndex != 0 && symbol.sectionIndex <= sections.length;
+    return isPlainSectionSymbol &&
+        isLocal &&
+        hasSectionIndex &&
+        identical(sections[symbol.sectionIndex - 1], section);
+  }
+
+  static FastObjCStub _readFastStub(
+    MachOFile file, {
+    required MachOSymbol symbol,
+    required String selector,
+    required MachOSection stubs,
+    required MachOSection selectorRefs,
+  }) {
+    final relativeOffset = symbol.value - stubs.address;
+    final fitsInStubs =
+        relativeOffset >= 0 && relativeOffset + 12 <= stubs.size;
+    if (!fitsInStubs) {
+      fileInvalid(file, 'fast stub "$selector" exceeds __objc_stubs');
     }
-    String? pointee(int refAddress) =>
-        namesByAddress[_chainedTarget(
-          file.data.getUint64(
-            selectorRefs.fileOffset + refAddress - selectorRefs.address,
-            Endian.little,
-          ),
-        )];
+    final fileOffset = stubs.fileOffset + relativeOffset;
+    final adrp = file.data.getUint32(fileOffset, Endian.little);
+    final ldr = file.data.getUint32(fileOffset + 4, Endian.little);
+    final branch = file.data.getUint32(fileOffset + 8, Endian.little);
+    final refAddress = Arm64AdrpLdr.decodeTarget(
+      adrp: adrp,
+      ldr: ldr,
+      instructionAddress: symbol.value,
+    );
+    final isBranch = (branch & 0xfc000000) == 0x14000000;
+    if (refAddress == null || !isBranch) {
+      fileInvalid(file, 'fast stub "$selector" has unexpected instructions');
+    }
+    final selectorRefsEnd = selectorRefs.address + selectorRefs.size;
+    final targetsSelref =
+        refAddress >= selectorRefs.address &&
+        refAddress + 8 <= selectorRefsEnd &&
+        (refAddress - selectorRefs.address) % 8 == 0;
+    if (!targetsSelref) {
+      fileInvalid(file, 'fast stub "$selector" does not target a selref');
+    }
+    return FastObjCStub(
+      selector: selector,
+      address: symbol.value,
+      fileOffset: fileOffset,
+      refAddress: refAddress,
+    );
+  }
 
-    // ld64.lld synthesises one selref per stub, so a stub is normally the
-    // sole reader of its ref and the ref is repaired in place. Refs shared
-    // by several stubs only arise from files an earlier repair touched. A
-    // stub may move to another ref only when that ref's final contents are
-    // settled: nobody reads it (it stays as is) or exactly one stub does
-    // (it ends up naming that stub's selector). Refs with several readers
-    // are never adopted, since they may still be rewritten below.
+  // ld64.lld synthesises one selref per stub, so a stub is normally the
+  // sole reader of its ref and the ref is repaired in place. Refs shared
+  // by several stubs only arise from files an earlier repair touched. A
+  // stub may move to another ref only when that ref's final contents are
+  // settled: nobody reads it (it stays as is) or exactly one stub does
+  // (it ends up naming that stub's selector). Refs with several readers
+  // are never adopted, since they may still be rewritten below.
+  static Map<String, List<int>> _settledRefsByName(
+    MachOSection selectorRefs,
+    Map<int, List<FastObjCStub>> readersByRef,
+    String? Function(int refAddress) pointee,
+  ) {
     final settledRefsByName = <String, List<int>>{};
     for (var offset = 0; offset < selectorRefs.size; offset += 8) {
       final refAddress = selectorRefs.address + offset;
@@ -169,7 +253,21 @@ abstract final class ObjCFastStubRewriter {
         settledRefsByName.putIfAbsent(name, () => <int>[]).add(refAddress);
       }
     }
+    return settledRefsByName;
+  }
 
+  static ({
+    List<(int, int)> pointerRepairs,
+    List<(FastObjCStub, int)> instructionRepairs,
+  })
+  _planRepairs(
+    MachOFile file, {
+    required MachOSection selectorRefs,
+    required Map<int, List<FastObjCStub>> readersByRef,
+    required Map<String, List<int>> settledRefsByName,
+    required Map<String, List<int>> addressesByName,
+    required String? Function(int refAddress) pointee,
+  }) {
     final pointerRepairs = <(int, int)>[];
     final instructionRepairs = <(FastObjCStub, int)>[];
     for (final MapEntry(key: refAddress, value: readers)
@@ -215,7 +313,17 @@ abstract final class ObjCFastStubRewriter {
         addressesByName[staying.single.selector]!.first,
       ));
     }
+    return (
+      pointerRepairs: pointerRepairs,
+      instructionRepairs: instructionRepairs,
+    );
+  }
 
+  static void _applyRepairs(
+    MachOFile file,
+    List<(int, int)> pointerRepairs,
+    List<(FastObjCStub, int)> instructionRepairs,
+  ) {
     // Validate and encode every repair before mutating the file.
     final encodedInstructions = <(int, Arm64AdrpLdr)>[];
     for (final (stub, refAddress) in instructionRepairs) {
@@ -245,7 +353,6 @@ abstract final class ObjCFastStubRewriter {
         ..setUint32(offset, instructions.adrp, Endian.little)
         ..setUint32(offset + 4, instructions.ldr, Endian.little);
     }
-    return pointerRepairs.isNotEmpty || instructionRepairs.isNotEmpty;
   }
 
   static MachOSection? _onlySection(
