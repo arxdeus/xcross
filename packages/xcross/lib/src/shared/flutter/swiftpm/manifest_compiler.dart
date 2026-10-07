@@ -125,7 +125,7 @@ final class SwiftPmManifestCompiler {
     );
     if (entry.existsSync()) {
       try {
-        await entry.copy(output!);
+        await entry.copy(fileSystem.file(output!).path);
         log?.call('hit $key ${overlay.manifestPath}');
         return 0;
       } on FileSystemException {

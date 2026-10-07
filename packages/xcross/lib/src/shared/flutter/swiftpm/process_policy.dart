@@ -125,10 +125,16 @@ final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
         !forwarderFile.existsSync()) {
       return const {};
     }
-    final compiler = paths.join(
-      paths.dirname(swift),
-      runner.hostExecutableName('swiftc'),
+    final inherited = host.environment.lookup(
+      runner.effectiveEnvironment,
+      'SWIFT_EXEC_MANIFEST',
     );
+    final compiler =
+        inherited != null &&
+            inherited.isNotEmpty &&
+            paths.basenameWithoutExtension(inherited) != manifestCompilerName
+        ? inherited
+        : paths.join(paths.dirname(swift), runner.hostExecutableName('swiftc'));
     if (!host.fileSystem.file(host.paths.ioPath(compiler)).existsSync()) {
       return const {};
     }

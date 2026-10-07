@@ -288,6 +288,59 @@ void main() {
     expect(updated['SWIFT_EXEC_MANIFEST'], isNot(shim));
   });
 
+  test('runs an overlay scan without an output uncached', () async {
+    final arguments = invocation(
+      'let package = 1\n',
+      temp: 'one',
+    ).takeWhile((argument) => argument != '-o').toList();
+    for (var repetition = 0; repetition < 2; repetition++) {
+      expect(await manifestCompiler.compile(arguments, configuration()), 0);
+    }
+    expect(calls, [
+      [compiler, ...arguments],
+      [compiler, ...arguments],
+    ]);
+    expect(Directory(p.join(root.path, 'cache')).existsSync(), isFalse);
+  });
+
+  test('chains to a manifest compiler the user configured', () async {
+    final bin = Directory(p.join(root.path, 'toolchain'))..createSync();
+    File(p.join(bin.path, 'swift')).writeAsStringSync('tool');
+    _runtime.host.fileSystem.makeExecutable(p.join(bin.path, 'swift'));
+    final custom = p.join(root.path, 'custom-swiftc');
+    File(custom).writeAsStringSync('custom');
+    final xcross = p.join(root.path, 'xcross');
+    File(xcross).writeAsStringSync('xcross');
+    final runtime = testSwiftPmRuntime(
+      environment: {
+        ...Platform.environment,
+        'PATH': bin.path,
+        'XCROSS_CACHE_DIR': p.join(root.path, 'cache'),
+        'SWIFT_EXEC_MANIFEST': custom,
+      },
+    );
+    final environment = await SwiftPmProcessPolicy(
+      host: runtime.host,
+      hostPolicy: runtime.hostPolicy,
+      runner: runtime.runner,
+      tools: AppleToolShimResolver(
+        runtime.target,
+        runtime.runner,
+        runtime.sdkRepository,
+        runtime.toolchainResolver,
+        hostTools: MacOSNativeHostTools(runtime.host, runtime.runner),
+        executable: xcross,
+      ),
+    ).swiftProcessEnvironment();
+    final shim = environment['SWIFT_EXEC_MANIFEST']!;
+    expect(shim, isNot(custom));
+    final configuration = SwiftPmManifestCompilerConfiguration.fromJson(
+      jsonDecode(File('$shim.policy.json').readAsStringSync())
+          as Map<String, Object?>,
+    );
+    expect(configuration.compiler, custom);
+  });
+
   test('dispatches the manifest compiler through the tool alias', () async {
     final sidecar = p.join(root.path, 'policy.json');
     File(sidecar).writeAsStringSync(jsonEncode(configuration().toJson()));
