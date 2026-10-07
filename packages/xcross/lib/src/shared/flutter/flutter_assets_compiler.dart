@@ -111,28 +111,43 @@ final class FlutterAssetsCompiler {
     PubspecInfo pubspec,
   ) async {
     final fonts = <Map<String, Object?>>[];
-
     if (pubspec.usesMaterialDesign) {
-      final src = paths.join(
-        flutterRoot,
-        'bin',
-        'cache',
-        'artifacts',
-        'material_fonts',
-        'MaterialIcons-Regular.otf',
-      );
-      final srcExists = fileSystem.file(src).existsSync();
-      if (srcExists) {
-        await _copyAssetFile(src, assetsDir, 'fonts/MaterialIcons-Regular.otf');
-        fonts.add(const {
-          'family': 'MaterialIcons',
-          'fonts': [
-            {'asset': 'fonts/MaterialIcons-Regular.otf'},
-          ],
-        });
-      }
+      await _copyMaterialIcons(assetsDir, fonts);
     }
+    await _copyPubspecFonts(assetsDir, pubspec, fonts);
+    await _copyDependencyFonts(assetsDir, pubspec, fonts);
+    return fonts;
+  }
 
+  Future<void> _copyMaterialIcons(
+    String assetsDir,
+    List<Map<String, Object?>> fonts,
+  ) async {
+    final src = paths.join(
+      flutterRoot,
+      'bin',
+      'cache',
+      'artifacts',
+      'material_fonts',
+      'MaterialIcons-Regular.otf',
+    );
+    final srcExists = fileSystem.file(src).existsSync();
+    if (srcExists) {
+      await _copyAssetFile(src, assetsDir, 'fonts/MaterialIcons-Regular.otf');
+      fonts.add(const {
+        'family': 'MaterialIcons',
+        'fonts': [
+          {'asset': 'fonts/MaterialIcons-Regular.otf'},
+        ],
+      });
+    }
+  }
+
+  Future<void> _copyPubspecFonts(
+    String assetsDir,
+    PubspecInfo pubspec,
+    List<Map<String, Object?>> fonts,
+  ) async {
     for (final family in pubspec.fonts) {
       for (final font in family.fonts) {
         final src = paths.join(projectRoot, font.asset);
@@ -146,45 +161,59 @@ final class FlutterAssetsCompiler {
       }
       fonts.add(family.descriptor);
     }
+  }
 
+  Future<void> _copyDependencyFonts(
+    String assetsDir,
+    PubspecInfo pubspec,
+    List<Map<String, Object?>> fonts,
+  ) async {
     final packageConfigPath = await packageConfigs.require(projectRoot);
     final packageConfig = await loadPackageConfig(
       fileSystem.file(packageConfigPath),
     );
     for (final packageName in pubspec.dependencies) {
       final package = packageConfig[packageName];
-      if (package == null || package.root.scheme != 'file') continue;
+      final isLocalPackage = package != null && package.root.scheme == 'file';
+      if (!isLocalPackage) continue;
       final packageRoot = paths.fromUri(package.root);
       final packagePubspec = fileSystem.file(
         paths.join(packageRoot, 'pubspec.yaml'),
       );
       if (!packagePubspec.existsSync()) continue;
-
-      final packageInfo = PubspecInfoReader(
-        fileSystem,
-        paths,
-      ).loadSync(packageRoot);
-      for (final family in packageInfo.fonts) {
-        final descriptors = <Map<String, Object>>[];
-        for (final font in family.fonts) {
-          final key = p.url.join('packages', packageName, font.asset);
-          final src = paths.join(packageRoot, font.asset);
-          if (!fileSystem.file(src).existsSync()) {
-            throw FlutterBuildError(
-              '$packageName/pubspec.yaml: font asset not found: ${font.asset}',
-            );
-          }
-          await _copyAssetFile(src, assetsDir, key);
-          descriptors.add({...font.descriptor, 'asset': key});
-        }
-        fonts.add({
-          'family': 'packages/$packageName/${family.family}',
-          'fonts': descriptors,
-        });
-      }
+      await _copyPackageFonts(assetsDir, packageName, packageRoot, fonts);
     }
+  }
 
-    return fonts;
+  Future<void> _copyPackageFonts(
+    String assetsDir,
+    String packageName,
+    String packageRoot,
+    List<Map<String, Object?>> fonts,
+  ) async {
+    final packageInfo = PubspecInfoReader(
+      fileSystem,
+      paths,
+    ).loadSync(packageRoot);
+    for (final family in packageInfo.fonts) {
+      final descriptors = <Map<String, Object>>[];
+      for (final font in family.fonts) {
+        final key = p.url.join('packages', packageName, font.asset);
+        final src = paths.join(packageRoot, font.asset);
+        final srcExists = fileSystem.file(src).existsSync();
+        if (!srcExists) {
+          throw FlutterBuildError(
+            '$packageName/pubspec.yaml: font asset not found: ${font.asset}',
+          );
+        }
+        await _copyAssetFile(src, assetsDir, key);
+        descriptors.add({...font.descriptor, 'asset': key});
+      }
+      fonts.add({
+        'family': 'packages/$packageName/${family.family}',
+        'fonts': descriptors,
+      });
+    }
   }
 
   /// Copy [src] to `assetsDir/key`, creating parent directories as needed.
