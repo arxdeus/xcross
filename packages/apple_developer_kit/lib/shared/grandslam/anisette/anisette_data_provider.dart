@@ -128,6 +128,22 @@ final class AnisetteDataProvider implements AnisetteProvider {
       );
     }
 
+    final routingInfo = await _runProvisioningHandshake(adi, state);
+
+    // routingInfo is unrecoverable past this point, so persist it now.
+    final provisioned = state.copyWith(
+      provisioned: true,
+      routingInfo: routingInfo,
+    );
+    await _stateStore.save(provisioned);
+    _state = provisioned;
+    return provisioned;
+  }
+
+  Future<int> _runProvisioningHandshake(
+    AdiProvisioning adi,
+    AnisetteState state,
+  ) async {
     final endpoints = await _grandSlamEndpoints(state);
 
     final start = await _postProvisioning(
@@ -149,15 +165,7 @@ final class AnisetteDataProvider implements AnisetteProvider {
     );
 
     await adi.endProvisioning(cpim.session, ptm, tk);
-
-    // routingInfo is unrecoverable past this point, so persist it now.
-    final provisioned = state.copyWith(
-      provisioned: true,
-      routingInfo: routingInfo,
-    );
-    await _stateStore.save(provisioned);
-    _state = provisioned;
-    return provisioned;
+    return routingInfo;
   }
 
   Future<Map<String, Object?>> _postProvisioning(
@@ -179,7 +187,8 @@ final class AnisetteDataProvider implements AnisetteProvider {
         'Request': request,
       }),
     );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
+    final succeeded = response.statusCode >= 200 && response.statusCode < 300;
+    if (!succeeded) {
       throw AppleError(
         'GrandSlam provisioning request to $url failed '
         '(HTTP ${response.statusCode})',
@@ -201,12 +210,11 @@ final class AnisetteDataProvider implements AnisetteProvider {
       throw StateError('ADI libraries are missing from $adiLibraryDirectory.');
     }
     final paths = hostServices.host.paths.context;
+    final hasTrailingSeparator =
+        path.endsWith('/') || path.endsWith(paths.separator);
     final client =
         AdiClient.fromDirectory(directory.path, loader: _loader, paths: paths)
-          ..provisioningPath =
-              path.endsWith('/') || path.endsWith(paths.separator)
-              ? path
-              : '$path/'
+          ..provisioningPath = hasTrailingSeparator ? path : '$path/'
           ..identifier = identifier;
     return RealAdiProvisioning(client);
   }
