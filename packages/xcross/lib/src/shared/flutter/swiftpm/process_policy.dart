@@ -115,9 +115,7 @@ final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
     final String forwarder;
     final String swift;
     try {
-      forwarder = await tools.resolveNativeAssetToolForwarder(
-        tools.executable,
-      );
+      forwarder = await tools.resolveNativeAssetToolForwarder(tools.executable);
       swift = await runner.locateTool(hostPolicy.packageTool);
     } on Object {
       return const {};
@@ -176,6 +174,7 @@ final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
       return const {};
     }
   }
+
   Map<String, String> _processEnvironment({
     String? executable,
     Map<String, String>? environment,

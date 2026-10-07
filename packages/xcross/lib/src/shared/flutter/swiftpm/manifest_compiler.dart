@@ -172,13 +172,15 @@ final class SwiftPmManifestCompiler {
       } on FileSystemException {
         return null;
       }
-      if (decoded case {'roots': [
-        {
-          'type': 'file',
-          'name': final String manifestPath,
-          'external-contents': final String contentsPath,
-        },
-      ]} when fileSystem.typeSync(contentsPath) == FileSystemEntityType.file) {
+      if (decoded case {
+        'roots': [
+          {
+            'type': 'file',
+            'name': final String manifestPath,
+            'external-contents': final String contentsPath,
+          },
+        ],
+      } when fileSystem.typeSync(contentsPath) == FileSystemEntityType.file) {
         found = SwiftPmManifestOverlay(
           overlayPath: overlayPath,
           manifestPath: manifestPath,

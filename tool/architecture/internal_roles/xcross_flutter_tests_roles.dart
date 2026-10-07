@@ -316,6 +316,12 @@ const xcrossFlutterTestsRoles = <String, Map<String, String>>{
     'FUNCTION:testWindowsSwiftPmRuntime': 'internal',
     'FUNCTION:testWindowsToolchainLookup': 'internal',
   },
+  'workspace:packages/xcross/test/flutter/build/swiftpm_manifest_compiler_test.dart':
+      {
+        'FUNCTION:_contents': 'private',
+        'FUNCTION:main': 'entrypoint',
+        'TOP_LEVEL_VARIABLE:_runtime': 'private',
+      },
   'workspace:packages/xcross/test/flutter/build/swiftpm_workspace_test.dart': {
     'FUNCTION:main': 'entrypoint',
     'TOP_LEVEL_VARIABLE:_simulatorRuntime': 'private',
