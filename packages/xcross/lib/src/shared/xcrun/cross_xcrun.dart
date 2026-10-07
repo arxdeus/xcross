@@ -233,45 +233,9 @@ final class XcrunSdkCommand {
     }
 
     final wrapperArguments = _wrapperArguments(arguments);
-    String? installedSdk;
-    try {
-      final shimSdk = probe._readShimSdk(executable);
-      if (_sdkPathProbe(wrapperArguments) case final probed?) {
-        // A sidecar pins the targeted SDK. Without one the installed bundle
-        // still answers iOS probes, but no xcross SDK ever provides macOS.
-        final untargeted = shimSdk == null
-            ? probed == _macosxSdk
-            : _sdkBaseName(probe._sdkName(shimSdk)) != probed;
-        if (untargeted) {
-          output.writeln(probe.placeholderSdk(probed));
-          return 0;
-        }
-      }
-      if (shimSdk != null) {
-        probe._requireSdkSelection(wrapperArguments, shimSdk);
-        installedSdk = shimSdk;
-      } else {
-        final requested = _requestedSdk(wrapperArguments);
-        if (requested != null &&
-            _sdkBaseName(requested.toLowerCase()) != target.sdkName) {
-          throw FormatException('SDK $requested is not installed');
-        }
-        if (requested != null ||
-            wrapperArguments.contains('--show-sdk-path') ||
-            wrapperArguments.contains('--show-sdk-version') ||
-            wrapperArguments.contains('--show-sdk-platform-path')) {
-          installedSdk = repository.iosSdk(sdk, target: target);
-          probe._requireSdkSelection(wrapperArguments, installedSdk);
-        }
-      }
-      if (wrapperArguments.contains('--show-sdk-version')) {
-        output.writeln(probe._sdkVersion(installedSdk!));
-        return 0;
-      }
-    } on Object catch (error) {
-      errors.writeln('xcrun: $error');
-      return 1;
-    }
+    final selection = _selectInstalledSdk(wrapperArguments, sdk, probe);
+    if (selection.exitCode case final exitCode?) return exitCode;
+    final installedSdk = selection.installedSdk;
 
     if (wrapperArguments.contains('--show-sdk-path')) {
       output.writeln(installedSdk);
@@ -284,17 +248,98 @@ final class XcrunSdkCommand {
 
     final find = wrapperArguments.indexOf('--find');
     if (find >= 0) {
-      if (find + 1 >= wrapperArguments.length) return 1;
-      final tool = await _resolveTool(
+      final findExitCode = await _runFind(
+        wrapperArguments,
+        find,
         sdk,
-        wrapperArguments[find + 1],
-        sysroot: installedSdk,
+        installedSdk,
       );
-      if (tool == null) return 1;
-      output.writeln(tool);
-      return 0;
+      return findExitCode;
     }
 
+    final toolExitCode = await _runTool(arguments, sdk, installedSdk);
+    return toolExitCode;
+  }
+
+  ({int? exitCode, String? installedSdk}) _selectInstalledSdk(
+    List<String> wrapperArguments,
+    DarwinSdk sdk,
+    CrossXcrunProbe probe,
+  ) {
+    String? installedSdk;
+    try {
+      final shimSdk = probe._readShimSdk(executable);
+      if (_sdkPathProbe(wrapperArguments) case final probed?) {
+        // A sidecar pins the targeted SDK. Without one the installed bundle
+        // still answers iOS probes, but no xcross SDK ever provides macOS.
+        final untargeted = shimSdk == null
+            ? probed == _macosxSdk
+            : _sdkBaseName(probe._sdkName(shimSdk)) != probed;
+        if (untargeted) {
+          output.writeln(probe.placeholderSdk(probed));
+          return (exitCode: 0, installedSdk: installedSdk);
+        }
+      }
+      if (shimSdk != null) {
+        probe._requireSdkSelection(wrapperArguments, shimSdk);
+        installedSdk = shimSdk;
+      } else {
+        installedSdk = _installedSdkWithoutShim(wrapperArguments, sdk, probe);
+      }
+      if (wrapperArguments.contains('--show-sdk-version')) {
+        output.writeln(probe._sdkVersion(installedSdk!));
+        return (exitCode: 0, installedSdk: installedSdk);
+      }
+    } on Object catch (error) {
+      errors.writeln('xcrun: $error');
+      return (exitCode: 1, installedSdk: installedSdk);
+    }
+    return (exitCode: null, installedSdk: installedSdk);
+  }
+
+  String? _installedSdkWithoutShim(
+    List<String> wrapperArguments,
+    DarwinSdk sdk,
+    CrossXcrunProbe probe,
+  ) {
+    final requested = _requestedSdk(wrapperArguments);
+    if (requested != null &&
+        _sdkBaseName(requested.toLowerCase()) != target.sdkName) {
+      throw FormatException('SDK $requested is not installed');
+    }
+    final needsSdk =
+        requested != null ||
+        wrapperArguments.contains('--show-sdk-path') ||
+        wrapperArguments.contains('--show-sdk-version') ||
+        wrapperArguments.contains('--show-sdk-platform-path');
+    if (!needsSdk) return null;
+    final installedSdk = repository.iosSdk(sdk, target: target);
+    probe._requireSdkSelection(wrapperArguments, installedSdk);
+    return installedSdk;
+  }
+
+  Future<int> _runFind(
+    List<String> wrapperArguments,
+    int find,
+    DarwinSdk sdk,
+    String? installedSdk,
+  ) async {
+    if (find + 1 >= wrapperArguments.length) return 1;
+    final tool = await _resolveTool(
+      sdk,
+      wrapperArguments[find + 1],
+      sysroot: installedSdk,
+    );
+    if (tool == null) return 1;
+    output.writeln(tool);
+    return 0;
+  }
+
+  Future<int> _runTool(
+    List<String> arguments,
+    DarwinSdk sdk,
+    String? installedSdk,
+  ) async {
     final toolIndex = _toolIndex(arguments);
     if (toolIndex == -1) return 1;
     final tool = await _resolveTool(
