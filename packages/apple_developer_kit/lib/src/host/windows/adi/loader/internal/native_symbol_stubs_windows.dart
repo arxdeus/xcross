@@ -76,6 +76,11 @@ final class WindowsNativeSymbolStubs {
   }
 
   void _bindFileSystem() {
+    _bindFileDescriptorIo();
+    _bindFileMetadata();
+  }
+
+  void _bindFileDescriptorIo() {
     _publishCallable(
       'open',
       NativeCallable<Int32 Function(Pointer<Utf8>, Int32, Int32)>.isolateLocal(
@@ -106,6 +111,9 @@ final class WindowsNativeSymbolStubs {
       >.isolateLocal(_write, exceptionalReturn: -1),
       3,
     );
+  }
+
+  void _bindFileMetadata() {
     _publishCallable(
       'mkdir',
       NativeCallable<Int32 Function(Pointer<Utf8>, Int32)>.isolateLocal(
