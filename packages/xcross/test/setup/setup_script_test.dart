@@ -200,16 +200,40 @@ void main() {
     expect(sha, sha256.convert(utf8.encode('cached')).toString());
   });
 
-  test('Windows defaults to the windows.ps1 setup script', () {
-    expect(
-      WindowsSetupScript(host, runner).defaultSource,
-      endsWith('/setup/windows.ps1'),
+  test('Windows offers installed managers, else the direct script', () async {
+    File(p.join(temporary.path, 'scoop')).createSync();
+    final withScoop = WindowsSetupScript(
+      host,
+      fixtureRunner(
+        LinuxHost(environment: {'PATH': temporary.path}),
+        log: fixtureLog(),
+      ),
     );
+    final scripts = await withScoop.defaultSources();
+    expect(scripts.map((script) => script.manager), ['scoop']);
+    expect(scripts.single.source, endsWith('/setup/scoop.ps1'));
+    expect(await withScoop.sourceFor('winget'), isNull);
     expect(
-      WindowsSetupScript.scriptUrl('v1.2.3'),
-      'https://raw.githubusercontent.com/arxdeus/xcross/v1.2.3/setup/windows.ps1',
+      (await withScoop.sourceFor('direct'))!.source,
+      endsWith('/setup/direct.ps1'),
     );
-    expect(PosixSetupScript(host).defaultSource, isNull);
+
+    final bare = WindowsSetupScript(
+      host,
+      fixtureRunner(
+        LinuxHost(environment: {'PATH': p.join(temporary.path, 'none')}),
+        log: fixtureLog(),
+      ),
+    );
+    expect((await bare.defaultSources()).map((script) => script.manager), [
+      'direct',
+    ]);
+    expect(withScoop.supportedManagers, ['winget', 'scoop', 'choco', 'direct']);
+    expect(
+      WindowsSetupScript.scriptUrl('v1.2.3', 'winget'),
+      'https://raw.githubusercontent.com/arxdeus/xcross/v1.2.3/setup/winget.ps1',
+    );
+    expect(await PosixSetupScript(host).defaultSources(), isEmpty);
   });
 
   test(

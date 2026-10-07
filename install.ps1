@@ -288,7 +288,7 @@ if (-not (Get-Command py -ErrorAction SilentlyContinue) -and
 
 if ($missing.Count -gt 0) {
   Write-Host ''
-  Write-Host 'Missing prerequisites (`xcross setup` installs them via setup/windows.ps1, or run these from an Administrator PowerShell):' `
+  Write-Host 'Missing prerequisites (`xcross setup` installs them via winget, Scoop, Chocolatey or direct downloads, or run these from an Administrator PowerShell):' `
     -ForegroundColor Yellow
   $missing | ForEach-Object { Write-Host "  $_" }
 }

@@ -156,12 +156,12 @@ void main() {
     },
   );
 
-  test('Windows hands setup to the release-pinned winget script', () async {
+  test('Windows hands setup to the per-manager scripts', () async {
     await expectLater(
       const WindowsSetupRequirements().run(),
       throwsA(
         predicate(
-          (Object error) => error.toString().contains('setup/windows.ps1'),
+          (Object error) => error.toString().contains('--manager winget'),
         ),
       ),
     );

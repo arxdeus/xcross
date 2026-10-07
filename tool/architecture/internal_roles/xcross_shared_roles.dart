@@ -329,6 +329,7 @@ const xcrossSharedRoles = <String, Map<String, String>>{
   },
   'package:xcross/src/shared/setup/setup_script_policy.dart': {
     'CLASS:SetupScriptPolicy': 'internal',
+    'TYPE_ALIAS:DefaultSetupScript': 'internal',
   },
   'package:xcross/src/shared/tool/mach_o_slices.dart': {
     'FUNCTION:arm64SliceRange': 'internal',

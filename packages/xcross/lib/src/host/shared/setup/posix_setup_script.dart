@@ -11,7 +11,14 @@ final class PosixSetupScript implements SetupScriptPolicy {
   final PlatformHostInterface host;
 
   @override
-  String? get defaultSource => null;
+  Future<List<DefaultSetupScript>> defaultSources() async => const [];
+
+  @override
+  Future<DefaultSetupScript?> sourceFor(String manager) async => null;
+
+  @override
+  List<String> get supportedManagers => const [];
+
   String get _directory =>
       host.paths.context.join(host.paths.cacheRoot, 'setup-scripts');
 

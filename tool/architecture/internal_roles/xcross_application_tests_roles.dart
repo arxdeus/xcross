@@ -317,6 +317,7 @@ const xcrossApplicationTestsRoles = <String, Map<String, String>>{
   },
   'workspace:packages/xcross/test/setup/setup_command_test.dart': {
     'CLASS:CapturedLogOutput': 'internal',
+    'CLASS:FixtureManagerPolicy': 'internal',
     'CLASS:FixturePrompt': 'internal',
     'FUNCTION:main': 'entrypoint',
   },

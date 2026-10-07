@@ -13,7 +13,8 @@ import 'package:xcross/src/shared/setup/setup_script_policy.dart';
 /// `xcross setup` — install host requirements.
 ///
 /// A setup script runs when the config names one (`setup:`), or by default
-/// on Windows (`setup/windows.ps1`). Every script is shown by name, source and
+/// on Windows (`setup/<manager>.ps1` for the installed winget, Scoop or
+/// Chocolatey, else `setup/direct.ps1`). Every script is shown by name, source and
 /// SHA-256 and needs confirmation before it runs. Without a script, Linux
 /// drives apt/dnf/pacman and macOS drives Homebrew in-process; both need
 /// Swift on PATH first.
@@ -46,6 +47,16 @@ final class SetupCommand extends Command<void> {
             'Run the setup script, and every installer it asks about, '
             'without confirmation.',
       );
+    final managers = scriptPolicy.supportedManagers;
+    if (managers.isNotEmpty) {
+      argParser.addOption(
+        _managerOption,
+        allowed: managers,
+        help:
+            'Package manager whose setup script to run. Defaults to the '
+            'one installed, asking when there are several.',
+      );
+    }
   }
 
   final PlatformHostInterface host;
@@ -61,6 +72,7 @@ final class SetupCommand extends Command<void> {
 
   static const _refreshScriptFlag = 'refresh-script';
   static const _yesFlag = 'yes';
+  static const _managerOption = 'manager';
 
   @override
   String get name => 'setup';
@@ -71,7 +83,7 @@ final class SetupCommand extends Command<void> {
   @override
   Future<void> run() async {
     final configured = setupSource;
-    final source = configured ?? scriptPolicy.defaultSource;
+    final source = configured ?? await _defaultSource();
     final script = SetupScriptManager(
       host: host,
       createHttpClient: createHttpClient,
@@ -111,6 +123,47 @@ final class SetupCommand extends Command<void> {
       installGuidance: swiftInstallGuidance,
     );
     await requirements.run();
+  }
+
+  /// The built-in script for the requested or detected package manager, or
+  /// null when this host has none.
+  Future<String?> _defaultSource() async {
+    final requested = argResults?.options.contains(_managerOption) ?? false
+        ? argResults![_managerOption] as String?
+        : null;
+    if (requested != null) {
+      final script = await scriptPolicy.sourceFor(requested);
+      if (script == null) {
+        throw XcrossError(
+          '$requested is not installed on this host. Install it, or pick '
+          'another with --manager '
+          '(${scriptPolicy.supportedManagers.join(', ')}).',
+        );
+      }
+      return script.source;
+    }
+    final available = await scriptPolicy.defaultSources();
+    if (available.isEmpty) return null;
+    if (available.length == 1 || !commandPrompt.isInteractive) {
+      return available.first.source;
+    }
+    commandPrompt.write('Several package managers can set up this host:\n');
+    for (var i = 0; i < available.length; i++) {
+      commandPrompt.write('  [${i + 1}] ${available[i].manager}\n');
+    }
+    while (true) {
+      final raw = commandPrompt.readLine(
+        'Which one should xcross use? (1-${available.length}) ',
+      );
+      if (raw == null) {
+        throw XcrossError('No package manager selected (stdin closed).');
+      }
+      final choice = int.tryParse(raw.trim());
+      if (choice != null && choice >= 1 && choice <= available.length) {
+        return available[choice - 1].source;
+      }
+      commandPrompt.write('Invalid choice "${raw.trim()}".\n');
+    }
   }
 
   bool _approve(SetupScriptApproval script, {required bool assumeYes}) {

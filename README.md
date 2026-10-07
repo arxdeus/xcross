@@ -76,16 +76,16 @@ Both installers download the latest release, install it, **add xcross to your `P
    xcross setup
    ```
 
-   This runs [`setup/windows.ps1`](setup/windows.ps1) from the xcross release you installed. xcross first prints the script's name, source URL, and SHA-256 and waits for `y`. The script works with **winget, Scoop, or Chocolatey**. It uses whichever one is installed and asks if you have more than one (or set `XCROSS_SETUP_MANAGER=winget|scoop|choco`). It then asks before each package: Visual Studio Build Tools (MSVC + Windows SDK, which Swift links against), Swift, LLVM (its `bin` goes on your `PATH`), and Python 3. Then it installs `pymobiledevice3`. Installers that need elevation raise their own UAC prompt. `xcross setup --yes` accepts every prompt.
+   This runs the setup script for your package manager from the xcross release you installed: [`winget.ps1`](setup/winget.ps1), [`scoop.ps1`](setup/scoop.ps1), or [`choco.ps1`](setup/choco.ps1). If several are installed, xcross asks which one to use. If none is, it runs [`direct.ps1`](setup/direct.ps1), which downloads the vendor installers itself. Pick one explicitly with `xcross setup --manager winget|scoop|choco|direct`. xcross first prints the script's name, source URL, and SHA-256 and waits for `y`. The script then asks before each package: Visual Studio Build Tools (MSVC + Windows SDK, which Swift links against), Swift, LLVM (its `bin` goes on your `PATH`), and Python 3. Then it installs `pymobiledevice3`. Installers that need elevation raise their own UAC prompt. `xcross setup --yes` accepts every prompt.
 
-   | | winget | Scoop | Chocolatey |
-   |---|---|---|---|
-   | VS Build Tools | `Microsoft.VisualStudio.2022.BuildTools` | official installer¹ | `visualstudio2022buildtools` |
-   | Swift | `Swift.Toolchain` | `main/swift` | official installer¹ |
-   | LLVM | `LLVM.LLVM` | `main/llvm` | `llvm` |
-   | Python | `Python.Python.3.13` | `main/python` | `python313` |
+   | | `winget.ps1` | `scoop.ps1` | `choco.ps1` | `direct.ps1` |
+   |---|---|---|---|---|
+   | VS Build Tools | `Microsoft.VisualStudio.2022.BuildTools` | vendor installer¹ | `visualstudio2022buildtools` | vendor installer¹ |
+   | Swift | `Swift.Toolchain` | `main/swift` | vendor installer¹ | vendor installer¹ |
+   | LLVM | `LLVM.LLVM` | `main/llvm` | `llvm` | GitHub release² |
+   | Python | `Python.Python.3.13` | `main/python` | `python313` | python.org² |
 
-   ¹ Neither Scoop's official buckets nor the Chocolatey community repository carries it, so the script downloads the vendor installer (`aka.ms/vs/17/release/vs_BuildTools.exe`, or the latest release from `download.swift.org`). It runs the installer only if it carries a valid Authenticode signature from Microsoft or Apple. Chocolatey needs an Administrator PowerShell. Scoop expects a normal one.
+   ¹ Scoop's official buckets have no Build Tools, and Chocolatey has no Swift package. For those, the script downloads `aka.ms/vs/17/release/vs_BuildTools.exe` or the latest release from `download.swift.org` and runs it only with a valid Authenticode signature from Microsoft or Apple. ² The installer must also match the SHA-256 that GitHub or python.org publishes (and, for Python, the Python Software Foundation signature). `XCROSS_SWIFT_VERSION`, `XCROSS_LLVM_VERSION`, and `XCROSS_PYTHON_VERSION`, with optional `*_SHA256`, pin versions for `direct.ps1`. Chocolatey needs an Administrator PowerShell. Scoop expects a normal one.
 
 3. Open a new terminal so the new `PATH` applies, then build the Darwin SDK:
 
