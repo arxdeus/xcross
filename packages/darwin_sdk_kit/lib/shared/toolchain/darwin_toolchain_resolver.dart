@@ -23,10 +23,7 @@ final class DarwinToolchainResolver<T extends PlatformHostInterface> {
       accept: usableLd64Lld,
       extraDirectories: searched,
     );
-    final ordered = [
-      ...candidates.where((path) => !_besideSwift(path)),
-      ...candidates.where(_besideSwift),
-    ];
+    final ordered = _preferStockToolchain(candidates);
 
     final rejected = <String>[];
     String? defective;
@@ -47,23 +44,45 @@ final class DarwinToolchainResolver<T extends PlatformHostInterface> {
     }
     if (defective != null) {
       if (_warnedDefective.add(defective)) {
-        log.logWarn(
-          'Using $defective: '
-          '${await selectorStubDefect(defective, runProcess: runProcess)}',
+        final defect = await selectorStubDefect(
+          defective,
+          runProcess: runProcess,
         );
+        log.logWarn('Using $defective: $defect');
       }
       return defective;
     }
 
+    throw _noUsableToolError(
+      name: 'ld64.lld',
+      capability: 'can link for iOS',
+      rejected: rejected,
+      searched: searched,
+      hint: _installLinkerHint,
+    );
+  }
+
+  List<String> _preferStockToolchain(List<String> candidates) => [
+    ...candidates.where((path) => !_besideSwift(path)),
+    ...candidates.where(_besideSwift),
+  ];
+
+  DarwinSdkError _noUsableToolError({
+    required String name,
+    required String capability,
+    required List<String> rejected,
+    required List<String> searched,
+    required String hint,
+  }) {
     final where = [
       'Looked on PATH and in:',
       for (final dir in searched) '  $dir',
     ].join('\n');
-    throw DarwinSdkError(
+    return DarwinSdkError(
       rejected.isEmpty
-          ? "No 'ld64.lld' found.\n$where\n$_installLinkerHint"
-          : "No 'ld64.lld' that can link for iOS.\n"
-                '${rejected.join('\n')}\n$where\n$_installLinkerHint',
+          ? "No '$name' found.\n$where\n$hint"
+          : "No '$name' that $capability.\n"
+                '${rejected.join('\n')}\n$where\n$hint',
     );
   }
 
@@ -147,22 +166,7 @@ final class DarwinToolchainResolver<T extends PlatformHostInterface> {
     final cached = _iosSupport[linker];
     if (cached != null) return cached.isEmpty ? null : cached;
 
-    Directory? scratch;
-    var object = host.paths.context.join(
-      host.paths.temporaryRoot,
-      'xcross-ld64-probe',
-      'probe.o',
-    );
-    try {
-      scratch = await host.fileSystem
-          .directory(host.paths.temporaryRoot)
-          .createTemp('xcross-ld64-probe-');
-      final written = host.paths.context.join(scratch.path, 'probe.o');
-      await host.fileSystem.file(written).writeAsBytes(iosProbeObject);
-      object = written;
-    } on Object catch (error) {
-      log.logTrace('ld64.lld: probe object unavailable: $error');
-    }
+    final (scratch, object) = await _writeIosProbeObject();
     final CapturedProcess result;
     try {
       result = await (runProcess ?? runner.run)(linker, [
@@ -190,14 +194,7 @@ final class DarwinToolchainResolver<T extends PlatformHostInterface> {
     final output = '${result.stdout}\n${result.stderr}';
     final unsupported = _unsupportedIosLink.firstMatch(output);
     if (unsupported != null) {
-      return _rememberIosSupport(
-        linker,
-        output
-            .split('\n')
-            .firstWhere(_unsupportedIosLink.hasMatch)
-            .trim()
-            .replaceFirst(RegExp('^.*?: *'), ''),
-      );
+      return _rememberIosSupport(linker, _unsupportedIosReason(output));
     }
     if (runner.crashed(result.exitCode)) {
       return _rememberIosSupport(
@@ -208,6 +205,32 @@ final class DarwinToolchainResolver<T extends PlatformHostInterface> {
     }
     return _rememberIosSupport(linker, null);
   }
+
+  Future<(Directory?, String)> _writeIosProbeObject() async {
+    Directory? scratch;
+    var object = host.paths.context.join(
+      host.paths.temporaryRoot,
+      'xcross-ld64-probe',
+      'probe.o',
+    );
+    try {
+      scratch = await host.fileSystem
+          .directory(host.paths.temporaryRoot)
+          .createTemp('xcross-ld64-probe-');
+      final written = host.paths.context.join(scratch.path, 'probe.o');
+      await host.fileSystem.file(written).writeAsBytes(iosProbeObject);
+      object = written;
+    } on Object catch (error) {
+      log.logTrace('ld64.lld: probe object unavailable: $error');
+    }
+    return (scratch, object);
+  }
+
+  String _unsupportedIosReason(String output) => output
+      .split('\n')
+      .firstWhere(_unsupportedIosLink.hasMatch)
+      .trim()
+      .replaceFirst(RegExp('^.*?: *'), '');
 
   @internal
   static final List<int> iosProbeObject = List.unmodifiable([
@@ -239,30 +262,16 @@ final class DarwinToolchainResolver<T extends PlatformHostInterface> {
     // An explicit CC/CXX override takes precedence over the PATH search
     // below — this matters on systems (e.g. Nix) where a stray system
     // compiler sits ahead of the intended one on PATH.
-    final envVar = name == 'clang++' ? 'CXX' : 'CC';
-    final override = runner.environmentValue(
-      runner.effectiveEnvironment,
-      envVar,
+    final overridden = await _overriddenDarwinClang(
+      sysroot,
+      name: name,
+      runProcess: runProcess,
     );
-    if (override != null && override.isNotEmpty) {
-      final failure = await probeDarwinDriver(
-        override,
-        sysroot: sysroot,
-        runProcess: runProcess,
-      );
-      if (failure == null) return override;
-      throw DarwinSdkError(
-        "\$$envVar is set to '$override' but it cannot target iOS.\n"
-        '  $failure',
-      );
-    }
+    if (overridden != null) return overridden;
 
     final searched = llvmToolDirs();
     final candidates = await runner.whichAll(name, extraDirectories: searched);
-    final ordered = [
-      ...candidates.where((path) => !_besideSwift(path)),
-      ...candidates.where(_besideSwift),
-    ];
+    final ordered = _preferStockToolchain(candidates);
 
     final minimum = minimumClangForSdk(sysroot);
     final rejected = <String>[];
@@ -291,23 +300,45 @@ final class DarwinToolchainResolver<T extends PlatformHostInterface> {
     // Objective-C, so keep using it rather than failing outright.
     if (tooOld != null) {
       if (_warnedOldClang.add(tooOld)) {
-        log.logWarn(
-          'Using $tooOld: '
-          '${await clangTooOldForSdk(tooOld, minimum: minimum, runProcess: runProcess)}',
+        final age = await clangTooOldForSdk(
+          tooOld,
+          minimum: minimum,
+          runProcess: runProcess,
         );
+        log.logWarn('Using $tooOld: $age');
       }
       return tooOld;
     }
 
-    final where = [
-      'Looked on PATH and in:',
-      for (final dir in searched) '  $dir',
-    ].join('\n');
+    throw _noUsableToolError(
+      name: name,
+      capability: 'can target iOS',
+      rejected: rejected,
+      searched: searched,
+      hint: _installClangHint,
+    );
+  }
+
+  Future<String?> _overriddenDarwinClang(
+    String sysroot, {
+    required String name,
+    required Future<CapturedProcess> Function(String, List<String>)? runProcess,
+  }) async {
+    final envVar = name == 'clang++' ? 'CXX' : 'CC';
+    final override = runner.environmentValue(
+      runner.effectiveEnvironment,
+      envVar,
+    );
+    if (override == null || override.isEmpty) return null;
+    final failure = await probeDarwinDriver(
+      override,
+      sysroot: sysroot,
+      runProcess: runProcess,
+    );
+    if (failure == null) return override;
     throw DarwinSdkError(
-      rejected.isEmpty
-          ? "No '$name' found.\n$where\n$_installClangHint"
-          : "No '$name' that can target iOS.\n"
-                '${rejected.join('\n')}\n$where\n$_installClangHint',
+      "\$$envVar is set to '$override' but it cannot target iOS.\n"
+      '  $failure',
     );
   }
 
@@ -435,21 +466,24 @@ final class DarwinToolchainResolver<T extends PlatformHostInterface> {
         '${runner.describeExitCode(result.exitCode)}',
       );
     }
+    final builtinsFailure = await _missingBuiltinsFailure(clang, runProcess);
+    return _rememberDarwinDriver(key, builtinsFailure);
+  }
+
+  Future<String?> _missingBuiltinsFailure(
+    String clang,
+    Future<CapturedProcess> Function(String, List<String>)? runProcess,
+  ) async {
     final resourceDir = await _resourceDirectory(clang, runProcess);
-    if (resourceDir != null) {
-      final builtins = host.paths.context.join(
-        resourceDir,
-        'include',
-        'stdbool.h',
-      );
-      if (!host.fileSystem.file(builtins).existsSync()) {
-        return _rememberDarwinDriver(
-          key,
-          'has no compiler builtin headers: $builtins is missing',
-        );
-      }
-    }
-    return _rememberDarwinDriver(key, null);
+    if (resourceDir == null) return null;
+    final builtins = host.paths.context.join(
+      resourceDir,
+      'include',
+      'stdbool.h',
+    );
+    final hasBuiltins = host.fileSystem.file(builtins).existsSync();
+    if (hasBuiltins) return null;
+    return 'has no compiler builtin headers: $builtins is missing';
   }
 
   Future<String?> _resourceDirectory(
