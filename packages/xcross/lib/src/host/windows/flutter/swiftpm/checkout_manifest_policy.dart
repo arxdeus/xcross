@@ -41,6 +41,14 @@ final class WindowsSwiftPmVendoredManifestPolicy<
   }
 
   @override
+  String normalizeDetached(
+    String manifest, {
+    required Set<String> consumedProducts,
+  }) => sourceFallback.aliasBinaryFallbackProducts(
+    normalizeHostManifest(manifest),
+    consumedProducts: consumedProducts,
+  );
+  @override
   Future<String> normalize(
     String manifest, {
     required String packageDir,

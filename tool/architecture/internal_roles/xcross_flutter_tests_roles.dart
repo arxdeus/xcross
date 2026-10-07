@@ -164,10 +164,9 @@ const xcrossFlutterTestsRoles = <String, Map<String, String>>{
       },
   'workspace:packages/xcross/test/flutter/build/support/dependency_preparation_test_context.dart':
       {
-        'CLASS:RecordingDependencyCloner': 'internal',
-        'CLASS:RecordingDependencyManifestPolicy': 'internal',
         'CLASS:RejectingDependencyArchiveTransport': 'internal',
         'CLASS:RejectingDependencyNativeTools': 'internal',
+        'FUNCTION:dependencyTestProcessPolicy': 'internal',
         'FUNCTION:dependencyTestPreparation': 'internal',
       },
   'workspace:packages/xcross/test/flutter/build/support/native_asset_framework_fixtures.dart':
@@ -297,7 +296,6 @@ const xcrossFlutterTestsRoles = <String, Map<String, String>>{
     'CLASS:FixtureSwiftPmArchiveTransport': 'internal',
     'CLASS:FixtureSwiftPmLlvmToolLookup': 'internal',
     'CLASS:RecordingPosixSwiftPmExecution': 'internal',
-    'CLASS:RecordingSwiftPmGitPackageCloner': 'internal',
     'CLASS:RecordingSwiftPmInteropBuild': 'internal',
     'CLASS:RecordingWindowsSwiftPmExecution': 'internal',
     'CLASS:TestLogOutput': 'internal',
@@ -311,7 +309,6 @@ const xcrossFlutterTestsRoles = <String, Map<String, String>>{
     'FUNCTION:testSwiftPmLog': 'internal',
     'FUNCTION:testSwiftPmRuntime': 'internal',
     'FUNCTION:testWindowsInteropRecovery': 'internal',
-    'FUNCTION:testWindowsPinnedResolver': 'internal',
     'FUNCTION:testWindowsSimulatorSwiftPmRuntime': 'internal',
     'FUNCTION:testWindowsSwiftPmRuntime': 'internal',
     'FUNCTION:testWindowsToolchainLookup': 'internal',

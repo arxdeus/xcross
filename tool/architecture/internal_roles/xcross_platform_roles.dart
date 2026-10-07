@@ -338,8 +338,6 @@ const xcrossPlatformRoles = <String, Map<String, String>>{
   'package:xcross/src/host/windows/flutter/swiftpm/host_build_services.dart': {
     'CLASS:WindowsSwiftPmHostBuildServices': 'internal',
   },
-  'package:xcross/src/host/windows/flutter/swiftpm/pinned_dependency_resolver.dart':
-      {'CLASS:WindowsSwiftPmPinnedDependencyResolver': 'internal'},
   'package:xcross/src/host/windows/flutter/swiftpm/swiftpm_host_policy.dart': {
     'CLASS:WindowsSwiftPmHostPolicy': 'internal',
   },

@@ -218,6 +218,41 @@ void main() {
     });
 
     test(
+      'rethrows the original failure when recovery has no evidence',
+      () async {
+        final original = StateError('original');
+        var resolves = 0;
+        await expectLater(
+          _swiftPmRuntime.binaryRecovery.resolveWithFinalBinaryRecovery(
+            resolve: () {
+              resolves++;
+              throw original;
+            },
+            recover: () async => false,
+          ),
+          throwsA(same(original)),
+        );
+        expect(resolves, 1);
+      },
+    );
+
+    test('a second resolve failure is terminal', () async {
+      final second = StateError('second');
+      var resolves = 0;
+      await expectLater(
+        _swiftPmRuntime.binaryRecovery.resolveWithFinalBinaryRecovery(
+          resolve: () {
+            if (resolves++ == 0) throw StateError('first');
+            throw second;
+          },
+          recover: () async => true,
+        ),
+        throwsA(same(second)),
+      );
+      expect(resolves, 2);
+    });
+
+    test(
       'does not run a resolve again after we killed it for timing out',
       () async {
         // Re-running waits out the same stall, which is how the Windows job

@@ -46,18 +46,22 @@ void main() {
   });
   tearDown(() => root.deleteSync(recursive: true));
 
-  SwiftPmManifestCompilerConfiguration configuration({String policy = 'a'}) =>
-      SwiftPmManifestCompilerConfiguration(
-        compiler: compiler,
-        cacheRoot: p.join(root.path, 'cache'),
-        policy: policy,
-      );
+  SwiftPmManifestCompilerConfiguration configuration({
+    String policy = 'a',
+    Map<String, List<String>> consumedProducts = const {},
+  }) => SwiftPmManifestCompilerConfiguration(
+    compiler: compiler,
+    cacheRoot: p.join(root.path, 'cache'),
+    policy: policy,
+    consumedProducts: consumedProducts,
+  );
 
   List<String> invocation(
     String manifest, {
     required String temp,
     String manifestPath = '/Package.swift',
     List<String> extra = const [],
+    String output = 'root-manifest',
   }) {
     final directory = Directory(p.join(root.path, temp))..createSync();
     final contents = p.join(directory.path, 'manifest.swift');
@@ -80,7 +84,7 @@ void main() {
       manifestPath,
       ...extra,
       '-o',
-      p.join(directory.path, 'root-manifest'),
+      p.join(directory.path, output),
     ];
   }
 
@@ -279,6 +283,43 @@ void main() {
     expect(configuration.compiler, p.join(bin.path, 'swiftc'));
     expect(configuration.policy, first[manifestPolicyVariable]);
 
+    final runtime = testSwiftPmRuntime(environment: environment);
+    final consumed =
+        await SwiftPmProcessPolicy(
+          host: runtime.host,
+          hostPolicy: runtime.hostPolicy,
+          runner: runtime.runner,
+          tools: AppleToolShimResolver(
+            runtime.target,
+            runtime.runner,
+            runtime.sdkRepository,
+            runtime.toolchainResolver,
+            hostTools: MacOSNativeHostTools(runtime.host, runtime.runner),
+            executable: xcross,
+          ),
+        ).swiftProcessEnvironment(
+          consumedProducts: {
+            'dependency': {'Product'},
+          },
+        );
+    expect(
+      consumed[manifestPolicyVariable],
+      isNot(first[manifestPolicyVariable]),
+    );
+    expect(
+      SwiftPmManifestCompilerConfiguration.fromJson(
+        jsonDecode(
+              File(
+                '${consumed['SWIFT_EXEC_MANIFEST']!}.policy.json',
+              ).readAsStringSync(),
+            )
+            as Map<String, Object?>,
+      ).consumedProducts,
+      {
+        'dependency': ['Product'],
+      },
+    );
+
     File(xcross).writeAsStringSync('updated xcross');
     final updated = await resolve();
     expect(
@@ -286,6 +327,76 @@ void main() {
       isNot(first[manifestPolicyVariable]),
     );
     expect(updated['SWIFT_EXEC_MANIFEST'], isNot(shim));
+  });
+
+  test('derives the package identity from the manifest output name', () {
+    expect(
+      SwiftPmManifestCompiler.manifestIdentity('/tmp/Dependency-manifest'),
+      'dependency',
+    );
+    expect(
+      SwiftPmManifestCompiler.manifestIdentity(
+        r'C:\tmp\dependency-manifest.exe',
+      ),
+      'dependency',
+    );
+    expect(SwiftPmManifestCompiler.manifestIdentity('/tmp/other'), isNull);
+  });
+
+  test(
+    'aliases products the build consumes from the manifest identity',
+    () async {
+      const manifest = '''
+var products: [Product] = [
+    .library(name: "PublicSDK", targets: ["BinaryArtifact"]),
+]
+var targets: [Target] = [
+    .binaryTarget(name: "BinaryArtifact", url: "SDK.zip", checksum: "abc"),
+]
+if getenv("CROSS_HOST_SOURCE") != nil {
+    products.removeAll()
+    targets.removeAll()
+    products.append(.library(name: "SourceProduct", targets: ["SourceImpl"]))
+    targets.append(.target(name: "SourceImpl", path: "Sources"))
+}
+''';
+      final consumed = configuration(
+        consumedProducts: {
+          'dependency': ['PublicSDK'],
+        },
+      );
+      final other = invocation(
+        manifest,
+        temp: 'other',
+        output: 'other-manifest',
+      );
+      await manifestCompiler.compile(other, consumed);
+      expect(File(_contents(other)).readAsStringSync(), manifest);
+      final arguments = invocation(
+        manifest,
+        temp: 'dependency',
+        output: 'dependency-manifest',
+      );
+      await manifestCompiler.compile(arguments, consumed);
+      expect(
+        File(_contents(arguments)).readAsStringSync(),
+        contains('.library(name: "PublicSDK", targets: ["SourceImpl"])'),
+      );
+    },
+  );
+
+  test('keys the manifest policy on consumed products', () {
+    expect(manifestCompilerEnvironmentDigest('policy', const {}), 'policy');
+    final first = manifestCompilerEnvironmentDigest('policy', const {
+      'dependency': ['First'],
+    });
+    expect(first, isNot('policy'));
+    expect(
+      manifestCompilerEnvironmentDigest('policy', const {
+        'dependency': ['Second'],
+      }),
+      isNot(first),
+    );
   });
 
   test('runs an overlay scan without an output uncached', () async {

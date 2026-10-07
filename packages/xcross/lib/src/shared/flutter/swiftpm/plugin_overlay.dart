@@ -4,10 +4,8 @@ import 'dart:io';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/binary_preparation.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/dependency_vendor.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_source_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
@@ -44,31 +42,18 @@ final class SwiftPmPluginOverlay<T extends PlatformHostInterface> {
     'pigeons',
   };
   SwiftPmPluginOverlay({
-    required this.dependencyVendor,
     required this.filesystem,
     required this.sourceNormalizer,
     required this.binaryPreparation,
     required this.manifestPolicy,
-  }) {
-    if (!identical(
-      manifestPolicy,
-      dependencyVendor.checkoutManifestNormalizer.policy,
-    )) {
-      throw ArgumentError(
-        'Plugin overlay must share the vendored manifest policy',
-      );
-    }
-  }
+  });
   final SwiftPmVendoredManifestPolicy manifestPolicy;
   final SwiftPmBinaryPreparation<T> binaryPreparation;
-
-  final SwiftPmDependencyVendor<T> dependencyVendor;
   final SwiftPmFilesystem<T> filesystem;
   final SwiftPmHostSourceNormalizer sourceNormalizer;
 
   /// Stages [target] at [alias], using a shallow overlay when the Swift
-  /// manifest needs host fixes (linker flags, Windows CRT imports) or when
-  /// remote URL dependencies are vendored to path deps.
+  /// manifest needs host fixes (linker flags, Windows CRT imports).
   ///
   /// [platformDir] is the package-root subdirectory [target] sits in — `ios`
   /// normally, `darwin` for shared-source Apple plugins. The staged tree keeps
@@ -78,31 +63,17 @@ final class SwiftPmPluginOverlay<T extends PlatformHostInterface> {
     required String alias,
     required String target,
     String platformDir = 'ios',
-    String? vendorDir,
     Map<String, String> packageTargets = const {},
     bool copySources = false,
-    Map<String, Map<String, List<String>>>? vendorNormalizationCache,
-    Map<String, Future<Map<String, String>>>? dependencyEvaluationCache,
-    Map<String, Future<void>>? vendorCheckoutCache,
+    Map<String, List<String>> fallbackSwiftModules = const {},
     String? scratchPath,
-
     String? binaryArtifactStore,
-
     String? binaryArtifactFallback,
     bool swiftPmArtifactJunctionCapability = false,
     bool packageLocalArtifactJunctionCapability = false,
-    SwiftPmDependencyRefEvaluator? evaluateDependencyRefs,
-    Future<void> Function(
-      String git,
-      String url,
-      String ref,
-      String destination,
-    )?
-    clonePackage,
   }) async {
     var stagedPackage = alias;
-    final shouldCopySources = vendorDir != null || copySources;
-    if (shouldCopySources) {
+    if (copySources) {
       await filesystem.deleteUnless(alias, FileSystemEntityType.directory);
       final packageRoot = p.dirname(p.dirname(target));
       await stageAncestorOverlay(
@@ -146,31 +117,7 @@ final class SwiftPmPluginOverlay<T extends PlatformHostInterface> {
         rewritten,
       );
     }
-    final fallbackSwiftModules = <String, List<String>>{};
-    if (vendorDir != null) {
-      await mirrorPluginPackage(target, stagedPackage, normalizedManifest);
-      normalizedManifest = await dependencyVendor.vendorUrlPackagesAsPathDeps(
-        normalizedManifest,
-
-        vendorDir: vendorDir,
-        packageDirectory: stagedPackage,
-        fallbackSwiftModules: fallbackSwiftModules,
-        normalizationCache: vendorNormalizationCache,
-        evaluationCache: dependencyEvaluationCache,
-        checkoutCache: vendorCheckoutCache,
-        scratchPath: scratchPath,
-
-        binaryArtifactStore: binaryArtifactStore,
-        binaryArtifactFallback: binaryArtifactFallback,
-        swiftPmArtifactJunctionCapability: swiftPmArtifactJunctionCapability,
-        packageLocalArtifactJunctionCapability:
-            packageLocalArtifactJunctionCapability,
-        scopedDependencyRefEvaluator: evaluateDependencyRefs,
-        clonePackage: clonePackage,
-      );
-    }
-
-    if (shouldCopySources) {
+    if (copySources) {
       // Normalizing during the mirror keeps re-runs byte-stable: copying
       // first and normalizing after would rewrite (and re-timestamp) every
       // normalized source on every build.

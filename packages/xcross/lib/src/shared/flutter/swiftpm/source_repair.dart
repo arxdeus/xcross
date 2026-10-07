@@ -78,7 +78,7 @@ final class SwiftPmSourceRepair<T extends PlatformHostInterface> {
   /// One `swift package resolve` attempt against [directory].
   ///
   /// SwiftPM resolves source-control dependencies by spawning git, so this
-  /// needs the same non-interactive settings as our own clones: otherwise a
+  /// needs non-interactive git settings: otherwise a
   /// moved or private dependency parks SwiftPM on an unanswerable credential
   /// prompt.
   ///

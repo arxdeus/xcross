@@ -101,13 +101,14 @@ final class SwiftPmManifestCompiler {
     }
     final contents = fileSystem.file(overlay.contentsPath);
     final original = await contents.readAsString();
+    final output = outputPath(arguments);
     final patched = await rewrite(
       original,
       manifestPath: overlay.manifestPath,
+      identity: output == null ? null : manifestIdentity(output),
       configuration: configuration,
     );
     if (patched != original) await contents.writeAsString(patched);
-    final output = outputPath(arguments);
     final key = output == null || arguments.any(_uncacheable)
         ? null
         : cacheKey(
@@ -141,19 +142,20 @@ final class SwiftPmManifestCompiler {
   Future<String> rewrite(
     String manifest, {
     required String manifestPath,
+    required String? identity,
     required SwiftPmManifestCompilerConfiguration configuration,
   }) async {
+    final products = {...?configuration.consumedProducts[identity]};
     final directory = p.dirname(manifestPath);
     if (directory == manifestPath ||
         fileSystem.typeSync(p.join(directory, 'Package.swift')) !=
             FileSystemEntityType.file) {
-      return policy.normalizeHostManifest(manifest);
+      return policy.normalizeDetached(manifest, consumedProducts: products);
     }
-    final products = configuration.consumedProducts[p.normalize(directory)];
     final normalized = await policy.normalize(
       manifest,
       packageDir: directory,
-      consumedProducts: {...?products},
+      consumedProducts: products,
     );
     return sourceNormalizer.removeMissingResources(normalized, directory);
   }
@@ -191,6 +193,15 @@ final class SwiftPmManifestCompiler {
       }
     }
     return found;
+  }
+
+  static String? manifestIdentity(String output) {
+    final name = output
+        .split(RegExp(r'[\\/]'))
+        .last
+        .replaceAll(RegExp(r'\.exe$'), '');
+    if (!name.endsWith('-manifest')) return null;
+    return name.substring(0, name.length - '-manifest'.length).toLowerCase();
   }
 
   String? outputPath(List<String> arguments) {
@@ -308,3 +319,17 @@ Future<void> copyManifestCompilerExecutable(
 @internal
 String manifestCompilerPolicyDigest(Map<String, Object?> identity) =>
     sha256.convert(utf8.encode(jsonEncode(identity))).toString();
+
+@internal
+String manifestCompilerEnvironmentDigest(
+  String policy,
+  Map<String, List<String>> consumedProducts,
+) => consumedProducts.isEmpty
+    ? policy
+    : manifestCompilerPolicyDigest({
+        'policy': policy,
+        'consumedProducts': {
+          for (final key in consumedProducts.keys.toList()..sort())
+            key: consumedProducts[key],
+        },
+      });

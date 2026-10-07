@@ -4,7 +4,6 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/host/shared/flutter/swiftpm/host_symlink_capability.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_graph.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_link_policy.dart';
@@ -14,17 +13,11 @@ import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 @internal
 final class WindowsSwiftPmCheckoutGitPolicy
     implements SwiftPmCheckoutGitPolicy {
-  const WindowsSwiftPmCheckoutGitPolicy({required this.symlinks});
-  final HostSymlinkCapability symlinks;
+  const WindowsSwiftPmCheckoutGitPolicy();
   @override
   String linkText(String text) => text.replaceAll('/', r'\');
   @override
   List<String> get checkoutArguments => const ['-c', 'core.longpaths=true'];
-  @override
-  Future<List<String>> cloneConfiguration() async => [
-    ...checkoutArguments,
-    if (await symlinks.probe()) ...['-c', 'core.symlinks=true'],
-  ];
 }
 
 @internal

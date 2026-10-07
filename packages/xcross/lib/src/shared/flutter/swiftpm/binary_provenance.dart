@@ -13,7 +13,6 @@ import 'package:xcross/src/shared/flutter/build/swiftpm_binary_target.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/manifest_dependencies.dart';
 
 @internal
 const String flutterFrameworkPackageName = 'FlutterFramework';
@@ -170,58 +169,5 @@ final class SwiftPmBinaryProvenance<T extends PlatformHostInterface> {
             .toList()
           ..sort((a, b) => a.path.compareTo(b.path));
     return paths;
-  }
-
-  List<File> rootPackageManifestFiles(String packageDirectory) {
-    final root = artifactFileSystem.directory(packageDirectory);
-    if (!root.existsSync()) return const [];
-    final files = root.listSync(followLinks: false).whereType<File>().where((
-      file,
-    ) {
-      final name = p.basename(file.path);
-      return name == 'Package.swift' ||
-          (name.startsWith('Package@') && name.endsWith('.swift'));
-    }).toList()..sort((a, b) => a.path.compareTo(b.path));
-    return files;
-  }
-
-  Future<List<SwiftPmBinaryArtifactProvenance>> binaryArtifactProvenance(
-    String packageDirectory,
-    String scratchPath,
-    List<SwiftPmPackageDependency> dependencies,
-  ) async {
-    final result = <SwiftPmBinaryArtifactProvenance>[];
-    final checkoutRoot = p.join(scratchPath, 'checkouts');
-    final roots = <String, String?>{packageDirectory: null};
-    for (final dependency in dependencies) {
-      roots[p.join(checkoutRoot, dependency.identity)] = dependency.identity;
-      roots[p.join(
-            checkoutRoot,
-            SwiftPmManifestDependencies.packageIdentityFromUrl(dependency.url),
-          )] =
-          dependency.identity;
-    }
-    for (final entry in roots.entries) {
-      if (!artifactFileSystem.directory(entry.key).existsSync()) continue;
-      final manifests = entry.value == null
-          ? rootPackageManifestFiles(entry.key)
-          : await trackedPackageManifestFiles(entry.key);
-      for (final entity in manifests) {
-        final manifest = await entity.readAsString();
-        final declaredName = RegExp(
-          r'Package\s*\(\s*name\s*:\s*"([^"]+)"',
-        ).firstMatch(manifest)?.group(1);
-        final identity = entry.value ?? declaredName;
-        if (identity == null) continue;
-        result.addAll(
-          SwiftPmBinaryProvenance.scanBinaryArtifactProvenance(
-            packageIdentity: identity,
-            manifestPath: artifactFileSystem.processPath(entity.path),
-            manifest: manifest,
-          ),
-        );
-      }
-    }
-    return result;
   }
 }

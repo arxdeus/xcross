@@ -54,7 +54,6 @@ final class SwiftPmExtractedArtifactRecovery<T extends PlatformHostInterface> {
   final SwiftPmArchiveTransport transport;
   Future<bool> stageExtractedBinaryArtifacts({
     required String scratchPath,
-    required String vendorDir,
     Map<String, String> packageIdentities = const {},
     String? binaryArtifactStore,
 
@@ -74,12 +73,10 @@ final class SwiftPmExtractedArtifactRecovery<T extends PlatformHostInterface> {
     }
     final artifactsRoot = p.join(scratchPath, 'artifacts');
     final artifacts = artifactFileSystem.directory(artifactsRoot);
-    final vendor = artifactFileSystem.directory(vendorDir);
     final checkouts = artifactFileSystem.directory(
       p.join(scratchPath, 'checkouts'),
     );
-    if (!artifacts.existsSync() ||
-        (!vendor.existsSync() && !checkouts.existsSync())) {
+    if (!artifacts.existsSync() || !checkouts.existsSync()) {
       return false;
     }
     final preparer = SwiftPmBinaryArtifactPreparer(
@@ -96,10 +93,7 @@ final class SwiftPmExtractedArtifactRecovery<T extends PlatformHostInterface> {
     var changed = false;
     final remove = removeDestination ?? filesystem.deleteEntity;
     final write = writeManifest ?? filesystem.writeAtomic;
-    final packageRoots = <Directory>[
-      if (vendor.existsSync()) vendor,
-      if (checkouts.existsSync()) checkouts,
-    ];
+    final packageRoots = <Directory>[checkouts];
     for (final packageRoot in packageRoots) {
       await for (final package in packageRoot.list(followLinks: false)) {
         if (package is! Directory) continue;

@@ -12,7 +12,6 @@ import 'package:xcross/src/host/windows/flutter/swiftpm/build_execution.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/dependency_preparation.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/gate_platform.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/host_build_services.dart';
-import 'package:xcross/src/host/windows/flutter/swiftpm/pinned_dependency_resolver.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/windows_swift_plan_repair.dart';
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/shared/flutter/build/internal/swiftpm_binary_fixture.dart';
@@ -131,13 +130,6 @@ final class WindowsFlutterFeatureServices<T extends WindowsHostInterface>
       hostBuildServices: buildServices,
       librarianResolver: librarianResolver,
     );
-    final pinnedResolver = WindowsSwiftPmPinnedDependencyResolver<T>(
-      runner: runner,
-      fileSystem: artifactFileSystem,
-      filesystem: foundation.filesystem,
-      repository: checkout.repository,
-      manifestNormalizer: checkoutManifestNormalizer,
-    );
     final buildExecution = WindowsSwiftPmBuildExecution<T>(
       runner: runner,
       repair: WindowsSwiftPlanRepair(runner),
@@ -146,16 +138,11 @@ final class WindowsFlutterFeatureServices<T extends WindowsHostInterface>
     final dependencyPreparation = WindowsSwiftPmDependencyPreparation<T>(
       runner: runner,
       checkout: checkout,
-      fileSystem: artifactFileSystem,
-      manifestNormalizer: checkoutManifestNormalizer,
       metadata: foundation.packageMetadata,
       processPolicy: foundation.processPolicy,
       networkRetry: foundation.networkRetry,
-      binaryPreparation: foundation.binaryPreparation,
       binaryRecovery: foundation.binaryRecovery,
-      binaryProvenance: foundation.binaryProvenance,
       extractedArtifacts: foundation.extractedArtifacts,
-      pinnedResolver: pinnedResolver,
     );
     final gatePlatform = WindowsSwiftPmGatePlatform<T>(
       fixtureGenerator: SwiftPmBinaryFixtureGenerator(

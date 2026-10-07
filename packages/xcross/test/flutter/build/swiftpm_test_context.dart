@@ -38,7 +38,6 @@ import 'package:xcross/src/host/windows/flutter/swiftpm/checkout_manifest_policy
 import 'package:xcross/src/host/windows/flutter/swiftpm/dependency_preparation.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/gate_platform.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/host_build_services.dart';
-import 'package:xcross/src/host/windows/flutter/swiftpm/pinned_dependency_resolver.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/swiftpm_host_policy.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/windows_swift_plan_repair.dart';
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
@@ -47,7 +46,6 @@ import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/build_execution.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/checkout_git_repository.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/interop_build_recovery.dart';
@@ -126,7 +124,6 @@ SwiftPmRuntime<MacOSHost> testSwiftPmRuntime({
     ),
     attributes: attributes,
     linkCreator: PosixSwiftPmCheckoutLinkCreator(artifactFileSystem),
-    environment: runner.effectiveEnvironment,
   );
   final normalizer = SwiftPmCheckoutManifestNormalizer(
     fileSystem: artifactFileSystem,
@@ -186,7 +183,11 @@ SwiftPmRuntime<MacOSHost> testSwiftPmRuntime({
     transport,
     copyPolicy,
     PosixSwiftPmBuildExecution(runner: runner),
-    const PosixSwiftPmDependencyPreparation(),
+    PosixSwiftPmDependencyPreparation(
+      runner: runner,
+      processPolicy: foundation.processPolicy,
+      networkRetry: foundation.networkRetry,
+    ),
     checkout,
     attributes,
     normalizer,
@@ -255,7 +256,7 @@ SwiftPmRuntime<WindowsHost> testWindowsSwiftPmRuntime({
   const attributes = PosixSwiftPmCheckoutAttributes();
   final checkout = assembleSwiftPmCheckout(
     parts: parts,
-    gitPolicy: WindowsSwiftPmCheckoutGitPolicy(symlinks: parts.symlinks),
+    gitPolicy: const WindowsSwiftPmCheckoutGitPolicy(),
     fallback: WindowsSwiftPmCheckoutFallback(
       runner: runner,
       fileSystem: artifactFileSystem,
@@ -265,7 +266,6 @@ SwiftPmRuntime<WindowsHost> testWindowsSwiftPmRuntime({
     ),
     attributes: attributes,
     linkCreator: PosixSwiftPmCheckoutLinkCreator(artifactFileSystem),
-    environment: runner.effectiveEnvironment,
   );
   final normalizer = SwiftPmCheckoutManifestNormalizer(
     fileSystem: artifactFileSystem,
@@ -339,22 +339,11 @@ SwiftPmRuntime<WindowsHost> testWindowsSwiftPmRuntime({
     WindowsSwiftPmDependencyPreparation(
       runner: runner,
       checkout: checkout,
-      fileSystem: artifactFileSystem,
-      manifestNormalizer: normalizer,
       metadata: foundation.packageMetadata,
       processPolicy: foundation.processPolicy,
       networkRetry: foundation.networkRetry,
-      binaryPreparation: foundation.binaryPreparation,
       binaryRecovery: foundation.binaryRecovery,
-      binaryProvenance: foundation.binaryProvenance,
       extractedArtifacts: foundation.extractedArtifacts,
-      pinnedResolver: WindowsSwiftPmPinnedDependencyResolver(
-        runner: runner,
-        fileSystem: artifactFileSystem,
-        filesystem: parts.filesystem,
-        repository: checkout.repository,
-        manifestNormalizer: normalizer,
-      ),
     ),
     checkout,
     attributes,
@@ -602,32 +591,6 @@ final class RecordingWindowsSwiftPmExecution
     }
     await session.build();
   }
-}
-
-@internal
-WindowsSwiftPmPinnedDependencyResolver<WindowsHost> testWindowsPinnedResolver(
-  SwiftPmRuntime<WindowsHost> runtime,
-  SwiftPmGitPackageCloner repository,
-) => WindowsSwiftPmPinnedDependencyResolver(
-  runner: runtime.runner,
-  fileSystem: runtime.artifactFileSystem,
-  filesystem: runtime.filesystem,
-  repository: repository,
-  manifestNormalizer: runtime.checkoutManifestNormalizer,
-);
-
-@internal
-final class RecordingSwiftPmGitPackageCloner
-    implements SwiftPmGitPackageCloner {
-  RecordingSwiftPmGitPackageCloner(this.clone);
-  final Future<void> Function(String, String, String, String) clone;
-  @override
-  Future<void> cloneGitPackage(
-    String git,
-    String url,
-    String ref,
-    String destination,
-  ) => clone(git, url, ref, destination);
 }
 
 @internal

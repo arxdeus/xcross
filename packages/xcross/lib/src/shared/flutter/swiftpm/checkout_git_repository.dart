@@ -8,34 +8,18 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/checkout_link_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 
 @internal
-abstract interface class SwiftPmGitPackageCloner {
-  Future<void> cloneGitPackage(
-    String git,
-    String url,
-    String ref,
-    String destination,
-  );
-}
-
-@internal
-final class SwiftPmGitRepository<T extends PlatformHostInterface>
-    implements SwiftPmGitPackageCloner {
+final class SwiftPmGitRepository<T extends PlatformHostInterface> {
   SwiftPmGitRepository({
     required this.runner,
     required this.fileSystem,
     required this.filesystem,
-    required this.policy,
-    required Map<String, String> environment,
-  }) : environment = Map.unmodifiable(environment);
+  });
   final ProcessRunner<T> runner;
   final SwiftPmArtifactFileSystem fileSystem;
   final SwiftPmFilesystem<T> filesystem;
-  final SwiftPmCheckoutGitPolicy policy;
-  final Map<String, String> environment;
   String? gitHeadIdentity(String root) {
     var gitDir = p.join(root, '.git');
     if (fileSystem.typeSync(gitDir) == FileSystemEntityType.file) {
@@ -156,145 +140,5 @@ final class SwiftPmGitRepository<T extends PlatformHostInterface>
       offset = end + 1;
     }
     return blobs;
-  }
-
-  @override
-  Future<void> cloneGitPackage(
-    String git,
-    String url,
-    String ref,
-    String destination,
-  ) async {
-    final destDir = fileSystem.directory(destination);
-    const timeout = Duration(minutes: 10);
-    final gitConfig = await policy.cloneConfiguration();
-    Future<void> updateSubmodules() async {
-      if (!fileSystem.file(p.join(destination, '.gitmodules')).existsSync()) {
-        return;
-      }
-      await runner.runChecked(
-        git,
-        [
-          ...gitConfig,
-          '-C',
-          destination,
-          'submodule',
-          'update',
-          '--init',
-          '--recursive',
-          '--depth',
-          '1',
-        ],
-        environment: environment,
-        timeout: timeout,
-        label: 'git submodule update ${p.basename(destination)}',
-      );
-    }
-
-    if (fileSystem.file(p.join(destination, '.git')).existsSync() ||
-        fileSystem.directory(p.join(destination, '.git')).existsSync()) {
-      final head = await runner.run(
-        git,
-        [...gitConfig, '-C', destination, 'rev-parse', '--verify', 'HEAD'],
-        environment: environment,
-        timeout: timeout,
-      );
-      if (head.exitCode == 0 &&
-          head.stdout.trim().toLowerCase() == ref.toLowerCase()) {
-        await runner.runChecked(
-          git,
-          [...gitConfig, '-C', destination, 'reset', '--hard', 'HEAD'],
-          environment: environment,
-          timeout: timeout,
-          label: 'git reset vendored package',
-        );
-        await updateSubmodules();
-        return;
-      }
-    }
-    await filesystem.deleteEntity(destination);
-    await destDir.parent.create(recursive: true);
-
-    final shallow = await runner.run(
-      git,
-      [
-        ...gitConfig,
-        'clone',
-        '--depth',
-        '1',
-        '--branch',
-        ref,
-        url,
-        destination,
-      ],
-      environment: environment,
-      timeout: timeout,
-    );
-    if (shallow.exitCode == 0) {
-      await updateSubmodules();
-      return;
-    }
-
-    await filesystem.deleteEntity(destination);
-    await fileSystem.directory(destination).create(recursive: true);
-    final init = await runner.run(
-      git,
-      [...gitConfig, '-C', destination, 'init'],
-      environment: environment,
-      timeout: timeout,
-    );
-    final fetch = init.exitCode == 0
-        ? await runner.run(
-            git,
-            [
-              ...gitConfig,
-              '-C',
-              destination,
-              'fetch',
-              '--depth',
-              '1',
-              url,
-              ref,
-            ],
-            environment: environment,
-            timeout: timeout,
-          )
-        : init;
-    final checkout = fetch.exitCode == 0
-        ? await runner.run(
-            git,
-            [
-              ...gitConfig,
-              '-C',
-              destination,
-              'checkout',
-              '--detach',
-              'FETCH_HEAD',
-            ],
-            environment: environment,
-            timeout: timeout,
-          )
-        : fetch;
-    if (checkout.exitCode == 0) {
-      await updateSubmodules();
-      return;
-    }
-
-    await filesystem.deleteEntity(destination);
-    await runner.runChecked(
-      git,
-      [...gitConfig, 'clone', url, destination],
-      environment: environment,
-      timeout: timeout,
-      label: 'git clone $url',
-    );
-    await runner.runChecked(
-      git,
-      [...gitConfig, '-C', destination, 'checkout', ref],
-      environment: environment,
-      timeout: timeout,
-      label: 'git checkout $ref',
-    );
-    await updateSubmodules();
   }
 }

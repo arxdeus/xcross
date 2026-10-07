@@ -104,7 +104,6 @@ void main() {
     );
     expect(workspace.packages, p.join(workspace.root, 'plugins'));
     expect(workspace.scratch, p.join(workspace.root, 'scratch'));
-    expect(workspace.vendor, p.join(workspace.root, 'vendor'));
   });
 
   test('uses LOCALAPPDATA on Windows', () {

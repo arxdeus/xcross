@@ -35,18 +35,6 @@ const String flutterFrameworkPackageName = 'FlutterFramework';
 @internal
 const String pluginsProductName = 'FlutterPluginsGenerated';
 @internal
-typedef SwiftPmDependencyRefEvaluator =
-    Future<Map<String, String>> Function(
-      String packageDirectory, {
-      required String? scratchPath,
-      required String? binaryArtifactStore,
-      required String? binaryArtifactFallback,
-      required bool swiftPmArtifactJunctionCapability,
-      required bool packageLocalArtifactJunctionCapability,
-      required List<SwiftPmPackageDependency> dependencies,
-    });
-
-@internal
 typedef PrepareSwiftPmBinaryArtifact =
     Future<SwiftPmPreparedBinaryArtifact> Function(
       SwiftPmRemoteBinaryTarget target,
@@ -91,7 +79,6 @@ final class SwiftPmBinaryArtifactProvenance<T extends PlatformHostInterface> {
 
 @internal
 final class SwiftPmBinaryAttemptState {
-  final Set<String> bootstrapRecovered = {};
   final Set<String> finalRecovered = {};
   final Set<String> copied = {};
 }
@@ -169,8 +156,8 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
   /// [projectRoot]        — Flutter project root (logging context only).
   /// [flutterXcframework] — Path to the real `Flutter.xcframework` (from
   ///                         `IosEngineCache.flutterXcframework`).
-  /// [workspace] owns the stable generated-package, scratch, and vendored
-  /// dependency directories reused between builds.
+  /// [workspace] owns the stable generated-package and scratch directories
+  /// reused between builds.
   Future<GeneratedPluginsBuildResult?> build({
     required String projectRoot,
     required SwiftPmWorkspace workspace,
@@ -183,14 +170,6 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
     bool swiftPmArtifactJunctionCapability = false,
     bool packageLocalArtifactJunctionCapability = false,
     ArtifactJunctionCapabilityResolver? artifactJunctionCapabilityResolver,
-    SwiftPmDependencyRefEvaluator? evaluateDependencyRefs,
-    Future<void> Function(
-      String git,
-      String url,
-      String ref,
-      String destination,
-    )?
-    clonePackage,
   }) => runtime.runner.log.logStep(
     'Building Flutter plugins (Swift Package Manager)',
     () async {
@@ -260,25 +239,23 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
         for (final products in interopProductsByPlugin.values) ...products,
       };
 
-      await runtime.workspaceStager.writeGeneratedPackages(
+      Future<void> stage() => runtime.workspaceStager.writeGeneratedPackages(
         outputDir: outputDir,
         plugins: spmPlugins,
         flutterXcframework: flutterXcframework,
         copyFlutterXcframework: true,
-        vendorDir: workspace.vendor,
         copyPluginPackages: spmPlugins.map((plugin) => plugin.name).toSet(),
         deploymentTarget: deploymentTarget,
         verbose: verbose,
         scratchPath: workspace.scratch,
-        dependencyRefsCache: workspace.dependencyRefs,
         binaryArtifactStore: workspace.binaryArtifactStore,
         binaryArtifactFallback: workspace.binaryArtifactFallback,
         swiftPmArtifactJunctionCapability: capabilities.swiftPmArtifact,
         packageLocalArtifactJunctionCapability:
             capabilities.packageLocalArtifact,
-        evaluateDependencyRefs: evaluateDependencyRefs,
-        clonePackage: clonePackage,
+        sourceFallback: runtime.processPolicy.sourceFallbackActive,
       );
+      await stage();
 
       final pluginsDir = p.join(outputDir, 'Plugins');
       final scratchPath = workspace.scratch;
@@ -309,6 +286,26 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
         swiftPmArtifactJunctionCapability: capabilities.swiftPmArtifact,
         packageLocalArtifactJunctionCapability:
             capabilities.packageLocalArtifact,
+        consumedProducts: runtime.processPolicy.sourceFallbackActive
+            ? await runtime.workspaceStager.consumedProducts(outputDir)
+            : const {},
+        reconcileDependencies: !runtime.processPolicy.sourceFallbackActive
+            ? null
+            : (scratchPath, consumedProducts) async {
+                final reconciled = await runtime.workspaceStager
+                    .reconcileCheckoutFallbacks(
+                      outputDir: outputDir,
+                      scratchPath: scratchPath,
+                      consumedProducts: consumedProducts,
+                    );
+                if (reconciled.swiftModules) await stage();
+                return SwiftPmManifestDependencies.sameConsumedProducts(
+                      reconciled.consumedProducts,
+                      consumedProducts,
+                    )
+                    ? null
+                    : reconciled.consumedProducts;
+              },
       );
 
       final result = await runtime.assembly.discoverAndRewriteDylibs(

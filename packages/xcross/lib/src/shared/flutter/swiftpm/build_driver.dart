@@ -34,6 +34,13 @@ const String flutterFrameworkPackageName = 'FlutterFramework';
 const String pluginsProductName = 'FlutterPluginsGenerated';
 
 @internal
+typedef SwiftPmDependencyReconciler =
+    Future<Map<String, Set<String>>?> Function(
+      String scratchPath,
+      Map<String, Set<String>> consumedProducts,
+    );
+
+@internal
 final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
   SwiftPmBuildDriver({
     required this.buildPlan,
@@ -87,6 +94,8 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
     required Map<String, Set<String>> interopConsumers,
     bool swiftPmArtifactJunctionCapability = false,
     bool packageLocalArtifactJunctionCapability = false,
+    Map<String, Set<String>> consumedProducts = const {},
+    SwiftPmDependencyReconciler? reconcileDependencies,
   }) async {
     final outputDir = workspace.packages;
     final sdk = sdkRepository.current();
@@ -135,22 +144,23 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
     final objectiveCCompatibilityHeader = await buildPlan
         .writeObjectiveCCompatibilityHeader(outputDir);
     final swiftSdksPath = p.dirname(sdk.swiftSdkPath);
-    final environment = await processPolicy.swiftProcessEnvironment();
+    var consumed = consumedProducts;
+    var environment = await processPolicy.swiftProcessEnvironment(
+      consumedProducts: consumed,
+    );
     final macroServerArguments = await buildPlan.macroServerArguments(
       cacheRoot: workspace.cacheRoot,
       swiftBuild: swiftBuild,
       environment: environment,
     );
-    await dependencyPreparation.prepare(
+    Future<void> resolve() => dependencyPreparation.prepare(
       SwiftPmDependencyCommand(
         swiftSdkTriple: target.buildPlatform.swiftSdkTriple,
         swift: swiftPackage,
         pluginsDir: pluginsDir,
-
         scratchPath: scratchPath,
         swiftSdksPath: swiftSdksPath,
         toolsetPath: toolsetPath,
-        vendorDir: workspace.vendor,
         binaryArtifactStore: workspace.binaryArtifactStore,
         binaryArtifactFallback: workspace.binaryArtifactFallback,
         swiftPmArtifactJunctionCapability: swiftPmArtifactJunctionCapability,
@@ -159,6 +169,16 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
         environment: environment,
       ),
     );
+    await resolve();
+    while (true) {
+      final updated = await reconcileDependencies?.call(scratchPath, consumed);
+      if (updated == null) break;
+      consumed = updated;
+      environment = await processPolicy.swiftProcessEnvironment(
+        consumedProducts: consumed,
+      );
+      await resolve();
+    }
     final baseArguments = buildPlan.swiftBuildArguments(
       pluginsDir: pluginsDir,
       scratchPath: scratchPath,

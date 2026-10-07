@@ -17,6 +17,14 @@ final class PosixSwiftPmVendoredManifestPolicy<T extends PlatformHostInterface>
   String normalizeHostManifest(String manifest) =>
       sourceNormalizer.normalizeHostManifest(manifest);
   @override
+  String normalizeDetached(
+    String manifest, {
+    required Set<String> consumedProducts,
+  }) => sourceFallback.aliasBinaryFallbackProducts(
+    normalizeHostManifest(manifest),
+    consumedProducts: consumedProducts,
+  );
+  @override
   Future<String> normalize(
     String manifest, {
     required String packageDir,

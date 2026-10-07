@@ -1,32 +1,39 @@
 import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/network_retry.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
 
 @internal
 final class PosixSwiftPmDependencyPreparation<T extends PlatformHostInterface>
     implements SwiftPmDependencyPreparation<T> {
-  const PosixSwiftPmDependencyPreparation();
+  const PosixSwiftPmDependencyPreparation({
+    required this.runner,
+    required this.processPolicy,
+    required this.networkRetry,
+  });
+  final ProcessRunner<T> runner;
+  final SwiftPmProcessPolicy<T> processPolicy;
+  final SwiftPmNetworkRetry<T> networkRetry;
   @override
-  Future<void> prepare(SwiftPmDependencyCommand command) async {}
-  @override
-  Future<void> materializeClone(
-    String destination,
-    String git,
-    String vendorDir,
-  ) async {}
-  @override
-  Future<({Map<String, String> pins, Map<String, String> originals})>
-  bootstrapPinned(SwiftPmPinnedDependencyCommand command) async =>
-      (pins: <String, String>{}, originals: <String, String>{});
-  @override
-  Future<void> prepareArtifacts(
-    String packageRoot,
-    String store,
-    String fallback, {
-    required bool capability,
-  }) async {}
-  @override
-  Future<bool> recoverArtifacts(
-    SwiftPmDependencyArtifactCommand command,
-  ) async => false;
+  Future<void> prepare(SwiftPmDependencyCommand command) =>
+      networkRetry.retryingTransientNetworkFailure(
+        () => runner.runChecked(
+          command.swift,
+          processPolicy
+              .swiftResolveArguments(
+                pluginsDir: command.pluginsDir,
+                scratchPath: command.scratchPath,
+                swiftSdksPath: command.swiftSdksPath,
+                toolsetPath: command.toolsetPath,
+                swiftSdkTriple: command.swiftSdkTriple,
+              )
+              .toList(),
+          environment: command.environment,
+          inheritStdio: runner.log.isVerbose,
+          label: 'swift package resolve',
+        ),
+        label: 'swift package resolve',
+      );
 }

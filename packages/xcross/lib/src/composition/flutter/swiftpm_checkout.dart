@@ -68,14 +68,11 @@ SwiftPmCheckout<T> assembleSwiftPmCheckout<T extends PlatformHostInterface>({
   required SwiftPmCheckoutFallback fallback,
   required SwiftPmCheckoutAttributes attributes,
   required SwiftPmCheckoutLinkCreator linkCreator,
-  required Map<String, String> environment,
 }) {
   final repository = SwiftPmGitRepository<T>(
     runner: parts.runner,
     fileSystem: parts.fileSystem,
     filesystem: parts.filesystem,
-    policy: gitPolicy,
-    environment: environment,
   );
   final links = SwiftPmCheckoutLinks<T>(
     runner: parts.runner,

@@ -249,7 +249,6 @@ final class LinuxXcrossHostContext
       ),
       attributes: checkoutAttributes,
       linkCreator: PosixSwiftPmCheckoutLinkCreator(artifactFileSystem),
-      environment: runner.effectiveEnvironment,
     );
     final checkoutManifestNormalizer =
         SwiftPmCheckoutManifestNormalizer<LinuxHostInterface>(

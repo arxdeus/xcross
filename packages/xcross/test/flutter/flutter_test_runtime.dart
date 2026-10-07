@@ -129,7 +129,6 @@ FlutterBuildRuntime<LinuxHost> testFlutterRuntime(
     ),
     attributes: attributes,
     linkCreator: PosixSwiftPmCheckoutLinkCreator(artifactFileSystem),
-    environment: runner.effectiveEnvironment,
   );
   final normalizer = SwiftPmCheckoutManifestNormalizer(
     fileSystem: artifactFileSystem,
@@ -185,7 +184,11 @@ FlutterBuildRuntime<LinuxHost> testFlutterRuntime(
     checkoutAttributes: attributes,
     checkoutManifestNormalizer: normalizer,
     buildExecution: PosixSwiftPmBuildExecution(runner: runner),
-    dependencyPreparation: const PosixSwiftPmDependencyPreparation<LinuxHost>(),
+    dependencyPreparation: PosixSwiftPmDependencyPreparation<LinuxHost>(
+      runner: runner,
+      processPolicy: foundation.processPolicy,
+      networkRetry: foundation.networkRetry,
+    ),
   );
   return FlutterBuildRuntime(
     policy: policy,

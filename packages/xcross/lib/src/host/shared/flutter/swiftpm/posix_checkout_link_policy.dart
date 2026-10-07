@@ -14,8 +14,6 @@ final class PosixSwiftPmCheckoutGitPolicy implements SwiftPmCheckoutGitPolicy {
   String linkText(String text) => text;
   @override
   List<String> get checkoutArguments => const [];
-  @override
-  Future<List<String>> cloneConfiguration() async => const [];
 }
 
 @internal

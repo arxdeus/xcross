@@ -252,9 +252,7 @@ final class WindowsXcrossHostContext
     );
     final checkout = assembleSwiftPmCheckout<WindowsHostInterface>(
       parts: checkoutParts,
-      gitPolicy: WindowsSwiftPmCheckoutGitPolicy(
-        symlinks: checkoutParts.symlinks,
-      ),
+      gitPolicy: const WindowsSwiftPmCheckoutGitPolicy(),
       fallback: WindowsSwiftPmCheckoutFallback(
         runner: runner,
         fileSystem: artifactFileSystem,
@@ -269,7 +267,6 @@ final class WindowsXcrossHostContext
             nativeLinks.createLink(link, target, flags),
         lastError: () => nativeLinks.lastError(),
       ),
-      environment: runner.effectiveEnvironment,
     );
     final checkoutManifestNormalizer =
         SwiftPmCheckoutManifestNormalizer<WindowsHostInterface>(

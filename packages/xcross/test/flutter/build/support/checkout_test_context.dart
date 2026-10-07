@@ -53,8 +53,6 @@ final class CheckoutTestContext {
       runner: runner,
       fileSystem: fileSystem,
       filesystem: filesystem,
-      policy: const PosixSwiftPmCheckoutGitPolicy(),
-      environment: const {'GIT_TERMINAL_PROMPT': '0', 'TOKEN': 'fixture'},
     );
     links = SwiftPmCheckoutLinks(
       runner: runner,

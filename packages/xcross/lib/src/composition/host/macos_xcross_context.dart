@@ -244,7 +244,6 @@ final class MacOSXcrossHostContext
       ),
       attributes: checkoutAttributes,
       linkCreator: PosixSwiftPmCheckoutLinkCreator(artifactFileSystem),
-      environment: runner.effectiveEnvironment,
     );
     final checkoutManifestNormalizer =
         SwiftPmCheckoutManifestNormalizer<MacOSHostInterface>(

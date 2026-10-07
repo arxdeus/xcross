@@ -53,7 +53,12 @@ final class WindowsSwiftPmHostPolicy implements SwiftPmHostPolicy {
   @override
   List<String> get fingerprintArguments => const [];
   @override
-  List<String> get gitConfiguration => const ['core.symlinks', 'false'];
+  List<String> get gitConfiguration => const [
+    'core.symlinks',
+    'false',
+    'core.longpaths',
+    'true',
+  ];
   @override
   Map<String, String> get sourceEnvironment => const {
     'EXPERIMENTAL_SPM_BUILDS': '1',

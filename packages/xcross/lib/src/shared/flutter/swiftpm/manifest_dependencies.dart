@@ -1,6 +1,3 @@
-import 'dart:convert';
-
-import 'package:crypto/crypto.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
@@ -52,56 +49,8 @@ final class SwiftPmManifestDependencies {
     return deps;
   }
 
-  /// Folder name for a vendored checkout of [url] at [ref].
-  static String vendorPackageDirName(String url, String ref) {
-    final safeRef = ref.replaceAll(RegExp(r'[^\w.\-]+'), '_');
-    final identity = SwiftPmManifestDependencies.packageIdentityFromUrl(url);
-    final name = '$identity@$safeRef';
-    if (name.length <= vendorPackageDirNameBudget) return name;
-    final digest = sha256
-        .convert(utf8.encode('${identity.toLowerCase()}@$ref'))
-        .toString()
-        .substring(0, 8);
-    final prefixLength = vendorPackageDirNameBudget - digest.length - 1;
-    final prefix =
-        (identity.length > prefixLength
-                ? identity.substring(0, prefixLength)
-                : identity)
-            .replaceAll(RegExp(r'[^A-Za-z0-9]+$'), '');
-    return '$prefix-$digest';
-  }
-
-  @internal
-  static const int vendorPackageDirNameBudget = 16;
-
-  /// Swift tools version declared by [manifest], or `null` when absent.
-  ///
-  /// `.package(name:path:)` only exists from PackageDescription 5.2, so a
-  /// vendored manifest older than that (SDWebImageWebPCoder pins 5.0) must
-  /// get a plain `.package(path:)`. Pre-5.2 SwiftPM derives the dependency
-  /// name from the dependency's own `Package(name:)`, so target references
-  /// keep resolving without an explicit `name:`.
-  static ({int major, int minor})? manifestToolsVersion(String manifest) {
-    final match = RegExp(
-      r'^//\s*swift-tools-version\s*:?\s*(\d+)(?:\.(\d+))?',
-      multiLine: true,
-    ).firstMatch(manifest);
-    if (match == null) return null;
-    return (
-      major: int.parse(match.group(1)!),
-      minor: int.tryParse(match.group(2) ?? '0') ?? 0,
-    );
-  }
-
-  static bool supportsNamedPathDeps(String manifest) {
-    final version = SwiftPmManifestDependencies.manifestToolsVersion(manifest);
-    if (version == null) return true;
-    return version.major > 5 || (version.major == 5 && version.minor >= 2);
-  }
-
   /// SwiftPM package identity implied by a git URL (last path segment, no
-  /// `.git`). Used as `.package(name:)` so target `package:` references keep
-  /// matching after we vendor into a `name@version` directory.
+  /// `.git`).
   static String packageIdentityFromUrl(String url) {
     var identity = Uri.parse(url).pathSegments.lastWhere(
       (segment) => segment.isNotEmpty,
@@ -130,4 +79,43 @@ final class SwiftPmManifestDependencies {
           case final String name)
         name,
   };
+
+  static Map<String, Set<String>> consumedProductsByIdentity(
+    Iterable<String> manifests,
+  ) {
+    final result = <String, Set<String>>{};
+    for (final manifest in manifests) {
+      for (final dependency in parseUrlPackageDeps(manifest)) {
+        final products = consumedProducts(manifest, dependency.identity);
+        if (products.isEmpty) continue;
+        result
+            .putIfAbsent(
+              packageIdentityFromUrl(dependency.url).toLowerCase(),
+              () => <String>{},
+            )
+            .addAll(products);
+      }
+    }
+    return result;
+  }
+
+  static Map<String, Set<String>> mergeConsumedProducts(
+    Map<String, Set<String>> left,
+    Map<String, Set<String>> right,
+  ) => {
+    for (final identity in {...left.keys, ...right.keys})
+      identity: {...?left[identity], ...?right[identity]},
+  };
+
+  static bool sameConsumedProducts(
+    Map<String, Set<String>> left,
+    Map<String, Set<String>> right,
+  ) =>
+      left.length == right.length &&
+      left.entries.every((entry) {
+        final products = right[entry.key];
+        return products != null &&
+            products.length == entry.value.length &&
+            products.containsAll(entry.value);
+      });
 }

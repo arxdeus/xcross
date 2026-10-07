@@ -185,55 +185,44 @@ void main() {
   );
 
   test(
-    'manifest normalization writes host fixes before dependency rewrites and stamps stable bytes',
+    'checkout fallback synthesis reads manifests without rewriting them',
     () async {
       context = CheckoutTestContext(root, (_) => CheckoutTestProcess());
-      final manifest = File(p.join(root.path, 'Package.swift'))
+      final scratch = p.join(root.path, 'scratch');
+      final package = Directory(p.join(scratch, 'checkouts', 'Dependency'))
+        ..createSync(recursive: true);
+      final manifest = File(p.join(package.path, 'Package.swift'))
         ..writeAsStringSync('original');
-      final versioned = File(p.join(root.path, 'Package@swift-6.swift'))
-        ..writeAsStringSync('original');
-      final ignored = File(p.join(root.path, 'README'))
+      final versioned = File(p.join(package.path, 'Package@swift-6.swift'))
         ..writeAsStringSync('original');
       final attributes = RecordingCheckoutAttributes();
+      const policy = FixtureVendoredManifestPolicy();
       final normalizer = SwiftPmCheckoutManifestNormalizer(
         fileSystem: context.fileSystem,
         filesystem: context.filesystem,
         attributes: attributes,
-        policy: const FixtureVendoredManifestPolicy(),
+        policy: policy,
       );
-      var rewrites = 0;
-      expect(
-        await normalizer.normalizeVendoredPackageManifests(
-          root.path,
-          consumedProducts: {'Core'},
-          rewriteDependencies: (original) async {
-            expect(manifest.readAsStringSync(), startsWith('normalized'));
-            expect(versioned.readAsStringSync(), startsWith('normalized'));
-            rewrites++;
-            return '$original rewritten';
-          },
-        ),
-        isTrue,
-      );
-      expect(rewrites, 2);
-      expect(attributes.paths, hasLength(4));
-      expect(ignored.readAsStringSync(), 'original');
       final before = manifest.lastModifiedSync();
+      final fallbacks = await normalizer.synthesizeCheckoutFallbacks(
+        scratch,
+        consumedProducts: {
+          'dependency': {'Core'},
+        },
+      );
+      expect(fallbacks.consumedProducts, isEmpty);
+      expect(fallbacks.swiftModules, isEmpty);
+      expect(manifest.readAsStringSync(), 'original');
+      expect(versioned.readAsStringSync(), 'original');
+      expect(manifest.lastModifiedSync(), before);
+      expect(attributes.paths, isEmpty);
       expect(
-        await normalizer.normalizeVendoredPackageManifests(
-          root.path,
-          consumedProducts: {'Core'},
-        ),
-        isTrue,
+        (await normalizer.synthesizeCheckoutFallbacks(
+          p.join(root.path, 'missing'),
+          consumedProducts: const {},
+        )).swiftModules,
+        isEmpty,
       );
-      final stable = manifest.lastModifiedSync();
-      manifest.writeAsStringSync('original');
-      await normalizer.normalizeVendoredPackageManifests(
-        root.path,
-        consumedProducts: {'Core'},
-      );
-      expect(manifest.lastModifiedSync(), stable);
-      expect(stable, isNot(before));
     },
   );
 }
@@ -253,6 +242,11 @@ final class FixtureVendoredManifestPolicy
   const FixtureVendoredManifestPolicy();
   @override
   String normalizeHostManifest(String manifest) => 'host-normalized';
+  @override
+  String normalizeDetached(
+    String manifest, {
+    required Set<String> consumedProducts,
+  }) => 'detached';
   @override
   Future<String> normalize(
     String manifest, {

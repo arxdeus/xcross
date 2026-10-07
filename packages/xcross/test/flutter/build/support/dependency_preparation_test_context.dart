@@ -9,23 +9,20 @@ import 'package:meta/meta.dart';
 import 'package:open_apple_macros/host/shared/toolchain_plugin_layout.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/host/macos/flutter/swiftpm/swiftpm_host_policy.dart';
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/artifact_publication_lock.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_artifact_copy_policy.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_attributes.dart';
 import 'package:xcross/src/host/shared/sdk/inherited_swift_environment.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/dependency_preparation.dart';
-import 'package:xcross/src/host/windows/flutter/swiftpm/pinned_dependency_resolver.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/swiftpm_host_policy.dart';
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/binary_layout.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/binary_preparation.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/binary_provenance.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/binary_recovery.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/checkout_git_repository.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/extracted_artifact_recovery.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/network_retry.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/package_metadata.dart';
@@ -35,12 +32,35 @@ import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
 import 'checkout_test_context.dart';
 
 @internal
+SwiftPmProcessPolicy<MacOSHost> dependencyTestProcessPolicy(
+  CheckoutTestContext context,
+  Directory root,
+) => SwiftPmProcessPolicy(
+  host: context.host,
+  hostPolicy: const MacOSSwiftPmHostPolicy(),
+  runner: context.runner,
+  tools: AppleToolShimResolver(
+    IPhoneTarget(context.host),
+    context.runner,
+    DarwinSdkRepository(
+      context.host,
+      log: context.runner.log,
+      installBundle: p.join(root.path, 'unused-sdk'),
+    ),
+    DarwinToolchainResolver(
+      context.runner,
+      MacOSDarwinToolchainLocations(context.host),
+    ),
+    executable: p.join(root.path, 'unused-tool'),
+    hostTools: RejectingDependencyNativeTools(context.host),
+  ),
+);
+
+@internal
 WindowsSwiftPmDependencyPreparation<MacOSHost> dependencyTestPreparation(
   CheckoutTestContext context,
-  Directory root, {
-  required RecordingDependencyManifestPolicy manifestPolicy,
-  required SwiftPmGitPackageCloner cloner,
-}) {
+  Directory root,
+) {
   final host = context.host;
   final runner = context.runner;
   final fileSystem = context.fileSystem;
@@ -49,12 +69,6 @@ WindowsSwiftPmDependencyPreparation<MacOSHost> dependencyTestPreparation(
   final hostPolicy = WindowsSwiftPmHostPolicy(
     runner,
     swiftEnvironment: const InheritedSwiftEnvironment(),
-  );
-  final normalizer = SwiftPmCheckoutManifestNormalizer(
-    fileSystem: fileSystem,
-    filesystem: filesystem,
-    attributes: const PosixSwiftPmCheckoutAttributes(),
-    policy: manifestPolicy,
   );
   final sdk = DarwinSdkRepository(
     host,
@@ -105,22 +119,10 @@ WindowsSwiftPmDependencyPreparation<MacOSHost> dependencyTestPreparation(
   return WindowsSwiftPmDependencyPreparation(
     runner: runner,
     checkout: context.checkout,
-    fileSystem: fileSystem,
-    manifestNormalizer: normalizer,
     metadata: SwiftPmPackageMetadata(fileSystem: fileSystem),
     processPolicy: processPolicy,
     networkRetry: SwiftPmNetworkRetry(runner: runner),
-    binaryPreparation: SwiftPmBinaryPreparation(
-      artifactFileSystem: fileSystem,
-      copyPolicy: copyPolicy,
-      filesystem: filesystem,
-      host: host,
-      publicationCoordinator: coordinator,
-      targetPolicy: targetPolicy,
-      transport: transport,
-    ),
     binaryRecovery: recovery,
-    binaryProvenance: provenance,
     extractedArtifacts: SwiftPmExtractedArtifactRecovery(
       artifactFileSystem: fileSystem,
       binaryLayout: layout,
@@ -133,53 +135,7 @@ WindowsSwiftPmDependencyPreparation<MacOSHost> dependencyTestPreparation(
       targetPolicy: targetPolicy,
       transport: transport,
     ),
-    pinnedResolver: WindowsSwiftPmPinnedDependencyResolver(
-      runner: runner,
-      fileSystem: fileSystem,
-      filesystem: filesystem,
-      repository: cloner,
-      manifestNormalizer: normalizer,
-    ),
   );
-}
-
-@internal
-final class RecordingDependencyManifestPolicy
-    implements SwiftPmVendoredManifestPolicy {
-  RecordingDependencyManifestPolicy({this.failNormalization = false});
-  final bool failNormalization;
-  final List<({String directory, Set<String> products})> calls = [];
-  @override
-  String normalizeHostManifest(String manifest) =>
-      throw StateError('Unexpected host manifest normalization');
-  @override
-  Future<String> normalize(
-    String manifest, {
-    required String packageDir,
-    required Set<String> consumedProducts,
-    Map<String, List<String>>? fallbackSwiftModules,
-  }) async {
-    calls.add((directory: packageDir, products: Set.of(consumedProducts)));
-    if (failNormalization) throw StateError('fixture normalization failed');
-    return manifest.replaceAll('fixtureOld', 'fixtureNew');
-  }
-}
-
-@internal
-final class RecordingDependencyCloner implements SwiftPmGitPackageCloner {
-  final List<({String git, String url, String ref, String destination})> calls =
-      [];
-  @override
-  Future<void> cloneGitPackage(
-    String git,
-    String url,
-    String ref,
-    String destination,
-  ) async {
-    calls.add((git: git, url: url, ref: ref, destination: destination));
-    Directory(destination).createSync(recursive: true);
-    File(p.join(destination, 'Package.swift')).writeAsStringSync('fixtureOld');
-  }
 }
 
 @internal

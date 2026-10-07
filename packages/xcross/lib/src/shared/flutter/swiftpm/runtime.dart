@@ -24,9 +24,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/build_plan.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_attributes.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/dependency_evaluator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/dependency_vendor.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/discovery.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/extracted_artifact_recovery.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
@@ -130,24 +128,7 @@ final class SwiftPmRuntime<T extends PlatformHostInterface> {
       filesystem: filesystem,
       moduleFiles: moduleFiles,
     );
-    dependencyEvaluator = SwiftPmDependencyEvaluator<T>(
-      artifactFileSystem: artifactFileSystem,
-      dependencyPreparation: dependencyPreparation,
-      hostPolicy: hostPolicy,
-      networkRetry: networkRetry,
-      sourceRepair: sourceRepair,
-    );
-    dependencyVendor = SwiftPmDependencyVendor<T>(
-      checkout: checkout,
-      checkoutManifestNormalizer: checkoutManifestNormalizer,
-      dependencyPreparation: dependencyPreparation,
-      runner: runner,
-      dependencyEvaluator: dependencyEvaluator,
-      binaryProvenance: binaryProvenance,
-      processPolicy: processPolicy,
-    );
     pluginOverlay = SwiftPmPluginOverlay<T>(
-      dependencyVendor: dependencyVendor,
       manifestPolicy: checkoutManifestNormalizer.policy,
       filesystem: filesystem,
       sourceNormalizer: sourceNormalizer,
@@ -164,7 +145,7 @@ final class SwiftPmRuntime<T extends PlatformHostInterface> {
       pluginOverlay: pluginOverlay,
       runner: runner,
       sourceNormalizer: sourceNormalizer,
-      dependencyEvaluator: dependencyEvaluator,
+      checkoutManifestNormalizer: checkoutManifestNormalizer,
     );
     buildDriver = SwiftPmBuildDriver<T>(
       hostBuildServices: hostBuildServices,
@@ -250,7 +231,6 @@ final class SwiftPmRuntime<T extends PlatformHostInterface> {
   late final SwiftPmManifest<T> manifest;
   late final SwiftPmSourceRepair<T> sourceRepair;
   late final SwiftPmSourceFallback<T> sourceFallback;
-  late final SwiftPmDependencyVendor<T> dependencyVendor;
   late final SwiftPmFilesystem<T> filesystem;
   late final SwiftPmToolchain<T> toolchain;
   late final SwiftPmNetworkRetry<T> networkRetry;
@@ -258,7 +238,6 @@ final class SwiftPmRuntime<T extends PlatformHostInterface> {
   late final SwiftPmExtractedArtifactRecovery<T> extractedArtifacts;
   late final SwiftPmBinaryProvenance<T> binaryProvenance;
   late final SwiftPmBinaryLayout<T> binaryLayout;
-  late final SwiftPmDependencyEvaluator<T> dependencyEvaluator;
   late final SwiftPmBinaryRecovery<T> binaryRecovery;
   late final OpenAppleMacrosServer<T> macroServer;
   late final SwiftPmBuildPlan<T> buildPlan;

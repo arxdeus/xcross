@@ -13,7 +13,6 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/host/windows/flutter/swiftpm/dependency_preparation.dart';
 import 'package:xcross/src/shared/flutter/build/internal/swiftpm_binary_fixture.dart';
 import 'package:xcross/src/shared/flutter/build/internal/swiftpm_workspace.dart';
 import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
@@ -25,12 +24,11 @@ import 'package:xcross/src/shared/flutter/build/swiftpm_binary_target.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_destination_publisher.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/binary_provenance.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/dependency_evaluator.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/discovery.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_source_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/manifest_compiler.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_dependencies.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/module_files.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/plan_reader.dart';
@@ -67,9 +65,6 @@ final _plugins = GeneratedPluginsPackage(
 
 @internal
 String swiftPath(String path) => p.absolute(path).replaceAll(r'\', '/');
-
-String _vendorDirName(String url, String ref) =>
-    SwiftPmManifestDependencies.vendorPackageDirName(url, ref);
 
 @internal
 SwiftPmBinaryArtifactProvenance binaryProvenance(
@@ -461,30 +456,6 @@ let package = Package(
       expect(
         SwiftPmHostSourceNormalizer.normalizeLinkerFlags(escaped),
         escaped,
-      );
-    });
-  });
-
-  group('dependency resolver workspace', () {
-    test('uses the package-local SwiftPM build directory by default', () {
-      expect(
-        SwiftPmDependencyEvaluator.dependencyResolverScratchPath(
-          packageDirectory: r'C:\xcross\plugins\Resolve',
-          scratchPath: r'C:\xcross\scratch',
-          usesDefaultResolver: true,
-        ),
-        p.join(r'C:\xcross\plugins\Resolve', '.build'),
-      );
-    });
-
-    test('preserves injected resolver scratch paths', () {
-      expect(
-        SwiftPmDependencyEvaluator.dependencyResolverScratchPath(
-          packageDirectory: 'Resolve',
-          scratchPath: 'injected-scratch',
-          usesDefaultResolver: false,
-        ),
-        'injected-scratch',
       );
     });
   });
@@ -937,6 +908,28 @@ if getenv("CROSS_HOST_SOURCE") != nil {
 }
 ''';
 
+    test('aliases consumed products in a detached manifest', () {
+      final output = _swiftPmRuntime.sourceFallback.aliasBinaryFallbackProducts(
+        manifest,
+        consumedProducts: {'PublicSDK', 'SourceProduct'},
+      );
+      expect(
+        output,
+        contains(
+          '    products.append(.library(name: "PublicSDK", '
+          'targets: ["RootImpl"]))\n}',
+        ),
+      );
+      expect(RegExp('name: "SourceProduct"').allMatches(output), hasLength(1));
+      expect(
+        _swiftPmRuntime.sourceFallback.aliasBinaryFallbackProducts(
+          manifest,
+          consumedProducts: const {},
+        ),
+        manifest,
+      );
+    });
+
     test('emits consumed module without renaming fallback topology', () async {
       write(
         'Sources/ObjC/Public/module.modulemap',
@@ -1124,6 +1117,104 @@ framework module PublicSDK {
     });
   });
 
+  group('checkout fallback reconcile', () {
+    const manifest = '''
+var products: [Product] = [
+    .library(name: "PublicSDK", targets: ["BinaryArtifact"]),
+]
+var targets: [Target] = [
+    .binaryTarget(name: "BinaryArtifact", url: "SDK.zip", checksum: "abc"),
+]
+if getenv("CROSS_HOST_SOURCE") != nil {
+    products.removeAll()
+    targets.removeAll()
+    products.append(.library(name: "SourceProduct", targets: ["SwiftImpl"]))
+    targets.append(contentsOf: [
+        .target(name: "HeaderImpl", path: "Sources/ObjC", publicHeadersPath: "Public"),
+        .target(name: "SwiftImpl", dependencies: ["HeaderImpl"], path: "Sources/Swift"),
+    ])
+}
+let package = Package(name: "dependency", products: products, targets: targets)
+''';
+
+    test('writes fallback files that match the compiled manifest text '
+        'without rewriting Package.swift', () async {
+      final outputDir = p.join(tmp.path, 'out');
+      final scratch = p.join(tmp.path, 'scratch');
+      final package = p.join(scratch, 'checkouts', 'dependency');
+      void write(String relative, String contents) =>
+          File(p.join(package, relative))
+            ..createSync(recursive: true)
+            ..writeAsStringSync(contents);
+      write('Package.swift', manifest);
+      write('Sources/ObjC/Public/PublicSDK.h', '// public\n');
+      write('Sources/Swift/Implementation.swift', 'struct API {}\n');
+      write(
+        'Sources/Resources/PublicSDK.modulemap',
+        'framework module PublicSDK { umbrella header "PublicSDK.h" }\n',
+      );
+      final manifestFile = File(p.join(package, 'Package.swift'));
+      final stamp = manifestFile.lastModifiedSync();
+
+      final reconciled = await _swiftPmRuntime.workspaceStager
+          .reconcileCheckoutFallbacks(
+            outputDir: outputDir,
+            scratchPath: scratch,
+            consumedProducts: {
+              'dependency': {'PublicSDK'},
+            },
+          );
+      expect(manifestFile.readAsStringSync(), manifest);
+      expect(manifestFile.lastModifiedSync(), stamp);
+      expect(reconciled.consumedProducts, {
+        'dependency': {'PublicSDK'},
+      });
+      expect(reconciled.swiftModules, isTrue);
+
+      final text =
+          await SwiftPmManifestCompiler(
+            fileSystem: _swiftPmRuntime.artifactFileSystem,
+            policy: _swiftPmRuntime.checkoutManifestNormalizer.policy,
+            sourceNormalizer: _swiftPmRuntime.sourceNormalizer,
+            run: (_, _) async => 0,
+          ).rewrite(
+            manifest,
+            manifestPath: manifestFile.path,
+            identity: 'dependency',
+            configuration: SwiftPmManifestCompilerConfiguration(
+              compiler: 'swiftc',
+              cacheRoot: tmp.path,
+              policy: 'policy',
+              consumedProducts: const {
+                'dependency': ['PublicSDK'],
+              },
+            ),
+          );
+      final synthetic = RegExp(
+        'path: "([^"]*_xcross_PublicSDK[^"]*)"',
+      ).firstMatch(text);
+      expect(synthetic, isNotNull);
+      final syntheticPath = synthetic!.group(1)!;
+      expect(
+        Directory(
+          p.isAbsolute(syntheticPath)
+              ? syntheticPath
+              : p.join(package, syntheticPath),
+        ).existsSync(),
+        isTrue,
+      );
+
+      final again = await _swiftPmRuntime.workspaceStager
+          .reconcileCheckoutFallbacks(
+            outputDir: outputDir,
+            scratchPath: scratch,
+            consumedProducts: reconciled.consumedProducts,
+          );
+      expect(again.swiftModules, isFalse);
+      expect(manifestFile.lastModifiedSync(), stamp);
+    });
+  });
+
   group('binary fallback through a mapped artifact filesystem', () {
     const manifest = '''
 var products: [Product] = [
@@ -1290,1152 +1381,6 @@ framework module FallbackKit {
     });
   });
 
-  group('vendorUrlPackagesAsPathDeps', () {
-    for (final sourceFallback in [true, false]) {
-      test('records fallback Swift modules only when the source lane is '
-          'active (sourceFallback: $sourceFallback)', () async {
-        final environment = Map<String, String>.from(Platform.environment)
-          ..remove('EXPERIMENTAL_SPM_BUILDS');
-        if (sourceFallback) environment['EXPERIMENTAL_SPM_BUILDS'] = '1';
-        final runtime = testSwiftPmRuntime(environment: environment);
-        expect(runtime.processPolicy.sourceFallbackActive, sourceFallback);
-        expect(
-          runtime.host.environment.lookup(
-                runtime.host.environment.overlay(
-                  runtime.runner.effectiveEnvironment,
-                  await runtime.processPolicy.swiftProcessEnvironment(),
-                ),
-                'EXPERIMENTAL_SPM_BUILDS',
-              ) !=
-              null,
-          sourceFallback,
-        );
-        final fallbackSwiftModules = <String, List<String>>{};
-        await runtime.dependencyVendor.vendorUrlPackagesAsPathDeps(
-          '''
-import PackageDescription
-let package = Package(
-    name: "plugin_a",
-    dependencies: [
-        .package(url: "https://github.com/example/sdk", exact: "1.0.0"),
-    ],
-    targets: [
-        .target(
-            name: "plugin_a",
-            dependencies: [.product(name: "PublicSDK", package: "sdk")]
-        )
-    ]
-)
-''',
-          vendorDir: p.join(tmp.path, 'fallback-vendor-$sourceFallback'),
-          packageDirectory: p.join(tmp.path, 'plugin_a'),
-          fallbackSwiftModules: fallbackSwiftModules,
-          locateTool: (_) async => 'git',
-          evaluateDependencyRefs: (_) async => const {
-            'https://github.com/example/sdk': 'sha-sdk',
-          },
-          clonePackage: (_, _, _, destination) async {
-            void write(String relative, String contents) =>
-                File(p.join(destination, relative))
-                  ..createSync(recursive: true)
-                  ..writeAsStringSync(contents);
-            write('Sources/ObjC/Public/PublicSDK.h', '// public\n');
-            write(
-              'Sources/Resources/PublicSDK.modulemap',
-              'framework module PublicSDK { umbrella header "PublicSDK.h" }\n',
-            );
-            write('Sources/Swift/Implementation.swift', 'struct API {}\n');
-            write('Package.swift', '''
-import PackageDescription
-var products: [Product] = [
-    .library(name: "PublicSDK", targets: ["BinaryArtifact"]),
-]
-var targets: [Target] = [
-    .binaryTarget(name: "BinaryArtifact", url: "SDK.zip", checksum: "abc"),
-]
-if getenv("EXPERIMENTAL_SPM_BUILDS") != nil {
-    products.removeAll()
-    targets.removeAll()
-    products.append(.library(name: "SourceProduct", targets: ["SwiftImpl"]))
-    targets.append(contentsOf: [
-        .target(name: "HeaderImpl", path: "Sources/ObjC", publicHeadersPath: "Public"),
-        .target(name: "SwiftImpl", dependencies: ["HeaderImpl"], path: "Sources/Swift"),
-    ])
-}
-let package = Package(name: "sdk", products: products, targets: targets)
-''');
-          },
-        );
-
-        expect(
-          fallbackSwiftModules,
-          sourceFallback
-              ? {
-                  'PublicSDK': ['SwiftImpl'],
-                }
-              : isEmpty,
-        );
-      });
-    }
-    test('rewrites url deps to path after clone callback', () async {
-      final vendorDir = p.join(tmp.path, 'Vendor');
-      const manifest = '''
-// swift-tools-version: 5.9
-import PackageDescription
-let package = Package(
-    name: "plugin_a",
-    dependencies: [
-        .package(url: "https://github.com/getsentry/sentry-cocoa", exact: "8.58.1"),
-    ],
-    targets: [
-        .target(
-            name: "plugin_a",
-            dependencies: [
-                .product(name: "Sentry", package: "sentry-cocoa")
-            ]
-        )
-    ]
-)
-''';
-      final rewritten = await _windowsRuntime.dependencyVendor
-          .vendorUrlPackagesAsPathDeps(
-            manifest,
-            vendorDir: vendorDir,
-            packageDirectory: 'plugin_a/ios/plugin_a',
-            evaluateDependencyRefs: (directory) async {
-              expect(directory, 'plugin_a/ios/plugin_a');
-              return const {
-                'https://github.com/getsentry/sentry-cocoa': '8.58.1',
-              };
-            },
-            locateTool: (name) async {
-              expect(name, 'git');
-              return 'git';
-            },
-            clonePackage: (git, url, ref, destination) async {
-              expect(git, 'git');
-              expect(url, 'https://github.com/getsentry/sentry-cocoa');
-              expect(ref, '8.58.1');
-              await Directory(destination).create(recursive: true);
-              await File(p.join(destination, 'Package.swift')).writeAsString('''
-#if canImport(Darwin)
-import Darwin.C
-#elseif canImport(Glibc)
-import Glibc
-#elseif canImport(MSVCRT)
-import MSVCRT
-#endif
-import PackageDescription
-let env = getenv("X")
-let package = Package(name: "Sentry", products: [], targets: [])
-''');
-              await File(
-                p.join(destination, 'Package@swift-6.1.swift'),
-              ).writeAsString(
-                'String(cString: env, encoding: .utf8)\n'
-                '#elseif canImport(MSVCRT)\n'
-                'import MSVCRT\n',
-              );
-            },
-          );
-
-      expect(rewritten, isNot(contains('url:')));
-      expect(
-        rewritten,
-        contains(
-          '.package(name: "sentry-cocoa", '
-          'path: "${swiftPath(p.join(vendorDir, _vendorDirName('https://github.com/getsentry/sentry-cocoa', '8.58.1')))}")',
-        ),
-      );
-      expect(
-        rewritten,
-        contains('.product(name: "Sentry", package: "sentry-cocoa")'),
-      );
-      final vendored = File(
-        p.join(
-          vendorDir,
-          _vendorDirName('https://github.com/getsentry/sentry-cocoa', '8.58.1'),
-          'Package.swift',
-        ),
-      ).readAsStringSync();
-      expect(vendored, contains('import CRT'));
-      final vendored61 = File(
-        p.join(
-          vendorDir,
-          _vendorDirName('https://github.com/getsentry/sentry-cocoa', '8.58.1'),
-          'Package@swift-6.1.swift',
-        ),
-      ).readAsStringSync();
-      expect(vendored61, contains('String(cString: env)'));
-      expect(vendored61, contains('import CRT'));
-    });
-
-    test('vendors url deps declared by vendored packages', () async {
-      final vendorDir = p.join(tmp.path, 'nested-vendor');
-      const manifest = '''
-import PackageDescription
-let package = Package(
-    name: "flutter_image_compress_common",
-    dependencies: [
-        .package(url: "https://github.com/SDWebImage/SDWebImage.git", from: "5.19.0"),
-        .package(url: "https://github.com/SDWebImage/SDWebImageWebPCoder.git", from: "0.14.0"),
-    ],
-    targets: [
-        .target(
-            name: "flutter_image_compress_common",
-            dependencies: [
-                .product(name: "SDWebImage", package: "SDWebImage"),
-                .product(name: "SDWebImageWebPCoder", package: "SDWebImageWebPCoder")
-            ]
-        )
-    ]
-)
-''';
-      final clones = <String>[];
-      final rewritten = await _swiftPmRuntime.dependencyVendor
-          .vendorUrlPackagesAsPathDeps(
-            manifest,
-            vendorDir: vendorDir,
-            packageDirectory: p.join(tmp.path, 'nested-plugin'),
-            locateTool: (_) async => 'git',
-            evaluateDependencyRefs: (_) async => const {
-              'https://github.com/SDWebImage/SDWebImage': 'sha-image',
-              'https://github.com/SDWebImage/SDWebImageWebPCoder': 'sha-webp',
-            },
-            clonePackage: (_, url, ref, destination) async {
-              clones.add(url);
-              await Directory(destination).create(recursive: true);
-              await File(p.join(destination, 'Package.swift')).writeAsString(
-                url.contains('WebPCoder')
-                    ? '''
-import PackageDescription
-let package = Package(
-    name: "SDWebImageWebPCoder",
-    dependencies: [
-        .package(url: "https://github.com/SDWebImage/SDWebImage.git", from: "5.17.0"),
-    ],
-    targets: [
-        .target(
-            name: "SDWebImageWebPCoder",
-            dependencies: [.product(name: "SDWebImage", package: "SDWebImage")]
-        )
-    ]
-)
-'''
-                    : 'import PackageDescription\n'
-                          'let package = Package(name: "SDWebImage")\n',
-              );
-            },
-          );
-
-      final imageDir = p.join(
-        vendorDir,
-        _vendorDirName(
-          'https://github.com/SDWebImage/SDWebImage.git',
-          'sha-image',
-        ),
-      );
-      expect(rewritten, isNot(contains('url:')));
-      expect(
-        rewritten,
-        contains(
-          '.package(name: "SDWebImage", path: "${swiftPath(imageDir)}")',
-        ),
-      );
-
-      final nested = File(
-        p.join(
-          vendorDir,
-          _vendorDirName(
-            'https://github.com/SDWebImage/SDWebImageWebPCoder.git',
-            'sha-webp',
-          ),
-          'Package.swift',
-        ),
-      ).readAsStringSync();
-      expect(nested, isNot(contains('url:')));
-      expect(
-        nested,
-        contains(
-          '.package(name: "SDWebImage", path: "${swiftPath(imageDir)}")',
-        ),
-      );
-      expect(clones.length, 2);
-    });
-
-    test(
-      'omits name: when a vendored manifest predates tools-version 5.2',
-      () async {
-        // `.package(name:path:)` only exists from PackageDescription 5.2, so
-        // emitting it into SDWebImageWebPCoder's 5.0 manifest fails with
-        // "'package(name:path:)' is unavailable" (arxdeus/xcross#66).
-        final vendorDir = p.join(tmp.path, 'old-tools-vendor');
-        const manifest = '''
-// swift-tools-version:5.9
-import PackageDescription
-let package = Package(
-    name: "flutter_image_compress_common",
-    dependencies: [
-        .package(url: "https://github.com/SDWebImage/SDWebImageWebPCoder.git", from: "0.14.0"),
-    ],
-    targets: []
-)
-''';
-        final rewritten = await _swiftPmRuntime.dependencyVendor
-            .vendorUrlPackagesAsPathDeps(
-              manifest,
-              vendorDir: vendorDir,
-              packageDirectory: p.join(tmp.path, 'old-tools-plugin'),
-              locateTool: (_) async => 'git',
-              evaluateDependencyRefs: (_) async => const {
-                'https://github.com/SDWebImage/SDWebImageWebPCoder': 'sha-webp',
-                'https://github.com/SDWebImage/SDWebImage': 'sha-image',
-              },
-              clonePackage: (_, url, ref, destination) async {
-                await Directory(destination).create(recursive: true);
-                await File(p.join(destination, 'Package.swift')).writeAsString(
-                  url.contains('WebPCoder')
-                      ? '''
-// swift-tools-version:5.0
-import PackageDescription
-let package = Package(
-    name: "SDWebImageWebPCoder",
-    dependencies: [
-        .package(url: "https://github.com/SDWebImage/SDWebImage.git", from: "5.17.0"),
-    ],
-    targets: []
-)
-'''
-                      : '// swift-tools-version:5.0\n'
-                            'import PackageDescription\n'
-                            'let package = Package(name: "SDWebImage")\n',
-                );
-              },
-            );
-
-        // The 5.9 host manifest still gets the explicit name.
-        expect(rewritten, contains('.package(name: "SDWebImageWebPCoder"'));
-
-        // The vendored 5.0 manifest must not, or SwiftPM refuses to compile it.
-        final nested = File(
-          p.join(
-            vendorDir,
-            _vendorDirName(
-              'https://github.com/SDWebImage/SDWebImageWebPCoder.git',
-              'sha-webp',
-            ),
-            'Package.swift',
-          ),
-        ).readAsStringSync();
-        expect(nested, isNot(contains('url:')));
-        expect(nested, isNot(contains('.package(name:')));
-        expect(
-          nested,
-          contains(
-            '.package(path: '
-            '"${swiftPath(p.join(vendorDir, _vendorDirName('https://github.com/SDWebImage/SDWebImage.git', 'sha-image')))}")',
-          ),
-        );
-      },
-    );
-
-    test('vendors url deps declared through string constants', () async {
-      final vendorDir = p.join(tmp.path, 'constant-vendor');
-      const manifest = '''
-import PackageDescription
-let package = Package(
-    name: "gamma_plugin",
-    dependencies: [
-        .package(url: "https://example.com/gamma/gamma-kit-sdk", exact: "1.18.0"),
-    ],
-    targets: []
-)
-''';
-      final clones = <String>[];
-      final evaluated = <String>[];
-      final gammaDir = p.join(
-        vendorDir,
-        SwiftPmManifestDependencies.vendorPackageDirName(
-          'https://example.com/gamma/gamma-kit-sdk',
-          'sha-gamma',
-        ),
-      );
-      await _swiftPmRuntime.dependencyVendor.vendorUrlPackagesAsPathDeps(
-        manifest,
-        vendorDir: vendorDir,
-        packageDirectory: p.join(tmp.path, 'constant-plugin'),
-        locateTool: (_) async => 'git',
-        evaluateDependencyRefs: (directory) async {
-          evaluated.add(directory);
-          if (directory == gammaDir) {
-            final onDisk = File(
-              p.join(directory, 'Package.swift'),
-            ).readAsStringSync();
-            expect(onDisk, isNot(contains('#if os(macOS)')));
-            expect(onDisk, contains('url: alphaURL'));
-            return const {
-              'https://example.com/alpha/AlphaKit': 'sha-alpha',
-              'https://example.com/beta/BetaKit': 'sha-beta',
-            };
-          }
-          return const {'https://example.com/gamma/gamma-kit-sdk': 'sha-gamma'};
-        },
-        clonePackage: (_, url, ref, destination) async {
-          clones.add(url);
-          await Directory(destination).create(recursive: true);
-          final nested = url.contains('gamma-kit-sdk')
-              ? '''
-import PackageDescription
-let package = Package(
-    name: "GammaKit",
-    dependencies: packageDependencies(),
-    targets: []
-)
-func packageDependencies() -> [Package.Dependency] {
-  var dependencies: [Package.Dependency] = []
-  #if os(macOS)
-    dependencies.append(contentsOf: [
-      alphaDependency(),
-      .package(
-        url: "https://example.com/beta/BetaKit.git",
-        "8.1.0" ..< "9.0.0"
-      ),
-      deltaDependency(),
-    ])
-  #endif // os(macOS)
-  return dependencies
-}
-func alphaDependency() -> Package.Dependency {
-  let alphaURL = "https://example.com/alpha/AlphaKit.git"
-  if Context.environment["GAMMA_FLAG"] != nil {
-    return .package(url: alphaURL, branch: "main")
-  }
-  return .package(url: alphaURL, "1.18.0" ..< "1.19.0")
-}
-func deltaDependency() -> Package.Dependency {
-  let packageInfo: (url: String, range: Range<Version>)
-  packageInfo = ("https://example.com/delta/delta-binary.git", "1.0.0" ..< "2.0.0")
-  return .package(url: packageInfo.url, packageInfo.range)
-}
-'''
-              : url.contains('AlphaKit')
-              ? '''
-import PackageDescription
-let package = Package(
-    name: "AlphaKit",
-    dependencies: [
-        .package(url: "https://example.com/beta/BetaKit.git", "8.0.2" ..< "9.0.0"),
-    ],
-    targets: []
-)
-'''
-              : 'import PackageDescription\n'
-                    'let package = Package(name: "BetaKit")\n';
-          await File(
-            p.join(destination, 'Package.swift'),
-          ).writeAsString(nested);
-        },
-      );
-
-      final betaDir = p.join(
-        vendorDir,
-        SwiftPmManifestDependencies.vendorPackageDirName(
-          'https://example.com/beta/BetaKit.git',
-          'sha-beta',
-        ),
-      );
-      final alphaDir = p.join(
-        vendorDir,
-        SwiftPmManifestDependencies.vendorPackageDirName(
-          'https://example.com/alpha/AlphaKit.git',
-          'sha-alpha',
-        ),
-      );
-      final gamma = File(p.join(gammaDir, 'Package.swift')).readAsStringSync();
-      expect(evaluated, [p.join(tmp.path, 'constant-plugin'), gammaDir]);
-      expect(
-        gamma,
-        contains('.package(name: "AlphaKit", path: "${swiftPath(alphaDir)}")'),
-      );
-      expect(gamma, isNot(contains('url: alphaURL')));
-      expect(gamma, contains('url: packageInfo.url'));
-      final alpha = File(p.join(alphaDir, 'Package.swift')).readAsStringSync();
-      expect(
-        alpha,
-        contains('.package(name: "BetaKit", path: "${swiftPath(betaDir)}")'),
-      );
-      expect(clones.length, 3);
-    });
-
-    test('leaves unpinned nested url deps to SwiftPM', () async {
-      final vendorDir = p.join(tmp.path, 'unpinned-vendor');
-      const manifest = '''
-import PackageDescription
-let package = Package(
-    name: "plugin",
-    dependencies: [.package(url: "https://example.com/outer", exact: "1.0.0")],
-    targets: []
-)
-''';
-      await _swiftPmRuntime.dependencyVendor.vendorUrlPackagesAsPathDeps(
-        manifest,
-        vendorDir: vendorDir,
-        packageDirectory: p.join(tmp.path, 'unpinned-plugin'),
-        locateTool: (_) async => 'git',
-        evaluateDependencyRefs: (_) async => const {
-          'https://example.com/outer': 'outer-sha',
-        },
-        clonePackage: (_, _, _, destination) async {
-          await Directory(destination).create(recursive: true);
-          await File(p.join(destination, 'Package.swift')).writeAsString('''
-import PackageDescription
-let package = Package(
-    name: "outer",
-    dependencies: [.package(url: "https://example.com/unpinned", exact: "2.0.0")],
-    targets: []
-)
-''');
-        },
-      );
-
-      expect(
-        File(
-          p.join(vendorDir, 'outer@outer-sha', 'Package.swift'),
-        ).readAsStringSync(),
-        contains('.package(url: "https://example.com/unpinned"'),
-      );
-    });
-
-    test('caches equivalent dependency evaluations within a build', () async {
-      final vendorDir = p.join(tmp.path, 'cached-vendor');
-      final first = p.join(tmp.path, 'first');
-      final second = p.join(tmp.path, 'second');
-      await Directory(first).create();
-      await Directory(second).create();
-      const manifest = '''
-import PackageDescription
-let package = Package(
-    name: "plugin",
-    dependencies: [.package(url: "https://example.com/dependency", exact: "1.0.0")],
-    targets: []
-)
-''';
-      final cache = <String, Future<Map<String, String>>>{};
-      var evaluations = 0;
-
-      Future<Map<String, String>> evaluate(String _) async {
-        evaluations++;
-        return const {'https://example.com/dependency': 'revision'};
-      }
-
-      Future<void> clone(
-        String _,
-        String _,
-        String _,
-        String destination,
-      ) async {
-        await Directory(destination).create(recursive: true);
-        await File(
-          p.join(destination, 'Package.swift'),
-        ).writeAsString('import PackageDescription\n');
-      }
-
-      for (final packageDirectory in [first, second]) {
-        await _swiftPmRuntime.dependencyVendor.vendorUrlPackagesAsPathDeps(
-          manifest,
-          vendorDir: vendorDir,
-          packageDirectory: packageDirectory,
-          locateTool: (_) async => 'git',
-          evaluateDependencyRefs: evaluate,
-          clonePackage: clone,
-          evaluationCache: cache,
-        );
-      }
-
-      expect(evaluations, 1);
-    });
-
-    test('caches equivalent vendor checkouts within a build', () async {
-      final vendorDir = p.join(tmp.path, 'checkout-cache-vendor');
-      final first = p.join(tmp.path, 'checkout-first');
-      final second = p.join(tmp.path, 'checkout-second');
-      await Directory(first).create();
-      await Directory(second).create();
-      const manifest = '''
-import PackageDescription
-let package = Package(
-    name: "plugin",
-    dependencies: [.package(url: "https://example.com/dependency", exact: "1.0.0")],
-    targets: []
-)
-''';
-      final cache = <String, Future<void>>{};
-      var clones = 0;
-
-      Future<void> clone(
-        String _,
-        String _,
-        String _,
-        String destination,
-      ) async {
-        clones++;
-        await Directory(destination).create(recursive: true);
-        await File(
-          p.join(destination, 'Package.swift'),
-        ).writeAsString('import PackageDescription\n');
-      }
-
-      for (final packageDirectory in [first, second]) {
-        await _swiftPmRuntime.dependencyVendor.vendorUrlPackagesAsPathDeps(
-          manifest,
-          vendorDir: vendorDir,
-          packageDirectory: packageDirectory,
-          locateTool: (_) async => 'git',
-          evaluateDependencyRefs: (_) async => const {
-            'https://example.com/dependency': 'revision',
-          },
-          clonePackage: clone,
-          checkoutCache: cache,
-        );
-      }
-
-      expect(clones, 1);
-    });
-
-    test('removes failed dependency evaluations from the cache', () async {
-      final packageDirectory = p.join(tmp.path, 'failed-cache-package');
-      await Directory(packageDirectory).create();
-      const manifest = '''
-import PackageDescription
-let package = Package(
-    name: "plugin",
-    dependencies: [.package(url: "https://example.com/dependency", exact: "1.0.0")],
-    targets: []
-)
-''';
-      final cache = <String, Future<Map<String, String>>>{};
-      var evaluations = 0;
-
-      Future<void> run() => _swiftPmRuntime.dependencyVendor
-          .vendorUrlPackagesAsPathDeps(
-            manifest,
-            vendorDir: p.join(tmp.path, 'failed-cache-vendor'),
-            packageDirectory: packageDirectory,
-            evaluateDependencyRefs: (_) {
-              evaluations++;
-              throw StateError('failed evaluation');
-            },
-            evaluationCache: cache,
-          )
-          .then((_) {});
-
-      await expectLater(run(), throwsStateError);
-      expect(cache, isEmpty);
-      await expectLater(run(), throwsStateError);
-      expect((evaluations, cache.length), (2, 0));
-    });
-
-    test('invalidates dependency evaluation for manifest variants', () async {
-      final vendorDir = p.join(tmp.path, 'variant-vendor');
-      final packageDirectory = p.join(tmp.path, 'variant-package');
-      await Directory(packageDirectory).create();
-      final variant = File(p.join(packageDirectory, 'Package@swift-6.0.swift'));
-      await variant.writeAsString('let version = 1\n');
-      const manifest = '''
-import PackageDescription
-let package = Package(
-    name: "plugin",
-    dependencies: [.package(url: "https://example.com/dependency", exact: "1.0.0")],
-    targets: []
-)
-''';
-      final cache = <String, Future<Map<String, String>>>{};
-      var evaluations = 0;
-
-      Future<void> run() => _swiftPmRuntime.dependencyVendor
-          .vendorUrlPackagesAsPathDeps(
-            manifest,
-            vendorDir: vendorDir,
-            packageDirectory: packageDirectory,
-            locateTool: (_) async => 'git',
-            evaluateDependencyRefs: (_) async {
-              evaluations++;
-              return const {'https://example.com/dependency': 'revision'};
-            },
-            clonePackage: (_, _, _, destination) async {
-              await Directory(destination).create(recursive: true);
-              await File(
-                p.join(destination, 'Package.swift'),
-              ).writeAsString('import PackageDescription\n');
-            },
-            evaluationCache: cache,
-          )
-          .then((_) {});
-
-      await run();
-      await run();
-      await variant.writeAsString('let version = 2\n');
-      await run();
-
-      expect(evaluations, 2);
-    });
-
-    test('uses resolved revisions for every SwiftPM requirement variant', () {
-      final refs = SwiftPmBinaryProvenance.dependencyRefsFromPackageResolved(
-        jsonEncode({
-          'pins': [
-            for (final entry in const [
-              ('https://EXAMPLE.com/exact.git/', 'exact-sha', '1.2.3'),
-              ('https://example.com/branch', 'branch-sha', null),
-              ('https://example.com/revision', 'revision-sha', null),
-              ('https://example.com/range', 'range-sha', '2.4.0'),
-            ])
-              {
-                'identity': Uri.parse(entry.$1).pathSegments.last,
-                'kind': 'remoteSourceControl',
-                'location': entry.$1,
-                'state': {
-                  'revision': entry.$2,
-                  if (entry.$3 != null) 'version': entry.$3,
-                },
-              },
-          ],
-          'version': 2,
-        }),
-      );
-
-      expect(refs, {
-        'https://example.com/exact': 'exact-sha',
-        'https://example.com/branch': 'branch-sha',
-        'https://example.com/revision': 'revision-sha',
-        'https://example.com/range': 'range-sha',
-      });
-    });
-
-    test('uses the Swift-evaluated version before cloning', () async {
-      final vendorDir = p.join(tmp.path, 'Vendor');
-      const manifest = '''
-import PackageDescription
-let gammaSdkVersion = Version(12, 1, 0)
-let package = Package(
-    name: "gamma_plugin",
-    dependencies: [
-        .package(
-            url: "https://example.com/gamma/gamma-kit-sdk",
-            exact: gammaSdkVersion
-        ),
-    ],
-    targets: []
-)
-''';
-      const revision = 'b9bf3adac18e6e3059167194aeb632f15a5ba4b2';
-      final rewritten = await _swiftPmRuntime.dependencyVendor
-          .vendorUrlPackagesAsPathDeps(
-            manifest,
-            vendorDir: vendorDir,
-            packageDirectory: 'gamma_plugin/ios/gamma_plugin',
-            locateTool: (_) async => 'git',
-            evaluateDependencyRefs: (directory) async {
-              expect(directory, 'gamma_plugin/ios/gamma_plugin');
-              return const {
-                'https://example.com/gamma/gamma-kit-sdk': revision,
-              };
-            },
-            clonePackage: (_, url, ref, destination) async {
-              expect(url, 'https://example.com/gamma/gamma-kit-sdk');
-              expect(ref, revision);
-              await Directory(destination).create(recursive: true);
-              await File(
-                p.join(destination, 'Package.swift'),
-              ).writeAsString('import PackageDescription\n');
-            },
-          );
-
-      expect(rewritten, isNot(contains('url:')));
-      final directory = _vendorDirName(
-        'https://example.com/gamma/gamma-kit-sdk',
-        revision,
-      );
-      expect(
-        directory.length,
-        SwiftPmManifestDependencies.vendorPackageDirNameBudget,
-      );
-      expect(
-        rewritten,
-        contains(
-          '.package(name: "gamma-kit-sdk", '
-          'path: "${swiftPath(p.join(vendorDir, directory))}")',
-        ),
-      );
-    });
-  });
-
-  group('vendorPackageDirName', () {
-    const budget = SwiftPmManifestDependencies.vendorPackageDirNameBudget;
-
-    test('keeps identity and ref when they fit the budget', () {
-      expect(
-        _vendorDirName('https://example.com/a/AlphaKit.git', '1.2.3'),
-        'AlphaKit@1.2.3',
-      );
-      expect(
-        _vendorDirName('https://example.com/a/beta', 'feature/x y'),
-        'beta@feature_x_y',
-      );
-    });
-
-    test('shortens every identity whose name exceeds the budget', () {
-      final names = {
-        for (final (url, ref) in const [
-          ('https://example.com/a/AlphaKit.git', '1.2.3-beta.4'),
-          ('https://example.com/g/gamma-kit-sdk', '12.19.0'),
-          (
-            'https://example.com/g/gamma-kit-sdk',
-            'b9bf3adac18e6e3059167194aeb632f15a5ba4b2',
-          ),
-          (
-            'https://example.com/d/delta-package-manager-extremely-long-name',
-            '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
-          ),
-          ('https://example.com/e/e', '0123456789abcdef'),
-          ('https://example.com/f/kit-------', '2.0.0-rc.1'),
-        ])
-          (url, ref): _vendorDirName(url, ref),
-      };
-      for (final MapEntry(key: (url, ref), value: name) in names.entries) {
-        final identity = SwiftPmManifestDependencies.packageIdentityFromUrl(
-          url,
-        );
-        expect(name.length, lessThanOrEqualTo(budget), reason: '$url $ref');
-        expect(name, matches(RegExp(r'^[A-Za-z0-9][\w.\-]*-[0-9a-f]{8}$')));
-        expect(
-          identity.startsWith(name.substring(0, name.length - 9)),
-          isTrue,
-          reason: name,
-        );
-        expect(_vendorDirName(url, ref), name);
-      }
-      expect(names.values.toSet(), hasLength(names.length));
-    });
-
-    test('keeps a distinct directory per identity and ref', () {
-      final names = {
-        for (var index = 0; index < 64; index++)
-          _vendorDirName(
-            'https://example.com/x/alpha-kit-extended-$index',
-            '1.0.$index',
-          ),
-        for (var index = 0; index < 64; index++)
-          _vendorDirName(
-            'https://example.com/x/alpha-kit-extended',
-            '1.0.$index',
-          ),
-      };
-      expect(names, hasLength(128));
-    });
-  });
-
-  group('bootstrap pinned dependencies', () {
-    test('normalizes and rewrites exact pinned packages', () async {
-      final plugin = Directory(p.join(tmp.path, 'pinned-resolve'))
-        ..createSync();
-      final manifest = File(p.join(plugin.path, 'Package.swift'))
-        ..writeAsStringSync('''
-// swift-tools-version: 5.9
-import PackageDescription
-let package = Package(dependencies: [
-  .package(url: "https://example.com/vendor/cold-package", exact: "1.2.3")
-], targets: [.target(name: "Plugin", dependencies: [
-  .product(name: "ColdProduct", package: "cold-package")
-])
-])
-''');
-      final original = manifest.readAsStringSync();
-      var clones = 0;
-      final result = await testWindowsPinnedResolver(
-        _windowsRuntime,
-        RecordingSwiftPmGitPackageCloner((_, url, ref, destination) async {
-          clones++;
-          expect(url, 'https://example.com/vendor/cold-package');
-          expect(ref, '1.2.3');
-          await Directory(destination).create(recursive: true);
-          await File(
-            p.join(destination, 'Package@swift-6.1.swift'),
-          ).writeAsString('''
-#elseif canImport(MSVCRT)
-import MSVCRT
-let env = getenv("EXPERIMENTAL_SPM_BUILDS")
-''');
-        }),
-      ).resolve([plugin.path], p.join(tmp.path, 'vendor'));
-      expect(clones, 1);
-      expect(result.originals[manifest.path], original);
-      expect(result.pins['https://example.com/vendor/cold-package'], '1.2.3');
-      expect(
-        manifest.readAsStringSync(),
-        contains('.package(name: "cold-package", path:'),
-      );
-      expect(
-        File(
-          p.join(
-            tmp.path,
-            'vendor',
-            _vendorDirName('https://example.com/vendor/cold-package', '1.2.3'),
-            'Package@swift-6.1.swift',
-          ),
-        ).readAsStringSync(),
-        contains('import CRT'),
-      );
-    });
-
-    test('handles multiple packages and Git revisions', () async {
-      final plugin = Directory(p.join(tmp.path, 'multiple-pins'))..createSync();
-      final manifest = File(p.join(plugin.path, 'Package.swift'))
-        ..writeAsStringSync('''
-.package(url: "https://example.com/vendor/first-package.git", exact: "1.2.3")
-.package(url: "https://example.com/vendor/second-package", revision: "abcdef123456")
-''');
-      final cloned = <String, String>{};
-      final result = await testWindowsPinnedResolver(
-        _windowsRuntime,
-        RecordingSwiftPmGitPackageCloner((_, url, ref, destination) async {
-          cloned[url] = ref;
-          await Directory(destination).create(recursive: true);
-          await File(
-            p.join(destination, 'Package.swift'),
-          ).writeAsString('import PackageDescription');
-        }),
-      ).resolve([plugin.path], p.join(tmp.path, 'vendor'));
-      expect(cloned, {
-        'https://example.com/vendor/first-package.git': '1.2.3',
-        'https://example.com/vendor/second-package': 'abcdef123456',
-      });
-      expect(result.pins.length, 2);
-      expect(manifest.readAsStringSync(), isNot(contains('.package(url:')));
-    });
-
-    test('keeps ranges and mixed constraints for SwiftPM to solve', () async {
-      final plugin = Directory(p.join(tmp.path, 'mixed-constraints'))
-        ..createSync();
-      final manifest = File(p.join(plugin.path, 'Package.swift'))
-        ..writeAsStringSync('''
-.package(url: "https://example.com/vendor/first-package", exact: "1.2.3")
-.package(url: "https://example.com/vendor/first-package.git", from: "1.0.0")
-.package(url: "https://example.com/vendor/second-package", from: "2.0.0")
-''');
-      final original = manifest.readAsStringSync();
-      final result = await testWindowsPinnedResolver(
-        _windowsRuntime,
-        RecordingSwiftPmGitPackageCloner(
-          (_, _, _, _) async => fail('must not clone ranges'),
-        ),
-      ).resolve([plugin.path], p.join(tmp.path, 'vendor'));
-      expect(result.pins, isEmpty);
-      expect(result.originals, isEmpty);
-      expect(manifest.readAsStringSync(), original);
-    });
-
-    test('does not bootstrap on non-Windows hosts', () async {
-      final plugin = Directory(p.join(tmp.path, 'other-host'))..createSync();
-      final manifest = File(p.join(plugin.path, 'Package.swift'))
-        ..writeAsStringSync(
-          '.package(url: "https://example.com/vendor/first-package", '
-          'exact: "1.2.3")',
-        );
-      final original = manifest.readAsStringSync();
-      final result = await _swiftPmRuntime.dependencyPreparation
-          .bootstrapPinned(
-            SwiftPmPinnedDependencyCommand(
-              packageDirectories: [plugin.path],
-              vendorDir: p.join(tmp.path, 'vendor'),
-            ),
-          );
-      expect(result.pins, isEmpty);
-      expect(result.originals, isEmpty);
-      expect(manifest.readAsStringSync(), original);
-    });
-
-    test('rejects conflicting exact refs without rewriting', () async {
-      final first = Directory(p.join(tmp.path, 'package-first'))..createSync();
-      final second = Directory(p.join(tmp.path, 'package-second'))
-        ..createSync();
-      final firstManifest = File(p.join(first.path, 'Package.swift'))
-        ..writeAsStringSync(
-          '.package(url: "https://example.com/vendor/cold-package", '
-          'exact: "1.2.3")',
-        );
-      final secondManifest = File(p.join(second.path, 'Package.swift'))
-        ..writeAsStringSync(
-          '.package(url: "https://example.com/vendor/cold-package.git", '
-          'exact: "1.3.0")',
-        );
-      final original = firstManifest.readAsStringSync();
-      await expectLater(
-        testWindowsPinnedResolver(
-          _windowsRuntime,
-          RecordingSwiftPmGitPackageCloner((_, _, _, destination) async {
-            await Directory(destination).create(recursive: true);
-            await File(
-              p.join(destination, 'Package.swift'),
-            ).writeAsString('import PackageDescription');
-          }),
-        ).resolve([first.path, second.path], p.join(tmp.path, 'vendor')),
-        throwsA(isA<FlutterBuildError>()),
-      );
-      expect(firstManifest.readAsStringSync(), original);
-      expect(secondManifest.readAsStringSync(), contains('1.3.0'));
-    });
-
-    test('leaves staged manifests intact when a later clone fails', () async {
-      final first = Directory(p.join(tmp.path, 'package-one'))..createSync();
-      final second = Directory(p.join(tmp.path, 'package-two'))..createSync();
-      File(p.join(first.path, 'Package.swift')).writeAsStringSync(
-        '.package(url: "https://example.com/vendor/cold-package", '
-        'exact: "1.2.3")',
-      );
-      File(p.join(second.path, 'Package.swift')).writeAsStringSync(
-        '.package(url: "https://example.com/other/second-package", '
-        'exact: "2.0.0")',
-      );
-      final firstFile = File(p.join(first.path, 'Package.swift'));
-      final original = firstFile.readAsStringSync();
-      var clones = 0;
-      await expectLater(
-        testWindowsPinnedResolver(
-          _windowsRuntime,
-          RecordingSwiftPmGitPackageCloner((_, _, _, destination) async {
-            if (++clones == 2) throw StateError('clone failed');
-            await Directory(destination).create(recursive: true);
-            await File(
-              p.join(destination, 'Package.swift'),
-            ).writeAsString('import PackageDescription');
-          }),
-        ).resolve([first.path, second.path], p.join(tmp.path, 'vendor')),
-        throwsStateError,
-      );
-      expect(firstFile.readAsStringSync(), original);
-    });
-
-    test('retries resolve once and preserves failed cache semantics', () async {
-      final package = Directory(p.join(tmp.path, 'package'))..createSync();
-      final resolved = File(p.join(package.path, 'Package.resolved'));
-      var resolves = 0;
-      var recoveries = 0;
-      final state = SwiftPmBinaryAttemptState();
-
-      final refs = await _swiftPmRuntime.dependencyEvaluator
-          .evaluateDependencyRefsWithRecovery(
-            package.path,
-            resolve: (_) async {
-              resolves++;
-              if (resolves == 1) throw StateError('original');
-              resolved.writeAsStringSync(
-                jsonEncode({
-                  'pins': [
-                    {
-                      'location': 'https://example.com/dependency',
-                      'state': {'revision': 'revision'},
-                    },
-                  ],
-                }),
-              );
-            },
-            recover: (_, attemptState) async {
-              expect(identical(attemptState, state), isTrue);
-              recoveries++;
-              attemptState.bootstrapRecovered.add('package\u0000target');
-              return true;
-            },
-            attemptState: state,
-          );
-
-      expect(refs, {'https://example.com/dependency': 'revision'});
-      expect((resolves, recoveries), (2, 1));
-      expect(state.bootstrapRecovered, hasLength(1));
-    });
-
-    test(
-      'repairs a fetched Swift 6.1 manifest before retrying resolve',
-      () async {
-        final root = Directory(p.join(tmp.path, 'Resolve'))
-          ..createSync(recursive: true);
-        final scratch = p.join(root.path, '.build');
-        final manifest = File(
-          p.join(
-            scratch,
-            'checkouts',
-            'sentry-cocoa',
-            'Package@swift-6.1.swift',
-          ),
-        )..createSync(recursive: true);
-        manifest.writeAsStringSync('''
-#if canImport(Darwin)
-import Darwin.C
-#elseif canImport(Glibc)
-import Glibc
-#elseif canImport(MSVCRT)
-import MSVCRT
-#endif
-import PackageDescription
-let env = getenv("EXPERIMENTAL_SPM_BUILDS")
-''');
-        var attempts = 0;
-        await _swiftPmRuntime.dependencyEvaluator
-            .evaluateDependencyRefsWithRecovery(
-              root.path,
-              resolve: (_) async {
-                attempts++;
-                if (!manifest.readAsStringSync().contains('import CRT')) {
-                  throw StateError("cannot find 'getenv' in scope");
-                }
-                File(
-                  p.join(root.path, 'Package.resolved'),
-                ).writeAsStringSync('{"pins":[]}');
-              },
-              recover: (_, _) =>
-                  (_windowsRuntime.dependencyPreparation
-                          as WindowsSwiftPmDependencyPreparation)
-                      .normalizeResolvedPackageManifests(scratch),
-              attemptState: SwiftPmBinaryAttemptState(),
-            );
-        expect(attempts, 2);
-        expect(manifest.readAsStringSync(), contains('import CRT'));
-      },
-    );
-
-    test('rethrows original failure when recovery has no evidence', () async {
-      final original = StateError('original');
-      await expectLater(
-        _swiftPmRuntime.dependencyEvaluator.evaluateDependencyRefsWithRecovery(
-          tmp.path,
-          resolve: (_) async => throw original,
-          recover: (_, _) async => false,
-          attemptState: SwiftPmBinaryAttemptState(),
-        ),
-        throwsA(same(original)),
-      );
-    });
-
-    test('second resolve failure is terminal', () async {
-      var resolves = 0;
-      final second = StateError('second');
-      await expectLater(
-        _swiftPmRuntime.dependencyEvaluator.evaluateDependencyRefsWithRecovery(
-          tmp.path,
-          resolve: (_) {
-            resolves++;
-            if (resolves == 1) throw StateError('first');
-            throw second;
-          },
-          recover: (_, _) async => true,
-          attemptState: SwiftPmBinaryAttemptState(),
-        ),
-        throwsA(same(second)),
-      );
-      expect(resolves, 2);
-    });
-  });
-
   group('binary artifact provenance', () {
     test('keeps package and target identity when matching artifacts', () {
       final first = _swiftPmRuntime.binaryProvenance
@@ -2521,86 +1466,6 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
     });
   });
 
-  group('bootstrap artifact evidence', () {
-    test('complete artifact does not recover an unrelated failure', () async {
-      final scratch = p.join(tmp.path, 'authoritative', 'scratch');
-      final store = p.join(tmp.path, 'authoritative', 'store');
-      final targetDirectory = p.join(scratch, 'artifacts', 'package', 'Target');
-      File(p.join(targetDirectory, 'Target.xcframework', 'Info.plist'))
-        ..createSync(recursive: true)
-        ..writeAsStringSync('<plist/>');
-
-      expect(
-        await _windowsRuntime.binaryRecovery.recoverBootstrapBinaryArtifacts(
-          scratchPath: scratch,
-          binaryArtifactStore: store,
-          provenance: [
-            binaryProvenance(
-              'package',
-              'Target',
-              'a' * 64,
-              p.join(tmp.path, 'Package.swift'),
-            ),
-          ],
-          attemptState: SwiftPmBinaryAttemptState(),
-        ),
-        isFalse,
-      );
-    });
-
-    test(
-      'validates final artifact plist and selected library structurally',
-      () async {
-        final artifact = Directory(p.join(tmp.path, 'Final.xcframework'))
-          ..createSync();
-        final plist = {
-          'AvailableLibraries': [
-            {
-              'LibraryIdentifier': 'ios-arm64',
-              'LibraryPath': 'Final.framework',
-              'SupportedPlatform': 'ios',
-              'SupportedArchitectures': ['arm64'],
-            },
-          ],
-        };
-        File(p.join(artifact.path, 'Info.plist')).writeAsStringSync(
-          PropertyListSerialization.stringWithPropertyList(plist),
-        );
-        File(p.join(artifact.path, '.complete')).writeAsStringSync('');
-
-        expect(
-          await _swiftPmRuntime.binaryLayout.hasCompleteSwiftPmArtifact(
-            artifact,
-          ),
-          isFalse,
-        );
-
-        Directory(
-          p.join(artifact.path, 'ios-arm64', 'Final.framework'),
-        ).createSync(recursive: true);
-        expect(
-          await _swiftPmRuntime.binaryLayout.hasCompleteSwiftPmArtifact(
-            artifact,
-          ),
-          isTrue,
-        );
-      },
-    );
-
-    test('attempt key includes normalized checksum', () {
-      final upper = binaryProvenance(
-        'Package',
-        'Target',
-        'A' * 64,
-        'Package.swift',
-      );
-      expect(
-        _windowsRuntime.binaryProvenance.binaryArtifactAttemptKey(upper),
-        'package\u0000target\u0000${'a' * 64}',
-      );
-    });
-  });
-
   group('Windows binary artifacts', () {
     const firstChecksum =
         '1111111111111111111111111111111111111111111111111111111111111111';
@@ -2639,14 +1504,12 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
       // A SwiftPM resolve that deleted its archive after extracting it, and
       // may have extracted only part of the tree (I/O error 514 on the
       // Windows runner left a framework without Headers).
-      ({String scratch, String vendor, File manifest}) extractedLayout(
-        String name,
-      ) {
+      ({String scratch, File manifest}) extractedLayout(String name) {
         final scratch = p.join(tmp.path, name, 'scratch');
-        final vendor = p.join(tmp.path, name, 'vendor');
-        final manifestFile = File(p.join(vendor, 'pkg', 'Package.swift'))
-          ..createSync(recursive: true)
-          ..writeAsStringSync(manifest().split('\n')[1]);
+        final manifestFile =
+            File(p.join(scratch, 'checkouts', 'pkg', 'Package.swift'))
+              ..createSync(recursive: true)
+              ..writeAsStringSync(manifest().split('\n')[1]);
         final framework = Directory(
           p.join(
             scratch,
@@ -2669,7 +1532,7 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
             'Info.plist',
           ),
         ).writeAsStringSync('<plist/>');
-        return (scratch: scratch, vendor: vendor, manifest: manifestFile);
+        return (scratch: scratch, manifest: manifestFile);
       }
 
       test(
@@ -2683,7 +1546,6 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
           final changed = await _windowsRuntime.extractedArtifacts
               .stageExtractedBinaryArtifacts(
                 scratchPath: layout.scratch,
-                vendorDir: layout.vendor,
                 binaryArtifactStore: store,
                 binaryArtifactFallback: p.join(tmp.path, 'partial', 'fb'),
                 attemptState: SwiftPmBinaryAttemptState(),
@@ -2729,7 +1591,6 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
           final changed = await _windowsRuntime.extractedArtifacts
               .stageExtractedBinaryArtifacts(
                 scratchPath: layout.scratch,
-                vendorDir: layout.vendor,
                 binaryArtifactStore: store,
                 binaryArtifactFallback: p.join(tmp.path, 'offline', 'fb'),
                 attemptState: SwiftPmBinaryAttemptState(),
@@ -2793,7 +1654,6 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
           await expectLater(
             _windowsRuntime.extractedArtifacts.stageExtractedBinaryArtifacts(
               scratchPath: layout.scratch,
-              vendorDir: layout.vendor,
               binaryArtifactStore: storeRoot,
               binaryArtifactFallback: fallback,
               attemptState: SwiftPmBinaryAttemptState(),
@@ -2874,7 +1734,6 @@ let env = getenv("EXPERIMENTAL_SPM_BUILDS")
         await expectLater(
           _windowsRuntime.extractedArtifacts.stageExtractedBinaryArtifacts(
             scratchPath: layout.scratch,
-            vendorDir: layout.vendor,
             binaryArtifactStore: p.join(tmp.path, 'tampered', 'store'),
             binaryArtifactFallback: p.join(tmp.path, 'tampered', 'fb'),
             attemptState: SwiftPmBinaryAttemptState(),
@@ -3954,433 +2813,6 @@ API_AVAILABLE(macos(10.15), ios(17.0))
   });
 
   group('writeGeneratedPackages', () {
-    test('reuses unified dependency refs across workspaces', () async {
-      const url = 'https://example.com/owner/shared.git';
-      final plugin = makePlugin(
-        'plugin_shared',
-        packageManifest:
-            '''
-import PackageDescription
-let package = Package(
-  name: "plugin_shared",
-  dependencies: [.package(url: "$url", from: "1.0.0")],
-  targets: []
-)
-''',
-      );
-      final flutter = Directory(p.join(tmp.path, 'Flutter.xcframework'))
-        ..createSync();
-      final refsCache = p.join(tmp.path, 'cache', 'dependency-refs');
-      final evaluated = <String>[];
-      final cloned = <String>[];
-
-      Future<void> stage(String workspace) =>
-          _swiftPmRuntime.workspaceStager.writeGeneratedPackages(
-            outputDir: p.join(tmp.path, workspace, 'plugins'),
-            vendorDir: p.join(tmp.path, workspace, 'vendor'),
-            scratchPath: p.join(tmp.path, workspace, 'scratch'),
-            dependencyRefsCache: refsCache,
-            plugins: [plugin],
-            flutterXcframework: flutter.path,
-            deploymentTarget: const IosDeploymentTarget(
-              '15.0',
-              platform: IPhoneBuildPlatform(),
-            ),
-            copyFlutterXcframework: true,
-            vendorRemotePackages: true,
-            evaluateDependencyRefs:
-                (
-                  directory, {
-                  required scratchPath,
-                  required binaryArtifactStore,
-                  required binaryArtifactFallback,
-                  required swiftPmArtifactJunctionCapability,
-                  required packageLocalArtifactJunctionCapability,
-                  required dependencies,
-                }) async {
-                  evaluated.add(directory);
-                  return const {'https://example.com/owner/shared': 'rev-1'};
-                },
-            clonePackage: (_, _, ref, destination) async {
-              cloned.add(ref);
-              await Directory(destination).create(recursive: true);
-              await File(
-                p.join(destination, 'Package.swift'),
-              ).writeAsString('import PackageDescription\n');
-            },
-          );
-
-      await stage('device');
-      await stage('simulator');
-
-      expect(evaluated, [p.join(tmp.path, 'device', 'plugins', 'Resolve')]);
-      expect(cloned, ['rev-1', 'rev-1']);
-      final simulatorManifest = File(
-        p.join(
-          tmp.path,
-          'simulator',
-          'plugins',
-          'Packages',
-          'plugin_shared',
-          'ios',
-          'plugin_shared',
-          'Package.swift',
-        ),
-      ).readAsStringSync();
-      expect(
-        simulatorManifest,
-        contains(swiftPath(p.join(tmp.path, 'simulator', 'vendor'))),
-      );
-    });
-
-    test('re-resolves when a plugin manifest changes', () async {
-      final refsCache = p.join(tmp.path, 'cache', 'dependency-refs');
-      final flutter = Directory(p.join(tmp.path, 'Flutter.xcframework'))
-        ..createSync();
-      var evaluations = 0;
-      Future<void> stage(String version) async {
-        final plugin = makePlugin(
-          'plugin_changed',
-          packageManifest:
-              '''
-import PackageDescription
-let package = Package(
-  name: "plugin_changed",
-  dependencies: [.package(url: "https://example.com/o/r.git", from: "$version")],
-  targets: []
-)
-''',
-        );
-        await _swiftPmRuntime.workspaceStager.writeGeneratedPackages(
-          outputDir: p.join(tmp.path, 'w', 'plugins'),
-          vendorDir: p.join(tmp.path, 'w', 'vendor'),
-          dependencyRefsCache: refsCache,
-          plugins: [plugin],
-          flutterXcframework: flutter.path,
-          deploymentTarget: const IosDeploymentTarget(
-            '15.0',
-            platform: IPhoneBuildPlatform(),
-          ),
-          copyFlutterXcframework: true,
-          vendorRemotePackages: true,
-          evaluateDependencyRefs:
-              (
-                directory, {
-                required scratchPath,
-                required binaryArtifactStore,
-                required binaryArtifactFallback,
-                required swiftPmArtifactJunctionCapability,
-                required packageLocalArtifactJunctionCapability,
-                required dependencies,
-              }) async {
-                evaluations++;
-                return {'https://example.com/o/r': 'rev-$version'};
-              },
-          clonePackage: (_, _, _, destination) async {
-            await Directory(destination).create(recursive: true);
-            await File(
-              p.join(destination, 'Package.swift'),
-            ).writeAsString('import PackageDescription\n');
-          },
-        );
-      }
-
-      await stage('1.0.0');
-      await stage('2.0.0');
-
-      expect(evaluations, 2);
-    });
-
-    test(
-      'passes build-scoped recovery inputs to dependency evaluation',
-      () async {
-        const url = 'https://example.com/owner/repository.git';
-        final plugin = makePlugin(
-          'plugin_scope',
-          packageManifest:
-              '''
-import PackageDescription
-let package = Package(
-  name: "plugin_scope",
-  dependencies: [.package(name: "DeclaredIdentity", url: "$url", from: "1.0.0")],
-  targets: []
-)
-''',
-        );
-        final flutter = Directory(p.join(tmp.path, 'Flutter.xcframework'))
-          ..createSync();
-        final scratch = p.join(tmp.path, 'authoritative-scratch');
-        final store = p.join(tmp.path, 'authoritative-store');
-        var evaluated = false;
-
-        await _swiftPmRuntime.workspaceStager.writeGeneratedPackages(
-          outputDir: p.join(tmp.path, 'scoped-output'),
-          plugins: [plugin],
-          flutterXcframework: flutter.path,
-          deploymentTarget: const IosDeploymentTarget(
-            '15.0',
-            platform: IPhoneBuildPlatform(),
-          ),
-          copyFlutterXcframework: true,
-          vendorRemotePackages: true,
-          scratchPath: scratch,
-          binaryArtifactStore: store,
-          swiftPmArtifactJunctionCapability: true,
-          evaluateDependencyRefs:
-              (
-                directory, {
-                required scratchPath,
-                required binaryArtifactStore,
-                required binaryArtifactFallback,
-                required swiftPmArtifactJunctionCapability,
-                required packageLocalArtifactJunctionCapability,
-                required dependencies,
-              }) async {
-                evaluated = true;
-                expect(directory, p.join(tmp.path, 'scoped-output', 'Resolve'));
-                expect(
-                  File(p.join(directory, 'Package.swift')).readAsStringSync(),
-                  contains(
-                    '.package(path: "${swiftPath(p.join(tmp.path, 'scoped-output', 'Packages', 'plugin_scope', 'ios', 'plugin_scope'))}")',
-                  ),
-                );
-                expect(scratchPath, scratch);
-                expect(binaryArtifactStore, store);
-                expect(swiftPmArtifactJunctionCapability, isTrue);
-                expect(dependencies, hasLength(1));
-                expect(dependencies.single.identity, 'DeclaredIdentity');
-                expect(dependencies.single.url, url);
-                return const {
-                  'https://example.com/owner/repository': 'revision',
-                };
-              },
-          clonePackage: (_, _, _, destination) async {
-            await Directory(destination).create(recursive: true);
-            await File(
-              p.join(destination, 'Package.swift'),
-            ).writeAsString('import PackageDescription\n');
-          },
-        );
-
-        expect(evaluated, isTrue);
-      },
-    );
-
-    test('unifies pins and re-declares host-hidden checkout deps', () async {
-      final signIn = p.join(tmp.path, 'sign_in');
-      final firebase = p.join(tmp.path, 'firebase');
-      for (final (directory, manifest) in [
-        (
-          signIn,
-          '.package(url: "https://github.com/google/GoogleSignIn-iOS.git", '
-              'from: "8.0.0")',
-        ),
-        (
-          firebase,
-          '.package(url: "https://github.com/firebase/firebase-ios-sdk", '
-              'exact: "12.18.0")',
-        ),
-      ]) {
-        File(p.join(directory, 'Package.swift'))
-          ..createSync(recursive: true)
-          ..writeAsStringSync(
-            'import PackageDescription\n'
-            'let package = Package(name: "p", dependencies: [$manifest])\n',
-          );
-      }
-      final resolveRoot = p.join(tmp.path, 'Resolve');
-      final rounds = <List<String>>[];
-
-      final refs = await _swiftPmRuntime.workspaceStager.resolveUnifiedDependencyRefs(
-        resolveRoot: resolveRoot,
-        packageDirectories: [signIn, firebase],
-        evaluate: (directory, dependencies) async {
-          expect(directory, resolveRoot);
-          rounds.add([for (final dep in dependencies) dep.url]);
-          final root = File(
-            p.join(directory, 'Package.swift'),
-          ).readAsStringSync();
-          expect(root, contains('.package(path: "${swiftPath(signIn)}")'));
-          expect(root, contains('.package(path: "${swiftPath(firebase)}")'));
-          if (rounds.length == 1) {
-            final checkouts = p.join(directory, '.build', 'checkouts');
-            File(p.join(checkouts, 'firebase-ios-sdk', 'Package.swift'))
-              ..createSync(recursive: true)
-              ..writeAsStringSync('''
-import PackageDescription
-let package = Package(name: "Firebase", dependencies: packageDependencies())
-func packageDependencies() -> [Package.Dependency] {
-  var dependencies: [Package.Dependency] = []
-  #if os(macOS)
-    dependencies.append(contentsOf: [
-      googleAppMeasurementDependency(),
-      .package(
-        url: "https://github.com/google/GoogleUtilities.git",
-        "8.1.0" ..< "9.0.0"
-      ),
-      abseilDependency(),
-      appCheckDependency(),
-    ])
-  #endif // os(macOS)
-  return dependencies
-}
-func googleAppMeasurementDependency() -> Package.Dependency {
-  let appMeasurementURL = "https://github.com/google/GoogleAppMeasurement.git"
-  if Context.environment["FIREBASECI_USE_LATEST_GOOGLEAPPMEASUREMENT"] != nil {
-    return .package(url: appMeasurementURL, branch: "main")
-  }
-  return .package(url: appMeasurementURL, "12.18.0" ..< "12.19.0")
-}
-func appCheckDependency() -> Package.Dependency {
-  let appCheckURL = "https://github.com/google/app-check.git"
-  if let branch = Context.environment["FIREBASECI_USE_LATEST_APPCHECK"] {
-    return .package(url: appCheckURL, branch: branch)
-  }
-  return .package(url: appCheckURL, "11.3.0" ..< "12.0.0")
-}
-func abseilDependency() -> Package.Dependency {
-  let packageInfo: (url: String, range: Range<Version>)
-  packageInfo = ("https://github.com/google/abseil-cpp-binary.git", "1.0.0" ..< "2.0.0")
-  return .package(url: packageInfo.url, packageInfo.range)
-}
-''');
-            File(p.join(checkouts, 'GoogleSignIn-iOS', 'Package.swift'))
-              ..createSync(recursive: true)
-              ..writeAsStringSync(
-                'import PackageDescription\n'
-                'let package = Package(name: "GoogleSignIn", dependencies: [ '
-                '.package(url: "https://github.com/google/GoogleUtilities.git", '
-                '"8.0.0" ..< "9.0.0")])\n',
-              );
-            File(p.join(checkouts, 'stale-leftover', 'Package.swift'))
-              ..createSync(recursive: true)
-              ..writeAsStringSync(
-                'import PackageDescription\n'
-                'let package = Package(name: "Stale", dependencies: [ '
-                '.package(url: "https://example.com/stale.git", from: "1.0.0")])\n',
-              );
-            return const {
-              'https://github.com/google/GoogleSignIn-iOS': 'sha-signin',
-              'https://github.com/firebase/firebase-ios-sdk': 'sha-firebase',
-              'https://github.com/google/GoogleUtilities': 'sha-utilities',
-            };
-          }
-          // Round 2: the hidden deps sit on the resolve root itself, since
-          // SwiftPM prunes unused deps of non-root packages before pinning.
-          expect(
-            root,
-            contains(
-              '.package(url: "https://github.com/google/GoogleAppMeasurement.git", '
-              '"12.18.0" ..< "12.19.0"),',
-            ),
-          );
-          expect(
-            root,
-            contains(
-              '.package(url: "https://github.com/google/GoogleUtilities.git", '
-              '"8.1.0" ..< "9.0.0"),',
-            ),
-          );
-          expect(
-            root,
-            contains(
-              '.package(url: "https://github.com/google/app-check.git", '
-              '"11.3.0" ..< "12.0.0"),',
-            ),
-          );
-          expect(root, isNot(contains('branch')));
-          expect('GoogleAppMeasurement.git'.allMatches(root), hasLength(1));
-          expect(root, isNot(contains('packageInfo')));
-          expect(root, isNot(contains('abseil')));
-          expect(root, isNot(contains('stale')));
-          expect(
-            Directory(p.join(resolveRoot, 'Hidden')).existsSync(),
-            isFalse,
-          );
-          return const {
-            'https://github.com/google/GoogleSignIn-iOS': 'sha-signin',
-            'https://github.com/firebase/firebase-ios-sdk': 'sha-firebase',
-            'https://github.com/google/GoogleUtilities': 'sha-utilities',
-            'https://github.com/google/GoogleAppMeasurement': 'sha-measurement',
-            'https://github.com/google/app-check': 'sha-app-check',
-          };
-        },
-      );
-
-      expect(rounds, hasLength(2));
-      expect(rounds.first, [
-        'https://github.com/google/GoogleSignIn-iOS.git',
-        'https://github.com/firebase/firebase-ios-sdk',
-      ]);
-      expect(
-        rounds.last,
-        containsAll([
-          'https://github.com/google/GoogleAppMeasurement.git',
-          'https://github.com/google/GoogleUtilities.git',
-        ]),
-      );
-      expect(rounds.last, isNot(contains(contains('stale'))));
-      expect(
-        refs?['https://github.com/google/GoogleAppMeasurement'],
-        'sha-measurement',
-      );
-    });
-
-    test('inlines string constants into re-declared requirements', () async {
-      final plugin = p.join(tmp.path, 'plugin');
-      File(p.join(plugin, 'Package.swift'))
-        ..createSync(recursive: true)
-        ..writeAsStringSync(
-          'import PackageDescription\n'
-          'let package = Package(name: "p", dependencies: [ '
-          '.package(url: "https://example.com/outer.git", from: "1.0.0")])\n',
-        );
-      final resolveRoot = p.join(tmp.path, 'Resolve');
-      var round = 0;
-      await _swiftPmRuntime.workspaceStager.resolveUnifiedDependencyRefs(
-        resolveRoot: resolveRoot,
-        packageDirectories: [plugin],
-        evaluate: (directory, _) async {
-          round++;
-          if (round == 1) {
-            File(
-                p.join(
-                  directory,
-                  '.build',
-                  'checkouts',
-                  'outer',
-                  'Package.swift',
-                ),
-              )
-              ..createSync(recursive: true)
-              ..writeAsStringSync('''
-import PackageDescription
-let innerVersion: Version = "2.3.4"
-let package = Package(name: "outer", dependencies: [])
-func hidden() -> [Package.Dependency] {
-  #if os(macOS)
-    return [.package(url: "https://example.com/inner.git", exact: innerVersion)]
-  #endif
-  return []
-}
-''');
-            return const {'https://example.com/outer': 'sha-outer'};
-          }
-          expect(
-            File(p.join(directory, 'Package.swift')).readAsStringSync(),
-            contains(
-              '.package(url: "https://example.com/inner.git", exact: "2.3.4"),',
-            ),
-          );
-          return const {
-            'https://example.com/outer': 'sha-outer',
-            'https://example.com/inner': 'sha-inner',
-          };
-        },
-      );
-      expect(round, 2);
-    });
-
     test(
       'stages normalized plugin manifest without modifying source',
       () async {
@@ -4421,7 +2853,6 @@ let package = Package(
           plugins: [plugin],
           flutterXcframework: flutterXcframework,
           copyFlutterXcframework: true,
-          vendorRemotePackages: false,
           deploymentTarget: const IosDeploymentTarget(
             '15.6',
             platform: IPhoneBuildPlatform(),
@@ -4480,9 +2911,9 @@ let package = Package(name: "generic_plugin")
       await _swiftPmRuntime.workspaceStager.writeGeneratedPackages(
         outputDir: outputDir,
         plugins: [plugin],
+        copyPluginPackages: {plugin.name},
         flutterXcframework: flutterXcframework,
         copyFlutterXcframework: true,
-        vendorRemotePackages: true,
         deploymentTarget: const IosDeploymentTarget(
           '15.6',
           platform: IPhoneBuildPlatform(),
@@ -4562,9 +2993,9 @@ let package = Package(name: "sibling_plugin")
       await _swiftPmRuntime.workspaceStager.writeGeneratedPackages(
         outputDir: outputDir,
         plugins: [plugin],
+        copyPluginPackages: {plugin.name},
         flutterXcframework: flutterXcframework,
         copyFlutterXcframework: true,
-        vendorRemotePackages: true,
         deploymentTarget: const IosDeploymentTarget(
           '15.6',
           platform: IPhoneBuildPlatform(),
@@ -4630,9 +3061,9 @@ let package = Package(name: "stable_plugin")
           _swiftPmRuntime.workspaceStager.writeGeneratedPackages(
             outputDir: outputDir,
             plugins: [plugin],
+            copyPluginPackages: {plugin.name},
             flutterXcframework: flutterXcframework,
             copyFlutterXcframework: true,
-            vendorRemotePackages: true,
             deploymentTarget: const IosDeploymentTarget(
               '15.6',
               platform: IPhoneBuildPlatform(),
@@ -4684,7 +3115,7 @@ let package = Package(name: "stable_plugin")
       }
     });
 
-    test('preserves packageRoot/ios/package ancestry when vendoring', () async {
+    test('preserves packageRoot/ios/package ancestry when copying', () async {
       final plugin = makePlugin(
         'plugin_a',
         packageManifest: '''
@@ -4709,9 +3140,9 @@ let package = Package(
       await _swiftPmRuntime.workspaceStager.writeGeneratedPackages(
         outputDir: outputDir,
         plugins: [plugin],
+        copyPluginPackages: {plugin.name},
         flutterXcframework: flutterXcframework,
         copyFlutterXcframework: true,
-        vendorRemotePackages: true,
         deploymentTarget: const IosDeploymentTarget(
           '15.6',
           platform: IPhoneBuildPlatform(),
@@ -4772,6 +3203,7 @@ let package = Package(name: "shared_prefs_foundation")
       await _swiftPmRuntime.workspaceStager.writeGeneratedPackages(
         outputDir: outputDir,
         plugins: [plugin],
+        copyPluginPackages: {plugin.name},
         flutterXcframework: flutterXcframework,
         deploymentTarget: const IosDeploymentTarget(
           '15.6',
@@ -4795,7 +3227,7 @@ let package = Package(name: "shared_prefs_foundation")
     });
 
     test(
-      'preserves packageRoot/darwin/package ancestry when vendoring',
+      'preserves packageRoot/darwin/package ancestry when copying',
       () async {
         final plugin = makePlugin(
           'shared_darwin_plugin',
@@ -4820,9 +3252,9 @@ let package = Package(
         await _swiftPmRuntime.workspaceStager.writeGeneratedPackages(
           outputDir: outputDir,
           plugins: [plugin],
+          copyPluginPackages: {plugin.name},
           flutterXcframework: flutterXcframework,
           copyFlutterXcframework: true,
-          vendorRemotePackages: true,
           deploymentTarget: const IosDeploymentTarget(
             '15.6',
             platform: IPhoneBuildPlatform(),
@@ -4896,7 +3328,6 @@ let package = Package(
           plugins: [pluginA],
           flutterXcframework: flutterXcframework,
           copyFlutterXcframework: true,
-          vendorRemotePackages: false,
           deploymentTarget: const IosDeploymentTarget(
             '15.6',
             platform: IPhoneBuildPlatform(),
@@ -4961,7 +3392,6 @@ let package = Package(
         plugins: [plugin, firebaseCore],
         flutterXcframework: flutterXcframework,
         copyFlutterXcframework: true,
-        vendorRemotePackages: false,
         copyPluginPackages: const {'cloud_firestore'},
         deploymentTarget: const IosDeploymentTarget(
           '15.6',
@@ -5022,7 +3452,6 @@ let package = Package(
             plugins: [pluginA],
             flutterXcframework: flutterXcframework,
             copyFlutterXcframework: false,
-            vendorRemotePackages: false,
             deploymentTarget: const IosDeploymentTarget(
               '15.6',
               platform: IPhoneBuildPlatform(),
@@ -5098,7 +3527,6 @@ let package = Package(
         plugins: [plugin],
         flutterXcframework: flutterXcframework,
         copyFlutterXcframework: true,
-        vendorRemotePackages: false,
         deploymentTarget: const IosDeploymentTarget(
           '15.0',
           platform: IPhoneBuildPlatform(),
@@ -6491,7 +4919,7 @@ module FirebaseFirestore {
         );
         expect(await _windowsRuntime.processPolicy.swiftProcessEnvironment(), {
           ...SwiftPmProcessPolicy.nonInteractiveGitEnvironment,
-          'GIT_CONFIG_COUNT': '5',
+          'GIT_CONFIG_COUNT': '6',
           'GIT_CONFIG_KEY_0': 'credential.helper',
           // Two quotes, not the empty string: git rejects a genuinely empty
           // GIT_CONFIG_VALUE_* and would then fail every command.
@@ -6505,6 +4933,8 @@ module FirebaseFirestore {
           'GIT_CONFIG_VALUE_3': '60',
           'GIT_CONFIG_KEY_4': 'core.symlinks',
           'GIT_CONFIG_VALUE_4': 'false',
+          'GIT_CONFIG_KEY_5': 'core.longpaths',
+          'GIT_CONFIG_VALUE_5': 'true',
           'EXPERIMENTAL_SPM_BUILDS': '1',
         });
       },
@@ -6729,68 +5159,6 @@ module FirebaseFirestore {
   });
 
   group('build', () {
-    test('passes workspace recovery inputs through the build path', () async {
-      const url = 'https://example.com/dependency.git';
-      final plugin = makePlugin(
-        'build_scope',
-        packageManifest:
-            '''
-import PackageDescription
-let package = Package(
-  name: "build_scope",
-  dependencies: [.package(url: "$url", from: "1.0.0")],
-  targets: []
-)
-''',
-      );
-      final workspace = SwiftPmWorkspace.forProject(
-        tmp.path,
-        environment: {'XCROSS_CACHE_DIR': p.join(tmp.path, 'cache')},
-        policy: _swiftPmRuntime.targetPolicy,
-      );
-      final flutter = Directory(p.join(tmp.path, 'Flutter.xcframework'))
-        ..createSync();
-
-      await expectLater(
-        _plugins.build(
-          projectRoot: tmp.path,
-          workspace: workspace,
-          plugins: [plugin],
-          flutterXcframework: flutter.path,
-          deploymentTarget: const IosDeploymentTarget(
-            '15.0',
-            platform: IPhoneBuildPlatform(),
-          ),
-          swiftPmArtifactJunctionCapability: true,
-          toolchainIdentity: 'test-toolchain',
-          sdkIdentity: 'test-sdk',
-          evaluateDependencyRefs:
-              (
-                _, {
-                required scratchPath,
-                required binaryArtifactStore,
-                required binaryArtifactFallback,
-                required swiftPmArtifactJunctionCapability,
-                required packageLocalArtifactJunctionCapability,
-                required dependencies,
-              }) {
-                expect(scratchPath, workspace.scratch);
-                expect(binaryArtifactStore, workspace.binaryArtifactStore);
-                expect(swiftPmArtifactJunctionCapability, isTrue);
-                expect(dependencies.single.identity, 'dependency');
-                throw StateError('evaluation reached');
-              },
-        ),
-        throwsA(
-          isA<StateError>().having(
-            (error) => error.message,
-            'message',
-            'evaluation reached',
-          ),
-        ),
-      );
-    });
-
     test(
       'returns null and writes nothing when there are no SPM plugins',
       () async {

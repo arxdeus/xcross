@@ -41,14 +41,51 @@ final class SwiftPmSourceFallback<T extends PlatformHostInterface> {
     return result;
   }
 
-  Future<String> synthesizeBinaryFallbackProduct(
+  String aliasBinaryFallbackProducts(
     String manifest, {
-    required String packageDir,
-    required String product,
-    Map<String, List<String>>? fallbackSwiftModules,
-  }) async {
+    required Set<String> consumedProducts,
+  }) {
+    var result = manifest;
+    for (final product in consumedProducts.toList()..sort()) {
+      final source = fallbackSource(result, product);
+      if (source == null ||
+          source.sourceProduct.name == product ||
+          source.fallbackProducts.any((entry) => entry.name == product)) {
+        continue;
+      }
+      final targets = source.sourceProduct.targets
+          .map((name) => '"$name"')
+          .join(', ');
+      result = result.replaceRange(
+        source.fallback.close,
+        source.fallback.close,
+        '    products.append(.library(name: "$product", targets: [$targets]))\n',
+      );
+    }
+    return result;
+  }
+
+  ({
+    ({int open, int close}) fallback,
+    String blockText,
+    List<
+      ({
+        ({int start, int end, String text}) call,
+        String? name,
+        List<String> targets,
+      })
+    >
+    fallbackProducts,
+    ({
+      ({int start, int end, String text}) call,
+      String? name,
+      List<String> targets,
+    })
+    sourceProduct,
+  })?
+  fallbackSource(String manifest, String product) {
     final fallback = SwiftPmManifestLexer.fallbackBlock(manifest);
-    if (fallback == null) return manifest;
+    if (fallback == null) return null;
     if (!RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(product)) {
       throw FlutterBuildError(
         'Cannot synthesize SwiftPM Clang module "$product": the binary '
@@ -75,7 +112,7 @@ final class SwiftPmSourceFallback<T extends PlatformHostInterface> {
                 'targets',
               ).any(binaryTargets.contains),
         );
-    if (!binaryBacked) return manifest;
+    if (!binaryBacked) return null;
 
     final blockText = manifest.substring(fallback.open + 1, fallback.close);
     final synthetic = '_xcross_$product';
@@ -110,6 +147,24 @@ final class SwiftPmSourceFallback<T extends PlatformHostInterface> {
         'is ambiguous (${sourceProducts.map((entry) => entry.name).join(', ')}).',
       );
     }
+    return (
+      fallback: fallback,
+      blockText: blockText,
+      fallbackProducts: fallbackProducts,
+      sourceProduct: sourceProduct,
+    );
+  }
+
+  Future<String> synthesizeBinaryFallbackProduct(
+    String manifest, {
+    required String packageDir,
+    required String product,
+    Map<String, List<String>>? fallbackSwiftModules,
+  }) async {
+    final source = fallbackSource(manifest, product);
+    if (source == null) return manifest;
+    final (:fallback, :blockText, :fallbackProducts, :sourceProduct) = source;
+    final synthetic = '_xcross_$product';
 
     final targetCalls = SwiftPmManifestLexer.swiftCalls(blockText, '.target');
     final targets =

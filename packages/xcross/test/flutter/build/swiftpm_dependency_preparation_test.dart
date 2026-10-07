@@ -5,9 +5,8 @@ import 'package:cli_kit/host/macos/macos_host.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_dependency_preparation.dart';
-import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/network_retry.dart';
 
 import 'support/checkout_test_context.dart';
 import 'support/dependency_preparation_test_context.dart';
@@ -35,7 +34,6 @@ void main() {
     scratchPath: p.join(root.path, 'scratch'),
     swiftSdksPath: p.join(root.path, 'sdks'),
     toolsetPath: p.join(root.path, 'toolset.json'),
-    vendorDir: p.join(root.path, 'vendor'),
     binaryArtifactStore: p.join(root.path, 'store'),
     binaryArtifactFallback: p.join(root.path, 'fallback'),
     swiftPmArtifactJunctionCapability: false,
@@ -55,32 +53,6 @@ void main() {
         () => prepare.environment!['extra'] = 'value',
         throwsUnsupportedError,
       );
-      final directories = ['before'];
-      final pinned = SwiftPmPinnedDependencyCommand(
-        packageDirectories: directories,
-        vendorDir: root.path,
-      );
-      directories.add('after');
-      expect(pinned.packageDirectories, ['before']);
-      expect(
-        () => pinned.packageDirectories.add('extra'),
-        throwsUnsupportedError,
-      );
-      final dependencies = <SwiftPmPackageDependency>[];
-      final state = SwiftPmBinaryAttemptState();
-      final artifacts = SwiftPmDependencyArtifactCommand(
-        packageRoot: root.path,
-        scratchPath: root.path,
-        store: root.path,
-        fallback: root.path,
-        dependencies: dependencies,
-        state: state,
-        capability: false,
-      );
-      expect(artifacts.dependencies, isEmpty);
-      expect(identical(artifacts.dependencies, dependencies), isFalse);
-      expect(artifacts.dependencies.clear, throwsUnsupportedError);
-      expect(identical(artifacts.state, state), isTrue);
       expect(command().environment, isNull);
     },
   );
@@ -89,14 +61,7 @@ void main() {
     test(
       'selected Windows prepare preserves complete leading manifest argv for $triple',
       () async {
-        final policy = RecordingDependencyManifestPolicy();
-        final cloner = RecordingDependencyCloner();
-        final preparation = dependencyTestPreparation(
-          context,
-          root,
-          manifestPolicy: policy,
-          cloner: cloner,
-        );
+        final preparation = dependencyTestPreparation(context, root);
         final environment = {'DEPENDENCY_TOKEN': 'before'};
         final data = command(triple: triple, environment: environment);
         environment['DEPENDENCY_TOKEN'] = 'after';
@@ -127,14 +92,12 @@ void main() {
         ]);
         expect(invocation.arguments, isNot(contains('package')));
         expect(invocation.environment?['DEPENDENCY_TOKEN'], 'before');
-        expect(policy.calls, isEmpty);
-        expect(cloner.calls, isEmpty);
       },
     );
   }
 
   test(
-    'Windows owns resolved normalization and reruns resolve only after actual change',
+    'Windows resolves once and never rewrites resolved checkout manifests',
     () async {
       final data = command();
       final checkout = Directory(
@@ -142,32 +105,15 @@ void main() {
       )..createSync(recursive: true);
       final manifest = File(p.join(checkout.path, 'Package.swift'))
         ..writeAsStringSync('fixtureOld');
-      final policy = RecordingDependencyManifestPolicy();
-      final preparation = dependencyTestPreparation(
-        context,
-        root,
-        manifestPolicy: policy,
-        cloner: RecordingDependencyCloner(),
-      );
+      final preparation = dependencyTestPreparation(context, root);
       await preparation.prepare(data);
-      expect(manifest.readAsStringSync(), 'fixtureNew');
-      expect(policy.calls.single.directory, checkout.path);
-      expect(policy.calls.single.products, isEmpty);
+      await preparation.prepare(data);
+      expect(manifest.readAsStringSync(), 'fixtureOld');
       expect(
         context.processes.commands.where(
           (call) => call.executable == data.swift,
         ),
         hasLength(2),
-      );
-      final count = context.processes.commands
-          .where((call) => call.executable == data.swift)
-          .length;
-      await preparation.prepare(data);
-      expect(
-        context.processes.commands.where(
-          (call) => call.executable == data.swift,
-        ),
-        hasLength(count + 1),
       );
     },
   );
@@ -189,271 +135,77 @@ void main() {
       )..createSync(recursive: true);
       final manifest = File(p.join(checkout.path, 'Package.swift'))
         ..writeAsStringSync('fixtureOld');
-      final policy = RecordingDependencyManifestPolicy();
-      final preparation = dependencyTestPreparation(
-        context,
-        root,
-        manifestPolicy: policy,
-        cloner: RecordingDependencyCloner(),
-      );
+      final preparation = dependencyTestPreparation(context, root);
       await expectLater(preparation.prepare(data), throwsA(isA<Object>()));
       expect(context.processes.commands, hasLength(1));
-      expect(policy.calls, isEmpty);
       expect(manifest.readAsStringSync(), 'fixtureOld');
     },
   );
 
-  const pinnedManifest = '''
-let package = Package(name: "Plugin", dependencies: [
-.package(url: "https://example.invalid/dep.git", exact: "1.2.3")
-], targets: [.target(name: "Plugin", dependencies: [
-.product(name: "DepProduct", package: "dep")
-])])
-''';
-
   test(
-    'pinned bootstrap clones through constructor port and normalizes before manifest rewrite',
+    'POSIX preparation resolves natively with the command environment',
     () async {
-      final plugin = Directory(p.join(root.path, 'plugin'))..createSync();
-      final manifest = File(p.join(plugin.path, 'Package.swift'))
-        ..writeAsStringSync(pinnedManifest);
-      final policy = RecordingDependencyManifestPolicy();
-      final cloner = RecordingDependencyCloner();
-      final preparation = dependencyTestPreparation(
-        context,
-        root,
-        manifestPolicy: policy,
-        cloner: cloner,
+      final preparation = PosixSwiftPmDependencyPreparation<MacOSHost>(
+        runner: context.runner,
+        processPolicy: dependencyTestProcessPolicy(context, root),
+        networkRetry: SwiftPmNetworkRetry(runner: context.runner),
       );
-      final result = await preparation.bootstrapPinned(
-        SwiftPmPinnedDependencyCommand(
-          packageDirectories: [plugin.path],
-          vendorDir: p.join(root.path, 'vendor'),
-        ),
-      );
-      expect(result.pins, {'https://example.invalid/dep': '1.2.3'});
-      expect(result.originals, {manifest.path: pinnedManifest});
-      expect(cloner.calls, hasLength(1));
-      final clone = cloner.calls.single;
-      expect(
-        (clone.git, clone.url, clone.ref),
-        ('/fixture/git', 'https://example.invalid/dep.git', '1.2.3'),
-      );
-      expect(
-        File(p.join(clone.destination, 'Package.swift')).readAsStringSync(),
-        'fixtureNew',
-      );
-      expect(policy.calls.single.products, {'DepProduct'});
-      expect(
-        manifest.readAsStringSync(),
-        contains('path: "${clone.destination}"'),
-      );
-      expect(context.processes.commands, isEmpty);
-    },
-  );
-
-  test(
-    'version range for same identity leaves solver ownership and performs no clone',
-    () async {
-      final plugin = Directory(p.join(root.path, 'plugin'))..createSync();
-      const original =
-          '$pinnedManifest\n.package(url: "https://example.invalid/dep", from: "1.0.0")';
-      final manifest = File(p.join(plugin.path, 'Package.swift'))
-        ..writeAsStringSync(original);
-      final cloner = RecordingDependencyCloner();
-      final preparation = dependencyTestPreparation(
-        context,
-        root,
-        manifestPolicy: RecordingDependencyManifestPolicy(),
-        cloner: cloner,
-      );
-      final result = await preparation.bootstrapPinned(
-        SwiftPmPinnedDependencyCommand(
-          packageDirectories: [plugin.path],
-          vendorDir: p.join(root.path, 'vendor'),
-        ),
-      );
-      expect(result.pins, isEmpty);
-      expect(result.originals, isEmpty);
-      expect(cloner.calls, isEmpty);
-      expect(manifest.readAsStringSync(), original);
-    },
-  );
-
-  test(
-    'conflicting pinned revisions fail before cloning or plugin edits',
-    () async {
-      final plugin = Directory(p.join(root.path, 'plugin'))..createSync();
-      const original =
-          '$pinnedManifest\n.package(url: "https://example.invalid/dep", revision: "other")';
-      final manifest = File(p.join(plugin.path, 'Package.swift'))
-        ..writeAsStringSync(original);
-      final cloner = RecordingDependencyCloner();
-      final preparation = dependencyTestPreparation(
-        context,
-        root,
-        manifestPolicy: RecordingDependencyManifestPolicy(),
-        cloner: cloner,
-      );
-      await expectLater(
-        preparation.bootstrapPinned(
-          SwiftPmPinnedDependencyCommand(
-            packageDirectories: [plugin.path],
-            vendorDir: p.join(root.path, 'vendor'),
-          ),
-        ),
-        throwsA(isA<FlutterBuildError>()),
-      );
-      expect(cloner.calls, isEmpty);
-      expect(manifest.readAsStringSync(), original);
-    },
-  );
-
-  test(
-    'failed clone normalization never rewrites original plugin manifest',
-    () async {
-      final plugin = Directory(p.join(root.path, 'plugin'))..createSync();
-      final manifest = File(p.join(plugin.path, 'Package.swift'))
-        ..writeAsStringSync(pinnedManifest);
-      final cloner = RecordingDependencyCloner();
-      final preparation = dependencyTestPreparation(
-        context,
-        root,
-        manifestPolicy: RecordingDependencyManifestPolicy(
-          failNormalization: true,
-        ),
-        cloner: cloner,
-      );
-      await expectLater(
-        preparation.bootstrapPinned(
-          SwiftPmPinnedDependencyCommand(
-            packageDirectories: [plugin.path],
-            vendorDir: p.join(root.path, 'vendor'),
-          ),
-        ),
-        throwsStateError,
-      );
-      expect(cloner.calls, hasLength(1));
-      expect(manifest.readAsStringSync(), pinnedManifest);
-    },
-  );
-
-  test(
-    'selected recovery reports owned normalization without attempting absent archives',
-    () async {
-      final scratch = p.join(root.path, 'scratch');
-      final checkout = Directory(p.join(scratch, 'checkouts', 'dependency'))
-        ..createSync(recursive: true);
-      final manifest = File(p.join(checkout.path, 'Package.swift'))
-        ..writeAsStringSync('fixtureOld');
-      final preparation = dependencyTestPreparation(
-        context,
-        root,
-        manifestPolicy: RecordingDependencyManifestPolicy(),
-        cloner: RecordingDependencyCloner(),
-      );
-      final changed = await preparation.recoverArtifacts(
-        SwiftPmDependencyArtifactCommand(
-          packageRoot: p.join(root.path, 'plugin'),
-          scratchPath: scratch,
-          store: p.join(root.path, 'store'),
-          fallback: p.join(root.path, 'fallback'),
-          dependencies: const [],
-          state: SwiftPmBinaryAttemptState(),
-          capability: false,
-        ),
-      );
-      expect(changed, isTrue);
-      expect(manifest.readAsStringSync(), 'fixtureNew');
-      expect(context.processes.commands, isEmpty);
-    },
-  );
-
-  test(
-    'Windows clone materialization uses constructor checkout and vendor stamp path',
-    () async {
-      final clone = Directory(p.join(root.path, 'clone'))..createSync();
-      final vendor = p.join(root.path, 'vendor');
-      final preparation = dependencyTestPreparation(
-        context,
-        root,
-        manifestPolicy: RecordingDependencyManifestPolicy(),
-        cloner: RecordingDependencyCloner(),
-      );
-      await preparation.materializeClone(clone.path, '/fixture/git', vendor);
-      expect(context.processes.commands.single.arguments, [
-        '-C',
-        clone.path,
-        'ls-files',
-        '-s',
-        '-z',
+      final data = command(environment: {'DEPENDENCY_TOKEN': 'value'});
+      await preparation.prepare(data);
+      final invocation = context.processes.commands.single;
+      expect(invocation.executable, data.swift);
+      expect(invocation.arguments, [
+        'package',
+        '--package-path',
+        data.pluginsDir,
+        '--scratch-path',
+        data.scratchPath,
+        '--swift-sdks-path',
+        data.swiftSdksPath,
+        '--swift-sdk',
+        data.swiftSdkTriple,
+        '--toolset',
+        data.toolsetPath,
+        'resolve',
       ]);
-      expect(context.processes.commands.single.executable, '/fixture/git');
-      final stamps = Directory(p.join(vendor, '.xcross-symlinks'));
-      expect(stamps.existsSync(), isTrue);
-      expect(stamps.listSync().whereType<File>(), hasLength(1));
+      expect(invocation.environment?['DEPENDENCY_TOKEN'], 'value');
     },
   );
 
   test(
-    'Windows artifact preparation preserves ordinary package with injected rejecting transport',
+    'Windows re-resolves only when checkout materialization changed',
     () async {
-      final package = Directory(p.join(root.path, 'package'))..createSync();
-      final manifest = File(p.join(package.path, 'Package.swift'))
-        ..writeAsStringSync('let package = Package(name: "Ordinary")');
-      final original = manifest.readAsStringSync();
-      final preparation = dependencyTestPreparation(
-        context,
-        root,
-        manifestPolicy: RecordingDependencyManifestPolicy(),
-        cloner: RecordingDependencyCloner(),
-      );
-      await preparation.prepareArtifacts(
-        package.path,
-        p.join(root.path, 'store'),
-        p.join(root.path, 'fallback'),
-        capability: false,
-      );
-      expect(manifest.readAsStringSync(), original);
-      expect(context.processes.commands, isEmpty);
-    },
-  );
-
-  test(
-    'POSIX preparation retains native implicit behavior without effect collaborators',
-    () async {
-      const preparation = PosixSwiftPmDependencyPreparation<MacOSHost>();
-      await preparation.prepare(command());
-      await preparation.materializeClone(root.path, '/fixture/git', root.path);
-      await preparation.prepareArtifacts(
-        root.path,
-        root.path,
-        root.path,
-        capability: false,
-      );
-      final pins = await preparation.bootstrapPinned(
-        SwiftPmPinnedDependencyCommand(
-          packageDirectories: [root.path],
-          vendorDir: root.path,
-        ),
-      );
-      expect(pins.pins, isEmpty);
-      expect(pins.originals, isEmpty);
-      expect(
-        await preparation.recoverArtifacts(
-          SwiftPmDependencyArtifactCommand(
-            packageRoot: root.path,
-            scratchPath: root.path,
-            store: root.path,
-            fallback: root.path,
-            dependencies: const [],
-            state: SwiftPmBinaryAttemptState(),
-            capability: false,
-          ),
-        ),
-        isFalse,
-      );
-      expect(context.processes.commands, isEmpty);
+      await context.output.close();
+      context = CheckoutTestContext(root, (command) {
+        if (command.arguments.contains('ls-files')) {
+          return CheckoutTestProcess(
+            output: utf8.encode('120000 aa 0\tlink\u0000'),
+          );
+        }
+        if (command.arguments.contains('cat-file')) {
+          return CheckoutTestProcess(
+            output: utf8.encode('aa blob 7\npayload\n'),
+          );
+        }
+        return CheckoutTestProcess();
+      });
+      final data = command();
+      final checkout = Directory(
+        p.join(data.scratchPath, 'checkouts', 'dependency'),
+      )..createSync(recursive: true);
+      File(p.join(checkout.path, '.git', 'HEAD'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('identity');
+      File(p.join(checkout.path, 'payload')).writeAsStringSync('actual');
+      File(p.join(checkout.path, 'link')).writeAsStringSync('payload');
+      final preparation = dependencyTestPreparation(context, root);
+      int resolves() => context.processes.commands
+          .where((call) => call.executable == data.swift)
+          .length;
+      await preparation.prepare(data);
+      expect(resolves(), 2);
+      await preparation.prepare(data);
+      expect(resolves(), 3);
     },
   );
 }

@@ -158,7 +158,6 @@ const xcrossFlutterRoles = <String, Map<String, String>>{
     'TYPE_ALIAS:CreateSwiftPmBinaryAlias': 'internal',
     'TYPE_ALIAS:MaterializeSwiftPmBinaryArtifact': 'internal',
     'TYPE_ALIAS:PrepareSwiftPmBinaryArtifact': 'internal',
-    'TYPE_ALIAS:SwiftPmDependencyRefEvaluator': 'internal',
   },
   'package:xcross/src/shared/flutter/build/ios_plugins.dart': {
     'CLASS:IosPlugin': 'internal',
@@ -392,6 +391,7 @@ const xcrossFlutterRoles = <String, Map<String, String>>{
     'CLASS:SwiftPmBuildDriver': 'internal',
     'TOP_LEVEL_VARIABLE:flutterFrameworkPackageName': 'internal',
     'TOP_LEVEL_VARIABLE:pluginsProductName': 'internal',
+    'TYPE_ALIAS:SwiftPmDependencyReconciler': 'internal',
   },
   'package:xcross/src/shared/flutter/swiftpm/build_execution.dart': {
     'CLASS:SwiftPmBuildCommand': 'internal',
@@ -416,7 +416,6 @@ const xcrossFlutterRoles = <String, Map<String, String>>{
     'CLASS:SwiftPmCheckoutContainment': 'internal',
   },
   'package:xcross/src/shared/flutter/swiftpm/checkout_git_repository.dart': {
-    'CLASS:SwiftPmGitPackageCloner': 'internal',
     'CLASS:SwiftPmGitRepository': 'internal',
   },
   'package:xcross/src/shared/flutter/swiftpm/checkout_graph.dart': {
@@ -434,6 +433,7 @@ const xcrossFlutterRoles = <String, Map<String, String>>{
   },
   'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart':
       {
+        'CLASS:SwiftPmCheckoutFallbacks': 'internal',
         'CLASS:SwiftPmCheckoutManifestNormalizer': 'internal',
         'CLASS:SwiftPmVendoredManifestPolicy': 'internal',
       },
@@ -443,21 +443,9 @@ const xcrossFlutterRoles = <String, Map<String, String>>{
   'package:xcross/src/shared/flutter/swiftpm/clang_modules.dart': {
     'CLASS:SwiftPmClangModules': 'internal',
   },
-  'package:xcross/src/shared/flutter/swiftpm/dependency_evaluator.dart': {
-    'CLASS:SwiftPmDependencyEvaluator': 'internal',
-    'TOP_LEVEL_VARIABLE:flutterFrameworkPackageName': 'internal',
-    'TOP_LEVEL_VARIABLE:pluginsProductName': 'internal',
-  },
   'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart': {
-    'CLASS:SwiftPmDependencyArtifactCommand': 'internal',
     'CLASS:SwiftPmDependencyCommand': 'internal',
     'CLASS:SwiftPmDependencyPreparation': 'internal',
-    'CLASS:SwiftPmPinnedDependencyCommand': 'internal',
-  },
-  'package:xcross/src/shared/flutter/swiftpm/dependency_vendor.dart': {
-    'CLASS:SwiftPmDependencyVendor': 'internal',
-    'TOP_LEVEL_VARIABLE:flutterFrameworkPackageName': 'internal',
-    'TOP_LEVEL_VARIABLE:pluginsProductName': 'internal',
   },
   'package:xcross/src/shared/flutter/swiftpm/discovery.dart': {
     'CLASS:SwiftPmDiscovery': 'internal',
@@ -533,6 +521,7 @@ const xcrossFlutterRoles = <String, Map<String, String>>{
     'CLASS:SwiftPmManifestCompilerConfiguration': 'internal',
     'CLASS:SwiftPmManifestOverlay': 'internal',
     'FUNCTION:copyManifestCompilerExecutable': 'internal',
+    'FUNCTION:manifestCompilerEnvironmentDigest': 'internal',
     'FUNCTION:manifestCompilerPolicyDigest': 'internal',
     'FUNCTION:writeManifestCompilerFile': 'internal',
     'TOP_LEVEL_VARIABLE:manifestCompilerLogVariable': 'internal',
@@ -593,6 +582,9 @@ const xcrossFlutterRoles = <String, Map<String, String>>{
     'CLASS:SwiftPmSourceFallback': 'internal',
     'TOP_LEVEL_VARIABLE:flutterFrameworkPackageName': 'internal',
     'TOP_LEVEL_VARIABLE:pluginsProductName': 'internal',
+  },
+  'package:xcross/src/shared/flutter/swiftpm/source_fallback_state.dart': {
+    'CLASS:SwiftPmSourceFallbackState': 'internal',
   },
   'package:xcross/src/shared/flutter/swiftpm/source_repair.dart': {
     'CLASS:SwiftPmSourceRepair': 'internal',

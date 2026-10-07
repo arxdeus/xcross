@@ -31,7 +31,7 @@ final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
   /// human.
   ///
   /// Nothing is attached to this build's stdin: our runners pipe it and
-  /// SwiftPM pipes its children too. So when a vendored dependency's
+  /// SwiftPM pipes its children too. So when a dependency's
   /// repository has moved, gone private, or started rate-limiting, Git's
   /// default answer — prompt for credentials — is a prompt no one can see
   /// or answer, and the child waits forever. On Windows, Git Credential
@@ -76,9 +76,7 @@ final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
   /// list.
   ///
   /// `core.symlinks=false` keeps Windows checkouts on placeholder files
-  /// that [materializeGitCheckoutSymlinks] converts afterwards. Our own
-  /// clones override it per command with `-c core.symlinks=true` where the
-  /// host can create real symlinks; a command-line `-c` outranks these.
+  /// that [materializeGitCheckoutSymlinks] converts afterwards.
   List<({String key, String value})> gitConfigEntries() => [
     (key: 'credential.helper', value: '""'),
     (key: 'credential.interactive', value: 'false'),
@@ -102,15 +100,65 @@ final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
   Future<Map<String, String>> swiftProcessEnvironment({
     String? executable,
     Map<String, String>? environment,
+    Map<String, Set<String>> consumedProducts = const {},
   }) async => {
     ...await hostPolicy.hostEnvironment(),
     ..._processEnvironment(executable: executable, environment: environment),
-    ...await manifestCompilerEnvironment(),
+    ...await manifestCompilerEnvironment(consumedProducts: consumedProducts),
   };
-  Future<Map<String, String>>? _manifestCompiler;
-  Future<Map<String, String>> manifestCompilerEnvironment() =>
-      _manifestCompiler ??= _installManifestCompiler();
-  Future<Map<String, String>> _installManifestCompiler() async {
+  Future<({String forwarder, SwiftPmManifestCompilerConfiguration base})?>?
+  _manifestCompiler;
+  final Map<String, Future<Map<String, String>>> _manifestCompilerShims = {};
+  Future<Map<String, String>> manifestCompilerEnvironment({
+    Map<String, Set<String>> consumedProducts = const {},
+  }) async {
+    final installation = await (_manifestCompiler ??=
+        _resolveManifestCompiler());
+    if (installation == null) return const {};
+    final products = {
+      for (final identity in consumedProducts.keys.toList()..sort())
+        if (consumedProducts[identity]!.isNotEmpty)
+          identity: consumedProducts[identity]!.toList()..sort(),
+    };
+    final base = installation.base;
+    final digest = manifestCompilerEnvironmentDigest(base.policy, products);
+    return _manifestCompilerShims[digest] ??= _installManifestCompiler(
+      forwarder: installation.forwarder,
+      digest: digest,
+      configuration: SwiftPmManifestCompilerConfiguration(
+        compiler: base.compiler,
+        cacheRoot: base.cacheRoot,
+        policy: base.policy,
+        consumedProducts: products,
+      ),
+    );
+  }
+
+  Future<Map<String, String>> _installManifestCompiler({
+    required String forwarder,
+    required String digest,
+    required SwiftPmManifestCompilerConfiguration configuration,
+  }) async {
+    try {
+      final shim = await hostPolicy.installManifestCompiler(
+        host,
+        directory: host.paths.context.join(
+          configuration.cacheRoot,
+          'manifest-compiler',
+          'bin-${digest.substring(0, 16)}',
+        ),
+        executable: forwarder,
+        configuration: jsonEncode(configuration.toJson()),
+      );
+      return {'SWIFT_EXEC_MANIFEST': shim, manifestPolicyVariable: digest};
+    } on FileSystemException catch (error) {
+      runner.log.logTrace('manifest compiler unavailable: $error');
+      return const {};
+    }
+  }
+
+  Future<({String forwarder, SwiftPmManifestCompilerConfiguration base})?>
+  _resolveManifestCompiler() async {
     final paths = host.paths.context;
     final String forwarder;
     final String swift;
@@ -118,12 +166,12 @@ final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
       forwarder = await tools.resolveNativeAssetToolForwarder(tools.executable);
       swift = await runner.locateTool(hostPolicy.packageTool);
     } on Object {
-      return const {};
+      return null;
     }
     final forwarderFile = host.fileSystem.file(host.paths.ioPath(forwarder));
     if (paths.basenameWithoutExtension(forwarder).toLowerCase() != 'xcross' ||
         !forwarderFile.existsSync()) {
-      return const {};
+      return null;
     }
     final inherited = host.environment.lookup(
       runner.effectiveEnvironment,
@@ -136,7 +184,7 @@ final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
         ? inherited
         : paths.join(paths.dirname(swift), runner.hostExecutableName('swiftc'));
     if (!host.fileSystem.file(host.paths.ioPath(compiler)).existsSync()) {
-      return const {};
+      return null;
     }
     final configured = host.environment.lookup(
       runner.effectiveEnvironment,
@@ -156,29 +204,14 @@ final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
       'compiler': compiler,
       'manifestArguments': hostPolicy.manifestArguments,
     });
-    final configuration = jsonEncode(
-      SwiftPmManifestCompilerConfiguration(
+    return (
+      forwarder: forwarder,
+      base: SwiftPmManifestCompilerConfiguration(
         compiler: compiler,
         cacheRoot: cacheRoot,
         policy: policy,
-      ).toJson(),
+      ),
     );
-    try {
-      final shim = await hostPolicy.installManifestCompiler(
-        host,
-        directory: paths.join(
-          cacheRoot,
-          'manifest-compiler',
-          'bin-${policy.substring(0, 16)}',
-        ),
-        executable: forwarder,
-        configuration: configuration,
-      );
-      return {'SWIFT_EXEC_MANIFEST': shim, manifestPolicyVariable: policy};
-    } on FileSystemException catch (error) {
-      runner.log.logTrace('manifest compiler unavailable: $error');
-      return const {};
-    }
   }
 
   Map<String, String> _processEnvironment({

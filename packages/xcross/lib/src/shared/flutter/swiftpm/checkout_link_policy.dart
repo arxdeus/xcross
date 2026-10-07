@@ -4,7 +4,6 @@ import 'package:meta/meta.dart';
 abstract interface class SwiftPmCheckoutGitPolicy {
   String linkText(String text);
   List<String> get checkoutArguments;
-  Future<List<String>> cloneConfiguration();
 }
 
 @internal

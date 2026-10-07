@@ -6,10 +6,16 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_attributes.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/manifest_dependencies.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
 
 @internal
 abstract interface class SwiftPmVendoredManifestPolicy {
   String normalizeHostManifest(String manifest);
+  String normalizeDetached(
+    String manifest, {
+    required Set<String> consumedProducts,
+  });
   Future<String> normalize(
     String manifest, {
     required String packageDir,
@@ -30,48 +36,67 @@ final class SwiftPmCheckoutManifestNormalizer<T extends PlatformHostInterface> {
   final SwiftPmFilesystem<T> filesystem;
   final SwiftPmCheckoutAttributes attributes;
   final SwiftPmVendoredManifestPolicy policy;
-  Future<bool> normalizeVendoredPackageManifests(
-    String packageDir, {
-    required Set<String> consumedProducts,
-    Map<String, List<String>>? fallbackSwiftModules,
-    Future<String> Function(String manifest)? rewriteDependencies,
+  Future<SwiftPmCheckoutFallbacks> synthesizeCheckoutFallbacks(
+    String scratchPath, {
+    required Map<String, Set<String>> consumedProducts,
   }) async {
-    var changed = false;
-    final manifests = <File>[];
-    await for (final entity
-        in fileSystem.directory(packageDir).list(followLinks: false)) {
-      if (entity is! File) continue;
-      final name = p.basename(entity.path);
-      if (name != 'Package.swift' &&
-          !(name.startsWith('Package@') && name.endsWith('.swift'))) {
-        continue;
-      }
-      manifests.add(entity);
-    }
-    Future<void> update(File manifest, String original, String updated) async {
-      if (updated == original) return;
-      await attributes.clear(manifest.path);
-      await manifest.writeAsString(updated);
-      await filesystem.stampByContent(manifest.path, updated);
-      changed = true;
-    }
-
-    for (final manifest in manifests) {
-      final original = await manifest.readAsString();
-      final normalized = await policy.normalize(
-        original,
-        packageDir: packageDir,
-        consumedProducts: consumedProducts,
-        fallbackSwiftModules: fallbackSwiftModules,
+    final swiftModules = <String, List<String>>{};
+    final consumers = <String>[];
+    final fallbackIdentities = <String>{};
+    final checkouts = fileSystem.directory(p.join(scratchPath, 'checkouts'));
+    if (!checkouts.existsSync()) {
+      return const SwiftPmCheckoutFallbacks(
+        swiftModules: {},
+        consumedProducts: {},
       );
-      await update(manifest, original, normalized);
     }
-    if (rewriteDependencies != null) {
+    final packages =
+        checkouts.listSync(followLinks: false).whereType<Directory>().toList()
+          ..sort((a, b) => a.path.compareTo(b.path));
+    for (final package in packages) {
+      final packageDir = fileSystem.processPath(package.path);
+      final identity = p.basename(packageDir).toLowerCase();
+      final manifests =
+          package.listSync(followLinks: false).whereType<File>().where((file) {
+            final name = p.basename(file.path);
+            return name == 'Package.swift' ||
+                (name.startsWith('Package@') && name.endsWith('.swift'));
+          }).toList()..sort((a, b) => a.path.compareTo(b.path));
       for (final manifest in manifests) {
         final original = await manifest.readAsString();
-        await update(manifest, original, await rewriteDependencies(original));
+        if (SwiftPmManifestLexer.fallbackBlock(
+              policy.normalizeHostManifest(original),
+            ) !=
+            null) {
+          fallbackIdentities.add(identity);
+        }
+        consumers.add(
+          await policy.normalize(
+            original,
+            packageDir: packageDir,
+            consumedProducts: {...?consumedProducts[identity]},
+            fallbackSwiftModules: swiftModules,
+          ),
+        );
       }
     }
-    return changed;
+    final consumed = SwiftPmManifestDependencies.consumedProductsByIdentity(
+      consumers,
+    )..removeWhere((identity, _) => !fallbackIdentities.contains(identity));
+    return SwiftPmCheckoutFallbacks(
+      swiftModules: swiftModules,
+      consumedProducts: consumed,
+    );
   }
+}
+
+@internal
+@immutable
+final class SwiftPmCheckoutFallbacks {
+  const SwiftPmCheckoutFallbacks({
+    required this.swiftModules,
+    required this.consumedProducts,
+  });
+  final Map<String, List<String>> swiftModules;
+  final Map<String, Set<String>> consumedProducts;
 }
