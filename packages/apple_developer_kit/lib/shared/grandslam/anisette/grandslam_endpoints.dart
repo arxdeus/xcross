@@ -69,11 +69,13 @@ final class GrandSlamEndpoints {
     final uri = Uri.tryParse(value);
     final host = uri?.host.toLowerCase() ?? '';
     final isAppleHost = host == 'apple.com' || host.endsWith('.apple.com');
-    if (uri == null ||
-        uri.scheme != 'https' ||
-        !isAppleHost ||
-        uri.userInfo.isNotEmpty ||
-        (uri.hasPort && uri.port != 443)) {
+    final isTrusted =
+        uri != null &&
+        uri.scheme == 'https' &&
+        isAppleHost &&
+        uri.userInfo.isEmpty &&
+        (!uri.hasPort || uri.port == 443);
+    if (!isTrusted) {
       throw AppleError(
         'GrandSlam endpoint "$field" is not a trusted Apple HTTPS URL.',
       );
