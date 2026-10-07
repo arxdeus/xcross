@@ -171,8 +171,10 @@ final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
       return null;
     }
     final forwarderFile = host.fileSystem.file(host.paths.ioPath(forwarder));
-    if (paths.basenameWithoutExtension(forwarder).toLowerCase() != 'xcross' ||
-        !forwarderFile.existsSync()) {
+    final forwarderName = paths
+        .basenameWithoutExtension(forwarder)
+        .toLowerCase();
+    if (forwarderName != 'xcross' || !forwarderFile.existsSync()) {
       return null;
     }
     final inherited = host.environment.lookup(
