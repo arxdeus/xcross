@@ -28,6 +28,7 @@ import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/hot_reload/vm_service_output.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/gate_evidence.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_compiler.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
 import 'package:xcross/src/shared/tool/tool_alias_operation.dart';
 import 'package:xcross/src/shared/tools/swiftpm_gate_operation.dart';
@@ -177,41 +178,47 @@ abstract class XcrossHostContext<T extends PlatformHostInterface>
       sdk,
       target: features.target.buildPlatform,
     );
+    final cacheRoot =
+        runtime.host.environment.lookup(
+          runtime.runner.effectiveEnvironment,
+          'XCROSS_CACHE_DIR',
+        ) ??
+        runtime.host.paths.cacheRoot;
     return SwiftPmGateServices(
-      cacheRoot:
-          runtime.host.environment.lookup(
-            runtime.runner.effectiveEnvironment,
-            'XCROSS_CACHE_DIR',
-          ) ??
-          runtime.host.paths.cacheRoot,
+      cacheRoot: cacheRoot,
       platformIdentity: plugins.sdkIdentity.platformIdentity,
       toolchainIdentity: () async => jsonEncode(
         await plugins.toolchain.resolveBuildToolchainIdentity(sdk),
       ),
       sdkIdentity: () async =>
           jsonEncode(await plugins.sdkIdentity.sdkBuildIdentity(sdkRoot)),
-      verify:
-          ({
-            required mode,
-            required root,
-            required platformIdentity,
-            required toolchainIdentity,
-            required sdkIdentity,
-          }) =>
-              SwiftPmGateEvidence<T>(
-                root,
-                repository: runtime.sdkRepository,
-                platform: plugins.gatePlatform,
-                platformIdentity: plugins.sdkIdentity.platformIdentity,
-                fileSystem: plugins.artifactFileSystem,
-              ).verifies(
-                mode: mode,
-                platformIdentity: platformIdentity,
-                toolchainIdentity: toolchainIdentity,
-                sdkIdentity: sdkIdentity,
-              ),
+      verify: _swiftPmGateVerifier(runtime.sdkRepository, plugins),
     );
   }
+
+  SwiftPmGateVerify _swiftPmGateVerifier(
+    DarwinSdkRepository<T> repository,
+    SwiftPmRuntime<T> plugins,
+  ) =>
+      ({
+        required mode,
+        required root,
+        required platformIdentity,
+        required toolchainIdentity,
+        required sdkIdentity,
+      }) =>
+          SwiftPmGateEvidence<T>(
+            root,
+            repository: repository,
+            platform: plugins.gatePlatform,
+            platformIdentity: plugins.sdkIdentity.platformIdentity,
+            fileSystem: plugins.artifactFileSystem,
+          ).verifies(
+            mode: mode,
+            platformIdentity: platformIdentity,
+            toolchainIdentity: toolchainIdentity,
+            sdkIdentity: sdkIdentity,
+          );
 
   @override
   Future<XcrunServices> loadXcrun({required String sdkName}) async {
