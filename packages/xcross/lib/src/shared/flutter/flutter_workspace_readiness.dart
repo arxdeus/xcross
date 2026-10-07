@@ -53,18 +53,20 @@ final class FlutterWorkspaceReadiness<T extends PlatformHostInterface> {
           {'ios', engineCache.hostEngineCacheDirectory, 'common'},
         ),
       ]) {
-        if (!fileSystem.directory(source).existsSync()) {
+        final sourceDirectory = fileSystem.directory(source);
+        if (!sourceDirectory.existsSync()) {
           continue;
         }
-        await for (final entity
-            in fileSystem.directory(source).list(followLinks: false)) {
+        await for (final entity in sourceDirectory.list(followLinks: false)) {
           final name = paths.basename(entity.path);
           if (skip.contains(name)) continue;
           final target = paths.join(destination, name);
           if (entity is File) {
-            if (!fileSystem.file(target).existsSync() ||
-                await fileSystem.file(target).length() !=
-                    await entity.length()) {
+            final copy = fileSystem.file(target);
+            final copyMatches =
+                copy.existsSync() &&
+                await copy.length() == await entity.length();
+            if (!copyMatches) {
               return false;
             }
           } else if (!await _matchesLink(target, entity.path)) {
