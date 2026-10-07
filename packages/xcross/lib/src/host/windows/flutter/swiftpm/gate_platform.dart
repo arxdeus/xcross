@@ -19,6 +19,14 @@ import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/toolchain.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
+typedef _ProbeInputs = ({
+  String swiftPackage,
+  String swiftBuild,
+  String Function(String name) toolPath,
+  DarwinSdk sdk,
+  String sdkPath,
+});
+
 @internal
 final class WindowsSwiftPmGatePlatform<T extends PlatformHostInterface>
     implements SwiftPmGatePlatform {
@@ -114,28 +122,12 @@ final class WindowsSwiftPmGatePlatform<T extends PlatformHostInterface>
     var retainProbeRoot = false;
     var stage = 'validating toolchain';
     try {
-      final identity = jsonDecode(toolchainIdentity);
-      if (identity is! Map) return false;
-      final swiftPackage = await _boundExecutable(identity['swift-package']);
-      final swiftBuild = await _boundExecutable(identity['swift-build']);
-      if (swiftPackage == null ||
-          swiftBuild == null ||
-          !await validSwiftPmGateToolchainIdentity(
-            Map<String, Object?>.from(identity),
-            fileSystem: fileSystem,
-          )) {
-        return false;
-      }
-      String toolPath(String name) =>
-          (identity[name] as Map)['path']! as String;
-      final encodedSdk = decodedSwiftPmGateMap(sdkIdentity);
-      final sdkPath = encodedSdk?['path'];
-      if (sdkPath is! String) return false;
-      final sdk = DarwinSdk(sdkPath);
-      if (!sdkRepository.isValidBundle(sdkPath) ||
-          p.normalize(sdk.swiftSdkPath) != p.normalize(sdkPath)) {
-        return false;
-      }
+      final validated = await _validateProbeInputs(
+        toolchainIdentity,
+        sdkIdentity,
+      );
+      if (validated == null) return false;
+      final (:swiftPackage, :swiftBuild, :toolPath, :sdk, :sdkPath) = validated;
 
       stage = 'creating fixture';
       final probeParent = fileSystem.directory(
@@ -155,26 +147,15 @@ final class WindowsSwiftPmGatePlatform<T extends PlatformHostInterface>
 
       if (mode == SwiftPmGateMode.packageLocalArtifact) {
         junction = p.join(package.path, 'artifacts', 'GateFixture.xcframework');
-        fileSystem.directory(p.dirname(junction)).createSync();
-        fixtureGenerator.writeGatePackage(
-          root: package.path,
-          targetName: 'GateFixture',
-          path: 'artifacts/GateFixture.xcframework',
+        final junctionCreated = await _writePackageLocalFixture(
+          package: package,
+          junction: junction,
+          fixture: fixture,
+          onStage: (value) => stage = value,
         );
-        stage = 'creating package-local junction';
-        if (!await _createJunction(junction, fixture.path)) {
-          return false;
-        }
+        if (!junctionCreated) return false;
       } else {
-        fixtureGenerator.archiveXcframework(
-          framework: fixture,
-          output: p.join(package.path, 'GateFixture.zip'),
-        );
-        fixtureGenerator.writeGatePackage(
-          root: package.path,
-          targetName: 'GateFixture',
-          path: 'GateFixture.zip',
-        );
+        _writeArchivedFixture(package: package, fixture: fixture);
       }
 
       stage = 'writing toolset';
@@ -208,48 +189,27 @@ final class WindowsSwiftPmGatePlatform<T extends PlatformHostInterface>
       final environment = await processPolicy.swiftProcessEnvironment();
 
       if (mode == SwiftPmGateMode.swiftPmArtifact) {
-        if (!await _runSwift(swiftPackage, resolve, environment)) {
-          return false;
-        }
-        final artifacts = fileSystem
-            .directory(scratch)
-            .listSync(recursive: true, followLinks: false)
-            .whereType<Directory>()
-            .where(
-              (entry) => p.basename(entry.path) == 'GateFixture.xcframework',
-            )
-            .toList();
-        if (artifacts.length != 1) return false;
-        junction = artifacts.single.path;
-        await artifacts.single.delete(recursive: true);
-        if (!await _createJunction(junction, fixture.path)) {
-          return false;
-        }
+        junction = await _replaceResolvedArtifactWithJunction(
+          swiftPackage: swiftPackage,
+          resolve: resolve,
+          environment: environment,
+          scratch: scratch,
+          fixture: fixture,
+        );
+        if (junction == null) return false;
       }
 
-      for (var repetition = 0; repetition < 2; repetition++) {
-        stage = 'resolve ${repetition + 1}';
-        if (!await _runSwift(swiftPackage, resolve, environment)) {
-          return false;
-        }
-        stage = 'build ${repetition + 1}';
-        if (!await _runSwift(swiftBuild, build, environment)) {
-          return false;
-        }
-        stage = 'verifying junction ${repetition + 1}';
-        final actual = p.normalize(
-          await fileSystem.directory(junction!).resolveSymbolicLinks(),
-        );
-        final expected = p.normalize(await fixture.resolveSymbolicLinks());
-        if (!p.equals(actual, expected)) {
-          log.output.stderr(
-            'SwiftPM junction gate target mismatch at $stage: '
-            'expected $expected, got $actual',
-          );
-          return false;
-        }
-      }
-      return true;
+      return await _resolveAndBuildTwice(
+        swiftPackage: swiftPackage,
+        swiftBuild: swiftBuild,
+        resolve: resolve,
+        build: build,
+        environment: environment,
+        junction: junction!,
+        fixture: fixture,
+        onStage: (value) => stage = value,
+        currentStage: () => stage,
+      );
     } on SwiftPmGateLiveProcessException catch (error, stackTrace) {
       retainProbeRoot = true;
       log.output.stderr(
@@ -270,6 +230,134 @@ final class WindowsSwiftPmGatePlatform<T extends PlatformHostInterface>
         }
       }
     }
+  }
+
+  Future<_ProbeInputs?> _validateProbeInputs(
+    String toolchainIdentity,
+    String sdkIdentity,
+  ) async {
+    final identity = jsonDecode(toolchainIdentity);
+    if (identity is! Map) return null;
+    final swiftPackage = await _boundExecutable(identity['swift-package']);
+    final swiftBuild = await _boundExecutable(identity['swift-build']);
+    if (swiftPackage == null ||
+        swiftBuild == null ||
+        !await validSwiftPmGateToolchainIdentity(
+          Map<String, Object?>.from(identity),
+          fileSystem: fileSystem,
+        )) {
+      return null;
+    }
+    String toolPath(String name) => (identity[name] as Map)['path']! as String;
+    final encodedSdk = decodedSwiftPmGateMap(sdkIdentity);
+    final sdkPath = encodedSdk?['path'];
+    if (sdkPath is! String) return null;
+    final sdk = DarwinSdk(sdkPath);
+    final sdkPathMatches =
+        p.normalize(sdk.swiftSdkPath) == p.normalize(sdkPath);
+    if (!sdkRepository.isValidBundle(sdkPath) || !sdkPathMatches) {
+      return null;
+    }
+    return (
+      swiftPackage: swiftPackage,
+      swiftBuild: swiftBuild,
+      toolPath: toolPath,
+      sdk: sdk,
+      sdkPath: sdkPath,
+    );
+  }
+
+  Future<bool> _writePackageLocalFixture({
+    required Directory package,
+    required String junction,
+    required Directory fixture,
+    required void Function(String stage) onStage,
+  }) async {
+    fileSystem.directory(p.dirname(junction)).createSync();
+    fixtureGenerator.writeGatePackage(
+      root: package.path,
+      targetName: 'GateFixture',
+      path: 'artifacts/GateFixture.xcframework',
+    );
+    onStage('creating package-local junction');
+    final created = await _createJunction(junction, fixture.path);
+    return created;
+  }
+
+  void _writeArchivedFixture({
+    required Directory package,
+    required Directory fixture,
+  }) {
+    fixtureGenerator.archiveXcframework(
+      framework: fixture,
+      output: p.join(package.path, 'GateFixture.zip'),
+    );
+    fixtureGenerator.writeGatePackage(
+      root: package.path,
+      targetName: 'GateFixture',
+      path: 'GateFixture.zip',
+    );
+  }
+
+  Future<String?> _replaceResolvedArtifactWithJunction({
+    required String swiftPackage,
+    required List<String> resolve,
+    required Map<String, String>? environment,
+    required String scratch,
+    required Directory fixture,
+  }) async {
+    if (!await _runSwift(swiftPackage, resolve, environment)) {
+      return null;
+    }
+    final artifacts = fileSystem
+        .directory(scratch)
+        .listSync(recursive: true, followLinks: false)
+        .whereType<Directory>()
+        .where((entry) => p.basename(entry.path) == 'GateFixture.xcframework')
+        .toList();
+    if (artifacts.length != 1) return null;
+    final junction = artifacts.single.path;
+    await artifacts.single.delete(recursive: true);
+    if (!await _createJunction(junction, fixture.path)) {
+      return null;
+    }
+    return junction;
+  }
+
+  Future<bool> _resolveAndBuildTwice({
+    required String swiftPackage,
+    required String swiftBuild,
+    required List<String> resolve,
+    required List<String> build,
+    required Map<String, String>? environment,
+    required String junction,
+    required Directory fixture,
+    required void Function(String stage) onStage,
+    required String Function() currentStage,
+  }) async {
+    for (var repetition = 0; repetition < 2; repetition++) {
+      onStage('resolve ${repetition + 1}');
+      if (!await _runSwift(swiftPackage, resolve, environment)) {
+        return false;
+      }
+      onStage('build ${repetition + 1}');
+      if (!await _runSwift(swiftBuild, build, environment)) {
+        return false;
+      }
+      onStage('verifying junction ${repetition + 1}');
+      final actual = p.normalize(
+        await fileSystem.directory(junction).resolveSymbolicLinks(),
+      );
+      final expected = p.normalize(await fixture.resolveSymbolicLinks());
+      if (!p.equals(actual, expected)) {
+        log.output.stderr(
+          'SwiftPM junction gate target mismatch at ${currentStage()}: '
+          'expected $expected, got $actual',
+        );
+        return false;
+      }
+    }
+    return true;
   }
 
   Future<String?> _boundExecutable(Object? encoded) async {
