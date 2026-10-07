@@ -19,10 +19,14 @@ abstract final class WindowsBatchPolicy {
   static List<String> arguments(List<String> arguments, {String? executable}) {
     final quotedExecutable =
         executable != null && _batchWhitespace.hasMatch(executable);
-    if (executable != null &&
+    final specialCharacters = quotedExecutable
+        ? _batchQuotedCommandSpecial
+        : _batchOperators;
+    final unsafeExecutable =
+        executable != null &&
         (_batchNeverSafe.hasMatch(executable) ||
-            (quotedExecutable ? _batchQuotedCommandSpecial : _batchOperators)
-                .hasMatch(executable))) {
+            specialCharacters.hasMatch(executable));
+    if (unsafeExecutable) {
       throw CliError(
         'batch script path ${jsonEncode(executable)} cannot be started '
         'through cmd.exe; move it to a path without `%`, quotes or '
