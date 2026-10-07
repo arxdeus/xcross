@@ -24,6 +24,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_attributes.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/foundation.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/librarian_resolver.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
@@ -74,36 +75,9 @@ final class WindowsFlutterFeatureServices<T extends WindowsHostInterface>
 
   @override
   FlutterBuildRuntime<T> build(FlutterTargetBuildPolicy<T> policy) {
-    if (!identical(policy.target.host, runner.host) ||
-        !identical(repository.host, runner.host) ||
-        !identical(toolchain.runner, runner) ||
-        !identical(checkout.runner, runner) ||
-        !identical(checkout.fileSystem, artifactFileSystem) ||
-        !identical(checkoutManifestNormalizer.fileSystem, artifactFileSystem) ||
-        !identical(
-          checkout.repository.filesystem,
-          checkoutManifestNormalizer.filesystem,
-        )) {
-      throw ArgumentError(
-        'Flutter construction ports must share the selected host and configured services',
-      );
-    }
-    final tools = AppleToolShimResolver(
-      policy.target,
-      runner,
-      repository,
-      toolchain,
-      hostTools: hostTools,
-      executable: resolution.executable,
-      launcher: resolution.launcher,
-      xcrun: resolution.xcrun,
-      declarative: resolution.declarative,
-    );
-    final librarianResolver = SwiftPmLibrarianResolver<T>(
-      runner: runner,
-      filesystem: checkoutManifestNormalizer.filesystem,
-      lookup: DarwinSwiftPmLlvmToolLookup(toolchain),
-    );
+    _requireSharedHostServices(policy);
+    final tools = _toolShimResolver(policy);
+    final librarianResolver = _librarianResolver();
     final buildServices = WindowsSwiftPmHostBuildServices<T>(
       target: policy.target,
       filesystem: checkoutManifestNormalizer.filesystem,
@@ -130,6 +104,71 @@ final class WindowsFlutterFeatureServices<T extends WindowsHostInterface>
       hostBuildServices: buildServices,
       librarianResolver: librarianResolver,
     );
+    final plugins = _generatedPluginsPackage(policy, foundation, tools);
+    return FlutterBuildRuntime(
+      policy: policy,
+      runner: runner,
+      sdkRepository: repository,
+      toolchain: toolchain,
+      hostTools: hostTools,
+      toolShimRenderer: renderer,
+      sdkHostPolicy: sdkPolicy,
+      downloader: downloader,
+      plugins: plugins,
+      resolution: resolution,
+    );
+  }
+
+  void _requireSharedHostServices(FlutterTargetBuildPolicy<T> policy) {
+    final sharesHost =
+        identical(policy.target.host, runner.host) &&
+        identical(repository.host, runner.host);
+    final sharesRunner =
+        identical(toolchain.runner, runner) &&
+        identical(checkout.runner, runner);
+    final sharesArtifactFileSystem =
+        identical(checkout.fileSystem, artifactFileSystem) &&
+        identical(checkoutManifestNormalizer.fileSystem, artifactFileSystem);
+    final sharesCheckoutFilesystem = identical(
+      checkout.repository.filesystem,
+      checkoutManifestNormalizer.filesystem,
+    );
+    if (!sharesHost ||
+        !sharesRunner ||
+        !sharesArtifactFileSystem ||
+        !sharesCheckoutFilesystem) {
+      throw ArgumentError(
+        'Flutter construction ports must share the selected host and configured services',
+      );
+    }
+  }
+
+  AppleToolShimResolver<T> _toolShimResolver(
+    FlutterTargetBuildPolicy<T> policy,
+  ) => AppleToolShimResolver(
+    policy.target,
+    runner,
+    repository,
+    toolchain,
+    hostTools: hostTools,
+    executable: resolution.executable,
+    launcher: resolution.launcher,
+    xcrun: resolution.xcrun,
+    declarative: resolution.declarative,
+  );
+
+  SwiftPmLibrarianResolver<T> _librarianResolver() =>
+      SwiftPmLibrarianResolver<T>(
+        runner: runner,
+        filesystem: checkoutManifestNormalizer.filesystem,
+        lookup: DarwinSwiftPmLlvmToolLookup(toolchain),
+      );
+
+  GeneratedPluginsPackage<T> _generatedPluginsPackage(
+    FlutterTargetBuildPolicy<T> policy,
+    SwiftPmFoundation<T> foundation,
+    AppleToolShimResolver<T> tools,
+  ) {
     final buildExecution = WindowsSwiftPmBuildExecution<T>(
       runner: runner,
       repair: WindowsSwiftPlanRepair(runner),
@@ -144,21 +183,8 @@ final class WindowsFlutterFeatureServices<T extends WindowsHostInterface>
       binaryRecovery: foundation.binaryRecovery,
       extractedArtifacts: foundation.extractedArtifacts,
     );
-    final gatePlatform = WindowsSwiftPmGatePlatform<T>(
-      fixtureGenerator: SwiftPmBinaryFixtureGenerator(
-        fileSystem: runner.host.fileSystem,
-        paths: runner.host.paths.context,
-      ),
-      execution: foundation.gateExecution,
-      fileSystem: artifactFileSystem,
-      sdkRepository: repository,
-      toolchain: foundation.toolchain,
-      processPolicy: foundation.processPolicy,
-      buildPlan: foundation.buildPlan,
-      targetPolicy: policy,
-      log: runner.log,
-    );
-    final plugins = GeneratedPluginsPackage(
+    final gatePlatform = _gatePlatform(policy, foundation);
+    return GeneratedPluginsPackage(
       policy,
       foundation: foundation,
       gatePlatform: gatePlatform,
@@ -178,17 +204,26 @@ final class WindowsFlutterFeatureServices<T extends WindowsHostInterface>
       copyPolicy: copyPolicy,
       sdkIdentity: sdkIdentity,
     );
-    return FlutterBuildRuntime(
-      policy: policy,
-      runner: runner,
+  }
+
+  WindowsSwiftPmGatePlatform<T> _gatePlatform(
+    FlutterTargetBuildPolicy<T> policy,
+    SwiftPmFoundation<T> foundation,
+  ) {
+    final fixtureGenerator = SwiftPmBinaryFixtureGenerator(
+      fileSystem: runner.host.fileSystem,
+      paths: runner.host.paths.context,
+    );
+    return WindowsSwiftPmGatePlatform<T>(
+      fixtureGenerator: fixtureGenerator,
+      execution: foundation.gateExecution,
+      fileSystem: artifactFileSystem,
       sdkRepository: repository,
-      toolchain: toolchain,
-      hostTools: hostTools,
-      toolShimRenderer: renderer,
-      sdkHostPolicy: sdkPolicy,
-      downloader: downloader,
-      plugins: plugins,
-      resolution: resolution,
+      toolchain: foundation.toolchain,
+      processPolicy: foundation.processPolicy,
+      buildPlan: foundation.buildPlan,
+      targetPolicy: policy,
+      log: runner.log,
     );
   }
 }
