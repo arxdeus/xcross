@@ -150,14 +150,22 @@ final class SwiftPmManifestCompiler {
     if (directory == manifestPath ||
         fileSystem.typeSync(p.join(directory, 'Package.swift')) !=
             FileSystemEntityType.file) {
-      return policy.normalizeDetached(manifest, consumedProducts: products);
+      return SwiftPmHostSourceNormalizer.removeUnsafeFlags(
+        policy.normalizeDetached(manifest, consumedProducts: products),
+      );
     }
     final normalized = await policy.normalize(
       manifest,
       packageDir: directory,
       consumedProducts: products,
     );
-    return sourceNormalizer.removeMissingResources(normalized, directory);
+    final present = sourceNormalizer.removeMissingResources(
+      normalized,
+      directory,
+    );
+    return p.basename(p.dirname(directory)) == 'checkouts'
+        ? SwiftPmHostSourceNormalizer.removeUnsafeFlags(present)
+        : present;
   }
 
   SwiftPmManifestOverlay? readOverlay(List<String> arguments) {

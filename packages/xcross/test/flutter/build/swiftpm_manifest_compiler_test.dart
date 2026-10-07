@@ -385,6 +385,52 @@ if getenv("CROSS_HOST_SOURCE") != nil {
     },
   );
 
+  test('removes unsafe flags only from remote manifests', () async {
+    const manifest = '''
+let settings: [SwiftSetting] = [
+    .define("KEEP"),
+    .unsafeFlags(["-enable-library-evolution"]),
+]
+let other: [SwiftSetting] = [.unsafeFlags(["-a"])]
+// .unsafeFlags(["-comment"])
+''';
+    final remote = invocation(manifest, temp: 'remote');
+    await manifestCompiler.compile(remote, configuration());
+    final patched = File(_contents(remote)).readAsStringSync();
+    expect(patched, isNot(contains('.unsafeFlags(["-enable')));
+    expect(patched, isNot(contains('.unsafeFlags(["-a"])')));
+    expect(patched, contains('.define("KEEP"),'));
+    expect(patched, contains('let other: [SwiftSetting] = []'));
+    expect(patched, contains('// .unsafeFlags(["-comment"])'));
+
+    final local = Directory(p.join(root.path, 'local'))..createSync();
+    File(p.join(local.path, 'Package.swift')).writeAsStringSync(manifest);
+    final arguments = invocation(
+      manifest,
+      temp: 'local-overlay',
+      manifestPath: p.join(local.path, 'Package.swift'),
+    );
+    await manifestCompiler.compile(arguments, configuration());
+    expect(
+      File(_contents(arguments)).readAsStringSync(),
+      contains('.unsafeFlags(["-a"])'),
+    );
+
+    final checkout = Directory(p.join(root.path, 'checkouts', 'dependency'))
+      ..createSync(recursive: true);
+    File(p.join(checkout.path, 'Package.swift')).writeAsStringSync(manifest);
+    final checkedOut = invocation(
+      manifest,
+      temp: 'checkout-overlay',
+      manifestPath: p.join(checkout.path, 'Package.swift'),
+    );
+    await manifestCompiler.compile(checkedOut, configuration());
+    expect(
+      File(_contents(checkedOut)).readAsStringSync(),
+      isNot(contains('.unsafeFlags(["-a"])')),
+    );
+  });
+
   test('keys the manifest policy on consumed products', () {
     expect(manifestCompilerEnvironmentDigest('policy', const {}), 'policy');
     final first = manifestCompilerEnvironmentDigest('policy', const {

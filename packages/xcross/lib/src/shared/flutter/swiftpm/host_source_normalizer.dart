@@ -25,6 +25,28 @@ final class SwiftPmHostSourceNormalizer {
         ].join(', ');
       });
 
+  static String removeUnsafeFlags(String manifest) {
+    final code = SwiftPmManifestLexer.swiftCodeMask(manifest);
+    var result = manifest;
+    for (final call in SwiftPmManifestLexer.swiftCalls(
+      manifest,
+      '.unsafeFlags',
+    ).reversed) {
+      if (!code[call.start]) continue;
+      var start = call.start;
+      var end = call.end;
+      final trailing = RegExp(r'^\s*,').firstMatch(result.substring(end));
+      if (trailing != null) {
+        end += trailing.end;
+      } else {
+        final leading = RegExp(r',\s*$').firstMatch(result.substring(0, start));
+        if (leading != null) start = leading.start;
+      }
+      result = result.replaceRange(start, end, '');
+    }
+    return result;
+  }
+
   String removeMissingResources(String manifest, String packageDir) {
     final targets = SwiftPmManifestLexer.swiftCalls(manifest, '.target');
     final resourcePattern = RegExp(
