@@ -1,6 +1,9 @@
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
+import 'package:xcross/src/host/shared/flutter/apple_tool_shim_templates_posix.dart';
 import 'package:xcross/src/shared/flutter/build/ios_linker_compatibility.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/manifest_compiler.dart';
 
 @internal
 abstract class PosixSwiftPmHostPolicy implements SwiftPmHostPolicy {
@@ -58,4 +61,26 @@ abstract class PosixSwiftPmHostPolicy implements SwiftPmHostPolicy {
     '-Xswiftc',
     '--ld-path=$path',
   ];
+
+  @override
+  Future<String> installManifestCompiler(
+    PlatformHostInterface host, {
+    required String directory,
+    required String executable,
+    required String configuration,
+  }) async {
+    final paths = host.paths.context;
+    final shim = paths.join(directory, manifestCompilerName);
+    final sidecar = '$shim.policy.json';
+    final script =
+        '#!/bin/sh\n'
+        '$manifestCompilerVariable=${shellQuote(sidecar)}\n'
+        'export $manifestCompilerVariable\n'
+        'exec ${shellQuote(executable)} "\$@"\n';
+    await host.fileSystem.directory(directory).create(recursive: true);
+    await writeManifestCompilerFile(host, sidecar, configuration);
+    await writeManifestCompilerFile(host, shim, script);
+    host.fileSystem.makeExecutable(shim);
+    return shim;
+  }
 }

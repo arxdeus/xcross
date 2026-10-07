@@ -1,8 +1,12 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/manifest_compiler.dart';
 
 @internal
 const String flutterFrameworkPackageName = 'FlutterFramework';
@@ -101,7 +105,77 @@ final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
   }) async => {
     ...await hostPolicy.hostEnvironment(),
     ..._processEnvironment(executable: executable, environment: environment),
+    ...await manifestCompilerEnvironment(),
   };
+  Future<Map<String, String>>? _manifestCompiler;
+  Future<Map<String, String>> manifestCompilerEnvironment() =>
+      _manifestCompiler ??= _installManifestCompiler();
+  Future<Map<String, String>> _installManifestCompiler() async {
+    final paths = host.paths.context;
+    final String forwarder;
+    final String swift;
+    try {
+      forwarder = await tools.resolveNativeAssetToolForwarder(
+        tools.executable,
+      );
+      swift = await runner.locateTool(hostPolicy.packageTool);
+    } on Object {
+      return const {};
+    }
+    final forwarderFile = host.fileSystem.file(host.paths.ioPath(forwarder));
+    if (paths.basenameWithoutExtension(forwarder).toLowerCase() != 'xcross' ||
+        !forwarderFile.existsSync()) {
+      return const {};
+    }
+    final compiler = paths.join(
+      paths.dirname(swift),
+      runner.hostExecutableName('swiftc'),
+    );
+    if (!host.fileSystem.file(host.paths.ioPath(compiler)).existsSync()) {
+      return const {};
+    }
+    final configured = host.environment.lookup(
+      runner.effectiveEnvironment,
+      'XCROSS_CACHE_DIR',
+    );
+    final cacheRoot = configured != null && configured.isNotEmpty
+        ? configured
+        : paths.join(host.paths.cacheRoot, 'xcross');
+    final stat = forwarderFile.statSync();
+    final policy = manifestCompilerPolicyDigest({
+      'host': host.name,
+      'executable': [
+        forwarder,
+        stat.size,
+        stat.modified.millisecondsSinceEpoch,
+      ],
+      'compiler': compiler,
+      'manifestArguments': hostPolicy.manifestArguments,
+    });
+    final configuration = jsonEncode(
+      SwiftPmManifestCompilerConfiguration(
+        compiler: compiler,
+        cacheRoot: cacheRoot,
+        policy: policy,
+      ).toJson(),
+    );
+    try {
+      final shim = await hostPolicy.installManifestCompiler(
+        host,
+        directory: paths.join(
+          cacheRoot,
+          'manifest-compiler',
+          'bin-${policy.substring(0, 16)}',
+        ),
+        executable: forwarder,
+        configuration: configuration,
+      );
+      return {'SWIFT_EXEC_MANIFEST': shim, manifestPolicyVariable: policy};
+    } on FileSystemException catch (error) {
+      runner.log.logTrace('manifest compiler unavailable: $error');
+      return const {};
+    }
+  }
   Map<String, String> _processEnvironment({
     String? executable,
     Map<String, String>? environment,

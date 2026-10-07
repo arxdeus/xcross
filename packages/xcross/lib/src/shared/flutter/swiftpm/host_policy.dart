@@ -1,3 +1,4 @@
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 
 @internal
@@ -30,4 +31,11 @@ abstract interface class SwiftPmHostPolicy {
     Map<String, String> environment,
   );
   List<String> linkerPathArguments(String path);
+
+  Future<String> installManifestCompiler(
+    PlatformHostInterface host, {
+    required String directory,
+    required String executable,
+    required String configuration,
+  });
 }

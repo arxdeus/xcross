@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:cli_kit/shared/errors/errors.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:meta/meta.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/manifest_compiler.dart';
 import 'package:xcross/src/shared/tool/mach_o_slices.dart';
 
 @internal
@@ -13,8 +14,13 @@ typedef ToolAliasRun =
 
 @internal
 final class ToolAliasOperation {
-  const ToolAliasOperation(this.runner);
+  const ToolAliasOperation(this.runner, {this.manifestCompiler});
   final ProcessRunner runner;
+  final SwiftPmManifestCompiler Function(
+    ToolAliasRun run, {
+    void Function(String line)? log,
+  })?
+  manifestCompiler;
 
   Future<int?> run(
     List<String> arguments, {
@@ -27,6 +33,23 @@ final class ToolAliasOperation {
         .basenameWithoutExtension(path)
         .toLowerCase();
     if (name == 'plutil') return runPlutilAlias(arguments);
+    final variables = environment ?? runner.effectiveEnvironment;
+    final configuration = name == manifestCompilerName
+        ? '$path.policy.json'
+        : runner.host.environment.lookup(variables, manifestCompilerVariable);
+    if (manifestCompiler != null &&
+        configuration != null &&
+        configuration.isNotEmpty) {
+      return runManifestCompiler(
+        arguments,
+        configuration,
+        run: run,
+        logPath: runner.host.environment.lookup(
+          variables,
+          manifestCompilerLogVariable,
+        ),
+      );
+    }
     final variable = _toolAliasVariables[name];
     if (variable == null) return null;
 
@@ -72,6 +95,49 @@ final class ToolAliasOperation {
           ]
         : arguments;
     return invoke(target, forwarded);
+  }
+
+  Future<int> runManifestCompiler(
+    List<String> arguments,
+    String configurationPath, {
+    ToolAliasRun? run,
+    String? logPath,
+  }) async {
+    final file = runner.host.fileSystem.file(configurationPath);
+    final SwiftPmManifestCompilerConfiguration configuration;
+    try {
+      configuration = SwiftPmManifestCompilerConfiguration.fromJson(
+        jsonDecode(file.readAsStringSync()) as Map<String, Object?>,
+      );
+    } on Object {
+      runner.log.output.stderr(
+        'error: unreadable manifest compiler configuration $configurationPath',
+      );
+      return 1;
+    }
+    final invoke =
+        run ??
+        ((executable, arguments) => _runToolAlias(
+          runner,
+          executable,
+          arguments,
+          environment: const {manifestCompilerVariable: ''},
+        ));
+    final log = logPath == null || logPath.isEmpty
+        ? null
+        : (String line) {
+            try {
+              runner.host.fileSystem
+                  .file(logPath)
+                  .writeAsStringSync('$pid $line\n', mode: FileMode.append);
+            } on FileSystemException {
+              return;
+            }
+          };
+    return manifestCompiler!(
+      invoke,
+      log: log,
+    ).compile(arguments, configuration);
   }
 
   /// `llvm-ar` next to a missing `llvm-libtool-darwin`: the official LLVM
@@ -218,13 +284,15 @@ final class ToolAliasOperation {
   Future<int> _runToolAlias(
     ProcessRunner runner,
     String executable,
-    List<String> arguments,
-  ) async {
+    List<String> arguments, {
+    Map<String, String>? environment,
+  }) async {
     final Process process;
     try {
       process = await runner.start(
         executable,
         arguments,
+        environment: environment,
         mode: ProcessStartMode.inheritStdio,
       );
     } on CliError catch (error) {

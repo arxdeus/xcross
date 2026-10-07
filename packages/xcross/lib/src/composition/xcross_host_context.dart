@@ -26,7 +26,9 @@ import 'package:xcross/src/shared/config/runtime_config.dart';
 import 'package:xcross/src/shared/device/signing_http_client_factory.dart';
 import 'package:xcross/src/shared/flutter/hot_reload/vm_service_output.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/gate_evidence.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/manifest_compiler.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
+import 'package:xcross/src/shared/tool/tool_alias_operation.dart';
 import 'package:xcross/src/shared/tools/swiftpm_gate_operation.dart';
 import 'package:xcross/src/shared/update/release_lookup.dart';
 import 'package:xcross/src/shared/xcrun/xcrun_operation.dart';
@@ -61,6 +63,28 @@ abstract class XcrossHostContext<T extends PlatformHostInterface>
   DarwinToolchainLocationsInterface get toolchainLocations;
   XcrunOperation get xcrun;
   SwiftPmGateOperation get swiftPmGate;
+
+  SwiftPmManifestCompiler manifestCompiler(
+    ProcessRunner<T> runner,
+    ToolAliasRun run, {
+    void Function(String line)? log,
+  });
+
+  ProcessRunner<T> get toolRunner => ProcessRunner(
+    host,
+    log: log,
+    stdinStream: stdinStream,
+    stdoutSink: stdoutSink,
+    stderrSink: stderrSink,
+  );
+
+  ToolAliasOperation get toolAliases {
+    final runner = toolRunner;
+    return ToolAliasOperation(
+      runner,
+      manifestCompiler: (run, {log}) => manifestCompiler(runner, run, log: log),
+    );
+  }
 
   Future<int> runApplication(
     List<String> args, {

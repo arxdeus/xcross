@@ -51,10 +51,12 @@ import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/manifest_compiler.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_install_identity.dart';
 import 'package:xcross/src/shared/flutter/vm_service_connector.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
+import 'package:xcross/src/shared/tool/tool_alias_operation.dart';
 import 'package:xcross/src/shared/tools/swiftpm_gate_operation.dart';
 import 'package:xcross/src/shared/update/release_lookup.dart';
 import 'package:xcross/src/shared/xcrun/cross_xcrun.dart';
@@ -149,6 +151,29 @@ final class WindowsXcrossHostContext
     output: stdoutSink,
     errors: stderrSink,
   );
+
+  @override
+  SwiftPmManifestCompiler manifestCompiler(
+    ProcessRunner<WindowsHostInterface> runner,
+    ToolAliasRun run, {
+    void Function(String line)? log,
+  }) {
+    final artifactFileSystem = WindowsSwiftPmArtifactFileSystem(host, runner);
+    final parts = SwiftPmCheckoutAssemblyParts<WindowsHostInterface>.prepare(
+      runner: runner,
+      fileSystem: artifactFileSystem,
+    );
+    return SwiftPmManifestCompiler(
+      fileSystem: artifactFileSystem,
+      policy: WindowsSwiftPmVendoredManifestPolicy(
+        sourceNormalizer: parts.sourceNormalizer,
+        sourceFallback: parts.sourceFallback,
+      ),
+      sourceNormalizer: parts.sourceNormalizer,
+      run: run,
+      log: log,
+    );
+  }
 
   @override
   XcrossApplication<WindowsHostInterface> bind(

@@ -1,9 +1,11 @@
+import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/host/windows/flutter/swiftpm/windows_swift_plan_repair.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/build_plan.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/manifest_compiler.dart';
 import 'package:xcross/src/shared/sdk/swift_environment_host.dart';
 
 @internal
@@ -105,4 +107,20 @@ final class WindowsSwiftPmHostPolicy implements SwiftPmHostPolicy {
     '-Xswiftc',
     '--ld-path=$path',
   ];
+
+  @override
+  Future<String> installManifestCompiler(
+    PlatformHostInterface host, {
+    required String directory,
+    required String executable,
+    required String configuration,
+  }) async {
+    final shim = p.windows.join(directory, '$manifestCompilerName.exe');
+    await host.fileSystem
+        .directory(host.paths.ioPath(directory))
+        .create(recursive: true);
+    await writeManifestCompilerFile(host, '$shim.policy.json', configuration);
+    await copyManifestCompilerExecutable(host, executable, shim);
+    return shim;
+  }
 }
