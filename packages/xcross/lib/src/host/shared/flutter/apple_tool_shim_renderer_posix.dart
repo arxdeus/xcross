@@ -47,7 +47,25 @@ final class PosixAppleToolShimRenderer<T extends PlatformHostInterface>
     await _writeUnixShim(directory, 'clang', compilerScript);
     await _writeUnixShim(directory, 'cc', compilerScript);
     await _writeUnixShim(directory, 'ar', renderUnixToolShim(config.archiver));
-    await _writeUnixShim(directory, 'xcrun', renderUnixXcrunShim(config.xcrun));
+    final placeholderSdks = host.paths.context.join(
+      directory,
+      'placeholder-sdks',
+    );
+    for (final sdk in xcrunProbedSdks) {
+      if (sdk == config.target.sdkName) continue;
+      await host.fileSystem
+          .directory(host.paths.context.join(placeholderSdks, '$sdk.sdk'))
+          .create(recursive: true);
+    }
+    await _writeUnixShim(
+      directory,
+      'xcrun',
+      renderUnixXcrunShim(
+        config.xcrun,
+        targetSdk: config.target.sdkName,
+        placeholderSdks: placeholderSdks,
+      ),
+    );
     if (toolForwarderExecutable != null) {
       await _writeUnixShim(
         directory,

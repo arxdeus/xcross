@@ -80,15 +80,40 @@ esac
 /// xcrun shim. native_toolchain_c probes `xcrun --version` and requires a
 /// zero exit plus a parseable version before it asks for SDK paths, so the
 /// shim answers that probe itself regardless of which xcrun it forwards to.
+///
+/// It also probes the `macosx`, `iphoneos` and `iphonesimulator` SDK paths and
+/// warns for each one that fails, although it only compiles against the
+/// targeted SDK. Probes for the other SDKs return the empty directories in
+/// [placeholderSdks], so the build output stays quiet.
 @internal
-String renderUnixXcrunShim(String tool) =>
-    '''
-#!/bin/sh
-case "\$*" in
-  --version|-version) echo 'xcrun version 72.'; exit 0;;
-esac
-exec ${shellQuote(tool)} "\$@"
-''';
+String renderUnixXcrunShim(
+  String tool, {
+  String? targetSdk,
+  String? placeholderSdks,
+}) {
+  final untargeted = [
+    for (final sdk in xcrunProbedSdks)
+      if (sdk != targetSdk) sdk,
+  ];
+  String probe(String sdk) {
+    final placeholder = shellQuote('$placeholderSdks/$sdk.sdk');
+    return "  '--sdk $sdk --show-sdk-path'|'--sdk=$sdk --show-sdk-path') "
+        'echo $placeholder; exit 0;;\n';
+  }
+
+  final probes = targetSdk == null || placeholderSdks == null
+      ? ''
+      : untargeted.map(probe).join();
+  return '#!/bin/sh\n'
+      'case "\$*" in\n'
+      "  --version|-version) echo 'xcrun version 72.'; exit 0;;\n"
+      '${probes}esac\n'
+      'exec ${shellQuote(tool)} "\$@"\n';
+}
+
+/// SDK names native_toolchain_c probes while resolving an Apple sysroot.
+@internal
+const xcrunProbedSdks = ['macosx', 'iphoneos', 'iphonesimulator'];
 
 @internal
 String renderUnixToolShim(String tool) =>

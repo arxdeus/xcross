@@ -502,6 +502,34 @@ void main() {
       );
       expect(version.exitCode, 0);
       expect(version.stdout.toString(), contains('xcrun version'));
+      for (final sdk in ['macosx', 'iphonesimulator']) {
+        for (final selection in [
+          ['--sdk', sdk],
+          ['--sdk=$sdk'],
+        ]) {
+          final probe = await Process.run(
+            'xcrun',
+            [...selection, '--show-sdk-path'],
+            environment: {'PATH': tmp.path},
+            includeParentEnvironment: false,
+          );
+          expect(probe.exitCode, 0);
+          final placeholder = probe.stdout.toString().trim();
+          expect(p.basename(placeholder), '$sdk.sdk');
+          expect(Directory(placeholder).listSync(), isEmpty);
+        }
+      }
+      final targeted = await Process.run(
+        'xcrun',
+        const ['--sdk', 'iphoneos', '--show-sdk-path'],
+        environment: {'PATH': tmp.path},
+        includeParentEnvironment: false,
+      );
+      expect(
+        targeted.stdout.toString().trim(),
+        '--sdk iphoneos --show-sdk-path',
+        reason: 'the targeted SDK still reaches the configured xcrun',
+      );
       expect(
         File(p.join(tmp.path, 'ar')).readAsStringSync(),
         contains('/toolchain/llvm-ar'),
