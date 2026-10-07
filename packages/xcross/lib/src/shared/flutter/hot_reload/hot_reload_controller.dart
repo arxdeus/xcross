@@ -278,7 +278,8 @@ final class HotReloadController {
     );
     // waitForEvent swallows its timeout and yields {} — surface that instead
     // of reporting a restart that never happened.
-    if ((await _timed('await-IsolateRunnable', () => runnable)).isEmpty) {
+    final runnableEvent = await _timed('await-IsolateRunnable', () => runnable);
+    if (runnableEvent.isEmpty) {
       throw FlutterBuildError(
         'isolate never became runnable after runInView '
         '(${_restartTimeout.inMinutes}m)',
