@@ -104,32 +104,14 @@ final class SdkInstallCommand<T extends PlatformHostInterface>
   Future<void> run() async {
     final sourcePath = argResults!.rest.firstOrNull;
     if (sourcePath == null) throw XcrossError('Usage: $invocation');
-    final isXcodeApp = host.fileSystem.directory(sourcePath).existsSync();
-    if (!isXcodeApp && !host.fileSystem.file(sourcePath).existsSync()) {
-      throw XcrossError('No file found at "$sourcePath".');
-    }
-    if (isXcodeApp &&
-        !host.fileSystem
-            .directory(_paths.join(sourcePath, 'Contents', 'Developer'))
-            .existsSync()) {
-      throw XcrossError('No Xcode Developer directory found in "$sourcePath".');
-    }
+    final isXcodeApp = _requireInstallSource(sourcePath);
 
     // Checked before the archive is touched: extraction takes a long while
     // and tens of gigabytes, and its whole point is to produce a bundle
     // patched against — and stamped with — the selected Swift toolchain. With
     // no Swift on PATH that work is wasted, and the old failure came only
     // after the extraction had already finished.
-    final swift = await SwiftRequirement(installer.runner).require(
-      'install the Darwin SDK',
-      installGuidance: installer.swiftInstallGuidance,
-    );
-    await SwiftRequirement(installer.runner).requireMinimum(
-      swift,
-      installer.minimumSwift,
-      installGuidance: installer.swiftInstallGuidance,
-    );
-    await SwiftRequirement(installer.runner).requireSiblingClang(swift);
+    final swift = await _requireSwiftToolchain();
 
     // Newer Xcode SDKs cannot be consumed by older Swift compilers at all, so
     // the pairing is rejected here rather than after the extraction. The
@@ -149,6 +131,47 @@ final class SdkInstallCommand<T extends PlatformHostInterface>
       );
     }
 
+    await _installFromSource(sourcePath, swift, isXcodeApp: isXcodeApp);
+  }
+
+  bool _requireInstallSource(String sourcePath) {
+    final isXcodeApp = host.fileSystem.directory(sourcePath).existsSync();
+    if (!isXcodeApp && !host.fileSystem.file(sourcePath).existsSync()) {
+      throw XcrossError('No file found at "$sourcePath".');
+    }
+    if (isXcodeApp) {
+      final developerDir = _paths.join(sourcePath, 'Contents', 'Developer');
+      final hasDeveloperDir = host.fileSystem
+          .directory(developerDir)
+          .existsSync();
+      if (!hasDeveloperDir) {
+        throw XcrossError(
+          'No Xcode Developer directory found in "$sourcePath".',
+        );
+      }
+    }
+    return isXcodeApp;
+  }
+
+  Future<String> _requireSwiftToolchain() async {
+    final swift = await SwiftRequirement(installer.runner).require(
+      'install the Darwin SDK',
+      installGuidance: installer.swiftInstallGuidance,
+    );
+    await SwiftRequirement(installer.runner).requireMinimum(
+      swift,
+      installer.minimumSwift,
+      installGuidance: installer.swiftInstallGuidance,
+    );
+    await SwiftRequirement(installer.runner).requireSiblingClang(swift);
+    return swift;
+  }
+
+  Future<void> _installFromSource(
+    String sourcePath,
+    String swift, {
+    required bool isXcodeApp,
+  }) async {
     final destDir = installer.repository.installBundle;
     await prepareExistingSdk(destDir);
     final staged = await createStagingSibling(destDir);
@@ -167,13 +190,12 @@ final class SdkInstallCommand<T extends PlatformHostInterface>
       await _completeStagedSdk(staged.path);
       // A renamed archive can bypass the filename preflight. Verify the
       // actual SDK before replacing the user's working installation.
+      final stagedIosSdk = installer.repository.iosSdk(
+        DarwinSdk(staged.path),
+        target: installer.metadataPlatforms.first.buildPlatform,
+      );
       await _requireSwiftForXcode(
-        XcodeSwiftRequirement.xcodeMajorFromSdkPath(
-          installer.repository.iosSdk(
-            DarwinSdk(staged.path),
-            target: installer.metadataPlatforms.first.buildPlatform,
-          ),
-        ),
+        XcodeSwiftRequirement.xcodeMajorFromSdkPath(stagedIosSdk),
         swift,
       );
       requireValidStagedSdk(staged.path);
