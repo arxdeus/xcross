@@ -77,6 +77,15 @@ class WorkflowSecurityTests(unittest.TestCase):
                 if name == "warm-darwin-sdk.yml":
                     self.assertEqual(len(caches), 1)
                     self.assertTrue(caches[0].startswith("actions/cache/save@"))
+                elif name == "integration.yml":
+                    cached = [body for _, _, body in steps(source) if "actions/cache" in body]
+                    self.assertEqual(len(cached), len(caches))
+                    for body in cached:
+                        paths = re.findall(r"(?m)^ {12}(\S.*)$", body.split("path: |\n", 1)[1])
+                        self.assertTrue(paths)
+                        for path in paths:
+                            self.assertRegex(path, r"/xcross(-cache)?/open-apple-macros/\*/(identity\.json|OpenAppleMacrosServer\*?)$")
+                        self.assertIn("key: open-apple-macros-", body)
                 else:
                     self.assertEqual(caches, [])
                 uploads = [body for _, _, body in steps(source) if "actions/upload-artifact@" in body]

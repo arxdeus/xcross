@@ -476,6 +476,16 @@ jobs:
         if: steps.darwin.outputs.available == 'true'
         uses: ./.github/actions/setup-darwin-sdk
 
+      - name: Restore open apple macros server
+        id: open-apple-macros
+        if: steps.darwin.outputs.available == 'true'
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ${{ runner.os == 'Windows' && '~/AppData/Local' || '~/.cache' }}/xcross/open-apple-macros/*/identity.json
+            ${{ runner.os == 'Windows' && '~/AppData/Local' || '~/.cache' }}/xcross/open-apple-macros/*/OpenAppleMacrosServer*
+          key: open-apple-macros-${{ runner.os }}-${{ runner.arch }}-swift-${{ env.SWIFT_VERSION }}-${{ hashFiles('packages/open_apple_macros/swift/**', 'packages/open_apple_macros/lib/**') }}
+
       - name: Build Flutter example on Linux
         if: runner.os == 'Linux' && steps.darwin.outputs.available == 'true'
         shell: bash
@@ -492,6 +502,15 @@ jobs:
           $ErrorActionPreference = 'Stop'
           & "$env:RUNNER_TEMP\xcross-bundle\bin\xcross.exe" --verbose flutter build
           if ($LASTEXITCODE -ne 0) { throw 'flutter_example build failed' }
+
+      - name: Save open apple macros server
+        if: ${{ !cancelled() && steps.darwin.outputs.available == 'true' && steps.open-apple-macros.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ${{ runner.os == 'Windows' && '~/AppData/Local' || '~/.cache' }}/xcross/open-apple-macros/*/identity.json
+            ${{ runner.os == 'Windows' && '~/AppData/Local' || '~/.cache' }}/xcross/open-apple-macros/*/OpenAppleMacrosServer*
+          key: open-apple-macros-${{ runner.os }}-${{ runner.arch }}-swift-${{ env.SWIFT_VERSION }}-${{ hashFiles('packages/open_apple_macros/swift/**', 'packages/open_apple_macros/lib/**') }}
 
       - name: Inspect Flutter example artifact on Linux
         if: runner.os == 'Linux' && steps.darwin.outputs.available == 'true'
@@ -608,7 +627,17 @@ jobs:
         run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
 
       - name: Select compatible native Xcode
+        id: xcode
         uses: ./.github/actions/configure-xcode
+
+      - name: Restore open apple macros server
+        id: open-apple-macros
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/xcross-cache/open-apple-macros/*/identity.json
+            ${{ runner.temp }}/xcross-cache/open-apple-macros/*/OpenAppleMacrosServer
+          key: open-apple-macros-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.app }}-${{ hashFiles('packages/open_apple_macros/swift/**', 'packages/open_apple_macros/lib/**') }}
 
       - name: Install native Flutter and LLVM toolchains
         shell: bash
@@ -662,6 +691,15 @@ jobs:
           set -euo pipefail
           xcross --verbose flutter build --target-platform simulator --debug 2>&1 | \
             tee "$RUNNER_TEMP/ios-simulator-smoke/build.log"
+
+      - name: Save open apple macros server
+        if: ${{ !cancelled() && steps.open-apple-macros.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/xcross-cache/open-apple-macros/*/identity.json
+            ${{ runner.temp }}/xcross-cache/open-apple-macros/*/OpenAppleMacrosServer
+          key: open-apple-macros-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.app }}-${{ hashFiles('packages/open_apple_macros/swift/**', 'packages/open_apple_macros/lib/**') }}
 
       - name: Boot install launch and observe Flutter app headlessly
         shell: bash

@@ -301,6 +301,51 @@ class ArchitectureWorkflowTests(unittest.TestCase):
                 if first_use is not None:
                     self.assertLess(names.index('Update example submodule'), names.index(first_use))
 
+    def check_open_apple_macros_cache(self, workflow, job, first_build, last_build):
+        lines = workflow_jobs(workflow)[job]
+        steps = workflow_steps(lines)
+        names = list(steps)
+        restore = steps['Restore open apple macros server']
+        save = steps['Save open apple macros server']
+        self.assertTrue(restore['uses'].startswith('actions/cache/restore@'))
+        self.assertTrue(save['uses'].startswith('actions/cache/save@'))
+        self.assertEqual(restore.get('id'), 'open-apple-macros')
+        self.assertIn('!cancelled()', save['if'])
+        self.assertIn("steps.open-apple-macros.outputs.cache-hit != 'true'", save['if'])
+        self.assertNotIn('continue-on-error', save)
+        self.assertLess(names.index('Restore open apple macros server'), names.index(first_build))
+        self.assertLess(names.index(last_build), names.index('Save open apple macros server'))
+        text = '\n'.join(lines)
+        bodies = [text.split(f'      - name: {name}\n', 1)[1].split('\n\n', 1)[0] for name in ('Restore open apple macros server', 'Save open apple macros server')]
+        keys = [re.search(r'(?m)^ +key: (.+)$', body).group(1) for body in bodies]
+        paths = [body.split('path: |\n', 1)[1].split('\n          key:', 1)[0] for body in bodies]
+        self.assertEqual(keys[0], keys[1])
+        self.assertEqual(paths[0], paths[1])
+        self.assertIn("hashFiles('packages/open_apple_macros/swift/**', 'packages/open_apple_macros/lib/**')", keys[0])
+        self.assertIn('${{ runner.os }}-${{ runner.arch }}', keys[0])
+        return keys[0]
+
+    def test_open_apple_macros_server_is_cached_around_every_build(self):
+        workflow = (ROOT / '.github/workflows/integration.yml').read_text()
+        key = self.check_open_apple_macros_cache(workflow, 'flutter-build', 'Build Flutter example on Linux', 'Build Flutter example on Windows')
+        self.assertIn('${{ env.SWIFT_VERSION }}', key)
+        key = self.check_open_apple_macros_cache(workflow, 'flutter-simulator', 'Build ARM64 simulator app through production xcross', 'Build ARM64 simulator app through production xcross')
+        self.assertIn('${{ steps.xcode.outputs.app }}', key)
+
+    def test_unkeyed_or_skipped_open_apple_macros_cache_is_rejected(self):
+        original = (ROOT / '.github/workflows/integration.yml').read_text()
+        for old, new in (
+            ("${{ !cancelled() && steps.darwin", "${{ success() && steps.darwin"),
+            ("-swift-${{ env.SWIFT_VERSION }}-", "-"),
+            ("'packages/open_apple_macros/swift/**', ", ''),
+        ):
+            with self.subTest(new=new):
+                self.assertIn(old, original)
+                with self.assertRaises(AssertionError):
+                    workflow = original.replace(old, new, 1)
+                    key = self.check_open_apple_macros_cache(workflow, 'flutter-build', 'Build Flutter example on Linux', 'Build Flutter example on Windows')
+                    self.assertIn('${{ env.SWIFT_VERSION }}', key)
+
     def test_warm_cache_builds_xcross_from_checkout_on_every_host(self):
         jobs = workflow_jobs((ROOT / '.github/workflows/warm-darwin-sdk.yml').read_text())
         steps = workflow_steps(jobs['warm-cache'])
