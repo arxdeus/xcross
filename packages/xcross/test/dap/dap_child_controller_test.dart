@@ -135,6 +135,7 @@ final class FakeDapChild implements Process {
   Future<void> dispose() async {
     if (!exit.isCompleted) exit.complete(0);
     await sink.close();
+    await inputController.close();
   }
 
   @override

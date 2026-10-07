@@ -91,6 +91,8 @@ void main() {
         final input = StreamController<List<int>>();
         final output = StreamController<List<int>>();
         output.stream.listen((_) {});
+        addTearDown(output.close);
+        addTearDown(processes.child.close);
         final root = windows ? r'C:\selected\flutter' : '/selected/flutter';
         var xcrossStarted = false;
         final running = DapSession.run(
@@ -176,6 +178,7 @@ void main() {
     'DapResponseFilter drops answered responses and one initialized event',
     () async {
       final out = StreamController<List<int>>();
+      addTearDown(out.close);
       final received = <Map<String, Object?>>[];
       out.stream.listen((chunk) {
         final parser = DapFrameParser();
@@ -231,6 +234,8 @@ void main() {
   test('DapSession.run with XCROSS env starts the xcross adapter', () async {
     final inbound = StreamController<List<int>>();
     final outbound = StreamController<List<int>>();
+    outbound.stream.listen((_) {});
+    addTearDown(outbound.close);
     ByteStreamServerChannel? started;
 
     final session = DapSession.run(
@@ -324,6 +329,11 @@ final class TestAdapterChild implements Process {
   Stream<List<int>> get stderr => errors.stream;
   @override
   Future<int> get exitCode => exit.future;
+  Future<void> close() async {
+    await sink.close();
+    await inbound.close();
+  }
+
   @override
   dynamic noSuchMethod(Invocation invocation) =>
       throw StateError('unexpected child operation');

@@ -42,6 +42,7 @@ void main() {
       );
       final input = StreamController<List<int>>();
       final output = StreamController<List<int>>();
+      addTearDown(output.close);
       final events = <Map<String, Object?>>[];
       final parser = DapFrameParser();
       output.stream.listen((bytes) {
@@ -112,7 +113,7 @@ void main() {
       processes.child.exited.complete(0);
       await adapter.disconnectImpl();
       await input.close();
-      await processes.child.stdin.close();
+      await processes.child.close();
       expect(processes.kills, 0);
     });
   }
@@ -182,6 +183,11 @@ final class AvailabilityChild implements Process {
   final exited = Completer<int>();
   final input = StreamController<List<int>>();
   late final IOSink sink = IOSink(input.sink);
+  Future<void> close() async {
+    await sink.close();
+    await input.close();
+  }
+
   @override
   Future<int> get exitCode => exited.future;
   @override
