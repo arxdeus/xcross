@@ -33,6 +33,7 @@ final class NativeMacXcrun implements XcrunOperation {
             arguments,
             mode: ProcessStartMode.inheritStdio,
           );
-    return child.exitCode;
+    final code = await child.exitCode;
+    return code;
   }
 }

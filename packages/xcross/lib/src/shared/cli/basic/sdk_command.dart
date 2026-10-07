@@ -193,7 +193,10 @@ final class SdkInstallCommand<T extends PlatformHostInterface>
   Future<Directory> createStagingSibling(String destDir) async {
     final parent = host.fileSystem.directory(_paths.dirname(destDir));
     await parent.create(recursive: true);
-    return parent.createTemp('${_paths.basename(destDir)}.staging-');
+    final staging = await parent.createTemp(
+      '${_paths.basename(destDir)}.staging-',
+    );
+    return staging;
   }
 
   /// Post-extraction fixups that turn raw Xcode files into a Swift SDK bundle.

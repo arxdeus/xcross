@@ -89,8 +89,15 @@ abstract class XcrossHostContext<T extends PlatformHostInterface>
   Future<int> runApplication(
     List<String> args, {
     required TuiTerminal configTerminal,
-  }) async =>
-      XcrossCli.run<T>(args, await load(), configTerminal: configTerminal);
+  }) async {
+    final context = await load();
+    final result = await XcrossCli.run<T>(
+      args,
+      context,
+      configTerminal: configTerminal,
+    );
+    return result;
+  }
 
   Future<CommandRunner<void>> createCommandRunner({
     required TuiTerminal configTerminal,

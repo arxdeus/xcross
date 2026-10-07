@@ -45,12 +45,11 @@ final class ConfigCommand extends Command<void> {
   Future<void> run() async {
     switch (argResults!.rest) {
       case ['show']:
-        return ConfigShowCommand(store: _store, writeLine: _writeLine).run();
+        await ConfigShowCommand(store: _store, writeLine: _writeLine).run();
+        return;
       case ['validate']:
-        return ConfigValidateCommand(
-          store: _store,
-          writeLine: _writeLine,
-        ).run();
+        await ConfigValidateCommand(store: _store, writeLine: _writeLine).run();
+        return;
       case []:
         break;
       default:

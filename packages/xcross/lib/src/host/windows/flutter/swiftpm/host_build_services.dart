@@ -94,7 +94,7 @@ final class WindowsSwiftPmHostBuildServices<T extends PlatformHostInterface>
       );
     }
     final sysroot = sdkRepository.iosSdk(sdk, target: target.buildPlatform);
-    return sdkIdentity.swiftPmBuildToolchainIdentity(
+    final identity = await sdkIdentity.swiftPmBuildToolchainIdentity(
       cCompilerPath: await toolchainResolver.resolveDarwinClang(sysroot),
       cxxCompilerPath: await toolchainResolver.resolveDarwinClang(
         sysroot,
@@ -103,6 +103,7 @@ final class WindowsSwiftPmHostBuildServices<T extends PlatformHostInterface>
       linkerPath: await toolchainResolver.resolveLd64Lld(),
       librarianPath: await librarianResolver.resolveLibrarian(),
     );
+    return identity;
   }
 
   @override

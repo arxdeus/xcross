@@ -24,7 +24,7 @@ final class SwiftRequirement {
 
   /// Throws [XcrossError] unless a usable `swift` is on PATH.
   ///
-  /// [action] completes the sentence "xcross cannot <action> …".
+  /// [action] completes the sentence "xcross cannot `<action>` …".
   Future<String> require(
     String action, {
     required String installGuidance,

@@ -293,7 +293,8 @@ final class DoctorEnvironmentChecks<T extends PlatformHostInterface> {
   Future<DoctorCheck> _authentication() async {
     final appleId = await _appleIdAuthentication();
     if (appleId != null) return appleId;
-    return _appStoreConnectAuthentication();
+    final appStoreConnect = await _appStoreConnectAuthentication();
+    return appStoreConnect;
   }
 
   Future<DoctorCheck?> _appleIdAuthentication() async {

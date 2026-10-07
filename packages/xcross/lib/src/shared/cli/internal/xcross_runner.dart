@@ -43,7 +43,7 @@ final class XcrossRunner extends CommandRunner<void> {
       log.logStatus(XcrossVersion.describe());
       return;
     }
-    return super.run(args);
+    await super.run(args);
   }
 
   /// Bad input is left for [CommandRunner] to reject, so it still surfaces as
