@@ -67,7 +67,14 @@ class BundleSigner {
   /// Signs nested frameworks and dylibs before sealing and signing the app.
   Future<void> signApp(String appPath, {DateTime? signingTime}) async {
     final plan = await _inspect(appPath);
+    await _removeStaleSignatures(plan);
+    await _embedProfiles(plan);
+    await _signNestedBundles(plan, signingTime);
+    await _signLooseBinaries(plan, signingTime);
+    await _signRoot(plan, signingTime);
+  }
 
+  Future<void> _removeStaleSignatures(BundlePlan plan) async {
     for (final bundle in plan.bundles) {
       await _removeIfPresent(
         hostServices.host.paths.context.join(bundle.path, '_CodeSignature'),
@@ -81,6 +88,9 @@ class BundleSigner {
         );
       }
     }
+  }
+
+  Future<void> _embedProfiles(BundlePlan plan) async {
     await _atomicWrite(
       hostServices.host.paths.context.join(
         plan.root.path,
@@ -100,7 +110,12 @@ class BundleSigner {
         plan.root.path,
       );
     }
+  }
 
+  Future<void> _signNestedBundles(
+    BundlePlan plan,
+    DateTime? signingTime,
+  ) async {
     // A bundle seals its children's signatures into its own CodeResources, so
     // the deepest nested code must be finished before its parent is sealed.
     for (final nested in _deepestFirst(plan)) {
@@ -121,7 +136,12 @@ class BundleSigner {
         signingTime: signingTime,
       );
     }
+  }
 
+  Future<void> _signLooseBinaries(
+    BundlePlan plan,
+    DateTime? signingTime,
+  ) async {
     for (final dylib in plan.looseBinaries) {
       await _machoSigner.signFile(
         dylib.path,
@@ -131,7 +151,9 @@ class BundleSigner {
         signingTime: signingTime,
       );
     }
+  }
 
+  Future<void> _signRoot(BundlePlan plan, DateTime? signingTime) async {
     final rootResources = _codeResources(plan, plan.root);
     await _writeCodeResources(plan, plan.root, rootResources);
     await _machoSigner.signFile(
