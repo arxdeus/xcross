@@ -8,6 +8,7 @@ analyzer:
   # visible as `info` so they can be burned down, without failing CI under
   # `dart analyze --fatal-warnings`. Remove an entry once its rule is clean.
   errors:
+    avoid_classes_with_only_static_members: ignore
     async_return_with_no_await: info
     avoid_catches_without_on_clauses: info
     avoid_equals_and_hash_code_on_mutable_classes: info
