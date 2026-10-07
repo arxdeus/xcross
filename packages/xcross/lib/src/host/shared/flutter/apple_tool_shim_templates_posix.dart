@@ -77,18 +77,53 @@ esac
 '''
     : renderUnixToolShim(tool);
 
+/// A rendered xcrun shim and the placeholder SDKs its script reports.
+@internal
+@immutable
+final class UnixXcrunShim {
+  const UnixXcrunShim(this.script, {this.placeholders = const []});
+
+  final String script;
+
+  /// SDK names whose `<name>.sdk` directories must exist for [script].
+  final List<String> placeholders;
+}
+
 /// xcrun shim. native_toolchain_c probes `xcrun --version` and requires a
 /// zero exit plus a parseable version before it asks for SDK paths, so the
 /// shim answers that probe itself regardless of which xcrun it forwards to.
+///
+/// It also probes the `macosx`, `iphoneos` and `iphonesimulator` SDK paths and
+/// warns for each one that fails, although it only compiles against the
+/// targeted SDK. Probes for the other SDKs report empty directories under
+/// [placeholderSdks], so the build output stays quiet.
 @internal
-String renderUnixXcrunShim(String tool) =>
-    '''
-#!/bin/sh
-case "\$*" in
-  --version|-version) echo 'xcrun version 72.'; exit 0;;
-esac
-exec ${shellQuote(tool)} "\$@"
-''';
+UnixXcrunShim renderUnixXcrunShim(
+  String tool, {
+  String? targetSdk,
+  String? placeholderSdks,
+}) {
+  final placeholders = targetSdk == null || placeholderSdks == null
+      ? const <String>[]
+      : _xcrunProbedSdks.where((sdk) => sdk != targetSdk).toList();
+  String probe(String sdk) {
+    final placeholder = shellQuote('$placeholderSdks/$sdk.sdk');
+    return "  '--sdk $sdk --show-sdk-path'|'--sdk=$sdk --show-sdk-path') "
+        'echo $placeholder; exit 0;;\n';
+  }
+
+  return UnixXcrunShim(
+    '#!/bin/sh\n'
+    'case "\$*" in\n'
+    "  --version|-version) echo 'xcrun version 72.'; exit 0;;\n"
+    '${placeholders.map(probe).join()}esac\n'
+    'exec ${shellQuote(tool)} "\$@"\n',
+    placeholders: placeholders,
+  );
+}
+
+/// SDK names native_toolchain_c probes while resolving an Apple sysroot.
+const _xcrunProbedSdks = ['macosx', 'iphoneos', 'iphonesimulator'];
 
 @internal
 String renderUnixToolShim(String tool) =>
