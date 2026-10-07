@@ -49,7 +49,10 @@ final class SwiftPmBuildSession<T extends PlatformHostInterface>
     }
     if (pending.isEmpty) return;
     final [first, ...rest] = pending;
-    if (rest.isEmpty) return buildTarget(first);
+    if (rest.isEmpty) {
+      await buildTarget(first);
+      return;
+    }
     final aliased = await targetAlias.withTargets(
       scratchPath: command.scratchPath,
       targetBuildDir: command.targetBuildDir,

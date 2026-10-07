@@ -256,10 +256,10 @@ final class SwiftPmPlanReader {
       final decoded = jsonDecode(description.readAsStringSync());
       if (decoded is! Map<String, dynamic>) return null;
       final map = decoded['targetDependencyMap'];
-      if (map is! Map<String, dynamic>) return null;
+      if (map is! Map<String, Object?>) return null;
       edges = {
         for (final entry in map.entries)
-          if (entry.value case final List<dynamic> dependencies)
+          if (entry.value case final List<Object?> dependencies)
             entry.key: [
               for (final dependency in dependencies)
                 if (dependency is String) dependency,

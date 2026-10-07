@@ -176,7 +176,8 @@ final class SwiftPmGateEvidence<T extends PlatformHostInterface> {
         p.normalize(await target.resolveSymbolicLinks())) {
       return false;
     }
-    return platform.verifyAlias(alias.path, target.path);
+    final aliasVerified = await platform.verifyAlias(alias.path, target.path);
+    return aliasVerified;
   }
 
   Future<Map<String, Object?>?> defaultRuntimeBinding({

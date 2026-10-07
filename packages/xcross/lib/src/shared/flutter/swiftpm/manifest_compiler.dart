@@ -97,7 +97,8 @@ final class SwiftPmManifestCompiler {
     final overlay = readOverlay(arguments);
     if (overlay == null) {
       log?.call('pass');
-      return run(configuration.compiler, arguments);
+      final passCode = await run(configuration.compiler, arguments);
+      return passCode;
     }
     final contents = fileSystem.file(overlay.contentsPath);
     final original = await contents.readAsString();
@@ -119,7 +120,8 @@ final class SwiftPmManifestCompiler {
           );
     if (key == null) {
       log?.call('uncached ${overlay.manifestPath}');
-      return run(configuration.compiler, arguments);
+      final uncachedCode = await run(configuration.compiler, arguments);
+      return uncachedCode;
     }
     final entry = fileSystem.file(
       p.join(configuration.cacheRoot, 'manifest-compiler', key),

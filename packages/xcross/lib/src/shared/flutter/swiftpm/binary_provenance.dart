@@ -34,7 +34,8 @@ final class SwiftPmBinaryProvenance<T extends PlatformHostInterface> {
   static Map<String, String> dependencyRefsFromPackageResolved(String output) {
     final resolved = jsonDecode(output) as Map<String, dynamic>;
     return {
-      for (final pinValue in resolved['pins'] as List<dynamic>? ?? const [])
+      for (final pinValue
+          in resolved['pins'] as List<Object?>? ?? const <Object?>[])
         if (pinValue case {
           'location': final String location,
           'state': {'revision': final String revision},

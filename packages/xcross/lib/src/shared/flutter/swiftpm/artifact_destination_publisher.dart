@@ -9,14 +9,15 @@ import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_offline_publisher.dart';
 
 @internal
+@immutable
 final class SwiftPmBinaryArtifactPublication {
   factory SwiftPmBinaryArtifactPublication.published() =>
       SwiftPmBinaryArtifactPublication._(
         '${pid}_${DateTime.now().microsecondsSinceEpoch}',
       );
-  SwiftPmBinaryArtifactPublication._(this.nonce);
+  const SwiftPmBinaryArtifactPublication._(this.nonce);
 
-  static final reused = SwiftPmBinaryArtifactPublication._(null);
+  static const reused = SwiftPmBinaryArtifactPublication._(null);
 
   final String? nonce;
 
@@ -271,7 +272,10 @@ final class SwiftPmArtifactDestinationPublisher {
     required bool alias,
   }) async {
     if (!await _publishedSource(source)) return false;
-    if (!alias) return _sameArtifactTree(source, destination);
+    if (!alias) {
+      final sameTree = await _sameArtifactTree(source, destination);
+      return sameTree;
+    }
     final absoluteDestination = p.normalize(p.absolute(destination));
     final marker = fileSystem.file(_aliasMarkerPath(absoluteDestination));
     final ownership = await _managedAliasTarget(absoluteDestination, marker);

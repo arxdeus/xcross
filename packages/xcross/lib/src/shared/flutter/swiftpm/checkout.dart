@@ -103,7 +103,7 @@ final class SwiftPmCheckout<T extends PlatformHostInterface> {
         stamps.materializedLinksIntact(stamp, fingerprint, root: root)) {
       return false;
     }
-    return materializeGitSymlinks(
+    final materialized = await materializeGitSymlinks(
       root,
       index.stdout,
       git,
@@ -111,6 +111,7 @@ final class SwiftPmCheckout<T extends PlatformHostInterface> {
       fingerprint,
       symlinks: useSymlinks,
     );
+    return materialized;
   }
 
   Future<bool> materializeGitSymlinks(

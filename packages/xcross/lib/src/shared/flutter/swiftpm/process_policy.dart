@@ -122,16 +122,18 @@ final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
     };
     final base = installation.base;
     final digest = manifestCompilerEnvironmentDigest(base.policy, products);
-    return _manifestCompilerShims[digest] ??= _installManifestCompiler(
-      forwarder: installation.forwarder,
-      digest: digest,
-      configuration: SwiftPmManifestCompilerConfiguration(
-        compiler: base.compiler,
-        cacheRoot: base.cacheRoot,
-        policy: base.policy,
-        consumedProducts: products,
-      ),
-    );
+    final shimEnvironment = await (_manifestCompilerShims[digest] ??=
+        _installManifestCompiler(
+          forwarder: installation.forwarder,
+          digest: digest,
+          configuration: SwiftPmManifestCompilerConfiguration(
+            compiler: base.compiler,
+            cacheRoot: base.cacheRoot,
+            policy: base.policy,
+            consumedProducts: products,
+          ),
+        ));
+    return shimEnvironment;
   }
 
   Future<Map<String, String>> _installManifestCompiler({

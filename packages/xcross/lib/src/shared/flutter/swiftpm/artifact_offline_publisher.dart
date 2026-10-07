@@ -40,52 +40,56 @@ final class SwiftPmOfflineArtifactPublisher {
       );
     }
     final digest = await _tree.treeDigest(source);
-    return publicationCoordinator.run(destination, () async {
-      final artifactPath = p.join(destination, artifactDirectoryName);
-      if (fileSystem.typeSync(destination, followLinks: false) !=
-          FileSystemEntityType.notFound) {
-        if (await _reusable(destination, artifactDirectoryName, digest)) {
-          return artifactPath;
-        }
-        throw FileSystemException(
-          'Refusing to replace an unowned or changed offline binary artifact',
-          destination,
-        );
-      }
-      final parent = fileSystem.directory(p.dirname(destination));
-      await parent.create(recursive: true);
-      final temporary = await parent.createTemp('.xcross-offline-');
-      try {
-        await _tree.copyDirectoryContents(stagingRoot, temporary);
-        final copied = fileSystem.directory(
-          p.join(temporary.path, artifactDirectoryName),
-        );
-        if (await _tree.treeDigest(copied) != digest) {
+    final publishedPath = await publicationCoordinator.run(
+      destination,
+      () async {
+        final artifactPath = p.join(destination, artifactDirectoryName);
+        if (fileSystem.typeSync(destination, followLinks: false) !=
+            FileSystemEntityType.notFound) {
+          if (await _reusable(destination, artifactDirectoryName, digest)) {
+            return artifactPath;
+          }
           throw FileSystemException(
-            'SwiftPM offline binary artifact changed during publication',
-            source.path,
+            'Refusing to replace an unowned or changed offline binary artifact',
+            destination,
           );
         }
-        for (final name in ['metadata.json', '.complete']) {
-          final marker = fileSystem.file(p.join(temporary.path, name));
-          if (marker.existsSync()) await marker.delete();
-        }
-        await fileSystem
-            .file(p.join(temporary.path, '.xcross-offline.json'))
-            .writeAsString(
-              jsonEncode({
-                'provenance': 'unverified-extracted-tree',
-                'artifactDirectoryName': artifactDirectoryName,
-                'treeDigest': digest,
-              }),
-              flush: true,
+        final parent = fileSystem.directory(p.dirname(destination));
+        await parent.create(recursive: true);
+        final temporary = await parent.createTemp('.xcross-offline-');
+        try {
+          await _tree.copyDirectoryContents(stagingRoot, temporary);
+          final copied = fileSystem.directory(
+            p.join(temporary.path, artifactDirectoryName),
+          );
+          if (await _tree.treeDigest(copied) != digest) {
+            throw FileSystemException(
+              'SwiftPM offline binary artifact changed during publication',
+              source.path,
             );
-        await temporary.rename(destination);
-        return artifactPath;
-      } finally {
-        if (temporary.existsSync()) await temporary.delete(recursive: true);
-      }
-    });
+          }
+          for (final name in ['metadata.json', '.complete']) {
+            final marker = fileSystem.file(p.join(temporary.path, name));
+            if (marker.existsSync()) await marker.delete();
+          }
+          await fileSystem
+              .file(p.join(temporary.path, '.xcross-offline.json'))
+              .writeAsString(
+                jsonEncode({
+                  'provenance': 'unverified-extracted-tree',
+                  'artifactDirectoryName': artifactDirectoryName,
+                  'treeDigest': digest,
+                }),
+                flush: true,
+              );
+          await temporary.rename(destination);
+          return artifactPath;
+        } finally {
+          if (temporary.existsSync()) await temporary.delete(recursive: true);
+        }
+      },
+    );
+    return publishedPath;
   }
 
   Future<bool> isPublishedArtifact(String artifactPath) async {
