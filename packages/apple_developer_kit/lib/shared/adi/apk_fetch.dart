@@ -91,13 +91,16 @@ class AdiLibraryFetcher {
     ),
   );
 
+  bool _hasCachedLibraries() =>
+      coreAdiFile.existsSync() &&
+      storeServicesFile.existsSync() &&
+      _apkShaSidecar.existsSync() &&
+      _librariesMatchArchitecture();
+
   /// Ensures both native libraries are present in [cacheDir], downloading
   /// and extracting them first if needed.
   Future<AdiLibraryPaths> ensureLibraries() async {
-    if (coreAdiFile.existsSync() &&
-        storeServicesFile.existsSync() &&
-        _apkShaSidecar.existsSync() &&
-        _librariesMatchArchitecture()) {
+    if (_hasCachedLibraries()) {
       return AdiLibraryPaths(
         coreAdiPath: coreAdiFile.path,
         storeServicesPath: storeServicesFile.path,
