@@ -50,9 +50,7 @@ HostOperations windowsHostOperations(
   const executable = WindowsExecutable();
   return HostOperations(
     setupScript: WindowsSetupScript(host, runner),
-    setupRequirements: WindowsSetupRequirements(
-      _services(host, runner, toolchain, pymd, privileges, console),
-    ),
+    setupRequirements: const WindowsSetupRequirements(),
     swiftToolchain: const WindowsSwiftToolchainHost(),
     swiftEnvironment: WindowsSwiftEnvironment(runner),
     update: WindowsUpdatePolicy(host, privileges),

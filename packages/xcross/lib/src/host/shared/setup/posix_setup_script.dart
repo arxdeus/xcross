@@ -10,6 +10,8 @@ final class PosixSetupScript implements SetupScriptPolicy {
 
   final PlatformHostInterface host;
 
+  @override
+  String? get defaultSource => null;
   String get _directory =>
       host.paths.context.join(host.paths.cacheRoot, 'setup-scripts');
 

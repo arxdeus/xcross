@@ -70,22 +70,21 @@ Both installers download the latest release, install it, **add xcross to your `P
    irm https://raw.githubusercontent.com/arxdeus/xcross/main/install.ps1 | iex
    ```
 
-2. Install Swift and LLVM from an **Administrator** PowerShell (the installer tells you if they're missing):
+2. Install [Flutter](https://docs.flutter.dev/get-started/install/windows), then let xcross install everything else:
 
    ```powershell
-   winget install --id Swift.Toolchain --exact
-   winget install --id LLVM.LLVM --exact
+   xcross setup
    ```
 
-3. Install Flutter, Python 3, and `pymobiledevice3`, then finish setup:
+   This runs [`setup/winget.ps1`](setup/winget.ps1) from the xcross release you installed. xcross first prints the script's name, source URL, and SHA-256 and waits for `y`. The script then asks before each winget package: Visual Studio Build Tools (MSVC + Windows SDK, which Swift links against), `Swift.Toolchain`, `LLVM.LLVM` (its `bin` goes on your user `PATH`), and Python 3.13. Then it installs `pymobiledevice3`. Installers that need elevation raise their own UAC prompt. `xcross setup --yes` accepts every prompt.
+
+3. Open a new terminal so the new `PATH` applies, then build the Darwin SDK:
 
    ```powershell
-   py -m pip install -U pymobiledevice3
-   xcross setup
    xcross sdk install C:\Downloads\Xcode.xip   # once, takes a while
    ```
 
-   Open a new terminal after installing Swift so its `bin` directory is on `PATH`; both commands refuse to run without it. The SDK is tied to the Swift active here, so re-run `xcross sdk install` if you later switch Swift versions.
+   The SDK is tied to the Swift active here, so re-run `xcross sdk install` if you later switch Swift versions.
 
 ### Linux
 
@@ -114,6 +113,8 @@ Both installers download the latest release, install it, **add xcross to your `P
    `xcross setup` detects `apt`, `dnf`, or `pacman` (and asks which to use when the answer is ambiguous). It also installs `usbmuxd`, `usbutils`, and `libimobiledevice` for USB device access and diagnostics. `pymobiledevice3` goes into its own `pipx` venv, and `pipx ensurepath` puts `~/.local/bin` on your `PATH` - open a new shell for that to take effect.
 
    The SDK is tied to the Swift you had active here. If you later switch Swift versions, re-run `xcross sdk install`.
+
+   Prefer a script you can read first? [`setup/apt.sh`](setup/apt.sh), [`setup/dnf.sh`](setup/dnf.sh), and [`setup/pacman.sh`](setup/pacman.sh) install the same packages, plus Swift through swiftly if it is missing. Run one directly (`sh setup/apt.sh`) or point `setup:` in your config at it (see [Configuration](#configuration)). Before any third-party installer (apt.llvm.org's `llvm.sh`, swiftly) runs, they print its name and URL and wait for `y`.
 
 ### Verifying a release
 
@@ -306,9 +307,12 @@ roots:
 environment:
   PATH:
     - /absolute/toolchain/bin
+setup: https://raw.githubusercontent.com/arxdeus/xcross/main/setup/apt.sh
 ```
 
 Edit it with `xcross config`, inspect it with `xcross config show`, prove it with `xcross config validate`.
+
+`setup` makes `xcross setup` run that script (an absolute path or an HTTP(S) URL) instead of its built-in installer. Before running anything, xcross prints the script's name, source, and SHA-256 and asks for confirmation. Pass `--yes` to skip the prompt, which is required when there is no terminal. Remote scripts are cached by content hash, and `xcross update` refreshes them.
 
 **Full reference: [xcross.sh/docs/configuration](https://xcross.sh/docs/configuration)** - every key, discovery order, variable expansion, and the runtime overlay.
 
@@ -316,7 +320,7 @@ Edit it with `xcross config`, inspect it with `xcross config show`, prove it wit
 
 | Command | Description |
 |---|---|
-| `xcross setup` | Install host dependencies (apt/dnf/pacman packages, `pipx`, `pymobiledevice3`). Requires Swift on `PATH` |
+| `xcross setup` | Install host dependencies: apt/dnf/pacman or Homebrew packages, `pipx`, and `pymobiledevice3` (Linux/macOS need Swift on `PATH` first). On Windows, or when `setup:` is configured, runs a setup script after showing its name, URL, and SHA-256 and asking first (`--yes` skips the prompt) |
 | `xcross config` | Interactively create or edit executable overrides, Swift/LLVM toolchain directories, roots, and child-environment paths |
 | `xcross config show` / `validate` | Print the selected YAML configuration or validate all configured paths |
 | `xcross sdk install <Xcode.xip>` | Extract a private Darwin Swift SDK from an Xcode archive, patched against the Swift toolchain currently on `PATH` |

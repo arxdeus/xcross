@@ -767,6 +767,8 @@ final class ResidualFailingSetupPolicy implements SetupScriptPolicy {
   ResidualFailingSetupPolicy(this.base);
   final SetupScriptPolicy base;
   @override
+  String? get defaultSource => base.defaultSource;
+  @override
   File cachedFile(String digest) => base.cachedFile(digest);
   @override
   File cachePointer(String digest) => base.cachePointer(digest);

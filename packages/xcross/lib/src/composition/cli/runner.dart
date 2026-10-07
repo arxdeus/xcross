@@ -104,6 +104,7 @@ abstract final class XcrossCli {
         scriptPolicy: runtime.operations.setupScript,
         createHttpClient: runtime.createHttpClient,
         swiftInstallGuidance: runtime.operations.swiftInstallGuidance,
+        commandPrompt: runtime.commandPrompt,
         minimumSwift: runtime.operations.minimumSwift,
         setupSource: runtime.config.config?.setup,
       ),

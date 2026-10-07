@@ -42,7 +42,13 @@ void main() {
       windowsRunner,
     ).invocation('chosen script.ps1');
     expect(invocation.executable, powershell.path);
-    expect(invocation.arguments, ['-NoProfile', '-File', 'chosen script.ps1']);
+    expect(invocation.arguments, [
+      '-NoProfile',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+      'chosen script.ps1',
+    ]);
   });
 
   test('Windows replacement parks the destination after a sharing failure', () {
@@ -86,6 +92,8 @@ void main() {
       ..writeAsStringSync('echo setup');
     String? executable;
     List<String>? arguments;
+    Map<String, String>? environment;
+    SetupScriptApproval? shown;
     final manager = SetupScriptManager(
       createHttpClient: () =>
           throw StateError('unexpected fixture HTTP client'),
@@ -93,16 +101,115 @@ void main() {
       host: host,
       runner: runner,
       policy: PosixSetupScript(host),
-      execute: (value, args) async {
+      execute: (value, args, env) async {
         executable = value;
         arguments = args;
+        environment = env;
       },
     );
 
-    await manager.run();
+    final ran = await manager.run(
+      approve: (candidate) {
+        shown = candidate;
+        return true;
+      },
+    );
 
+    expect(ran, isTrue);
     expect(executable, '/bin/sh');
     expect(arguments, [script.path]);
+    expect(environment, isEmpty);
+    expect(shown!.name, 'setup.sh');
+    expect(shown!.source, script.path);
+    expect(shown!.sha256, sha256.convert(utf8.encode('echo setup')).toString());
+  });
+
+  test('declined approval never executes the script', () async {
+    final script = File(p.join(temporary.path, 'setup.sh'))
+      ..writeAsStringSync('echo setup');
+    var executions = 0;
+    final manager = SetupScriptManager(
+      createHttpClient: () =>
+          throw StateError('unexpected fixture HTTP client'),
+      source: script.path,
+      host: host,
+      runner: runner,
+      policy: PosixSetupScript(host),
+      execute: (_, _, _) async => executions++,
+    );
+
+    expect(await manager.run(approve: (_) => false), isFalse);
+    expect(executions, 0);
+  });
+
+  test('remote approval shows the URL without credentials', () async {
+    SetupScriptApproval? shown;
+    Map<String, String>? environment;
+    final manager = SetupScriptManager(
+      createHttpClient: () =>
+          throw StateError('unexpected fixture HTTP client'),
+      source: 'https://user:secret@example.com/setup/apt.sh?token=abc',
+      host: host,
+      runner: runner,
+      policy: PosixSetupScript(host),
+      download: (_) async => utf8.encode('echo remote'),
+      execute: (_, _, env) async => environment = env,
+    );
+
+    await manager.run(
+      approve: (candidate) {
+        shown = candidate;
+        return true;
+      },
+      assumeYes: true,
+    );
+
+    expect(shown!.name, 'apt.sh');
+    expect(shown!.source, 'https://example.com/setup/apt.sh');
+    expect(shown!.path, isNot(shown!.source));
+    expect(environment, {'XCROSS_SETUP_ASSUME_YES': '1'});
+  });
+
+  test('refreshFirst falls back to the cached script offline', () async {
+    var online = true;
+    final manager = SetupScriptManager(
+      createHttpClient: () =>
+          throw StateError('unexpected fixture HTTP client'),
+      source: 'https://example.com/setup.ps1',
+      host: host,
+      runner: runner,
+      policy: PosixSetupScript(host),
+      download: (_) async {
+        if (!online) throw XcrossError('offline');
+        return utf8.encode('cached');
+      },
+      execute: (_, _, _) async {},
+    );
+    await manager.refresh();
+    online = false;
+
+    String? sha;
+    await manager.run(
+      refreshFirst: true,
+      approve: (candidate) {
+        sha = candidate.sha256;
+        return true;
+      },
+    );
+
+    expect(sha, sha256.convert(utf8.encode('cached')).toString());
+  });
+
+  test('Windows defaults to the winget setup script', () {
+    expect(
+      WindowsSetupScript(host, runner).defaultSource,
+      endsWith('/setup/winget.ps1'),
+    );
+    expect(
+      WindowsSetupScript.scriptUrl('v1.2.3'),
+      'https://raw.githubusercontent.com/arxdeus/xcross/v1.2.3/setup/winget.ps1',
+    );
+    expect(PosixSetupScript(host).defaultSource, isNull);
   });
 
   test(
