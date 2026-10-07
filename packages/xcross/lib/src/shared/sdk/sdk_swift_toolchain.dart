@@ -88,7 +88,8 @@ final class SdkSwiftToolchain<T extends PlatformHostInterface> {
       sibling.clang,
     ];
     for (final candidate in candidates) {
-      if (candidate != sibling.swift &&
+      final isOptionalCandidate = candidate != sibling.swift;
+      if (isOptionalCandidate &&
           !host.fileSystem.file(candidate).existsSync()) {
         continue;
       }
@@ -163,7 +164,9 @@ final class SdkSwiftToolchain<T extends PlatformHostInterface> {
     final currentVersion = current['version'] ?? '';
     // An empty version on either side means the comparison never happened,
     // so fall back to the path, which is always recorded.
-    if (recordedVersion.isNotEmpty && currentVersion.isNotEmpty) {
+    final bothVersionsRecorded =
+        recordedVersion.isNotEmpty && currentVersion.isNotEmpty;
+    if (bothVersionsRecorded) {
       if (recordedVersion == currentVersion) return null;
       return 'The Darwin SDK was installed against Swift '
           '"${sdkFirstToolchainLine(recordedVersion)}" (${recorded['swift']}), but the '
@@ -234,7 +237,8 @@ final class SdkSwiftToolchain<T extends PlatformHostInterface> {
       final resourceDir = printed.stdout.trim();
       if (resourceDir.isNotEmpty) {
         final source = _paths.join(resourceDir, 'include');
-        if (host.fileSystem.directory(source).existsSync()) return source;
+        final hasIncludeDir = host.fileSystem.directory(source).existsSync();
+        if (hasIncludeDir) return source;
       }
     }
 
