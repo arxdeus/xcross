@@ -14,7 +14,7 @@ void main(List<String> args) async {
 
     final logger = Logger('')
       ..level = Level.INFO
-      ..onRecord.listen((record) => print(record.message));
+      ..onRecord.listen((record) => stderr.writeln(record.message));
 
     // On Linux, PATH often puts swiftly's `clang` shim first. native_toolchain_c
     // resolveSymbolicLinks that shim to the `swiftly` binary and then invokes

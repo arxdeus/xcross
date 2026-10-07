@@ -177,7 +177,7 @@ void main() {
       try {
         await fetcher.ensureLibraries();
         fail('Expected request error');
-      } catch (error, actualStack) {
+      } on Object catch (error, actualStack) {
         expect(error, same(failure));
         expect(actualStack.toString(), stack.toString());
       }

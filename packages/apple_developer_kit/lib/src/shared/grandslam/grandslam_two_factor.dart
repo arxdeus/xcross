@@ -146,7 +146,7 @@ final class GrandSlamTwoFactor {
     String? body,
   }) async {
     final anisette = await fetchAnisetteHeaders();
-    return GrandSlamEndpoints.sendGrandSlamRequest(
+    final response = await GrandSlamEndpoints.sendGrandSlamRequest(
       httpClient,
       method: method,
       url: url,
@@ -162,6 +162,7 @@ final class GrandSlamTwoFactor {
       },
       body: body,
     );
+    return response;
   }
 
   /// Rejects a non-2xx response, then looks for the protocol-wide

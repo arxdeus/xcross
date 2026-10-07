@@ -118,7 +118,7 @@ class AdiClient {
     int dsId,
     Uint8List serverIntermediateMetadata,
   ) async {
-    return using((arena) {
+    final result = using<AdiSynchronizationResult>((arena) {
       final outMid = arena<Pointer<Uint8>>();
       final outMidLength = arena<Uint32>();
       final outSrm = arena<Pointer<Uint8>>();
@@ -144,6 +144,7 @@ class AdiClient {
         ),
       );
     }, malloc);
+    return result;
   }
 
   /// Destroys an in-progress provisioning [session]. Ported from
@@ -179,7 +180,7 @@ class AdiClient {
     int dsId,
     Uint8List serverProvisioningIntermediateMetadata,
   ) async {
-    return using((arena) {
+    final result = using<AdiClientProvisioningIntermediateMetadata>((arena) {
       final outCpim = arena<Pointer<Uint8>>();
       final outCpimLength = arena<Uint32>();
       final outSession = arena<Uint32>();
@@ -203,6 +204,7 @@ class AdiClient {
         session: outSession.value,
       );
     }, malloc);
+    return result;
   }
 
   /// Whether the device identified by [dsId] is already provisioned with
@@ -217,7 +219,7 @@ class AdiClient {
   /// Requests a one-time password (OTP) for [dsId], used as part of
   /// Apple's GrandSlam login flow. Ported from `ADI.requestOTP` in adi.d.
   Future<AdiOneTimePassword> requestOTP(int dsId) async {
-    return using((arena) {
+    final result = using<AdiOneTimePassword>((arena) {
       final outMid = arena<Pointer<Uint8>>();
       final outMidLength = arena<Uint32>();
       final outOtp = arena<Pointer<Uint8>>();
@@ -238,6 +240,7 @@ class AdiClient {
         oneTimePassword: _takeBytes(outOtp.value, outOtpLength.value),
       );
     }, malloc);
+    return result;
   }
 
   void _loadLibrary(String nativeLibraryDir) {

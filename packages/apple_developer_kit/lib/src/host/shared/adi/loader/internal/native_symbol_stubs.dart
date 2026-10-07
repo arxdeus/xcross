@@ -222,7 +222,7 @@ final class NativeSymbolStubs {
       final handle = lib.base;
       _dlopenHandles[handle.address] = lib;
       return handle;
-    } catch (_) {
+    } on Object catch (_) {
       return nullptr;
     }
   }
@@ -232,7 +232,7 @@ final class NativeSymbolStubs {
     if (lib == null) return nullptr;
     try {
       return lib.lookup(symbolNamePtr.toDartString());
-    } catch (_) {
+    } on Object catch (_) {
       return nullptr;
     }
   }

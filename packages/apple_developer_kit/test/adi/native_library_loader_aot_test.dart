@@ -15,8 +15,7 @@ void main() {
       addTearDown(() => temp.delete(recursive: true));
       final entry = File(p.join(temp.path, 'probe.dart'))
         ..writeAsStringSync(
-          "import 'package:apple_developer_kit/composition/"
-          "native_library_loader.dart';\n"
+          "import 'package:apple_developer_kit/composition/native_library_loader.dart';\n"
           'final class Holder {\n'
           '  Holder(this.create);\n'
           '  final Object Function() create;\n'

@@ -121,12 +121,13 @@ final class GrandSlamClient {
       loginData: GrandSlamLoginData.fromDecryptedPlist(payload),
     );
 
-    return _authenticate(
+    final loginData = await _authenticate(
       username: username,
       password: password,
       fetchTwoFactorCode: fetchTwoFactorCode,
       isRetry: true,
     );
+    return loginData;
   }
 
   /// `o=init`: publishes `A`, learns the salt, iteration count, chosen

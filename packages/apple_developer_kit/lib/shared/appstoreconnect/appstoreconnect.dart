@@ -337,12 +337,13 @@ final class AscProvisioning {
       );
       await _revokeAllCertificates(onProgress: onProgress);
     }
-    return _issueAndPersistIdentity(
+    final serialNumber = await _issueAndPersistIdentity(
       certPath: certPath,
       keyPath: keyPath,
       statePath: statePath,
       onProgress: onProgress,
     );
+    return serialNumber;
   }
 
   Future<String> _issueAndPersistIdentity({
@@ -397,7 +398,10 @@ final class AscProvisioning {
       final existing = await client.listCertificateIds();
       if (existing.isEmpty) rethrow;
       await _revokeAllCertificates(knownIds: existing, onProgress: onProgress);
-      return client.createDevelopmentCertificate(csrPem: csrPem);
+      final certificate = await client.createDevelopmentCertificate(
+        csrPem: csrPem,
+      );
+      return certificate;
     }
   }
 

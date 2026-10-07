@@ -81,8 +81,10 @@ final class AnisetteDataProvider implements AnisetteProvider {
   /// persisted pseudo-identity, for callers that also send `o=...`
   /// operations through the same provider.
   @override
-  Future<GrandSlamEndpoints> resolveGrandSlamEndpoints() async =>
-      _grandSlamEndpoints(await _loadState());
+  Future<GrandSlamEndpoints> resolveGrandSlamEndpoints() async {
+    final endpoints = await _grandSlamEndpoints(await _loadState());
+    return endpoints;
+  }
 
   /// Releases the underlying HTTP client's resources.
   @override

@@ -261,7 +261,7 @@ final class AscClient implements DevelopmentProvisioningClient {
     );
     return {
       for (final entry in _collection(json))
-        if (entry['attributes'] case {'capabilityType': final String type})
+        if (entry case {'attributes': {'capabilityType': final String type}})
           type,
     };
   }

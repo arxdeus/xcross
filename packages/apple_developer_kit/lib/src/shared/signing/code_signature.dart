@@ -314,9 +314,9 @@ Uint8List buildCodeDirectory({
 }
 
 /// Builds the designated requirement, which in `codesign` syntax reads:
-/// identifier "<identifier>" and anchor apple generic and
-/// certificate leaf[subject.CN] = "<subject>" and
-/// certificate 1[field.1.2.840.113635.100.6.2.1] exists.
+/// `identifier "<identifier>" and anchor apple generic and`
+/// `certificate leaf[subject.CN] = "<subject>" and`
+/// `certificate 1[field.1.2.840.113635.100.6.2.1] exists`.
 ///
 /// The blob is a `CS_Requirements` superblob holding exactly one
 /// `CS_Requirement`, whose index entry sits at offset 20 (12-byte header plus

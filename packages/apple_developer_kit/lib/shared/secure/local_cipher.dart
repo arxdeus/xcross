@@ -31,7 +31,7 @@ final class LocalCipherError extends AppleError {
 ///
 /// Instead the key is derived per install:
 ///
-///   key = HKDF-SHA256(ikm: <key file>, salt: <machine id>, info: v1)
+///   `key = HKDF-SHA256(ikm: <key file>, salt: <machine id>, info: v1)`
 ///
 /// * the *key file* is 32 random bytes in [defaultKeyFilePath], mode 600,
 ///   generated on first use — so it is scoped to this user account;

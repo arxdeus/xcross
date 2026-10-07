@@ -471,7 +471,7 @@ final class WindowsNativeSymbolStubs {
       handle.value = lib.base.address;
       _dlopenHandles[handle.address] = lib;
       return handle.cast();
-    } catch (_) {
+    } on Object catch (_) {
       return nullptr;
     }
   }
@@ -481,7 +481,7 @@ final class WindowsNativeSymbolStubs {
     if (lib == null) return nullptr;
     try {
       return lib.lookup(symbolNamePtr.toDartString());
-    } catch (_) {
+    } on Object catch (_) {
       return nullptr;
     }
   }
