@@ -122,8 +122,10 @@ final class FlutterWorkspaceOverlay<T extends PlatformHostInterface> {
   }
 
   Future<void> _link(String path, String target) async {
-    if (fileSystem.typeSync(path, followLinks: false) !=
-        FileSystemEntityType.notFound) {
+    final alreadyExists =
+        fileSystem.typeSync(path, followLinks: false) !=
+        FileSystemEntityType.notFound;
+    if (alreadyExists) {
       return;
     }
     await fileSystem.directory(paths.dirname(path)).create(recursive: true);
