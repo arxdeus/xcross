@@ -91,23 +91,36 @@ final class IosEngineCache<T extends PlatformHostInterface> {
   bool get _sdkIosEngineUsable {
     final directory = _flutterSdkIosEngineDir;
     final framework = host.paths.context.join(directory, 'Flutter.xcframework');
-    return host.fileSystem.directory(framework).existsSync() &&
-        _preservesCase(directory) &&
-        !_isStale(sdkIosEngineRevision);
+    if (!host.fileSystem.directory(framework).existsSync() ||
+        !_preservesCase(directory)) {
+      return false;
+    }
+    final revision = sdkIosEngineRevision;
+    // Off macOS nothing in Flutter keeps this directory current, so only
+    // positive evidence that it matches the engine is good enough.
+    if (!_flutterManagesIosArtifacts) return _matchesEngine(revision);
+    return !_isStale(revision);
   }
+
+  /// Whether flutter_tools downloads and refreshes `artifacts/engine/ios` on
+  /// this host. It only does so on macOS: elsewhere the `ios-sdk` artifact
+  /// set is platform-filtered to nothing, yet updating it still rewrites
+  /// `ios-sdk.stamp` to the current engine. That stamp therefore says nothing
+  /// about the files on Linux and Windows.
+  bool get _flutterManagesIosArtifacts => host is MacOSHostInterface;
 
   /// Engine revision of the iOS artifacts inside the Flutter SDK, or `null`
   /// when nothing records one.
   ///
   /// The framework's own `Info.plist` (`FlutterEngine`) is authoritative,
-  /// since it travels with the binary. `bin/cache/ios-sdk.stamp`, written by
-  /// `flutter precache --ios`, is the fallback.
+  /// since it travels with the binary. On macOS, where flutter_tools keeps
+  /// the directory current, `bin/cache/ios-sdk.stamp` is the fallback.
   @visibleForTesting
   String? get sdkIosEngineRevision =>
       _frameworkEngineRevision(
         host.paths.context.join(_flutterSdkIosEngineDir, 'Flutter.xcframework'),
       ) ??
-      _readStamp('ios-sdk');
+      (_flutterManagesIosArtifacts ? _readStamp('ios-sdk') : null);
 
   /// Engine revision of the host snapshots and patched SDK inside the
   /// Flutter SDK, from `bin/cache/flutter_sdk.stamp`.
@@ -120,6 +133,15 @@ final class IosEngineCache<T extends PlatformHostInterface> {
     if (revision == null) return false;
     try {
       return revision != engineHash;
+    } on FlutterBuildError {
+      return false;
+    }
+  }
+
+  bool _matchesEngine(String? revision) {
+    if (revision == null) return false;
+    try {
+      return revision == engineHash;
     } on FlutterBuildError {
       return false;
     }
@@ -342,11 +364,18 @@ final class IosEngineCache<T extends PlatformHostInterface> {
     }
   }
 
-  /// Explain, once per build, why the SDK's own artifacts were passed over,
-  /// and flag a Dart SDK whose frontend_server would emit kernel the engine
-  /// rejects.
+  /// Explain why the SDK's own artifacts were passed over, and flag a Dart
+  /// SDK whose frontend_server would emit kernel the engine rejects.
+  ///
+  /// Each warning is printed once per process: a build creates several
+  /// engine caches and calls this from each of them.
   void _warnAboutStaleSdkArtifacts() {
-    final hash = engineHash;
+    final String hash;
+    try {
+      hash = engineHash;
+    } on FlutterBuildError {
+      return; // The download below reports the missing engine hash.
+    }
     final ios = sdkIosEngineRevision;
     if (_isStale(ios) &&
         host.fileSystem
@@ -357,29 +386,39 @@ final class IosEngineCache<T extends PlatformHostInterface> {
               ),
             )
             .existsSync()) {
-      log.logWarn(
+      _warnOnce(
         'Flutter SDK iOS engine artifacts are from engine $ios, but the SDK '
-        'expects $hash. Using engine $hash artifacts cached by xcross instead. '
-        'To refresh the SDK copy, run `flutter precache --ios --force`.',
+        'is on engine $hash. xcross is using matching artifacts from its own '
+        'cache instead. To refresh the SDK copy, run '
+        '`flutter precache --ios --force`.',
       );
     }
     final common = sdkCommonEngineRevision;
     if (_isStale(common)) {
-      log.logWarn(
+      _warnOnce(
         'Flutter SDK host engine artifacts are from engine $common, but the '
-        'SDK expects $hash. Using engine $hash artifacts cached by xcross '
-        'instead. Run `flutter precache --force` to refresh the SDK cache.',
+        'SDK is on engine $hash. xcross is using matching artifacts from its '
+        'own cache instead. Run `flutter precache --force` to refresh the SDK.',
       );
     }
     final dartSdk = _readStamp('engine-dart-sdk');
     if (_isStale(dartSdk)) {
-      log.logWarn(
-        'Flutter Dart SDK is from engine $dartSdk, but the SDK expects $hash. '
-        'Kernel it compiles may fail to load with "Invalid SDK hash". '
-        'Run `flutter precache --force` to refresh it.',
+      _warnOnce(
+        'Flutter Dart SDK is from engine $dartSdk, but the SDK is on engine '
+        '$hash. The app may fail to start with "Invalid SDK hash". Run '
+        '`flutter --version` to update the Dart SDK.',
       );
     }
   }
+
+  void _warnOnce(String message) {
+    if (_warned.add(message)) log.logWarn(message);
+  }
+
+  static final _warned = <String>{};
+
+  @visibleForTesting
+  static void resetWarningsForTesting() => _warned.clear();
 
   Future<void> _downloadHostArtifacts() async {
     final url = hostArtifactsUrl;

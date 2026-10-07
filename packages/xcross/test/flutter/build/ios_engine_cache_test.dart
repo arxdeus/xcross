@@ -145,6 +145,7 @@ void main() {
     downloader: _downloader(),
   );
   setUp(() async {
+    IosEngineCache.resetWarningsForTesting();
     temp = await Directory.systemTemp.createTemp('engine-cache-unit-');
     flutterRoot = p.join(temp.path, 'flutter');
     cacheRoot = p.join(temp.path, 'cache');
@@ -464,21 +465,85 @@ void main() {
       );
     });
 
-    test('falls back to ios-sdk.stamp when the framework has no revision', () {
+    test('ignores ios-sdk.stamp off macOS, which Flutter bumps blindly', () {
       _writeEngineFramework(
         p.join(sdk, 'ios', 'Flutter.xcframework', 'ios-arm64'),
         folded: false,
       );
+      writeStamp('ios-sdk', 'engine-hash');
+      final engine = cache();
+      expect(engine.sdkIosEngineRevision, isNull);
+      expect(
+        engine.flutterXcframework,
+        p.join(userEngine('ios'), 'Flutter.xcframework'),
+      );
+    });
+
+    test('falls back to ios-sdk.stamp on macOS', () {
+      _writeEngineFramework(
+        p.join(sdk, 'ios', 'Flutter.xcframework', 'ios-arm64'),
+        folded: false,
+      );
+      IosEngineCache<MacOSHost> mac() => IosEngineCache(
+        targetPolicy: IPhoneFlutterTarget(IPhoneTarget(macArm)),
+        hostTools: MacOSNativeHostTools(
+          macArm,
+          ProcessRunner(
+            macArm,
+            log: _log(),
+            stdinStream: const Stream<List<int>>.empty(),
+            stdoutSink: sink(),
+            stderrSink: sink(),
+          ),
+        ),
+        flutterRoot: flutterRoot,
+        cacheRoot: cacheRoot,
+        log: _log(),
+        downloader: _downloader(),
+      );
+      // macOS SDKs predating the stamp keep working as before.
+      expect(
+        mac().flutterXcframework,
+        p.join(sdk, 'ios', 'Flutter.xcframework'),
+      );
       writeStamp('ios-sdk', 'older-hash');
       expect(
-        cache().flutterXcframework,
+        mac().flutterXcframework,
         p.join(userEngine('ios'), 'Flutter.xcframework'),
       );
       writeStamp('ios-sdk', 'engine-hash');
       expect(
-        cache().flutterXcframework,
+        mac().flutterXcframework,
         p.join(sdk, 'ios', 'Flutter.xcframework'),
       );
+    });
+
+    test('warns once per process even across cache instances', () async {
+      writeSdkCommon();
+      writeStamp('flutter_sdk', 'older-hash');
+      Directory(
+        userEngine('common/flutter_patched_sdk'),
+      ).createSync(recursive: true);
+      Directory(userEngine('linux-arm64')).createSync(recursive: true);
+      for (final name in ['vm_isolate_snapshot.bin', 'isolate_snapshot.bin']) {
+        File(p.join(userEngine('linux-arm64'), name)).writeAsStringSync('x');
+      }
+      _writeEngineFramework(
+        p.join(userEngine('ios'), 'Flutter.xcframework', 'ios-arm64'),
+        folded: false,
+      );
+      final output = _RecordingLogOutput();
+      for (var i = 0; i < 3; i++) {
+        await IosEngineCache(
+          targetPolicy: policy,
+          hostTools: hostTools,
+          flutterRoot: flutterRoot,
+          cacheRoot: cacheRoot,
+          log: Log(output: output),
+          downloader: _downloader(),
+        ).ensureArtifactsAvailable();
+      }
+      expect(output.stderrLines, hasLength(1));
     });
 
     test('reads binary framework plists', () {
@@ -585,6 +650,7 @@ void main() {
     _writeEngineFramework(
       p.join(sdk, 'ios', 'Flutter.xcframework', 'ios-arm64'),
       folded: false,
+      engineRevision: 'engine-hash',
     );
     Directory(
       p.join(sdk, 'common', 'flutter_patched_sdk'),

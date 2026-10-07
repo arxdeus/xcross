@@ -86,6 +86,29 @@ IosEngineCache workspaceSdk(
   File(
     p.join(root, 'bin', 'internal', 'engine.version'),
   ).writeAsStringSync('engine-hash');
+  if (sdkLocalEngine) {
+    // A real `flutter precache --ios` framework records its engine, and off
+    // macOS xcross only reuses SDK iOS artifacts that do.
+    final framework = p.join(
+      root,
+      'bin',
+      'cache',
+      'artifacts',
+      'engine',
+      'ios',
+      'Flutter.xcframework',
+      'ios-arm64',
+      'Flutter.framework',
+    );
+    File(p.join(framework, 'Flutter'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync(label);
+    File(p.join(framework, 'Info.plist')).writeAsStringSync('''
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>FlutterEngine</key><string>engine-hash</string></dict></plist>
+''');
+  }
   final cache = nativeLinuxEngineCache(flutterRoot: root, cacheRoot: cacheRoot);
   Directory(cache.flutterXcframework).createSync(recursive: true);
   Directory(cache.patchedSdkRoot).createSync(recursive: true);
