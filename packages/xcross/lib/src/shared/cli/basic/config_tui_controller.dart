@@ -98,6 +98,8 @@ final class ConfigTuiController {
     required Future<String> Function(XcrossConfig config) save,
     required void Function(XcrossConfig config) validate,
   }) async {
+    Future<bool> perform(ConfigAction action) =>
+        _performAction(action, confirm, save, validate);
     try {
       switch (key) {
         case TuiKey.tab || TuiKey.right:
@@ -112,43 +114,18 @@ final class ConfigTuiController {
           if (selection < rowCount) {
             _editSelectedRow(prompt);
           } else {
-            return await _performAction(
-              ConfigAction.values[selection - rowCount],
-              confirm,
-              save,
-              validate,
-            );
+            return await perform(ConfigAction.values[selection - rowCount]);
           }
         case TuiKey.delete:
           _deleteSelectedRow(confirm);
         case TuiKey.save:
-          return await _performAction(
-            ConfigAction.save,
-            confirm,
-            save,
-            validate,
-          );
+          return await perform(ConfigAction.save);
         case TuiKey.validate:
-          return await _performAction(
-            ConfigAction.validate,
-            confirm,
-            save,
-            validate,
-          );
+          return await perform(ConfigAction.validate);
         case TuiKey.discard:
-          return await _performAction(
-            ConfigAction.discard,
-            confirm,
-            save,
-            validate,
-          );
+          return await perform(ConfigAction.discard);
         case TuiKey.quit:
-          return await _performAction(
-            ConfigAction.quit,
-            confirm,
-            save,
-            validate,
-          );
+          return await perform(ConfigAction.quit);
         case TuiKey.other:
           break;
       }
