@@ -1,49 +1,199 @@
-# Seeds the private, per-host Darwin SDK caches used by integration.yml.
-# The artifactbundle_url input, or repository secret DARWIN_ARTIFACTBUNDLE_URL
-# when it is empty, must point to an archive with xcross-darwin.artifactbundle
-# at its root, produced by `xcross sdk install`.
-# Never publish the archive: it contains Apple SDK content.
 name: Warm Darwin SDK cache
 
 on:
   workflow_dispatch:
     inputs:
-      artifactbundle_url:
-        description: >-
-          Private URL to the SDK .tar.gz. Defaults to the
-          DARWIN_ARTIFACTBUNDLE_URL secret. Dispatch inputs are recorded in
-          plain text in the run metadata, so prefer a short-lived URL.
-        required: false
-        default: ""
-        type: string
-      cache_revision:
-        description: Non-secret revision used to replace an older SDK cache.
+      xcode_xip_url:
+        description: Direct download URL of an Xcode .xip.
         required: true
-        default: v3
+        type: string
+      source_ref:
+        description: >-
+          Branch whose workflow files and xcross build the SDK. Dispatch from
+          main so pull requests into main can restore the caches.
+        required: false
+        default: ''
         type: string
 
 permissions:
   contents: read
 
 env:
-  SWIFT_VERSION: 6.3.3
-  SWIFT_WINDOWS_SHA256: >-
-    235626548F249CD516D3D4D90EEE980DCCAD46F3822DAC1F8E3119B0FEDE94B7
+  FLUTTER_VERSION: 3.47.2
+  SWIFT_VERSION: 6.4.0
+  SWIFT_WINDOWS_X64_SHA256: >-
+    76169A85BCBA82854A0CD8F9655FFB74B3758D60C35A245457510095F2823C03
+  SWIFT_WINDOWS_ARM64_SHA256: >-
+    F48E393634995CB589F547E40D64673BC641CA76B099697BA8227A8904BE4A49
+  LLVM_VERSION: 22.1.8
+  LLVM_WINDOWS_ARM64_SHA256: >-
+    76F44EF1BA6EEB5A65904E9500F042F588FADE49952778CE48F0374DAA934396
 
 jobs:
   warm-cache:
     name: Warm ${{ matrix.os }} cache
+    permissions:
+      contents: read
+      actions: write
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-2022]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, windows-2022, windows-11-arm]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
 
     steps:
+      - name: Mask Xcode xip URL
+        shell: python
+        run: |
+          import json
+          import os
+
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as event:
+              url = json.load(event)["inputs"]["xcode_xip_url"]
+          print(f"::add-mask::{url}")
+
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
+          ref: ${{ inputs.source_ref }}
           persist-credentials: false
+
+      - name: Free disk space on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h "$RUNNER_TEMP" "$HOME"
+          available=$(df --output=avail -k "$HOME" | tail -1)
+          if (( available < 20 * 1024 * 1024 )); then
+            sudo rm -rf \
+              /usr/local/lib/android \
+              /usr/share/dotnet \
+              /opt/ghc \
+              /usr/local/.ghcup \
+              /opt/hostedtoolcache/CodeQL
+            df -h "$RUNNER_TEMP" "$HOME"
+          fi
+
+      - name: Install Flutter on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone \
+            --depth 1 \
+            --branch "$FLUTTER_VERSION" \
+            https://github.com/flutter/flutter.git \
+            "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Install Flutter on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git clone `
+            --depth 1 `
+            --branch $env:FLUTTER_VERSION `
+            https://github.com/flutter/flutter.git `
+            "$env:RUNNER_TEMP\flutter"
+          "$env:RUNNER_TEMP\flutter\bin" |
+            Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+
+      # The Windows ADI bridge is compiled by a Dart build hook through
+      # native_toolchain_c, which resolves MSVC with `vswhere -requires
+      # Microsoft.VisualStudio.Component.VC.Tools.<arch>`. Verify that query
+      # succeeds and add the component when the runner image lacks it.
+      - name: Ensure MSVC tools on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          MSVC_ARCHITECTURE: ${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $component = switch ($env:MSVC_ARCHITECTURE) {
+            'x64' { 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64' }
+            'arm64' { 'Microsoft.VisualStudio.Component.VC.Tools.ARM64' }
+            default { throw "Unsupported MSVC architecture: $env:MSVC_ARCHITECTURE" }
+          }
+          $installerDir = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer"
+          $vswhere = Join-Path $installerDir 'vswhere.exe'
+          if (-not (Test-Path $vswhere)) {
+            throw "vswhere.exe not found at $vswhere"
+          }
+          function Find-Msvc {
+            & $vswhere -latest -products '*' -requires $component `
+              -property installationPath
+          }
+          $installation = Find-Msvc
+          if (-not $installation) {
+            $visualStudio = & $vswhere -latest -products '*' -property installationPath
+            if (-not $visualStudio) {
+              throw 'No Visual Studio installation found on this runner'
+            }
+            Write-Host "Adding $component to $visualStudio"
+            $process = Start-Process `
+              (Join-Path $installerDir 'vs_installer.exe') `
+              -ArgumentList 'modify', '--installPath', "`"$visualStudio`"", `
+                '--add', $component, '--quiet', '--norestart', '--nocache' `
+              -PassThru `
+              -Wait
+            if ($process.ExitCode -notin 0, 3010) {
+              throw "Visual Studio installer failed: $($process.ExitCode)"
+            }
+            $installation = Find-Msvc
+            if (-not $installation) {
+              throw "$component is still missing after installation"
+            }
+          }
+          Write-Host "MSVC ${env:MSVC_ARCHITECTURE} tools: $installation"
+
+      - name: Install pinned Swift on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$RUNNER_ARCH" in
+            ARM64) arch=aarch64; platform=ubuntu2404-aarch64; suffix=-aarch64 ;;
+            X64) arch=x86_64; platform=ubuntu2404; suffix= ;;
+            *) echo "Unsupported runner architecture: $RUNNER_ARCH"; exit 1 ;;
+          esac
+          tag="(swift-${SWIFT_VERSION%.0}-RELEASE)"
+          current="$(swift --version 2>/dev/null || true)"
+          if ! grep -Fq "$tag" <<< "$current" ||
+              ! grep -Eq "Target: $arch-.*linux" <<< "$current"; then
+            sudo apt-get update
+            sudo apt-get install -y \
+              binutils git gnupg2 libc6-dev libcurl4-openssl-dev libedit2 \
+              libgcc-13-dev libncurses-dev libpython3-dev libsqlite3-0 \
+              libstdc++-13-dev libxml2-dev libz3-dev pkg-config tzdata \
+              zip unzip zlib1g-dev
+            release="swift-$SWIFT_VERSION-release"
+            version="swift-$SWIFT_VERSION-RELEASE"
+            archive="$version-ubuntu24.04$suffix.tar.gz"
+            base="https://download.swift.org/$release/$platform/$version"
+            download="$RUNNER_TEMP/swift-download"
+            mkdir -p "$download/gnupg" "$RUNNER_TEMP/swift"
+            chmod 700 "$download/gnupg"
+            curl --fail --location --retry 3 "$base/$archive" -o "$download/$archive"
+            curl --fail --location --retry 3 "$base/$archive.sig" -o "$download/$archive.sig"
+            curl --fail --location --compressed --retry 3 https://www.swift.org/keys/all-keys.asc \
+              -o "$download/all-keys.asc"
+            gzip -dcf "$download/all-keys.asc" > "$download/all-keys.txt"
+            gpg --batch --homedir "$download/gnupg" --import "$download/all-keys.txt"
+            gpg --batch --homedir "$download/gnupg" \
+              --verify "$download/$archive.sig" "$download/$archive"
+            tar -xzf "$download/$archive" -C "$RUNNER_TEMP/swift" --strip-components=1
+            echo "$RUNNER_TEMP/swift/usr/bin" >> "$GITHUB_PATH"
+            export PATH="$RUNNER_TEMP/swift/usr/bin:$PATH"
+          fi
+          swift --version | tee "$RUNNER_TEMP/swift-version.txt"
+          grep -Fq "$tag" "$RUNNER_TEMP/swift-version.txt"
+          grep -Eq "Target: $arch-.*linux" "$RUNNER_TEMP/swift-version.txt"
+          swift sdk list
+          printf 'print("ok")\n' > "$RUNNER_TEMP/swift-probe.swift"
+          swiftc -typecheck "$RUNNER_TEMP/swift-probe.swift"
 
       - name: Install Linux LLVM requirements
         if: runner.os == 'Linux'
@@ -60,15 +210,26 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          switch ($env:RUNNER_ARCH) {
+            'ARM64' {
+              $swiftPlatform = 'windows10-arm64'
+              $swiftSha256 = $env:SWIFT_WINDOWS_ARM64_SHA256
+            }
+            'X64' {
+              $swiftPlatform = 'windows10'
+              $swiftSha256 = $env:SWIFT_WINDOWS_X64_SHA256
+            }
+            default { throw "Unsupported runner architecture: $env:RUNNER_ARCH" }
+          }
           $installer = "$env:RUNNER_TEMP\swift-installer.exe"
           $release = "swift-$env:SWIFT_VERSION-release"
           $version = "swift-$env:SWIFT_VERSION-RELEASE"
           $base = 'https://download.swift.org'
-          $url = "$base/$release/windows10/$version/" +
-            "$version-windows10.exe"
+          $url = "$base/$release/$swiftPlatform/$version/" +
+            "$version-$swiftPlatform.exe"
           Invoke-WebRequest $url -OutFile $installer
           $hash = (Get-FileHash $installer -Algorithm SHA256).Hash
-          if ($hash -ne $env:SWIFT_WINDOWS_SHA256) {
+          if ($hash -ne $swiftSha256) {
             throw "Swift installer checksum mismatch: $hash"
           }
           $process = Start-Process `
@@ -81,8 +242,29 @@ jobs:
           }
 
           $llvmBin = "${env:ProgramFiles}\LLVM\bin"
+          if ($env:RUNNER_ARCH -eq 'ARM64') {
+            $llvmAsset = "LLVM-$env:LLVM_VERSION-woa64.exe"
+            $llvmInstaller = "$env:RUNNER_TEMP\llvm-installer.exe"
+            $llvmRoot = "$env:RUNNER_TEMP\llvm-$env:LLVM_VERSION"
+            $llvmUrl = "https://github.com/llvm/llvm-project/releases/download/" +
+              "llvmorg-$env:LLVM_VERSION/$llvmAsset"
+            Invoke-WebRequest $llvmUrl -OutFile $llvmInstaller
+            $llvmHash = (Get-FileHash $llvmInstaller -Algorithm SHA256).Hash
+            if ($llvmHash -ne $env:LLVM_WINDOWS_ARM64_SHA256) {
+              throw "LLVM installer checksum mismatch: $llvmHash"
+            }
+            $llvmProcess = Start-Process `
+              $llvmInstaller `
+              -ArgumentList '/S', "/D=$llvmRoot" `
+              -PassThru `
+              -Wait
+            if ($llvmProcess.ExitCode -ne 0) {
+              throw "LLVM installer failed: $($llvmProcess.ExitCode)"
+            }
+            $llvmBin = "$llvmRoot\bin"
+          }
           if (-not (Test-Path "$llvmBin\ld64.lld.exe")) {
-            throw "Hosted-runner LLVM missing ld64.lld.exe at $llvmBin"
+            throw "LLVM missing ld64.lld.exe at $llvmBin"
           }
           $swiftRoot = "$env:LOCALAPPDATA\Programs\Swift"
           # The installer registers its Runtimes, Toolchains, and Tools
@@ -165,25 +347,141 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "swift --version failed with $LASTEXITCODE"
           }
+          $swiftVersion = (& swift --version 2>&1 | Out-String)
+          if (-not $swiftVersion.Contains("(swift-$($env:SWIFT_VERSION -replace '\.0$')-RELEASE)")) {
+            throw "Swift is not the pinned $env:SWIFT_VERSION release"
+          }
           & swift sdk list
           if ($LASTEXITCODE -ne 0) {
             throw "swift sdk list failed with $LASTEXITCODE"
           }
 
-      - name: Mask dispatched artifactbundle URL
-        if: inputs.artifactbundle_url != ''
+      - name: Build xcross on Linux
+        if: runner.os == 'Linux'
         shell: bash
-        env:
-          ARTIFACTBUNDLE_URL: ${{ inputs.artifactbundle_url }}
         run: |
           set -euo pipefail
-          echo "::add-mask::$ARTIFACTBUNDLE_URL"
+          flutter config --no-analytics
+          dart pub get
+          (cd packages/xcross && dart run tool/build_xcross.dart)
+          cp -r packages/xcross/build/cli/*/bundle "$RUNNER_TEMP/xcross-bundle"
+          chmod +x "$RUNNER_TEMP/xcross-bundle/bin/xcross"
+          echo "$RUNNER_TEMP/xcross-bundle/bin" >> "$GITHUB_PATH"
 
-      - name: Restore or download xcross Darwin SDK
-        uses: ./.github/actions/setup-darwin-sdk
+      - name: Build xcross on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          flutter config --no-analytics
+          dart pub get
+          if ($LASTEXITCODE -ne 0) { throw 'dart pub get failed' }
+          Push-Location packages/xcross
+          dart run tool/build_xcross.dart
+          if ($LASTEXITCODE -ne 0) { throw 'xcross build failed' }
+          Pop-Location
+          $cliDir = if ($env:RUNNER_ARCH -eq 'ARM64') { 'windows_arm64' } else { 'windows_x64' }
+          Copy-Item -Recurse `
+            "packages/xcross/build/cli/$cliDir/bundle" `
+            "$env:RUNNER_TEMP\xcross-bundle"
+          "$env:RUNNER_TEMP\xcross-bundle\bin" |
+            Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Resolve xcross Swift SDK path
+        id: sdk-path
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+
+          if os.name == "nt":
+              config = Path(os.environ["APPDATA"])
+          else:
+              config = Path(
+                  os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")
+              )
+          parent = config / "xcross" / "swift-sdks"
+          bundle = parent / "xcross-darwin.artifactbundle"
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+              env.write(f"XCROSS_SWIFT_SDKS_PATH={parent}\n")
+              env.write(f"XCROSS_DARWIN_BUNDLE={bundle}\n")
+          cache_key = "-".join(
+              (
+                  "xcross-darwin",
+                  os.environ["RUNNER_OS"].lower(),
+                  os.environ["RUNNER_ARCH"].lower(),
+              )
+          )
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"bundle={bundle}\n")
+              out.write(f"cache-key={cache_key}\n")
+
+      - name: Download Xcode xip
+        shell: bash
+        env:
+          XCODE_XIP_URL: ${{ inputs.xcode_xip_url }}
+        run: |
+          set -euo pipefail
+          xip="$RUNNER_TEMP/Xcode.xip"
+          df -h "$RUNNER_TEMP"
+          curl --fail --location --silent --show-error \
+            --retry 5 --retry-all-errors --retry-delay 10 \
+            --user-agent curl/8.5.0 \
+            --output "$xip" "$XCODE_XIP_URL"
+          ls -l "$xip"
+          test "$(head -c 4 "$xip")" = "xar!"
+          echo "XCODE_XIP=$xip" >> "$GITHUB_ENV"
+
+      - name: Install Darwin SDK with xcross
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$XCROSS_DARWIN_BUNDLE" "$XCROSS_DARWIN_BUNDLE.previous"
+          xcross sdk install "$XCODE_XIP"
+
+      - name: Delete Xcode xip
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/Xcode.xip"
+
+      - name: Verify installed Darwin SDK
+        shell: python
+        run: |
+          import os
+          import subprocess
+          from pathlib import Path
+
+          parent = Path(os.environ["XCROSS_SWIFT_SDKS_PATH"])
+          bundle = Path(os.environ["XCROSS_DARWIN_BUNDLE"])
+          for platform in ("iPhoneOS.platform", "iPhoneSimulator.platform"):
+              path = bundle / "Developer" / "Platforms" / platform
+              if not path.is_dir():
+                  raise SystemExit(f"missing {path}")
+          for name in ("info.json", "swift-sdk.json"):
+              if not (bundle / name).is_file():
+                  raise SystemExit(f"missing {bundle / name}")
+          subprocess.run(
+              ["swift", "sdk", "list", "--swift-sdks-path", str(parent)],
+              check=True,
+          )
+
+      - name: Delete previous Darwin SDK cache
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CACHE_KEY: ${{ steps.sdk-path.outputs.cache-key }}
+        run: |
+          set -euo pipefail
+          if ! output=$(gh cache delete "$CACHE_KEY" --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF" 2>&1); then
+            if ! grep -qi 'not find\|no caches\|not found' <<<"$output"; then
+              echo "$output"
+              exit 1
+            fi
+          fi
+          echo "$output"
+
+      - name: Save Darwin SDK cache
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
-          artifactbundle-url: >-
-            ${{ inputs.artifactbundle_url != ''
-            && inputs.artifactbundle_url
-            || secrets.DARWIN_ARTIFACTBUNDLE_URL }}
-          cache-revision: ${{ inputs.cache_revision }}
+          path: ${{ steps.sdk-path.outputs.bundle }}
+          key: ${{ steps.sdk-path.outputs.cache-key }}
