@@ -400,13 +400,6 @@ final class DoctorServiceFixture {
 }
 
 @internal
-DoctorServiceFileSystem logicalProjectFiles() {
-  final root = Directory.systemTemp.createTempSync('xcross-doctor-project-');
-  addTearDown(() => root.deleteSync(recursive: true));
-  return DoctorServiceFileSystem(p.posix, '/', root.path);
-}
-
-@internal
 final class DoctorServiceHost implements PlatformHostInterface {
   const DoctorServiceHost(this.base, this.fileSystem, this.processes);
   final PlatformHostInterface base;

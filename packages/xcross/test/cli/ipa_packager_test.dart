@@ -126,7 +126,7 @@ void main() {
 
     try {
       Link(linkPath).createSync(realPath);
-    } catch (e) {
+    } on FileSystemException {
       markTestSkipped('symlink creation unsupported in this environment');
       return;
     }

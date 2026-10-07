@@ -46,6 +46,7 @@ final class SdkTestContext {
 
   Future<void> close() async {
     await Future.wait([stdoutSink.close(), stderrSink.close()]);
+    await Future.wait([processOutput.close(), processError.close()]);
   }
 
   SdkInstall<MacOSHost> installer({SdkArchiveLinksInterface? links}) =>

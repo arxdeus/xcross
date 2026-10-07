@@ -31,6 +31,9 @@ void main() {
     final unused = fixtureSink();
     final selected = fixtureSink();
     final errors = fixtureSink();
+    addTearDown(unused.close);
+    addTearDown(selected.close);
+    addTearDown(errors.close);
     final loader = FixtureUnusedLoader();
     final operation = xcrun.CrossXcrunOperation(
       loader,
@@ -56,6 +59,7 @@ void main() {
       ).writeAsStringSync('/fixture/iPhoneSimulator26.0.sdk');
       final loader = FixtureUnusedLoader();
       final output = FixtureProbeOutput();
+      addTearDown(output.close);
       try {
         await IOOverrides.runZoned(() async {
           final operation = xcrun.CrossXcrunOperation(
@@ -370,6 +374,8 @@ void main() {
           stdout: () => output,
           stderr: () => errors,
         );
+        await output.close();
+        await errors.close();
         return ProcessResult(
           0,
           code,
@@ -929,6 +935,8 @@ final class FixtureProbeOutput implements Stdout {
   final buffer = StringBuffer();
   @override
   void writeln([Object? value = '']) => buffer.writeln(value);
+  @override
+  Future<void> close() async {}
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

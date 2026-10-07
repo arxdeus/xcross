@@ -1,4 +1,5 @@
 import 'dart:ffi';
+import 'dart:io';
 
 import 'package:apple_developer_kit/shared/appstoreconnect/asc_config.dart';
 import 'package:args/command_runner.dart';
@@ -473,4 +474,11 @@ final class DoctorNamespaceDiagnostics implements DeviceDiagnostics {
 
   @override
   Future<int?> osMajorVersion(Device device) async => 17;
+}
+
+@internal
+DoctorServiceFileSystem logicalProjectFiles() {
+  final root = Directory.systemTemp.createTempSync('xcross-doctor-project-');
+  addTearDown(() => root.deleteSync(recursive: true));
+  return DoctorServiceFileSystem(p.posix, '/', root.path);
 }
