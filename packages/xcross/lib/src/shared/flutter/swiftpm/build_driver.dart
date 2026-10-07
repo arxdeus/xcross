@@ -173,9 +173,9 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
     );
 
     await sourceRepair.buildTranslatingSdkMismatch(
-      () => runner.runChecked(
+      () => buildPlan.recordPlan(
         swiftBuild,
-        [...baseArguments, '--print-manifest-job-graph'],
+        baseArguments,
         environment: environment,
         label: 'swift build plan',
       ),
@@ -208,9 +208,9 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
           interopArguments,
         )) {
       await sourceRepair.buildTranslatingSdkMismatch(
-        () => runner.runChecked(
+        () => buildPlan.recordPlan(
           swiftBuild,
-          [...baseArguments, ...interopArguments, '--print-manifest-job-graph'],
+          [...baseArguments, ...interopArguments],
           environment: environment,
           label: 'swift build plan (interop)',
         ),

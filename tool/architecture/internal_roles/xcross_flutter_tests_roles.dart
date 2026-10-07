@@ -321,6 +321,13 @@ const xcrossFlutterTestsRoles = <String, Map<String, String>>{
     'TOP_LEVEL_VARIABLE:_simulatorRuntime': 'private',
     'TOP_LEVEL_VARIABLE:_swiftPmRuntime': 'private',
   },
+  'workspace:packages/xcross/test/flutter/build/swiftpm_plan_recording_test.dart':
+      {
+        'FUNCTION:_calls': 'private',
+        'FUNCTION:_tool': 'private',
+        'FUNCTION:main': 'entrypoint',
+        'TOP_LEVEL_VARIABLE:_runtime': 'private',
+      },
   'workspace:packages/xcross/test/flutter/build/windows_directory_copy_test.dart':
       {'FUNCTION:main': 'entrypoint'},
   'workspace:packages/xcross/test/flutter/build/windows_flutter_sdk_policy_test.dart':

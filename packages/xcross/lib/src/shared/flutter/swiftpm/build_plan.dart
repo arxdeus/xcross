@@ -6,6 +6,7 @@ import 'package:meta/meta.dart';
 import 'package:open_apple_macros/shared/open_apple_macros_server.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/ios_linker_compatibility.dart';
+import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 
@@ -46,6 +47,36 @@ final class SwiftPmBuildPlan<T extends PlatformHostInterface> {
     '-Xswiftc',
     '-fno-implicit-modules-use-lock',
   ];
+
+  static const String planOnlyTarget = '__xcross_plan_only__';
+
+  Future<void> recordPlan(
+    String swiftBuild,
+    List<String> arguments, {
+    required Map<String, String> environment,
+    required String label,
+  }) async {
+    final command = [...arguments, '--target', planOnlyTarget];
+    runner.log.logTrace(
+      '[$label] running: ${ProcessRunner.commandLine(swiftBuild, command)}',
+    );
+    final result = await runner.run(
+      swiftBuild,
+      command,
+      environment: environment,
+    );
+    final output = [
+      result.stdout,
+      result.stderr,
+    ].where((part) => part.trim().isNotEmpty).join('\n');
+    if (result.exitCode == 0 ||
+        output.contains("no target named '$planOnlyTarget'")) {
+      return;
+    }
+    throw FlutterBuildError(
+      'swift build planning failed (exit ${result.exitCode})\n$output',
+    );
+  }
 
   Future<List<String>> macroServerArguments({
     required String cacheRoot,
