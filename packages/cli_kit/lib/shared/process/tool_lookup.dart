@@ -154,8 +154,7 @@ final class ProcessToolLookup<T extends PlatformHostInterface>
           continue;
         }
 
-        if (host.fileSystem.file(candidate).existsSync() &&
-            (accept == null || accept(candidate))) {
+        if (_isAcceptedTool(candidate, accept)) {
           found.add(candidate);
         }
       }
@@ -199,8 +198,9 @@ final class ProcessToolLookup<T extends PlatformHostInterface>
     if (normalized == 'cc') {
       return (toolchain: 'llvm', basename: 'clang');
     }
-    if (_llvmExecutables.contains(normalized) ||
-        normalized.startsWith('llvm-')) {
+    final isLlvmTool =
+        _llvmExecutables.contains(normalized) || normalized.startsWith('llvm-');
+    if (isLlvmTool) {
       return (toolchain: 'llvm', basename: normalized);
     }
     return null;
@@ -214,14 +214,17 @@ final class ProcessToolLookup<T extends PlatformHostInterface>
     for (final directory in directories) {
       for (final candidate in candidates) {
         final path = host.paths.context.join(directory, candidate);
-        if (host.fileSystem.file(path).existsSync() &&
-            (accept == null || accept(path))) {
+        if (_isAcceptedTool(path, accept)) {
           return path;
         }
       }
     }
     return null;
   }
+
+  bool _isAcceptedTool(String path, bool Function(String path)? accept) =>
+      host.fileSystem.file(path).existsSync() &&
+      (accept == null || accept(path));
 
   String? _configuredToolOverride(
     Map<String, String>? tools,
