@@ -158,10 +158,10 @@ final class KotlinNativeJarPatcher {
           ArchiveFile(jarMarkerPath, markerBytes.length, markerBytes),
         );
         encoder.endEncode();
-      } catch (_) {
+      } on Object catch (_) {
         try {
           output.closeSync();
-        } catch (_) {}
+        } on Object catch (_) {}
         final tmp = files.file(tmpPath);
         final tmpExists = tmp.existsSync();
         if (tmpExists) tmp.deleteSync();

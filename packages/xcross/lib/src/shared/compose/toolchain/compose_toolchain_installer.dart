@@ -65,7 +65,10 @@ final class ComposeToolchainInstaller<T extends PlatformHostInterface> {
           _extractArchive ?? ArchiveExtractor(runner.host).extractArchive,
     );
     final installRoot = _installRoot;
-    if (installRoot != null) return installRoot(options, force: force);
+    if (installRoot != null) {
+      final injectedHome = await installRoot(options, force: force);
+      return injectedHome;
+    }
 
     final cache = runner.host.fileSystem.directory(options.cacheRoot);
     await cache.create(recursive: true);

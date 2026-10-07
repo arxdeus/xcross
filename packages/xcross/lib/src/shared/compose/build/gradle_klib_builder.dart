@@ -133,7 +133,7 @@ final class GradleKlibBuilder<T extends PlatformHostInterface> {
     } finally {
       try {
         if (tmpDir.existsSync()) tmpDir.deleteSync(recursive: true);
-      } catch (_) {}
+      } on FileSystemException catch (_) {}
     }
   }
 

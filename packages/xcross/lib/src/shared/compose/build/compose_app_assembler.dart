@@ -150,7 +150,7 @@ final class ComposeAppAssembler<T extends PlatformHostInterface> {
           target.host.fileSystem.directory(stagingApp),
           appPath,
         );
-      } catch (installError) {
+      } on Object catch (installError) {
         if (backupApp != null &&
             target.host.fileSystem.directory(backupApp).existsSync()) {
           try {
@@ -162,7 +162,7 @@ final class ComposeAppAssembler<T extends PlatformHostInterface> {
             if (backupContainer!.existsSync()) {
               await backupContainer.delete(recursive: true);
             }
-          } catch (restoreError) {
+          } on Object catch (restoreError) {
             throw XcrossError(
               'Failed to install staged Compose app at $appPath and failed to restore previous app. '
               'Previous app backup preserved at ${backupContainer!.path}. '
@@ -254,9 +254,10 @@ final class ComposeAppAssembler<T extends PlatformHostInterface> {
   ///
   /// Compose Multiplatform keeps resources *outside* the framework. On iOS the
   /// bundle's `compose-resources/` directory plays the role that `assets/` plays
-  /// on Android, so it holds the whole resources root — `compose-resources/
-  /// composeResources/<package>/…` — which is what `DefaultIOsResourceReader`
-  /// resolves against the main bundle. A hand-assembled bundle without it aborts
+  /// on Android, so it holds the whole resources root —
+  /// `compose-resources/composeResources/<package>/…` — which is what
+  /// `DefaultIOsResourceReader` resolves against the main bundle. A
+  /// hand-assembled bundle without it aborts
   /// on the first composition that touches a resource: a font read from the theme
   /// is enough to raise `MissingResourceException` inside `setContent` and kill
   /// the app at launch.

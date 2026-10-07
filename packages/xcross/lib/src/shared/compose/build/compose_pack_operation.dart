@@ -126,9 +126,10 @@ final class ComposePackOperation<T extends PlatformHostInterface> {
     await _deleteStaleOutputs(project);
     final packProject = _packProject;
     if (packProject != null) {
-      return packProject(project: project, options: options);
+      final injected = await packProject(project: project, options: options);
+      return injected;
     }
-    return ComposePacker(
+    final packed = await ComposePacker(
       project: project,
       options: options,
       target: target,
@@ -140,6 +141,7 @@ final class ComposePackOperation<T extends PlatformHostInterface> {
       cacheRoot: cacheRoot,
       processorCount: processorCount,
     ).pack();
+    return packed;
   }
 
   Future<void> _deleteStaleOutputs(KmpProject project) async {
