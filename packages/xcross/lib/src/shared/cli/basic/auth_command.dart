@@ -270,16 +270,7 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
     requireAppleIdHost(hostServices.abi);
 
     // Credentials before any await: keeps interactive stdin simple on Windows.
-    final username = _present(appleId)
-        ? appleId!
-        : _readRequiredLine('Apple ID: ');
-    final givenPassword = options.password;
-    final password = _present(givenPassword)
-        ? givenPassword
-        : _readHiddenLine('Password: ', valueName: 'password');
-    if (password == null || password.isEmpty) {
-      throw XcrossError('No password entered.');
-    }
+    final (:username, :password) = _readAppleIdCredentials(appleId);
 
     final adiLibraryDirectory = await _resolveAdiLibraryDirectory();
     final anisette = AnisetteDataProvider(
@@ -318,17 +309,12 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
         () => tokenExchange!.exchange(loginData),
       );
       final team = await _selectActiveTeam(token, anisette);
-
-      final store = GrandSlamSessionStore(hostServices: hostServices);
-      await store.save(
-        GrandSlamSession(
-          username: username,
-          token: token,
-          teamId: team.id,
-          adiLibraryDirectory: adiLibraryDirectory,
-        ),
+      await _saveAppleIdSession(
+        username: username,
+        token: token,
+        team: team,
+        adiLibraryDirectory: adiLibraryDirectory,
       );
-      log.logDone('Signed in as $username. Session saved to ${store.path}');
     } on XcrossError {
       rethrow;
     } on Object catch (e, st) {
@@ -340,6 +326,40 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
       loginClient?.close();
       anisette.close();
     }
+  }
+
+  Future<void> _saveAppleIdSession({
+    required String username,
+    required DeveloperServicesLoginToken token,
+    required DeveloperServicesTeam team,
+    required String adiLibraryDirectory,
+  }) async {
+    final store = GrandSlamSessionStore(hostServices: hostServices);
+    await store.save(
+      GrandSlamSession(
+        username: username,
+        token: token,
+        teamId: team.id,
+        adiLibraryDirectory: adiLibraryDirectory,
+      ),
+    );
+    log.logDone('Signed in as $username. Session saved to ${store.path}');
+  }
+
+  ({String username, String password}) _readAppleIdCredentials(
+    String? appleId,
+  ) {
+    final username = _present(appleId)
+        ? appleId!
+        : _readRequiredLine('Apple ID: ');
+    final givenPassword = options.password;
+    final password = _present(givenPassword)
+        ? givenPassword
+        : _readHiddenLine('Password: ', valueName: 'password');
+    if (password == null || password.isEmpty) {
+      throw XcrossError('No password entered.');
+    }
+    return (username: username, password: password);
   }
 
   Future<DeveloperServicesTeam> _selectActiveTeam(
