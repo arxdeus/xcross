@@ -68,6 +68,48 @@ void _addUnmodifiedEntry(ZipEncoder encoder, ArchiveFile entry) {
   encoder.add(entry);
 }
 
+Uint8List? _patchedEntryBytes(ArchiveFile entry) {
+  final name = entry.name;
+  if (name == hostManagerClassEntry) {
+    return patchHostManagerClassBytes(entry.readBytes()!);
+  }
+  if (name == objcExportClassEntry) {
+    return patchObjCExportClassBytes(entry.readBytes()!);
+  }
+  if (name == appleConfigurablesImplClassEntry) {
+    return patchAppleConfigurablesImplClassBytes(entry.readBytes()!);
+  }
+  return null;
+}
+
+bool _addPatchedOrUnmodifiedEntry(ZipEncoder encoder, ArchiveFile entry) {
+  final patched = _patchedEntryBytes(entry);
+  if (patched == null) {
+    _addUnmodifiedEntry(encoder, entry);
+    return false;
+  }
+  encoder.add(ArchiveFile(entry.name, patched.length, patched));
+  return true;
+}
+
+void _rejectDuplicateArchiveEntries(Archive archive) {
+  final names = <String>{};
+  for (final entry in archive.files) {
+    if (!names.add(entry.name)) {
+      throw StateError('HostManagerPatcher: duplicate JAR entry ${entry.name}');
+    }
+  }
+}
+
+bool _hasPatchableEntry(Archive archive) {
+  bool contains(String entryName) =>
+      archive.files.any((f) => f.name == entryName);
+  final hasHm = contains(hostManagerClassEntry);
+  final hasObjC = contains(objcExportClassEntry);
+  final hasAcfg = contains(appleConfigurablesImplClassEntry);
+  return hasHm || hasObjC || hasAcfg;
+}
+
 @internal
 final class KotlinNativeJarPatcher {
   const KotlinNativeJarPatcher(this.files);
@@ -83,101 +125,67 @@ final class KotlinNativeJarPatcher {
     _rejectDuplicateZipEntries(jarBytes);
     try {
       final archive = ZipDecoder().decodeBytes(jarBytes);
-      final names = <String>{};
-      for (final entry in archive.files) {
-        if (!names.add(entry.name)) {
-          throw StateError(
-            'HostManagerPatcher: duplicate JAR entry ${entry.name}',
-          );
-        }
-      }
+      _rejectDuplicateArchiveEntries(archive);
 
       // Check idempotency marker.
-      if (archive.files.any((f) => f.name == jarMarkerPath)) {
+      final alreadyPatched = archive.files.any((f) => f.name == jarMarkerPath);
+      if (alreadyPatched) {
+        return false;
+      }
+      if (!_hasPatchableEntry(archive)) {
         return false;
       }
 
-      final hasHm = archive.files.any((f) => f.name == hostManagerClassEntry);
-      final hasObjC = archive.files.any((f) => f.name == objcExportClassEntry);
-      final hasAcfg = archive.files.any(
-        (f) => f.name == appleConfigurablesImplClassEntry,
-      );
-      if (!hasHm && !hasObjC && !hasAcfg) {
-        return false;
-      }
-
-      // Rebuild the archive with patched entries, streaming to a temp file.
-      final output = OutputFileStream(files.file(tmpPath).path);
-      final encoder = ZipEncoder();
-      encoder.startEncode(output);
-      var didPatch = false;
-
-      try {
-        for (final entry in archive.files) {
-          final name = entry.name;
-
-          if (name == hostManagerClassEntry) {
-            final patched = patchHostManagerClassBytes(entry.readBytes()!);
-            encoder.add(ArchiveFile(name, patched.length, patched));
-            didPatch = true;
-          } else if (name == objcExportClassEntry) {
-            final patched = patchObjCExportClassBytes(entry.readBytes()!);
-            if (patched != null) {
-              encoder.add(ArchiveFile(name, patched.length, patched));
-              didPatch = true;
-            } else {
-              _addUnmodifiedEntry(encoder, entry);
-            }
-          } else if (name == appleConfigurablesImplClassEntry) {
-            final patched = patchAppleConfigurablesImplClassBytes(
-              entry.readBytes()!,
-            );
-            if (patched != null) {
-              encoder.add(ArchiveFile(name, patched.length, patched));
-              didPatch = true;
-            } else {
-              _addUnmodifiedEntry(encoder, entry);
-            }
-          } else {
-            _addUnmodifiedEntry(encoder, entry);
-          }
-        }
-
-        if (!didPatch) {
-          encoder.endEncode();
-          output.closeSync();
-          final tmp = files.file(tmpPath);
-          final tmpExists = tmp.existsSync();
-          if (tmpExists) tmp.deleteSync();
-          return false;
-        }
-
-        // Write idempotency marker.
-        final markerBytes = utf8.encode('patched\n');
-        encoder.add(
-          ArchiveFile(jarMarkerPath, markerBytes.length, markerBytes),
-        );
-        encoder.endEncode();
-      } on Object catch (_) {
-        try {
-          output.closeSync();
-        } on Object catch (_) {}
-        final tmp = files.file(tmpPath);
-        final tmpExists = tmp.existsSync();
-        if (tmpExists) tmp.deleteSync();
-        rethrow;
-      }
-
-      output.closeSync();
+      final didPatch = _writePatchedArchive(archive, tmpPath);
+      if (!didPatch) return false;
 
       // Atomic replace.
       files.file(tmpPath).renameSync(files.file(jarPath).path);
       return true;
     } catch (_) {
-      final tmp = files.file(tmpPath);
-      final tmpExists = tmp.existsSync();
-      if (tmpExists) tmp.deleteSync();
+      _deleteTempIfPresent(tmpPath);
       rethrow;
     }
+  }
+
+  bool _writePatchedArchive(Archive archive, String tmpPath) {
+    // Rebuild the archive with patched entries, streaming to a temp file.
+    final output = OutputFileStream(files.file(tmpPath).path);
+    final encoder = ZipEncoder();
+    encoder.startEncode(output);
+    var didPatch = false;
+
+    try {
+      for (final entry in archive.files) {
+        if (_addPatchedOrUnmodifiedEntry(encoder, entry)) didPatch = true;
+      }
+
+      if (!didPatch) {
+        encoder.endEncode();
+        output.closeSync();
+        _deleteTempIfPresent(tmpPath);
+        return false;
+      }
+
+      // Write idempotency marker.
+      final markerBytes = utf8.encode('patched\n');
+      encoder.add(ArchiveFile(jarMarkerPath, markerBytes.length, markerBytes));
+      encoder.endEncode();
+    } on Object catch (_) {
+      try {
+        output.closeSync();
+      } on Object catch (_) {}
+      _deleteTempIfPresent(tmpPath);
+      rethrow;
+    }
+
+    output.closeSync();
+    return true;
+  }
+
+  void _deleteTempIfPresent(String tmpPath) {
+    final tmp = files.file(tmpPath);
+    final tmpExists = tmp.existsSync();
+    if (tmpExists) tmp.deleteSync();
   }
 }
