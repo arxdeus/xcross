@@ -15,14 +15,17 @@ import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dar
 
 /// Resolves Flutter iOS engine artifacts needed for a debug iOS bundle.
 ///
-/// On macOS, `flutter precache --ios` downloads these into
-/// `bin/cache/artifacts/engine/ios/`. On Linux, Flutter skips iOS artifacts,
-/// so we fetch them ourselves from `storage.googleapis.com`. Missing artifacts
-/// are stored outside the Flutter SDK so read-only installations work.
+/// Where flutter_tools manages them, `flutter precache --ios` downloads these
+/// into `bin/cache/artifacts/engine/ios/`. Elsewhere Flutter skips iOS
+/// artifacts, so we fetch them ourselves from `storage.googleapis.com`.
+/// Missing artifacts are stored outside the Flutter SDK so read-only
+/// installations work.
 ///
 /// Artifacts inside the Flutter SDK are only reused when they belong to the
-/// SDK's current engine revision. On non-macOS hosts flutter_tools never
-/// refreshes `artifacts/engine/ios` after an upgrade, so a one-off
+/// SDK's current engine revision. On hosts where flutter_tools does not
+/// manage iOS artifacts (see
+/// [NativeHostTools.flutterManagesIosEngineArtifacts]) it never refreshes
+/// `artifacts/engine/ios` after an upgrade, so a one-off
 /// `flutter precache --ios` leaves an engine behind that rejects every kernel
 /// the upgraded frontend_server produces ("Invalid SDK hash").
 @internal
@@ -96,25 +99,21 @@ final class IosEngineCache<T extends PlatformHostInterface> {
       return false;
     }
     final revision = sdkIosEngineRevision;
-    // Off macOS nothing in Flutter keeps this directory current, so only
-    // positive evidence that it matches the engine is good enough.
+    // When Flutter does not keep this directory current, only positive
+    // evidence that it matches the engine is good enough.
     if (!_flutterManagesIosArtifacts) return _matchesEngine(revision);
     return !_isStale(revision);
   }
 
-  /// Whether flutter_tools downloads and refreshes `artifacts/engine/ios` on
-  /// this host. It only does so on macOS: elsewhere the `ios-sdk` artifact
-  /// set is platform-filtered to nothing, yet updating it still rewrites
-  /// `ios-sdk.stamp` to the current engine. That stamp therefore says nothing
-  /// about the files on Linux and Windows.
-  bool get _flutterManagesIosArtifacts => host is MacOSHostInterface;
+  bool get _flutterManagesIosArtifacts =>
+      hostTools.flutterManagesIosEngineArtifacts;
 
   /// Engine revision of the iOS artifacts inside the Flutter SDK, or `null`
   /// when nothing records one.
   ///
   /// The framework's own `Info.plist` (`FlutterEngine`) is authoritative,
-  /// since it travels with the binary. On macOS, where flutter_tools keeps
-  /// the directory current, `bin/cache/ios-sdk.stamp` is the fallback.
+  /// since it travels with the binary. Where flutter_tools keeps the
+  /// directory current, `bin/cache/ios-sdk.stamp` is the fallback.
   @visibleForTesting
   String? get sdkIosEngineRevision =>
       _frameworkEngineRevision(

@@ -30,6 +30,8 @@ final class LinuxNativeHostTools<T extends LinuxHostInterface>
   @override
   String get engineCacheDirectory => artifactPlatform;
   @override
+  bool get flutterManagesIosEngineArtifacts => false;
+  @override
   ToolchainPluginLayoutInterface get toolchainPluginLayout =>
       const PosixToolchainPluginLayout();
   @override

@@ -87,8 +87,9 @@ IosEngineCache workspaceSdk(
     p.join(root, 'bin', 'internal', 'engine.version'),
   ).writeAsStringSync('engine-hash');
   if (sdkLocalEngine) {
-    // A real `flutter precache --ios` framework records its engine, and off
-    // macOS xcross only reuses SDK iOS artifacts that do.
+    // A real `flutter precache --ios` framework records its engine, and
+    // where Flutter does not manage iOS artifacts xcross only reuses SDK iOS
+    // artifacts that do.
     final framework = p.join(
       root,
       'bin',

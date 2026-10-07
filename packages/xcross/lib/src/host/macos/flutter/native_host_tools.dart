@@ -30,6 +30,8 @@ final class MacOSNativeHostTools<T extends MacOSHostInterface>
   @override
   String get engineCacheDirectory => 'darwin-x64';
   @override
+  bool get flutterManagesIosEngineArtifacts => true;
+  @override
   ToolchainPluginLayoutInterface get toolchainPluginLayout =>
       const PosixToolchainPluginLayout();
   @override

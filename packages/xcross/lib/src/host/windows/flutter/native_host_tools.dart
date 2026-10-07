@@ -33,6 +33,8 @@ final class WindowsNativeHostTools<T extends WindowsHostInterface>
   @override
   String get engineCacheDirectory => artifactPlatform;
   @override
+  bool get flutterManagesIosEngineArtifacts => false;
+  @override
   ToolchainPluginLayoutInterface get toolchainPluginLayout =>
       const WindowsToolchainPluginLayout();
   @override

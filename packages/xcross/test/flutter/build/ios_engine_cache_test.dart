@@ -465,21 +465,24 @@ void main() {
       );
     });
 
-    test('ignores ios-sdk.stamp off macOS, which Flutter bumps blindly', () {
-      _writeEngineFramework(
-        p.join(sdk, 'ios', 'Flutter.xcframework', 'ios-arm64'),
-        folded: false,
-      );
-      writeStamp('ios-sdk', 'engine-hash');
-      final engine = cache();
-      expect(engine.sdkIosEngineRevision, isNull);
-      expect(
-        engine.flutterXcframework,
-        p.join(userEngine('ios'), 'Flutter.xcframework'),
-      );
-    });
+    test(
+      'ignores ios-sdk.stamp where Flutter does not manage iOS artifacts',
+      () {
+        _writeEngineFramework(
+          p.join(sdk, 'ios', 'Flutter.xcframework', 'ios-arm64'),
+          folded: false,
+        );
+        writeStamp('ios-sdk', 'engine-hash');
+        final engine = cache();
+        expect(engine.sdkIosEngineRevision, isNull);
+        expect(
+          engine.flutterXcframework,
+          p.join(userEngine('ios'), 'Flutter.xcframework'),
+        );
+      },
+    );
 
-    test('falls back to ios-sdk.stamp on macOS', () {
+    test('falls back to ios-sdk.stamp where Flutter manages iOS artifacts', () {
       _writeEngineFramework(
         p.join(sdk, 'ios', 'Flutter.xcframework', 'ios-arm64'),
         folded: false,
@@ -501,7 +504,8 @@ void main() {
         log: _log(),
         downloader: _downloader(),
       );
-      // macOS SDKs predating the stamp keep working as before.
+      expect(mac().hostTools.flutterManagesIosEngineArtifacts, isTrue);
+      // SDKs predating the stamp keep working as before.
       expect(
         mac().flutterXcframework,
         p.join(sdk, 'ios', 'Flutter.xcframework'),
