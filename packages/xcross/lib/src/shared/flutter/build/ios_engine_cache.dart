@@ -1,8 +1,12 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:cli_kit/shared/download/download.dart';
 import 'package:cli_kit/shared/logging/logging.dart';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:darwin_sdk_kit/target/shared/ios_target.dart';
 import 'package:meta/meta.dart';
+import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:xcross/src/host/shared/flutter/engine_archive_writer.dart';
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
 import 'package:xcross/src/shared/flutter/constants.dart';
@@ -15,6 +19,12 @@ import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dar
 /// `bin/cache/artifacts/engine/ios/`. On Linux, Flutter skips iOS artifacts,
 /// so we fetch them ourselves from `storage.googleapis.com`. Missing artifacts
 /// are stored outside the Flutter SDK so read-only installations work.
+///
+/// Artifacts inside the Flutter SDK are only reused when they belong to the
+/// SDK's current engine revision. On non-macOS hosts flutter_tools never
+/// refreshes `artifacts/engine/ios` after an upgrade, so a one-off
+/// `flutter precache --ios` leaves an engine behind that rejects every kernel
+/// the upgraded frontend_server produces ("Invalid SDK hash").
 @internal
 final class IosEngineCache<T extends PlatformHostInterface> {
   IosEngineCache({
@@ -65,23 +75,110 @@ final class IosEngineCache<T extends PlatformHostInterface> {
 
   /// Directory containing the debug/JIT iOS engine artifacts.
   String get _engineDir {
-    final flutterSdkDirectory = host.paths.context.join(
-      _flutterSdkEngineRoot,
-      targetPolicy.engineArtifact,
-    );
-    final flutterFramework = host.paths.context.join(
-      flutterSdkDirectory,
-      'Flutter.xcframework',
-    );
-    if (host.fileSystem.directory(flutterFramework).existsSync() &&
-        _preservesCase(flutterSdkDirectory)) {
-      return flutterSdkDirectory;
-    }
+    if (_sdkIosEngineUsable) return _flutterSdkIosEngineDir;
 
     return host.paths.context.join(
       _userEngineRoot,
       targetPolicy.engineArtifact,
     );
+  }
+
+  String get _flutterSdkIosEngineDir => host.paths.context.join(
+    _flutterSdkEngineRoot,
+    targetPolicy.engineArtifact,
+  );
+
+  bool get _sdkIosEngineUsable {
+    final directory = _flutterSdkIosEngineDir;
+    final framework = host.paths.context.join(directory, 'Flutter.xcframework');
+    return host.fileSystem.directory(framework).existsSync() &&
+        _preservesCase(directory) &&
+        !_isStale(sdkIosEngineRevision);
+  }
+
+  /// Engine revision of the iOS artifacts inside the Flutter SDK, or `null`
+  /// when nothing records one.
+  ///
+  /// The framework's own `Info.plist` (`FlutterEngine`) is authoritative,
+  /// since it travels with the binary. `bin/cache/ios-sdk.stamp`, written by
+  /// `flutter precache --ios`, is the fallback.
+  @visibleForTesting
+  String? get sdkIosEngineRevision =>
+      _frameworkEngineRevision(
+        host.paths.context.join(_flutterSdkIosEngineDir, 'Flutter.xcframework'),
+      ) ??
+      _readStamp('ios-sdk');
+
+  /// Engine revision of the host snapshots and patched SDK inside the
+  /// Flutter SDK, from `bin/cache/flutter_sdk.stamp`.
+  @visibleForTesting
+  String? get sdkCommonEngineRevision => _readStamp('flutter_sdk');
+
+  /// Stale only on positive evidence: an SDK artifact without any recorded
+  /// revision stays usable, as it always was.
+  bool _isStale(String? revision) {
+    if (revision == null) return false;
+    try {
+      return revision != engineHash;
+    } on FlutterBuildError {
+      return false;
+    }
+  }
+
+  String? _frameworkEngineRevision(String xcframework) {
+    final context = host.paths.context;
+    for (final identifier in targetPolicy.engineSliceIdentifiers) {
+      final plist = host.fileSystem.file(
+        context.join(
+          xcframework,
+          identifier,
+          'Flutter.framework',
+          'Info.plist',
+        ),
+      );
+      if (!plist.existsSync()) continue;
+      try {
+        final bytes = plist.readAsBytesSync();
+        final binary = _isBinaryPlist(bytes);
+        // The XML reader prints a stack trace for malformed input, so only
+        // hand it something that could carry the key.
+        if (!binary && !utf8.decode(bytes).contains('FlutterEngine')) {
+          return null;
+        }
+        final decoded = binary
+            ? PropertyListSerialization.propertyListWithData(
+                ByteData.sublistView(bytes),
+              )
+            : PropertyListSerialization.propertyListWithString(
+                utf8.decode(bytes),
+              );
+        if (decoded case {
+          'FlutterEngine': final String revision,
+        } when revision.trim().isNotEmpty) {
+          return revision.trim();
+        }
+      } on Object {
+        // Unreadable or malformed plist: no evidence either way.
+      }
+      return null;
+    }
+    return null;
+  }
+
+  static bool _isBinaryPlist(Uint8List bytes) =>
+      bytes.length >= 8 && ascii.decode(bytes.sublist(0, 8)) == 'bplist00';
+
+  String? _readStamp(String name) {
+    final file = host.fileSystem.file(
+      host.paths.context.join(flutterRoot, 'bin', 'cache', '$name.stamp'),
+    );
+    try {
+      if (!file.existsSync()) return null;
+      final text = file.readAsStringSync().trim();
+      return text.isEmpty ? null : text;
+    } on Object {
+      return null;
+    }
   }
 
   bool _preservesCase(String engineDirectory) {
@@ -144,6 +241,7 @@ final class IosEngineCache<T extends PlatformHostInterface> {
       hostEngineCacheDirectory,
     );
     final hasSnapshotData =
+        !_isStale(sdkCommonEngineRevision) &&
         host.fileSystem
             .file(
               host.paths.context.join(
@@ -193,7 +291,8 @@ final class IosEngineCache<T extends PlatformHostInterface> {
       'common',
       'flutter_patched_sdk',
     );
-    if (host.fileSystem.directory(flutterSdkDirectory).existsSync()) {
+    if (!_isStale(sdkCommonEngineRevision) &&
+        host.fileSystem.directory(flutterSdkDirectory).existsSync()) {
       return flutterSdkDirectory;
     }
 
@@ -229,6 +328,7 @@ final class IosEngineCache<T extends PlatformHostInterface> {
   /// Verify required iOS engine artifacts are present, downloading each set
   /// from `storage.googleapis.com` if missing. Safe to call repeatedly.
   Future<void> ensureArtifactsAvailable() async {
+    _warnAboutStaleSdkArtifacts();
     if (!host.fileSystem.directory(flutterXcframework).existsSync()) {
       await _downloadIosArtifacts();
     }
@@ -239,6 +339,45 @@ final class IosEngineCache<T extends PlatformHostInterface> {
     }
     if (!host.fileSystem.directory(patchedSdkRoot).existsSync()) {
       await _downloadPatchedSdk();
+    }
+  }
+
+  /// Explain, once per build, why the SDK's own artifacts were passed over,
+  /// and flag a Dart SDK whose frontend_server would emit kernel the engine
+  /// rejects.
+  void _warnAboutStaleSdkArtifacts() {
+    final hash = engineHash;
+    final ios = sdkIosEngineRevision;
+    if (_isStale(ios) &&
+        host.fileSystem
+            .directory(
+              host.paths.context.join(
+                _flutterSdkIosEngineDir,
+                'Flutter.xcframework',
+              ),
+            )
+            .existsSync()) {
+      log.logWarn(
+        'Flutter SDK iOS engine artifacts are from engine $ios, but the SDK '
+        'expects $hash. Using engine $hash artifacts cached by xcross instead. '
+        'To refresh the SDK copy, run `flutter precache --ios --force`.',
+      );
+    }
+    final common = sdkCommonEngineRevision;
+    if (_isStale(common)) {
+      log.logWarn(
+        'Flutter SDK host engine artifacts are from engine $common, but the '
+        'SDK expects $hash. Using engine $hash artifacts cached by xcross '
+        'instead. Run `flutter precache --force` to refresh the SDK cache.',
+      );
+    }
+    final dartSdk = _readStamp('engine-dart-sdk');
+    if (_isStale(dartSdk)) {
+      log.logWarn(
+        'Flutter Dart SDK is from engine $dartSdk, but the SDK expects $hash. '
+        'Kernel it compiles may fail to load with "Invalid SDK hash". '
+        'Run `flutter precache --force` to refresh it.',
+      );
     }
   }
 
