@@ -15,15 +15,13 @@ final class WindowsDarwinToolchainLocations
     };
     return [
       for (final root in roots.entries)
-        if ((host.environment.lookup(host.environment.values, root.key) ?? '')
-            .isNotEmpty)
-          host.paths.context.join(
-            host.environment.lookup(host.environment.values, root.key)!,
-            root.value,
-            'bin',
-          ),
+        if (_environmentValue(root.key) case final base? when base.isNotEmpty)
+          host.paths.context.join(base, root.value, 'bin'),
     ];
   }
+
+  String? _environmentValue(String name) =>
+      host.environment.lookup(host.environment.values, name);
 
   @override
   String get linkerInstallationHint =>
