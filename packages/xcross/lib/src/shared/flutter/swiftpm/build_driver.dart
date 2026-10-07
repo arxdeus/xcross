@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk.dart';
 import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
 import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
 import 'package:darwin_sdk_kit/target/shared/ios_target.dart';
@@ -98,20 +99,7 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
     SwiftPmDependencyReconciler? reconcileDependencies,
   }) async {
     final outputDir = workspace.packages;
-    final sdk = sdkRepository.current();
-    if (sdk == null) {
-      throw FlutterBuildError(
-        'Darwin Swift SDK not found. Run '
-        '`xcross sdk install <Xcode.xip>` first.',
-      );
-    }
-    // The bundle only compiles against the toolchain it was patched with,
-    // so say so up front instead of letting Swift fail per source file with
-    // hundreds of "this SDK is not supported by the compiler" errors.
-    final mismatch = await sdkIdentity.hostToolchainMismatch(sdk.swiftSdkPath);
-    if (mismatch != null) {
-      throw FlutterBuildError(sdkIdentity.mismatchGuidance(mismatch));
-    }
+    final sdk = await _requireCompatibleSdk();
     final swiftPackage = await runner.locateTool(hostPolicy.packageTool);
     final swiftBuild = await runner.locateTool(hostPolicy.buildTool);
     // Real `Flutter.framework` (not our FlutterFramework binary-target
@@ -144,41 +132,37 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
     final objectiveCCompatibilityHeader = await buildPlan
         .writeObjectiveCCompatibilityHeader(outputDir);
     final swiftSdksPath = p.dirname(sdk.swiftSdkPath);
-    var consumed = consumedProducts;
-    var environment = await processPolicy.swiftProcessEnvironment(
-      consumedProducts: consumed,
+    final initialEnvironment = await processPolicy.swiftProcessEnvironment(
+      consumedProducts: consumedProducts,
     );
     final macroServerArguments = await buildPlan.macroServerArguments(
       cacheRoot: workspace.cacheRoot,
       swiftBuild: swiftBuild,
+      environment: initialEnvironment,
+    );
+    SwiftPmDependencyCommand dependencyCommand(
+      Map<String, String> environment,
+    ) => SwiftPmDependencyCommand(
+      swiftSdkTriple: target.buildPlatform.swiftSdkTriple,
+      swift: swiftPackage,
+      pluginsDir: pluginsDir,
+      scratchPath: scratchPath,
+      swiftSdksPath: swiftSdksPath,
+      toolsetPath: toolsetPath,
+      binaryArtifactStore: workspace.binaryArtifactStore,
+      binaryArtifactFallback: workspace.binaryArtifactFallback,
+      swiftPmArtifactJunctionCapability: swiftPmArtifactJunctionCapability,
+      packageLocalArtifactJunctionCapability:
+          packageLocalArtifactJunctionCapability,
       environment: environment,
     );
-    Future<void> resolve() => dependencyPreparation.prepare(
-      SwiftPmDependencyCommand(
-        swiftSdkTriple: target.buildPlatform.swiftSdkTriple,
-        swift: swiftPackage,
-        pluginsDir: pluginsDir,
-        scratchPath: scratchPath,
-        swiftSdksPath: swiftSdksPath,
-        toolsetPath: toolsetPath,
-        binaryArtifactStore: workspace.binaryArtifactStore,
-        binaryArtifactFallback: workspace.binaryArtifactFallback,
-        swiftPmArtifactJunctionCapability: swiftPmArtifactJunctionCapability,
-        packageLocalArtifactJunctionCapability:
-            packageLocalArtifactJunctionCapability,
-        environment: environment,
-      ),
+    final environment = await _resolveDependencies(
+      dependencyCommand,
+      scratchPath: scratchPath,
+      consumedProducts: consumedProducts,
+      environment: initialEnvironment,
+      reconcileDependencies: reconcileDependencies,
     );
-    await resolve();
-    while (true) {
-      final updated = await reconcileDependencies?.call(scratchPath, consumed);
-      if (updated == null) break;
-      consumed = updated;
-      environment = await processPolicy.swiftProcessEnvironment(
-        consumedProducts: consumed,
-      );
-      await resolve();
-    }
     final baseArguments = buildPlan.swiftBuildArguments(
       pluginsDir: pluginsDir,
       scratchPath: scratchPath,
@@ -192,51 +176,13 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
       macroServerArguments: macroServerArguments,
     );
 
-    await sourceRepair.buildTranslatingSdkMismatch(
-      () => buildPlan.recordPlan(
-        swiftBuild,
-        baseArguments,
-        environment: environment,
-        label: 'swift build plan',
-      ),
+    final (:targetBuildDir, :interopArguments) = await _planBuild(
+      swiftBuild: swiftBuild,
+      baseArguments: baseArguments,
+      environment: environment,
+      scratchPath: scratchPath,
+      deploymentTarget: deploymentTarget,
     );
-    // Inspect the plan just emitted, not a directory from an earlier build.
-    final targetBuildDir = planReader.resolveTargetBuildDir(
-      scratchPath,
-      triple: deploymentTarget.swiftSdkTriple,
-    );
-    await hostPolicy.repairBuildPlan(scratchPath, targetBuildDir);
-    final interopArguments = planReader.plannedSwiftInteropSearchPaths(
-      targetBuildDir,
-    );
-    // The first plan run could not carry [interopArguments], because the
-    // paths it discovers are read out of the plan it produces. SwiftPM
-    // records the resulting command lines in `debug.yaml` and llbuild
-    // replays them verbatim, so without a second plan run every compile
-    // would execute with the pre-interop arguments no matter what this
-    // build passes. Re-planning rewrites the manifest with the search
-    // paths applied.
-    //
-    // The rewrite only has to happen when the manifest does not already
-    // carry the paths. Re-planning unconditionally costs a whole extra
-    // `swift build` planning process (~13s on Windows for
-    // examples/flutter_example) on every build including incremental ones,
-    // to reproduce a manifest that is already byte-identical.
-    if (interopArguments.isNotEmpty &&
-        !planReader.manifestCarriesInteropSearchPaths(
-          scratchPath,
-          interopArguments,
-        )) {
-      await sourceRepair.buildTranslatingSdkMismatch(
-        () => buildPlan.recordPlan(
-          swiftBuild,
-          [...baseArguments, ...interopArguments],
-          environment: environment,
-          label: 'swift build plan (interop)',
-        ),
-      );
-      await hostPolicy.repairBuildPlan(scratchPath, targetBuildDir);
-    }
     final operation = SwiftPmBuildSession<T>(
       execution: buildExecution,
       command: SwiftPmBuildCommand(
@@ -267,5 +213,103 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
             skipInitialRecovery: true,
           ),
     );
+  }
+
+  Future<DarwinSdk> _requireCompatibleSdk() async {
+    final sdk = sdkRepository.current();
+    if (sdk == null) {
+      throw FlutterBuildError(
+        'Darwin Swift SDK not found. Run '
+        '`xcross sdk install <Xcode.xip>` first.',
+      );
+    }
+    // The bundle only compiles against the toolchain it was patched with,
+    // so say so up front instead of letting Swift fail per source file with
+    // hundreds of "this SDK is not supported by the compiler" errors.
+    final mismatch = await sdkIdentity.hostToolchainMismatch(sdk.swiftSdkPath);
+    if (mismatch != null) {
+      throw FlutterBuildError(sdkIdentity.mismatchGuidance(mismatch));
+    }
+    return sdk;
+  }
+
+  Future<Map<String, String>> _resolveDependencies(
+    SwiftPmDependencyCommand Function(Map<String, String> environment)
+    dependencyCommand, {
+    required String scratchPath,
+    required Map<String, Set<String>> consumedProducts,
+    required Map<String, String> environment,
+    required SwiftPmDependencyReconciler? reconcileDependencies,
+  }) async {
+    var consumed = consumedProducts;
+    var current = environment;
+    await dependencyPreparation.prepare(dependencyCommand(current));
+    while (true) {
+      final updated = await reconcileDependencies?.call(scratchPath, consumed);
+      if (updated == null) break;
+      consumed = updated;
+      current = await processPolicy.swiftProcessEnvironment(
+        consumedProducts: consumed,
+      );
+      await dependencyPreparation.prepare(dependencyCommand(current));
+    }
+    return current;
+  }
+
+  Future<({String targetBuildDir, List<String> interopArguments})> _planBuild({
+    required String swiftBuild,
+    required List<String> baseArguments,
+    required Map<String, String> environment,
+    required String scratchPath,
+    required IosDeploymentTarget deploymentTarget,
+  }) async {
+    await sourceRepair.buildTranslatingSdkMismatch(
+      () => buildPlan.recordPlan(
+        swiftBuild,
+        baseArguments,
+        environment: environment,
+        label: 'swift build plan',
+      ),
+    );
+    // Inspect the plan just emitted, not a directory from an earlier build.
+    final targetBuildDir = planReader.resolveTargetBuildDir(
+      scratchPath,
+      triple: deploymentTarget.swiftSdkTriple,
+    );
+    await hostPolicy.repairBuildPlan(scratchPath, targetBuildDir);
+    final interopArguments = planReader.plannedSwiftInteropSearchPaths(
+      targetBuildDir,
+    );
+    // The first plan run could not carry [interopArguments], because the
+    // paths it discovers are read out of the plan it produces. SwiftPM
+    // records the resulting command lines in `debug.yaml` and llbuild
+    // replays them verbatim, so without a second plan run every compile
+    // would execute with the pre-interop arguments no matter what this
+    // build passes. Re-planning rewrites the manifest with the search
+    // paths applied.
+    //
+    // The rewrite only has to happen when the manifest does not already
+    // carry the paths. Re-planning unconditionally costs a whole extra
+    // `swift build` planning process (~13s on Windows for
+    // examples/flutter_example) on every build including incremental ones,
+    // to reproduce a manifest that is already byte-identical.
+    final needsInteropReplan =
+        interopArguments.isNotEmpty &&
+        !planReader.manifestCarriesInteropSearchPaths(
+          scratchPath,
+          interopArguments,
+        );
+    if (needsInteropReplan) {
+      await sourceRepair.buildTranslatingSdkMismatch(
+        () => buildPlan.recordPlan(
+          swiftBuild,
+          [...baseArguments, ...interopArguments],
+          environment: environment,
+          label: 'swift build plan (interop)',
+        ),
+      );
+      await hostPolicy.repairBuildPlan(scratchPath, targetBuildDir);
+    }
+    return (targetBuildDir: targetBuildDir, interopArguments: interopArguments);
   }
 }
