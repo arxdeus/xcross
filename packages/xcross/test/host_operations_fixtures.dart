@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:cli_kit/shared/logging/logging.dart';
@@ -16,11 +17,11 @@ final class FixtureLogOutput implements LogOutput {
   @override
   int get terminalColumns => 80;
   @override
-  void stdout(String message) => print(message);
+  void stdout(String message) => Zone.current.print(message);
   @override
-  void stderr(String message) => print(message);
+  void stderr(String message) => Zone.current.print(message);
   @override
-  void write(String message) => print(message);
+  void write(String message) => Zone.current.print(message);
 }
 
 @internal

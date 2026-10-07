@@ -144,6 +144,7 @@ final class ResidualChild implements Process {
   final String errors;
   @override
   final IOSink stdin = fixtureSink();
+  Future<void> close() => stdin.close();
   @override
   Stream<List<int>> get stdout => Stream.value(utf8.encode(output));
   @override

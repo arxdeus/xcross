@@ -873,6 +873,7 @@ final class FixtureFakeProcessRunner {
 }
 
 @internal
+@immutable
 final class FixtureProcessCall {
   const FixtureProcessCall(
     this.executable,

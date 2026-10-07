@@ -200,6 +200,9 @@ void main() {
     final output = fixtureSink();
     final errors = fixtureSink();
     final unused = fixtureSink();
+    addTearDown(output.close);
+    addTearDown(errors.close);
+    addTearDown(unused.close);
     final runner = ProcessRunner(
       LinuxHost(architecture: 'x64', processes: FixtureBuildProcesses()),
       log: fixtureLog(),

@@ -77,6 +77,8 @@ void main() {
   test('package-manager prompt uses only supplied console', () {
     final unused = fixtureSink();
     final selected = fixtureSink();
+    addTearDown(unused.close);
+    addTearDown(selected.close);
     var reads = 0;
     final console = SetupConsole(
       hasTerminal: true,

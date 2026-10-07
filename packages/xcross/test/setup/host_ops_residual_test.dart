@@ -281,6 +281,7 @@ void main() {
         lookup: (name, _) async => name == 'clang' ? path('tools/clang') : null,
       );
       final output = fixtureSink();
+      addTearDown(output.close);
       final command = XcrunSdkCommand(
         runner: runner,
         output: output,

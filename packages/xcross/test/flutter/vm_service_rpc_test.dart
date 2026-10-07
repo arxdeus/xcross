@@ -223,6 +223,7 @@ void main() {
           .map((raw) => jsonDecode(raw as String) as Map<String, Object?>)
           .first;
 
+      addTearDown(ws.close);
       final result = client.streamListen('Isolate');
 
       final frame = await requestFrame.timeout(const Duration(seconds: 5));

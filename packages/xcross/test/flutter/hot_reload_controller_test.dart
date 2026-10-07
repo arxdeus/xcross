@@ -38,6 +38,7 @@ void main() {
       await files.file('$root/artifacts/warm.dill').writeAsBytes([9]);
       final process = ReloadCompilerFactory(resultPath);
       final rpc = ReloadRpcChannel();
+      addTearDown(rpc.close);
       final vm = DartVmServiceClient(
         log: testFlutterLog(),
         connector: ReloadConnector(rpc),
@@ -206,6 +207,7 @@ final class ReloadRpcChannel implements WebSocketChannel {
   Stream<dynamic> get stream => incoming.stream;
   @override
   Future<void> get ready async {}
+  Future<void> close() => sink.close();
   void respond(Object? data) {
     final frame = jsonDecode(data! as String) as Map<String, dynamic>;
     final method = frame['method'] as String;
@@ -258,7 +260,11 @@ final class ReloadHttpClient implements HttpClient {
   @override
   Future<HttpClientRequest> putUrl(Uri uri) async => request;
   @override
-  void close({bool force = false}) => closed = true;
+  void close({bool force = false}) {
+    closed = true;
+    unawaited(request.close());
+  }
+
   @override
   dynamic noSuchMethod(Invocation invocation) =>
       throw StateError('unexpected HTTP operation: $invocation');

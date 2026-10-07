@@ -23,6 +23,7 @@ Future<List<String>> _captureAsync(Future<void> Function() body) async {
     stdout: () => sink,
     stderr: () => sink,
   );
+  await sink.close();
   return sink.lines;
 }
 

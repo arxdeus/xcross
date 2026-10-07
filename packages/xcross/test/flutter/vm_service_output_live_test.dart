@@ -69,7 +69,8 @@ void main() {
     final seen = <String>{};
     final done = Completer<void>();
     vm.events.listen((event) {
-      if (event['streamId'] case final String id) seen.add(id);
+      final Object? streamId = event['streamId'];
+      if (streamId case final String id) seen.add(id);
       if (seen.containsAll(const {'Stdout', 'Stderr', 'Logging'}) &&
           !done.isCompleted) {
         done.complete();
