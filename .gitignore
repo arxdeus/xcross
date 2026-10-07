@@ -224,3 +224,6 @@ AGENTS.md
 .opencode/
 secrets/
 examples/
+
+# Python bytecode
+__pycache__/

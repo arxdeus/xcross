@@ -25,17 +25,18 @@ jobs:
           sdk: 3.13.0
       - name: Resolve locked dependencies
         run: dart pub get --enforce-lockfile
-      - name: Test architecture guard
-        run: dart --packages=.dart_tool/package_config.json tool/architecture/check_test.dart
-      - name: Enforce production architecture
-        run: dart --packages=.dart_tool/package_config.json tool/architecture/check.dart > architecture-report.json
+      - name: Test repo analyzer plugin
+        working-directory: tool/repo_analyzer
+        run: dart test
+      - name: Enforce architecture with the repo analyzer plugin
+        run: dart analyze --fatal-warnings --format=machine > architecture-report.txt
       - name: Test CI security and headless smoke helpers
         run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
-      - name: Upload architecture inventory
+      - name: Upload architecture report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: architecture-inventory
-          path: architecture-report.json
+          name: architecture-report
+          path: architecture-report.txt
           if-no-files-found: error
           retention-days: 7

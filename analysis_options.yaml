@@ -79,6 +79,10 @@ analyzer:
       "**/*.gen.dart",
     ]
 
+plugins:
+  repo_analyzer:
+    path: tool/repo_analyzer
+
 formatter:
   page_width: 80
   trailing_commas: automate
