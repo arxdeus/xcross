@@ -8,26 +8,6 @@ import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dar
 
 @internal
 final class SwiftPmWorkspace {
-  const SwiftPmWorkspace._({
-    required this.cacheRoot,
-    required this.root,
-    required this.policy,
-  });
-
-  final String cacheRoot;
-  final String root;
-  final FlutterTargetBuildPolicy policy;
-
-  String get binaryArtifactStore =>
-      p.join(cacheRoot, 'swiftpm', policy.binaryArtifactDirectory);
-  String get binaryArtifactFallback => p.join(root, 'binary-artifacts');
-  String get gateEvidence => p.join(cacheRoot, 'swiftpm', 'gate-evidence-v2');
-  String get gateIdentityCache => p.join(gateEvidence, 'build-identities.json');
-  String get gateCapabilityCache => p.join(gateEvidence, 'capabilities.json');
-
-  String get packages => p.join(root, 'plugins');
-  String get scratch => p.join(root, 'scratch');
-
   factory SwiftPmWorkspace.forProject(
     String projectRoot, {
     required FlutterTargetBuildPolicy policy,
@@ -50,6 +30,25 @@ final class SwiftPmWorkspace {
       root: p.join(base, 'swiftpm', '$key${policy.workspaceSuffix}'),
     );
   }
+  const SwiftPmWorkspace._({
+    required this.cacheRoot,
+    required this.root,
+    required this.policy,
+  });
+
+  final String cacheRoot;
+  final String root;
+  final FlutterTargetBuildPolicy policy;
+
+  String get binaryArtifactStore =>
+      p.join(cacheRoot, 'swiftpm', policy.binaryArtifactDirectory);
+  String get binaryArtifactFallback => p.join(root, 'binary-artifacts');
+  String get gateEvidence => p.join(cacheRoot, 'swiftpm', 'gate-evidence-v2');
+  String get gateIdentityCache => p.join(gateEvidence, 'build-identities.json');
+  String get gateCapabilityCache => p.join(gateEvidence, 'capabilities.json');
+
+  String get packages => p.join(root, 'plugins');
+  String get scratch => p.join(root, 'scratch');
 
   static String _canonicalProjectPath(
     String projectRoot,

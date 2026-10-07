@@ -26,11 +26,10 @@ import 'support/test_process_io.dart';
 
 @internal
 final class RecordingProcesses implements HostProcessInterface {
+  RecordingProcesses(this.delegate);
   @override
   ProcessExitDiagnostic describeExit(int exitCode) =>
       delegate.describeExit(exitCode);
-
-  RecordingProcesses(this.delegate);
   final HostProcessInterface delegate;
   Map<String, String>? lastEnvironment;
   bool? inherited;

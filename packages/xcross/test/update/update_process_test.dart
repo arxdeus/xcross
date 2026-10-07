@@ -17,7 +17,7 @@ Future<List<String>> _captureAsync(Future<void> Function() body) async {
     () => runZoned(
       body,
       zoneSpecification: ZoneSpecification(
-        print: (_, __, ___, line) => sink.writeln(line),
+        print: (_, _, _, line) => sink.writeln(line),
       ),
     ),
     stdout: () => sink,

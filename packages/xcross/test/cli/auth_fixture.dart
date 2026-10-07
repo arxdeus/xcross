@@ -110,10 +110,9 @@ final class AuthNamespaceFileSystem implements HostFileSystemInterface {
 
 @internal
 final class AuthNamespacePaths implements HostPathsInterface {
+  const AuthNamespacePaths(this.context);
   @override
   String toolNameKey(String name) => name.trim();
-
-  const AuthNamespacePaths(this.context);
   @override
   final p.Context context;
   @override

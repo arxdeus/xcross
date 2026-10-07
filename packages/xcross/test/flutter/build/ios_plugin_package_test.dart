@@ -1948,7 +1948,7 @@ framework module FallbackKit {
         packageLocalArtifactJunctionCapability: true,
 
         prepare: (_) => throw FlutterBuildError('download failed'),
-        writeManifest: (_, __) async => writes++,
+        writeManifest: (_, _) async => writes++,
       );
 
       expect(manifestFile.readAsStringSync(), '$original\n');
@@ -1990,7 +1990,7 @@ framework module FallbackKit {
               aliases.remove(alias);
               await Directory(alias).delete(recursive: true);
             },
-            writeManifest: (_, __) async => writes++,
+            writeManifest: (_, _) async => writes++,
           ),
           throwsA(
             isA<FlutterBuildError>().having(

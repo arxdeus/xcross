@@ -547,7 +547,6 @@ String _unpackedKlib(
 
 @internal
 final class ComposeFixture {
-  final ComposeTestSession session;
   ComposeFixture._(this.session, this.temp, this.target);
 
   factory ComposeFixture.create(
@@ -611,6 +610,7 @@ final class ComposeFixture {
     );
     return fixture;
   }
+  final ComposeTestSession session;
 
   final Directory temp;
   final ComposeTarget<PlatformHostInterface> target;

@@ -569,7 +569,6 @@ void main() {
 
 @internal
 final class ComposeFixture {
-  final ComposeTestSession session;
   ComposeFixture._(
     this.session,
     this.temp,
@@ -579,6 +578,7 @@ final class ComposeFixture {
   ) : modulePath = p.joinAll([root, ...moduleName.split(':')]),
       kotlinHome = p.join(root, 'kotlinc'),
       javaHome = p.join(root, 'jdk');
+  final ComposeTestSession session;
 
   static ComposeFixture create(
     ComposeTestSession session, {

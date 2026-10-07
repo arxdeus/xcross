@@ -21,8 +21,8 @@ final class XcrossIdeLauncher {
   final bool declarative;
 
   Map<String, String> get generatedEnvironment => {
-    if (configPath case final path?) 'XCROSS_CONFIG': path,
-    if (flutterRoot case final root?) 'FLUTTER_ROOT': root,
+    'XCROSS_CONFIG': ?configPath,
+    'FLUTTER_ROOT': ?flutterRoot,
   };
 
   bool get inheritParentEnvironment => !declarative;

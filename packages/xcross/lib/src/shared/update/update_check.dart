@@ -116,7 +116,7 @@ final class UpdateCheck {
       file.writeAsStringSync(
         jsonEncode({
           'checkedAt': DateTime.now().millisecondsSinceEpoch,
-          if (latest != null) 'latest': latest,
+          'latest': ?latest,
         }),
       );
     } on Object {

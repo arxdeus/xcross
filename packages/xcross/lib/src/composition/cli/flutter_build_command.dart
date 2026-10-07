@@ -79,14 +79,13 @@ final class FlutterBuildArgs extends CommonFlutterArgs {
 @internal
 final class FlutterBuildCommand<T extends PlatformHostInterface>
     extends ParsedCommand<FlutterBuildArgs, void> {
+  FlutterBuildCommand(this.runtime);
   @override
   ArgParser populateOptions(ArgParser parser) =>
       _$populateFlutterBuildArgsParser(parser);
   @override
   FlutterBuildArgs parseOptions(ArgResults results) =>
       _$parseFlutterBuildArgsResult(results);
-
-  FlutterBuildCommand(this.runtime);
 
   final XcrossRuntime<T> runtime;
   @override

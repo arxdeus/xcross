@@ -618,7 +618,6 @@ final class MachOOutput {
 
 @internal
 final class ComposeFixture {
-  final ComposeTestSession session;
   ComposeFixture._(this.session, this.temp, this.target, this.sdkVersion)
     : root = temp.path,
       frameworkPath = p.join(temp.path, 'Shared.framework');
@@ -633,6 +632,7 @@ final class ComposeFixture {
     target,
     sdkVersion,
   );
+  final ComposeTestSession session;
 
   final Directory temp;
   final ComposeTarget<PlatformHostInterface> target;

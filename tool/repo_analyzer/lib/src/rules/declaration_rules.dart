@@ -6,9 +6,9 @@ import 'package:analyzer/dart/ast/token.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/element/type.dart';
 
-import '../conventions.dart';
-import '../platform_types.dart';
-import '../rule_base.dart';
+import 'package:repo_analyzer/src/conventions.dart';
+import 'package:repo_analyzer/src/platform_types.dart';
+import 'package:repo_analyzer/src/rule_base.dart';
 
 bool _owned(SourceLocation location) => location.zone != Zone.other;
 
@@ -79,9 +79,10 @@ final class DirectImportRule extends ArchitectureRule {
           reportAtToken(
             combinator.keyword,
             arguments: [
-              combinator is ShowCombinator
-                  ? 'Import declarations without show filters.'
-                  : 'Resolve collisions with import prefixes, not hide.',
+              if (combinator is ShowCombinator)
+                'Import declarations without show filters.'
+              else
+                'Resolve collisions with import prefixes, not hide.',
             ],
           );
         }
@@ -209,7 +210,7 @@ final class GlobalServiceRule extends ArchitectureRule {
       if (services.isService(element?.type)) {
         reportAtToken(
           node.name,
-          arguments: [node.name.lexeme, global ? 'global' : 'static'],
+          arguments: [node.name.lexeme, if (global) 'global' else 'static'],
         );
       } else if (static &&
           list is VariableDeclarationList &&

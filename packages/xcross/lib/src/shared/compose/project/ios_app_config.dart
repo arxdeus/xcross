@@ -14,16 +14,6 @@ final class IosAppConfig {
     this.buildSettings = const {},
   });
 
-  final String productName;
-  final String bundleId;
-  final String marketingVersion;
-  final String currentProjectVersion;
-
-  /// Every setting the xcconfig defines, with `$(VAR)` references expanded.
-  /// Xcode substitutes these into Info.plist values at build time, and an
-  /// app that reads configuration from its Info.plist depends on that.
-  final Map<String, String> buildSettings;
-
   factory IosAppConfig.parse(String content) {
     final values = <String, String>{};
     for (final rawLine in content.split(RegExp(r'\r?\n'))) {
@@ -67,6 +57,16 @@ final class IosAppConfig {
       },
     );
   }
+
+  final String productName;
+  final String bundleId;
+  final String marketingVersion;
+  final String currentProjectVersion;
+
+  /// Every setting the xcconfig defines, with `$(VAR)` references expanded.
+  /// Xcode substitutes these into Info.plist values at build time, and an
+  /// app that reads configuration from its Info.plist depends on that.
+  final Map<String, String> buildSettings;
 }
 
 @internal

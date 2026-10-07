@@ -33,9 +33,6 @@ import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dar
 
 @internal
 final class SwiftPmFoundation<T extends PlatformHostInterface> {
-  final SwiftPmHostBuildServices<T> hostBuildServices;
-  final SwiftPmLibrarianResolver<T> librarianResolver;
-  final SwiftPmGateExecution<T> gateExecution;
   SwiftPmFoundation({
     required this.hostBuildServices,
     required this.librarianResolver,
@@ -68,6 +65,9 @@ final class SwiftPmFoundation<T extends PlatformHostInterface> {
     required this.extractedArtifacts,
     required this.packageMetadata,
   });
+  final SwiftPmHostBuildServices<T> hostBuildServices;
+  final SwiftPmLibrarianResolver<T> librarianResolver;
+  final SwiftPmGateExecution<T> gateExecution;
   final FlutterTargetBuildPolicy<T> targetPolicy;
   final ProcessRunner<T> runner;
   final DarwinSdkRepository<T> sdkRepository;

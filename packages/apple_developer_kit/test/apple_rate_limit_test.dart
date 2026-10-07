@@ -55,7 +55,7 @@ void main() {
         http.Response(
           '<html>private response</html>',
           429,
-          headers: {if (retryAfter != null) 'retry-after': retryAfter},
+          headers: {'retry-after': ?retryAfter},
         ),
         operation: 'test operation',
         now: now,

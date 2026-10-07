@@ -265,7 +265,7 @@ final class DapRouter {
         'request_seq': requestSeq,
         'success': true,
         'command': command,
-        if (body != null) 'body': body,
+        'body': ?body,
       }),
     );
   }
@@ -276,7 +276,7 @@ final class DapRouter {
         'seq': _outSeq++,
         'type': 'event',
         'event': event,
-        if (body != null) 'body': body,
+        'body': ?body,
       }),
     );
   }

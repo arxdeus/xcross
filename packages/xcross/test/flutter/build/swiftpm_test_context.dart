@@ -368,11 +368,10 @@ SwiftPmRuntime<WindowsHost> testWindowsSwiftPmRuntime({
 
 @internal
 final class WindowsTestPaths implements HostPathsInterface {
-  @override
-  String toolNameKey(String name) => windows.toolNameKey(name);
-
   WindowsTestPaths(this.native, Map<String, String> environment)
     : windows = WindowsPaths(environment: environment, context: native.context);
+  @override
+  String toolNameKey(String name) => windows.toolNameKey(name);
   final WindowsPaths windows;
   final HostPathsInterface native;
   @override

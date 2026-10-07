@@ -26,7 +26,7 @@ let package = Package(
 )
 ''';
 
-const _probeSource = '''
+const _probeSource = r'''
 import SwiftUI
 import UIKit
 
@@ -40,7 +40,7 @@ extension EnvironmentValues {
 
 public struct ProbeView: View {
   @State private var count = 0
-  public var body: some View { Text("\\(count)") }
+  public var body: some View { Text("\(count)") }
 }
 
 #Preview {

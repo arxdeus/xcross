@@ -1,6 +1,6 @@
+import 'package:repo_analyzer/src/rules/declaration_rules.dart';
 import 'package:test/test.dart';
 import 'package:test_reflective_loader/test_reflective_loader.dart';
-import 'package:repo_analyzer/src/rules/declaration_rules.dart';
 
 import 'support/rule_test_base.dart';
 

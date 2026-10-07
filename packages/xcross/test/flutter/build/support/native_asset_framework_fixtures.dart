@@ -24,6 +24,7 @@ NativeAssetFrameworks<T> nativeFrameworkService<
 
 @internal
 final class FrameworkLipoProcesses implements HostProcessInterface {
+  FrameworkLipoProcesses({required this.fileSystem});
   @override
   ProcessExitDiagnostic describeExit(int exitCode) {
     if (exitCode < 0 || exitCode > 255) {
@@ -31,8 +32,6 @@ final class FrameworkLipoProcesses implements HostProcessInterface {
     }
     return const ProcessExitDiagnostic(crashed: false, description: null);
   }
-
-  FrameworkLipoProcesses({required this.fileSystem});
 
   final HostFileSystemInterface fileSystem;
   final calls = <(String, List<String>, Map<String, String>?)>[];

@@ -46,13 +46,6 @@ final class ComposeSetupArgs {
 @internal
 final class ComposeSetupCommand<T extends PlatformHostInterface>
     extends ParsedCommand<ComposeSetupArgs, void> {
-  @override
-  ArgParser populateOptions(ArgParser parser) =>
-      _$populateComposeSetupArgsParser(parser);
-  @override
-  ComposeSetupArgs parseOptions(ArgResults results) =>
-      _$parseComposeSetupArgsResult(results);
-
   ComposeSetupCommand(XcrossRuntime<T> runtime)
     : this._withRuntime(runtime, composePhysicalFeatures(runtime));
 
@@ -83,6 +76,12 @@ final class ComposeSetupCommand<T extends PlatformHostInterface>
   }) : _problems = problems,
        _ensure = ensure,
        _logDone = logDone;
+  @override
+  ArgParser populateOptions(ArgParser parser) =>
+      _$populateComposeSetupArgsParser(parser);
+  @override
+  ComposeSetupArgs parseOptions(ArgResults results) =>
+      _$parseComposeSetupArgsResult(results);
 
   final Log log;
   final ComposeSetupProblems _problems;

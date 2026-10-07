@@ -829,7 +829,7 @@ void main() {
           downloadToFile: (_, _) async {},
           extractArchive: (_, _) async {},
           patchCompilerJar: (_) async {},
-          runChecked: (_, __, {workingDirectory, environment}) async {},
+          runChecked: (_, _, {workingDirectory, environment}) async {},
           installRoot: (options, {required force}) async {
             installs++;
             Directory(
@@ -1117,7 +1117,7 @@ void main() {
                 fail('extract should not run on cached path'),
             patchCompilerJar: (_) =>
                 fail('patch should not run on cached path'),
-            runChecked: (_, __, {workingDirectory, environment}) =>
+            runChecked: (_, _, {workingDirectory, environment}) =>
                 fail('warmup should not run on cached path'),
           );
 
@@ -1352,7 +1352,7 @@ void main() {
               fail('extract must wait for digest verification'),
           patchCompilerJar: (_) async =>
               fail('patch must wait for digest verification'),
-          runChecked: (_, __, {workingDirectory, environment}) async =>
+          runChecked: (_, _, {workingDirectory, environment}) async =>
               fail('warmup must wait for digest verification'),
         );
 
@@ -1393,7 +1393,7 @@ void main() {
         final installer = ComposeToolchainInstaller.withSeams(
           session.fixtureRunner,
           downloader: session.fixtureDownloader,
-          downloadToFile: (_, __) async => downloads++,
+          downloadToFile: (_, _) async => downloads++,
         );
 
         await expectLater(
@@ -1435,7 +1435,7 @@ void main() {
               fail('extract must wait for overlay digest verification'),
           patchCompilerJar: (_) async =>
               fail('patch must wait for overlay digest verification'),
-          runChecked: (_, __, {workingDirectory, environment}) async =>
+          runChecked: (_, _, {workingDirectory, environment}) async =>
               fail('warmup must wait for overlay digest verification'),
         );
 
@@ -1587,7 +1587,7 @@ void main() {
               }
             },
             patchCompilerJar: (_) async {},
-            runChecked: (_, __, {workingDirectory, environment}) async {},
+            runChecked: (_, _, {workingDirectory, environment}) async {},
             renameDirectory: (source, newPath) {
               if (source.path == options.kotlinHome) {
                 expect(oldKonanc.existsSync(), isTrue);
@@ -1848,7 +1848,7 @@ ComposeToolchainInstaller _installerThatBuildsNewCache(
     }
   },
   patchCompilerJar: (_) async {},
-  runChecked: (_, __, {workingDirectory, environment}) async {},
+  runChecked: (_, _, {workingDirectory, environment}) async {},
   renameDirectory: renameDirectory,
 );
 

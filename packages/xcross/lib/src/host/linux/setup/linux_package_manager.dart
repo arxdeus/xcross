@@ -156,10 +156,7 @@ enum LinuxPackageManager {
     HostPrivilegesInterface privileges,
   ) async {
     final sudo = await privileges.resolve();
-    List<String> command(List<String> args) => [
-      if (sudo != null) sudo,
-      ...args,
-    ];
+    List<String> command(List<String> args) => [?sudo, ...args];
 
     switch (this) {
       case LinuxPackageManager.apt:

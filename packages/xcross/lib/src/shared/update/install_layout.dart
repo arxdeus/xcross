@@ -23,16 +23,6 @@ final class InstallLayout {
     required this.libDir,
   });
 
-  /// Absolute path of the installed executable, with symlinks resolved.
-  final String binaryPath;
-  final PlatformHostInterface host;
-
-  /// Directory holding [binaryPath].
-  final String binDir;
-
-  /// Sibling directory holding the native libraries.
-  final String libDir;
-
   /// Resolves the layout of the currently running executable.
   factory InstallLayout.resolve(
     String executable, {
@@ -79,6 +69,16 @@ final class InstallLayout {
       libDir: libDir,
     );
   }
+
+  /// Absolute path of the installed executable, with symlinks resolved.
+  final String binaryPath;
+  final PlatformHostInterface host;
+
+  /// Directory holding [binaryPath].
+  final String binDir;
+
+  /// Sibling directory holding the native libraries.
+  final String libDir;
 
   static bool _isNativeLibraryDirectory(
     String libDir,

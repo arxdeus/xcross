@@ -95,10 +95,7 @@ final class KotlinSourceWatcher {
   void snapshot() {
     _hashes
       ..clear()
-      ..addAll({
-        for (final path in sourceFiles())
-          if (_contentHash(path) case final hash?) path: hash,
-      });
+      ..addAll({for (final path in sourceFiles()) path: ?_contentHash(path)});
   }
 
   /// Whether any watched file changed since [snapshot]. Advances the baseline,

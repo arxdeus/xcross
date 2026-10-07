@@ -260,13 +260,12 @@ final class Processes implements HostProcessInterface {
 
 @internal
 final class Child implements Process {
-  final exited = Completer<int>();
-  final input = StreamController<List<int>>();
-  late final IOSink sink = IOSink(input.sink);
-
   Child() {
     input.stream.listen((_) {});
   }
+  final exited = Completer<int>();
+  final input = StreamController<List<int>>();
+  late final IOSink sink = IOSink(input.sink);
 
   @override
   Future<int> get exitCode => exited.future;

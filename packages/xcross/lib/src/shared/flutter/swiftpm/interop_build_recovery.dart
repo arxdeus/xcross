@@ -123,7 +123,7 @@ final class SwiftPmInteropBuildRecovery<T extends PlatformHostInterface> {
       targetBuildDir,
       pluginsProductName,
     );
-    return {...interopTargetCandidates, if (reachable != null) ...reachable};
+    return {...interopTargetCandidates, ...?reachable};
   }
 
   Future<R> reportingOriginalFailure<R>(

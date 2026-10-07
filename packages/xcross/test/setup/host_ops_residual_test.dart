@@ -669,10 +669,9 @@ void main() {
 
 @internal
 final class ResidualMappedPaths implements HostPathsInterface {
+  ResidualMappedPaths(String root, this.files) : base = ResidualPaths(root);
   @override
   String toolNameKey(String name) => base.toolNameKey(name);
-
-  ResidualMappedPaths(String root, this.files) : base = ResidualPaths(root);
   final ResidualPaths base;
   final ResidualFileSystem files;
   @override

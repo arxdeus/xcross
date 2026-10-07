@@ -12,10 +12,10 @@ import 'package:analyzer/dart/ast/visitor.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/element/type.dart';
 
-import '../conventions.dart';
-import '../identity.dart';
-import '../platform_types.dart';
-import '../rule_base.dart';
+import 'package:repo_analyzer/src/conventions.dart';
+import 'package:repo_analyzer/src/identity.dart';
+import 'package:repo_analyzer/src/platform_types.dart';
+import 'package:repo_analyzer/src/rule_base.dart';
 
 bool _pureMetadata(Expression value) =>
     value is SimpleStringLiteral ||
@@ -513,7 +513,10 @@ final class AmbientPlatformStateRule extends ArchitectureRule {
       reportAtNode(
         node,
         arguments: [
-          owner is LibraryElement ? node.name : '${owner?.name}.${node.name}',
+          if (owner is LibraryElement)
+            node.name
+          else
+            '${owner?.name}.${node.name}',
         ],
       );
     });
@@ -568,7 +571,7 @@ final class NativeAcquisitionRule extends ArchitectureRule {
         ),
         description:
             "Code under 'shared/' and 'target/' must not construct File, "
-            'Directory, Link, or HttpClient, nor call Process/Socket/'
+            'Directory, Link, or HttpClient, nor call Process, Socket, or '
             'FileSystemEntity statics.',
       );
 

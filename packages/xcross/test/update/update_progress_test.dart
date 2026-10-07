@@ -9,7 +9,7 @@ Future<List<String>> _captureAsync(Future<void> Function() body) async {
   await runZoned(
     body,
     zoneSpecification: ZoneSpecification(
-      print: (_, __, ___, line) => lines.add(line),
+      print: (_, _, _, line) => lines.add(line),
     ),
   );
   return lines;

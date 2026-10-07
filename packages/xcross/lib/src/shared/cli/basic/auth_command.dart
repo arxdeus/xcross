@@ -84,12 +84,6 @@ const _authOptionNames = [
 /// GrandSlam login.
 @internal
 final class AuthCommand extends ParsedCommand<AuthArgs, void> {
-  @override
-  ArgParser populateOptions(ArgParser parser) =>
-      _$populateAuthArgsParser(parser);
-  @override
-  AuthArgs parseOptions(ArgResults results) => _$parseAuthArgsResult(results);
-
   AuthCommand({
     required this.log,
     required this.commandPrompt,
@@ -98,6 +92,11 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
     required this.createNativeLibraryLoader,
     required this.createHttpClient,
   });
+  @override
+  ArgParser populateOptions(ArgParser parser) =>
+      _$populateAuthArgsParser(parser);
+  @override
+  AuthArgs parseOptions(ArgResults results) => _$parseAuthArgsResult(results);
 
   final http.Client Function() createHttpClient;
   final Log log;

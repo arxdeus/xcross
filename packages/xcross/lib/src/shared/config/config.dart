@@ -65,11 +65,11 @@ final class XcrossConfigRoots {
   );
 
   Map<String, String> toMap() => {
-    if (darwinSdk != null) 'darwinSdk': darwinSdk!,
-    if (flutterSdk != null) 'flutterSdk': flutterSdk!,
-    if (xcross != null) 'xcross': xcross!,
-    if (javaHome != null) 'javaHome': javaHome!,
-    if (konanData != null) 'konanData': konanData!,
+    'darwinSdk': ?darwinSdk,
+    'flutterSdk': ?flutterSdk,
+    'xcross': ?xcross,
+    'javaHome': ?javaHome,
+    'konanData': ?konanData,
   };
 }
 
@@ -103,6 +103,46 @@ final class XcrossConfig {
        excludedCommands = Set.unmodifiable(
          excludedCommands.map(_normalizeCommandName).toSet(),
        );
+
+  factory XcrossConfig.parse(
+    String source, {
+    required PlatformHostInterface host,
+    required ConfigHostInterface policy,
+    String? sourcePath,
+    Map<String, String>? environment,
+  }) {
+    Object? document;
+    try {
+      document = loadYaml(source);
+    } on YamlException catch (error) {
+      throw XcrossConfigException(
+        'Invalid YAML: ${error.message}',
+        path: sourcePath,
+      );
+    }
+    return XcrossConfigDecoder(
+      document: document,
+      sourcePath: sourcePath,
+      environment: environment ?? host.environment.values,
+      host: host,
+      policy: policy,
+    ).decode();
+  }
+
+  /// Alias suitable for callers that treat parsing as deserialization.
+  factory XcrossConfig.fromYaml(
+    String source, {
+    required PlatformHostInterface host,
+    required ConfigHostInterface policy,
+    String? sourcePath,
+    Map<String, String>? environment,
+  }) => XcrossConfig.parse(
+    source,
+    sourcePath: sourcePath,
+    environment: environment,
+    host: host,
+    policy: policy,
+  );
 
   /// Variables that configured child processes may inherit.
   ///
@@ -156,46 +196,6 @@ final class XcrossConfig {
   }
 
   static String _normalizeCommandName(String name) => name.trim().toLowerCase();
-
-  factory XcrossConfig.parse(
-    String source, {
-    required PlatformHostInterface host,
-    required ConfigHostInterface policy,
-    String? sourcePath,
-    Map<String, String>? environment,
-  }) {
-    Object? document;
-    try {
-      document = loadYaml(source);
-    } on YamlException catch (error) {
-      throw XcrossConfigException(
-        'Invalid YAML: ${error.message}',
-        path: sourcePath,
-      );
-    }
-    return XcrossConfigDecoder(
-      document: document,
-      sourcePath: sourcePath,
-      environment: environment ?? host.environment.values,
-      host: host,
-      policy: policy,
-    ).decode();
-  }
-
-  /// Alias suitable for callers that treat parsing as deserialization.
-  factory XcrossConfig.fromYaml(
-    String source, {
-    required PlatformHostInterface host,
-    required ConfigHostInterface policy,
-    String? sourcePath,
-    Map<String, String>? environment,
-  }) => XcrossConfig.parse(
-    source,
-    sourcePath: sourcePath,
-    environment: environment,
-    host: host,
-    policy: policy,
-  );
 
   /// Stable YAML with fixed section order and sorted arbitrary maps.
   String toYaml() {

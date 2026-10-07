@@ -55,25 +55,6 @@ final class PbxObject {
 final class PbxProject {
   const PbxProject(this.objects, this.rootObjectId, this.projectDirectory);
 
-  /// Whether [path] is a source file compiled by an iOS target.
-  static bool isTargetSource(String path) =>
-      _sourceExtensions.contains(p.extension(path));
-
-  /// Whether [path] is conservatively safe to copy as a target resource.
-  static bool isTargetResource(String path) {
-    final extension = p.extension(path);
-    return !isTargetSource(path) && !_nonResourceExtensions.contains(extension);
-  }
-
-  final Map<String, PbxObject> objects;
-
-  /// Id of the `PBXProject` object (`rootObject` at the archive top level).
-  final String? rootObjectId;
-
-  /// Directory holding the `.xcodeproj`, i.e. the project's `ios/` dir.
-  /// `PBXFileReference` paths are resolved relative to this (SOURCE_ROOT).
-  final String projectDirectory;
-
   /// Parse pbxproj [contents]. Throws [FormatException] on malformed input.
   factory PbxProject.parse(
     String contents, {
@@ -97,6 +78,25 @@ final class PbxProject {
       projectDirectory,
     );
   }
+
+  /// Whether [path] is a source file compiled by an iOS target.
+  static bool isTargetSource(String path) =>
+      _sourceExtensions.contains(p.extension(path));
+
+  /// Whether [path] is conservatively safe to copy as a target resource.
+  static bool isTargetResource(String path) {
+    final extension = p.extension(path);
+    return !isTargetSource(path) && !_nonResourceExtensions.contains(extension);
+  }
+
+  final Map<String, PbxObject> objects;
+
+  /// Id of the `PBXProject` object (`rootObject` at the archive top level).
+  final String? rootObjectId;
+
+  /// Directory holding the `.xcodeproj`, i.e. the project's `ios/` dir.
+  /// `PBXFileReference` paths are resolved relative to this (SOURCE_ROOT).
+  final String projectDirectory;
 
   PbxObject? object(String? id) => id == null ? null : objects[id];
 

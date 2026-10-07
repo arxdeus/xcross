@@ -10,13 +10,13 @@ import 'package:xcross/src/shared/flutter/swiftpm/artifact_offline_publisher.dar
 
 @internal
 final class SwiftPmBinaryArtifactPublication {
-  SwiftPmBinaryArtifactPublication._(this.nonce);
-
-  static final reused = SwiftPmBinaryArtifactPublication._(null);
   factory SwiftPmBinaryArtifactPublication.published() =>
       SwiftPmBinaryArtifactPublication._(
         '${pid}_${DateTime.now().microsecondsSinceEpoch}',
       );
+  SwiftPmBinaryArtifactPublication._(this.nonce);
+
+  static final reused = SwiftPmBinaryArtifactPublication._(null);
 
   final String? nonce;
 

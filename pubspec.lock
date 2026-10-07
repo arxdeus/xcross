@@ -57,6 +57,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.7.0"
+  arxdeus_lints:
+    dependency: "direct dev"
+    description:
+      name: arxdeus_lints
+      sha256: "338454b8ed4082837e1303c064d5dc4b3250427fcbbab31b4fd41f02a004012c"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.1"
   async:
     dependency: transitive
     description:

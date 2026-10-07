@@ -9,17 +9,16 @@ import 'package:meta/meta.dart';
 
 @internal
 final class DeviceLog {
-  DeviceLog._(this._process, this._pid, this.logger, this._cleanup);
-  final Future<void> Function(Process)? _cleanup;
-  Future<void>? _closing;
-  final Log logger;
-
   /// A log with no attached process, for exercising the crash-reason buffer.
   @visibleForTesting
   DeviceLog.forTesting({required this.logger})
     : _process = null,
       _pid = 0,
       _cleanup = null;
+  DeviceLog._(this._process, this._pid, this.logger, this._cleanup);
+  final Future<void> Function(Process)? _cleanup;
+  Future<void>? _closing;
+  final Log logger;
 
   static const _cleanupTimeout = Duration(seconds: 2);
 

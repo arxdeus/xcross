@@ -16,7 +16,7 @@ Future<List<String>> _captureAsync(Future<void> Function() body) async {
   await runZoned(
     body,
     zoneSpecification: ZoneSpecification(
-      print: (_, __, ___, line) => lines.add(line),
+      print: (_, _, _, line) => lines.add(line),
     ),
   );
   return lines;
@@ -79,7 +79,7 @@ void main() {
           fetchRef: 'refs/heads/main',
           commitSha: '1234567890abcdef1234567890abcdef12345678',
         ),
-        onBundle: (_, __) async {},
+        onBundle: (_, _) async {},
       );
 
       expect(staleWasDeletedBeforeClone, isTrue);
@@ -129,7 +129,7 @@ void main() {
           fetchRef: 'refs/heads/main',
           commitSha: '1234567890abcdef1234567890abcdef12345678',
         ),
-        onBundle: (_, __) async {},
+        onBundle: (_, _) async {},
       );
 
       expect(dartInvocations, List.filled(2, _fakeDartExecutable));
@@ -156,7 +156,7 @@ void main() {
             fetchRef: 'refs/heads/main',
             commitSha: '1234567890abcdef1234567890abcdef12345678',
           ),
-          onBundle: (_, __) async {},
+          onBundle: (_, _) async {},
         ),
         throwsA(isA<XcrossError>()),
       );
@@ -203,7 +203,7 @@ void main() {
             fetchRef: 'refs/heads/main',
             commitSha: '1234567890abcdef1234567890abcdef12345678',
           ),
-          onBundle: (_, __) async {},
+          onBundle: (_, _) async {},
         );
       });
 
@@ -356,7 +356,7 @@ void main() {
           fetchRef: 'refs/heads/feature/a,b=c',
           commitSha: '1234567890abcdef1234567890abcdef12345678',
         ),
-        onBundle: (_, __) async {},
+        onBundle: (_, _) async {},
       );
 
       expect(
@@ -405,7 +405,7 @@ void main() {
           fetchRef: 'refs/heads/main',
           commitSha: '1234567890abcdef1234567890abcdef12345678',
         ),
-        onBundle: (_, __) async => 'installed',
+        onBundle: (_, _) async => 'installed',
       );
 
       expect(result, 'installed');
@@ -450,7 +450,7 @@ void main() {
             fetchRef: 'pull/42/head',
             commitSha: 'abcdefabcdefabcdefabcdefabcdefabcdefabcd',
           ),
-          onBundle: (_, __) async {},
+          onBundle: (_, _) async {},
         );
 
         expect(
@@ -508,7 +508,7 @@ void main() {
             fetchRef: 'refs/heads/main',
             commitSha: '1234567890abcdef1234567890abcdef12345678',
           ),
-          onBundle: (_, __) async {},
+          onBundle: (_, _) async {},
         ),
         throwsA(
           isA<XcrossError>().having(
@@ -550,7 +550,7 @@ void main() {
             fetchRef: 'refs/heads/main',
             commitSha: '1234567890abcdef1234567890abcdef12345678',
           ),
-          onBundle: (_, __) async {},
+          onBundle: (_, _) async {},
         ),
         throwsA(
           isA<XcrossError>().having(
@@ -607,7 +607,7 @@ void main() {
             fetchRef: 'refs/heads/main',
             commitSha: '1234567890abcdef1234567890abcdef12345678',
           ),
-          onBundle: (_, __) async => throw StateError('callback exploded'),
+          onBundle: (_, _) async => throw StateError('callback exploded'),
         ),
         throwsA(
           isA<StateError>().having(
@@ -663,7 +663,7 @@ void main() {
               fetchRef: 'refs/heads/main',
               commitSha: '1234567890abcdef1234567890abcdef12345678',
             ),
-            onBundle: (_, __) async => throw StateError('callback exploded'),
+            onBundle: (_, _) async => throw StateError('callback exploded'),
           ),
           throwsA(
             isA<StateError>().having(
@@ -689,7 +689,7 @@ void main() {
             fetchRef: 'refs/tags/v1.2.3',
             commitSha: '1234567890abcdef1234567890abcdef12345678',
           ),
-          onBundle: (_, __) async {},
+          onBundle: (_, _) async {},
         ),
         throwsA(
           isA<XcrossError>().having(
@@ -727,7 +727,7 @@ void main() {
             fetchRef: 'refs/heads/main',
             commitSha: '1234567890abcdef1234567890abcdef12345678',
           ),
-          onBundle: (_, __) async {},
+          onBundle: (_, _) async {},
         ),
         throwsA(
           isA<XcrossError>().having(

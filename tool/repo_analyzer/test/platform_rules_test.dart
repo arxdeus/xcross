@@ -1,5 +1,5 @@
-import 'package:test_reflective_loader/test_reflective_loader.dart';
 import 'package:repo_analyzer/src/rules/platform_rules.dart';
+import 'package:test_reflective_loader/test_reflective_loader.dart';
 
 import 'support/rule_test_base.dart';
 
@@ -421,7 +421,7 @@ class HiddenPlatformDetectionRuleTest extends ArchitectureRuleTest {
     );
     const src =
         "import 'package:test/composition/native_host.dart'; final hidden = detectPlatformHostSnapshot;";
-    await check(src, [at(src, 'detectPlatformHostSnapshot', skip: 0)]);
+    await check(src, [at(src, 'detectPlatformHostSnapshot')]);
   }
 
   Future<void> test_compositionMayCall() async {

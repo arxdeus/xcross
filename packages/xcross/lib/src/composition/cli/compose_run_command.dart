@@ -80,13 +80,6 @@ final class ComposeRunArgs {
 @internal
 final class ComposeRunCommand<T extends PlatformHostInterface>
     extends ParsedCommand<ComposeRunArgs, void> {
-  @override
-  ArgParser populateOptions(ArgParser parser) =>
-      _$populateComposeRunArgsParser(parser);
-  @override
-  ComposeRunArgs parseOptions(ArgResults results) =>
-      _$parseComposeRunArgsResult(results);
-
   ComposeRunCommand(
     XcrossRuntime<T> runtime,
     Pymd pymd, {
@@ -151,6 +144,12 @@ final class ComposeRunCommand<T extends PlatformHostInterface>
     required ComposeRunDevice runDevice,
   }) : _packOperation = packOperation,
        _runDevice = runDevice;
+  @override
+  ArgParser populateOptions(ArgParser parser) =>
+      _$populateComposeRunArgsParser(parser);
+  @override
+  ComposeRunArgs parseOptions(ArgResults results) =>
+      _$parseComposeRunArgsResult(results);
 
   final HostFileSystemInterface files;
   final String projectRoot;

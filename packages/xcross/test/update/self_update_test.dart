@@ -27,7 +27,7 @@ Future<List<String>> _captureAsync(Future<void> Function() body) async {
   await runZoned(
     body,
     zoneSpecification: ZoneSpecification(
-      print: (_, __, ___, line) => lines.add(line),
+      print: (_, _, _, line) => lines.add(line),
     ),
   );
   return lines;
@@ -41,62 +41,59 @@ typedef _RunRequest = ({
 });
 
 void main() {
-  test(
-    'release matrix preserves Linux and Windows x64 and arm64',
-    () {
-      for (final architecture in ['x64', 'arm64']) {
-        final host = LinuxHost(architecture: architecture);
-        expect(
-          LinuxUpdatePolicy(
-            host,
-            fixtureRunner(host, log: fixtureLog()),
-            FixturePrivileges(),
-          ).releaseAsset(),
-          'xcross-linux-$architecture.tar.gz',
-        );
-        expect(
-          WindowsUpdatePolicy(
-            WindowsHost(architecture: architecture),
-            FixturePrivileges(),
-          ).releaseAsset(),
-          'xcross-windows-$architecture.zip',
-        );
-      }
-      for (final architecture in ['ia32', 'arm', 'unknown']) {
-        expect(
-          () => WindowsUpdatePolicy(
-            WindowsHost(architecture: architecture),
-            FixturePrivileges(),
-          ).releaseAsset(),
-          throwsA(
-            isA<XcrossError>().having(
-              (error) => error.toString(),
-              'message',
-              contains('windows/$architecture'),
-            ),
+  test('release matrix preserves Linux and Windows x64 and arm64', () {
+    for (final architecture in ['x64', 'arm64']) {
+      final host = LinuxHost(architecture: architecture);
+      expect(
+        LinuxUpdatePolicy(
+          host,
+          fixtureRunner(host, log: fixtureLog()),
+          FixturePrivileges(),
+        ).releaseAsset(),
+        'xcross-linux-$architecture.tar.gz',
+      );
+      expect(
+        WindowsUpdatePolicy(
+          WindowsHost(architecture: architecture),
+          FixturePrivileges(),
+        ).releaseAsset(),
+        'xcross-windows-$architecture.zip',
+      );
+    }
+    for (final architecture in ['ia32', 'arm', 'unknown']) {
+      expect(
+        () => WindowsUpdatePolicy(
+          WindowsHost(architecture: architecture),
+          FixturePrivileges(),
+        ).releaseAsset(),
+        throwsA(
+          isA<XcrossError>().having(
+            (error) => error.toString(),
+            'message',
+            contains('windows/$architecture'),
           ),
-        );
-      }
-      final mac = MacOSHost(architecture: 'arm64');
-      expect(
-        () => MacOSUpdatePolicy(
-          mac,
-          fixtureRunner(mac, log: fixtureLog()),
-          FixturePrivileges(),
-        ).releaseAsset(),
-        throwsA(isA<XcrossError>()),
+        ),
       );
-      final linux = LinuxHost();
-      expect(
-        () => LinuxUpdatePolicy(
-          linux,
-          fixtureRunner(linux, log: fixtureLog()),
-          FixturePrivileges(),
-        ).releaseAsset(),
-        throwsA(isA<XcrossError>()),
-      );
-    },
-  );
+    }
+    final mac = MacOSHost(architecture: 'arm64');
+    expect(
+      () => MacOSUpdatePolicy(
+        mac,
+        fixtureRunner(mac, log: fixtureLog()),
+        FixturePrivileges(),
+      ).releaseAsset(),
+      throwsA(isA<XcrossError>()),
+    );
+    final linux = LinuxHost();
+    expect(
+      () => LinuxUpdatePolicy(
+        linux,
+        fixtureRunner(linux, log: fixtureLog()),
+        FixturePrivileges(),
+      ).releaseAsset(),
+      throwsA(isA<XcrossError>()),
+    );
+  });
 
   late SelfUpdate updater;
   late Directory root;

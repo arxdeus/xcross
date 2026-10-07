@@ -4,8 +4,8 @@ library;
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/element/element.dart';
 
-import '../conventions.dart';
-import '../rule_base.dart';
+import 'package:repo_analyzer/src/conventions.dart';
+import 'package:repo_analyzer/src/rule_base.dart';
 
 /// The libraries [directive] makes reachable, including every library that
 /// contributes a name through re-exports.
@@ -113,8 +113,8 @@ final class LibraryLayoutRule extends ArchitectureRule {
         warning(
           'library_layout',
           "Library file is outside the layer layout: '{0}'.",
-          "Place it under 'lib/[src/]{composition,shared,host/<os>,"
-              "target/<device>}/'.",
+          "Place it under 'lib/[src/]<layer>/' where <layer> is composition, "
+              'shared, host/<os>, or target/<device>.',
         ),
         description:
             'Every library file must live in a composition, shared, host, or '

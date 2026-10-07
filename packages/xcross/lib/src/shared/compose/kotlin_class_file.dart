@@ -33,41 +33,6 @@ class KotlinClassMember {
 
 @internal
 class KotlinClassFile {
-  KotlinClassFile._({
-    required this.minor,
-    required this.major,
-    required this.cp,
-    required this.cpRaw,
-    required this.accessFlags,
-    required this.thisClass,
-    required this.superClass,
-    required this.interfaces,
-    required this.fields,
-    required this.methods,
-    required this.classAttrs,
-  });
-
-  final int minor;
-  final int major;
-
-  /// 1-indexed; slot 0 and the second slot of every Long/Double are `null`.
-  final List<KotlinConstantPoolEntry?> cp;
-
-  /// Raw bytes of the entire constant-pool section (cp_count u2 + entries).
-  /// Re-emitted unchanged by [serialize].
-  final Uint8List cpRaw;
-
-  final int accessFlags;
-  final int thisClass;
-  final int superClass;
-  final List<int> interfaces;
-  final List<KotlinClassMember> fields;
-
-  /// Mutable: [replaceMethodCode] updates entries in-place.
-  final List<KotlinClassMember> methods;
-
-  final List<KotlinClassAttribute> classAttrs;
-
   // ── Factory ────────────────────────────────────────────────────────────────
 
   factory KotlinClassFile.parse(Uint8List raw) {
@@ -135,6 +100,40 @@ class KotlinClassFile {
       classAttrs: classAttrsRes.$1,
     );
   }
+  KotlinClassFile._({
+    required this.minor,
+    required this.major,
+    required this.cp,
+    required this.cpRaw,
+    required this.accessFlags,
+    required this.thisClass,
+    required this.superClass,
+    required this.interfaces,
+    required this.fields,
+    required this.methods,
+    required this.classAttrs,
+  });
+
+  final int minor;
+  final int major;
+
+  /// 1-indexed; slot 0 and the second slot of every Long/Double are `null`.
+  final List<KotlinConstantPoolEntry?> cp;
+
+  /// Raw bytes of the entire constant-pool section (cp_count u2 + entries).
+  /// Re-emitted unchanged by [serialize].
+  final Uint8List cpRaw;
+
+  final int accessFlags;
+  final int thisClass;
+  final int superClass;
+  final List<int> interfaces;
+  final List<KotlinClassMember> fields;
+
+  /// Mutable: [replaceMethodCode] updates entries in-place.
+  final List<KotlinClassMember> methods;
+
+  final List<KotlinClassAttribute> classAttrs;
 
   static (KotlinClassMember, int) _parseMember(Uint8List raw, int startOff) {
     var off = startOff;

@@ -15,52 +15,6 @@ import 'package:propertylistserialization/propertylistserialization.dart';
 /// Parsed signing material used to produce Apple code-signing CMS blobs.
 @immutable
 class SigningAsset {
-  const SigningAsset._({
-    required this.privateKey,
-    required this.leafCertificateDer,
-    required this.profileCmsBytes,
-    required this.profilePlistBytes,
-    required this.profile,
-    required this.entitlements,
-    required this.teamIdentifier,
-    required this.applicationIdentifier,
-    required this.applicationIdentifierPrefix,
-    required this.certificateCommonName,
-    required ParsedCertificate certificate,
-    required List<Uint8List> certificateChain,
-  }) : _certificate = certificate,
-       _certificateChain = certificateChain;
-
-  final RSAPrivateKey privateKey;
-  final Uint8List leafCertificateDer;
-  final Uint8List profileCmsBytes;
-  final Uint8List profilePlistBytes;
-  final Map<String, Object?> profile;
-  final Map<String, Object?> entitlements;
-
-  /// App Groups this profile actually grants.
-  ///
-  /// Authoritative in a way the provisioning calls are not: iOS honours what
-  /// the profile says, not what xcross asked for. A profile whose App ID has
-  /// the App Groups capability enabled but no group attached carries an empty
-  /// list, and signing a real group against it makes installd reject the app
-  /// with `0xe8008015`. Callers can therefore check here whether a shared
-  /// container will actually work before promising the user one.
-  List<String> get grantedAppGroups => switch (entitlements['com.apple.security'
-      '.application-groups']) {
-    final List<Object?> groups => [
-      for (final group in groups)
-        if (group is String && group.isNotEmpty) group,
-    ],
-    _ => const [],
-  };
-  final String teamIdentifier;
-  final String applicationIdentifier;
-  final String applicationIdentifierPrefix;
-  final String certificateCommonName;
-  final ParsedCertificate _certificate;
-  final List<Uint8List> _certificateChain;
-
   /// Loads and validates a PEM RSA key, PEM leaf certificate, and
   /// CMS-wrapped mobile provisioning profile.
   factory SigningAsset.fromBytes({
@@ -126,6 +80,51 @@ class SigningAsset {
       certificateChain: certificateChain,
     );
   }
+  const SigningAsset._({
+    required this.privateKey,
+    required this.leafCertificateDer,
+    required this.profileCmsBytes,
+    required this.profilePlistBytes,
+    required this.profile,
+    required this.entitlements,
+    required this.teamIdentifier,
+    required this.applicationIdentifier,
+    required this.applicationIdentifierPrefix,
+    required this.certificateCommonName,
+    required ParsedCertificate certificate,
+    required List<Uint8List> certificateChain,
+  }) : _certificate = certificate,
+       _certificateChain = certificateChain;
+
+  final RSAPrivateKey privateKey;
+  final Uint8List leafCertificateDer;
+  final Uint8List profileCmsBytes;
+  final Uint8List profilePlistBytes;
+  final Map<String, Object?> profile;
+  final Map<String, Object?> entitlements;
+
+  /// App Groups this profile actually grants.
+  ///
+  /// Authoritative in a way the provisioning calls are not: iOS honours what
+  /// the profile says, not what xcross asked for. A profile whose App ID has
+  /// the App Groups capability enabled but no group attached carries an empty
+  /// list, and signing a real group against it makes installd reject the app
+  /// with `0xe8008015`. Callers can therefore check here whether a shared
+  /// container will actually work before promising the user one.
+  List<String> get grantedAppGroups => switch (entitlements['com.apple.security'
+      '.application-groups']) {
+    final List<Object?> groups => [
+      for (final group in groups)
+        if (group is String && group.isNotEmpty) group,
+    ],
+    _ => const [],
+  };
+  final String teamIdentifier;
+  final String applicationIdentifier;
+  final String applicationIdentifierPrefix;
+  final String certificateCommonName;
+  final ParsedCertificate _certificate;
+  final List<Uint8List> _certificateChain;
 
   /// Refuses a key and certificate that do not describe the same RSA pair.
   static void _requireKeyMatchesCertificate(

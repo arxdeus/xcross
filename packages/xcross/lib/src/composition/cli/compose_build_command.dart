@@ -65,13 +65,6 @@ final class ComposeBuildArgs {
 @internal
 final class ComposeBuildCommand<T extends PlatformHostInterface>
     extends ParsedCommand<ComposeBuildArgs, void> {
-  @override
-  ArgParser populateOptions(ArgParser parser) =>
-      _$populateComposeBuildArgsParser(parser);
-  @override
-  ComposeBuildArgs parseOptions(ArgResults results) =>
-      _$parseComposeBuildArgsResult(results);
-
   ComposeBuildCommand(XcrossRuntime<T> runtime)
     : this.withSeams(
         packOperation:
@@ -101,6 +94,12 @@ final class ComposeBuildCommand<T extends PlatformHostInterface>
   }) : _packOperation = packOperation,
        _packageIpa = packageIpa,
        _logDone = logDone;
+  @override
+  ArgParser populateOptions(ArgParser parser) =>
+      _$populateComposeBuildArgsParser(parser);
+  @override
+  ComposeBuildArgs parseOptions(ArgResults results) =>
+      _$parseComposeBuildArgsResult(results);
 
   final Log log;
   final ComposeCliPackOperation _packOperation;

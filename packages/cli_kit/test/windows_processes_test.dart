@@ -12,10 +12,9 @@ import 'package:test/test.dart';
 
 @internal
 final class WindowsProcessTestPaths implements HostPathsInterface {
+  WindowsProcessTestPaths(String root) : context = p.Context(current: root);
   @override
   String toolNameKey(String name) => WindowsPaths().toolNameKey(name);
-
-  WindowsProcessTestPaths(String root) : context = p.Context(current: root);
 
   @override
   final p.Context context;

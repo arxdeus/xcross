@@ -900,11 +900,10 @@ final class MappedXcrunFileSystem implements HostFileSystemInterface {
 
 @internal
 final class XcrunTestProcesses implements HostProcessInterface {
+  XcrunTestProcesses(this.ambientXcrun);
   @override
   ProcessExitDiagnostic describeExit(int exitCode) =>
       throw StateError('Unexpected process exit: $exitCode');
-
-  XcrunTestProcesses(this.ambientXcrun);
 
   final String ambientXcrun;
   final List<String> shellLookups = [];

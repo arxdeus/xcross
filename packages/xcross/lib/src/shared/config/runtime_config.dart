@@ -60,9 +60,7 @@ final class XcrossRuntimeConfig {
           final String value => value,
           final List<String> paths => host.environment.joinPathList([
             ...paths,
-            if (host.environment.lookup(inherited, entry.key)
-                case final existing?)
-              existing,
+            ?host.environment.lookup(inherited, entry.key),
           ]),
           _ => throw StateError('Unsupported environment value: ${entry.key}'),
         };

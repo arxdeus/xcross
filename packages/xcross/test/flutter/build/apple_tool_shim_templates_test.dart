@@ -283,10 +283,7 @@ void main() {
         final result = await Process.run(
           p.join(shims, 'cc'),
           [source.path, '-o', executable],
-          environment: {
-            ...environment,
-            if (sdkRoot != null) 'SDKROOT': sdkRoot,
-          },
+          environment: {...environment, 'SDKROOT': ?sdkRoot},
           includeParentEnvironment: false,
         );
         expect(result.exitCode, 0, reason: result.stderr.toString());

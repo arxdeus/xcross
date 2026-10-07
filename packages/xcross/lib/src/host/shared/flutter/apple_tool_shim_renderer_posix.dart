@@ -21,7 +21,7 @@ final class PosixAppleToolShimRenderer<T extends PlatformHostInterface>
     final auxiliaryTools = <String, String>{
       'lipo': config.lipo,
       if (config.otool != null) 'otool': otoolShim,
-      if (config.installNameTool case final tool?) 'install_name_tool': tool,
+      'install_name_tool': ?config.installNameTool,
     };
     await host.fileSystem.directory(directory).create(recursive: true);
 

@@ -100,6 +100,7 @@ final class CheckoutCommand {
 
 @internal
 final class RecordingCheckoutProcesses implements HostProcessInterface {
+  RecordingCheckoutProcesses(this.execute);
   @override
   ProcessExitDiagnostic describeExit(int exitCode) {
     if (exitCode < 0 || exitCode > 255) {
@@ -108,7 +109,6 @@ final class RecordingCheckoutProcesses implements HostProcessInterface {
     return const ProcessExitDiagnostic(crashed: false, description: null);
   }
 
-  RecordingCheckoutProcesses(this.execute);
   final Process Function(CheckoutCommand) execute;
   final List<CheckoutCommand> commands = [];
   @override

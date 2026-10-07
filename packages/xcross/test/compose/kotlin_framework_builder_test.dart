@@ -421,7 +421,6 @@ void main() {
 
 @internal
 final class ComposeFixture {
-  final ComposeTestSession session;
   ComposeFixture._(this.session, this.temp, this.target)
     : root = temp.path,
       modulePath = p.join(temp.path, 'shared'),
@@ -450,6 +449,7 @@ final class ComposeFixture {
     );
     return ComposeFixture._(session, temp, target);
   }
+  final ComposeTestSession session;
 
   final Directory temp;
   final ComposeTarget<PlatformHostInterface> target;

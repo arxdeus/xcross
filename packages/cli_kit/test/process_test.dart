@@ -758,7 +758,7 @@ void main() {
         final script = File(p.join(directory.path, 'env.dart'))
           ..writeAsStringSync(
             "import 'dart:io'; void main() { final e = Platform.environment; "
-            "stdout.write('\${e['PATH']}|\${e['TOOL_ROOT']}'); }",
+            r"stdout.write('${e['PATH']}|${e['TOOL_ROOT']}'); }",
           );
         final extended = '\\\\?\\${directory.path}';
 

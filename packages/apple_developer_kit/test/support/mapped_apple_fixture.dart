@@ -63,10 +63,9 @@ final class MappedAppleHost implements PlatformHostInterface {
 
 @internal
 final class MappedApplePaths implements HostPathsInterface {
+  MappedApplePaths(this.root) : context = p.Context(style: p.Style.posix);
   @override
   String toolNameKey(String name) => name.trim();
-
-  MappedApplePaths(this.root) : context = p.Context(style: p.Style.posix);
 
   final String root;
   @override

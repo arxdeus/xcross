@@ -10,9 +10,9 @@ import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/error/error.dart';
 import 'package:analyzer/file_system/file_system.dart';
 
-import 'conventions.dart';
-import 'identity.dart';
-import 'platform_types.dart';
+import 'package:repo_analyzer/src/conventions.dart';
+import 'package:repo_analyzer/src/identity.dart';
+import 'package:repo_analyzer/src/platform_types.dart';
 
 /// Base class for every xcross architecture rule.
 ///
@@ -139,7 +139,7 @@ final class RuleScope {
       final pubspec = folder.getFile('pubspec.yaml');
       if (pubspec.exists &&
           RegExp(
-            r'^workspace:',
+            '^workspace:',
             multiLine: true,
           ).hasMatch(pubspec.readAsStringSync())) {
         return folder.path;

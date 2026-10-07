@@ -1,5 +1,5 @@
-import 'package:test/test.dart';
 import 'package:repo_analyzer/src/conventions.dart';
+import 'package:test/test.dart';
 
 SourceLocation _at(String relative) => SourceLocation.of(
   '/w/packages/pkg/$relative',

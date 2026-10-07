@@ -32,9 +32,6 @@ typedef SetupScriptApproval = ({
 
 @internal
 final class SetupScriptManager {
-  static const _downloadTimeout = Duration(seconds: 30);
-  static final _contentHashPattern = RegExp(r'^[0-9a-f]{64}$');
-
   SetupScriptManager({
     required this.host,
     required this.createHttpClient,
@@ -56,6 +53,8 @@ final class SetupScriptManager {
              inheritStdio: true,
              label: 'setup script',
            ));
+  static const _downloadTimeout = Duration(seconds: 30);
+  static final _contentHashPattern = RegExp(r'^[0-9a-f]{64}$');
 
   final PlatformHostInterface host;
   final http.Client Function() createHttpClient;

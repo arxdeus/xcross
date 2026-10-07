@@ -15,6 +15,12 @@ const String flutterFrameworkPackageName = 'FlutterFramework';
 
 @internal
 final class SwiftPmPluginOverlay<T extends PlatformHostInterface> {
+  SwiftPmPluginOverlay({
+    required this.filesystem,
+    required this.sourceNormalizer,
+    required this.binaryPreparation,
+    required this.manifestPolicy,
+  });
   static const iosUnreachableEntries = {
     // development trees
     '.dart_tool',
@@ -41,12 +47,6 @@ final class SwiftPmPluginOverlay<T extends PlatformHostInterface> {
     // development time, never referenced by the generated iOS build
     'pigeons',
   };
-  SwiftPmPluginOverlay({
-    required this.filesystem,
-    required this.sourceNormalizer,
-    required this.binaryPreparation,
-    required this.manifestPolicy,
-  });
   final SwiftPmVendoredManifestPolicy manifestPolicy;
   final SwiftPmBinaryPreparation<T> binaryPreparation;
   final SwiftPmFilesystem<T> filesystem;

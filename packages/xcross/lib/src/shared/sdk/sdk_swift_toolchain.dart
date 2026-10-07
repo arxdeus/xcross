@@ -176,7 +176,7 @@ final class SdkSwiftToolchain<T extends PlatformHostInterface> {
   }
 
   static String mismatchGuidance(String? detail) => [
-    if (detail != null) detail,
+    ?detail,
     _mismatchCause,
     _mismatchRemedy,
     '    xcross sdk install <path-to-Xcode.xip>',

@@ -274,14 +274,13 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
         interopTargetCandidates: interopTargetCandidates,
         interopConsumers: {
           for (final plugin in spmPlugins)
-            if (interopProductsByPlugin[plugin.name] case final products?)
-              p.join(
-                outputDir,
-                'Packages',
-                plugin.name,
-                plugin.platformDirectoryName,
-                p.basename(plugin.swiftPackageDir),
-              ): products,
+            p.join(
+              outputDir,
+              'Packages',
+              plugin.name,
+              plugin.platformDirectoryName,
+              p.basename(plugin.swiftPackageDir),
+            ): ?interopProductsByPlugin[plugin.name],
         },
         swiftPmArtifactJunctionCapability: capabilities.swiftPmArtifact,
         packageLocalArtifactJunctionCapability:

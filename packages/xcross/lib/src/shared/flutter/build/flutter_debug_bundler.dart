@@ -24,6 +24,18 @@ import 'package:xcross/src/shared/flutter/flutter_kernel_compiler.dart';
 ///
 @internal
 final class FlutterDebugBundler<T extends PlatformHostInterface> {
+  FlutterDebugBundler({
+    required this.runtime,
+    required this.kernel,
+    required this.assets,
+    required this.projectRoot,
+    required this.flutterRoot,
+    required this.outputDir,
+    required this.deploymentTarget,
+    this.entrypoint = 'lib/main.dart',
+    this.dartDefines = const [],
+    this.flavor,
+  });
   final FlutterBuildRuntime<T> runtime;
   final FlutterKernelCompiler<T> kernel;
   final FlutterAssetsCompiler assets;
@@ -45,19 +57,6 @@ final class FlutterDebugBundler<T extends PlatformHostInterface> {
   /// Skipped if [dartDefines] already contains an explicit
   /// `FLUTTER_APP_FLAVOR=` define (explicit define wins).
   final String? flavor;
-
-  FlutterDebugBundler({
-    required this.runtime,
-    required this.kernel,
-    required this.assets,
-    required this.projectRoot,
-    required this.flutterRoot,
-    required this.outputDir,
-    required this.deploymentTarget,
-    this.entrypoint = 'lib/main.dart',
-    this.dartDefines = const [],
-    this.flavor,
-  });
 
   /// Build `App.framework` inside [outputDir]. Returns the framework path.
   Future<String> build() async {

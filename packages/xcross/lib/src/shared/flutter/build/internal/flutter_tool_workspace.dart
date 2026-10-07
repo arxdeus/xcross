@@ -10,13 +10,12 @@ import 'package:xcross/src/shared/flutter/flutter_workspace_readiness.dart';
 
 @internal
 final class FlutterToolWorkspace {
-  static const _readyMarkerContents = 'ready-v2\n';
-
   const FlutterToolWorkspace._({
     required this.flutterRoot,
     required this.dart,
     required this.flutterToolsSnapshot,
   });
+  static const _readyMarkerContents = 'ready-v2\n';
 
   final String flutterRoot;
   final String dart;

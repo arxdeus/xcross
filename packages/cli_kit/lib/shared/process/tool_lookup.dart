@@ -132,7 +132,7 @@ final class ProcessToolLookup<T extends PlatformHostInterface>
         ? null
         : _toolchainOverride(name, configured, accept: accept);
 
-    final found = <String>[if (toolchain != null) toolchain];
+    final found = <String>[?toolchain];
     final seen = <String>{};
     final searchPath = environmentValue(env, 'PATH') ?? '';
     final directories = [

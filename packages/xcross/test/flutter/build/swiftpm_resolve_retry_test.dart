@@ -42,14 +42,14 @@ void main() {
       const observed = [
         "error: failed downloading 'https://dl.google.com/grpc.zip' which is "
             "required by binary target 'grpc': downloadError(\"Error "
-            'Domain=NSURLErrorDomain Code=-1001 \\"(null)\\"")',
+            r'Domain=NSURLErrorDomain Code=-1001 \"(null)\"")',
         "error: failed downloading 'https://dl.google.com/absl.zip' which is "
             "required by binary target 'absl': downloadError(\"Error "
-            'Domain=NSURLErrorDomain Code=-1 \\"(null)\\"UserInfo='
+            r'Domain=NSURLErrorDomain Code=-1 \"(null)\"UserInfo='
             '{NSLocalizedDescription=OpenSSL SSL_connect: SSL_ERROR_SYSCALL in '
             'connection to dl.google.com:443 }")',
-        'downloadError("Error Domain=NSURLErrorDomain Code=-1005 \\"(null)\\"")',
-        'downloadError("Error Domain=NSURLErrorDomain Code=-1004 \\"(null)\\"")',
+        r'downloadError("Error Domain=NSURLErrorDomain Code=-1005 \"(null)\"")',
+        r'downloadError("Error Domain=NSURLErrorDomain Code=-1004 \"(null)\"")',
       ];
       for (final error in observed) {
         expect(
@@ -62,8 +62,8 @@ void main() {
 
     test('leaves non-network download failures alone', () {
       const real = [
-        'downloadError("Error Domain=NSURLErrorDomain Code=-1002 \\"(null)\\"")',
-        'downloadError("Error Domain=NSURLErrorDomain Code=-10010 \\"(null)\\"")',
+        r'downloadError("Error Domain=NSURLErrorDomain Code=-1002 \"(null)\"")',
+        r'downloadError("Error Domain=NSURLErrorDomain Code=-10010 \"(null)\"")',
         "error: checksum of downloaded artifact of binary target 'grpc' does "
             'not match checksum specified by the manifest',
       ];

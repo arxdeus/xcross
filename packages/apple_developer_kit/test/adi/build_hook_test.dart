@@ -63,7 +63,7 @@ void main() {
         final environment = {
           'PATH': '/Xcode/toolchain/usr/bin:/nix/bin',
           'DEVELOPER_DIR': '/Alternate Xcode/Contents/Developer',
-          if (sdkRoot != null) 'SDKROOT': sdkRoot,
+          'SDKROOT': ?sdkRoot,
         };
         final commands = <List<String>>[];
         final compiler = await hook.resolveMacOSCompiler(

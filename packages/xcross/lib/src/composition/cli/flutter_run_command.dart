@@ -61,15 +61,14 @@ final class FlutterRunArgs extends CommonFlutterArgs {
 @internal
 final class FlutterRunCommand<T extends PlatformHostInterface>
     extends ParsedCommand<FlutterRunArgs, void> {
+  FlutterRunCommand(this.runtime, this.pymd, {required this.sockets})
+    : features = composePhysicalFeatures(runtime);
   @override
   ArgParser populateOptions(ArgParser parser) =>
       _$populateFlutterRunArgsParser(parser);
   @override
   FlutterRunArgs parseOptions(ArgResults results) =>
       _$parseFlutterRunArgsResult(results);
-
-  FlutterRunCommand(this.runtime, this.pymd, {required this.sockets})
-    : features = composePhysicalFeatures(runtime);
 
   final XcrossBuildFeatures<T> features;
 

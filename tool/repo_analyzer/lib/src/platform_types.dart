@@ -199,8 +199,9 @@ final class ServiceInference {
 
   bool _isEffectPort(InterfaceElement element) {
     if (element is! ClassElement || !element.isAbstract) return false;
-    if (element.fields.any((f) => !f.isStatic && f.isOriginDeclaration))
+    if (element.fields.any((f) => !f.isStatic && f.isOriginDeclaration)) {
       return false;
+    }
     return element.methods.any(
       (m) =>
           !m.isStatic &&

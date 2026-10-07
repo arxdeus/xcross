@@ -116,7 +116,7 @@ void main() {
         const [],
         executablePath: '/bundle/bin/xcross',
         environment: const {},
-        run: (_, __) async => fail('must not run'),
+        run: (_, _) async => fail('must not run'),
       ),
       isNull,
     );
@@ -157,7 +157,7 @@ void main() {
       environment: const {
         'XCROSS_APPLE_TOOL_DSYMUTIL': r'C:\Program Files\LLVM\bin\dsymutil.exe',
       },
-      run: (_, __) async => fail('must not run a nonexistent executable'),
+      run: (_, _) async => fail('must not run a nonexistent executable'),
     );
 
     expect(code, 0);

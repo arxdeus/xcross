@@ -230,7 +230,7 @@ final class RunnerShim<T extends PlatformHostInterface> {
     '-o',
     outputPath,
     objectPath,
-    if (pluginsLibrary != null) pluginsLibrary,
+    ?pluginsLibrary,
     '-F',
     flutterSlice,
     '-F',

@@ -52,13 +52,6 @@ final class UpdateArgs {
 /// touched. Non-tag refs are built from source and then installed atomically.
 @internal
 final class UpdateCommand extends ParsedCommand<UpdateArgs, void> {
-  @override
-  ArgParser populateOptions(ArgParser parser) =>
-      _$populateUpdateArgsParser(parser);
-  @override
-  UpdateArgs parseOptions(ArgResults results) =>
-      _$parseUpdateArgsResult(results);
-
   UpdateCommand(XcrossRuntime runtime) : this.withSeams(runtime);
 
   UpdateCommand.withSeams(
@@ -135,6 +128,12 @@ final class UpdateCommand extends ParsedCommand<UpdateArgs, void> {
            hasNativeLibraries ?? ((layout) => layout.hasNativeLibraries),
        _refreshSetupScript =
            refreshSetupScript ?? (() => _defaultRefreshSetupScript(runtime));
+  @override
+  ArgParser populateOptions(ArgParser parser) =>
+      _$populateUpdateArgsParser(parser);
+  @override
+  UpdateArgs parseOptions(ArgResults results) =>
+      _$parseUpdateArgsResult(results);
 
   final Log log;
   final CommandPrompt commandPrompt;

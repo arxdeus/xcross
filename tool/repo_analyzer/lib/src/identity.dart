@@ -14,7 +14,7 @@ import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/element/type.dart';
 
-import 'platform_types.dart';
+import 'package:repo_analyzer/src/platform_types.dart';
 
 const kindHost = 'host';
 const kindArchitecture = 'architecture';

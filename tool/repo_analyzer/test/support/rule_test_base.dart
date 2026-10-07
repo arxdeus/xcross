@@ -1,6 +1,5 @@
 import 'package:analyzer_testing/analysis_rule/analysis_rule.dart';
 // ExpectedDiagnostic is not re-exported from the public library.
-// ignore: implementation_imports
 import 'package:analyzer_testing/src/analysis_rule/pub_package_resolution.dart';
 
 /// Shared base for architecture rule tests.
