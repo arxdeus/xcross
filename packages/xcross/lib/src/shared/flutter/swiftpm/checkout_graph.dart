@@ -81,9 +81,10 @@ final class SwiftPmCheckoutGraph {
         indexedTargets: targets,
       );
       containment.validateTarget(root, target);
-      if (!fileSystem.directory(target).existsSync() &&
-          !fileSystem.file(target).existsSync() &&
-          (!symlinks || requiredPackageLink(root, link))) {
+      final targetMissing =
+          !fileSystem.directory(target).existsSync() &&
+          !fileSystem.file(target).existsSync();
+      if (targetMissing && (!symlinks || requiredPackageLink(root, link))) {
         throw FlutterBuildError(
           'Symlink target does not exist in SwiftPM checkout: $link -> $target',
         );
