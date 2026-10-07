@@ -161,6 +161,9 @@ final class RejectingDependencyNativeTools
   String get engineCacheDirectory =>
       throw StateError('Unexpected native tool query');
   @override
+  bool get flutterManagesIosEngineArtifacts =>
+      throw StateError('Unexpected native tool query');
+  @override
   ToolchainPluginLayoutInterface get toolchainPluginLayout =>
       throw StateError('Unexpected native tool query');
   @override
