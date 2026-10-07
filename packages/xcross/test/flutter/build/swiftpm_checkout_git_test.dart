@@ -15,7 +15,7 @@ void main() {
     root = Directory.systemTemp.createTempSync('xcross-checkout-git-');
   });
   tearDown(() async {
-    await context.output.close();
+    await context.close();
     root.deleteSync(recursive: true);
   });
 

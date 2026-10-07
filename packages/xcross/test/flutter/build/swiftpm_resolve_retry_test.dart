@@ -39,15 +39,20 @@ void main() {
     });
 
     test('recognizes binary artifact download failures', () {
+      const grpc =
+          "error: failed downloading 'https://dl.google.com/grpc.zip' which is "
+          "required by binary target 'grpc': downloadError(\"Error "
+          r'Domain=NSURLErrorDomain Code=-1001 \"(null)\"")';
+      const absl =
+          "error: failed downloading 'https://dl.google.com/absl.zip' which is "
+          "required by binary target 'absl': downloadError(\"Error "
+          'Domain=NSURLErrorDomain '
+          r'Code=-1 \"(null)\"UserInfo={NSLocalizedDescription=OpenSSL '
+          'SSL_connect: SSL_ERROR_SYSCALL in '
+          'connection to dl.google.com:443 }")';
       const observed = [
-        "error: failed downloading 'https://dl.google.com/grpc.zip' which is "
-            "required by binary target 'grpc': downloadError(\"Error "
-            r'Domain=NSURLErrorDomain Code=-1001 \"(null)\"")',
-        "error: failed downloading 'https://dl.google.com/absl.zip' which is "
-            "required by binary target 'absl': downloadError(\"Error "
-            r'Domain=NSURLErrorDomain Code=-1 \"(null)\"UserInfo='
-            '{NSLocalizedDescription=OpenSSL SSL_connect: SSL_ERROR_SYSCALL in '
-            'connection to dl.google.com:443 }")',
+        grpc,
+        absl,
         r'downloadError("Error Domain=NSURLErrorDomain Code=-1005 \"(null)\"")',
         r'downloadError("Error Domain=NSURLErrorDomain Code=-1004 \"(null)\"")',
       ];
@@ -61,11 +66,13 @@ void main() {
     });
 
     test('leaves non-network download failures alone', () {
+      const checksum =
+          "error: checksum of downloaded artifact of binary target 'grpc' does "
+          'not match checksum specified by the manifest';
       const real = [
         r'downloadError("Error Domain=NSURLErrorDomain Code=-1002 \"(null)\"")',
         r'downloadError("Error Domain=NSURLErrorDomain Code=-10010 \"(null)\"")',
-        "error: checksum of downloaded artifact of binary target 'grpc' does "
-            'not match checksum specified by the manifest',
+        checksum,
       ];
       for (final error in real) {
         expect(

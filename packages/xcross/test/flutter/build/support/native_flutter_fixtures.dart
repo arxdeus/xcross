@@ -301,6 +301,7 @@ final class LinkRecordingProcesses implements HostProcessInterface {
 final class LinkRecordingChild implements Process {
   @override
   final IOSink stdin = nativeTestSink();
+  Future<void> close() => stdin.close();
   @override
   Stream<List<int>> get stdout => const Stream.empty();
   @override
@@ -453,6 +454,7 @@ IOSink nativeTestSink() {
   final sink = IOSink(controller.sink);
   addTearDown(() async {
     await sink.close();
+    await controller.close();
     await subscription.cancel();
   });
   return sink;

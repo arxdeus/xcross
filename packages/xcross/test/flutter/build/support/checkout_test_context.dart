@@ -88,6 +88,7 @@ final class CheckoutTestContext {
   late final SwiftPmCheckoutLinks<MacOSHost> links;
   late final SwiftPmCheckout<MacOSHost> checkout;
   late final IOSink output;
+  Future<void> close() => output.close();
 }
 
 @internal
@@ -162,6 +163,7 @@ final class CheckoutTestProcess implements Process {
   final CheckoutInputConsumer input;
   @override
   late final IOSink stdin;
+  Future<void> close() => stdin.close();
   @override
   final Stream<List<int>> stdout;
   @override

@@ -30,9 +30,11 @@ import 'package:xcross/src/target/simulator/flutter/simulator_flutter_target.dar
 
 void main() {
   final sinks = <IOSink>[];
+  final controllers = <StreamController<List<int>>>[];
   final subscriptions = <StreamSubscription<List<int>>>[];
   IOSink sink() {
     final controller = StreamController<List<int>>();
+    controllers.add(controller);
     subscriptions.add(controller.stream.listen((_) {}));
     final output = IOSink(controller.sink);
     sinks.add(output);
@@ -42,6 +44,9 @@ void main() {
   tearDownAll(() async {
     for (final output in sinks) {
       await output.close();
+    }
+    for (final controller in controllers) {
+      await controller.close();
     }
     for (final subscription in subscriptions) {
       await subscription.cancel();

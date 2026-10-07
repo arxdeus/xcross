@@ -56,6 +56,7 @@ void main() {
     await gdb.connect();
     addTearDown(gdb.close);
     final socket = await connected.future;
+    addTearDown(socket.destroy);
 
     final continued = Completer<void>();
     final stopSeen = Completer<void>();

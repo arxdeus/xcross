@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:cli_kit/host/macos/macos_host.dart';
@@ -81,16 +80,6 @@ SwiftPmBinaryArtifactProvenance binaryProvenance(
     manifest: manifest,
   ).single;
 }
-
-/// Resolves a path under `lib/src/` without depending on the working
-/// directory the suite happens to be launched from.
-@internal
-String packageSrcPath(String relative) => p.join(
-  File.fromUri(
-    Isolate.resolvePackageUriSync(Uri.parse('package:xcross/src/'))!,
-  ).path,
-  relative,
-);
 
 void main() {
   test(
@@ -744,19 +733,21 @@ if getenv("EXPERIMENTAL_SPM_BUILDS") != nil {
     });
 
     test('leaves manifests without a gated product block unchanged', () {
-      for (final input in [
-        'products.append(.library(name: "AlphaKit", targets: ["AlphaKit"]))\n'
-            'let flag = getenv("OTHER_FLAG")\n'
-            'if flag != nil {\n'
-            '    products.append(.library(name: "BetaKit", targets: []))\n'
-            '}\n',
-        'products.append(.library(name: "AlphaKit", targets: ["AlphaKit"]))\n'
-            'if getenv("GAMMA_FLAG") != nil {\n'
-            '    targets.append(.target(name: "BetaKit"))\n'
-            '}\n',
-        '// if getenv("GAMMA_FLAG") != nil { products.append(x) }\n'
-            'products.append(.library(name: "AlphaKit", targets: []))\n',
-      ]) {
+      const otherFlag =
+          'products.append(.library(name: "AlphaKit", targets: ["AlphaKit"]))\n'
+          'let flag = getenv("OTHER_FLAG")\n'
+          'if flag != nil {\n'
+          '    products.append(.library(name: "BetaKit", targets: []))\n'
+          '}\n';
+      const targetOnly =
+          'products.append(.library(name: "AlphaKit", targets: ["AlphaKit"]))\n'
+          'if getenv("GAMMA_FLAG") != nil {\n'
+          '    targets.append(.target(name: "BetaKit"))\n'
+          '}\n';
+      const commented =
+          '// if getenv("GAMMA_FLAG") != nil { products.append(x) }\n'
+          'products.append(.library(name: "AlphaKit", targets: []))\n';
+      for (final input in [otherFlag, targetOnly, commented]) {
         expect(
           SwiftPmHostSourceNormalizer.isolateEnvironmentGatedGraph(
             input,

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
@@ -1535,49 +1534,6 @@ final windowsGateSkip = !Platform.isWindows
     : (Platform.environment['XCROSS_SWIFT_SDKS_PATH'] == null
           ? 'XCROSS_SWIFT_SDKS_PATH is unavailable'
           : false);
-
-@internal
-Directory createRawXcframework(Directory temp, String name) {
-  final framework = Directory(p.join(temp.path, '$name.xcframework'));
-  File(p.join(framework.path, 'Info.plist'))
-    ..createSync(recursive: true)
-    ..writeAsStringSync(
-      PropertyListSerialization.stringWithPropertyList({
-        'AvailableLibraries': [
-          {
-            'LibraryIdentifier': 'ios-arm64',
-            'LibraryPath': '$name.framework',
-            'SupportedArchitectures': ['arm64'],
-            'SupportedPlatform': 'ios',
-          },
-        ],
-      }),
-    );
-  File(p.join(framework.path, 'ios-arm64', '$name.framework', name))
-    ..createSync(recursive: true)
-    ..writeAsBytesSync(emptyMachO());
-  return framework;
-}
-
-@internal
-Uint8List emptyMachO() {
-  final bytes = Uint8List(32);
-  ByteData.sublistView(bytes).setUint32(0, 0xfeedfacf, Endian.little);
-  return bytes;
-}
-
-@internal
-File writeRawXcframeworkZip(Directory temp, Directory fixture, String name) {
-  final archive = Archive();
-  for (final entity in fixture.listSync(recursive: true)) {
-    if (entity is! File) continue;
-    final relative = p.relative(entity.path, from: fixture.parent.path);
-    archive.addFile(
-      ArchiveFile(relative, entity.lengthSync(), entity.readAsBytesSync()),
-    );
-  }
-  return writeArchive(temp, name, archive);
-}
 
 @internal
 const defaultLibraries = <Map<String, Object?>>[
