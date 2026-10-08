@@ -11,7 +11,20 @@ final class PubspecInfo {
     this.fonts = const [],
     this.shaders = const [],
     this.dependencies = const [],
+    this.version,
   });
+
+  /// The `version:` key, such as `1.0.0+1`.
+  final String? version;
+
+  /// Build name flutter_tools derives from [version]: the part before `+`.
+  String? get buildName => version?.split('+').first;
+
+  /// Build number flutter_tools derives from [version]: the part after `+`.
+  String? get buildNumber {
+    final parts = version?.split('+');
+    return parts != null && parts.length > 1 ? parts[1] : null;
+  }
 
   /// The package/app name (`name:` key).
   final String name;

@@ -9,6 +9,7 @@ import 'package:xcross/src/shared/flutter/constants.dart';
 import 'package:xcross/src/shared/flutter/extensions/app_extension_plist.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
 
 @internal
@@ -215,7 +216,9 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
       deploymentTarget: deploymentTarget,
     );
     plistXml = runtime.policy.transformPlist(plistXml, sdkName: sdkName);
-    plistXml = InfoPlist.applyDebugVmServiceDiscovery(plistXml);
+    if (options.buildMode != FlutterBuildMode.release) {
+      plistXml = InfoPlist.applyDebugVmServiceDiscovery(plistXml);
+    }
     plistXml = runtime.storyboards.stripUnsatisfiableStoryboards(
       plistXml,
       bundleDir,

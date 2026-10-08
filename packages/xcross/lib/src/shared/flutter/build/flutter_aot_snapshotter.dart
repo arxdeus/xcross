@@ -72,6 +72,37 @@ final class FlutterAotSnapshotter<T extends PlatformHostInterface> {
     if (!runtime.host.fileSystem.file(binary).existsSync()) {
       throw FlutterBuildError('gen_snapshot did not produce $binary');
     }
+    await _extractDebugSymbols(binary, '$appFramework.dSYM');
+  }
+
+  /// Writes the dSYM, then strips local symbols, as flutter_tools does after
+  /// every profile and release snapshot. `dsymutil` is missing from some
+  /// LLVM distributions, so the dSYM is best effort. The App stays unstripped
+  /// (bigger, with build paths in its debug map) without `llvm-strip`.
+  Future<void> _extractDebugSymbols(String binary, String dsym) async {
+    final dsymutil = await runtime.toolchain.locateLlvmTool('dsymutil');
+    if (dsymutil != null) {
+      final result = await runtime.runner.run(dsymutil, ['-o', dsym, binary]);
+      if (result.exitCode != 0) {
+        runtime.runner.log.logTrace(
+          'dsymutil failed (${result.exitCode}): ${result.stderr}',
+        );
+      }
+    }
+    final strip = await runtime.toolchain.locateLlvmTool('llvm-strip');
+    if (strip == null) {
+      runtime.runner.log.logWarn(
+        'llvm-strip not found; App.framework keeps its local symbols. '
+        'Install LLVM to strip it like flutter build ios.',
+      );
+      return;
+    }
+    await runtime.runner.runChecked(strip, [
+      '-x',
+      binary,
+      '-o',
+      binary,
+    ], label: 'llvm-strip');
   }
 
   /// `gen_snapshot` arguments in flutter_tools' order (`base/build.dart`).

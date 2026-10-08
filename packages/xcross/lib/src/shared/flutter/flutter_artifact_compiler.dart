@@ -125,7 +125,10 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
         dartDefines: options.dartDefines,
         flavor: options.flavor,
         buildMode: mode,
-        versionDefines: FlutterVersionDefines.read(runtime.host, flutterRoot),
+        versionDefines: [
+          ..._buildVersionDefines(),
+          ...FlutterVersionDefines.read(runtime.host, flutterRoot),
+        ],
       ),
       projectRoot: projectRoot,
       flutterRoot: flutterRoot,
@@ -140,6 +143,19 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
       obfuscate: options.obfuscate,
     ).build();
     return debugBundle;
+  }
+
+  /// `FLUTTER_BUILD_NAME`/`FLUTTER_BUILD_NUMBER`, which `appBuildName` and
+  /// `appBuildNumber` read: `--build-name`/`--build-number`, else the pubspec
+  /// `version:`, as flutter_tools resolves them.
+  List<String> _buildVersionDefines() {
+    final pubspec = runtime.pubspecs.loadSync(projectRoot);
+    return [
+      if (options.buildName ?? pubspec.buildName case final name?)
+        'FLUTTER_BUILD_NAME=$name',
+      if (options.buildNumber ?? pubspec.buildNumber case final number?)
+        'FLUTTER_BUILD_NUMBER=$number',
+    ];
   }
 
   Future<FlutterAotSnapshotter<T>?> _snapshotter(
